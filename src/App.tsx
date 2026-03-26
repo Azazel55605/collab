@@ -7,6 +7,7 @@ import VaultPicker from './components/vault/VaultPicker';
 import AppShell from './components/layout/AppShell';
 import SettingsModal from './components/settings/SettingsModal';
 import { Toaster } from './components/ui/sonner';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 
 /** Theme-base CSS overrides applied on top of the default dark palette */
 const THEME_VARS: Record<string, Record<string, string>> = {
@@ -101,6 +102,11 @@ export default function App() {
     root.style.setProperty('--ring', `oklch(${accent.oklch})`);
     root.style.setProperty('--glow-primary',    `oklch(${accent.oklch} / 30%)`);
     root.style.setProperty('--glow-primary-sm', `oklch(${accent.oklch} / 15%)`);
+    // Editor selection colours — referenced by CodeMirror theme via var().
+    // Computed here alongside --primary so they always track the accent colour
+    // without requiring color-mix() or relative-color CSS syntax in the theme.
+    root.style.setProperty('--editor-selection',     `oklch(${accent.oklch} / 0.35)`);
+    root.style.setProperty('--editor-selection-dim', `oklch(${accent.oklch} / 0.18)`);
 
     // Font
     const font = EDITOR_FONTS[editorFont];
@@ -111,9 +117,12 @@ export default function App() {
     root.style.setProperty('--base-font-size', `${fontSize}px`);
     root.style.fontSize = `${fontSize}px`;
 
-    // Zoom / display scale
-    (document.body.style as CSSStyleDeclaration & { zoom: string }).zoom = `${scale}%`;
-  }, [theme, accentColor, editorFont, fontSize, scale]);
+  }, [theme, accentColor, editorFont, fontSize]);
+
+  // Apply HiDPI zoom via the Tauri webview window (does not affect getBoundingClientRect)
+  useEffect(() => {
+    getCurrentWebview().setZoom(scale / 100).catch(console.error);
+  }, [scale]);
 
   return (
     <TooltipProvider delayDuration={300}>

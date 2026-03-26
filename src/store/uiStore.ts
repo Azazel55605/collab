@@ -24,7 +24,7 @@ export const EDITOR_FONTS: Record<EditorFont, { label: string; css: string }> = 
   mono:  { label: 'Monospace',       css: "'Geist Variable', 'Courier New', monospace" },
 };
 
-export const SCALE_OPTIONS = [75, 90, 100, 110, 125] as const;
+export const SCALE_OPTIONS = [75, 90, 100, 110, 125, 150, 175, 200] as const;
 export const FONT_SIZE_OPTIONS = [12, 13, 14, 15, 16] as const;
 
 interface UiState {

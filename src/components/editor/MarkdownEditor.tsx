@@ -6,6 +6,7 @@ import {
   keymap,
   lineNumbers,
   highlightActiveLine,
+  drawSelection,
   dropCursor,
   highlightActiveLineGutter,
 } from '@codemirror/view';
@@ -21,7 +22,6 @@ import {
   indentOnInput,
   syntaxHighlighting,
   defaultHighlightStyle,
-  foldGutter,
 } from '@codemirror/language';
 import {
   autocompletion,
@@ -61,23 +61,66 @@ function buildCollabTheme(dark: boolean) {
         height: '100%',
         fontSize: '14px',
         fontFamily: "'Geist Mono Variable', 'Geist Variable', monospace",
-        backgroundColor: 'var(--card)',
+        // Match --background (not --card) so the editor blends seamlessly with the app.
+        backgroundColor: 'var(--background)',
       },
       '.cm-scroller': { overflow: 'auto', lineHeight: '1.7' },
       '.cm-content': {
-        padding: '16px 24px',
-        maxWidth: '800px',
-        margin: '0 auto',
-        caretColor: 'var(--foreground)',
+        // Responsive column centering: pad inward until the text column reaches
+        // ~860px, but cap the left/right padding at 48px so the gap between
+        // line numbers and text stays small on wide viewports.
+        // Because the padding is *inside* .cm-content (not on the element itself),
+        // getBoundingClientRect() is unaffected and posAtCoords() stays accurate.
+        padding: '16px max(16px, min(48px, calc(50% - 430px)))',
+        caretColor: 'var(--primary)',
       },
-      '&.cm-focused .cm-cursor': { borderLeftColor: 'var(--primary)' },
-      '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-        background: 'color-mix(in oklch, var(--primary) 20%, transparent)',
+      // --editor-selection / --editor-selection-dim are set from JS in App.tsx
+      // alongside --primary, so they always track the active accent colour
+      // without relying on color-mix() or relative-color syntax (both have
+      // uneven WebKitGTK support).
+      '&.cm-focused .cm-selectionBackground': {
+        background: 'var(--editor-selection)',
+        borderRadius: '3px',
+      },
+      '.cm-selectionBackground': {
+        background: 'var(--editor-selection-dim)',
+        borderRadius: '3px',
+      },
+      // When two selection segments are adjacent (multi-line), remove the shared-edge
+      // radius so they form a continuous block — only the outermost corners stay rounded.
+      '.cm-selectionBackground + .cm-selectionBackground': {
+        borderTopLeftRadius: '0',
+        borderTopRightRadius: '0',
+      },
+      '&.cm-focused .cm-selectionBackground + .cm-selectionBackground': {
+        borderTopLeftRadius: '0',
+        borderTopRightRadius: '0',
+      },
+      // :has() removes bottom radius from any selection that has a following sibling selection
+      '.cm-selectionBackground:has(+ .cm-selectionBackground)': {
+        borderBottomLeftRadius: '0',
+        borderBottomRightRadius: '0',
+      },
+      '&.cm-focused .cm-selectionBackground:has(+ .cm-selectionBackground)': {
+        borderBottomLeftRadius: '0',
+        borderBottomRightRadius: '0',
+      },
+      '.cm-selectionMatch': {
+        background: 'var(--editor-selection-dim)',
+        outline: '1px solid var(--editor-selection)',
+        borderRadius: '3px',
+      },
+      '&.cm-focused .cm-cursor': {
+        borderLeftColor: 'var(--primary)',
+        borderLeftWidth: '2px',
       },
       '.cm-gutters': {
-        backgroundColor: 'var(--card)',
+        backgroundColor: 'var(--background)',
         border: 'none',
         color: 'var(--muted-foreground)',
+        // Nudge gutters rightward to sit just left of the text column.
+        // Capped at 24px (≈ gutter element width) to match the content padding cap.
+        paddingLeft: 'max(0px, min(24px, calc(50% - 454px)))',
       },
       '.cm-lineNumbers .cm-gutterElement': {
         padding: '0 8px 0 4px',
@@ -272,11 +315,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             highlightActiveLine(),
             highlightSelectionMatches(),
             history(),
-            foldGutter(),
             drawSelection(),
             dropCursor(),
-            rectangularSelection(),
-            crosshairCursor(),
             bracketMatching(),
             closeBrackets(),
             indentOnInput(),
@@ -381,10 +421,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       }
     }, [content]);
 
+    // Absolutely fill the position:relative wrapper in NoteView.
+    // Using position:absolute with inset:0 gives a deterministic height/width
+    // without relying on CSS percentage resolution inside flex containers, which
+    // is buggy in WebKitGTK (height:100% on a flex-1/flex-basis:0% child resolves
+    // to 0, not the flex-grown size). The absolute element's getBoundingClientRect()
+    // is always correct, so CodeMirror's posAtCoords() maps clicks accurately.
     return (
-      <div className="flex flex-col h-full overflow-hidden">
-        <div ref={containerRef} className="flex-1 overflow-hidden cm-editor-container" />
-      </div>
+      <div ref={containerRef} className="absolute inset-0 cm-editor-container" />
     );
   }
 );

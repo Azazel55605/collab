@@ -108,13 +108,20 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <EditorToolbar editorRef={editorRef} />
-      <MarkdownEditor
-        ref={editorRef}
-        content={content}
-        onChange={handleChange}
-        onSave={handleSave}
-        relativePath={relativePath}
-      />
+      {/* position:relative establishes the containing block for the absolutely-positioned
+          CodeMirror container. This avoids flex % height resolution bugs in WebKitGTK
+          where height:100% on a flex-1 child resolves to 0 (the flex-basis) rather than
+          the final flex-grown height, which shifts getBoundingClientRect().top to 0 and
+          causes posAtCoords() to be offset by exactly the toolbar height. */}
+      <div className="flex-1 min-h-0 relative overflow-hidden">
+        <MarkdownEditor
+          ref={editorRef}
+          content={content}
+          onChange={handleChange}
+          onSave={handleSave}
+          relativePath={relativePath}
+        />
+      </div>
     </div>
   );
 }

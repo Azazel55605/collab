@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   useUiStore,
-  ACCENT_COLORS, EDITOR_FONTS, SCALE_OPTIONS, FONT_SIZE_OPTIONS,
+  ACCENT_COLORS, EDITOR_FONTS, FONT_SIZE_OPTIONS, SCALE_OPTIONS,
   type Theme, type AccentColor, type EditorFont,
 } from '../../store/uiStore';
 import { useCollabStore } from '../../store/collabStore';
@@ -12,7 +12,7 @@ import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
 import {
-  Palette, Type, Monitor, User, Sun, Moon, Sunset, Check,
+  Palette, Type, User, Sun, Moon, Sunset, Check, Monitor,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -75,10 +75,10 @@ function PillSelect<T extends string | number>({
 // ─── Tabs sidebar ─────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'appearance', label: 'Appearance', icon: <Palette size={15} /> },
-  { id: 'editor',     label: 'Editor',     icon: <Type    size={15} /> },
-  { id: 'display',    label: 'Display',    icon: <Monitor size={15} /> },
-  { id: 'profile',    label: 'Profile',    icon: <User    size={15} /> },
+  { id: 'appearance', label: 'Appearance', icon: <Palette  size={15} /> },
+  { id: 'editor',     label: 'Editor',     icon: <Type     size={15} /> },
+  { id: 'display',    label: 'Display',    icon: <Monitor  size={15} /> },
+  { id: 'profile',    label: 'Profile',    icon: <User     size={15} /> },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -284,52 +284,21 @@ export default function SettingsModal() {
             {/* ── Display ── */}
             {activeTab === 'display' && (
               <div>
-                <SectionLabel>Display Scaling</SectionLabel>
-                <p className="text-xs text-muted-foreground mb-4">
-                  Scales the entire interface. Useful for high-DPI displays or accessibility.
+                <SectionLabel>Interface Scale</SectionLabel>
+                <OptionRow
+                  label="UI scale"
+                  description="Zoom the entire interface for HiDPI displays"
+                >
+                  <PillSelect
+                    options={SCALE_OPTIONS}
+                    value={scale as typeof SCALE_OPTIONS[number]}
+                    onChange={setScale}
+                    getLabel={(v) => `${v}%`}
+                  />
+                </OptionRow>
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  100% is native pixel density. Increase for HiDPI / high-resolution displays.
                 </p>
-
-                <div className="space-y-2">
-                  {SCALE_OPTIONS.map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setScale(s)}
-                      className={cn(
-                        'w-full flex items-center justify-between px-4 py-3 rounded-lg border transition-all',
-                        scale === s
-                          ? 'border-primary/50 bg-primary/8'
-                          : 'border-border/40 hover:border-border hover:bg-accent/30'
-                      )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium">{s}%</span>
-                        <span className="text-xs text-muted-foreground">
-                          {s === 75  ? 'Compact' :
-                           s === 90  ? 'Small' :
-                           s === 100 ? 'Default' :
-                           s === 110 ? 'Large' : 'Extra Large'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {/* Visual scale preview bar */}
-                        <div className="flex gap-0.5 items-end h-4">
-                          {[3, 5, 7, 9, 11].map((h, i) => (
-                            <div
-                              key={i}
-                              className={cn(
-                                'w-1 rounded-sm',
-                                (SCALE_OPTIONS.indexOf(s as typeof SCALE_OPTIONS[number]) >= i)
-                                  ? 'bg-primary/70' : 'bg-border/60'
-                              )}
-                              style={{ height: `${h}px` }}
-                            />
-                          ))}
-                        </div>
-                        {scale === s && <Check size={14} className="text-primary" />}
-                      </div>
-                    </button>
-                  ))}
-                </div>
               </div>
             )}
 
