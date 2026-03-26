@@ -1,0 +1,117 @@
+name: Build
+
+# Triggers:
+#   - Push a tag like v1.2.3  → builds all targets and creates a GitHub Release
+#   - workflow_dispatch       → manual run from the Actions tab (no release created)
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── Linux x86_64 ─────────────────────────────────────────────────
+          - platform:       ubuntu-22.04
+            rust-target:    x86_64-unknown-linux-gnu
+            artifact-label: linux-x86_64
+
+          # ── Linux aarch64 ────────────────────────────────────────────────
+          # ubuntu-24.04-arm is GitHub's native ARM64 runner (free for public repos)
+          - platform:       ubuntu-24.04-arm
+            rust-target:    aarch64-unknown-linux-gnu
+            artifact-label: linux-aarch64
+
+          # ── Windows x86_64 ───────────────────────────────────────────────
+          - platform:       windows-latest
+            rust-target:    x86_64-pc-windows-msvc
+            artifact-label: windows-x86_64
+
+          # ── macOS Intel ──────────────────────────────────────────────────
+          - platform:       macos-13
+            rust-target:    x86_64-apple-darwin
+            artifact-label: mac-intel
+
+          # ── macOS Apple Silicon ──────────────────────────────────────────
+          - platform:       macos-latest   # macos-14+ = M1 runner
+            rust-target:    aarch64-apple-darwin
+            artifact-label: mac-apple-silicon
+
+    runs-on: ${{ matrix.platform }}
+    name: ${{ matrix.artifact-label }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Node / pnpm ───────────────────────────────────────────────────────
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # ── Rust ──────────────────────────────────────────────────────────────
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # ── Linux system dependencies ─────────────────────────────────────────
+      # Required by WebKitGTK / Tauri on Linux (same packages for x86 and arm)
+      - name: Install Linux dependencies
+        if: contains(matrix.platform, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      # ── Frontend ──────────────────────────────────────────────────────────
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ── Tauri build ───────────────────────────────────────────────────────
+      - name: Build
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName:        ${{ github.ref_name }}
+          releaseName:    'collab ${{ github.ref_name }}'
+          releaseBody:    'See CHANGELOG for details.'
+          releaseDraft:   true
+          prerelease:     false
+          args:           --target ${{ matrix.rust-target }}
+
+      # ── Collect artifacts ─────────────────────────────────────────────────
+      # Bundle outputs land in src-tauri/target/<triple>/release/bundle/
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-label }}
+          if-no-files-found: warn
+          path: |
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.deb
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.rpm
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.msi
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.exe
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.dmg
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.app.tar.gz

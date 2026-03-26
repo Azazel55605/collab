@@ -1,0 +1,44 @@
+import { useEditorStore } from '../../store/editorStore';
+import { useVaultStore } from '../../store/vaultStore';
+import { useNoteIndexStore } from '../../store/noteIndexStore';
+import PresenceBar from '../collaboration/PresenceBar';
+import { BookOpen, Hash } from 'lucide-react';
+
+export default function StatusBar() {
+  const { activeTabPath, openTabs } = useEditorStore();
+  const { vault } = useVaultStore();
+  const { notes } = useNoteIndexStore();
+  const activeTab = openTabs.find((t) => t.relativePath === activeTabPath);
+  const activeMeta = notes.find((n) => n.relativePath === activeTabPath);
+
+  return (
+    <div className="flex items-center justify-between h-[22px] px-3 border-t border-border/40 bg-sidebar/60 backdrop-blur-sm text-[11px] text-muted-foreground shrink-0 select-none">
+      {/* Left: vault + file path */}
+      <div className="flex items-center gap-2 min-w-0">
+        {vault && (
+          <span className="text-primary/80 font-medium shrink-0 flex items-center gap-1">
+            <BookOpen size={10} />
+            {vault.name}
+          </span>
+        )}
+        {activeTab && (
+          <>
+            <span className="text-border/80">›</span>
+            <span className="truncate opacity-60">{activeTab.relativePath}</span>
+          </>
+        )}
+      </div>
+
+      {/* Right: word count + presence */}
+      <div className="flex items-center gap-3 shrink-0">
+        {activeMeta && (
+          <span className="flex items-center gap-1 opacity-60">
+            <Hash size={10} />
+            {activeMeta.wordCount.toLocaleString()} words
+          </span>
+        )}
+        <PresenceBar />
+      </div>
+    </div>
+  );
+}
