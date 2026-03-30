@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type ActiveView    = 'editor' | 'graph' | 'canvas' | 'kanban';
-export type SidebarPanel  = 'files' | 'search' | 'tags';
+export type ActiveView    = 'editor' | 'graph' | 'canvas' | 'kanban' | 'grid';
+export type SidebarPanel  = 'files' | 'search' | 'tags' | 'canvas-boards' | 'kanban-boards';
 export type Theme         = 'dark' | 'midnight' | 'warm' | 'light';
 export type AccentColor   = 'violet' | 'blue' | 'emerald' | 'rose' | 'orange' | 'cyan';
 export type EditorFont    = 'geist' | 'inter' | 'serif' | 'mono';

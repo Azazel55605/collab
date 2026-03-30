@@ -36,9 +36,12 @@ import GraphPage from '../../views/GraphPage';
 import CanvasPage from '../../views/CanvasPage';
 import KanbanPage from '../../views/KanbanPage';
 import SettingsPage from '../../views/SettingsPage';
+import GridView from '../../views/GridView';
 import { CollabProvider } from '../collaboration/CollabProvider';
 import { ConflictDialog } from '../collaboration/ConflictDialog';
 import { CommandPalette } from '../command-palette/CommandPalette';
+import { DragProvider } from '../../contexts/DragContext';
+import SplitDropZones from '../grid/SplitDropZones';
 import { GitFork, Layout, LayoutDashboard, FileText } from 'lucide-react';
 
 export default function AppShell() {
@@ -104,17 +107,22 @@ export default function AppShell() {
   const activeTab = openTabs.find((t) => t.relativePath === activeTabPath);
 
   const renderMainContent = () => {
-    // Active tab takes priority — lets view tabs (graph, settings, etc.) persist
-    // alongside note tabs and be switched to independently.
+    // Grid mode is self-contained — always shown when activeView === 'grid'
+    if (activeView === 'grid') return <GridView />;
+
+    // View tabs (graph/canvas/kanban/settings) always take priority — they were
+    // explicitly opened and their type unambiguously identifies the content.
     if (activeTab) {
       if (activeTab.type === 'graph')    return <GraphPage />;
       if (activeTab.type === 'settings') return <SettingsPage />;
       if (activeTab.type === 'canvas')   return <CanvasPage relativePath={activeTab.relativePath === '__canvas__' ? null : activeTab.relativePath} />;
       if (activeTab.type === 'kanban')   return <KanbanPage relativePath={activeTab.relativePath === '__kanban__' ? null : activeTab.relativePath} />;
-      return <NoteView relativePath={activeTab.relativePath} />;
+      // Note tab: only show the note when activeView is editor — if the user
+      // clicked Graph/Canvas/Kanban in the ActivityBar, show that view instead.
+      if (activeView === 'editor')       return <NoteView relativePath={activeTab.relativePath} />;
     }
 
-    // No active tab: fall back to activeView (e.g. clicking ActivityBar without opening a tab)
+    // Fallback to activeView (covers: no open tabs, or note tab active but view changed)
     if (activeView === 'graph')  return <GraphPage />;
     if (activeView === 'canvas') return <CanvasPage relativePath={null} />;
     if (activeView === 'kanban') return <KanbanPage relativePath={null} />;
@@ -123,6 +131,7 @@ export default function AppShell() {
 
   return (
     <CollabProvider>
+      <DragProvider>
       <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
         {/* Activity bar */}
         <ActivityBar />
@@ -145,11 +154,14 @@ export default function AppShell() {
 
         {/* Main pane */}
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-          <TabBar />
-          <div className="flex-1 overflow-hidden">
+          {activeView !== 'grid' && <TabBar />}
+          {/* position:relative so the split drop zones are positioned inside the content area */}
+          <div className="relative flex-1 overflow-hidden">
             <EditorErrorBoundary key={activeTabPath ?? activeView}>
               {renderMainContent()}
             </EditorErrorBoundary>
+            {/* Edge drop zones — only visible when a tab is being dragged */}
+            {activeView !== 'grid' && <SplitDropZones />}
           </div>
           <StatusBar />
         </div>
@@ -157,6 +169,7 @@ export default function AppShell() {
 
       <ConflictDialog />
       <CommandPalette />
+      </DragProvider>
     </CollabProvider>
   );
 }

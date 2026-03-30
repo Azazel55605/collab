@@ -2,10 +2,12 @@ import { X, FileText, Layout, LayoutDashboard, GitFork, Settings } from 'lucide-
 import { cn } from '../../lib/utils';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
+import { useDragContext } from '../../contexts/DragContext';
 
 export default function TabBar() {
   const { openTabs, activeTabPath, closeTab, setActiveTab } = useEditorStore();
   const { setActiveView } = useUiStore();
+  const { setDraggingTab } = useDragContext();
 
   if (openTabs.length === 0) return null;
 
@@ -32,9 +34,30 @@ export default function TabBar() {
         return (
           <div
             key={tab.relativePath}
+            draggable
+            onDragStart={(e) => {
+              setDraggingTab({
+                relativePath: tab.relativePath,
+                title: tab.title,
+                type: tab.type,
+              });
+              // Required: WebKit won't fire drop events without setData
+              e.dataTransfer.setData('text/plain', tab.relativePath);
+              e.dataTransfer.effectAllowed = 'move';
+              // Minimal drag image so the browser ghost doesn't obscure the zones
+              const ghost = document.createElement('div');
+              ghost.textContent = tab.title;
+              ghost.style.cssText =
+                'position:fixed;top:-100px;left:-100px;padding:4px 8px;background:var(--primary);color:var(--primary-foreground);border-radius:6px;font-size:12px;white-space:nowrap;pointer-events:none;';
+              document.body.appendChild(ghost);
+              e.dataTransfer.setDragImage(ghost, 0, 0);
+              requestAnimationFrame(() => document.body.removeChild(ghost));
+            }}
+            onDragEnd={() => setDraggingTab(null)}
             onClick={() => handleTabClick(tab.relativePath, tab.type)}
             className={cn(
-              'tab-active relative flex items-center gap-1.5 px-3 h-8 text-xs cursor-pointer whitespace-nowrap transition-all duration-150 group min-w-0 max-w-[200px] select-none border-r border-border/30',
+              'tab-active relative flex items-center gap-1.5 px-3 h-8 text-xs cursor-pointer whitespace-nowrap',
+              'transition-all duration-150 group min-w-0 max-w-[200px] select-none border-r border-border/30',
               isActive
                 ? 'bg-background text-foreground'
                 : 'bg-muted/20 text-muted-foreground hover:text-foreground/80 hover:bg-muted/30'
@@ -45,7 +68,6 @@ export default function TabBar() {
             </span>
             <span className="truncate">{tab.title}</span>
 
-            {/* Dirty indicator */}
             {tab.isDirty && !isActive && (
               <span className="w-1.5 h-1.5 rounded-full bg-primary/70 shrink-0" />
             )}
@@ -53,7 +75,6 @@ export default function TabBar() {
               <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0 glow-primary-sm" />
             )}
 
-            {/* Close button */}
             <button
               onClick={(e) => { e.stopPropagation(); closeTab(tab.relativePath); }}
               className="ml-auto shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-accent transition-all"
@@ -64,7 +85,6 @@ export default function TabBar() {
         );
       })}
 
-      {/* Spacer so the tab bar fills remaining width */}
       <div className="flex-1 h-8 border-b border-transparent" />
     </div>
   );

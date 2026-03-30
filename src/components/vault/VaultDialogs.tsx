@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Trash2, FilePlus, FolderPlus, Pencil } from 'lucide-react';
+import { Trash2, FilePlus, FolderPlus, Pencil, Layout, LayoutDashboard } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter,
@@ -46,7 +46,7 @@ export function ConfirmDeleteDialog({ open, name, isFolder, onConfirm, onCancel 
 
 // ─── Input (create / rename) ──────────────────────────────────────────────────
 
-type InputDialogVariant = 'create-note' | 'create-folder' | 'rename';
+type InputDialogVariant = 'create-note' | 'create-folder' | 'rename' | 'create-canvas' | 'create-kanban';
 
 const VARIANT_META: Record<InputDialogVariant, {
   icon: React.ReactNode;
@@ -75,6 +75,20 @@ const VARIANT_META: Record<InputDialogVariant, {
     label: 'New name',
     placeholder: '',
     confirm: 'Rename',
+  },
+  'create-canvas': {
+    icon: <Layout size={16} />,
+    title: 'New canvas board',
+    label: 'Board name',
+    placeholder: 'Untitled Canvas',
+    confirm: 'Create',
+  },
+  'create-kanban': {
+    icon: <LayoutDashboard size={16} />,
+    title: 'New kanban board',
+    label: 'Board name',
+    placeholder: 'Untitled Board',
+    confirm: 'Create',
   },
 };
 

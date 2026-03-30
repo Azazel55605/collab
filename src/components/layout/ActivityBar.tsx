@@ -1,4 +1,4 @@
-import { Files, GitFork, Layout, LayoutDashboard, Settings, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { Files, GitFork, Layout, LayoutDashboard, Settings, PanelLeftClose, PanelLeft, LayoutGrid } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useUiStore, type ActiveView } from '../../store/uiStore';
 import { useEditorStore } from '../../store/editorStore';
@@ -9,6 +9,7 @@ const NAV_ITEMS: { view: ActiveView; icon: React.ReactNode; label: string }[] = 
   { view: 'graph',   icon: <GitFork         size={18} />, label: 'Graph View' },
   { view: 'canvas',  icon: <Layout          size={18} />, label: 'Canvas'     },
   { view: 'kanban',  icon: <LayoutDashboard size={18} />, label: 'Kanban'     },
+  { view: 'grid',    icon: <LayoutGrid      size={18} />, label: 'Grid View'  },
 ];
 
 // Synthetic paths for singleton view tabs (not real files)
@@ -16,6 +17,7 @@ const VIEW_TAB_PATHS: Partial<Record<ActiveView, string>> = {
   graph:  '__graph__',
   canvas: '__canvas__',
   kanban: '__kanban__',
+  grid:   '__grid__',
 };
 
 export default function ActivityBar() {
@@ -43,7 +45,8 @@ export default function ActivityBar() {
     e.preventDefault();
     const path = VIEW_TAB_PATHS[view];
     if (!path) return; // 'editor' has no singleton tab
-    openTab(path, view === 'graph' ? 'Graph' : view === 'canvas' ? 'Canvas' : 'Kanban', view as 'graph' | 'canvas' | 'kanban');
+    const titles: Partial<Record<ActiveView, string>> = { graph: 'Graph', canvas: 'Canvas', kanban: 'Kanban', grid: 'Grid' };
+    openTab(path, titles[view] ?? view, view as 'graph' | 'canvas' | 'kanban');
     setActiveView(view);
   };
 
@@ -66,7 +69,7 @@ export default function ActivityBar() {
             {isSidebarOpen ? <PanelLeftClose size={17} /> : <PanelLeft size={17} />}
           </button>
         </TooltipTrigger>
-        <TooltipContent side="right" className="glass-strong border-border/50 text-xs">
+        <TooltipContent side="right" className="glass-strong border-border/50 text-xs text-foreground">
           {isSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
         </TooltipContent>
       </Tooltip>
@@ -91,7 +94,7 @@ export default function ActivityBar() {
                 {icon}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="right" className="glass-strong border-border/50 text-xs">
+            <TooltipContent side="right" className="glass-strong border-border/50 text-xs text-foreground">
               {label}
             </TooltipContent>
           </Tooltip>
@@ -116,7 +119,7 @@ export default function ActivityBar() {
             <Settings size={17} />
           </button>
         </TooltipTrigger>
-        <TooltipContent side="right" className="glass-strong border-border/50 text-xs">
+        <TooltipContent side="right" className="glass-strong border-border/50 text-xs text-foreground">
           Settings
         </TooltipContent>
       </Tooltip>

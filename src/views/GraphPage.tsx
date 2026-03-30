@@ -3,15 +3,20 @@ import { useEditorStore } from '../store/editorStore';
 import { useUiStore } from '../store/uiStore';
 import GraphView from '../components/graph/GraphView';
 
-export default function GraphPage() {
+interface Props {
+  /** Override node-click behaviour — grid cells use this to load the note into the same cell */
+  onNodeClick?: (relativePath: string, title: string) => void;
+}
+
+export default function GraphPage({ onNodeClick }: Props = {}) {
   const { notes } = useNoteIndexStore();
   const { openTab } = useEditorStore();
   const { setActiveView } = useUiStore();
 
-  const handleNodeClick = (relativePath: string, title: string) => {
+  const handleNodeClick = onNodeClick ?? ((relativePath: string, title: string) => {
     openTab(relativePath, title, 'note');
     setActiveView('editor');
-  };
+  });
 
   return (
     <div className="w-full h-full">

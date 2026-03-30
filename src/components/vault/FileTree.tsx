@@ -32,6 +32,11 @@ export default function FileTree() {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [dialog, setDialog] = useState<DialogState>({ type: 'none' });
 
+  // ── Drag-and-drop state ────────────────────────────────────────────────────
+  const [draggingPath, setDraggingPath] = useState<string | null>(null);
+  const [dropTargetPath, setDropTargetPath] = useState<string | null | '__root__'>('__root__');
+  // null = no target, '__root__' = root of vault
+
   const handleOpenFile = useCallback((file: NoteFile) => {
     const type = file.extension === 'canvas' ? 'canvas' : file.extension === 'kanban' ? 'kanban' : 'note';
     openTab(file.relativePath, file.name, type);
@@ -50,7 +55,6 @@ export default function FileTree() {
 
   const handleDelete = (file: NoteFile) => {
     if (!confirmDeleteSetting) {
-      // Skip dialog — delete immediately
       void (async () => {
         if (!vault) return;
         try {
@@ -133,6 +137,28 @@ export default function FileTree() {
     } catch (e) { toast.error('Failed to rename: ' + e); }
   };
 
+  // ── Move file via drag ─────────────────────────────────────────────────────
+  const handleMove = useCallback(async (fromPath: string, toFolderPath: string | '__root__') => {
+    if (!vault) return;
+    const fileName = fromPath.split('/').pop()!;
+    const newPath = toFolderPath === '__root__' ? fileName : `${toFolderPath}/${fileName}`;
+
+    // Already in the right place
+    const currentFolder = fromPath.includes('/')
+      ? fromPath.split('/').slice(0, -1).join('/')
+      : '__root__';
+    if (currentFolder === toFolderPath) return;
+
+    // Don't drop a folder into itself or a descendant
+    if (toFolderPath !== '__root__' && toFolderPath.startsWith(fromPath + '/')) return;
+    if (fromPath === toFolderPath) return;
+
+    try {
+      await tauriCommands.renameNote(vault.path, fromPath, newPath);
+      await refreshFileTree();
+    } catch (e) { toast.error('Failed to move: ' + e); }
+  }, [vault, refreshFileTree]);
+
   if (!vault) return null;
 
   return (
@@ -156,6 +182,7 @@ export default function FileTree() {
         onConfirm={dialog.type === 'rename' ? confirmRename : confirmCreate}
         onCancel={() => setDialog({ type: 'none' })}
       />
+
       {/* Toolbar row */}
       <div className="flex items-center justify-end gap-0.5 px-2 py-1.5 border-b border-border/30">
         <Tooltip>
@@ -167,7 +194,7 @@ export default function FileTree() {
               <Plus size={13} />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-xs">New note</TooltipContent>
+          <TooltipContent side="bottom" className="text-xs text-foreground">New note</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -178,12 +205,32 @@ export default function FileTree() {
               <FolderPlus size={13} />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-xs">New folder</TooltipContent>
+          <TooltipContent side="bottom" className="text-xs text-foreground">New folder</TooltipContent>
         </Tooltip>
       </div>
 
-      {/* Tree */}
-      <div className="flex-1 overflow-y-auto py-1">
+      {/* Tree — root is also a drop target */}
+      <div
+        className={cn(
+          'flex-1 overflow-y-auto py-1 transition-colors duration-100',
+          dropTargetPath === '__root__' && draggingPath ? 'bg-primary/5' : ''
+        )}
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTargetPath('__root__'); }}
+        onDragLeave={(e) => {
+          // Only clear if leaving the root container (not entering a child)
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            setDropTargetPath(null);
+          }
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (draggingPath && dropTargetPath === '__root__') {
+            handleMove(draggingPath, '__root__');
+          }
+          setDraggingPath(null);
+          setDropTargetPath(null);
+        }}
+      >
         {fileTree.length === 0 ? (
           <div className="px-4 py-6 text-center text-xs text-muted-foreground/50">
             <p>No notes yet.</p>
@@ -207,6 +254,11 @@ export default function FileTree() {
               onCreateFolder={handleCreateFolder}
               onDelete={handleDelete}
               onRename={handleRename}
+              draggingPath={draggingPath}
+              dropTargetPath={dropTargetPath}
+              setDraggingPath={setDraggingPath}
+              setDropTargetPath={setDropTargetPath}
+              onMove={handleMove}
             />
           ))
         )}
@@ -225,15 +277,26 @@ interface FileTreeNodeProps {
   onCreateFolder: (parentPath?: string) => void;
   onDelete: (file: NoteFile) => void;
   onRename: (file: NoteFile) => void;
+  draggingPath: string | null;
+  dropTargetPath: string | null | '__root__';
+  setDraggingPath: (path: string | null) => void;
+  setDropTargetPath: (path: string | null | '__root__') => void;
+  onMove: (fromPath: string, toFolderPath: string | '__root__') => void;
 }
 
-function FileTreeNode({ node, depth, collapsed, setCollapsed, onOpenFile, onCreateNote, onCreateFolder, onDelete, onRename }: FileTreeNodeProps) {
+function FileTreeNode({
+  node, depth, collapsed, setCollapsed,
+  onOpenFile, onCreateNote, onCreateFolder, onDelete, onRename,
+  draggingPath, dropTargetPath, setDraggingPath, setDropTargetPath, onMove,
+}: FileTreeNodeProps) {
   const { activeTabPath } = useEditorStore();
   const { peers } = useCollabStore();
 
   const isCollapsed = collapsed.has(node.relativePath);
   const isActive = activeTabPath === node.relativePath;
   const activePeers = peers.filter((p) => p.activeFile === node.relativePath);
+  const isDraggingThis = draggingPath === node.relativePath;
+  const isDropTarget = node.isFolder && dropTargetPath === node.relativePath && draggingPath !== null;
 
   const toggleCollapse = () => {
     setCollapsed((prev) => {
@@ -247,8 +310,8 @@ function FileTreeNode({ node, depth, collapsed, setCollapsed, onOpenFile, onCrea
   const getFileIcon = () => {
     if (node.isFolder) {
       return isCollapsed
-        ? <Folder size={13} className="text-primary/60" />
-        : <FolderOpen size={13} className="text-primary/60" />;
+        ? <Folder size={13} className={cn('transition-colors', isDropTarget ? 'text-primary' : 'text-primary/60')} />
+        : <FolderOpen size={13} className={cn('transition-colors', isDropTarget ? 'text-primary' : 'text-primary/60')} />;
     }
     if (node.extension === 'canvas')  return <Layout size={13} className="text-blue-400/70" />;
     if (node.extension === 'kanban')  return <LayoutDashboard size={13} className="text-emerald-400/70" />;
@@ -260,13 +323,62 @@ function FileTreeNode({ node, depth, collapsed, setCollapsed, onOpenFile, onCrea
       <ContextMenuTrigger>
         <div>
           <div
+            draggable
+            onDragStart={(e) => {
+              e.stopPropagation();
+              setDraggingPath(node.relativePath);
+              e.dataTransfer.setData('text/plain', node.relativePath);
+              e.dataTransfer.effectAllowed = 'move';
+            }}
+            onDragEnd={() => {
+              setDraggingPath(null);
+              setDropTargetPath(null);
+            }}
+            onDragOver={(e) => {
+              if (!draggingPath) return;
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = 'move';
+              if (node.isFolder) {
+                // Don't allow dropping into itself or a descendant
+                if (draggingPath !== node.relativePath && !node.relativePath.startsWith(draggingPath + '/')) {
+                  setDropTargetPath(node.relativePath);
+                  // Auto-expand folder on hover
+                  if (collapsed.has(node.relativePath)) {
+                    setCollapsed((prev) => {
+                      const next = new Set(prev);
+                      next.delete(node.relativePath);
+                      return next;
+                    });
+                  }
+                }
+              }
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                if (dropTargetPath === node.relativePath) setDropTargetPath(null);
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (draggingPath && node.isFolder && dropTargetPath === node.relativePath) {
+                onMove(draggingPath, node.relativePath);
+              }
+              setDraggingPath(null);
+              setDropTargetPath(null);
+            }}
             onClick={() => node.isFolder ? toggleCollapse() : onOpenFile(node)}
             style={{ paddingLeft: `${depth * 14 + 6}px` }}
             className={cn(
               'group flex items-center gap-1 py-[3px] pr-2 cursor-pointer rounded-sm mx-1 transition-colors select-none',
-              isActive
-                ? 'bg-primary/15 text-foreground'
-                : 'text-foreground/70 hover:text-foreground hover:bg-accent/50'
+              isDraggingThis && 'opacity-40',
+              isDropTarget && 'bg-primary/20 ring-1 ring-primary/40 ring-inset',
+              !isDraggingThis && !isDropTarget && (
+                isActive
+                  ? 'bg-primary/15 text-foreground'
+                  : 'text-foreground/70 hover:text-foreground hover:bg-accent/50'
+              )
             )}
           >
             {/* Expand chevron (only for folders) */}
@@ -282,12 +394,12 @@ function FileTreeNode({ node, depth, collapsed, setCollapsed, onOpenFile, onCrea
             <span className="shrink-0">{getFileIcon()}</span>
 
             {/* Name */}
-            <span className={cn('truncate flex-1 text-[12.5px]', isActive && 'font-medium text-foreground')}>
+            <span className={cn('truncate flex-1 text-[12.5px]', isActive && !isDropTarget && 'font-medium text-foreground')}>
               {node.name}
             </span>
 
-            {/* Active file dot (left border alternative) */}
-            {isActive && (
+            {/* Active file dot */}
+            {isActive && !isDropTarget && (
               <span className="w-1 h-1 rounded-full bg-primary shrink-0 opacity-80" />
             )}
 
@@ -317,6 +429,11 @@ function FileTreeNode({ node, depth, collapsed, setCollapsed, onOpenFile, onCrea
                   onCreateFolder={onCreateFolder}
                   onDelete={onDelete}
                   onRename={onRename}
+                  draggingPath={draggingPath}
+                  dropTargetPath={dropTargetPath}
+                  setDraggingPath={setDraggingPath}
+                  setDropTargetPath={setDropTargetPath}
+                  onMove={onMove}
                 />
               ))}
             </div>

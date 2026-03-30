@@ -43,35 +43,35 @@
 }
 
 .dark {
-  /* Deep dark Obsidian palette */
-  --background:          oklch(0.10 0.01 264);
-  --foreground:          oklch(0.90 0.01 264);
-  --card:                oklch(0.13 0.01 264);
-  --card-foreground:     oklch(0.90 0.01 264);
-  --popover:             oklch(0.12 0.015 264);
-  --popover-foreground:  oklch(0.90 0.01 264);
+  /* Charcoal-slate dark palette — noticeably lighter than midnight */
+  --background:          oklch(0.17 0.015 264);
+  --foreground:          oklch(0.93 0.01 264);
+  --card:                oklch(0.20 0.015 264);
+  --card-foreground:     oklch(0.93 0.01 264);
+  --popover:             oklch(0.19 0.018 264);
+  --popover-foreground:  oklch(0.93 0.01 264);
   --primary:             oklch(0.67 0.22 293);   /* violet-400 */
   --primary-foreground:  oklch(0.10 0.01 264);
-  --secondary:           oklch(0.17 0.015 264);
-  --secondary-foreground:oklch(0.85 0.01 264);
-  --muted:               oklch(0.16 0.01 264);
-  --muted-foreground:    oklch(0.55 0.02 264);
-  --accent:              oklch(0.19 0.02 264);
-  --accent-foreground:   oklch(0.88 0.01 264);
+  --secondary:           oklch(0.23 0.015 264);
+  --secondary-foreground:oklch(0.88 0.01 264);
+  --muted:               oklch(0.23 0.015 264);
+  --muted-foreground:    oklch(0.62 0.02 264);
+  --accent:              oklch(0.26 0.02 264);
+  --accent-foreground:   oklch(0.93 0.01 264);
   --destructive:         oklch(0.65 0.22 27);
-  --border:              oklch(1 0 0 / 7%);
-  --input:               oklch(1 0 0 / 10%);
+  --border:              oklch(1 0 0 / 11%);
+  --input:               oklch(1 0 0 / 13%);
   --ring:                oklch(0.67 0.22 293);
-  --sidebar:             oklch(0.11 0.015 264);
-  --sidebar-foreground:  oklch(0.88 0.01 264);
-  --sidebar-border:      oklch(1 0 0 / 6%);
-  --sidebar-accent:      oklch(0.19 0.02 264);
-  --sidebar-accent-foreground: oklch(0.88 0.01 264);
+  --sidebar:             oklch(0.15 0.018 264);
+  --sidebar-foreground:  oklch(0.93 0.01 264);
+  --sidebar-border:      oklch(1 0 0 / 10%);
+  --sidebar-accent:      oklch(0.26 0.02 264);
+  --sidebar-accent-foreground: oklch(0.93 0.01 264);
 
   /* Glass-morphism tokens */
-  --glass-bg:            rgba(17, 18, 30, 0.75);
-  --glass-bg-strong:     rgba(13, 14, 20, 0.90);
-  --glass-border:        rgba(255, 255, 255, 0.07);
+  --glass-bg:            rgba(30, 32, 52, 0.80);
+  --glass-bg-strong:     rgba(24, 26, 42, 0.93);
+  --glass-border:        rgba(255, 255, 255, 0.09);
   --glass-blur:          12px;
 
   /* Glow tokens */
@@ -570,4 +570,25 @@
 }
 :root:not(.dark) .markdown-preview mark {
   background: oklch(0.92 0.20 95 / 50%);
+}
+
+/* ─── Grid view animations ──────────────────────────────────────────────── */
+
+@keyframes grid-cell-in {
+  from { opacity: 0; transform: scale(0.97) translateY(4px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);   }
+}
+
+.grid-cell-enter {
+  animation: grid-cell-in 200ms cubic-bezier(0.34, 1.2, 0.64, 1) both;
+}
+
+/* Split drop zone entrance */
+@keyframes zone-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.split-zones-enter {
+  animation: zone-fade-in 150ms ease both;
 }

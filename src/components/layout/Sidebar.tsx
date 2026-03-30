@@ -1,20 +1,50 @@
-import { Files, Search, Tag } from 'lucide-react';
+import { useEffect } from 'react';
+import { Files, Search, Tag, Layout, LayoutDashboard } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useUiStore, type SidebarPanel } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
 import FileTree from '../vault/FileTree';
 import SearchPanel from '../vault/SearchPanel';
 import TagsPanel from '../vault/TagsPanel';
+import BoardsPanel from '../vault/BoardsPanel';
 
-const tabs: { id: SidebarPanel; icon: React.ReactNode; label: string }[] = [
+const EDITOR_TABS: { id: SidebarPanel; icon: React.ReactNode; label: string }[] = [
   { id: 'files',  icon: <Files  size={13} />, label: 'Files'  },
   { id: 'search', icon: <Search size={13} />, label: 'Search' },
   { id: 'tags',   icon: <Tag    size={13} />, label: 'Tags'   },
 ];
 
+const CANVAS_TABS: { id: SidebarPanel; icon: React.ReactNode; label: string }[] = [
+  { id: 'canvas-boards', icon: <Layout  size={13} />, label: 'Boards' },
+  { id: 'files',         icon: <Files   size={13} />, label: 'Files'  },
+  { id: 'search',        icon: <Search  size={13} />, label: 'Search' },
+];
+
+const KANBAN_TABS: { id: SidebarPanel; icon: React.ReactNode; label: string }[] = [
+  { id: 'kanban-boards', icon: <LayoutDashboard size={13} />, label: 'Boards' },
+  { id: 'files',         icon: <Files           size={13} />, label: 'Files'  },
+  { id: 'search',        icon: <Search          size={13} />, label: 'Search' },
+];
+
 export default function Sidebar() {
-  const { sidebarPanel, setSidebarPanel } = useUiStore();
+  const { sidebarPanel, setSidebarPanel, activeView } = useUiStore();
   const { vault } = useVaultStore();
+
+  // Auto-switch panel when the main view changes
+  useEffect(() => {
+    if (activeView === 'canvas') {
+      setSidebarPanel('canvas-boards');
+    } else if (activeView === 'kanban') {
+      setSidebarPanel('kanban-boards');
+    } else if (sidebarPanel === 'canvas-boards' || sidebarPanel === 'kanban-boards') {
+      setSidebarPanel('files');
+    }
+  }, [activeView]);
+
+  const tabs =
+    activeView === 'canvas' ? CANVAS_TABS :
+    activeView === 'kanban' ? KANBAN_TABS :
+    EDITOR_TABS;
 
   return (
     <div className="flex flex-col h-full bg-sidebar">
@@ -51,9 +81,11 @@ export default function Sidebar() {
 
       {/* Panel content */}
       <div className="flex-1 overflow-hidden">
-        {sidebarPanel === 'files'  && <FileTree />}
-        {sidebarPanel === 'search' && <SearchPanel />}
-        {sidebarPanel === 'tags'   && <TagsPanel />}
+        {sidebarPanel === 'files'         && <FileTree />}
+        {sidebarPanel === 'search'        && <SearchPanel />}
+        {sidebarPanel === 'tags'          && <TagsPanel />}
+        {sidebarPanel === 'canvas-boards' && <BoardsPanel kind="canvas" />}
+        {sidebarPanel === 'kanban-boards' && <BoardsPanel kind="kanban" />}
       </div>
     </div>
   );
