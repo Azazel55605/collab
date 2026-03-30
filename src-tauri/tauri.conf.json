@@ -16,7 +16,8 @@
         "width": 1280,
         "height": 800,
         "minWidth": 800,
-        "minHeight": 500
+        "minHeight": 500,
+        "zoomHotkeysEnabled": false
       }
     ],
     "security": {
@@ -25,7 +26,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["deb", "rpm"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

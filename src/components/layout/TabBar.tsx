@@ -1,4 +1,4 @@
-import { X, FileText, Layout, LayoutDashboard } from 'lucide-react';
+import { X, FileText, Layout, LayoutDashboard, GitFork, Settings } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
@@ -11,14 +11,17 @@ export default function TabBar() {
 
   const handleTabClick = (relativePath: string, type: string) => {
     setActiveTab(relativePath);
-    if (type === 'canvas') setActiveView('canvas');
-    else if (type === 'kanban') setActiveView('kanban');
-    else setActiveView('editor');
+    if (type === 'graph')        setActiveView('graph');
+    else if (type === 'canvas')  setActiveView('canvas');
+    else if (type === 'kanban')  setActiveView('kanban');
+    else                         setActiveView('editor');
   };
 
   const getTabIcon = (type: string) => {
-    if (type === 'canvas') return <Layout size={11} className="shrink-0" />;
-    if (type === 'kanban') return <LayoutDashboard size={11} className="shrink-0" />;
+    if (type === 'canvas')   return <Layout size={11} className="shrink-0" />;
+    if (type === 'kanban')   return <LayoutDashboard size={11} className="shrink-0" />;
+    if (type === 'graph')    return <GitFork size={11} className="shrink-0" />;
+    if (type === 'settings') return <Settings size={11} className="shrink-0" />;
     return <FileText size={11} className="shrink-0" />;
   };
 

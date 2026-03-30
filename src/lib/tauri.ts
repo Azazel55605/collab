@@ -29,6 +29,9 @@ export const tauriCommands = {
   watchVault: (vaultPath: string) => invoke<void>('watch_vault', { vaultPath }),
   unwatchVault: () => invoke<void>('unwatch_vault'),
 
+  // UI
+  setUiZoom: (zoom: number) => invoke<void>('set_ui_zoom', { zoom }),
+
   // Collab
   writePresence: (vaultPath: string, userId: string, entry: PresenceEntry) =>
     invoke<void>('write_presence', { vaultPath, userId, entry }),

@@ -35,6 +35,7 @@ class EditorErrorBoundary extends Component<{ children: ReactNode }, { error: Er
 import GraphPage from '../../views/GraphPage';
 import CanvasPage from '../../views/CanvasPage';
 import KanbanPage from '../../views/KanbanPage';
+import SettingsPage from '../../views/SettingsPage';
 import { CollabProvider } from '../collaboration/CollabProvider';
 import { ConflictDialog } from '../collaboration/ConflictDialog';
 import { CommandPalette } from '../command-palette/CommandPalette';
@@ -103,15 +104,21 @@ export default function AppShell() {
   const activeTab = openTabs.find((t) => t.relativePath === activeTabPath);
 
   const renderMainContent = () => {
-    if (activeView === 'graph')  return <GraphPage />;
-    if (activeView === 'canvas') return <CanvasPage relativePath={activeTab?.type === 'canvas' ? activeTab.relativePath : null} />;
-    if (activeView === 'kanban') return <KanbanPage relativePath={activeTab?.type === 'kanban' ? activeTab.relativePath : null} />;
+    // Active tab takes priority — lets view tabs (graph, settings, etc.) persist
+    // alongside note tabs and be switched to independently.
+    if (activeTab) {
+      if (activeTab.type === 'graph')    return <GraphPage />;
+      if (activeTab.type === 'settings') return <SettingsPage />;
+      if (activeTab.type === 'canvas')   return <CanvasPage relativePath={activeTab.relativePath === '__canvas__' ? null : activeTab.relativePath} />;
+      if (activeTab.type === 'kanban')   return <KanbanPage relativePath={activeTab.relativePath === '__kanban__' ? null : activeTab.relativePath} />;
+      return <NoteView relativePath={activeTab.relativePath} />;
+    }
 
-    // Editor
-    if (!activeTab) return <EmptyEditor />;
-    if (activeTab.type === 'canvas') return <CanvasPage relativePath={activeTab.relativePath} />;
-    if (activeTab.type === 'kanban') return <KanbanPage relativePath={activeTab.relativePath} />;
-    return <NoteView relativePath={activeTab.relativePath} />;
+    // No active tab: fall back to activeView (e.g. clicking ActivityBar without opening a tab)
+    if (activeView === 'graph')  return <GraphPage />;
+    if (activeView === 'canvas') return <CanvasPage relativePath={null} />;
+    if (activeView === 'kanban') return <KanbanPage relativePath={null} />;
+    return <EmptyEditor />;
   };
 
   return (

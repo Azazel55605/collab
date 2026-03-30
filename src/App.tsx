@@ -7,7 +7,7 @@ import VaultPicker from './components/vault/VaultPicker';
 import AppShell from './components/layout/AppShell';
 import SettingsModal from './components/settings/SettingsModal';
 import { Toaster } from './components/ui/sonner';
-import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { tauriCommands } from './lib/tauri';
 
 /** Theme-base CSS overrides applied on top of the default dark palette */
 const THEME_VARS: Record<string, Record<string, string>> = {
@@ -119,9 +119,38 @@ export default function App() {
 
   }, [theme, accentColor, editorFont, fontSize]);
 
-  // Apply HiDPI zoom via the Tauri webview window (does not affect getBoundingClientRect)
+  // Block browser-level zoom (Ctrl+scroll, pinch, Ctrl+±/0) — zoom must not affect the entire UI.
+  // D3 graph zoom and canvas zoom use SVG/CSS transforms and are unaffected.
+  // Use capture phase on document so WebKit sees the preventDefault before native gesture handling.
   useEffect(() => {
-    getCurrentWebview().setZoom(scale / 100).catch(console.error);
+    const blockZoomWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) e.preventDefault();
+    };
+    const blockZoomKeys = (e: KeyboardEvent) => {
+      if (e.ctrlKey && (e.key === '+' || e.key === '-' || e.key === '=' || e.key === '0')) {
+        e.preventDefault();
+      }
+    };
+    // gesturestart/gesturechange fire on WebKit for touchpad pinch — block them entirely.
+    const blockGesture = (e: Event) => e.preventDefault();
+
+    document.addEventListener('wheel', blockZoomWheel, { passive: false, capture: true });
+    document.addEventListener('keydown', blockZoomKeys, { capture: true });
+    document.addEventListener('gesturestart', blockGesture, { capture: true });
+    document.addEventListener('gesturechange', blockGesture, { capture: true });
+    return () => {
+      document.removeEventListener('wheel', blockZoomWheel, { capture: true } as EventListenerOptions);
+      document.removeEventListener('keydown', blockZoomKeys, { capture: true } as EventListenerOptions);
+      document.removeEventListener('gesturestart', blockGesture, { capture: true } as EventListenerOptions);
+      document.removeEventListener('gesturechange', blockGesture, { capture: true } as EventListenerOptions);
+    };
+  }, []);
+
+  // Apply HiDPI zoom. Routes through set_ui_zoom so the Rust side records the
+  // intended level before setting it — this prevents the gesture-blocking signal
+  // handler from immediately resetting our own intentional zoom change.
+  useEffect(() => {
+    tauriCommands.setUiZoom(scale / 100).catch(console.error);
   }, [scale]);
 
   return (

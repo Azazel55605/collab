@@ -1,6 +1,7 @@
 import { Files, GitFork, Layout, LayoutDashboard, Settings, PanelLeftClose, PanelLeft } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useUiStore, type ActiveView } from '../../store/uiStore';
+import { useEditorStore } from '../../store/editorStore';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 const NAV_ITEMS: { view: ActiveView; icon: React.ReactNode; label: string }[] = [
@@ -10,12 +11,20 @@ const NAV_ITEMS: { view: ActiveView; icon: React.ReactNode; label: string }[] = 
   { view: 'kanban',  icon: <LayoutDashboard size={18} />, label: 'Kanban'     },
 ];
 
+// Synthetic paths for singleton view tabs (not real files)
+const VIEW_TAB_PATHS: Partial<Record<ActiveView, string>> = {
+  graph:  '__graph__',
+  canvas: '__canvas__',
+  kanban: '__kanban__',
+};
+
 export default function ActivityBar() {
   const {
     activeView, setActiveView,
     isSidebarOpen, toggleSidebar, setSidebarPanel,
     isSettingsOpen, openSettings, closeSettings,
   } = useUiStore();
+  const { openTab } = useEditorStore();
 
   const handleNavClick = (view: ActiveView) => {
     if (view === 'editor') {
@@ -26,6 +35,23 @@ export default function ActivityBar() {
       setActiveView(view);
     }
     if (view !== 'editor') setActiveView(view);
+  };
+
+  // Middle-click: open the view as a persistent tab without switching the main view
+  const handleNavMiddleClick = (e: React.MouseEvent, view: ActiveView) => {
+    if (e.button !== 1) return;
+    e.preventDefault();
+    const path = VIEW_TAB_PATHS[view];
+    if (!path) return; // 'editor' has no singleton tab
+    openTab(path, view === 'graph' ? 'Graph' : view === 'canvas' ? 'Canvas' : 'Kanban', view as 'graph' | 'canvas' | 'kanban');
+    setActiveView(view);
+  };
+
+  const handleSettingsMiddleClick = (e: React.MouseEvent) => {
+    if (e.button !== 1) return;
+    e.preventDefault();
+    openTab('__settings__', 'Settings', 'settings');
+    // Keep activeView as-is; settings tab renders inline without affecting activeView
   };
 
   return (
@@ -54,6 +80,7 @@ export default function ActivityBar() {
             <TooltipTrigger asChild>
               <button
                 onClick={() => handleNavClick(view)}
+                onMouseDown={(e) => handleNavMiddleClick(e, view)}
                 className={cn(
                   'relative w-9 h-9 flex items-center justify-center rounded-md transition-all duration-150',
                   isActive
@@ -78,6 +105,7 @@ export default function ActivityBar() {
         <TooltipTrigger asChild>
           <button
             onClick={() => isSettingsOpen ? closeSettings() : openSettings()}
+            onMouseDown={handleSettingsMiddleClick}
             className={cn(
               'relative w-9 h-9 flex items-center justify-center rounded-md transition-all duration-150',
               isSettingsOpen

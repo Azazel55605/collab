@@ -465,6 +465,9 @@ dependencies = [
  "anyhow",
  "chrono",
  "fuzzy-matcher",
+ "glib",
+ "gtk",
+ "gtk-sys",
  "hex",
  "notify",
  "notify-debouncer-mini",
@@ -481,6 +484,7 @@ dependencies = [
  "tokio",
  "uuid",
  "walkdir",
+ "webkit2gtk",
 ]
 
 [[package]]
