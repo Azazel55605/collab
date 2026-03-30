@@ -47,6 +47,78 @@ class MathWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
+// ─── Table helpers ────────────────────────────────────────────────────────────
+
+function parseTableCells(line: string): string[] {
+  return line.split('|').slice(1, -1).map(c => c.trim());
+}
+
+function parseAlignments(line: string): Array<'left' | 'center' | 'right' | ''> {
+  return line.split('|').slice(1, -1).map(c => {
+    const s = c.trim();
+    if (s.startsWith(':') && s.endsWith(':')) return 'center';
+    if (s.endsWith(':')) return 'right';
+    if (s.startsWith(':')) return 'left';
+    return '';
+  });
+}
+
+class TableWidget extends WidgetType {
+  constructor(
+    readonly headers: string[],
+    readonly rows: string[][],
+    readonly aligns: Array<'left' | 'center' | 'right' | ''>,
+  ) { super(); }
+
+  eq(o: TableWidget) {
+    return (
+      this.headers.join('\x00') === o.headers.join('\x00') &&
+      this.rows.map(r => r.join('\x00')).join('\n') === o.rows.map(r => r.join('\x00')).join('\n')
+    );
+  }
+
+  toDOM() {
+    const wrap = document.createElement('div');
+    wrap.className = 'cm-lp-table-wrap';
+    const table = document.createElement('table');
+    table.className = 'cm-lp-table';
+
+    if (this.headers.length) {
+      const thead = document.createElement('thead');
+      const tr = document.createElement('tr');
+      for (let i = 0; i < this.headers.length; i++) {
+        const th = document.createElement('th');
+        th.textContent = this.headers[i];
+        if (this.aligns[i]) th.style.textAlign = this.aligns[i];
+        tr.appendChild(th);
+      }
+      thead.appendChild(tr);
+      table.appendChild(thead);
+    }
+
+    if (this.rows.length) {
+      const tbody = document.createElement('tbody');
+      for (const row of this.rows) {
+        const tr = document.createElement('tr');
+        const colCount = Math.max(this.headers.length, row.length);
+        for (let i = 0; i < colCount; i++) {
+          const td = document.createElement('td');
+          td.textContent = row[i] ?? '';
+          if (this.aligns[i]) td.style.textAlign = this.aligns[i];
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+    }
+
+    wrap.appendChild(table);
+    return wrap;
+  }
+
+  ignoreEvent() { return false; }
+}
+
 class HRWidget extends WidgetType {
   toDOM() {
     const el = document.createElement('div');
@@ -185,15 +257,23 @@ function _build(state: EditorState): DecorationSet {
   // Multi-line block state
   let inMath   = false, mathFrom = 0, mathSrc = '', mathHit = false;
   let inFence  = false;
-  let tableLines: Array<{ from: number; ln: number }> = [];
+  let tableLines: Array<{ from: number; to: number; ln: number; text: string }> = [];
   let tableHit = false;
 
   const flushTable = () => {
     if (!tableLines.length) return;
-    if (!tableHit) {
-      for (const tl of tableLines) {
-        items.push({ from: tl.from, to: tl.from, deco: Decoration.line({ class: 'cm-lp-table-row' }), excl: false });
-      }
+    if (!tableHit && tableLines.length >= 2) {
+      const texts = tableLines.map(tl => tl.text);
+      const headers = parseTableCells(texts[0]);
+      const aligns = parseAlignments(texts[1]);
+      const rows = texts.slice(2).map(parseTableCells);
+      const from = tableLines[0].from;
+      const to = tableLines[tableLines.length - 1].to;
+      items.push({
+        from, to,
+        deco: Decoration.replace({ widget: new TableWidget(headers, rows, aligns), block: true }),
+        excl: true,
+      });
     }
     tableLines = []; tableHit = false;
   };
@@ -241,7 +321,7 @@ function _build(state: EditorState): DecorationSet {
     const isTableRow = /^\|.+\|/.test(text) || /^\|[-|: ]+\|$/.test(text.trim());
     if (isTableRow) {
       if (here) tableHit = true;
-      tableLines.push({ from, ln });
+      tableLines.push({ from, to, ln, text });
       const nextText = ln < doc.lines ? doc.line(ln + 1).text : '';
       if (!/^\|.+\|/.test(nextText) && !/^\|[-|: ]+\|$/.test(nextText.trim())) flushTable();
       continue;

@@ -256,8 +256,32 @@
   font-style: italic;
 }
 
-/* Table rows */
-.cm-editor .cm-line.cm-lp-table-row { font-family: 'Geist Mono Variable', monospace; font-size: 0.9em; }
+/* Table widget (live preview) */
+.cm-editor .cm-lp-table-wrap {
+  margin: 0.5em 0;
+  overflow-x: auto;
+  cursor: text;
+}
+.cm-editor .cm-lp-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.875em;
+  font-family: 'Geist Variable', sans-serif;
+}
+.cm-editor .cm-lp-table th,
+.cm-editor .cm-lp-table td {
+  border: 1px solid var(--border);
+  padding: 0.4em 0.8em;
+  text-align: left;
+  vertical-align: top;
+}
+.cm-editor .cm-lp-table thead th {
+  background: oklch(1 0 0 / 5%);
+  font-weight: 600;
+}
+.cm-editor .cm-lp-table tbody tr:hover {
+  background: var(--accent);
+}
 
 /* HR widget */
 .cm-editor .cm-lp-hr {

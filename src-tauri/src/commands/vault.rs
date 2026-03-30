@@ -1,5 +1,6 @@
 use crate::models::vault::{VaultConfig, VaultMeta};
 use crate::state::AppState;
+use std::io::Write as IoWrite;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, State};
 use uuid::Uuid;
@@ -51,6 +52,10 @@ fn vault_config_path(vault_path: &str) -> std::path::PathBuf {
 }
 
 fn read_vault_config(vault_path: &str) -> Result<VaultConfig, String> {
+    read_vault_config_pub(vault_path)
+}
+
+pub fn read_vault_config_pub(vault_path: &str) -> Result<VaultConfig, String> {
     let config_path = vault_config_path(vault_path);
     if !config_path.exists() {
         return Err("vault.json not found".to_string());
@@ -60,6 +65,10 @@ fn read_vault_config(vault_path: &str) -> Result<VaultConfig, String> {
 }
 
 fn write_vault_config(vault_path: &str, config: &VaultConfig) -> Result<(), String> {
+    write_vault_config_pub(vault_path, config)
+}
+
+pub fn write_vault_config_pub(vault_path: &str, config: &VaultConfig) -> Result<(), String> {
     let config_path = vault_config_path(vault_path);
     std::fs::create_dir_all(config_path.parent().unwrap()).map_err(|e| e.to_string())?;
     let data = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
@@ -85,6 +94,7 @@ pub fn open_vault(path: String, state: State<AppState>) -> Result<VaultMeta, Str
             id: Uuid::new_v4().to_string(),
             name: name.clone(),
             known_users: vec![],
+            ..Default::default()
         };
         write_vault_config(&canonical_str, &config)?;
         config
@@ -95,9 +105,11 @@ pub fn open_vault(path: String, state: State<AppState>) -> Result<VaultMeta, Str
         name: config.name,
         path: canonical_str,
         last_opened: now_ms(),
+        is_encrypted: config.is_encrypted,
     };
 
-    // Update AppState
+    // Update AppState — clear any stale encryption key from the previous vault.
+    *state.encryption_key.write() = None;
     *state.active_vault.write() = Some(meta.clone());
 
     // Add to recents
@@ -123,6 +135,7 @@ pub fn create_vault(
         id: id.clone(),
         name: name.clone(),
         known_users: vec![],
+        ..Default::default()
     };
 
     write_vault_config(&canonical_str, &config)?;
@@ -136,8 +149,10 @@ pub fn create_vault(
         name,
         path: canonical_str,
         last_opened: now_ms(),
+        is_encrypted: false,
     };
 
+    *state.encryption_key.write() = None;
     *state.active_vault.write() = Some(meta.clone());
     upsert_recent(&meta)?;
 
@@ -147,6 +162,112 @@ pub fn create_vault(
 #[tauri::command]
 pub fn get_recent_vaults() -> Result<Vec<VaultMeta>, String> {
     read_recents()
+}
+
+#[tauri::command]
+pub fn remove_recent_vault(path: String) -> Result<(), String> {
+    let mut recents = read_recents()?;
+    recents.retain(|r| r.path != path);
+    write_recents(&recents)
+}
+
+#[tauri::command]
+pub fn rename_vault(
+    vault_path: String,
+    new_name: String,
+    state: State<AppState>,
+) -> Result<VaultMeta, String> {
+    let mut config = read_vault_config(&vault_path)?;
+    config.name = new_name.clone();
+    write_vault_config(&vault_path, &config)?;
+
+    let mut recents = read_recents()?;
+    for r in &mut recents {
+        if r.path == vault_path {
+            r.name = new_name.clone();
+        }
+    }
+    write_recents(&recents)?;
+
+    // Keep active vault name in sync
+    let mut av = state.active_vault.write();
+    if let Some(ref mut meta) = *av {
+        if meta.path == vault_path {
+            meta.name = new_name.clone();
+        }
+    }
+    drop(av);
+
+    // Return the updated meta for this vault
+    let updated = recents
+        .into_iter()
+        .find(|r| r.path == vault_path)
+        .ok_or_else(|| "Vault not found in recents after rename".to_string())?;
+    Ok(updated)
+}
+
+#[tauri::command]
+pub async fn export_vault(vault_path: String, dest_path: String) -> Result<(), String> {
+    use walkdir::WalkDir;
+
+    let vault = std::path::Path::new(&vault_path);
+    let file = std::fs::File::create(&dest_path).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+    for entry in WalkDir::new(vault).min_depth(1) {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        let relative = path.strip_prefix(vault).map_err(|e| e.to_string())?;
+        let relative_str = relative.to_string_lossy();
+
+        // Skip presence files (runtime artifacts, not meaningful in exports)
+        if relative_str.starts_with(".collab/presence") {
+            continue;
+        }
+
+        if path.is_file() {
+            zip.start_file(relative_str.as_ref(), options)
+                .map_err(|e| e.to_string())?;
+            let data = std::fs::read(path).map_err(|e| e.to_string())?;
+            zip.write_all(&data).map_err(|e| e.to_string())?;
+        } else if !relative_str.is_empty() {
+            zip.add_directory(relative_str.as_ref(), options)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    zip.finish().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn show_save_dialog(
+    app: AppHandle,
+    default_name: String,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let result = app
+        .dialog()
+        .file()
+        .set_title("Export Vault as ZIP")
+        .add_filter("ZIP Archive", &["zip"])
+        .set_file_name(&default_name)
+        .blocking_save_file();
+
+    match result {
+        Some(file_path) => {
+            let path_str = file_path
+                .into_path()
+                .map_err(|e| e.to_string())?
+                .to_string_lossy()
+                .to_string();
+            Ok(Some(path_str))
+        }
+        None => Ok(None),
+    }
 }
 
 #[tauri::command]

@@ -1,4 +1,4 @@
-import { Files, GitFork, Layout, LayoutDashboard, Settings, PanelLeftClose, PanelLeft, LayoutGrid } from 'lucide-react';
+import { Files, GitFork, Layout, LayoutDashboard, Settings, PanelLeftClose, PanelLeft, LayoutGrid, Vault } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useUiStore, type ActiveView } from '../../store/uiStore';
 import { useEditorStore } from '../../store/editorStore';
@@ -25,18 +25,19 @@ export default function ActivityBar() {
     activeView, setActiveView,
     isSidebarOpen, toggleSidebar, setSidebarPanel,
     isSettingsOpen, openSettings, closeSettings,
+    isVaultManagerOpen, openVaultManager, closeVaultManager,
   } = useUiStore();
   const { openTab } = useEditorStore();
 
   const handleNavClick = (view: ActiveView) => {
     if (view === 'editor') {
       setSidebarPanel('files');
+      setActiveView('editor');
       if (!isSidebarOpen) toggleSidebar();
       else if (activeView === 'editor') toggleSidebar();
     } else {
       setActiveView(view);
     }
-    if (view !== 'editor') setActiveView(view);
   };
 
   // Middle-click: open the view as a persistent tab without switching the main view
@@ -102,6 +103,26 @@ export default function ActivityBar() {
       })}
 
       <div className="flex-1" />
+
+      {/* Vault Manager */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => isVaultManagerOpen ? closeVaultManager() : openVaultManager()}
+            className={cn(
+              'relative w-9 h-9 flex items-center justify-center rounded-md transition-all duration-150',
+              isVaultManagerOpen
+                ? 'activity-item-active text-primary bg-primary/10'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'
+            )}
+          >
+            <Vault size={17} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="glass-strong border-border/50 text-xs text-foreground">
+          Vault Manager
+        </TooltipContent>
+      </Tooltip>
 
       {/* Settings — opens modal */}
       <Tooltip>

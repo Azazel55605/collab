@@ -1,6 +1,7 @@
 mod models;
 mod state;
 mod commands;
+mod crypto;
 
 use state::AppState;
 
@@ -65,6 +66,10 @@ pub fn run() {
             commands::vault::create_vault,
             commands::vault::get_recent_vaults,
             commands::vault::show_open_vault_dialog,
+            commands::vault::remove_recent_vault,
+            commands::vault::rename_vault,
+            commands::vault::export_vault,
+            commands::vault::show_save_dialog,
             // files
             commands::files::list_vault_files,
             commands::files::read_note,
@@ -88,6 +93,11 @@ pub fn run() {
             commands::collab::update_vault_config,
             // ui
             commands::ui::set_ui_zoom,
+            // encryption
+            commands::crypto::unlock_vault,
+            commands::crypto::enable_vault_encryption,
+            commands::crypto::disable_vault_encryption,
+            commands::crypto::change_vault_password,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -9,6 +9,16 @@ export const tauriCommands = {
   createVault: (path: string, name: string) => invoke<VaultMeta>('create_vault', { path, name }),
   getRecentVaults: () => invoke<VaultMeta[]>('get_recent_vaults'),
   showOpenVaultDialog: () => invoke<string | null>('show_open_vault_dialog'),
+  removeRecentVault: (path: string) => invoke<void>('remove_recent_vault', { path }),
+  renameVault: (vaultPath: string, newName: string) => invoke<VaultMeta>('rename_vault', { vaultPath, newName }),
+  exportVault: (vaultPath: string, destPath: string) => invoke<void>('export_vault', { vaultPath, destPath }),
+  showSaveDialog: (defaultName: string) => invoke<string | null>('show_save_dialog', { defaultName }),
+
+  // Encryption
+  unlockVault: (vaultPath: string, password: string) => invoke<void>('unlock_vault', { vaultPath, password }),
+  enableVaultEncryption: (vaultPath: string, password: string) => invoke<void>('enable_vault_encryption', { vaultPath, password }),
+  disableVaultEncryption: (vaultPath: string, password: string) => invoke<void>('disable_vault_encryption', { vaultPath, password }),
+  changeVaultPassword: (vaultPath: string, oldPassword: string, newPassword: string) => invoke<void>('change_vault_password', { vaultPath, oldPassword, newPassword }),
 
   // Files
   listVaultFiles: (vaultPath: string) => invoke<NoteFile[]>('list_vault_files', { vaultPath }),

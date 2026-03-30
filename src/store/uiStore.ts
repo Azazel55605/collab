@@ -33,6 +33,7 @@ interface UiState {
   sidebarWidth:  number;
   isSidebarOpen: boolean;
   isSettingsOpen: boolean;
+  isVaultManagerOpen: boolean;
 
   // Appearance
   theme:       Theme;
@@ -51,6 +52,8 @@ interface UiState {
   toggleSidebar:    () => void;
   openSettings:     () => void;
   closeSettings:    () => void;
+  openVaultManager:  () => void;
+  closeVaultManager: () => void;
 
   setTheme:         (theme: Theme) => void;
   setAccentColor:   (color: AccentColor) => void;
@@ -66,8 +69,9 @@ export const useUiStore = create<UiState>()(
       activeView:     'editor',
       sidebarPanel:   'files',
       sidebarWidth:   240,
-      isSidebarOpen:  true,
-      isSettingsOpen: false,
+      isSidebarOpen:      true,
+      isSettingsOpen:     false,
+      isVaultManagerOpen: false,
 
       theme:       'dark',
       accentColor: 'violet',
@@ -81,8 +85,10 @@ export const useUiStore = create<UiState>()(
       setSidebarPanel: (sidebarPanel) => set({ sidebarPanel }),
       setSidebarWidth: (sidebarWidth) => set({ sidebarWidth }),
       toggleSidebar:   ()             => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
-      openSettings:    ()             => set({ isSettingsOpen: true }),
-      closeSettings:   ()             => set({ isSettingsOpen: false }),
+      openSettings:     ()             => set({ isSettingsOpen: true }),
+      closeSettings:    ()             => set({ isSettingsOpen: false }),
+      openVaultManager:  ()            => set({ isVaultManagerOpen: true }),
+      closeVaultManager: ()            => set({ isVaultManagerOpen: false }),
 
       setTheme:         (theme)         => set({ theme }),
       setAccentColor:   (accentColor)   => set({ accentColor }),

@@ -1,7 +1,10 @@
+use crate::crypto;
 use crate::models::note::{ConflictInfo, NoteContent, NoteFile, WriteResult};
+use crate::state::AppState;
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::State;
 use walkdir::WalkDir;
 
 fn compute_hash(content: &str) -> String {
@@ -204,21 +207,34 @@ pub fn list_vault_files(vault_path: String) -> Result<Vec<NoteFile>, String> {
 }
 
 #[tauri::command]
-pub fn read_note(vault_path: String, relative_path: String) -> Result<NoteContent, String> {
+pub fn read_note(
+    vault_path: String,
+    relative_path: String,
+    state: State<AppState>,
+) -> Result<NoteContent, String> {
     let full_path = Path::new(&vault_path).join(&relative_path);
-    let content = std::fs::read_to_string(&full_path)
+    let raw = std::fs::read(&full_path)
         .map_err(|e| format!("Failed to read '{}': {}", relative_path, e))?;
+
+    let content_bytes = if crypto::is_encrypted_data(&raw) {
+        let key_guard = state.encryption_key.read();
+        let key = key_guard
+            .as_ref()
+            .ok_or("Vault is locked — enter the password to unlock it")?;
+        crypto::decrypt_bytes(key, &raw)?
+    } else {
+        raw
+    };
+
+    let content = String::from_utf8(content_bytes)
+        .map_err(|e| format!("File '{}' is not valid UTF-8: {}", relative_path, e))?;
     let hash = compute_hash(&content);
     let modified_at = std::fs::metadata(&full_path)
         .and_then(|m| m.modified())
         .map(system_time_to_ms)
         .unwrap_or(0);
 
-    Ok(NoteContent {
-        content,
-        hash,
-        modified_at,
-    })
+    Ok(NoteContent { content, hash, modified_at })
 }
 
 #[tauri::command]
@@ -227,18 +243,30 @@ pub fn write_note(
     relative_path: String,
     content: String,
     expected_hash: Option<String>,
+    state: State<AppState>,
 ) -> Result<WriteResult, String> {
     let full_path = Path::new(&vault_path).join(&relative_path);
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
 
-    // If expected_hash is provided and file exists, check for conflicts
+    // Conflict check: read + decode the current on-disk version
     if let Some(ref expected) = expected_hash {
         if full_path.exists() {
-            let current_content = std::fs::read_to_string(&full_path)
+            let raw = std::fs::read(&full_path)
                 .map_err(|e| format!("Failed to read current file: {}", e))?;
-            let current_hash = compute_hash(&current_content);
+            let current_content = if crypto::is_encrypted_data(&raw) {
+                let key = key_opt
+                    .as_ref()
+                    .ok_or("Vault is locked — cannot check for conflicts")?;
+                let bytes = crypto::decrypt_bytes(key, &raw)?;
+                String::from_utf8(bytes)
+                    .map_err(|e| format!("Current file is not valid UTF-8: {}", e))?
+            } else {
+                String::from_utf8(raw)
+                    .map_err(|e| format!("Current file is not valid UTF-8: {}", e))?
+            };
 
+            let current_hash = compute_hash(&current_content);
             if &current_hash != expected {
-                // Conflict detected
                 let hash = compute_hash(&content);
                 return Ok(WriteResult {
                     hash,
@@ -257,35 +285,50 @@ pub fn write_note(
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    // Atomic write: write to .tmp then rename
+    // Encode: encrypt if key is present, otherwise write plaintext
+    let bytes_to_write: Vec<u8> = if let Some(ref key) = key_opt {
+        crypto::encrypt_bytes(key, content.as_bytes())?
+    } else {
+        content.as_bytes().to_vec()
+    };
+
+    // Atomic write via .tmp
     let tmp_path = full_path.with_extension("tmp");
-    std::fs::write(&tmp_path, &content).map_err(|e| e.to_string())?;
+    std::fs::write(&tmp_path, &bytes_to_write).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp_path, &full_path).map_err(|e| e.to_string())?;
 
     let hash = compute_hash(&content);
-    Ok(WriteResult {
-        hash,
-        conflict: None,
-    })
+    Ok(WriteResult { hash, conflict: None })
 }
 
 #[tauri::command]
-pub fn create_note(vault_path: String, relative_path: String) -> Result<NoteFile, String> {
+pub fn create_note(
+    vault_path: String,
+    relative_path: String,
+    state: State<AppState>,
+) -> Result<NoteFile, String> {
     let full_path = Path::new(&vault_path).join(&relative_path);
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
 
     // Create parent directories if needed
     if let Some(parent) = full_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    // Write empty file with frontmatter stub
+    // Write file with H1 heading derived from filename so the auto-rename
+    // feature (which tracks the first H1) works from the moment the note opens.
     let name = full_path
         .file_stem()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    let frontmatter = format!("---\ntitle: {}\ntags: []\n---\n\n", name);
-    std::fs::write(&full_path, &frontmatter).map_err(|e| e.to_string())?;
+    let initial_content = format!("# {}\n\n", name);
+    let bytes_to_write: Vec<u8> = if let Some(ref key) = key_opt {
+        crypto::encrypt_bytes(key, initial_content.as_bytes())?
+    } else {
+        initial_content.into_bytes()
+    };
+    std::fs::write(&full_path, &bytes_to_write).map_err(|e| e.to_string())?;
 
     let metadata = std::fs::metadata(&full_path).map_err(|e| e.to_string())?;
     let modified_at = metadata

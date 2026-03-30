@@ -1,6 +1,7 @@
 import { useEditorStore } from '../../store/editorStore';
 import { useVaultStore } from '../../store/vaultStore';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
+import { useUiStore } from '../../store/uiStore';
 import PresenceBar from '../collaboration/PresenceBar';
 import { BookOpen, Hash } from 'lucide-react';
 
@@ -8,6 +9,7 @@ export default function StatusBar() {
   const { activeTabPath, openTabs } = useEditorStore();
   const { vault } = useVaultStore();
   const { notes } = useNoteIndexStore();
+  const { openVaultManager } = useUiStore();
   const activeTab = openTabs.find((t) => t.relativePath === activeTabPath);
   const activeMeta = notes.find((n) => n.relativePath === activeTabPath);
 
@@ -16,10 +18,14 @@ export default function StatusBar() {
       {/* Left: vault + file path */}
       <div className="flex items-center gap-2 min-w-0">
         {vault && (
-          <span className="text-primary/80 font-medium shrink-0 flex items-center gap-1">
+          <button
+            onClick={openVaultManager}
+            className="text-primary/80 font-medium shrink-0 flex items-center gap-1 hover:text-primary transition-colors"
+            title="Manage vaults"
+          >
             <BookOpen size={10} />
             {vault.name}
-          </span>
+          </button>
         )}
         {activeTab && (
           <>

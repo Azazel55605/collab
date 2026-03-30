@@ -1,3 +1,4 @@
+use crate::crypto;
 use crate::models::note::{NoteMetadata, SearchResult};
 use crate::state::AppState;
 use fuzzy_matcher::skim::SkimMatcherV2;
@@ -187,8 +188,25 @@ pub fn build_note_index(
             .to_string_lossy()
             .replace('\\', "/");
 
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
+        let raw = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        let key_guard = state.encryption_key.read();
+        let content_bytes = if crypto::is_encrypted_data(&raw) {
+            match key_guard.as_ref() {
+                Some(key) => match crypto::decrypt_bytes(key, &raw) {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                },
+                None => continue, // vault locked — skip this file
+            }
+        } else {
+            raw
+        };
+        drop(key_guard);
+        let content = match String::from_utf8(content_bytes) {
+            Ok(s) => s,
             Err(_) => continue,
         };
 
@@ -300,8 +318,25 @@ pub fn search_notes(
         }
 
         let full_path = base.join(&meta.relative_path);
-        let content = match std::fs::read_to_string(&full_path) {
-            Ok(c) => c,
+        let raw = match std::fs::read(&full_path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        let key_guard = state.encryption_key.read();
+        let content_bytes = if crypto::is_encrypted_data(&raw) {
+            match key_guard.as_ref() {
+                Some(key) => match crypto::decrypt_bytes(key, &raw) {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                },
+                None => continue,
+            }
+        } else {
+            raw
+        };
+        drop(key_guard);
+        let content = match String::from_utf8(content_bytes) {
+            Ok(s) => s,
             Err(_) => continue,
         };
 

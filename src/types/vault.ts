@@ -3,6 +3,7 @@ export interface VaultMeta {
   name: string;
   path: string;
   lastOpened: number;
+  isEncrypted: boolean;
 }
 
 export interface NoteFile {
@@ -32,10 +33,21 @@ export interface ConflictInfo {
   relativePath: string;
 }
 
+export type MemberRole = 'viewer' | 'editor' | 'admin';
+
+export interface VaultMember {
+  userId: string;
+  userName: string;
+  role: MemberRole;
+}
+
 export interface VaultConfig {
   id: string;
   name: string;
   knownUsers: KnownUser[];
+  owner?: string;
+  members?: VaultMember[];
+  isEncrypted?: boolean;
 }
 
 export interface KnownUser {

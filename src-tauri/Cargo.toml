@@ -42,4 +42,8 @@ anyhow = "1"
 thiserror = "1"
 parking_lot = "0.12"
 fuzzy-matcher = "0.3"
+zip = "2"
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
 

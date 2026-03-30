@@ -6,6 +6,8 @@ import { useUiStore, ACCENT_COLORS, EDITOR_FONTS } from './store/uiStore';
 import VaultPicker from './components/vault/VaultPicker';
 import AppShell from './components/layout/AppShell';
 import SettingsModal from './components/settings/SettingsModal';
+import VaultManagerModal from './components/vault/VaultManagerModal';
+import VaultUnlockModal from './components/vault/VaultUnlockModal';
 import { Toaster } from './components/ui/sonner';
 import { tauriCommands } from './lib/tauri';
 
@@ -78,8 +80,8 @@ const THEME_VARS: Record<string, Record<string, string>> = {
 };
 
 export default function App() {
-  const { vault } = useVaultStore();
-  const { theme, accentColor, editorFont, fontSize, scale, isSettingsOpen } = useUiStore();
+  const { vault, isVaultLocked } = useVaultStore();
+  const { theme, accentColor, editorFont, fontSize, scale, isSettingsOpen, isVaultManagerOpen } = useUiStore();
 
   // Apply theme class + CSS variables whenever settings change
   useEffect(() => {
@@ -155,8 +157,14 @@ export default function App() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      {vault ? <AppShell /> : <VaultPicker />}
+      {vault
+        ? isVaultLocked
+          ? <VaultUnlockModal />
+          : <AppShell />
+        : <VaultPicker />
+      }
       {isSettingsOpen && <SettingsModal />}
+      {isVaultManagerOpen && <VaultManagerModal />}
       <Toaster richColors position="bottom-right" />
     </TooltipProvider>
   );
