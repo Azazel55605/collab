@@ -156,6 +156,9 @@ jobs:
         with:
           path: artifacts
 
+      - name: List downloaded artifacts
+        run: find artifacts -type f | sort
+
       - name: Generate latest.json
         run: |
           cat > gen_manifest.mjs << 'SCRIPT'
@@ -196,8 +199,12 @@ jobs:
             const installer = findFile(dir, cfg.file);
             const sigFile   = findFile(dir, cfg.sig);
 
-            if (!installer || !sigFile) {
-              console.warn(`Skipping ${platform}: files not found under ${dir}`);
+            if (!installer) {
+              console.warn(`Skipping ${platform}: installer not found under ${dir}`);
+              continue;
+            }
+            if (!sigFile) {
+              console.warn(`Skipping ${platform}: .sig file not found under ${dir} (installer: ${path.basename(installer)})`);
               continue;
             }
 
@@ -218,6 +225,7 @@ jobs:
       - name: Upload latest.json to release
         uses: softprops/action-gh-release@v2
         with:
+          draft: false
           files: latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
