@@ -1,4 +1,5 @@
 import { Files, GitFork, Layout, LayoutDashboard, Settings, PanelLeftClose, PanelLeft, LayoutGrid, Vault } from 'lucide-react';
+import { AppLogo } from '../ui/AppLogo';
 import { cn } from '../../lib/utils';
 import { useUiStore, type ActiveView } from '../../store/uiStore';
 import { useEditorStore } from '../../store/editorStore';
@@ -60,6 +61,13 @@ export default function ActivityBar() {
 
   return (
     <div className="relative w-11 flex flex-col items-center py-2 gap-0.5 border-r border-border/50 bg-sidebar shrink-0">
+      {/* App logo */}
+      <div className="w-9 h-9 flex items-center justify-center">
+        <AppLogo size={22} className="text-primary/70" />
+      </div>
+
+      <div className="w-6 h-px bg-border/50 mb-0.5" />
+
       {/* Sidebar toggle */}
       <Tooltip>
         <TooltipTrigger asChild>

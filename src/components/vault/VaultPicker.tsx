@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { FolderOpen, Plus, Clock, ArrowRight, Sparkles } from 'lucide-react';
+import { FolderOpen, Plus, Clock, ArrowRight } from 'lucide-react';
+import { AppLogo } from '../ui/AppLogo';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { useVaultStore } from '../../store/vaultStore';
@@ -45,7 +46,7 @@ export default function VaultPicker() {
         {/* Logo block */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/15 border border-primary/20 mb-4 glow-primary-sm">
-            <Sparkles size={24} className="text-primary" />
+            <AppLogo size={28} className="text-primary" />
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">collab</h1>
           <p className="text-sm text-muted-foreground mt-1.5">Your collaborative knowledge base</p>
