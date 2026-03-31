@@ -1,17 +1,22 @@
 import { create } from 'zustand';
-import type { PresenceEntry } from '../types/collab';
-import type { ConflictInfo } from '../types/vault';
+import type { ChatMessage, PresenceEntry } from '../types/collab';
+import type { ConflictInfo, MemberRole } from '../types/vault';
 
 interface CollabState {
   myUserId: string;
   myUserName: string;
   myUserColor: string;
+  myRole: MemberRole | null;
   peers: PresenceEntry[];
   conflicts: ConflictInfo[];
+  chatMessages: ChatMessage[];
   setPeers: (peers: PresenceEntry[]) => void;
   addConflict: (conflict: ConflictInfo) => void;
   dismissConflict: (relativePath: string) => void;
   setMyProfile: (userId: string, userName: string, userColor: string) => void;
+  setMyRole: (role: MemberRole | null) => void;
+  setChatMessages: (msgs: ChatMessage[]) => void;
+  appendChatMessage: (msg: ChatMessage) => void;
 }
 
 function generateColor(userId: string): string {
@@ -33,8 +38,10 @@ export const useCollabStore = create<CollabState>()((set) => {
     myUserId: userId,
     myUserName: userName,
     myUserColor: userColor,
+    myRole: null,
     peers: [],
     conflicts: [],
+    chatMessages: [],
     setPeers: (peers) => set({ peers }),
     addConflict: (conflict) =>
       set((state) => ({
@@ -47,5 +54,9 @@ export const useCollabStore = create<CollabState>()((set) => {
       localStorage.setItem('collab-user-name', myUserName);
       set({ myUserId, myUserName, myUserColor });
     },
+    setMyRole: (myRole) => set({ myRole }),
+    setChatMessages: (chatMessages) => set({ chatMessages }),
+    appendChatMessage: (msg) =>
+      set((state) => ({ chatMessages: [...state.chatMessages, msg] })),
   };
 });

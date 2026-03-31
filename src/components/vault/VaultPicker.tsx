@@ -27,7 +27,10 @@ export default function VaultPicker() {
       if (!path) return;
       const name = prompt('Vault name:', 'My Vault');
       if (!name) return;
-      await tauriCommands.createVault(path, name);
+      // Read identity from localStorage — collabStore initialises these on first run
+      const userId = localStorage.getItem('collab-user-id') ?? undefined;
+      const userName = localStorage.getItem('collab-user-name') ?? undefined;
+      await tauriCommands.createVault(path, name, userId, userName);
       await openVault(path);
     } catch (e) {
       toast.error('Failed to create vault: ' + e);

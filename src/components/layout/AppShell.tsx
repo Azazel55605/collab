@@ -71,7 +71,12 @@ export default function AppShell() {
       const u2 = await listen('vault:file-deleted',  () => refreshFileTree());
       const u3 = await listen('vault:file-renamed',  () => refreshFileTree());
       const u4 = await listen('vault:file-modified', async () => {
-        try { setNotes(await tauriCommands.buildNoteIndex(vault.path)); } catch {}
+        try {
+          // Refresh tree so new/deleted files from other clients appear immediately.
+          // Also rebuild the index for wikilink/search updates.
+          await refreshFileTree();
+          setNotes(await tauriCommands.buildNoteIndex(vault.path));
+        } catch {}
       });
       unsubs.push(u1, u2, u3, u4);
     };

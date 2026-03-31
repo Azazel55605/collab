@@ -1,8 +1,8 @@
-use crate::models::vault::{VaultConfig, VaultMeta};
+use crate::models::vault::{KnownUser, MemberRole, VaultConfig, VaultMember, VaultMeta};
 use crate::state::AppState;
 use std::io::Write as IoWrite;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 fn now_ms() -> u64 {
@@ -122,7 +122,11 @@ pub fn open_vault(path: String, state: State<AppState>) -> Result<VaultMeta, Str
 pub fn create_vault(
     path: String,
     name: String,
+    owner_user_id: Option<String>,
+    owner_user_name: Option<String>,
+    owner_user_color: Option<String>,
     state: State<AppState>,
+    app: AppHandle,
 ) -> Result<VaultMeta, String> {
     // Create directory if it doesn't exist
     std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
@@ -131,14 +135,39 @@ pub fn create_vault(
     let canonical_str = canonical.to_string_lossy().to_string();
 
     let id = Uuid::new_v4().to_string();
+
+    // Bootstrap known_users and members with the creator if provided
+    let (known_users, members) = if let Some(ref uid) = owner_user_id {
+        let uname = owner_user_name.clone().unwrap_or_else(|| uid.clone());
+        let ucolor = owner_user_color.clone().unwrap_or_else(|| "#8b5cf6".to_string());
+        (
+            vec![KnownUser {
+                user_id: uid.clone(),
+                user_name: uname.clone(),
+                user_color: ucolor,
+                last_seen: now_ms(),
+            }],
+            vec![VaultMember {
+                user_id: uid.clone(),
+                user_name: uname,
+                role: MemberRole::Admin,
+            }],
+        )
+    } else {
+        (vec![], vec![])
+    };
+
     let config = VaultConfig {
         id: id.clone(),
         name: name.clone(),
-        known_users: vec![],
+        known_users,
+        owner: owner_user_id,
+        members,
         ..Default::default()
     };
 
     write_vault_config(&canonical_str, &config)?;
+    let _ = app.emit("collab:config-changed", serde_json::json!({}));
 
     // Create presence directory
     let presence_dir = collab_dir(&canonical_str).join("presence");

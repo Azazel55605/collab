@@ -12,9 +12,7 @@ import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
-import {
-  Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info,
-} from 'lucide-react';
+import { Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import AboutTab from './AboutTab';
 import { useUpdateStore } from '../../store/updateStore';

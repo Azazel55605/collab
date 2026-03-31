@@ -35,15 +35,22 @@ pub fn watch_vault(
                             .to_string_lossy()
                             .replace('\\', "/");
 
-                        // Check if this is a presence file
-                        let is_presence = relative.starts_with(".collab/presence/");
-
-                        if is_presence {
+                        if relative.starts_with(".collab/presence/") {
                             let _ = app_handle.emit("collab:presence-changed", serde_json::json!({}));
                             continue;
                         }
 
-                        // Skip .collab directory changes (non-presence)
+                        if relative == ".collab/chat/messages.json" {
+                            let _ = app_handle.emit("collab:chat-updated", serde_json::json!({}));
+                            continue;
+                        }
+
+                        if relative == ".collab/vault.json" {
+                            let _ = app_handle.emit("collab:config-changed", serde_json::json!({}));
+                            continue;
+                        }
+
+                        // Skip all other .collab directory changes
                         if relative.starts_with(".collab/") {
                             continue;
                         }

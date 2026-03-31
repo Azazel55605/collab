@@ -11,6 +11,7 @@ export interface OpenTab {
 interface EditorState {
   openTabs: OpenTab[];
   activeTabPath: string | null;
+  forceReloadPath: string | null;
   openTab: (relativePath: string, title: string, type?: 'note' | 'canvas' | 'kanban' | 'graph' | 'settings') => void;
   closeTab: (relativePath: string) => void;
   setActiveTab: (relativePath: string) => void;
@@ -19,11 +20,13 @@ interface EditorState {
   setSavedHash: (relativePath: string, hash: string) => void;
   updateTabTitle: (relativePath: string, title: string) => void;
   renameTab: (oldPath: string, newPath: string, newTitle: string) => void;
+  setForceReloadPath: (path: string | null) => void;
 }
 
 export const useEditorStore = create<EditorState>()((set, get) => ({
   openTabs: [],
   activeTabPath: null,
+  forceReloadPath: null,
 
   openTab: (relativePath, title, type = 'note') => {
     const { openTabs } = get();
@@ -91,4 +94,6 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       activeTabPath: state.activeTabPath === oldPath ? newPath : state.activeTabPath,
     }));
   },
+
+  setForceReloadPath: (forceReloadPath) => set({ forceReloadPath }),
 }));

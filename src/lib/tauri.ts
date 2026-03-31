@@ -2,15 +2,16 @@ import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 
 export const getAppVersion = getVersion;
-import type { VaultMeta, NoteFile, NoteContent, WriteResult, VaultConfig } from '../types/vault';
+import type { VaultMeta, NoteFile, NoteContent, WriteResult, VaultConfig, MemberRole } from '../types/vault';
 import type { NoteMetadata, SearchResult } from '../types/note';
-import type { PresenceEntry } from '../types/collab';
+import type { PresenceEntry, ChatMessage, SnapshotMeta } from '../types/collab';
 import type { UpdateInfo } from '../store/updateStore';
 
 export const tauriCommands = {
   // Vault
   openVault: (path: string) => invoke<VaultMeta>('open_vault', { path }),
-  createVault: (path: string, name: string) => invoke<VaultMeta>('create_vault', { path, name }),
+  createVault: (path: string, name: string, ownerUserId?: string, ownerUserName?: string, ownerUserColor?: string) =>
+    invoke<VaultMeta>('create_vault', { path, name, ownerUserId: ownerUserId ?? null, ownerUserName: ownerUserName ?? null, ownerUserColor: ownerUserColor ?? null }),
   getRecentVaults: () => invoke<VaultMeta[]>('get_recent_vaults'),
   showOpenVaultDialog: () => invoke<string | null>('show_open_vault_dialog'),
   removeRecentVault: (path: string) => invoke<void>('remove_recent_vault', { path }),
@@ -50,12 +51,53 @@ export const tauriCommands = {
   checkForUpdate: () => invoke<UpdateInfo>('check_for_update'),
   downloadAndInstall: () => invoke<void>('download_and_install_update'),
 
-  // Collab
+  // Collab — presence
   writePresence: (vaultPath: string, userId: string, entry: PresenceEntry) =>
     invoke<void>('write_presence', { vaultPath, userId, entry }),
   readAllPresence: (vaultPath: string) => invoke<PresenceEntry[]>('read_all_presence', { vaultPath }),
   clearPresence: (vaultPath: string, userId: string) => invoke<void>('clear_presence', { vaultPath, userId }),
+
+  // Collab — vault config
   getVaultConfig: (vaultPath: string) => invoke<VaultConfig>('get_vault_config', { vaultPath }),
-  updateVaultConfig: (vaultPath: string, config: VaultConfig) =>
-    invoke<void>('update_vault_config', { vaultPath, config }),
+  updateVaultConfig: (vaultPath: string, requestingUserId: string, config: VaultConfig) =>
+    invoke<void>('update_vault_config', { vaultPath, requestingUserId, config }),
+  registerKnownUser: (vaultPath: string, userId: string, userName: string, userColor: string) =>
+    invoke<VaultConfig>('register_known_user', { vaultPath, userId, userName, userColor }),
+  claimVaultOwnership: (vaultPath: string, userId: string, userName: string) =>
+    invoke<VaultConfig>('claim_vault_ownership', { vaultPath, userId, userName }),
+
+  // Collab — chat
+  sendChatMessage: (vaultPath: string, message: ChatMessage) =>
+    invoke<void>('send_chat_message', { vaultPath, message }),
+  readChatMessages: (vaultPath: string, limit: number) =>
+    invoke<ChatMessage[]>('read_chat_messages', { vaultPath, limit }),
+
+  // Collab — history
+  createSnapshot: (
+    vaultPath: string,
+    relativePath: string,
+    content: string,
+    authorId: string,
+    authorName: string,
+    label?: string,
+  ) => invoke<SnapshotMeta>('create_snapshot', { vaultPath, relativePath, content, authorId, authorName, label: label ?? null }),
+  listSnapshots: (vaultPath: string, relativePath: string) =>
+    invoke<SnapshotMeta[]>('list_snapshots', { vaultPath, relativePath }),
+  readSnapshot: (vaultPath: string, relativePath: string, snapshotId: string) =>
+    invoke<string>('read_snapshot', { vaultPath, relativePath, snapshotId }),
+  restoreSnapshot: (
+    vaultPath: string,
+    relativePath: string,
+    snapshotId: string,
+    restoringUserId: string,
+    restoringUserName: string,
+  ) => invoke<WriteResult>('restore_snapshot', { vaultPath, relativePath, snapshotId, restoringUserId, restoringUserName }),
+
+  // Collab — permissions
+  inviteMember: (vaultPath: string, requestingUserId: string, userId: string, role: MemberRole) =>
+    invoke<VaultConfig>('invite_member', { vaultPath, requestingUserId, userId, role }),
+  updateMemberRole: (vaultPath: string, requestingUserId: string, userId: string, role: MemberRole) =>
+    invoke<VaultConfig>('update_member_role', { vaultPath, requestingUserId, userId, role }),
+  removeMember: (vaultPath: string, requestingUserId: string, userId: string) =>
+    invoke<VaultConfig>('remove_member', { vaultPath, requestingUserId, userId }),
 };

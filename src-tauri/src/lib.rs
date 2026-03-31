@@ -89,12 +89,27 @@ pub fn run() {
             // watcher
             commands::watcher::watch_vault,
             commands::watcher::unwatch_vault,
-            // collab
+            // collab — presence
             commands::collab::write_presence,
             commands::collab::read_all_presence,
             commands::collab::clear_presence,
+            // collab — vault config
             commands::collab::get_vault_config,
             commands::collab::update_vault_config,
+            commands::collab::register_known_user,
+            commands::collab::claim_vault_ownership,
+            // collab — chat
+            commands::collab::send_chat_message,
+            commands::collab::read_chat_messages,
+            // collab — history
+            commands::collab::create_snapshot,
+            commands::collab::list_snapshots,
+            commands::collab::read_snapshot,
+            commands::collab::restore_snapshot,
+            // collab — permissions
+            commands::collab::invite_member,
+            commands::collab::update_member_role,
+            commands::collab::remove_member,
             // ui
             commands::ui::set_ui_zoom,
             // encryption

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { useVaultStore } from '../store/vaultStore';
 import { useEditorStore } from '../store/editorStore';
 import { useCollabStore } from '../store/collabStore';
@@ -6,6 +7,8 @@ import { tauriCommands } from '../lib/tauri';
 import { MarkdownEditor, type MarkdownEditorHandle } from '../components/editor/MarkdownEditor';
 import { EditorToolbar } from '../components/editor/EditorToolbar';
 import { toast } from 'sonner';
+
+const SNAPSHOT_INTERVAL_MS = 60_000;
 
 function extractFirstH1(content: string): string | null {
   for (const line of content.split('\n')) {
@@ -27,13 +30,15 @@ function sanitizeFilename(name: string): string {
 
 export default function NoteView({ relativePath }: { relativePath: string }) {
   const { vault, refreshFileTree } = useVaultStore();
-  const { markDirty, markSaved, setSavedHash, renameTab } = useEditorStore();
-  const { addConflict } = useCollabStore();
+  const { markDirty, markSaved, setSavedHash, renameTab, forceReloadPath, setForceReloadPath } = useEditorStore();
+  const { addConflict, myUserId, myUserName } = useCollabStore();
   const [content, setContent] = useState<string | null>(null);
   const savedHashRef = useRef<string | null>(null);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
+  const lastSnapshotHashRef = useRef<string | null>(null);
+  const lastSnapshotTimeRef = useRef<number>(0);
 
-  useEffect(() => {
+  const loadNote = () => {
     if (!vault || !relativePath) return;
     setContent(null);
     tauriCommands.readNote(vault.path, relativePath)
@@ -43,10 +48,43 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
         setSavedHash(relativePath, nc.hash);
       })
       .catch((e) => toast.error('Failed to open note: ' + e));
+  };
+
+  useEffect(() => { loadNote(); }, [relativePath, vault?.path]);
+
+  // Reload when HistoryPanel restores a snapshot for this file
+  useEffect(() => {
+    if (forceReloadPath === relativePath) {
+      setForceReloadPath(null);
+      loadNote();
+    }
+  }, [forceReloadPath]);
+
+  // Auto-reload when another user edits the same file (no local dirty changes)
+  const isDirtyRef = useRef(false);
+  useEffect(() => {
+    if (!vault) return;
+    const unlisten = listen<{ path: string }>('vault:file-modified', async (event) => {
+      const changedPath = event.payload?.path;
+      if (changedPath !== relativePath) return;
+      // Don't overwrite local unsaved changes — let the conflict dialog handle it
+      if (isDirtyRef.current) return;
+      try {
+        const nc = await tauriCommands.readNote(vault.path, relativePath);
+        // Only reload if disk content actually changed vs what we last saved
+        if (nc.hash !== savedHashRef.current) {
+          setContent(nc.content);
+          savedHashRef.current = nc.hash;
+          setSavedHash(relativePath, nc.hash);
+        }
+      } catch {}
+    });
+    return () => { unlisten.then((u) => u()); };
   }, [relativePath, vault?.path]);
 
   const handleChange = (newContent: string) => {
     setContent(newContent);
+    isDirtyRef.current = true;
     markDirty(relativePath);
   };
 
@@ -57,7 +95,7 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
     return () => clearTimeout(t);
   }, [content]);
 
-  const handleSave = async (newContent: string) => {
+  const handleSave = async (newContent: string, manual = false) => {
     if (!vault) return;
     try {
       const result = await tauriCommands.writeNote(
@@ -72,7 +110,22 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
       }
 
       savedHashRef.current = result.hash;
+      isDirtyRef.current = false;
       markSaved(relativePath, result.hash);
+
+      // Create a snapshot on manual saves if content changed and interval has passed
+      if (manual) {
+        const now = Date.now();
+        if (
+          result.hash !== lastSnapshotHashRef.current &&
+          now - lastSnapshotTimeRef.current >= SNAPSHOT_INTERVAL_MS
+        ) {
+          lastSnapshotHashRef.current = result.hash;
+          lastSnapshotTimeRef.current = now;
+          tauriCommands.createSnapshot(vault.path, relativePath, newContent, myUserId, myUserName)
+            .catch(() => {});
+        }
+      }
 
       // Auto-rename: keep filename in sync with the first H1 heading
       const h1 = extractFirstH1(newContent);
@@ -118,7 +171,7 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
           ref={editorRef}
           content={content}
           onChange={handleChange}
-          onSave={handleSave}
+          onSave={(c) => handleSave(c, true)}
           relativePath={relativePath}
         />
       </div>

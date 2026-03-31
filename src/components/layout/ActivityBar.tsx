@@ -1,8 +1,9 @@
-import { Files, GitFork, Layout, LayoutDashboard, Settings, PanelLeftClose, PanelLeft, LayoutGrid, Vault } from 'lucide-react';
+import { Files, GitFork, Layout, LayoutDashboard, Settings, PanelLeftClose, PanelLeft, LayoutGrid, Vault, Users2 } from 'lucide-react';
 import { AppLogo } from '../ui/AppLogo';
 import { cn } from '../../lib/utils';
 import { useUiStore, type ActiveView } from '../../store/uiStore';
 import { useEditorStore } from '../../store/editorStore';
+import { useCollabStore } from '../../store/collabStore';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 const NAV_ITEMS: { view: ActiveView; icon: React.ReactNode; label: string }[] = [
@@ -24,11 +25,12 @@ const VIEW_TAB_PATHS: Partial<Record<ActiveView, string>> = {
 export default function ActivityBar() {
   const {
     activeView, setActiveView,
-    isSidebarOpen, toggleSidebar, setSidebarPanel,
+    isSidebarOpen, toggleSidebar, setSidebarPanel, sidebarPanel,
     isSettingsOpen, openSettings, closeSettings,
     isVaultManagerOpen, openVaultManager, closeVaultManager,
   } = useUiStore();
   const { openTab } = useEditorStore();
+  const { peers } = useCollabStore();
 
   const handleNavClick = (view: ActiveView) => {
     if (view === 'editor') {
@@ -111,6 +113,35 @@ export default function ActivityBar() {
       })}
 
       <div className="flex-1" />
+
+      {/* Collab */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => {
+              setSidebarPanel('collab');
+              if (!isSidebarOpen) toggleSidebar();
+              else if (sidebarPanel === 'collab') toggleSidebar();
+            }}
+            className={cn(
+              'relative w-9 h-9 flex items-center justify-center rounded-md transition-all duration-150',
+              sidebarPanel === 'collab' && isSidebarOpen
+                ? 'activity-item-active text-primary bg-primary/10'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'
+            )}
+          >
+            <Users2 size={17} />
+            {peers.length > 0 && (
+              <span className="absolute top-1 right-1 min-w-[14px] h-[14px] bg-primary text-primary-foreground text-[9px] font-bold rounded-full flex items-center justify-center px-0.5">
+                {peers.length}
+              </span>
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="glass-strong border-border/50 text-xs text-foreground">
+          Collaboration
+        </TooltipContent>
+      </Tooltip>
 
       {/* Vault Manager */}
       <Tooltip>
