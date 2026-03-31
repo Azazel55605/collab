@@ -79,7 +79,8 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             patchelf \
-            squashfs-tools
+            squashfs-tools \
+            xdg-utils
 
       # ── Frontend ──────────────────────────────────────────────────────────
       - name: Install frontend dependencies
