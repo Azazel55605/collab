@@ -7,14 +7,6 @@ use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // On Linux, WebKitGTK's DMA-BUF renderer and GPU compositing can crash
-    // the web process (manifesting as a blank window) on certain kernel/driver
-    // combinations.  Disabling them forces software compositing which is stable.
-    #[cfg(target_os = "linux")]
-    {
-        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-        std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
-    }
 
     tauri::Builder::default()
         .manage(AppState::new())
@@ -31,10 +23,21 @@ pub fn run() {
             {
                 use tauri::Manager;
                 use gtk::prelude::*;
+                use webkit2gtk::{WebViewExt, SettingsExt};
 
                 if let Some(webview_window) = app.get_webview_window("main") {
                     webview_window.with_webview(|wv| {
                         let webview = wv.inner();
+
+                        // Force hardware acceleration so GPU compositing is active.
+                        // Required for backdrop-filter blur on Wayland/Hyprland.
+                        if let Some(settings) = WebViewExt::settings(&webview) {
+                            SettingsExt::set_hardware_acceleration_policy(
+                                &settings,
+                                webkit2gtk::HardwareAccelerationPolicy::Always,
+                            );
+                        }
+
                         unsafe {
                             let key = b"wk-view-zoom-gesture\0".as_ptr() as *const std::os::raw::c_char;
                             let gesture_ptr = glib::gobject_ffi::g_object_get_data(

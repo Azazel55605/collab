@@ -121,9 +121,12 @@ class TableWidget extends WidgetType {
 
 class HRWidget extends WidgetType {
   toDOM() {
+    const wrap = document.createElement('div');
+    wrap.className = 'cm-lp-hr-wrap';
     const el = document.createElement('div');
     el.className = 'cm-lp-hr';
-    return el;
+    wrap.appendChild(el);
+    return wrap;
   }
   ignoreEvent() { return false; }
 }

@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { EditorState, Compartment } from '@codemirror/state';
-import { useUiStore } from '../../store/uiStore';
+import { useUiStore, EDITOR_FONTS } from '../../store/uiStore';
 import {
   EditorView,
   keymap,
@@ -54,17 +54,17 @@ interface MarkdownEditorProps {
 // ─── Theme factory ────────────────────────────────────────────────────────────
 // Uses CSS variables so the editor automatically tracks the active app theme.
 
-function buildCollabTheme(dark: boolean) {
+function buildCollabTheme(dark: boolean, fontFamily: string, fontSize: number) {
   return EditorView.theme(
     {
       '&': {
         height: '100%',
-        fontSize: '14px',
-        fontFamily: "'Geist Mono Variable', 'Geist Variable', monospace",
+        fontSize: `${fontSize}px`,
+        fontFamily,
         // Match --background (not --card) so the editor blends seamlessly with the app.
         backgroundColor: 'var(--background)',
       },
-      '.cm-scroller': { overflow: 'auto', lineHeight: '1.7' },
+      '.cm-scroller': { overflow: 'auto', lineHeight: '1.7', fontFamily },
       '.cm-content': {
         // Responsive column centering: pad inward until the text column reaches
         // ~860px, but cap the left/right padding at 48px so the gap between
@@ -204,20 +204,21 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const onChangeRef = useRef(onChange);
     const onSaveRef = useRef(onSave);
     const themeCompartment = useRef(new Compartment());
-    const { theme } = useUiStore();
+    const { theme, editorFont, fontSize } = useUiStore();
+    const fontFamily = EDITOR_FONTS[editorFont].css;
 
     onChangeRef.current = onChange;
     onSaveRef.current = onSave;
 
-    // ─── Swap theme when the app theme changes ─────────────────────────────
+    // ─── Swap theme/font/size when settings change ─────────────────────────
     useEffect(() => {
       const view = viewRef.current;
       if (!view) return;
       const isDark = theme !== 'light';
       view.dispatch({
-        effects: themeCompartment.current.reconfigure(buildCollabTheme(isDark)),
+        effects: themeCompartment.current.reconfigure(buildCollabTheme(isDark, fontFamily, fontSize)),
       });
-    }, [theme]);
+    }, [theme, fontFamily, fontSize]);
 
     // ─── Expose imperative handle ─────────────────────────────────────────
 
@@ -302,8 +303,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         }
       });
 
-      const isDark = useUiStore.getState().theme !== 'light';
-      const initialTheme = themeCompartment.current.of(buildCollabTheme(isDark));
+      const uiState = useUiStore.getState();
+      const isDark = uiState.theme !== 'light';
+      const initialFont = EDITOR_FONTS[uiState.editorFont].css;
+      const initialFontSize = uiState.fontSize;
+      const initialTheme = themeCompartment.current.of(buildCollabTheme(isDark, initialFont, initialFontSize));
 
       let state: EditorState;
       try {

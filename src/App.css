@@ -153,6 +153,14 @@
   -webkit-backdrop-filter: blur(var(--glass-blur));
 }
 
+/* ─── Fallback when backdrop-filter is genuinely unsupported ─────────────── */
+/* Swap semi-transparent + blur for fully opaque theme colours.               */
+
+@supports not (backdrop-filter: blur(1px)) {
+  .glass, .glass-panel { background: var(--card); }
+  .glass-strong        { background: var(--popover); }
+}
+
 /* ─── Glow utilities ────────────────────────────────────────────────────── */
 
 .glow-primary {
@@ -206,9 +214,6 @@
 
 /* ─── Editor prose ──────────────────────────────────────────────────────── */
 
-.cm-editor-container .cm-scroller {
-  font-family: 'Geist Variable', monospace;
-}
 
 
 /* ─── Live Preview (Obsidian-style inline rendering in the editor) ───────── */
@@ -258,7 +263,7 @@
 
 /* Table widget (live preview) */
 .cm-editor .cm-lp-table-wrap {
-  margin: 0.5em 0;
+  padding: 0.5em 0;
   overflow-x: auto;
   cursor: text;
 }
@@ -284,12 +289,14 @@
 }
 
 /* HR widget */
+.cm-editor .cm-lp-hr-wrap {
+  padding: 2px 0;
+}
 .cm-editor .cm-lp-hr {
   display: block;
   height: 2px;
   background: var(--border);
   border-radius: 1px;
-  margin: 2px 0;
 }
 
 /* Math widgets */
