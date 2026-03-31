@@ -11,6 +11,8 @@ on:
 
 jobs:
   build:
+    permissions:
+      contents: write   # required to create GitHub Releases
     strategy:
       fail-fast: false
       matrix:
@@ -30,11 +32,6 @@ jobs:
           - platform:       windows-latest
             rust-target:    x86_64-pc-windows-msvc
             artifact-label: windows-x86_64
-
-          # ── macOS Intel ──────────────────────────────────────────────────
-          - platform:       macos-13
-            rust-target:    x86_64-apple-darwin
-            artifact-label: mac-intel
 
           # ── macOS Apple Silicon ──────────────────────────────────────────
           - platform:       macos-latest   # macos-14+ = M1 runner
