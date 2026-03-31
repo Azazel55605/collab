@@ -88,20 +88,33 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # ── Tauri build ───────────────────────────────────────────────────────
+      # Using pnpm directly instead of tauri-apps/tauri-action to avoid its
+      # hardcoded runner-name allowlist breaking on renamed GitHub runner labels
+      # (e.g. macos-13 → macos-13-us-default).
       - name: Build
-        uses: tauri-apps/tauri-action@v0
+        run: pnpm tauri build --target ${{ matrix.rust-target }}
+
+      # ── Publish GitHub Release (tag pushes only) ───────────────────────────
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft:      true
+          prerelease: false
+          name:       'collab ${{ github.ref_name }}'
+          body:       'See CHANGELOG for details.'
+          files: |
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.deb
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.rpm
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.msi
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.exe
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.dmg
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.app.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName:        ${{ github.ref_name }}
-          releaseName:    'collab ${{ github.ref_name }}'
-          releaseBody:    'See CHANGELOG for details.'
-          releaseDraft:   true
-          prerelease:     false
-          args:           --target ${{ matrix.rust-target }}
 
-      # ── Collect artifacts ─────────────────────────────────────────────────
-      # Bundle outputs land in src-tauri/target/<triple>/release/bundle/
+      # ── Collect artifacts (all runs) ───────────────────────────────────────
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
