@@ -26,7 +26,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIzNDBEMUU5NTE1RjdFNzIKUldSeWZsOVI2ZEZBc3hIN0VVUlVkWllvK2JFeWhzRSttMXNwRWsrY2JDZFZnREN2YjZ5Y21ZcmMK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ0MEQwRUZGRUU2NzFGMUIKUldRYkgyZnUvdzROUk9heXVVRlJyR2NzUGh2YU1rWDQ2dS9ZV2xoa0hYdElJYXFEMjRXQUZ6ekwK",
       "endpoints": [
         "https://github.com/Azazel55605/collab/releases/latest/download/latest.json"
       ]
