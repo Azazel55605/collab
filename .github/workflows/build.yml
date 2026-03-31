@@ -87,11 +87,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # ── Tauri build ───────────────────────────────────────────────────────
-      # Using pnpm directly instead of tauri-apps/tauri-action to avoid its
-      # hardcoded runner-name allowlist breaking on renamed GitHub runner labels
-      # (e.g. macos-13 → macos-13-us-default).
+      # TAURI_SIGNING_PRIVATE_KEY is required by tauri-plugin-updater to sign
+      # each bundle. The .sig files it produces are uploaded alongside installers
+      # and referenced in latest.json so the in-app updater can verify downloads.
       - name: Build
         run: pnpm tauri build --target ${{ matrix.rust-target }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       # ── Publish GitHub Release (tag pushes only) ───────────────────────────
       - name: Release
@@ -106,10 +109,14 @@ jobs:
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.deb
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.rpm
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage.sig
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.msi
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.msi.sig
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.exe
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.exe.sig
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.dmg
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.app.tar.gz
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.app.tar.gz.sig
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -123,7 +130,94 @@ jobs:
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.deb
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.rpm
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage.sig
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.msi
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.msi.sig
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.exe
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.exe.sig
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.dmg
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.app.tar.gz
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.app.tar.gz.sig
+
+  # ── Update manifest ─────────────────────────────────────────────────────────
+  # Runs after all matrix builds finish. Downloads their artifacts, generates
+  # latest.json (required by tauri-plugin-updater), and uploads it to the release.
+  publish:
+    name: Publish update manifest
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate latest.json
+        run: |
+          cat > gen_manifest.mjs << 'SCRIPT'
+          import fs   from 'fs';
+          import path from 'path';
+
+          const tag     = process.env.TAG;
+          const version = tag.replace(/^v/, '');
+          const repo    = process.env.GITHUB_REPOSITORY;
+          const baseUrl = `https://github.com/${repo}/releases/download/${tag}`;
+
+          // Find the first file under `dir` whose name matches `pattern`.
+          function findFile(dir, pattern) {
+            if (!fs.existsSync(dir)) return null;
+            for (const rel of fs.readdirSync(dir, { recursive: true })) {
+              if (pattern.test(String(rel))) return path.join(dir, String(rel));
+            }
+            return null;
+          }
+
+          // artifact-label → Tauri platform key + file patterns
+          const PLATFORMS = {
+            'linux-x86_64':  { artifact: 'linux-x86_64',     file: /\.AppImage$/,          sig: /\.AppImage\.sig$/ },
+            'linux-aarch64': { artifact: 'linux-aarch64',    file: /\.AppImage$/,          sig: /\.AppImage\.sig$/ },
+            'windows-x86_64':{ artifact: 'windows-x86_64',   file: /-setup\.exe$|\.msi$/,  sig: /-setup\.exe\.sig$|\.msi\.sig$/ },
+            'darwin-aarch64':{ artifact: 'mac-apple-silicon', file: /\.app\.tar\.gz$/,      sig: /\.app\.tar\.gz\.sig$/ },
+          };
+
+          const manifest = {
+            version,
+            notes:    '',
+            pub_date: new Date().toISOString(),
+            platforms: {},
+          };
+
+          for (const [platform, cfg] of Object.entries(PLATFORMS)) {
+            const dir       = path.join('artifacts', cfg.artifact);
+            const installer = findFile(dir, cfg.file);
+            const sigFile   = findFile(dir, cfg.sig);
+
+            if (!installer || !sigFile) {
+              console.warn(`Skipping ${platform}: files not found under ${dir}`);
+              continue;
+            }
+
+            manifest.platforms[platform] = {
+              url:       `${baseUrl}/${path.basename(installer)}`,
+              signature: fs.readFileSync(sigFile, 'utf8').trim(),
+            };
+            console.log(`  ${platform}: ${path.basename(installer)}`);
+          }
+
+          fs.writeFileSync('latest.json', JSON.stringify(manifest, null, 2));
+          console.log('latest.json written.');
+          SCRIPT
+          node gen_manifest.mjs
+        env:
+          TAG: ${{ github.ref_name }}
+
+      - name: Upload latest.json to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

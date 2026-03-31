@@ -27,6 +27,7 @@
     "@tauri-apps/plugin-dialog": "^2",
     "@tauri-apps/plugin-fs": "^2",
     "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-updater": "^2",
     "@types/dompurify": "^3.2.0",
     "@types/katex": "^0.16.8",
     "@types/markdown-it": "^14.1.2",

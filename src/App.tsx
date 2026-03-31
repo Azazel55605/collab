@@ -10,6 +10,8 @@ import VaultManagerModal from './components/vault/VaultManagerModal';
 import VaultUnlockModal from './components/vault/VaultUnlockModal';
 import { Toaster } from './components/ui/sonner';
 import { tauriCommands } from './lib/tauri';
+import { useUpdateStore } from './store/updateStore';
+import { toast } from 'sonner';
 
 /** Theme-base CSS overrides applied on top of the default dark palette */
 const THEME_VARS: Record<string, Record<string, string>> = {
@@ -82,6 +84,7 @@ const THEME_VARS: Record<string, Record<string, string>> = {
 export default function App() {
   const { vault, isVaultLocked } = useVaultStore();
   const { theme, accentColor, editorFont, fontSize, scale, isSettingsOpen, isVaultManagerOpen } = useUiStore();
+  const { checkForUpdate } = useUpdateStore();
 
   // Apply theme class + CSS variables whenever settings change
   useEffect(() => {
@@ -146,6 +149,25 @@ export default function App() {
       document.removeEventListener('gesturestart', blockGesture, { capture: true } as EventListenerOptions);
       document.removeEventListener('gesturechange', blockGesture, { capture: true } as EventListenerOptions);
     };
+  }, []);
+
+  // Background update check: runs 3 s after startup, then every 6 hours.
+  useEffect(() => {
+    const run = async () => {
+      await checkForUpdate();
+      // Read latest state after the async call resolves
+      const { status, updateInfo } = useUpdateStore.getState();
+      if (status === 'available') {
+        toast.info(`Update available: v${updateInfo?.version}`, {
+          description: 'Open Settings → About to install.',
+          duration: 8000,
+        });
+      }
+    };
+
+    const timeout = setTimeout(run, 3000);
+    const interval = setInterval(run, 6 * 60 * 60 * 1000);
+    return () => { clearTimeout(timeout); clearInterval(interval); };
   }, []);
 
   // Apply HiDPI zoom. Routes through set_ui_zoom so the Rust side records the

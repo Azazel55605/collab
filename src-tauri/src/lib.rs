@@ -10,6 +10,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(AppState::new())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -101,6 +102,9 @@ pub fn run() {
             commands::crypto::enable_vault_encryption,
             commands::crypto::disable_vault_encryption,
             commands::crypto::change_vault_password,
+            // update
+            commands::update::check_for_update,
+            commands::update::download_and_install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

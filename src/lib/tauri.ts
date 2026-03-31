@@ -5,6 +5,7 @@ export const getAppVersion = getVersion;
 import type { VaultMeta, NoteFile, NoteContent, WriteResult, VaultConfig } from '../types/vault';
 import type { NoteMetadata, SearchResult } from '../types/note';
 import type { PresenceEntry } from '../types/collab';
+import type { UpdateInfo } from '../store/updateStore';
 
 export const tauriCommands = {
   // Vault
@@ -44,6 +45,10 @@ export const tauriCommands = {
 
   // UI
   setUiZoom: (zoom: number) => invoke<void>('set_ui_zoom', { zoom }),
+
+  // Update
+  checkForUpdate: () => invoke<UpdateInfo>('check_for_update'),
+  downloadAndInstall: () => invoke<void>('download_and_install_update'),
 
   // Collab
   writePresence: (vaultPath: string, userId: string, entry: PresenceEntry) =>

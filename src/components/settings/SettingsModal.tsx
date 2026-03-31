@@ -13,9 +13,11 @@ import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
 import {
-  Palette, Type, User, Sun, Moon, Sunset, Check, Monitor,
+  Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import AboutTab from './AboutTab';
+import { useUpdateStore } from '../../store/updateStore';
 
 // ─── Section helpers ─────────────────────────────────────────────────────────
 
@@ -80,6 +82,7 @@ const TABS = [
   { id: 'editor',     label: 'Editor',     icon: <Type     size={15} /> },
   { id: 'display',    label: 'Display',    icon: <Monitor  size={15} /> },
   { id: 'profile',    label: 'Profile',    icon: <User     size={15} /> },
+  { id: 'about',      label: 'About',      icon: <Info     size={15} /> },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -98,6 +101,7 @@ export default function SettingsModal() {
   } = useUiStore();
 
   const { myUserName, myUserColor, myUserId, setMyProfile } = useCollabStore();
+  const { status: updateStatus } = useUpdateStore();
   const [activeTab, setActiveTab] = useState<TabId>('appearance');
   const [name, setName] = useState(myUserName);
   const [appVersion, setAppVersion] = useState<string>('…');
@@ -125,7 +129,7 @@ export default function SettingsModal() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all text-left',
+                  'relative flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all text-left',
                   activeTab === tab.id
                     ? 'bg-primary/15 text-primary font-medium'
                     : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
@@ -133,6 +137,9 @@ export default function SettingsModal() {
               >
                 {tab.icon}
                 {tab.label}
+                {tab.id === 'about' && updateStatus === 'available' && (
+                  <span className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-orange-400" />
+                )}
               </button>
             ))}
           </nav>
@@ -354,6 +361,9 @@ export default function SettingsModal() {
                 </div>
               </div>
             )}
+
+            {/* ── About ── */}
+            {activeTab === 'about' && <AboutTab />}
 
           </div>
         </div>
