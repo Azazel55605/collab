@@ -13,8 +13,17 @@ fn now_ms() -> u64 {
 }
 
 fn recents_path() -> Result<std::path::PathBuf, String> {
-    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
-    let dir = std::path::Path::new(&home).join(".config").join("collab");
+    // Use platform-appropriate config directory:
+    //   Linux/macOS: $HOME/.config/collab
+    //   Windows:     %APPDATA%\collab  (falls back to %USERPROFILE%\.config\collab)
+    let dir = if let Ok(appdata) = std::env::var("APPDATA") {
+        std::path::PathBuf::from(appdata).join("collab")
+    } else {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map_err(|_| "Cannot determine home directory".to_string())?;
+        std::path::Path::new(&home).join(".config").join("collab")
+    };
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join("recents.json"))
 }
