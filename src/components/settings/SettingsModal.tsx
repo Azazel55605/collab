@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getAppVersion } from '../../lib/tauri';
 import {
   useUiStore,
   ACCENT_COLORS, EDITOR_FONTS, FONT_SIZE_OPTIONS, SCALE_OPTIONS,
@@ -99,6 +100,8 @@ export default function SettingsModal() {
   const { myUserName, myUserColor, myUserId, setMyProfile } = useCollabStore();
   const [activeTab, setActiveTab] = useState<TabId>('appearance');
   const [name, setName] = useState(myUserName);
+  const [appVersion, setAppVersion] = useState<string>('…');
+  useEffect(() => { getAppVersion().then(setAppVersion).catch(() => setAppVersion('?')); }, []);
 
   const THEMES: { id: Theme; label: string; icon: React.ReactNode; desc: string }[] = [
     { id: 'dark',     label: 'Dark',     icon: <Moon   size={16} />, desc: 'Deep dark with blue tint' },
@@ -358,7 +361,7 @@ export default function SettingsModal() {
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-3 border-t border-border/40 bg-muted/10">
           <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="text-[10px] font-mono">collab v0.1.0</Badge>
+            <Badge variant="secondary" className="text-[10px] font-mono">collab v{appVersion}</Badge>
           </div>
           <Button size="sm" variant="outline" onClick={closeSettings} className="h-7 text-xs">
             Close

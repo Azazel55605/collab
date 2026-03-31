@@ -1,4 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
+import { getVersion } from '@tauri-apps/api/app';
+
+export const getAppVersion = getVersion;
 import type { VaultMeta, NoteFile, NoteContent, WriteResult, VaultConfig } from '../types/vault';
 import type { NoteMetadata, SearchResult } from '../types/note';
 import type { PresenceEntry } from '../types/collab';
