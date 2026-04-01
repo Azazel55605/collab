@@ -32,7 +32,9 @@ import {
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { GFM } from '@lezer/markdown';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
+import { useEditorStore } from '../../store/editorStore';
 import { livePreviewPlugin } from './livePreview';
+import { openUrl, openPath } from '@tauri-apps/plugin-opener';
 import 'katex/dist/katex.min.css';
 
 export interface MarkdownEditorHandle {
@@ -127,12 +129,20 @@ function buildCollabTheme(dark: boolean, fontFamily: string, fontSize: number) {
         minWidth: '2.5em',
         textAlign: 'right',
       },
-      '.cm-activeLine': { backgroundColor: 'oklch(from var(--foreground) l c h / 4%)' },
+      // Ligatures on the active line break CodeMirror's cursor-position math
+      // (a merged glyph like → is wider than the sum of its characters).
+      // Disabling them only on the line being edited keeps ligatures visible
+      // everywhere else while the cursor stays accurate where it matters.
+      '.cm-activeLine': {
+        backgroundColor: 'oklch(from var(--foreground) l c h / 4%)',
+        fontVariantLigatures: 'none',
+        fontFeatureSettings: '"liga" 0, "calt" 0',
+      },
       '.cm-activeLineGutter': { backgroundColor: 'transparent' },
       '.cm-strong': { fontWeight: 'bold' },
       '.cm-em': { fontStyle: 'italic' },
       '.cm-link': { color: 'var(--primary)', textDecoration: 'underline' },
-      '.cm-url': { color: 'var(--muted-foreground)' },
+      '.cm-url':  { color: 'color-mix(in oklch, var(--primary) 70%, var(--muted-foreground))' },
       '.cm-code': { fontFamily: 'monospace' },
       '.cm-strikethrough': { textDecoration: 'line-through' },
 
@@ -289,6 +299,51 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         return true;
       };
 
+      // ── Link click handler ────────────────────────────────────────────────
+      // Uses mousedown (not click) so we can return true and prevent CM6 from
+      // placing the cursor — CM's own cursor-placement also runs on mousedown,
+      // and domEventHandlers run before the view's internal handlers.
+      // livePreview.ts stores the URL/path in data-url / data-path attributes
+      // on the decoration span, so we can read them directly.
+      // Stores are accessed via .getState() (not hooks) since this runs outside React.
+      const linkClickHandler = EditorView.domEventHandlers({
+        mousedown(event, _view) {
+          if (event.button !== 0) return false; // left-click only
+          const target = event.target as Element;
+          const wikiEl = target.closest('.cm-lp-wikilink') as HTMLElement | null;
+          const linkEl = target.closest('.cm-lp-link')     as HTMLElement | null;
+          if (!wikiEl && !linkEl) return false;
+
+          event.preventDefault();
+
+          if (wikiEl) {
+            const path = wikiEl.dataset.path;
+            if (!path) return true;
+            const stem  = path.split('/').pop()!.replace(/\.md$/i, '');
+            const notes = useNoteIndexStore.getState().notes;
+            const found = notes.find(n => {
+              const s = n.relativePath.split('/').pop()!.replace(/\.md$/i, '');
+              return s.toLowerCase() === stem.toLowerCase();
+            });
+            if (found) {
+              useEditorStore.getState().openTab(found.relativePath, found.title ?? stem, 'note');
+              useUiStore.getState().setActiveView('editor');
+            }
+            return true;
+          }
+
+          if (linkEl) {
+            const url = linkEl.dataset.url;
+            if (!url) return true;
+            if (/^https?:\/\//i.test(url)) void openUrl(url);
+            else void openPath(url);
+            return true;
+          }
+
+          return false;
+        },
+      });
+
       const saveKeymap = keymap.of([
         { key: 'Mod-s', run: (view) => { onSaveRef.current(view.state.doc.toString()); return true; } },
         { key: 'Mod-b', run: wrapBold },
@@ -373,6 +428,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
               ...searchKeymap,
               indentWithTab,
             ]),
+            linkClickHandler,
             saveKeymap,
             updateListener,
             initialTheme,

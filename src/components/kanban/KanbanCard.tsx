@@ -3,13 +3,14 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
   MessageSquare, Paperclip, Calendar,
-  ArrowUp, ArrowRight, ArrowDown, CheckCircle2, Circle,
+  ArrowUp, ArrowRight, ArrowDown, CheckCircle2, Circle, FolderInput,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useKanbanContext } from '../../views/KanbanPage';
 import { useUiStore, formatDate } from '../../store/uiStore';
-import type { KanbanCard } from '../../types/kanban';
+import type { KanbanCard, KanbanColumn } from '../../types/kanban';
 import CardDialog from './CardDialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 
 const PRIORITY_BADGE: Record<NonNullable<KanbanCard['priority']>, { label: string; cls: string; icon: React.ReactNode }> = {
   high:   { label: 'High',   cls: 'bg-red-500/20 text-red-400 border-red-500/30',         icon: <ArrowUp    size={9} /> },
@@ -24,9 +25,12 @@ interface Props {
 }
 
 export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
-  const { knownUsers, updateBoard } = useKanbanContext();
+  const { knownUsers, updateBoard, board } = useKanbanContext();
   const { dateFormat } = useUiStore();
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogOpen,    setDialogOpen]    = useState(false);
+  const [destPicker,    setDestPicker]    = useState<KanbanColumn[] | null>(null);
+
+  const colColor = board.columns.find(c => c.id === columnId)?.color ?? '#64748b';
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: card.id });
@@ -46,15 +50,45 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
   const checklistDone    = card.checklist?.filter(i => i.checked).length ?? 0;
   const checklistPercent = checklistTotal > 0 ? (checklistDone / checklistTotal) * 100 : 0;
 
+  function moveCardToDest(destColId: string) {
+    updateBoard(prev => {
+      const cols = prev.columns.map(c => ({ ...c, cards: [...c.cards] }));
+      const src  = cols.find(c => c.id === columnId);
+      const dst  = cols.find(c => c.id === destColId);
+      if (!src || !dst) return prev;
+      const idx = src.cards.findIndex(c => c.id === card.id);
+      if (idx === -1) return prev;
+      const [moved] = src.cards.splice(idx, 1);
+      dst.cards.push({ ...moved, isDone: true });
+      return { ...prev, columns: cols };
+    });
+    setDestPicker(null);
+  }
+
   function toggleDone(e: React.MouseEvent) {
     e.stopPropagation();
     if (isOverlay) return;
+
+    const willBeDone = !card.isDone;
+
+    if (willBeDone) {
+      const dests = board.columns.filter(c => c.isDoneDestination && c.id !== columnId);
+      if (dests.length === 1) {
+        moveCardToDest(dests[0].id);
+        return;
+      }
+      if (dests.length > 1) {
+        setDestPicker(dests);
+        return;
+      }
+    }
+
     updateBoard(prev => ({
       ...prev,
       columns: prev.columns.map(col =>
         col.id !== columnId ? col : {
           ...col,
-          cards: col.cards.map(c => c.id !== card.id ? c : { ...c, isDone: !c.isDone }),
+          cards: col.cards.map(c => c.id !== card.id ? c : { ...c, isDone: willBeDone }),
         },
       ),
     }));
@@ -108,11 +142,14 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
             <button
               onPointerDown={e => e.stopPropagation()}
               onClick={toggleDone}
-              className="shrink-0 mt-0.5 text-muted-foreground/40 hover:text-green-400 transition-colors"
+              className="shrink-0 mt-0.5 text-muted-foreground/40 transition-colors"
+              style={card.isDone ? undefined : { '--tw-hover-color': colColor } as React.CSSProperties}
+              onMouseEnter={e => !card.isDone && ((e.currentTarget as HTMLElement).style.color = colColor)}
+              onMouseLeave={e => !card.isDone && ((e.currentTarget as HTMLElement).style.color = '')}
               title={card.isDone ? 'Mark incomplete' : 'Mark done'}
             >
               {card.isDone
-                ? <CheckCircle2 size={14} className="text-green-400" />
+                ? <CheckCircle2 size={14} style={{ color: colColor }} />
                 : <Circle size={14} />
               }
             </button>
@@ -129,8 +166,12 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
             <div className="mt-2 flex items-center gap-1.5">
               <div className="flex-1 h-1 bg-muted/40 rounded-full overflow-hidden">
                 <div
-                  className={cn('h-full rounded-full transition-all', checklistPercent === 100 ? 'bg-green-500/70' : 'bg-primary/50')}
-                  style={{ width: `${checklistPercent}%` }}
+                  className={cn('h-full rounded-full transition-all', checklistPercent < 100 && 'bg-primary/50')}
+                  style={{
+                    width: `${checklistPercent}%`,
+                    backgroundColor: checklistPercent === 100 ? colColor : undefined,
+                    opacity: checklistPercent === 100 ? 0.75 : undefined,
+                  }}
                 />
               </div>
               <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
@@ -187,6 +228,52 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
 
       {dialogOpen && (
         <CardDialog card={card} columnId={columnId} onClose={() => setDialogOpen(false)} />
+      )}
+
+      {/* Done-destination picker — shown when multiple done-destination columns exist */}
+      {destPicker && (
+        <Dialog open onOpenChange={() => setDestPicker(null)}>
+          <DialogContent className="sm:max-w-xs w-full p-0 gap-0">
+            <DialogHeader className="px-4 py-3 border-b border-border/30">
+              <DialogTitle className="text-sm font-semibold flex items-center gap-2">
+                <FolderInput size={13} className="text-blue-400" />
+                Move to done column
+              </DialogTitle>
+            </DialogHeader>
+            <div className="flex flex-col py-1">
+              {destPicker.map(col => (
+                <button
+                  key={col.id}
+                  onClick={() => moveCardToDest(col.id)}
+                  className="flex items-center gap-2.5 px-4 py-2 text-sm text-left hover:bg-accent/40 transition-colors"
+                >
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: col.color ?? '#64748b' }} />
+                  <span className="flex-1 truncate">{col.title}</span>
+                  <span className="text-[10px] text-muted-foreground tabular-nums">{col.cards.length}</span>
+                </button>
+              ))}
+              <div className="border-t border-border/20 mt-1 pt-1">
+                <button
+                  onClick={() => {
+                    setDestPicker(null);
+                    updateBoard(prev => ({
+                      ...prev,
+                      columns: prev.columns.map(col =>
+                        col.id !== columnId ? col : {
+                          ...col,
+                          cards: col.cards.map(c => c.id !== card.id ? c : { ...c, isDone: true }),
+                        },
+                      ),
+                    }));
+                  }}
+                  className="w-full px-4 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors text-left"
+                >
+                  Keep here (just mark done)
+                </button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </>
   );

@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { format } from 'date-fns';
 import {
   X, Paperclip, Calendar, Tag, Users, MessageSquare,
   Trash2, Flag, ExternalLink, Send, ListChecks,
@@ -9,10 +10,11 @@ import { useKanbanContext } from '../../views/KanbanPage';
 import { useCollabStore } from '../../store/collabStore';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useEditorStore } from '../../store/editorStore';
-import { useUiStore } from '../../store/uiStore';
+import { useUiStore, formatDate } from '../../store/uiStore';
 import type { KanbanCard, KanbanComment, ChecklistItem } from '../../types/kanban';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Calendar as CalendarUI } from '../ui/calendar';
 import {
   Command, CommandEmpty, CommandGroup, CommandInput,
   CommandItem, CommandList,
@@ -44,7 +46,7 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
   const { myUserId, myUserName, myUserColor } = useCollabStore();
   const { notes }         = useNoteIndexStore();
   const { openTab }       = useEditorStore();
-  const { setActiveView } = useUiStore();
+  const { setActiveView, dateFormat } = useUiStore();
 
   const [draft, setDraft] = useState<KanbanCard>({
     ...initialCard,
@@ -53,8 +55,11 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const [tagInput,        setTagInput]        = useState('');
+  const [tagInputFocused, setTagInputFocused] = useState(false);
   const [commentInput,    setCommentInput]     = useState('');
   const [checklistInput,  setChecklistInput]   = useState('');
+  const [startDateOpen,   setStartDateOpen]    = useState(false);
+  const [dueDateOpen,     setDueDateOpen]      = useState(false);
   const [notePickerOpen,  setNotePickerOpen]   = useState(false);
   const [cardPickerOpen,  setCardPickerOpen]   = useState(false);
   const [confirmDelete,   setConfirmDelete]    = useState(false);
@@ -227,22 +232,37 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
   const checklistDone  = draft.checklist.filter(i => i.checked).length;
   const checklistTotal = draft.checklist.length;
 
+  // All unique tags from the board (cards + column defaults), excluding ones already on this card
+  const suggestedTags = useMemo(() => {
+    const all = new Set<string>();
+    for (const col of board.columns) {
+      for (const c of col.cards) c.tags.forEach(t => all.add(t));
+      for (const t of col.defaultTags ?? []) all.add(t);
+    }
+    return [...all]
+      .filter(t => !draft.tags.includes(t))
+      .filter(t => !tagInput || t.toLowerCase().includes(tagInput.toLowerCase()))
+      .sort();
+  }, [board, draft.tags, tagInput]);
+
+  const showTagSuggestions = tagInputFocused && suggestedTags.length > 0;
+
 
   return (
     <Dialog open onOpenChange={open => !open && onClose()}>
-      <DialogContent className="sm:max-w-2xl w-full max-h-[88vh] overflow-hidden flex flex-col p-0 gap-0">
+      <DialogContent className="sm:max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col p-0 gap-0">
 
         {/* ── Title row ─────────────────────────────────────────────────── */}
-        <div className="flex items-start gap-2 px-5 pt-5 pb-1 shrink-0">
+        <div className="flex items-start gap-2.5 px-5 pt-5 pb-2 pr-12 shrink-0">
           {/* Done toggle */}
           <button
             onClick={toggleDone}
-            className="shrink-0 mt-1 transition-colors"
+            className="shrink-0 mt-0 transition-colors"
             title={draft.isDone ? 'Mark incomplete' : 'Mark done'}
           >
             {draft.isDone
               ? <CheckCircle2 size={18} className="text-green-400" />
-              : <Circle size={18} className="text-muted-foreground/50 hover:text-green-400" />
+              : <Circle size={18} className="text-muted-foreground/40 hover:text-green-400" />
             }
           </button>
 
@@ -253,31 +273,10 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
             rows={1}
             placeholder="Card title"
             className={cn(
-              'flex-1 bg-transparent text-base font-semibold text-foreground resize-none focus:outline-none leading-tight overflow-hidden min-w-0',
+              'flex-1 bg-transparent text-lg font-semibold text-foreground resize-none focus:outline-none leading-tight overflow-hidden min-w-0 p-0',
               draft.isDone && 'line-through text-muted-foreground',
             )}
           />
-
-          <div className="flex items-center gap-1 shrink-0">
-            {confirmDelete ? (
-              <>
-                <span className="text-xs text-muted-foreground mr-1">Delete?</span>
-                <button onClick={deleteCard} className="text-xs px-2 py-1 bg-destructive/20 hover:bg-destructive/30 text-destructive rounded transition-colors">
-                  Yes
-                </button>
-                <button onClick={() => setConfirmDelete(false)} className="text-xs px-2 py-1 text-muted-foreground hover:text-foreground rounded transition-colors">
-                  No
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setConfirmDelete(true)}
-                className="p-1.5 rounded text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-colors"
-              >
-                <Trash2 size={14} />
-              </button>
-            )}
-          </div>
         </div>
 
         {/* ── Body ──────────────────────────────────────────────────────── */}
@@ -291,7 +290,7 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
               <textarea
                 value={draft.description ?? ''}
                 onChange={e => patchDraft({ description: e.target.value || undefined })}
-                rows={3}
+                rows={6}
                 placeholder="Add a description..."
                 className="w-full bg-muted/25 border border-border/30 rounded-md text-sm text-foreground p-2.5 resize-none focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground/40"
               />
@@ -308,15 +307,40 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
                   </span>
                 ))}
               </div>
-              <div className="flex gap-2">
-                <input
-                  value={tagInput}
-                  onChange={e => setTagInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } }}
-                  placeholder="Type tag, press Enter"
-                  className="flex-1 bg-muted/25 border border-border/30 rounded text-xs text-foreground px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground/40"
-                />
-                <button onClick={addTag} className="text-xs px-3 py-1.5 bg-primary/15 hover:bg-primary/25 text-primary rounded transition-colors">
+              <div className="relative flex gap-2">
+                <div className="flex-1 relative">
+                  <input
+                    value={tagInput}
+                    onChange={e => setTagInput(e.target.value)}
+                    onFocus={() => setTagInputFocused(true)}
+                    onBlur={() => setTimeout(() => setTagInputFocused(false), 150)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); }
+                      if (e.key === 'Escape') setTagInputFocused(false);
+                    }}
+                    placeholder="Type tag, press Enter"
+                    className="w-full bg-muted/25 border border-border/30 rounded text-xs text-foreground px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground/40"
+                  />
+                  {showTagSuggestions && (
+                    <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-popover border border-border/50 rounded-md shadow-lg overflow-hidden max-h-40 overflow-y-auto">
+                      {suggestedTags.map(tag => (
+                        <button
+                          key={tag}
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => {
+                            patchDraft({ tags: [...draft.tags, tag] });
+                            setTagInput('');
+                            setTagInputFocused(false);
+                          }}
+                          className="w-full text-left text-xs px-2.5 py-1.5 hover:bg-accent/60 transition-colors text-foreground/80"
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button onClick={addTag} className="text-xs px-3 py-1.5 bg-primary/15 hover:bg-primary/25 text-primary rounded transition-colors shrink-0">
                   Add
                 </button>
               </div>
@@ -574,7 +598,7 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
           </div>
 
           {/* ── Sidebar: metadata ────────────────────────────────────────── */}
-          <div className="w-48 shrink-0 border-l border-border/30 overflow-y-auto px-4 py-3 flex flex-col gap-4">
+          <div className="w-52 shrink-0 border-l border-border/30 overflow-y-auto px-4 py-3 flex flex-col gap-4">
 
             {/* Priority */}
             <section>
@@ -600,31 +624,67 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
             {/* Start date */}
             <section>
               <label className="section-label flex items-center gap-1"><Calendar size={11} /> Start date</label>
-              <input
-                type="date"
-                value={draft.startDate ?? ''}
-                onChange={e => patchDraft({ startDate: e.target.value || undefined })}
-                className="w-full bg-muted/25 border border-border/30 rounded text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/40 [color-scheme:dark]"
-              />
-              {!draft.startDate && (
-                <p className="text-[10px] text-muted-foreground/40 mt-0.5">Defaults to creation date</p>
-              )}
+              <Popover open={startDateOpen} onOpenChange={setStartDateOpen}>
+                <PopoverTrigger asChild>
+                  <button className={cn(
+                    'w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded border text-xs text-left transition-colors',
+                    'bg-muted/25 border-border/30 hover:border-border/60 focus:outline-none',
+                    draft.startDate ? 'text-foreground' : 'text-muted-foreground/50',
+                  )}>
+                    <Calendar size={10} className="shrink-0" />
+                    {draft.startDate
+                      ? formatDate(new Date(draft.startDate + 'T12:00:00'), dateFormat)
+                      : 'Pick a date'}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-auto p-0" sideOffset={4}>
+                  <CalendarUI
+                    mode="single"
+                    selected={draft.startDate ? new Date(draft.startDate + 'T12:00:00') : undefined}
+                    onSelect={d => {
+                      patchDraft({ startDate: d ? format(d, 'yyyy-MM-dd') : undefined });
+                      setStartDateOpen(false);
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
               {draft.startDate && (
                 <button onClick={() => patchDraft({ startDate: undefined })} className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors mt-0.5">
                   Clear
                 </button>
+              )}
+              {!draft.startDate && !draft.dueDate && (
+                <p className="text-[10px] text-muted-foreground/40 mt-0.5">No date — hidden from Calendar & Timeline</p>
               )}
             </section>
 
             {/* Due date */}
             <section>
               <label className="section-label flex items-center gap-1"><Calendar size={11} /> Due date</label>
-              <input
-                type="date"
-                value={draft.dueDate ?? ''}
-                onChange={e => patchDraft({ dueDate: e.target.value || undefined })}
-                className="w-full bg-muted/25 border border-border/30 rounded text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/40 [color-scheme:dark]"
-              />
+              <Popover open={dueDateOpen} onOpenChange={setDueDateOpen}>
+                <PopoverTrigger asChild>
+                  <button className={cn(
+                    'w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded border text-xs text-left transition-colors',
+                    'bg-muted/25 border-border/30 hover:border-border/60 focus:outline-none',
+                    draft.dueDate ? 'text-foreground' : 'text-muted-foreground/50',
+                  )}>
+                    <Calendar size={10} className="shrink-0" />
+                    {draft.dueDate
+                      ? formatDate(new Date(draft.dueDate + 'T12:00:00'), dateFormat)
+                      : 'Pick a date'}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-auto p-0" sideOffset={4}>
+                  <CalendarUI
+                    mode="single"
+                    selected={draft.dueDate ? new Date(draft.dueDate + 'T12:00:00') : undefined}
+                    onSelect={d => {
+                      patchDraft({ dueDate: d ? format(d, 'yyyy-MM-dd') : undefined });
+                      setDueDateOpen(false);
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
               {draft.dueDate && (
                 <button onClick={() => patchDraft({ dueDate: undefined })} className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors mt-0.5">
                   Clear date
@@ -656,6 +716,37 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
                     );
                   })}
                 </div>
+              )}
+            </section>
+
+            {/* Delete — bottom of sidebar */}
+            <section className="mt-auto pt-3 border-t border-border/20">
+              {confirmDelete ? (
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-[11px] text-muted-foreground">Delete this card?</p>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={deleteCard}
+                      className="flex-1 text-xs px-2 py-1.5 bg-destructive/20 hover:bg-destructive/30 text-destructive rounded transition-colors"
+                    >
+                      Yes, delete
+                    </button>
+                    <button
+                      onClick={() => setConfirmDelete(false)}
+                      className="text-xs px-2 py-1.5 text-muted-foreground hover:text-foreground rounded transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="w-full flex items-center gap-1.5 text-xs px-2 py-1.5 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 rounded transition-colors"
+                >
+                  <Trash2 size={12} />
+                  Delete card
+                </button>
               )}
             </section>
           </div>

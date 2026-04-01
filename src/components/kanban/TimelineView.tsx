@@ -99,7 +99,13 @@ export default function TimelineView() {
 
   // Active users
   const flatCards = useMemo(() =>
-    board.columns.flatMap(col => col.cards.map(card => ({ card, columnId: col.id }))),
+    board.columns
+      .filter(col => !col.hideFromTimeline)
+      .flatMap(col =>
+        col.cards
+          .filter(card => card.startDate || card.dueDate)
+          .map(card => ({ card, columnId: col.id })),
+      ),
   [board]);
 
   const activeUsers = useMemo(() => {
@@ -140,7 +146,7 @@ export default function TimelineView() {
 
   function effStart(card: KanbanCard): Date {
     if (card.startDate) return parseLocal(card.startDate);
-    if (card.createdAt) return toDateOnly(card.createdAt);
+    if (card.dueDate)   return parseLocal(card.dueDate);
     return today;
   }
   function effEnd(card: KanbanCard): Date {
@@ -243,12 +249,16 @@ export default function TimelineView() {
   // ── Render ───────────────────────────────────────────────────────────────────
 
   const visibleGroups = board.columns
-    .map(col => ({
-      col,
-      cards: filterUser
-        ? col.cards.filter(c => c.assignees.includes(filterUser))
-        : col.cards,
-    }))
+    .filter(col => !col.hideFromTimeline)
+    .map(col => {
+      const datedCards = col.cards.filter(c => c.startDate || c.dueDate);
+      return {
+        col,
+        cards: filterUser
+          ? datedCards.filter(c => c.assignees.includes(filterUser))
+          : datedCards,
+      };
+    })
     .filter(g => g.cards.length > 0);
 
   return (

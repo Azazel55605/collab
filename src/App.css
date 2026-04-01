@@ -187,7 +187,9 @@
 /* ─── Kanban / shared form utilities ───────────────────────────────────── */
 
 .section-label {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 11px;
   font-weight: 600;
   color: var(--muted-foreground);

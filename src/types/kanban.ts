@@ -30,11 +30,17 @@ export interface KanbanCard {
   isDone?: boolean;
 }
 
+export type ColumnSortField = 'none' | 'name' | 'priority' | 'createdAt' | 'startDate' | 'dueDate' | 'assignees';
+
 export interface KanbanColumn {
   id: string;
   title: string;
   color?: string;
-  autoComplete?: boolean; // auto-mark cards done when dropped here
+  autoComplete?: boolean;     // auto-mark cards done when dropped here
+  sort?: { field: ColumnSortField; dir: 'asc' | 'desc' };
+  hideFromTimeline?: boolean; // exclude cards from Calendar and Timeline views
+  isDoneDestination?: boolean; // done cards from other columns are moved here
+  defaultTags?: string[];     // tags automatically assigned to new cards
   cards: KanbanCard[];
 }
 

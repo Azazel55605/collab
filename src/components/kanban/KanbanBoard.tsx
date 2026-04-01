@@ -18,13 +18,14 @@ import KanbanColumnView from './KanbanColumn';
 import KanbanCardView from './KanbanCard';
 import CalendarView from './CalendarView';
 import TimelineView from './TimelineView';
-import type { KanbanCard } from '../../types/kanban';
+import type { KanbanCard, KanbanColumn } from '../../types/kanban';
 
 export default function KanbanBoardView() {
   const { board, updateBoard, relativePath } = useKanbanContext();
   const { peers } = useCollabStore();
   const [view, setView] = useState<'board' | 'calendar' | 'timeline'>('board');
-  const [activeCard, setActiveCard] = useState<KanbanCard | null>(null);
+  const [activeCard,   setActiveCard]   = useState<KanbanCard | null>(null);
+  const [activeColumn, setActiveColumn] = useState<KanbanColumn | null>(null);
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColTitle, setNewColTitle] = useState('');
 
@@ -43,16 +44,40 @@ export default function KanbanBoardView() {
   }
 
   function onDragStart({ active }: DragStartEvent) {
-    const col = findCardColumn(active.id as string);
-    setActiveCard(col?.cards.find(c => c.id === active.id) ?? null);
+    const activeId = active.id as string;
+    const isColDrag = board.columns.some(c => c.id === activeId);
+    if (isColDrag) {
+      setActiveColumn(board.columns.find(c => c.id === activeId) ?? null);
+      setActiveCard(null);
+    } else {
+      const col = findCardColumn(activeId);
+      setActiveCard(col?.cards.find(c => c.id === activeId) ?? null);
+      setActiveColumn(null);
+    }
   }
 
   function onDragEnd({ active, over }: DragEndEvent) {
     setActiveCard(null);
+    setActiveColumn(null);
     if (!over || active.id === over.id) return;
 
     const draggedId = active.id as string;
     const overId    = over.id as string;
+
+    // Column reorder — over.id may be a card inside the target column, resolve it
+    const isColumnDrag = board.columns.some(c => c.id === draggedId);
+    if (isColumnDrag) {
+      const targetColId = board.columns.some(c => c.id === overId)
+        ? overId
+        : findCardColumn(overId)?.id ?? null;
+      if (!targetColId || targetColId === draggedId) return;
+      updateBoard(prev => {
+        const srcIdx = prev.columns.findIndex(c => c.id === draggedId);
+        const dstIdx = prev.columns.findIndex(c => c.id === targetColId);
+        return { ...prev, columns: arrayMove(prev.columns, srcIdx, dstIdx) };
+      });
+      return;
+    }
 
     const srcCol = findCardColumn(draggedId);
     if (!srcCol) return;
@@ -237,6 +262,20 @@ export default function KanbanBoardView() {
           <DragOverlay dropAnimation={null}>
             {activeCard && (
               <KanbanCardView card={activeCard} columnId="" isOverlay />
+            )}
+            {activeColumn && (
+              <div className="w-[272px] bg-card/80 border border-border/50 rounded-lg shadow-2xl opacity-90 px-3 py-2.5 flex items-center gap-2">
+                <div
+                  className="w-3 h-3 rounded-full shrink-0"
+                  style={{ backgroundColor: activeColumn.color ?? '#64748b' }}
+                />
+                <span className="text-sm font-semibold text-foreground truncate flex-1">
+                  {activeColumn.title}
+                </span>
+                <span className="text-[11px] text-muted-foreground tabular-nums">
+                  {activeColumn.cards.length}
+                </span>
+              </div>
             )}
           </DragOverlay>
         </DndContext>

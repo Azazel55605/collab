@@ -5,6 +5,7 @@ import { useKanbanContext } from '../../views/KanbanPage';
 import { useUiStore, formatDate } from '../../store/uiStore';
 import type { KanbanCard, KanbanColumn } from '../../types/kanban';
 import CardDialog from './CardDialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -71,10 +72,14 @@ function buildWeeks(year: number, month: number, weekStartDay: 0 | 1): Date[][] 
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 
-const DAY_NUM_H  = 22; // px — space for the day number
-const CARD_H     = 22; // px — card bar height
-const CARD_GAP   = 3;  // px — gap between lanes
-const ROW_PAD    = 6;  // px — bottom padding per week row
+const DAY_NUM_H        = 22; // px — space for the day number
+const CARD_H           = 22; // px — card bar height
+const CARD_GAP         = 3;  // px — gap between lanes
+const ROW_PAD          = 8;  // px — bottom padding per week row
+const MAX_VISIBLE_LANES = 3; // lanes beyond this get collapsed into "+N more"
+const SHOW_MORE_H      = 20; // px — height reserved for the "+N more" row
+// Every week row uses this fixed height — keeps the grid uniform regardless of task count
+const ROW_H = DAY_NUM_H + MAX_VISIBLE_LANES * (CARD_H + CARD_GAP) + SHOW_MORE_H + ROW_PAD;
 
 interface WeekCard {
   card: KanbanCard;
@@ -143,6 +148,7 @@ export default function CalendarView() {
   const dayNames = weekStart === 1 ? DAY_NAMES_MON : DAY_NAMES_SUN;
   const [filterUser, setFilterUser] = useState<string | null>(null);
   const [openCard,   setOpenCard]   = useState<{ card: KanbanCard; columnId: string } | null>(null);
+  const [dayModal,   setDayModal]   = useState<Date | null>(null);
 
   function prevMonth() {
     if (month === 0) { setYear(y => y - 1); setMonth(11); }
@@ -153,15 +159,19 @@ export default function CalendarView() {
     else setMonth(m => m + 1);
   }
 
-  // Build flat card list with column metadata
+  // Build flat card list — exclude hidden columns and cards without any explicit date
   const flatCards = useMemo(() =>
-    board.columns.flatMap((col: KanbanColumn) =>
-      col.cards.map(card => ({
-        card,
-        columnId: col.id,
-        colColor: col.color ?? '#64748b',
-      })),
-    ),
+    board.columns
+      .filter((col: KanbanColumn) => !col.hideFromTimeline)
+      .flatMap((col: KanbanColumn) =>
+        col.cards
+          .filter(card => card.startDate || card.dueDate)
+          .map(card => ({
+            card,
+            columnId: col.id,
+            colColor: col.color ?? '#64748b',
+          })),
+      ),
   [board]);
 
   const visibleCards = useMemo(() =>
@@ -170,10 +180,10 @@ export default function CalendarView() {
 
   const weeks = useMemo(() => buildWeeks(year, month, weekStart), [year, month, weekStart]);
 
-  // Effective start/end for each card
+  // Effective start/end — only explicit dates, no createdAt fallback
   function effectiveStart(card: KanbanCard): Date {
     if (card.startDate) return parseLocal(card.startDate);
-    if (card.createdAt) return toDateOnly(card.createdAt);
+    if (card.dueDate)   return parseLocal(card.dueDate);
     return toDateOnly(Date.now());
   }
   function effectiveEnd(card: KanbanCard): Date {
@@ -186,6 +196,22 @@ export default function CalendarView() {
     const ids = new Set(flatCards.flatMap(({ card }) => card.assignees));
     return knownUsers.filter(u => ids.has(u.userId));
   }, [flatCards, knownUsers]);
+
+  // Cards active on a specific day, sorted by column order then start date
+  function cardsForDay(day: Date) {
+    return visibleCards
+      .filter(({ card }) => {
+        const s = effectiveStart(card);
+        const e = effectiveEnd(card);
+        return s <= day && e >= day;
+      })
+      .sort((a, b) => {
+        const ai = board.columns.findIndex(c => c.id === a.columnId);
+        const bi = board.columns.findIndex(c => c.id === b.columnId);
+        if (ai !== bi) return ai - bi;
+        return effectiveStart(a.card).getTime() - effectiveStart(b.card).getTime();
+      });
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -263,15 +289,20 @@ export default function CalendarView() {
       {/* ── Calendar grid ───────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
         {weeks.map((week, wi) => {
-          const weekCards = layoutWeek(week, visibleCards, effectiveStart, effectiveEnd);
-          const numLanes  = weekCards.length > 0 ? Math.max(...weekCards.map(w => w.lane)) + 1 : 0;
-          const rowHeight = DAY_NUM_H + numLanes * (CARD_H + CARD_GAP) + ROW_PAD;
+          const weekCards    = layoutWeek(week, visibleCards, effectiveStart, effectiveEnd);
+          const visibleCards_ = weekCards.filter(wc => wc.lane < MAX_VISIBLE_LANES);
+
+          // Per-day overflow count (cards in lane ≥ MAX_VISIBLE_LANES covering that day)
+          const overflowByDay = week.map((_, di) =>
+            weekCards.filter(wc => di >= wc.startCol && di <= wc.endCol && wc.lane >= MAX_VISIBLE_LANES).length
+          );
+          const hasAnyOverflow = overflowByDay.some(n => n > 0);
 
           return (
             <div
               key={wi}
               className="relative grid grid-cols-7 border-b border-border/20"
-              style={{ minHeight: rowHeight }}
+              style={{ height: ROW_H }}
             >
               {/* Day cell backgrounds + numbers */}
               {week.map((day, di) => {
@@ -296,20 +327,19 @@ export default function CalendarView() {
                 );
               })}
 
-              {/* Card bars — absolutely positioned */}
-              {weekCards.map((wc, i) => {
-                const colSpan = wc.endCol - wc.startCol + 1;
+              {/* Visible card bars (lane < MAX_VISIBLE_LANES) */}
+              {visibleCards_.map((wc, i) => {
+                const colSpan  = wc.endCol - wc.startCol + 1;
                 const leftPct  = (wc.startCol / 7) * 100;
                 const widthPct = (colSpan / 7) * 100;
-                const top = DAY_NUM_H + wc.lane * (CARD_H + CARD_GAP);
+                const top      = DAY_NUM_H + wc.lane * (CARD_H + CARD_GAP);
 
-                // Pick bar color: first assignee's color or column color
                 const firstAssignee = knownUsers.find(u => wc.card.assignees.includes(u.userId));
-                const barColor = firstAssignee?.userColor ?? wc.colColor;
+                const barColor      = firstAssignee?.userColor ?? wc.colColor;
 
                 const startLabel = formatDate(effectiveStart(wc.card), dateFormat);
                 const endLabel   = formatDate(effectiveEnd(wc.card), dateFormat);
-                const tooltip = endLabel === startLabel
+                const tooltip    = endLabel === startLabel
                   ? `${wc.card.title} · ${startLabel}`
                   : `${wc.card.title} · ${startLabel} – ${endLabel}`;
 
@@ -321,20 +351,18 @@ export default function CalendarView() {
                     className={cn(
                       'absolute flex items-center px-1.5 text-[10px] font-medium text-white overflow-hidden',
                       'hover:brightness-110 hover:z-10 transition-all',
-                      wc.card.isDone && 'opacity-50',
                       !wc.clippedLeft  && 'rounded-l-md',
                       !wc.clippedRight && 'rounded-r-md',
                     )}
                     style={{
-                      left:   `calc(${leftPct}% + 3px)`,
-                      width:  `calc(${widthPct}% - ${wc.clippedLeft || wc.clippedRight ? 3 : 6}px)`,
+                      left:            `calc(${leftPct}% + 3px)`,
+                      width:           `calc(${widthPct}% - ${wc.clippedLeft || wc.clippedRight ? 3 : 6}px)`,
                       top,
-                      height: CARD_H,
+                      height:          CARD_H,
                       backgroundColor: barColor,
-                      opacity: wc.card.isDone ? 0.45 : 0.85,
+                      opacity:         wc.card.isDone ? 0.45 : 0.85,
                     }}
                   >
-                    {/* Show assignee avatars if bar is wide enough */}
                     {colSpan >= 2 && wc.card.assignees.slice(0, 2).map(uid => {
                       const u = knownUsers.find(k => k.userId === uid);
                       if (!u) return null;
@@ -354,6 +382,29 @@ export default function CalendarView() {
                   </button>
                 );
               })}
+
+              {/* Per-day "+N more" overflow buttons */}
+              {hasAnyOverflow && week.map((day, di) => {
+                const count = overflowByDay[di];
+                if (count === 0) return null;
+                const leftPct = (di / 7) * 100;
+                return (
+                  <button
+                    key={`more-${di}`}
+                    onClick={() => setDayModal(day)}
+                    className="absolute text-[10px] font-medium text-primary/70 hover:text-primary transition-colors text-left px-1.5 truncate"
+                    style={{
+                      left:   `calc(${leftPct}% + 3px)`,
+                      width:  `calc(${(1 / 7) * 100}% - 6px)`,
+                      top:    DAY_NUM_H + MAX_VISIBLE_LANES * (CARD_H + CARD_GAP),
+                      height: SHOW_MORE_H,
+                      lineHeight: `${SHOW_MORE_H}px`,
+                    }}
+                  >
+                    +{count} more
+                  </button>
+                );
+              })}
             </div>
           );
         })}
@@ -366,6 +417,65 @@ export default function CalendarView() {
           <p className="text-sm">No cards to display</p>
         </div>
       )}
+
+      {/* ── Day modal ───────────────────────────────────────────────────── */}
+      {dayModal && (() => {
+        const dayCards = cardsForDay(dayModal);
+        return (
+          <Dialog open onOpenChange={() => setDayModal(null)}>
+            <DialogContent className="sm:max-w-sm w-full max-h-[70vh] overflow-hidden flex flex-col p-0 gap-0">
+              <DialogHeader className="px-4 py-3 border-b border-border/30 shrink-0">
+                <DialogTitle className="text-sm font-semibold">
+                  {formatDate(dayModal, dateFormat)}
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    {dayCards.length} {dayCards.length === 1 ? 'task' : 'tasks'}
+                  </span>
+                </DialogTitle>
+              </DialogHeader>
+              <div className="flex-1 overflow-y-auto py-1">
+                {board.columns.filter(col => !col.hideFromTimeline).map(col => {
+                  const colCards = dayCards.filter(c => c.columnId === col.id);
+                  if (colCards.length === 0) return null;
+                  return (
+                    <div key={col.id}>
+                      <div className="flex items-center gap-1.5 px-3 py-1.5">
+                        <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: col.color ?? '#64748b' }} />
+                        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                          {col.title}
+                        </span>
+                      </div>
+                      {colCards.map(({ card, columnId }) => (
+                        <button
+                          key={card.id}
+                          onClick={() => { setOpenCard({ card, columnId }); setDayModal(null); }}
+                          className="w-full flex items-center gap-2 px-4 py-1.5 text-left hover:bg-accent/40 transition-colors"
+                        >
+                          <span className={cn(
+                            'text-sm truncate flex-1',
+                            card.isDone ? 'line-through text-muted-foreground/50' : 'text-foreground',
+                          )}>
+                            {card.title}
+                          </span>
+                          {card.priority && (
+                            <span className={cn(
+                              'text-[10px] px-1.5 py-0.5 rounded-full shrink-0',
+                              card.priority === 'high'   && 'bg-red-500/20 text-red-400',
+                              card.priority === 'medium' && 'bg-yellow-500/20 text-yellow-400',
+                              card.priority === 'low'    && 'bg-green-500/20 text-green-400',
+                            )}>
+                              {card.priority}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       {/* ── Card dialog ─────────────────────────────────────────────────── */}
       {openCard && (

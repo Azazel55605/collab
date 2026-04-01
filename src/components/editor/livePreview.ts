@@ -163,7 +163,7 @@ function processInline(
   const free   = (s: number, e: number) => { for (let i = s; i < e; i++) { if (used[i]) return false; } return true; };
 
   const hide   = (s: number, e: number): Item => ({ from: base + s, to: base + e, deco: Decoration.replace({}), excl: true });
-  const mark   = (s: number, e: number, cls: string): Item => ({ from: base + s, to: base + e, deco: Decoration.mark({ class: cls }), excl: false });
+  const mark   = (s: number, e: number, cls: string, attrs?: Record<string, string>): Item => ({ from: base + s, to: base + e, deco: Decoration.mark({ class: cls, attributes: attrs }), excl: false });
   const widget = (s: number, e: number, w: WidgetType): Item => ({ from: base + s, to: base + e, deco: Decoration.replace({ widget: w }), excl: true });
 
   function run(re: RegExp, handle: (m: RegExpExecArray, s: number, e: number) => Item[] | null) {
@@ -232,19 +232,19 @@ function processInline(
     const label = m[3];
     if (label) {
       const labelStart = s + 2 + path.length + 1; // skip [[path|
-      return [hide(s, labelStart), mark(labelStart, e - 2, 'cm-lp-wikilink'), hide(e - 2, e)];
+      return [hide(s, labelStart), mark(labelStart, e - 2, 'cm-lp-wikilink', { 'data-path': path }), hide(e - 2, e)];
     }
-    return [hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-wikilink'), hide(e - 2, e)];
+    return [hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-wikilink', { 'data-path': path }), hide(e - 2, e)];
   });
 
   // ── Links [text](url) ────────────────────────────────────────────────────
   // Skip ![ images by checking preceding char (no lookbehind — WebKitGTK compat)
   run(/\[([^\]\n]+?)\]\(([^)\n]*?)\)/g, (m, s, e) => {
     if (text[s - 1] === '!') return null;
-    const linkText = m[1];
-    const textS = s + 1;
-    const textE = textS + linkText.length;
-    return [hide(s, textS), mark(textS, textE, 'cm-lp-link'), hide(textE, e)];
+    const url    = m[2];
+    const textS  = s + 1;
+    const textE  = textS + m[1].length;
+    return [hide(s, textS), mark(textS, textE, 'cm-lp-link', { 'data-url': url }), hide(textE, e)];
   });
 }
 

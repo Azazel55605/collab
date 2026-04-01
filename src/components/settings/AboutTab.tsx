@@ -7,10 +7,18 @@ import { cn } from '../../lib/utils';
 import { RefreshCw, Download, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
+function fmtBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024)        return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
+}
+
 export default function AboutTab() {
   const [appVersion, setAppVersion] = useState<string>('…');
-  const { status, updateInfo, downloadProgress, error, lastChecked, checkForUpdate, startDownload } =
-    useUpdateStore();
+  const {
+    status, updateInfo, downloadProgress, downloadedBytes, totalBytes, downloadSpeed,
+    error, lastChecked, checkForUpdate, startDownload,
+  } = useUpdateStore();
 
   useEffect(() => {
     getAppVersion().then(setAppVersion).catch(() => setAppVersion('?'));
@@ -50,22 +58,38 @@ export default function AboutTab() {
             )}
           </div>
         );
-      case 'downloading':
+      case 'downloading': {
+        const pct   = downloadProgress ?? 0;
+        const speed = downloadSpeed != null && downloadSpeed > 0 ? downloadSpeed : null;
         return (
           <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 size={14} className="animate-spin" />
-              Downloading update…
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 size={14} className="animate-spin shrink-0" />
+                Downloading update…
+              </div>
+              {speed !== null && (
+                <span className="text-xs text-muted-foreground/70 tabular-nums shrink-0">
+                  {fmtBytes(speed)}/s
+                </span>
+              )}
             </div>
-            <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+            <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
               <div
-                className="h-full bg-primary rounded-full transition-all duration-300"
-                style={{ width: `${downloadProgress ?? 0}%` }}
+                className="h-full bg-primary rounded-full transition-all duration-200"
+                style={{ width: `${pct}%` }}
               />
             </div>
-            <p className="text-[11px] text-muted-foreground">{downloadProgress ?? 0}%</p>
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
+              <span>
+                {downloadedBytes != null ? fmtBytes(downloadedBytes) : '0 B'}
+                {totalBytes != null ? ` / ${fmtBytes(totalBytes)}` : ''}
+              </span>
+              <span>{pct}%</span>
+            </div>
           </div>
         );
+      }
       case 'installing':
         return (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
