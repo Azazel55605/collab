@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { getAppVersion } from '../../lib/tauri';
 import {
   useUiStore,
-  ACCENT_COLORS, EDITOR_FONTS, FONT_SIZE_OPTIONS, SCALE_OPTIONS,
-  type Theme, type AccentColor, type EditorFont,
+  ACCENT_COLORS, EDITOR_FONTS, FONT_SIZE_OPTIONS, SCALE_OPTIONS, DATE_FORMAT_OPTIONS, formatDate,
+  type Theme, type AccentColor, type EditorFont, type DateFormat, type WeekStart,
 } from '../../store/uiStore';
 import { useCollabStore } from '../../store/collabStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -12,7 +12,7 @@ import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
-import { Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info } from 'lucide-react';
+import { Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info, CalendarDays } from 'lucide-react';
 import { toast } from 'sonner';
 import AboutTab from './AboutTab';
 import { useUpdateStore } from '../../store/updateStore';
@@ -76,11 +76,12 @@ function PillSelect<T extends string | number>({
 // ─── Tabs sidebar ─────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'appearance', label: 'Appearance', icon: <Palette  size={15} /> },
-  { id: 'editor',     label: 'Editor',     icon: <Type     size={15} /> },
-  { id: 'display',    label: 'Display',    icon: <Monitor  size={15} /> },
-  { id: 'profile',    label: 'Profile',    icon: <User     size={15} /> },
-  { id: 'about',      label: 'About',      icon: <Info     size={15} /> },
+  { id: 'appearance', label: 'Appearance', icon: <Palette      size={15} /> },
+  { id: 'editor',     label: 'Editor',     icon: <Type         size={15} /> },
+  { id: 'display',    label: 'Display',    icon: <Monitor      size={15} /> },
+  { id: 'calendar',   label: 'Calendar',   icon: <CalendarDays size={15} /> },
+  { id: 'profile',    label: 'Profile',    icon: <User         size={15} /> },
+  { id: 'about',      label: 'About',      icon: <Info         size={15} /> },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -95,6 +96,8 @@ export default function SettingsModal() {
     editorFont, setEditorFont,
     fontSize, setFontSize,
     scale, setScale,
+    dateFormat, setDateFormat,
+    weekStart, setWeekStart,
     confirmDelete, setConfirmDelete,
   } = useUiStore();
 
@@ -307,6 +310,69 @@ export default function SettingsModal() {
                 <p className="text-[11px] text-muted-foreground mt-2">
                   100% is native pixel density. Increase for HiDPI / high-resolution displays.
                 </p>
+              </div>
+            )}
+
+            {/* ── Calendar ── */}
+            {activeTab === 'calendar' && (
+              <div>
+                <SectionLabel>Date Format</SectionLabel>
+                <p className="text-xs text-muted-foreground mb-3">
+                  How dates are displayed across the app.
+                </p>
+                <div className="space-y-1.5 mb-5">
+                  {(Object.entries(DATE_FORMAT_OPTIONS) as [DateFormat, typeof DATE_FORMAT_OPTIONS[DateFormat]][]).map(
+                    ([key, val]) => (
+                      <button
+                        key={key}
+                        onClick={() => setDateFormat(key)}
+                        className={cn(
+                          'w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-left transition-all',
+                          dateFormat === key
+                            ? 'border-primary/50 bg-primary/8'
+                            : 'border-border/40 hover:border-border hover:bg-accent/30'
+                        )}
+                      >
+                        <div>
+                          <p className="text-sm font-medium font-mono">{val.label}</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">{val.description}</p>
+                        </div>
+                        {dateFormat === key && <Check size={14} className="text-primary shrink-0 ml-2" />}
+                      </button>
+                    )
+                  )}
+                </div>
+
+                <Separator className="bg-border/40 my-4" />
+
+                <SectionLabel>First Day of Week</SectionLabel>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Sets the starting column in the calendar view.
+                </p>
+                <div className="flex gap-2">
+                  {([1, 0] as WeekStart[]).map(day => (
+                    <button
+                      key={day}
+                      onClick={() => setWeekStart(day)}
+                      className={cn(
+                        'flex-1 py-2.5 rounded-lg border text-sm font-medium transition-all',
+                        weekStart === day
+                          ? 'border-primary/50 bg-primary/8 text-primary'
+                          : 'border-border/40 hover:border-border hover:bg-accent/30 text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      {day === 1 ? 'Monday' : 'Sunday'}
+                    </button>
+                  ))}
+                </div>
+
+                <Separator className="bg-border/40 my-4" />
+
+                <SectionLabel>Preview</SectionLabel>
+                <div className="rounded-lg border border-border/40 bg-accent/10 p-3 text-sm text-muted-foreground">
+                  <p>Today: <span className="text-foreground font-medium">{formatDate(new Date(), dateFormat)}</span></p>
+                  <p className="mt-1.5">Week starts on: <span className="text-foreground font-medium">{weekStart === 1 ? 'Monday' : 'Sunday'}</span></p>
+                </div>
               </div>
             )}
 

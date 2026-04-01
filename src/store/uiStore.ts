@@ -6,6 +6,8 @@ export type SidebarPanel  = 'files' | 'search' | 'tags' | 'canvas-boards' | 'kan
 export type Theme         = 'dark' | 'midnight' | 'warm' | 'light';
 export type AccentColor   = 'violet' | 'blue' | 'emerald' | 'rose' | 'orange' | 'cyan';
 export type EditorFont    = 'geist' | 'inter' | 'serif' | 'mono';
+export type DateFormat    = 'MMM_D_YYYY' | 'D_MMM_YYYY' | 'YYYY_MM_DD' | 'MM_DD_YYYY' | 'DD_MM_YYYY';
+export type WeekStart     = 0 | 1; // 0 = Sunday, 1 = Monday
 
 /** Map accent name → oklch(L C H) string (used for --primary in dark/light) */
 export const ACCENT_COLORS: Record<AccentColor, { label: string; oklch: string; hex: string }> = {
@@ -27,6 +29,31 @@ export const EDITOR_FONTS: Record<EditorFont, { label: string; css: string }> = 
 export const SCALE_OPTIONS = [75, 90, 100, 110, 125, 150, 175, 200] as const;
 export const FONT_SIZE_OPTIONS = [12, 13, 14, 15, 16] as const;
 
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+export function formatDate(date: Date, fmt: DateFormat): string {
+  const y  = date.getFullYear();
+  const m  = date.getMonth();
+  const d  = date.getDate();
+  const mm = String(m + 1).padStart(2, '0');
+  const dd = String(d).padStart(2, '0');
+  switch (fmt) {
+    case 'MMM_D_YYYY': return `${MONTHS_SHORT[m]} ${d}, ${y}`;
+    case 'D_MMM_YYYY': return `${d} ${MONTHS_SHORT[m]} ${y}`;
+    case 'YYYY_MM_DD': return `${y}-${mm}-${dd}`;
+    case 'MM_DD_YYYY': return `${mm}/${dd}/${y}`;
+    case 'DD_MM_YYYY': return `${dd}/${mm}/${y}`;
+  }
+}
+
+export const DATE_FORMAT_OPTIONS: Record<DateFormat, { label: string; description: string }> = {
+  MMM_D_YYYY: { label: 'Apr 1, 2026',  description: 'Month Day, Year' },
+  D_MMM_YYYY: { label: '1 Apr 2026',   description: 'Day Month Year' },
+  YYYY_MM_DD: { label: '2026-04-01',   description: 'ISO 8601' },
+  MM_DD_YYYY: { label: '04/01/2026',   description: 'MM/DD/YYYY (US)' },
+  DD_MM_YYYY: { label: '01/04/2026',   description: 'DD/MM/YYYY (EU)' },
+};
+
 interface UiState {
   activeView:    ActiveView;
   sidebarPanel:  SidebarPanel;
@@ -41,6 +68,10 @@ interface UiState {
   editorFont:  EditorFont;
   fontSize:    number;
   scale:       number;
+
+  // Calendar
+  dateFormat: DateFormat;
+  weekStart:  WeekStart;
 
   // Behavior
   confirmDelete: boolean;
@@ -60,6 +91,8 @@ interface UiState {
   setEditorFont:    (font: EditorFont) => void;
   setFontSize:      (size: number) => void;
   setScale:         (scale: number) => void;
+  setDateFormat:    (fmt: DateFormat) => void;
+  setWeekStart:     (day: WeekStart) => void;
   setConfirmDelete: (v: boolean) => void;
 }
 
@@ -79,6 +112,9 @@ export const useUiStore = create<UiState>()(
       fontSize:    14,
       scale:       100,
 
+      dateFormat: 'MMM_D_YYYY',
+      weekStart:  1,
+
       confirmDelete: true,
 
       setActiveView:   (activeView)   => set({ activeView }),
@@ -95,6 +131,8 @@ export const useUiStore = create<UiState>()(
       setEditorFont:    (editorFont)    => set({ editorFont }),
       setFontSize:      (fontSize)      => set({ fontSize }),
       setScale:         (scale)         => set({ scale }),
+      setDateFormat:    (dateFormat)    => set({ dateFormat }),
+      setWeekStart:     (weekStart)     => set({ weekStart }),
       setConfirmDelete: (confirmDelete) => set({ confirmDelete }),
     }),
     {
@@ -110,6 +148,8 @@ export const useUiStore = create<UiState>()(
         editorFont:    s.editorFont,
         fontSize:      s.fontSize,
         scale:         s.scale,
+        dateFormat:    s.dateFormat,
+        weekStart:     s.weekStart,
         confirmDelete: s.confirmDelete,
       }),
     }

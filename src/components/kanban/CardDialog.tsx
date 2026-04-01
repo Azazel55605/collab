@@ -1,0 +1,666 @@
+import { useState, useRef, useEffect } from 'react';
+import {
+  X, Paperclip, Calendar, Tag, Users, MessageSquare,
+  Trash2, Flag, ExternalLink, Send, ListChecks,
+  LayoutDashboard, Check, Circle, CheckCircle2, ChevronDown,
+} from 'lucide-react';
+import { cn } from '../../lib/utils';
+import { useKanbanContext } from '../../views/KanbanPage';
+import { useCollabStore } from '../../store/collabStore';
+import { useNoteIndexStore } from '../../store/noteIndexStore';
+import { useEditorStore } from '../../store/editorStore';
+import { useUiStore } from '../../store/uiStore';
+import type { KanbanCard, KanbanComment, ChecklistItem } from '../../types/kanban';
+import { Dialog, DialogContent } from '../ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import {
+  Command, CommandEmpty, CommandGroup, CommandInput,
+  CommandItem, CommandList,
+} from '../ui/command';
+
+// ── Priority config ────────────────────────────────────────────────────────
+
+const PRIORITIES: Array<{
+  value: NonNullable<KanbanCard['priority']>;
+  label: string;
+  active: string;
+  inactive: string;
+}> = [
+  { value: 'high',   label: 'High',   active: 'bg-red-500/20 text-red-400 border-red-500/40',         inactive: 'text-muted-foreground border-border/30 hover:bg-accent/40' },
+  { value: 'medium', label: 'Medium', active: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40', inactive: 'text-muted-foreground border-border/30 hover:bg-accent/40' },
+  { value: 'low',    label: 'Low',    active: 'bg-green-500/20 text-green-400 border-green-500/40',    inactive: 'text-muted-foreground border-border/30 hover:bg-accent/40' },
+];
+
+// ── Component ─────────────────────────────────────────────────────────────
+
+interface Props {
+  card: KanbanCard;
+  columnId: string;
+  onClose: () => void;
+}
+
+export default function CardDialog({ card: initialCard, columnId, onClose }: Props) {
+  const { updateBoard, knownUsers, board } = useKanbanContext();
+  const { myUserId, myUserName, myUserColor } = useCollabStore();
+  const { notes }         = useNoteIndexStore();
+  const { openTab }       = useEditorStore();
+  const { setActiveView } = useUiStore();
+
+  const [draft, setDraft] = useState<KanbanCard>({
+    ...initialCard,
+    checklist: initialCard.checklist ?? [],
+  });
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const [tagInput,        setTagInput]        = useState('');
+  const [commentInput,    setCommentInput]     = useState('');
+  const [checklistInput,  setChecklistInput]   = useState('');
+  const [notePickerOpen,  setNotePickerOpen]   = useState(false);
+  const [cardPickerOpen,  setCardPickerOpen]   = useState(false);
+  const [confirmDelete,   setConfirmDelete]    = useState(false);
+
+  // Auto-resize title textarea
+  const titleRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (titleRef.current) {
+      titleRef.current.style.height = 'auto';
+      titleRef.current.style.height = titleRef.current.scrollHeight + 'px';
+    }
+  }, [draft.title]);
+
+  // ── Board flush ──────────────────────────────────────────────────────────
+
+  function flushDraft(d: KanbanCard) {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      updateBoard(prev => ({
+        ...prev,
+        columns: prev.columns.map(col =>
+          col.id !== columnId ? col : {
+            ...col,
+            cards: col.cards.map(c => c.id !== d.id ? c : d),
+          },
+        ),
+      }));
+    }, 300);
+  }
+
+  function patchDraft(changes: Partial<KanbanCard>) {
+    setDraft(prev => {
+      const next = { ...prev, ...changes };
+      flushDraft(next);
+      return next;
+    });
+  }
+
+  function deleteCard() {
+    updateBoard(prev => ({
+      ...prev,
+      columns: prev.columns.map(col =>
+        col.id !== columnId ? col : {
+          ...col,
+          cards: col.cards.filter(c => c.id !== draft.id),
+        },
+      ),
+    }));
+    onClose();
+  }
+
+  // ── Done ─────────────────────────────────────────────────────────────────
+
+  function toggleDone() {
+    patchDraft({ isDone: !draft.isDone });
+  }
+
+  // ── Tags ─────────────────────────────────────────────────────────────────
+
+  function addTag() {
+    const t = tagInput.trim().replace(/,$/, '');
+    if (!t || draft.tags.includes(t)) { setTagInput(''); return; }
+    patchDraft({ tags: [...draft.tags, t] });
+    setTagInput('');
+  }
+
+  function removeTag(tag: string) {
+    patchDraft({ tags: draft.tags.filter(t => t !== tag) });
+  }
+
+  // ── Priority / due date / assignees ──────────────────────────────────────
+
+  function togglePriority(p: NonNullable<KanbanCard['priority']>) {
+    patchDraft({ priority: draft.priority === p ? undefined : p });
+  }
+
+  function toggleAssignee(userId: string) {
+    const assignees = draft.assignees.includes(userId)
+      ? draft.assignees.filter(id => id !== userId)
+      : [...draft.assignees, userId];
+    patchDraft({ assignees });
+  }
+
+  // ── Linked note ───────────────────────────────────────────────────────────
+
+  function setLinkedNote(path: string) {
+    setNotePickerOpen(false);
+    patchDraft({ relativePath: path || undefined });
+  }
+
+  function clearLinkedNote() {
+    patchDraft({ relativePath: undefined });
+  }
+
+  function openLinkedNote() {
+    if (!draft.relativePath) return;
+    const name = draft.relativePath.split('/').pop()?.replace(/\.[^.]+$/, '') ?? draft.relativePath;
+    openTab(draft.relativePath, name);
+    setActiveView('editor');
+    onClose();
+  }
+
+  // ── Checklist ─────────────────────────────────────────────────────────────
+
+  function addChecklistItem() {
+    const text = checklistInput.trim();
+    if (!text) return;
+    const item: ChecklistItem = { id: crypto.randomUUID(), text, checked: false };
+    patchDraft({ checklist: [...draft.checklist, item] });
+    setChecklistInput('');
+  }
+
+  function addChecklistItemFromCard(cardId: string, cardTitle: string) {
+    setCardPickerOpen(false);
+    const item: ChecklistItem = {
+      id: crypto.randomUUID(),
+      text: cardTitle,
+      checked: false,
+      cardRef: cardId,
+    };
+    patchDraft({ checklist: [...draft.checklist, item] });
+  }
+
+  function toggleChecklistItem(id: string) {
+    patchDraft({
+      checklist: draft.checklist.map(i => i.id === id ? { ...i, checked: !i.checked } : i),
+    });
+  }
+
+  function updateChecklistText(id: string, text: string) {
+    patchDraft({
+      checklist: draft.checklist.map(i => i.id === id ? { ...i, text } : i),
+    });
+  }
+
+  function removeChecklistItem(id: string) {
+    patchDraft({ checklist: draft.checklist.filter(i => i.id !== id) });
+  }
+
+  // Resolve card title from the board (for cardRef items)
+  function resolveCardTitle(cardId: string): string {
+    for (const col of board.columns) {
+      const found = col.cards.find(c => c.id === cardId);
+      if (found) return found.title;
+    }
+    return '(deleted card)';
+  }
+
+  // ── Comments ──────────────────────────────────────────────────────────────
+
+  function addComment() {
+    const content = commentInput.trim();
+    if (!content) return;
+    const comment: KanbanComment = {
+      id: crypto.randomUUID(),
+      userId: myUserId, userName: myUserName, userColor: myUserColor,
+      content,
+      timestamp: Date.now(),
+    };
+    setCommentInput('');
+    patchDraft({ comments: [...draft.comments, comment] });
+  }
+
+  function deleteComment(id: string) {
+    patchDraft({ comments: draft.comments.filter(c => c.id !== id) });
+  }
+
+  // ── Derived ───────────────────────────────────────────────────────────────
+
+  const checklistDone  = draft.checklist.filter(i => i.checked).length;
+  const checklistTotal = draft.checklist.length;
+
+
+  return (
+    <Dialog open onOpenChange={open => !open && onClose()}>
+      <DialogContent className="sm:max-w-2xl w-full max-h-[88vh] overflow-hidden flex flex-col p-0 gap-0">
+
+        {/* ── Title row ─────────────────────────────────────────────────── */}
+        <div className="flex items-start gap-2 px-5 pt-5 pb-1 shrink-0">
+          {/* Done toggle */}
+          <button
+            onClick={toggleDone}
+            className="shrink-0 mt-1 transition-colors"
+            title={draft.isDone ? 'Mark incomplete' : 'Mark done'}
+          >
+            {draft.isDone
+              ? <CheckCircle2 size={18} className="text-green-400" />
+              : <Circle size={18} className="text-muted-foreground/50 hover:text-green-400" />
+            }
+          </button>
+
+          <textarea
+            ref={titleRef}
+            value={draft.title}
+            onChange={e => patchDraft({ title: e.target.value })}
+            rows={1}
+            placeholder="Card title"
+            className={cn(
+              'flex-1 bg-transparent text-base font-semibold text-foreground resize-none focus:outline-none leading-tight overflow-hidden min-w-0',
+              draft.isDone && 'line-through text-muted-foreground',
+            )}
+          />
+
+          <div className="flex items-center gap-1 shrink-0">
+            {confirmDelete ? (
+              <>
+                <span className="text-xs text-muted-foreground mr-1">Delete?</span>
+                <button onClick={deleteCard} className="text-xs px-2 py-1 bg-destructive/20 hover:bg-destructive/30 text-destructive rounded transition-colors">
+                  Yes
+                </button>
+                <button onClick={() => setConfirmDelete(false)} className="text-xs px-2 py-1 text-muted-foreground hover:text-foreground rounded transition-colors">
+                  No
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="p-1.5 rounded text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-colors"
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* ── Body ──────────────────────────────────────────────────────── */}
+        <div className="flex flex-1 min-h-0">
+          {/* Main column */}
+          <div className="flex-1 overflow-y-auto px-5 py-3 flex flex-col gap-4 min-w-0">
+
+            {/* Description */}
+            <section>
+              <label className="section-label">Description</label>
+              <textarea
+                value={draft.description ?? ''}
+                onChange={e => patchDraft({ description: e.target.value || undefined })}
+                rows={3}
+                placeholder="Add a description..."
+                className="w-full bg-muted/25 border border-border/30 rounded-md text-sm text-foreground p-2.5 resize-none focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground/40"
+              />
+            </section>
+
+            {/* Tags */}
+            <section>
+              <label className="section-label flex items-center gap-1"><Tag size={11} /> Tags</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {draft.tags.map(tag => (
+                  <span key={tag} className="flex items-center gap-1 text-xs px-2 py-0.5 bg-primary/15 text-primary/80 rounded-full">
+                    {tag}
+                    <button onClick={() => removeTag(tag)} className="hover:text-primary ml-0.5"><X size={9} /></button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={tagInput}
+                  onChange={e => setTagInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } }}
+                  placeholder="Type tag, press Enter"
+                  className="flex-1 bg-muted/25 border border-border/30 rounded text-xs text-foreground px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground/40"
+                />
+                <button onClick={addTag} className="text-xs px-3 py-1.5 bg-primary/15 hover:bg-primary/25 text-primary rounded transition-colors">
+                  Add
+                </button>
+              </div>
+            </section>
+
+            {/* Linked note — Command picker via Popover portal */}
+            <section>
+              <label className="section-label flex items-center gap-1"><Paperclip size={11} /> Linked note</label>
+              <div className="flex gap-2">
+                <Popover open={notePickerOpen} onOpenChange={setNotePickerOpen}>
+                  <PopoverTrigger asChild>
+                    <button className={cn(
+                      'flex-1 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded border text-xs text-left transition-colors',
+                      'bg-muted/25 border-border/30 hover:border-border/60 focus:outline-none focus:ring-1 focus:ring-primary/40',
+                      draft.relativePath ? 'text-foreground font-mono' : 'text-muted-foreground/60',
+                    )}>
+                      <span className="truncate">{draft.relativePath ?? 'Select a note…'}</span>
+                      <ChevronDown size={11} className="shrink-0 text-muted-foreground/50" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-80 p-0">
+                    <Command>
+                      <CommandInput placeholder="Search notes…" />
+                      <CommandList>
+                        <CommandEmpty>No notes found.</CommandEmpty>
+                        <CommandGroup>
+                          {notes.map(note => (
+                            <CommandItem
+                              key={note.relativePath}
+                              value={note.relativePath}
+                              onSelect={() => setLinkedNote(note.relativePath)}
+                            >
+                              <span className="font-medium truncate">{note.title}</span>
+                              <span className="ml-auto text-[10px] text-muted-foreground/60 font-mono truncate max-w-[120px]">
+                                {note.relativePath}
+                              </span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+
+                {draft.relativePath && (
+                  <>
+                    <button
+                      onClick={openLinkedNote}
+                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 bg-primary/15 hover:bg-primary/25 text-primary rounded transition-colors shrink-0"
+                      title="Open note"
+                    >
+                      <ExternalLink size={11} />
+                    </button>
+                    <button
+                      onClick={clearLinkedNote}
+                      className="flex items-center gap-1 text-xs px-2 py-1.5 text-muted-foreground hover:text-foreground rounded transition-colors shrink-0"
+                      title="Clear link"
+                    >
+                      <X size={11} />
+                    </button>
+                  </>
+                )}
+              </div>
+            </section>
+
+            {/* Checklist */}
+            <section>
+              <label className="section-label flex items-center gap-1">
+                <ListChecks size={11} />
+                Checklist
+                {checklistTotal > 0 && (
+                  <span className="ml-auto font-normal normal-case tracking-normal text-[11px] text-muted-foreground">
+                    {checklistDone}/{checklistTotal}
+                  </span>
+                )}
+              </label>
+
+              {/* Progress bar */}
+              {checklistTotal > 0 && (
+                <div className="h-1.5 bg-muted/40 rounded-full overflow-hidden mb-2">
+                  <div
+                    className={cn('h-full rounded-full transition-all', checklistDone === checklistTotal ? 'bg-green-500/70' : 'bg-primary/50')}
+                    style={{ width: `${(checklistDone / checklistTotal) * 100}%` }}
+                  />
+                </div>
+              )}
+
+              {/* Items */}
+              <div className="flex flex-col gap-1 mb-2">
+                {draft.checklist.map(item => (
+                  <div key={item.id} className="flex items-center gap-2 group/item">
+                    <button
+                      onClick={() => toggleChecklistItem(item.id)}
+                      className={cn(
+                        'w-4 h-4 rounded border shrink-0 flex items-center justify-center transition-colors',
+                        item.checked
+                          ? 'bg-green-500/20 border-green-500/50 text-green-400'
+                          : 'border-border/50 hover:border-primary/50',
+                      )}
+                    >
+                      {item.checked && <Check size={9} />}
+                    </button>
+
+                    {item.cardRef ? (
+                      // Card reference — show icon + resolved title (read-only text)
+                      <span className={cn(
+                        'flex-1 flex items-center gap-1 text-xs text-foreground/80',
+                        item.checked && 'line-through text-muted-foreground',
+                      )}>
+                        <LayoutDashboard size={10} className="shrink-0 text-muted-foreground/60" />
+                        {resolveCardTitle(item.cardRef)}
+                      </span>
+                    ) : (
+                      <input
+                        value={item.text}
+                        onChange={e => updateChecklistText(item.id, e.target.value)}
+                        className={cn(
+                          'flex-1 text-xs bg-transparent focus:outline-none text-foreground/80',
+                          item.checked && 'line-through text-muted-foreground',
+                        )}
+                      />
+                    )}
+
+                    <button
+                      onClick={() => removeChecklistItem(item.id)}
+                      className="opacity-0 group-hover/item:opacity-100 text-muted-foreground/50 hover:text-destructive transition-all shrink-0"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Add checklist item */}
+              <div className="flex gap-1.5">
+                <input
+                  value={checklistInput}
+                  onChange={e => setChecklistInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addChecklistItem(); } }}
+                  placeholder="Add subtask…"
+                  className="flex-1 bg-muted/25 border border-border/30 rounded text-xs text-foreground px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground/40"
+                />
+                <button
+                  onClick={addChecklistItem}
+                  className="text-xs px-2.5 py-1.5 bg-primary/15 hover:bg-primary/25 text-primary rounded transition-colors shrink-0"
+                >
+                  Add
+                </button>
+
+                {/* Link a board card */}
+                <Popover open={cardPickerOpen} onOpenChange={setCardPickerOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      className="text-xs px-2 py-1.5 bg-muted/30 hover:bg-muted/50 text-muted-foreground hover:text-foreground rounded transition-colors shrink-0"
+                      title="Link a board card as subtask"
+                    >
+                      <LayoutDashboard size={12} />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-72 p-0">
+                    <Command>
+                      <CommandInput placeholder="Search board cards…" />
+                      <CommandList>
+                        <CommandEmpty>No other cards found.</CommandEmpty>
+                        {board.columns.map(col => {
+                          const eligible = col.cards.filter(c => c.id !== draft.id);
+                          if (eligible.length === 0) return null;
+                          return (
+                            <CommandGroup key={col.id} heading={col.title}>
+                              {eligible.map(c => (
+                                <CommandItem
+                                  key={c.id}
+                                  value={c.title}
+                                  onSelect={() => addChecklistItemFromCard(c.id, c.title)}
+                                >
+                                  {c.isDone
+                                    ? <CheckCircle2 size={12} className="text-green-400 shrink-0" />
+                                    : <Circle size={12} className="text-muted-foreground/50 shrink-0" />
+                                  }
+                                  <span className={cn('truncate', c.isDone && 'line-through text-muted-foreground')}>
+                                    {c.title}
+                                  </span>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          );
+                        })}
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </section>
+
+            {/* Comments */}
+            <section>
+              <label className="section-label flex items-center gap-1">
+                <MessageSquare size={11} />
+                Comments {draft.comments.length > 0 && `(${draft.comments.length})`}
+              </label>
+
+              {draft.comments.length > 0 && (
+                <div className="flex flex-col gap-3 mb-3">
+                  {draft.comments.map(comment => (
+                    <div key={comment.id} className="flex gap-2">
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0 mt-0.5"
+                        style={{ backgroundColor: comment.userColor }}
+                      >
+                        {comment.userName[0]?.toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-xs font-medium text-foreground">{comment.userName}</span>
+                          <span className="text-[10px] text-muted-foreground/50">
+                            {new Date(comment.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {comment.userId === myUserId && (
+                            <button onClick={() => deleteComment(comment.id)} className="ml-auto text-muted-foreground/40 hover:text-destructive transition-colors">
+                              <X size={10} />
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-xs text-foreground/80 mt-0.5 whitespace-pre-wrap break-words">{comment.content}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-2 items-start">
+                <div
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0 mt-1"
+                  style={{ backgroundColor: myUserColor }}
+                >
+                  {myUserName[0]?.toUpperCase()}
+                </div>
+                <div className="flex-1">
+                  <textarea
+                    value={commentInput}
+                    onChange={e => setCommentInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addComment(); } }}
+                    placeholder="Add comment… (Enter to post)"
+                    rows={2}
+                    className="w-full bg-muted/25 border border-border/30 rounded text-xs text-foreground p-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground/40"
+                  />
+                  {commentInput.trim() && (
+                    <button onClick={addComment} className="mt-1 flex items-center gap-1 text-xs px-2.5 py-1 bg-primary/15 hover:bg-primary/25 text-primary rounded transition-colors">
+                      <Send size={10} /> Post
+                    </button>
+                  )}
+                </div>
+              </div>
+            </section>
+          </div>
+
+          {/* ── Sidebar: metadata ────────────────────────────────────────── */}
+          <div className="w-48 shrink-0 border-l border-border/30 overflow-y-auto px-4 py-3 flex flex-col gap-4">
+
+            {/* Priority */}
+            <section>
+              <label className="section-label flex items-center gap-1"><Flag size={11} /> Priority</label>
+              <div className="flex flex-col gap-1">
+                {PRIORITIES.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => togglePriority(opt.value)}
+                    className={cn('text-xs px-2.5 py-1.5 rounded-md border text-left transition-all', draft.priority === opt.value ? opt.active : opt.inactive)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+                {draft.priority && (
+                  <button onClick={() => patchDraft({ priority: undefined })} className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors mt-0.5">
+                    Clear priority
+                  </button>
+                )}
+              </div>
+            </section>
+
+            {/* Start date */}
+            <section>
+              <label className="section-label flex items-center gap-1"><Calendar size={11} /> Start date</label>
+              <input
+                type="date"
+                value={draft.startDate ?? ''}
+                onChange={e => patchDraft({ startDate: e.target.value || undefined })}
+                className="w-full bg-muted/25 border border-border/30 rounded text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/40 [color-scheme:dark]"
+              />
+              {!draft.startDate && (
+                <p className="text-[10px] text-muted-foreground/40 mt-0.5">Defaults to creation date</p>
+              )}
+              {draft.startDate && (
+                <button onClick={() => patchDraft({ startDate: undefined })} className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors mt-0.5">
+                  Clear
+                </button>
+              )}
+            </section>
+
+            {/* Due date */}
+            <section>
+              <label className="section-label flex items-center gap-1"><Calendar size={11} /> Due date</label>
+              <input
+                type="date"
+                value={draft.dueDate ?? ''}
+                onChange={e => patchDraft({ dueDate: e.target.value || undefined })}
+                className="w-full bg-muted/25 border border-border/30 rounded text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/40 [color-scheme:dark]"
+              />
+              {draft.dueDate && (
+                <button onClick={() => patchDraft({ dueDate: undefined })} className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors mt-0.5">
+                  Clear date
+                </button>
+              )}
+            </section>
+
+            {/* Assignees */}
+            <section>
+              <label className="section-label flex items-center gap-1"><Users size={11} /> Assignees</label>
+              {knownUsers.length === 0 ? (
+                <p className="text-[10px] text-muted-foreground/50 mt-1">No collaborators yet</p>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {knownUsers.map(user => {
+                    const assigned = draft.assignees.includes(user.userId);
+                    return (
+                      <button
+                        key={user.userId}
+                        onClick={() => toggleAssignee(user.userId)}
+                        className={cn('flex items-center gap-2 px-2 py-1 rounded-md text-xs transition-all text-left w-full', assigned ? 'bg-primary/15 text-foreground' : 'text-muted-foreground hover:bg-accent/40')}
+                      >
+                        <div className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0" style={{ backgroundColor: user.userColor }}>
+                          {user.userName[0]?.toUpperCase()}
+                        </div>
+                        <span className="truncate flex-1">{user.userName}</span>
+                        {assigned && <span className="text-primary text-[10px] shrink-0">✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
