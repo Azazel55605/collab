@@ -161,6 +161,23 @@
   .glass-strong        { background: var(--popover); }
 }
 
+/* ─── AppImage: GPU compositing unavailable ─────────────────────────────── */
+/* DMA-BUF renderer is disabled so backdrop-filter renders nothing, but the  */
+/* CSS property still reports as "supported" — @supports won't catch it.      */
+/* We detect AppImage in Rust and set data-appimage on <html> at startup.     */
+
+[data-appimage] .glass,
+[data-appimage] .glass-panel {
+  background: var(--card);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+[data-appimage] .glass-strong {
+  background: var(--popover);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 /* ─── Glow utilities ────────────────────────────────────────────────────── */
 
 .glow-primary {

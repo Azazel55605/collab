@@ -120,6 +120,7 @@ pub fn run() {
             commands::collab::remove_member,
             // ui
             commands::ui::set_ui_zoom,
+            commands::ui::is_appimage,
             // encryption
             commands::crypto::unlock_vault,
             commands::crypto::enable_vault_encryption,

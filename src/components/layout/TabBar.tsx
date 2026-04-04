@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { X, FileText, Layout, LayoutDashboard, GitFork, Settings } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useEditorStore } from '../../store/editorStore';
@@ -9,9 +10,14 @@ import {
 } from '../ui/context-menu';
 
 export default function TabBar() {
-  const { openTabs, activeTabPath, closeTab, setActiveTab } = useEditorStore();
+  const { openTabs, activeTabPath, closeTab, setActiveTab, reorderTabs } = useEditorStore();
   const { setActiveView } = useUiStore();
   const { setDraggingTab } = useDragContext();
+
+  // Track which tab is being dragged (for intra-bar reorder)
+  const dragSrcRef = useRef<string | null>(null);
+  // { path, side } — which tab and which edge the insert line should appear on
+  const [dropIndicator, setDropIndicator] = useState<{ path: string; side: 'left' | 'right' } | null>(null);
 
   if (openTabs.length === 0) return null;
 
@@ -41,15 +47,14 @@ export default function TabBar() {
           <div
             draggable
             onDragStart={(e) => {
+              dragSrcRef.current = tab.relativePath;
               setDraggingTab({
                 relativePath: tab.relativePath,
                 title: tab.title,
                 type: tab.type,
               });
-              // Required: WebKit won't fire drop events without setData
               e.dataTransfer.setData('text/plain', tab.relativePath);
               e.dataTransfer.effectAllowed = 'move';
-              // Minimal drag image so the browser ghost doesn't obscure the zones
               const ghost = document.createElement('div');
               ghost.textContent = tab.title;
               ghost.style.cssText =
@@ -58,7 +63,27 @@ export default function TabBar() {
               e.dataTransfer.setDragImage(ghost, 0, 0);
               requestAnimationFrame(() => document.body.removeChild(ghost));
             }}
-            onDragEnd={() => setDraggingTab(null)}
+            onDragOver={(e) => {
+              if (!dragSrcRef.current || dragSrcRef.current === tab.relativePath) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right';
+              setDropIndicator({ path: tab.relativePath, side });
+            }}
+            onDragLeave={() => setDropIndicator(null)}
+            onDrop={(e) => {
+              e.preventDefault();
+              const src = dragSrcRef.current;
+              if (!src || src === tab.relativePath || !dropIndicator) return;
+              reorderTabs(src, tab.relativePath, dropIndicator.side === 'left');
+              setDropIndicator(null);
+            }}
+            onDragEnd={() => {
+              dragSrcRef.current = null;
+              setDraggingTab(null);
+              setDropIndicator(null);
+            }}
             onClick={() => handleTabClick(tab.relativePath, tab.type)}
             className={cn(
               'tab-active relative flex items-center gap-1.5 px-3 h-8 text-xs cursor-pointer whitespace-nowrap',
@@ -68,6 +93,13 @@ export default function TabBar() {
                 : 'bg-muted/20 text-muted-foreground hover:text-foreground/80 hover:bg-muted/30'
             )}
           >
+            {/* Insert indicator line */}
+            {dropIndicator?.path === tab.relativePath && (
+              <span
+                className="absolute top-1 bottom-1 w-0.5 rounded-full bg-primary z-10 pointer-events-none"
+                style={{ [dropIndicator.side]: -1 }}
+              />
+            )}
             <span className={cn(isActive ? 'text-primary' : 'text-muted-foreground')}>
               {getTabIcon(tab.type)}
             </span>

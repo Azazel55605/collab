@@ -151,6 +151,14 @@ export default function App() {
     };
   }, []);
 
+  // Detect AppImage: disable CSS backdrop-filter effects that don't render
+  // when DMA-BUF GPU compositing is unavailable in the AppImage context.
+  useEffect(() => {
+    tauriCommands.isAppImage()
+      .then(ai => { if (ai) document.documentElement.dataset.appimage = ''; })
+      .catch(() => {});
+  }, []);
+
   // Background update check: runs 3 s after startup, then every 6 hours.
   useEffect(() => {
     const run = async () => {

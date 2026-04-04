@@ -5,6 +5,7 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
 import { RefreshCw, Download, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Progress } from '../ui/progress';
 import { formatDistanceToNow } from 'date-fns';
 
 function fmtBytes(bytes: number): string {
@@ -74,12 +75,7 @@ export default function AboutTab() {
                 </span>
               )}
             </div>
-            <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full bg-primary rounded-full transition-all duration-200"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
+            <Progress value={pct} className="w-full h-2" />
             <div className="flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
               <span>
                 {downloadedBytes != null ? fmtBytes(downloadedBytes) : '0 B'}

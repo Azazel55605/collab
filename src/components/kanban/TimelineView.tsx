@@ -19,6 +19,12 @@ const NUM_DAYS    = 90;  // days to render
 
 const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+const PRIORITY_COLORS = {
+  high:   'bg-red-300',
+  medium: 'bg-yellow-300',
+  low:    'bg-green-300',
+} as const;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function parseLocal(s: string): Date {
@@ -68,9 +74,10 @@ export default function TimelineView() {
 
   const today = useMemo(() => toDateOnly(Date.now()), []);
 
-  const [rangeStart, setRangeStart] = useState(() => addDays(today, -7));
-  const [filterUser, setFilterUser] = useState<string | null>(null);
-  const [openCard,   setOpenCard]   = useState<{ card: KanbanCard; columnId: string } | null>(null);
+  const [rangeStart,      setRangeStart]      = useState(() => addDays(today, -7));
+  const [filterUser,      setFilterUser]      = useState<string | null>(null);
+  const [openCard,        setOpenCard]        = useState<{ card: KanbanCard; columnId: string } | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   // Drag state: ref for mutation, state for re-renders
   const dragRef     = useRef<DragRef | null>(null);
@@ -95,6 +102,14 @@ export default function TimelineView() {
       headerScrollRef.current.scrollLeft = bodyRef.current.scrollLeft;
     if (sidebarRef.current && bodyRef.current)
       sidebarRef.current.scrollTop = bodyRef.current.scrollTop;
+  }
+
+  function toggleGroup(colId: string) {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(colId)) next.delete(colId); else next.add(colId);
+      return next;
+    });
   }
 
   // Active users
@@ -333,35 +348,60 @@ export default function TimelineView() {
 
           {/* Card labels — scroll synced with body */}
           <div ref={sidebarRef} className="flex-1 overflow-hidden">
-            {visibleGroups.map(({ col, cards }) => (
-              <div key={col.id}>
-                {/* Group header */}
-                <div
-                  className="flex items-center gap-2 px-3 border-b border-border/20 bg-muted/15 text-xs font-semibold text-foreground"
-                  style={{ height: GROUP_H }}
-                >
-                  <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: col.color ?? '#64748b' }} />
-                  <span className="truncate flex-1">{col.title}</span>
-                  <span className="text-muted-foreground/50 text-[10px] shrink-0">{cards.length}</span>
-                </div>
-                {/* Card labels */}
-                {cards.map(card => (
+            {visibleGroups.map(({ col, cards }) => {
+              const isCollapsed = collapsedGroups.has(col.id);
+              return (
+                <div key={col.id}>
+                  {/* Group header — click to collapse */}
                   <div
-                    key={card.id}
-                    className="flex items-center px-3 border-b border-border/10 cursor-pointer hover:bg-accent/20 transition-colors"
-                    style={{ height: ROW_H }}
-                    onClick={() => setOpenCard({ card, columnId: col.id })}
+                    className="flex items-center gap-1.5 px-2 border-b border-border/20 bg-muted/15 text-xs font-semibold text-foreground cursor-pointer hover:bg-muted/25 transition-colors select-none"
+                    style={{ height: GROUP_H }}
+                    onClick={() => toggleGroup(col.id)}
                   >
-                    <span className={cn(
-                      'text-xs truncate',
-                      card.isDone ? 'line-through text-muted-foreground/40' : 'text-foreground/80',
-                    )}>
-                      {card.title}
-                    </span>
+                    <ChevronRight
+                      size={11}
+                      className={cn('shrink-0 text-muted-foreground/50 transition-transform', !isCollapsed && 'rotate-90')}
+                    />
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: col.color ?? '#64748b' }} />
+                    <span className="truncate flex-1">{col.title}</span>
+                    <span className="text-muted-foreground/50 text-[10px] shrink-0">{cards.length}</span>
                   </div>
-                ))}
-              </div>
-            ))}
+                  {/* Card labels — hidden when collapsed */}
+                  {!isCollapsed && cards.map(card => {
+                    const firstAssignee = knownUsers.find(u => card.assignees.includes(u.userId));
+                    return (
+                      <div
+                        key={card.id}
+                        className="flex items-center gap-1.5 px-2 border-b border-border/10 cursor-pointer hover:bg-accent/20 transition-colors"
+                        style={{ height: ROW_H }}
+                        onClick={() => setOpenCard({ card, columnId: col.id })}
+                      >
+                        {/* Priority dot */}
+                        {card.priority && (
+                          <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', PRIORITY_COLORS[card.priority])} />
+                        )}
+                        <span className={cn(
+                          'text-xs truncate flex-1',
+                          card.isDone ? 'line-through text-muted-foreground/40' : 'text-foreground/80',
+                        )}>
+                          {card.title}
+                        </span>
+                        {/* Assignee initial */}
+                        {firstAssignee && (
+                          <div
+                            className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white shrink-0"
+                            style={{ backgroundColor: firstAssignee.userColor }}
+                            title={firstAssignee.userName}
+                          >
+                            {firstAssignee.userName[0]?.toUpperCase()}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -421,13 +461,15 @@ export default function TimelineView() {
           >
             <div style={{ width: totalWidth }}>
               {visibleGroups.map(({ col, cards }) => {
-                const colColor = col.color ?? '#64748b';
+                const colColor    = col.color ?? '#64748b';
+                const isCollapsed = collapsedGroups.has(col.id);
                 return (
                   <div key={col.id}>
-                    {/* Group header stripe */}
+                    {/* Group header stripe — always visible, click to collapse */}
                     <div
-                      className="relative border-b border-border/20 bg-muted/15"
+                      className="relative border-b border-border/20 bg-muted/15 cursor-pointer hover:bg-muted/25 transition-colors"
                       style={{ height: GROUP_H, width: totalWidth }}
+                      onClick={() => toggleGroup(col.id)}
                     >
                       {todayCol >= 0 && todayCol < NUM_DAYS && (
                         <div
@@ -437,8 +479,8 @@ export default function TimelineView() {
                       )}
                     </div>
 
-                    {/* Card rows */}
-                    {cards.map(card => {
+                    {/* Card rows — hidden when collapsed */}
+                    {!isCollapsed && cards.map(card => {
                       const { start, end } = barDates(card);
                       const startCol = diffDays(rangeStart, start);
                       const endCol   = diffDays(rangeStart, end);
@@ -453,6 +495,9 @@ export default function TimelineView() {
                       const barLeft  = cStart * DAY_W + 2;
                       const barWidth = Math.max(HANDLE_W * 2 + 6, (cEnd - cStart + 1) * DAY_W - 4);
                       const barTop   = Math.round((ROW_H - 20) / 2);
+
+                      const showPriority = card.priority && barWidth > HANDLE_W * 2 + 16;
+                      const innerPadLeft = HANDLE_W + 3 + (showPriority ? 10 : 0);
 
                       return (
                         <div
@@ -505,10 +550,18 @@ export default function TimelineView() {
                                 <div className="w-0.5 h-3 rounded-full bg-white/40" />
                               </div>
 
+                              {/* Priority dot */}
+                              {showPriority && (
+                                <div
+                                  className={cn('absolute w-1.5 h-1.5 rounded-full pointer-events-none', PRIORITY_COLORS[card.priority!])}
+                                  style={{ left: HANDLE_W + 3, top: '50%', transform: 'translateY(-50%)' }}
+                                />
+                              )}
+
                               {/* Center — move + title */}
                               <div
                                 className="absolute inset-0 flex items-center overflow-hidden"
-                                style={{ paddingLeft: HANDLE_W + 3, paddingRight: HANDLE_W + 3, cursor: isDragging ? 'grabbing' : 'grab' }}
+                                style={{ paddingLeft: innerPadLeft, paddingRight: HANDLE_W + (barWidth > 60 && firstAssignee ? 22 : 3), cursor: isDragging ? 'grabbing' : 'grab' }}
                                 onPointerDown={e => initDrag(e, card, col.id, 'move')}
                                 onPointerMove={moveDrag}
                                 onPointerUp={() => endDrag(card, col.id)}
@@ -520,6 +573,22 @@ export default function TimelineView() {
                                   </span>
                                 )}
                               </div>
+
+                              {/* Assignee avatar */}
+                              {barWidth > 60 && firstAssignee && (
+                                <div
+                                  className="absolute w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white border border-white/30 pointer-events-none"
+                                  style={{
+                                    right: HANDLE_W + 4,
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    backgroundColor: firstAssignee.userColor,
+                                  }}
+                                  title={firstAssignee.userName}
+                                >
+                                  {firstAssignee.userName[0]?.toUpperCase()}
+                                </div>
+                              )}
 
                               {/* Right resize handle */}
                               <div

@@ -2,16 +2,24 @@ import { useEditorStore } from '../../store/editorStore';
 import { useVaultStore } from '../../store/vaultStore';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useUiStore } from '../../store/uiStore';
+import { useUpdateStore } from '../../store/updateStore';
 import PresenceBar from '../collaboration/PresenceBar';
-import { BookOpen, Hash } from 'lucide-react';
+import { Progress } from '../ui/progress';
+import { BookOpen, Hash, Download, RefreshCw } from 'lucide-react';
+import { cn } from '../../lib/utils';
 
 export default function StatusBar() {
   const { activeTabPath, openTabs } = useEditorStore();
   const { vault } = useVaultStore();
   const { notes } = useNoteIndexStore();
-  const { openVaultManager } = useUiStore();
+  const { openVaultManager, openSettings } = useUiStore();
   const activeTab = openTabs.find((t) => t.relativePath === activeTabPath);
   const activeMeta = notes.find((n) => n.relativePath === activeTabPath);
+
+  const { status, downloadProgress } = useUpdateStore();
+  const isDownloading = status === 'downloading';
+  const isInstalling  = status === 'installing';
+  const isAvailable   = status === 'available';
 
   return (
     <div className="flex items-center justify-between h-[22px] px-3 border-t border-border/40 bg-sidebar/60 backdrop-blur-sm text-[11px] text-muted-foreground shrink-0 select-none">
@@ -35,8 +43,42 @@ export default function StatusBar() {
         )}
       </div>
 
-      {/* Right: word count + presence */}
+      {/* Center: download progress (only while active) */}
+      {(isDownloading || isInstalling) && (
+        <button
+          onClick={() => openSettings()}
+          title="Open Settings → About"
+          className="flex items-center gap-1.5 flex-1 max-w-[200px] mx-3 hover:opacity-80 transition-opacity"
+        >
+          {isInstalling ? (
+            <>
+              <RefreshCw size={9} className="shrink-0 text-primary animate-spin" />
+              <span className="text-[10px] text-primary/80 shrink-0">Installing…</span>
+            </>
+          ) : (
+            <>
+              <Download size={9} className="shrink-0 text-primary/70 animate-pulse" />
+              <Progress value={downloadProgress ?? 0} className="flex-1 h-1" />
+              <span className="tabular-nums text-muted-foreground/70 shrink-0">
+                {downloadProgress ?? 0}%
+              </span>
+            </>
+          )}
+        </button>
+      )}
+
+      {/* Right: update dot + word count + presence */}
       <div className="flex items-center gap-3 shrink-0">
+        {isAvailable && (
+          <button
+            onClick={() => openSettings()}
+            title="Update available — open Settings → About"
+            className="flex items-center gap-1 text-primary/80 hover:text-primary transition-colors"
+          >
+            <div className={cn('w-1.5 h-1.5 rounded-full bg-primary animate-pulse')} />
+            <span className="text-[10px]">Update</span>
+          </button>
+        )}
         {activeMeta && (
           <span className="flex items-center gap-1 opacity-60">
             <Hash size={10} />

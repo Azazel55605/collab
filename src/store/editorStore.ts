@@ -20,6 +20,7 @@ interface EditorState {
   setSavedHash: (relativePath: string, hash: string) => void;
   updateTabTitle: (relativePath: string, title: string) => void;
   renameTab: (oldPath: string, newPath: string, newTitle: string) => void;
+  reorderTabs: (fromPath: string, toPath: string, before: boolean) => void;
   setForceReloadPath: (path: string | null) => void;
 }
 
@@ -93,6 +94,20 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       ),
       activeTabPath: state.activeTabPath === oldPath ? newPath : state.activeTabPath,
     }));
+  },
+
+  reorderTabs: (fromPath, toPath, before) => {
+    set((state) => {
+      const tabs = [...state.openTabs];
+      const fromIdx = tabs.findIndex(t => t.relativePath === fromPath);
+      let   toIdx   = tabs.findIndex(t => t.relativePath === toPath);
+      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return state;
+      const [tab] = tabs.splice(fromIdx, 1);
+      // Recalculate toIdx after splice
+      toIdx = tabs.findIndex(t => t.relativePath === toPath);
+      tabs.splice(before ? toIdx : toIdx + 1, 0, tab);
+      return { openTabs: tabs };
+    });
   },
 
   setForceReloadPath: (forceReloadPath) => set({ forceReloadPath }),
