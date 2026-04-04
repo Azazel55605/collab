@@ -36,6 +36,10 @@ import { useEditorStore } from '../../store/editorStore';
 import { livePreviewPlugin } from './livePreview';
 import { openUrl, openPath } from '@tauri-apps/plugin-opener';
 import 'katex/dist/katex.min.css';
+import {
+  ContextMenu, ContextMenuContent, ContextMenuItem,
+  ContextMenuSeparator, ContextMenuTrigger,
+} from '../ui/context-menu';
 
 export interface MarkdownEditorHandle {
   /** Wrap selection with `before`/`after`; if no selection, insert `before + placeholder + after` and select placeholder. */
@@ -66,7 +70,12 @@ function buildCollabTheme(dark: boolean, fontFamily: string, fontSize: number) {
         // Match --background (not --card) so the editor blends seamlessly with the app.
         backgroundColor: 'var(--background)',
       },
-      '.cm-scroller': { overflow: 'auto', lineHeight: '1.7', fontFamily },
+      // lineWrapping (EditorView.lineWrapping) normally sets overflow-x:hidden on
+      // the scroller, but our explicit 'overflow: auto' was overriding that —
+      // causing horizontal scrollbars to appear in AppImage where GDK scale
+      // measurements drift slightly. Use per-axis values so vertical scroll is
+      // preserved while horizontal is blocked (tables/math have their own wrappers).
+      '.cm-scroller': { overflowX: 'hidden', overflowY: 'auto', lineHeight: '1.7', fontFamily },
       '.cm-content': {
         // Responsive column centering: pad inward until the text column reaches
         // ~860px, but cap the left/right padding at 48px so the gap between
@@ -481,6 +490,41 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       }
     }, [content]);
 
+    function cutSelection() {
+      const view = viewRef.current;
+      if (!view) return;
+      const { from, to } = view.state.selection.main;
+      const text = view.state.sliceDoc(from, to);
+      if (!text) return;
+      navigator.clipboard.writeText(text);
+      view.dispatch({ changes: { from, to, insert: '' } });
+      view.focus();
+    }
+
+    function copySelection() {
+      const view = viewRef.current;
+      if (!view) return;
+      const { from, to } = view.state.selection.main;
+      navigator.clipboard.writeText(view.state.sliceDoc(from, to));
+    }
+
+    function pasteAtCursor() {
+      const view = viewRef.current;
+      if (!view) return;
+      navigator.clipboard.readText().then(text => {
+        const { from, to } = view.state.selection.main;
+        view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length } });
+        view.focus();
+      });
+    }
+
+    function selectAll() {
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+      view.focus();
+    }
+
     // Absolutely fill the position:relative wrapper in NoteView.
     // Using position:absolute with inset:0 gives a deterministic height/width
     // without relying on CSS percentage resolution inside flex containers, which
@@ -488,7 +532,53 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     // to 0, not the flex-grown size). The absolute element's getBoundingClientRect()
     // is always correct, so CodeMirror's posAtCoords() maps clicks accurately.
     return (
-      <div ref={containerRef} className="absolute inset-0 cm-editor-container" />
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div ref={containerRef} className="absolute inset-0 cm-editor-container" />
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-44">
+          <ContextMenuItem className="text-xs" onSelect={cutSelection}>
+            Cut <span className="ml-auto text-muted-foreground">⌘X</span>
+          </ContextMenuItem>
+          <ContextMenuItem className="text-xs" onSelect={copySelection}>
+            Copy <span className="ml-auto text-muted-foreground">⌘C</span>
+          </ContextMenuItem>
+          <ContextMenuItem className="text-xs" onSelect={pasteAtCursor}>
+            Paste <span className="ml-auto text-muted-foreground">⌘V</span>
+          </ContextMenuItem>
+          <ContextMenuItem className="text-xs" onSelect={selectAll}>
+            Select all <span className="ml-auto text-muted-foreground">⌘A</span>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem className="text-xs" onSelect={() => {
+            const view = viewRef.current; if (!view) return;
+            const { from, to } = view.state.selection.main;
+            const sel = view.state.sliceDoc(from, to) || 'bold text';
+            view.dispatch({ changes: { from, to, insert: `**${sel}**` }, selection: { anchor: from + 2, head: from + 2 + sel.length } });
+            view.focus();
+          }}>
+            Bold <span className="ml-auto text-muted-foreground">⌘B</span>
+          </ContextMenuItem>
+          <ContextMenuItem className="text-xs" onSelect={() => {
+            const view = viewRef.current; if (!view) return;
+            const { from, to } = view.state.selection.main;
+            const sel = view.state.sliceDoc(from, to) || 'italic text';
+            view.dispatch({ changes: { from, to, insert: `_${sel}_` }, selection: { anchor: from + 1, head: from + 1 + sel.length } });
+            view.focus();
+          }}>
+            Italic <span className="ml-auto text-muted-foreground">⌘I</span>
+          </ContextMenuItem>
+          <ContextMenuItem className="text-xs" onSelect={() => {
+            const view = viewRef.current; if (!view) return;
+            const { from, to } = view.state.selection.main;
+            const sel = view.state.sliceDoc(from, to) || 'strikethrough';
+            view.dispatch({ changes: { from, to, insert: `~~${sel}~~` }, selection: { anchor: from + 2, head: from + 2 + sel.length } });
+            view.focus();
+          }}>
+            Strikethrough
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     );
   }
 );

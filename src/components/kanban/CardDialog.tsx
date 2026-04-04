@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { format } from 'date-fns';
 import {
   X, Paperclip, Calendar, Tag, Users, MessageSquare,
@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useKanbanContext } from '../../views/KanbanPage';
+import { useKanbanStore } from '../../store/kanbanStore';
 import { useCollabStore } from '../../store/collabStore';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useEditorStore } from '../../store/editorStore';
@@ -47,10 +48,12 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
   const { notes }         = useNoteIndexStore();
   const { openTab }       = useEditorStore();
   const { setActiveView, dateFormat } = useUiStore();
+  const { draft: storedDraft, updateDraft: storeUpdateDraft } = useKanbanStore();
 
-  const [draft, setDraft] = useState<KanbanCard>({
-    ...initialCard,
-    checklist: initialCard.checklist ?? [],
+  // Restore in-progress edits if the user navigated away while this card was open.
+  const [draft, setDraft] = useState<KanbanCard>(() => {
+    if (storedDraft && storedDraft.id === initialCard.id) return storedDraft;
+    return { ...initialCard, checklist: initialCard.checklist ?? [] };
   });
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -90,13 +93,15 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
     }, 300);
   }
 
-  function patchDraft(changes: Partial<KanbanCard>) {
+  const patchDraft = useCallback((changes: Partial<KanbanCard>) => {
     setDraft(prev => {
       const next = { ...prev, ...changes };
       flushDraft(next);
+      storeUpdateDraft(next); // keep store in sync so view switches don't lose edits
       return next;
     });
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeUpdateDraft]);
 
   function deleteCard() {
     updateBoard(prev => ({

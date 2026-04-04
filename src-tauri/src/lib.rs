@@ -10,7 +10,15 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(AppState::new())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(
+            tauri_plugin_updater::Builder::new()
+                // Pubkey is also declared in tauri.conf.json, but passing it
+                // here ensures the AppImage updater picks it up correctly —
+                // some Tauri 2 versions fail to propagate the config-embedded
+                // key to the runtime updater on Linux.
+                .pubkey("dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ0MEQwRUZGRUU2NzFGMUIKUldRYkgyZnUvdzROUk9heXVVRlJyR2NzUGh2YU1rWDQ2dS9ZV2xoa0hYdElJYXFEMjRXQUZ6ekwK")
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())

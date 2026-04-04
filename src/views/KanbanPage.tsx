@@ -75,6 +75,8 @@ export default function KanbanPage({ relativePath }: { relativePath: string | nu
   const updateBoard = useCallback((updater: (b: KanbanBoard) => KanbanBoard) => {
     setBoard(prev => {
       const next = updater(prev);
+      // Skip timer reset when the updater returned the same reference (no-op).
+      if (next === prev) return prev;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => saveBoard(next), 600);
       return next;

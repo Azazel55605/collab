@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -7,7 +7,9 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
+  type CollisionDetection,
 } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { Plus, LayoutDashboard, CalendarDays, GanttChart } from 'lucide-react';
@@ -39,24 +41,104 @@ export default function KanbanBoardView() {
     [peers, relativePath],
   );
 
-  function findCardColumn(cardId: string) {
-    return board.columns.find(col => col.cards.some(c => c.id === cardId));
-  }
+  // Track which column the dragged card started in so we can apply autoComplete
+  // correctly even after onDragOver has already moved the card cross-column.
+  const dragStartColRef = useRef<string | null>(null);
+
+  // Track the last droppable the pointer was over so we don't call updateBoard
+  // on every mouse-move event — only when the cursor actually crosses to a
+  // different droppable.  onDragOver fires at pointer-move frequency (60+ Hz)
+  // but over.id only changes when entering a new droppable region.
+  const lastOverIdRef = useRef<string | null>(null);
+
+  // Custom collision detection: when dragging a COLUMN, restrict candidates to
+  // other columns only.  Without this, closestCorners may return a card ID
+  // (which is "closer" by bounding-rect math) — the horizontal SortableContext
+  // can't find that ID in its column list and produces no animation transform.
+  const collisionDetection: CollisionDetection = useCallback((args) => {
+    if (activeColumn) {
+      const colIds = new Set(board.columns.map(c => c.id));
+      return closestCorners({
+        ...args,
+        droppableContainers: args.droppableContainers.filter(c => colIds.has(c.id as string)),
+      });
+    }
+    return closestCorners(args);
+  }, [activeColumn, board.columns]);
 
   function onDragStart({ active }: DragStartEvent) {
     const activeId = active.id as string;
     const isColDrag = board.columns.some(c => c.id === activeId);
+    lastOverIdRef.current = null;
     if (isColDrag) {
       setActiveColumn(board.columns.find(c => c.id === activeId) ?? null);
       setActiveCard(null);
+      dragStartColRef.current = null;
     } else {
-      const col = findCardColumn(activeId);
+      const col = board.columns.find(col => col.cards.some(c => c.id === activeId));
       setActiveCard(col?.cards.find(c => c.id === activeId) ?? null);
       setActiveColumn(null);
+      dragStartColRef.current = col?.id ?? null;
     }
   }
 
+  // Optimistically move cards cross-column during the drag so dnd-kit's
+  // per-column SortableContext can animate the insertion in real time.
+  // All reads use `prev` (functional update) to avoid stale-closure issues
+  // when onDragOver fires faster than React can flush state.
+  function onDragOver({ active, over }: DragOverEvent) {
+    if (!over || active.id === over.id) return;
+    const activeId = active.id as string;
+    const overId   = over.id as string;
+    if (board.columns.some(c => c.id === activeId)) return; // column drag — skip
+
+    // Bail out early if the pointer is still over the same droppable — this
+    // fires at pointer-move frequency so skipping unchanged events is critical.
+    if (overId === lastOverIdRef.current) return;
+    lastOverIdRef.current = overId;
+
+    const overIsColumn = board.columns.some(c => c.id === overId);
+
+    // Pre-check using current board state (may be slightly stale but good enough
+    // to avoid calling updateBoard for the common same-column case).
+    const srcColId = board.columns.find(col => col.cards.some(c => c.id === activeId))?.id;
+    const dstColId = overIsColumn
+      ? overId
+      : board.columns.find(col => col.cards.some(c => c.id === overId))?.id;
+    if (!srcColId || !dstColId || srcColId === dstColId) return;
+
+    updateBoard(prev => {
+      const srcCol = prev.columns.find(col => col.cards.some(c => c.id === activeId));
+      const dstCol = overIsColumn
+        ? prev.columns.find(c => c.id === overId)
+        : prev.columns.find(col => col.cards.some(c => c.id === overId));
+
+      if (!srcCol || !dstCol || srcCol.id === dstCol.id) return prev;
+
+      const srcIdx = srcCol.cards.findIndex(c => c.id === activeId);
+      const dstIdx = overIsColumn
+        ? dstCol.cards.length
+        : dstCol.cards.findIndex(c => c.id === overId);
+
+      const srcCards = [...srcCol.cards];
+      const [card] = srcCards.splice(srcIdx, 1);
+      const dstCards = [...dstCol.cards];
+      dstCards.splice(Math.max(0, dstIdx), 0, card);
+      return {
+        ...prev,
+        columns: prev.columns.map(c => {
+          if (c.id === srcCol.id) return { ...c, cards: srcCards };
+          if (c.id === dstCol.id) return { ...c, cards: dstCards };
+          return c; // preserve reference — unchanged columns won't cause re-renders
+        }),
+      };
+    });
+  }
+
   function onDragEnd({ active, over }: DragEndEvent) {
+    const startColId = dragStartColRef.current;
+    dragStartColRef.current = null;
+    lastOverIdRef.current = null;
     setActiveCard(null);
     setActiveColumn(null);
     if (!over || active.id === over.id) return;
@@ -64,14 +146,15 @@ export default function KanbanBoardView() {
     const draggedId = active.id as string;
     const overId    = over.id as string;
 
-    // Column reorder — over.id may be a card inside the target column, resolve it
-    const isColumnDrag = board.columns.some(c => c.id === draggedId);
-    if (isColumnDrag) {
-      const targetColId = board.columns.some(c => c.id === overId)
-        ? overId
-        : findCardColumn(overId)?.id ?? null;
-      if (!targetColId || targetColId === draggedId) return;
+    // ── Column reorder ──────────────────────────────────────────────────────
+    // over.id may be a card inside the target column — resolve it to a column.
+    if (board.columns.some(c => c.id === draggedId)) {
       updateBoard(prev => {
+        const colIds = prev.columns.map(c => c.id);
+        const targetColId = colIds.includes(overId)
+          ? overId
+          : prev.columns.find(col => col.cards.some(c => c.id === overId))?.id ?? null;
+        if (!targetColId || targetColId === draggedId) return prev;
         const srcIdx = prev.columns.findIndex(c => c.id === draggedId);
         const dstIdx = prev.columns.findIndex(c => c.id === targetColId);
         return { ...prev, columns: arrayMove(prev.columns, srcIdx, dstIdx) };
@@ -79,42 +162,55 @@ export default function KanbanBoardView() {
       return;
     }
 
-    const srcCol = findCardColumn(draggedId);
-    if (!srcCol) return;
-    const srcIdx = srcCol.cards.findIndex(c => c.id === draggedId);
-
-    // Determine destination: over a column header or over another card?
+    // ── Card reorder / cross-column commit ──────────────────────────────────
+    // onDragOver may have already moved the card into the destination column.
+    // We use a functional update so we read the latest state regardless.
     const overIsColumn = board.columns.some(c => c.id === overId);
-    const dstCol = overIsColumn
-      ? board.columns.find(c => c.id === overId)!
-      : findCardColumn(overId);
-    if (!dstCol) return;
 
-    const dstIdx = overIsColumn
-      ? dstCol.cards.length
-      : dstCol.cards.findIndex(c => c.id === overId);
+    updateBoard(prev => {
+      const srcCol = prev.columns.find(col => col.cards.some(c => c.id === draggedId));
+      if (!srcCol) return prev;
+      const srcIdx = srcCol.cards.findIndex(c => c.id === draggedId);
 
-    if (srcCol.id === dstCol.id) {
-      // Same-column reorder
-      updateBoard(prev => ({
+      const dstCol = overIsColumn
+        ? prev.columns.find(c => c.id === overId)
+        : prev.columns.find(col => col.cards.some(c => c.id === overId));
+      if (!dstCol) return prev;
+
+      const dstIdx = overIsColumn
+        ? dstCol.cards.length
+        : dstCol.cards.findIndex(c => c.id === overId);
+
+      // Was this a genuine cross-column move (judged by original column at drag-start)?
+      const wasCrossColumn = startColId !== null && startColId !== dstCol.id;
+      const autoComplete   = dstCol.autoComplete ?? false;
+
+      if (srcCol.id === dstCol.id) {
+        // Card is already in the right column (moved by onDragOver) — final sort only.
+        const reordered = arrayMove(srcCol.cards, srcIdx, dstIdx);
+        const cards = wasCrossColumn && autoComplete
+          ? reordered.map(c => c.id === draggedId ? { ...c, isDone: true } : c)
+          : reordered;
+        return {
+          ...prev,
+          columns: prev.columns.map(col => col.id !== srcCol.id ? col : { ...col, cards }),
+        };
+      }
+
+      // Fallback: card wasn't moved by onDragOver (e.g., very fast drop).
+      const srcCards = [...srcCol.cards];
+      const [card] = srcCards.splice(srcIdx, 1);
+      const dstCards = [...dstCol.cards];
+      dstCards.splice(dstIdx, 0, autoComplete ? { ...card, isDone: true } : card);
+      return {
         ...prev,
-        columns: prev.columns.map(col =>
-          col.id !== srcCol.id ? col : { ...col, cards: arrayMove(col.cards, srcIdx, dstIdx) },
-        ),
-      }));
-    } else {
-      // Cross-column move — auto-complete if destination column has it enabled
-      const autoComplete = dstCol.autoComplete ?? false;
-      updateBoard(prev => {
-        const cols = prev.columns.map(c => ({ ...c, cards: [...c.cards] }));
-        const src  = cols.find(c => c.id === srcCol.id)!;
-        const dst  = cols.find(c => c.id === dstCol.id)!;
-        const [card] = src.cards.splice(srcIdx, 1);
-        const movedCard = autoComplete ? { ...card, isDone: true } : card;
-        dst.cards.splice(dstIdx, 0, movedCard);
-        return { ...prev, columns: cols };
-      });
-    }
+        columns: prev.columns.map(c => {
+          if (c.id === srcCol.id) return { ...c, cards: srcCards };
+          if (c.id === dstCol.id) return { ...c, cards: dstCards };
+          return c;
+        }),
+      };
+    });
   }
 
   function addColumn() {
@@ -206,8 +302,9 @@ export default function KanbanBoardView() {
       {view === 'board' && <div className="flex-1 overflow-x-auto overflow-y-hidden">
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCorners}
+          collisionDetection={collisionDetection}
           onDragStart={onDragStart}
+          onDragOver={onDragOver}
           onDragEnd={onDragEnd}
         >
           <div className="flex gap-3 h-full p-4 w-max min-w-full items-start">

@@ -3,6 +3,10 @@ import { cn } from '../../lib/utils';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
 import { useDragContext } from '../../contexts/DragContext';
+import {
+  ContextMenu, ContextMenuContent, ContextMenuItem,
+  ContextMenuSeparator, ContextMenuTrigger,
+} from '../ui/context-menu';
 
 export default function TabBar() {
   const { openTabs, activeTabPath, closeTab, setActiveTab } = useEditorStore();
@@ -32,8 +36,9 @@ export default function TabBar() {
       {openTabs.map((tab) => {
         const isActive = activeTabPath === tab.relativePath;
         return (
+          <ContextMenu key={tab.relativePath}>
+          <ContextMenuTrigger asChild>
           <div
-            key={tab.relativePath}
             draggable
             onDragStart={(e) => {
               setDraggingTab({
@@ -82,6 +87,33 @@ export default function TabBar() {
               <X size={10} />
             </button>
           </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-44">
+            <ContextMenuItem className="text-xs" onSelect={() => closeTab(tab.relativePath)}>
+              Close tab
+            </ContextMenuItem>
+            <ContextMenuItem
+              className="text-xs"
+              onSelect={() => openTabs.filter(t => t.relativePath !== tab.relativePath).forEach(t => closeTab(t.relativePath))}
+            >
+              Close other tabs
+            </ContextMenuItem>
+            <ContextMenuItem className="text-xs" onSelect={() => openTabs.forEach(t => closeTab(t.relativePath))}>
+              Close all tabs
+            </ContextMenuItem>
+            {tab.type === 'note' && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  className="text-xs"
+                  onSelect={() => navigator.clipboard.writeText(tab.relativePath)}
+                >
+                  Copy path
+                </ContextMenuItem>
+              </>
+            )}
+          </ContextMenuContent>
+          </ContextMenu>
         );
       })}
 

@@ -119,17 +119,6 @@ class TableWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
-class HRWidget extends WidgetType {
-  toDOM() {
-    const wrap = document.createElement('div');
-    wrap.className = 'cm-lp-hr-wrap';
-    const el = document.createElement('div');
-    el.className = 'cm-lp-hr';
-    wrap.appendChild(el);
-    return wrap;
-  }
-  ignoreEvent() { return false; }
-}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -334,7 +323,18 @@ function _build(state: EditorState): DecorationSet {
 
     // ── Horizontal rule ────────────────────────────────────────────────────
     if (/^(\*{3,}|-{3,}|_{3,})\s*$/.test(text) && from < to) {
-      if (!here) items.push({ from, to, deco: Decoration.replace({ widget: new HRWidget(), block: true }), excl: true });
+      // A `-{3,}` line that immediately follows non-blank text is a setext H2
+      // underline — not a thematic break. Skip it (Lezer handles heading style).
+      const prevText = ln > 1 ? doc.line(ln - 1).text.trim() : '';
+      const isSetextUnderline = text[0] === '-' && prevText.length > 0;
+      if (!isSetextUnderline && !here) {
+        // Use a line-class + inline replace instead of a block widget.
+        // Decoration.replace({block:true}) collapses to zero height in
+        // WebKitGTK because CM6 measures the widget before CSS loads;
+        // the CSS-driven ::after approach is completely reliable.
+        items.push({ from, to: from, deco: Decoration.line({ class: 'cm-lp-hr-line' }), excl: false });
+        items.push({ from, to, deco: Decoration.replace({}), excl: true });
+      }
       continue;
     }
 

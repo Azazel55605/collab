@@ -303,15 +303,22 @@
   background: var(--accent);
 }
 
-/* HR widget */
-.cm-editor .cm-lp-hr-wrap {
-  padding: 2px 0;
+/* HR line — shown when cursor is off the --- / *** / ___ line.
+   The raw syntax is hidden by an inline Decoration.replace; a CSS ::after
+   pseudo-element draws the visible divider.  This approach is reliable across
+   all WebKitGTK versions because it never depends on CM6 block-widget sizing. */
+.cm-editor .cm-line.cm-lp-hr-line {
+  position: relative;
 }
-.cm-editor .cm-lp-hr {
-  display: block;
-  height: 2px;
+.cm-editor .cm-line.cm-lp-hr-line::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
   background: var(--border);
-  border-radius: 1px;
+  pointer-events: none;
 }
 
 /* Math widgets */

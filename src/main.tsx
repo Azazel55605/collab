@@ -48,6 +48,11 @@ window.addEventListener('unhandledrejection', (e) => {
   showErrorOverlay('Unhandled Promise Rejection:\n' + msg);
 });
 
+// Replace the browser's default context menu with our custom one.
+// Radix UI's ContextMenu components intercept the contextmenu event on their
+// own triggers before it reaches this handler, so custom menus still appear.
+document.addEventListener('contextmenu', (e) => e.preventDefault());
+
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <App />
