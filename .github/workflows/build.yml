@@ -107,10 +107,11 @@ jobs:
           body:       'See CHANGELOG for details.'
           files: |
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.deb
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.deb.sig
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.rpm
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.rpm.sig
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage
-            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage.tar.gz
-            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage.tar.gz.sig
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage.sig
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.msi
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.msi.sig
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.exe
@@ -129,10 +130,11 @@ jobs:
           if-no-files-found: warn
           path: |
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.deb
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.deb.sig
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.rpm
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.rpm.sig
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage
-            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage.tar.gz
-            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage.tar.gz.sig
+            src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.AppImage.sig
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.msi
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.msi.sig
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.exe
@@ -182,13 +184,12 @@ jobs:
           }
 
           // artifact-label → Tauri platform key + file patterns
+          // Tauri 2 signs bundles directly (.AppImage.sig) — no .AppImage.tar.gz
           const PLATFORMS = {
-            // tauri-plugin-updater downloads the .tar.gz bundle, not the plain
-            // AppImage — the runtime extracts and replaces the running AppImage.
-            'linux-x86_64':  { artifact: 'linux-x86_64',     file: /\.AppImage\.tar\.gz$/,          sig: /\.AppImage\.tar\.gz\.sig$/ },
-            'linux-aarch64': { artifact: 'linux-aarch64',    file: /\.AppImage\.tar\.gz$/,          sig: /\.AppImage\.tar\.gz\.sig$/ },
-            'windows-x86_64':{ artifact: 'windows-x86_64',   file: /-setup\.exe$|\.msi$/,  sig: /-setup\.exe\.sig$|\.msi\.sig$/ },
-            'darwin-aarch64':{ artifact: 'mac-apple-silicon', file: /\.app\.tar\.gz$/,      sig: /\.app\.tar\.gz\.sig$/ },
+            'linux-x86_64':  { artifact: 'linux-x86_64',     file: /\.AppImage$/,         sig: /\.AppImage\.sig$/ },
+            'linux-aarch64': { artifact: 'linux-aarch64',    file: /\.AppImage$/,         sig: /\.AppImage\.sig$/ },
+            'windows-x86_64':{ artifact: 'windows-x86_64',   file: /-setup\.exe$|\.msi$/, sig: /-setup\.exe\.sig$|\.msi\.sig$/ },
+            'darwin-aarch64':{ artifact: 'mac-apple-silicon', file: /\.app\.tar\.gz$/,     sig: /\.app\.tar\.gz\.sig$/ },
           };
 
           const manifest = {
