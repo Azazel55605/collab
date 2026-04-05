@@ -12,7 +12,7 @@ import {
   type CollisionDetection,
 } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
-import { Plus, LayoutDashboard, CalendarDays, GanttChart } from 'lucide-react';
+import { Plus, LayoutDashboard, CalendarDays, GanttChart, Archive, ArchiveRestore } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useKanbanContext } from '../../views/KanbanPage';
 import { useCollabStore } from '../../store/collabStore';
@@ -22,6 +22,80 @@ import CalendarView from './CalendarView';
 import TimelineView from './TimelineView';
 import type { KanbanCard, KanbanColumn } from '../../types/kanban';
 
+// ── Archive panel ─────────────────────────────────────────────────────────────
+
+function ArchivePanel() {
+  const { board, updateBoard } = useKanbanContext();
+
+  const archivedGroups = board.columns
+    .map(col => ({
+      col,
+      cards: col.cards.filter(c => c.archived),
+    }))
+    .filter(g => g.cards.length > 0);
+
+  const totalArchived = archivedGroups.reduce((n, g) => n + g.cards.length, 0);
+
+  function restoreCard(cardId: string, columnId: string) {
+    updateBoard(prev => ({
+      ...prev,
+      columns: prev.columns.map(col =>
+        col.id !== columnId ? col : {
+          ...col,
+          cards: col.cards.map(c =>
+            c.id !== cardId ? c : { ...c, archived: undefined, archivedColumnId: undefined },
+          ),
+        },
+      ),
+    }));
+  }
+
+  return (
+    <div className="border-t border-border/30 bg-muted/10 shrink-0 max-h-64 overflow-y-auto">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-border/20 sticky top-0 bg-background/80 backdrop-blur-sm">
+        <Archive size={12} className="text-muted-foreground" />
+        <span className="text-xs font-medium text-muted-foreground">
+          Archive — {totalArchived} {totalArchived === 1 ? 'card' : 'cards'}
+        </span>
+      </div>
+      {totalArchived === 0 ? (
+        <p className="text-xs text-muted-foreground/50 px-4 py-3">No archived cards.</p>
+      ) : (
+        <div className="p-4 flex flex-col gap-4">
+          {archivedGroups.map(({ col, cards }) => (
+            <div key={col.id}>
+              <div className="flex items-center gap-1.5 mb-2">
+                <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: col.color ?? '#64748b' }} />
+                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">{col.title}</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                {cards.map(card => (
+                  <div
+                    key={card.id}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-card/40 border border-border/30 text-xs"
+                  >
+                    <span className="flex-1 truncate text-muted-foreground">{card.title}</span>
+                    <button
+                      onClick={() => restoreCard(card.id, col.id)}
+                      className="flex items-center gap-1 shrink-0 text-[10px] text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 px-1.5 py-0.5 rounded transition-colors"
+                      title="Restore to column"
+                    >
+                      <ArchiveRestore size={10} />
+                      Restore
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main board ────────────────────────────────────────────────────────────────
+
 export default function KanbanBoardView() {
   const { board, updateBoard, relativePath } = useKanbanContext();
   const { peers } = useCollabStore();
@@ -30,6 +104,7 @@ export default function KanbanBoardView() {
   const [activeColumn, setActiveColumn] = useState<KanbanColumn | null>(null);
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColTitle, setNewColTitle] = useState('');
+  const [showArchive, setShowArchive] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -275,6 +350,23 @@ export default function KanbanBoardView() {
             </button>
           </div>
 
+          {/* Archive toggle — only shown in board view */}
+          {view === 'board' && (
+            <button
+              onClick={() => setShowArchive(v => !v)}
+              title={showArchive ? 'Hide archive' : 'Show archive'}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors',
+                showArchive
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/30',
+              )}
+            >
+              <Archive size={12} />
+              Archive
+            </button>
+          )}
+
           {boardPeers.length > 0 && (
             <div className="flex items-center gap-1" title="Also viewing this board">
               {boardPeers.map(p => (
@@ -299,83 +391,88 @@ export default function KanbanBoardView() {
       {view === 'timeline' && <TimelineView />}
 
       {/* Board body — horizontal scroll */}
-      {view === 'board' && <div className="flex-1 overflow-x-auto overflow-y-hidden">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={collisionDetection}
-          onDragStart={onDragStart}
-          onDragOver={onDragOver}
-          onDragEnd={onDragEnd}
-        >
-          <div className="flex gap-3 h-full p-4 w-max min-w-full items-start">
-            <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
-              {board.columns.map(col => (
-                <KanbanColumnView key={col.id} column={col} />
-              ))}
-            </SortableContext>
+      {view === 'board' && <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 overflow-x-auto overflow-y-hidden">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={collisionDetection}
+            onDragStart={onDragStart}
+            onDragOver={onDragOver}
+            onDragEnd={onDragEnd}
+          >
+            <div className="flex gap-3 h-full p-4 w-max min-w-full items-start">
+              <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
+                {board.columns.map(col => (
+                  <KanbanColumnView key={col.id} column={col} />
+                ))}
+              </SortableContext>
 
-            {/* Add column */}
-            <div className="shrink-0 w-[272px]">
-              {addingColumn ? (
-                <div className="bg-card/60 border border-border/50 rounded-lg p-2 flex flex-col gap-2">
-                  <input
-                    autoFocus
-                    value={newColTitle}
-                    onChange={e => setNewColTitle(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') addColumn();
-                      if (e.key === 'Escape') { setAddingColumn(false); setNewColTitle(''); }
-                    }}
-                    placeholder="Column title..."
-                    className="w-full bg-transparent text-sm px-2 py-1 rounded border border-border/50 focus:outline-none focus:ring-1 focus:ring-primary/50 text-foreground placeholder:text-muted-foreground/40"
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={addColumn}
-                      className="flex-1 text-xs px-2 py-1 bg-primary/20 hover:bg-primary/30 text-primary rounded transition-colors"
-                    >
-                      Add column
-                    </button>
-                    <button
-                      onClick={() => { setAddingColumn(false); setNewColTitle(''); }}
-                      className="text-xs px-2 py-1 text-muted-foreground hover:text-foreground rounded transition-colors"
-                    >
-                      Cancel
-                    </button>
+              {/* Add column */}
+              <div className="shrink-0 w-[272px]">
+                {addingColumn ? (
+                  <div className="bg-card/60 border border-border/50 rounded-lg p-2 flex flex-col gap-2">
+                    <input
+                      autoFocus
+                      value={newColTitle}
+                      onChange={e => setNewColTitle(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') addColumn();
+                        if (e.key === 'Escape') { setAddingColumn(false); setNewColTitle(''); }
+                      }}
+                      placeholder="Column title..."
+                      className="w-full bg-transparent text-sm px-2 py-1 rounded border border-border/50 focus:outline-none focus:ring-1 focus:ring-primary/50 text-foreground placeholder:text-muted-foreground/40"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={addColumn}
+                        className="flex-1 text-xs px-2 py-1 bg-primary/20 hover:bg-primary/30 text-primary rounded transition-colors"
+                      >
+                        Add column
+                      </button>
+                      <button
+                        onClick={() => { setAddingColumn(false); setNewColTitle(''); }}
+                        className="text-xs px-2 py-1 text-muted-foreground hover:text-foreground rounded transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setAddingColumn(true)}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors border border-dashed border-border/40 hover:border-border/60"
-                >
-                  <Plus size={14} />
-                  Add column
-                </button>
-              )}
-            </div>
-          </div>
-
-          <DragOverlay dropAnimation={null}>
-            {activeCard && (
-              <KanbanCardView card={activeCard} columnId="" isOverlay />
-            )}
-            {activeColumn && (
-              <div className="w-[272px] bg-card/80 border border-border/50 rounded-lg shadow-2xl opacity-90 px-3 py-2.5 flex items-center gap-2">
-                <div
-                  className="w-3 h-3 rounded-full shrink-0"
-                  style={{ backgroundColor: activeColumn.color ?? '#64748b' }}
-                />
-                <span className="text-sm font-semibold text-foreground truncate flex-1">
-                  {activeColumn.title}
-                </span>
-                <span className="text-[11px] text-muted-foreground tabular-nums">
-                  {activeColumn.cards.length}
-                </span>
+                ) : (
+                  <button
+                    onClick={() => setAddingColumn(true)}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors border border-dashed border-border/40 hover:border-border/60"
+                  >
+                    <Plus size={14} />
+                    Add column
+                  </button>
+                )}
               </div>
-            )}
-          </DragOverlay>
-        </DndContext>
+            </div>
+
+            <DragOverlay dropAnimation={null}>
+              {activeCard && (
+                <KanbanCardView card={activeCard} columnId="" isOverlay />
+              )}
+              {activeColumn && (
+                <div className="w-[272px] bg-card/80 border border-border/50 rounded-lg shadow-2xl opacity-90 px-3 py-2.5 flex items-center gap-2">
+                  <div
+                    className="w-3 h-3 rounded-full shrink-0"
+                    style={{ backgroundColor: activeColumn.color ?? '#64748b' }}
+                  />
+                  <span className="text-sm font-semibold text-foreground truncate flex-1">
+                    {activeColumn.title}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground tabular-nums">
+                    {activeColumn.cards.length}
+                  </span>
+                </div>
+              )}
+            </DragOverlay>
+          </DndContext>
+        </div>
+
+        {/* Archive panel */}
+        {showArchive && <ArchivePanel />}
       </div>}
     </div>
   );

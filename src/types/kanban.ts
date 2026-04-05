@@ -28,6 +28,8 @@ export interface KanbanCard {
   comments: KanbanComment[];
   checklist: ChecklistItem[];
   isDone?: boolean;
+  archived?: boolean;
+  archivedColumnId?: string; // remembers the column the card was in when archived
 }
 
 export type ColumnSortField = 'none' | 'name' | 'priority' | 'createdAt' | 'startDate' | 'dueDate' | 'assignees';

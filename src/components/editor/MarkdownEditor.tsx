@@ -17,6 +17,7 @@ import {
   indentWithTab,
 } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { languages } from '@codemirror/language-data';
 import {
   bracketMatching,
   indentOnInput,
@@ -390,7 +391,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             indentOnInput(),
             syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
             // GFM adds strikethrough, tables, task lists, autolinks
-            markdown({ base: markdownLanguage, extensions: GFM }),
+            // codeLanguages enables syntax highlighting inside fenced code blocks
+            markdown({ base: markdownLanguage, extensions: GFM, codeLanguages: languages }),
             // Obsidian-style live preview: renders markdown inline while editing
             livePreviewPlugin,
             autocompletion({

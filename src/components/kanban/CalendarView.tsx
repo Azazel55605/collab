@@ -286,7 +286,7 @@ export default function CalendarView() {
       .filter((col: KanbanColumn) => !col.hideFromTimeline)
       .flatMap((col: KanbanColumn) =>
         col.cards
-          .filter(card => card.startDate || card.dueDate)
+          .filter(card => !card.archived && (card.startDate || card.dueDate))
           .map(card => ({
             card,
             columnId: col.id,

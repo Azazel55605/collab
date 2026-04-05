@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import {
   X, Paperclip, Calendar, Tag, Users, MessageSquare,
   Trash2, Flag, ExternalLink, Send, ListChecks,
-  LayoutDashboard, Check, Circle, CheckCircle2, ChevronDown,
+  LayoutDashboard, Check, Circle, CheckCircle2, ChevronDown, Archive, ArchiveRestore, Columns2,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useKanbanContext } from '../../views/KanbanPage';
@@ -20,6 +20,9 @@ import {
   Command, CommandEmpty, CommandGroup, CommandInput,
   CommandItem, CommandList,
 } from '../ui/command';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '../ui/select';
 
 // ── Priority config ────────────────────────────────────────────────────────
 
@@ -66,6 +69,8 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
   const [notePickerOpen,  setNotePickerOpen]   = useState(false);
   const [cardPickerOpen,  setCardPickerOpen]   = useState(false);
   const [confirmDelete,   setConfirmDelete]    = useState(false);
+  const [currentColumnId, setCurrentColumnId] = useState(columnId);
+  const currentColIdRef = useRef(columnId); // kept in sync so flushDraft closure always has the right id
 
   // Auto-resize title textarea
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -80,11 +85,12 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
 
   function flushDraft(d: KanbanCard) {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    const colId = currentColIdRef.current;
     saveTimerRef.current = setTimeout(() => {
       updateBoard(prev => ({
         ...prev,
         columns: prev.columns.map(col =>
-          col.id !== columnId ? col : {
+          col.id !== colId ? col : {
             ...col,
             cards: col.cards.map(c => c.id !== d.id ? c : d),
           },
@@ -107,9 +113,55 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
     updateBoard(prev => ({
       ...prev,
       columns: prev.columns.map(col =>
-        col.id !== columnId ? col : {
+        col.id !== currentColIdRef.current ? col : {
           ...col,
           cards: col.cards.filter(c => c.id !== draft.id),
+        },
+      ),
+    }));
+    onClose();
+  }
+
+  function moveToColumn(newColId: string) {
+    if (newColId === currentColIdRef.current) return;
+    const srcColId = currentColIdRef.current;
+    // Cancel any pending draft flush to avoid writing to the old column after the move
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    updateBoard(prev => {
+      const srcCol = prev.columns.find(c => c.id === srcColId);
+      const dstCol = prev.columns.find(c => c.id === newColId);
+      if (!srcCol || !dstCol) return prev;
+      const card = srcCol.cards.find(c => c.id === draft.id);
+      if (!card) return prev;
+      return {
+        ...prev,
+        columns: prev.columns.map(col => {
+          if (col.id === srcColId) return { ...col, cards: col.cards.filter(c => c.id !== draft.id) };
+          if (col.id === newColId) return { ...col, cards: [...col.cards, { ...draft }] };
+          return col;
+        }),
+      };
+    });
+    currentColIdRef.current = newColId;
+    setCurrentColumnId(newColId);
+  }
+
+  function toggleArchive() {
+    const isArchived = draft.archived;
+    const colId = currentColIdRef.current;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    updateBoard(prev => ({
+      ...prev,
+      columns: prev.columns.map(col =>
+        col.id !== colId ? col : {
+          ...col,
+          cards: col.cards.map(c =>
+            c.id !== draft.id ? c : {
+              ...c,
+              archived: isArchived ? undefined : true,
+              archivedColumnId: isArchived ? undefined : colId,
+            },
+          ),
         },
       ),
     }));
@@ -722,6 +774,42 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
                   })}
                 </div>
               )}
+            </section>
+
+            {/* Column (category) */}
+            <section>
+              <label className="section-label flex items-center gap-1"><Columns2 size={11} /> Column</label>
+              <Select value={currentColumnId} onValueChange={moveToColumn}>
+                <SelectTrigger className="h-7 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {board.columns.map(col => (
+                    <SelectItem key={col.id} value={col.id} className="text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full shrink-0 inline-block" style={{ backgroundColor: col.color ?? '#64748b' }} />
+                        {col.title}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </section>
+
+            {/* Archive */}
+            <section>
+              <button
+                onClick={toggleArchive}
+                className={cn(
+                  'w-full flex items-center gap-1.5 text-xs px-2 py-1.5 rounded transition-colors',
+                  draft.archived
+                    ? 'text-amber-500 hover:text-amber-400 hover:bg-amber-500/10'
+                    : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/30',
+                )}
+              >
+                {draft.archived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
+                {draft.archived ? 'Restore from archive' : 'Archive card'}
+              </button>
             </section>
 
             {/* Delete — bottom of sidebar */}

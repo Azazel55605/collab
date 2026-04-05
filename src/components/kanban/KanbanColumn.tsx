@@ -207,11 +207,12 @@ export default function KanbanColumnView({ column }: Props) {
     setAddingCard(false);
   }
 
-  // Sorted cards
+  // Sorted cards — archived cards are hidden from the board view
   const sortedCards = useMemo(() => {
     const sort = column.sort;
-    if (!sort || sort.field === 'none') return column.cards;
-    const cards = [...column.cards];
+    const activeCards = column.cards.filter(c => !c.archived);
+    if (!sort || sort.field === 'none') return activeCards;
+    const cards = [...activeCards];
     cards.sort((a, b) => {
       let cmp = 0;
       switch (sort.field) {

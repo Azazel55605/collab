@@ -82,6 +82,7 @@ export default function TimelineView() {
   // Drag state: ref for mutation, state for re-renders
   const dragRef     = useRef<DragRef | null>(null);
   const previewRef  = useRef<DragPreview | null>(null);
+  const wasMovedRef = useRef(false); // tracks whether the pointer actually moved during drag
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
 
   // Scroll sync refs
@@ -192,6 +193,7 @@ export default function TimelineView() {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     const es = effStart(card);
     const ee = effEnd(card);
+    wasMovedRef.current = false;
     dragRef.current = {
       type, cardId: card.id, columnId,
       startX: e.clientX,
@@ -207,6 +209,7 @@ export default function TimelineView() {
     const d = dragRef.current;
     if (!d) return;
     const delta = Math.round((e.clientX - d.startX) / DAY_W);
+    if (delta !== 0) wasMovedRef.current = true;
 
     let s  = d.origEffStart;
     let en = d.origEffEnd;
@@ -234,6 +237,12 @@ export default function TimelineView() {
     previewRef.current = null;
     setDragPreview(null);
     if (!d || !p) return;
+
+    // Click (no movement) → open the card editor
+    if (!wasMovedRef.current) {
+      setOpenCard({ card, columnId });
+      return;
+    }
 
     // Only write if actually changed
     const origStart = d.origStartDate ?? dateToStr(d.origEffStart);
@@ -266,7 +275,7 @@ export default function TimelineView() {
   const visibleGroups = board.columns
     .filter(col => !col.hideFromTimeline)
     .map(col => {
-      const datedCards = col.cards.filter(c => c.startDate || c.dueDate);
+      const datedCards = col.cards.filter(c => !c.archived && (c.startDate || c.dueDate));
       return {
         col,
         cards: filterUser

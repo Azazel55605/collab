@@ -4,7 +4,7 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   MessageSquare, Paperclip, Calendar,
   ArrowUp, ArrowRight, ArrowDown, CheckCircle2, Circle, FolderInput,
-  Pencil, Trash2, Copy, CheckCheck,
+  Pencil, Trash2, Copy, CheckCheck, Archive, ArchiveRestore,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useKanbanContext } from '../../views/KanbanPage';
@@ -281,6 +281,32 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
     }));
   }, []);
 
+  const archiveCard = useCallback(() => {
+    const { card, columnId, updateBoard } = stateRef.current;
+    updateBoard(prev => ({
+      ...prev,
+      columns: prev.columns.map(col =>
+        col.id !== columnId ? col : {
+          ...col,
+          cards: col.cards.map(c => c.id !== card.id ? c : { ...c, archived: true, archivedColumnId: columnId }),
+        },
+      ),
+    }));
+  }, []);
+
+  const restoreCard = useCallback(() => {
+    const { card, columnId, updateBoard } = stateRef.current;
+    updateBoard(prev => ({
+      ...prev,
+      columns: prev.columns.map(col =>
+        col.id !== columnId ? col : {
+          ...col,
+          cards: col.cards.map(c => c.id !== card.id ? c : { ...c, archived: undefined, archivedColumnId: undefined }),
+        },
+      ),
+    }));
+  }, []);
+
   function openDialog() {
     setEditing(relativePath, card.id, columnId, card);
   }
@@ -353,6 +379,15 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
         <ContextMenuItem className="text-xs" onSelect={duplicateCard}>
           <Copy size={11} className="mr-2" /> Duplicate
         </ContextMenuItem>
+        {card.archived ? (
+          <ContextMenuItem className="text-xs" onSelect={restoreCard}>
+            <ArchiveRestore size={11} className="mr-2" /> Restore from archive
+          </ContextMenuItem>
+        ) : (
+          <ContextMenuItem className="text-xs" onSelect={archiveCard}>
+            <Archive size={11} className="mr-2" /> Archive
+          </ContextMenuItem>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem className="text-xs text-destructive focus:text-destructive" onSelect={deleteCard}>
           <Trash2 size={11} className="mr-2" /> Delete card
