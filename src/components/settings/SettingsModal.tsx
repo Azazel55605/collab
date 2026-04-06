@@ -12,9 +12,10 @@ import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
-import { Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info, CalendarDays } from 'lucide-react';
+import { Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info, CalendarDays, Keyboard } from 'lucide-react';
 import { toast } from 'sonner';
 import AboutTab from './AboutTab';
+import ShortcutsTab from './ShortcutsTab';
 import { useUpdateStore } from '../../store/updateStore';
 
 // ─── Section helpers ─────────────────────────────────────────────────────────
@@ -82,6 +83,7 @@ const TABS = [
   { id: 'calendar',   label: 'Calendar',   icon: <CalendarDays size={15} /> },
   { id: 'profile',    label: 'Profile',    icon: <User         size={15} /> },
   { id: 'about',      label: 'About',      icon: <Info         size={15} /> },
+  { id: 'shortcuts',  label: 'Shortcuts',  icon: <Keyboard     size={15} /> },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -428,6 +430,9 @@ export default function SettingsModal() {
 
             {/* ── About ── */}
             {activeTab === 'about' && <AboutTab />}
+
+            {/* ── Shortcuts ── */}
+            {activeTab === 'shortcuts' && <ShortcutsTab />}
 
           </div>
         </div>

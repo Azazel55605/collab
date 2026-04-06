@@ -3,6 +3,7 @@ import {
   Italic,
   Strikethrough,
   Code,
+  FileCode,
   Link2,
   Quote,
   List,
@@ -17,6 +18,7 @@ import {
   Hash,
   Image,
   Highlighter,
+  Tags,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import type { RefObject } from 'react';
@@ -71,7 +73,25 @@ const INSERT: InsertBtn[] = [
   { icon: <Table size={13} />,   label: 'Table',         text: '| Col 1 | Col 2 | Col 3 |\n| --- | --- | --- |\n| Cell | Cell | Cell |' },
   { icon: <Minus size={13} />,   label: 'Horizontal Rule', text: '\n---\n' },
   { icon: <Hash size={13} />,    label: 'Math Block',    text: '$$\n\n$$' },
+  { icon: <FileCode size={13} />, label: 'Code Block',    text: '```\n\n```' },
 ];
+
+function TagsBtn() {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent('tag:add-tags-line'))}
+          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+        >
+          <Tags size={13} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">Add tags line</TooltipContent>
+    </Tooltip>
+  );
+}
 
 function TBtn({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
   return (
@@ -125,6 +145,10 @@ export function EditorToolbar({ editorRef }: EditorToolbarProps) {
           onClick={() => ed()?.insertSnippet(b.text)}
         />
       ))}
+
+      <div className="mx-1 h-4 w-px shrink-0 bg-border" />
+
+      <TagsBtn />
     </div>
   );
 }

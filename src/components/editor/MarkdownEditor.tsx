@@ -23,7 +23,9 @@ import {
   indentOnInput,
   syntaxHighlighting,
   defaultHighlightStyle,
+  HighlightStyle,
 } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
 import {
   autocompletion,
   completionKeymap,
@@ -214,6 +216,158 @@ function buildCollabTheme(dark: boolean, fontFamily: string, fontSize: number) {
   );
 }
 
+// ─── Syntax highlight style ──────────────────────────────────────────────────
+// A dark-mode-first palette (One Dark-ish) that switches to a light variant
+// when the app theme is 'light'. Placed in a Compartment so it hot-swaps
+// alongside the editor theme without rebuilding the entire editor.
+
+function buildHighlightStyle(dark: boolean) {
+  // ── Palette ────────────────────────────────────────────────────────────────
+  const p = dark ? {
+    keyword:    '#c678dd', // purple   — class, function, const, …
+    control:    '#e06c75', // rose     — return, import, export, if, …
+    string:     '#98c379', // green
+    number:     '#d19a66', // orange
+    bool:       '#d19a66',
+    nil:        '#d19a66',
+    type:       '#e5c07b', // gold     — type names, classes
+    fn:         '#61afef', // blue     — function names at call/def site
+    prop:       '#abb2bf', // near-fg  — obj.property
+    variable:   '#abb2bf', // near-fg
+    definition: '#e06c75', // rose     — declared names (let x =, function foo)
+    operator:   '#56b6c2', // cyan
+    punctuation:'#abb2bf',
+    comment:    '#5c6370', // muted gray
+    meta:       '#5c6370',
+    tag:        '#e06c75', // rose     — HTML/JSX tag names
+    attr:       '#d19a66', // orange   — HTML attributes
+    attrVal:    '#98c379', // green    — attribute values / strings
+    invalid:    '#f44747', // red
+    // markdown tokens
+    heading:    '#e5c07b', // gold — h1-h6
+    link:       '#61afef', // blue
+    url:        '#56b6c2', // cyan
+    code:       '#abb2bf',
+  } : {
+    keyword:    '#a626a4',
+    control:    '#a626a4',
+    string:     '#50a14f',
+    number:     '#986801',
+    bool:       '#986801',
+    nil:        '#986801',
+    type:       '#c18401',
+    fn:         '#4078f2',
+    prop:       '#383a42',
+    variable:   '#383a42',
+    definition: '#e45649',
+    operator:   '#0184bc',
+    punctuation:'#383a42',
+    comment:    '#a0a1a7',
+    meta:       '#a0a1a7',
+    tag:        '#e45649',
+    attr:       '#986801',
+    attrVal:    '#50a14f',
+    invalid:    '#ca1243',
+    heading:    '#c18401',
+    link:       '#4078f2',
+    url:        '#0184bc',
+    code:       '#383a42',
+  };
+
+  return HighlightStyle.define([
+    // ── Comments ──────────────────────────────────────────────────────────
+    { tag: tags.comment,                   color: p.comment,    fontStyle: 'italic' },
+    { tag: tags.lineComment,               color: p.comment,    fontStyle: 'italic' },
+    { tag: tags.blockComment,              color: p.comment,    fontStyle: 'italic' },
+    { tag: tags.docComment,                color: p.comment,    fontStyle: 'italic' },
+
+    // ── Keywords ──────────────────────────────────────────────────────────
+    { tag: tags.keyword,                   color: p.keyword },
+    { tag: tags.modifier,                  color: p.keyword },
+    { tag: tags.controlKeyword,            color: p.control },
+    { tag: tags.operatorKeyword,           color: p.control },
+    { tag: tags.definitionKeyword,         color: p.keyword },
+    { tag: tags.moduleKeyword,             color: p.control },
+    { tag: tags.self,                      color: p.keyword },
+    { tag: tags.namespace,                 color: p.type },
+
+    // ── Literals ──────────────────────────────────────────────────────────
+    { tag: tags.string,                    color: p.string },
+    { tag: tags.special(tags.string),      color: p.string },
+    { tag: tags.regexp,                    color: p.string },
+    { tag: tags.escape,                    color: p.number },
+    { tag: tags.number,                    color: p.number },
+    { tag: tags.integer,                   color: p.number },
+    { tag: tags.float,                     color: p.number },
+    { tag: tags.bool,                      color: p.bool,      fontWeight: 'bold' },
+    { tag: tags.null,                      color: p.nil,       fontWeight: 'bold' },
+
+    // ── Types & classes ───────────────────────────────────────────────────
+    { tag: tags.typeName,                  color: p.type },
+    { tag: tags.typeOperator,              color: p.type },
+    { tag: tags.className,                 color: p.type },
+    { tag: tags.definition(tags.typeName), color: p.type,      fontWeight: 'bold' },
+
+    // ── Names ─────────────────────────────────────────────────────────────
+    { tag: tags.variableName,              color: p.variable },
+    { tag: tags.definition(tags.variableName), color: p.definition },
+    { tag: tags.function(tags.variableName),   color: p.fn },
+    { tag: tags.function(tags.propertyName),   color: p.fn },
+    { tag: tags.propertyName,             color: p.prop },
+    { tag: tags.definition(tags.propertyName), color: p.definition },
+    { tag: tags.function(tags.name),       color: p.fn },
+    { tag: tags.labelName,                 color: p.variable },
+
+    // ── Operators & punctuation ───────────────────────────────────────────
+    { tag: tags.operator,                  color: p.operator },
+    { tag: tags.arithmeticOperator,        color: p.operator },
+    { tag: tags.logicOperator,             color: p.operator },
+    { tag: tags.bitwiseOperator,           color: p.operator },
+    { tag: tags.compareOperator,           color: p.operator },
+    { tag: tags.updateOperator,            color: p.operator },
+    { tag: tags.definitionOperator,        color: p.operator },
+    { tag: tags.punctuation,               color: p.punctuation },
+    { tag: tags.separator,                 color: p.punctuation },
+    { tag: tags.bracket,                   color: p.punctuation },
+    { tag: tags.squareBracket,             color: p.punctuation },
+    { tag: tags.paren,                     color: p.punctuation },
+    { tag: tags.brace,                     color: p.punctuation },
+    { tag: tags.derefOperator,             color: p.operator },
+
+    // ── HTML / JSX / XML ─────────────────────────────────────────────────
+    { tag: tags.tagName,                   color: p.tag },
+    { tag: tags.attributeName,             color: p.attr },
+    { tag: tags.attributeValue,            color: p.attrVal },
+    { tag: tags.angleBracket,              color: p.punctuation },
+    { tag: tags.documentMeta,              color: p.meta },
+    { tag: tags.processingInstruction,     color: p.meta },
+
+    // ── Meta / special ────────────────────────────────────────────────────
+    { tag: tags.meta,                      color: p.meta },
+    { tag: tags.atom,                      color: p.bool },
+    { tag: tags.unit,                      color: p.number },
+    { tag: tags.constant(tags.name),       color: p.number },
+    { tag: tags.color,                     color: p.number },
+    { tag: tags.invalid,                   color: p.invalid,   textDecoration: 'underline wavy' },
+
+    // ── Markdown-specific ─────────────────────────────────────────────────
+    { tag: tags.heading,                   color: p.heading,   fontWeight: 'bold' },
+    { tag: tags.heading1,                  color: p.heading,   fontWeight: 'bold' },
+    { tag: tags.heading2,                  color: p.heading,   fontWeight: 'bold' },
+    { tag: tags.heading3,                  color: p.heading,   fontWeight: 'bold' },
+    { tag: tags.heading4,                  color: p.heading,   fontWeight: 'bold' },
+    { tag: tags.heading5,                  color: p.heading,   fontWeight: 'bold' },
+    { tag: tags.heading6,                  color: p.heading,   fontWeight: 'bold' },
+    { tag: tags.link,                      color: p.link },
+    { tag: tags.url,                       color: p.url },
+    { tag: tags.emphasis,                  fontStyle: 'italic' },
+    { tag: tags.strong,                    fontWeight: 'bold' },
+    { tag: tags.strikethrough,             textDecoration: 'line-through' },
+    { tag: tags.monospace,                 fontFamily: 'monospace', color: p.code },
+    { tag: tags.content,                   color: dark ? '#abb2bf' : '#383a42' },
+  ]);
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
@@ -224,19 +378,23 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const onChangeRef = useRef(onChange);
     const onSaveRef = useRef(onSave);
     const themeCompartment = useRef(new Compartment());
+    const highlightCompartment = useRef(new Compartment());
     const { theme, editorFont, fontSize } = useUiStore();
     const fontFamily = EDITOR_FONTS[editorFont].css;
 
     onChangeRef.current = onChange;
     onSaveRef.current = onSave;
 
-    // ─── Swap theme/font/size when settings change ─────────────────────────
+    // ─── Swap theme/font/size/highlight when settings change ──────────────
     useEffect(() => {
       const view = viewRef.current;
       if (!view) return;
       const isDark = theme !== 'light';
       view.dispatch({
-        effects: themeCompartment.current.reconfigure(buildCollabTheme(isDark, fontFamily, fontSize)),
+        effects: [
+          themeCompartment.current.reconfigure(buildCollabTheme(isDark, fontFamily, fontSize)),
+          highlightCompartment.current.reconfigure(syntaxHighlighting(buildHighlightStyle(isDark))),
+        ],
       });
     }, [theme, fontFamily, fontSize]);
 
@@ -373,6 +531,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       const initialFont = EDITOR_FONTS[uiState.editorFont].css;
       const initialFontSize = uiState.fontSize;
       const initialTheme = themeCompartment.current.of(buildCollabTheme(isDark, initialFont, initialFontSize));
+      const initialHighlight = highlightCompartment.current.of(syntaxHighlighting(buildHighlightStyle(isDark)));
 
       let state: EditorState;
       try {
@@ -389,6 +548,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             bracketMatching(),
             closeBrackets(),
             indentOnInput(),
+            // Custom theme-aware highlight style (in a Compartment so it hot-swaps)
+            initialHighlight,
+            // Default style as fallback for any token types not covered above
             syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
             // GFM adds strikethrough, tables, task lists, autolinks
             // codeLanguages enables syntax highlighting inside fenced code blocks
@@ -578,6 +740,12 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             view.focus();
           }}>
             Strikethrough
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem className="text-xs" onSelect={() => {
+            window.dispatchEvent(new CustomEvent('tag:add-tags-line'));
+          }}>
+            Add tags line
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>

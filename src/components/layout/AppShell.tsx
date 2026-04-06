@@ -39,15 +39,15 @@ import SettingsPage from '../../views/SettingsPage';
 import GridView from '../../views/GridView';
 import { CollabProvider } from '../collaboration/CollabProvider';
 import { ConflictDialog } from '../collaboration/ConflictDialog';
-import { CommandPalette } from '../command-palette/CommandPalette';
+import { CommandBar } from '../command-bar/CommandBar';
 import { DragProvider } from '../../contexts/DragContext';
 import SplitDropZones from '../grid/SplitDropZones';
 import { GitFork, Layout, LayoutDashboard, FileText } from 'lucide-react';
 
 export default function AppShell() {
   const { vault, refreshFileTree } = useVaultStore();
-  const { activeTabPath, openTabs } = useEditorStore();
-  const { activeView, sidebarWidth, isSidebarOpen, setSidebarWidth } = useUiStore();
+  const { activeTabPath, openTabs, closeTab, setActiveTab } = useEditorStore();
+  const { activeView, sidebarWidth, isSidebarOpen, setSidebarWidth, toggleSidebar, openSettings, closeSettings, isSettingsOpen, setActiveView } = useUiStore();
   const { setNotes, setIndexing } = useNoteIndexStore();
   const resizingRef = useRef(false);
   const startXRef   = useRef(0);
@@ -83,6 +83,57 @@ export default function AppShell() {
     setup();
     return () => unsubs.forEach((u) => u());
   }, [vault?.path]);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (!ctrl) return;
+      const inInput = !!(document.activeElement?.matches('input,textarea,[contenteditable]'));
+
+      switch (e.key) {
+        case '\\':
+          e.preventDefault();
+          toggleSidebar();
+          break;
+        case ',':
+          e.preventDefault();
+          isSettingsOpen ? closeSettings() : openSettings();
+          break;
+        case 'w':
+          e.preventDefault();
+          if (activeTabPath) closeTab(activeTabPath);
+          break;
+        case 'Tab': {
+          e.preventDefault();
+          if (!openTabs.length) break;
+          const idx = openTabs.findIndex(t => t.relativePath === activeTabPath);
+          const next = e.shiftKey
+            ? (idx - 1 + openTabs.length) % openTabs.length
+            : (idx + 1) % openTabs.length;
+          const tab = openTabs[next];
+          setActiveTab(tab.relativePath);
+          if      (tab.type === 'graph')  setActiveView('graph');
+          else if (tab.type === 'kanban') setActiveView('kanban');
+          else if (tab.type === 'canvas') setActiveView('canvas');
+          else                            setActiveView('editor');
+          break;
+        }
+        case '1': if (!inInput) { e.preventDefault(); setActiveView('editor'); } break;
+        case '2': if (!inInput) { e.preventDefault(); setActiveView('graph');  } break;
+        case '3': if (!inInput) { e.preventDefault(); setActiveView('kanban'); } break;
+        case '4': if (!inInput) { e.preventDefault(); setActiveView('grid');   } break;
+        case 'n':
+          if (!inInput) {
+            e.preventDefault();
+            window.dispatchEvent(new CustomEvent('cmdbar:open', { detail: { input: '> new note ' } }));
+          }
+          break;
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [openTabs, activeTabPath, isSettingsOpen, toggleSidebar, openSettings, closeSettings, closeTab, setActiveTab, setActiveView]);
 
   // Sidebar drag-to-resize
   const onResizeStart = useCallback((e: React.MouseEvent) => {
@@ -173,7 +224,7 @@ export default function AppShell() {
       </div>
 
       <ConflictDialog />
-      <CommandPalette />
+      <CommandBar />
       </DragProvider>
     </CollabProvider>
   );
@@ -186,7 +237,7 @@ function EmptyEditor() {
     graph:    { icon: <GitFork size={32} />,        title: 'Graph View',   hint: 'Visualising wikilink connections between your notes.' },
     canvas:   { icon: <Layout size={32} />,         title: 'Canvas',       hint: 'Drag notes onto an infinite canvas to build visual maps.' },
     kanban:   { icon: <LayoutDashboard size={32}/>, title: 'Kanban Board', hint: 'Organise tasks and assign them to collaborators.' },
-    editor:   { icon: <FileText size={32} />,       title: 'No file open', hint: 'Select a file from the sidebar or press ⌘P to search.' },
+    editor:   { icon: <FileText size={32} />,       title: 'No file open', hint: 'Select a file from the sidebar or press Ctrl+K to search.' },
     settings: { icon: null, title: '', hint: '' },
   };
 

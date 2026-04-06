@@ -47,6 +47,7 @@ pub async fn download_and_install_update(app: AppHandle) -> Result<(), String> {
     let downloaded = Arc::new(AtomicU64::new(0));
     let downloaded_clone = downloaded.clone();
     let app_clone = app.clone();
+    let app_restart = app.clone();
 
     update
         .download_and_install(
@@ -61,7 +62,16 @@ pub async fn download_and_install_update(app: AppHandle) -> Result<(), String> {
                     }),
                 );
             },
-            || {},
+            move || {
+                // AppImage on Linux replaces the bundle file but does not restart
+                // the process — we must do it explicitly. Other platforms
+                // (Windows NSIS/MSI, macOS pkg) have installer-driven restarts, so
+                // we only intervene on Linux AppImage.
+                #[cfg(target_os = "linux")]
+                if std::env::var_os("APPIMAGE").is_some() {
+                    app_restart.restart();
+                }
+            },
         )
         .await
         .map_err(|e| e.to_string())?;

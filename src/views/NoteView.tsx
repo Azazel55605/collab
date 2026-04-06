@@ -7,6 +7,7 @@ import { tauriCommands } from '../lib/tauri';
 import { MarkdownEditor, type MarkdownEditorHandle } from '../components/editor/MarkdownEditor';
 import { EditorToolbar } from '../components/editor/EditorToolbar';
 import { toast } from 'sonner';
+import { ensureTagsLine, addTagToContent, setTagsInContent } from '../lib/frontmatter';
 
 const SNAPSHOT_INTERVAL_MS = 60_000;
 
@@ -51,6 +52,50 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   };
 
   useEffect(() => { loadNote(); }, [relativePath, vault?.path]);
+
+  // Command bar insert events
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const text = (e as CustomEvent<{ text: string }>).detail?.text;
+      if (text && editorRef.current) editorRef.current.insertSnippet(text);
+    };
+    window.addEventListener('cmdbar:insert', handler);
+    return () => window.removeEventListener('cmdbar:insert', handler);
+  }, []);
+
+  // Tag event listeners — fired by TagsPanel, EditorToolbar, and MarkdownEditor context menu
+  useEffect(() => {
+    const onAddTagsLine = () => {
+      setContent((prev) => {
+        if (prev === null) return prev;
+        return ensureTagsLine(prev);
+      });
+    };
+    const onAddTag = (e: Event) => {
+      const tag = (e as CustomEvent<{ tag: string }>).detail?.tag;
+      if (!tag) return;
+      setContent((prev) => {
+        if (prev === null) return prev;
+        return addTagToContent(prev, tag);
+      });
+    };
+    const onSetTags = (e: Event) => {
+      const tags = (e as CustomEvent<{ tags: string[] }>).detail?.tags;
+      if (!tags) return;
+      setContent((prev) => {
+        if (prev === null) return prev;
+        return setTagsInContent(prev, tags);
+      });
+    };
+    window.addEventListener('tag:add-tags-line', onAddTagsLine);
+    window.addEventListener('tag:add-tag', onAddTag);
+    window.addEventListener('tag:set-tags', onSetTags);
+    return () => {
+      window.removeEventListener('tag:add-tags-line', onAddTagsLine);
+      window.removeEventListener('tag:add-tag', onAddTag);
+      window.removeEventListener('tag:set-tags', onSetTags);
+    };
+  }, []);
 
   // Reload when HistoryPanel restores a snapshot for this file
   useEffect(() => {

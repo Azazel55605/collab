@@ -177,6 +177,16 @@
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
+/* Catch-all: kill every remaining backdrop-filter on the page.
+   The rules above only cover our own .glass* utilities; Tailwind's
+   backdrop-blur-* classes and any inline backdrop-filter values on
+   dialogs, overlays, tooltips, etc. must also be silenced. */
+[data-appimage] *,
+[data-appimage] *::before,
+[data-appimage] *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
 
 /* ─── Glow utilities ────────────────────────────────────────────────────── */
 

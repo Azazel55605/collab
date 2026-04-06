@@ -246,6 +246,15 @@ function _build(state: EditorState): DecorationSet {
 
   const items: Item[] = [];
 
+  // Detect YAML frontmatter at document start (--- ... ---) so the HR handler
+  // doesn't accidentally hide the opening delimiter or mangle the YAML content.
+  let frontmatterEndLn = 0;
+  if (doc.lines >= 3 && doc.line(1).text.trim() === '---') {
+    for (let i = 2; i <= doc.lines; i++) {
+      if (doc.line(i).text.trim() === '---') { frontmatterEndLn = i; break; }
+    }
+  }
+
   // Multi-line block state
   let inMath   = false, mathFrom = 0, mathSrc = '', mathHit = false;
   let inFence  = false;
@@ -274,6 +283,9 @@ function _build(state: EditorState): DecorationSet {
     const line  = doc.line(ln);
     const { from, to, text } = line;
     const here  = ln === cursorLn;
+
+    // ── Skip frontmatter lines ─────────────────────────────────────────────
+    if (frontmatterEndLn > 0 && ln <= frontmatterEndLn) continue;
 
     // ── Display math block  $$ ... $$ ──────────────────────────────────────
     if (text.trim() === '$$') {
