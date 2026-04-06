@@ -45,6 +45,11 @@ pub fn run() {
                                 &settings,
                                 webkit2gtk::HardwareAccelerationPolicy::Always,
                             );
+                            // Keep touchpad scrolling predictable across Linux WebKitGTK builds.
+                            // AppImage's bundled runtime has been especially prone to rough
+                            // inertial scrolling and accidental horizontal swipe navigation.
+                            SettingsExt::set_enable_smooth_scrolling(&settings, true);
+                            SettingsExt::set_enable_back_forward_navigation_gestures(&settings, false);
                         }
 
                         unsafe {

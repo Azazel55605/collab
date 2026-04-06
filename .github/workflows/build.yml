@@ -96,6 +96,26 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+      - name: Package portable Linux archive
+        if: contains(matrix.platform, 'ubuntu')
+        run: |
+          mkdir -p dist-portable
+          cp src-tauri/target/${{ matrix.rust-target }}/release/collab dist-portable/collab
+          cat > dist-portable/README.txt <<'EOF'
+          collab portable Linux build
+          
+          This archive uses the host system WebKitGTK/GTK libraries instead of AppImage's
+          bundled runtime. Use it when the AppImage has touchpad scrolling, blur, or
+          fractional-scaling issues on your distro.
+          
+          Run:
+            ./collab
+          
+          Requirements:
+            Install the normal Tauri/WebKitGTK runtime packages for your distro.
+          EOF
+          tar -C dist-portable -czf collab-${{ matrix.artifact-label }}-portable.tar.gz .
+
       # ── Publish GitHub Release (tag pushes only) ───────────────────────────
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -104,7 +124,16 @@ jobs:
           draft:      true
           prerelease: false
           name:       'collab ${{ github.ref_name }}'
-          body:       'See CHANGELOG for details.'
+          body: |
+            Linux download order:
+            1. Use the `.deb` build on Debian/Ubuntu-based systems.
+            2. Use the `.rpm` build on Fedora/openSUSE/RHEL-based systems.
+            3. Use `collab-linux-*-portable.tar.gz` on other desktop distros.
+            4. Use the `.AppImage` only when the above are not practical.
+
+            AppImage is still shipped and supported, but native packages and the portable tarball usually provide better touchpad scrolling, blur/compositing, and scaling behavior on Linux.
+
+            Linux install guide: https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/linux-install.md
           files: |
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.deb
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.deb.sig
@@ -119,6 +148,7 @@ jobs:
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.dmg
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.app.tar.gz
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.app.tar.gz.sig
+            collab-${{ matrix.artifact-label }}-portable.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -142,6 +172,7 @@ jobs:
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.dmg
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.app.tar.gz
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.app.tar.gz.sig
+            collab-${{ matrix.artifact-label }}-portable.tar.gz
 
   # ── Update manifest ─────────────────────────────────────────────────────────
   # Runs after all matrix builds finish. Downloads their artifacts, generates

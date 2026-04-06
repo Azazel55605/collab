@@ -46,6 +46,41 @@ check_deps() {
   done
 }
 
+package_linux_portable() {
+  local triple="$1" label="$2"
+  local release_dir="src-tauri/target/${triple}/release"
+  local binary="$release_dir/collab"
+  local staging="$OUT_DIR/.portable-${label}"
+  local archive="$OUT_DIR/$label/collab-${label}-portable.tar.gz"
+
+  if [ ! -f "$binary" ]; then
+    warn "Portable binary not found: $binary"
+    return
+  fi
+
+  rm -rf "$staging"
+  mkdir -p "$staging"
+  cp "$binary" "$staging/collab"
+  cat > "$staging/README.txt" <<'EOF'
+collab portable Linux build
+
+This archive uses the host system WebKitGTK/GTK libraries instead of AppImage's
+bundled runtime. Use it when the AppImage has touchpad scrolling, blur, or
+fractional-scaling issues on your distro.
+
+Run:
+  ./collab
+
+Requirements:
+  Install the normal Tauri/WebKitGTK runtime packages for your distro.
+EOF
+
+  mkdir -p "$OUT_DIR/$label"
+  tar -C "$staging" -czf "$archive" .
+  rm -rf "$staging"
+  ok "Portable archive → $archive"
+}
+
 # ── Install a Rust target if not present ──────────────────────────────────────
 ensure_target() {
   local triple="$1"
@@ -72,6 +107,12 @@ collect() {
     -o -name "*.msi" -o -name "*.exe" \
     -o -name "*.dmg" -o -name "*.app.tar.gz" \
     \) -exec cp -v {} "$dest/" \;
+
+  case "$triple" in
+    x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu)
+      package_linux_portable "$triple" "$label"
+      ;;
+  esac
 
   ok "Artifacts → $dest/"
 }

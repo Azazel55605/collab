@@ -151,8 +151,10 @@ export default function App() {
     };
   }, []);
 
-  // Optional AppImage blur fallback. Enable with COLLAB_APPIMAGE_DISABLE_BLUR=1
-  // for systems where AppImage WebKitGTK compositing is unstable.
+  // AppImage bundles its own Linux WebKitGTK stack, which is the source of the
+  // remaining blur/compositing regressions. Treat AppImage as compatibility mode
+  // by default and keep the env var as an override for any future non-AppImage
+  // Linux bundles that need the same fallback.
   useEffect(() => {
     Promise.allSettled([
       tauriCommands.isAppImage(),
@@ -160,7 +162,7 @@ export default function App() {
     ]).then(([appImageResult, disableBlurResult]) => {
       const isAppImage = appImageResult.status === 'fulfilled' ? appImageResult.value : false;
       const shouldDisableBlur = disableBlurResult.status === 'fulfilled' ? disableBlurResult.value : false;
-      if (isAppImage && shouldDisableBlur) {
+      if (isAppImage || shouldDisableBlur) {
         document.documentElement.dataset.appimage = '';
       } else {
         delete document.documentElement.dataset.appimage;

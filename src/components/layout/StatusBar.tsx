@@ -22,7 +22,7 @@ export default function StatusBar() {
   const isAvailable   = status === 'available';
 
   return (
-    <div className="flex items-center justify-between h-[22px] px-3 border-t border-border/40 bg-sidebar/60 backdrop-blur-sm text-[11px] text-muted-foreground shrink-0 select-none">
+    <div className="flex items-center justify-between h-[22px] px-3 border-t border-border/40 bg-sidebar/60 backdrop-blur-sm-webkit text-[11px] text-muted-foreground shrink-0 select-none">
       {/* Left: vault + file path */}
       <div className="flex items-center gap-2 min-w-0">
         {vault && (

@@ -161,6 +161,21 @@
   .glass-strong        { background: var(--popover); }
 }
 
+.backdrop-blur-xs-webkit {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.backdrop-blur-sm-webkit {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.backdrop-blur-2px-webkit {
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
 /* ─── Optional AppImage blur fallback ───────────────────────────────────── */
 /* Opt in with COLLAB_APPIMAGE_DISABLE_BLUR=1 when AppImage compositing is bad. */
 
@@ -266,7 +281,11 @@
 .cm-editor .cm-lp-strong { font-weight: 700; }
 .cm-editor .cm-lp-em     { font-style: italic; }
 .cm-editor .cm-lp-strike { text-decoration: line-through; opacity: 0.65; }
-.cm-editor .cm-lp-mark   { background: oklch(0.85 0.18 95 / 30%); border-radius: 2px; padding: 0 2px; }
+.cm-editor .cm-lp-mark   {
+  background: color-mix(in oklch, var(--primary) 24%, transparent);
+  border-radius: 2px;
+  padding: 0 2px;
+}
 
 /* Inline code */
 .cm-editor .cm-lp-icode {
@@ -641,6 +660,13 @@
 .markdown-preview .footnote-ref { color: var(--primary); }
 .markdown-preview .footnote-backref { color: var(--primary); text-decoration: none; }
 
+.markdown-preview mark {
+  background: color-mix(in oklch, var(--primary) 22%, transparent);
+  color: inherit;
+  padding: 0.08em 0.25em;
+  border-radius: 0.25em;
+}
+
 /* Definition lists */
 .markdown-preview dl { margin: 1em 0; }
 .markdown-preview dt { font-weight: 600; margin-top: 0.75em; }
@@ -702,7 +728,7 @@
   background: oklch(0.16 0.01 264) !important;
 }
 :root:not(.dark) .markdown-preview mark {
-  background: oklch(0.92 0.20 95 / 50%);
+  background: color-mix(in oklch, var(--primary) 20%, white 80%);
 }
 
 /* ─── Grid view animations ──────────────────────────────────────────────── */

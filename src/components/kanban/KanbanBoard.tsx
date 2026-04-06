@@ -52,7 +52,7 @@ function ArchivePanel() {
 
   return (
     <div className="border-t border-border/30 bg-muted/10 shrink-0 max-h-64 overflow-y-auto">
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-border/20 sticky top-0 bg-background/80 backdrop-blur-sm">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-border/20 sticky top-0 bg-background/80 backdrop-blur-sm-webkit">
         <Archive size={12} className="text-muted-foreground" />
         <span className="text-xs font-medium text-muted-foreground">
           Archive — {totalArchived} {totalArchived === 1 ? 'card' : 'cards'}

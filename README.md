@@ -149,11 +149,11 @@ pnpm dlx shadcn@latest add <component>
 
 ## Linux notes
 
-Two WebKitGTK environment flags are set at startup to avoid blank-window crashes on certain kernel/driver combinations:
+Linux builds are split by use case:
 
-```
-WEBKIT_DISABLE_DMABUF_RENDERER=1
-WEBKIT_DISABLE_COMPOSITING_MODE=1
-```
+- `.deb` / `.rpm` are the preferred packages when your distro matches them.
+- `collab-linux-*-portable.tar.gz` is the preferred fallback for other distros if you want the app to use your system WebKitGTK/GTK stack.
+- `.AppImage` remains available, but it uses a bundled Linux runtime and can still have worse touchpad scrolling, blur/compositing, and fractional-scaling behavior than native/system-library builds.
+- Install details and distro-specific commands are in [docs/linux-install.md](/home/azazel/Code Projects/collab/docs/linux-install.md).
 
-Touchpad pinch-to-zoom is intercepted at the GTK gesture layer to prevent WebKitGTK from applying its own zoom, which bypasses the app's controlled scaling.
+Touchpad pinch-to-zoom is intercepted at the GTK gesture layer to prevent WebKitGTK from applying its own zoom, which bypasses the app's controlled scaling. On Linux, smooth scrolling is explicitly enabled and swipe-navigation gestures are disabled to reduce touchpad conflicts inside the webview.

@@ -29,7 +29,7 @@ function resolveLayout(desiredId: GridLayoutId, containerWidth: number): GridLay
 // ─── Drag ghost shown in DragOverlay ─────────────────────────────────────────
 function DragGhost({ title }: { title: string }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background/95 border border-primary/40 shadow-xl text-xs text-foreground backdrop-blur-sm">
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background/95 border border-primary/40 shadow-xl text-xs text-foreground backdrop-blur-sm-webkit">
       <GripVertical size={12} className="text-primary" />
       <span className="max-w-[180px] truncate">{title || 'Cell'}</span>
     </div>

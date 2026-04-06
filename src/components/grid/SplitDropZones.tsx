@@ -88,7 +88,7 @@ export default function SplitDropZones() {
               className={cn(
                 'absolute pointer-events-auto transition-all duration-150',
                 isHovered
-                  ? 'bg-primary/25 backdrop-blur-[2px]'
+                  ? 'bg-primary/25 backdrop-blur-2px-webkit'
                   : 'bg-primary/8 hover:bg-primary/15'
               )}
               style={cfg.style}
