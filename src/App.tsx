@@ -151,12 +151,21 @@ export default function App() {
     };
   }, []);
 
-  // Detect AppImage: disable CSS backdrop-filter effects that don't render
-  // when DMA-BUF GPU compositing is unavailable in the AppImage context.
+  // Optional AppImage blur fallback. Enable with COLLAB_APPIMAGE_DISABLE_BLUR=1
+  // for systems where AppImage WebKitGTK compositing is unstable.
   useEffect(() => {
-    tauriCommands.isAppImage()
-      .then(ai => { if (ai) document.documentElement.dataset.appimage = ''; })
-      .catch(() => {});
+    Promise.allSettled([
+      tauriCommands.isAppImage(),
+      tauriCommands.shouldDisableBlur(),
+    ]).then(([appImageResult, disableBlurResult]) => {
+      const isAppImage = appImageResult.status === 'fulfilled' ? appImageResult.value : false;
+      const shouldDisableBlur = disableBlurResult.status === 'fulfilled' ? disableBlurResult.value : false;
+      if (isAppImage && shouldDisableBlur) {
+        document.documentElement.dataset.appimage = '';
+      } else {
+        delete document.documentElement.dataset.appimage;
+      }
+    });
   }, []);
 
   // Background update check: runs 3 s after startup, then every 6 hours.

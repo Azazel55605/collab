@@ -24,7 +24,10 @@ import {
   WidgetType,
 } from '@codemirror/view';
 import { StateField, RangeSetBuilder, EditorState } from '@codemirror/state';
+import * as React from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import katex from 'katex';
+import { Checkbox } from '../ui/checkbox';
 
 // ─── Widgets ──────────────────────────────────────────────────────────────────
 
@@ -42,6 +45,45 @@ class MathWidget extends WidgetType {
       el.textContent = this.display ? `$$\n${this.src}\n$$` : `$${this.src}$`;
     }
     return el;
+  }
+
+  ignoreEvent() { return false; }
+}
+
+class CodeBlockWidget extends WidgetType {
+  constructor(
+    readonly code: string,
+    readonly language: string,
+    readonly sourceLineCount: number,
+  ) { super(); }
+
+  eq(o: CodeBlockWidget) {
+    return (
+      o.code === this.code &&
+      o.language === this.language &&
+      o.sourceLineCount === this.sourceLineCount
+    );
+  }
+
+  toDOM() {
+    const wrap = document.createElement('div');
+    wrap.className = 'cm-lp-code-block-wrap';
+    wrap.style.minHeight = `${this.sourceLineCount * 1.7}em`;
+
+    if (this.language) {
+      const label = document.createElement('div');
+      label.className = 'cm-lp-code-block-lang';
+      label.textContent = this.language;
+      wrap.appendChild(label);
+    }
+
+    const pre = document.createElement('pre');
+    pre.className = 'cm-lp-code-block';
+    const code = document.createElement('code');
+    code.textContent = this.code;
+    pre.appendChild(code);
+    wrap.appendChild(pre);
+    return wrap;
   }
 
   ignoreEvent() { return false; }
@@ -119,6 +161,92 @@ class TableWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
+class TaskCheckboxWidget extends WidgetType {
+  constructor(
+    readonly prefix: string,
+    readonly checked: boolean,
+    readonly suffix: string,
+    readonly markerFrom: number,
+    readonly markerTo: number,
+  ) { super(); }
+
+  eq(o: TaskCheckboxWidget) {
+    return (
+      o.prefix === this.prefix &&
+      o.checked === this.checked &&
+      o.suffix === this.suffix &&
+      o.markerFrom === this.markerFrom &&
+      o.markerTo === this.markerTo
+    );
+  }
+
+  toDOM(view: EditorView) {
+    const wrap = document.createElement('span');
+    wrap.className = 'cm-lp-task';
+
+    if (this.prefix) {
+      const bullet = document.createElement('span');
+      bullet.className = 'cm-lp-task-prefix';
+      bullet.textContent = this.prefix;
+      wrap.appendChild(bullet);
+    }
+
+    const checkboxMount = document.createElement('span');
+    checkboxMount.className = 'cm-lp-task-checkbox';
+    wrap.appendChild(checkboxMount);
+
+    if (this.suffix) {
+      const label = document.createElement('span');
+      label.className = `cm-lp-task-label${this.checked ? ' is-checked' : ''}`;
+      label.textContent = this.suffix;
+      label.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+      });
+      label.addEventListener('click', (event) => {
+        event.preventDefault();
+        toggleChecked();
+      });
+      wrap.appendChild(label);
+    }
+
+    const toggleChecked = () => {
+      const nextChecked = !this.checked;
+      view.dispatch({
+        changes: {
+          from: this.markerFrom,
+          to: this.markerTo,
+          insert: nextChecked ? '[x]' : '[ ]',
+        },
+        selection: { anchor: this.markerTo },
+      });
+      view.focus();
+    };
+
+    const root = createRoot(checkboxMount);
+    root.render(
+      React.createElement(Checkbox, {
+        checked: this.checked,
+        'aria-label': this.checked ? 'Mark task incomplete' : 'Mark task complete',
+        onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => {
+          event.preventDefault();
+        },
+        onCheckedChange: () => {
+          toggleChecked();
+        },
+      }),
+    );
+    (wrap as HTMLElement & { __cmReactRoot?: Root }).__cmReactRoot = root;
+
+    return wrap;
+  }
+
+  destroy(dom: HTMLElement) {
+    (dom as HTMLElement & { __cmReactRoot?: Root }).__cmReactRoot?.unmount();
+  }
+
+  ignoreEvent() { return false; }
+}
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -172,7 +300,9 @@ function processInline(
   }
 
   // ── Inline code — highest priority so backticks protect inner content ────
-  run(/`([^`\n]+?)`/g, (_, s, e) => [mark(s, e, 'cm-lp-icode')]);
+  run(/`([^`\n]+?)`/g, (_, s, e) => [
+    hide(s, s + 1), mark(s + 1, e - 1, 'cm-lp-icode'), hide(e - 1, e),
+  ]);
 
   // ── Inline math $...$ — run before bold/italic to catch $ signs ─────────
   // Avoid matching $$ by checking the char before/after manually (no lookbehind)
@@ -257,7 +387,7 @@ function _build(state: EditorState): DecorationSet {
 
   // Multi-line block state
   let inMath   = false, mathFrom = 0, mathSrc = '', mathHit = false;
-  let inFence  = false;
+  let inFence  = false, fenceFrom = 0, fenceSrc = '', fenceHit = false, fenceLang = '', fenceLineCount = 0;
   let tableLines: Array<{ from: number; to: number; ln: number; text: string }> = [];
   let tableHit = false;
 
@@ -311,13 +441,39 @@ function _build(state: EditorState): DecorationSet {
     }
 
     // ── Code fence ─────────────────────────────────────────────────────────
-    if (/^(`{3,}|~{3,})/.test(text)) {
-      if (!inFence) { inFence = true; }
-      else          { inFence = false; }
+    const fenceMatch = text.match(/^(`{3,}|~{3,})(.*)$/);
+    if (fenceMatch) {
+      if (!inFence) {
+        inFence = true;
+        fenceFrom = from;
+        fenceSrc = '';
+        fenceHit = here;
+        fenceLang = fenceMatch[2].trim();
+        fenceLineCount = 1;
+      } else {
+        if (!fenceHit && !here) {
+          items.push({
+            from: fenceFrom,
+            to,
+            deco: Decoration.replace({
+              widget: new CodeBlockWidget(fenceSrc, fenceLang, fenceLineCount + 1),
+              block: true,
+            }),
+            excl: true,
+          });
+        }
+        inFence = false;
+        fenceSrc = '';
+        fenceHit = false;
+        fenceLang = '';
+        fenceLineCount = 0;
+      }
       flushTable(); continue;
     }
     if (inFence) {
-      if (!here) items.push({ from, to: from, deco: Decoration.line({ class: 'cm-lp-code-line' }), excl: false });
+      if (here) fenceHit = true;
+      fenceSrc += (fenceSrc ? '\n' : '') + text;
+      fenceLineCount += 1;
       flushTable(); continue;
     }
 
@@ -370,6 +526,26 @@ function _build(state: EditorState): DecorationSet {
         items.push({ from, to: from + 2, deco: Decoration.replace({}), excl: true });
         processInline(items, text.slice(2), from + 2, cursor);
       }
+      continue;
+    }
+
+    // ── Task list item  - [ ] text / - [x] text ────────────────────────────
+    const taskMatch = text.match(/^(\s*(?:[-+*]|\d+\.)\s+)(\[(?: |x|X)\])(\s.*)?$/);
+    if (taskMatch && !here) {
+      const prefix = taskMatch[1];
+      const marker = taskMatch[2];
+      const suffix = taskMatch[3] ?? '';
+      const markerFrom = from + prefix.length;
+      const markerTo = markerFrom + marker.length;
+      items.push({ from, to: from, deco: Decoration.line({ class: 'cm-lp-task-line' }), excl: false });
+      items.push({
+        from,
+        to,
+        deco: Decoration.replace({
+          widget: new TaskCheckboxWidget(prefix, marker.toLowerCase() === '[x]', suffix, markerFrom, markerTo),
+        }),
+        excl: true,
+      });
       continue;
     }
 

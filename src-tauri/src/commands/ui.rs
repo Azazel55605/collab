@@ -15,3 +15,13 @@ pub fn is_appimage() -> bool {
     #[cfg(not(target_os = "linux"))]
     { false }
 }
+
+/// Returns true when the AppImage blur compatibility fallback is explicitly enabled.
+/// Set `COLLAB_APPIMAGE_DISABLE_BLUR=1` to opt into the old no-blur behavior.
+#[tauri::command]
+pub fn should_disable_blur() -> bool {
+    matches!(
+        std::env::var("COLLAB_APPIMAGE_DISABLE_BLUR").ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
+}

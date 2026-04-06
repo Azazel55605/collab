@@ -63,13 +63,13 @@ pub async fn download_and_install_update(app: AppHandle) -> Result<(), String> {
                 );
             },
             move || {
-                // AppImage on Linux replaces the bundle file but does not restart
-                // the process — we must do it explicitly. Other platforms
-                // (Windows NSIS/MSI, macOS pkg) have installer-driven restarts, so
-                // we only intervene on Linux AppImage.
                 #[cfg(target_os = "linux")]
-                if std::env::var_os("APPIMAGE").is_some() {
-                    app_restart.restart();
+                if let Some(appimage_path) = std::env::var_os("APPIMAGE") {
+                    // Relaunch the real AppImage file rather than asking Tauri to
+                    // restart the current executable, which may still point at the
+                    // transient AppImage mount/runtime process.
+                    let _ = std::process::Command::new(appimage_path).spawn();
+                    app_restart.exit(0);
                 }
             },
         )

@@ -121,6 +121,7 @@ pub fn run() {
             // ui
             commands::ui::set_ui_zoom,
             commands::ui::is_appimage,
+            commands::ui::should_disable_blur,
             // encryption
             commands::crypto::unlock_vault,
             commands::crypto::enable_vault_encryption,

@@ -161,10 +161,8 @@
   .glass-strong        { background: var(--popover); }
 }
 
-/* ─── AppImage: GPU compositing unavailable ─────────────────────────────── */
-/* DMA-BUF renderer is disabled so backdrop-filter renders nothing, but the  */
-/* CSS property still reports as "supported" — @supports won't catch it.      */
-/* We detect AppImage in Rust and set data-appimage on <html> at startup.     */
+/* ─── Optional AppImage blur fallback ───────────────────────────────────── */
+/* Opt in with COLLAB_APPIMAGE_DISABLE_BLUR=1 when AppImage compositing is bad. */
 
 [data-appimage] .glass,
 [data-appimage] .glass-panel {
@@ -177,10 +175,6 @@
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-/* Catch-all: kill every remaining backdrop-filter on the page.
-   The rules above only cover our own .glass* utilities; Tailwind's
-   backdrop-blur-* classes and any inline backdrop-filter values on
-   dialogs, overlays, tooltips, etc. must also be silenced. */
 [data-appimage] *,
 [data-appimage] *::before,
 [data-appimage] *::after {
@@ -277,18 +271,48 @@
 /* Inline code */
 .cm-editor .cm-lp-icode {
   font-family: 'Geist Mono Variable', monospace;
-  background: oklch(1 0 0 / 8%);
-  border: 1px solid oklch(1 0 0 / 12%);
+  background: color-mix(in oklch, var(--muted) 82%, var(--background));
+  border: 1px solid color-mix(in oklch, var(--border) 88%, white 12%);
   border-radius: 3px;
   padding: 1px 4px;
   font-size: 0.875em;
 }
 
-/* Code fence lines */
-.cm-editor .cm-line.cm-lp-code-line {
+/* Code fence widget */
+.cm-editor .cm-lp-code-block-wrap {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  margin: 0;
+  border: 1px solid color-mix(in oklch, var(--border) 88%, white 12%);
+  border-radius: calc(var(--radius) + 2px);
+  background: color-mix(in oklch, var(--card) 82%, var(--background));
+  overflow: hidden;
+}
+.cm-editor .cm-lp-code-block-lang {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 88%, white 12%);
+  background: color-mix(in oklch, var(--muted) 78%, var(--background));
+  font-family: 'Geist Mono Variable', monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  color: var(--muted-foreground);
+}
+.cm-editor .cm-lp-code-block {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  overflow-x: auto;
   font-family: 'Geist Mono Variable', monospace;
   font-size: 0.875em;
-  opacity: 0.9;
+  line-height: 1.6;
+}
+.cm-editor .cm-lp-code-block code {
+  font-family: inherit;
+  white-space: pre;
 }
 
 /* Links and wikilinks */
@@ -301,6 +325,35 @@
   padding-left: 10px;
   color: oklch(0.6 0.02 264);
   font-style: italic;
+}
+
+/* Task list widget */
+.cm-editor .cm-line.cm-lp-task-line {
+  padding-left: 0;
+}
+.cm-editor .cm-lp-task {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 1.7em;
+}
+.cm-editor .cm-lp-task-prefix {
+  color: var(--muted-foreground);
+  white-space: pre;
+}
+.cm-editor .cm-lp-task-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.cm-editor .cm-lp-task-label {
+  white-space: pre-wrap;
+  cursor: pointer;
+}
+.cm-editor .cm-lp-task-label.is-checked {
+  text-decoration: line-through;
+  opacity: 0.7;
 }
 
 /* Table widget (live preview) */

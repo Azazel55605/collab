@@ -47,6 +47,7 @@ export const tauriCommands = {
   // UI
   setUiZoom: (zoom: number) => invoke<void>('set_ui_zoom', { zoom }),
   isAppImage: () => invoke<boolean>('is_appimage'),
+  shouldDisableBlur: () => invoke<boolean>('should_disable_blur'),
 
   // Update
   checkForUpdate: () => invoke<UpdateInfo>('check_for_update'),
