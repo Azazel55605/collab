@@ -28,6 +28,9 @@ import * as React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import katex from 'katex';
 import { Checkbox } from '../ui/checkbox';
+import { resolveNoteAssetTarget, isLikelyImagePath, type NoteAssetTarget } from '../../lib/noteAssets';
+import { useVaultStore } from '../../store/vaultStore';
+import { tauriCommands } from '../../lib/tauri';
 
 // ─── Widgets ──────────────────────────────────────────────────────────────────
 
@@ -247,6 +250,54 @@ class TaskCheckboxWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
+class ImageWidget extends WidgetType {
+  constructor(
+    readonly target: NoteAssetTarget,
+    readonly alt: string,
+  ) { super(); }
+
+  eq(o: ImageWidget) {
+    return o.target.kind === this.target.kind && o.target.value === this.target.value && o.alt === this.alt;
+  }
+
+  toDOM() {
+    const wrap = document.createElement('span');
+    wrap.className = 'cm-lp-image-wrap';
+
+    const img = document.createElement('img');
+    img.className = 'cm-lp-image';
+    img.alt = this.alt;
+    img.loading = 'lazy';
+    wrap.appendChild(img);
+
+    if (this.target.kind === 'direct') {
+      img.src = this.target.value;
+      return wrap;
+    }
+
+    img.dataset.pending = 'true';
+
+    const vaultPath = useVaultStore.getState().vault?.path;
+    if (!vaultPath) return wrap;
+
+    void tauriCommands.readNoteAssetDataUrl(vaultPath, this.target.value)
+      .then((src) => {
+        if (!src || !img.isConnected) return;
+        img.src = src;
+        delete img.dataset.pending;
+      })
+      .catch((err) => {
+        if (!img.isConnected) return;
+        img.title = String(err);
+        img.dataset.pending = 'false';
+      });
+
+    return wrap;
+  }
+
+  ignoreEvent() { return false; }
+}
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -272,6 +323,7 @@ function processInline(
   text: string,
   base: number, // document position of text[0]
   cursor: number,
+  noteRelativePath: string,
 ) {
   const len = text.length;
   const used = new Uint8Array(len); // 1 = consumed
@@ -303,6 +355,21 @@ function processInline(
   run(/`([^`\n]+?)`/g, (_, s, e) => [
     hide(s, s + 1), mark(s + 1, e - 1, 'cm-lp-icode'), hide(e - 1, e),
   ]);
+
+  // ── Images ![alt](path) and ![[path]] ───────────────────────────────────
+  run(/!\[([^\]\n]*?)\]\(([^)\n]*?)\)/g, (m, s, e) => {
+    const target = resolveNoteAssetTarget(m[2], noteRelativePath);
+    if (!target) return null;
+    return [widget(s, e, new ImageWidget(target, m[1]))];
+  });
+  run(/!\[\[([^\]|]+?)(\|([^\]]+?))?\]\]/g, (m, s, e) => {
+    const path = m[1];
+    if (!isLikelyImagePath(path)) return null;
+    const target = resolveNoteAssetTarget(path, noteRelativePath);
+    if (!target) return null;
+    const alt = m[3] ?? path.split('/').pop() ?? path;
+    return [widget(s, e, new ImageWidget(target, alt))];
+  });
 
   // ── Inline math $...$ — run before bold/italic to catch $ signs ─────────
   // Avoid matching $$ by checking the char before/after manually (no lookbehind)
@@ -369,7 +436,7 @@ function processInline(
 
 // ─── Core decoration builder ──────────────────────────────────────────────────
 
-function _build(state: EditorState): DecorationSet {
+function _build(state: EditorState, noteRelativePath: string): DecorationSet {
   const doc    = state.doc;
   const cursor = state.selection.main.head;
   const cursorLn = doc.lineAt(cursor).number;
@@ -514,7 +581,7 @@ function _build(state: EditorState): DecorationSet {
       if (!here) {
         const prefixEnd = from + level + 1;
         items.push({ from, to: prefixEnd, deco: Decoration.replace({}), excl: true });
-        processInline(items, hm[2], prefixEnd, cursor);
+        processInline(items, hm[2], prefixEnd, cursor, noteRelativePath);
       }
       continue;
     }
@@ -524,7 +591,7 @@ function _build(state: EditorState): DecorationSet {
       items.push({ from, to: from, deco: Decoration.line({ class: 'cm-lp-bq' }), excl: false });
       if (!here) {
         items.push({ from, to: from + 2, deco: Decoration.replace({}), excl: true });
-        processInline(items, text.slice(2), from + 2, cursor);
+        processInline(items, text.slice(2), from + 2, cursor, noteRelativePath);
       }
       continue;
     }
@@ -550,7 +617,7 @@ function _build(state: EditorState): DecorationSet {
     }
 
     // ── Regular paragraph line ──────────────────────────────────────────────
-    if (!here) processInline(items, text, from, cursor);
+    if (!here) processInline(items, text, from, cursor, noteRelativePath);
   }
 
   flushTable();
@@ -592,9 +659,9 @@ function _build(state: EditorState): DecorationSet {
 }
 
 /** Outer wrapper — catches all errors so the editor never goes blank. */
-function buildDecorations(state: EditorState): DecorationSet {
+function buildDecorations(state: EditorState, noteRelativePath: string): DecorationSet {
   try {
-    return _build(state);
+    return _build(state, noteRelativePath);
   } catch (err) {
     console.error('[livePreview] buildDecorations threw:', err);
     return Decoration.none;
@@ -607,20 +674,22 @@ function buildDecorations(state: EditorState): DecorationSet {
 // allowed in StateField, not ViewPlugin.  StateField.update() rebuilds on every
 // transaction that changes the document or moves the selection.
 
-export const livePreviewPlugin = StateField.define<DecorationSet>({
-  create(state) {
-    return buildDecorations(state);
-  },
+export function createLivePreviewPlugin(noteRelativePath: string) {
+  return StateField.define<DecorationSet>({
+    create(state) {
+      return buildDecorations(state, noteRelativePath);
+    },
 
-  update(decos, tr) {
-    if (tr.docChanged || tr.selection) {
-      return buildDecorations(tr.state);
-    }
-    // No structural change — map existing positions through any changes
-    return decos.map(tr.changes);
-  },
+    update(decos, tr) {
+      if (tr.docChanged || tr.selection) {
+        return buildDecorations(tr.state, noteRelativePath);
+      }
+      // No structural change — map existing positions through any changes
+      return decos.map(tr.changes);
+    },
 
-  provide(f) {
-    return EditorView.decorations.from(f);
-  },
-});
+    provide(f) {
+      return EditorView.decorations.from(f);
+    },
+  });
+}

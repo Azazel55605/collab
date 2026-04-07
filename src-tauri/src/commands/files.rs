@@ -1,8 +1,9 @@
 use crate::crypto;
 use crate::models::note::{ConflictInfo, NoteContent, NoteFile, WriteResult};
 use crate::state::AppState;
+use base64::Engine as _;
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 use walkdir::WalkDir;
@@ -30,6 +31,50 @@ fn system_time_to_ms(t: SystemTime) -> u64 {
 
 fn is_allowed_extension(ext: &str) -> bool {
     matches!(ext, "md" | "canvas" | "kanban")
+}
+
+fn normalize_relative_path(relative_path: &str) -> Result<PathBuf, String> {
+    let mut out = PathBuf::new();
+
+    for component in Path::new(relative_path).components() {
+        match component {
+            Component::Normal(part) => out.push(part),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    return Err("Path escapes the vault root".into());
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err("Asset path must be relative to the vault root".into());
+            }
+        }
+    }
+
+    Ok(out)
+}
+
+fn resolve_vault_path(vault_path: &str, relative_path: &str) -> Result<PathBuf, String> {
+    Ok(Path::new(vault_path).join(normalize_relative_path(relative_path)?))
+}
+
+fn guess_mime_type(relative_path: &str) -> &'static str {
+    match Path::new(relative_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        Some("bmp") => "image/bmp",
+        Some("ico") => "image/x-icon",
+        Some("avif") => "image/avif",
+        _ => "application/octet-stream",
+    }
 }
 
 /// Build a flat list of NoteFile entries from the vault, excluding .collab/ and hidden dirs.
@@ -222,7 +267,7 @@ pub fn read_note(
     relative_path: String,
     state: State<AppState>,
 ) -> Result<NoteContent, String> {
-    let full_path = Path::new(&vault_path).join(&relative_path);
+    let full_path = resolve_vault_path(&vault_path, &relative_path)?;
     let raw = std::fs::read(&full_path)
         .map_err(|e| format!("Failed to read '{}': {}", relative_path, e))?;
 
@@ -248,6 +293,31 @@ pub fn read_note(
 }
 
 #[tauri::command]
+pub fn read_note_asset_data_url(
+    vault_path: String,
+    relative_path: String,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let full_path = resolve_vault_path(&vault_path, &relative_path)?;
+    let raw = std::fs::read(&full_path)
+        .map_err(|e| format!("Failed to read asset '{}': {}", relative_path, e))?;
+
+    let bytes = if crypto::is_encrypted_data(&raw) {
+        let key_guard = state.encryption_key.read();
+        let key = key_guard
+            .as_ref()
+            .ok_or("Vault is locked — enter the password to unlock it")?;
+        crypto::decrypt_bytes(key, &raw)?
+    } else {
+        raw
+    };
+
+    let mime = guess_mime_type(&relative_path);
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(format!("data:{};base64,{}", mime, encoded))
+}
+
+#[tauri::command]
 pub fn write_note(
     vault_path: String,
     relative_path: String,
@@ -255,7 +325,7 @@ pub fn write_note(
     expected_hash: Option<String>,
     state: State<AppState>,
 ) -> Result<WriteResult, String> {
-    let full_path = Path::new(&vault_path).join(&relative_path);
+    let full_path = resolve_vault_path(&vault_path, &relative_path)?;
     let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
 
     // Conflict check: read + decode the current on-disk version
@@ -317,7 +387,7 @@ pub fn create_note(
     relative_path: String,
     state: State<AppState>,
 ) -> Result<NoteFile, String> {
-    let full_path = Path::new(&vault_path).join(&relative_path);
+    let full_path = resolve_vault_path(&vault_path, &relative_path)?;
     let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
 
     // Create parent directories if needed
@@ -367,7 +437,7 @@ pub fn create_note(
 
 #[tauri::command]
 pub fn delete_note(vault_path: String, relative_path: String) -> Result<(), String> {
-    let full_path = Path::new(&vault_path).join(&relative_path);
+    let full_path = resolve_vault_path(&vault_path, &relative_path)?;
     if full_path.is_dir() {
         std::fs::remove_dir_all(&full_path).map_err(|e| e.to_string())
     } else {
@@ -382,8 +452,8 @@ pub fn rename_note(
     new_path: String,
 ) -> Result<(), String> {
     let base = Path::new(&vault_path);
-    let old_full = base.join(&old_path);
-    let new_full = base.join(&new_path);
+    let old_full = base.join(normalize_relative_path(&old_path)?);
+    let new_full = base.join(normalize_relative_path(&new_path)?);
 
     // Create parent directories for destination if needed
     if let Some(parent) = new_full.parent() {
@@ -395,6 +465,6 @@ pub fn rename_note(
 
 #[tauri::command]
 pub fn create_folder(vault_path: String, relative_path: String) -> Result<(), String> {
-    let full_path = Path::new(&vault_path).join(&relative_path);
+    let full_path = resolve_vault_path(&vault_path, &relative_path)?;
     std::fs::create_dir_all(&full_path).map_err(|e| e.to_string())
 }

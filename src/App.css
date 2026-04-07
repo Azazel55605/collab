@@ -370,6 +370,23 @@
 .cm-editor .cm-lp-link     { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .cm-editor .cm-lp-wikilink { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 
+/* Inline image widget */
+.cm-editor .cm-lp-image-wrap {
+  display: inline-flex;
+  max-width: min(100%, 48rem);
+  margin: 0.4rem 0;
+  cursor: text;
+}
+.cm-editor .cm-lp-image {
+  display: block;
+  max-width: 100%;
+  max-height: 28rem;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: color-mix(in oklch, var(--card) 82%, var(--background));
+}
+
 /* Blockquote */
 .cm-editor .cm-line.cm-lp-bq {
   border-left: 3px solid var(--primary);

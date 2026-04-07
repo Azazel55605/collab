@@ -108,6 +108,7 @@ pub fn run() {
             // files
             commands::files::list_vault_files,
             commands::files::read_note,
+            commands::files::read_note_asset_data_url,
             commands::files::write_note,
             commands::files::create_note,
             commands::files::delete_note,

@@ -36,7 +36,7 @@ import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
 import { GFM } from '@lezer/markdown';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useEditorStore } from '../../store/editorStore';
-import { livePreviewPlugin } from './livePreview';
+import { createLivePreviewPlugin } from './livePreview';
 import { openUrl, openPath } from '@tauri-apps/plugin-opener';
 import 'katex/dist/katex.min.css';
 import {
@@ -556,7 +556,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             // codeLanguages enables syntax highlighting inside fenced code blocks
             markdown({ base: markdownLanguage, extensions: GFM, codeLanguages: languages }),
             // Obsidian-style live preview: renders markdown inline while editing
-            livePreviewPlugin,
+            createLivePreviewPlugin(relativePath),
             autocompletion({
               override: [
                 (context) => {
