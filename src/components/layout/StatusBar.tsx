@@ -16,10 +16,10 @@ export default function StatusBar() {
   const activeTab = openTabs.find((t) => t.relativePath === activeTabPath);
   const activeMeta = notes.find((n) => n.relativePath === activeTabPath);
 
-  const { status, downloadProgress } = useUpdateStore();
+  const { status, downloadProgress, updaterSupported } = useUpdateStore();
   const isDownloading = status === 'downloading';
   const isInstalling  = status === 'installing';
-  const isAvailable   = status === 'available';
+  const isAvailable   = updaterSupported && status === 'available';
 
   return (
     <div className="flex items-center justify-between h-[22px] px-3 border-t border-border/40 bg-sidebar/60 backdrop-blur-sm-webkit text-[11px] text-muted-foreground shrink-0 select-none">

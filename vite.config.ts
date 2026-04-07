@@ -33,8 +33,14 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore generated/native build trees
+      ignored: [
+        "**/src-tauri/**",
+        "**/.flatpak-builder/**",
+        "**/flatpak-build/**",
+        "**/flatpak-repo/**",
+        "**/dist-builds/**",
+      ],
     },
   },
 }));

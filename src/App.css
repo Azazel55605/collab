@@ -197,6 +197,38 @@
   -webkit-backdrop-filter: none !important;
 }
 
+/* Linux WebKitGTK is noticeably slower at compositing large fullscreen blur
+   layers than Chromium. Keep the translucent look, but drop expensive blur on
+   the heaviest surfaces: startup vault screens and dialog overlays/content. */
+[data-linux-webkit] .vault-bg {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, oklch(0.20 0.06 293 / 24%) 0%, transparent 58%),
+    radial-gradient(ellipse 60% 40% at 80% 80%, oklch(0.25 0.08 220 / 16%) 0%, transparent 58%),
+    oklch(0.09 0.01 264);
+}
+[data-linux-webkit] .vault-bg > .pointer-events-none {
+  display: none;
+}
+[data-linux-webkit] .glass,
+[data-linux-webkit] .glass-panel,
+[data-linux-webkit] .glass-strong,
+[data-linux-webkit] .backdrop-blur-xs-webkit,
+[data-linux-webkit] .backdrop-blur-sm-webkit,
+[data-linux-webkit] .backdrop-blur-2px-webkit {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+[data-linux-webkit] .glass {
+  background: color-mix(in oklch, var(--card) 92%, var(--background));
+}
+[data-linux-webkit] .glass-panel,
+[data-linux-webkit] .glass-strong {
+  background: color-mix(in oklch, var(--popover) 94%, var(--background));
+}
+[data-linux-webkit] [data-slot="dialog-overlay"] {
+  background: oklch(0 0 0 / 0.62);
+}
+
 /* ─── Glow utilities ────────────────────────────────────────────────────── */
 
 .glow-primary {

@@ -28,6 +28,7 @@ export const useVaultStore = create<VaultState>()(
       openVault: async (path) => {
         set({ isLoading: true });
         try {
+          await tauriCommands.unwatchVault().catch(() => {});
           const vault = await tauriCommands.openVault(path);
           if (vault.isEncrypted) {
             // Don't load the file tree yet — wait for the password to be entered.

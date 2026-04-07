@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=collab
+Comment=Local-first Markdown notes with collaboration
+Exec=collab
+Icon=com.azazel.collab
+Terminal=false
+Categories=Office;Utility;TextEditor;
+StartupNotify=true

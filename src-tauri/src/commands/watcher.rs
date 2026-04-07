@@ -5,6 +5,19 @@ use std::path::Path;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
+fn is_ignored_dir_name(name: &str) -> bool {
+    matches!(
+        name,
+        "node_modules" | "target" | "dist" | "dist-builds" | "build" | "flatpak-build" | "flatpak-repo"
+    )
+}
+
+fn should_ignore_relative_path(relative: &str) -> bool {
+    relative
+        .split('/')
+        .any(|segment| !segment.is_empty() && (segment.starts_with('.') || is_ignored_dir_name(segment)))
+}
+
 #[tauri::command]
 pub fn watch_vault(
     vault_path: String,
@@ -47,6 +60,10 @@ pub fn watch_vault(
 
                         if relative == ".collab/vault.json" {
                             let _ = app_handle.emit("collab:config-changed", serde_json::json!({}));
+                            continue;
+                        }
+
+                        if should_ignore_relative_path(&relative) {
                             continue;
                         }
 

@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
+import { open, save } from '@tauri-apps/plugin-dialog';
 
 export const getAppVersion = getVersion;
 import type { VaultMeta, NoteFile, NoteContent, WriteResult, VaultConfig, MemberRole } from '../types/vault';
@@ -13,11 +14,23 @@ export const tauriCommands = {
   createVault: (path: string, name: string, ownerUserId?: string, ownerUserName?: string, ownerUserColor?: string) =>
     invoke<VaultMeta>('create_vault', { path, name, ownerUserId: ownerUserId ?? null, ownerUserName: ownerUserName ?? null, ownerUserColor: ownerUserColor ?? null }),
   getRecentVaults: () => invoke<VaultMeta[]>('get_recent_vaults'),
-  showOpenVaultDialog: () => invoke<string | null>('show_open_vault_dialog'),
+  showOpenVaultDialog: async () => {
+    const result = await open({
+      directory: true,
+      multiple: false,
+      title: 'Open Vault',
+    });
+    return typeof result === 'string' ? result : null;
+  },
   removeRecentVault: (path: string) => invoke<void>('remove_recent_vault', { path }),
   renameVault: (vaultPath: string, newName: string) => invoke<VaultMeta>('rename_vault', { vaultPath, newName }),
   exportVault: (vaultPath: string, destPath: string) => invoke<void>('export_vault', { vaultPath, destPath }),
-  showSaveDialog: (defaultName: string) => invoke<string | null>('show_save_dialog', { defaultName }),
+  showSaveDialog: async (defaultName: string) =>
+    save({
+      title: 'Export Vault as ZIP',
+      defaultPath: defaultName,
+      filters: [{ name: 'ZIP Archive', extensions: ['zip'] }],
+    }),
 
   // Encryption
   unlockVault: (vaultPath: string, password: string) => invoke<void>('unlock_vault', { vaultPath, password }),
@@ -47,6 +60,7 @@ export const tauriCommands = {
   // UI
   setUiZoom: (zoom: number) => invoke<void>('set_ui_zoom', { zoom }),
   isAppImage: () => invoke<boolean>('is_appimage'),
+  isFlatpak: () => invoke<boolean>('is_flatpak'),
   shouldDisableBlur: () => invoke<boolean>('should_disable_blur'),
 
   // Update

@@ -90,9 +90,16 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       openTabs: state.openTabs.map((t) =>
         t.relativePath === oldPath
           ? { ...t, relativePath: newPath, title: newTitle }
+          : t.relativePath.startsWith(`${oldPath}/`)
+          ? { ...t, relativePath: `${newPath}${t.relativePath.slice(oldPath.length)}` }
           : t
       ),
-      activeTabPath: state.activeTabPath === oldPath ? newPath : state.activeTabPath,
+      activeTabPath:
+        state.activeTabPath === oldPath
+          ? newPath
+          : state.activeTabPath?.startsWith(`${oldPath}/`)
+          ? `${newPath}${state.activeTabPath.slice(oldPath.length)}`
+          : state.activeTabPath,
     }));
   },
 

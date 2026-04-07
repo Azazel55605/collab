@@ -6,8 +6,9 @@ Use the Linux package that matches your system first. This app behaves best when
 
 1. `.deb` for Debian, Ubuntu, Linux Mint, Pop!_OS, and similar systems
 2. `.rpm` for Fedora, Nobara, openSUSE, RHEL, and similar systems
-3. `collab-linux-*-portable.tar.gz` for other desktop distros
-4. `.AppImage` only if the above options are not practical
+3. `.flatpak` for a sandboxed universal Linux install
+4. `collab-linux-*-portable.tar.gz` for other desktop distros when you want host-library behavior without Flatpak
+5. `.AppImage` only if the above options are not practical
 
 ## Install By Distro Family
 
@@ -54,6 +55,27 @@ Typical package names:
 - Fedora: `webkit2gtk4.1`, `gtk3`
 - Arch: `webkit2gtk-4.1`, `gtk3`
 - openSUSE: `webkit2gtk3`, `gtk3`
+
+## Flatpak
+
+Builds installed through Flatpak use Flatpak's own update path instead of the app's built-in updater.
+
+Install a bundle:
+
+```bash
+flatpak install --user ./collab-flatpak-x86_64.flatpak
+flatpak run com.azazel.collab
+```
+
+If you installed from a standalone `.flatpak` bundle, update by installing a newer bundle again:
+
+```bash
+flatpak install --user ./collab-flatpak-x86_64.flatpak
+```
+
+If `collab` is later distributed through Flathub or a custom Flatpak repository, normal `flatpak update com.azazel.collab` updates will work through that configured remote.
+
+Flatpak development/build notes are in [docs/flatpak.md](/home/azazel/Code Projects/collab/docs/flatpak.md).
 
 ## AppImage
 

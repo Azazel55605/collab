@@ -17,13 +17,17 @@ function fmtBytes(bytes: number): string {
 export default function AboutTab() {
   const [appVersion, setAppVersion] = useState<string>('…');
   const {
-    status, updateInfo, downloadProgress, downloadedBytes, totalBytes, downloadSpeed,
-    error, lastChecked, checkForUpdate, startDownload,
+    status, updaterConfigured, updaterSupported, updaterSupportMessage, updateInfo, downloadProgress, downloadedBytes, totalBytes, downloadSpeed,
+    error, lastChecked, ensureUpdaterConfigured, checkForUpdate, startDownload,
   } = useUpdateStore();
 
   useEffect(() => {
     getAppVersion().then(setAppVersion).catch(() => setAppVersion('?'));
   }, []);
+
+  useEffect(() => {
+    ensureUpdaterConfigured().catch(() => {});
+  }, [ensureUpdaterConfigured]);
 
   const isWorking = status === 'checking' || status === 'downloading' || status === 'installing';
 
@@ -124,34 +128,43 @@ export default function AboutTab() {
       </div>
 
       {/* Status */}
-      <div className="min-h-[40px]">{renderStatus()}</div>
+      <div className="min-h-[40px]">
+        {updaterConfigured && !updaterSupported ? (
+          <div className="flex items-start gap-2 text-sm text-muted-foreground">
+            <AlertCircle size={14} className="mt-0.5 shrink-0" />
+            <span>{updaterSupportMessage ?? 'In-app updates are unavailable in this build.'}</span>
+          </div>
+        ) : renderStatus()}
+      </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={isWorking}
-          onClick={checkForUpdate}
-          className={cn('h-7 text-xs gap-1.5', isWorking && 'opacity-50')}
-        >
-          <RefreshCw size={12} className={cn(status === 'checking' && 'animate-spin')} />
-          Check for updates
-        </Button>
-
-        {status === 'available' && (
-          <Button size="sm" onClick={startDownload} className="h-7 text-xs gap-1.5">
-            <Download size={12} />
-            Download &amp; Install
+      {updaterConfigured && updaterSupported && (
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={isWorking}
+            onClick={checkForUpdate}
+            className={cn('h-7 text-xs gap-1.5', isWorking && 'opacity-50')}
+          >
+            <RefreshCw size={12} className={cn(status === 'checking' && 'animate-spin')} />
+            Check for updates
           </Button>
-        )}
 
-        {status === 'error' && (
-          <Button size="sm" variant="outline" onClick={checkForUpdate} className="h-7 text-xs">
-            Try again
-          </Button>
-        )}
-      </div>
+          {status === 'available' && (
+            <Button size="sm" onClick={startDownload} className="h-7 text-xs gap-1.5">
+              <Download size={12} />
+              Download &amp; Install
+            </Button>
+          )}
+
+          {status === 'error' && (
+            <Button size="sm" variant="outline" onClick={checkForUpdate} className="h-7 text-xs">
+              Try again
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Last checked */}
       {lastChecked && (

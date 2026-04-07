@@ -27,7 +27,7 @@ type DialogState =
 
 export default function FileTree() {
   const { vault, fileTree, refreshFileTree } = useVaultStore();
-  const { openTab, closeTab, openTabs, updateTabTitle } = useEditorStore();
+  const { openTab, closeTab, renameTab } = useEditorStore();
   const { setActiveView, confirmDelete: confirmDeleteSetting } = useUiStore();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [dialog, setDialog] = useState<DialogState>({ type: 'none' });
@@ -60,7 +60,7 @@ export default function FileTree() {
         try {
           await tauriCommands.deleteNote(vault.path, file.relativePath);
           const prefix = file.isFolder ? file.relativePath + '/' : null;
-          for (const tab of openTabs) {
+          for (const tab of useEditorStore.getState().openTabs) {
             if (
               tab.relativePath === file.relativePath ||
               (prefix && tab.relativePath.startsWith(prefix))
@@ -87,7 +87,7 @@ export default function FileTree() {
     try {
       await tauriCommands.deleteNote(vault.path, file.relativePath);
       const prefix = file.isFolder ? file.relativePath + '/' : null;
-      for (const tab of openTabs) {
+      for (const tab of useEditorStore.getState().openTabs) {
         if (
           tab.relativePath === file.relativePath ||
           (prefix && tab.relativePath.startsWith(prefix))
@@ -127,12 +127,17 @@ export default function FileTree() {
     const { file } = dialog;
     setDialog({ type: 'none' });
     if (newName === file.name) return;
+    const trimmedName = newName.trim();
+    if (!trimmedName) return;
     const parts = file.relativePath.split('/');
-    parts[parts.length - 1] = file.isFolder ? newName : `${newName}.${file.extension}`;
+    const nextSegment = file.isFolder
+      ? trimmedName
+      : `${trimmedName.replace(new RegExp(`\\.${file.extension}$`, 'i'), '')}.${file.extension}`;
+    parts[parts.length - 1] = nextSegment;
     const newPath = parts.join('/');
     try {
       await tauriCommands.renameNote(vault.path, file.relativePath, newPath);
-      updateTabTitle(file.relativePath, newName.replace(/\.[^.]+$/, ''));
+      renameTab(file.relativePath, newPath, nextSegment.replace(/\.[^.]+$/, ''));
       await refreshFileTree();
     } catch (e) { toast.error('Failed to rename: ' + e); }
   };

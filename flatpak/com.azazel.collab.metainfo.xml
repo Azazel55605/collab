@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.azazel.collab</id>
+  <name>collab</name>
+  <summary>Local-first Markdown notes with collaboration</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Proprietary</project_license>
+  <developer id="com.azazel">
+    <name>Azazel</name>
+  </developer>
+  <launchable type="desktop-id">com.azazel.collab.desktop</launchable>
+  <description>
+    <p>collab is a local-first Markdown note-taking desktop app with wikilinks, graph view, shared-folder collaboration, and encrypted vaults.</p>
+  </description>
+  <categories>
+    <category>Office</category>
+    <category>Utility</category>
+    <category>TextEditor</category>
+  </categories>
+  <url type="homepage">https://github.com/Azazel55605/collab</url>
+  <url type="bugtracker">https://github.com/Azazel55605/collab/issues</url>
+  <releases>
+    <release version="0.2.1" date="2026-04-06" />
+  </releases>
+  <content_rating type="oars-1.1" />
+</component>

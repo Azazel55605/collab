@@ -149,8 +149,6 @@ jobs:
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.app.tar.gz
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.app.tar.gz.sig
             collab-${{ matrix.artifact-label }}-portable.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ── Collect artifacts (all runs) ───────────────────────────────────────
       - name: Upload artifacts
@@ -173,6 +171,64 @@ jobs:
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.app.tar.gz
             src-tauri/target/${{ matrix.rust-target }}/release/bundle/**/*.app.tar.gz.sig
             collab-${{ matrix.artifact-label }}-portable.tar.gz
+
+  flatpak:
+    name: flatpak-x86_64
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+
+      - name: Add Flathub remote
+        run: |
+          flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+      - name: Install runtimes and SDK extensions
+        run: |
+          flatpak install -y flathub \
+            org.gnome.Platform//48 \
+            org.gnome.Sdk//48 \
+            org.freedesktop.Sdk.Extension.node20//24.08 \
+            org.freedesktop.Sdk.Extension.rust-stable//24.08
+
+      - name: Build Flatpak repo
+        run: |
+          flatpak-builder --install-deps-from=flathub --force-clean flatpak-build flatpak/com.azazel.collab.yml
+          flatpak-builder --repo=flatpak-repo --force-clean flatpak-build flatpak/com.azazel.collab.yml
+
+      - name: Bundle Flatpak
+        run: |
+          flatpak build-bundle flatpak-repo collab-flatpak-x86_64.flatpak com.azazel.collab --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+
+      - name: Upload Flatpak artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-x86_64
+          if-no-files-found: error
+          path: |
+            collab-flatpak-x86_64.flatpak
+            flatpak/com.azazel.collab.yml
+            flatpak/com.azazel.collab.desktop
+            flatpak/com.azazel.collab.metainfo.xml
+
+      - name: Release Flatpak bundle
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: false
+          files: |
+            collab-flatpak-x86_64.flatpak
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ── Update manifest ─────────────────────────────────────────────────────────
   # Runs after all matrix builds finish. Downloads their artifacts, generates

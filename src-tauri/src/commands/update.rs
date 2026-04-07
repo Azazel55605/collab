@@ -14,6 +14,11 @@ pub struct UpdateInfo {
 /// Check whether a new version is available. Does not download anything.
 #[tauri::command]
 pub async fn check_for_update(app: AppHandle) -> Result<UpdateInfo, String> {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("FLATPAK_ID").is_some() {
+        return Err("In-app updates are disabled in Flatpak builds".to_string());
+    }
+
     let updater = app.updater().map_err(|e| e.to_string())?;
     match updater.check().await.map_err(|e| e.to_string())? {
         Some(update) => Ok(UpdateInfo {
@@ -37,6 +42,11 @@ pub async fn check_for_update(app: AppHandle) -> Result<UpdateInfo, String> {
 /// Emitted event payload: `{ downloaded: number, contentLength: number | null }`
 #[tauri::command]
 pub async fn download_and_install_update(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("FLATPAK_ID").is_some() {
+        return Err("Flatpak builds must be updated through their Flatpak remote".to_string());
+    }
+
     let updater = app.updater().map_err(|e| e.to_string())?;
     let update = updater
         .check()

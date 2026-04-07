@@ -9,6 +9,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 use walkdir::WalkDir;
 
+fn is_ignored_dir_name(name: &str) -> bool {
+    matches!(
+        name,
+        "node_modules" | "target" | "dist" | "dist-builds" | "build" | "flatpak-build" | "flatpak-repo"
+    )
+}
+
+fn should_skip_walk_entry(name: &str, is_dir: bool) -> bool {
+    name.starts_with('.') || (is_dir && is_ignored_dir_name(name))
+}
+
 fn compute_hash(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
@@ -163,7 +174,7 @@ pub fn build_note_index(
         .into_iter()
         .filter_entry(|e| {
             let name = e.file_name().to_string_lossy();
-            !name.starts_with('.')
+            !should_skip_walk_entry(&name, e.file_type().is_dir())
         })
     {
         let entry = entry.map_err(|e| e.to_string())?;

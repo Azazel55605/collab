@@ -7,10 +7,14 @@ use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let builder = tauri::Builder::default()
+        .manage(AppState::new());
 
-    tauri::Builder::default()
-        .manage(AppState::new())
-        .plugin(
+    #[cfg(target_os = "linux")]
+    let builder = if std::env::var_os("FLATPAK_ID").is_some() {
+        builder
+    } else {
+        builder.plugin(
             tauri_plugin_updater::Builder::new()
                 // Pubkey is also declared in tauri.conf.json, but passing it
                 // here ensures the AppImage updater picks it up correctly —
@@ -19,6 +23,20 @@ pub fn run() {
                 .pubkey("dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ0MEQwRUZGRUU2NzFGMUIKUldRYkgyZnUvdzROUk9heXVVRlJyR2NzUGh2YU1rWDQ2dS9ZV2xoa0hYdElJYXFEMjRXQUZ6ekwK")
                 .build(),
         )
+    };
+
+    #[cfg(not(target_os = "linux"))]
+    let builder = builder.plugin(
+        tauri_plugin_updater::Builder::new()
+            // Pubkey is also declared in tauri.conf.json, but passing it
+            // here ensures the AppImage updater picks it up correctly —
+            // some Tauri 2 versions fail to propagate the config-embedded
+            // key to the runtime updater on Linux.
+            .pubkey("dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ0MEQwRUZGRUU2NzFGMUIKUldRYkgyZnUvdzROUk9heXVVRlJyR2NzUGh2YU1rWDQ2dS9ZV2xoa0hYdElJYXFEMjRXQUZ6ekwK")
+            .build(),
+    );
+
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -126,6 +144,7 @@ pub fn run() {
             // ui
             commands::ui::set_ui_zoom,
             commands::ui::is_appimage,
+            commands::ui::is_flatpak,
             commands::ui::should_disable_blur,
             // encryption
             commands::crypto::unlock_vault,

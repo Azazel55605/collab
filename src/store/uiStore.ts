@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 
 export type ActiveView    = 'editor' | 'graph' | 'canvas' | 'kanban' | 'grid';
 export type SidebarPanel  = 'files' | 'search' | 'tags' | 'canvas-boards' | 'kanban-boards' | 'collab';
@@ -30,6 +30,25 @@ export const SCALE_OPTIONS = [75, 90, 100, 110, 125, 150, 175, 200] as const;
 export const FONT_SIZE_OPTIONS = [12, 13, 14, 15, 16] as const;
 
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const persistedUiStorage = createJSONStorage(() => {
+  const cache = new Map<string, string | null>();
+  return {
+    getItem: (name) => {
+      const value = localStorage.getItem(name);
+      cache.set(name, value);
+      return value;
+    },
+    setItem: (name, value) => {
+      if (cache.get(name) === value) return;
+      cache.set(name, value);
+      localStorage.setItem(name, value);
+    },
+    removeItem: (name) => {
+      cache.delete(name);
+      localStorage.removeItem(name);
+    },
+  };
+});
 
 export function formatDate(date: Date, fmt: DateFormat): string {
   const y  = date.getFullYear();
@@ -137,10 +156,9 @@ export const useUiStore = create<UiState>()(
     }),
     {
       name: 'ui-storage',
+      storage: persistedUiStorage,
       // Don't persist transient state
       partialize: (s) => ({
-        activeView:    s.activeView,
-        sidebarPanel:  s.sidebarPanel,
         sidebarWidth:  s.sidebarWidth,
         isSidebarOpen: s.isSidebarOpen,
         theme:         s.theme,

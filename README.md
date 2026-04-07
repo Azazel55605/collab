@@ -147,11 +147,14 @@ pnpm dlx shadcn@latest add <component>
 
 **Requirements:** Rust (stable), Node.js ≥ 20, pnpm, and the [Tauri v2 system dependencies](https://v2.tauri.app/start/prerequisites/) for your OS (WebKitGTK on Linux).
 
+If you have recently built the Flatpak locally, the repo may contain generated build trees such as `.flatpak-builder/` and `dist-builds/`. The Vite config ignores these paths so `pnpm tauri dev` does not recurse into Flatpak sandbox symlink trees, but they are still disposable local artifacts and can be deleted if needed.
+
 ## Linux notes
 
 Linux builds are split by use case:
 
 - `.deb` / `.rpm` are the preferred packages when your distro matches them.
+- `.flatpak` is available for sandboxed universal Linux installs and uses Flatpak's runtime/update model.
 - `collab-linux-*-portable.tar.gz` is the preferred fallback for other distros if you want the app to use your system WebKitGTK/GTK stack.
 - `.AppImage` remains available, but it uses a bundled Linux runtime and can still have worse touchpad scrolling, blur/compositing, and fractional-scaling behavior than native/system-library builds.
 - Install details and distro-specific commands are in [docs/linux-install.md](/home/azazel/Code Projects/collab/docs/linux-install.md).

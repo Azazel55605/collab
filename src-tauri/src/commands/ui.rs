@@ -16,6 +16,17 @@ pub fn is_appimage() -> bool {
     { false }
 }
 
+/// Returns true when running inside a Flatpak sandbox.
+/// The frontend uses this to disable the in-app updater and show Flatpak-specific
+/// distribution guidance instead of GitHub-release based updates.
+#[tauri::command]
+pub fn is_flatpak() -> bool {
+    #[cfg(target_os = "linux")]
+    { std::env::var_os("FLATPAK_ID").is_some() }
+    #[cfg(not(target_os = "linux"))]
+    { false }
+}
+
 /// Returns true when the AppImage blur compatibility fallback is explicitly enabled.
 /// Set `COLLAB_APPIMAGE_DISABLE_BLUR=1` to opt into the old no-blur behavior.
 #[tauri::command]

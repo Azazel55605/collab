@@ -20,6 +20,9 @@ export interface UpdateInfo {
 
 interface UpdateState {
   status: UpdateStatus;
+  updaterConfigured: boolean;
+  updaterSupported: boolean;
+  updaterSupportMessage: string | null;
   updateInfo: UpdateInfo | null;
   downloadProgress: number | null; // 0–100, null when not downloading
   downloadedBytes: number | null;
@@ -27,13 +30,19 @@ interface UpdateState {
   downloadSpeed: number | null; // bytes/sec, rolling 2s window
   error: string | null;
   lastChecked: Date | null;
+  ensureUpdaterConfigured: () => Promise<boolean>;
   checkForUpdate: () => Promise<void>;
   startDownload: () => Promise<void>;
   reset: () => void;
 }
 
+let updaterConfigPromise: Promise<boolean> | null = null;
+
 export const useUpdateStore = create<UpdateState>()((set, get) => ({
   status: 'idle',
+  updaterConfigured: false,
+  updaterSupported: false,
+  updaterSupportMessage: null,
   updateInfo: null,
   downloadProgress: null,
   downloadedBytes: null,
@@ -42,7 +51,46 @@ export const useUpdateStore = create<UpdateState>()((set, get) => ({
   error: null,
   lastChecked: null,
 
+  ensureUpdaterConfigured: async () => {
+    const state = get();
+    if (state.updaterConfigured) {
+      return state.updaterSupported;
+    }
+    if (updaterConfigPromise) {
+      return updaterConfigPromise;
+    }
+
+    updaterConfigPromise = (async () => {
+      try {
+        const isFlatpak = await tauriCommands.isFlatpak();
+        const updaterSupported = !isFlatpak;
+        set({
+          updaterConfigured: true,
+          updaterSupported,
+          updaterSupportMessage: isFlatpak
+            ? 'This build is installed through Flatpak. Update it from your Flatpak remote or software center.'
+            : null,
+        });
+        return updaterSupported;
+      } catch {
+        set({
+          updaterConfigured: true,
+          updaterSupported: true,
+          updaterSupportMessage: null,
+        });
+        return true;
+      } finally {
+        updaterConfigPromise = null;
+      }
+    })();
+
+    return updaterConfigPromise;
+  },
+
   checkForUpdate: async () => {
+    if (!(await get().ensureUpdaterConfigured())) {
+      return;
+    }
     if (get().status === 'checking' || get().status === 'downloading' || get().status === 'installing') {
       return;
     }
@@ -60,6 +108,7 @@ export const useUpdateStore = create<UpdateState>()((set, get) => ({
   },
 
   startDownload: async () => {
+    if (!(await get().ensureUpdaterConfigured())) return;
     const { updateInfo } = get();
     if (!updateInfo?.available) return;
 
@@ -107,5 +156,14 @@ export const useUpdateStore = create<UpdateState>()((set, get) => ({
     }
   },
 
-  reset: () => set({ status: 'idle', updateInfo: null, downloadProgress: null, downloadedBytes: null, totalBytes: null, downloadSpeed: null, error: null }),
+  reset: () => set({
+    status: 'idle',
+    updateInfo: null,
+    downloadProgress: null,
+    downloadedBytes: null,
+    totalBytes: null,
+    downloadSpeed: null,
+    error: null,
+    lastChecked: null,
+  }),
 }));

@@ -1,0 +1,28 @@
+id: com.azazel.collab
+runtime: org.gnome.Platform
+runtime-version: "48"
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.node20
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: collab
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --filesystem=home
+build-options:
+  append-path: /usr/lib/sdk/node20/bin:/usr/lib/sdk/rust-stable/bin
+  build-args:
+    - --share=network
+  env:
+    CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+modules:
+  - name: collab
+    buildsystem: simple
+    build-commands:
+      - ./flatpak/build-in-flatpak.sh
+    sources:
+      - type: dir
+        path: ..
