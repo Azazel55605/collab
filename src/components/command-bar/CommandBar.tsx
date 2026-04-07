@@ -36,7 +36,7 @@ import { useEditorStore } from '../../store/editorStore';
 import { useUiStore, type ActiveView, type DateFormat } from '../../store/uiStore';
 import { tauriCommands } from '../../lib/tauri';
 import { evalMath, formatMathResult } from './mathEval';
-import { generateSnippets } from './snippets';
+import { completeInsertQuery, generateSnippets } from './snippets';
 import type { NoteMetadata, SearchResult } from '../../types/note';
 import { toast } from 'sonner';
 
@@ -77,11 +77,17 @@ function detectMode(raw: string): Mode {
   if (tagColon)            return { type: 'tag',        tag:   tagColon[1].trim() };
   if (s.startsWith('#'))   return { type: 'tag',        tag:   s.slice(1) };
 
+  const shortTypeMatch = s.match(/^:(md|kanban|canvas)/i);
+  if (shortTypeMatch)      return { type: 'fileType',   ext:   shortTypeMatch[1].toLowerCase() };
   const typeMatch = s.match(/^type:(md|kanban|canvas)/i);
   if (typeMatch)           return { type: 'fileType',   ext:   typeMatch[1].toLowerCase() };
 
   const nameMatch = s.match(/^name:(.*)$/i);
   if (nameMatch)           return { type: 'nameSearch', query: nameMatch[1].trim() };
+
+  if (s.startsWith('/'))   return { type: 'insert',     query: s.slice(1).trim() };
+  const insertMatch = s.match(/^insert:(.*)$/i);
+  if (insertMatch)         return { type: 'insert',     query: insertMatch[1].trim() };
 
   // Insert prefixes — shown only when in editor view
   if (/^(table\b|code\b|link\b|date\b|heading\b|h[1-6]\b|hr$|quote\b|blockquote\b|checklist\b|todo\b)/i.test(s)) {
@@ -116,9 +122,9 @@ const MODE_PLACEHOLDER: Record<Mode['type'], string> = {
   math:       'Math — e.g. =sqrt(2)*pi',
   action:     'Action — e.g. > new note My Note',
   tag:        'Filter by tag…',
-  fileType:   'Filter by type…',
+  fileType:   'Type filter — e.g. :md or type:kanban',
   nameSearch: 'Search by name…',
-  insert:     'Insert snippet…',
+  insert:     'Insert — e.g. / or /table 3x4',
 };
 
 // ── Actions definition ─────────────────────────────────────────────────────────
@@ -501,10 +507,10 @@ function renderInsert(mode: { type: 'insert'; query: string }, ctx: RenderCtx) {
   }
   const snippets = generateSnippets(mode.query, ctx.dateFormat);
   if (!snippets.length) {
-    return <CommandEmpty>Unknown snippet.</CommandEmpty>;
+    return <CommandEmpty>No snippets matching "{mode.query}". Try <span className="font-mono">/</span> to browse.</CommandEmpty>;
   }
   return (
-    <CommandGroup heading="Insert">
+    <CommandGroup heading={mode.query ? 'Insert' : 'Available snippets'}>
       {snippets.map((s, i) => (
         <CommandItem
           key={i}
@@ -544,8 +550,9 @@ function ModeHints({ current }: { current: Mode['type'] }) {
     { label: '= Math',  prefix: '=',     mode: 'math' },
     { label: '> Action',prefix: '>',     mode: 'action' },
     { label: '#Tag',    prefix: '#',     mode: 'tag' },
-    { label: 'type:',   prefix: 'type:', mode: 'fileType' },
-    { label: 'Insert',  prefix: 'table', mode: 'insert' },
+    { label: ':Type',   prefix: ':',     mode: 'fileType' },
+    { label: 'name:',   prefix: 'name:', mode: 'nameSearch' },
+    { label: '/Insert', prefix: '/',     mode: 'insert' },
   ];
   return (
     <div className="flex flex-wrap gap-1 border-t border-border/40 px-2 py-1.5">
@@ -627,6 +634,7 @@ export function CommandBar() {
   const close = useCallback(() => setOpen(false), []);
 
   const mode = detectMode(input);
+  const insertCompletion = mode.type === 'insert' ? completeInsertQuery(mode.query) : null;
 
   const ctx: RenderCtx = {
     notes,
@@ -651,7 +659,7 @@ export function CommandBar() {
         <DialogHeader className="sr-only">
           <DialogTitle>Command Bar</DialogTitle>
           <DialogDescription>
-            Search notes, run actions, calculate expressions, or insert snippets.
+            Search notes, run actions, calculate expressions, filter by tag or type, or browse insert snippets.
           </DialogDescription>
         </DialogHeader>
 
@@ -660,7 +668,25 @@ export function CommandBar() {
             placeholder={MODE_PLACEHOLDER[mode.type]}
             value={input}
             onValueChange={setInput}
+            onKeyDown={(e) => {
+              if (mode.type !== 'insert' || !insertCompletion) return;
+              if (e.key !== 'Tab' && e.key !== 'ArrowRight') return;
+              const selection = window.getSelection();
+              if (selection && !selection.isCollapsed) return;
+              e.preventDefault();
+              const prefix = input.trimStart().startsWith('/') ? '/' : input.trimStart().startsWith('insert:') ? 'insert:' : '/';
+              setInput(`${prefix}${insertCompletion}`);
+            }}
           />
+          {mode.type === 'insert' && insertCompletion && (
+            <div className="px-3 pb-1 text-[11px] text-muted-foreground">
+              <span className="font-mono text-foreground/80">{input.trimStart().startsWith('insert:') ? 'insert:' : '/'}</span>
+              <span className="font-mono text-foreground/80">{mode.query}</span>
+              <span className="font-mono opacity-50">{insertCompletion.slice(mode.query.trimStart().length)}</span>
+              <span className="ml-2 text-[10px] uppercase tracking-wide opacity-60">Tab</span>
+              <span className="ml-1 text-[10px] uppercase tracking-wide opacity-60">Right</span>
+            </div>
+          )}
           <CommandList className="max-h-80">
             {renderMode(mode, ctx)}
           </CommandList>
