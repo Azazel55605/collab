@@ -19,6 +19,7 @@ export interface KanbanCard {
   title: string;
   description?: string;
   relativePath?: string;
+  attachmentPaths?: string[];
   assignees: string[];
   tags: string[];
   startDate?: string;   // YYYY-MM-DD; if absent, createdAt is used
@@ -48,4 +49,13 @@ export interface KanbanColumn {
 
 export interface KanbanBoard {
   columns: KanbanColumn[];
+}
+
+export function getCardAttachmentPaths(card: Pick<KanbanCard, 'relativePath' | 'attachmentPaths'>): string[] {
+  const paths = [
+    ...(card.attachmentPaths ?? []),
+    ...(card.relativePath ? [card.relativePath] : []),
+  ].filter(Boolean);
+
+  return [...new Set(paths)];
 }

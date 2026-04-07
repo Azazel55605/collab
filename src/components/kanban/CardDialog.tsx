@@ -12,7 +12,7 @@ import { useCollabStore } from '../../store/collabStore';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore, formatDate } from '../../store/uiStore';
-import type { KanbanCard, KanbanComment, ChecklistItem } from '../../types/kanban';
+import { getCardAttachmentPaths, type KanbanCard, type KanbanComment, type ChecklistItem } from '../../types/kanban';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Calendar as CalendarUI } from '../ui/calendar';
@@ -55,8 +55,13 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
 
   // Restore in-progress edits if the user navigated away while this card was open.
   const [draft, setDraft] = useState<KanbanCard>(() => {
-    if (storedDraft && storedDraft.id === initialCard.id) return storedDraft;
-    return { ...initialCard, checklist: initialCard.checklist ?? [] };
+    const base = storedDraft && storedDraft.id === initialCard.id ? storedDraft : initialCard;
+    return {
+      ...base,
+      checklist: base.checklist ?? [],
+      attachmentPaths: getCardAttachmentPaths(base),
+      relativePath: getCardAttachmentPaths(base)[0],
+    };
   });
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -202,19 +207,27 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
 
   // ── Linked note ───────────────────────────────────────────────────────────
 
-  function setLinkedNote(path: string) {
+  function setAttachmentPaths(paths: string[]) {
+    const nextPaths = [...new Set(paths)];
+    patchDraft({
+      attachmentPaths: nextPaths.length > 0 ? nextPaths : undefined,
+      relativePath: nextPaths[0],
+    });
+  }
+
+  function addLinkedNote(path: string) {
     setNotePickerOpen(false);
-    patchDraft({ relativePath: path || undefined });
+    if (!path) return;
+    setAttachmentPaths([...getCardAttachmentPaths(draft), path]);
   }
 
-  function clearLinkedNote() {
-    patchDraft({ relativePath: undefined });
+  function removeLinkedNote(path: string) {
+    setAttachmentPaths(getCardAttachmentPaths(draft).filter((item) => item !== path));
   }
 
-  function openLinkedNote() {
-    if (!draft.relativePath) return;
-    const name = draft.relativePath.split('/').pop()?.replace(/\.[^.]+$/, '') ?? draft.relativePath;
-    openTab(draft.relativePath, name);
+  function openLinkedNote(path: string) {
+    const name = path.split('/').pop()?.replace(/\.[^.]+$/, '') ?? path;
+    openTab(path, name);
     setActiveView('editor');
     onClose();
   }
@@ -288,6 +301,7 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
 
   const checklistDone  = draft.checklist.filter(i => i.checked).length;
   const checklistTotal = draft.checklist.length;
+  const attachmentPaths = getCardAttachmentPaths(draft);
 
   // All unique tags from the board (cards + column defaults), excluding ones already on this card
   const suggestedTags = useMemo(() => {
@@ -403,18 +417,55 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
               </div>
             </section>
 
-            {/* Linked note — Command picker via Popover portal */}
+            {/* Attachments — Command picker via Popover portal */}
             <section>
-              <label className="section-label flex items-center gap-1"><Paperclip size={11} /> Linked note</label>
+              <label className="section-label flex items-center gap-1">
+                <Paperclip size={11} />
+                Attachments
+                {attachmentPaths.length > 0 && (
+                  <span className="ml-auto font-normal normal-case tracking-normal text-[11px] text-muted-foreground">
+                    {attachmentPaths.length}
+                  </span>
+                )}
+              </label>
+
+              {attachmentPaths.length > 0 && (
+                <div className="flex flex-col gap-1.5 mb-2">
+                  {attachmentPaths.map((path) => (
+                    <div key={path} className="flex items-center gap-2 rounded border border-border/30 bg-muted/20 px-2.5 py-1.5">
+                      <Paperclip size={11} className="shrink-0 text-primary/70" />
+                      <span className="flex-1 truncate font-mono text-xs text-foreground" title={path}>{path}</span>
+                      <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] text-primary/80">
+                        Attached
+                      </span>
+                      <button
+                        onClick={() => openLinkedNote(path)}
+                        className="flex items-center gap-1 text-xs px-2 py-1 bg-primary/15 hover:bg-primary/25 text-primary rounded transition-colors shrink-0"
+                        title="Open file"
+                      >
+                        <ExternalLink size={11} />
+                      </button>
+                      <button
+                        onClick={() => removeLinkedNote(path)}
+                        className="flex items-center gap-1 text-xs px-2 py-1 text-muted-foreground hover:text-foreground rounded transition-colors shrink-0"
+                        title="Remove attachment"
+                      >
+                        <X size={11} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <Popover open={notePickerOpen} onOpenChange={setNotePickerOpen}>
                   <PopoverTrigger asChild>
                     <button className={cn(
                       'flex-1 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded border text-xs text-left transition-colors',
                       'bg-muted/25 border-border/30 hover:border-border/60 focus:outline-none focus:ring-1 focus:ring-primary/40',
-                      draft.relativePath ? 'text-foreground font-mono' : 'text-muted-foreground/60',
+                      'text-muted-foreground/60',
                     )}>
-                      <span className="truncate">{draft.relativePath ?? 'Select a note…'}</span>
+                      <span className="truncate">Add file…</span>
                       <ChevronDown size={11} className="shrink-0 text-muted-foreground/50" />
                     </button>
                   </PopoverTrigger>
@@ -428,9 +479,14 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
                             <CommandItem
                               key={note.relativePath}
                               value={note.relativePath}
-                              onSelect={() => setLinkedNote(note.relativePath)}
+                              onSelect={() => addLinkedNote(note.relativePath)}
                             >
                               <span className="font-medium truncate">{note.title}</span>
+                              {attachmentPaths.includes(note.relativePath) && (
+                                <span className="rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] text-primary/80 shrink-0">
+                                  Attached
+                                </span>
+                              )}
                               <span className="ml-auto text-[10px] text-muted-foreground/60 font-mono truncate max-w-[120px]">
                                 {note.relativePath}
                               </span>
@@ -441,25 +497,6 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
                     </Command>
                   </PopoverContent>
                 </Popover>
-
-                {draft.relativePath && (
-                  <>
-                    <button
-                      onClick={openLinkedNote}
-                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 bg-primary/15 hover:bg-primary/25 text-primary rounded transition-colors shrink-0"
-                      title="Open note"
-                    >
-                      <ExternalLink size={11} />
-                    </button>
-                    <button
-                      onClick={clearLinkedNote}
-                      className="flex items-center gap-1 text-xs px-2 py-1.5 text-muted-foreground hover:text-foreground rounded transition-colors shrink-0"
-                      title="Clear link"
-                    >
-                      <X size={11} />
-                    </button>
-                  </>
-                )}
               </div>
             </section>
 

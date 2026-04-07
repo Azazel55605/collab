@@ -1,7 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   ChevronRight, ChevronDown, FileText, Folder, FolderOpen,
-  Plus, FolderPlus, Layout, LayoutDashboard,
+  Plus, FolderPlus, Layout, LayoutDashboard, Paperclip,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useVaultStore } from '../../store/vaultStore';
@@ -10,10 +10,13 @@ import { useCollabStore } from '../../store/collabStore';
 import { useUiStore } from '../../store/uiStore';
 import { tauriCommands } from '../../lib/tauri';
 import type { NoteFile } from '../../types/vault';
+import { getCardAttachmentPaths, type KanbanBoard, type KanbanCard } from '../../types/kanban';
+import { useKanbanStore } from '../../store/kanbanStore';
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem,
   ContextMenuSeparator, ContextMenuTrigger,
 } from '../ui/context-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { toast } from 'sonner';
 import { ConfirmDeleteDialog, InputDialog } from './VaultDialogs';
@@ -25,12 +28,23 @@ type DialogState =
   | { type: 'create-note'; parentPath?: string }
   | { type: 'create-folder'; parentPath?: string };
 
+interface TaskAttachmentRef {
+  boardPath: string;
+  boardName: string;
+  columnId: string;
+  columnTitle: string;
+  cardId: string;
+  cardTitle: string;
+  card: KanbanCard;
+}
+
 export default function FileTree() {
   const { vault, fileTree, refreshFileTree } = useVaultStore();
   const { openTab, closeTab, renameTab } = useEditorStore();
   const { setActiveView, confirmDelete: confirmDeleteSetting } = useUiStore();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [dialog, setDialog] = useState<DialogState>({ type: 'none' });
+  const [taskAttachmentsByPath, setTaskAttachmentsByPath] = useState<Record<string, TaskAttachmentRef[]>>({});
 
   // ── Drag-and-drop state ────────────────────────────────────────────────────
   const [draggingPath, setDraggingPath] = useState<string | null>(null);
@@ -164,6 +178,54 @@ export default function FileTree() {
     } catch (e) { toast.error('Failed to move: ' + e); }
   }, [vault, refreshFileTree]);
 
+  useEffect(() => {
+    if (!vault) return;
+    let cancelled = false;
+
+    function flatten(nodes: NoteFile[]): NoteFile[] {
+      return nodes.flatMap((node) => [node, ...(node.children ? flatten(node.children) : [])]);
+    }
+
+    const kanbanFiles = flatten(fileTree).filter((node) => !node.isFolder && node.extension === 'kanban');
+
+    void Promise.all(
+      kanbanFiles.map(async (file) => {
+        try {
+          const { content } = await tauriCommands.readNote(vault.path, file.relativePath);
+          const board = JSON.parse(content) as KanbanBoard;
+          return board.columns.flatMap((column) =>
+            column.cards.flatMap((card) =>
+              getCardAttachmentPaths(card).map((path) => ({
+                path,
+                ref: {
+                  boardPath: file.relativePath,
+                  boardName: file.name,
+                  columnId: column.id,
+                  columnTitle: column.title,
+                  cardId: card.id,
+                  cardTitle: card.title,
+                  card,
+                },
+              })),
+            ),
+          );
+        } catch {
+          return [];
+        }
+      }),
+    ).then((attachedLists) => {
+      if (cancelled) return;
+      const next: Record<string, TaskAttachmentRef[]> = {};
+      for (const item of attachedLists.flat()) {
+        next[item.path] ??= [];
+        next[item.path].push(item.ref);
+      }
+      setTaskAttachmentsByPath(next);
+    });
+
+    return () => { cancelled = true; };
+  }, [vault?.path, fileTree]);
+
   if (!vault) return null;
 
   return (
@@ -261,6 +323,7 @@ export default function FileTree() {
               onRename={handleRename}
               draggingPath={draggingPath}
               dropTargetPath={dropTargetPath}
+              taskAttachmentsByPath={taskAttachmentsByPath}
               setDraggingPath={setDraggingPath}
               setDropTargetPath={setDropTargetPath}
               onMove={handleMove}
@@ -284,6 +347,7 @@ interface FileTreeNodeProps {
   onRename: (file: NoteFile) => void;
   draggingPath: string | null;
   dropTargetPath: string | null | '__root__';
+  taskAttachmentsByPath: Record<string, TaskAttachmentRef[]>;
   setDraggingPath: (path: string | null) => void;
   setDropTargetPath: (path: string | null | '__root__') => void;
   onMove: (fromPath: string, toFolderPath: string | '__root__') => void;
@@ -292,16 +356,21 @@ interface FileTreeNodeProps {
 function FileTreeNode({
   node, depth, collapsed, setCollapsed,
   onOpenFile, onCreateNote, onCreateFolder, onDelete, onRename,
-  draggingPath, dropTargetPath, setDraggingPath, setDropTargetPath, onMove,
+  draggingPath, dropTargetPath, taskAttachmentsByPath, setDraggingPath, setDropTargetPath, onMove,
 }: FileTreeNodeProps) {
-  const { activeTabPath } = useEditorStore();
+  const { activeTabPath, openTab } = useEditorStore();
   const { peers } = useCollabStore();
+  const { setActiveView } = useUiStore();
+  const { setEditing } = useKanbanStore();
+  const [attachmentPopoverOpen, setAttachmentPopoverOpen] = useState(false);
 
   const isCollapsed = collapsed.has(node.relativePath);
   const isActive = activeTabPath === node.relativePath;
   const activePeers = peers.filter((p) => p.activeFile === node.relativePath);
   const isDraggingThis = draggingPath === node.relativePath;
   const isDropTarget = node.isFolder && dropTargetPath === node.relativePath && draggingPath !== null;
+  const attachmentRefs = taskAttachmentsByPath[node.relativePath] ?? [];
+  const isTaskAttached = !node.isFolder && attachmentRefs.length > 0;
 
   const toggleCollapse = () => {
     setCollapsed((prev) => {
@@ -322,6 +391,13 @@ function FileTreeNode({
     if (node.extension === 'kanban')  return <LayoutDashboard size={13} className="text-emerald-400/70" />;
     return <FileText size={13} className="text-muted-foreground/70" />;
   };
+
+  function openAttachedTask(ref: TaskAttachmentRef) {
+    openTab(ref.boardPath, ref.boardName, 'kanban');
+    setActiveView('kanban');
+    setEditing(ref.boardPath, ref.cardId, ref.columnId, ref.card);
+    setAttachmentPopoverOpen(false);
+  }
 
   return (
     <ContextMenu>
@@ -417,6 +493,45 @@ function FileTreeNode({
                 title={`${peer.userName} is editing`}
               />
             ))}
+            {isTaskAttached && (
+              <Popover open={attachmentPopoverOpen} onOpenChange={setAttachmentPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className="shrink-0 text-primary/75 hover:text-primary transition-colors"
+                    title="Attached to task"
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    <Paperclip size={11} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  side="right"
+                  className="w-72 p-1"
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                    Attached to {attachmentRefs.length} task{attachmentRefs.length === 1 ? '' : 's'}
+                  </div>
+                  <div className="flex flex-col">
+                    {attachmentRefs.map((ref) => (
+                      <button
+                        key={`${ref.boardPath}:${ref.cardId}`}
+                        onClick={() => openAttachedTask(ref)}
+                        className="flex flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left hover:bg-accent/50 transition-colors"
+                      >
+                        <span className="text-xs text-foreground">{ref.cardTitle}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {ref.boardName} · {ref.columnTitle}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
           </div>
 
           {/* Children */}
@@ -436,6 +551,7 @@ function FileTreeNode({
                   onRename={onRename}
                   draggingPath={draggingPath}
                   dropTargetPath={dropTargetPath}
+                  taskAttachmentsByPath={taskAttachmentsByPath}
                   setDraggingPath={setDraggingPath}
                   setDropTargetPath={setDropTargetPath}
                   onMove={onMove}

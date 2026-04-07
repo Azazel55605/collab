@@ -115,6 +115,15 @@ pub fn run() {
             commands::files::delete_note,
             commands::files::rename_note,
             commands::files::create_folder,
+            // templates
+            commands::templates::list_kanban_templates,
+            commands::templates::save_kanban_template,
+            commands::templates::delete_kanban_template,
+            commands::templates::copy_kanban_template,
+            commands::templates::import_kanban_template_from_file,
+            commands::templates::export_kanban_template_to_file,
+            commands::templates::apply_kanban_template,
+            commands::templates::create_blank_kanban_template,
             // index
             commands::index::build_note_index,
             commands::index::get_backlinks,

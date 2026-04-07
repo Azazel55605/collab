@@ -10,7 +10,7 @@ import { cn } from '../../lib/utils';
 import { useKanbanContext } from '../../views/KanbanPage';
 import { useUiStore, formatDate, type DateFormat } from '../../store/uiStore';
 import { useKanbanStore } from '../../store/kanbanStore';
-import type { KanbanCard, KanbanColumn } from '../../types/kanban';
+import { getCardAttachmentPaths, type KanbanCard, type KanbanColumn } from '../../types/kanban';
 import type { KnownUser } from '../../types/vault';
 import CardDialog from './CardDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -50,6 +50,7 @@ const KanbanCardInner = memo(function KanbanCardInner({
   const checklistTotal   = card.checklist?.length ?? 0;
   const checklistDone    = card.checklist?.filter(i => i.checked).length ?? 0;
   const checklistPercent = checklistTotal > 0 ? (checklistDone / checklistTotal) * 100 : 0;
+  const attachments = getCardAttachmentPaths(card);
 
   return (
     <div
@@ -130,7 +131,7 @@ const KanbanCardInner = memo(function KanbanCardInner({
         )}
 
         {/* Footer */}
-        {(card.dueDate || card.relativePath || card.comments.length > 0 || assignedUsers.length > 0) && (
+        {(card.dueDate || attachments.length > 0 || card.comments.length > 0 || assignedUsers.length > 0) && (
           <div className="flex items-center justify-between mt-2 gap-2">
             <div className="flex items-center gap-2 text-[11px] text-muted-foreground min-w-0">
               {card.dueDate && (
@@ -139,9 +140,10 @@ const KanbanCardInner = memo(function KanbanCardInner({
                   {formatDate(new Date(card.dueDate + 'T12:00:00'), dateFormat)}
                 </span>
               )}
-              {card.relativePath && (
-                <span className="flex items-center gap-1 shrink-0" title={card.relativePath}>
+              {attachments.length > 0 && (
+                <span className="flex items-center gap-1 shrink-0" title={attachments.join('\n')}>
                   <Paperclip size={10} />
+                  {attachments.length > 1 && <span>{attachments.length}</span>}
                 </span>
               )}
               {card.comments.length > 0 && (

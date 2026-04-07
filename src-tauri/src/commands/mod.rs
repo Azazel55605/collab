@@ -6,3 +6,4 @@ pub mod collab;
 pub mod ui;
 pub mod crypto;
 pub mod update;
+pub mod templates;

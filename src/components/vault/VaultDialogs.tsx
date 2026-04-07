@@ -46,7 +46,7 @@ export function ConfirmDeleteDialog({ open, name, isFolder, onConfirm, onCancel 
 
 // ─── Input (create / rename) ──────────────────────────────────────────────────
 
-type InputDialogVariant = 'create-note' | 'create-folder' | 'rename' | 'create-canvas' | 'create-kanban';
+type InputDialogVariant = 'create-note' | 'create-folder' | 'rename' | 'create-canvas' | 'create-kanban' | 'create-template';
 
 const VARIANT_META: Record<InputDialogVariant, {
   icon: React.ReactNode;
@@ -89,6 +89,13 @@ const VARIANT_META: Record<InputDialogVariant, {
     label: 'Board name',
     placeholder: 'Untitled Board',
     confirm: 'Create',
+  },
+  'create-template': {
+    icon: <LayoutDashboard size={16} />,
+    title: 'Save as template',
+    label: 'Template name',
+    placeholder: 'Sprint Board',
+    confirm: 'Save',
   },
 };
 

@@ -6,6 +6,8 @@ export const getAppVersion = getVersion;
 import type { VaultMeta, NoteFile, NoteContent, WriteResult, VaultConfig, MemberRole } from '../types/vault';
 import type { NoteMetadata, SearchResult } from '../types/note';
 import type { PresenceEntry, ChatMessage, SnapshotMeta } from '../types/collab';
+import type { KanbanBoard } from '../types/kanban';
+import type { KanbanTemplate, TemplateSource } from '../types/template';
 import type { UpdateInfo } from '../store/updateStore';
 
 export const tauriCommands = {
@@ -51,6 +53,62 @@ export const tauriCommands = {
   deleteNote: (vaultPath: string, relativePath: string) => invoke<void>('delete_note', { vaultPath, relativePath }),
   renameNote: (vaultPath: string, oldPath: string, newPath: string) => invoke<void>('rename_note', { vaultPath, oldPath, newPath }),
   createFolder: (vaultPath: string, relativePath: string) => invoke<void>('create_folder', { vaultPath, relativePath }),
+
+  // Kanban templates
+  listKanbanTemplates: (vaultPath?: string | null) =>
+    invoke<KanbanTemplate[]>('list_kanban_templates', { vaultPath: vaultPath ?? null }),
+  saveKanbanTemplate: (
+    vaultPath: string | null | undefined,
+    source: TemplateSource,
+    templateName: string,
+    board: KanbanBoard,
+  ) => invoke<KanbanTemplate>('save_kanban_template', { vaultPath: vaultPath ?? null, source, templateName, board }),
+  deleteKanbanTemplate: (vaultPath: string | null | undefined, source: TemplateSource, templateName: string) =>
+    invoke<void>('delete_kanban_template', { vaultPath: vaultPath ?? null, source, templateName }),
+  copyKanbanTemplate: (
+    vaultPath: string | null | undefined,
+    fromSource: TemplateSource,
+    toSource: TemplateSource,
+    templateName: string,
+  ) => invoke<KanbanTemplate>('copy_kanban_template', { vaultPath: vaultPath ?? null, fromSource, toSource, templateName }),
+  importKanbanTemplateFromFile: (
+    vaultPath: string | null | undefined,
+    targetSource: TemplateSource,
+    filePath: string,
+  ) => invoke<KanbanTemplate>('import_kanban_template_from_file', { vaultPath: vaultPath ?? null, targetSource, filePath }),
+  exportKanbanTemplateToFile: (
+    vaultPath: string | null | undefined,
+    source: TemplateSource,
+    templateName: string,
+    filePath: string,
+  ) => invoke<void>('export_kanban_template_to_file', { vaultPath: vaultPath ?? null, source, templateName, filePath }),
+  applyKanbanTemplate: (
+    vaultPath: string,
+    source: TemplateSource,
+    templateName: string,
+    destinationRelativePath: string,
+  ) => invoke<NoteFile>('apply_kanban_template', { vaultPath, source, templateName, destinationRelativePath }),
+  createBlankKanbanTemplate: (
+    vaultPath: string | null | undefined,
+    source: TemplateSource,
+    templateName: string,
+  ) => invoke<KanbanTemplate>('create_blank_kanban_template', { vaultPath: vaultPath ?? null, source, templateName }),
+  showOpenTemplateFileDialog: async () => {
+    const result = await open({
+      multiple: false,
+      title: 'Import Kanban Template',
+      filters: [{ name: 'Kanban Template', extensions: ['json', 'kanban-template'] }],
+    });
+    return typeof result === 'string' ? result : null;
+  },
+  showSaveTemplateFileDialog: async (defaultName: string) => {
+    const result = await save({
+      title: 'Export Kanban Template',
+      defaultPath: defaultName,
+      filters: [{ name: 'Kanban Template', extensions: ['json'] }],
+    });
+    return typeof result === 'string' ? result : null;
+  },
 
   // Index
   buildNoteIndex: (vaultPath: string) => invoke<NoteMetadata[]>('build_note_index', { vaultPath }),
