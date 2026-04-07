@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, Component, type ReactNode, type ErrorInfo } from 'react';
+import { useEffect, useRef, useCallback, useState, Component, type ReactNode, type ErrorInfo } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import ActivityBar from './ActivityBar';
 import Sidebar from './Sidebar';
@@ -42,7 +42,7 @@ import { ConflictDialog } from '../collaboration/ConflictDialog';
 import { CommandBar } from '../command-bar/CommandBar';
 import { DragProvider } from '../../contexts/DragContext';
 import SplitDropZones from '../grid/SplitDropZones';
-import { GitFork, Layout, LayoutDashboard, FileText } from 'lucide-react';
+import { GitFork, Layout, LayoutDashboard, FileText, Settings as SettingsIcon } from 'lucide-react';
 
 export default function AppShell() {
   const { vault, refreshFileTree } = useVaultStore();
@@ -52,6 +52,23 @@ export default function AppShell() {
   const resizingRef = useRef(false);
   const startXRef   = useRef(0);
   const startWRef   = useRef(0);
+  const [tabSwitcherIndex, setTabSwitcherIndex] = useState<number | null>(null);
+
+  const getTabIcon = (type: string, size = 16) => {
+    if (type === 'canvas')   return <Layout size={size} className="shrink-0" />;
+    if (type === 'kanban')   return <LayoutDashboard size={size} className="shrink-0" />;
+    if (type === 'graph')    return <GitFork size={size} className="shrink-0" />;
+    if (type === 'settings') return <SettingsIcon size={size} className="shrink-0" />;
+    return <FileText size={size} className="shrink-0" />;
+  };
+
+  const activateTab = useCallback((tab: (typeof openTabs)[number]) => {
+    setActiveTab(tab.relativePath);
+    if      (tab.type === 'graph')  setActiveView('graph');
+    else if (tab.type === 'kanban') setActiveView('kanban');
+    else if (tab.type === 'canvas') setActiveView('canvas');
+    else                            setActiveView('editor');
+  }, [setActiveTab, setActiveView]);
 
   // Build note index on vault open
   useEffect(() => {
@@ -86,10 +103,35 @@ export default function AppShell() {
 
   // Global keyboard shortcuts
   useEffect(() => {
+    const getCycleIndex = (backwards: boolean) => {
+      if (openTabs.length < 2) return null;
+      const idx = tabSwitcherIndex ?? openTabs.findIndex((t) => t.relativePath === activeTabPath);
+      const next = backwards
+        ? (idx - 1 + openTabs.length) % openTabs.length
+        : (idx + 1) % openTabs.length;
+      return next;
+    };
+
+    const commitTabSwitcher = () => {
+      if (tabSwitcherIndex === null) return;
+      const tab = openTabs[tabSwitcherIndex];
+      if (tab) activateTab(tab);
+      setTabSwitcherIndex(null);
+    };
+
     const handler = (e: KeyboardEvent) => {
       const ctrl = e.ctrlKey || e.metaKey;
-      if (!ctrl) return;
       const inInput = !!(document.activeElement?.matches('input,textarea,[contenteditable]'));
+
+      if (ctrl && e.code === 'Tab') {
+        e.preventDefault();
+        e.stopPropagation();
+        const next = getCycleIndex(e.shiftKey);
+        if (next !== null) setTabSwitcherIndex(next);
+        return;
+      }
+
+      if (!ctrl) return;
 
       switch (e.key) {
         case '\\':
@@ -104,21 +146,6 @@ export default function AppShell() {
           e.preventDefault();
           if (activeTabPath) closeTab(activeTabPath);
           break;
-        case 'Tab': {
-          e.preventDefault();
-          if (!openTabs.length) break;
-          const idx = openTabs.findIndex(t => t.relativePath === activeTabPath);
-          const next = e.shiftKey
-            ? (idx - 1 + openTabs.length) % openTabs.length
-            : (idx + 1) % openTabs.length;
-          const tab = openTabs[next];
-          setActiveTab(tab.relativePath);
-          if      (tab.type === 'graph')  setActiveView('graph');
-          else if (tab.type === 'kanban') setActiveView('kanban');
-          else if (tab.type === 'canvas') setActiveView('canvas');
-          else                            setActiveView('editor');
-          break;
-        }
         case '1': if (!inInput) { e.preventDefault(); setActiveView('editor'); } break;
         case '2': if (!inInput) { e.preventDefault(); setActiveView('graph');  } break;
         case '3': if (!inInput) { e.preventDefault(); setActiveView('kanban'); } break;
@@ -131,9 +158,26 @@ export default function AppShell() {
           break;
       }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [openTabs, activeTabPath, isSettingsOpen, toggleSidebar, openSettings, closeSettings, closeTab, setActiveTab, setActiveView]);
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Control' || e.key === 'Meta') {
+        commitTabSwitcher();
+      }
+    };
+
+    const handleWindowBlur = () => {
+      commitTabSwitcher();
+    };
+
+    document.addEventListener('keydown', handler, { capture: true });
+    document.addEventListener('keyup', handleKeyUp, { capture: true });
+    window.addEventListener('blur', handleWindowBlur);
+    return () => {
+      document.removeEventListener('keydown', handler, { capture: true });
+      document.removeEventListener('keyup', handleKeyUp, { capture: true });
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, [openTabs, activeTabPath, tabSwitcherIndex, isSettingsOpen, toggleSidebar, openSettings, closeSettings, closeTab, setActiveView, activateTab]);
 
   // Sidebar drag-to-resize
   const onResizeStart = useCallback((e: React.MouseEvent) => {
@@ -161,6 +205,7 @@ export default function AppShell() {
   }, [setSidebarWidth]);
 
   const activeTab = openTabs.find((t) => t.relativePath === activeTabPath);
+  const switcherTab = tabSwitcherIndex !== null ? openTabs[tabSwitcherIndex] : null;
 
   const renderMainContent = () => {
     // Grid mode is self-contained — always shown when activeView === 'grid'
@@ -225,6 +270,45 @@ export default function AppShell() {
 
       <ConflictDialog />
       <CommandBar />
+      {switcherTab && (
+        <div className="pointer-events-none fixed inset-0 z-[70] flex items-center justify-center bg-background/18 backdrop-blur-xs-webkit">
+          <div className="w-[min(560px,calc(100vw-48px))] rounded-2xl border border-border/50 bg-popover/94 px-4 py-4 shadow-2xl shadow-black/30">
+            <div className="mb-4 flex items-center gap-3 rounded-xl border border-border/40 bg-background/45 px-4 py-3">
+              <div className="flex size-11 items-center justify-center rounded-xl bg-primary/12 text-primary">
+                {getTabIcon(switcherTab.type, 18)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold text-foreground">{switcherTab.title}</div>
+                <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{switcherTab.relativePath}</div>
+              </div>
+              <div className="shrink-0 rounded-full border border-border/50 px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                {switcherTab.type}
+              </div>
+            </div>
+
+            <div className="flex gap-2 overflow-hidden">
+              {openTabs.map((tab, index) => {
+                const isSelected = index === tabSwitcherIndex;
+                return (
+                  <div
+                    key={tab.relativePath}
+                    className={isSelected
+                      ? 'min-w-0 flex-1 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-primary shadow-lg shadow-primary/10'
+                      : 'min-w-0 flex-1 rounded-xl border border-border/30 bg-background/35 px-3 py-2 text-muted-foreground'
+                    }
+                  >
+                    <div className="mb-1 flex items-center gap-2 text-[11px]">
+                      {getTabIcon(tab.type, 13)}
+                      <span className="truncate">{tab.type}</span>
+                    </div>
+                    <div className="truncate text-xs font-medium">{tab.title}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
       </DragProvider>
     </CollabProvider>
   );
