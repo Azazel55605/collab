@@ -5,8 +5,136 @@
     <link rel="icon" type="image/svg+xml" href="/app-icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>collab</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --boot-bg: oklch(0.17 0.015 264);
+        --boot-fg: oklch(0.93 0.01 264);
+        --boot-muted: oklch(0.62 0.02 264);
+        --boot-accent: oklch(0.67 0.22 293);
+        --boot-target-bg: oklch(0.17 0.015 264);
+        --boot-target-fg: oklch(0.93 0.01 264);
+        --boot-target-muted: oklch(0.62 0.02 264);
+        --boot-target-accent: oklch(0.67 0.22 293);
+      }
+
+      html[data-boot-theme="light"] {
+        color-scheme: light;
+        --boot-target-bg: oklch(0.97 0 0);
+        --boot-target-fg: oklch(0.14 0 0);
+        --boot-target-muted: oklch(0.45 0.01 264);
+        --boot-target-accent: oklch(0.54 0.23 293);
+      }
+
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: var(--boot-bg);
+        color: var(--boot-fg);
+      }
+
+      body {
+        overflow: hidden;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      #root {
+        width: 100%;
+        height: 100%;
+      }
+
+      #boot-screen {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 20% 20%, oklch(0.67 0.22 293 / 0.16), transparent 28%),
+          radial-gradient(circle at 80% 0%, oklch(0.65 0.19 237 / 0.14), transparent 30%),
+          linear-gradient(180deg, color-mix(in oklch, var(--boot-bg) 86%, black), var(--boot-bg));
+        transition: opacity 220ms ease;
+        z-index: 9999;
+      }
+
+      #boot-screen[data-hidden="true"] {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      #boot-screen[data-card-hidden="true"] .boot-card {
+        opacity: 0;
+      }
+
+      .boot-card {
+        position: relative;
+        z-index: 1;
+        width: min(320px, calc(100vw - 48px));
+        padding: 24px 22px;
+        border-radius: 18px;
+        background: color-mix(in oklch, var(--boot-bg) 84%, black);
+        border: 1px solid oklch(1 0 0 / 0.08);
+        box-shadow: 0 20px 60px oklch(0 0 0 / 0.32);
+        transition: opacity 90ms ease;
+      }
+
+      .boot-title {
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.2;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+
+      .boot-subtitle {
+        margin: 6px 0 0;
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--boot-muted);
+      }
+
+      .boot-progress {
+        margin-top: 18px;
+        height: 3px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: oklch(1 0 0 / 0.08);
+      }
+
+      .boot-progress-bar {
+        width: 36%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--boot-accent), color-mix(in oklch, var(--boot-accent) 65%, white));
+        animation: boot-progress 1.1s ease-in-out infinite;
+      }
+
+      @keyframes boot-progress {
+        0% { transform: translateX(-130%); }
+        100% { transform: translateX(360%); }
+      }
+    </style>
+    <script>
+      try {
+        const stored = localStorage.getItem('ui-storage');
+        const parsed = stored ? JSON.parse(stored) : {};
+        const theme = parsed?.state?.theme ?? 'dark';
+        const isLight = theme === 'light';
+        document.documentElement.classList.toggle('dark', !isLight);
+        document.documentElement.dataset.bootTheme = isLight ? 'light' : 'dark';
+      } catch {
+        document.documentElement.classList.add('dark');
+      }
+    </script>
   </head>
   <body>
+    <div id="boot-screen" aria-hidden="true">
+      <div class="boot-card">
+        <p class="boot-title">collab</p>
+        <p class="boot-subtitle">Loading workspace…</p>
+        <div class="boot-progress"><div class="boot-progress-bar"></div></div>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -58,3 +58,23 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <App />
   </React.StrictMode>,
 );
+
+requestAnimationFrame(() => {
+  const bootScreen = document.getElementById('boot-screen');
+  if (!bootScreen) return;
+
+  const removeBootScreen = (event?: TransitionEvent) => {
+    if (event && event.target !== bootScreen) return;
+    bootScreen.removeEventListener('transitionend', removeBootScreen);
+    bootScreen.remove();
+  };
+
+  bootScreen.addEventListener('transitionend', removeBootScreen);
+
+  requestAnimationFrame(() => {
+    bootScreen.setAttribute('data-card-hidden', 'true');
+    window.setTimeout(() => {
+      bootScreen.setAttribute('data-hidden', 'true');
+    }, 90);
+  });
+});
