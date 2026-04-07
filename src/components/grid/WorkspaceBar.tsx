@@ -3,6 +3,8 @@ import { Plus, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useGridStore } from '../../store/gridStore';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
 
 export default function WorkspaceBar() {
   const { workspaces, activeWorkspaceId, createWorkspace, deleteWorkspace, renameWorkspace, setActiveWorkspace } =
@@ -50,7 +52,7 @@ export default function WorkspaceBar() {
             )}
 
             {isEditing ? (
-              <input
+              <Input
                 ref={inputRef}
                 value={editValue}
                 onChange={(e) => setEditValue(e.target.value)}
@@ -61,7 +63,7 @@ export default function WorkspaceBar() {
                   e.stopPropagation();
                 }}
                 onClick={(e) => e.stopPropagation()}
-                className="w-24 bg-transparent text-xs outline-none border-b border-primary"
+                className="h-6 w-24 border-primary/40 bg-transparent px-1.5 text-xs"
                 autoFocus
               />
             ) : (
@@ -70,16 +72,18 @@ export default function WorkspaceBar() {
 
             {/* Delete button — only if there are 2+ workspaces */}
             {workspaces.length > 1 && !isEditing && (
-              <button
+              <Button
                 onClick={(e) => {
                   e.stopPropagation();
                   deleteWorkspace(ws.id);
                 }}
-                className="opacity-0 group-hover:opacity-60 hover:!opacity-100 p-0.5 rounded hover:bg-accent transition-all"
+                variant="ghost"
+                size="icon"
+                className="size-4 opacity-0 group-hover:opacity-60 hover:!opacity-100"
                 title="Delete workspace"
               >
                 <X size={9} />
-              </button>
+              </Button>
             )}
           </div>
         );
@@ -88,12 +92,14 @@ export default function WorkspaceBar() {
       {/* New workspace */}
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
+          <Button
             onClick={() => createWorkspace()}
-            className="flex items-center justify-center w-7 h-full text-muted-foreground/50 hover:text-foreground hover:bg-accent/40 transition-colors shrink-0"
+            variant="ghost"
+            size="icon"
+            className="h-full w-7 rounded-none text-muted-foreground/50 hover:text-foreground hover:bg-accent/40 shrink-0"
           >
             <Plus size={12} />
-          </button>
+          </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom" className="text-xs">New workspace</TooltipContent>
       </Tooltip>

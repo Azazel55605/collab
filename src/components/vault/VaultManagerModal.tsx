@@ -8,6 +8,13 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select';
 import { cn } from '../../lib/utils';
 import { useVaultStore } from '../../store/vaultStore';
 import { useUiStore } from '../../store/uiStore';
@@ -80,16 +87,17 @@ function CreateVaultForm({ onDone }: { onDone: () => void }) {
         onKeyDown={(e) => { if (e.key === 'Enter') create(); if (e.key === 'Escape') onDone(); }}
         className="h-8 text-sm"
       />
-      <button
+      <Button
         type="button"
+        variant="outline"
         onClick={pickFolder}
-        className="w-full flex items-center gap-2 px-3 py-2 rounded-md border border-border/60 bg-background/40 hover:bg-accent/60 text-sm text-left transition-colors"
+        className="w-full justify-start gap-2 h-9 bg-background/40 hover:bg-accent/60 text-sm font-normal"
       >
         <FolderOpen size={13} className="text-muted-foreground shrink-0" />
         <span className={cn('truncate', path ? 'text-foreground' : 'text-muted-foreground')}>
           {path ?? 'Pick folder…'}
         </span>
-      </button>
+      </Button>
       <div className="flex gap-2 justify-end">
         <Button variant="ghost" size="sm" onClick={onDone} disabled={busy}>Cancel</Button>
         <Button size="sm" onClick={create} disabled={busy || !path || !name.trim()}>
@@ -410,15 +418,16 @@ function PermissionsTab() {
         <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 block">
           Vault
         </label>
-        <select
-          value={selectedPath}
-          onChange={(e) => setSelectedPath(e.target.value)}
-          className="w-full h-8 rounded-md border border-border/60 bg-background/60 px-2 text-sm text-foreground appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/40"
-        >
-          {recentVaults.map((v) => (
-            <option key={v.path} value={v.path}>{v.name}</option>
-          ))}
-        </select>
+        <Select value={selectedPath} onValueChange={setSelectedPath}>
+          <SelectTrigger className="w-full h-8 bg-background/60">
+            <SelectValue placeholder="Select vault" />
+          </SelectTrigger>
+          <SelectContent>
+            {recentVaults.map((v) => (
+              <SelectItem key={v.path} value={v.path}>{v.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {loading && (
@@ -476,35 +485,46 @@ function PermissionsTab() {
                       </span>
                     ) : isAdmin ? (
                       <div className="flex items-center gap-1.5">
-                        <select
-                          value={currentRole ?? ''}
-                          onChange={(e) => handleSetRole(u.userId, e.target.value as MemberRole)}
+                        <Select
+                          value={currentRole ?? 'none'}
+                          onValueChange={(value) => {
+                            if (value === 'none') return;
+                            handleSetRole(u.userId, value as MemberRole);
+                          }}
                           disabled={isBusy || isSelf}
-                          className="h-7 rounded border border-border/60 bg-background/60 px-2 text-xs text-foreground appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {currentRole === null && <option value="">No access</option>}
-                          {availableRoles.map((r) => (
-                            <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                          ))}
-                        </select>
+                          <SelectTrigger className="h-7 min-w-28 text-xs bg-background/60">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {currentRole === null && <SelectItem value="none">No access</SelectItem>}
+                            {availableRoles.map((r) => (
+                              <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         {currentRole !== null && !isSelf && (
-                          <button
+                          <Button
                             onClick={() => handleRemove(u.userId)}
                             disabled={isBusy}
-                            className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
+                            variant="ghost"
+                            size="icon"
+                            className="size-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                             title="Remove access"
                           >
                             {isBusy ? <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" /> : <X size={11} />}
-                          </button>
+                          </Button>
                         )}
                         {currentRole === null && !isSelf && (
-                          <button
+                          <Button
                             onClick={() => handleSetRole(u.userId, 'editor')}
                             disabled={isBusy}
-                            className="flex items-center gap-1 h-6 px-2 rounded text-[10px] text-primary border border-primary/30 hover:bg-primary/10 transition-colors disabled:opacity-40"
+                            variant="outline"
+                            size="sm"
+                            className="h-6 gap-1 px-2 text-[10px] text-primary border-primary/30 hover:bg-primary/10"
                           >
                             <UserPlus size={10} /> Add
-                          </button>
+                          </Button>
                         )}
                       </div>
                     ) : (

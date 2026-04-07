@@ -61,14 +61,16 @@ export default function VaultUnlockModal() {
               disabled={busy}
               className="h-11 pr-10 text-sm"
             />
-            <button
+            <Button
               type="button"
               onClick={() => setShowPw((v) => !v)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              variant="ghost"
+              size="icon"
+              className="absolute right-1.5 top-1/2 size-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               tabIndex={-1}
             >
               {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
-            </button>
+            </Button>
           </div>
 
           <Button
@@ -83,13 +85,15 @@ export default function VaultUnlockModal() {
 
         {/* Switch vault */}
         <div className="text-center mt-4">
-          <button
+          <Button
             onClick={closeVault}
-            className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+            variant="ghost"
+            size="sm"
+            className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/60 hover:text-muted-foreground"
           >
             <LogOut size={11} />
             Switch vault
-          </button>
+          </Button>
         </div>
       </div>
     </div>

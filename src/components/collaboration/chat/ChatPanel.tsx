@@ -4,6 +4,8 @@ import { useCollabStore } from '../../../store/collabStore';
 import { useVaultStore } from '../../../store/vaultStore';
 import { tauriCommands } from '../../../lib/tauri';
 import type { ChatMessage } from '../../../types/collab';
+import { Button } from '../../ui/button';
+import { Textarea } from '../../ui/textarea';
 
 function MessageRow({ msg, isSelf }: { msg: ChatMessage; isSelf: boolean }) {
   const date = new Date(msg.timestamp);
@@ -88,12 +90,12 @@ export function ChatPanel() {
           chatMessages.map((msg) => (
             <MessageRow key={msg.id} msg={msg} isSelf={msg.userId === myUserId} />
           ))
-        )}
+      )}
         <div ref={bottomRef} />
       </div>
       <div className="border-t border-border p-2 flex gap-2 items-end">
-        <textarea
-          className="flex-1 resize-none bg-muted rounded-lg px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring min-h-[36px] max-h-[120px]"
+        <Textarea
+          className="flex-1 min-h-[36px] max-h-[120px] resize-none bg-muted border-transparent px-3 py-2"
           placeholder="Message... (Enter to send)"
           rows={1}
           value={text}
@@ -101,13 +103,14 @@ export function ChatPanel() {
           onKeyDown={handleKeyDown}
           disabled={sending || !vault}
         />
-        <button
+        <Button
           onClick={send}
           disabled={!text.trim() || sending || !vault}
-          className="h-9 w-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+          size="icon"
+          className="h-9 w-9 rounded-lg flex-shrink-0"
         >
           <Send size={14} />
-        </button>
+        </Button>
       </div>
     </div>
   );
