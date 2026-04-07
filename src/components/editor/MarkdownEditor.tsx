@@ -37,7 +37,12 @@ import { GFM } from '@lezer/markdown';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useEditorStore } from '../../store/editorStore';
 import { createLivePreviewPlugin } from './livePreview';
+import { tauriCommands } from '../../lib/tauri';
+import { useVaultStore } from '../../store/vaultStore';
 import { openUrl, openPath } from '@tauri-apps/plugin-opener';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { toast } from 'sonner';
 import 'katex/dist/katex.min.css';
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem,
@@ -58,6 +63,45 @@ interface MarkdownEditorProps {
   onChange: (value: string) => void;
   onSave: (value: string) => Promise<void>;
   relativePath: string;
+}
+
+const IMAGE_DROP_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
+
+function getFileExtension(path: string): string {
+  const base = path.split(/[?#]/, 1)[0];
+  const dot = base.lastIndexOf('.');
+  return dot >= 0 ? base.slice(dot + 1).toLowerCase() : '';
+}
+
+function isImageLikePath(path: string): boolean {
+  return IMAGE_DROP_EXTENSIONS.has(getFileExtension(path));
+}
+
+function buildImageMarkdown(relativePath: string): string {
+  const fileName = relativePath.split('/').pop() ?? relativePath;
+  const alt = fileName.replace(/\.[^.]+$/, '');
+  return `![${alt}](${relativePath})`;
+}
+
+function getDroppedFilePaths(event: DragEvent): string[] {
+  const fromFiles = Array.from(event.dataTransfer?.files ?? [])
+    .map((file) => (file as File & { path?: string }).path)
+    .filter((path): path is string => typeof path === 'string' && path.length > 0);
+  if (fromFiles.length > 0) return fromFiles;
+
+  const uriList = event.dataTransfer?.getData('text/uri-list') ?? '';
+  return uriList
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'))
+    .map((line) => {
+      try {
+        return line.startsWith('file://') ? decodeURIComponent(line.slice(7)) : '';
+      } catch {
+        return '';
+      }
+    })
+    .filter((path) => path.length > 0);
 }
 
 // ─── Theme factory ────────────────────────────────────────────────────────────
@@ -630,9 +674,107 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         throw err; // re-throw so EditorErrorBoundary can display it
       }
       viewRef.current = view;
+
+      async function importDroppedImages(sourcePaths: string[], dropPos: number) {
+        const vault = useVaultStore.getState().vault;
+        if (!vault) return;
+
+        const imagePaths = sourcePaths.filter(isImageLikePath);
+        if (imagePaths.length === 0) return;
+
+        try {
+          const insertedPaths: string[] = [];
+          for (const sourcePath of imagePaths) {
+            const imported = await tauriCommands.importAssetIntoVault(vault.path, sourcePath, 'Pictures');
+            insertedPaths.push(imported);
+          }
+
+          const insertText = insertedPaths.map(buildImageMarkdown).join('\n');
+          view.dispatch({
+            changes: { from: dropPos, to: dropPos, insert: insertText },
+            selection: { anchor: dropPos + insertText.length },
+          });
+          view.focus();
+        } catch (err) {
+          toast.error('Failed to import image: ' + err);
+        }
+      }
+
+      async function handleImageDrop(event: DragEvent) {
+        const sourcePaths = getDroppedFilePaths(event);
+        if (sourcePaths.length === 0) return;
+
+        event.preventDefault();
+
+        const dropPos = view.state.selection.main.from;
+        await importDroppedImages(sourcePaths, dropPos);
+      }
+
+      const editorDom = view.dom;
+      const webview = getCurrentWebview();
+      const appWindow = getCurrentWindow();
+      let unlistenWebviewDragDrop: (() => void) | null = null;
+      let unlistenWindowDragDrop: (() => void) | null = null;
+      let lastDropKey = '';
+      let lastDropAt = 0;
+
+      const handleTauriDrop = (paths: string[], clientX: number, clientY: number) => {
+        const rect = editorDom.getBoundingClientRect();
+        const insideEditor =
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom;
+
+        if (!insideEditor) return;
+
+        const dropPos = view.state.selection.main.from;
+        const dropKey = `${paths.join('\n')}@@${Math.round(clientX)}:${Math.round(clientY)}`;
+        const now = Date.now();
+        if (dropKey === lastDropKey && now - lastDropAt < 300) return;
+        lastDropKey = dropKey;
+        lastDropAt = now;
+        void importDroppedImages(paths, dropPos);
+      };
+
+      const attachDropListener = (
+        subscribe: (handler: (event: {
+          payload: { type: 'enter' | 'over' | 'drop' | 'leave'; paths?: string[]; position?: { x: number; y: number } };
+        }) => void) => Promise<() => void>,
+        setUnlisten: (unlisten: (() => void) | null) => void,
+        label: string,
+      ) => {
+        void subscribe((event) => {
+          if (event.payload.type !== 'drop' || !event.payload.paths || !event.payload.position) return;
+          const clientX = event.payload.position.x / window.devicePixelRatio;
+          const clientY = event.payload.position.y / window.devicePixelRatio;
+          handleTauriDrop(event.payload.paths, clientX, clientY);
+        }).then((unlisten) => {
+          setUnlisten(unlisten);
+        }).catch((err) => {
+          console.error(`[MarkdownEditor] failed to attach ${label} drag-drop listener:`, err);
+        });
+      };
+
+      attachDropListener(
+        (handler) => webview.onDragDropEvent(handler),
+        (unlisten) => { unlistenWebviewDragDrop = unlisten; },
+        'webview',
+      );
+      attachDropListener(
+        (handler) => appWindow.onDragDropEvent(handler),
+        (unlisten) => { unlistenWindowDragDrop = unlisten; },
+        'window',
+      );
+
+      const handleDrop = (event: DragEvent) => { void handleImageDrop(event); };
+      editorDom.addEventListener('drop', handleDrop);
       view.focus();
 
       return () => {
+        editorDom.removeEventListener('drop', handleDrop);
+        unlistenWebviewDragDrop?.();
+        unlistenWindowDragDrop?.();
         view.destroy();
         viewRef.current = null;
       };

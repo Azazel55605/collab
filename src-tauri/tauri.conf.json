@@ -21,16 +21,7 @@
       }
     ],
     "security": {
-      "csp": null,
-      "assetProtocol": {
-        "enable": true,
-        "scope": [
-          "$HOME/**",
-          "$DOCUMENT/**",
-          "$DESKTOP/**",
-          "$DOWNLOAD/**"
-        ]
-      }
+      "csp": null
     }
   },
   "plugins": {

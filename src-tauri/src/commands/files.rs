@@ -77,6 +77,48 @@ fn guess_mime_type(relative_path: &str) -> &'static str {
     }
 }
 
+fn sanitize_file_name(name: &str) -> String {
+    name.chars()
+        .map(|ch| match ch {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => ch,
+        })
+        .collect::<String>()
+        .trim()
+        .trim_matches('.')
+        .to_string()
+}
+
+fn unique_target_path(base_dir: &Path, file_name: &str) -> PathBuf {
+    let stem = Path::new(file_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("image");
+    let ext = Path::new(file_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .filter(|s| !s.is_empty());
+
+    let mut candidate = base_dir.join(file_name);
+    if !candidate.exists() {
+        return candidate;
+    }
+
+    let mut index = 2;
+    loop {
+        let name = match ext {
+            Some(ext) => format!("{stem}-{index}.{ext}"),
+            None => format!("{stem}-{index}"),
+        };
+        candidate = base_dir.join(name);
+        if !candidate.exists() {
+            return candidate;
+        }
+        index += 1;
+    }
+}
+
 /// Build a flat list of NoteFile entries from the vault, excluding .collab/ and hidden dirs.
 fn collect_entries(vault_path: &str) -> Result<Vec<NoteFile>, String> {
     let base = Path::new(vault_path);
@@ -315,6 +357,49 @@ pub fn read_note_asset_data_url(
     let mime = guess_mime_type(&relative_path);
     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
     Ok(format!("data:{};base64,{}", mime, encoded))
+}
+
+#[tauri::command]
+pub fn import_asset_into_vault(
+    vault_path: String,
+    source_path: String,
+    target_folder: Option<String>,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let source = Path::new(&source_path);
+    if !source.is_file() {
+        return Err(format!("Source asset does not exist or is not a file: {}", source_path));
+    }
+
+    let folder = target_folder.unwrap_or_else(|| "Pictures".into());
+    let target_dir = resolve_vault_path(&vault_path, &folder)?;
+    std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
+
+    let source_name = source
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(sanitize_file_name)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "image".into());
+
+    let target_path = unique_target_path(&target_dir, &source_name);
+    let source_bytes = std::fs::read(source).map_err(|e| e.to_string())?;
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    let bytes_to_write = if let Some(ref key) = key_opt {
+        crypto::encrypt_bytes(key, &source_bytes)?
+    } else {
+        source_bytes
+    };
+
+    std::fs::write(&target_path, bytes_to_write).map_err(|e| e.to_string())?;
+
+    let relative = target_path
+        .strip_prefix(&vault_path)
+        .map_err(|e| e.to_string())?
+        .to_string_lossy()
+        .replace('\\', "/");
+
+    Ok(relative)
 }
 
 #[tauri::command]
