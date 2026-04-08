@@ -384,6 +384,40 @@
     oklch(0.09 0.01 264);
 }
 
+/* ─── Canvas view ──────────────────────────────────────────────────────── */
+
+.canvas-flow {
+  --xy-background-pattern-dots-color-default: color-mix(in oklch, var(--muted-foreground) 18%, transparent);
+}
+
+.canvas-flow .react-flow__node {
+  border-radius: 1rem;
+}
+
+.canvas-flow .react-flow__controls {
+  border: 1px solid color-mix(in oklch, var(--border) 85%, white 15%);
+  overflow: hidden;
+}
+
+.canvas-flow .react-flow__controls-button {
+  background: transparent;
+  color: var(--foreground);
+  border-bottom-color: color-mix(in oklch, var(--border) 85%, white 15%);
+}
+
+.canvas-flow .react-flow__controls-button:hover {
+  background: color-mix(in oklch, var(--accent) 75%, transparent);
+}
+
+.canvas-flow .react-flow__edge-path {
+  transition: stroke var(--motion-fast) var(--motion-ease-standard);
+}
+
+.canvas-flow .react-flow__edge.selected .react-flow__edge-path,
+.canvas-flow .react-flow__edge:focus .react-flow__edge-path {
+  stroke: color-mix(in oklch, var(--primary) 88%, white 12%);
+}
+
 /* ─── Editor prose ──────────────────────────────────────────────────────── */
 
 

@@ -160,6 +160,16 @@ const ACTIONS: Action[] = [
     },
   },
   {
+    id: 'canvas',
+    keywords: ['canvas', 'open canvas', 'canvas view'],
+    label: 'Open Canvas View',
+    icon: <Layers className="size-4 shrink-0" />,
+    onSelect: (ctx) => {
+      ctx.setActiveView('canvas');
+      ctx.close();
+    },
+  },
+  {
     id: 'grid',
     keywords: ['grid', 'grid view', 'workspace'],
     label: 'Open Grid View',
@@ -194,6 +204,25 @@ const ACTIONS: Action[] = [
         ctx.setActiveView('editor');
       } catch (e) {
         toast.error('Failed to create note: ' + e);
+      }
+      ctx.close();
+    },
+  },
+  {
+    id: 'new-canvas',
+    keywords: ['new canvas', 'create canvas', 'new canvas board'],
+    label: 'New Canvas Board',
+    icon: <Layers className="size-4 shrink-0" />,
+    onSelect: async (ctx, query) => {
+      const name = query.replace(/^new\s+canvas\s*/i, '').trim() || 'Canvas';
+      if (!ctx.vault) return;
+      try {
+        const file = await tauriCommands.createNote(ctx.vault.path, `${name}.canvas`);
+        await ctx.refreshFileTree();
+        ctx.openTab(file.relativePath, name, 'canvas');
+        ctx.setActiveView('canvas');
+      } catch (e) {
+        toast.error('Failed to create canvas board: ' + e);
       }
       ctx.close();
     },

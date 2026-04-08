@@ -38,13 +38,28 @@ function showErrorOverlay(message: string) {
   document.body.appendChild(el);
 }
 
+function isIgnorableBrowserError(message: string) {
+  return (
+    message.includes('ResizeObserver loop completed with undelivered notifications.') ||
+    message.includes('ResizeObserver loop limit exceeded')
+  );
+}
+
 window.addEventListener('error', (e) => {
   const msg = e.error?.stack ?? `${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}`;
+  if (isIgnorableBrowserError(e.message ?? '') || isIgnorableBrowserError(msg)) {
+    e.preventDefault();
+    return;
+  }
   showErrorOverlay(msg);
 });
 
 window.addEventListener('unhandledrejection', (e) => {
   const msg = e.reason?.stack ?? String(e.reason);
+  if (isIgnorableBrowserError(msg)) {
+    e.preventDefault();
+    return;
+  }
   showErrorOverlay('Unhandled Promise Rejection:\n' + msg);
 });
 

@@ -4,7 +4,7 @@ export interface CanvasData {
   viewport: { x: number; y: number; zoom: number };
 }
 
-export type CanvasNodeType = 'note' | 'text' | 'group';
+export type CanvasNodeType = 'note' | 'file' | 'text';
 
 export interface CanvasNodeBase {
   id: string;
@@ -19,18 +19,17 @@ export interface NoteCanvasNode extends CanvasNodeBase {
   relativePath: string;
 }
 
+export interface FileCanvasNode extends CanvasNodeBase {
+  type: 'file';
+  relativePath: string;
+}
+
 export interface TextCanvasNode extends CanvasNodeBase {
   type: 'text';
   content: string;
 }
 
-export interface GroupCanvasNode extends CanvasNodeBase {
-  type: 'group';
-  label: string;
-  color?: string;
-}
-
-export type CanvasNode = NoteCanvasNode | TextCanvasNode | GroupCanvasNode;
+export type CanvasNode = NoteCanvasNode | FileCanvasNode | TextCanvasNode;
 
 export interface CanvasEdge {
   id: string;

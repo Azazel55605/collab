@@ -256,16 +256,41 @@ export default function BoardsPanel({ kind }: Props) {
         />
       )}
 
-      {kind === 'canvas' ? (
-        <InputDialog
-          open={creating}
-          variant="create-canvas"
-          initialValue=""
-          onConfirm={handleCreate}
-          onCancel={() => setCreating(false)}
-        />
-      ) : (
-        <Dialog open={creating} onOpenChange={(open) => { if (!open) setCreating(false); }}>
+      <Dialog open={creating} onOpenChange={(open) => { if (!open) setCreating(false); }}>
+        {kind === 'canvas' ? (
+          <DialogContent showCloseButton={false} className="max-w-sm">
+            <DialogHeader>
+              <div className="flex items-center gap-3 mb-1">
+                <span className="flex items-center justify-center w-9 h-9 rounded-full bg-primary/15 text-primary shrink-0">
+                  <Layout size={16} />
+                </span>
+                <DialogTitle>New canvas board</DialogTitle>
+              </div>
+            </DialogHeader>
+
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Board name</label>
+                <Input
+                  value={createName}
+                  placeholder="Untitled Canvas"
+                  onChange={(event) => setCreateName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void handleCreate(createName);
+                    if (event.key === 'Escape') setCreating(false);
+                  }}
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
+              <Button variant="outline" onClick={() => setCreating(false)}>Cancel</Button>
+              <Button onClick={() => void handleCreate(createName)} disabled={!createName.trim()}>
+                Create
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        ) : (
           <DialogContent showCloseButton={false} className="max-w-sm">
             <DialogHeader>
               <div className="flex items-center gap-3 mb-1">
@@ -318,8 +343,8 @@ export default function BoardsPanel({ kind }: Props) {
               </Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
-      )}
+        )}
+      </Dialog>
       <InputDialog
         open={!!templateBoard}
         variant="create-template"
