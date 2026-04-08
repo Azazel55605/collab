@@ -48,8 +48,6 @@ jobs:
       # ── Node / pnpm ───────────────────────────────────────────────────────
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: latest
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -189,11 +187,11 @@ jobs:
 
       - name: Add Flathub remote
         run: |
-          flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
       - name: Install runtimes and SDK extensions
         run: |
-          flatpak install -y flathub \
+          flatpak install --user -y flathub \
             org.gnome.Platform//48 \
             org.gnome.Sdk//48 \
             org.freedesktop.Sdk.Extension.node20//24.08 \
@@ -201,7 +199,7 @@ jobs:
 
       - name: Build Flatpak repo
         run: |
-          flatpak-builder --install-deps-from=flathub --force-clean flatpak-build flatpak/com.azazel.collab.yml
+          flatpak-builder --user --install-deps-from=flathub --force-clean flatpak-build flatpak/com.azazel.collab.yml
           flatpak-builder --repo=flatpak-repo --force-clean flatpak-build flatpak/com.azazel.collab.yml
 
       - name: Bundle Flatpak
