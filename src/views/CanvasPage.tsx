@@ -583,6 +583,8 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     const extension = path.split('.').pop()?.toLowerCase() ?? '';
     const type = isImageExtension(extension)
       ? 'image'
+      : extension === 'pdf'
+      ? 'pdf'
       : extension === 'canvas'
       ? 'canvas'
       : extension === 'kanban'

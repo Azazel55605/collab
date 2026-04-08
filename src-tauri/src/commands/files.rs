@@ -32,7 +32,7 @@ fn system_time_to_ms(t: SystemTime) -> u64 {
 fn is_allowed_extension(ext: &str) -> bool {
     matches!(
         ext,
-        "md" | "canvas" | "kanban" | "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico" | "avif"
+        "md" | "canvas" | "kanban" | "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico" | "avif" | "pdf"
     )
 }
 
@@ -81,6 +81,7 @@ fn guess_mime_type(relative_path: &str) -> &'static str {
         Some("bmp") => "image/bmp",
         Some("ico") => "image/x-icon",
         Some("avif") => "image/avif",
+        Some("pdf") => "application/pdf",
         _ => "application/octet-stream",
     }
 }

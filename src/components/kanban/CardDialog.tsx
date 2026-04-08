@@ -58,10 +58,11 @@ function collectVaultFiles(nodes: NoteFile[]): NoteFile[] {
   return files;
 }
 
-function getTabTypeForPath(path: string): 'note' | 'canvas' | 'kanban' | 'image' {
+function getTabTypeForPath(path: string): 'note' | 'canvas' | 'kanban' | 'image' | 'pdf' {
   const ext = path.split('.').pop()?.toLowerCase() ?? '';
   if (ext === 'canvas') return 'canvas';
   if (ext === 'kanban') return 'kanban';
+  if (ext === 'pdf') return 'pdf';
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'].includes(ext)) return 'image';
   return 'note';
 }

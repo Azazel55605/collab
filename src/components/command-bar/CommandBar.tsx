@@ -57,7 +57,7 @@ interface RenderCtx {
   activeView: ActiveView;
   vault: import('../../types/vault').VaultMeta | null;
   dateFormat: DateFormat;
-  openTab: (relativePath: string, title: string, type?: 'note' | 'canvas' | 'kanban' | 'graph' | 'settings') => void;
+  openTab: (relativePath: string, title: string, type?: 'note' | 'canvas' | 'kanban' | 'graph' | 'settings' | 'image' | 'pdf') => void;
   setActiveView: (v: ActiveView) => void;
   openSettings: () => void;
   refreshFileTree: () => Promise<void>;

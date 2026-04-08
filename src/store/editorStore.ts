@@ -5,14 +5,14 @@ export interface OpenTab {
   title: string;
   isDirty: boolean;
   savedHash: string | null;
-  type: 'note' | 'canvas' | 'kanban' | 'graph' | 'settings' | 'image';
+  type: 'note' | 'canvas' | 'kanban' | 'graph' | 'settings' | 'image' | 'pdf';
 }
 
 interface EditorState {
   openTabs: OpenTab[];
   activeTabPath: string | null;
   forceReloadPath: string | null;
-  openTab: (relativePath: string, title: string, type?: 'note' | 'canvas' | 'kanban' | 'graph' | 'settings' | 'image') => void;
+  openTab: (relativePath: string, title: string, type?: 'note' | 'canvas' | 'kanban' | 'graph' | 'settings' | 'image' | 'pdf') => void;
   closeTab: (relativePath: string) => void;
   setActiveTab: (relativePath: string) => void;
   markDirty: (relativePath: string) => void;

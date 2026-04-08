@@ -8,6 +8,7 @@ import { useVaultStore, useEditorStore, useNoteIndexStore, useUiStore } from '..
 import { tauriCommands } from '../../lib/tauri';
 import NoteView from '../../views/NoteView';
 import ImageView from '../../views/ImageView';
+import PdfView from '../../views/PdfView';
 
 // ── Editor error boundary ─────────────────────────────────────────────────────
 class EditorErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -61,6 +62,7 @@ export default function AppShell() {
     if (type === 'graph')    return <GitFork size={size} className="shrink-0" />;
     if (type === 'settings') return <SettingsIcon size={size} className="shrink-0" />;
     if (type === 'image')    return <ImageIcon size={size} className="shrink-0" />;
+    if (type === 'pdf')      return <FileText size={size} className="shrink-0" />;
     return <FileText size={size} className="shrink-0" />;
   };
 
@@ -225,6 +227,7 @@ export default function AppShell() {
       if (activeTab.type === 'graph')    return <GraphPage />;
       if (activeTab.type === 'settings') return <SettingsPage />;
       if (activeTab.type === 'image')    return <ImageView relativePath={activeTab.relativePath} />;
+      if (activeTab.type === 'pdf')      return <PdfView relativePath={activeTab.relativePath} />;
       if (activeTab.type === 'canvas')   return <CanvasPage relativePath={activeTab.relativePath === '__canvas__' ? null : activeTab.relativePath} />;
       if (activeTab.type === 'kanban')   return <KanbanPage relativePath={activeTab.relativePath === '__kanban__' ? null : activeTab.relativePath} />;
       // Note tab: only show the note when activeView is editor — if the user

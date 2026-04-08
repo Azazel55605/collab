@@ -39,9 +39,14 @@ interface TaskAttachmentRef {
 }
 
 const IMAGE_FILE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
+const PDF_FILE_EXTENSIONS = new Set(['pdf']);
 
 function isImageFile(node: Pick<NoteFile, 'isFolder' | 'extension'>): boolean {
   return !node.isFolder && IMAGE_FILE_EXTENSIONS.has(node.extension.toLowerCase());
+}
+
+function isPdfFile(node: Pick<NoteFile, 'isFolder' | 'extension'>): boolean {
+  return !node.isFolder && PDF_FILE_EXTENSIONS.has(node.extension.toLowerCase());
 }
 
 function isManagedPicturesFolder(node: Pick<NoteFile, 'isFolder' | 'relativePath'>): boolean {
@@ -64,6 +69,8 @@ export default function FileTree() {
   const handleOpenFile = useCallback((file: NoteFile) => {
     const type = isImageFile(file)
       ? 'image'
+      : isPdfFile(file)
+      ? 'pdf'
       : file.extension === 'canvas'
       ? 'canvas'
       : file.extension === 'kanban'

@@ -35,6 +35,7 @@ export default function TabBar() {
     if (type === 'graph')    return <GitFork size={11} className="shrink-0" />;
     if (type === 'settings') return <Settings size={11} className="shrink-0" />;
     if (type === 'image')    return <ImageIcon size={11} className="shrink-0" />;
+    if (type === 'pdf')      return <FileText size={11} className="shrink-0" />;
     return <FileText size={11} className="shrink-0" />;
   };
 
