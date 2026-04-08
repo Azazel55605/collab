@@ -61,6 +61,11 @@ fn resolve_vault_path(vault_path: &str, relative_path: &str) -> Result<PathBuf, 
     Ok(Path::new(vault_path).join(normalize_relative_path(relative_path)?))
 }
 
+fn overlay_relative_path(image_relative_path: &str) -> String {
+    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(image_relative_path);
+    format!(".collab/image-overlays/{encoded}.json")
+}
+
 fn guess_mime_type(relative_path: &str) -> &'static str {
     match Path::new(relative_path)
         .extension()
@@ -90,6 +95,62 @@ fn sanitize_file_name(name: &str) -> String {
         .trim()
         .trim_matches('.')
         .to_string()
+}
+
+fn write_vault_bytes(
+    full_path: &Path,
+    bytes: &[u8],
+    key_opt: Option<[u8; 32]>,
+) -> Result<(), String> {
+    if let Some(parent) = full_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let bytes_to_write = if let Some(ref key) = key_opt {
+        crypto::encrypt_bytes(key, bytes)?
+    } else {
+        bytes.to_vec()
+    };
+
+    let tmp_path = full_path.with_extension("tmp");
+    std::fs::write(&tmp_path, &bytes_to_write).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp_path, full_path).map_err(|e| e.to_string())
+}
+
+fn read_vault_bytes(
+    full_path: &Path,
+    key_opt: Option<[u8; 32]>,
+) -> Result<Vec<u8>, String> {
+    let raw = std::fs::read(full_path).map_err(|e| e.to_string())?;
+    if crypto::is_encrypted_data(&raw) {
+        let key = key_opt
+            .as_ref()
+            .ok_or("Vault is locked — enter the password to unlock it")?;
+        crypto::decrypt_bytes(key, &raw)
+    } else {
+        Ok(raw)
+    }
+}
+
+fn parse_data_url(data_url: &str) -> Result<(&str, &str), String> {
+    let payload = data_url
+        .strip_prefix("data:")
+        .ok_or("Generated image data is not a valid data URL")?;
+    let (meta, encoded) = payload
+        .split_once(',')
+        .ok_or("Generated image data URL is malformed")?;
+    let mime = meta
+        .strip_suffix(";base64")
+        .ok_or("Generated image data URL must be base64-encoded")?;
+    Ok((mime, encoded))
+}
+
+fn extension_for_mime(mime: &str) -> &'static str {
+    match mime {
+        "image/jpeg" => "jpg",
+        "image/webp" => "webp",
+        _ => "png",
+    }
 }
 
 fn unique_target_path(base_dir: &Path, file_name: &str) -> PathBuf {
@@ -360,6 +421,96 @@ pub fn read_note_asset_data_url(
     let mime = guess_mime_type(&relative_path);
     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
     Ok(format!("data:{};base64,{}", mime, encoded))
+}
+
+#[tauri::command]
+pub fn read_image_overlay(
+    vault_path: String,
+    image_relative_path: String,
+    state: State<AppState>,
+) -> Result<Option<String>, String> {
+    let relative_path = overlay_relative_path(&image_relative_path);
+    let full_path = resolve_vault_path(&vault_path, &relative_path)?;
+    if !full_path.exists() {
+        return Ok(None);
+    }
+
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    let bytes = read_vault_bytes(&full_path, key_opt)?;
+    let content = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+    Ok(Some(content))
+}
+
+#[tauri::command]
+pub fn write_image_overlay(
+    vault_path: String,
+    image_relative_path: String,
+    content: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let relative_path = overlay_relative_path(&image_relative_path);
+    let full_path = resolve_vault_path(&vault_path, &relative_path)?;
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    write_vault_bytes(&full_path, content.as_bytes(), key_opt)
+}
+
+#[tauri::command]
+pub fn delete_image_overlay(
+    vault_path: String,
+    image_relative_path: String,
+) -> Result<(), String> {
+    let relative_path = overlay_relative_path(&image_relative_path);
+    let full_path = resolve_vault_path(&vault_path, &relative_path)?;
+    if full_path.exists() {
+        std::fs::remove_file(full_path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn save_generated_image(
+    vault_path: String,
+    source_relative_path: String,
+    data_url: String,
+    overwrite: bool,
+    suggested_file_name: Option<String>,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let (mime, encoded) = parse_data_url(&data_url)?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|e| format!("Failed to decode generated image data: {e}"))?;
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+
+    let target_path = if overwrite {
+        resolve_vault_path(&vault_path, &source_relative_path)?
+    } else {
+        let source_path = normalize_relative_path(&source_relative_path)?;
+        let source_parent = source_path.parent().unwrap_or_else(|| Path::new(""));
+        let source_stem = source_path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .filter(|stem| !stem.is_empty())
+            .unwrap_or("image");
+        let default_name = format!("{source_stem}-edited.{}", extension_for_mime(mime));
+        let desired_name = suggested_file_name
+            .as_deref()
+            .map(sanitize_file_name)
+            .filter(|name| !name.is_empty())
+            .unwrap_or(default_name);
+        let base_dir = Path::new(&vault_path).join(source_parent);
+        unique_target_path(&base_dir, &desired_name)
+    };
+
+    write_vault_bytes(&target_path, &bytes, key_opt)?;
+
+    let relative = target_path
+        .strip_prefix(&vault_path)
+        .map_err(|e| e.to_string())?
+        .to_string_lossy()
+        .replace('\\', "/");
+
+    Ok(relative)
 }
 
 #[tauri::command]

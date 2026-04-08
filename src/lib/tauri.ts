@@ -45,6 +45,25 @@ export const tauriCommands = {
   readNote: (vaultPath: string, relativePath: string) => invoke<NoteContent>('read_note', { vaultPath, relativePath }),
   readNoteAssetDataUrl: (vaultPath: string, relativePath: string) =>
     invoke<string>('read_note_asset_data_url', { vaultPath, relativePath }),
+  readImageOverlay: (vaultPath: string, imageRelativePath: string) =>
+    invoke<string | null>('read_image_overlay', { vaultPath, imageRelativePath }),
+  writeImageOverlay: (vaultPath: string, imageRelativePath: string, content: string) =>
+    invoke<void>('write_image_overlay', { vaultPath, imageRelativePath, content }),
+  deleteImageOverlay: (vaultPath: string, imageRelativePath: string) =>
+    invoke<void>('delete_image_overlay', { vaultPath, imageRelativePath }),
+  saveGeneratedImage: (
+    vaultPath: string,
+    sourceRelativePath: string,
+    dataUrl: string,
+    overwrite: boolean,
+    suggestedFileName?: string,
+  ) => invoke<string>('save_generated_image', {
+    vaultPath,
+    sourceRelativePath,
+    dataUrl,
+    overwrite,
+    suggestedFileName: suggestedFileName ?? null,
+  }),
   importAssetIntoVault: (vaultPath: string, sourcePath: string, targetFolder?: string) =>
     invoke<string>('import_asset_into_vault', { vaultPath, sourcePath, targetFolder: targetFolder ?? null }),
   writeNote: (vaultPath: string, relativePath: string, content: string, expectedHash?: string) =>
