@@ -11,7 +11,7 @@ export default function PresenceBar() {
         <Tooltip key={peer.userId}>
           <TooltipTrigger>
             <div
-              className="w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+              className="w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 app-fade-scale-in"
               style={{ backgroundColor: peer.userColor }}
             >
               {peer.userName.charAt(0).toUpperCase()}

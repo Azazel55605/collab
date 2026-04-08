@@ -4,6 +4,7 @@ use serde_json::Value;
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum TemplateSource {
+    Builtin,
     Vault,
     App,
 }

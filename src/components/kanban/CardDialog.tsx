@@ -9,9 +9,9 @@ import { cn } from '../../lib/utils';
 import { useKanbanContext } from '../../views/KanbanPage';
 import { useKanbanStore } from '../../store/kanbanStore';
 import { useCollabStore } from '../../store/collabStore';
-import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore, formatDate } from '../../store/uiStore';
+import { useVaultStore } from '../../store/vaultStore';
 import { getCardAttachmentPaths, type KanbanCard, type KanbanComment, type ChecklistItem } from '../../types/kanban';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
@@ -23,6 +23,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../ui/select';
+import type { NoteFile } from '../../types/vault';
 
 // ── Priority config ────────────────────────────────────────────────────────
 
@@ -45,12 +46,32 @@ interface Props {
   onClose: () => void;
 }
 
+function collectVaultFiles(nodes: NoteFile[]): NoteFile[] {
+  const files: NoteFile[] = [];
+  for (const node of nodes) {
+    if (node.isFolder) {
+      if (node.children) files.push(...collectVaultFiles(node.children));
+      continue;
+    }
+    files.push(node);
+  }
+  return files;
+}
+
+function getTabTypeForPath(path: string): 'note' | 'canvas' | 'kanban' | 'image' {
+  const ext = path.split('.').pop()?.toLowerCase() ?? '';
+  if (ext === 'canvas') return 'canvas';
+  if (ext === 'kanban') return 'kanban';
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'].includes(ext)) return 'image';
+  return 'note';
+}
+
 export default function CardDialog({ card: initialCard, columnId, onClose }: Props) {
   const { updateBoard, knownUsers, board } = useKanbanContext();
   const { myUserId, myUserName, myUserColor } = useCollabStore();
-  const { notes }         = useNoteIndexStore();
   const { openTab }       = useEditorStore();
   const { setActiveView, dateFormat } = useUiStore();
+  const { fileTree }      = useVaultStore();
   const { draft: storedDraft, updateDraft: storeUpdateDraft } = useKanbanStore();
 
   // Restore in-progress edits if the user navigated away while this card was open.
@@ -205,7 +226,7 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
     patchDraft({ assignees });
   }
 
-  // ── Linked note ───────────────────────────────────────────────────────────
+  // ── Attachments ───────────────────────────────────────────────────────────
 
   function setAttachmentPaths(paths: string[]) {
     const nextPaths = [...new Set(paths)];
@@ -215,20 +236,23 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
     });
   }
 
-  function addLinkedNote(path: string) {
+  function addAttachment(path: string) {
     setNotePickerOpen(false);
     if (!path) return;
     setAttachmentPaths([...getCardAttachmentPaths(draft), path]);
   }
 
-  function removeLinkedNote(path: string) {
+  function removeAttachment(path: string) {
     setAttachmentPaths(getCardAttachmentPaths(draft).filter((item) => item !== path));
   }
 
-  function openLinkedNote(path: string) {
+  function openAttachment(path: string) {
     const name = path.split('/').pop()?.replace(/\.[^.]+$/, '') ?? path;
-    openTab(path, name);
-    setActiveView('editor');
+    const type = getTabTypeForPath(path);
+    openTab(path, name, type);
+    if (type === 'canvas') setActiveView('canvas');
+    else if (type === 'kanban') setActiveView('kanban');
+    else setActiveView('editor');
     onClose();
   }
 
@@ -302,6 +326,10 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
   const checklistDone  = draft.checklist.filter(i => i.checked).length;
   const checklistTotal = draft.checklist.length;
   const attachmentPaths = getCardAttachmentPaths(draft);
+  const vaultFiles = useMemo(
+    () => collectVaultFiles(fileTree).sort((a, b) => a.relativePath.localeCompare(b.relativePath, undefined, { sensitivity: 'base' })),
+    [fileTree],
+  );
 
   // All unique tags from the board (cards + column defaults), excluding ones already on this card
   const suggestedTags = useMemo(() => {
@@ -439,14 +467,14 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
                         Attached
                       </span>
                       <button
-                        onClick={() => openLinkedNote(path)}
+                        onClick={() => openAttachment(path)}
                         className="flex items-center gap-1 text-xs px-2 py-1 bg-primary/15 hover:bg-primary/25 text-primary rounded transition-colors shrink-0"
                         title="Open file"
                       >
                         <ExternalLink size={11} />
                       </button>
                       <button
-                        onClick={() => removeLinkedNote(path)}
+                        onClick={() => removeAttachment(path)}
                         className="flex items-center gap-1 text-xs px-2 py-1 text-muted-foreground hover:text-foreground rounded transition-colors shrink-0"
                         title="Remove attachment"
                       >
@@ -471,24 +499,24 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
                   </PopoverTrigger>
                   <PopoverContent align="start" className="w-80 p-0">
                     <Command>
-                      <CommandInput placeholder="Search notes…" />
+                      <CommandInput placeholder="Search vault files…" />
                       <CommandList>
-                        <CommandEmpty>No notes found.</CommandEmpty>
+                        <CommandEmpty>No files found.</CommandEmpty>
                         <CommandGroup>
-                          {notes.map(note => (
+                          {vaultFiles.map((file) => (
                             <CommandItem
-                              key={note.relativePath}
-                              value={note.relativePath}
-                              onSelect={() => addLinkedNote(note.relativePath)}
+                              key={file.relativePath}
+                              value={`${file.relativePath} ${file.name}`}
+                              onSelect={() => addAttachment(file.relativePath)}
                             >
-                              <span className="font-medium truncate">{note.title}</span>
-                              {attachmentPaths.includes(note.relativePath) && (
+                              <span className="font-medium truncate">{file.name.replace(/\.[^.]+$/, '')}</span>
+                              {attachmentPaths.includes(file.relativePath) && (
                                 <span className="rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] text-primary/80 shrink-0">
                                   Attached
                                 </span>
                               )}
                               <span className="ml-auto text-[10px] text-muted-foreground/60 font-mono truncate max-w-[120px]">
-                                {note.relativePath}
+                                {file.relativePath}
                               </span>
                             </CommandItem>
                           ))}

@@ -1,13 +1,21 @@
 import { useState } from 'react';
 import { useCollabStore } from '../store/collabStore';
-import { useUiStore } from '../store/uiStore';
+import { ANIMATION_SPEED_OPTIONS, useUiStore, type AnimationSpeed } from '../store/uiStore';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { toast } from 'sonner';
+import { cn } from '../lib/utils';
 
 export default function SettingsPage() {
   const { myUserName, myUserColor, setMyProfile, myUserId } = useCollabStore();
-  const { theme, setTheme } = useUiStore();
+  const {
+    theme,
+    setTheme,
+    animationsEnabled,
+    setAnimationsEnabled,
+    animationSpeed,
+    setAnimationSpeed,
+  } = useUiStore();
   const [name, setName] = useState(myUserName);
 
   const handleSave = () => {
@@ -61,6 +69,55 @@ export default function SettingsPage() {
             >
               Light
             </Button>
+          </div>
+        </section>
+
+        <section className="mb-8">
+          <h2 className="text-lg font-semibold mb-4">Motion</h2>
+          <div className="space-y-4 max-w-md">
+            <button
+              onClick={() => setAnimationsEnabled(!animationsEnabled)}
+              className="w-full flex items-center justify-between rounded-lg border border-border/40 bg-card/40 px-4 py-3 text-left transition-all app-motion-base hover:bg-accent/30"
+            >
+              <div>
+                <div className="text-sm font-medium">Disable animations</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Turns off transitions and animated effects across the app.
+                </div>
+              </div>
+              <span
+                className={cn(
+                  'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors app-motion-base',
+                  !animationsEnabled ? 'bg-primary' : 'bg-muted-foreground/30',
+                )}
+              >
+                <span
+                  className={cn(
+                    'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform app-motion-base',
+                    !animationsEnabled ? 'translate-x-4' : 'translate-x-0',
+                  )}
+                />
+              </span>
+            </button>
+
+            <div>
+              <label className="text-sm font-medium mb-2 block">Animation speed</label>
+              <div className="flex gap-2">
+                {ANIMATION_SPEED_OPTIONS.map((speed) => (
+                  <Button
+                    key={speed}
+                    variant={animationSpeed === speed ? 'default' : 'outline'}
+                    onClick={() => setAnimationSpeed(speed as AnimationSpeed)}
+                    disabled={!animationsEnabled}
+                  >
+                    {speed.charAt(0).toUpperCase() + speed.slice(1)}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                System reduced-motion is respected automatically.
+              </p>
+            </div>
           </div>
         </section>
       </div>

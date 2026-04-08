@@ -47,8 +47,8 @@ export default function VaultPicker() {
 
       <div className="relative w-full max-w-md px-4">
         {/* Logo block */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/15 border border-primary/20 mb-4 glow-primary-sm">
+        <div className="text-center mb-8 app-fade-slide-in">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/15 border border-primary/20 mb-4 glow-primary-sm app-fade-scale-in">
             <AppLogo size={28} className="text-primary" />
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">collab</h1>
@@ -56,12 +56,12 @@ export default function VaultPicker() {
         </div>
 
         {/* Glass card */}
-        <div className="glass rounded-xl p-5 shadow-2xl">
+        <div className="glass rounded-xl p-5 shadow-2xl app-fade-scale-in">
           <div className="flex flex-col gap-2.5">
             <Button
               onClick={handleOpenDialog}
               disabled={isLoading}
-              className="h-11 gap-2 text-sm font-medium bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20 transition-all"
+              className="h-11 gap-2 text-sm font-medium bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20 transition-all app-motion-base"
             >
               <FolderOpen size={16} />
               Open Existing Vault
@@ -70,7 +70,7 @@ export default function VaultPicker() {
               onClick={handleCreateVault}
               variant="outline"
               disabled={isLoading}
-              className="h-11 gap-2 text-sm font-medium border-border/60 bg-white/4 hover:bg-white/8 transition-all"
+              className="h-11 gap-2 text-sm font-medium border-border/60 bg-white/4 hover:bg-white/8 transition-all app-motion-base"
             >
               <Plus size={16} />
               Create New Vault
@@ -94,7 +94,7 @@ export default function VaultPicker() {
                     key={v.id}
                     onClick={() => openVault(v.path)}
                     disabled={isLoading}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border border-transparent hover:border-border/50 hover:bg-white/5 text-left transition-all group"
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border border-transparent hover:border-border/50 hover:bg-white/5 text-left transition-all app-motion-base group"
                   >
                     <div className="w-7 h-7 rounded-md bg-primary/10 border border-primary/15 flex items-center justify-center shrink-0">
                       <div className="w-2 h-2 rounded-sm bg-primary/70" />
@@ -105,7 +105,7 @@ export default function VaultPicker() {
                     </div>
                     <ArrowRight
                       size={13}
-                      className="text-muted-foreground opacity-0 group-hover:opacity-60 group-hover:translate-x-0.5 transition-all shrink-0"
+                      className="text-muted-foreground opacity-0 group-hover:opacity-60 group-hover:translate-x-0.5 transition-all app-motion-base shrink-0"
                     />
                   </button>
                 ))}

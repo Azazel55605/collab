@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { X, FileText, Layout, LayoutDashboard, GitFork, Settings } from 'lucide-react';
+import { X, FileText, Layout, LayoutDashboard, GitFork, Settings, Image as ImageIcon } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
@@ -34,6 +34,7 @@ export default function TabBar() {
     if (type === 'kanban')   return <LayoutDashboard size={11} className="shrink-0" />;
     if (type === 'graph')    return <GitFork size={11} className="shrink-0" />;
     if (type === 'settings') return <Settings size={11} className="shrink-0" />;
+    if (type === 'image')    return <ImageIcon size={11} className="shrink-0" />;
     return <FileText size={11} className="shrink-0" />;
   };
 
@@ -87,7 +88,7 @@ export default function TabBar() {
             onClick={() => handleTabClick(tab.relativePath, tab.type)}
             className={cn(
               'tab-active relative flex items-center gap-1.5 px-3 h-8 text-xs cursor-pointer whitespace-nowrap',
-              'transition-all duration-150 group min-w-0 max-w-[200px] select-none border-r border-border/30',
+              'transition-all duration-150 app-motion-base group min-w-0 max-w-[200px] select-none border-r border-border/30',
               isActive
                 ? 'bg-background text-foreground'
                 : 'bg-muted/20 text-muted-foreground hover:text-foreground/80 hover:bg-muted/30'
@@ -114,7 +115,7 @@ export default function TabBar() {
 
             <button
               onClick={(e) => { e.stopPropagation(); closeTab(tab.relativePath); }}
-              className="ml-auto shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-accent transition-all"
+              className="ml-auto shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-accent transition-all app-motion-fast"
             >
               <X size={10} />
             </button>

@@ -40,6 +40,13 @@
   --sidebar-border: oklch(0.88 0 0);
   --sidebar-accent: oklch(0.92 0.02 293);
   --sidebar-accent-foreground: oklch(0.54 0.23 293);
+  --motion-scale: 1;
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 260ms;
+  --motion-slower: 360ms;
+  --motion-ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease-emphasized: cubic-bezier(0.34, 1.2, 0.64, 1);
 }
 
 .dark {
@@ -151,6 +158,88 @@
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+/* ─── Shared motion system ──────────────────────────────────────────────── */
+
+.app-motion-fast {
+  transition-duration: var(--motion-fast) !important;
+  transition-timing-function: var(--motion-ease-standard) !important;
+}
+
+.app-motion-base {
+  transition-duration: var(--motion-base) !important;
+  transition-timing-function: var(--motion-ease-standard) !important;
+}
+
+.app-motion-slow {
+  transition-duration: var(--motion-slow) !important;
+  transition-timing-function: var(--motion-ease-standard) !important;
+}
+
+.app-fade-slide-in {
+  animation: app-fade-slide-in var(--motion-slow) var(--motion-ease-standard) both;
+}
+
+.app-fade-scale-in {
+  animation: app-fade-scale-in var(--motion-base) var(--motion-ease-standard) both;
+}
+
+.app-pulse-soft {
+  animation: app-pulse-soft calc(var(--motion-slower) * 3) ease-in-out infinite;
+}
+
+.app-spin-soft {
+  animation: app-spin-soft calc(var(--motion-slower) * 2.5) linear infinite;
+}
+
+@keyframes app-fade-slide-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes app-fade-scale-in {
+  from { opacity: 0; transform: scale(0.985) translateY(4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes app-pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@keyframes app-spin-soft {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+[data-motion='off'] {
+  scroll-behavior: auto !important;
+}
+
+[data-motion='off'] *,
+[data-motion='off'] *::before,
+[data-motion='off'] *::after {
+  animation-duration: 1ms !important;
+  animation-delay: 0ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+  transition-delay: 0ms !important;
+  scroll-behavior: auto !important;
+}
+
+[data-motion='off'] .app-fade-slide-in,
+[data-motion='off'] .app-fade-scale-in,
+[data-motion='off'] .grid-cell-enter,
+[data-motion='off'] .split-zones-enter {
+  animation: none !important;
+}
+
+[data-motion='off'] [data-slot='dialog-overlay'],
+[data-motion='off'] [data-slot='dialog-content'],
+[data-motion='off'] [data-slot='sheet-overlay'],
+[data-motion='off'] [data-slot='sheet-content'] {
+  animation: none !important;
 }
 
 /* ─── Fallback when backdrop-filter is genuinely unsupported ─────────────── */
@@ -788,7 +877,7 @@
 }
 
 .grid-cell-enter {
-  animation: grid-cell-in 200ms cubic-bezier(0.34, 1.2, 0.64, 1) both;
+  animation: grid-cell-in var(--motion-base) var(--motion-ease-emphasized) both;
 }
 
 /* Split drop zone entrance */
@@ -798,5 +887,5 @@
 }
 
 .split-zones-enter {
-  animation: zone-fade-in 150ms ease both;
+  animation: zone-fade-in var(--motion-fast) var(--motion-ease-standard) both;
 }

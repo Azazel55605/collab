@@ -80,7 +80,7 @@ export default function GridLayoutPicker({ currentLayout, containerWidth, onChan
                   onClick={() => !isDisabled && onChange(id)}
                   disabled={isDisabled}
                   className={cn(
-                    'w-9 h-7 flex items-center justify-center rounded transition-all',
+                    'w-9 h-7 flex items-center justify-center rounded transition-all app-motion-base',
                     isActive
                       ? 'text-primary bg-primary/15'
                       : isDisabled

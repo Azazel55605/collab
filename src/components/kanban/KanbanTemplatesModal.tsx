@@ -58,6 +58,7 @@ interface Props {
 }
 
 function sourceLabel(source: TemplateSource): string {
+  if (source === 'builtin') return 'Built-in';
   return source === 'vault' ? 'Vault' : 'App';
 }
 
@@ -87,7 +88,14 @@ function groupTemplates(templates: KanbanTemplate[]): VisibleTemplate[] {
   return [...groups.values()]
     .map((entry) => ({
       ...entry,
-      variants: [...entry.variants].sort((a, b) => a.source.localeCompare(b.source)),
+      variants: [...entry.variants].sort((a, b) => {
+        const rank = (source: TemplateSource) => {
+          if (source === 'builtin') return 0;
+          if (source === 'vault') return 1;
+          return 2;
+        };
+        return rank(a.source) - rank(b.source);
+      }),
     }))
     .sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) ||
@@ -100,7 +108,11 @@ function hasSource(entry: VisibleTemplate, source: TemplateSource): boolean {
 }
 
 function getPrimaryVariant(entry: VisibleTemplate): KanbanTemplate {
-  return entry.variants.find((variant) => variant.source === 'vault') ?? entry.variants[0];
+  return (
+    entry.variants.find((variant) => variant.source === 'vault') ??
+    entry.variants.find((variant) => variant.source === 'app') ??
+    entry.variants[0]
+  );
 }
 
 function hasDifferentSourceCopy(
@@ -116,6 +128,7 @@ function hasDifferentSourceCopy(
 }
 
 function formatTimestamp(timestamp: number): string {
+  if (timestamp <= 0) return 'Built in';
   try {
     return new Date(timestamp).toLocaleString();
   } catch {
@@ -230,8 +243,7 @@ export default function KanbanTemplatesModal({
     }
   }
 
-  async function handleCopyTemplate(template: KanbanTemplate) {
-    const targetSource: TemplateSource = template.source === 'vault' ? 'app' : 'vault';
+  async function handleCopyTemplate(template: KanbanTemplate, targetSource: Extract<TemplateSource, 'vault' | 'app'>) {
     try {
       await tauriCommands.copyKanbanTemplate(vaultPath, template.source, targetSource, template.name);
       await loadTemplates();
@@ -286,7 +298,7 @@ export default function KanbanTemplatesModal({
               <div className="min-w-0">
                 <DialogTitle>Kanban Templates</DialogTitle>
                 <DialogDescription className="mt-1 text-xs">
-                  Manage vault and app-wide board templates, then create new boards from them.
+                  Built-in templates are always available. Vault and app templates can be added alongside them.
                 </DialogDescription>
               </div>
             </div>
@@ -372,7 +384,7 @@ export default function KanbanTemplatesModal({
                     Saved Templates
                   </div>
                   <div className="text-[11px] text-muted-foreground/70 mt-1">
-                    Identical vault and app templates collapse into one row.
+                    Identical built-in, vault, and app templates collapse into one row.
                   </div>
                 </div>
                 <Button variant="ghost" size="sm" onClick={() => void loadTemplates()} disabled={loading}>
@@ -394,15 +406,17 @@ export default function KanbanTemplatesModal({
                 ) : (
                   <div className="space-y-3">
                     {visibleTemplates.map((entry) => {
+                      const hasBuiltIn = hasSource(entry, 'builtin');
                       const primary = getPrimaryVariant(entry);
                       const canCopyToVault =
-                        entry.variants.some((variant) => variant.source === 'app') &&
+                        entry.variants.some((variant) => variant.source === 'app' || variant.source === 'builtin') &&
                         !hasSource(entry, 'vault') &&
                         !hasDifferentSourceCopy(templates, primary, 'vault');
                       const canCopyToApp =
-                        entry.variants.some((variant) => variant.source === 'vault') &&
+                        entry.variants.some((variant) => variant.source === 'vault' || variant.source === 'builtin') &&
                         !hasSource(entry, 'app') &&
                         !hasDifferentSourceCopy(templates, primary, 'app');
+                      const deletableVariants = entry.variants.filter((variant) => variant.source !== 'builtin');
 
                       return (
                         <div
@@ -430,7 +444,9 @@ export default function KanbanTemplatesModal({
                               </div>
 
                               <div className="mt-1 text-xs text-muted-foreground/70">
-                                Updated {formatTimestamp(primary.updatedAt)}
+                                {hasBuiltIn && entry.variants.length === 1
+                                  ? 'Included with the app'
+                                  : `Updated ${formatTimestamp(primary.updatedAt)}`}
                               </div>
 
                               <div className="mt-2 flex flex-wrap gap-2">
@@ -470,19 +486,19 @@ export default function KanbanTemplatesModal({
                                 </DropdownMenuItem>
                                 {(canCopyToVault || canCopyToApp) && <DropdownMenuSeparator />}
                                 {canCopyToVault && (
-                                  <DropdownMenuItem onSelect={() => void handleCopyTemplate(primary)}>
+                                  <DropdownMenuItem onSelect={() => void handleCopyTemplate(primary, 'vault')}>
                                     <ArrowLeftRight />
                                     Copy to Vault Templates
                                   </DropdownMenuItem>
                                 )}
                                 {canCopyToApp && (
-                                  <DropdownMenuItem onSelect={() => void handleCopyTemplate(primary)}>
+                                  <DropdownMenuItem onSelect={() => void handleCopyTemplate(primary, 'app')}>
                                     <ArrowLeftRight />
                                     Copy to App Templates
                                   </DropdownMenuItem>
                                 )}
-                                <DropdownMenuSeparator />
-                                {entry.variants.map((variant) => (
+                                {deletableVariants.length > 0 && <DropdownMenuSeparator />}
+                                {deletableVariants.map((variant) => (
                                   <DropdownMenuItem
                                     key={`${entry.key}-delete-${variant.source}`}
                                     variant="destructive"

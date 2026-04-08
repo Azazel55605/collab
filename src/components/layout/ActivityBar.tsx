@@ -38,6 +38,9 @@ export default function ActivityBar() {
       setActiveView('editor');
       if (!isSidebarOpen) toggleSidebar();
       else if (activeView === 'editor') toggleSidebar();
+    } else if (view === 'graph') {
+      openTab('__graph__', 'Graph', 'graph');
+      setActiveView('graph');
     } else {
       setActiveView(view);
     }
@@ -75,7 +78,7 @@ export default function ActivityBar() {
         <TooltipTrigger asChild>
           <button
             onClick={toggleSidebar}
-            className="w-9 h-9 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-all duration-150"
+            className="w-9 h-9 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-all duration-150 app-motion-base"
           >
             {isSidebarOpen ? <PanelLeftClose size={17} /> : <PanelLeft size={17} />}
           </button>
@@ -96,7 +99,7 @@ export default function ActivityBar() {
                 onClick={() => handleNavClick(view)}
                 onMouseDown={(e) => handleNavMiddleClick(e, view)}
                 className={cn(
-                  'relative w-9 h-9 flex items-center justify-center rounded-md transition-all duration-150',
+                  'relative w-9 h-9 flex items-center justify-center rounded-md transition-all duration-150 app-motion-base',
                   isActive
                     ? 'activity-item-active text-primary bg-primary/10'
                     : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'
@@ -124,7 +127,7 @@ export default function ActivityBar() {
               else if (sidebarPanel === 'collab') toggleSidebar();
             }}
             className={cn(
-              'relative w-9 h-9 flex items-center justify-center rounded-md transition-all duration-150',
+              'relative w-9 h-9 flex items-center justify-center rounded-md transition-all duration-150 app-motion-base',
               sidebarPanel === 'collab' && isSidebarOpen
                 ? 'activity-item-active text-primary bg-primary/10'
                 : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'
@@ -149,7 +152,7 @@ export default function ActivityBar() {
           <button
             onClick={() => isVaultManagerOpen ? closeVaultManager() : openVaultManager()}
             className={cn(
-              'relative w-9 h-9 flex items-center justify-center rounded-md transition-all duration-150',
+              'relative w-9 h-9 flex items-center justify-center rounded-md transition-all duration-150 app-motion-base',
               isVaultManagerOpen
                 ? 'activity-item-active text-primary bg-primary/10'
                 : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'
@@ -170,7 +173,7 @@ export default function ActivityBar() {
             onClick={() => isSettingsOpen ? closeSettings() : openSettings()}
             onMouseDown={handleSettingsMiddleClick}
             className={cn(
-              'relative w-9 h-9 flex items-center justify-center rounded-md transition-all duration-150',
+              'relative w-9 h-9 flex items-center justify-center rounded-md transition-all duration-150 app-motion-base',
               isSettingsOpen
                 ? 'activity-item-active text-primary bg-primary/10'
                 : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'

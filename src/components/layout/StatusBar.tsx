@@ -28,7 +28,7 @@ export default function StatusBar() {
         {vault && (
           <button
             onClick={openVaultManager}
-            className="text-primary/80 font-medium shrink-0 flex items-center gap-1 hover:text-primary transition-colors"
+            className="text-primary/80 font-medium shrink-0 flex items-center gap-1 hover:text-primary transition-colors app-motion-fast"
             title="Manage vaults"
           >
             <BookOpen size={10} />
@@ -48,16 +48,16 @@ export default function StatusBar() {
         <button
           onClick={() => openSettings()}
           title="Open Settings → About"
-          className="flex items-center gap-1.5 flex-1 max-w-[200px] mx-3 hover:opacity-80 transition-opacity"
+          className="flex items-center gap-1.5 flex-1 max-w-[200px] mx-3 hover:opacity-80 transition-opacity app-motion-fast"
         >
           {isInstalling ? (
             <>
-              <RefreshCw size={9} className="shrink-0 text-primary animate-spin" />
+              <RefreshCw size={9} className="shrink-0 text-primary app-spin-soft" />
               <span className="text-[10px] text-primary/80 shrink-0">Installing…</span>
             </>
           ) : (
             <>
-              <Download size={9} className="shrink-0 text-primary/70 animate-pulse" />
+              <Download size={9} className="shrink-0 text-primary/70 app-pulse-soft" />
               <Progress value={downloadProgress ?? 0} className="flex-1 h-1" />
               <span className="tabular-nums text-muted-foreground/70 shrink-0">
                 {downloadProgress ?? 0}%
@@ -73,9 +73,9 @@ export default function StatusBar() {
           <button
             onClick={() => openSettings()}
             title="Update available — open Settings → About"
-            className="flex items-center gap-1 text-primary/80 hover:text-primary transition-colors"
+            className="flex items-center gap-1 text-primary/80 hover:text-primary transition-colors app-motion-fast"
           >
-            <div className={cn('w-1.5 h-1.5 rounded-full bg-primary animate-pulse')} />
+            <div className={cn('w-1.5 h-1.5 rounded-full bg-primary app-pulse-soft')} />
             <span className="text-[10px]">Update</span>
           </button>
         )}

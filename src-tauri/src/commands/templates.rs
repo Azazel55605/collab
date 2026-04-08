@@ -66,6 +66,9 @@ fn resolve_vault_path(vault_path: &str, relative_path: &str) -> Result<PathBuf, 
 
 fn scope_templates_dir(vault_path: Option<&str>, source: &TemplateSource) -> Result<PathBuf, String> {
     let dir = match source {
+        TemplateSource::Builtin => {
+            return Err("Built-in templates are bundled with the application".into());
+        }
         TemplateSource::Vault => {
             let vault_path = vault_path.ok_or("Vault path is required for vault templates")?;
             Path::new(vault_path).join(".collab").join("templates").join("kanban")
@@ -137,7 +140,7 @@ fn load_template_from_path(
     let raw = std::fs::read(path).map_err(|e| e.to_string())?;
     let bytes = match source {
         TemplateSource::Vault => maybe_decrypt_vault_bytes(raw, state)?,
-        TemplateSource::App => raw,
+        TemplateSource::App | TemplateSource::Builtin => raw,
     };
     let stored: StoredKanbanTemplate = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
     let hash = board_hash(&stored.board)?;
@@ -170,6 +173,9 @@ fn write_template_to_scope(
     let bytes = match source {
         TemplateSource::Vault => maybe_encrypt_vault_bytes(&serialized, state)?,
         TemplateSource::App => serialized,
+        TemplateSource::Builtin => {
+            return Err("Built-in templates cannot be modified".into());
+        }
     };
     std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
     let hash = board_hash(&board)?;
@@ -189,6 +195,9 @@ fn read_template_by_name(
     name: &str,
     state: &State<AppState>,
 ) -> Result<KanbanTemplate, String> {
+    if source == &TemplateSource::Builtin {
+        return builtin_template_by_name(name);
+    }
     let path = template_path(vault_path, source, name)?;
     if !path.exists() {
         return Err(format!("Template '{}' not found", name));
@@ -198,6 +207,129 @@ fn read_template_by_name(
 
 fn default_blank_board() -> Value {
     json!({ "columns": [] })
+}
+
+fn board_column(
+    id: &str,
+    title: &str,
+    color: &str,
+    cards: Vec<Value>,
+    options: Value,
+) -> Value {
+    let mut column = json!({
+        "id": id,
+        "title": title,
+        "color": color,
+        "cards": cards,
+    });
+
+    if let Some(map) = column.as_object_mut() {
+        if let Some(extra) = options.as_object() {
+            for (key, value) in extra {
+                map.insert(key.clone(), value.clone());
+            }
+        }
+    }
+
+    column
+}
+
+fn built_in_templates() -> Vec<KanbanTemplate> {
+    let templates = vec![
+        (
+            "Content Pipeline",
+            json!({
+                "columns": [
+                    board_column("content-ideas", "Ideas", "#64748b", vec![], json!({})),
+                    board_column("content-drafting", "Drafting", "#2563eb", vec![], json!({ "defaultTags": ["draft"] })),
+                    board_column("content-editing", "Editing", "#7c3aed", vec![], json!({ "defaultTags": ["edit"] })),
+                    board_column("content-scheduled", "Scheduled", "#d97706", vec![], json!({ "hideFromTimeline": false })),
+                    board_column("content-published", "Published", "#16a34a", vec![], json!({ "autoComplete": true, "isDoneDestination": true, "defaultTags": ["published"] })),
+                ]
+            }),
+        ),
+        (
+            "Issue Board",
+            json!({
+                "columns": [
+                    board_column("issue-backlog", "Backlog", "#64748b", vec![], json!({ "defaultTags": ["issue"] })),
+                    board_column("issue-ready", "Ready", "#2563eb", vec![], json!({ "defaultTags": ["ready"] })),
+                    board_column("issue-progress", "In Progress", "#f59e0b", vec![], json!({ "sort": { "field": "priority", "dir": "desc" } })),
+                    board_column("issue-blocked", "Blocked", "#dc2626", vec![], json!({ "defaultTags": ["blocked"] })),
+                    board_column("issue-done", "Done", "#16a34a", vec![], json!({ "autoComplete": true, "isDoneDestination": true })),
+                ]
+            }),
+        ),
+        (
+            "Personal Planner",
+            json!({
+                "columns": [
+                    board_column("planner-inbox", "Inbox", "#64748b", vec![], json!({})),
+                    board_column("planner-today", "Today", "#2563eb", vec![], json!({ "defaultTags": ["today"], "sort": { "field": "dueDate", "dir": "asc" } })),
+                    board_column("planner-week", "This Week", "#7c3aed", vec![], json!({ "defaultTags": ["this-week"], "sort": { "field": "startDate", "dir": "asc" } })),
+                    board_column("planner-waiting", "Waiting", "#d97706", vec![], json!({ "defaultTags": ["waiting"] })),
+                    board_column("planner-done", "Done", "#16a34a", vec![], json!({ "autoComplete": true, "isDoneDestination": true })),
+                ]
+            }),
+        ),
+        (
+            "Project Roadmap",
+            json!({
+                "columns": [
+                    board_column("roadmap-ideas", "Ideas", "#64748b", vec![], json!({})),
+                    board_column("roadmap-planned", "Planned", "#2563eb", vec![], json!({ "sort": { "field": "startDate", "dir": "asc" } })),
+                    board_column("roadmap-progress", "In Progress", "#f59e0b", vec![], json!({ "sort": { "field": "priority", "dir": "desc" } })),
+                    board_column("roadmap-blocked", "Blocked", "#dc2626", vec![], json!({ "defaultTags": ["blocked"] })),
+                    board_column("roadmap-done", "Done", "#16a34a", vec![], json!({ "autoComplete": true, "isDoneDestination": true })),
+                ]
+            }),
+        ),
+        (
+            "Research Board",
+            json!({
+                "columns": [
+                    board_column("research-questions", "Questions", "#64748b", vec![], json!({ "defaultTags": ["question"] })),
+                    board_column("research-reading", "Reading", "#2563eb", vec![], json!({ "defaultTags": ["source"] })),
+                    board_column("research-notes", "Notes", "#7c3aed", vec![], json!({ "defaultTags": ["note"] })),
+                    board_column("research-insights", "Insights", "#d97706", vec![], json!({ "defaultTags": ["insight"] })),
+                    board_column("research-next", "Next Steps", "#16a34a", vec![], json!({ "defaultTags": ["next-step"] })),
+                ]
+            }),
+        ),
+        (
+            "Todo List",
+            json!({
+                "columns": [
+                    board_column("todo-up-next", "Up Next", "#64748b", vec![], json!({})),
+                    board_column("todo-doing", "Doing", "#2563eb", vec![], json!({ "sort": { "field": "priority", "dir": "desc" } })),
+                    board_column("todo-waiting", "Waiting", "#d97706", vec![], json!({ "defaultTags": ["waiting"] })),
+                    board_column("todo-done", "Done", "#16a34a", vec![], json!({ "autoComplete": true, "isDoneDestination": true })),
+                ]
+            }),
+        ),
+    ];
+
+    templates
+        .into_iter()
+        .map(|(name, board)| {
+            let hash = board_hash(&board).unwrap_or_default();
+            KanbanTemplate {
+                kind: "kanban".into(),
+                name: name.into(),
+                source: TemplateSource::Builtin,
+                hash,
+                updated_at: 0,
+                board,
+            }
+        })
+        .collect()
+}
+
+fn builtin_template_by_name(name: &str) -> Result<KanbanTemplate, String> {
+    built_in_templates()
+        .into_iter()
+        .find(|template| template.name == name)
+        .ok_or_else(|| format!("Template '{}' not found", name))
 }
 
 fn parse_template_file(path: &str) -> Result<(String, Value), String> {
@@ -228,7 +360,7 @@ pub fn list_kanban_templates(
     vault_path: Option<String>,
     state: State<AppState>,
 ) -> Result<Vec<KanbanTemplate>, String> {
-    let mut out = Vec::new();
+    let mut out = built_in_templates();
 
     for source in [TemplateSource::Vault, TemplateSource::App] {
         let dir = match scope_templates_dir(vault_path.as_deref(), &source) {
@@ -269,6 +401,9 @@ pub fn save_kanban_template(
     board: Value,
     state: State<AppState>,
 ) -> Result<KanbanTemplate, String> {
+    if source == TemplateSource::Builtin {
+        return Err("Built-in templates cannot be modified".into());
+    }
     write_template_to_scope(vault_path.as_deref(), &source, &template_name, board, &state)
 }
 
@@ -278,6 +413,9 @@ pub fn delete_kanban_template(
     source: TemplateSource,
     template_name: String,
 ) -> Result<(), String> {
+    if source == TemplateSource::Builtin {
+        return Err("Built-in templates cannot be deleted".into());
+    }
     let path = template_path(vault_path.as_deref(), &source, &template_name)?;
     if !path.exists() {
         return Ok(());
@@ -293,6 +431,9 @@ pub fn copy_kanban_template(
     template_name: String,
     state: State<AppState>,
 ) -> Result<KanbanTemplate, String> {
+    if to_source == TemplateSource::Builtin {
+        return Err("Built-in templates cannot be overwritten".into());
+    }
     let template = read_template_by_name(vault_path.as_deref(), &from_source, &template_name, &state)?;
     write_template_to_scope(
         vault_path.as_deref(),
@@ -310,6 +451,9 @@ pub fn import_kanban_template_from_file(
     file_path: String,
     state: State<AppState>,
 ) -> Result<KanbanTemplate, String> {
+    if target_source == TemplateSource::Builtin {
+        return Err("Cannot import into built-in templates".into());
+    }
     let (name, board) = parse_template_file(&file_path)?;
     write_template_to_scope(vault_path.as_deref(), &target_source, &name, board, &state)
 }
@@ -389,6 +533,9 @@ pub fn create_blank_kanban_template(
     template_name: String,
     state: State<AppState>,
 ) -> Result<KanbanTemplate, String> {
+    if source == TemplateSource::Builtin {
+        return Err("Built-in templates cannot be modified".into());
+    }
     write_template_to_scope(
         vault_path.as_deref(),
         &source,

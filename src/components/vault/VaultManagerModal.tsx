@@ -5,7 +5,7 @@ import {
   Check, X, ChevronRight, Clock, ShieldCheck, Lock, LockOpen, Eye, EyeOff,
   Crown, Shield, UserPlus,
 } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import {
@@ -77,7 +77,7 @@ function CreateVaultForm({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3">
+    <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3 app-fade-slide-in">
       <p className="text-sm font-medium text-foreground">New Vault</p>
       <Input
         ref={inputRef}
@@ -91,7 +91,7 @@ function CreateVaultForm({ onDone }: { onDone: () => void }) {
         type="button"
         variant="outline"
         onClick={pickFolder}
-        className="w-full justify-start gap-2 h-9 bg-background/40 hover:bg-accent/60 text-sm font-normal"
+        className="w-full justify-start gap-2 h-9 bg-background/40 hover:bg-accent/60 text-sm font-normal app-motion-base"
       >
         <FolderOpen size={13} className="text-muted-foreground shrink-0" />
         <span className={cn('truncate', path ? 'text-foreground' : 'text-muted-foreground')}>
@@ -137,7 +137,7 @@ function VaultRow({ meta, isCurrent, onOpen, onRemove, onExport, onRenameComplet
   return (
     <div
       className={cn(
-        'group flex items-center gap-3 px-3 py-3 rounded-lg border transition-all',
+        'group flex max-w-[min(100%,42rem)] items-center gap-3 px-3 py-3 rounded-lg border transition-all app-motion-base',
         isCurrent
           ? 'border-primary/30 bg-primary/6'
           : 'border-transparent hover:border-border/50 hover:bg-accent/30',
@@ -175,8 +175,8 @@ function VaultRow({ meta, isCurrent, onOpen, onRemove, onExport, onRenameComplet
             )}
           </div>
         )}
-        <div className="text-[11px] text-muted-foreground truncate mt-0.5 flex items-center gap-1.5">
-          <span className="truncate opacity-70">{meta.path}</span>
+        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="min-w-0 flex-1 truncate opacity-70">{meta.path}</span>
           <span className="shrink-0 opacity-50">·</span>
           <span className="shrink-0 flex items-center gap-1">
             <Clock size={9} />
@@ -186,12 +186,12 @@ function VaultRow({ meta, isCurrent, onOpen, onRemove, onExport, onRenameComplet
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity app-motion-fast shrink-0">
         {!isCurrent && (
           <button
             onClick={onOpen}
             title="Open vault"
-            className="h-6 px-2 rounded text-[11px] font-medium text-primary hover:bg-primary/10 transition-colors flex items-center gap-1"
+            className="h-6 px-2 rounded text-[11px] font-medium text-primary hover:bg-primary/10 transition-colors app-motion-fast flex items-center gap-1"
           >
             Open <ChevronRight size={10} />
           </button>
@@ -199,21 +199,21 @@ function VaultRow({ meta, isCurrent, onOpen, onRemove, onExport, onRenameComplet
         <button
           onClick={() => setRenaming(true)}
           title="Rename"
-          className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
         >
           <Pencil size={12} />
         </button>
         <button
           onClick={onExport}
           title="Export as ZIP"
-          className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
         >
           <Download size={12} />
         </button>
         <button
           onClick={onRemove}
           title="Remove from list"
-          className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors app-motion-fast"
         >
           <Trash2 size={12} />
         </button>
@@ -224,8 +224,14 @@ function VaultRow({ meta, isCurrent, onOpen, onRemove, onExport, onRenameComplet
 
 // ─── Vaults Tab ───────────────────────────────────────────────────────────────
 
-function VaultsTab({ onClose }: { onClose: () => void }) {
-  const { vault, recentVaults, openVault, removeRecentVault, loadRecentVaults } = useVaultStore();
+function VaultsTab({
+  onClose,
+  onRequestRemove,
+}: {
+  onClose: () => void;
+  onRequestRemove: (meta: VaultMeta) => void;
+}) {
+  const { vault, recentVaults, openVault, loadRecentVaults } = useVaultStore();
   const [creating, setCreating] = useState(false);
   const [vaults, setVaults] = useState<VaultMeta[]>(recentVaults);
 
@@ -268,14 +274,6 @@ function VaultsTab({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const handleRemove = async (path: string) => {
-    try {
-      await removeRecentVault(path);
-    } catch (e) {
-      toast.error('Failed to remove: ' + e);
-    }
-  };
-
   const handleRename = async (meta: VaultMeta, newName: string) => {
     try {
       await tauriCommands.renameVault(meta.path, newName);
@@ -313,7 +311,7 @@ function VaultsTab({ onClose }: { onClose: () => void }) {
       {creating && <CreateVaultForm onDone={() => setCreating(false)} />}
 
       {/* Vault list */}
-      <div className="flex-1 overflow-y-auto space-y-1 min-h-0 pr-1">
+      <div className="flex-1 overflow-y-auto space-y-2 min-h-0 pr-3">
         {vaults.length === 0 && !creating && (
           <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
             <Vault size={32} className="opacity-20" />
@@ -326,7 +324,7 @@ function VaultsTab({ onClose }: { onClose: () => void }) {
             meta={meta}
             isCurrent={vault?.path === meta.path}
             onOpen={() => handleOpen(meta.path)}
-            onRemove={() => handleRemove(meta.path)}
+            onRemove={() => onRequestRemove(meta)}
             onExport={() => handleExport(meta)}
             onRenameComplete={(newName) => handleRename(meta, newName)}
           />
@@ -774,9 +772,50 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 
 export default function VaultManagerModal() {
   const { isVaultManagerOpen, closeVaultManager } = useUiStore();
+  const { vault, closeVault, removeRecentVault } = useVaultStore();
   const [tab, setTab] = useState<Tab>('vaults');
+  const [removeTarget, setRemoveTarget] = useState<VaultMeta | null>(null);
+
+  const confirmRemoveVault = async () => {
+    if (!removeTarget) return;
+    const isCurrent = vault?.path === removeTarget.path;
+    try {
+      if (isCurrent) {
+        closeVault();
+      }
+      await removeRecentVault(removeTarget.path);
+      toast.success(isCurrent ? `Closed and removed "${removeTarget.name}" from recents` : `Removed "${removeTarget.name}" from recents`);
+    } catch (error) {
+      toast.error(`Failed to remove vault: ${error}`);
+    } finally {
+      setRemoveTarget(null);
+    }
+  };
 
   return (
+    <>
+    <Dialog
+      open={!!removeTarget}
+      onOpenChange={(open) => { if (!open) setRemoveTarget(null); }}
+    >
+      <DialogContent showCloseButton={false} className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Remove vault from recents?</DialogTitle>
+          <DialogDescription>
+            {removeTarget && vault?.path === removeTarget.path
+              ? `"${removeTarget.name}" is currently open. Removing it from recents will also close the active vault.`
+              : `This removes "${removeTarget?.name ?? ''}" from the recent vaults list.`}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
+          <Button variant="outline" onClick={() => setRemoveTarget(null)}>Cancel</Button>
+          <Button variant="destructive" onClick={() => void confirmRemoveVault()}>
+            Remove
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
     <Dialog open={isVaultManagerOpen} onOpenChange={(open) => !open && closeVaultManager()}>
       <DialogContent className="sm:max-w-3xl w-full p-0 overflow-hidden glass-strong border-border/40 shadow-2xl shadow-black/60 gap-0">
         <DialogHeader className="px-5 pt-5 pb-0">
@@ -808,12 +847,13 @@ export default function VaultManagerModal() {
 
           {/* Tab content */}
           <div className="flex-1 min-w-0 overflow-y-auto p-5 flex flex-col">
-            {tab === 'vaults' && <VaultsTab onClose={closeVaultManager} />}
+            {tab === 'vaults' && <VaultsTab onClose={closeVaultManager} onRequestRemove={setRemoveTarget} />}
             {tab === 'permissions' && <PermissionsTab />}
             {tab === 'encryption' && <EncryptionTab />}
           </div>
         </div>
       </DialogContent>
     </Dialog>
+    </>
   );
 }

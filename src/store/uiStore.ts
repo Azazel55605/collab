@@ -8,6 +8,7 @@ export type AccentColor   = 'violet' | 'blue' | 'emerald' | 'rose' | 'orange' | 
 export type EditorFont    = 'geist' | 'inter' | 'serif' | 'mono';
 export type DateFormat    = 'MMM_D_YYYY' | 'D_MMM_YYYY' | 'YYYY_MM_DD' | 'MM_DD_YYYY' | 'DD_MM_YYYY';
 export type WeekStart     = 0 | 1; // 0 = Sunday, 1 = Monday
+export type AnimationSpeed = 'slow' | 'normal' | 'fast';
 
 /** Map accent name → oklch(L C H) string (used for --primary in dark/light) */
 export const ACCENT_COLORS: Record<AccentColor, { label: string; oklch: string; hex: string }> = {
@@ -28,6 +29,7 @@ export const EDITOR_FONTS: Record<EditorFont, { label: string; css: string }> = 
 
 export const SCALE_OPTIONS = [75, 90, 100, 110, 125, 150, 175, 200] as const;
 export const FONT_SIZE_OPTIONS = [12, 13, 14, 15, 16] as const;
+export const ANIMATION_SPEED_OPTIONS: AnimationSpeed[] = ['slow', 'normal', 'fast'];
 
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const persistedUiStorage = createJSONStorage(() => {
@@ -94,6 +96,8 @@ interface UiState {
 
   // Behavior
   confirmDelete: boolean;
+  animationsEnabled: boolean;
+  animationSpeed: AnimationSpeed;
 
   // Actions
   setActiveView:    (view: ActiveView) => void;
@@ -113,6 +117,8 @@ interface UiState {
   setDateFormat:    (fmt: DateFormat) => void;
   setWeekStart:     (day: WeekStart) => void;
   setConfirmDelete: (v: boolean) => void;
+  setAnimationsEnabled: (v: boolean) => void;
+  setAnimationSpeed:    (speed: AnimationSpeed) => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -135,6 +141,8 @@ export const useUiStore = create<UiState>()(
       weekStart:  1,
 
       confirmDelete: true,
+      animationsEnabled: true,
+      animationSpeed: 'normal',
 
       setActiveView:   (activeView)   => set({ activeView }),
       setSidebarPanel: (sidebarPanel) => set({ sidebarPanel }),
@@ -153,6 +161,8 @@ export const useUiStore = create<UiState>()(
       setDateFormat:    (dateFormat)    => set({ dateFormat }),
       setWeekStart:     (weekStart)     => set({ weekStart }),
       setConfirmDelete: (confirmDelete) => set({ confirmDelete }),
+      setAnimationsEnabled: (animationsEnabled) => set({ animationsEnabled }),
+      setAnimationSpeed:    (animationSpeed)    => set({ animationSpeed }),
     }),
     {
       name: 'ui-storage',
@@ -169,6 +179,8 @@ export const useUiStore = create<UiState>()(
         dateFormat:    s.dateFormat,
         weekStart:     s.weekStart,
         confirmDelete: s.confirmDelete,
+        animationsEnabled: s.animationsEnabled,
+        animationSpeed:    s.animationSpeed,
       }),
     }
   )

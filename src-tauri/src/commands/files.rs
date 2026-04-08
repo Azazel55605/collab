@@ -30,7 +30,10 @@ fn system_time_to_ms(t: SystemTime) -> u64 {
 }
 
 fn is_allowed_extension(ext: &str) -> bool {
-    matches!(ext, "md" | "canvas" | "kanban")
+    matches!(
+        ext,
+        "md" | "canvas" | "kanban" | "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico" | "avif"
+    )
 }
 
 fn normalize_relative_path(relative_path: &str) -> Result<PathBuf, String> {
@@ -522,6 +525,10 @@ pub fn create_note(
 
 #[tauri::command]
 pub fn delete_note(vault_path: String, relative_path: String) -> Result<(), String> {
+    let normalized = normalize_relative_path(&relative_path)?;
+    if normalized == PathBuf::from("Pictures") {
+        return Err("The Pictures folder is managed by the app and cannot be deleted".into());
+    }
     let full_path = resolve_vault_path(&vault_path, &relative_path)?;
     if full_path.is_dir() {
         std::fs::remove_dir_all(&full_path).map_err(|e| e.to_string())

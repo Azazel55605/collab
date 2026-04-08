@@ -40,7 +40,7 @@ export default function WorkspaceBar() {
             onDoubleClick={() => startRename(ws.id, ws.name)}
             className={cn(
               'relative flex items-center gap-1 px-2.5 h-full text-xs cursor-pointer whitespace-nowrap select-none group shrink-0',
-              'border-r border-border/30 transition-colors duration-100',
+              'border-r border-border/30 transition-colors duration-100 app-motion-fast',
               isActive
                 ? 'bg-background text-foreground'
                 : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
@@ -48,7 +48,7 @@ export default function WorkspaceBar() {
           >
             {/* Active indicator line */}
             {isActive && (
-              <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary rounded-t" />
+              <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary rounded-t app-fade-slide-in" />
             )}
 
             {isEditing ? (

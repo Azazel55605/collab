@@ -86,7 +86,7 @@ export default function SplitDropZones() {
             <div
               key={dir}
               className={cn(
-                'absolute pointer-events-auto transition-all duration-150',
+                'absolute pointer-events-auto transition-all duration-150 app-motion-base',
                 isHovered
                   ? 'bg-primary/25 backdrop-blur-2px-webkit'
                   : 'bg-primary/8 hover:bg-primary/15'
@@ -100,7 +100,7 @@ export default function SplitDropZones() {
               {/* Always-visible dashed border */}
               <div
                 className={cn(
-                  'absolute inset-0 border-2 border-dashed rounded transition-colors duration-150',
+                  'absolute inset-0 border-2 border-dashed rounded transition-colors duration-150 app-motion-base',
                   isHovered ? 'border-primary/70' : 'border-primary/20'
                 )}
               />
@@ -112,7 +112,7 @@ export default function SplitDropZones() {
               >
                 <div
                   className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium shadow-lg transition-all duration-150',
+                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium shadow-lg transition-all duration-150 app-motion-base',
                     isHovered
                       ? 'bg-primary text-primary-foreground scale-105 shadow-primary/30 shadow-xl'
                       : 'bg-background/80 text-muted-foreground border border-border/50 scale-95 opacity-70'

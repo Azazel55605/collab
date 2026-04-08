@@ -19,7 +19,7 @@ export default function GraphPage({ onNodeClick }: Props = {}) {
   });
 
   return (
-    <div className="w-full h-full">
+    <div className="w-full h-full app-fade-slide-in">
       <GraphView notes={notes} onNodeClick={handleNodeClick} />
     </div>
   );

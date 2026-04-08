@@ -199,7 +199,21 @@ pub fn create_vault(
 
 #[tauri::command]
 pub fn get_recent_vaults() -> Result<Vec<VaultMeta>, String> {
-    read_recents()
+    let recents = read_recents()?;
+    let original_len = recents.len();
+    let filtered: Vec<VaultMeta> = recents
+        .into_iter()
+        .filter(|meta| {
+            let path = std::path::Path::new(&meta.path);
+            path.exists() && path.is_dir()
+        })
+        .collect();
+
+    if filtered.len() != original_len {
+        write_recents(&filtered)?;
+    }
+
+    Ok(filtered)
 }
 
 #[tauri::command]

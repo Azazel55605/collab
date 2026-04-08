@@ -83,7 +83,17 @@ const THEME_VARS: Record<string, Record<string, string>> = {
 
 export default function App() {
   const { vault, isVaultLocked } = useVaultStore();
-  const { theme, accentColor, editorFont, fontSize, scale, isSettingsOpen, isVaultManagerOpen } = useUiStore();
+  const {
+    theme,
+    accentColor,
+    editorFont,
+    fontSize,
+    scale,
+    animationsEnabled,
+    animationSpeed,
+    isSettingsOpen,
+    isVaultManagerOpen,
+  } = useUiStore();
   const { checkForUpdate } = useUpdateStore();
 
   // Apply theme class + CSS variables whenever settings change
@@ -123,6 +133,30 @@ export default function App() {
     root.style.fontSize = `${fontSize}px`;
 
   }, [theme, accentColor, editorFont, fontSize]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    const applyMotion = () => {
+      const reducedBySystem = media.matches;
+      const motionEnabled = animationsEnabled && !reducedBySystem;
+      const speedScale = animationSpeed === 'slow' ? 1.35 : animationSpeed === 'fast' ? 0.78 : 1;
+
+      root.dataset.motion = motionEnabled ? 'on' : 'off';
+      root.dataset.motionSpeed = animationSpeed;
+      root.dataset.motionSystem = reducedBySystem ? 'reduce' : 'normal';
+      root.style.setProperty('--motion-scale', motionEnabled ? String(speedScale) : '0');
+      root.style.setProperty('--motion-fast', `${Math.round(120 * speedScale)}ms`);
+      root.style.setProperty('--motion-base', `${Math.round(180 * speedScale)}ms`);
+      root.style.setProperty('--motion-slow', `${Math.round(260 * speedScale)}ms`);
+      root.style.setProperty('--motion-slower', `${Math.round(360 * speedScale)}ms`);
+    };
+
+    applyMotion();
+    media.addEventListener('change', applyMotion);
+    return () => media.removeEventListener('change', applyMotion);
+  }, [animationsEnabled, animationSpeed]);
 
   // Block browser-level zoom (Ctrl+scroll, pinch, Ctrl+±/0) — zoom must not affect the entire UI.
   // D3 graph zoom and canvas zoom use SVG/CSS transforms and are unaffected.

@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import {
   ChevronRight, ChevronDown, FileText, Folder, FolderOpen,
-  Plus, FolderPlus, Layout, LayoutDashboard, Paperclip,
+  Plus, FolderPlus, Layout, LayoutDashboard, Paperclip, Image as ImageIcon,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useVaultStore } from '../../store/vaultStore';
@@ -38,6 +38,16 @@ interface TaskAttachmentRef {
   card: KanbanCard;
 }
 
+const IMAGE_FILE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
+
+function isImageFile(node: Pick<NoteFile, 'isFolder' | 'extension'>): boolean {
+  return !node.isFolder && IMAGE_FILE_EXTENSIONS.has(node.extension.toLowerCase());
+}
+
+function isManagedPicturesFolder(node: Pick<NoteFile, 'isFolder' | 'relativePath'>): boolean {
+  return node.isFolder && node.relativePath === 'Pictures';
+}
+
 export default function FileTree() {
   const { vault, fileTree, refreshFileTree } = useVaultStore();
   const { openTab, closeTab, renameTab } = useEditorStore();
@@ -52,7 +62,13 @@ export default function FileTree() {
   // null = no target, '__root__' = root of vault
 
   const handleOpenFile = useCallback((file: NoteFile) => {
-    const type = file.extension === 'canvas' ? 'canvas' : file.extension === 'kanban' ? 'kanban' : 'note';
+    const type = isImageFile(file)
+      ? 'image'
+      : file.extension === 'canvas'
+      ? 'canvas'
+      : file.extension === 'kanban'
+      ? 'kanban'
+      : 'note';
     openTab(file.relativePath, file.name, type);
     if (type === 'canvas') setActiveView('canvas');
     else if (type === 'kanban') setActiveView('kanban');
@@ -68,6 +84,10 @@ export default function FileTree() {
   };
 
   const handleDelete = (file: NoteFile) => {
+    if (isManagedPicturesFolder(file)) {
+      toast.error('The Pictures folder is managed by the app and cannot be deleted');
+      return;
+    }
     if (!confirmDeleteSetting) {
       void (async () => {
         if (!vault) return;
@@ -256,7 +276,7 @@ export default function FileTree() {
           <TooltipTrigger asChild>
             <button
               onClick={() => handleCreateNote()}
-              className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
+              className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
             >
               <Plus size={13} />
             </button>
@@ -267,7 +287,7 @@ export default function FileTree() {
           <TooltipTrigger asChild>
             <button
               onClick={() => handleCreateFolder()}
-              className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
+              className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
             >
               <FolderPlus size={13} />
             </button>
@@ -279,7 +299,7 @@ export default function FileTree() {
       {/* Tree — root is also a drop target */}
       <div
         className={cn(
-          'flex-1 overflow-y-auto py-1 transition-colors duration-100',
+          'flex-1 overflow-y-auto py-1 transition-colors duration-100 app-motion-fast',
           dropTargetPath === '__root__' && draggingPath ? 'bg-primary/5' : ''
         )}
         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTargetPath('__root__'); }}
@@ -303,7 +323,7 @@ export default function FileTree() {
             <p>No notes yet.</p>
             <button
               onClick={() => handleCreateNote()}
-              className="mt-2 text-primary/70 hover:text-primary transition-colors underline underline-offset-2"
+              className="mt-2 text-primary/70 hover:text-primary transition-colors app-motion-fast underline underline-offset-2"
             >
               Create your first note
             </button>
@@ -371,6 +391,8 @@ function FileTreeNode({
   const isDropTarget = node.isFolder && dropTargetPath === node.relativePath && draggingPath !== null;
   const attachmentRefs = taskAttachmentsByPath[node.relativePath] ?? [];
   const isTaskAttached = !node.isFolder && attachmentRefs.length > 0;
+  const isImageAsset = isImageFile(node);
+  const isManagedFolder = isManagedPicturesFolder(node);
 
   const toggleCollapse = () => {
     setCollapsed((prev) => {
@@ -384,9 +406,10 @@ function FileTreeNode({
   const getFileIcon = () => {
     if (node.isFolder) {
       return isCollapsed
-        ? <Folder size={13} className={cn('transition-colors', isDropTarget ? 'text-primary' : 'text-primary/60')} />
-        : <FolderOpen size={13} className={cn('transition-colors', isDropTarget ? 'text-primary' : 'text-primary/60')} />;
+        ? <Folder size={13} className={cn('transition-colors app-motion-fast', isDropTarget ? 'text-primary' : 'text-primary/60')} />
+        : <FolderOpen size={13} className={cn('transition-colors app-motion-fast', isDropTarget ? 'text-primary' : 'text-primary/60')} />;
     }
+    if (isImageAsset) return <ImageIcon size={13} className="text-sky-400/80" />;
     if (node.extension === 'canvas')  return <Layout size={13} className="text-blue-400/70" />;
     if (node.extension === 'kanban')  return <LayoutDashboard size={13} className="text-emerald-400/70" />;
     return <FileText size={13} className="text-muted-foreground/70" />;
@@ -452,7 +475,7 @@ function FileTreeNode({
             onClick={() => node.isFolder ? toggleCollapse() : onOpenFile(node)}
             style={{ paddingLeft: `${depth * 14 + 6}px` }}
             className={cn(
-              'group flex items-center gap-1 py-[3px] pr-2 cursor-pointer rounded-sm mx-1 transition-colors select-none',
+              'group flex items-center gap-1 py-[3px] pr-2 cursor-pointer rounded-sm mx-1 transition-colors app-motion-fast select-none',
               isDraggingThis && 'opacity-40',
               isDropTarget && 'bg-primary/20 ring-1 ring-primary/40 ring-inset',
               !isDraggingThis && !isDropTarget && (
@@ -479,6 +502,15 @@ function FileTreeNode({
               {node.name}
             </span>
 
+            {isManagedFolder && (
+              <span
+                className="shrink-0 text-primary/70"
+                title="Managed media folder"
+              >
+                <ImageIcon size={11} />
+              </span>
+            )}
+
             {/* Active file dot */}
             {isActive && !isDropTarget && (
               <span className="w-1 h-1 rounded-full bg-primary shrink-0 opacity-80" />
@@ -497,7 +529,7 @@ function FileTreeNode({
               <Popover open={attachmentPopoverOpen} onOpenChange={setAttachmentPopoverOpen}>
                 <PopoverTrigger asChild>
                   <button
-                    className="shrink-0 text-primary/75 hover:text-primary transition-colors"
+                    className="shrink-0 text-primary/75 hover:text-primary transition-colors app-motion-fast"
                     title="Attached to task"
                     onClick={(e) => e.stopPropagation()}
                     onPointerDown={(e) => e.stopPropagation()}
@@ -520,7 +552,7 @@ function FileTreeNode({
                       <button
                         key={`${ref.boardPath}:${ref.cardId}`}
                         onClick={() => openAttachedTask(ref)}
-                        className="flex flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left hover:bg-accent/50 transition-colors"
+                        className="flex flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left hover:bg-accent/50 transition-colors app-motion-fast"
                       >
                         <span className="text-xs text-foreground">{ref.cardTitle}</span>
                         <span className="text-[10px] text-muted-foreground">
@@ -570,9 +602,11 @@ function FileTreeNode({
             <ContextMenuSeparator />
           </>
         )}
-        <ContextMenuItem onClick={() => onRename(node)}>Rename</ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => onDelete(node)} className="text-destructive focus:text-destructive">Delete</ContextMenuItem>
+        {!isManagedFolder && <ContextMenuItem onClick={() => onRename(node)}>Rename</ContextMenuItem>}
+        {!isManagedFolder && <ContextMenuSeparator />}
+        {!isManagedFolder && (
+          <ContextMenuItem onClick={() => onDelete(node)} className="text-destructive focus:text-destructive">Delete</ContextMenuItem>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );

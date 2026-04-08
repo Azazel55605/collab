@@ -3,7 +3,8 @@ import { getAppVersion } from '../../lib/tauri';
 import {
   useUiStore,
   ACCENT_COLORS, EDITOR_FONTS, FONT_SIZE_OPTIONS, SCALE_OPTIONS, DATE_FORMAT_OPTIONS, formatDate,
-  type Theme, type AccentColor, type EditorFont, type DateFormat, type WeekStart,
+  ANIMATION_SPEED_OPTIONS,
+  type Theme, type AccentColor, type EditorFont, type DateFormat, type WeekStart, type AnimationSpeed,
 } from '../../store/uiStore';
 import { useCollabStore } from '../../store/collabStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -12,7 +13,7 @@ import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
-import { Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info, CalendarDays, Keyboard } from 'lucide-react';
+import { Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info, CalendarDays, Keyboard, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import AboutTab from './AboutTab';
 import ShortcutsTab from './ShortcutsTab';
@@ -101,6 +102,8 @@ export default function SettingsModal() {
     dateFormat, setDateFormat,
     weekStart, setWeekStart,
     confirmDelete, setConfirmDelete,
+    animationsEnabled, setAnimationsEnabled,
+    animationSpeed, setAnimationSpeed,
   } = useUiStore();
 
   const { myUserName, myUserColor, myUserId, setMyProfile } = useCollabStore();
@@ -119,7 +122,7 @@ export default function SettingsModal() {
 
   return (
     <Dialog open onOpenChange={(open) => !open && closeSettings()}>
-      <DialogContent className="sm:max-w-3xl w-full p-0 overflow-hidden glass-strong border-border/40 shadow-2xl shadow-black/60 gap-0">
+      <DialogContent className="sm:max-w-3xl w-full p-0 overflow-hidden glass-strong border-border/40 shadow-2xl shadow-black/60 gap-0 app-fade-scale-in">
         <DialogHeader className="px-5 pt-5 pb-0">
           <DialogTitle className="text-base font-semibold">Settings</DialogTitle>
         </DialogHeader>
@@ -132,7 +135,7 @@ export default function SettingsModal() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  'relative flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all text-left',
+                  'relative flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all text-left app-motion-base',
                   activeTab === tab.id
                     ? 'bg-primary/15 text-primary font-medium'
                     : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
@@ -148,7 +151,7 @@ export default function SettingsModal() {
           </nav>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-1">
+          <div key={activeTab} className="flex-1 overflow-y-auto p-5 space-y-1 app-fade-slide-in">
 
             {/* ── Appearance ── */}
             {activeTab === 'appearance' && (
@@ -312,6 +315,52 @@ export default function SettingsModal() {
                 <p className="text-[11px] text-muted-foreground mt-2">
                   100% is native pixel density. Increase for HiDPI / high-resolution displays.
                 </p>
+
+                <Separator className="bg-border/40 my-4" />
+
+                <SectionLabel>Motion</SectionLabel>
+                <OptionRow
+                  label="Disable animations"
+                  description="Turns off transitions, entry effects, and repeated motion across the app"
+                >
+                  <button
+                    onClick={() => setAnimationsEnabled(!animationsEnabled)}
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 app-motion-base',
+                      !animationsEnabled ? 'bg-primary' : 'bg-muted-foreground/30'
+                    )}
+                    role="switch"
+                    aria-checked={!animationsEnabled}
+                  >
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 app-motion-base',
+                        !animationsEnabled ? 'translate-x-4' : 'translate-x-0'
+                      )}
+                    />
+                  </button>
+                </OptionRow>
+
+                <OptionRow
+                  label="Animation speed"
+                  description="Controls how quickly interface motion runs when animations are enabled"
+                >
+                  <div className={cn(!animationsEnabled && 'pointer-events-none opacity-45')}>
+                    <PillSelect
+                      options={ANIMATION_SPEED_OPTIONS}
+                      value={animationSpeed}
+                      onChange={setAnimationSpeed}
+                      getLabel={(value: AnimationSpeed) => value.charAt(0).toUpperCase() + value.slice(1)}
+                    />
+                  </div>
+                </OptionRow>
+
+                <div className="mt-3 rounded-lg border border-border/40 bg-accent/10 p-3 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2 text-foreground">
+                    <Sparkles size={13} className="text-primary" />
+                    Motion respects your system reduced-motion preference automatically.
+                  </div>
+                </div>
               </div>
             )}
 

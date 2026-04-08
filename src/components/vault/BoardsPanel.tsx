@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { Plus, Layout, LayoutDashboard, FileText, Library, MoreHorizontal, Sparkles, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useVaultStore } from '../../store/vaultStore';
@@ -6,6 +6,7 @@ import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
 import { tauriCommands } from '../../lib/tauri';
 import type { NoteFile } from '../../types/vault';
+import type { KanbanTemplate } from '../../types/template';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { ConfirmDeleteDialog, InputDialog } from './VaultDialogs';
 import { useState } from 'react';
@@ -26,6 +27,22 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import type { KanbanBoard } from '../../types/kanban';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select';
 
 interface Props {
   kind: 'canvas' | 'kanban';
@@ -41,11 +58,48 @@ function collectByExtension(nodes: NoteFile[], ext: string): NoteFile[] {
   return results;
 }
 
+function ensureBoardPath(name: string, kind: Props['kind']): string {
+  const trimmed = name.trim();
+  const ext = `.${kind}`;
+  return trimmed.endsWith(ext) ? trimmed : `${trimmed}${ext}`;
+}
+
+function groupKanbanTemplates(templates: KanbanTemplate[]): KanbanTemplate[] {
+  const groups = new Map<string, KanbanTemplate>();
+
+  for (const template of templates) {
+    const key = `${template.name.toLocaleLowerCase()}::${template.hash}`;
+    const existing = groups.get(key);
+    if (!existing) {
+      groups.set(key, template);
+      continue;
+    }
+
+    const rank = (source: KanbanTemplate['source']) => {
+      if (source === 'vault') return 0;
+      if (source === 'app') return 1;
+      return 2;
+    };
+
+    if (rank(template.source) < rank(existing.source)) {
+      groups.set(key, template);
+    }
+  }
+
+  return [...groups.values()].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+  );
+}
+
 export default function BoardsPanel({ kind }: Props) {
   const { vault, fileTree, refreshFileTree } = useVaultStore();
   const { openTab, closeTab, activeTabPath } = useEditorStore();
   const { setActiveView, confirmDelete: confirmDeleteSetting } = useUiStore();
   const [creating, setCreating] = useState(false);
+  const [createName, setCreateName] = useState('');
+  const [createTemplate, setCreateTemplate] = useState('__blank__');
+  const [templateChoices, setTemplateChoices] = useState<KanbanTemplate[]>([]);
+  const [loadingTemplateChoices, setLoadingTemplateChoices] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [deleteBoard, setDeleteBoard] = useState<NoteFile | null>(null);
   const [templateBoard, setTemplateBoard] = useState<NoteFile | null>(null);
@@ -55,6 +109,7 @@ export default function BoardsPanel({ kind }: Props) {
   const Icon = kind === 'canvas' ? Layout : LayoutDashboard;
   const label = kind === 'canvas' ? 'Canvas' : 'Kanban';
   const color = kind === 'canvas' ? 'text-blue-400/70' : 'text-emerald-400/70';
+  const visibleTemplateChoices = useMemo(() => groupKanbanTemplates(templateChoices), [templateChoices]);
 
   const handleOpen = useCallback((file: NoteFile) => {
     openTab(file.relativePath, file.name, kind);
@@ -64,14 +119,72 @@ export default function BoardsPanel({ kind }: Props) {
   const handleCreate = async (name: string) => {
     if (!vault) return;
     setCreating(false);
-    const relativePath = `${name}.${kind}`;
+    const relativePath = ensureBoardPath(name, kind);
     try {
       await tauriCommands.createNote(vault.path, relativePath);
       await refreshFileTree();
-      openTab(relativePath, name, kind);
+      openTab(relativePath, relativePath.split('/').pop() ?? relativePath, kind);
       setActiveView(kind);
     } catch (e) { toast.error(`Failed to create ${label} board: ${e}`); }
   };
+
+  useEffect(() => {
+    if (!creating || kind !== 'kanban' || !vault) return;
+
+    let cancelled = false;
+    const vaultPath = vault.path;
+
+    async function loadTemplateChoices() {
+      setLoadingTemplateChoices(true);
+      try {
+        const templates = await tauriCommands.listKanbanTemplates(vaultPath);
+        if (!cancelled) setTemplateChoices(templates);
+      } catch (error) {
+        if (!cancelled) toast.error(`Failed to load templates: ${error}`);
+      } finally {
+        if (!cancelled) setLoadingTemplateChoices(false);
+      }
+    }
+
+    void loadTemplateChoices();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [creating, kind, vault]);
+
+  useEffect(() => {
+    if (!creating) return;
+    setCreateName('');
+    setCreateTemplate('__blank__');
+  }, [creating]);
+
+  const handleCreateKanban = useCallback(async () => {
+    if (!vault) return;
+    const trimmed = createName.trim();
+    if (!trimmed) return;
+
+    const relativePath = ensureBoardPath(trimmed, 'kanban');
+    setCreating(false);
+
+    try {
+      let file: NoteFile;
+      if (createTemplate === '__blank__') {
+        file = await tauriCommands.createNote(vault.path, relativePath);
+      } else {
+        const template = visibleTemplateChoices.find(
+          (entry) => `${entry.source}::${entry.name}` === createTemplate,
+        );
+        if (!template) throw new Error('Selected template is no longer available');
+        file = await tauriCommands.applyKanbanTemplate(vault.path, template.source, template.name, relativePath);
+      }
+      await refreshFileTree();
+      openTab(file.relativePath, file.name, 'kanban');
+      setActiveView('kanban');
+    } catch (error) {
+      toast.error(`Failed to create ${label} board: ${error}`);
+    }
+  }, [createName, createTemplate, label, openTab, refreshFileTree, setActiveView, vault, visibleTemplateChoices]);
 
   const deleteBoardFile = useCallback(async (file: NoteFile) => {
     if (!vault) return;
@@ -143,13 +256,70 @@ export default function BoardsPanel({ kind }: Props) {
         />
       )}
 
-      <InputDialog
-        open={creating}
-        variant={kind === 'canvas' ? 'create-canvas' : 'create-kanban'}
-        initialValue=""
-        onConfirm={handleCreate}
-        onCancel={() => setCreating(false)}
-      />
+      {kind === 'canvas' ? (
+        <InputDialog
+          open={creating}
+          variant="create-canvas"
+          initialValue=""
+          onConfirm={handleCreate}
+          onCancel={() => setCreating(false)}
+        />
+      ) : (
+        <Dialog open={creating} onOpenChange={(open) => { if (!open) setCreating(false); }}>
+          <DialogContent showCloseButton={false} className="max-w-sm">
+            <DialogHeader>
+              <div className="flex items-center gap-3 mb-1">
+                <span className="flex items-center justify-center w-9 h-9 rounded-full bg-primary/15 text-primary shrink-0">
+                  <LayoutDashboard size={16} />
+                </span>
+                <DialogTitle>New kanban board</DialogTitle>
+              </div>
+            </DialogHeader>
+
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Board name</label>
+                <Input
+                  value={createName}
+                  placeholder="Untitled Board"
+                  onChange={(event) => setCreateName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void handleCreateKanban();
+                    if (event.key === 'Escape') setCreating(false);
+                  }}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Template</label>
+                <Select value={createTemplate} onValueChange={setCreateTemplate}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Choose a template" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__blank__">Blank board</SelectItem>
+                    {visibleTemplateChoices.map((template) => (
+                      <SelectItem key={`${template.source}::${template.name}`} value={`${template.source}::${template.name}`}>
+                        {template.name} {template.source === 'builtin' ? '• Built-in' : template.source === 'vault' ? '• Vault' : '• App'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {loadingTemplateChoices && (
+                  <div className="text-[11px] text-muted-foreground/70">Loading templates…</div>
+                )}
+              </div>
+            </div>
+
+            <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
+              <Button variant="outline" onClick={() => setCreating(false)}>Cancel</Button>
+              <Button onClick={() => void handleCreateKanban()} disabled={!createName.trim()}>
+                Create
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
       <InputDialog
         open={!!templateBoard}
         variant="create-template"

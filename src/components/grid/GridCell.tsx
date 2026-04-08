@@ -20,9 +20,10 @@ const CONTENT_ICONS: Partial<Record<string, React.ReactNode>> = {
 
 interface Props {
   cell: GridCellType;
+  onContainerRef?: (cellId: string, node: HTMLDivElement | null) => void;
 }
 
-export default function GridCell({ cell }: Props) {
+export default function GridCell({ cell, onContainerRef }: Props) {
   const { setCellContent, clearCell } = useGridStore();
 
   // ── dnd-kit: make the grip handle draggable ──────────────────────────────
@@ -41,6 +42,7 @@ export default function GridCell({ cell }: Props) {
   const setRef = (node: HTMLDivElement | null) => {
     setDragRef(node);
     setDropRef(node);
+    onContainerRef?.(cell.id, node);
   };
 
   const handleSelectContent = (content: GridCellContent) => {

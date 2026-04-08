@@ -7,6 +7,7 @@ import StatusBar from './StatusBar';
 import { useVaultStore, useEditorStore, useNoteIndexStore, useUiStore } from '../../store';
 import { tauriCommands } from '../../lib/tauri';
 import NoteView from '../../views/NoteView';
+import ImageView from '../../views/ImageView';
 
 // ── Editor error boundary ─────────────────────────────────────────────────────
 class EditorErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -42,7 +43,7 @@ import { ConflictDialog } from '../collaboration/ConflictDialog';
 import { CommandBar } from '../command-bar/CommandBar';
 import { DragProvider } from '../../contexts/DragContext';
 import SplitDropZones from '../grid/SplitDropZones';
-import { GitFork, Layout, LayoutDashboard, FileText, Settings as SettingsIcon } from 'lucide-react';
+import { GitFork, Layout, LayoutDashboard, FileText, Settings as SettingsIcon, Image as ImageIcon } from 'lucide-react';
 
 export default function AppShell() {
   const { vault, refreshFileTree } = useVaultStore();
@@ -59,6 +60,7 @@ export default function AppShell() {
     if (type === 'kanban')   return <LayoutDashboard size={size} className="shrink-0" />;
     if (type === 'graph')    return <GitFork size={size} className="shrink-0" />;
     if (type === 'settings') return <SettingsIcon size={size} className="shrink-0" />;
+    if (type === 'image')    return <ImageIcon size={size} className="shrink-0" />;
     return <FileText size={size} className="shrink-0" />;
   };
 
@@ -147,7 +149,13 @@ export default function AppShell() {
           if (activeTabPath) closeTab(activeTabPath);
           break;
         case '1': if (!inInput) { e.preventDefault(); setActiveView('editor'); } break;
-        case '2': if (!inInput) { e.preventDefault(); setActiveView('graph');  } break;
+        case '2':
+          if (!inInput) {
+            e.preventDefault();
+            useEditorStore.getState().openTab('__graph__', 'Graph', 'graph');
+            setActiveView('graph');
+          }
+          break;
         case '3': if (!inInput) { e.preventDefault(); setActiveView('kanban'); } break;
         case '4': if (!inInput) { e.preventDefault(); setActiveView('grid');   } break;
         case 'n':
@@ -216,6 +224,7 @@ export default function AppShell() {
     if (activeTab) {
       if (activeTab.type === 'graph')    return <GraphPage />;
       if (activeTab.type === 'settings') return <SettingsPage />;
+      if (activeTab.type === 'image')    return <ImageView relativePath={activeTab.relativePath} />;
       if (activeTab.type === 'canvas')   return <CanvasPage relativePath={activeTab.relativePath === '__canvas__' ? null : activeTab.relativePath} />;
       if (activeTab.type === 'kanban')   return <KanbanPage relativePath={activeTab.relativePath === '__kanban__' ? null : activeTab.relativePath} />;
       // Note tab: only show the note when activeView is editor — if the user
@@ -239,16 +248,16 @@ export default function AppShell() {
 
         {/* Sidebar + resize handle */}
         {isSidebarOpen && (
-          <div className="relative flex shrink-0" style={{ width: sidebarWidth }}>
+          <div className="relative flex shrink-0 app-fade-slide-in" style={{ width: sidebarWidth }}>
             <div className="flex-1 overflow-hidden">
               <Sidebar />
             </div>
             {/* Resize handle */}
             <div
               onMouseDown={onResizeStart}
-              className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 transition-colors z-10 group"
+              className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 transition-colors app-motion-fast z-10 group"
             >
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 h-8 w-0.5 rounded-full bg-border/50 group-hover:bg-primary/50 transition-colors" />
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 h-8 w-0.5 rounded-full bg-border/50 group-hover:bg-primary/50 transition-colors app-motion-fast" />
             </div>
           </div>
         )}
