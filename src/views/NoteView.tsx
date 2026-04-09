@@ -205,7 +205,7 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <EditorToolbar editorRef={editorRef} />
+      <EditorToolbar relativePath={relativePath} editorRef={editorRef} />
       {/* position:relative establishes the containing block for the absolutely-positioned
           CodeMirror container. This avoids flex % height resolution bugs in WebKitGTK
           where height:100% on a flex-1 child resolves to 0 (the flex-basis) rather than

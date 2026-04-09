@@ -19,12 +19,20 @@ import {
   Image,
   Highlighter,
   Tags,
+  FileText,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import type { RefObject } from 'react';
 import type { MarkdownEditorHandle } from './MarkdownEditor';
+import {
+  DocumentTopBar,
+  documentTopBarGroupClass,
+  getDocumentBaseName,
+  getDocumentFolderPath,
+} from '../layout/DocumentTopBar';
 
 interface EditorToolbarProps {
+  relativePath: string;
   editorRef: RefObject<MarkdownEditorHandle | null>;
 }
 
@@ -83,7 +91,7 @@ function TagsBtn() {
         <button
           type="button"
           onClick={() => window.dispatchEvent(new CustomEvent('tag:add-tags-line'))}
-          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
         >
           <Tags size={13} />
         </button>
@@ -100,7 +108,7 @@ function TBtn({ icon, label, onClick }: { icon: React.ReactNode; label: string; 
         <button
           type="button"
           onClick={onClick}
-          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
         >
           {icon}
         </button>
@@ -110,45 +118,54 @@ function TBtn({ icon, label, onClick }: { icon: React.ReactNode; label: string; 
   );
 }
 
-export function EditorToolbar({ editorRef }: EditorToolbarProps) {
+export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
   const ed = () => editorRef.current;
 
   return (
-    <div className="flex h-8 shrink-0 items-center gap-0.5 border-b border-border bg-background/60 px-2 overflow-x-auto scrollbar-none">
-      {INLINE.map((b) => (
-        <TBtn
-          key={b.label}
-          icon={b.icon}
-          label={b.label}
-          onClick={() => ed()?.insertAround(b.before, b.after, b.placeholder)}
-        />
-      ))}
+    <DocumentTopBar
+      title={getDocumentBaseName(relativePath, 'Note')}
+      subtitle={getDocumentFolderPath(relativePath)}
+      icon={<FileText size={15} />}
+      secondary={
+        <>
+          <div className={documentTopBarGroupClass}>
+            {INLINE.map((b) => (
+              <TBtn
+                key={b.label}
+                icon={b.icon}
+                label={b.label}
+                onClick={() => ed()?.insertAround(b.before, b.after, b.placeholder)}
+              />
+            ))}
+          </div>
 
-      <div className="mx-1 h-4 w-px shrink-0 bg-border" />
+          <div className={documentTopBarGroupClass}>
+            {BLOCK.map((b) => (
+              <TBtn
+                key={b.label}
+                icon={b.icon}
+                label={b.label}
+                onClick={() => ed()?.insertLine(b.prefix)}
+              />
+            ))}
+          </div>
 
-      {BLOCK.map((b) => (
-        <TBtn
-          key={b.label}
-          icon={b.icon}
-          label={b.label}
-          onClick={() => ed()?.insertLine(b.prefix)}
-        />
-      ))}
+          <div className={documentTopBarGroupClass}>
+            {INSERT.map((b) => (
+              <TBtn
+                key={b.label}
+                icon={b.icon}
+                label={b.label}
+                onClick={() => ed()?.insertSnippet(b.text)}
+              />
+            ))}
+          </div>
 
-      <div className="mx-1 h-4 w-px shrink-0 bg-border" />
-
-      {INSERT.map((b) => (
-        <TBtn
-          key={b.label}
-          icon={b.icon}
-          label={b.label}
-          onClick={() => ed()?.insertSnippet(b.text)}
-        />
-      ))}
-
-      <div className="mx-1 h-4 w-px shrink-0 bg-border" />
-
-      <TagsBtn />
-    </div>
+          <div className={documentTopBarGroupClass}>
+            <TagsBtn />
+          </div>
+        </>
+      }
+    />
   );
 }

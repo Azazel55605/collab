@@ -18,6 +18,12 @@ import { Input } from '../components/ui/input';
 import { cn } from '../lib/utils';
 import { tauriCommands } from '../lib/tauri';
 import { useVaultStore } from '../store/vaultStore';
+import {
+  DocumentTopBar,
+  documentTopBarGroupClass,
+  getDocumentBaseName,
+  getDocumentFolderPath,
+} from '../components/layout/DocumentTopBar';
 
 const workerUrl = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
 GlobalWorkerOptions.workerSrc = workerUrl;
@@ -35,15 +41,6 @@ const PDF_CSS_SCALE = PixelsPerInch.PDF_TO_CSS_UNITS;
 
 interface WebKitGestureEvent extends Event {
   scale: number;
-}
-
-function getBaseName(relativePath: string) {
-  return relativePath.split('/').pop() ?? relativePath;
-}
-
-function getFolderPath(relativePath: string) {
-  const parts = relativePath.split('/');
-  return parts.length > 1 ? parts.slice(0, -1).join('/') : 'Vault root';
 }
 
 function clampZoom(value: number) {
@@ -700,14 +697,13 @@ export default function PdfView({ relativePath }: Props) {
           background: color-mix(in oklch, var(--primary) 35%, white 20%);
         }
       `}</style>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/50 bg-background/85 px-4 py-2.5 backdrop-blur-xs-webkit">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-foreground">{getBaseName(relativePath)}</div>
-          <div className="truncate text-[11px] text-muted-foreground">{getFolderPath(relativePath)}</div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center rounded-xl border border-border/60 bg-card/65 p-1">
+      <DocumentTopBar
+        title={getDocumentBaseName(relativePath, 'PDF')}
+        subtitle={getDocumentFolderPath(relativePath)}
+        icon={<FileText size={15} />}
+        secondary={
+          <>
+          <div className={documentTopBarGroupClass}>
             <Button
               size="icon"
               variant="ghost"
@@ -742,7 +738,7 @@ export default function PdfView({ relativePath }: Props) {
             </Button>
           </div>
 
-          <div className="flex items-center rounded-xl border border-border/60 bg-card/65 p-1">
+          <div className={documentTopBarGroupClass}>
             <Button
               size="icon"
               variant="ghost"
@@ -773,7 +769,7 @@ export default function PdfView({ relativePath }: Props) {
             </Button>
           </div>
 
-          <div className="flex items-center rounded-xl border border-border/60 bg-card/65 p-1">
+          <div className={documentTopBarGroupClass}>
             <Button
               size="sm"
               variant="ghost"
@@ -813,7 +809,7 @@ export default function PdfView({ relativePath }: Props) {
           </div>
 
           {pageCount > 1 && (
-            <div className="flex items-center rounded-xl border border-border/60 bg-card/65 p-1">
+            <div className={documentTopBarGroupClass}>
               <Button
                 size="sm"
                 variant="ghost"
@@ -842,8 +838,9 @@ export default function PdfView({ relativePath }: Props) {
               </Button>
             </div>
           )}
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <div
         ref={viewportRef}

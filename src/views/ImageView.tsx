@@ -54,6 +54,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
+import {
+  DocumentTopBar,
+  getDocumentBaseName,
+  getDocumentFolderPath,
+} from '../components/layout/DocumentTopBar';
 
 interface Props {
   relativePath: string | null;
@@ -1182,98 +1187,96 @@ export default function ImageView({ relativePath }: Props) {
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-background app-fade-slide-in">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/40 bg-sidebar/35 px-4 py-2 text-xs text-muted-foreground">
-        <div className="flex min-w-0 items-center gap-2">
-          <ImageIcon size={13} className="shrink-0 text-sky-400/80" />
-          <span className="truncate">{relativePath ?? 'Image'}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {dimensions && (
-            <span className="shrink-0 tabular-nums">
-              {dimensions.width} x {dimensions.height}
-            </span>
-          )}
-          <Popover open={annotationsOpen} onOpenChange={setAnnotationsOpen}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="rounded-full border border-border/50 px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground/90 transition-colors app-motion-fast hover:border-primary/40 hover:bg-primary/8 hover:text-foreground"
-              >
-                {describeOverlayCount(annotationItems.length)}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-96 max-w-[calc(100vw-40px)] p-3">
-              <PopoverHeader className="mb-1">
-                <PopoverTitle>Annotations</PopoverTitle>
-                <PopoverDescription>
-                  Select an additive annotation or remove it from the image.
-                </PopoverDescription>
-              </PopoverHeader>
+      <DocumentTopBar
+        title={getDocumentBaseName(relativePath, 'Image')}
+        subtitle={getDocumentFolderPath(relativePath)}
+        icon={<ImageIcon size={15} className="text-sky-400/80" />}
+        meta={
+          <>
+            {dimensions && (
+              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                {dimensions.width} x {dimensions.height}
+              </span>
+            )}
+            <Popover open={annotationsOpen} onOpenChange={setAnnotationsOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="rounded-full border border-border/50 px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground/90 transition-colors app-motion-fast hover:border-primary/40 hover:bg-primary/8 hover:text-foreground"
+                >
+                  {describeOverlayCount(annotationItems.length)}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-96 max-w-[calc(100vw-40px)] p-3">
+                <PopoverHeader className="mb-1">
+                  <PopoverTitle>Annotations</PopoverTitle>
+                  <PopoverDescription>
+                    Select an additive annotation or remove it from the image.
+                  </PopoverDescription>
+                </PopoverHeader>
 
-              {annotationItems.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground">
-                  No additive annotations yet.
-                </div>
-              ) : (
-                <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
-                  {annotationItems.map((item, index) => {
-                    const isSelected = item.id === selectedItemId;
-                    return (
-                      <div
-                        key={item.id}
-                        className={cn(
-                          'flex items-start gap-2 rounded-xl border px-3 py-2 transition-colors app-motion-fast',
-                          isSelected
-                            ? 'border-primary/45 bg-primary/10'
-                            : 'border-border/50 bg-background/45 hover:border-border hover:bg-background/70',
-                        )}
-                      >
-                        <button
-                          type="button"
-                          className="min-w-0 flex-1 text-left"
-                          onClick={() => {
-                            setMode('additive');
-                            setTool('select');
-                            setSelectedItemId(item.id);
-                            setAnnotationsOpen(false);
-                          }}
+                {annotationItems.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground">
+                    No additive annotations yet.
+                  </div>
+                ) : (
+                  <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                    {annotationItems.map((item, index) => {
+                      const isSelected = item.id === selectedItemId;
+                      return (
+                        <div
+                          key={item.id}
+                          className={cn(
+                            'flex items-start gap-2 rounded-xl border px-3 py-2 transition-colors app-motion-fast',
+                            isSelected
+                              ? 'border-primary/45 bg-primary/10'
+                              : 'border-border/50 bg-background/45 hover:border-border hover:bg-background/70',
+                          )}
                         >
-                          <div className="truncate text-sm font-medium text-foreground">
-                            {getOverlayItemLabel(item, index)}
-                          </div>
-                          <div className="mt-0.5 text-[11px] text-muted-foreground">
-                            {getOverlayItemMeta(item)}
-                          </div>
-                        </button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 shrink-0 px-2 text-muted-foreground hover:text-destructive"
-                          onClick={() => {
-                            if (selectedItemId !== item.id) {
+                          <button
+                            type="button"
+                            className="min-w-0 flex-1 text-left"
+                            onClick={() => {
+                              setMode('additive');
+                              setTool('select');
                               setSelectedItemId(item.id);
-                            }
-                            setOverlayItems((items) => items.filter((entry) => entry.id !== item.id));
-                            if (selectedItemId === item.id) {
-                              setSelectedItemId(null);
-                            }
-                          }}
-                        >
-                          <Eraser size={14} />
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </PopoverContent>
-          </Popover>
-        </div>
-      </div>
-
-      <div className="border-b border-border/30 bg-background/80 px-4 py-3">
-        <div className="-mx-4 overflow-x-auto px-4 scrollbar-none">
-        <div className="flex min-w-max items-center gap-2 whitespace-nowrap">
+                              setAnnotationsOpen(false);
+                            }}
+                          >
+                            <div className="truncate text-sm font-medium text-foreground">
+                              {getOverlayItemLabel(item, index)}
+                            </div>
+                            <div className="mt-0.5 text-[11px] text-muted-foreground">
+                              {getOverlayItemMeta(item)}
+                            </div>
+                          </button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 shrink-0 px-2 text-muted-foreground hover:text-destructive"
+                            onClick={() => {
+                              if (selectedItemId !== item.id) {
+                                setSelectedItemId(item.id);
+                              }
+                              setOverlayItems((items) => items.filter((entry) => entry.id !== item.id));
+                              if (selectedItemId === item.id) {
+                                setSelectedItemId(null);
+                              }
+                            }}
+                          >
+                            <Eraser size={14} />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
+          </>
+        }
+        secondary={
+          <>
           {(['view', 'additive', 'permanent'] as const).map((nextMode) => (
             <Button
               key={nextMode}
@@ -1543,15 +1546,15 @@ export default function ImageView({ relativePath }: Props) {
           >
             <Plus size={14} />
           </Button>
-        </div>
-        </div>
+          </>
+        }
+      />
 
-        {mode === 'permanent' && hasAdditiveItems && (
-          <p className="mt-3 text-[11px] text-muted-foreground">
-            This image has additive annotations. Use <span className="font-medium text-foreground">Bake Into Image</span> in additive mode if you want them permanently merged into the raster output.
-          </p>
-        )}
-      </div>
+      {mode === 'permanent' && hasAdditiveItems && (
+        <div className="shrink-0 border-b border-border/30 bg-background/72 px-4 py-2 text-[11px] text-muted-foreground">
+          This image has additive annotations. Use <span className="font-medium text-foreground">Bake Into Image</span> in additive mode if you want them permanently merged into the raster output.
+        </div>
+      )}
 
       <div
         ref={viewportRef}
