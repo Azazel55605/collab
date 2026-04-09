@@ -78,6 +78,29 @@ const GROUPS: Group[] = [
       { label: 'Reset zoom',        keys: [['Ctrl', '0'], ['0']] },
     ],
   },
+  {
+    heading: 'Image Viewer',
+    note: 'Only active when an image tab is open and an input field or dialog is not focused.',
+    rows: [
+      { label: 'View mode',          keys: [['1']] },
+      { label: 'Additive mode',      keys: [['2']] },
+      { label: 'Permanent mode',     keys: [['3']] },
+      { label: 'Select tool',        keys: [['S']] },
+      { label: 'Text tool',          keys: [['T']] },
+      { label: 'Arrow tool',         keys: [['A']] },
+      { label: 'Freehand tool',      keys: [['F']] },
+      { label: 'Rotate image',       keys: [['R']] },
+      { label: 'Crop',               keys: [['C']] },
+      { label: 'Toggle lock ratio',  keys: [['L']] },
+      { label: 'Delete selection',   keys: [['Delete'], ['Backspace']] },
+      { label: 'Cancel crop / clear selection', keys: [['Escape']] },
+      { label: 'Scroll up',          keys: [['Arrow Up']] },
+      { label: 'Scroll down',        keys: [['Arrow Down']] },
+      { label: 'Zoom in',            keys: [['Ctrl', '+']] },
+      { label: 'Zoom out',           keys: [['Ctrl', '-']] },
+      { label: 'Reset zoom',         keys: [['Ctrl', '0'], ['0']] },
+    ],
+  },
 ];
 
 export default function ShortcutsTab() {

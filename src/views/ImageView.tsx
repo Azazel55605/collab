@@ -561,6 +561,12 @@ export default function ImageView({ relativePath }: Props) {
 
   const selectedItem = overlayDoc?.items.find((item) => item.id === selectedItemId) ?? null;
 
+  const scrollViewportBy = (deltaY: number) => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    viewport.scrollBy({ top: deltaY, behavior: 'smooth' });
+  };
+
   useEffect(() => {
     if (!vault || !relativePath) {
       setSrc(null);
@@ -753,6 +759,145 @@ export default function ImageView({ relativePath }: Props) {
     setCropDraft(null);
     setCropDragStart(null);
   };
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const isEventInsideImageView = (target: EventTarget | null) => target instanceof Node && viewport.contains(target);
+    const isEditableTarget = (target: EventTarget | null) => (
+      target instanceof HTMLElement
+      && target.matches('input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"], [role="combobox"]')
+    );
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const ctrl = event.ctrlKey || event.metaKey;
+      if (ctrl) {
+        if (event.key === '+' || event.key === '=') {
+          event.preventDefault();
+          setZoomPercent((current) => Math.min(400, current + 25));
+          return;
+        }
+
+        if (event.key === '-') {
+          event.preventDefault();
+          setZoomPercent((current) => Math.max(25, current - 25));
+          return;
+        }
+
+        if (event.key === '0') {
+          event.preventDefault();
+          setZoomPercent(100);
+        }
+        return;
+      }
+
+      if (saveIntent || isEditableTarget(event.target) || event.altKey) return;
+
+      const scrollStep = Math.max(56, viewport.clientHeight * 0.12);
+
+      switch (event.key) {
+        case '1':
+          event.preventDefault();
+          setMode('view');
+          break;
+        case '2':
+          event.preventDefault();
+          setMode('additive');
+          break;
+        case '3':
+          event.preventDefault();
+          setMode('permanent');
+          break;
+        case 's':
+        case 'S':
+          if (mode === 'additive') {
+            event.preventDefault();
+            setTool('select');
+          }
+          break;
+        case 't':
+        case 'T':
+          if (mode === 'additive') {
+            event.preventDefault();
+            setTool('text');
+          }
+          break;
+        case 'a':
+        case 'A':
+          if (mode === 'additive') {
+            event.preventDefault();
+            setTool('arrow');
+          }
+          break;
+        case 'f':
+        case 'F':
+          if (mode === 'additive') {
+            event.preventDefault();
+            setTool('pen');
+          }
+          break;
+        case 'r':
+        case 'R':
+          event.preventDefault();
+          setMode('permanent');
+          setPermanentEdits((current) => ({
+            ...current,
+            rotation: (((current.rotation + 90) % 360) as PermanentImageEdits['rotation']),
+          }));
+          break;
+        case 'c':
+        case 'C':
+          event.preventDefault();
+          beginCrop();
+          break;
+        case 'l':
+        case 'L':
+          if (mode === 'permanent') {
+            event.preventDefault();
+            setPermanentEdits((current) => ({ ...current, lockAspectRatio: !current.lockAspectRatio }));
+          }
+          break;
+        case 'Delete':
+        case 'Backspace':
+          if (mode === 'additive' && selectedItemId && !editingTextId) {
+            event.preventDefault();
+            deleteSelectedItem();
+          }
+          break;
+        case 'Escape':
+          if (cropMode) {
+            event.preventDefault();
+            cancelCrop();
+          } else if (selectedItemId) {
+            event.preventDefault();
+            setSelectedItemId(null);
+          }
+          break;
+        case 'ArrowDown':
+          if (isEventInsideImageView(event.target) || event.target === document.body) {
+            event.preventDefault();
+            scrollViewportBy(scrollStep);
+          }
+          break;
+        case 'ArrowUp':
+          if (isEventInsideImageView(event.target) || event.target === document.body) {
+            event.preventDefault();
+            scrollViewportBy(-scrollStep);
+          }
+          break;
+        case '0':
+          event.preventDefault();
+          setZoomPercent(100);
+          break;
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, { capture: true } as EventListenerOptions);
+    };
+  }, [cropMode, editingTextId, mode, saveIntent, selectedItemId]);
 
   const saveImageOutput = async (overwrite: boolean) => {
     if (!vault || !relativePath || !image || !saveIntent) return;
