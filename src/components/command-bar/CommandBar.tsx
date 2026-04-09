@@ -160,6 +160,16 @@ interface Action {
   onSelect: (ctx: RenderCtx, query: string) => void | Promise<void>;
 }
 
+const SETTINGS_SECTIONS = [
+  { id: 'appearance', label: 'Appearance', keywords: ['theme', 'accent', 'color', 'look'] },
+  { id: 'editor', label: 'Editor', keywords: ['font', 'typing', 'delete', 'notes'] },
+  { id: 'display', label: 'Display', keywords: ['scale', 'motion', 'animation', 'ui'] },
+  { id: 'calendar', label: 'Calendar', keywords: ['date', 'week', 'format'] },
+  { id: 'profile', label: 'Profile', keywords: ['name', 'identity', 'presence', 'user'] },
+  { id: 'about', label: 'About', keywords: ['version', 'update', 'app'] },
+  { id: 'shortcuts', label: 'Shortcuts', keywords: ['keyboard', 'hotkeys', 'bindings'] },
+] as const;
+
 const ACTIONS: Action[] = [
   {
     id: 'graph',
@@ -317,6 +327,11 @@ function renderSearch(mode: { type: 'search'; query: string }, ctx: RenderCtx) {
   }
 
   const q = mode.query.toLowerCase();
+  const settingMatches = SETTINGS_SECTIONS
+    .filter((section) =>
+      `${section.label} settings ${section.keywords.join(' ')}`.toLowerCase().includes(q)
+    )
+    .slice(0, 6);
   const fileMatches = files
     .filter((file) =>
       file.name.toLowerCase().includes(q)
@@ -325,12 +340,35 @@ function renderSearch(mode: { type: 'search'; query: string }, ctx: RenderCtx) {
     .filter((file) => !searchResults.some((result) => result.relativePath === file.relativePath))
     .slice(0, 8);
 
-  if (!searchResults.length && !fileMatches.length) {
+  if (!searchResults.length && !fileMatches.length && !settingMatches.length) {
     return <CommandEmpty>No results for "{mode.query}"</CommandEmpty>;
   }
 
   return (
     <>
+      {settingMatches.length > 0 && (
+        <CommandGroup heading="Settings">
+          {settingMatches.map((section) => (
+            <CommandItem
+              key={section.id}
+              value={`settings-${section.id}${section.label}`}
+              onSelect={() => {
+                ctx.openSettings();
+                window.setTimeout(() => {
+                  window.dispatchEvent(new CustomEvent('settings:open-tab', { detail: { tab: section.id } }));
+                }, 0);
+                ctx.close();
+              }}
+              className="gap-2"
+            >
+              <Settings className="size-4 shrink-0 opacity-60" />
+              <span className="flex-1">{section.label}</span>
+              <span className="shrink-0 text-[11px] text-muted-foreground/60">Settings</span>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      )}
+      {settingMatches.length > 0 && (searchResults.length > 0 || fileMatches.length > 0) && <CommandSeparator />}
       {searchResults.length > 0 && (
         <CommandGroup heading="Notes">
           {searchResults.map((r) => {

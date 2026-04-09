@@ -113,6 +113,16 @@ export default function SettingsModal() {
   const [name, setName] = useState(myUserName);
   const [appVersion, setAppVersion] = useState<string>('…');
   useEffect(() => { getAppVersion().then(setAppVersion).catch(() => setAppVersion('?')); }, []);
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const requestedTab = (event as CustomEvent<{ tab?: TabId }>).detail?.tab;
+      if (!requestedTab || !TABS.some((tab) => tab.id === requestedTab)) return;
+      setActiveTab(requestedTab);
+    };
+
+    window.addEventListener('settings:open-tab', handler);
+    return () => window.removeEventListener('settings:open-tab', handler);
+  }, []);
 
   const normalizedSettingsQuery = settingsQuery.trim().toLowerCase();
   const filteredTabs = normalizedSettingsQuery
