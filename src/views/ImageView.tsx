@@ -56,6 +56,7 @@ import {
 } from '../components/ui/select';
 import {
   DocumentTopBar,
+  documentTopBarGroupClass,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
@@ -1277,38 +1278,41 @@ export default function ImageView({ relativePath }: Props) {
         }
         secondary={
           <>
-          {(['view', 'additive', 'permanent'] as const).map((nextMode) => (
-            <Button
-              key={nextMode}
-              size="sm"
-              variant={mode === nextMode ? 'default' : 'outline'}
-              className="h-8 app-motion-fast"
-              onClick={() => setMode(nextMode)}
-            >
-              {nextMode === 'view' ? 'View' : nextMode === 'additive' ? 'Additive' : 'Permanent'}
-            </Button>
-          ))}
+          <div className={documentTopBarGroupClass}>
+            {(['view', 'additive', 'permanent'] as const).map((nextMode) => (
+              <Button
+                key={nextMode}
+                size="sm"
+                variant="ghost"
+                className={cn('h-8 px-2.5 text-xs app-motion-fast', mode === nextMode && 'bg-accent text-accent-foreground')}
+                onClick={() => setMode(nextMode)}
+              >
+                {nextMode === 'view' ? 'View' : nextMode === 'additive' ? 'Additive' : 'Permanent'}
+              </Button>
+            ))}
+          </div>
 
           {mode === 'additive' && (
             <>
-              <div className="mx-1 h-6 w-px bg-border/50" />
-              {([
-                ['select', PencilLine, 'Select'],
-                ['text', Type, 'Text'],
-                ['arrow', MoveUpRight, 'Arrow'],
-                ['pen', Paintbrush, 'Freehand'],
-              ] as const).map(([nextTool, Icon, label]) => (
-                <Button
-                  key={nextTool}
-                  size="sm"
-                  variant={tool === nextTool ? 'default' : 'outline'}
-                  className="h-8 app-motion-fast"
-                  onClick={() => setTool(nextTool)}
-                >
-                  <Icon size={14} className="mr-1.5" />
-                  {label}
-                </Button>
-              ))}
+              <div className={documentTopBarGroupClass}>
+                {([
+                  ['select', PencilLine, 'Select'],
+                  ['text', Type, 'Text'],
+                  ['arrow', MoveUpRight, 'Arrow'],
+                  ['pen', Paintbrush, 'Freehand'],
+                ] as const).map(([nextTool, Icon, label]) => (
+                  <Button
+                    key={nextTool}
+                    size="sm"
+                    variant="ghost"
+                    className={cn('h-8 gap-1.5 px-2.5 text-xs app-motion-fast', tool === nextTool && 'bg-accent text-accent-foreground')}
+                    onClick={() => setTool(nextTool)}
+                  >
+                    <Icon size={14} />
+                    {label}
+                  </Button>
+                ))}
+              </div>
 
               <label className="ml-2 flex items-center gap-2 rounded-lg border border-border/50 bg-background/40 px-2 py-1 text-[11px]">
                 <span>Color</span>
@@ -1519,33 +1523,36 @@ export default function ImageView({ relativePath }: Props) {
             </>
           )}
 
-          <div className="mx-1 h-6 w-px bg-border/50" />
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 px-2"
-            onClick={() => setZoomPercent((current) => Math.max(25, current - 25))}
-            disabled={zoomPercent <= 25}
-          >
-            <Minus size={14} />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 min-w-18"
-            onClick={() => setZoomPercent(100)}
-          >
-            {zoomPercent}%
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 px-2"
-            onClick={() => setZoomPercent((current) => Math.min(400, current + 25))}
-            disabled={zoomPercent >= 400}
-          >
-            <Plus size={14} />
-          </Button>
+          <div className={documentTopBarGroupClass}>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-8"
+              onClick={() => setZoomPercent((current) => Math.max(25, current - 25))}
+              disabled={zoomPercent <= 25}
+              title="Zoom out"
+            >
+              <Minus size={14} />
+            </Button>
+            <button
+              type="button"
+              onClick={() => setZoomPercent(100)}
+              className="min-w-[86px] rounded-md px-2 text-center text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              title="Reset zoom to 100%"
+            >
+              {zoomPercent}%
+            </button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-8"
+              onClick={() => setZoomPercent((current) => Math.min(400, current + 25))}
+              disabled={zoomPercent >= 400}
+              title="Zoom in"
+            >
+              <Plus size={14} />
+            </Button>
+          </div>
           </>
         }
       />
