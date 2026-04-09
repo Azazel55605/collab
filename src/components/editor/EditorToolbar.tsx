@@ -22,7 +22,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
-import type { RefObject } from 'react';
+import { useState, type MouseEvent, type RefObject } from 'react';
 import type { MarkdownEditorHandle } from './MarkdownEditor';
 import {
   DocumentTopBar,
@@ -30,6 +30,13 @@ import {
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../layout/DocumentTopBar';
+import { TableEditorDialog } from './TableEditorDialog';
+import {
+  createEmptyTable,
+  parseMarkdownTable,
+  renderMarkdownTable,
+  type MarkdownTableModel,
+} from './tableMarkdown';
 
 interface EditorToolbarProps {
   relativePath: string;
@@ -118,54 +125,141 @@ function TBtn({ icon, label, onClick }: { icon: React.ReactNode; label: string; 
   );
 }
 
+function ToolBtn({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onClick}
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          {icon}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
   const ed = () => editorRef.current;
+  const [tableDialogOpen, setTableDialogOpen] = useState(false);
+  const [tableDialogMode, setTableDialogMode] = useState<'insert' | 'edit'>('insert');
+  const [tableModel, setTableModel] = useState<MarkdownTableModel>(createEmptyTable());
+  const [tableReplaceRange, setTableReplaceRange] = useState<{ from: number; to: number } | null>(null);
+
+  const openVisualTableEditor = () => {
+    const currentTable = ed()?.getTableAtCursor();
+    if (currentTable) {
+      const parsed = parseMarkdownTable(currentTable.text);
+      if (parsed) {
+        setTableModel(parsed);
+        setTableReplaceRange({ from: currentTable.from, to: currentTable.to });
+        setTableDialogMode('edit');
+        setTableDialogOpen(true);
+        return;
+      }
+    }
+
+    setTableModel(createEmptyTable());
+    setTableReplaceRange(null);
+    setTableDialogMode('insert');
+    setTableDialogOpen(true);
+  };
+
+  const applyVisualTable = (nextModel: MarkdownTableModel) => {
+    const markdown = renderMarkdownTable(nextModel);
+    if (tableReplaceRange) {
+      ed()?.replaceRange(tableReplaceRange.from, tableReplaceRange.to, markdown);
+    } else {
+      ed()?.insertSnippet(markdown);
+    }
+    setTableDialogOpen(false);
+    setTableReplaceRange(null);
+  };
 
   return (
-    <DocumentTopBar
-      title={getDocumentBaseName(relativePath, 'Note')}
-      subtitle={getDocumentFolderPath(relativePath)}
-      icon={<FileText size={15} />}
-      secondary={
-        <>
-          <div className={documentTopBarGroupClass}>
-            {INLINE.map((b) => (
-              <TBtn
-                key={b.label}
-                icon={b.icon}
-                label={b.label}
-                onClick={() => ed()?.insertAround(b.before, b.after, b.placeholder)}
-              />
-            ))}
-          </div>
+    <>
+      <DocumentTopBar
+        title={getDocumentBaseName(relativePath, 'Note')}
+        subtitle={getDocumentFolderPath(relativePath)}
+        icon={<FileText size={15} />}
+        secondary={
+          <>
+            <div className={documentTopBarGroupClass}>
+              {INLINE.map((b) => (
+                <TBtn
+                  key={b.label}
+                  icon={b.icon}
+                  label={b.label}
+                  onClick={() => ed()?.insertAround(b.before, b.after, b.placeholder)}
+                />
+              ))}
+            </div>
 
-          <div className={documentTopBarGroupClass}>
-            {BLOCK.map((b) => (
-              <TBtn
-                key={b.label}
-                icon={b.icon}
-                label={b.label}
-                onClick={() => ed()?.insertLine(b.prefix)}
-              />
-            ))}
-          </div>
+            <div className={documentTopBarGroupClass}>
+              {BLOCK.map((b) => (
+                <TBtn
+                  key={b.label}
+                  icon={b.icon}
+                  label={b.label}
+                  onClick={() => ed()?.insertLine(b.prefix)}
+                />
+              ))}
+            </div>
 
-          <div className={documentTopBarGroupClass}>
-            {INSERT.map((b) => (
-              <TBtn
-                key={b.label}
-                icon={b.icon}
-                label={b.label}
-                onClick={() => ed()?.insertSnippet(b.text)}
-              />
-            ))}
-          </div>
+            <div className={documentTopBarGroupClass}>
+              {INSERT.map((b) => (
+                b.label === 'Table' ? (
+                  <ToolBtn
+                    key={b.label}
+                    icon={b.icon}
+                    label="Table (Shift-click for visual editor)"
+                    onClick={(event) => {
+                      if (event.shiftKey) {
+                        openVisualTableEditor();
+                        return;
+                      }
+                      ed()?.insertSnippet(b.text);
+                    }}
+                  />
+                ) : (
+                  <TBtn
+                    key={b.label}
+                    icon={b.icon}
+                    label={b.label}
+                    onClick={() => ed()?.insertSnippet(b.text)}
+                  />
+                )
+              ))}
+            </div>
 
-          <div className={documentTopBarGroupClass}>
-            <TagsBtn />
-          </div>
-        </>
-      }
-    />
+            <div className={documentTopBarGroupClass}>
+              <TagsBtn />
+            </div>
+          </>
+        }
+      />
+
+      <TableEditorDialog
+        open={tableDialogOpen}
+        initialValue={tableModel}
+        mode={tableDialogMode}
+        onOpenChange={(open) => {
+          setTableDialogOpen(open);
+          if (!open) setTableReplaceRange(null);
+        }}
+        onApply={applyVisualTable}
+      />
+    </>
   );
 }

@@ -56,6 +56,8 @@ export interface MarkdownEditorHandle {
   insertLine: (prefix: string) => void;
   /** Insert arbitrary text at cursor / replace selection. */
   insertSnippet: (text: string) => void;
+  replaceRange: (from: number, to: number, text: string) => void;
+  getTableAtCursor: () => { from: number; to: number; text: string } | null;
 }
 
 interface MarkdownEditorProps {
@@ -102,6 +104,36 @@ function getDroppedFilePaths(event: DragEvent): string[] {
       }
     })
     .filter((path) => path.length > 0);
+}
+
+function isMarkdownTableLine(text: string) {
+  return /^\s*\|.*\|\s*$/.test(text);
+}
+
+function getTableRangeAtCursor(view: EditorView) {
+  const { from } = view.state.selection.main;
+  const currentLine = view.state.doc.lineAt(from);
+  if (!isMarkdownTableLine(currentLine.text)) return null;
+
+  let startLine = currentLine.number;
+  let endLine = currentLine.number;
+
+  while (startLine > 1 && isMarkdownTableLine(view.state.doc.line(startLine - 1).text)) {
+    startLine -= 1;
+  }
+  while (endLine < view.state.doc.lines && isMarkdownTableLine(view.state.doc.line(endLine + 1).text)) {
+    endLine += 1;
+  }
+
+  if (endLine - startLine + 1 < 2) return null;
+
+  const firstLine = view.state.doc.line(startLine);
+  const lastLine = view.state.doc.line(endLine);
+  return {
+    from: firstLine.from,
+    to: lastLine.to,
+    text: view.state.sliceDoc(firstLine.from, lastLine.to),
+  };
 }
 
 // ─── Theme factory ────────────────────────────────────────────────────────────
@@ -481,6 +513,19 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         const { from, to } = view.state.selection.main;
         view.dispatch({ changes: { from, to, insert: text } });
         view.focus();
+      },
+
+      replaceRange(from, to, text) {
+        const view = viewRef.current;
+        if (!view) return;
+        view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length } });
+        view.focus();
+      },
+
+      getTableAtCursor() {
+        const view = viewRef.current;
+        if (!view) return null;
+        return getTableRangeAtCursor(view);
       },
     }));
 
