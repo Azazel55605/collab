@@ -4,7 +4,7 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   MoreHorizontal, Plus, Trash2, Pencil, CheckCircle2,
   GripHorizontal, ArrowUpDown, ArrowUp, ArrowDown,
-  CalendarOff, Check, Tag, X, FolderInput,
+  CalendarOff, Check, Tag, X, FolderInput, Sparkles,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useKanbanContext } from '../../views/KanbanPage';
@@ -176,6 +176,15 @@ export default function KanbanColumnView({ column }: Props) {
       ...prev,
       columns: prev.columns.map(c =>
         c.id !== column.id ? c : { ...c, defaultTags: (c.defaultTags ?? []).filter(t => t !== tag) },
+      ),
+    }));
+  }
+
+  function toggleAutoApplyDefaultTagsOnMove() {
+    updateBoard(prev => ({
+      ...prev,
+      columns: prev.columns.map(c =>
+        c.id !== column.id ? c : { ...c, autoApplyDefaultTagsOnMove: !c.autoApplyDefaultTagsOnMove },
       ),
     }));
   }
@@ -373,6 +382,11 @@ export default function KanbanColumnView({ column }: Props) {
               <CheckCircle2 size={12} className="shrink-0" style={{ color: column.color ?? '#64748b', opacity: 0.7 }} />
             </span>
           )}
+          {column.autoApplyDefaultTagsOnMove && (column.defaultTags?.length ?? 0) > 0 && (
+            <span title="Auto-applies default tags on drop">
+              <Sparkles size={12} className="shrink-0 text-primary/70" />
+            </span>
+          )}
 
           <span className="text-[11px] text-muted-foreground shrink-0 tabular-nums">
             {column.cards.length}
@@ -452,6 +466,14 @@ export default function KanbanColumnView({ column }: Props) {
                   <span className="ml-auto text-[10px] text-primary/70">{column.defaultTags!.length}</span>
                 )}
               </DropdownMenuItem>
+
+              {(column.defaultTags?.length ?? 0) > 0 && (
+                <DropdownMenuItem onClick={toggleAutoApplyDefaultTagsOnMove} className="text-xs">
+                  <Sparkles size={11} className={cn('mr-2', column.autoApplyDefaultTagsOnMove ? 'text-primary/70' : 'text-muted-foreground')} />
+                  Auto-apply tags on drop
+                  {column.autoApplyDefaultTagsOnMove && <span className="ml-auto text-[10px] text-primary/70">On</span>}
+                </DropdownMenuItem>
+              )}
 
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -542,7 +564,39 @@ export default function KanbanColumnView({ column }: Props) {
           <div className="px-4 py-3 flex flex-col gap-3">
             <p className="text-xs text-muted-foreground/70">
               These tags are automatically added to every new card created in this column.
+              Cards moved here can also apply any missing tags, either by prompt or automatically.
             </p>
+
+            {(column.defaultTags?.length ?? 0) > 0 && (
+              <button
+                type="button"
+                onClick={toggleAutoApplyDefaultTagsOnMove}
+                className="flex items-center justify-between rounded-lg border border-border/40 bg-card/35 px-3 py-2 text-left transition-colors app-motion-fast hover:bg-accent/30"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <Sparkles size={13} className="text-primary/70" />
+                    Auto-apply on move
+                  </div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    Apply missing default tags automatically when a card is dropped into this column.
+                  </div>
+                </div>
+                <span
+                  className={cn(
+                    'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors app-motion-base',
+                    column.autoApplyDefaultTagsOnMove ? 'bg-primary' : 'bg-muted-foreground/30',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform app-motion-base',
+                      column.autoApplyDefaultTagsOnMove ? 'translate-x-4' : 'translate-x-0',
+                    )}
+                  />
+                </span>
+              </button>
+            )}
 
             {/* Current tags */}
             {(column.defaultTags?.length ?? 0) > 0 && (

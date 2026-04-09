@@ -12,8 +12,15 @@ import { useCollabStore } from '../../store/collabStore';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore, formatDate } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
-import { getCardAttachmentPaths, type KanbanCard, type KanbanComment, type ChecklistItem } from '../../types/kanban';
-import { Dialog, DialogContent } from '../ui/dialog';
+import {
+  getCardAttachmentPaths,
+  getMissingColumnDefaultTags,
+  mergeUniqueTags,
+  type KanbanCard,
+  type KanbanComment,
+  type ChecklistItem,
+} from '../../types/kanban';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Calendar as CalendarUI } from '../ui/calendar';
 import {
@@ -23,6 +30,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '../ui/select';
+import { Button } from '../ui/button';
 import type { NoteFile } from '../../types/vault';
 
 // ── Priority config ────────────────────────────────────────────────────────
@@ -44,6 +52,12 @@ interface Props {
   card: KanbanCard;
   columnId: string;
   onClose: () => void;
+}
+
+interface MoveTagsPromptState {
+  destinationColumnId: string;
+  destinationColumnTitle: string;
+  missingTags: string[];
 }
 
 function collectVaultFiles(nodes: NoteFile[]): NoteFile[] {
@@ -97,6 +111,7 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
   const [cardPickerOpen,  setCardPickerOpen]   = useState(false);
   const [confirmDelete,   setConfirmDelete]    = useState(false);
   const [currentColumnId, setCurrentColumnId] = useState(columnId);
+  const [moveTagsPrompt, setMoveTagsPrompt] = useState<MoveTagsPromptState | null>(null);
   const currentColIdRef = useRef(columnId); // kept in sync so flushDraft closure always has the right id
 
   // Auto-resize title textarea
@@ -152,25 +167,76 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
   function moveToColumn(newColId: string) {
     if (newColId === currentColIdRef.current) return;
     const srcColId = currentColIdRef.current;
+    const destinationColumn = board.columns.find((col) => col.id === newColId);
     // Cancel any pending draft flush to avoid writing to the old column after the move
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    let promptRequest: MoveTagsPromptState | null = null;
     updateBoard(prev => {
       const srcCol = prev.columns.find(c => c.id === srcColId);
       const dstCol = prev.columns.find(c => c.id === newColId);
       if (!srcCol || !dstCol) return prev;
       const card = srcCol.cards.find(c => c.id === draft.id);
       if (!card) return prev;
+      const missingTags = getMissingColumnDefaultTags(draft, dstCol);
+      const shouldAutoApplyTags = dstCol.autoApplyDefaultTagsOnMove;
+      if (missingTags.length > 0 && !shouldAutoApplyTags) {
+        promptRequest = {
+          destinationColumnId: dstCol.id,
+          destinationColumnTitle: dstCol.title,
+          missingTags,
+        };
+      }
+      const movedCard = {
+        ...draft,
+        isDone: dstCol.autoComplete ? true : draft.isDone,
+        tags: shouldAutoApplyTags ? mergeUniqueTags(draft.tags, missingTags) : draft.tags,
+      };
       return {
         ...prev,
         columns: prev.columns.map(col => {
           if (col.id === srcColId) return { ...col, cards: col.cards.filter(c => c.id !== draft.id) };
-          if (col.id === newColId) return { ...col, cards: [...col.cards, { ...draft }] };
+          if (col.id === newColId) return { ...col, cards: [...col.cards, movedCard] };
           return col;
         }),
       };
     });
     currentColIdRef.current = newColId;
     setCurrentColumnId(newColId);
+    setDraft((prev) => {
+      const next = {
+        ...prev,
+        isDone: destinationColumn?.autoComplete ? true : prev.isDone,
+        tags: destinationColumn?.autoApplyDefaultTagsOnMove
+          ? mergeUniqueTags(prev.tags, getMissingColumnDefaultTags(prev, destinationColumn))
+          : prev.tags,
+      };
+      storeUpdateDraft(next);
+      return next;
+    });
+    if (promptRequest) {
+      setMoveTagsPrompt(promptRequest);
+    }
+  }
+
+  function applyPromptTags(enableAutoApply: boolean) {
+    if (!moveTagsPrompt) return;
+    updateBoard((prev) => ({
+      ...prev,
+      columns: prev.columns.map((column) => {
+        if (column.id !== moveTagsPrompt.destinationColumnId) return column;
+        return {
+          ...column,
+          autoApplyDefaultTagsOnMove: enableAutoApply ? true : column.autoApplyDefaultTagsOnMove,
+          cards: column.cards.map((entry) => (
+            entry.id !== draft.id
+              ? entry
+              : { ...entry, tags: mergeUniqueTags(entry.tags, moveTagsPrompt.missingTags) }
+          )),
+        };
+      }),
+    }));
+    setDraft((prev) => ({ ...prev, tags: mergeUniqueTags(prev.tags, moveTagsPrompt.missingTags) }));
+    setMoveTagsPrompt(null);
   }
 
   function toggleArchive() {
@@ -911,6 +977,45 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
           </div>
         </div>
       </DialogContent>
+
+      {moveTagsPrompt && (
+        <Dialog open onOpenChange={() => setMoveTagsPrompt(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Apply column tags?</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 text-sm">
+              <p className="text-muted-foreground">
+                <span className="font-medium text-foreground">{draft.title}</span> was moved to{' '}
+                <span className="font-medium text-foreground">{moveTagsPrompt.destinationColumnTitle}</span>.
+              </p>
+              <p className="text-muted-foreground">
+                This column has default tags that are not yet on the card:
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {moveTagsPrompt.missingTags.map((tag) => (
+                  <span key={tag} className="rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary/80">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <DialogFooter className="gap-2 sm:justify-between">
+              <Button variant="ghost" onClick={() => setMoveTagsPrompt(null)}>
+                Not now
+              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => applyPromptTags(false)}>
+                  Apply once
+                </Button>
+                <Button onClick={() => applyPromptTags(true)}>
+                  Always apply here
+                </Button>
+              </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </Dialog>
   );
 }

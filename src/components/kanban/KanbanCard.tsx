@@ -10,7 +10,13 @@ import { cn } from '../../lib/utils';
 import { useKanbanContext } from '../../views/KanbanPage';
 import { useUiStore, formatDate, type DateFormat } from '../../store/uiStore';
 import { useKanbanStore } from '../../store/kanbanStore';
-import { getCardAttachmentPaths, type KanbanCard, type KanbanColumn } from '../../types/kanban';
+import {
+  getCardAttachmentPaths,
+  getMissingColumnDefaultTags,
+  mergeUniqueTags,
+  type KanbanCard,
+  type KanbanColumn,
+} from '../../types/kanban';
 import type { KnownUser } from '../../types/vault';
 import CardDialog from './CardDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -214,7 +220,7 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
   const stateRef = useRef({ card, board, columnId, isOverlay, updateBoard, setDestPicker });
   stateRef.current = { card, board, columnId, isOverlay, updateBoard, setDestPicker };
 
-  const moveCardToDest = useCallback((destColId: string) => {
+  const moveCardToColumn = useCallback((destColId: string, options?: { forceDone?: boolean; autoApplyTags?: boolean }) => {
     const { card, columnId, updateBoard, setDestPicker } = stateRef.current;
     updateBoard(prev => {
       const srcCol = prev.columns.find(c => c.id === columnId);
@@ -224,7 +230,30 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
       if (idx === -1) return prev;
       const srcCards = [...srcCol.cards];
       const [moved] = srcCards.splice(idx, 1);
-      const dstCards = [...dstCol.cards, { ...moved, isDone: true }];
+      const missingTags = getMissingColumnDefaultTags(moved, dstCol);
+      const shouldAutoApplyTags = options?.autoApplyTags || dstCol.autoApplyDefaultTagsOnMove;
+      const shouldMarkDone = options?.forceDone || dstCol.autoComplete ? true : moved.isDone;
+      const movedCard = {
+        ...moved,
+        isDone: shouldMarkDone,
+        tags: shouldAutoApplyTags ? mergeUniqueTags(moved.tags, missingTags) : moved.tags,
+      };
+      const dstCards = [...dstCol.cards, movedCard];
+
+      if (missingTags.length > 0 && !shouldAutoApplyTags) {
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('kanban:prompt-move-tags', {
+            detail: {
+              cardId: moved.id,
+              cardTitle: moved.title,
+              columnId: dstCol.id,
+              columnTitle: dstCol.title,
+              missingTags,
+            },
+          }));
+        }, 0);
+      }
+
       return {
         ...prev,
         columns: prev.columns.map(c => {
@@ -244,7 +273,7 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
     const willBeDone = !card.isDone;
     if (willBeDone) {
       const dests = board.columns.filter(c => c.isDoneDestination && c.id !== columnId);
-      if (dests.length === 1) { moveCardToDest(dests[0].id); return; }
+      if (dests.length === 1) { moveCardToColumn(dests[0].id, { forceDone: true }); return; }
       if (dests.length > 1)  { setDestPicker(dests); return; }
     }
     updateBoard(prev => ({
@@ -256,7 +285,7 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
         },
       ),
     }));
-  }, [moveCardToDest]); // stable
+  }, [moveCardToColumn]); // stable
 
   const duplicateCard = useCallback(() => {
     const { card, columnId, updateBoard } = stateRef.current;
@@ -345,7 +374,7 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
           const willBeDone = !card.isDone;
           if (willBeDone) {
             const dests = board.columns.filter(c => c.isDoneDestination && c.id !== columnId);
-            if (dests.length === 1) { moveCardToDest(dests[0].id); return; }
+            if (dests.length === 1) { moveCardToColumn(dests[0].id, { forceDone: true }); return; }
             if (dests.length > 1)  { setDestPicker(dests); return; }
           }
           const { updateBoard } = stateRef.current;
@@ -368,9 +397,9 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
             <ContextMenuSubTrigger className="text-xs">
               <FolderInput size={11} className="mr-2" /> Move to column
             </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-44">
-              {board.columns.filter(c => c.id !== columnId).map(col => (
-                <ContextMenuItem key={col.id} className="text-xs" onSelect={() => moveCardToDest(col.id)}>
+              <ContextMenuSubContent className="w-44">
+                {board.columns.filter(c => c.id !== columnId).map(col => (
+                <ContextMenuItem key={col.id} className="text-xs" onSelect={() => moveCardToColumn(col.id)}>
                   <div className="w-2 h-2 rounded-full mr-2 shrink-0" style={{ backgroundColor: col.color ?? '#64748b' }} />
                   {col.title}
                 </ContextMenuItem>
@@ -415,7 +444,7 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
               {destPicker.map(col => (
                 <button
                   key={col.id}
-                  onClick={() => moveCardToDest(col.id)}
+                  onClick={() => moveCardToColumn(col.id, { forceDone: true })}
                   className="flex items-center gap-2.5 px-4 py-2 text-sm text-left hover:bg-accent/40 transition-colors"
                 >
                   <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: col.color ?? '#64748b' }} />
@@ -447,6 +476,7 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
           </DialogContent>
         </Dialog>
       )}
+
     </>
   );
 }

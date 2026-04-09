@@ -20,13 +20,28 @@ import KanbanColumnView from './KanbanColumn';
 import KanbanCardView from './KanbanCard';
 import CalendarView from './CalendarView';
 import TimelineView from './TimelineView';
-import type { KanbanCard, KanbanColumn } from '../../types/kanban';
+import {
+  getMissingColumnDefaultTags,
+  mergeUniqueTags,
+  type KanbanCard,
+  type KanbanColumn,
+} from '../../types/kanban';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Button } from '../ui/button';
 import {
   DocumentTopBar,
   documentTopBarGroupClass,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../layout/DocumentTopBar';
+
+interface MoveTagsPromptState {
+  cardId: string;
+  cardTitle: string;
+  columnId: string;
+  columnTitle: string;
+  missingTags: string[];
+}
 
 // ── Archive panel ─────────────────────────────────────────────────────────────
 
@@ -112,6 +127,18 @@ export default function KanbanBoardView() {
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColTitle, setNewColTitle] = useState('');
   const [showArchive, setShowArchive] = useState(false);
+  const [moveTagsPrompt, setMoveTagsPrompt] = useState<MoveTagsPromptState | null>(null);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<MoveTagsPromptState>).detail;
+      if (!detail) return;
+      setMoveTagsPrompt(detail);
+    };
+
+    window.addEventListener('kanban:prompt-move-tags', handler);
+    return () => window.removeEventListener('kanban:prompt-move-tags', handler);
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -249,6 +276,8 @@ export default function KanbanBoardView() {
     // We use a functional update so we read the latest state regardless.
     const overIsColumn = board.columns.some(c => c.id === overId);
 
+    let promptRequest: MoveTagsPromptState | null = null;
+
     updateBoard(prev => {
       const srcCol = prev.columns.find(col => col.cards.some(c => c.id === draggedId));
       if (!srcCol) return prev;
@@ -267,12 +296,38 @@ export default function KanbanBoardView() {
       const wasCrossColumn = startColId !== null && startColId !== dstCol.id;
       const autoComplete   = dstCol.autoComplete ?? false;
 
+      const finalizeMovedCard = (card: KanbanCard) => {
+        if (!wasCrossColumn) return card;
+
+        const missingTags = getMissingColumnDefaultTags(card, dstCol);
+        if (missingTags.length === 0) {
+          return autoComplete ? { ...card, isDone: true } : card;
+        }
+
+        if (dstCol.autoApplyDefaultTagsOnMove) {
+          return {
+            ...card,
+            isDone: autoComplete ? true : card.isDone,
+            tags: mergeUniqueTags(card.tags, missingTags),
+          };
+        }
+
+        promptRequest = {
+          cardId: card.id,
+          cardTitle: card.title,
+          columnId: dstCol.id,
+          columnTitle: dstCol.title,
+          missingTags,
+        };
+        return autoComplete ? { ...card, isDone: true } : card;
+      };
+
       if (srcCol.id === dstCol.id) {
         // Card is already in the right column (moved by onDragOver) — final sort only.
         const reordered = arrayMove(srcCol.cards, srcIdx, dstIdx);
-        const cards = wasCrossColumn && autoComplete
-          ? reordered.map(c => c.id === draggedId ? { ...c, isDone: true } : c)
-          : reordered;
+        const cards = reordered.map((card) => (
+          card.id === draggedId ? finalizeMovedCard(card) : card
+        ));
         return {
           ...prev,
           columns: prev.columns.map(col => col.id !== srcCol.id ? col : { ...col, cards }),
@@ -283,7 +338,7 @@ export default function KanbanBoardView() {
       const srcCards = [...srcCol.cards];
       const [card] = srcCards.splice(srcIdx, 1);
       const dstCards = [...dstCol.cards];
-      dstCards.splice(dstIdx, 0, autoComplete ? { ...card, isDone: true } : card);
+      dstCards.splice(dstIdx, 0, finalizeMovedCard(card));
       return {
         ...prev,
         columns: prev.columns.map(c => {
@@ -293,6 +348,10 @@ export default function KanbanBoardView() {
         }),
       };
     });
+
+    if (promptRequest) {
+      setMoveTagsPrompt(promptRequest);
+    }
   }
 
   function addColumn() {
@@ -406,6 +465,25 @@ export default function KanbanBoardView() {
       document.removeEventListener('keydown', handleKeyDown, { capture: true } as EventListenerOptions);
     };
   }, [addingColumn, view]);
+
+  const applyPromptTags = useCallback((prompt: MoveTagsPromptState, enableAutoApply: boolean) => {
+    updateBoard((prev) => ({
+      ...prev,
+      columns: prev.columns.map((column) => {
+        if (column.id !== prompt.columnId) return column;
+        return {
+          ...column,
+          autoApplyDefaultTagsOnMove: enableAutoApply ? true : column.autoApplyDefaultTagsOnMove,
+          cards: column.cards.map((card) => (
+            card.id !== prompt.cardId
+              ? card
+              : { ...card, tags: mergeUniqueTags(card.tags, prompt.missingTags) }
+          )),
+        };
+      }),
+    }));
+    setMoveTagsPrompt(null);
+  }, [updateBoard]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -598,6 +676,50 @@ export default function KanbanBoardView() {
         {/* Archive panel */}
         {showArchive && <ArchivePanel />}
       </div>}
+
+      <Dialog open={moveTagsPrompt !== null} onOpenChange={(open) => !open && setMoveTagsPrompt(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Apply column tags?</DialogTitle>
+          </DialogHeader>
+          {moveTagsPrompt && (
+            <div className="space-y-3 text-sm">
+              <p className="text-muted-foreground">
+                <span className="text-foreground font-medium">{moveTagsPrompt.cardTitle}</span> was moved to{' '}
+                <span className="text-foreground font-medium">{moveTagsPrompt.columnTitle}</span>.
+              </p>
+              <p className="text-muted-foreground">
+                This column has default tags that are not yet on the card:
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {moveTagsPrompt.missingTags.map((tag) => (
+                  <span key={tag} className="rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary/80">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button variant="ghost" onClick={() => setMoveTagsPrompt(null)}>
+              Not now
+            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => moveTagsPrompt && applyPromptTags(moveTagsPrompt, false)}
+              >
+                Apply once
+              </Button>
+              <Button
+                onClick={() => moveTagsPrompt && applyPromptTags(moveTagsPrompt, true)}
+              >
+                Always apply here
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

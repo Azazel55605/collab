@@ -44,11 +44,20 @@ export interface KanbanColumn {
   hideFromTimeline?: boolean; // exclude cards from Calendar and Timeline views
   isDoneDestination?: boolean; // done cards from other columns are moved here
   defaultTags?: string[];     // tags automatically assigned to new cards
+  autoApplyDefaultTagsOnMove?: boolean; // apply missing default tags automatically when cards are dropped here
   cards: KanbanCard[];
 }
 
 export interface KanbanBoard {
   columns: KanbanColumn[];
+}
+
+export function mergeUniqueTags(existingTags: string[], incomingTags: string[]) {
+  return [...existingTags, ...incomingTags.filter((tag) => !existingTags.includes(tag))];
+}
+
+export function getMissingColumnDefaultTags(card: Pick<KanbanCard, 'tags'>, column: Pick<KanbanColumn, 'defaultTags'>) {
+  return (column.defaultTags ?? []).filter((tag) => !card.tags.includes(tag));
 }
 
 export function getCardAttachmentPaths(card: Pick<KanbanCard, 'relativePath' | 'attachmentPaths'>): string[] {
