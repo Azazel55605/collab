@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
-import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist';
+import { getDocument, GlobalWorkerOptions, PixelsPerInch, RenderingCancelledException, TextLayer } from 'pdfjs-dist';
+import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import {
   ChevronLeft,
   ChevronRight,
@@ -31,6 +31,11 @@ const ZOOM_STEP = 0.1;
 const DEVICE_SCALE_LIMIT = 2;
 const WORKSPACE_PADDING = 40;
 const PAGE_GAP = 20;
+const PDF_CSS_SCALE = PixelsPerInch.PDF_TO_CSS_UNITS;
+
+interface WebKitGestureEvent extends Event {
+  scale: number;
+}
 
 function getBaseName(relativePath: string) {
   return relativePath.split('/').pop() ?? relativePath;
@@ -59,16 +64,33 @@ function useElementSize<T extends HTMLElement>(ref: { current: T | null }) {
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
-    const element = ref.current;
-    if (!element) return;
+    let observer: ResizeObserver | null = null;
+    let frame = 0;
 
-    const observer = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect;
-      setSize({ width, height });
-    });
+    const attach = () => {
+      const element = ref.current;
+      if (!element) {
+        frame = window.requestAnimationFrame(attach);
+        return;
+      }
 
-    observer.observe(element);
-    return () => observer.disconnect();
+      const rect = element.getBoundingClientRect();
+      setSize({ width: rect.width, height: rect.height });
+
+      observer = new ResizeObserver(([entry]) => {
+        const { width, height } = entry.contentRect;
+        setSize({ width, height });
+      });
+
+      observer.observe(element);
+    };
+
+    attach();
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
   }, [ref]);
 
   return size;
@@ -85,27 +107,38 @@ interface PdfPageCanvasProps {
 
 function PdfPageCanvas({ documentProxy, pageNumber, scale, rotation, active, onMeasured }: PdfPageCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const textLayerRef = useRef<HTMLDivElement | null>(null);
   const renderTaskRef = useRef<RenderTask | null>(null);
+  const textLayerTaskRef = useRef<TextLayer | null>(null);
+  const hasRenderedRef = useRef(false);
   const [rendering, setRendering] = useState(true);
+  const [hasRendered, setHasRendered] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!canvasRef.current) return;
+    if (!canvasRef.current || !textLayerRef.current) return;
 
     let cancelled = false;
-    setRendering(true);
+    if (!hasRenderedRef.current) setRendering(true);
     setRenderError(null);
-    renderTaskRef.current?.cancel();
+    if (renderTaskRef.current) {
+      void renderTaskRef.current.promise.catch(() => {});
+      renderTaskRef.current.cancel();
+    }
+    textLayerTaskRef.current?.cancel();
 
-    void documentProxy.getPage(pageNumber)
-      .then(async (page: PDFPageProxy) => {
-        if (cancelled || !canvasRef.current) return;
+    const renderPage = async () => {
+      try {
+        const page = await documentProxy.getPage(pageNumber);
+        if (cancelled || !canvasRef.current || !textLayerRef.current) return;
 
-        const viewport = page.getViewport({ scale, rotation });
+        const renderScale = scale * PDF_CSS_SCALE;
+        const viewport = page.getViewport({ scale: renderScale, rotation });
         const baseViewport = page.getViewport({ scale: 1, rotation: 0 });
         onMeasured(pageNumber, baseViewport.width, baseViewport.height);
 
         const canvas = canvasRef.current;
+        const textLayer = textLayerRef.current;
         const context = canvas.getContext('2d', { alpha: false });
         if (!context) throw new Error('Failed to get PDF canvas context');
 
@@ -116,28 +149,65 @@ function PdfPageCanvas({ documentProxy, pageNumber, scale, rotation, active, onM
         canvas.style.height = `${viewport.height}px`;
         context.setTransform(deviceScale, 0, 0, deviceScale, 0, 0);
 
+        textLayer.replaceChildren();
+        textLayer.style.width = `${viewport.width}px`;
+        textLayer.style.height = `${viewport.height}px`;
+        textLayer.style.setProperty('--scale-factor', String(renderScale));
+        textLayer.style.setProperty('--total-scale-factor', String(renderScale));
+        textLayer.style.setProperty('--user-unit', '1');
+
         const task = page.render({
           canvas,
           canvasContext: context,
           viewport,
         });
         renderTaskRef.current = task;
-        await task.promise;
-      })
-      .catch((error: unknown) => {
+
+        const textContent = await page.getTextContent();
+        if (cancelled || !textLayerRef.current) return;
+
+        const textLayerTask = new TextLayer({
+          container: textLayer,
+          textContentSource: textContent,
+          viewport,
+        });
+        textLayerTaskRef.current = textLayerTask;
+
+        await Promise.all([
+          task.promise.catch((error: unknown) => {
+            if (error instanceof RenderingCancelledException) return;
+            throw error;
+          }),
+          textLayerTask.render().catch((error: unknown) => {
+            if (error instanceof RenderingCancelledException) return;
+            throw error;
+          }),
+        ]);
+        if (!cancelled) {
+          hasRenderedRef.current = true;
+          setHasRendered(true);
+          setRendering(false);
+        }
+      } catch (error: unknown) {
         if (cancelled) return;
+        if (error instanceof RenderingCancelledException) return;
         const message = error instanceof Error ? error.message : String(error);
         if (message.toLowerCase().includes('rendering cancelled')) return;
         setRenderError(message);
-      })
-      .finally(() => {
-        if (!cancelled) setRendering(false);
-      });
+      }
+    };
+
+    void renderPage();
 
     return () => {
       cancelled = true;
-      renderTaskRef.current?.cancel();
+      if (renderTaskRef.current) {
+        void renderTaskRef.current.promise.catch(() => {});
+        renderTaskRef.current.cancel();
+      }
       renderTaskRef.current = null;
+      textLayerTaskRef.current?.cancel();
+      textLayerTaskRef.current = null;
     };
   }, [documentProxy, onMeasured, pageNumber, rotation, scale]);
 
@@ -150,7 +220,8 @@ function PdfPageCanvas({ documentProxy, pageNumber, scale, rotation, active, onM
       data-pdf-page={pageNumber}
     >
       <canvas ref={canvasRef} className="block bg-white" />
-      {rendering && (
+      <div ref={textLayerRef} className="pdf-text-layer textLayer" />
+      {rendering && !hasRendered && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/28 backdrop-blur-2px-webkit">
           <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-popover/90 px-3 py-2 text-sm text-muted-foreground shadow-lg">
             <Loader2 size={16} className="animate-spin" />
@@ -178,6 +249,7 @@ export default function PdfView({ relativePath }: Props) {
   const { vault } = useVaultStore();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const pageRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const pinchScaleRef = useRef(1);
   const containerSize = useElementSize(viewportRef);
 
   const [loading, setLoading] = useState(true);
@@ -268,8 +340,8 @@ export default function PdfView({ relativePath }: Props) {
 
     const columnCount = layoutMode === 'spread' ? 2 : 1;
     const widthForPages = availableWidth - PAGE_GAP * Math.max(0, columnCount - 1);
-    const fitWidthScale = widthForPages / (rotatedPageSize.width * columnCount);
-    const fitHeightScale = availableHeight / rotatedPageSize.height;
+    const fitWidthScale = widthForPages / (rotatedPageSize.width * columnCount * PDF_CSS_SCALE);
+    const fitHeightScale = availableHeight / (rotatedPageSize.height * PDF_CSS_SCALE);
     const fitPageScale = Math.min(fitWidthScale, fitHeightScale);
 
     if (zoomMode === 'fit-width') return fitWidthScale;
@@ -292,8 +364,8 @@ export default function PdfView({ relativePath }: Props) {
       };
     }
 
-    const scaledPageWidth = rotatedPageSize.width * effectiveScale;
-    const scaledPageHeight = rotatedPageSize.height * effectiveScale;
+    const scaledPageWidth = rotatedPageSize.width * effectiveScale * PDF_CSS_SCALE;
+    const scaledPageHeight = rotatedPageSize.height * effectiveScale * PDF_CSS_SCALE;
     const pageTotal = Math.max(1, renderedPages.length);
     const contentWidth = layoutMode === 'spread'
       ? scaledPageWidth * 2 + PAGE_GAP
@@ -316,9 +388,17 @@ export default function PdfView({ relativePath }: Props) {
     ? 'Fit height'
     : 'Fit page';
 
-  const adjustCustomZoom = (delta: number) => {
+  const setCustomZoom = (nextZoom: number) => {
     setZoomMode('custom');
-    setZoom((current) => clampZoom(Math.round((current + delta) * 100) / 100));
+    setZoom(clampZoom(Math.round(nextZoom * 100) / 100));
+  };
+
+  const adjustCustomZoom = (delta: number) => {
+    setCustomZoom(effectiveScale + delta);
+  };
+
+  const scaleCustomZoom = (factor: number) => {
+    setCustomZoom(effectiveScale * factor);
   };
 
   const handleMeasured = (nextPage: number, width: number, height: number) => {
@@ -335,12 +415,205 @@ export default function PdfView({ relativePath }: Props) {
     element.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
   };
 
+  const scrollViewportBy = (deltaY: number) => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    viewport.scrollBy({ top: deltaY, behavior: 'smooth' });
+  };
+
   const goToPage = (nextPage: number) => {
     const clamped = Math.min(pageCount, Math.max(1, nextPage));
     setPageNumber(clamped);
     setPageInput(String(clamped));
     if (layoutMode !== 'single') scrollToPage(clamped);
   };
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || layoutMode === 'single' || renderedPages.length === 0) return;
+
+    let frame = 0;
+
+    const updateVisiblePage = () => {
+      frame = 0;
+      const viewportRect = viewport.getBoundingClientRect();
+      const viewportCenterY = viewportRect.top + viewportRect.height / 2;
+
+      let closestPage = pageNumber;
+      let closestDistance = Number.POSITIVE_INFINITY;
+
+      for (const renderedPage of renderedPages) {
+        const element = pageRefs.current[renderedPage];
+        if (!element) continue;
+
+        const rect = element.getBoundingClientRect();
+        const pageCenterY = rect.top + rect.height / 2;
+        const distance = Math.abs(pageCenterY - viewportCenterY);
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestPage = renderedPage;
+        }
+      }
+
+      if (closestPage !== pageNumber) {
+        setPageNumber(closestPage);
+        setPageInput(String(closestPage));
+      }
+    };
+
+    const scheduleUpdate = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(updateVisiblePage);
+    };
+
+    scheduleUpdate();
+    viewport.addEventListener('scroll', scheduleUpdate, { passive: true });
+    window.addEventListener('resize', scheduleUpdate);
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      viewport.removeEventListener('scroll', scheduleUpdate);
+      window.removeEventListener('resize', scheduleUpdate);
+    };
+  }, [effectiveScale, layoutMode, pageNumber, renderedPages]);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const isEventInsidePdf = (target: EventTarget | null) => target instanceof Node && viewport.contains(target);
+    const isEditableTarget = (target: EventTarget | null) => (
+      target instanceof HTMLElement
+      && target.matches('input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"]')
+    );
+
+    // Keep PDF zoom shortcuts independent from scroll-container focus and from the
+    // app-wide browser zoom blocker.
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const ctrl = event.ctrlKey || event.metaKey;
+      if (ctrl) {
+        if (event.key === '+' || event.key === '=') {
+          event.preventDefault();
+          adjustCustomZoom(ZOOM_STEP);
+          return;
+        }
+
+        if (event.key === '-') {
+          event.preventDefault();
+          adjustCustomZoom(-ZOOM_STEP);
+          return;
+        }
+
+        if (event.key === '0') {
+          event.preventDefault();
+          setCustomZoom(1);
+        }
+        return;
+      }
+
+      if (isEditableTarget(event.target) || event.altKey) return;
+
+      const scrollStep = Math.max(56, viewport.clientHeight * 0.12);
+
+      switch (event.key) {
+        case '1':
+          event.preventDefault();
+          setLayoutMode('single');
+          break;
+        case '2':
+          event.preventDefault();
+          setLayoutMode('scroll');
+          break;
+        case '3':
+          event.preventDefault();
+          setLayoutMode('spread');
+          break;
+        case 'r':
+        case 'R':
+          event.preventDefault();
+          setRotation((current) => (current + 90) % 360);
+          break;
+        case 'ArrowDown':
+          event.preventDefault();
+          scrollViewportBy(scrollStep);
+          break;
+        case 'ArrowUp':
+          event.preventDefault();
+          scrollViewportBy(-scrollStep);
+          break;
+        case 'ArrowRight':
+          event.preventDefault();
+          goToPage(pageNumber + 1);
+          break;
+        case 'ArrowLeft':
+          event.preventDefault();
+          goToPage(pageNumber - 1);
+          break;
+        case 'PageDown':
+          event.preventDefault();
+          goToPage(pageNumber + 1);
+          break;
+        case 'PageUp':
+          event.preventDefault();
+          goToPage(pageNumber - 1);
+          break;
+        case ' ':
+          event.preventDefault();
+          goToPage(pageNumber + (event.shiftKey ? -1 : 1));
+          break;
+        case 'Home':
+          event.preventDefault();
+          goToPage(1);
+          break;
+        case 'End':
+          event.preventDefault();
+          goToPage(pageCount);
+          break;
+        case '0':
+          event.preventDefault();
+          setCustomZoom(1);
+          break;
+      }
+    };
+
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      if (!isEventInsidePdf(event.target)) return;
+      event.preventDefault();
+      scaleCustomZoom(Math.exp(-event.deltaY * 0.0025));
+    };
+
+    const handleGestureStart = (event: Event) => {
+      if (!isEventInsidePdf(event.target)) return;
+      pinchScaleRef.current = 1;
+      event.preventDefault();
+    };
+
+    const handleGestureChange = (event: Event) => {
+      if (!isEventInsidePdf(event.target)) return;
+      const scale = 'scale' in event && typeof (event as WebKitGestureEvent).scale === 'number'
+        ? (event as WebKitGestureEvent).scale
+        : null;
+      if (!scale || scale <= 0) return;
+
+      event.preventDefault();
+      const deltaScale = scale / pinchScaleRef.current;
+      pinchScaleRef.current = scale;
+      scaleCustomZoom(deltaScale);
+    };
+
+    document.addEventListener('keydown', handleKeyDown, { capture: true });
+    document.addEventListener('wheel', handleWheel, { passive: false, capture: true });
+    document.addEventListener('gesturestart', handleGestureStart, { capture: true });
+    document.addEventListener('gesturechange', handleGestureChange, { capture: true });
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, { capture: true } as EventListenerOptions);
+      document.removeEventListener('wheel', handleWheel, { capture: true } as EventListenerOptions);
+      document.removeEventListener('gesturestart', handleGestureStart, { capture: true } as EventListenerOptions);
+      document.removeEventListener('gesturechange', handleGestureChange, { capture: true } as EventListenerOptions);
+    };
+  }, [effectiveScale, layoutMode, pageCount, pageNumber]);
 
   if (loading) {
     return (
@@ -361,7 +634,72 @@ export default function PdfView({ relativePath }: Props) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="pdf-view flex h-full min-h-0 flex-col bg-background">
+      <style>{`
+        .pdf-view .pdf-text-layer {
+          position: absolute;
+          inset: 0;
+          overflow: clip;
+          opacity: 1;
+          text-align: initial;
+          line-height: 1;
+          text-size-adjust: none;
+          -webkit-text-size-adjust: none;
+          -moz-text-size-adjust: none;
+          user-select: text;
+          -webkit-user-select: text;
+          forced-color-adjust: none;
+          transform-origin: 0 0;
+          caret-color: CanvasText;
+          z-index: 1;
+          --scale-factor: 1;
+          --user-unit: 1;
+          --total-scale-factor: calc(var(--scale-factor) * var(--user-unit));
+          --min-font-size: 1;
+          --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+          --min-font-size-inv: calc(1 / var(--min-font-size));
+        }
+
+        .pdf-view .pdf-text-layer :is(span, br) {
+          position: absolute;
+          white-space: pre;
+          transform-origin: 0 0;
+          color: transparent;
+          cursor: text;
+        }
+
+        .pdf-view .pdf-text-layer > :not(.markedContent),
+        .pdf-view .pdf-text-layer .markedContent span:not(.markedContent) {
+          z-index: 1;
+          --font-height: 0;
+          font-size: calc(var(--text-scale-factor) * var(--font-height));
+          --scale-x: 1;
+          --rotate: 0deg;
+          transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+        }
+
+        .pdf-view .pdf-text-layer .markedContent {
+          display: contents;
+        }
+
+        .pdf-view .pdf-text-layer .endOfContent {
+          display: block;
+          position: absolute;
+          inset: 100% 0 0;
+          z-index: 0;
+          cursor: default;
+          user-select: none;
+          -webkit-user-select: none;
+        }
+
+        .pdf-view .pdf-text-layer ::selection {
+          background: color-mix(in oklch, var(--primary) 35%, white 20%);
+        }
+
+        .pdf-view .pdf-text-layer ::-moz-selection {
+          background: color-mix(in oklch, var(--primary) 35%, white 20%);
+        }
+      `}</style>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/50 bg-background/85 px-4 py-2.5 backdrop-blur-xs-webkit">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-foreground">{getBaseName(relativePath)}</div>
@@ -409,26 +747,25 @@ export default function PdfView({ relativePath }: Props) {
               size="icon"
               variant="ghost"
               className="size-8"
-              onClick={() => {
-                setZoomMode('custom');
-                setZoom((current) => clampZoom(current - ZOOM_STEP));
-              }}
+              onClick={() => adjustCustomZoom(-ZOOM_STEP)}
               disabled={zoomMode === 'custom' && zoom <= ZOOM_MIN}
               title="Zoom out"
             >
               <Minus size={15} />
             </Button>
-            <div className="min-w-[86px] px-2 text-center text-xs font-medium text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => setCustomZoom(1)}
+              className="min-w-[86px] rounded-md px-2 text-center text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              title="Reset zoom to 100%"
+            >
               {zoomLabel}
-            </div>
+            </button>
             <Button
               size="icon"
               variant="ghost"
               className="size-8"
-              onClick={() => {
-                setZoomMode('custom');
-                setZoom((current) => clampZoom(current + ZOOM_STEP));
-              }}
+              onClick={() => adjustCustomZoom(ZOOM_STEP)}
               disabled={zoomMode === 'custom' && zoom >= ZOOM_MAX}
               title="Zoom in"
             >
@@ -512,33 +849,7 @@ export default function PdfView({ relativePath }: Props) {
         ref={viewportRef}
         tabIndex={0}
         className="relative min-h-0 flex-1 overflow-auto bg-[radial-gradient(circle_at_top,oklch(0.24_0.04_230_/_0.08),transparent_42%),linear-gradient(to_bottom,color-mix(in_oklch,var(--background)_92%,black_8%),var(--background))]"
-        onWheel={(event) => {
-          if (!event.ctrlKey && !event.metaKey) return;
-          event.preventDefault();
-          adjustCustomZoom(event.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP);
-        }}
-        onKeyDown={(event) => {
-          const ctrl = event.ctrlKey || event.metaKey;
-          if (!ctrl) return;
-
-          if (event.key === '+' || event.key === '=') {
-            event.preventDefault();
-            adjustCustomZoom(ZOOM_STEP);
-            return;
-          }
-
-          if (event.key === '-') {
-            event.preventDefault();
-            adjustCustomZoom(-ZOOM_STEP);
-            return;
-          }
-
-          if (event.key === '0') {
-            event.preventDefault();
-            setZoomMode('custom');
-            setZoom(1);
-          }
-        }}
+        onPointerDown={() => viewportRef.current?.focus()}
       >
         <div
           className="flex min-h-full min-w-full items-start justify-center"
@@ -561,7 +872,7 @@ export default function PdfView({ relativePath }: Props) {
           >
             {renderedPages.map((renderedPage) => (
               <div
-                key={`${renderedPage}-${rotation}-${effectiveScale}`}
+                key={renderedPage}
                 ref={(element) => {
                   pageRefs.current[renderedPage] = element;
                 }}

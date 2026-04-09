@@ -23,12 +23,12 @@ const GROUPS: Group[] = [
   {
     heading: 'Navigation',
     rows: [
-      { label: 'Toggle sidebar',  keys: [['Ctrl', '\\']] },
+      { label: 'Toggle sidebar',  keys: [['Ctrl', 'Shift', 'B']] },
       { label: 'Files view',      keys: [['Ctrl', '1']] },
       { label: 'Graph view',      keys: [['Ctrl', '2']] },
       { label: 'Kanban view',     keys: [['Ctrl', '3']] },
       { label: 'Grid view',       keys: [['Ctrl', '4']] },
-      { label: 'Open Settings',   keys: [['Ctrl', ',']] },
+      { label: 'Open Settings',   keys: [['Ctrl', 'Shift', 'S'], ['Ctrl', ',',]] },
     ],
   },
   {
@@ -57,6 +57,25 @@ const GROUPS: Group[] = [
       { label: 'Redo',            keys: [['Ctrl', 'Shift', 'Z']] },
       { label: 'Indent',          keys: [['Tab']] },
       { label: 'Dedent',          keys: [['Shift', 'Tab']] },
+    ],
+  },
+  {
+    heading: 'PDF Viewer',
+    note: 'Only active when a PDF tab is open and an input field is not focused.',
+    rows: [
+      { label: 'Single page mode',  keys: [['1']] },
+      { label: 'Long scroll mode',  keys: [['2']] },
+      { label: 'Side by side mode', keys: [['3']] },
+      { label: 'Rotate page',       keys: [['R']] },
+      { label: 'Scroll up',         keys: [['Arrow Up']] },
+      { label: 'Scroll down',       keys: [['Arrow Down']] },
+      { label: 'Previous page',     keys: [['Arrow Left'], ['Page Up'], ['Shift', 'Space']] },
+      { label: 'Next page',         keys: [['Arrow Right'], ['Page Down'], ['Space']] },
+      { label: 'First page',        keys: [['Home']] },
+      { label: 'Last page',         keys: [['End']] },
+      { label: 'Zoom in',           keys: [['Ctrl', '+']] },
+      { label: 'Zoom out',          keys: [['Ctrl', '-']] },
+      { label: 'Reset zoom',        keys: [['Ctrl', '0'], ['0']] },
     ],
   },
 ];

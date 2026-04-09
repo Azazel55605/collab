@@ -38,6 +38,7 @@ import { tauriCommands } from '../../lib/tauri';
 import { evalMath, formatMathResult } from './mathEval';
 import { completeInsertQuery, generateSnippets } from './snippets';
 import type { NoteMetadata, SearchResult } from '../../types/note';
+import type { NoteFile } from '../../types/vault';
 import { toast } from 'sonner';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -53,6 +54,7 @@ type Mode =
 
 interface RenderCtx {
   notes: NoteMetadata[];
+  files: NoteFile[];
   searchResults: SearchResult[];
   activeView: ActiveView;
   vault: import('../../types/vault').VaultMeta | null;
@@ -97,22 +99,43 @@ function detectMode(raw: string): Mode {
   return { type: 'search', query: s };
 }
 
-function getTabType(relativePath: string): 'note' | 'canvas' | 'kanban' {
+function getTabType(relativePath: string): 'note' | 'canvas' | 'kanban' | 'image' | 'pdf' {
+  if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|avif)$/i.test(relativePath)) return 'image';
+  if (/\.pdf$/i.test(relativePath)) return 'pdf';
   if (relativePath.endsWith('.kanban')) return 'kanban';
   if (relativePath.endsWith('.canvas')) return 'canvas';
   return 'note';
 }
 
-function getViewForType(type: 'note' | 'canvas' | 'kanban'): ActiveView {
+function getViewForType(type: 'note' | 'canvas' | 'kanban' | 'image' | 'pdf'): ActiveView {
   if (type === 'kanban') return 'kanban';
   if (type === 'canvas') return 'canvas';
   return 'editor';
 }
 
 function FileTypeIcon({ path, className = 'size-4 shrink-0 opacity-60' }: { path: string; className?: string }) {
+  if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|avif)$/i.test(path)) return <FileText className={className} />;
+  if (/\.pdf$/i.test(path)) return <FileText className={className} />;
   if (path.endsWith('.kanban')) return <LayoutDashboard className={className} />;
   if (path.endsWith('.canvas')) return <Layers className={className} />;
   return <FileText className={className} />;
+}
+
+function flattenFiles(nodes: NoteFile[]): NoteFile[] {
+  const flat: NoteFile[] = [];
+
+  const visit = (items: NoteFile[]) => {
+    for (const item of items) {
+      if (item.isFolder) {
+        if (item.children?.length) visit(item.children);
+        continue;
+      }
+      flat.push(item);
+    }
+  };
+
+  visit(nodes);
+  return flat;
 }
 
 // ── Mode placeholders ──────────────────────────────────────────────────────────
@@ -261,35 +284,30 @@ const ACTIONS: Action[] = [
 // ── Mode renderers ─────────────────────────────────────────────────────────────
 
 function renderSearch(mode: { type: 'search'; query: string }, ctx: RenderCtx) {
-  const { notes, searchResults } = ctx;
+  const { files, searchResults } = ctx;
 
   if (!mode.query) {
-    const recent = [...notes].sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 6);
-    if (!recent.length) return <CommandEmpty>No notes yet.</CommandEmpty>;
+    const recent = [...files].sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 8);
+    if (!recent.length) return <CommandEmpty>No files yet.</CommandEmpty>;
     return (
       <CommandGroup heading="Recent">
-        {recent.map((n) => {
-          const type = getTabType(n.relativePath);
+        {recent.map((file) => {
+          const type = getTabType(file.relativePath);
           return (
             <CommandItem
-              key={n.relativePath}
-              value={n.relativePath + n.title}
+              key={file.relativePath}
+              value={file.relativePath + file.name}
               onSelect={() => {
-                ctx.openTab(n.relativePath, n.title, type);
+                ctx.openTab(file.relativePath, file.name, type);
                 ctx.setActiveView(getViewForType(type));
                 ctx.close();
               }}
               className="gap-2"
             >
-              <FileTypeIcon path={n.relativePath} />
-              <span className="truncate flex-1">{n.title}</span>
-              {n.tags.slice(0, 2).map((t) => (
-                <span key={t} className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">
-                  {t}
-                </span>
-              ))}
+              <FileTypeIcon path={file.relativePath} />
+              <span className="truncate flex-1">{file.name}</span>
               <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50 max-w-[160px] truncate">
-                {n.relativePath}
+                {file.relativePath}
               </span>
             </CommandItem>
           );
@@ -298,39 +316,78 @@ function renderSearch(mode: { type: 'search'; query: string }, ctx: RenderCtx) {
     );
   }
 
-  if (!searchResults.length) {
+  const q = mode.query.toLowerCase();
+  const fileMatches = files
+    .filter((file) =>
+      file.name.toLowerCase().includes(q)
+      || file.relativePath.toLowerCase().includes(q)
+    )
+    .filter((file) => !searchResults.some((result) => result.relativePath === file.relativePath))
+    .slice(0, 8);
+
+  if (!searchResults.length && !fileMatches.length) {
     return <CommandEmpty>No results for "{mode.query}"</CommandEmpty>;
   }
 
   return (
-    <CommandGroup heading="Notes">
-      {searchResults.map((r) => {
-        const type = getTabType(r.relativePath);
-        return (
-          <CommandItem
-            key={r.relativePath}
-            value={r.relativePath + r.title}
-            onSelect={() => {
-              ctx.openTab(r.relativePath, r.title, type);
-              ctx.setActiveView(getViewForType(type));
-              ctx.close();
-            }}
-            className="items-start gap-2"
-          >
-            <FileTypeIcon path={r.relativePath} className="size-4 shrink-0 opacity-60 mt-0.5" />
-            <div className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-sm">{r.title}</span>
-              {r.excerpt && (
-                <span className="truncate text-xs text-muted-foreground">{r.excerpt}</span>
-              )}
-            </div>
-            <span className="shrink-0 rounded bg-muted/60 px-1 text-[10px] text-muted-foreground/70 capitalize">
-              {r.matchType}
-            </span>
-          </CommandItem>
-        );
-      })}
-    </CommandGroup>
+    <>
+      {searchResults.length > 0 && (
+        <CommandGroup heading="Notes">
+          {searchResults.map((r) => {
+            const type = getTabType(r.relativePath);
+            return (
+              <CommandItem
+                key={r.relativePath}
+                value={r.relativePath + r.title}
+                onSelect={() => {
+                  ctx.openTab(r.relativePath, r.title, type);
+                  ctx.setActiveView(getViewForType(type));
+                  ctx.close();
+                }}
+                className="items-start gap-2"
+              >
+                <FileTypeIcon path={r.relativePath} className="size-4 shrink-0 opacity-60 mt-0.5" />
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-sm">{r.title}</span>
+                  {r.excerpt && (
+                    <span className="truncate text-xs text-muted-foreground">{r.excerpt}</span>
+                  )}
+                </div>
+                <span className="shrink-0 rounded bg-muted/60 px-1 text-[10px] text-muted-foreground/70 capitalize">
+                  {r.matchType}
+                </span>
+              </CommandItem>
+            );
+          })}
+        </CommandGroup>
+      )}
+      {searchResults.length > 0 && fileMatches.length > 0 && <CommandSeparator />}
+      {fileMatches.length > 0 && (
+        <CommandGroup heading="Files">
+          {fileMatches.map((file) => {
+            const type = getTabType(file.relativePath);
+            return (
+              <CommandItem
+                key={file.relativePath}
+                value={file.relativePath + file.name}
+                onSelect={() => {
+                  ctx.openTab(file.relativePath, file.name, type);
+                  ctx.setActiveView(getViewForType(type));
+                  ctx.close();
+                }}
+                className="gap-2"
+              >
+                <FileTypeIcon path={file.relativePath} />
+                <span className="truncate flex-1">{file.name}</span>
+                <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50 max-w-[180px] truncate">
+                  {file.relativePath}
+                </span>
+              </CommandItem>
+            );
+          })}
+        </CommandGroup>
+      )}
+    </>
   );
 }
 
@@ -438,29 +495,29 @@ function renderTag(mode: { type: 'tag'; tag: string }, ctx: RenderCtx) {
 }
 
 function renderFileType(mode: { type: 'fileType'; ext: string }, ctx: RenderCtx) {
-  const filtered = ctx.notes.filter((n) => n.relativePath.endsWith('.' + mode.ext));
+  const filtered = ctx.files.filter((file) => file.extension.toLowerCase() === mode.ext);
   if (!filtered.length) {
     return <CommandEmpty>No {mode.ext} files found.</CommandEmpty>;
   }
-  const labels: Record<string, string> = { md: 'Notes', kanban: 'Kanban Boards', canvas: 'Canvases' };
+  const labels: Record<string, string> = { md: 'Notes', kanban: 'Kanban Boards', canvas: 'Canvases', pdf: 'PDFs' };
   return (
     <CommandGroup heading={labels[mode.ext] ?? mode.ext}>
-      {filtered.map((n) => {
-        const type = getTabType(n.relativePath);
+      {filtered.map((file) => {
+        const type = getTabType(file.relativePath);
         return (
           <CommandItem
-            key={n.relativePath}
-            value={n.relativePath}
+            key={file.relativePath}
+            value={file.relativePath}
             onSelect={() => {
-              ctx.openTab(n.relativePath, n.title, type);
+              ctx.openTab(file.relativePath, file.name, type);
               ctx.setActiveView(getViewForType(type));
               ctx.close();
             }}
             className="gap-2"
           >
-            <FileTypeIcon path={n.relativePath} />
-            <span className="truncate flex-1">{n.title}</span>
-            <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50">{n.relativePath}</span>
+            <FileTypeIcon path={file.relativePath} />
+            <span className="truncate flex-1">{file.name}</span>
+            <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50">{file.relativePath}</span>
           </CommandItem>
         );
       })}
@@ -471,29 +528,32 @@ function renderFileType(mode: { type: 'fileType'; ext: string }, ctx: RenderCtx)
 function renderNameSearch(mode: { type: 'nameSearch'; query: string }, ctx: RenderCtx) {
   const q = mode.query.toLowerCase();
   const filtered = q
-    ? ctx.notes.filter((n) => n.title.toLowerCase().includes(q))
-    : [...ctx.notes].sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 8);
+    ? ctx.files.filter((file) =>
+      file.name.toLowerCase().includes(q)
+      || file.relativePath.toLowerCase().includes(q)
+    )
+    : [...ctx.files].sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 8);
 
   if (!filtered.length) {
-    return <CommandEmpty>No notes named "{mode.query}"</CommandEmpty>;
+    return <CommandEmpty>No files named "{mode.query}"</CommandEmpty>;
   }
   return (
     <CommandGroup heading="By name">
-      {filtered.map((n) => {
-        const type = getTabType(n.relativePath);
+      {filtered.map((file) => {
+        const type = getTabType(file.relativePath);
         return (
           <CommandItem
-            key={n.relativePath}
-            value={n.relativePath}
+            key={file.relativePath}
+            value={file.relativePath}
             onSelect={() => {
-              ctx.openTab(n.relativePath, n.title, type);
+              ctx.openTab(file.relativePath, file.name, type);
               ctx.setActiveView(getViewForType(type));
               ctx.close();
             }}
             className="gap-2"
           >
-            <FileTypeIcon path={n.relativePath} />
-            <span className="truncate flex-1">{n.title}</span>
+            <FileTypeIcon path={file.relativePath} />
+            <span className="truncate flex-1">{file.name}</span>
           </CommandItem>
         );
       })}
@@ -608,7 +668,7 @@ export function CommandBar() {
   const [input, setInput]             = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
 
-  const { vault, refreshFileTree }    = useVaultStore();
+  const { vault, fileTree, refreshFileTree } = useVaultStore();
   const { notes }                     = useNoteIndexStore();
   const { openTab }                   = useEditorStore();
   const { activeView, setActiveView, openSettings, dateFormat } = useUiStore();
@@ -663,10 +723,12 @@ export function CommandBar() {
   const close = useCallback(() => setOpen(false), []);
 
   const mode = detectMode(input);
+  const files = flattenFiles(fileTree);
   const insertCompletion = mode.type === 'insert' ? completeInsertQuery(mode.query) : null;
 
   const ctx: RenderCtx = {
     notes,
+    files,
     searchResults,
     activeView,
     vault,

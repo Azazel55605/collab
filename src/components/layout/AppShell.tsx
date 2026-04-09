@@ -138,9 +138,19 @@ export default function AppShell() {
       if (!ctrl) return;
 
       switch (e.key) {
-        case '\\':
-          e.preventDefault();
-          toggleSidebar();
+        case 'B':
+        case 'b':
+          if (e.shiftKey) {
+            e.preventDefault();
+            toggleSidebar();
+          }
+          break;
+        case 'S':
+        case 's':
+          if (e.shiftKey) {
+            e.preventDefault();
+            isSettingsOpen ? closeSettings() : openSettings();
+          }
           break;
         case ',':
           e.preventDefault();
