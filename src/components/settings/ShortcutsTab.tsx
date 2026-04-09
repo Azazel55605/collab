@@ -1,3 +1,8 @@
+import { useMemo, useState } from 'react';
+import { ChevronDown, Search } from 'lucide-react';
+import { Input } from '../ui/input';
+import { cn } from '../../lib/utils';
+
 // Read-only keyboard shortcut reference rendered in the Settings modal.
 
 function Key({ children }: { children: string }) {
@@ -139,40 +144,103 @@ const GROUPS: Group[] = [
 ];
 
 export default function ShortcutsTab() {
+  const [query, setQuery] = useState('');
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const normalizedQuery = query.trim().toLowerCase();
+
+  const filteredGroups = useMemo(() => {
+    if (!normalizedQuery) return GROUPS;
+
+    return GROUPS.map((group) => ({
+      ...group,
+      rows: group.rows.filter((row) => {
+        const keyText = row.keys.map((combo) => combo.join(' ')).join(' ');
+        return `${group.heading} ${row.label} ${keyText}`.toLowerCase().includes(normalizedQuery);
+      }),
+    })).filter((group) => group.rows.length > 0 || group.heading.toLowerCase().includes(normalizedQuery));
+  }, [normalizedQuery]);
+
   return (
     <div className="space-y-6">
-      {GROUPS.map((group) => (
+      <div className="relative">
+        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/70" />
+        <Input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search shortcuts..."
+          className="h-9 border-border/40 bg-background/50 pl-8 text-sm"
+        />
+      </div>
+
+      {filteredGroups.length === 0 && (
+        <div className="rounded-lg border border-dashed border-border/50 px-4 py-8 text-center text-sm text-muted-foreground">
+          No shortcuts matched "{query}".
+        </div>
+      )}
+
+      {filteredGroups.map((group) => (
         <section key={group.heading}>
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">
-            {group.heading}
-          </p>
-          {group.note && (
-            <p className="text-[12px] text-muted-foreground/70 mb-2 -mt-1">{group.note}</p>
-          )}
-          <div className="divide-y divide-border/30">
-            {group.rows.map((row) => (
-              <div key={row.label} className="flex items-center justify-between py-2">
-                <span className="text-sm text-foreground/80">{row.label}</span>
-                <div className="flex items-center gap-2">
-                  {row.keys.map((combo, ci) => (
-                    <span key={ci} className="flex items-center gap-1">
-                      {ci > 0 && (
-                        <span className="text-[11px] text-muted-foreground/50 mx-0.5">or</span>
-                      )}
-                      {combo.map((token, ti) => (
-                        <span key={ti} className="flex items-center gap-0.5">
-                          {ti > 0 && (
-                            <span className="text-[11px] text-muted-foreground/40">+</span>
-                          )}
-                          <Key>{token}</Key>
-                        </span>
-                      ))}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+          {(() => {
+            const isCollapsed = !normalizedQuery && !!collapsedGroups[group.heading];
+
+            return (
+              <>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCollapsedGroups((current) => ({
+                      ...current,
+                      [group.heading]: !current[group.heading],
+                    }))
+                  }
+                  className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left transition-colors app-motion-fast hover:bg-accent/35"
+                >
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      {group.heading}
+                    </p>
+                    {group.note && (
+                      <p className="mt-1 text-[12px] text-muted-foreground/70">{group.note}</p>
+                    )}
+                  </div>
+                  <ChevronDown
+                    size={15}
+                    className={cn(
+                      'shrink-0 text-muted-foreground transition-transform app-motion-fast',
+                      !isCollapsed && 'rotate-180',
+                    )}
+                  />
+                </button>
+
+                {!isCollapsed && (
+                  <div className="mt-2 divide-y divide-border/30">
+                    {group.rows.map((row) => (
+                      <div key={row.label} className="flex items-center justify-between py-2">
+                        <span className="text-sm text-foreground/80">{row.label}</span>
+                        <div className="flex items-center gap-2">
+                          {row.keys.map((combo, ci) => (
+                            <span key={ci} className="flex items-center gap-1">
+                              {ci > 0 && (
+                                <span className="mx-0.5 text-[11px] text-muted-foreground/50">or</span>
+                              )}
+                              {combo.map((token, ti) => (
+                                <span key={ti} className="flex items-center gap-0.5">
+                                  {ti > 0 && (
+                                    <span className="text-[11px] text-muted-foreground/40">+</span>
+                                  )}
+                                  <Key>{token}</Key>
+                                </span>
+                              ))}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </section>
       ))}
     </div>

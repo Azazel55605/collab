@@ -13,7 +13,7 @@ import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
-import { Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info, CalendarDays, Keyboard, Sparkles } from 'lucide-react';
+import { Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info, CalendarDays, Keyboard, Sparkles, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import AboutTab from './AboutTab';
 import ShortcutsTab from './ShortcutsTab';
@@ -78,13 +78,13 @@ function PillSelect<T extends string | number>({
 // ─── Tabs sidebar ─────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'appearance', label: 'Appearance', icon: <Palette      size={15} /> },
-  { id: 'editor',     label: 'Editor',     icon: <Type         size={15} /> },
-  { id: 'display',    label: 'Display',    icon: <Monitor      size={15} /> },
-  { id: 'calendar',   label: 'Calendar',   icon: <CalendarDays size={15} /> },
-  { id: 'profile',    label: 'Profile',    icon: <User         size={15} /> },
-  { id: 'about',      label: 'About',      icon: <Info         size={15} /> },
-  { id: 'shortcuts',  label: 'Shortcuts',  icon: <Keyboard     size={15} /> },
+  { id: 'appearance', label: 'Appearance', icon: <Palette size={15} />, keywords: ['theme', 'accent', 'color', 'look'] },
+  { id: 'editor',     label: 'Editor',     icon: <Type size={15} />, keywords: ['font', 'delete', 'typing', 'notes'] },
+  { id: 'display',    label: 'Display',    icon: <Monitor size={15} />, keywords: ['scale', 'motion', 'animation', 'ui'] },
+  { id: 'calendar',   label: 'Calendar',   icon: <CalendarDays size={15} />, keywords: ['date', 'week', 'format'] },
+  { id: 'profile',    label: 'Profile',    icon: <User size={15} />, keywords: ['name', 'identity', 'presence', 'user'] },
+  { id: 'about',      label: 'About',      icon: <Info size={15} />, keywords: ['version', 'update', 'app'] },
+  { id: 'shortcuts',  label: 'Shortcuts',  icon: <Keyboard size={15} />, keywords: ['keyboard', 'hotkeys', 'bindings'] },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -109,9 +109,24 @@ export default function SettingsModal() {
   const { myUserName, myUserColor, myUserId, setMyProfile } = useCollabStore();
   const { status: updateStatus } = useUpdateStore();
   const [activeTab, setActiveTab] = useState<TabId>('appearance');
+  const [settingsQuery, setSettingsQuery] = useState('');
   const [name, setName] = useState(myUserName);
   const [appVersion, setAppVersion] = useState<string>('…');
   useEffect(() => { getAppVersion().then(setAppVersion).catch(() => setAppVersion('?')); }, []);
+
+  const normalizedSettingsQuery = settingsQuery.trim().toLowerCase();
+  const filteredTabs = normalizedSettingsQuery
+    ? TABS.filter((tab) => {
+        const haystack = [tab.label, ...tab.keywords].join(' ').toLowerCase();
+        return haystack.includes(normalizedSettingsQuery);
+      })
+    : TABS;
+
+  useEffect(() => {
+    if (!filteredTabs.some((tab) => tab.id === activeTab) && filteredTabs.length > 0) {
+      setActiveTab(filteredTabs[0].id);
+    }
+  }, [activeTab, filteredTabs]);
 
   const THEMES: { id: Theme; label: string; icon: React.ReactNode; desc: string }[] = [
     { id: 'dark',     label: 'Dark',     icon: <Moon   size={16} />, desc: 'Deep dark with blue tint' },
@@ -130,7 +145,17 @@ export default function SettingsModal() {
         <div className="flex h-[520px]">
           {/* Sidebar nav */}
           <nav className="w-48 shrink-0 border-r border-border/40 p-2 flex flex-col gap-0.5">
-            {TABS.map((tab) => (
+            <div className="relative mb-2">
+              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/70" />
+              <Input
+                value={settingsQuery}
+                onChange={(event) => setSettingsQuery(event.target.value)}
+                placeholder="Search settings..."
+                className="h-9 border-border/40 bg-background/50 pl-8 text-sm"
+              />
+            </div>
+
+            {filteredTabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
@@ -148,6 +173,12 @@ export default function SettingsModal() {
                 )}
               </button>
             ))}
+
+            {filteredTabs.length === 0 && (
+              <div className="rounded-md border border-dashed border-border/50 px-3 py-4 text-xs text-muted-foreground">
+                No settings matched "{settingsQuery}".
+              </div>
+            )}
           </nav>
 
           {/* Content */}
