@@ -101,6 +101,22 @@ const GROUPS: Group[] = [
       { label: 'Reset zoom',         keys: [['Ctrl', '0'], ['0']] },
     ],
   },
+  {
+    heading: 'Kanban Board',
+    note: 'Only active when a kanban board tab is open and an input field is not focused.',
+    rows: [
+      { label: 'Board view',         keys: [['1'], ['B']] },
+      { label: 'Calendar view',      keys: [['2'], ['C']] },
+      { label: 'Timeline view',      keys: [['3'], ['T']] },
+      { label: 'Add column',         keys: [['N']] },
+      { label: 'Toggle archive',     keys: [['Shift', 'A']] },
+      { label: 'Scroll board left',  keys: [['Arrow Left']] },
+      { label: 'Scroll board right', keys: [['Arrow Right']] },
+      { label: 'Jump to board start', keys: [['Home']] },
+      { label: 'Jump to board end',   keys: [['End']] },
+      { label: 'Cancel new column',  keys: [['Escape']] },
+    ],
+  },
 ];
 
 export default function ShortcutsTab() {

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -21,6 +21,12 @@ import KanbanCardView from './KanbanCard';
 import CalendarView from './CalendarView';
 import TimelineView from './TimelineView';
 import type { KanbanCard, KanbanColumn } from '../../types/kanban';
+import {
+  DocumentTopBar,
+  documentTopBarGroupClass,
+  getDocumentBaseName,
+  getDocumentFolderPath,
+} from '../layout/DocumentTopBar';
 
 // ── Archive panel ─────────────────────────────────────────────────────────────
 
@@ -99,6 +105,7 @@ function ArchivePanel() {
 export default function KanbanBoardView() {
   const { board, updateBoard, relativePath } = useKanbanContext();
   const { peers } = useCollabStore();
+  const boardViewportRef = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState<'board' | 'calendar' | 'timeline'>('board');
   const [activeCard,   setActiveCard]   = useState<KanbanCard | null>(null);
   const [activeColumn, setActiveColumn] = useState<KanbanColumn | null>(null);
@@ -301,88 +308,205 @@ export default function KanbanBoardView() {
   const columnIds = board.columns.map(c => c.id);
   const totalCards = board.columns.reduce((n, c) => n + c.cards.length, 0);
 
+  const scrollBoardBy = (deltaX: number) => {
+    const viewport = boardViewportRef.current;
+    if (!viewport) return;
+    viewport.scrollBy({ left: deltaX, behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    const isEditableTarget = (target: EventTarget | null) => (
+      target instanceof HTMLElement
+      && target.matches('input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"], [role="combobox"]')
+    );
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target) || event.altKey) return;
+
+      switch (event.key) {
+        case '1':
+          event.preventDefault();
+          setView('board');
+          break;
+        case '2':
+          event.preventDefault();
+          setView('calendar');
+          break;
+        case '3':
+          event.preventDefault();
+          setView('timeline');
+          break;
+        case 'b':
+        case 'B':
+          event.preventDefault();
+          setView('board');
+          break;
+        case 'c':
+        case 'C':
+          event.preventDefault();
+          setView('calendar');
+          break;
+        case 't':
+        case 'T':
+          event.preventDefault();
+          setView('timeline');
+          break;
+        case 'n':
+        case 'N':
+          if (view === 'board') {
+            event.preventDefault();
+            setAddingColumn(true);
+          }
+          break;
+        case 'A':
+          if (event.shiftKey && view === 'board') {
+            event.preventDefault();
+            setShowArchive((current) => !current);
+          }
+          break;
+        case 'ArrowRight':
+          if (view === 'board') {
+            event.preventDefault();
+            scrollBoardBy(220);
+          }
+          break;
+        case 'ArrowLeft':
+          if (view === 'board') {
+            event.preventDefault();
+            scrollBoardBy(-220);
+          }
+          break;
+        case 'Home':
+          if (view === 'board') {
+            event.preventDefault();
+            boardViewportRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
+          }
+          break;
+        case 'End':
+          if (view === 'board') {
+            event.preventDefault();
+            const viewport = boardViewportRef.current;
+            if (viewport) {
+              viewport.scrollTo({ left: viewport.scrollWidth, behavior: 'smooth' });
+            }
+          }
+          break;
+        case 'Escape':
+          if (addingColumn) {
+            event.preventDefault();
+            setAddingColumn(false);
+            setNewColTitle('');
+          }
+          break;
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, { capture: true } as EventListenerOptions);
+    };
+  }, [addingColumn, view]);
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border/30 shrink-0">
-        <span className="text-xs text-muted-foreground">
-          {totalCards} {totalCards === 1 ? 'card' : 'cards'} across {board.columns.length} columns
-        </span>
-
-        <div className="flex items-center gap-3">
-          {/* View toggle */}
-          <div className="flex items-center bg-muted/30 rounded-md p-0.5 gap-0.5">
-            <button
-              onClick={() => setView('board')}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors',
-                view === 'board'
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <LayoutDashboard size={12} />
-              Board
-            </button>
-            <button
-              onClick={() => setView('calendar')}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors',
-                view === 'calendar'
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <CalendarDays size={12} />
-              Calendar
-            </button>
-            <button
-              onClick={() => setView('timeline')}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors',
-                view === 'timeline'
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <GanttChart size={12} />
-              Timeline
-            </button>
-          </div>
-
-          {/* Archive toggle — only shown in board view */}
-          {view === 'board' && (
-            <button
-              onClick={() => setShowArchive(v => !v)}
-              title={showArchive ? 'Hide archive' : 'Show archive'}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors',
-                showArchive
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/30',
-              )}
-            >
-              <Archive size={12} />
-              Archive
-            </button>
-          )}
-
-          {boardPeers.length > 0 && (
-            <div className="flex items-center gap-1" title="Also viewing this board">
-              {boardPeers.map(p => (
-                <div
-                  key={p.userId}
-                  title={p.userName}
-                  className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white border-2 border-background"
-                  style={{ backgroundColor: p.userColor }}
-                >
-                  {p.userName[0]?.toUpperCase()}
-                </div>
-              ))}
+      <DocumentTopBar
+        title={getDocumentBaseName(relativePath, 'Board')}
+        subtitle={getDocumentFolderPath(relativePath)}
+        icon={<LayoutDashboard size={15} />}
+        meta={
+          <>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {totalCards} {totalCards === 1 ? 'card' : 'cards'} across {board.columns.length} columns
+            </span>
+            {boardPeers.length > 0 && (
+              <div className="flex items-center gap-1" title="Also viewing this board">
+                {boardPeers.map(p => (
+                  <div
+                    key={p.userId}
+                    title={p.userName}
+                    className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white border-2 border-background"
+                    style={{ backgroundColor: p.userColor }}
+                  >
+                    {p.userName[0]?.toUpperCase()}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        }
+        secondary={
+          <>
+            <div className={documentTopBarGroupClass}>
+              <button
+                onClick={() => setView('board')}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                  view === 'board'
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <LayoutDashboard size={12} />
+                Board
+              </button>
+              <button
+                onClick={() => setView('calendar')}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                  view === 'calendar'
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <CalendarDays size={12} />
+                Calendar
+              </button>
+              <button
+                onClick={() => setView('timeline')}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                  view === 'timeline'
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <GanttChart size={12} />
+                Timeline
+              </button>
             </div>
-          )}
-        </div>
-      </div>
+
+            {view === 'board' && (
+              <>
+                <div className={documentTopBarGroupClass}>
+                  <button
+                    onClick={() => setShowArchive(v => !v)}
+                    title={showArchive ? 'Hide archive' : 'Show archive'}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                      showArchive
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    <Archive size={12} />
+                    Archive
+                  </button>
+                </div>
+
+                <div className={documentTopBarGroupClass}>
+                  <button
+                    onClick={() => setAddingColumn(true)}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <Plus size={12} />
+                    Add column
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        }
+      />
 
       {/* Calendar view */}
       {view === 'calendar' && <CalendarView />}
@@ -392,7 +516,7 @@ export default function KanbanBoardView() {
 
       {/* Board body — horizontal scroll */}
       {view === 'board' && <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-x-auto overflow-y-hidden">
+        <div ref={boardViewportRef} className="flex-1 overflow-x-auto overflow-y-hidden">
           <DndContext
             sensors={sensors}
             collisionDetection={collisionDetection}
