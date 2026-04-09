@@ -117,6 +117,25 @@ const GROUPS: Group[] = [
       { label: 'Cancel new column',  keys: [['Escape']] },
     ],
   },
+  {
+    heading: 'Canvas',
+    note: 'Only active when a canvas tab is open and an input field or picker is not focused.',
+    rows: [
+      { label: 'Add note',           keys: [['N']] },
+      { label: 'Add file',           keys: [['F']] },
+      { label: 'Add text',           keys: [['T']] },
+      { label: 'Fit view',           keys: [['Shift', 'F']] },
+      { label: 'Pan up',             keys: [['Arrow Up']] },
+      { label: 'Pan down',           keys: [['Arrow Down']] },
+      { label: 'Pan left',           keys: [['Arrow Left']] },
+      { label: 'Pan right',          keys: [['Arrow Right']] },
+      { label: 'Delete selection',   keys: [['Delete'], ['Backspace']] },
+      { label: 'Close picker',       keys: [['Escape']] },
+      { label: 'Zoom in',            keys: [['Ctrl', '+']] },
+      { label: 'Zoom out',           keys: [['Ctrl', '-']] },
+      { label: 'Reset zoom',         keys: [['Ctrl', '0'], ['0']] },
+    ],
+  },
 ];
 
 export default function ShortcutsTab() {

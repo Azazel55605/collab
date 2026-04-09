@@ -7,7 +7,6 @@ import {
   applyNodeChanges,
   Background,
   BackgroundVariant,
-  Controls,
   Handle,
   MarkerType,
   NodeResizer,
@@ -33,8 +32,10 @@ import {
   LayoutDashboard,
   Link2,
   Maximize2,
+  Minus,
   MousePointer2,
   PencilLine,
+  Plus as PlusIcon,
   Plus,
   RotateCcw,
   Trash2,
@@ -51,6 +52,12 @@ import {
   CommandList,
 } from '../components/ui/command';
 import { Input } from '../components/ui/input';
+import {
+  DocumentTopBar,
+  documentTopBarGroupClass,
+  getDocumentBaseName,
+  getDocumentFolderPath,
+} from '../components/layout/DocumentTopBar';
 import { cn } from '../lib/utils';
 import { tauriCommands } from '../lib/tauri';
 import { useEditorStore } from '../store/editorStore';
@@ -571,6 +578,7 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   const availableNotes = useMemo(() => allFiles.filter((file) => file.extension.toLowerCase() === 'md'), [allFiles]);
   const availableFiles = useMemo(() => allFiles.filter((file) => file.extension.toLowerCase() !== 'md'), [allFiles]);
   const selectedEdge = useMemo(() => edges.find((edge) => edge.selected), [edges]);
+  const zoomLabel = `${Math.round(viewport.zoom * 100)}%`;
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -943,6 +951,42 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     setEdges((prev) => prev.filter((edge) => !edge.selected));
   }, [setEdges, setNodes]);
 
+  const syncViewport = useCallback((nextViewport: Viewport, duration = 180) => {
+    void reactFlow.setViewport(nextViewport, { duration });
+    setViewport(nextViewport);
+  }, [reactFlow]);
+
+  const panViewport = useCallback((deltaX: number, deltaY: number) => {
+    syncViewport({
+      x: viewport.x + deltaX,
+      y: viewport.y + deltaY,
+      zoom: viewport.zoom,
+    });
+  }, [syncViewport, viewport.x, viewport.y, viewport.zoom]);
+
+  const adjustZoom = useCallback((direction: 1 | -1) => {
+    const nextZoom = Math.min(2.5, Math.max(0.2, viewport.zoom * (direction > 0 ? 1.15 : 1 / 1.15)));
+    syncViewport({
+      x: viewport.x,
+      y: viewport.y,
+      zoom: nextZoom,
+    });
+  }, [syncViewport, viewport.x, viewport.y, viewport.zoom]);
+
+  const resetZoom = useCallback(() => {
+    syncViewport({
+      x: viewport.x,
+      y: viewport.y,
+      zoom: 1,
+    });
+  }, [syncViewport, viewport.x, viewport.y]);
+
+  const fitCanvasView = useCallback(() => {
+    void reactFlow.fitView({ duration: 180, padding: 0.12 }).then(() => {
+      setViewport(reactFlow.getViewport());
+    });
+  }, [reactFlow]);
+
   const updateSelectedEdgeLabel = useCallback((label: string) => {
     setEdgeLabelDraft(label);
     setEdges((prev) =>
@@ -958,6 +1002,92 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     );
   }, [selectedEdge?.id, setEdges]);
 
+  useEffect(() => {
+    const isEditableTarget = (target: EventTarget | null) => (
+      target instanceof HTMLElement
+      && target.matches('input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"], [role="combobox"]')
+    );
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target) || event.altKey) return;
+
+      const zoomModifier = event.ctrlKey || event.metaKey;
+
+      if (zoomModifier && (event.key === '+' || event.key === '=')) {
+        event.preventDefault();
+        adjustZoom(1);
+        return;
+      }
+
+      if (zoomModifier && event.key === '-') {
+        event.preventDefault();
+        adjustZoom(-1);
+        return;
+      }
+
+      if ((zoomModifier || !event.shiftKey) && event.key === '0') {
+        event.preventDefault();
+        resetZoom();
+        return;
+      }
+
+      switch (event.key) {
+        case 'n':
+        case 'N':
+          event.preventDefault();
+          setPickerMode('note');
+          break;
+        case 'f':
+          if (!event.shiftKey) {
+            event.preventDefault();
+            setPickerMode('file');
+          }
+          break;
+        case 'F':
+          event.preventDefault();
+          fitCanvasView();
+          break;
+        case 't':
+        case 'T':
+          event.preventDefault();
+          addTextNode();
+          break;
+        case 'ArrowUp':
+          event.preventDefault();
+          panViewport(0, 120);
+          break;
+        case 'ArrowDown':
+          event.preventDefault();
+          panViewport(0, -120);
+          break;
+        case 'ArrowLeft':
+          event.preventDefault();
+          panViewport(120, 0);
+          break;
+        case 'ArrowRight':
+          event.preventDefault();
+          panViewport(-120, 0);
+          break;
+        case 'Delete':
+        case 'Backspace':
+          event.preventDefault();
+          deleteSelection();
+          break;
+        case 'Escape':
+          if (pickerMode !== null) {
+            event.preventDefault();
+            setPickerMode(null);
+          }
+          break;
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, { capture: true } as EventListenerOptions);
+    };
+  }, [addTextNode, adjustZoom, deleteSelection, fitCanvasView, panViewport, pickerMode, resetZoom]);
+
   if (!relativePath) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground select-none">
@@ -971,15 +1101,80 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   }
 
   return (
-    <div
-      ref={viewportRef}
-      className="relative h-full w-full overflow-hidden bg-[radial-gradient(circle_at_top,oklch(0.24_0.04_230_/_0.16),transparent_45%),linear-gradient(to_bottom,transparent,transparent)]"
-      onDragOver={(event) => {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'copy';
-      }}
-      onDrop={handleDropOnCanvas}
-    >
+    <div className="flex h-full w-full min-h-0 flex-col overflow-hidden bg-background app-fade-slide-in">
+      <DocumentTopBar
+        title={getDocumentBaseName(relativePath, 'Canvas')}
+        subtitle={getDocumentFolderPath(relativePath)}
+        icon={<Layout size={15} />}
+        meta={
+          <>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {nodes.length} {nodes.length === 1 ? 'card' : 'cards'} and {edges.length} {edges.length === 1 ? 'link' : 'links'}
+            </span>
+          </>
+        }
+        secondary={
+          <>
+            <div className={documentTopBarGroupClass}>
+              <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => setPickerMode('note')}>
+                <Plus size={14} />
+                Add note
+              </Button>
+              <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => setPickerMode('file')}>
+                <FileText size={14} />
+                Add file
+              </Button>
+              <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs" onClick={addTextNode}>
+                <PencilLine size={14} />
+                Add text
+              </Button>
+            </div>
+
+            <div className={documentTopBarGroupClass}>
+              <Button size="icon" variant="ghost" className="size-8" onClick={() => adjustZoom(-1)} title="Zoom out">
+                <Minus size={15} />
+              </Button>
+              <button
+                type="button"
+                onClick={resetZoom}
+                className="min-w-[78px] rounded-md px-2 text-center text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                title="Reset zoom to 100%"
+              >
+                {zoomLabel}
+              </button>
+              <Button size="icon" variant="ghost" className="size-8" onClick={() => adjustZoom(1)} title="Zoom in">
+                <PlusIcon size={15} />
+              </Button>
+            </div>
+
+            <div className={documentTopBarGroupClass}>
+              <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs" onClick={fitCanvasView}>
+                <Maximize2 size={14} />
+                Fit view
+              </Button>
+              <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs" onClick={resetZoom}>
+                <RotateCcw size={14} />
+                Reset zoom
+              </Button>
+            </div>
+
+            <div className="hidden items-center gap-2 rounded-xl border border-border/60 bg-card/45 px-2.5 py-1 text-xs text-muted-foreground lg:flex">
+              <MousePointer2 size={13} />
+              Drag the board to pan. Drag files from the sidebar to add them.
+            </div>
+          </>
+        }
+      />
+
+      <div
+        ref={viewportRef}
+        className="relative min-h-0 flex-1 overflow-hidden bg-[radial-gradient(circle_at_top,oklch(0.24_0.04_230_/_0.16),transparent_45%),linear-gradient(to_bottom,transparent,transparent)]"
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+        }}
+        onDrop={handleDropOnCanvas}
+      >
       <CanvasPickerDialog
         open={pickerMode !== null}
         mode={pickerMode}
@@ -1019,41 +1214,6 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
           variant={BackgroundVariant.Dots}
           color="color-mix(in oklch, var(--muted-foreground) 22%, transparent)"
         />
-        <Controls className="!border-border/60 !bg-popover/92 !shadow-lg backdrop-blur-xs-webkit" showInteractive={false} />
-
-        <Panel position="top-left" className="pointer-events-auto flex max-w-[calc(100vw-180px)] flex-wrap items-center gap-2 rounded-2xl border border-border/60 bg-popover/90 p-2 shadow-xl backdrop-blur-xs-webkit app-fade-slide-in">
-          <Button size="sm" className="gap-2" onClick={() => setPickerMode('note')}>
-            <Plus size={14} />
-            Add note
-          </Button>
-          <Button size="sm" variant="secondary" className="gap-2" onClick={() => setPickerMode('file')}>
-            <FileText size={14} />
-            Add file
-          </Button>
-          <Button size="sm" variant="secondary" className="gap-2" onClick={addTextNode}>
-            <PencilLine size={14} />
-            Add text
-          </Button>
-          <Button size="icon" variant="ghost" title="Fit view" onClick={() => void reactFlow.fitView({ duration: 180, padding: 0.12 })}>
-            <Maximize2 size={14} />
-          </Button>
-          <Button
-            size="icon"
-            variant="ghost"
-            title="Reset zoom"
-            onClick={() => {
-              void reactFlow.setViewport({ x: viewport.x, y: viewport.y, zoom: 1 }, { duration: 180 });
-              setViewport((prev) => ({ ...prev, zoom: 1 }));
-            }}
-          >
-            <RotateCcw size={14} />
-          </Button>
-          <div className="ml-1 hidden items-center gap-2 rounded-xl border border-border/60 bg-background/45 px-2.5 py-1 text-xs text-muted-foreground sm:flex">
-            <MousePointer2 size={13} />
-            Drag the board to pan. Drag files from the sidebar to add them.
-          </div>
-        </Panel>
-
         <Panel position="top-right" className="pointer-events-auto flex max-w-[min(420px,calc(100vw-220px))] flex-col gap-2 rounded-2xl border border-border/60 bg-popover/90 p-2.5 shadow-xl backdrop-blur-xs-webkit app-fade-scale-in">
           <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <Link2 size={13} />
@@ -1079,6 +1239,7 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
           )}
         </Panel>
       </ReactFlow>
+      </div>
     </div>
   );
 }
