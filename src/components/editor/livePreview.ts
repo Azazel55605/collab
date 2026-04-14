@@ -24,9 +24,34 @@ import {
   WidgetType,
 } from '@codemirror/view';
 import { StateField, RangeSetBuilder, EditorState } from '@codemirror/state';
+import { LanguageDescription } from '@codemirror/language';
+import { languages } from '@codemirror/language-data';
+import { classHighlighter, highlightCode } from '@lezer/highlight';
 import * as React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import katex from 'katex';
+import {
+  siC,
+  siCplusplus,
+  siCss,
+  siDotnet,
+  siGo,
+  siGnubash,
+  siHtml5,
+  siJavascript,
+  siJson,
+  siKotlin,
+  siMarkdown,
+  siOpenjdk,
+  siPhp,
+  siPython,
+  siRuby,
+  siRust,
+  siSass,
+  siSwift,
+  siTypescript,
+  siYaml,
+} from 'simple-icons';
 import { Checkbox } from '../ui/checkbox';
 import { resolveNoteAssetTarget, isLikelyImagePath, type NoteAssetTarget } from '../../lib/noteAssets';
 import { useVaultStore } from '../../store/vaultStore';
@@ -53,6 +78,51 @@ class MathWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
+function getCodeLanguageIcon(language: string) {
+  const key = language.trim().toLowerCase();
+
+  if (['javascript', 'js', 'jsx'].includes(key)) return { kind: 'svg' as const, icon: siJavascript };
+  if (['typescript', 'ts', 'tsx'].includes(key)) return { kind: 'svg' as const, icon: siTypescript };
+  if (['php'].includes(key)) return { kind: 'svg' as const, icon: siPhp };
+  if (['sql'].includes(key)) return { kind: 'text' as const, label: 'SQL' };
+  if (['json'].includes(key)) return { kind: 'svg' as const, icon: siJson };
+  if (['yaml', 'yml'].includes(key)) return { kind: 'svg' as const, icon: siYaml };
+  if (['toml'].includes(key)) return { kind: 'text' as const, label: 'TOML' };
+  if (['markdown', 'md'].includes(key)) return { kind: 'svg' as const, icon: siMarkdown };
+
+  if (['python', 'py'].includes(key)) return { kind: 'svg' as const, icon: siPython };
+  if (['rust', 'rs'].includes(key)) return { kind: 'svg' as const, icon: siRust };
+  if (['go', 'golang'].includes(key)) return { kind: 'svg' as const, icon: siGo };
+  if (['java'].includes(key)) return { kind: 'svg' as const, icon: siOpenjdk };
+  if (['c'].includes(key)) return { kind: 'svg' as const, icon: siC };
+  if (['cpp', 'c++', 'cc', 'cxx'].includes(key)) return { kind: 'svg' as const, icon: siCplusplus };
+  if (['csharp', 'cs', 'c#'].includes(key)) return { kind: 'svg' as const, icon: siDotnet };
+  if (['ruby', 'rb'].includes(key)) return { kind: 'svg' as const, icon: siRuby };
+  if (['swift'].includes(key)) return { kind: 'svg' as const, icon: siSwift };
+  if (['kotlin', 'kt'].includes(key)) return { kind: 'svg' as const, icon: siKotlin };
+  if (['html'].includes(key)) return { kind: 'svg' as const, icon: siHtml5 };
+  if (['css'].includes(key)) return { kind: 'svg' as const, icon: siCss };
+  if (['scss', 'sass'].includes(key)) return { kind: 'svg' as const, icon: siSass };
+  if (['bash', 'sh', 'shell', 'zsh'].includes(key)) return { kind: 'svg' as const, icon: siGnubash };
+
+  return { kind: 'text' as const, label: '</>' };
+}
+
+function createCodeLanguageIconElement(language: string) {
+  const meta = getCodeLanguageIcon(language);
+  const icon = document.createElement('span');
+  icon.className = 'cm-lp-code-block-lang-icon';
+
+  if (meta.kind === 'text') {
+    icon.textContent = meta.label;
+    icon.classList.add('is-text');
+    return icon;
+  }
+
+  icon.innerHTML = `<svg viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false"><path fill="currentColor" d="${meta.icon.path}"/></svg>`;
+  return icon;
+}
+
 class CodeBlockWidget extends WidgetType {
   constructor(
     readonly code: string,
@@ -68,7 +138,62 @@ class CodeBlockWidget extends WidgetType {
     );
   }
 
-  toDOM() {
+  private renderHighlightedContent() {
+    const fragment = document.createDocumentFragment();
+    const languageName = this.language.split(/\s+/, 1)[0]?.trim();
+    if (!languageName) {
+      fragment.appendChild(document.createTextNode(this.code));
+      return fragment;
+    }
+
+    const language = LanguageDescription.matchLanguageName(languages, languageName, true);
+    const support = language?.support;
+    if (!support) {
+      fragment.appendChild(document.createTextNode(this.code));
+      return fragment;
+    }
+
+    try {
+      const tree = support.language.parser.parse(this.code);
+      highlightCode(
+        this.code,
+        tree,
+        classHighlighter,
+        (text, classes) => {
+          if (!classes) {
+            fragment.appendChild(document.createTextNode(text));
+            return;
+          }
+
+          const span = document.createElement('span');
+          span.className = classes;
+          span.textContent = text;
+          fragment.appendChild(span);
+        },
+        () => {
+          fragment.appendChild(document.createTextNode('\n'));
+        },
+      );
+    } catch {
+      fragment.replaceChildren(document.createTextNode(this.code));
+    }
+
+    return fragment;
+  }
+
+  private async ensureLanguageSupport() {
+    const languageName = this.language.split(/\s+/, 1)[0]?.trim();
+    if (!languageName) return;
+    const language = LanguageDescription.matchLanguageName(languages, languageName, true);
+    if (!language || language.support) return;
+    try {
+      await language.load();
+    } catch {
+      // Keep plain rendering if lazy loading fails.
+    }
+  }
+
+  toDOM(view?: EditorView) {
     const wrap = document.createElement('div');
     wrap.className = 'cm-lp-code-block-wrap';
     wrap.style.minHeight = `${this.sourceLineCount * 1.7}em`;
@@ -76,16 +201,27 @@ class CodeBlockWidget extends WidgetType {
     if (this.language) {
       const label = document.createElement('div');
       label.className = 'cm-lp-code-block-lang';
-      label.textContent = this.language;
+      const badge = createCodeLanguageIconElement(this.language.split(/\s+/, 1)[0] ?? this.language);
+      const text = document.createElement('span');
+      text.textContent = this.language;
+
+      label.append(badge, text);
       wrap.appendChild(label);
     }
 
     const pre = document.createElement('pre');
     pre.className = 'cm-lp-code-block';
     const code = document.createElement('code');
-    code.textContent = this.code;
+    code.replaceChildren(this.renderHighlightedContent());
     pre.appendChild(code);
     wrap.appendChild(pre);
+
+    void this.ensureLanguageSupport().then(() => {
+      if (!wrap.isConnected) return;
+      code.replaceChildren(this.renderHighlightedContent());
+      view?.requestMeasure();
+    });
+
     return wrap;
   }
 

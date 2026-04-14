@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import { EditorState, Compartment, RangeSetBuilder } from '@codemirror/state';
+import { EditorState, EditorSelection, Compartment, RangeSetBuilder } from '@codemirror/state';
 import { useUiStore, EDITOR_FONTS, type ColorPreviewFormat } from '../../store/uiStore';
 import {
   EditorView,
@@ -19,7 +19,8 @@ import {
   defaultKeymap,
   history,
   historyKeymap,
-  indentWithTab,
+  indentMore,
+  indentLess,
 } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
@@ -519,6 +520,34 @@ function indentationConfig(indentStyle: 'spaces' | 'tabs', tabWidth: number) {
   ];
 }
 
+function insertIndentUnitAtCursor(view: EditorView) {
+  const unit = view.state.facet(indentUnit);
+  const transaction = view.state.changeByRange((range) => {
+    if (!range.empty) {
+      return {
+        changes: { from: range.from, to: range.to, insert: unit },
+        range: EditorSelection.cursor(range.from + unit.length),
+      };
+    }
+
+    return {
+      changes: { from: range.from, to: range.to, insert: unit },
+      range: EditorSelection.cursor(range.from + unit.length),
+    };
+  });
+
+  view.dispatch(transaction);
+  return true;
+}
+
+function handleTabKey(view: EditorView) {
+  if (view.state.selection.ranges.some((range) => !range.empty)) {
+    return indentMore(view);
+  }
+
+  return insertIndentUnitAtCursor(view);
+}
+
 class ColorSwatchWidget extends WidgetType {
   constructor(private readonly color: string) {
     super();
@@ -698,7 +727,7 @@ function createColorPreviewExtension(options: {
 // when the app theme is 'light'. Placed in a Compartment so it hot-swaps
 // alongside the editor theme without rebuilding the entire editor.
 
-function buildHighlightStyle(dark: boolean) {
+export function buildHighlightStyle(dark: boolean) {
   // ── Palette ────────────────────────────────────────────────────────────────
   const p = dark ? {
     keyword:    '#c678dd', // purple   — class, function, const, …
@@ -1141,12 +1170,12 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
               ],
             }),
             keymap.of([
+              { key: 'Tab', run: handleTabKey, shift: indentLess },
               ...defaultKeymap,
               ...historyKeymap,
               ...completionKeymap,
               ...closeBracketsKeymap,
               ...searchKeymap,
-              indentWithTab,
             ]),
             linkClickHandler,
             saveKeymap,
@@ -1166,7 +1195,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           extensions: [
             lineNumbers(), highlightActiveLine(), history(),
             markdown({ base: markdownLanguage, extensions: GFM }),
-            keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+            keymap.of([{ key: 'Tab', run: handleTabKey, shift: indentLess }, ...defaultKeymap, ...historyKeymap]),
             saveKeymap, updateListener, initialTheme, initialIndentation, initialIndentVisuals, initialColorPreviews, EditorView.lineWrapping,
           ],
         });
