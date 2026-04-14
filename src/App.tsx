@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import './App.css';
 import { TooltipProvider } from './components/ui/tooltip';
 import { useVaultStore } from './store/vaultStore';
+import { useEditorStore } from './store/editorStore';
 import { useUiStore, ACCENT_COLORS, EDITOR_FONTS } from './store/uiStore';
 import VaultPicker from './components/vault/VaultPicker';
 import AppShell from './components/layout/AppShell';
@@ -82,7 +83,8 @@ const THEME_VARS: Record<string, Record<string, string>> = {
 };
 
 export default function App() {
-  const { vault, isVaultLocked } = useVaultStore();
+  const { vault, isVaultLocked, openVault, lastOpenedVaultPath } = useVaultStore();
+  const { sessionVaultPath, setSessionVaultPath, resetSession } = useEditorStore();
   const {
     theme,
     accentColor,
@@ -93,6 +95,7 @@ export default function App() {
     animationSpeed,
     isSettingsOpen,
     isVaultManagerOpen,
+    restorePreviousSession,
   } = useUiStore();
   const { checkForUpdate } = useUpdateStore();
 
@@ -229,6 +232,26 @@ export default function App() {
   useEffect(() => {
     tauriCommands.setUiZoom(scale / 100).catch(console.error);
   }, [scale]);
+
+  useEffect(() => {
+    if (vault?.path) {
+      if (sessionVaultPath && sessionVaultPath !== vault.path) {
+        resetSession(vault.path);
+      } else {
+        setSessionVaultPath(vault.path);
+      }
+      return;
+    }
+    if (sessionVaultPath && !restorePreviousSession) {
+      resetSession(null);
+    }
+  }, [vault?.path, sessionVaultPath, restorePreviousSession, setSessionVaultPath, resetSession]);
+
+  useEffect(() => {
+    if (!restorePreviousSession || vault || isVaultLocked || !lastOpenedVaultPath) return;
+    if (sessionVaultPath && sessionVaultPath !== lastOpenedVaultPath) return;
+    openVault(lastOpenedVaultPath).catch(() => {});
+  }, [restorePreviousSession, vault, isVaultLocked, lastOpenedVaultPath, sessionVaultPath, openVault]);
 
   return (
     <TooltipProvider delayDuration={300}>

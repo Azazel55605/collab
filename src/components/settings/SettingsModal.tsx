@@ -14,7 +14,7 @@ import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
-import { Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info, CalendarDays, Keyboard, Sparkles, Search, ChevronDown } from 'lucide-react';
+import { Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info, CalendarDays, Keyboard, Sparkles, Search, ChevronDown, SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import AboutTab from './AboutTab';
 import ShortcutsTab from './ShortcutsTab';
@@ -79,13 +79,14 @@ function PillSelect<T extends string | number>({
 // ─── Tabs sidebar ─────────────────────────────────────────────────────────────
 
 const TABS = [
+  { id: 'general',    label: 'General',    icon: <SlidersHorizontal size={15} />, keywords: ['startup', 'session', 'files', 'delete', 'behavior'] },
   { id: 'appearance', label: 'Appearance', icon: <Palette size={15} />, keywords: ['theme', 'accent', 'color', 'look'] },
-  { id: 'editor',     label: 'Editor',     icon: <Type size={15} />, keywords: ['font', 'delete', 'typing', 'notes'] },
+  { id: 'editor',     label: 'Editor',     icon: <Type size={15} />, keywords: ['font', 'typing', 'notes', 'indent', 'color preview'] },
   { id: 'display',    label: 'Display',    icon: <Monitor size={15} />, keywords: ['scale', 'motion', 'animation', 'ui'] },
   { id: 'calendar',   label: 'Calendar',   icon: <CalendarDays size={15} />, keywords: ['date', 'week', 'format'] },
   { id: 'profile',    label: 'Profile',    icon: <User size={15} />, keywords: ['name', 'identity', 'presence', 'user'] },
-  { id: 'about',      label: 'About',      icon: <Info size={15} />, keywords: ['version', 'update', 'app'] },
   { id: 'shortcuts',  label: 'Shortcuts',  icon: <Keyboard size={15} />, keywords: ['keyboard', 'hotkeys', 'bindings'] },
+  { id: 'about',      label: 'About',      icon: <Info size={15} />, keywords: ['version', 'update', 'app'] },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -107,6 +108,7 @@ export default function SettingsModal() {
     colorPreviewShowSwatch, setColorPreviewShowSwatch,
     colorPreviewTintText, setColorPreviewTintText,
     colorPreviewFormats, setColorPreviewFormatEnabled,
+    restorePreviousSession, setRestorePreviousSession,
     scale, setScale,
     dateFormat, setDateFormat,
     weekStart, setWeekStart,
@@ -117,7 +119,7 @@ export default function SettingsModal() {
 
   const { myUserName, myUserColor, myUserId, setMyProfile } = useCollabStore();
   const { status: updateStatus } = useUpdateStore();
-  const [activeTab, setActiveTab] = useState<TabId>('appearance');
+  const [activeTab, setActiveTab] = useState<TabId>('general');
   const [settingsQuery, setSettingsQuery] = useState('');
   const [showColorPreviewFormats, setShowColorPreviewFormats] = useState(false);
   const [name, setName] = useState(myUserName);
@@ -203,6 +205,59 @@ export default function SettingsModal() {
 
           {/* Content */}
           <div key={activeTab} className="flex-1 overflow-y-auto p-5 space-y-1 app-fade-slide-in">
+
+            {/* ── General ── */}
+            {activeTab === 'general' && (
+              <div>
+                <SectionLabel>Startup</SectionLabel>
+                <OptionRow
+                  label="Restore previous session"
+                  description="Reopen the last vault and previously open files when launching the app"
+                >
+                  <button
+                    onClick={() => setRestorePreviousSession(!restorePreviousSession)}
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200',
+                      restorePreviousSession ? 'bg-primary' : 'bg-muted-foreground/30'
+                    )}
+                    role="switch"
+                    aria-checked={restorePreviousSession}
+                  >
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
+                        restorePreviousSession ? 'translate-x-4' : 'translate-x-0'
+                      )}
+                    />
+                  </button>
+                </OptionRow>
+
+                <Separator className="bg-border/40 my-4" />
+
+                <SectionLabel>File Operations</SectionLabel>
+                <OptionRow
+                  label="Confirm before deleting"
+                  description="Show a confirmation dialog before permanently deleting notes or folders"
+                >
+                  <button
+                    onClick={() => setConfirmDelete(!confirmDelete)}
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200',
+                      confirmDelete ? 'bg-primary' : 'bg-muted-foreground/30'
+                    )}
+                    role="switch"
+                    aria-checked={confirmDelete}
+                  >
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
+                        confirmDelete ? 'translate-x-4' : 'translate-x-0'
+                      )}
+                    />
+                  </button>
+                </OptionRow>
+              </div>
+            )}
 
             {/* ── Appearance ── */}
             {activeTab === 'appearance' && (
@@ -515,30 +570,6 @@ export default function SettingsModal() {
                   )}
                 </div>
 
-                <Separator className="bg-border/40 my-4" />
-
-                <SectionLabel>File Operations</SectionLabel>
-                <OptionRow
-                  label="Confirm before deleting"
-                  description="Show a confirmation dialog before permanently deleting notes or folders"
-                >
-                  <button
-                    onClick={() => setConfirmDelete(!confirmDelete)}
-                    className={cn(
-                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200',
-                      confirmDelete ? 'bg-primary' : 'bg-muted-foreground/30'
-                    )}
-                    role="switch"
-                    aria-checked={confirmDelete}
-                  >
-                    <span
-                      className={cn(
-                        'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
-                        confirmDelete ? 'translate-x-4' : 'translate-x-0'
-                      )}
-                    />
-                  </button>
-                </OptionRow>
               </div>
             )}
 

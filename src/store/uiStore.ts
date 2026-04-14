@@ -115,6 +115,7 @@ interface UiState {
   colorPreviewShowSwatch: boolean;
   colorPreviewTintText: boolean;
   colorPreviewFormats: Record<ColorPreviewFormat, boolean>;
+  restorePreviousSession: boolean;
   scale:       number;
 
   // Calendar
@@ -149,6 +150,7 @@ interface UiState {
   setColorPreviewShowSwatch: (value: boolean) => void;
   setColorPreviewTintText: (value: boolean) => void;
   setColorPreviewFormatEnabled: (format: ColorPreviewFormat, value: boolean) => void;
+  setRestorePreviousSession: (value: boolean) => void;
   setScale:         (scale: number) => void;
   setDateFormat:    (fmt: DateFormat) => void;
   setWeekStart:     (day: WeekStart) => void;
@@ -180,6 +182,7 @@ export const useUiStore = create<UiState>()(
       colorPreviewShowSwatch: true,
       colorPreviewTintText: true,
       colorPreviewFormats: { ...DEFAULT_COLOR_PREVIEW_FORMATS },
+      restorePreviousSession: false,
       scale:       100,
 
       dateFormat: 'MMM_D_YYYY',
@@ -214,6 +217,7 @@ export const useUiStore = create<UiState>()(
         set((state) => ({
           colorPreviewFormats: { ...state.colorPreviewFormats, [format]: value },
         })),
+      setRestorePreviousSession: (restorePreviousSession) => set({ restorePreviousSession }),
       setScale:         (scale)         => set({ scale }),
       setDateFormat:    (dateFormat)    => set({ dateFormat }),
       setWeekStart:     (weekStart)     => set({ weekStart }),
@@ -241,6 +245,7 @@ export const useUiStore = create<UiState>()(
         colorPreviewShowSwatch: s.colorPreviewShowSwatch,
         colorPreviewTintText: s.colorPreviewTintText,
         colorPreviewFormats: s.colorPreviewFormats,
+        restorePreviousSession: s.restorePreviousSession,
         scale:         s.scale,
         dateFormat:    s.dateFormat,
         weekStart:     s.weekStart,

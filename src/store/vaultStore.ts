@@ -8,6 +8,7 @@ interface VaultState {
   isVaultLocked: boolean;
   fileTree: NoteFile[];
   recentVaults: VaultMeta[];
+  lastOpenedVaultPath: string | null;
   isLoading: boolean;
   openVault: (path: string) => Promise<void>;
   unlockVault: (password: string) => Promise<void>;
@@ -24,6 +25,7 @@ export const useVaultStore = create<VaultState>()(
       isVaultLocked: false,
       fileTree: [],
       recentVaults: [],
+      lastOpenedVaultPath: null,
       isLoading: false,
       openVault: async (path) => {
         set({ isLoading: true });
@@ -32,11 +34,11 @@ export const useVaultStore = create<VaultState>()(
           const vault = await tauriCommands.openVault(path);
           if (vault.isEncrypted) {
             // Don't load the file tree yet — wait for the password to be entered.
-            set({ vault, isVaultLocked: true, fileTree: [], isLoading: false });
+            set({ vault, isVaultLocked: true, fileTree: [], isLoading: false, lastOpenedVaultPath: path });
           } else {
             const fileTree = await tauriCommands.listVaultFiles(path);
             await tauriCommands.watchVault(path);
-            set({ vault, isVaultLocked: false, fileTree, isLoading: false });
+            set({ vault, isVaultLocked: false, fileTree, isLoading: false, lastOpenedVaultPath: path });
           }
         } catch (e) {
           set({ isLoading: false });
@@ -72,7 +74,7 @@ export const useVaultStore = create<VaultState>()(
     }),
     {
       name: 'vault-storage',
-      partialize: (state) => ({ recentVaults: state.recentVaults }),
+      partialize: (state) => ({ recentVaults: state.recentVaults, lastOpenedVaultPath: state.lastOpenedVaultPath }),
     }
   )
 );

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 export interface OpenTab {
   relativePath: string;
@@ -9,9 +10,12 @@ export interface OpenTab {
 }
 
 interface EditorState {
+  sessionVaultPath: string | null;
   openTabs: OpenTab[];
   activeTabPath: string | null;
   forceReloadPath: string | null;
+  setSessionVaultPath: (vaultPath: string | null) => void;
+  resetSession: (vaultPath?: string | null) => void;
   openTab: (relativePath: string, title: string, type?: 'note' | 'canvas' | 'kanban' | 'graph' | 'settings' | 'image' | 'pdf') => void;
   closeTab: (relativePath: string) => void;
   setActiveTab: (relativePath: string) => void;
@@ -24,10 +28,22 @@ interface EditorState {
   setForceReloadPath: (path: string | null) => void;
 }
 
-export const useEditorStore = create<EditorState>()((set, get) => ({
+export const useEditorStore = create<EditorState>()(
+  persist(
+    (set, get) => ({
+  sessionVaultPath: null,
   openTabs: [],
   activeTabPath: null,
   forceReloadPath: null,
+
+  setSessionVaultPath: (sessionVaultPath) => set({ sessionVaultPath }),
+
+  resetSession: (vaultPath = null) => set({
+    sessionVaultPath: vaultPath,
+    openTabs: [],
+    activeTabPath: null,
+    forceReloadPath: null,
+  }),
 
   openTab: (relativePath, title, type = 'note') => {
     const { openTabs } = get();
@@ -118,4 +134,14 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   },
 
   setForceReloadPath: (forceReloadPath) => set({ forceReloadPath }),
-}));
+}),
+    {
+      name: 'editor-storage',
+      partialize: (state) => ({
+        sessionVaultPath: state.sessionVaultPath,
+        openTabs: state.openTabs,
+        activeTabPath: state.activeTabPath,
+      }),
+    }
+  )
+);
