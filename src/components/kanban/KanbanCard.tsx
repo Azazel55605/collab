@@ -14,6 +14,7 @@ import {
   getCardAttachmentPaths,
   getMissingColumnDefaultTags,
   mergeUniqueTags,
+  setCardDoneState,
   type KanbanCard,
   type KanbanColumn,
 } from '../../types/kanban';
@@ -277,13 +278,7 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
       if (dests.length > 1)  { setDestPicker(dests); return; }
     }
     updateBoard(prev => ({
-      ...prev,
-      columns: prev.columns.map(col =>
-        col.id !== columnId ? col : {
-          ...col,
-          cards: col.cards.map(c => c.id !== card.id ? c : { ...c, isDone: willBeDone }),
-        },
-      ),
+      ...setCardDoneState(prev, card.id, willBeDone),
     }));
   }, [moveCardToColumn]); // stable
 
@@ -379,13 +374,7 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
           }
           const { updateBoard } = stateRef.current;
           updateBoard(prev => ({
-            ...prev,
-            columns: prev.columns.map(col =>
-              col.id !== columnId ? col : {
-                ...col,
-                cards: col.cards.map(c => c.id !== card.id ? c : { ...c, isDone: willBeDone }),
-              },
-            ),
+            ...setCardDoneState(prev, card.id, willBeDone),
           }));
         }}>
           <CheckCheck size={11} className="mr-2" />
@@ -455,16 +444,10 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
               <div className="border-t border-border/20 mt-1 pt-1">
                 <button
                   onClick={() => {
-                    const { card, columnId, updateBoard } = stateRef.current;
+                    const { card, updateBoard } = stateRef.current;
                     setDestPicker(null);
                     updateBoard(prev => ({
-                      ...prev,
-                      columns: prev.columns.map(col =>
-                        col.id !== columnId ? col : {
-                          ...col,
-                          cards: col.cards.map(c => c.id !== card.id ? c : { ...c, isDone: true }),
-                        },
-                      ),
+                      ...setCardDoneState(prev, card.id, true),
                     }));
                   }}
                   className="w-full px-4 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors text-left"

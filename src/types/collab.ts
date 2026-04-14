@@ -4,6 +4,7 @@ export interface PresenceEntry {
   userColor: string;
   activeFile: string | null;
   cursorLine: number | null;
+  chatTypingUntil?: number | null;
   lastSeen: number;
   appVersion: string;
 }

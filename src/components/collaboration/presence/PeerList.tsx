@@ -47,6 +47,7 @@ export function PeerList() {
     userColor: myUserColor,
     activeFile: activeTabPath,
     cursorLine: null,
+    chatTypingUntil: null,
     lastSeen: Date.now(),
     appVersion: '',
   };

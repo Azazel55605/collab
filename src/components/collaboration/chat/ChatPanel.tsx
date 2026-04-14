@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send } from 'lucide-react';
 import { useCollabStore } from '../../../store/collabStore';
 import { useVaultStore } from '../../../store/vaultStore';
+import { useUiStore } from '../../../store/uiStore';
 import { tauriCommands } from '../../../lib/tauri';
 import type { ChatMessage } from '../../../types/collab';
 import { Button } from '../../ui/button';
@@ -36,21 +37,96 @@ function MessageRow({ msg, isSelf }: { msg: ChatMessage; isSelf: boolean }) {
   );
 }
 
+function TypingIndicator({ users }: { users: Array<{ userId: string; userName: string; userColor: string }> }) {
+  const names = users.map((user) => user.userName);
+  const label = names.length === 1
+    ? `${names[0]} is typing...`
+    : names.length === 2
+      ? `${names[0]} and ${names[1]} are typing...`
+      : `${names[0]} and ${names.length - 1} others are typing...`;
+
+  return (
+    <div className="px-3 py-1.5">
+      <div className="inline-flex items-center gap-2 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+        <div className="flex -space-x-1">
+          {users.slice(0, 3).map((user) => (
+            <div
+              key={user.userId}
+              className="h-5 w-5 rounded-full border border-background text-[10px] font-semibold text-white flex items-center justify-center"
+              style={{ backgroundColor: user.userColor }}
+              title={user.userName}
+            >
+              {user.userName.slice(0, 1).toUpperCase()}
+            </div>
+          ))}
+        </div>
+        <span>{label}</span>
+        <span className="flex items-end gap-0.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60 animate-bounce [animation-delay:-0.3s]" />
+          <span className="h-1.5 w-1.5 rounded-full bg-current opacity-75 animate-bounce [animation-delay:-0.15s]" />
+          <span className="h-1.5 w-1.5 rounded-full bg-current animate-bounce" />
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function ChatPanel() {
   const { vault } = useVaultStore();
-  const { myUserId, myUserName, myUserColor, chatMessages, appendChatMessage } = useCollabStore();
+  const { isSidebarOpen, sidebarPanel, collabTab } = useUiStore();
+  const {
+    myUserId,
+    myUserName,
+    myUserColor,
+    peers,
+    chatMessages,
+    appendChatMessage,
+    setChatTypingUntil,
+  } = useCollabStore();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [typingNow, setTypingNow] = useState(() => Date.now());
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const lastTypingPublishRef = useRef(0);
+  const isChatVisible = isSidebarOpen && sidebarPanel === 'collab' && collabTab === 'chat';
+  const typingUsers = peers.filter((peer) => (peer.chatTypingUntil ?? 0) > typingNow);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
+  useEffect(() => {
+    if (!isChatVisible) return;
+    const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [isChatVisible]);
+
+  useEffect(() => {
+    return () => setChatTypingUntil(null);
+  }, [setChatTypingUntil]);
+
+  useEffect(() => {
+    if (typingUsers.length === 0) return;
+    const interval = window.setInterval(() => setTypingNow(Date.now()), 500);
+    return () => window.clearInterval(interval);
+  }, [typingUsers.length]);
+
+  const publishTypingState = useCallback((value: string, force = false) => {
+    const now = Date.now();
+    const nextTypingUntil = value.trim() ? now + 3000 : null;
+    if (!force && nextTypingUntil && now - lastTypingPublishRef.current < 1000) {
+      return;
+    }
+    lastTypingPublishRef.current = now;
+    setChatTypingUntil(nextTypingUntil);
+  }, [setChatTypingUntil]);
+
   const send = useCallback(async () => {
     const content = text.trim();
     if (!content || !vault || sending) return;
     setText('');
+    publishTypingState('', true);
     setSending(true);
     const msg = {
       id: crypto.randomUUID(),
@@ -90,17 +166,24 @@ export function ChatPanel() {
           chatMessages.map((msg) => (
             <MessageRow key={msg.id} msg={msg} isSelf={msg.userId === myUserId} />
           ))
-      )}
+        )}
+        {typingUsers.length > 0 && <TypingIndicator users={typingUsers} />}
         <div ref={bottomRef} />
       </div>
       <div className="border-t border-border p-2 flex gap-2 items-end">
         <Textarea
+          ref={inputRef}
           className="flex-1 min-h-[36px] max-h-[120px] resize-none bg-muted border-transparent px-3 py-2"
           placeholder="Message... (Enter to send)"
           rows={1}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            publishTypingState(e.target.value);
+          }}
           onKeyDown={handleKeyDown}
+          onBlur={() => publishTypingState('', true)}
+          onFocus={() => publishTypingState(text, true)}
           disabled={sending || !vault}
         />
         <Button

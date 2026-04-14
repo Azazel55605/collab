@@ -1,18 +1,16 @@
-import { useState } from 'react';
 import { PeerList } from './presence/PeerList';
 import { ChatPanel } from './chat/ChatPanel';
 import { HistoryPanel } from './history/HistoryPanel';
+import { useUiStore, type CollabTab } from '../../store/uiStore';
 
-type Tab = 'peers' | 'chat' | 'history';
-
-const TABS: { id: Tab; label: string }[] = [
+const TABS: { id: CollabTab; label: string }[] = [
   { id: 'peers', label: 'Peers' },
   { id: 'chat', label: 'Chat' },
   { id: 'history', label: 'History' },
 ];
 
 export function CollabPanel() {
-  const [activeTab, setActiveTab] = useState<Tab>('peers');
+  const { collabTab, setCollabTab } = useUiStore();
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -20,9 +18,9 @@ export function CollabPanel() {
         {TABS.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => setCollabTab(tab.id)}
             className={`px-3 py-1.5 text-xs rounded-t font-medium transition-colors ${
-              activeTab === tab.id
+              collabTab === tab.id
                 ? 'text-foreground border-b-2 border-primary -mb-px'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
@@ -32,13 +30,13 @@ export function CollabPanel() {
         ))}
       </div>
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-        {activeTab === 'peers' && (
+        {collabTab === 'peers' && (
           <div className="overflow-y-auto flex-1">
             <PeerList />
           </div>
         )}
-        {activeTab === 'chat' && <ChatPanel />}
-        {activeTab === 'history' && (
+        {collabTab === 'chat' && <ChatPanel />}
+        {collabTab === 'history' && (
           <div className="overflow-y-auto flex-1">
             <HistoryPanel />
           </div>

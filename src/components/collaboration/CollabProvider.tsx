@@ -1,11 +1,14 @@
 import { useEffect, useRef, createContext, useContext, ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { toast } from 'sonner';
 import { getAppVersion } from '../../lib/tauri';
 import { useVaultStore } from '../../store/vaultStore';
 import { useEditorStore } from '../../store/editorStore';
 import { useCollabStore } from '../../store/collabStore';
+import { useUiStore } from '../../store/uiStore';
 import { tauriCommands } from '../../lib/tauri';
 import { FileSystemTransport, type CollabTransport } from '../../lib/collabTransport';
+import type { ChatMessage } from '../../types/collab';
 
 const CollabContext = createContext<CollabTransport | null>(null);
 
@@ -16,7 +19,19 @@ export function useCollabContext() {
 export function CollabProvider({ children }: { children: ReactNode }) {
   const { vault } = useVaultStore();
   const { activeTabPath } = useEditorStore();
-  const { myUserId, myUserName, myUserColor, setPeers, setMyRole, setChatMessages } = useCollabStore();
+  const { isSidebarOpen, sidebarPanel, collabTab } = useUiStore();
+  const {
+    myUserId,
+    myUserName,
+    myUserColor,
+    setPeers,
+    setMyRole,
+    setChatMessages,
+    appendChatMessage,
+    chatTypingUntil,
+  } = useCollabStore();
+  const knownMessageIdsRef = useRef<Set<string>>(new Set());
+  const isChatVisible = isSidebarOpen && sidebarPanel === 'collab' && collabTab === 'chat';
 
   // Use a ref so the interval callback always reads the latest activeTabPath
   const activeTabPathRef = useRef(activeTabPath);
@@ -39,6 +54,7 @@ export function CollabProvider({ children }: { children: ReactNode }) {
         userColor: myUserColor,
         activeFile,
         cursorLine: null,
+        chatTypingUntil,
         lastSeen: Date.now(),
         appVersion: version,
       });
@@ -87,6 +103,38 @@ export function CollabProvider({ children }: { children: ReactNode }) {
     broadcastPresence(activeTabPath);
   }, [activeTabPath, vault?.path]);
 
+  useEffect(() => {
+    if (!vault) return;
+    broadcastPresence(activeTabPathRef.current);
+  }, [chatTypingUntil, vault?.path]);
+
+  const handleIncomingMessages = (msgs: ChatMessage[], mode: 'replace' | 'append') => {
+    const newRemoteMessages: ChatMessage[] = [];
+    for (const msg of msgs) {
+      if (knownMessageIdsRef.current.has(msg.id)) continue;
+      knownMessageIdsRef.current.add(msg.id);
+      if (msg.userId !== myUserId) {
+        newRemoteMessages.push(msg);
+      }
+    }
+
+    if (mode === 'replace') {
+      setChatMessages(msgs);
+    } else {
+      for (const msg of msgs) {
+        appendChatMessage(msg);
+      }
+    }
+
+    if (isChatVisible) return;
+    for (const msg of newRemoteMessages) {
+      toast.info(`${msg.userName} sent a message`, {
+        description: msg.content.length > 72 ? `${msg.content.slice(0, 72)}...` : msg.content,
+        duration: 3500,
+      });
+    }
+  };
+
   // Interval broadcast + presence listener + chat listener
   useEffect(() => {
     if (!vault) return;
@@ -100,16 +148,27 @@ export function CollabProvider({ children }: { children: ReactNode }) {
     });
 
     // Load initial chat messages
-    tauriCommands.readChatMessages(vault.path, 100).then(setChatMessages).catch(() => {});
+    tauriCommands.readChatMessages(vault.path, 100).then((msgs) => {
+      knownMessageIdsRef.current = new Set(msgs.map((msg) => msg.id));
+      setChatMessages(msgs);
+    }).catch(() => {});
 
     let unsubChat: (() => void) | undefined;
     listen('collab:chat-updated', async () => {
       try {
         const msgs = await tauriCommands.readChatMessages(vault.path, 100);
-        setChatMessages(msgs);
+        handleIncomingMessages(msgs, 'replace');
       } catch {}
     }).then((u) => {
       unsubChat = u;
+    });
+
+    let unsubChatMessage: (() => void) | undefined;
+    listen<ChatMessage>('collab:chat-message', ({ payload }) => {
+      if (!payload) return;
+      handleIncomingMessages([payload], 'append');
+    }).then((u) => {
+      unsubChatMessage = u;
     });
 
     // Re-evaluate own role whenever vault.json changes (permission updates, ownership claims)
@@ -127,10 +186,11 @@ export function CollabProvider({ children }: { children: ReactNode }) {
       clearInterval(interval);
       unsubPresence?.();
       unsubChat?.();
+      unsubChatMessage?.();
       unsubConfig?.();
       tauriCommands.clearPresence(vault.path, myUserId).catch(() => {});
     };
-  }, [vault?.path]);
+  }, [vault?.path, isChatVisible, myUserId]);
 
   return (
     <CollabContext.Provider value={transportRef.current}>

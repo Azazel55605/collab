@@ -30,6 +30,9 @@ import {
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../layout/DocumentTopBar';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Input } from '../ui/input';
+import { Button } from '../ui/button';
 import { TableEditorDialog } from './TableEditorDialog';
 import {
   createEmptyTable,
@@ -37,6 +40,7 @@ import {
   renderMarkdownTable,
   type MarkdownTableModel,
 } from './tableMarkdown';
+import { open } from '@tauri-apps/plugin-dialog';
 
 interface EditorToolbarProps {
   relativePath: string;
@@ -63,6 +67,27 @@ interface InsertBtn {
   text: string;
 }
 
+interface LinkDialogProps {
+  open: boolean;
+  text: string;
+  url: string;
+  onTextChange: (value: string) => void;
+  onUrlChange: (value: string) => void;
+  onOpenChange: (open: boolean) => void;
+  onApply: () => void;
+}
+
+interface ImageDialogProps {
+  open: boolean;
+  altText: string;
+  path: string;
+  onAltTextChange: (value: string) => void;
+  onPathChange: (value: string) => void;
+  onBrowse: () => void;
+  onOpenChange: (open: boolean) => void;
+  onApply: () => void;
+}
+
 const INLINE: InlineBtn[] = [
   { icon: <Bold size={13} />,        label: 'Bold (Ctrl+B)',   before: '**', after: '**', placeholder: 'bold text' },
   { icon: <Italic size={13} />,      label: 'Italic (Ctrl+I)', before: '_',  after: '_',  placeholder: 'italic text' },
@@ -87,8 +112,8 @@ const INSERT: InsertBtn[] = [
   { icon: <Image size={13} />,   label: 'Image',         text: '![alt text](url)' },
   { icon: <Table size={13} />,   label: 'Table',         text: '| Col 1 | Col 2 | Col 3 |\n| --- | --- | --- |\n| Cell | Cell | Cell |' },
   { icon: <Minus size={13} />,   label: 'Horizontal Rule', text: '\n---\n' },
-  { icon: <Hash size={13} />,    label: 'Math Block',    text: '$$\n\n$$' },
-  { icon: <FileCode size={13} />, label: 'Code Block',    text: '```\n\n```' },
+  { icon: <Hash size={13} />,    label: 'Math Block',    text: '$$\n<cursor>\n$$' },
+  { icon: <FileCode size={13} />, label: 'Code Block',    text: '```\n<cursor>\n```' },
 ];
 
 function TagsBtn() {
@@ -150,12 +175,122 @@ function ToolBtn({
   );
 }
 
+function LinkInsertDialog({
+  open,
+  text,
+  url,
+  onTextChange,
+  onUrlChange,
+  onOpenChange,
+  onApply,
+}: LinkDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Insert Link</DialogTitle>
+          <DialogDescription>
+            Enter the visible link text and the target URL, then insert the markdown link.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-3 py-1">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Link text</span>
+            <Input
+              value={text}
+              onChange={(event) => onTextChange(event.target.value)}
+              placeholder="Open project site"
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">URL</span>
+            <Input
+              value={url}
+              onChange={(event) => onUrlChange(event.target.value)}
+              placeholder="https://example.com"
+            />
+          </label>
+        </div>
+        <DialogFooter className="gap-2 sm:justify-between">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={onApply} disabled={!text.trim() || !url.trim()}>
+            Insert Link
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ImageInsertDialog({
+  open,
+  altText,
+  path,
+  onAltTextChange,
+  onPathChange,
+  onBrowse,
+  onOpenChange,
+  onApply,
+}: ImageDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Insert Image</DialogTitle>
+          <DialogDescription>
+            Enter the label and image path, or browse for a file, then insert the markdown image.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-3 py-1">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Name</span>
+            <Input
+              value={altText}
+              onChange={(event) => onAltTextChange(event.target.value)}
+              placeholder="Diagram"
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Path</span>
+            <div className="flex gap-2">
+              <Input
+                value={path}
+                onChange={(event) => onPathChange(event.target.value)}
+                placeholder="Pictures/example.png"
+              />
+              <Button type="button" variant="outline" onClick={onBrowse}>
+                Browse
+              </Button>
+            </div>
+          </label>
+        </div>
+        <DialogFooter className="gap-2 sm:justify-between">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={onApply} disabled={!altText.trim() || !path.trim()}>
+            Insert Image
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
   const ed = () => editorRef.current;
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
   const [tableDialogMode, setTableDialogMode] = useState<'insert' | 'edit'>('insert');
   const [tableModel, setTableModel] = useState<MarkdownTableModel>(createEmptyTable());
   const [tableReplaceRange, setTableReplaceRange] = useState<{ from: number; to: number } | null>(null);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkText, setLinkText] = useState('');
+  const [linkUrl, setLinkUrl] = useState('');
+  const [imageDialogOpen, setImageDialogOpen] = useState(false);
+  const [imageAltText, setImageAltText] = useState('');
+  const [imagePath, setImagePath] = useState('');
 
   const openVisualTableEditor = () => {
     const currentTable = ed()?.getTableAtCursor();
@@ -185,6 +320,39 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
     }
     setTableDialogOpen(false);
     setTableReplaceRange(null);
+  };
+
+  const openLinkDialog = () => {
+    setLinkText('');
+    setLinkUrl('');
+    setLinkDialogOpen(true);
+  };
+
+  const openImageDialog = () => {
+    setImageAltText('');
+    setImagePath('');
+    setImageDialogOpen(true);
+  };
+
+  const applyLinkDialog = () => {
+    ed()?.insertSnippet(`[${linkText.trim()}](${linkUrl.trim()})`);
+    setLinkDialogOpen(false);
+  };
+
+  const browseImagePath = async () => {
+    const result = await open({
+      multiple: false,
+      title: 'Select Image',
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'] }],
+    });
+    if (typeof result === 'string') {
+      setImagePath(result);
+    }
+  };
+
+  const applyImageDialog = () => {
+    ed()?.insertSnippet(`![${imageAltText.trim()}](${imagePath.trim()})`);
+    setImageDialogOpen(false);
   };
 
   return (
@@ -232,6 +400,32 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
                       ed()?.insertSnippet(b.text);
                     }}
                   />
+                ) : b.label === 'Link' ? (
+                  <ToolBtn
+                    key={b.label}
+                    icon={b.icon}
+                    label="Link (Shift-click for visual editor)"
+                    onClick={(event) => {
+                      if (event.shiftKey) {
+                        openLinkDialog();
+                        return;
+                      }
+                      ed()?.insertSnippet(b.text);
+                    }}
+                  />
+                ) : b.label === 'Image' ? (
+                  <ToolBtn
+                    key={b.label}
+                    icon={b.icon}
+                    label="Image (Shift-click for visual editor)"
+                    onClick={(event) => {
+                      if (event.shiftKey) {
+                        openImageDialog();
+                        return;
+                      }
+                      ed()?.insertSnippet(b.text);
+                    }}
+                  />
                 ) : (
                   <TBtn
                     key={b.label}
@@ -259,6 +453,27 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
           if (!open) setTableReplaceRange(null);
         }}
         onApply={applyVisualTable}
+      />
+
+      <LinkInsertDialog
+        open={linkDialogOpen}
+        text={linkText}
+        url={linkUrl}
+        onTextChange={setLinkText}
+        onUrlChange={setLinkUrl}
+        onOpenChange={setLinkDialogOpen}
+        onApply={applyLinkDialog}
+      />
+
+      <ImageInsertDialog
+        open={imageDialogOpen}
+        altText={imageAltText}
+        path={imagePath}
+        onAltTextChange={setImageAltText}
+        onPathChange={setImagePath}
+        onBrowse={browseImagePath}
+        onOpenChange={setImageDialogOpen}
+        onApply={applyImageDialog}
       />
     </>
   );

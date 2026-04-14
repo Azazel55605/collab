@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 export type ActiveView    = 'editor' | 'graph' | 'canvas' | 'kanban' | 'grid';
 export type SidebarPanel  = 'files' | 'search' | 'tags' | 'canvas-boards' | 'kanban-boards' | 'collab';
+export type CollabTab     = 'peers' | 'chat' | 'history';
 export type Theme         = 'dark' | 'midnight' | 'warm' | 'light';
 export type AccentColor   = 'violet' | 'blue' | 'emerald' | 'rose' | 'orange' | 'cyan';
 export type EditorFont    = 'geist' | 'inter' | 'serif' | 'mono';
@@ -78,6 +79,7 @@ export const DATE_FORMAT_OPTIONS: Record<DateFormat, { label: string; descriptio
 interface UiState {
   activeView:    ActiveView;
   sidebarPanel:  SidebarPanel;
+  collabTab:     CollabTab;
   sidebarWidth:  number;
   isSidebarOpen: boolean;
   isSettingsOpen: boolean;
@@ -102,6 +104,7 @@ interface UiState {
   // Actions
   setActiveView:    (view: ActiveView) => void;
   setSidebarPanel:  (panel: SidebarPanel) => void;
+  setCollabTab:     (tab: CollabTab) => void;
   setSidebarWidth:  (width: number) => void;
   toggleSidebar:    () => void;
   openSettings:     () => void;
@@ -126,6 +129,7 @@ export const useUiStore = create<UiState>()(
     (set) => ({
       activeView:     'editor',
       sidebarPanel:   'files',
+      collabTab:      'peers',
       sidebarWidth:   240,
       isSidebarOpen:      true,
       isSettingsOpen:     false,
@@ -146,6 +150,7 @@ export const useUiStore = create<UiState>()(
 
       setActiveView:   (activeView)   => set({ activeView }),
       setSidebarPanel: (sidebarPanel) => set({ sidebarPanel }),
+      setCollabTab:    (collabTab)    => set({ collabTab }),
       setSidebarWidth: (sidebarWidth) => set({ sidebarWidth }),
       toggleSidebar:   ()             => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
       openSettings:     ()             => set({ isSettingsOpen: true }),
@@ -169,6 +174,7 @@ export const useUiStore = create<UiState>()(
       storage: persistedUiStorage,
       // Don't persist transient state
       partialize: (s) => ({
+        collabTab:      s.collabTab,
         sidebarWidth:  s.sidebarWidth,
         isSidebarOpen: s.isSidebarOpen,
         theme:         s.theme,

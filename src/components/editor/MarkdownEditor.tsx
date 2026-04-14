@@ -54,7 +54,7 @@ export interface MarkdownEditorHandle {
   insertAround: (before: string, after: string, placeholder: string) => void;
   /** Toggle a line prefix (e.g. `# `, `> `) on the current line. */
   insertLine: (prefix: string) => void;
-  /** Insert arbitrary text at cursor / replace selection. */
+  /** Insert arbitrary text at cursor / replace selection. Supports a single `<cursor>` marker. */
   insertSnippet: (text: string) => void;
   replaceRange: (from: number, to: number, text: string) => void;
   getTableAtCursor: () => { from: number; to: number; text: string } | null;
@@ -495,14 +495,22 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       insertLine(prefix) {
         const view = viewRef.current;
         if (!view) return;
-        const { from } = view.state.selection.main;
+        const { from, to } = view.state.selection.main;
         const line = view.state.doc.lineAt(from);
         const existing = view.state.sliceDoc(line.from, line.from + prefix.length);
         if (existing === prefix) {
           // Toggle off
-          view.dispatch({ changes: { from: line.from, to: line.from + prefix.length } });
+          const nextAnchor = Math.max(line.from, from - prefix.length);
+          const nextHead = Math.max(line.from, to - prefix.length);
+          view.dispatch({
+            changes: { from: line.from, to: line.from + prefix.length },
+            selection: { anchor: nextAnchor, head: nextHead },
+          });
         } else {
-          view.dispatch({ changes: { from: line.from, insert: prefix } });
+          view.dispatch({
+            changes: { from: line.from, insert: prefix },
+            selection: { anchor: from + prefix.length, head: to + prefix.length },
+          });
         }
         view.focus();
       },
@@ -511,7 +519,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         const view = viewRef.current;
         if (!view) return;
         const { from, to } = view.state.selection.main;
-        view.dispatch({ changes: { from, to, insert: text } });
+        const cursorMarker = '<cursor>';
+        const markerIndex = text.indexOf(cursorMarker);
+        const insertText = markerIndex >= 0 ? text.replace(cursorMarker, '') : text;
+        const cursorPos = markerIndex >= 0 ? from + markerIndex : from + insertText.length;
+        view.dispatch({
+          changes: { from, to, insert: insertText },
+          selection: { anchor: cursorPos },
+        });
         view.focus();
       },
 

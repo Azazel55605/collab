@@ -52,6 +52,54 @@ export interface KanbanBoard {
   columns: KanbanColumn[];
 }
 
+export function syncChecklistReferences(board: KanbanBoard, cardId: string, checked: boolean): KanbanBoard {
+  let changed = false;
+
+  const columns = board.columns.map((column) => {
+    let columnChanged = false;
+
+    const cards = column.cards.map((card) => {
+      let cardChanged = false;
+      const checklist = card.checklist.map((item) => {
+        if (item.cardRef !== cardId || item.checked === checked) return item;
+        cardChanged = true;
+        changed = true;
+        return { ...item, checked };
+      });
+
+      if (!cardChanged) return card;
+      columnChanged = true;
+      return { ...card, checklist };
+    });
+
+    if (!columnChanged) return column;
+    return { ...column, cards };
+  });
+
+  return changed ? { ...board, columns } : board;
+}
+
+export function setCardDoneState(board: KanbanBoard, cardId: string, isDone: boolean): KanbanBoard {
+  let changed = false;
+
+  const columns = board.columns.map((column) => {
+    let columnChanged = false;
+
+    const cards = column.cards.map((card) => {
+      if (card.id !== cardId || card.isDone === isDone) return card;
+      columnChanged = true;
+      changed = true;
+      return { ...card, isDone };
+    });
+
+    if (!columnChanged) return column;
+    return { ...column, cards };
+  });
+
+  const nextBoard = changed ? { ...board, columns } : board;
+  return syncChecklistReferences(nextBoard, cardId, isDone);
+}
+
 export function mergeUniqueTags(existingTags: string[], incomingTags: string[]) {
   return [...existingTags, ...incomingTags.filter((tag) => !existingTags.includes(tag))];
 }

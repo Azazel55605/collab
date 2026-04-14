@@ -23,6 +23,7 @@ import TimelineView from './TimelineView';
 import {
   getMissingColumnDefaultTags,
   mergeUniqueTags,
+  syncChecklistReferences,
   type KanbanCard,
   type KanbanColumn,
 } from '../../types/kanban';
@@ -328,18 +329,21 @@ export default function KanbanBoardView() {
         const cards = reordered.map((card) => (
           card.id === draggedId ? finalizeMovedCard(card) : card
         ));
-        return {
+        const nextBoard = {
           ...prev,
           columns: prev.columns.map(col => col.id !== srcCol.id ? col : { ...col, cards }),
         };
+        const movedCard = cards.find((card) => card.id === draggedId);
+        return movedCard ? syncChecklistReferences(nextBoard, draggedId, movedCard.isDone ?? false) : nextBoard;
       }
 
       // Fallback: card wasn't moved by onDragOver (e.g., very fast drop).
       const srcCards = [...srcCol.cards];
       const [card] = srcCards.splice(srcIdx, 1);
       const dstCards = [...dstCol.cards];
-      dstCards.splice(dstIdx, 0, finalizeMovedCard(card));
-      return {
+      const movedCard = finalizeMovedCard(card);
+      dstCards.splice(dstIdx, 0, movedCard);
+      const nextBoard = {
         ...prev,
         columns: prev.columns.map(c => {
           if (c.id === srcCol.id) return { ...c, cards: srcCards };
@@ -347,6 +351,7 @@ export default function KanbanBoardView() {
           return c;
         }),
       };
+      return syncChecklistReferences(nextBoard, draggedId, movedCard.isDone ?? false);
     });
 
     if (promptRequest) {

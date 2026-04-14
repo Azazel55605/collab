@@ -16,6 +16,7 @@ import {
   getCardAttachmentPaths,
   getMissingColumnDefaultTags,
   mergeUniqueTags,
+  setCardDoneState,
   type KanbanCard,
   type KanbanComment,
   type ChecklistItem,
@@ -191,7 +192,7 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
         isDone: dstCol.autoComplete ? true : draft.isDone,
         tags: shouldAutoApplyTags ? mergeUniqueTags(draft.tags, missingTags) : draft.tags,
       };
-      return {
+      const nextBoard = {
         ...prev,
         columns: prev.columns.map(col => {
           if (col.id === srcColId) return { ...col, cards: col.cards.filter(c => c.id !== draft.id) };
@@ -199,6 +200,7 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
           return col;
         }),
       };
+      return setCardDoneState(nextBoard, draft.id, movedCard.isDone ?? false);
     });
     currentColIdRef.current = newColId;
     setCurrentColumnId(newColId);
@@ -264,7 +266,14 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
   // ── Done ─────────────────────────────────────────────────────────────────
 
   function toggleDone() {
-    patchDraft({ isDone: !draft.isDone });
+    const nextIsDone = !draft.isDone;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    updateBoard((prev) => setCardDoneState(prev, draft.id, nextIsDone));
+    setDraft((prev) => {
+      const next = { ...prev, isDone: nextIsDone };
+      storeUpdateDraft(next);
+      return next;
+    });
   }
 
   // ── Tags ─────────────────────────────────────────────────────────────────
