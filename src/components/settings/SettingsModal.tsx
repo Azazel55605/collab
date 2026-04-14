@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { getAppVersion } from '../../lib/tauri';
 import {
   useUiStore,
-  ACCENT_COLORS, EDITOR_FONTS, FONT_SIZE_OPTIONS, SCALE_OPTIONS, DATE_FORMAT_OPTIONS, formatDate,
+  ACCENT_COLORS, EDITOR_FONTS, FONT_SIZE_OPTIONS, SCALE_OPTIONS, DATE_FORMAT_OPTIONS, formatDate, TAB_WIDTH_OPTIONS,
+  COLOR_PREVIEW_FORMAT_OPTIONS,
   ANIMATION_SPEED_OPTIONS,
-  type Theme, type AccentColor, type EditorFont, type DateFormat, type WeekStart, type AnimationSpeed,
+  type Theme, type AccentColor, type EditorFont, type DateFormat, type WeekStart, type AnimationSpeed, type IndentStyle, type ColorPreviewFormat,
 } from '../../store/uiStore';
 import { useCollabStore } from '../../store/collabStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -13,7 +14,7 @@ import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
-import { Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info, CalendarDays, Keyboard, Sparkles, Search } from 'lucide-react';
+import { Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info, CalendarDays, Keyboard, Sparkles, Search, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import AboutTab from './AboutTab';
 import ShortcutsTab from './ShortcutsTab';
@@ -98,6 +99,14 @@ export default function SettingsModal() {
     accentColor, setAccentColor,
     editorFont, setEditorFont,
     fontSize, setFontSize,
+    indentStyle, setIndentStyle,
+    tabWidth, setTabWidth,
+    showIndentMarkers, setShowIndentMarkers,
+    showColoredIndents, setShowColoredIndents,
+    showInlineColorPreviews, setShowInlineColorPreviews,
+    colorPreviewShowSwatch, setColorPreviewShowSwatch,
+    colorPreviewTintText, setColorPreviewTintText,
+    colorPreviewFormats, setColorPreviewFormatEnabled,
     scale, setScale,
     dateFormat, setDateFormat,
     weekStart, setWeekStart,
@@ -110,6 +119,7 @@ export default function SettingsModal() {
   const { status: updateStatus } = useUpdateStore();
   const [activeTab, setActiveTab] = useState<TabId>('appearance');
   const [settingsQuery, setSettingsQuery] = useState('');
+  const [showColorPreviewFormats, setShowColorPreviewFormats] = useState(false);
   const [name, setName] = useState(myUserName);
   const [appVersion, setAppVersion] = useState<string>('…');
   useEffect(() => { getAppVersion().then(setAppVersion).catch(() => setAppVersion('?')); }, []);
@@ -309,6 +319,200 @@ export default function SettingsModal() {
                   style={{ fontSize: `${fontSize}px` }}
                 >
                   Preview: The quick brown fox jumps over the lazy dog. 1234567890.
+                </div>
+
+                <Separator className="bg-border/40 my-4" />
+
+                <SectionLabel>Indentation</SectionLabel>
+                <OptionRow
+                  label="Indent with"
+                  description="Choose whether pressing Tab inserts spaces or tab characters"
+                >
+                  <PillSelect
+                    options={['spaces', 'tabs'] as const}
+                    value={indentStyle}
+                    onChange={setIndentStyle}
+                    getLabel={(value: IndentStyle) => value === 'spaces' ? 'Spaces' : 'Tabs'}
+                  />
+                </OptionRow>
+
+                <OptionRow
+                  label="Tab width"
+                  description="Controls tab stop width and the number of spaces inserted when using spaces"
+                >
+                  <PillSelect
+                    options={TAB_WIDTH_OPTIONS}
+                    value={tabWidth as typeof TAB_WIDTH_OPTIONS[number]}
+                    onChange={setTabWidth}
+                    getLabel={(value) => `${value}`}
+                  />
+                </OptionRow>
+
+                <OptionRow
+                  label="Show indent markers"
+                  description="Display spaces as dots and tabs as arrows in leading indentation"
+                >
+                  <button
+                    onClick={() => setShowIndentMarkers(!showIndentMarkers)}
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200',
+                      showIndentMarkers ? 'bg-primary' : 'bg-muted-foreground/30'
+                    )}
+                    role="switch"
+                    aria-checked={showIndentMarkers}
+                  >
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
+                        showIndentMarkers ? 'translate-x-4' : 'translate-x-0'
+                      )}
+                    />
+                  </button>
+                </OptionRow>
+
+                <OptionRow
+                  label="Show colored indents"
+                  description="Display leading indentation with colored guide bands"
+                >
+                  <button
+                    onClick={() => setShowColoredIndents(!showColoredIndents)}
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200',
+                      showColoredIndents ? 'bg-primary' : 'bg-muted-foreground/30'
+                    )}
+                    role="switch"
+                    aria-checked={showColoredIndents}
+                  >
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
+                        showColoredIndents ? 'translate-x-4' : 'translate-x-0'
+                      )}
+                    />
+                  </button>
+                </OptionRow>
+
+                <Separator className="bg-border/40 my-4" />
+
+                <SectionLabel>Inline Color Previews</SectionLabel>
+                <OptionRow
+                  label="Enable inline color previews"
+                  description="Preview recognized color strings directly in note text"
+                >
+                  <button
+                    onClick={() => setShowInlineColorPreviews(!showInlineColorPreviews)}
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200',
+                      showInlineColorPreviews ? 'bg-primary' : 'bg-muted-foreground/30'
+                    )}
+                    role="switch"
+                    aria-checked={showInlineColorPreviews}
+                  >
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
+                        showInlineColorPreviews ? 'translate-x-4' : 'translate-x-0'
+                      )}
+                    />
+                  </button>
+                </OptionRow>
+
+                <OptionRow
+                  label="Show swatches"
+                  description="Render a small color block before each recognized color string"
+                >
+                  <button
+                    onClick={() => setColorPreviewShowSwatch(!colorPreviewShowSwatch)}
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200',
+                      colorPreviewShowSwatch ? 'bg-primary' : 'bg-muted-foreground/30'
+                    )}
+                    role="switch"
+                    aria-checked={colorPreviewShowSwatch}
+                    disabled={!showInlineColorPreviews}
+                  >
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
+                        colorPreviewShowSwatch ? 'translate-x-4' : 'translate-x-0'
+                      )}
+                    />
+                  </button>
+                </OptionRow>
+
+                <OptionRow
+                  label="Tint matching text"
+                  description="Add a soft color background behind recognized color strings"
+                >
+                  <button
+                    onClick={() => setColorPreviewTintText(!colorPreviewTintText)}
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200',
+                      colorPreviewTintText ? 'bg-primary' : 'bg-muted-foreground/30'
+                    )}
+                    role="switch"
+                    aria-checked={colorPreviewTintText}
+                    disabled={!showInlineColorPreviews}
+                  >
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
+                        colorPreviewTintText ? 'translate-x-4' : 'translate-x-0'
+                      )}
+                    />
+                  </button>
+                </OptionRow>
+
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowColorPreviewFormats((value) => !value)}
+                    disabled={!showInlineColorPreviews}
+                    className={cn(
+                      'w-full flex items-center justify-between rounded-lg border px-3 py-2.5 text-left transition-all',
+                      'border-border/40 hover:border-border hover:bg-accent/30',
+                      !showInlineColorPreviews && 'opacity-50'
+                    )}
+                  >
+                    <div>
+                      <p className="text-sm font-medium">Matching formats</p>
+                      <p className="text-[12px] text-muted-foreground mt-0.5">
+                        Choose which kinds of color strings should trigger previews
+                      </p>
+                    </div>
+                    <ChevronDown
+                      size={16}
+                      className={cn(
+                        'shrink-0 text-muted-foreground transition-transform duration-200',
+                        showColorPreviewFormats && 'rotate-180'
+                      )}
+                    />
+                  </button>
+
+                  {showColorPreviewFormats && (
+                    <div className="mt-2 space-y-1.5">
+                      {(Object.entries(COLOR_PREVIEW_FORMAT_OPTIONS) as [ColorPreviewFormat, typeof COLOR_PREVIEW_FORMAT_OPTIONS[ColorPreviewFormat]][]).map(([format, meta]) => (
+                        <button
+                          key={format}
+                          onClick={() => setColorPreviewFormatEnabled(format, !colorPreviewFormats[format])}
+                          disabled={!showInlineColorPreviews}
+                          className={cn(
+                            'w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-left transition-all',
+                            colorPreviewFormats[format]
+                              ? 'border-primary/50 bg-primary/8'
+                              : 'border-border/40 hover:border-border hover:bg-accent/30',
+                            !showInlineColorPreviews && 'opacity-50'
+                          )}
+                        >
+                          <div>
+                            <p className="text-sm font-medium">{meta.label}</p>
+                            <p className="text-[12px] text-muted-foreground mt-0.5">{meta.description}</p>
+                          </div>
+                          {colorPreviewFormats[format] && <Check size={14} className="text-primary shrink-0 ml-2" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <Separator className="bg-border/40 my-4" />

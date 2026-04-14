@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import { EditorState, Compartment } from '@codemirror/state';
-import { useUiStore, EDITOR_FONTS } from '../../store/uiStore';
+import { EditorState, Compartment, RangeSetBuilder } from '@codemirror/state';
+import { useUiStore, EDITOR_FONTS, type ColorPreviewFormat } from '../../store/uiStore';
 import {
   EditorView,
   keymap,
@@ -9,6 +9,11 @@ import {
   drawSelection,
   dropCursor,
   highlightActiveLineGutter,
+  Decoration,
+  type DecorationSet,
+  ViewPlugin,
+  WidgetType,
+  type ViewUpdate,
 } from '@codemirror/view';
 import {
   defaultKeymap,
@@ -21,6 +26,7 @@ import { languages } from '@codemirror/language-data';
 import {
   bracketMatching,
   indentOnInput,
+  indentUnit,
   syntaxHighlighting,
   defaultHighlightStyle,
   HighlightStyle,
@@ -216,6 +222,43 @@ function buildCollabTheme(dark: boolean, fontFamily: string, fontSize: number) {
         padding: '0 8px 0 4px',
         minWidth: '2.5em',
         textAlign: 'right',
+        fontFamily: "ui-monospace, 'SFMono-Regular', 'Cascadia Mono', 'Cascadia Code', 'JetBrains Mono', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+      },
+      '.cm-indent-marker': {
+        color: 'var(--muted-foreground)',
+        opacity: '0.45',
+        pointerEvents: 'none',
+        display: 'inline-block',
+        whiteSpace: 'pre',
+      },
+      '.cm-indent-marker-space': {
+        textAlign: 'center',
+      },
+      '.cm-indent-marker-tab': {
+        textAlign: 'left',
+      },
+      '.cm-indent-guide-depth-0': { boxShadow: 'inset 2px 0 0 oklch(from var(--primary) l c h / 0.38)', backgroundColor: 'oklch(from var(--primary) l c h / 0.06)' },
+      '.cm-indent-guide-depth-1': { boxShadow: 'inset 2px 0 0 oklch(0.82 0.17 210 / 0.42)', backgroundColor: 'oklch(0.82 0.17 210 / 0.06)' },
+      '.cm-indent-guide-depth-2': { boxShadow: 'inset 2px 0 0 oklch(0.86 0.15 160 / 0.42)', backgroundColor: 'oklch(0.86 0.15 160 / 0.06)' },
+      '.cm-indent-guide-depth-3': { boxShadow: 'inset 2px 0 0 oklch(0.83 0.19 40 / 0.42)', backgroundColor: 'oklch(0.83 0.19 40 / 0.06)' },
+      '.cm-indent-guide-depth-4': { boxShadow: 'inset 2px 0 0 oklch(0.80 0.20 320 / 0.42)', backgroundColor: 'oklch(0.80 0.20 320 / 0.06)' },
+      '.cm-indent-guide-depth-5': { boxShadow: 'inset 2px 0 0 oklch(0.88 0.12 80 / 0.42)', backgroundColor: 'oklch(0.88 0.12 80 / 0.06)' },
+      '.cm-color-preview-swatch': {
+        display: 'inline-block',
+        width: '0.8em',
+        height: '0.8em',
+        borderRadius: '3px',
+        border: '1px solid transparent',
+        marginRight: '0.35em',
+        verticalAlign: '-0.08em',
+        boxShadow: '0 0 0 1px oklch(1 0 0 / 0.08), 0 1px 2px oklch(0 0 0 / 0.24)',
+      },
+      '.cm-color-preview-token': {
+        border: '1px solid transparent',
+        borderRadius: '4px',
+        padding: '0 0.22em',
+        boxDecorationBreak: 'clone',
+        WebkitBoxDecorationBreak: 'clone',
       },
       // Ligatures on the active line break CodeMirror's cursor-position math
       // (a merged glyph like → is wider than the sum of its characters).
@@ -290,6 +333,364 @@ function buildCollabTheme(dark: boolean, fontFamily: string, fontSize: number) {
     },
     { dark },
   );
+}
+
+class IndentMarkerWidget extends WidgetType {
+  constructor(
+    private readonly symbol: string,
+    private readonly widthCh: number,
+    private readonly className: string,
+  ) {
+    super();
+  }
+
+  eq(other: IndentMarkerWidget) {
+    return this.symbol === other.symbol && this.widthCh === other.widthCh && this.className === other.className;
+  }
+
+  toDOM() {
+    const span = document.createElement('span');
+    span.className = this.className;
+    span.textContent = this.symbol;
+    span.setAttribute('aria-hidden', 'true');
+    span.style.width = `${this.widthCh}ch`;
+    return span;
+  }
+}
+
+function buildIndentDecorations(
+  view: EditorView,
+  showMarkers: boolean,
+  showColors: boolean,
+  indentStyle: 'spaces' | 'tabs',
+  indentWidth: number,
+): DecorationSet {
+  if (!showMarkers && !showColors) return Decoration.none;
+  const builder = new RangeSetBuilder<Decoration>();
+  const tabWidth = view.state.tabSize;
+
+  for (const { from, to } of view.visibleRanges) {
+    let linePos = from;
+    while (linePos <= to) {
+      const line = view.state.doc.lineAt(linePos);
+      let visualDepth = 0;
+      let pendingSpaceRunStart: number | null = null;
+      let pendingSpaceRunLength = 0;
+
+      const flushSpaceRun = () => {
+        if (pendingSpaceRunStart == null || pendingSpaceRunLength === 0) return;
+        const unitSize = Math.max(1, indentStyle === 'spaces' ? indentWidth : tabWidth);
+        const fullUnits = Math.floor(pendingSpaceRunLength / unitSize);
+        const baseDepth = Math.floor((visualDepth - pendingSpaceRunLength) / unitSize);
+
+        for (let unitIndex = 0; unitIndex < fullUnits; unitIndex++) {
+          const fromPos = line.from + pendingSpaceRunStart + unitIndex * unitSize;
+          const toPos = fromPos + unitSize;
+          const depthClass = `cm-indent-guide-depth-${(baseDepth + unitIndex) % 6}`;
+
+          if (showMarkers) {
+            builder.add(
+              fromPos,
+              toPos,
+              Decoration.replace({
+                widget: new IndentMarkerWidget(
+                  '·'.repeat(unitSize),
+                  unitSize,
+                  showColors
+                    ? `cm-indent-marker cm-indent-marker-space ${depthClass}`
+                    : 'cm-indent-marker cm-indent-marker-space',
+                ),
+              }),
+            );
+          } else if (showColors) {
+            builder.add(fromPos, toPos, Decoration.mark({ class: depthClass }));
+          }
+        }
+
+        const remainder = pendingSpaceRunLength % unitSize;
+        if (remainder > 0) {
+          const fromPos = line.from + pendingSpaceRunStart + fullUnits * unitSize;
+          const toPos = fromPos + remainder;
+          const depthClass = `cm-indent-guide-depth-${(baseDepth + fullUnits) % 6}`;
+          if (showMarkers) {
+            builder.add(
+              fromPos,
+              toPos,
+              Decoration.replace({
+                widget: new IndentMarkerWidget(
+                  '·'.repeat(remainder),
+                  remainder,
+                  showColors
+                    ? `cm-indent-marker cm-indent-marker-space ${depthClass}`
+                    : 'cm-indent-marker cm-indent-marker-space',
+                ),
+              }),
+            );
+          } else if (showColors) {
+            builder.add(fromPos, toPos, Decoration.mark({ class: depthClass }));
+          }
+        }
+        pendingSpaceRunStart = null;
+        pendingSpaceRunLength = 0;
+      };
+
+      for (let index = 0; index < line.text.length; index++) {
+        const char = line.text[index];
+        if (char !== ' ' && char !== '\t') {
+          flushSpaceRun();
+          break;
+        }
+
+        const fromPos = line.from + index;
+        const toPos = fromPos + 1;
+        const widthCh = char === '\t' ? tabWidth : 1;
+
+        if (char === ' ') {
+          if (pendingSpaceRunStart == null) {
+            pendingSpaceRunStart = index;
+          }
+          pendingSpaceRunLength += 1;
+        } else {
+          flushSpaceRun();
+          if (showColors) {
+            const depthClass = `cm-indent-guide-depth-${Math.floor(visualDepth / Math.max(1, tabWidth)) % 6}`;
+            if (showMarkers) {
+              builder.add(
+                fromPos,
+                toPos,
+                Decoration.replace({
+                  widget: new IndentMarkerWidget('→', widthCh, `cm-indent-marker cm-indent-marker-tab ${depthClass}`),
+                }),
+              );
+            } else {
+              builder.add(fromPos, toPos, Decoration.mark({ class: depthClass }));
+            }
+          } else if (showMarkers) {
+            builder.add(
+              fromPos,
+              toPos,
+              Decoration.replace({
+                widget: new IndentMarkerWidget('→', widthCh, 'cm-indent-marker cm-indent-marker-tab'),
+              }),
+            );
+          }
+        }
+        visualDepth += widthCh;
+      }
+
+      flushSpaceRun();
+
+      linePos = line.to + 1;
+    }
+  }
+
+  return builder.finish();
+}
+
+function indentVisualization(
+  showMarkers: boolean,
+  showColors: boolean,
+  indentStyle: 'spaces' | 'tabs',
+  indentWidth: number,
+) {
+  if (!showMarkers && !showColors) return [];
+
+  return ViewPlugin.fromClass(class {
+    decorations: DecorationSet;
+
+    constructor(view: EditorView) {
+      this.decorations = buildIndentDecorations(view, showMarkers, showColors, indentStyle, indentWidth);
+    }
+
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.viewportChanged || update.geometryChanged) {
+        this.decorations = buildIndentDecorations(update.view, showMarkers, showColors, indentStyle, indentWidth);
+      }
+    }
+  }, {
+    decorations: (value) => value.decorations,
+  });
+}
+
+function indentationConfig(indentStyle: 'spaces' | 'tabs', tabWidth: number) {
+  return [
+    EditorState.tabSize.of(tabWidth),
+    indentUnit.of(indentStyle === 'tabs' ? '\t' : ' '.repeat(tabWidth)),
+  ];
+}
+
+class ColorSwatchWidget extends WidgetType {
+  constructor(private readonly color: string) {
+    super();
+  }
+
+  eq(other: ColorSwatchWidget) {
+    return this.color === other.color;
+  }
+
+  toDOM() {
+    const span = document.createElement('span');
+    span.className = 'cm-color-preview-swatch';
+    span.setAttribute('aria-hidden', 'true');
+    span.style.backgroundColor = this.color;
+    span.style.borderColor = this.color;
+    return span;
+  }
+}
+
+type ParsedColor = {
+  css: string;
+  r: number;
+  g: number;
+  b: number;
+  a: number;
+};
+
+type ColorPreviewMatch = {
+  from: number;
+  to: number;
+  parsed: ParsedColor;
+};
+
+const COLOR_FORMAT_REGEXES: Record<ColorPreviewFormat, RegExp> = {
+  hex: /#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b/g,
+  rgb: /\brgba?\(\s*[^()\n]{1,96}\)/gi,
+  hsl: /\bhsla?\(\s*[^()\n]{1,96}\)/gi,
+  oklch: /\boklch\(\s*[^()\n]{1,96}\)/gi,
+  oklab: /\boklab\(\s*[^()\n]{1,96}\)/gi,
+};
+
+function tryParseColor(value: string): ParsedColor | null {
+  if (!CSS.supports('color', value)) return null;
+  const probe = document.createElement('span');
+  probe.style.color = value;
+  const css = probe.style.color;
+  if (!css) return null;
+  const rgba = css.match(/^rgba?\(([^)]+)\)$/i);
+  if (!rgba) return { css, r: 127, g: 127, b: 127, a: 1 };
+  const parts = rgba[1].split(',').map((part) => part.trim());
+  if (parts.length < 3) return null;
+  const [r, g, b] = parts.slice(0, 3).map((part) => Number.parseFloat(part));
+  const a = parts[3] != null ? Number.parseFloat(parts[3]) : 1;
+  if ([r, g, b, a].some((part) => Number.isNaN(part))) return null;
+  return { css, r, g, b, a };
+}
+
+function channelToLinear(value: number) {
+  const normalized = value / 255;
+  return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+}
+
+function getReadableForeground(parsed: ParsedColor) {
+  const luminance =
+    0.2126 * channelToLinear(parsed.r) +
+    0.7152 * channelToLinear(parsed.g) +
+    0.0722 * channelToLinear(parsed.b);
+  return luminance > 0.5 ? 'rgba(12, 14, 20, 0.92)' : 'rgba(255, 255, 255, 0.96)';
+}
+
+function findColorPreviewMatches(
+  text: string,
+  lineFrom: number,
+  enabledFormats: Record<ColorPreviewFormat, boolean>,
+): ColorPreviewMatch[] {
+  const candidates: ColorPreviewMatch[] = [];
+
+  for (const [format, regex] of Object.entries(COLOR_FORMAT_REGEXES) as [ColorPreviewFormat, RegExp][]) {
+    if (!enabledFormats[format]) continue;
+    regex.lastIndex = 0;
+    for (const match of text.matchAll(regex)) {
+      const index = match.index ?? -1;
+      if (index < 0) continue;
+      const parsed = tryParseColor(match[0]);
+      if (!parsed) continue;
+      candidates.push({ from: lineFrom + index, to: lineFrom + index + match[0].length, parsed });
+    }
+  }
+
+  candidates.sort((a, b) => a.from - b.from || (b.to - b.from) - (a.to - a.from));
+  const accepted: ColorPreviewMatch[] = [];
+  let lastEnd = -1;
+  for (const candidate of candidates) {
+    if (candidate.from < lastEnd) continue;
+    accepted.push(candidate);
+    lastEnd = candidate.to;
+  }
+  return accepted;
+}
+
+function colorPreviewDecorations(
+  view: EditorView,
+  options: {
+    enabled: boolean;
+    showSwatch: boolean;
+    tintText: boolean;
+    formats: Record<ColorPreviewFormat, boolean>;
+  },
+): DecorationSet {
+  if (!options.enabled || (!options.showSwatch && !options.tintText)) return Decoration.none;
+
+  const builder = new RangeSetBuilder<Decoration>();
+  for (const { from, to } of view.visibleRanges) {
+    let linePos = from;
+    while (linePos <= to) {
+      const line = view.state.doc.lineAt(linePos);
+      const matches = findColorPreviewMatches(line.text, line.from, options.formats);
+      for (const match of matches) {
+        const fg = getReadableForeground(match.parsed);
+        if (options.showSwatch) {
+          builder.add(
+            match.from,
+            match.from,
+            Decoration.widget({ widget: new ColorSwatchWidget(match.parsed.css), side: -1 }),
+          );
+        }
+        if (options.tintText) {
+          builder.add(
+            match.from,
+            match.to,
+            Decoration.mark({
+              class: 'cm-color-preview-token',
+              attributes: {
+                style: [
+                  `background-color: rgba(${match.parsed.r}, ${match.parsed.g}, ${match.parsed.b}, 0.18)`,
+                  `border-color: rgba(${match.parsed.r}, ${match.parsed.g}, ${match.parsed.b}, 0.42)`,
+                  `color: ${fg}`,
+                ].join('; '),
+              },
+            }),
+          );
+        }
+      }
+      linePos = line.to + 1;
+    }
+  }
+  return builder.finish();
+}
+
+function createColorPreviewExtension(options: {
+  enabled: boolean;
+  showSwatch: boolean;
+  tintText: boolean;
+  formats: Record<ColorPreviewFormat, boolean>;
+}) {
+  if (!options.enabled || (!options.showSwatch && !options.tintText)) return [];
+
+  return ViewPlugin.fromClass(class {
+    decorations: DecorationSet;
+
+    constructor(view: EditorView) {
+      this.decorations = colorPreviewDecorations(view, options);
+    }
+
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.viewportChanged || update.geometryChanged) {
+        this.decorations = colorPreviewDecorations(update.view, options);
+      }
+    }
+  }, {
+    decorations: (value) => value.decorations,
+  });
 }
 
 // ─── Syntax highlight style ──────────────────────────────────────────────────
@@ -455,7 +856,22 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const onSaveRef = useRef(onSave);
     const themeCompartment = useRef(new Compartment());
     const highlightCompartment = useRef(new Compartment());
-    const { theme, editorFont, fontSize } = useUiStore();
+    const indentationCompartment = useRef(new Compartment());
+    const indentVisualCompartment = useRef(new Compartment());
+    const colorPreviewCompartment = useRef(new Compartment());
+    const {
+      theme,
+      editorFont,
+      fontSize,
+      indentStyle,
+      tabWidth,
+      showIndentMarkers,
+      showColoredIndents,
+      showInlineColorPreviews,
+      colorPreviewShowSwatch,
+      colorPreviewTintText,
+      colorPreviewFormats,
+    } = useUiStore();
     const fontFamily = EDITOR_FONTS[editorFont].css;
 
     onChangeRef.current = onChange;
@@ -470,9 +886,19 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         effects: [
           themeCompartment.current.reconfigure(buildCollabTheme(isDark, fontFamily, fontSize)),
           highlightCompartment.current.reconfigure(syntaxHighlighting(buildHighlightStyle(isDark))),
+          indentationCompartment.current.reconfigure(indentationConfig(indentStyle, tabWidth)),
+          indentVisualCompartment.current.reconfigure(
+            indentVisualization(showIndentMarkers, showColoredIndents, indentStyle, tabWidth),
+          ),
+          colorPreviewCompartment.current.reconfigure(createColorPreviewExtension({
+            enabled: showInlineColorPreviews,
+            showSwatch: colorPreviewShowSwatch,
+            tintText: colorPreviewTintText,
+            formats: colorPreviewFormats,
+          })),
         ],
       });
-    }, [theme, fontFamily, fontSize]);
+    }, [theme, fontFamily, fontSize, indentStyle, tabWidth, showIndentMarkers, showColoredIndents, showInlineColorPreviews, colorPreviewShowSwatch, colorPreviewTintText, colorPreviewFormats]);
 
     // ─── Expose imperative handle ─────────────────────────────────────────
 
@@ -636,6 +1062,23 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       const initialFontSize = uiState.fontSize;
       const initialTheme = themeCompartment.current.of(buildCollabTheme(isDark, initialFont, initialFontSize));
       const initialHighlight = highlightCompartment.current.of(syntaxHighlighting(buildHighlightStyle(isDark)));
+      const initialIndentation = indentationCompartment.current.of(
+        indentationConfig(uiState.indentStyle, uiState.tabWidth),
+      );
+      const initialIndentVisuals = indentVisualCompartment.current.of(
+        indentVisualization(
+          uiState.showIndentMarkers,
+          uiState.showColoredIndents,
+          uiState.indentStyle,
+          uiState.tabWidth,
+        ),
+      );
+      const initialColorPreviews = colorPreviewCompartment.current.of(createColorPreviewExtension({
+        enabled: uiState.showInlineColorPreviews,
+        showSwatch: uiState.colorPreviewShowSwatch,
+        tintText: uiState.colorPreviewTintText,
+        formats: uiState.colorPreviewFormats,
+      }));
 
       let state: EditorState;
       try {
@@ -709,6 +1152,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             saveKeymap,
             updateListener,
             initialTheme,
+            initialIndentation,
+            initialIndentVisuals,
+            initialColorPreviews,
             EditorView.lineWrapping,
           ],
         });
@@ -721,7 +1167,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             lineNumbers(), highlightActiveLine(), history(),
             markdown({ base: markdownLanguage, extensions: GFM }),
             keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-            saveKeymap, updateListener, initialTheme, EditorView.lineWrapping,
+            saveKeymap, updateListener, initialTheme, initialIndentation, initialIndentVisuals, initialColorPreviews, EditorView.lineWrapping,
           ],
         });
       }

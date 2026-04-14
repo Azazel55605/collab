@@ -7,6 +7,8 @@ export type CollabTab     = 'peers' | 'chat' | 'history';
 export type Theme         = 'dark' | 'midnight' | 'warm' | 'light';
 export type AccentColor   = 'violet' | 'blue' | 'emerald' | 'rose' | 'orange' | 'cyan';
 export type EditorFont    = 'geist' | 'inter' | 'serif' | 'mono';
+export type IndentStyle   = 'spaces' | 'tabs';
+export type ColorPreviewFormat = 'hex' | 'rgb' | 'hsl' | 'oklch' | 'oklab';
 export type DateFormat    = 'MMM_D_YYYY' | 'D_MMM_YYYY' | 'YYYY_MM_DD' | 'MM_DD_YYYY' | 'DD_MM_YYYY';
 export type WeekStart     = 0 | 1; // 0 = Sunday, 1 = Monday
 export type AnimationSpeed = 'slow' | 'normal' | 'fast';
@@ -31,6 +33,21 @@ export const EDITOR_FONTS: Record<EditorFont, { label: string; css: string }> = 
 export const SCALE_OPTIONS = [75, 90, 100, 110, 125, 150, 175, 200] as const;
 export const FONT_SIZE_OPTIONS = [12, 13, 14, 15, 16] as const;
 export const ANIMATION_SPEED_OPTIONS: AnimationSpeed[] = ['slow', 'normal', 'fast'];
+export const TAB_WIDTH_OPTIONS = [2, 3, 4, 6, 8] as const;
+export const COLOR_PREVIEW_FORMAT_OPTIONS: Record<ColorPreviewFormat, { label: string; description: string }> = {
+  hex:   { label: 'Hex',        description: '#rgb, #rgba, #rrggbb, #rrggbbaa' },
+  rgb:   { label: 'RGB / RGBA', description: 'rgb(...) and rgba(...)' },
+  hsl:   { label: 'HSL / HSLA', description: 'hsl(...) and hsla(...)' },
+  oklch: { label: 'OKLCH',      description: 'oklch(...) color strings' },
+  oklab: { label: 'OKLAB',      description: 'oklab(...) color strings' },
+};
+export const DEFAULT_COLOR_PREVIEW_FORMATS: Record<ColorPreviewFormat, boolean> = {
+  hex: true,
+  rgb: true,
+  hsl: true,
+  oklch: true,
+  oklab: true,
+};
 
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const persistedUiStorage = createJSONStorage(() => {
@@ -90,6 +107,14 @@ interface UiState {
   accentColor: AccentColor;
   editorFont:  EditorFont;
   fontSize:    number;
+  indentStyle: IndentStyle;
+  tabWidth:    number;
+  showIndentMarkers: boolean;
+  showColoredIndents: boolean;
+  showInlineColorPreviews: boolean;
+  colorPreviewShowSwatch: boolean;
+  colorPreviewTintText: boolean;
+  colorPreviewFormats: Record<ColorPreviewFormat, boolean>;
   scale:       number;
 
   // Calendar
@@ -116,6 +141,14 @@ interface UiState {
   setAccentColor:   (color: AccentColor) => void;
   setEditorFont:    (font: EditorFont) => void;
   setFontSize:      (size: number) => void;
+  setIndentStyle:   (style: IndentStyle) => void;
+  setTabWidth:      (size: number) => void;
+  setShowIndentMarkers: (value: boolean) => void;
+  setShowColoredIndents: (value: boolean) => void;
+  setShowInlineColorPreviews: (value: boolean) => void;
+  setColorPreviewShowSwatch: (value: boolean) => void;
+  setColorPreviewTintText: (value: boolean) => void;
+  setColorPreviewFormatEnabled: (format: ColorPreviewFormat, value: boolean) => void;
   setScale:         (scale: number) => void;
   setDateFormat:    (fmt: DateFormat) => void;
   setWeekStart:     (day: WeekStart) => void;
@@ -139,6 +172,14 @@ export const useUiStore = create<UiState>()(
       accentColor: 'violet',
       editorFont:  'geist',
       fontSize:    14,
+      indentStyle: 'spaces',
+      tabWidth:    2,
+      showIndentMarkers: false,
+      showColoredIndents: false,
+      showInlineColorPreviews: true,
+      colorPreviewShowSwatch: true,
+      colorPreviewTintText: true,
+      colorPreviewFormats: { ...DEFAULT_COLOR_PREVIEW_FORMATS },
       scale:       100,
 
       dateFormat: 'MMM_D_YYYY',
@@ -162,6 +203,17 @@ export const useUiStore = create<UiState>()(
       setAccentColor:   (accentColor)   => set({ accentColor }),
       setEditorFont:    (editorFont)    => set({ editorFont }),
       setFontSize:      (fontSize)      => set({ fontSize }),
+      setIndentStyle:   (indentStyle)   => set({ indentStyle }),
+      setTabWidth:      (tabWidth)      => set({ tabWidth }),
+      setShowIndentMarkers: (showIndentMarkers) => set({ showIndentMarkers }),
+      setShowColoredIndents: (showColoredIndents) => set({ showColoredIndents }),
+      setShowInlineColorPreviews: (showInlineColorPreviews) => set({ showInlineColorPreviews }),
+      setColorPreviewShowSwatch: (colorPreviewShowSwatch) => set({ colorPreviewShowSwatch }),
+      setColorPreviewTintText: (colorPreviewTintText) => set({ colorPreviewTintText }),
+      setColorPreviewFormatEnabled: (format, value) =>
+        set((state) => ({
+          colorPreviewFormats: { ...state.colorPreviewFormats, [format]: value },
+        })),
       setScale:         (scale)         => set({ scale }),
       setDateFormat:    (dateFormat)    => set({ dateFormat }),
       setWeekStart:     (weekStart)     => set({ weekStart }),
@@ -181,6 +233,14 @@ export const useUiStore = create<UiState>()(
         accentColor:   s.accentColor,
         editorFont:    s.editorFont,
         fontSize:      s.fontSize,
+        indentStyle:   s.indentStyle,
+        tabWidth:      s.tabWidth,
+        showIndentMarkers: s.showIndentMarkers,
+        showColoredIndents: s.showColoredIndents,
+        showInlineColorPreviews: s.showInlineColorPreviews,
+        colorPreviewShowSwatch: s.colorPreviewShowSwatch,
+        colorPreviewTintText: s.colorPreviewTintText,
+        colorPreviewFormats: s.colorPreviewFormats,
         scale:         s.scale,
         dateFormat:    s.dateFormat,
         weekStart:     s.weekStart,
