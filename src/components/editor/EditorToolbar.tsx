@@ -48,6 +48,7 @@ import {
 } from './TaskListEditorDialog';
 import { MathBlockEditorDialog } from './MathBlockEditorDialog';
 import { CodeBlockEditorDialog } from './CodeBlockEditorDialog';
+import { NerdFontIconPicker } from './NerdFontIconPicker';
 import { open } from '@tauri-apps/plugin-dialog';
 import { renderMarkdownCodeBlock } from './codeBlockUtils';
 
@@ -562,6 +563,7 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
                   />
                 )
               ))}
+              <NerdFontIconPicker onInsert={(glyph) => ed()?.insertSnippet(glyph)} />
             </div>
 
             <div className={documentTopBarGroupClass}>

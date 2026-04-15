@@ -17,7 +17,7 @@ import {
 } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { useUiStore, EDITOR_FONTS } from '../../store/uiStore';
-import { buildHighlightStyle, indentationConfig, indentVisualization } from './MarkdownEditor';
+import { asciiArrowLigatures, buildHighlightStyle, indentationConfig, indentVisualization } from './MarkdownEditor';
 import {
   CODE_BLOCK_LANGUAGE_OPTIONS,
   detectCodeLanguage,
@@ -146,13 +146,13 @@ function CodeEditorSurface({
   const {
     theme,
     editorFont,
-    fontSize,
+    editorFontSize,
     indentStyle,
     tabWidth,
     showIndentMarkers,
     showColoredIndents,
   } = useUiStore();
-  const fontFamily = EDITOR_FONTS[editorFont].css;
+  const fontFamily = EDITOR_FONTS[editorFont]?.css ?? EDITOR_FONTS.codingMono.css;
 
   docRef.current = value;
   onChangeRef.current = onChange;
@@ -173,12 +173,13 @@ function CodeEditorSurface({
         indentOnInput(),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         syntaxHighlighting(buildHighlightStyle(isDark)),
-        themeCompartment.current.of(buildCodeEditorTheme(isDark, fontFamily, fontSize)),
+        themeCompartment.current.of(buildCodeEditorTheme(isDark, fontFamily, editorFontSize)),
         languageCompartment.current.of([]),
         indentationCompartment.current.of(indentationConfig(indentStyle, tabWidth)),
         indentVisualCompartment.current.of(
           indentVisualization(showIndentMarkers, showColoredIndents, indentStyle, tabWidth),
         ),
+        asciiArrowLigatures(),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             const nextValue = update.state.doc.toString();
@@ -214,14 +215,14 @@ function CodeEditorSurface({
     const isDark = theme !== 'light';
     view.dispatch({
       effects: [
-        themeCompartment.current.reconfigure(buildCodeEditorTheme(isDark, fontFamily, fontSize)),
+        themeCompartment.current.reconfigure(buildCodeEditorTheme(isDark, fontFamily, editorFontSize)),
         indentationCompartment.current.reconfigure(indentationConfig(indentStyle, tabWidth)),
         indentVisualCompartment.current.reconfigure(
           indentVisualization(showIndentMarkers, showColoredIndents, indentStyle, tabWidth),
         ),
       ],
     });
-  }, [theme, fontFamily, fontSize, indentStyle, tabWidth, showIndentMarkers, showColoredIndents]);
+  }, [theme, fontFamily, editorFontSize, indentStyle, tabWidth, showIndentMarkers, showColoredIndents]);
 
   useEffect(() => {
     const view = viewRef.current;

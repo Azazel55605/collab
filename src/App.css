@@ -2,18 +2,23 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/inter";
+@import "@fontsource/fira-code";
+@import "@fontsource/jetbrains-mono";
+@import "@azurity/pure-nerd-font/pure-nerd-font.css";
 
 @custom-variant dark (&:is(.dark *));
 
 /* ─── Obsidian-inspired Design System ─────────────────────────────────────── */
 
 :root {
-  font-family: 'Geist Variable', Inter, sans-serif;
-  font-size: 14px;
+  font-family: var(--font-sans);
+  font-size: var(--base-font-size);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  --base-font-size: 14px;
 
   /* Light theme */
   --background: oklch(0.97 0 0);
@@ -119,8 +124,8 @@
 /* ─── Tailwind token bridge ─────────────────────────────────────────────── */
 
 @theme inline {
-  --font-sans:   'Geist Variable', sans-serif;
-  --font-mono:   'Geist Variable', monospace;
+  --font-sans:   var(--app-font-sans, 'Geist Variable', sans-serif);
+  --font-mono:   var(--app-font-mono, 'JetBrains Mono', 'Fira Code', monospace);
 
   --color-background:           var(--background);
   --color-foreground:           var(--foreground);

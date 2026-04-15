@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { getAppVersion } from '../../lib/tauri';
 import {
   useUiStore,
-  ACCENT_COLORS, EDITOR_FONTS, FONT_SIZE_OPTIONS, SCALE_OPTIONS, DATE_FORMAT_OPTIONS, formatDate, TAB_WIDTH_OPTIONS,
+  ACCENT_COLORS, INTERFACE_FONTS, EDITOR_FONTS, INTERFACE_FONT_SIZE_OPTIONS, EDITOR_FONT_SIZE_OPTIONS, SCALE_OPTIONS, DATE_FORMAT_OPTIONS, formatDate, TAB_WIDTH_OPTIONS,
   COLOR_PREVIEW_FORMAT_OPTIONS,
   ANIMATION_SPEED_OPTIONS,
-  type Theme, type AccentColor, type EditorFont, type DateFormat, type WeekStart, type AnimationSpeed, type IndentStyle, type ColorPreviewFormat,
+  type Theme, type AccentColor, type InterfaceFont, type EditorFont, type DateFormat, type WeekStart, type AnimationSpeed, type IndentStyle, type ColorPreviewFormat,
 } from '../../store/uiStore';
 import { useCollabStore } from '../../store/collabStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -98,8 +98,10 @@ export default function SettingsModal() {
     closeSettings,
     theme, setTheme,
     accentColor, setAccentColor,
+    interfaceFont, setInterfaceFont,
+    interfaceFontSize, setInterfaceFontSize,
     editorFont, setEditorFont,
-    fontSize, setFontSize,
+    editorFontSize, setEditorFontSize,
     indentStyle, setIndentStyle,
     tabWidth, setTabWidth,
     showIndentMarkers, setShowIndentMarkers,
@@ -325,13 +327,60 @@ export default function SettingsModal() {
                   />
                   <span className="text-xs text-muted-foreground">{ACCENT_COLORS[accentColor].label}</span>
                 </div>
+
+                <Separator className="bg-border/40 my-4" />
+
+                <SectionLabel>Interface Font Family</SectionLabel>
+                <div className="space-y-1.5 mb-5">
+                  {(Object.entries(INTERFACE_FONTS) as [InterfaceFont, typeof INTERFACE_FONTS[InterfaceFont]][]).map(
+                    ([key, val]) => (
+                      <button
+                        key={key}
+                        onClick={() => setInterfaceFont(key)}
+                        className={cn(
+                          'w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-left transition-all',
+                          interfaceFont === key
+                            ? 'border-primary/50 bg-primary/8'
+                            : 'border-border/40 hover:border-border hover:bg-accent/30'
+                        )}
+                      >
+                        <div>
+                          <p className="text-sm font-medium">{val.label}</p>
+                          <p className="text-[12px] text-muted-foreground mt-0.5" style={{ fontFamily: val.css }}>
+                            The quick brown fox jumps over the lazy dog
+                          </p>
+                        </div>
+                        {interfaceFont === key && <Check size={14} className="text-primary shrink-0 ml-2" />}
+                      </button>
+                    )
+                  )}
+                </div>
+
+                <Separator className="bg-border/40 my-4" />
+
+                <SectionLabel>Interface Font Size</SectionLabel>
+                <OptionRow label="Interface font size" description="Changes the interface text size without affecting note editors">
+                  <PillSelect
+                    options={INTERFACE_FONT_SIZE_OPTIONS}
+                    value={interfaceFontSize as typeof INTERFACE_FONT_SIZE_OPTIONS[number]}
+                    onChange={setInterfaceFontSize}
+                    getLabel={(v) => `${v}px`}
+                  />
+                </OptionRow>
+
+                <div
+                  className="mt-3 p-3 rounded-lg bg-accent/20 border border-border/30 text-muted-foreground"
+                  style={{ fontSize: `${interfaceFontSize}px`, fontFamily: INTERFACE_FONTS[interfaceFont]?.css ?? INTERFACE_FONTS.geist.css }}
+                >
+                  Preview: Interface typography now changes independently from the editor.
+                </div>
               </div>
             )}
 
             {/* ── Editor ── */}
             {activeTab === 'editor' && (
               <div>
-                <SectionLabel>Font Family</SectionLabel>
+                <SectionLabel>Editor Font Family</SectionLabel>
                 <div className="space-y-1.5 mb-5">
                   {(Object.entries(EDITOR_FONTS) as [EditorFont, typeof EDITOR_FONTS[EditorFont]][]).map(
                     ([key, val]) => (
@@ -359,21 +408,21 @@ export default function SettingsModal() {
 
                 <Separator className="bg-border/40 my-4" />
 
-                <SectionLabel>Font Size</SectionLabel>
-                <OptionRow label="Base font size" description="Affects the editor and all UI text">
+                <SectionLabel>Editor Font Size</SectionLabel>
+                <OptionRow label="Editor font size" description="Changes note and code editors without affecting the interface">
                   <PillSelect
-                    options={FONT_SIZE_OPTIONS}
-                    value={fontSize as typeof FONT_SIZE_OPTIONS[number]}
-                    onChange={setFontSize}
+                    options={EDITOR_FONT_SIZE_OPTIONS}
+                    value={editorFontSize as typeof EDITOR_FONT_SIZE_OPTIONS[number]}
+                    onChange={setEditorFontSize}
                     getLabel={(v) => `${v}px`}
                   />
                 </OptionRow>
 
                 <div
                   className="mt-3 p-3 rounded-lg bg-accent/20 border border-border/30 text-muted-foreground"
-                  style={{ fontSize: `${fontSize}px` }}
+                  style={{ fontSize: `${editorFontSize}px`, fontFamily: EDITOR_FONTS[editorFont]?.css ?? EDITOR_FONTS.codingMono.css }}
                 >
-                  Preview: The quick brown fox jumps over the lazy dog. 1234567890.
+                  Preview: const arrow = () =&gt; value; // editor-only typography
                 </div>
 
                 <Separator className="bg-border/40 my-4" />

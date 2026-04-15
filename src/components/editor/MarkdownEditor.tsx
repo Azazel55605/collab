@@ -341,6 +341,12 @@ function buildCollabTheme(dark: boolean, fontFamily: string, fontSize: number) {
       '.cm-indent-guide-depth-3': { boxShadow: 'inset 2px 0 0 oklch(0.83 0.19 40 / 0.42)', backgroundColor: 'oklch(0.83 0.19 40 / 0.06)' },
       '.cm-indent-guide-depth-4': { boxShadow: 'inset 2px 0 0 oklch(0.80 0.20 320 / 0.42)', backgroundColor: 'oklch(0.80 0.20 320 / 0.06)' },
       '.cm-indent-guide-depth-5': { boxShadow: 'inset 2px 0 0 oklch(0.88 0.12 80 / 0.42)', backgroundColor: 'oklch(0.88 0.12 80 / 0.06)' },
+      '.cm-ascii-arrow-ligature': {
+        display: 'inline-block',
+        width: '2ch',
+        textAlign: 'center',
+        pointerEvents: 'none',
+      },
       '.cm-color-preview-swatch': {
         display: 'inline-block',
         width: '0.8em',
@@ -454,6 +460,84 @@ class IndentMarkerWidget extends WidgetType {
     span.style.width = `${this.widthCh}ch`;
     return span;
   }
+}
+
+class AsciiArrowLigatureWidget extends WidgetType {
+  constructor(private readonly symbol: string) {
+    super();
+  }
+
+  eq(other: AsciiArrowLigatureWidget) {
+    return this.symbol === other.symbol;
+  }
+
+  toDOM() {
+    const span = document.createElement('span');
+    span.className = 'cm-ascii-arrow-ligature';
+    span.textContent = this.symbol;
+    span.setAttribute('aria-hidden', 'true');
+    return span;
+  }
+
+  ignoreEvent() {
+    return true;
+  }
+}
+
+function buildAsciiArrowLigatureDecorations(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  const selectionLines = new Set<number>();
+
+  for (const range of view.state.selection.ranges) {
+    const fromLine = view.state.doc.lineAt(range.from).number;
+    const toLine = view.state.doc.lineAt(range.to).number;
+    for (let lineNumber = fromLine; lineNumber <= toLine; lineNumber += 1) {
+      selectionLines.add(lineNumber);
+    }
+  }
+
+  for (const { from, to } of view.visibleRanges) {
+    let linePos = from;
+    while (linePos <= to) {
+      const line = view.state.doc.lineAt(linePos);
+      linePos = line.to + 1;
+
+      if (selectionLines.has(line.number)) continue;
+
+      for (let index = 0; index < line.text.length - 1; index += 1) {
+        const pair = line.text.slice(index, index + 2);
+        const symbol = pair === '/\\' ? '↑' : pair === '\\/' ? '↓' : null;
+        if (!symbol) continue;
+
+        builder.add(
+          line.from + index,
+          line.from + index + 2,
+          Decoration.replace({ widget: new AsciiArrowLigatureWidget(symbol) }),
+        );
+        index += 1;
+      }
+    }
+  }
+
+  return builder.finish();
+}
+
+export function asciiArrowLigatures() {
+  return ViewPlugin.fromClass(class {
+    decorations: DecorationSet;
+
+    constructor(view: EditorView) {
+      this.decorations = buildAsciiArrowLigatureDecorations(view);
+    }
+
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.selectionSet || update.viewportChanged || update.geometryChanged) {
+        this.decorations = buildAsciiArrowLigatureDecorations(update.view);
+      }
+    }
+  }, {
+    decorations: (value) => value.decorations,
+  });
 }
 
 function buildIndentDecorations(
@@ -988,7 +1072,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const {
       theme,
       editorFont,
-      fontSize,
+      editorFontSize,
       indentStyle,
       tabWidth,
       showIndentMarkers,
@@ -998,7 +1082,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       colorPreviewTintText,
       colorPreviewFormats,
     } = useUiStore();
-    const fontFamily = EDITOR_FONTS[editorFont].css;
+    const fontFamily = EDITOR_FONTS[editorFont]?.css ?? EDITOR_FONTS.codingMono.css;
 
     onChangeRef.current = onChange;
     onSaveRef.current = onSave;
@@ -1010,7 +1094,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       const isDark = theme !== 'light';
       view.dispatch({
         effects: [
-          themeCompartment.current.reconfigure(buildCollabTheme(isDark, fontFamily, fontSize)),
+          themeCompartment.current.reconfigure(buildCollabTheme(isDark, fontFamily, editorFontSize)),
           highlightCompartment.current.reconfigure(syntaxHighlighting(buildHighlightStyle(isDark))),
           indentationCompartment.current.reconfigure(indentationConfig(indentStyle, tabWidth)),
           indentVisualCompartment.current.reconfigure(
@@ -1024,7 +1108,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           })),
         ],
       });
-    }, [theme, fontFamily, fontSize, indentStyle, tabWidth, showIndentMarkers, showColoredIndents, showInlineColorPreviews, colorPreviewShowSwatch, colorPreviewTintText, colorPreviewFormats]);
+    }, [theme, fontFamily, editorFontSize, indentStyle, tabWidth, showIndentMarkers, showColoredIndents, showInlineColorPreviews, colorPreviewShowSwatch, colorPreviewTintText, colorPreviewFormats]);
 
     // ─── Expose imperative handle ─────────────────────────────────────────
 
@@ -1196,8 +1280,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 
       const uiState = useUiStore.getState();
       const isDark = uiState.theme !== 'light';
-      const initialFont = EDITOR_FONTS[uiState.editorFont].css;
-      const initialFontSize = uiState.fontSize;
+      const initialFont = EDITOR_FONTS[uiState.editorFont]?.css ?? EDITOR_FONTS.codingMono.css;
+      const initialFontSize = uiState.editorFontSize;
       const initialTheme = themeCompartment.current.of(buildCollabTheme(isDark, initialFont, initialFontSize));
       const initialHighlight = highlightCompartment.current.of(syntaxHighlighting(buildHighlightStyle(isDark)));
       const initialIndentation = indentationCompartment.current.of(
@@ -1293,6 +1377,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             initialIndentation,
             initialIndentVisuals,
             initialColorPreviews,
+            asciiArrowLigatures(),
             EditorView.lineWrapping,
           ],
         });
@@ -1305,7 +1390,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             lineNumbers(), highlightActiveLine(), history(),
             markdown({ base: markdownLanguage, extensions: GFM }),
             keymap.of([{ key: 'Tab', run: handleTabKey, shift: indentLess }, ...defaultKeymap, ...historyKeymap]),
-            saveKeymap, updateListener, initialTheme, initialIndentation, initialIndentVisuals, initialColorPreviews, EditorView.lineWrapping,
+            saveKeymap, updateListener, initialTheme, initialIndentation, initialIndentVisuals, initialColorPreviews, asciiArrowLigatures(), EditorView.lineWrapping,
           ],
         });
       }

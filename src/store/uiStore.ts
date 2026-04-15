@@ -6,7 +6,8 @@ export type SidebarPanel  = 'files' | 'search' | 'tags' | 'canvas-boards' | 'kan
 export type CollabTab     = 'peers' | 'chat' | 'history';
 export type Theme         = 'dark' | 'midnight' | 'warm' | 'light';
 export type AccentColor   = 'violet' | 'blue' | 'emerald' | 'rose' | 'orange' | 'cyan';
-export type EditorFont    = 'geist' | 'inter' | 'serif' | 'mono';
+export type InterfaceFont = 'geist' | 'inter' | 'serif' | 'mono';
+export type EditorFont    = 'firaCode' | 'jetbrainsMono' | 'codingMono';
 export type IndentStyle   = 'spaces' | 'tabs';
 export type ColorPreviewFormat = 'hex' | 'rgb' | 'hsl' | 'oklch' | 'oklab';
 export type DateFormat    = 'MMM_D_YYYY' | 'D_MMM_YYYY' | 'YYYY_MM_DD' | 'MM_DD_YYYY' | 'DD_MM_YYYY';
@@ -23,15 +24,31 @@ export const ACCENT_COLORS: Record<AccentColor, { label: string; oklch: string; 
   cyan:    { label: 'Cyan',    oklch: '0.74 0.14 200', hex: '#22d3ee' },
 };
 
-export const EDITOR_FONTS: Record<EditorFont, { label: string; css: string }> = {
+export const INTERFACE_FONTS: Record<InterfaceFont, { label: string; css: string }> = {
   geist: { label: 'Geist (default)', css: "'Geist Variable', sans-serif" },
-  inter: { label: 'Inter',           css: "'Inter', system-ui, sans-serif" },
+  inter: { label: 'Inter',           css: "'Inter Variable', 'Inter', system-ui, sans-serif" },
   serif: { label: 'Serif',           css: "'Georgia', 'Times New Roman', serif" },
-  mono:  { label: 'Monospace',       css: "'Geist Variable', 'Courier New', monospace" },
+  mono:  { label: 'Monospace',       css: "'JetBrains Mono', 'Fira Code', 'Geist Mono Variable', 'Courier New', monospace" },
+};
+
+export const EDITOR_FONTS: Record<EditorFont, { label: string; css: string }> = {
+  codingMono: {
+    label: 'Coding Mono',
+    css: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Pure Nerd Font', PureNerdFont, 'JetBrainsMono Nerd Font', 'FiraCode Nerd Font', 'CaskaydiaCove Nerd Font', 'Symbols Nerd Font Mono', monospace",
+  },
+  jetbrainsMono: {
+    label: 'JetBrains Mono',
+    css: "'JetBrains Mono', 'Pure Nerd Font', PureNerdFont, 'JetBrainsMono Nerd Font', 'Symbols Nerd Font Mono', monospace",
+  },
+  firaCode: {
+    label: 'Fira Code',
+    css: "'Fira Code', 'Pure Nerd Font', PureNerdFont, 'FiraCode Nerd Font', 'Symbols Nerd Font Mono', monospace",
+  },
 };
 
 export const SCALE_OPTIONS = [75, 90, 100, 110, 125, 150, 175, 200] as const;
-export const FONT_SIZE_OPTIONS = [12, 13, 14, 15, 16] as const;
+export const INTERFACE_FONT_SIZE_OPTIONS = [12, 13, 14, 15, 16] as const;
+export const EDITOR_FONT_SIZE_OPTIONS = [12, 13, 14, 15, 16] as const;
 export const ANIMATION_SPEED_OPTIONS: AnimationSpeed[] = ['slow', 'normal', 'fast'];
 export const TAB_WIDTH_OPTIONS = [2, 3, 4, 6, 8] as const;
 export const COLOR_PREVIEW_FORMAT_OPTIONS: Record<ColorPreviewFormat, { label: string; description: string }> = {
@@ -48,6 +65,49 @@ export const DEFAULT_COLOR_PREVIEW_FORMATS: Record<ColorPreviewFormat, boolean> 
   oklch: true,
   oklab: true,
 };
+
+const DEFAULT_INTERFACE_FONT: InterfaceFont = 'geist';
+const DEFAULT_EDITOR_FONT: EditorFont = 'codingMono';
+const DEFAULT_INTERFACE_FONT_SIZE = 14;
+const DEFAULT_EDITOR_FONT_SIZE = 14;
+
+function isInterfaceFont(value: unknown): value is InterfaceFont {
+  return typeof value === 'string' && value in INTERFACE_FONTS;
+}
+
+function isEditorFont(value: unknown): value is EditorFont {
+  return typeof value === 'string' && value in EDITOR_FONTS;
+}
+
+function normalizeFontSize(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function normalizePersistedUiState(
+  persisted: unknown,
+): Partial<UiState> {
+  if (!persisted || typeof persisted !== 'object') return {};
+  const state = persisted as Record<string, unknown>;
+  const legacyFont = state.editorFont;
+  const legacyFontSize = state.fontSize;
+
+  const interfaceFont = isInterfaceFont(state.interfaceFont)
+    ? state.interfaceFont
+    : isInterfaceFont(legacyFont)
+      ? legacyFont
+      : DEFAULT_INTERFACE_FONT;
+  const editorFont = isEditorFont(state.editorFont)
+    ? state.editorFont
+    : DEFAULT_EDITOR_FONT;
+
+  return {
+    ...state,
+    interfaceFont,
+    interfaceFontSize: normalizeFontSize(state.interfaceFontSize ?? legacyFontSize, DEFAULT_INTERFACE_FONT_SIZE),
+    editorFont,
+    editorFontSize: normalizeFontSize(state.editorFontSize, DEFAULT_EDITOR_FONT_SIZE),
+  } as Partial<UiState>;
+}
 
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const persistedUiStorage = createJSONStorage(() => {
@@ -105,8 +165,10 @@ interface UiState {
   // Appearance
   theme:       Theme;
   accentColor: AccentColor;
+  interfaceFont: InterfaceFont;
+  interfaceFontSize: number;
   editorFont:  EditorFont;
-  fontSize:    number;
+  editorFontSize: number;
   indentStyle: IndentStyle;
   tabWidth:    number;
   showIndentMarkers: boolean;
@@ -140,8 +202,10 @@ interface UiState {
 
   setTheme:         (theme: Theme) => void;
   setAccentColor:   (color: AccentColor) => void;
+  setInterfaceFont: (font: InterfaceFont) => void;
+  setInterfaceFontSize: (size: number) => void;
   setEditorFont:    (font: EditorFont) => void;
-  setFontSize:      (size: number) => void;
+  setEditorFontSize: (size: number) => void;
   setIndentStyle:   (style: IndentStyle) => void;
   setTabWidth:      (size: number) => void;
   setShowIndentMarkers: (value: boolean) => void;
@@ -172,8 +236,10 @@ export const useUiStore = create<UiState>()(
 
       theme:       'dark',
       accentColor: 'violet',
-      editorFont:  'geist',
-      fontSize:    14,
+      interfaceFont: 'geist',
+      interfaceFontSize: 14,
+      editorFont:  'codingMono',
+      editorFontSize: 14,
       indentStyle: 'spaces',
       tabWidth:    2,
       showIndentMarkers: false,
@@ -204,8 +270,10 @@ export const useUiStore = create<UiState>()(
 
       setTheme:         (theme)         => set({ theme }),
       setAccentColor:   (accentColor)   => set({ accentColor }),
+      setInterfaceFont: (interfaceFont) => set({ interfaceFont }),
+      setInterfaceFontSize: (interfaceFontSize) => set({ interfaceFontSize }),
       setEditorFont:    (editorFont)    => set({ editorFont }),
-      setFontSize:      (fontSize)      => set({ fontSize }),
+      setEditorFontSize: (editorFontSize) => set({ editorFontSize }),
       setIndentStyle:   (indentStyle)   => set({ indentStyle }),
       setTabWidth:      (tabWidth)      => set({ tabWidth }),
       setShowIndentMarkers: (showIndentMarkers) => set({ showIndentMarkers }),
@@ -228,6 +296,10 @@ export const useUiStore = create<UiState>()(
     {
       name: 'ui-storage',
       storage: persistedUiStorage,
+      merge: (persisted, current) => ({
+        ...current,
+        ...normalizePersistedUiState(persisted),
+      }),
       // Don't persist transient state
       partialize: (s) => ({
         collabTab:      s.collabTab,
@@ -235,8 +307,10 @@ export const useUiStore = create<UiState>()(
         isSidebarOpen: s.isSidebarOpen,
         theme:         s.theme,
         accentColor:   s.accentColor,
+        interfaceFont: s.interfaceFont,
+        interfaceFontSize: s.interfaceFontSize,
         editorFont:    s.editorFont,
-        fontSize:      s.fontSize,
+        editorFontSize: s.editorFontSize,
         indentStyle:   s.indentStyle,
         tabWidth:      s.tabWidth,
         showIndentMarkers: s.showIndentMarkers,

@@ -3,7 +3,7 @@ import './App.css';
 import { TooltipProvider } from './components/ui/tooltip';
 import { useVaultStore } from './store/vaultStore';
 import { useEditorStore } from './store/editorStore';
-import { useUiStore, ACCENT_COLORS, EDITOR_FONTS } from './store/uiStore';
+import { useUiStore, ACCENT_COLORS, INTERFACE_FONTS } from './store/uiStore';
 import VaultPicker from './components/vault/VaultPicker';
 import AppShell from './components/layout/AppShell';
 import SettingsModal from './components/settings/SettingsModal';
@@ -88,8 +88,8 @@ export default function App() {
   const {
     theme,
     accentColor,
-    editorFont,
-    fontSize,
+    interfaceFont,
+    interfaceFontSize,
     scale,
     animationsEnabled,
     animationSpeed,
@@ -127,15 +127,15 @@ export default function App() {
     root.style.setProperty('--editor-selection-dim', `oklch(${accent.oklch} / 0.18)`);
 
     // Font
-    const font = EDITOR_FONTS[editorFont];
-    root.style.setProperty('--font-sans', font.css);
-    root.style.setProperty('--font-mono', font.css);
+    const font = INTERFACE_FONTS[interfaceFont] ?? INTERFACE_FONTS.geist;
+    root.style.setProperty('--app-font-sans', font.css);
+    root.style.setProperty('--app-font-mono', "'JetBrains Mono', 'Fira Code', 'Geist Mono Variable', monospace");
 
     // Font size
-    root.style.setProperty('--base-font-size', `${fontSize}px`);
-    root.style.fontSize = `${fontSize}px`;
+    root.style.setProperty('--base-font-size', `${interfaceFontSize}px`);
+    root.style.fontSize = `${interfaceFontSize}px`;
 
-  }, [theme, accentColor, editorFont, fontSize]);
+  }, [theme, accentColor, interfaceFont, interfaceFontSize]);
 
   useEffect(() => {
     const root = document.documentElement;
