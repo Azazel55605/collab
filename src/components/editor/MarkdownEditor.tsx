@@ -56,6 +56,7 @@ import {
   ContextMenuSeparator, ContextMenuTrigger,
 } from '../ui/context-menu';
 import { parseFenceInfoLanguage, type ParsedCodeBlockAtCursor } from './codeBlockUtils';
+import { dispatchEditorToolbarAction } from '../../lib/editorToolbarActions';
 
 export interface MarkdownEditorHandle {
   /** Wrap selection with `before`/`after`; if no selection, insert `before + placeholder + after` and select placeholder. */
@@ -64,6 +65,7 @@ export interface MarkdownEditorHandle {
   insertLine: (prefix: string) => void;
   /** Insert arbitrary text at cursor / replace selection. Supports a single `<cursor>` marker. */
   insertSnippet: (text: string) => void;
+  focus: () => void;
   replaceRange: (from: number, to: number, text: string) => void;
   getTableAtCursor: () => { from: number; to: number; text: string } | null;
   getMathBlockAtCursor: () => { from: number; to: number; text: string } | null;
@@ -729,6 +731,13 @@ function handleTabKey(view: EditorView) {
   return insertIndentUnitAtCursor(view);
 }
 
+function openToolbarAction(action: 'icon' | 'table' | 'link' | 'image' | 'taskList' | 'math' | 'code') {
+  return () => {
+    dispatchEditorToolbarAction(action);
+    return true;
+  };
+}
+
 class ColorSwatchWidget extends WidgetType {
   constructor(private readonly color: string) {
     super();
@@ -1166,6 +1175,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         view.focus();
       },
 
+      focus() {
+        viewRef.current?.focus();
+      },
+
       replaceRange(from, to, text) {
         const view = viewRef.current;
         if (!view) return;
@@ -1219,6 +1232,17 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         return true;
       };
 
+      const wrapStrikethrough = (view: EditorView) => {
+        const { from, to } = view.state.selection.main;
+        const selected = view.state.sliceDoc(from, to) || 'strikethrough';
+        const insertion = `~~${selected}~~`;
+        view.dispatch({
+          changes: { from, to, insert: insertion },
+          selection: { anchor: from + 2, head: from + 2 + (to > from ? to - from : 13) },
+        });
+        return true;
+      };
+
       // ── Link click handler ────────────────────────────────────────────────
       // Uses mousedown (not click) so we can return true and prevent CM6 from
       // placing the cursor — CM's own cursor-placement also runs on mousedown,
@@ -1268,6 +1292,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         { key: 'Mod-s', run: (view) => { onSaveRef.current(view.state.doc.toString()); return true; } },
         { key: 'Mod-b', run: wrapBold },
         { key: 'Mod-i', run: wrapItalic },
+        { key: 'Mod-Shift-x', run: wrapStrikethrough },
+        { key: 'Mod-Alt-s', run: openToolbarAction('icon') },
+        { key: 'Mod-Alt-t', run: openToolbarAction('table') },
+        { key: 'Mod-Alt-l', run: openToolbarAction('link') },
+        { key: 'Mod-Alt-i', run: openToolbarAction('image') },
+        { key: 'Mod-Alt-k', run: openToolbarAction('taskList') },
+        { key: 'Mod-Alt-m', run: openToolbarAction('math') },
+        { key: 'Mod-Alt-c', run: openToolbarAction('code') },
       ]);
 
       const updateListener = EditorView.updateListener.of((update) => {
@@ -1610,7 +1642,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             view.dispatch({ changes: { from, to, insert: `~~${sel}~~` }, selection: { anchor: from + 2, head: from + 2 + sel.length } });
             view.focus();
           }}>
-            Strikethrough
+            Strikethrough <span className="ml-auto text-muted-foreground">⌘⇧X</span>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem className="text-xs" onSelect={() => {

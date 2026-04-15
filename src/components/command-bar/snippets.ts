@@ -57,6 +57,21 @@ const INSERT_COMMANDS: SnippetCommand[] = [
     },
   },
   {
+    key: 'math',
+    aliases: ['equation', 'formula', 'mathblock'],
+    label: 'Math block',
+    preview: '$$',
+    build: (query) => {
+      const match = query.match(/^(?:math|equation|formula|mathblock)\s+(.+)/i);
+      const expression = match ? match[1].trim() : '';
+      return {
+        label: expression ? `Math block: ${expression}` : 'Math block',
+        preview: '$$',
+        text: `$$\n${expression}\n$$`,
+      };
+    },
+  },
+  {
     key: 'link',
     aliases: ['wikilink', 'wiki'],
     label: 'Wikilink',
@@ -68,6 +83,37 @@ const INSERT_COMMANDS: SnippetCommand[] = [
         label: name ? `Wikilink: ${name}` : 'Wikilink',
         preview: name ? `[[${name}]]` : '[[...]]',
         text: name ? `[[${name}]]` : '[[]]',
+      };
+    },
+  },
+  {
+    key: 'mdlink',
+    aliases: ['url', 'hyperlink', 'web'],
+    label: 'Markdown link',
+    preview: '[label](url)',
+    build: (query) => {
+      const match = query.match(/^(?:mdlink|url|hyperlink|web)\s+(.+)/i);
+      const target = match ? match[1].trim() : '';
+      return {
+        label: target ? `Markdown link: ${target}` : 'Markdown link',
+        preview: target ? `[${target}](${target})` : '[link text](https://example.com)',
+        text: target ? `[${target}](${target})` : '[link text](https://example.com)',
+      };
+    },
+  },
+  {
+    key: 'image',
+    aliases: ['img', 'picture'],
+    label: 'Image',
+    preview: '![alt](path)',
+    build: (query) => {
+      const match = query.match(/^(?:image|img|picture)\s+(.+)/i);
+      const path = match ? match[1].trim() : '';
+      const alt = path.split('/').pop()?.replace(/\.[^.]+$/, '') || 'alt text';
+      return {
+        label: path ? `Image: ${alt}` : 'Image',
+        preview: path ? `![${alt}](${path})` : '![alt text](Pictures/example.png)',
+        text: path ? `![${alt}](${path})` : '![alt text](Pictures/example.png)',
       };
     },
   },
@@ -202,7 +248,7 @@ const INSERT_COMMANDS: SnippetCommand[] = [
   },
   {
     key: 'checklist',
-    aliases: ['todo', 'tasks'],
+    aliases: ['todo', 'tasks', 'task'],
     label: 'Checklist',
     preview: '- [ ] …',
     build: (query) => {

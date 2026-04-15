@@ -25,8 +25,8 @@ A local-first Markdown note-taking desktop app built with Tauri 2, React 19, and
 - **Auto-rename** — file is renamed to match the first H1 heading on save; new notes open with `# filename` pre-filled
 - **Autosave** — 600 ms debounce after last keystroke; Ctrl+S for immediate save
 - **Optimistic locking** — SHA-256 hash checked on write; conflicting external edits surface a resolve dialog (keep mine / keep theirs)
-- **Editor toolbar** — heading shortcuts, bold, italic, strikethrough, highlight, code, inline math, blockquote, lists, task list, link, image, table, HR, math block
-- **Keyboard shortcuts** — Ctrl+B bold, Ctrl+I italic, Ctrl+Z/Shift+Z undo/redo, Tab indent, Ctrl+S save
+- **Editor toolbar** — heading shortcuts, bold, italic, strikethrough, highlight, code, inline math, blockquote, lists, task list, link, image, table, HR, math block, code block, and a searchable Nerd Font icon picker
+- **Keyboard shortcuts** — Ctrl+B bold, Ctrl+I italic, Ctrl+Shift+X strikethrough, Ctrl+Z/Shift+Z undo/redo, Tab indent, Ctrl+S save, plus Ctrl+Alt shortcuts for icon, table, link, image, task list, math block, and code block editors
 
 ### Vault management
 - **Vault manager** — accessible from the ActivityBar (vault icon) or by clicking the vault name in the status bar
@@ -64,7 +64,7 @@ A local-first Markdown note-taking desktop app built with Tauri 2, React 19, and
 - **Graph view** — D3 force-directed graph of all notes and their wikilink connections; click a node to open the note
 - **Grid / workspace** — split-pane workspace; drag tabs between cells to arrange multiple notes and views side by side
 - **Tabbed editing** — multiple notes open simultaneously with dirty-state indicators; drag tabs to reorder
-- **Command palette** — Ctrl+K quick-open across all notes in the vault
+- **Command palette** — Ctrl+K / Ctrl+P quick-open across notes, actions, tags, math, insert snippets, and Nerd Font icon search
 - **Full-text search** — fuzzy search across note titles and content via the sidebar
 - **Tags panel** — sidebar panel listing all `#tags` found in the vault with per-tag note counts
 - **File tree** — hierarchical file browser with drag-and-drop move, context menu (rename, delete, new note/folder), and presence avatars on actively-edited files
@@ -72,8 +72,9 @@ A local-first Markdown note-taking desktop app built with Tauri 2, React 19, and
 ### Appearance & settings
 - **Themes** — Dark, Midnight, Warm, Light
 - **Accent colours** — Violet, Blue, Emerald, Rose, Orange, Cyan; applied as CSS variables at runtime
-- **Editor fonts** — Geist (default), Inter, Serif, Monospace
-- **Font size** — 12–16 px base size
+- **Interface fonts** — Geist, Inter, Serif, Monospace
+- **Editor fonts** — Coding Mono, JetBrains Mono, Fira Code, with bundled Nerd Font symbol fallback for icon glyphs
+- **Font size** — separate 12–16 px interface and editor size controls
 - **HiDPI scaling** — UI scale 75 %–200 % via Tauri's native webview zoom
 - **Confirm-delete toggle** — optional confirmation dialog before deleting notes or folders
 

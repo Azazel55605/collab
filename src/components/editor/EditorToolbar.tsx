@@ -22,7 +22,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
-import { useState, type MouseEvent, type RefObject } from 'react';
+import { useEffect, useState, type MouseEvent, type RefObject } from 'react';
 import type { MarkdownEditorHandle } from './MarkdownEditor';
 import {
   DocumentTopBar,
@@ -51,6 +51,7 @@ import { CodeBlockEditorDialog } from './CodeBlockEditorDialog';
 import { NerdFontIconPicker } from './NerdFontIconPicker';
 import { open } from '@tauri-apps/plugin-dialog';
 import { renderMarkdownCodeBlock } from './codeBlockUtils';
+import { EDITOR_TOOLBAR_ACTION_EVENT, type EditorToolbarAction } from '../../lib/editorToolbarActions';
 
 interface EditorToolbarProps {
   relativePath: string;
@@ -101,7 +102,7 @@ interface ImageDialogProps {
 const INLINE: InlineBtn[] = [
   { icon: <Bold size={13} />,        label: 'Bold (Ctrl+B)',   before: '**', after: '**', placeholder: 'bold text' },
   { icon: <Italic size={13} />,      label: 'Italic (Ctrl+I)', before: '_',  after: '_',  placeholder: 'italic text' },
-  { icon: <Strikethrough size={13}/>, label: 'Strikethrough',  before: '~~', after: '~~', placeholder: 'text' },
+  { icon: <Strikethrough size={13}/>, label: 'Strikethrough (Ctrl+Shift+X)',  before: '~~', after: '~~', placeholder: 'text' },
   { icon: <Highlighter size={13} />, label: 'Highlight',       before: '==', after: '==', placeholder: 'highlighted' },
   { icon: <Code size={13} />,        label: 'Inline Code',     before: '`',  after: '`',  placeholder: 'code' },
   { icon: <Calculator size={13} />,  label: 'Inline Math',     before: '$',  after: '$',  placeholder: 'x^2' },
@@ -291,6 +292,11 @@ function ImageInsertDialog({
 
 export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
   const ed = () => editorRef.current;
+  const restoreEditorFocus = () => {
+    window.requestAnimationFrame(() => {
+      ed()?.focus();
+    });
+  };
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
   const [tableDialogMode, setTableDialogMode] = useState<'insert' | 'edit'>('insert');
   const [tableModel, setTableModel] = useState<MarkdownTableModel>(createEmptyTable());
@@ -312,6 +318,37 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
   const [codeLanguage, setCodeLanguage] = useState('');
   const [codeContent, setCodeContent] = useState('');
   const [codeReplaceRange, setCodeReplaceRange] = useState<{ from: number; to: number } | null>(null);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const action = (event as CustomEvent<{ action?: EditorToolbarAction }>).detail?.action;
+      switch (action) {
+        case 'table':
+          openVisualTableEditor();
+          break;
+        case 'link':
+          openLinkDialog();
+          break;
+        case 'image':
+          openImageDialog();
+          break;
+        case 'taskList':
+          openTaskListDialog();
+          break;
+        case 'math':
+          openMathDialog();
+          break;
+        case 'code':
+          openCodeDialog();
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener(EDITOR_TOOLBAR_ACTION_EVENT, handler);
+    return () => window.removeEventListener(EDITOR_TOOLBAR_ACTION_EVENT, handler);
+  }, []);
 
   const openVisualTableEditor = () => {
     const currentTable = ed()?.getTableAtCursor();
@@ -341,6 +378,7 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
     }
     setTableDialogOpen(false);
     setTableReplaceRange(null);
+    restoreEditorFocus();
   };
 
   const openLinkDialog = () => {
@@ -397,6 +435,7 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
   const applyLinkDialog = () => {
     ed()?.insertSnippet(`[${linkText.trim()}](${linkUrl.trim()})`);
     setLinkDialogOpen(false);
+    restoreEditorFocus();
   };
 
   const browseImagePath = async () => {
@@ -413,11 +452,13 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
   const applyImageDialog = () => {
     ed()?.insertSnippet(`![${imageAltText.trim()}](${imagePath.trim()})`);
     setImageDialogOpen(false);
+    restoreEditorFocus();
   };
 
   const applyTaskListDialog = (tasks: TaskListItemDraft[]) => {
     ed()?.insertSnippet(renderMarkdownTaskList(tasks));
     setTaskListDialogOpen(false);
+    restoreEditorFocus();
   };
 
   const applyMathDialog = (nextSource: string) => {
@@ -429,6 +470,7 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
     }
     setMathDialogOpen(false);
     setMathReplaceRange(null);
+    restoreEditorFocus();
   };
 
   const applyCodeDialog = (value: { language: string; code: string }) => {
@@ -440,6 +482,7 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
     }
     setCodeDialogOpen(false);
     setCodeReplaceRange(null);
+    restoreEditorFocus();
   };
 
   return (
@@ -467,7 +510,7 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
                   <ToolBtn
                     key={b.label}
                     icon={b.icon}
-                    label="Task List (Shift-click for visual editor)"
+                      label="Task List (Shift-click for visual editor, Ctrl+Alt+K)"
                     onClick={(event) => {
                       if (event.shiftKey) {
                         openTaskListDialog();
@@ -493,7 +536,7 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
                   <ToolBtn
                     key={b.label}
                     icon={b.icon}
-                    label="Table (Shift-click for visual editor)"
+                    label="Table (Shift-click for visual editor, Ctrl+Alt+T)"
                     onClick={(event) => {
                       if (event.shiftKey) {
                         openVisualTableEditor();
@@ -506,7 +549,7 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
                   <ToolBtn
                     key={b.label}
                     icon={b.icon}
-                    label="Link (Shift-click for visual editor)"
+                    label="Link (Shift-click for visual editor, Ctrl+Alt+L)"
                     onClick={(event) => {
                       if (event.shiftKey) {
                         openLinkDialog();
@@ -519,7 +562,7 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
                   <ToolBtn
                     key={b.label}
                     icon={b.icon}
-                    label="Image (Shift-click for visual editor)"
+                    label="Image (Shift-click for visual editor, Ctrl+Alt+I)"
                     onClick={(event) => {
                       if (event.shiftKey) {
                         openImageDialog();
@@ -532,7 +575,7 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
                   <ToolBtn
                     key={b.label}
                     icon={b.icon}
-                    label="Math Block (Shift-click for visual editor)"
+                    label="Math Block (Shift-click for visual editor, Ctrl+Alt+M)"
                     onClick={(event) => {
                       if (event.shiftKey) {
                         openMathDialog();
@@ -545,7 +588,7 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
                   <ToolBtn
                     key={b.label}
                     icon={b.icon}
-                    label="Code Block (Shift-click for visual editor)"
+                    label="Code Block (Shift-click for visual editor, Ctrl+Alt+C)"
                     onClick={(event) => {
                       if (event.shiftKey) {
                         openCodeDialog();
@@ -580,6 +623,7 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
         onOpenChange={(open) => {
           setTableDialogOpen(open);
           if (!open) setTableReplaceRange(null);
+          if (!open) restoreEditorFocus();
         }}
         onApply={applyVisualTable}
       />
@@ -590,7 +634,10 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
         url={linkUrl}
         onTextChange={setLinkText}
         onUrlChange={setLinkUrl}
-        onOpenChange={setLinkDialogOpen}
+        onOpenChange={(open) => {
+          setLinkDialogOpen(open);
+          if (!open) restoreEditorFocus();
+        }}
         onApply={applyLinkDialog}
       />
 
@@ -601,14 +648,20 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
         onAltTextChange={setImageAltText}
         onPathChange={setImagePath}
         onBrowse={browseImagePath}
-        onOpenChange={setImageDialogOpen}
+        onOpenChange={(open) => {
+          setImageDialogOpen(open);
+          if (!open) restoreEditorFocus();
+        }}
         onApply={applyImageDialog}
       />
 
       <TaskListEditorDialog
         open={taskListDialogOpen}
         initialValue={taskListItems}
-        onOpenChange={setTaskListDialogOpen}
+        onOpenChange={(open) => {
+          setTaskListDialogOpen(open);
+          if (!open) restoreEditorFocus();
+        }}
         onApply={applyTaskListDialog}
       />
 
@@ -619,6 +672,7 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
         onOpenChange={(open) => {
           setMathDialogOpen(open);
           if (!open) setMathReplaceRange(null);
+          if (!open) restoreEditorFocus();
         }}
         onApply={applyMathDialog}
       />
@@ -631,6 +685,7 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
         onOpenChange={(open) => {
           setCodeDialogOpen(open);
           if (!open) setCodeReplaceRange(null);
+          if (!open) restoreEditorFocus();
         }}
         onApply={applyCodeDialog}
       />

@@ -29,6 +29,12 @@ import {
   Type,
   Copy,
   Tags,
+  Shapes,
+  Link2,
+  Image as ImageIcon,
+  Table2,
+  ListTodo,
+  FileCode,
 } from 'lucide-react';
 import { useVaultStore } from '../../store/vaultStore';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
@@ -40,6 +46,14 @@ import { completeInsertQuery, generateSnippets } from './snippets';
 import type { NoteMetadata, SearchResult } from '../../types/note';
 import type { NoteFile } from '../../types/vault';
 import { toast } from 'sonner';
+import { dispatchEditorToolbarAction } from '../../lib/editorToolbarActions';
+import {
+  completeNerdFontIconQuery,
+  formatNerdFontHexCode,
+  groupNerdFontIcons,
+  isNerdFontIconQuery,
+  searchNerdFontIcons,
+} from '../../lib/nerdFontIcons';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -92,7 +106,7 @@ function detectMode(raw: string): Mode {
   if (insertMatch)         return { type: 'insert',     query: insertMatch[1].trim() };
 
   // Insert prefixes — shown only when in editor view
-  if (/^(table\b|code\b|link\b|date\b|heading\b|h[1-6]\b|hr$|quote\b|blockquote\b|checklist\b|todo\b)/i.test(s)) {
+  if (/^(table\b|code\b|link\b|mdlink\b|url\b|image\b|img\b|date\b|math\b|equation\b|icon\b|icons\b|glyph\b|symbol\b|heading\b|h[1-6]\b|hr$|quote\b|blockquote\b|checklist\b|todo\b)/i.test(s)) {
     return { type: 'insert', query: s };
   }
 
@@ -267,6 +281,104 @@ const ACTIONS: Action[] = [
     icon: <Tags className="size-4 shrink-0" />,
     onSelect: (ctx) => {
       window.dispatchEvent(new CustomEvent('tag:add-tags-line'));
+      ctx.close();
+    },
+  },
+  {
+    id: 'open-icon-picker',
+    keywords: ['icon', 'icons', 'nerd font', 'symbol', 'glyph', 'insert icon'],
+    label: 'Open Nerd Font Icon Picker',
+    icon: <Shapes className="size-4 shrink-0" />,
+    onSelect: (ctx) => {
+      if (ctx.activeView !== 'editor') {
+        toast.error('Open a note first to insert icons.');
+        return;
+      }
+      dispatchEditorToolbarAction('icon');
+      ctx.close();
+    },
+  },
+  {
+    id: 'open-link-editor',
+    keywords: ['link', 'url', 'hyperlink', 'insert link'],
+    label: 'Open Link Editor',
+    icon: <Link2 className="size-4 shrink-0" />,
+    onSelect: (ctx) => {
+      if (ctx.activeView !== 'editor') {
+        toast.error('Open a note first to insert links.');
+        return;
+      }
+      dispatchEditorToolbarAction('link');
+      ctx.close();
+    },
+  },
+  {
+    id: 'open-image-editor',
+    keywords: ['image', 'picture', 'media', 'insert image'],
+    label: 'Open Image Editor',
+    icon: <ImageIcon className="size-4 shrink-0" />,
+    onSelect: (ctx) => {
+      if (ctx.activeView !== 'editor') {
+        toast.error('Open a note first to insert images.');
+        return;
+      }
+      dispatchEditorToolbarAction('image');
+      ctx.close();
+    },
+  },
+  {
+    id: 'open-table-editor',
+    keywords: ['table', 'grid', 'insert table'],
+    label: 'Open Table Editor',
+    icon: <Table2 className="size-4 shrink-0" />,
+    onSelect: (ctx) => {
+      if (ctx.activeView !== 'editor') {
+        toast.error('Open a note first to insert tables.');
+        return;
+      }
+      dispatchEditorToolbarAction('table');
+      ctx.close();
+    },
+  },
+  {
+    id: 'open-task-list-editor',
+    keywords: ['task list', 'checklist', 'todo list', 'insert tasks'],
+    label: 'Open Task List Editor',
+    icon: <ListTodo className="size-4 shrink-0" />,
+    onSelect: (ctx) => {
+      if (ctx.activeView !== 'editor') {
+        toast.error('Open a note first to insert task lists.');
+        return;
+      }
+      dispatchEditorToolbarAction('taskList');
+      ctx.close();
+    },
+  },
+  {
+    id: 'open-math-editor',
+    keywords: ['math', 'equation', 'formula', 'latex', 'insert math'],
+    label: 'Open Math Block Editor',
+    icon: <Calculator className="size-4 shrink-0" />,
+    onSelect: (ctx) => {
+      if (ctx.activeView !== 'editor') {
+        toast.error('Open a note first to insert math blocks.');
+        return;
+      }
+      dispatchEditorToolbarAction('math');
+      ctx.close();
+    },
+  },
+  {
+    id: 'open-code-editor',
+    keywords: ['code', 'code block', 'snippet', 'insert code'],
+    label: 'Open Code Block Editor',
+    icon: <FileCode className="size-4 shrink-0" />,
+    onSelect: (ctx) => {
+      if (ctx.activeView !== 'editor') {
+        toast.error('Open a note first to insert code blocks.');
+        return;
+      }
+      dispatchEditorToolbarAction('code');
       ctx.close();
     },
   },
@@ -632,6 +744,44 @@ function renderInsert(mode: { type: 'insert'; query: string }, ctx: RenderCtx) {
       </CommandEmpty>
     );
   }
+  if (isNerdFontIconQuery(mode.query)) {
+    const icons = searchNerdFontIcons(mode.query, 120);
+    if (!icons.length) {
+      return <CommandEmpty>No icons matching "{mode.query}".</CommandEmpty>;
+    }
+    return (
+      <>
+        {groupNerdFontIcons(icons).map(([categoryLabel, entries]) => (
+          <CommandGroup key={categoryLabel} heading={categoryLabel}>
+            {entries.map((entry) => (
+              <CommandItem
+                key={entry.id}
+                value={`icon-${entry.id}`}
+                onSelect={() => {
+                  window.dispatchEvent(new CustomEvent('cmdbar:insert', { detail: { text: entry.glyph } }));
+                  ctx.close();
+                }}
+                className="gap-3"
+              >
+                <span
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-[18px] leading-none"
+                  style={{ fontFamily: "'Pure Nerd Font', PureNerdFont, monospace" }}
+                  aria-hidden="true"
+                >
+                  {entry.glyph}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{entry.nameLabel}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{entry.id}</span>
+                </span>
+                <CommandShortcut className="tracking-normal">{formatNerdFontHexCode(entry.hexCode)}</CommandShortcut>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        ))}
+      </>
+    );
+  }
   const snippets = generateSnippets(mode.query, ctx.dateFormat);
   if (!snippets.length) {
     return <CommandEmpty>No snippets matching "{mode.query}". Try <span className="font-mono">/</span> to browse.</CommandEmpty>;
@@ -762,7 +912,9 @@ export function CommandBar() {
 
   const mode = detectMode(input);
   const files = flattenFiles(fileTree);
-  const insertCompletion = mode.type === 'insert' ? completeInsertQuery(mode.query) : null;
+  const insertCompletion = mode.type === 'insert'
+    ? (completeInsertQuery(mode.query) ?? completeNerdFontIconQuery(mode.query))
+    : null;
 
   const ctx: RenderCtx = {
     notes,
@@ -788,7 +940,7 @@ export function CommandBar() {
         <DialogHeader className="sr-only">
           <DialogTitle>Command Bar</DialogTitle>
           <DialogDescription>
-            Search notes, run actions, calculate expressions, filter by tag or type, or browse insert snippets.
+            Search notes, run actions, calculate expressions, filter by tag or type, browse insert snippets, or search Nerd Font icons.
           </DialogDescription>
         </DialogHeader>
 

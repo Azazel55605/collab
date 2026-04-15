@@ -46,9 +46,14 @@ const GROUPS: Group[] = [
   },
   {
     heading: 'Search & Actions',
+    note: 'Mode keys apply inside the command bar after it is open.',
     rows: [
       { label: 'Command bar',     keys: [['Ctrl', 'K'], ['Ctrl', 'P']] },
       { label: 'New note',        keys: [['Ctrl', 'N']] },
+      { label: 'Command bar math mode', keys: [['=']] },
+      { label: 'Command bar action mode', keys: [['>']] },
+      { label: 'Command bar tag mode', keys: [['#']] },
+      { label: 'Command bar insert mode', keys: [['/']] },
     ],
   },
   {
@@ -58,10 +63,18 @@ const GROUPS: Group[] = [
       { label: 'Save',            keys: [['Ctrl', 'S']] },
       { label: 'Bold',            keys: [['Ctrl', 'B']] },
       { label: 'Italic',          keys: [['Ctrl', 'I']] },
+      { label: 'Strikethrough',   keys: [['Ctrl', 'Shift', 'X']] },
       { label: 'Undo',            keys: [['Ctrl', 'Z']] },
       { label: 'Redo',            keys: [['Ctrl', 'Shift', 'Z']] },
       { label: 'Indent',          keys: [['Tab']] },
       { label: 'Dedent',          keys: [['Shift', 'Tab']] },
+      { label: 'Open icon picker', keys: [['Ctrl', 'Alt', 'S']] },
+      { label: 'Open table editor', keys: [['Ctrl', 'Alt', 'T']] },
+      { label: 'Open link editor', keys: [['Ctrl', 'Alt', 'L']] },
+      { label: 'Open image editor', keys: [['Ctrl', 'Alt', 'I']] },
+      { label: 'Open task list editor', keys: [['Ctrl', 'Alt', 'K']] },
+      { label: 'Open math block editor', keys: [['Ctrl', 'Alt', 'M']] },
+      { label: 'Open code block editor', keys: [['Ctrl', 'Alt', 'C']] },
     ],
   },
   {

@@ -1,6 +1,11 @@
-import { useMemo, useState } from 'react';
-import mappings from '../../generated/nerd-font-mappings.json';
+import { useEffect, useMemo, useState } from 'react';
 import { Shapes } from 'lucide-react';
+import {
+  formatNerdFontHexCode,
+  groupNerdFontIcons,
+  searchNerdFontIcons,
+} from '../../lib/nerdFontIcons';
+import { EDITOR_TOOLBAR_ACTION_EVENT } from '../../lib/editorToolbarActions';
 import {
   Command,
   CommandEmpty,
@@ -17,132 +22,23 @@ interface NerdFontIconPickerProps {
   onInsert: (glyph: string) => void;
 }
 
-interface NerdFontIconEntry {
-  id: string;
-  glyph: string;
-  hexCode: number;
-  categoryKey: string;
-  categoryLabel: string;
-  nameLabel: string;
-  searchText: string;
-}
-
-const CATEGORY_LABELS: Record<string, string> = {
-  cod: 'VS Code',
-  custom: 'Custom',
-  dev: 'Devicons',
-  fa: 'Font Awesome',
-  fae: 'Font Awesome Extension',
-  iec: 'IEC Power',
-  indent: 'Indent',
-  linux: 'Linux',
-  md: 'Material Design',
-  oct: 'Octicons',
-  pl: 'Powerline',
-  ple: 'Powerline Extra',
-  pom: 'Pomicons',
-  seti: 'Seti',
-  weather: 'Weather',
-};
-
-function titleCaseToken(token: string) {
-  return token
-    .split(/[_\s]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
-function buildCategoryLabel(categoryKey: string) {
-  return CATEGORY_LABELS[categoryKey] ?? titleCaseToken(categoryKey);
-}
-
-function buildNameLabel(id: string) {
-  const [, , ...nameTokens] = id.split('-');
-  return titleCaseToken(nameTokens.join(' '));
-}
-
-function buildSearchText(id: string, categoryLabel: string, nameLabel: string) {
-  return `${id} ${categoryLabel} ${nameLabel} ${id.replace(/[-_]/g, ' ')}`.toLowerCase();
-}
-
-function scoreEntry(entry: NerdFontIconEntry, query: string) {
-  const exactName = entry.nameLabel.toLowerCase();
-  const exactId = entry.id.toLowerCase();
-  const category = entry.categoryLabel.toLowerCase();
-
-  if (exactId === query || exactName === query) return 0;
-  if (exactName.startsWith(query)) return 1;
-  if (exactId.startsWith(query)) return 2;
-  if (category.startsWith(query)) return 3;
-
-  const nameWordIndex = exactName.split(/\s+/).findIndex((word) => word.startsWith(query));
-  if (nameWordIndex >= 0) return 4 + nameWordIndex;
-
-  if (entry.searchText.includes(query)) return 12;
-  return null;
-}
-
-const NERD_FONT_ICONS: NerdFontIconEntry[] = (Object.entries(mappings) as [string, number][])
-  .map(([id, hexCode]) => {
-    const [, categoryKey = 'custom'] = id.split('-');
-    const categoryLabel = buildCategoryLabel(categoryKey);
-    const nameLabel = buildNameLabel(id);
-    return {
-      id,
-      glyph: String.fromCodePoint(hexCode),
-      hexCode,
-      categoryKey,
-      categoryLabel,
-      nameLabel,
-      searchText: buildSearchText(id, categoryLabel, nameLabel),
-    };
-  })
-  .sort((left, right) => (
-    left.categoryLabel.localeCompare(right.categoryLabel) ||
-    left.nameLabel.localeCompare(right.nameLabel) ||
-    left.id.localeCompare(right.id)
-  ));
-
-function formatHexCode(hexCode: number) {
-  return `U+${hexCode.toString(16).toUpperCase()}`;
-}
-
-function groupEntries(entries: NerdFontIconEntry[]) {
-  const grouped = new Map<string, NerdFontIconEntry[]>();
-  for (const entry of entries) {
-    const current = grouped.get(entry.categoryLabel);
-    if (current) {
-      current.push(entry);
-    } else {
-      grouped.set(entry.categoryLabel, [entry]);
-    }
-  }
-  return Array.from(grouped.entries());
-}
-
 export function NerdFontIconPicker({ onInsert }: NerdFontIconPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
 
-  const filteredEntries = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return NERD_FONT_ICONS.slice(0, 240);
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const action = (event as CustomEvent<{ action?: string }>).detail?.action;
+      if (action !== 'icon') return;
+      setOpen(true);
+    };
 
-    return NERD_FONT_ICONS
-      .map((entry) => ({ entry, score: scoreEntry(entry, normalizedQuery) }))
-      .filter((result): result is { entry: NerdFontIconEntry; score: number } => result.score != null)
-      .sort((left, right) => (
-        left.score - right.score ||
-        left.entry.categoryLabel.localeCompare(right.entry.categoryLabel) ||
-        left.entry.nameLabel.localeCompare(right.entry.nameLabel) ||
-        left.entry.id.localeCompare(right.entry.id)
-      ))
-      .slice(0, 240)
-      .map((result) => result.entry);
-  }, [query]);
+    window.addEventListener(EDITOR_TOOLBAR_ACTION_EVENT, handler);
+    return () => window.removeEventListener(EDITOR_TOOLBAR_ACTION_EVENT, handler);
+  }, []);
 
-  const groupedEntries = useMemo(() => groupEntries(filteredEntries), [filteredEntries]);
+  const filteredEntries = useMemo(() => searchNerdFontIcons(query, 240), [query]);
+  const groupedEntries = useMemo(() => groupNerdFontIcons(filteredEntries), [filteredEntries]);
 
   const handleInsert = (glyph: string) => {
     onInsert(glyph);
@@ -170,7 +66,7 @@ export function NerdFontIconPicker({ onInsert }: NerdFontIconPickerProps) {
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent side="bottom">Insert Nerd Font icon</TooltipContent>
+        <TooltipContent side="bottom">Insert Nerd Font icon (Ctrl+Alt+S)</TooltipContent>
       </Tooltip>
 
       <PopoverContent align="start" sideOffset={8} className="w-[28rem] p-0">
@@ -209,7 +105,7 @@ export function NerdFontIconPicker({ onInsert }: NerdFontIconPickerProps) {
                       <span className="block truncate">{entry.nameLabel}</span>
                       <span className="block truncate text-xs text-muted-foreground">{entry.id}</span>
                     </span>
-                    <CommandShortcut className="tracking-normal">{formatHexCode(entry.hexCode)}</CommandShortcut>
+                    <CommandShortcut className="tracking-normal">{formatNerdFontHexCode(entry.hexCode)}</CommandShortcut>
                   </CommandItem>
                 ))}
               </CommandGroup>
