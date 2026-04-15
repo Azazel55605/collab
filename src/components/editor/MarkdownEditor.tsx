@@ -55,6 +55,7 @@ import {
   ContextMenu, ContextMenuContent, ContextMenuItem,
   ContextMenuSeparator, ContextMenuTrigger,
 } from '../ui/context-menu';
+import { parseFenceInfoLanguage, type ParsedCodeBlockAtCursor } from './codeBlockUtils';
 
 export interface MarkdownEditorHandle {
   /** Wrap selection with `before`/`after`; if no selection, insert `before + placeholder + after` and select placeholder. */
@@ -65,6 +66,8 @@ export interface MarkdownEditorHandle {
   insertSnippet: (text: string) => void;
   replaceRange: (from: number, to: number, text: string) => void;
   getTableAtCursor: () => { from: number; to: number; text: string } | null;
+  getMathBlockAtCursor: () => { from: number; to: number; text: string } | null;
+  getCodeBlockAtCursor: () => ParsedCodeBlockAtCursor | null;
 }
 
 interface MarkdownEditorProps {
@@ -117,6 +120,14 @@ function isMarkdownTableLine(text: string) {
   return /^\s*\|.*\|\s*$/.test(text);
 }
 
+function isMathDelimiterLine(text: string) {
+  return text.trim() === '$$';
+}
+
+function getFenceLineMatch(text: string) {
+  return text.match(/^(`{3,}|~{3,})(.*)$/);
+}
+
 function getTableRangeAtCursor(view: EditorView) {
   const { from } = view.state.selection.main;
   const currentLine = view.state.doc.lineAt(from);
@@ -141,6 +152,92 @@ function getTableRangeAtCursor(view: EditorView) {
     to: lastLine.to,
     text: view.state.sliceDoc(firstLine.from, lastLine.to),
   };
+}
+
+function getMathBlockRangeAtCursor(view: EditorView) {
+  const { from } = view.state.selection.main;
+  const currentLineNumber = view.state.doc.lineAt(from).number;
+  const delimiterLines: number[] = [];
+
+  for (let lineNumber = 1; lineNumber <= view.state.doc.lines; lineNumber += 1) {
+    if (isMathDelimiterLine(view.state.doc.line(lineNumber).text)) {
+      delimiterLines.push(lineNumber);
+    }
+  }
+
+  for (let index = 0; index < delimiterLines.length - 1; index += 2) {
+    const startLineNumber = delimiterLines[index];
+    const endLineNumber = delimiterLines[index + 1];
+    if (currentLineNumber < startLineNumber || currentLineNumber > endLineNumber) continue;
+
+    const startLine = view.state.doc.line(startLineNumber);
+    const endLine = view.state.doc.line(endLineNumber);
+    const textStart = startLineNumber < endLineNumber ? view.state.doc.line(startLineNumber + 1).from : startLine.to;
+    const textEnd = endLineNumber > startLineNumber ? view.state.doc.line(endLineNumber - 1).to : startLine.to;
+
+    return {
+      from: startLine.from,
+      to: endLine.to,
+      text: textStart <= textEnd ? view.state.sliceDoc(textStart, textEnd) : '',
+    };
+  }
+
+  return null;
+}
+
+function getCodeBlockRangeAtCursor(view: EditorView): ParsedCodeBlockAtCursor | null {
+  const { from } = view.state.selection.main;
+  const currentLineNumber = view.state.doc.lineAt(from).number;
+  let activeFence: { marker: string; lineNumber: number; language: string } | null = null;
+
+  for (let lineNumber = 1; lineNumber <= view.state.doc.lines; lineNumber += 1) {
+    const line = view.state.doc.line(lineNumber);
+    const match = getFenceLineMatch(line.text);
+    if (!match) continue;
+
+    const marker = match[1];
+    if (!activeFence) {
+      activeFence = {
+        marker,
+        lineNumber,
+        language: parseFenceInfoLanguage(match[2]),
+      };
+      continue;
+    }
+
+    const isClosingFence = (
+      marker[0] === activeFence.marker[0] &&
+      marker.length >= activeFence.marker.length &&
+      match[2].trim().length === 0
+    );
+
+    if (!isClosingFence) {
+      activeFence = {
+        marker,
+        lineNumber,
+        language: parseFenceInfoLanguage(match[2]),
+      };
+      continue;
+    }
+
+    if (currentLineNumber >= activeFence.lineNumber && currentLineNumber <= lineNumber) {
+      const startLine = view.state.doc.line(activeFence.lineNumber);
+      const endLine = view.state.doc.line(lineNumber);
+      const textStart = activeFence.lineNumber < lineNumber ? view.state.doc.line(activeFence.lineNumber + 1).from : startLine.to;
+      const textEnd = lineNumber > activeFence.lineNumber ? view.state.doc.line(lineNumber - 1).to : startLine.to;
+
+      return {
+        from: startLine.from,
+        to: endLine.to,
+        language: activeFence.language,
+        code: textStart <= textEnd ? view.state.sliceDoc(textStart, textEnd) : '',
+      };
+    }
+
+    activeFence = null;
+  }
+
+  return null;
 }
 
 // ─── Theme factory ────────────────────────────────────────────────────────────
@@ -488,7 +585,7 @@ function buildIndentDecorations(
   return builder.finish();
 }
 
-function indentVisualization(
+export function indentVisualization(
   showMarkers: boolean,
   showColors: boolean,
   indentStyle: 'spaces' | 'tabs',
@@ -513,7 +610,7 @@ function indentVisualization(
   });
 }
 
-function indentationConfig(indentStyle: 'spaces' | 'tabs', tabWidth: number) {
+export function indentationConfig(indentStyle: 'spaces' | 'tabs', tabWidth: number) {
   return [
     EditorState.tabSize.of(tabWidth),
     indentUnit.of(indentStyle === 'tabs' ? '\t' : ' '.repeat(tabWidth)),
@@ -996,6 +1093,18 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         const view = viewRef.current;
         if (!view) return null;
         return getTableRangeAtCursor(view);
+      },
+
+      getMathBlockAtCursor() {
+        const view = viewRef.current;
+        if (!view) return null;
+        return getMathBlockRangeAtCursor(view);
+      },
+
+      getCodeBlockAtCursor() {
+        const view = viewRef.current;
+        if (!view) return null;
+        return getCodeBlockRangeAtCursor(view);
       },
     }));
 

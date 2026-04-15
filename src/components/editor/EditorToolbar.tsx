@@ -40,7 +40,16 @@ import {
   renderMarkdownTable,
   type MarkdownTableModel,
 } from './tableMarkdown';
+import {
+  createEmptyTaskList,
+  renderMarkdownTaskList,
+  TaskListEditorDialog,
+  type TaskListItemDraft,
+} from './TaskListEditorDialog';
+import { MathBlockEditorDialog } from './MathBlockEditorDialog';
+import { CodeBlockEditorDialog } from './CodeBlockEditorDialog';
 import { open } from '@tauri-apps/plugin-dialog';
+import { renderMarkdownCodeBlock } from './codeBlockUtils';
 
 interface EditorToolbarProps {
   relativePath: string;
@@ -291,6 +300,17 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [imageAltText, setImageAltText] = useState('');
   const [imagePath, setImagePath] = useState('');
+  const [taskListDialogOpen, setTaskListDialogOpen] = useState(false);
+  const [taskListItems, setTaskListItems] = useState<TaskListItemDraft[]>(createEmptyTaskList());
+  const [mathDialogOpen, setMathDialogOpen] = useState(false);
+  const [mathDialogMode, setMathDialogMode] = useState<'insert' | 'edit'>('insert');
+  const [mathSource, setMathSource] = useState('');
+  const [mathReplaceRange, setMathReplaceRange] = useState<{ from: number; to: number } | null>(null);
+  const [codeDialogOpen, setCodeDialogOpen] = useState(false);
+  const [codeDialogMode, setCodeDialogMode] = useState<'insert' | 'edit'>('insert');
+  const [codeLanguage, setCodeLanguage] = useState('');
+  const [codeContent, setCodeContent] = useState('');
+  const [codeReplaceRange, setCodeReplaceRange] = useState<{ from: number; to: number } | null>(null);
 
   const openVisualTableEditor = () => {
     const currentTable = ed()?.getTableAtCursor();
@@ -334,6 +354,45 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
     setImageDialogOpen(true);
   };
 
+  const openTaskListDialog = () => {
+    setTaskListItems(createEmptyTaskList());
+    setTaskListDialogOpen(true);
+  };
+
+  const openMathDialog = () => {
+    const currentMathBlock = ed()?.getMathBlockAtCursor();
+    if (currentMathBlock) {
+      setMathSource(currentMathBlock.text);
+      setMathReplaceRange({ from: currentMathBlock.from, to: currentMathBlock.to });
+      setMathDialogMode('edit');
+      setMathDialogOpen(true);
+      return;
+    }
+
+    setMathSource('');
+    setMathReplaceRange(null);
+    setMathDialogMode('insert');
+    setMathDialogOpen(true);
+  };
+
+  const openCodeDialog = () => {
+    const currentCodeBlock = ed()?.getCodeBlockAtCursor();
+    if (currentCodeBlock) {
+      setCodeLanguage(currentCodeBlock.language);
+      setCodeContent(currentCodeBlock.code);
+      setCodeReplaceRange({ from: currentCodeBlock.from, to: currentCodeBlock.to });
+      setCodeDialogMode('edit');
+      setCodeDialogOpen(true);
+      return;
+    }
+
+    setCodeLanguage('');
+    setCodeContent('');
+    setCodeReplaceRange(null);
+    setCodeDialogMode('insert');
+    setCodeDialogOpen(true);
+  };
+
   const applyLinkDialog = () => {
     ed()?.insertSnippet(`[${linkText.trim()}](${linkUrl.trim()})`);
     setLinkDialogOpen(false);
@@ -353,6 +412,33 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
   const applyImageDialog = () => {
     ed()?.insertSnippet(`![${imageAltText.trim()}](${imagePath.trim()})`);
     setImageDialogOpen(false);
+  };
+
+  const applyTaskListDialog = (tasks: TaskListItemDraft[]) => {
+    ed()?.insertSnippet(renderMarkdownTaskList(tasks));
+    setTaskListDialogOpen(false);
+  };
+
+  const applyMathDialog = (nextSource: string) => {
+    const markdown = `$$\n${nextSource.trim()}\n$$`;
+    if (mathReplaceRange) {
+      ed()?.replaceRange(mathReplaceRange.from, mathReplaceRange.to, markdown);
+    } else {
+      ed()?.insertSnippet(markdown);
+    }
+    setMathDialogOpen(false);
+    setMathReplaceRange(null);
+  };
+
+  const applyCodeDialog = (value: { language: string; code: string }) => {
+    const markdown = renderMarkdownCodeBlock(value.language, value.code);
+    if (codeReplaceRange) {
+      ed()?.replaceRange(codeReplaceRange.from, codeReplaceRange.to, markdown);
+    } else {
+      ed()?.insertSnippet(markdown);
+    }
+    setCodeDialogOpen(false);
+    setCodeReplaceRange(null);
   };
 
   return (
@@ -376,12 +462,27 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
 
             <div className={documentTopBarGroupClass}>
               {BLOCK.map((b) => (
-                <TBtn
-                  key={b.label}
-                  icon={b.icon}
-                  label={b.label}
-                  onClick={() => ed()?.insertLine(b.prefix)}
-                />
+                b.label === 'Task List' ? (
+                  <ToolBtn
+                    key={b.label}
+                    icon={b.icon}
+                    label="Task List (Shift-click for visual editor)"
+                    onClick={(event) => {
+                      if (event.shiftKey) {
+                        openTaskListDialog();
+                        return;
+                      }
+                      ed()?.insertLine(b.prefix);
+                    }}
+                  />
+                ) : (
+                  <TBtn
+                    key={b.label}
+                    icon={b.icon}
+                    label={b.label}
+                    onClick={() => ed()?.insertLine(b.prefix)}
+                  />
+                )
               ))}
             </div>
 
@@ -421,6 +522,32 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
                     onClick={(event) => {
                       if (event.shiftKey) {
                         openImageDialog();
+                        return;
+                      }
+                      ed()?.insertSnippet(b.text);
+                    }}
+                  />
+                ) : b.label === 'Math Block' ? (
+                  <ToolBtn
+                    key={b.label}
+                    icon={b.icon}
+                    label="Math Block (Shift-click for visual editor)"
+                    onClick={(event) => {
+                      if (event.shiftKey) {
+                        openMathDialog();
+                        return;
+                      }
+                      ed()?.insertSnippet(b.text);
+                    }}
+                  />
+                ) : b.label === 'Code Block' ? (
+                  <ToolBtn
+                    key={b.label}
+                    icon={b.icon}
+                    label="Code Block (Shift-click for visual editor)"
+                    onClick={(event) => {
+                      if (event.shiftKey) {
+                        openCodeDialog();
                         return;
                       }
                       ed()?.insertSnippet(b.text);
@@ -474,6 +601,36 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
         onBrowse={browseImagePath}
         onOpenChange={setImageDialogOpen}
         onApply={applyImageDialog}
+      />
+
+      <TaskListEditorDialog
+        open={taskListDialogOpen}
+        initialValue={taskListItems}
+        onOpenChange={setTaskListDialogOpen}
+        onApply={applyTaskListDialog}
+      />
+
+      <MathBlockEditorDialog
+        open={mathDialogOpen}
+        mode={mathDialogMode}
+        initialSource={mathSource}
+        onOpenChange={(open) => {
+          setMathDialogOpen(open);
+          if (!open) setMathReplaceRange(null);
+        }}
+        onApply={applyMathDialog}
+      />
+
+      <CodeBlockEditorDialog
+        open={codeDialogOpen}
+        mode={codeDialogMode}
+        initialLanguage={codeLanguage}
+        initialCode={codeContent}
+        onOpenChange={(open) => {
+          setCodeDialogOpen(open);
+          if (!open) setCodeReplaceRange(null);
+        }}
+        onApply={applyCodeDialog}
       />
     </>
   );
