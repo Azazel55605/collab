@@ -31,10 +31,16 @@ export interface TextCanvasNode extends CanvasNodeBase {
 
 export type CanvasNode = NoteCanvasNode | FileCanvasNode | TextCanvasNode;
 
+export type CanvasEdgeLineStyle = 'solid' | 'dashed' | 'dotted';
+
 export interface CanvasEdge {
   id: string;
   source: string;
   target: string;
   label?: string;
+  lineStyle?: CanvasEdgeLineStyle;
   animated?: boolean;
+  animationReverse?: boolean;
+  markerStart?: boolean;
+  markerEnd?: boolean;
 }

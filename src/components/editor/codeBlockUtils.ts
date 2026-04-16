@@ -32,6 +32,7 @@ const UNSORTED_CODE_BLOCK_LANGUAGE_OPTIONS: CodeBlockLanguageOption[] = [
   { value: 'scss', label: 'SCSS', aliases: ['scss', 'sass'] },
   { value: 'markdown', label: 'Markdown', aliases: ['markdown', 'md'] },
   { value: 'bash', label: 'Bash', aliases: ['bash', 'sh', 'shell', 'zsh'] },
+  { value: 'powershell', label: 'PowerShell', aliases: ['powershell', 'pwsh', 'ps1', 'psd1', 'psm1'] },
   { value: 'python', label: 'Python', aliases: ['python', 'py'] },
   { value: 'rust', label: 'Rust', aliases: ['rust', 'rs'] },
   { value: 'go', label: 'Go', aliases: ['go', 'golang'] },
@@ -118,6 +119,8 @@ function detectByRegex(code: string) {
       ? { language: 'sql', confidence: 'high', reason: 'SQL keywords' } : null,
     /(^|\n)\s*#!/.test(trimmed) || /(^|\n)\s*(echo\s+["'$]|if \[|then$|fi$|done$|export\s+\w+=)/m.test(trimmed)
       ? { language: 'bash', confidence: 'medium', reason: 'Shell syntax' } : null,
+    /(^|\n)\s*(Get-[A-Z]\w+|Set-[A-Z]\w+|New-[A-Z]\w+|Write-(Host|Output|Error|Warning)|Test-Path|Join-Path|Import-Module|param\s*\(|\$[A-Za-z_]\w*\s*=|\[[A-Za-z_.]+\]\$[A-Za-z_]\w*)/m.test(trimmed)
+      ? { language: 'powershell', confidence: 'high', reason: 'PowerShell cmdlets or variable syntax' } : null,
     /(^|\n)\s*#\s+.+|(^|\n)\s*[-*]\s+.+|(^|\n)\s*\d+\.\s+.+/.test(trimmed) && !/[;{}]/.test(trimmed)
       ? { language: 'markdown', confidence: 'medium', reason: 'Markdown structure' } : null,
     /(^|\n)\s*[\w-]+\s*:\s+.+/m.test(trimmed) && !/[{};]/.test(trimmed)

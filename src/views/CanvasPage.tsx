@@ -1,25 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import '@xyflow/react/dist/style.css';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import {
   ReactFlow,
   addEdge,
   applyNodeChanges,
+  BaseEdge,
   Background,
   BackgroundVariant,
   Handle,
-  MarkerType,
   NodeResizer,
   Panel,
   Position,
   ReactFlowProvider,
   reconnectEdge,
+  useStore,
   useEdgesState,
   useNodesState,
   useReactFlow,
   type Connection,
+  type ConnectionLineComponentProps,
   type Edge as FlowEdge,
   type EdgeChange,
+  type EdgeProps,
   type Node as FlowNode,
   type NodeChange,
   type OnReconnect,
@@ -41,6 +45,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { Checkbox } from '../components/ui/checkbox';
 import { MarkdownPreview } from '../components/editor/MarkdownPreview';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import {
@@ -52,6 +57,7 @@ import {
   CommandList,
 } from '../components/ui/command';
 import { Input } from '../components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import {
   DocumentTopBar,
   documentTopBarGroupClass,
@@ -66,6 +72,7 @@ import { useVaultStore } from '../store/vaultStore';
 import type {
   CanvasData,
   CanvasEdge,
+  CanvasEdgeLineStyle,
   CanvasNode,
   FileCanvasNode,
   NoteCanvasNode,
@@ -73,10 +80,24 @@ import type {
 } from '../types/canvas';
 import type { NoteFile } from '../types/vault';
 
+const pdfWorkerUrl = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
+GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+
 const SAVE_DEBOUNCE_MS = 600;
 const CANVAS_GRID = 24;
+const CANVAS_EDGE_LANE = 30;
+const CANVAS_EDGE_SLOT_SPACING = 18;
+const CANVAS_EDGE_SLOT_PADDING = 26;
+const CANVAS_EDGE_REROUTE_MS = 220;
 const DEFAULT_NODE_SIZE = { width: 300, height: 180 };
 const DEFAULT_TEXT_NODE_SIZE = { width: 280, height: 160 };
+const DEFAULT_EDGE_STROKE = 'color-mix(in oklch, var(--primary) 78%, white 22%)';
+const EDGE_ANIMATION_STROKE = 'color-mix(in oklch, var(--primary) 90%, white 10%)';
+const DEFAULT_EDGE_STYLE = {
+  strokeWidth: 2,
+  stroke: DEFAULT_EDGE_STROKE,
+  transition: 'stroke 180ms ease, filter 180ms ease, opacity 180ms ease',
+} satisfies React.CSSProperties;
 const EMPTY_CANVAS: CanvasData = {
   nodes: [],
   edges: [],
@@ -111,6 +132,35 @@ interface CanvasNodeData extends Record<string, unknown> {
   onTextChange?: (nodeId: string, content: string) => void;
   onWikilinkClick?: (path: string) => void;
   onSnapToGrid?: (nodeId: string) => void;
+}
+
+interface CanvasEdgeData extends Record<string, unknown> {
+  label?: string;
+  lineStyle: CanvasEdgeLineStyle;
+  animated: boolean;
+  animationReverse: boolean;
+  markerStart: boolean;
+  markerEnd: boolean;
+}
+
+type CanvasFlowEdge = FlowEdge<CanvasEdgeData>;
+
+interface EdgeGeometry {
+  sourceX: number;
+  sourceY: number;
+  controlSourceX: number;
+  controlSourceY: number;
+  controlTargetX: number;
+  controlTargetY: number;
+  targetX: number;
+  targetY: number;
+  labelX: number;
+  labelY: number;
+}
+
+function normalizeVector(x: number, y: number) {
+  const length = Math.hypot(x, y) || 1;
+  return { x: x / length, y: y / length };
 }
 
 function flattenFiles(nodes: NoteFile[]): NoteFile[] {
@@ -291,26 +341,140 @@ function fromFlowNode(node: FlowNode<CanvasNodeData>): CanvasNode {
   };
 }
 
-function fromFlowEdge(edge: FlowEdge<{ label?: string }>): CanvasEdge {
+function getCanvasEdgeData(edge?: {
+  label?: string;
+  lineStyle?: CanvasEdgeLineStyle;
+  animated?: boolean;
+  animationReverse?: boolean;
+  markerStart?: boolean;
+  markerEnd?: boolean;
+} | null): CanvasEdgeData {
   return {
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    label: typeof edge.data?.label === 'string' ? edge.data.label : undefined,
+    label: edge?.label ?? '',
+    lineStyle: edge?.lineStyle ?? 'solid',
+    animated: edge?.animated ?? false,
+    animationReverse: edge?.animationReverse ?? false,
+    markerStart: edge?.markerStart ?? false,
+    markerEnd: edge?.markerEnd ?? false,
   };
 }
 
-function toFlowEdge(edge: CanvasEdge): FlowEdge<{ label?: string }> {
+function getEdgeDashArray(lineStyle: CanvasEdgeLineStyle) {
+  if (lineStyle === 'dashed') return '10 8';
+  if (lineStyle === 'dotted') return '2 7';
+  return undefined;
+}
+
+function getSolidHighlightGradientId(edgeId: string) {
+  return `canvas-edge-solid-highlight-${edgeId}`;
+}
+
+function getCanvasArrowMarkerId(kind: 'start' | 'end') {
+  return `canvas-edge-arrow-${kind}`;
+}
+
+function getCanvasArrowMarkerIdForEdge(edgeId: string, kind: 'start' | 'end') {
+  return `${getCanvasArrowMarkerId(kind)}-${edgeId}`;
+}
+
+function buildCanvasEdgePath(geometry: EdgeGeometry) {
+  return `M ${geometry.sourceX} ${geometry.sourceY} C ${geometry.controlSourceX} ${geometry.controlSourceY}, ${geometry.controlTargetX} ${geometry.controlTargetY}, ${geometry.targetX} ${geometry.targetY}`;
+}
+
+function interpolateGeometry(from: EdgeGeometry, to: EdgeGeometry, progress: number): EdgeGeometry {
+  const mix = (start: number, end: number) => start + (end - start) * progress;
+  return {
+    sourceX: mix(from.sourceX, to.sourceX),
+    sourceY: mix(from.sourceY, to.sourceY),
+    controlSourceX: mix(from.controlSourceX, to.controlSourceX),
+    controlSourceY: mix(from.controlSourceY, to.controlSourceY),
+    controlTargetX: mix(from.controlTargetX, to.controlTargetX),
+    controlTargetY: mix(from.controlTargetY, to.controlTargetY),
+    targetX: mix(from.targetX, to.targetX),
+    targetY: mix(from.targetY, to.targetY),
+    labelX: mix(from.labelX, to.labelX),
+    labelY: mix(from.labelY, to.labelY),
+  };
+}
+
+function easeOutCubic(value: number) {
+  return 1 - (1 - value) ** 3;
+}
+
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function dataUrlToUint8Array(dataUrl: string) {
+  const [, encoded = ''] = dataUrl.split(',', 2);
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+async function renderPdfPreview(dataUrl: string) {
+  const task = getDocument({ data: dataUrlToUint8Array(dataUrl) });
+  const pdf = await task.promise;
+
+  try {
+    const page = await pdf.getPage(1);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const maxWidth = 520;
+    const scale = Math.min(1.2, maxWidth / Math.max(baseViewport.width, 1));
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) throw new Error('Failed to get PDF preview canvas context');
+
+    canvas.width = Math.max(1, Math.floor(viewport.width));
+    canvas.height = Math.max(1, Math.floor(viewport.height));
+
+    await page.render({
+      canvas,
+      canvasContext: context,
+      viewport,
+    }).promise;
+
+    return canvas.toDataURL('image/png');
+  } finally {
+    await pdf.destroy().catch(() => {});
+  }
+}
+
+function fromFlowEdge(edge: CanvasFlowEdge): CanvasEdge {
+  const data = getCanvasEdgeData(edge.data);
   return {
     id: edge.id,
     source: edge.source,
     target: edge.target,
-    label: edge.label,
-    data: { label: edge.label },
-    markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
+    label: data.label || undefined,
+    lineStyle: data.lineStyle,
+    animated: data.animated,
+    animationReverse: data.animationReverse,
+    markerStart: data.markerStart,
+    markerEnd: data.markerEnd,
+  };
+}
+
+function toFlowEdge(edge: CanvasEdge): CanvasFlowEdge {
+  const data = getCanvasEdgeData(edge);
+  return {
+    id: edge.id,
+    type: 'stacked',
+    source: edge.source,
+    target: edge.target,
+    label: data.label,
+    data,
+    markerStart: data.markerStart ? `url(#${getCanvasArrowMarkerId('start')})` : undefined,
+    markerEnd: data.markerEnd ? `url(#${getCanvasArrowMarkerId('end')})` : undefined,
+    animated: false,
     style: {
-      strokeWidth: 2,
-      stroke: 'color-mix(in oklch, var(--primary) 78%, white 22%)',
+      ...DEFAULT_EDGE_STYLE,
+      strokeDasharray: getEdgeDashArray(data.lineStyle),
+      strokeLinecap: data.lineStyle === 'dotted' ? 'round' : 'butt',
     },
     labelStyle: {
       fill: 'var(--foreground)',
@@ -338,7 +502,7 @@ function CanvasCardFrame({
   return (
     <div
       className={cn(
-        'group flex h-full w-full flex-col overflow-hidden rounded-2xl border bg-card/96 text-card-foreground shadow-lg backdrop-blur-xs-webkit transition-[transform,width,height,box-shadow,border-color] app-motion-fast',
+        'flex h-full w-full flex-col overflow-hidden rounded-2xl border bg-card/96 text-card-foreground shadow-lg backdrop-blur-xs-webkit transition-[transform,width,height,box-shadow,border-color] app-motion-fast',
         selected
           ? 'border-primary/60 shadow-primary/15'
           : 'border-border/70 shadow-black/12 hover:shadow-black/18',
@@ -349,18 +513,430 @@ function CanvasCardFrame({
   );
 }
 
+function getInternalNodeHeight(node: unknown, fallback = DEFAULT_NODE_SIZE.height) {
+  if (!node || typeof node !== 'object') return fallback;
+  const candidate = node as {
+    height?: number;
+    measured?: { height?: number };
+    internals?: { userNode?: { height?: number; measured?: { height?: number } } };
+  };
+  return candidate.height
+    ?? candidate.measured?.height
+    ?? candidate.internals?.userNode?.height
+    ?? candidate.internals?.userNode?.measured?.height
+    ?? fallback;
+}
+
+function getInternalNodeCenterY(node: unknown) {
+  if (!node || typeof node !== 'object') return 0;
+  const candidate = node as {
+    positionAbsolute?: { y?: number };
+    measured?: { height?: number };
+    height?: number;
+    internals?: { positionAbsolute?: { y?: number } };
+  };
+  const y = candidate.internals?.positionAbsolute?.y ?? candidate.positionAbsolute?.y ?? 0;
+  return y + getInternalNodeHeight(candidate) / 2;
+}
+
+function getSlotOffset(index: number, count: number, nodeHeight: number) {
+  if (count <= 1) return 0;
+  const availableSpread = Math.max(nodeHeight - CANVAS_EDGE_SLOT_PADDING * 2, CANVAS_EDGE_SLOT_SPACING);
+  const spacing = Math.min(CANVAS_EDGE_SLOT_SPACING, availableSpread / (count - 1));
+  return (index - (count - 1) / 2) * spacing;
+}
+
+function getOrderedSiblingEdges(
+  edges: CanvasFlowEdge[],
+  nodeId: string,
+  direction: 'source' | 'target',
+  nodeLookup: Map<string, unknown>,
+  pendingEdge?: Pick<CanvasFlowEdge, 'id' | 'source' | 'target'>,
+) {
+  const subjectKey = direction === 'source' ? 'source' : 'target';
+  const oppositeKey = direction === 'source' ? 'target' : 'source';
+  const siblings = edges
+    .filter((edge) => edge[subjectKey] === nodeId)
+    .map((edge) => ({ id: edge.id, oppositeId: edge[oppositeKey] }));
+
+  if (pendingEdge && pendingEdge[subjectKey] === nodeId && !siblings.some((edge) => edge.id === pendingEdge.id)) {
+    siblings.push({ id: pendingEdge.id, oppositeId: pendingEdge[oppositeKey] });
+  }
+
+  siblings.sort((left, right) => {
+    const leftCenter = getInternalNodeCenterY(nodeLookup.get(left.oppositeId));
+    const rightCenter = getInternalNodeCenterY(nodeLookup.get(right.oppositeId));
+    if (leftCenter !== rightCenter) return leftCenter - rightCenter;
+    if (left.oppositeId !== right.oppositeId) return left.oppositeId.localeCompare(right.oppositeId);
+    return left.id.localeCompare(right.id);
+  });
+
+  return siblings;
+}
+
+function getAnchoredEdgeGeometry({
+  edge,
+  edges,
+  nodeLookup,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+}: {
+  edge: Pick<CanvasFlowEdge, 'id' | 'source' | 'target'>;
+  edges: CanvasFlowEdge[];
+  nodeLookup: Map<string, unknown>;
+  sourceX: number;
+  sourceY: number;
+  targetX: number;
+  targetY: number;
+  sourcePosition: Position;
+  targetPosition: Position;
+}): EdgeGeometry {
+  const sourceSiblings = getOrderedSiblingEdges(edges, edge.source, 'source', nodeLookup, edge);
+  const targetSiblings = getOrderedSiblingEdges(edges, edge.target, 'target', nodeLookup, edge);
+  const sourceIndex = Math.max(0, sourceSiblings.findIndex((candidate) => candidate.id === edge.id));
+  const targetIndex = Math.max(0, targetSiblings.findIndex((candidate) => candidate.id === edge.id));
+  const sourceNodeHeight = getInternalNodeHeight(nodeLookup.get(edge.source));
+  const targetNodeHeight = getInternalNodeHeight(nodeLookup.get(edge.target));
+  const sourceOffset = getSlotOffset(sourceIndex, sourceSiblings.length, sourceNodeHeight);
+  const targetOffset = getSlotOffset(targetIndex, targetSiblings.length, targetNodeHeight);
+  const anchoredSourceY = sourceY + sourceOffset;
+  const anchoredTargetY = targetY + targetOffset;
+  const directionFromSource = sourcePosition === Position.Left ? -1 : sourcePosition === Position.Right ? 1 : 0;
+  const directionFromTarget = targetPosition === Position.Left ? -1 : targetPosition === Position.Right ? 1 : 0;
+  const horizontalDistance = Math.max(Math.abs(targetX - sourceX), CANVAS_EDGE_LANE * 2);
+  const laneDistance = Math.max(CANVAS_EDGE_LANE, Math.min(horizontalDistance * 0.38, 96));
+  const controlSourceX = sourceX + directionFromSource * laneDistance;
+  const controlTargetX = targetX + directionFromTarget * laneDistance;
+  const controlSourceY = anchoredSourceY + sourceOffset * 0.18;
+  const controlTargetY = anchoredTargetY + targetOffset * 0.18;
+  const labelX = (sourceX + targetX) / 2 + (sourceOffset - targetOffset) * 0.18;
+  const labelY = (anchoredSourceY + anchoredTargetY) / 2;
+
+  return {
+    sourceX,
+    sourceY: anchoredSourceY,
+    controlSourceX,
+    controlSourceY,
+    controlTargetX,
+    controlTargetY,
+    targetX,
+    targetY: anchoredTargetY,
+    labelX,
+    labelY,
+  };
+}
+
+function StackedCanvasEdge(props: EdgeProps<CanvasFlowEdge>) {
+  const { edges, nodeLookup } = useStore((state) => ({
+    edges: state.edges as CanvasFlowEdge[],
+    nodeLookup: state.nodeLookup as Map<string, unknown>,
+  }));
+  const targetGeometry = useMemo(() => getAnchoredEdgeGeometry({
+    edge: props,
+    edges,
+    nodeLookup,
+    sourceX: props.sourceX,
+    sourceY: props.sourceY,
+    targetX: props.targetX,
+    targetY: props.targetY,
+    sourcePosition: props.sourcePosition,
+    targetPosition: props.targetPosition,
+  }), [
+    edges,
+    nodeLookup,
+    props.id,
+    props.source,
+    props.target,
+    props.sourceX,
+    props.sourceY,
+    props.targetX,
+    props.targetY,
+    props.sourcePosition,
+    props.targetPosition,
+  ]);
+  const [displayGeometry, setDisplayGeometry] = useState(targetGeometry);
+  const currentGeometryRef = useRef(targetGeometry);
+
+  useEffect(() => {
+    const previous = currentGeometryRef.current;
+    const next = targetGeometry;
+    const changed = (Object.keys(next) as (keyof EdgeGeometry)[])
+      .some((key) => Math.abs(previous[key] - next[key]) > 0.25);
+
+    if (!changed) {
+      currentGeometryRef.current = next;
+      setDisplayGeometry(next);
+      return;
+    }
+
+    let frameId = 0;
+    const startedAt = performance.now();
+
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - startedAt) / CANVAS_EDGE_REROUTE_MS);
+      const interpolated = interpolateGeometry(previous, next, easeOutCubic(progress));
+      currentGeometryRef.current = interpolated;
+      setDisplayGeometry(interpolated);
+      if (progress < 1) frameId = requestAnimationFrame(tick);
+    };
+
+    frameId = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [targetGeometry]);
+
+  const data = getCanvasEdgeData(props.data);
+  const baseStrokeWidth = typeof props.style?.strokeWidth === 'number'
+    ? props.style.strokeWidth
+    : DEFAULT_EDGE_STYLE.strokeWidth;
+  const gradientId = getSolidHighlightGradientId(props.id);
+  const markerStartId = getCanvasArrowMarkerIdForEdge(props.id, 'start');
+  const markerEndId = getCanvasArrowMarkerIdForEdge(props.id, 'end');
+  const [solidAnimationProgress, setSolidAnimationProgress] = useState(0);
+  const visibleStroke = data.animated && data.lineStyle === 'solid'
+    ? `url(#${gradientId})`
+    : DEFAULT_EDGE_STROKE;
+  const visibleDashArray = getEdgeDashArray(data.lineStyle);
+  const visibleStrokeLinecap = data.lineStyle === 'dotted' ? 'round' : 'butt';
+
+  useEffect(() => {
+    if (!data.animated || data.lineStyle !== 'solid') {
+      setSolidAnimationProgress(0);
+      return;
+    }
+
+    let frameId = 0;
+    const durationMs = 1600;
+    const startedAt = performance.now();
+
+    const tick = (now: number) => {
+      const elapsed = (now - startedAt) % durationMs;
+      const linearProgress = elapsed / durationMs;
+      setSolidAnimationProgress(data.animationReverse ? 1 - linearProgress : linearProgress);
+      frameId = requestAnimationFrame(tick);
+    };
+
+    frameId = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [data.animated, data.animationReverse, data.lineStyle]);
+
+  const solidHighlightLead = clamp01(solidAnimationProgress - 0.12);
+  const solidHighlightCoreStart = clamp01(solidAnimationProgress - 0.05);
+  const solidHighlightCoreEnd = clamp01(solidAnimationProgress + 0.05);
+  const solidHighlightTrail = clamp01(solidAnimationProgress + 0.12);
+  const markerInset = 6;
+  const sourceDirection = normalizeVector(
+    displayGeometry.controlSourceX - displayGeometry.sourceX,
+    displayGeometry.controlSourceY - displayGeometry.sourceY,
+  );
+  const targetDirection = normalizeVector(
+    displayGeometry.targetX - displayGeometry.controlTargetX,
+    displayGeometry.targetY - displayGeometry.controlTargetY,
+  );
+  const pathSourceX = props.markerStart ? displayGeometry.sourceX + sourceDirection.x * markerInset : displayGeometry.sourceX;
+  const pathSourceY = props.markerStart ? displayGeometry.sourceY + sourceDirection.y * markerInset : displayGeometry.sourceY;
+  const pathTargetX = props.markerEnd ? displayGeometry.targetX - targetDirection.x * markerInset : displayGeometry.targetX;
+  const pathTargetY = props.markerEnd ? displayGeometry.targetY - targetDirection.y * markerInset : displayGeometry.targetY;
+  const pathGeometry: EdgeGeometry = {
+    ...displayGeometry,
+    sourceX: pathSourceX,
+    sourceY: pathSourceY,
+    targetX: pathTargetX,
+    targetY: pathTargetY,
+  };
+  const path = buildCanvasEdgePath(pathGeometry);
+
+  return (
+    <>
+      <defs>
+        <marker
+          id={markerEndId}
+          viewBox="0 0 12 10"
+          refX="5.6"
+          refY="5"
+          markerWidth="10"
+          markerHeight="10"
+          markerUnits="strokeWidth"
+          orient="auto"
+        >
+          <path
+            d="M10.6 5L5.2 1.6C3.6 0.6 1.6 1.75 1.6 3.62V6.38C1.6 8.25 3.6 9.4 5.2 8.4L10.6 5Z"
+            fill="color-mix(in oklch, var(--primary) 82%, white 18%)"
+            stroke="color-mix(in oklch, var(--background) 88%, transparent)"
+            strokeWidth="0.8"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M9.1 5H5.75"
+            fill="none"
+            stroke="color-mix(in oklch, var(--background) 84%, transparent)"
+            strokeWidth="0.9"
+            strokeLinecap="round"
+          />
+        </marker>
+        <marker
+          id={markerStartId}
+          viewBox="0 0 12 10"
+          refX="5.6"
+          refY="5"
+          markerWidth="10"
+          markerHeight="10"
+          markerUnits="strokeWidth"
+          orient="auto-start-reverse"
+        >
+          <path
+            d="M10.6 5L5.2 1.6C3.6 0.6 1.6 1.75 1.6 3.62V6.38C1.6 8.25 3.6 9.4 5.2 8.4L10.6 5Z"
+            fill="color-mix(in oklch, var(--primary) 82%, white 18%)"
+            stroke="color-mix(in oklch, var(--background) 88%, transparent)"
+            strokeWidth="0.8"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M9.1 5H5.75"
+            fill="none"
+            stroke="color-mix(in oklch, var(--background) 84%, transparent)"
+            strokeWidth="0.9"
+            strokeLinecap="round"
+          />
+        </marker>
+      </defs>
+      {data.animated && data.lineStyle === 'solid' ? (
+        <defs>
+          <linearGradient
+            id={gradientId}
+            gradientUnits="userSpaceOnUse"
+            x1={displayGeometry.sourceX - 140}
+            y1={displayGeometry.sourceY}
+            x2={displayGeometry.targetX + 140}
+            y2={displayGeometry.targetY}
+          >
+            <stop offset="0%" stopColor={DEFAULT_EDGE_STROKE} />
+            <stop offset={`${solidHighlightLead * 100}%`} stopColor={DEFAULT_EDGE_STROKE} />
+            <stop offset={`${solidHighlightCoreStart * 100}%`} stopColor={EDGE_ANIMATION_STROKE} stopOpacity="0.25" />
+            <stop offset={`${solidAnimationProgress * 100}%`} stopColor={EDGE_ANIMATION_STROKE} stopOpacity="1" />
+            <stop offset={`${solidHighlightCoreEnd * 100}%`} stopColor={EDGE_ANIMATION_STROKE} stopOpacity="0.25" />
+            <stop offset={`${solidHighlightTrail * 100}%`} stopColor={DEFAULT_EDGE_STROKE} />
+            <stop offset="100%" stopColor={DEFAULT_EDGE_STROKE} />
+          </linearGradient>
+        </defs>
+      ) : null}
+      <path
+        d={path}
+        fill="none"
+        stroke={visibleStroke}
+        strokeWidth={baseStrokeWidth}
+        strokeLinecap={visibleStrokeLinecap}
+        strokeLinejoin="round"
+        strokeDasharray={visibleDashArray}
+        markerStart={props.markerStart ? `url(#${markerStartId})` : undefined}
+        markerEnd={props.markerEnd ? `url(#${markerEndId})` : undefined}
+        style={{
+          filter: props.selected ? 'drop-shadow(0 0 10px color-mix(in oklch, var(--primary) 35%, transparent))' : undefined,
+        }}
+      >
+        {data.animated && data.lineStyle !== 'solid' ? (
+          <animate
+            attributeName="stroke-dashoffset"
+            from={data.animationReverse ? '-18' : '18'}
+            to="0"
+            dur="700ms"
+            repeatCount="indefinite"
+          />
+        ) : null}
+      </path>
+      <BaseEdge
+        {...props}
+        path={path}
+        labelX={displayGeometry.labelX}
+        labelY={displayGeometry.labelY}
+        style={{
+          stroke: 'transparent',
+          strokeWidth: 0,
+          opacity: 0,
+        }}
+      />
+    </>
+  );
+}
+
+function StackedConnectionLine({
+  connectionLineStyle,
+  fromNode,
+  fromX,
+  fromY,
+  fromPosition,
+  toNode,
+  toX,
+  toY,
+  toPosition,
+}: ConnectionLineComponentProps<FlowNode<CanvasNodeData>>) {
+  const edges = useStore((state) => state.edges as CanvasFlowEdge[]);
+  const nodeLookup = useStore((state) => state.nodeLookup as Map<string, unknown>);
+  const previewEdge: Pick<CanvasFlowEdge, 'id' | 'source' | 'target'> = {
+    id: '__canvas-connection-preview__',
+    source: fromNode.id,
+    target: toNode?.id ?? '__pointer__',
+  };
+  const geometry = getAnchoredEdgeGeometry({
+    edge: previewEdge,
+    edges,
+    nodeLookup,
+    sourceX: fromX,
+    sourceY: fromY,
+    targetX: toX,
+    targetY: toY,
+    sourcePosition: fromPosition,
+    targetPosition: toPosition,
+  });
+  const path = buildCanvasEdgePath(geometry);
+
+  return (
+    <g>
+      <path
+        d={path}
+        fill="none"
+        stroke={DEFAULT_EDGE_STROKE}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeDasharray="7 7"
+        style={{
+          ...connectionLineStyle,
+          transition: 'd 180ms cubic-bezier(0.22, 1, 0.36, 1)',
+          opacity: 0.9,
+        }}
+      />
+    </g>
+  );
+}
+
 function CardHandles() {
+  const connectionInProgress = useStore((state) => state.connection.inProgress);
+  const handleClassName = cn(
+    '!h-4 !w-4 !border-2 !border-background !bg-primary/90 shadow-[0_0_0_6px_color-mix(in_oklch,var(--primary)_16%,transparent)] transition-[transform,box-shadow,opacity] duration-150',
+    connectionInProgress
+      ? '!opacity-100 scale-110 shadow-[0_0_0_8px_color-mix(in_oklch,var(--primary)_20%,transparent)]'
+      : '!opacity-0 group-hover:!opacity-100 group-hover:scale-110 group-hover:shadow-[0_0_0_8px_color-mix(in_oklch,var(--primary)_20%,transparent)]',
+  );
+
   return (
     <>
       <Handle
         type="target"
         position={Position.Left}
-        className="!h-3 !w-3 !border-2 !border-background !bg-primary/90"
+        className={handleClassName}
       />
       <Handle
         type="source"
         position={Position.Right}
-        className="!h-3 !w-3 !border-2 !border-background !bg-primary/90"
+        className={handleClassName}
       />
     </>
   );
@@ -368,7 +944,7 @@ function CardHandles() {
 
 function NoteCardNode({ id, data, selected }: { id: string; data: CanvasNodeData; selected?: boolean }) {
   return (
-    <>
+    <div className="group relative h-full w-full">
       <NodeResizer
         isVisible={!!selected}
         minWidth={220}
@@ -408,7 +984,7 @@ function NoteCardNode({ id, data, selected }: { id: string; data: CanvasNodeData
         </button>
       </CanvasCardFrame>
       <CardHandles />
-    </>
+    </div>
   );
 }
 
@@ -416,7 +992,7 @@ function FileCardNode({ id, data, selected }: { id: string; data: CanvasNodeData
   const isImage = !!data.imageSrc;
 
   return (
-    <>
+    <div className="group relative h-full w-full">
       <NodeResizer
         isVisible={!!selected}
         minWidth={220}
@@ -461,13 +1037,13 @@ function FileCardNode({ id, data, selected }: { id: string; data: CanvasNodeData
         </button>
       </CanvasCardFrame>
       <CardHandles />
-    </>
+    </div>
   );
 }
 
 function TextCardNode({ id, data, selected }: { id: string; data: CanvasNodeData; selected?: boolean }) {
   return (
-    <>
+    <div className="group relative h-full w-full">
       <NodeResizer
         isVisible={!!selected}
         minWidth={200}
@@ -495,7 +1071,7 @@ function TextCardNode({ id, data, selected }: { id: string; data: CanvasNodeData
         />
       </CanvasCardFrame>
       <CardHandles />
-    </>
+    </div>
   );
 }
 
@@ -503,6 +1079,10 @@ const nodeTypes = {
   noteCard: NoteCardNode,
   fileCard: FileCardNode,
   textCard: TextCardNode,
+};
+
+const edgeTypes = {
+  stacked: StackedCanvasEdge,
 };
 
 function CanvasPickerDialog({
@@ -557,7 +1137,7 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   const { vault, fileTree } = useVaultStore();
   const { openTab } = useEditorStore();
   const { setActiveView } = useUiStore();
-  const reactFlow = useReactFlow<FlowNode<CanvasNodeData>, FlowEdge<{ label?: string }>>();
+  const reactFlow = useReactFlow<FlowNode<CanvasNodeData>, CanvasFlowEdge>();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const hashRef = useRef<string | undefined>(undefined);
@@ -567,7 +1147,7 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   const pendingViewportRef = useRef<Viewport | null>(null);
   const loadingPreviewPathsRef = useRef(new Set<string>());
   const [nodes, setNodes] = useNodesState<FlowNode<CanvasNodeData>>([]);
-  const [edges, setEdges, onEdgesChangeBase] = useEdgesState<FlowEdge<{ label?: string }>>([]);
+  const [edges, setEdges, onEdgesChangeBase] = useEdgesState<CanvasFlowEdge>([]);
   const [viewport, setViewport] = useState(EMPTY_CANVAS.viewport);
   const [pickerMode, setPickerMode] = useState<PickerMode>(null);
   const [edgeLabelDraft, setEdgeLabelDraft] = useState('');
@@ -669,6 +1249,9 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
 
       if (node.type === 'file' && isImageExtension(extension)) {
         nextPreview = { imageSrc: await tauriCommands.readNoteAssetDataUrl(vault.path, path) };
+      } else if (node.type === 'file' && extension === 'pdf') {
+        const pdfDataUrl = await tauriCommands.readNoteAssetDataUrl(vault.path, path);
+        nextPreview = { imageSrc: await renderPdfPreview(pdfDataUrl) };
       } else if (node.type === 'note') {
         const { content } = await tauriCommands.readNote(vault.path, path);
         nextPreview = { excerpt: cleanPreviewText(content), markdownContent: content };
@@ -889,30 +1472,42 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   }, [addCanvasNode, getViewportCenterPosition]);
 
   const handleConnect = useCallback((connection: Connection) => {
+    const data = getCanvasEdgeData();
     setEdges((prev) =>
       addEdge(
         {
           ...connection,
           id: crypto.randomUUID(),
-          data: { label: '' },
-          label: '',
-          markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
-          style: { strokeWidth: 2, stroke: 'color-mix(in oklch, var(--primary) 78%, white 22%)' },
+          type: 'stacked',
+          data,
+          label: data.label,
+          animated: false,
+          markerStart: undefined,
+          markerEnd: undefined,
+          style: {
+            ...DEFAULT_EDGE_STYLE,
+            strokeDasharray: getEdgeDashArray(data.lineStyle),
+            strokeLinecap: data.lineStyle === 'dotted' ? 'round' : 'butt',
+          },
         },
         prev,
-      ),
+      ) as CanvasFlowEdge[],
     );
   }, [setEdges]);
 
-  const handleReconnect = useCallback<OnReconnect<FlowEdge<{ label?: string }>>>((oldEdge, newConnection) => {
-    setEdges((prev) => reconnectEdge(oldEdge, newConnection, prev));
+  const handleReconnect = useCallback<OnReconnect<CanvasFlowEdge>>((oldEdge, newConnection) => {
+    setEdges((prev) => (reconnectEdge(oldEdge, newConnection, prev) as CanvasFlowEdge[]).map((edge) => (
+      edge.id === oldEdge.id
+        ? toFlowEdge(fromFlowEdge(edge))
+        : edge
+    )));
   }, [setEdges]);
 
   const onNodesChange = useCallback((changes: NodeChange<FlowNode<CanvasNodeData>>[]) => {
     setNodes((prev) => applyNodeChanges(changes, prev));
   }, [setNodes]);
 
-  const onEdgesChange = useCallback((changes: EdgeChange<FlowEdge<{ label?: string }>>[]) => {
+  const onEdgesChange = useCallback((changes: EdgeChange<CanvasFlowEdge>[]) => {
     onEdgesChangeBase(changes);
   }, [onEdgesChangeBase]);
 
@@ -987,20 +1582,43 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     });
   }, [reactFlow]);
 
+  const updateSelectedEdge = useCallback((updater: (edge: CanvasEdge) => CanvasEdge) => {
+    if (!selectedEdge?.id) return;
+    setEdges((prev) => prev.map((edge) => (
+      edge.id === selectedEdge.id
+        ? {
+            ...edge,
+            ...toFlowEdge(updater(fromFlowEdge(edge))),
+            selected: true,
+          }
+        : edge
+    )));
+  }, [selectedEdge?.id, setEdges]);
+
   const updateSelectedEdgeLabel = useCallback((label: string) => {
     setEdgeLabelDraft(label);
-    setEdges((prev) =>
-      prev.map((edge) =>
-        edge.id === selectedEdge?.id
-          ? {
-              ...edge,
-              label,
-              data: { ...(edge.data ?? {}), label },
-            }
-          : edge,
-      ),
-    );
-  }, [selectedEdge?.id, setEdges]);
+    updateSelectedEdge((edge) => ({ ...edge, label }));
+  }, [updateSelectedEdge]);
+
+  const updateSelectedEdgeLineStyle = useCallback((lineStyle: CanvasEdgeLineStyle) => {
+    updateSelectedEdge((edge) => ({ ...edge, lineStyle }));
+  }, [updateSelectedEdge]);
+
+  const updateSelectedEdgeAnimation = useCallback((animated: boolean) => {
+    updateSelectedEdge((edge) => ({ ...edge, animated }));
+  }, [updateSelectedEdge]);
+
+  const updateSelectedEdgeAnimationDirection = useCallback((animationReverse: boolean) => {
+    updateSelectedEdge((edge) => ({ ...edge, animationReverse }));
+  }, [updateSelectedEdge]);
+
+  const updateSelectedEdgeMarkerStart = useCallback((markerStart: boolean) => {
+    updateSelectedEdge((edge) => ({ ...edge, markerStart }));
+  }, [updateSelectedEdge]);
+
+  const updateSelectedEdgeMarkerEnd = useCallback((markerEnd: boolean) => {
+    updateSelectedEdge((edge) => ({ ...edge, markerEnd }));
+  }, [updateSelectedEdge]);
 
   useEffect(() => {
     const isEditableTarget = (target: EventTarget | null) => (
@@ -1185,7 +1803,7 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
         onSelect={handlePickerSelect}
       />
 
-      <ReactFlow
+      <ReactFlow<FlowNode<CanvasNodeData>, CanvasFlowEdge>
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
@@ -1195,17 +1813,26 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
         onReconnect={handleReconnect}
         onMoveEnd={(_: MouseEvent | TouchEvent | null, nextViewport: Viewport) => setViewport(nextViewport)}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         deleteKeyCode={['Backspace', 'Delete']}
         nodesDraggable
         elementsSelectable
         nodesConnectable
         edgesReconnectable
+        connectionLineComponent={StackedConnectionLine}
+        connectionRadius={36}
+        reconnectRadius={36}
         minZoom={0.2}
         maxZoom={2.5}
         proOptions={{ hideAttribution: true }}
         className="canvas-flow"
         defaultEdgeOptions={{
-          markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
+          type: 'stacked',
+          animated: false,
+          style: {
+            ...DEFAULT_EDGE_STYLE,
+            strokeLinecap: 'butt',
+          },
         }}
       >
         <Background
@@ -1227,6 +1854,72 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
                 placeholder="Connection label"
                 className="h-8"
               />
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl border border-border/60 bg-card/45 p-2">
+                  <div className="mb-1 text-[11px] font-medium text-muted-foreground">Line type</div>
+                  <Select
+                    value={getCanvasEdgeData(selectedEdge.data).lineStyle}
+                    onValueChange={(value) => updateSelectedEdgeLineStyle(value as CanvasEdgeLineStyle)}
+                  >
+                    <SelectTrigger size="sm" className="h-8 w-full bg-background/70 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="end">
+                      <SelectItem value="solid">Solid</SelectItem>
+                      <SelectItem value="dashed">Dashed</SelectItem>
+                      <SelectItem value="dotted">Dotted</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="rounded-xl border border-border/60 bg-card/45 p-2">
+                  <div className="mb-1 text-[11px] font-medium text-muted-foreground">Animation</div>
+                  <Select
+                    value={getCanvasEdgeData(selectedEdge.data).animationReverse ? 'reverse' : 'forward'}
+                    onValueChange={(value) => updateSelectedEdgeAnimationDirection(value === 'reverse')}
+                    disabled={!getCanvasEdgeData(selectedEdge.data).animated}
+                  >
+                    <SelectTrigger size="sm" className="h-8 w-full bg-background/70 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="end">
+                      <SelectItem value="forward">Forward</SelectItem>
+                      <SelectItem value="reverse">Reverse</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <label className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/45 px-3 py-2 text-xs">
+                <span>
+                  <span className="block font-medium text-foreground">Animated line</span>
+                  <span className="block text-muted-foreground">Off by default, reversible when enabled.</span>
+                </span>
+                <Checkbox
+                  checked={getCanvasEdgeData(selectedEdge.data).animated}
+                  onCheckedChange={(checked) => updateSelectedEdgeAnimation(checked === true)}
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/45 px-3 py-2 text-xs">
+                  <span>
+                    <span className="block font-medium text-foreground">Start arrow</span>
+                    <span className="block text-muted-foreground">Show an arrowhead at the source.</span>
+                  </span>
+                  <Checkbox
+                    checked={getCanvasEdgeData(selectedEdge.data).markerStart}
+                    onCheckedChange={(checked) => updateSelectedEdgeMarkerStart(checked === true)}
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/45 px-3 py-2 text-xs">
+                  <span>
+                    <span className="block font-medium text-foreground">End arrow</span>
+                    <span className="block text-muted-foreground">Show an arrowhead at the target.</span>
+                  </span>
+                  <Checkbox
+                    checked={getCanvasEdgeData(selectedEdge.data).markerEnd}
+                    onCheckedChange={(checked) => updateSelectedEdgeMarkerEnd(checked === true)}
+                  />
+                </label>
+              </div>
               <Button size="sm" variant="outline" className="gap-2 self-start" onClick={deleteSelection}>
                 <Trash2 size={14} />
                 Delete selected

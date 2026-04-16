@@ -3,7 +3,7 @@ import { Compartment, EditorSelection, EditorState } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentMore } from '@codemirror/commands';
 import { drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view';
 import { bracketMatching, defaultHighlightStyle, indentOnInput, indentUnit, syntaxHighlighting } from '@codemirror/language';
-import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete';
 import { searchKeymap } from '@codemirror/search';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -171,6 +171,7 @@ function CodeEditorSurface({
         bracketMatching(),
         closeBrackets(),
         indentOnInput(),
+        autocompletion(),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         syntaxHighlighting(buildHighlightStyle(isDark)),
         themeCompartment.current.of(buildCodeEditorTheme(isDark, fontFamily, editorFontSize)),
@@ -191,6 +192,7 @@ function CodeEditorSurface({
           { key: 'Tab', run: handleCodeTabKey },
           ...defaultKeymap,
           ...historyKeymap,
+          ...completionKeymap,
           ...closeBracketsKeymap,
           ...searchKeymap,
         ]),
