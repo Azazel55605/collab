@@ -16,8 +16,10 @@ import {
   Position,
   ReactFlowProvider,
   reconnectEdge,
+  useEdges,
   useStore,
   useEdgesState,
+  useNodes,
   useNodesState,
   useReactFlow,
   type Connection,
@@ -119,6 +121,7 @@ type PickerMode = 'note' | 'file' | null;
 interface PreviewState {
   excerpt?: string;
   imageSrc?: string | null;
+  faviconSrc?: string | null;
   markdownContent?: string;
   linkPreview?: LinkPreviewData | null;
   embedAvailable?: boolean;
@@ -133,11 +136,16 @@ interface CanvasNodeData extends Record<string, unknown> {
   subtitle?: string;
   excerpt?: string;
   imageSrc?: string | null;
+  faviconSrc?: string | null;
   markdownContent?: string;
   relativePath?: string;
   extension?: string;
   content?: string;
   url?: string;
+  hasRichPreview?: boolean;
+  previewError?: string | null;
+  previewLoading?: boolean;
+  previewLoaded?: boolean;
   displayMode?: CanvasWebDisplayMode;
   displayModeOverride?: CanvasWebDisplayMode | null;
   onWebUrlChange?: (nodeId: string, url: string) => void;
@@ -299,12 +307,36 @@ function buildWebPreviewState(
       return node.url || 'Add a website';
     }
   })();
+  const fallbackPath = (() => {
+    try {
+      if (!normalizedUrl) return '';
+      const parsed = new URL(normalizedUrl);
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`.trim() || '/';
+    } catch {
+      return '';
+    }
+  })();
   const linkPreview = preview?.linkPreview;
+  const hasMetadataTitle = Boolean(linkPreview?.title?.trim());
+  const hasMetadataDescription = Boolean(linkPreview?.description?.trim());
+  const hasMetadataImage = Boolean(linkPreview?.imageUrl);
+  const hasMetadataSiteName = Boolean(linkPreview?.siteName?.trim() && linkPreview.siteName?.trim() !== hostname);
+  const hasRichPreview = hasMetadataTitle || hasMetadataDescription || hasMetadataImage || hasMetadataSiteName;
+  const fallbackExcerpt = preview?.previewError
+    ? `Preview unavailable right now. ${preview.previewError}`
+    : normalizedUrl
+    ? `This site does not expose much preview metadata. We are showing the link details instead${fallbackPath && fallbackPath !== '/' ? ` for ${fallbackPath}` : ''}.`
+    : 'Enter a URL to load a website preview.';
   return {
     title: linkPreview?.title || hostname,
-    subtitle: linkPreview?.siteName || hostname,
-    excerpt: linkPreview?.description ?? linkPreview?.embedBlockReason ?? preview?.previewError ?? '',
+    subtitle: linkPreview?.siteName || normalizedUrl || hostname,
+    excerpt: linkPreview?.description ?? linkPreview?.embedBlockReason ?? fallbackExcerpt,
     imageSrc: linkPreview?.imageUrl ?? null,
+    faviconSrc: linkPreview?.faviconUrl ?? null,
+    hasRichPreview,
+    previewError: preview?.previewError ?? null,
+    previewLoading: preview?.loading ?? false,
+    previewLoaded: preview?.loaded ?? false,
     embedAvailable: linkPreview?.embeddable ?? preview?.embedAvailable,
     url: node.url,
     displayMode: resolveWebDisplayMode(node.displayModeOverride, defaultMode),
@@ -610,32 +642,6 @@ function CanvasCardFrame({
   );
 }
 
-function getInternalNodeHeight(node: unknown, fallback = DEFAULT_NODE_SIZE.height) {
-  if (!node || typeof node !== 'object') return fallback;
-  const candidate = node as {
-    height?: number;
-    measured?: { height?: number };
-    internals?: { userNode?: { height?: number; measured?: { height?: number } } };
-  };
-  return candidate.height
-    ?? candidate.measured?.height
-    ?? candidate.internals?.userNode?.height
-    ?? candidate.internals?.userNode?.measured?.height
-    ?? fallback;
-}
-
-function getInternalNodeCenterY(node: unknown) {
-  if (!node || typeof node !== 'object') return 0;
-  const candidate = node as {
-    positionAbsolute?: { y?: number };
-    measured?: { height?: number };
-    height?: number;
-    internals?: { positionAbsolute?: { y?: number } };
-  };
-  const y = candidate.internals?.positionAbsolute?.y ?? candidate.positionAbsolute?.y ?? 0;
-  return y + getInternalNodeHeight(candidate) / 2;
-}
-
 function getSlotOffset(index: number, count: number, nodeHeight: number) {
   if (count <= 1) return 0;
   const availableSpread = Math.max(nodeHeight - CANVAS_EDGE_SLOT_PADDING * 2, CANVAS_EDGE_SLOT_SPACING);
@@ -728,17 +734,31 @@ function getAnchoredEdgeGeometry({
 }
 
 function StackedCanvasEdge(props: EdgeProps<CanvasFlowEdge>) {
-  const { edges, nodeGeometryEntries } = useStore((state) => ({
-    edges: state.edges as CanvasFlowEdge[],
-    nodeGeometryEntries: Array.from((state.nodeLookup as Map<string, unknown>).entries()).map(([id, node]) => ({
-      id,
-      centerY: getInternalNodeCenterY(node),
-      height: getInternalNodeHeight(node),
-    })),
-  }));
+  const edges = useEdges<CanvasFlowEdge>();
+  const nodes = useNodes<FlowNode<CanvasNodeData>>();
   const nodeGeometry = useMemo(
-    () => new Map(nodeGeometryEntries.map((entry) => [entry.id, { centerY: entry.centerY, height: entry.height }])),
-    [nodeGeometryEntries],
+    () => new Map(nodes.map((node) => [
+      node.id,
+      {
+        centerY: (node.position.y ?? 0) + (
+          typeof node.height === 'number'
+            ? node.height
+            : typeof node.measured?.height === 'number'
+            ? node.measured.height
+            : typeof node.style?.height === 'number'
+            ? node.style.height
+            : DEFAULT_NODE_SIZE.height
+        ) / 2,
+        height: typeof node.height === 'number'
+          ? node.height
+          : typeof node.measured?.height === 'number'
+          ? node.measured.height
+          : typeof node.style?.height === 'number'
+          ? node.style.height
+          : DEFAULT_NODE_SIZE.height,
+      },
+    ])),
+    [nodes],
   );
   const targetGeometry = useMemo(() => getAnchoredEdgeGeometry({
     edge: props,
@@ -982,17 +1002,31 @@ function StackedConnectionLine({
   toY,
   toPosition,
 }: ConnectionLineComponentProps<FlowNode<CanvasNodeData>>) {
-  const edges = useStore((state) => state.edges as CanvasFlowEdge[]);
-  const nodeGeometryEntries = useStore((state) =>
-    Array.from((state.nodeLookup as Map<string, unknown>).entries()).map(([id, node]) => ({
-      id,
-      centerY: getInternalNodeCenterY(node),
-      height: getInternalNodeHeight(node),
-    })),
-  );
+  const edges = useEdges<CanvasFlowEdge>();
+  const nodes = useNodes<FlowNode<CanvasNodeData>>();
   const nodeGeometry = useMemo(
-    () => new Map(nodeGeometryEntries.map((entry) => [entry.id, { centerY: entry.centerY, height: entry.height }])),
-    [nodeGeometryEntries],
+    () => new Map(nodes.map((node) => [
+      node.id,
+      {
+        centerY: (node.position.y ?? 0) + (
+          typeof node.height === 'number'
+            ? node.height
+            : typeof node.measured?.height === 'number'
+            ? node.measured.height
+            : typeof node.style?.height === 'number'
+            ? node.style.height
+            : DEFAULT_NODE_SIZE.height
+        ) / 2,
+        height: typeof node.height === 'number'
+          ? node.height
+          : typeof node.measured?.height === 'number'
+          ? node.measured.height
+          : typeof node.style?.height === 'number'
+          ? node.style.height
+          : DEFAULT_NODE_SIZE.height,
+      },
+    ])),
+    [nodes],
   );
   const previewEdge: Pick<CanvasFlowEdge, 'id' | 'source' | 'target'> = {
     id: '__canvas-connection-preview__',
@@ -1196,10 +1230,24 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
   const canEmbed = normalizedUrl.startsWith('http://') || normalizedUrl.startsWith('https://');
   const canActuallyEmbed = canEmbed && data.embedAvailable !== false;
   const showingEmbedFallback = effectiveMode === 'embed' && !canActuallyEmbed && !!normalizedUrl;
+  const previewLoading = data.previewLoading ?? false;
+  const previewLoaded = data.previewLoaded ?? false;
+  const [embedActivated, setEmbedActivated] = useState(false);
   const [iframeState, setIframeState] = useState<'idle' | 'loading' | 'loaded' | 'timed_out'>('idle');
+  const previousModeRef = useRef<CanvasWebDisplayMode>(effectiveMode);
 
   useEffect(() => {
-    if (effectiveMode === 'embed' && canActuallyEmbed) {
+    if (effectiveMode === 'embed' && previousModeRef.current !== 'embed' && normalizedUrl) {
+      setEmbedActivated(true);
+    }
+    if (effectiveMode !== 'embed') {
+      setEmbedActivated(false);
+    }
+    previousModeRef.current = effectiveMode;
+  }, [effectiveMode, normalizedUrl]);
+
+  useEffect(() => {
+    if (effectiveMode === 'embed' && canActuallyEmbed && embedActivated) {
       setIframeState('loading');
       const timeout = window.setTimeout(() => {
         setIframeState((current) => (current === 'loaded' ? current : 'timed_out'));
@@ -1211,10 +1259,12 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
 
     setIframeState('idle');
     return undefined;
-  }, [effectiveMode, normalizedUrl, canActuallyEmbed]);
+  }, [effectiveMode, normalizedUrl, canActuallyEmbed, embedActivated]);
 
   const statusChip = showingEmbedFallback
     ? { label: 'Blocked', className: 'border-amber-500/30 bg-amber-500/10 text-amber-200' }
+    : effectiveMode === 'embed' && !embedActivated
+    ? { label: 'Paused', className: 'border-sky-500/30 bg-sky-500/10 text-sky-200' }
     : effectiveMode === 'embed' && iframeState === 'loaded'
     ? { label: 'Embedded', className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' }
     : effectiveMode === 'embed'
@@ -1234,8 +1284,12 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
       <CanvasCardFrame selected={selected}>
         <div className="flex h-full flex-col">
           <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
-            <div className="flex size-7 items-center justify-center rounded-xl bg-primary/12 text-primary">
-              <Globe size={14} />
+            <div className="flex size-7 items-center justify-center overflow-hidden rounded-xl bg-primary/12 text-primary">
+              {data.faviconSrc ? (
+                <img src={data.faviconSrc} alt="" className="size-4 rounded-sm object-contain" draggable={false} />
+              ) : (
+                <Globe size={14} />
+              )}
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold">{data.title || 'Web card'}</div>
@@ -1281,8 +1335,13 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
           </div>
 
           <div className="min-h-0 flex-1 overflow-hidden">
-            {effectiveMode === 'embed' && canActuallyEmbed ? (
-              <div className="relative h-full w-full bg-background">
+            {effectiveMode === 'embed' && canActuallyEmbed && embedActivated ? (
+              <div
+                className="relative h-full w-full bg-background"
+                onPointerDown={(event) => event.stopPropagation()}
+                onWheelCapture={(event) => event.stopPropagation()}
+                onWheel={(event) => event.stopPropagation()}
+              >
                 <iframe
                   key={normalizedUrl}
                   src={normalizedUrl}
@@ -1309,6 +1368,24 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
                   </div>
                 ) : null}
               </div>
+            ) : effectiveMode === 'embed' && canActuallyEmbed ? (
+              <div className="flex h-full items-center justify-center bg-background/40 px-6 text-center">
+                <div className="max-w-xs space-y-3">
+                  <div className="text-sm font-medium text-foreground">Embedded page paused</div>
+                  <div className="text-xs leading-relaxed text-muted-foreground">
+                    We keep embedded pages from auto-loading on app open so the canvas stays responsive.
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-8 gap-2"
+                    onClick={() => setEmbedActivated(true)}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    Load embed
+                  </Button>
+                </div>
+              </div>
             ) : (
               <div className="flex h-full flex-col overflow-hidden">
                 {showingEmbedFallback ? (
@@ -1321,8 +1398,34 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
                     <img src={data.imageSrc} alt={data.title || 'Website preview'} className="h-full w-full object-cover" draggable={false} />
                   </div>
                 ) : (
-                  <div className="flex min-h-[120px] flex-[1.1] items-center justify-center border-b border-border/50 bg-background/30 px-4 text-center text-xs text-muted-foreground">
-                    {normalizedUrl ? 'Loading preview…' : 'Enter a URL to load a preview.'}
+                  <div className="flex min-h-[120px] flex-[1.1] items-center justify-center border-b border-border/50 bg-background/30 px-4">
+                    <div className="max-w-[260px] text-center">
+                      <div className="mx-auto flex size-12 items-center justify-center overflow-hidden rounded-2xl border border-border/60 bg-card/70 text-primary shadow-sm">
+                        {data.faviconSrc ? (
+                          <img src={data.faviconSrc} alt="" className="size-6 rounded-md object-contain" draggable={false} />
+                        ) : (
+                          <Globe size={22} />
+                        )}
+                      </div>
+                      <div className="mt-3 text-sm font-medium text-foreground">
+                        {!normalizedUrl
+                          ? 'Enter a URL'
+                          : previewLoading
+                          ? 'Loading preview…'
+                          : previewLoaded && data.hasRichPreview
+                          ? 'Preview loaded'
+                          : 'Limited preview available'}
+                      </div>
+                      <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        {!normalizedUrl
+                          ? 'Paste a website address to load a preview or open it externally.'
+                          : previewLoading
+                          ? 'Fetching preview details for this site.'
+                          : previewLoaded && data.hasRichPreview
+                          ? 'This site returned text metadata, but no large preview image.'
+                          : 'This site does not expose a rich card preview, so we are falling back to the domain and page link.'}
+                      </div>
+                    </div>
                   </div>
                 )}
                 <div className="min-h-0 flex-1 px-3 py-3">
@@ -1332,6 +1435,16 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
                   <div className="mt-1 truncate text-[11px] text-muted-foreground">
                     {normalizedUrl || 'No link yet'}
                   </div>
+                  {!data.hasRichPreview && normalizedUrl ? (
+                    <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full border border-border/60 bg-background/45 px-2.5 py-1 text-[11px] text-muted-foreground">
+                      {data.faviconSrc ? (
+                        <img src={data.faviconSrc} alt="" className="size-3.5 rounded-[4px] object-contain" draggable={false} />
+                      ) : (
+                        <Globe size={12} />
+                      )}
+                      <span className="truncate">No preview metadata available</span>
+                    </div>
+                  ) : null}
                   <div className="mt-3 line-clamp-4 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
                     {showingEmbedFallback
                       ? (data.excerpt || 'This site blocks or restricts embedding in external apps.')
@@ -1484,6 +1597,9 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
                 subtitle: '',
                 excerpt: '',
                 imageSrc: null,
+                faviconSrc: null,
+                hasRichPreview: false,
+                previewError: null,
                 embedAvailable: undefined,
               },
             }
@@ -1563,7 +1679,11 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
           nextPreview = { previewError: null };
         } else {
           const linkPreview = await tauriCommands.fetchLinkPreview(normalizedUrl);
-          nextPreview = { linkPreview, imageSrc: linkPreview.imageUrl ?? null };
+          nextPreview = {
+            linkPreview,
+            imageSrc: linkPreview.imageUrl ?? null,
+            faviconSrc: linkPreview.faviconUrl ?? null,
+          };
         }
       } else if ('relativePath' in node && vault) {
         const path = node.relativePath;

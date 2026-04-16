@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use reqwest::header::{CONTENT_TYPE, USER_AGENT};
 use scraper::{Html, Selector};
 use serde::Serialize;
@@ -121,6 +123,8 @@ pub async fn fetch_link_preview(url: String) -> Result<LinkPreviewData, String> 
     let normalized = normalize_input_url(&url)?;
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
+        .connect_timeout(Duration::from_secs(4))
+        .timeout(Duration::from_secs(8))
         .build()
         .map_err(|e| e.to_string())?;
 
