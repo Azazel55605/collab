@@ -119,6 +119,8 @@ pub fn run() {
             commands::files::delete_note,
             commands::files::rename_note,
             commands::files::create_folder,
+            // web
+            commands::web::fetch_link_preview,
             // templates
             commands::templates::list_kanban_templates,
             commands::templates::save_kanban_template,

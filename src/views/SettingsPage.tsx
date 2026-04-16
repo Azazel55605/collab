@@ -3,6 +3,7 @@ import { useCollabStore } from '../store/collabStore';
 import { ANIMATION_SPEED_OPTIONS, useUiStore, type AnimationSpeed } from '../store/uiStore';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
 
@@ -15,6 +16,8 @@ export default function SettingsPage() {
     setAnimationsEnabled,
     animationSpeed,
     setAnimationSpeed,
+    canvasWebCardDefaultMode,
+    setCanvasWebCardDefaultMode,
   } = useUiStore();
   const [name, setName] = useState(myUserName);
 
@@ -118,6 +121,25 @@ export default function SettingsPage() {
                 System reduced-motion is respected automatically.
               </p>
             </div>
+          </div>
+        </section>
+
+        <section className="mb-8">
+          <h2 className="text-lg font-semibold mb-4">Canvas</h2>
+          <div className="max-w-md space-y-2">
+            <label className="text-sm font-medium block">Default web card mode</label>
+            <Select value={canvasWebCardDefaultMode} onValueChange={(value) => setCanvasWebCardDefaultMode(value as 'preview' | 'embed')}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="preview">Preview</SelectItem>
+                <SelectItem value="embed">Embed</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              New web cards use this mode by default. Individual cards can still override it.
+            </p>
           </div>
         </section>
       </div>

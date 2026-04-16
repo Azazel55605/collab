@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import '@xyflow/react/dist/style.css';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   ReactFlow,
   addEdge,
@@ -32,6 +33,7 @@ import {
 import {
   FileImage,
   FileText,
+  Globe,
   Layout,
   LayoutDashboard,
   Link2,
@@ -66,17 +68,20 @@ import {
 } from '../components/layout/DocumentTopBar';
 import { cn } from '../lib/utils';
 import { tauriCommands } from '../lib/tauri';
+import type { LinkPreviewData } from '../lib/tauri';
 import { useEditorStore } from '../store/editorStore';
-import { useUiStore } from '../store/uiStore';
+import { useUiStore, type CanvasWebCardDefaultMode } from '../store/uiStore';
 import { useVaultStore } from '../store/vaultStore';
 import type {
   CanvasData,
   CanvasEdge,
   CanvasEdgeLineStyle,
   CanvasNode,
+  CanvasWebDisplayMode,
   FileCanvasNode,
   NoteCanvasNode,
   TextCanvasNode,
+  WebCanvasNode,
 } from '../types/canvas';
 import type { NoteFile } from '../types/vault';
 
@@ -115,6 +120,10 @@ interface PreviewState {
   excerpt?: string;
   imageSrc?: string | null;
   markdownContent?: string;
+  linkPreview?: LinkPreviewData | null;
+  embedAvailable?: boolean;
+  embedChecked?: boolean;
+  previewError?: string | null;
   loading?: boolean;
   loaded?: boolean;
 }
@@ -128,6 +137,12 @@ interface CanvasNodeData extends Record<string, unknown> {
   relativePath?: string;
   extension?: string;
   content?: string;
+  url?: string;
+  displayMode?: CanvasWebDisplayMode;
+  displayModeOverride?: CanvasWebDisplayMode | null;
+  onWebUrlChange?: (nodeId: string, url: string) => void;
+  onWebDisplayModeOverrideChange?: (nodeId: string, mode: CanvasWebDisplayMode | null) => void;
+  onOpenUrl?: (url: string) => void;
   onOpen?: (path: string) => void;
   onTextChange?: (nodeId: string, content: string) => void;
   onWikilinkClick?: (path: string) => void;
@@ -222,6 +237,33 @@ function canPreviewText(extension: string): boolean {
   return TEXT_PREVIEW_EXTENSIONS.has(extension.toLowerCase());
 }
 
+function normalizeWebUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  try {
+    return new URL(trimmed).toString();
+  } catch {
+    try {
+      return new URL(`https://${trimmed}`).toString();
+    } catch {
+      return trimmed;
+    }
+  }
+}
+
+function getPreviewKey(node: CanvasNode) {
+  if ('relativePath' in node) return `vault:${node.relativePath}`;
+  if (node.type === 'web') return `web:${normalizeWebUrl(node.url)}`;
+  return `node:${node.id}`;
+}
+
+function resolveWebDisplayMode(
+  override: CanvasWebDisplayMode | null | undefined,
+  defaultMode: CanvasWebCardDefaultMode,
+) {
+  return override ?? defaultMode;
+}
+
 function makeDefaultCanvas(): CanvasData {
   return {
     nodes: [],
@@ -244,14 +286,37 @@ function buildNodePreviewState(node: Extract<CanvasNode, { relativePath: string 
   };
 }
 
-function hasRelativePath(node: CanvasNode): node is Extract<CanvasNode, { relativePath: string }> {
-  return 'relativePath' in node;
+function buildWebPreviewState(
+  node: WebCanvasNode,
+  preview: PreviewState | undefined,
+  defaultMode: CanvasWebCardDefaultMode,
+) {
+  const normalizedUrl = normalizeWebUrl(node.url);
+  const hostname = (() => {
+    try {
+      return normalizedUrl ? new URL(normalizedUrl).hostname : 'Add a website';
+    } catch {
+      return node.url || 'Add a website';
+    }
+  })();
+  const linkPreview = preview?.linkPreview;
+  return {
+    title: linkPreview?.title || hostname,
+    subtitle: linkPreview?.siteName || hostname,
+    excerpt: linkPreview?.description ?? linkPreview?.embedBlockReason ?? preview?.previewError ?? '',
+    imageSrc: linkPreview?.imageUrl ?? null,
+    embedAvailable: linkPreview?.embeddable ?? preview?.embedAvailable,
+    url: node.url,
+    displayMode: resolveWebDisplayMode(node.displayModeOverride, defaultMode),
+    displayModeOverride: node.displayModeOverride ?? null,
+  };
 }
 
 function toFlowNode(
   node: CanvasNode,
   preview: PreviewState | undefined,
-  callbacks: Pick<CanvasNodeData, 'onOpen' | 'onTextChange' | 'onSnapToGrid'>,
+  callbacks: Pick<CanvasNodeData, 'onOpen' | 'onTextChange' | 'onSnapToGrid' | 'onWebUrlChange' | 'onWebDisplayModeOverrideChange' | 'onOpenUrl'>,
+  defaultWebCardMode: CanvasWebCardDefaultMode,
 ): FlowNode<CanvasNodeData> {
   if (node.type === 'text') {
     return {
@@ -264,6 +329,26 @@ function toFlowNode(
         subtitle: 'Canvas note',
         content: node.content,
         onTextChange: callbacks.onTextChange,
+        onSnapToGrid: callbacks.onSnapToGrid,
+      },
+      style: {
+        width: node.width,
+        height: node.height,
+      },
+    };
+  }
+
+  if (node.type === 'web') {
+    return {
+      id: node.id,
+      type: 'webCard',
+      position: node.position,
+      selected: false,
+      data: {
+        ...buildWebPreviewState(node, preview, defaultWebCardMode),
+        onWebUrlChange: callbacks.onWebUrlChange,
+        onWebDisplayModeOverrideChange: callbacks.onWebDisplayModeOverrideChange,
+        onOpenUrl: callbacks.onOpenUrl,
         onSnapToGrid: callbacks.onSnapToGrid,
       },
       style: {
@@ -317,6 +402,18 @@ function fromFlowNode(node: FlowNode<CanvasNodeData>): CanvasNode {
       width,
       height,
       content: node.data.content ?? '',
+    };
+  }
+
+  if (node.type === 'webCard') {
+    return {
+      id: node.id,
+      type: 'web',
+      position: node.position,
+      width,
+      height,
+      url: node.data.url ?? '',
+      displayModeOverride: node.data.displayModeOverride ?? null,
     };
   }
 
@@ -550,7 +647,7 @@ function getOrderedSiblingEdges(
   edges: CanvasFlowEdge[],
   nodeId: string,
   direction: 'source' | 'target',
-  nodeLookup: Map<string, unknown>,
+  nodeGeometry: Map<string, { centerY: number; height: number }>,
   pendingEdge?: Pick<CanvasFlowEdge, 'id' | 'source' | 'target'>,
 ) {
   const subjectKey = direction === 'source' ? 'source' : 'target';
@@ -564,8 +661,8 @@ function getOrderedSiblingEdges(
   }
 
   siblings.sort((left, right) => {
-    const leftCenter = getInternalNodeCenterY(nodeLookup.get(left.oppositeId));
-    const rightCenter = getInternalNodeCenterY(nodeLookup.get(right.oppositeId));
+    const leftCenter = nodeGeometry.get(left.oppositeId)?.centerY ?? 0;
+    const rightCenter = nodeGeometry.get(right.oppositeId)?.centerY ?? 0;
     if (leftCenter !== rightCenter) return leftCenter - rightCenter;
     if (left.oppositeId !== right.oppositeId) return left.oppositeId.localeCompare(right.oppositeId);
     return left.id.localeCompare(right.id);
@@ -577,7 +674,7 @@ function getOrderedSiblingEdges(
 function getAnchoredEdgeGeometry({
   edge,
   edges,
-  nodeLookup,
+  nodeGeometry,
   sourceX,
   sourceY,
   targetX,
@@ -587,7 +684,7 @@ function getAnchoredEdgeGeometry({
 }: {
   edge: Pick<CanvasFlowEdge, 'id' | 'source' | 'target'>;
   edges: CanvasFlowEdge[];
-  nodeLookup: Map<string, unknown>;
+  nodeGeometry: Map<string, { centerY: number; height: number }>;
   sourceX: number;
   sourceY: number;
   targetX: number;
@@ -595,12 +692,12 @@ function getAnchoredEdgeGeometry({
   sourcePosition: Position;
   targetPosition: Position;
 }): EdgeGeometry {
-  const sourceSiblings = getOrderedSiblingEdges(edges, edge.source, 'source', nodeLookup, edge);
-  const targetSiblings = getOrderedSiblingEdges(edges, edge.target, 'target', nodeLookup, edge);
+  const sourceSiblings = getOrderedSiblingEdges(edges, edge.source, 'source', nodeGeometry, edge);
+  const targetSiblings = getOrderedSiblingEdges(edges, edge.target, 'target', nodeGeometry, edge);
   const sourceIndex = Math.max(0, sourceSiblings.findIndex((candidate) => candidate.id === edge.id));
   const targetIndex = Math.max(0, targetSiblings.findIndex((candidate) => candidate.id === edge.id));
-  const sourceNodeHeight = getInternalNodeHeight(nodeLookup.get(edge.source));
-  const targetNodeHeight = getInternalNodeHeight(nodeLookup.get(edge.target));
+  const sourceNodeHeight = nodeGeometry.get(edge.source)?.height ?? DEFAULT_NODE_SIZE.height;
+  const targetNodeHeight = nodeGeometry.get(edge.target)?.height ?? DEFAULT_NODE_SIZE.height;
   const sourceOffset = getSlotOffset(sourceIndex, sourceSiblings.length, sourceNodeHeight);
   const targetOffset = getSlotOffset(targetIndex, targetSiblings.length, targetNodeHeight);
   const anchoredSourceY = sourceY + sourceOffset;
@@ -631,14 +728,22 @@ function getAnchoredEdgeGeometry({
 }
 
 function StackedCanvasEdge(props: EdgeProps<CanvasFlowEdge>) {
-  const { edges, nodeLookup } = useStore((state) => ({
+  const { edges, nodeGeometryEntries } = useStore((state) => ({
     edges: state.edges as CanvasFlowEdge[],
-    nodeLookup: state.nodeLookup as Map<string, unknown>,
+    nodeGeometryEntries: Array.from((state.nodeLookup as Map<string, unknown>).entries()).map(([id, node]) => ({
+      id,
+      centerY: getInternalNodeCenterY(node),
+      height: getInternalNodeHeight(node),
+    })),
   }));
+  const nodeGeometry = useMemo(
+    () => new Map(nodeGeometryEntries.map((entry) => [entry.id, { centerY: entry.centerY, height: entry.height }])),
+    [nodeGeometryEntries],
+  );
   const targetGeometry = useMemo(() => getAnchoredEdgeGeometry({
     edge: props,
     edges,
-    nodeLookup,
+    nodeGeometry,
     sourceX: props.sourceX,
     sourceY: props.sourceY,
     targetX: props.targetX,
@@ -647,7 +752,7 @@ function StackedCanvasEdge(props: EdgeProps<CanvasFlowEdge>) {
     targetPosition: props.targetPosition,
   }), [
     edges,
-    nodeLookup,
+    nodeGeometry,
     props.id,
     props.source,
     props.target,
@@ -878,7 +983,17 @@ function StackedConnectionLine({
   toPosition,
 }: ConnectionLineComponentProps<FlowNode<CanvasNodeData>>) {
   const edges = useStore((state) => state.edges as CanvasFlowEdge[]);
-  const nodeLookup = useStore((state) => state.nodeLookup as Map<string, unknown>);
+  const nodeGeometryEntries = useStore((state) =>
+    Array.from((state.nodeLookup as Map<string, unknown>).entries()).map(([id, node]) => ({
+      id,
+      centerY: getInternalNodeCenterY(node),
+      height: getInternalNodeHeight(node),
+    })),
+  );
+  const nodeGeometry = useMemo(
+    () => new Map(nodeGeometryEntries.map((entry) => [entry.id, { centerY: entry.centerY, height: entry.height }])),
+    [nodeGeometryEntries],
+  );
   const previewEdge: Pick<CanvasFlowEdge, 'id' | 'source' | 'target'> = {
     id: '__canvas-connection-preview__',
     source: fromNode.id,
@@ -887,7 +1002,7 @@ function StackedConnectionLine({
   const geometry = getAnchoredEdgeGeometry({
     edge: previewEdge,
     edges,
-    nodeLookup,
+    nodeGeometry,
     sourceX: fromX,
     sourceY: fromY,
     targetX: toX,
@@ -1075,10 +1190,169 @@ function TextCardNode({ id, data, selected }: { id: string; data: CanvasNodeData
   );
 }
 
+function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData; selected?: boolean }) {
+  const effectiveMode = data.displayMode ?? 'preview';
+  const normalizedUrl = normalizeWebUrl(data.url ?? '');
+  const canEmbed = normalizedUrl.startsWith('http://') || normalizedUrl.startsWith('https://');
+  const canActuallyEmbed = canEmbed && data.embedAvailable !== false;
+  const showingEmbedFallback = effectiveMode === 'embed' && !canActuallyEmbed && !!normalizedUrl;
+  const [iframeState, setIframeState] = useState<'idle' | 'loading' | 'loaded' | 'timed_out'>('idle');
+
+  useEffect(() => {
+    if (effectiveMode === 'embed' && canActuallyEmbed) {
+      setIframeState('loading');
+      const timeout = window.setTimeout(() => {
+        setIframeState((current) => (current === 'loaded' ? current : 'timed_out'));
+      }, 4500);
+      return () => {
+        window.clearTimeout(timeout);
+      };
+    }
+
+    setIframeState('idle');
+    return undefined;
+  }, [effectiveMode, normalizedUrl, canActuallyEmbed]);
+
+  const statusChip = showingEmbedFallback
+    ? { label: 'Blocked', className: 'border-amber-500/30 bg-amber-500/10 text-amber-200' }
+    : effectiveMode === 'embed' && iframeState === 'loaded'
+    ? { label: 'Embedded', className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' }
+    : effectiveMode === 'embed'
+    ? { label: 'Loading', className: 'border-primary/30 bg-primary/10 text-primary' }
+    : { label: 'Preview', className: 'border-border/60 bg-background/60 text-muted-foreground' };
+
+  return (
+    <div className="group relative h-full w-full">
+      <NodeResizer
+        isVisible={!!selected}
+        minWidth={260}
+        minHeight={180}
+        lineClassName="!border-primary/30"
+        handleClassName="!border-primary/50 !bg-background !w-3 !h-3"
+        onResizeEnd={() => data.onSnapToGrid?.(id)}
+      />
+      <CanvasCardFrame selected={selected}>
+        <div className="flex h-full flex-col">
+          <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
+            <div className="flex size-7 items-center justify-center rounded-xl bg-primary/12 text-primary">
+              <Globe size={14} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold">{data.title || 'Web card'}</div>
+              <div className="truncate text-[11px] text-muted-foreground">{data.subtitle || 'Website'}</div>
+            </div>
+            {normalizedUrl ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-[11px]"
+                onClick={() => data.onOpenUrl?.(normalizedUrl)}
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                Open
+              </Button>
+            ) : null}
+          </div>
+
+          <div className="flex items-center gap-2 border-b border-border/50 px-3 py-2">
+            <Input
+              value={data.url ?? ''}
+              placeholder="example.com or https://example.com"
+              onChange={(event) => data.onWebUrlChange?.(id, event.target.value)}
+              onPointerDown={(event) => event.stopPropagation()}
+              className="h-8 text-xs"
+            />
+            <div className={cn('shrink-0 rounded-md border px-2 py-1 text-[11px] font-medium', statusChip.className)}>
+              {statusChip.label}
+            </div>
+            <Select
+              value={data.displayModeOverride ?? 'default'}
+              onValueChange={(value) => data.onWebDisplayModeOverrideChange?.(id, value === 'default' ? null : value as CanvasWebDisplayMode)}
+            >
+              <SelectTrigger size="sm" className="h-8 min-w-[118px] bg-background/70 text-xs" onPointerDown={(event) => event.stopPropagation()}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectItem value="default">App default</SelectItem>
+                <SelectItem value="preview">Preview</SelectItem>
+                <SelectItem value="embed">Embed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {effectiveMode === 'embed' && canActuallyEmbed ? (
+              <div className="relative h-full w-full bg-background">
+                <iframe
+                  key={normalizedUrl}
+                  src={normalizedUrl}
+                  title={data.title || data.url || 'Embedded website'}
+                  className="nowheel nopan h-full w-full border-0 bg-background"
+                  sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads"
+                  allow="fullscreen; clipboard-read; clipboard-write; autoplay"
+                  loading="lazy"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onLoad={() => setIframeState('loaded')}
+                />
+                {iframeState !== 'loaded' ? (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/92 px-6 text-center">
+                    <div className="max-w-xs space-y-2">
+                      <div className="text-sm font-medium text-foreground">
+                        {iframeState === 'timed_out' ? 'Embedding may be blocked' : 'Loading website…'}
+                      </div>
+                      <div className="text-xs leading-relaxed text-muted-foreground">
+                        {iframeState === 'timed_out'
+                          ? 'Some sites refuse in-app embedding. If the card stays blank, use preview mode or open the page externally.'
+                          : 'Trying to render the page inside the card.'}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="flex h-full flex-col overflow-hidden">
+                {showingEmbedFallback ? (
+                  <div className="border-b border-border/50 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                    Embedded view is unavailable for this site. Showing link preview instead.
+                  </div>
+                ) : null}
+                {data.imageSrc ? (
+                  <div className="min-h-0 flex-[1.35] border-b border-border/50 bg-background/40">
+                    <img src={data.imageSrc} alt={data.title || 'Website preview'} className="h-full w-full object-cover" draggable={false} />
+                  </div>
+                ) : (
+                  <div className="flex min-h-[120px] flex-[1.1] items-center justify-center border-b border-border/50 bg-background/30 px-4 text-center text-xs text-muted-foreground">
+                    {normalizedUrl ? 'Loading preview…' : 'Enter a URL to load a preview.'}
+                  </div>
+                )}
+                <div className="min-h-0 flex-1 px-3 py-3">
+                  <div className="line-clamp-2 text-sm font-medium text-foreground">
+                    {data.title || 'Web preview'}
+                  </div>
+                  <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                    {normalizedUrl || 'No link yet'}
+                  </div>
+                  <div className="mt-3 line-clamp-4 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                    {showingEmbedFallback
+                      ? (data.excerpt || 'This site blocks or restricts embedding in external apps.')
+                      : (data.excerpt || (effectiveMode === 'embed' ? 'Embedding unavailable. Falling back to preview.' : 'Preview details will appear here when available.'))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </CanvasCardFrame>
+      <CardHandles />
+    </div>
+  );
+}
+
 const nodeTypes = {
   noteCard: NoteCardNode,
   fileCard: FileCardNode,
   textCard: TextCardNode,
+  webCard: WebCardNode,
 };
 
 const edgeTypes = {
@@ -1136,7 +1410,7 @@ function CanvasPickerDialog({
 function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   const { vault, fileTree } = useVaultStore();
   const { openTab } = useEditorStore();
-  const { setActiveView } = useUiStore();
+  const { setActiveView, canvasWebCardDefaultMode } = useUiStore();
   const reactFlow = useReactFlow<FlowNode<CanvasNodeData>, CanvasFlowEdge>();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -1197,6 +1471,43 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     );
   }, [setNodes]);
 
+  const updateWebUrl = useCallback((nodeId: string, url: string) => {
+    setNodes((prev) =>
+      prev.map((node) => (
+        node.id === nodeId
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                url,
+                title: '',
+                subtitle: '',
+                excerpt: '',
+                imageSrc: null,
+                embedAvailable: undefined,
+              },
+            }
+          : node
+      )),
+    );
+  }, [setNodes]);
+
+  const updateWebDisplayModeOverride = useCallback((nodeId: string, mode: CanvasWebDisplayMode | null) => {
+    setNodes((prev) =>
+      prev.map((node) => (
+        node.id === nodeId
+          ? { ...node, data: { ...node.data, displayModeOverride: mode, displayMode: resolveWebDisplayMode(mode, canvasWebCardDefaultMode) } }
+          : node
+      )),
+    );
+  }, [canvasWebCardDefaultMode, setNodes]);
+
+  const openExternalUrl = useCallback((url: string) => {
+    const normalized = normalizeWebUrl(url);
+    if (!normalized) return;
+    void openUrl(normalized);
+  }, []);
+
   const snapNodeToGrid = useCallback((nodeId: string) => {
     setNodes((prev) =>
       prev.map((node) => {
@@ -1232,32 +1543,43 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     );
   }, [setNodes]);
 
-  const hydratePreview = useCallback(async (node: Extract<CanvasNode, { relativePath: string }>) => {
-    if (!vault) return;
-    const path = node.relativePath;
-    if (loadingPreviewPathsRef.current.has(path)) return;
+  const hydratePreview = useCallback(async (node: CanvasNode) => {
+    if (!vault && node.type !== 'web') return;
+    const previewKey = getPreviewKey(node);
+    if (loadingPreviewPathsRef.current.has(previewKey)) return;
 
-    loadingPreviewPathsRef.current.add(path);
+    loadingPreviewPathsRef.current.add(previewKey);
     setPreviews((prev) => ({
       ...prev,
-      [path]: { ...(prev[path] ?? {}), loading: true },
+      [previewKey]: { ...(prev[previewKey] ?? {}), loading: true },
     }));
 
     try {
-      const extension = path.split('.').pop()?.toLowerCase() ?? '';
       let nextPreview: PreviewState = {};
 
-      if (node.type === 'file' && isImageExtension(extension)) {
-        nextPreview = { imageSrc: await tauriCommands.readNoteAssetDataUrl(vault.path, path) };
-      } else if (node.type === 'file' && extension === 'pdf') {
-        const pdfDataUrl = await tauriCommands.readNoteAssetDataUrl(vault.path, path);
-        nextPreview = { imageSrc: await renderPdfPreview(pdfDataUrl) };
-      } else if (node.type === 'note') {
-        const { content } = await tauriCommands.readNote(vault.path, path);
-        nextPreview = { excerpt: cleanPreviewText(content), markdownContent: content };
-      } else if (canPreviewText(extension)) {
-        const { content } = await tauriCommands.readNote(vault.path, path);
-        nextPreview = { excerpt: cleanPreviewText(content) };
+      if (node.type === 'web') {
+        const normalizedUrl = normalizeWebUrl(node.url);
+        if (!normalizedUrl) {
+          nextPreview = { previewError: null };
+        } else {
+          const linkPreview = await tauriCommands.fetchLinkPreview(normalizedUrl);
+          nextPreview = { linkPreview, imageSrc: linkPreview.imageUrl ?? null };
+        }
+      } else if ('relativePath' in node && vault) {
+        const path = node.relativePath;
+        const extension = path.split('.').pop()?.toLowerCase() ?? '';
+        if (node.type === 'file' && isImageExtension(extension)) {
+          nextPreview = { imageSrc: await tauriCommands.readNoteAssetDataUrl(vault.path, path) };
+        } else if (node.type === 'file' && extension === 'pdf') {
+          const pdfDataUrl = await tauriCommands.readNoteAssetDataUrl(vault.path, path);
+          nextPreview = { imageSrc: await renderPdfPreview(pdfDataUrl) };
+        } else if (node.type === 'note') {
+          const { content } = await tauriCommands.readNote(vault.path, path);
+          nextPreview = { excerpt: cleanPreviewText(content), markdownContent: content };
+        } else if (canPreviewText(extension)) {
+          const { content } = await tauriCommands.readNote(vault.path, path);
+          nextPreview = { excerpt: cleanPreviewText(content) };
+        }
       }
 
       const resolvedPreview: PreviewState = { ...nextPreview, loading: false, loaded: true };
@@ -1265,32 +1587,41 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
 
       setPreviews((prev) => ({
         ...prev,
-        [path]: resolvedPreview,
+        [previewKey]: resolvedPreview,
       }));
       setNodes((prev) =>
         prev.map((flowNode) => {
-          if (flowNode.data.relativePath !== path) return flowNode;
+          if (getPreviewKey(fromFlowNode(flowNode)) !== previewKey) return flowNode;
+          const sourceNode = fromFlowNode(flowNode);
           return {
             ...flowNode,
             data: {
               ...flowNode.data,
-              ...buildNodePreviewState(fromFlowNode(flowNode) as Extract<CanvasNode, { relativePath: string }>, resolvedPreview),
+              ...(sourceNode.type === 'web'
+                ? buildWebPreviewState(sourceNode, resolvedPreview, canvasWebCardDefaultMode)
+                : buildNodePreviewState(sourceNode as Extract<CanvasNode, { relativePath: string }>, resolvedPreview)),
               onOpen: openRelativePath,
               onWikilinkClick: openRelativePath,
+              onOpenUrl: openExternalUrl,
             },
           };
         }),
       );
-    } catch {
+    } catch (error) {
       if (!isMountedRef.current) return;
       setPreviews((prev) => ({
         ...prev,
-        [path]: { ...(prev[path] ?? {}), loading: false, loaded: true },
+        [previewKey]: {
+          ...(prev[previewKey] ?? {}),
+          previewError: error instanceof Error ? error.message : String(error),
+          loading: false,
+          loaded: true,
+        },
       }));
     } finally {
-      loadingPreviewPathsRef.current.delete(path);
+      loadingPreviewPathsRef.current.delete(previewKey);
     }
-  }, [openRelativePath, setNodes, vault]);
+  }, [canvasWebCardDefaultMode, openExternalUrl, openRelativePath, setNodes, vault]);
 
   const loadCanvas = useCallback(async (isInitial = false) => {
     if (!vault || !relativePath) return;
@@ -1318,12 +1649,15 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
         onOpen: openRelativePath,
         onTextChange: updateTextContent,
         onSnapToGrid: snapNodeToGrid,
-      })));
+        onWebUrlChange: updateWebUrl,
+        onWebDisplayModeOverrideChange: updateWebDisplayModeOverride,
+        onOpenUrl: openExternalUrl,
+      }, canvasWebCardDefaultMode)));
       setEdges(canvas.edges.map(toFlowEdge));
       pendingViewportRef.current = canvas.viewport ?? EMPTY_CANVAS.viewport;
       setLoadRevision((prev) => prev + 1);
     } catch {}
-  }, [openRelativePath, relativePath, setEdges, setNodes, snapNodeToGrid, updateTextContent, vault]);
+  }, [canvasWebCardDefaultMode, openExternalUrl, openRelativePath, relativePath, setEdges, setNodes, snapNodeToGrid, updateTextContent, updateWebDisplayModeOverride, updateWebUrl, vault]);
 
   useEffect(() => {
     if (!relativePath) return;
@@ -1357,12 +1691,14 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   }, [loadCanvas, relativePath, vault]);
 
   useEffect(() => {
-    if (!vault) return;
     for (const flowNode of nodes) {
-      if ((flowNode.type !== 'noteCard' && flowNode.type !== 'fileCard') || !flowNode.data.relativePath) continue;
-      const existing = previews[flowNode.data.relativePath];
+      const sourceNode = fromFlowNode(flowNode);
+      if (sourceNode.type !== 'web' && !vault) continue;
+      if (sourceNode.type !== 'web' && flowNode.type !== 'noteCard' && flowNode.type !== 'fileCard') continue;
+      const existing = previews[getPreviewKey(sourceNode)];
       if (existing?.loading || existing?.loaded) continue;
-      void hydratePreview(fromFlowNode(flowNode) as Extract<CanvasNode, { relativePath: string }>);
+      if (sourceNode.type === 'web' && !sourceNode.url.trim()) continue;
+      void hydratePreview(sourceNode);
     }
   }, [hydratePreview, nodes, previews, vault]);
 
@@ -1418,7 +1754,7 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   }, [reactFlow]);
 
   const addCanvasNode = useCallback((node: CanvasNode) => {
-    const preview = hasRelativePath(node) ? previews[node.relativePath] : undefined;
+    const preview = previews[getPreviewKey(node)];
     setNodes((prev) => [...prev, toFlowNode({
       ...node,
       position: snapPosition(node.position),
@@ -1428,8 +1764,11 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
       onOpen: openRelativePath,
       onTextChange: updateTextContent,
       onSnapToGrid: snapNodeToGrid,
-    })]);
-  }, [openRelativePath, previews, setNodes, snapNodeToGrid, updateTextContent]);
+      onWebUrlChange: updateWebUrl,
+      onWebDisplayModeOverrideChange: updateWebDisplayModeOverride,
+      onOpenUrl: openExternalUrl,
+    }, canvasWebCardDefaultMode)]);
+  }, [canvasWebCardDefaultMode, openExternalUrl, openRelativePath, previews, setNodes, snapNodeToGrid, updateTextContent, updateWebDisplayModeOverride, updateWebUrl]);
 
   const handlePickerSelect = useCallback((file: NoteFile) => {
     const center = getViewportCenterPosition();
@@ -1467,6 +1806,20 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
       position: center,
       width: DEFAULT_TEXT_NODE_SIZE.width,
       height: DEFAULT_TEXT_NODE_SIZE.height,
+    };
+    addCanvasNode(node);
+  }, [addCanvasNode, getViewportCenterPosition]);
+
+  const addWebNode = useCallback(() => {
+    const center = getViewportCenterPosition();
+    const node: WebCanvasNode = {
+      id: crypto.randomUUID(),
+      type: 'web',
+      url: '',
+      displayModeOverride: null,
+      position: center,
+      width: 360,
+      height: 240,
     };
     addCanvasNode(node);
   }, [addCanvasNode, getViewportCenterPosition]);
@@ -1670,6 +2023,11 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
           event.preventDefault();
           addTextNode();
           break;
+        case 'w':
+        case 'W':
+          event.preventDefault();
+          addWebNode();
+          break;
         case 'ArrowUp':
           event.preventDefault();
           panViewport(0, 120);
@@ -1704,7 +2062,7 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     return () => {
       document.removeEventListener('keydown', handleKeyDown, { capture: true } as EventListenerOptions);
     };
-  }, [addTextNode, adjustZoom, deleteSelection, fitCanvasView, panViewport, pickerMode, resetZoom]);
+  }, [addTextNode, addWebNode, adjustZoom, deleteSelection, fitCanvasView, panViewport, pickerMode, resetZoom]);
 
   if (!relativePath) {
     return (
@@ -1745,6 +2103,10 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
               <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs" onClick={addTextNode}>
                 <PencilLine size={14} />
                 Add text
+              </Button>
+              <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs" onClick={addWebNode}>
+                <Globe size={14} />
+                Add web
               </Button>
             </div>
 

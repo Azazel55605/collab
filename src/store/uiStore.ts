@@ -13,6 +13,7 @@ export type ColorPreviewFormat = 'hex' | 'rgb' | 'hsl' | 'oklch' | 'oklab';
 export type DateFormat    = 'MMM_D_YYYY' | 'D_MMM_YYYY' | 'YYYY_MM_DD' | 'MM_DD_YYYY' | 'DD_MM_YYYY';
 export type WeekStart     = 0 | 1; // 0 = Sunday, 1 = Monday
 export type AnimationSpeed = 'slow' | 'normal' | 'fast';
+export type CanvasWebCardDefaultMode = 'preview' | 'embed';
 
 /** Map accent name → oklch(L C H) string (used for --primary in dark/light) */
 export const ACCENT_COLORS: Record<AccentColor, { label: string; oklch: string; hex: string }> = {
@@ -188,6 +189,7 @@ interface UiState {
   confirmDelete: boolean;
   animationsEnabled: boolean;
   animationSpeed: AnimationSpeed;
+  canvasWebCardDefaultMode: CanvasWebCardDefaultMode;
 
   // Actions
   setActiveView:    (view: ActiveView) => void;
@@ -221,6 +223,7 @@ interface UiState {
   setConfirmDelete: (v: boolean) => void;
   setAnimationsEnabled: (v: boolean) => void;
   setAnimationSpeed:    (speed: AnimationSpeed) => void;
+  setCanvasWebCardDefaultMode: (mode: CanvasWebCardDefaultMode) => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -257,6 +260,7 @@ export const useUiStore = create<UiState>()(
       confirmDelete: true,
       animationsEnabled: true,
       animationSpeed: 'normal',
+      canvasWebCardDefaultMode: 'preview',
 
       setActiveView:   (activeView)   => set({ activeView }),
       setSidebarPanel: (sidebarPanel) => set({ sidebarPanel }),
@@ -292,6 +296,7 @@ export const useUiStore = create<UiState>()(
       setConfirmDelete: (confirmDelete) => set({ confirmDelete }),
       setAnimationsEnabled: (animationsEnabled) => set({ animationsEnabled }),
       setAnimationSpeed:    (animationSpeed)    => set({ animationSpeed }),
+      setCanvasWebCardDefaultMode: (canvasWebCardDefaultMode) => set({ canvasWebCardDefaultMode }),
     }),
     {
       name: 'ui-storage',
@@ -326,6 +331,7 @@ export const useUiStore = create<UiState>()(
         confirmDelete: s.confirmDelete,
         animationsEnabled: s.animationsEnabled,
         animationSpeed:    s.animationSpeed,
+        canvasWebCardDefaultMode: s.canvasWebCardDefaultMode,
       }),
     }
   )

@@ -10,6 +10,17 @@ import type { KanbanBoard } from '../types/kanban';
 import type { KanbanTemplate, TemplateSource } from '../types/template';
 import type { UpdateInfo } from '../store/updateStore';
 
+export interface LinkPreviewData {
+  resolvedUrl: string;
+  title?: string | null;
+  description?: string | null;
+  siteName?: string | null;
+  imageUrl?: string | null;
+  faviconUrl?: string | null;
+  embeddable?: boolean;
+  embedBlockReason?: string | null;
+}
+
 export const tauriCommands = {
   // Vault
   openVault: (path: string) => invoke<VaultMeta>('open_vault', { path }),
@@ -72,6 +83,7 @@ export const tauriCommands = {
   deleteNote: (vaultPath: string, relativePath: string) => invoke<void>('delete_note', { vaultPath, relativePath }),
   renameNote: (vaultPath: string, oldPath: string, newPath: string) => invoke<void>('rename_note', { vaultPath, oldPath, newPath }),
   createFolder: (vaultPath: string, relativePath: string) => invoke<void>('create_folder', { vaultPath, relativePath }),
+  fetchLinkPreview: (url: string) => invoke<LinkPreviewData>('fetch_link_preview', { url }),
 
   // Kanban templates
   listKanbanTemplates: (vaultPath?: string | null) =>

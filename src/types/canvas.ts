@@ -4,7 +4,8 @@ export interface CanvasData {
   viewport: { x: number; y: number; zoom: number };
 }
 
-export type CanvasNodeType = 'note' | 'file' | 'text';
+export type CanvasNodeType = 'note' | 'file' | 'text' | 'web';
+export type CanvasWebDisplayMode = 'preview' | 'embed';
 
 export interface CanvasNodeBase {
   id: string;
@@ -29,7 +30,13 @@ export interface TextCanvasNode extends CanvasNodeBase {
   content: string;
 }
 
-export type CanvasNode = NoteCanvasNode | FileCanvasNode | TextCanvasNode;
+export interface WebCanvasNode extends CanvasNodeBase {
+  type: 'web';
+  url: string;
+  displayModeOverride?: CanvasWebDisplayMode | null;
+}
+
+export type CanvasNode = NoteCanvasNode | FileCanvasNode | TextCanvasNode | WebCanvasNode;
 
 export type CanvasEdgeLineStyle = 'solid' | 'dashed' | 'dotted';
 
