@@ -18,6 +18,8 @@ export default function SettingsPage() {
     setAnimationSpeed,
     canvasWebCardDefaultMode,
     setCanvasWebCardDefaultMode,
+    canvasWebCardAutoLoad,
+    setCanvasWebCardAutoLoad,
   } = useUiStore();
   const [name, setName] = useState(myUserName);
 
@@ -126,20 +128,47 @@ export default function SettingsPage() {
 
         <section className="mb-8">
           <h2 className="text-lg font-semibold mb-4">Canvas</h2>
-          <div className="max-w-md space-y-2">
-            <label className="text-sm font-medium block">Default web card mode</label>
-            <Select value={canvasWebCardDefaultMode} onValueChange={(value) => setCanvasWebCardDefaultMode(value as 'preview' | 'embed')}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="preview">Preview</SelectItem>
-                <SelectItem value="embed">Embed</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              New web cards use this mode by default. Individual cards can still override it.
-            </p>
+          <div className="max-w-md space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium block">Default web card mode</label>
+              <Select value={canvasWebCardDefaultMode} onValueChange={(value) => setCanvasWebCardDefaultMode(value as 'preview' | 'embed')}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="preview">Preview</SelectItem>
+                  <SelectItem value="embed">Embed</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                New web cards use this mode by default. Individual cards can still override it.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setCanvasWebCardAutoLoad(!canvasWebCardAutoLoad)}
+              className="w-full flex items-center justify-between rounded-lg border border-border/40 bg-card/40 px-4 py-3 text-left transition-all app-motion-base hover:bg-accent/30"
+            >
+              <div>
+                <div className="text-sm font-medium">Disable web preview auto-load</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  When enabled, canvas web cards wait for a manual preview load instead of fetching immediately.
+                </div>
+              </div>
+              <span
+                className={cn(
+                  'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors app-motion-base',
+                  !canvasWebCardAutoLoad ? 'bg-primary' : 'bg-muted-foreground/30',
+                )}
+              >
+                <span
+                  className={cn(
+                    'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform app-motion-base',
+                    !canvasWebCardAutoLoad ? 'translate-x-4' : 'translate-x-0',
+                  )}
+                />
+              </span>
+            </button>
           </div>
         </section>
       </div>

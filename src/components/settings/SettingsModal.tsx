@@ -5,7 +5,7 @@ import {
   ACCENT_COLORS, INTERFACE_FONTS, EDITOR_FONTS, INTERFACE_FONT_SIZE_OPTIONS, EDITOR_FONT_SIZE_OPTIONS, SCALE_OPTIONS, DATE_FORMAT_OPTIONS, formatDate, TAB_WIDTH_OPTIONS,
   COLOR_PREVIEW_FORMAT_OPTIONS,
   ANIMATION_SPEED_OPTIONS,
-  type Theme, type AccentColor, type InterfaceFont, type EditorFont, type DateFormat, type WeekStart, type AnimationSpeed, type IndentStyle, type ColorPreviewFormat,
+  type Theme, type AccentColor, type InterfaceFont, type EditorFont, type DateFormat, type WeekStart, type AnimationSpeed, type IndentStyle, type ColorPreviewFormat, type CanvasWebCardDefaultMode,
 } from '../../store/uiStore';
 import { useCollabStore } from '../../store/collabStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -14,7 +14,7 @@ import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
-import { Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info, CalendarDays, Keyboard, Sparkles, Search, ChevronDown, SlidersHorizontal } from 'lucide-react';
+import { Palette, Type, User, Sun, Moon, Sunset, Check, Monitor, Info, CalendarDays, Keyboard, Sparkles, Search, ChevronDown, SlidersHorizontal, Layout } from 'lucide-react';
 import { toast } from 'sonner';
 import AboutTab from './AboutTab';
 import ShortcutsTab from './ShortcutsTab';
@@ -83,6 +83,7 @@ const TABS = [
   { id: 'appearance', label: 'Appearance', icon: <Palette size={15} />, keywords: ['theme', 'accent', 'color', 'look'] },
   { id: 'editor',     label: 'Editor',     icon: <Type size={15} />, keywords: ['font', 'typing', 'notes', 'indent', 'color preview'] },
   { id: 'display',    label: 'Display',    icon: <Monitor size={15} />, keywords: ['scale', 'motion', 'animation', 'ui'] },
+  { id: 'canvas',     label: 'Canvas',     icon: <Layout size={15} />, keywords: ['canvas', 'web card', 'embed', 'preview', 'links'] },
   { id: 'calendar',   label: 'Calendar',   icon: <CalendarDays size={15} />, keywords: ['date', 'week', 'format'] },
   { id: 'profile',    label: 'Profile',    icon: <User size={15} />, keywords: ['name', 'identity', 'presence', 'user'] },
   { id: 'shortcuts',  label: 'Shortcuts',  icon: <Keyboard size={15} />, keywords: ['keyboard', 'hotkeys', 'bindings'] },
@@ -117,6 +118,11 @@ export default function SettingsModal() {
     confirmDelete, setConfirmDelete,
     animationsEnabled, setAnimationsEnabled,
     animationSpeed, setAnimationSpeed,
+    canvasWebCardDefaultMode, setCanvasWebCardDefaultMode,
+    canvasWebCardAutoLoad, setCanvasWebCardAutoLoad,
+    webPreviewsEnabled, setWebPreviewsEnabled,
+    hoverWebLinkPreviewsEnabled, setHoverWebLinkPreviewsEnabled,
+    backgroundWebPreviewPrefetchEnabled, setBackgroundWebPreviewPrefetchEnabled,
   } = useUiStore();
 
   const { myUserName, myUserColor, myUserId, setMyProfile } = useCollabStore();
@@ -229,6 +235,77 @@ export default function SettingsModal() {
                       className={cn(
                         'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
                         restorePreviousSession ? 'translate-x-4' : 'translate-x-0'
+                      )}
+                    />
+                  </button>
+                </OptionRow>
+
+                <Separator className="bg-border/40 my-4" />
+
+                <SectionLabel>Web Previews</SectionLabel>
+                <OptionRow
+                  label="Enable web previews"
+                  description="Master switch for loading website previews anywhere in the app, including canvas web cards"
+                >
+                  <button
+                    onClick={() => setWebPreviewsEnabled(!webPreviewsEnabled)}
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 app-motion-base',
+                      webPreviewsEnabled ? 'bg-primary' : 'bg-muted-foreground/30'
+                    )}
+                    role="switch"
+                    aria-checked={webPreviewsEnabled}
+                  >
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 app-motion-base',
+                        webPreviewsEnabled ? 'translate-x-4' : 'translate-x-0'
+                      )}
+                    />
+                  </button>
+                </OptionRow>
+
+                <OptionRow
+                  label="Hover previews for links"
+                  description="Show a small website preview below external links when hovering over them"
+                >
+                  <button
+                    onClick={() => setHoverWebLinkPreviewsEnabled(!hoverWebLinkPreviewsEnabled)}
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 app-motion-base',
+                      hoverWebLinkPreviewsEnabled ? 'bg-primary' : 'bg-muted-foreground/30'
+                    )}
+                    role="switch"
+                    aria-checked={hoverWebLinkPreviewsEnabled}
+                    disabled={!webPreviewsEnabled}
+                  >
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 app-motion-base',
+                        hoverWebLinkPreviewsEnabled ? 'translate-x-4' : 'translate-x-0'
+                      )}
+                    />
+                  </button>
+                </OptionRow>
+
+                <OptionRow
+                  label="Background prefetch for open documents"
+                  description="Warm website previews in the background for visible or open documents instead of the whole vault"
+                >
+                  <button
+                    onClick={() => setBackgroundWebPreviewPrefetchEnabled(!backgroundWebPreviewPrefetchEnabled)}
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 app-motion-base',
+                      backgroundWebPreviewPrefetchEnabled ? 'bg-primary' : 'bg-muted-foreground/30'
+                    )}
+                    role="switch"
+                    aria-checked={backgroundWebPreviewPrefetchEnabled}
+                    disabled={!webPreviewsEnabled || !hoverWebLinkPreviewsEnabled}
+                  >
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 app-motion-base',
+                        backgroundWebPreviewPrefetchEnabled ? 'translate-x-4' : 'translate-x-0'
                       )}
                     />
                   </button>
@@ -685,6 +762,55 @@ export default function SettingsModal() {
                     <Sparkles size={13} className="text-primary" />
                     Motion respects your system reduced-motion preference automatically.
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Canvas ── */}
+            {activeTab === 'canvas' && (
+              <div>
+                <SectionLabel>Web Cards</SectionLabel>
+                <OptionRow
+                  label="Default web card mode"
+                  description="Choose whether new canvas web cards start in preview or embed mode"
+                >
+                  <PillSelect
+                    options={['preview', 'embed'] as const}
+                    value={canvasWebCardDefaultMode}
+                    onChange={(value) => setCanvasWebCardDefaultMode(value as CanvasWebCardDefaultMode)}
+                    getLabel={(value: CanvasWebCardDefaultMode) => value === 'preview' ? 'Preview' : 'Embed'}
+                  />
+                </OptionRow>
+
+                <Separator className="bg-border/40 my-4" />
+
+                <OptionRow
+                  label="Disable web preview auto-load"
+                  description="Require a manual click before canvas web cards fetch preview metadata"
+                >
+                  <button
+                    onClick={() => setCanvasWebCardAutoLoad(!canvasWebCardAutoLoad)}
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 app-motion-base',
+                      !canvasWebCardAutoLoad ? 'bg-primary' : 'bg-muted-foreground/30'
+                    )}
+                    role="switch"
+                    aria-checked={!canvasWebCardAutoLoad}
+                    disabled={!webPreviewsEnabled}
+                  >
+                    <span
+                      className={cn(
+                        'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 app-motion-base',
+                        !canvasWebCardAutoLoad ? 'translate-x-4' : 'translate-x-0'
+                      )}
+                    />
+                  </button>
+                </OptionRow>
+
+                <div className="mt-3 rounded-lg border border-border/40 bg-accent/10 p-3 text-xs text-muted-foreground">
+                  {!webPreviewsEnabled
+                    ? <>Web previews are currently disabled globally, so canvas web cards and link hover previews will not fetch metadata.</>
+                    : <>When auto-load is off, web cards show a manual <span className="text-foreground font-medium">Load preview</span> action instead of fetching immediately.</>}
                 </div>
               </div>
             )}

@@ -71,6 +71,7 @@ import {
 import { cn } from '../lib/utils';
 import { tauriCommands } from '../lib/tauri';
 import type { LinkPreviewData } from '../lib/tauri';
+import { normalizeWebPreviewUrl, prefetchWebPreviews, requestWebPreview as requestCachedWebPreview } from '../lib/webPreviewCache';
 import { useEditorStore } from '../store/editorStore';
 import { useUiStore, type CanvasWebCardDefaultMode } from '../store/uiStore';
 import { useVaultStore } from '../store/vaultStore';
@@ -146,10 +147,13 @@ interface CanvasNodeData extends Record<string, unknown> {
   previewError?: string | null;
   previewLoading?: boolean;
   previewLoaded?: boolean;
+  previewAutoLoadEnabled?: boolean;
+  webPreviewsEnabled?: boolean;
   displayMode?: CanvasWebDisplayMode;
   displayModeOverride?: CanvasWebDisplayMode | null;
   onWebUrlChange?: (nodeId: string, url: string) => void;
   onWebDisplayModeOverrideChange?: (nodeId: string, mode: CanvasWebDisplayMode | null) => void;
+  onRequestWebPreview?: (nodeId: string) => void;
   onOpenUrl?: (url: string) => void;
   onOpen?: (path: string) => void;
   onTextChange?: (nodeId: string, content: string) => void;
@@ -246,17 +250,7 @@ function canPreviewText(extension: string): boolean {
 }
 
 function normalizeWebUrl(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return '';
-  try {
-    return new URL(trimmed).toString();
-  } catch {
-    try {
-      return new URL(`https://${trimmed}`).toString();
-    } catch {
-      return trimmed;
-    }
-  }
+  return normalizeWebPreviewUrl(value);
 }
 
 function getPreviewKey(node: CanvasNode) {
@@ -298,6 +292,8 @@ function buildWebPreviewState(
   node: WebCanvasNode,
   preview: PreviewState | undefined,
   defaultMode: CanvasWebCardDefaultMode,
+  autoLoadEnabled: boolean,
+  webPreviewsEnabled: boolean,
 ) {
   const normalizedUrl = normalizeWebUrl(node.url);
   const hostname = (() => {
@@ -337,6 +333,8 @@ function buildWebPreviewState(
     previewError: preview?.previewError ?? null,
     previewLoading: preview?.loading ?? false,
     previewLoaded: preview?.loaded ?? false,
+    previewAutoLoadEnabled: autoLoadEnabled,
+    webPreviewsEnabled,
     embedAvailable: linkPreview?.embeddable ?? preview?.embedAvailable,
     url: node.url,
     displayMode: resolveWebDisplayMode(node.displayModeOverride, defaultMode),
@@ -347,8 +345,10 @@ function buildWebPreviewState(
 function toFlowNode(
   node: CanvasNode,
   preview: PreviewState | undefined,
-  callbacks: Pick<CanvasNodeData, 'onOpen' | 'onTextChange' | 'onSnapToGrid' | 'onWebUrlChange' | 'onWebDisplayModeOverrideChange' | 'onOpenUrl'>,
+  callbacks: Pick<CanvasNodeData, 'onOpen' | 'onTextChange' | 'onSnapToGrid' | 'onWebUrlChange' | 'onWebDisplayModeOverrideChange' | 'onRequestWebPreview' | 'onOpenUrl'>,
   defaultWebCardMode: CanvasWebCardDefaultMode,
+  autoLoadEnabled: boolean,
+  webPreviewsEnabled: boolean,
 ): FlowNode<CanvasNodeData> {
   if (node.type === 'text') {
     return {
@@ -377,9 +377,10 @@ function toFlowNode(
       position: node.position,
       selected: false,
       data: {
-        ...buildWebPreviewState(node, preview, defaultWebCardMode),
+        ...buildWebPreviewState(node, preview, defaultWebCardMode, autoLoadEnabled, webPreviewsEnabled),
         onWebUrlChange: callbacks.onWebUrlChange,
         onWebDisplayModeOverrideChange: callbacks.onWebDisplayModeOverrideChange,
+        onRequestWebPreview: callbacks.onRequestWebPreview,
         onOpenUrl: callbacks.onOpenUrl,
         onSnapToGrid: callbacks.onSnapToGrid,
       },
@@ -1232,6 +1233,9 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
   const showingEmbedFallback = effectiveMode === 'embed' && !canActuallyEmbed && !!normalizedUrl;
   const previewLoading = data.previewLoading ?? false;
   const previewLoaded = data.previewLoaded ?? false;
+  const previewAutoLoadEnabled = data.previewAutoLoadEnabled ?? true;
+  const webPreviewsEnabled = data.webPreviewsEnabled ?? true;
+  const showManualPreviewLoad = webPreviewsEnabled && !previewAutoLoadEnabled && !!normalizedUrl && !previewLoading && !previewLoaded;
   const [embedActivated, setEmbedActivated] = useState(false);
   const [iframeState, setIframeState] = useState<'idle' | 'loading' | 'loaded' | 'timed_out'>('idle');
   const previousModeRef = useRef<CanvasWebDisplayMode>(effectiveMode);
@@ -1410,6 +1414,10 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
                       <div className="mt-3 text-sm font-medium text-foreground">
                         {!normalizedUrl
                           ? 'Enter a URL'
+                          : !webPreviewsEnabled
+                          ? 'Previews disabled'
+                          : showManualPreviewLoad
+                          ? 'Preview paused'
                           : previewLoading
                           ? 'Loading preview…'
                           : previewLoaded && data.hasRichPreview
@@ -1419,12 +1427,27 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
                       <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
                         {!normalizedUrl
                           ? 'Paste a website address to load a preview or open it externally.'
+                          : !webPreviewsEnabled
+                          ? 'Website previews are disabled in settings, so this card will only show the raw link until previews are re-enabled.'
+                          : showManualPreviewLoad
+                          ? 'Auto-loading is disabled. Load the preview when you want to fetch site metadata.'
                           : previewLoading
                           ? 'Fetching preview details for this site.'
                           : previewLoaded && data.hasRichPreview
                           ? 'This site returned text metadata, but no large preview image.'
                           : 'This site does not expose a rich card preview, so we are falling back to the domain and page link.'}
                       </div>
+                      {showManualPreviewLoad ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="mt-3 h-8 gap-2"
+                          onClick={() => data.onRequestWebPreview?.(id)}
+                          onPointerDown={(event) => event.stopPropagation()}
+                        >
+                          Load preview
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 )}
@@ -1523,7 +1546,14 @@ function CanvasPickerDialog({
 function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   const { vault, fileTree } = useVaultStore();
   const { openTab } = useEditorStore();
-  const { setActiveView, canvasWebCardDefaultMode } = useUiStore();
+  const {
+    setActiveView,
+    canvasWebCardDefaultMode,
+    canvasWebCardAutoLoad,
+    webPreviewsEnabled,
+    hoverWebLinkPreviewsEnabled,
+    backgroundWebPreviewPrefetchEnabled,
+  } = useUiStore();
   const reactFlow = useReactFlow<FlowNode<CanvasNodeData>, CanvasFlowEdge>();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -1539,6 +1569,7 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   const [pickerMode, setPickerMode] = useState<PickerMode>(null);
   const [edgeLabelDraft, setEdgeLabelDraft] = useState('');
   const [previews, setPreviews] = useState<Record<string, PreviewState>>({});
+  const [requestedWebPreviewIds, setRequestedWebPreviewIds] = useState<Record<string, boolean>>({});
   const [loadRevision, setLoadRevision] = useState(0);
 
   const allFiles = useMemo(() => flattenFiles(fileTree).filter((node) => !node.isFolder), [fileTree]);
@@ -1585,6 +1616,12 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   }, [setNodes]);
 
   const updateWebUrl = useCallback((nodeId: string, url: string) => {
+    setRequestedWebPreviewIds((prev) => {
+      if (!(nodeId in prev)) return prev;
+      const next = { ...prev };
+      delete next[nodeId];
+      return next;
+    });
     setNodes((prev) =>
       prev.map((node) => (
         node.id === nodeId
@@ -1600,6 +1637,8 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
                 faviconSrc: null,
                 hasRichPreview: false,
                 previewError: null,
+                previewLoading: false,
+                previewLoaded: false,
                 embedAvailable: undefined,
               },
             }
@@ -1607,6 +1646,10 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
       )),
     );
   }, [setNodes]);
+
+  const requestWebPreview = useCallback((nodeId: string) => {
+    setRequestedWebPreviewIds((prev) => ({ ...prev, [nodeId]: true }));
+  }, []);
 
   const updateWebDisplayModeOverride = useCallback((nodeId: string, mode: CanvasWebDisplayMode | null) => {
     setNodes((prev) =>
@@ -1669,6 +1712,22 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
       ...prev,
       [previewKey]: { ...(prev[previewKey] ?? {}), loading: true },
     }));
+    if (node.type === 'web') {
+      setNodes((prev) =>
+        prev.map((flowNode) => {
+          if (flowNode.id !== node.id) return flowNode;
+          return {
+            ...flowNode,
+            data: {
+              ...flowNode.data,
+              ...buildWebPreviewState(node, { ...(previews[previewKey] ?? {}), loading: true, loaded: false }, canvasWebCardDefaultMode, canvasWebCardAutoLoad, webPreviewsEnabled),
+              onRequestWebPreview: requestWebPreview,
+              onOpenUrl: openExternalUrl,
+            },
+          };
+        }),
+      );
+    }
 
     try {
       let nextPreview: PreviewState = {};
@@ -1678,7 +1737,7 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
         if (!normalizedUrl) {
           nextPreview = { previewError: null };
         } else {
-          const linkPreview = await tauriCommands.fetchLinkPreview(normalizedUrl);
+          const linkPreview = await requestCachedWebPreview(normalizedUrl);
           nextPreview = {
             linkPreview,
             imageSrc: linkPreview.imageUrl ?? null,
@@ -1716,32 +1775,61 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
           return {
             ...flowNode,
             data: {
-              ...flowNode.data,
-              ...(sourceNode.type === 'web'
-                ? buildWebPreviewState(sourceNode, resolvedPreview, canvasWebCardDefaultMode)
-                : buildNodePreviewState(sourceNode as Extract<CanvasNode, { relativePath: string }>, resolvedPreview)),
+                ...flowNode.data,
+                ...(sourceNode.type === 'web'
+                  ? buildWebPreviewState(sourceNode, resolvedPreview, canvasWebCardDefaultMode, canvasWebCardAutoLoad, webPreviewsEnabled)
+                  : buildNodePreviewState(sourceNode as Extract<CanvasNode, { relativePath: string }>, resolvedPreview)),
               onOpen: openRelativePath,
               onWikilinkClick: openRelativePath,
               onOpenUrl: openExternalUrl,
+              onRequestWebPreview: requestWebPreview,
             },
           };
         }),
       );
     } catch (error) {
       if (!isMountedRef.current) return;
+      const failedPreview: PreviewState = {
+        ...(previews[previewKey] ?? {}),
+        previewError: error instanceof Error ? error.message : String(error),
+        loading: false,
+        loaded: true,
+      };
       setPreviews((prev) => ({
         ...prev,
-        [previewKey]: {
-          ...(prev[previewKey] ?? {}),
-          previewError: error instanceof Error ? error.message : String(error),
-          loading: false,
-          loaded: true,
-        },
+        [previewKey]: failedPreview,
       }));
+      if (node.type === 'web') {
+        setNodes((prev) =>
+          prev.map((flowNode) => {
+            if (flowNode.id !== node.id) return flowNode;
+            return {
+              ...flowNode,
+              data: {
+                ...flowNode.data,
+                ...buildWebPreviewState(node, failedPreview, canvasWebCardDefaultMode, canvasWebCardAutoLoad, webPreviewsEnabled),
+                onRequestWebPreview: requestWebPreview,
+                onOpenUrl: openExternalUrl,
+              },
+            };
+          }),
+        );
+      }
     } finally {
       loadingPreviewPathsRef.current.delete(previewKey);
     }
-  }, [canvasWebCardDefaultMode, openExternalUrl, openRelativePath, setNodes, vault]);
+  }, [canvasWebCardAutoLoad, canvasWebCardDefaultMode, openExternalUrl, openRelativePath, previews, requestWebPreview, setNodes, vault, webPreviewsEnabled]);
+
+  useEffect(() => {
+    if (!webPreviewsEnabled || !hoverWebLinkPreviewsEnabled || !backgroundWebPreviewPrefetchEnabled) return;
+    const urls = nodes
+      .map((flowNode) => fromFlowNode(flowNode))
+      .filter((node): node is WebCanvasNode => node.type === 'web')
+      .map((node) => normalizeWebUrl(node.url))
+      .filter((url) => /^https?:\/\//i.test(url));
+    if (urls.length === 0) return;
+    prefetchWebPreviews(urls);
+  }, [backgroundWebPreviewPrefetchEnabled, hoverWebLinkPreviewsEnabled, nodes, webPreviewsEnabled]);
 
   const loadCanvas = useCallback(async (isInitial = false) => {
     if (!vault || !relativePath) return;
@@ -1764,6 +1852,7 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
       hashRef.current = hashRef.current ?? hash;
       skipNextSaveRef.current = true;
       setPreviews({});
+      setRequestedWebPreviewIds({});
       setViewport(canvas.viewport ?? EMPTY_CANVAS.viewport);
       setNodes(canvas.nodes.map((node) => toFlowNode(node, undefined, {
         onOpen: openRelativePath,
@@ -1771,13 +1860,14 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
         onSnapToGrid: snapNodeToGrid,
         onWebUrlChange: updateWebUrl,
         onWebDisplayModeOverrideChange: updateWebDisplayModeOverride,
+        onRequestWebPreview: requestWebPreview,
         onOpenUrl: openExternalUrl,
-      }, canvasWebCardDefaultMode)));
+      }, canvasWebCardDefaultMode, canvasWebCardAutoLoad, webPreviewsEnabled)));
       setEdges(canvas.edges.map(toFlowEdge));
       pendingViewportRef.current = canvas.viewport ?? EMPTY_CANVAS.viewport;
       setLoadRevision((prev) => prev + 1);
     } catch {}
-  }, [canvasWebCardDefaultMode, openExternalUrl, openRelativePath, relativePath, setEdges, setNodes, snapNodeToGrid, updateTextContent, updateWebDisplayModeOverride, updateWebUrl, vault]);
+  }, [canvasWebCardAutoLoad, canvasWebCardDefaultMode, openExternalUrl, openRelativePath, relativePath, requestWebPreview, setEdges, setNodes, snapNodeToGrid, updateTextContent, updateWebDisplayModeOverride, updateWebUrl, vault, webPreviewsEnabled]);
 
   useEffect(() => {
     if (!relativePath) return;
@@ -1818,9 +1908,11 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
       const existing = previews[getPreviewKey(sourceNode)];
       if (existing?.loading || existing?.loaded) continue;
       if (sourceNode.type === 'web' && !sourceNode.url.trim()) continue;
+      if (sourceNode.type === 'web' && !webPreviewsEnabled) continue;
+      if (sourceNode.type === 'web' && !canvasWebCardAutoLoad && !requestedWebPreviewIds[sourceNode.id]) continue;
       void hydratePreview(sourceNode);
     }
-  }, [hydratePreview, nodes, previews, vault]);
+  }, [canvasWebCardAutoLoad, hydratePreview, nodes, previews, requestedWebPreviewIds, vault, webPreviewsEnabled]);
 
   const saveCanvas = useCallback(async () => {
     if (!vault || !relativePath) return;
@@ -1886,9 +1978,10 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
       onSnapToGrid: snapNodeToGrid,
       onWebUrlChange: updateWebUrl,
       onWebDisplayModeOverrideChange: updateWebDisplayModeOverride,
+      onRequestWebPreview: requestWebPreview,
       onOpenUrl: openExternalUrl,
-    }, canvasWebCardDefaultMode)]);
-  }, [canvasWebCardDefaultMode, openExternalUrl, openRelativePath, previews, setNodes, snapNodeToGrid, updateTextContent, updateWebDisplayModeOverride, updateWebUrl]);
+    }, canvasWebCardDefaultMode, canvasWebCardAutoLoad, webPreviewsEnabled)]);
+  }, [canvasWebCardAutoLoad, canvasWebCardDefaultMode, openExternalUrl, openRelativePath, previews, requestWebPreview, setNodes, snapNodeToGrid, updateTextContent, updateWebDisplayModeOverride, updateWebUrl, webPreviewsEnabled]);
 
   const handlePickerSelect = useCallback((file: NoteFile) => {
     const center = getViewportCenterPosition();

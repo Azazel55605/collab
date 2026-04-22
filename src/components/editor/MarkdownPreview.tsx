@@ -1,4 +1,4 @@
-import { useMemo, Component, type ReactNode, type ErrorInfo } from 'react';
+import { useEffect, useMemo, useRef, useState, Component, type ReactNode, type ErrorInfo } from 'react';
 import MarkdownIt from 'markdown-it';
 // @ts-ignore – no bundled types
 import texmath from 'markdown-it-texmath';
@@ -20,6 +20,9 @@ import deflist from 'markdown-it-deflist';
 import container from 'markdown-it-container';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
+import { useUiStore } from '../../store/uiStore';
+import { WebLinkPreviewPopover } from '../previews/WebLinkPreviewPopover';
+import { extractHttpUrls, prefetchWebPreviews } from '../../lib/webPreviewCache';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/atom-one-dark.css';
 
@@ -179,7 +182,15 @@ interface MarkdownPreviewProps {
   onWikilinkClick?: (relativePath: string) => void;
 }
 
+function isPreviewableHttpUrl(value: string | null | undefined) {
+  return !!value && /^https?:\/\//i.test(value);
+}
+
 function PreviewInner({ content, className = '', onWikilinkClick }: MarkdownPreviewProps) {
+  const { webPreviewsEnabled, hoverWebLinkPreviewsEnabled, backgroundWebPreviewPrefetchEnabled } = useUiStore();
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [hoveredUrl, setHoveredUrl] = useState<string | null>(null);
+  const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
   const html = useMemo(() => {
     try {
       const body = stripFrontmatter(content);
@@ -193,19 +204,64 @@ function PreviewInner({ content, className = '', onWikilinkClick }: MarkdownPrev
     }
   }, [content]);
 
+  useEffect(() => {
+    if (!webPreviewsEnabled || !hoverWebLinkPreviewsEnabled || !backgroundWebPreviewPrefetchEnabled) return;
+    const urls = extractHttpUrls(content);
+    if (urls.length === 0) return;
+    prefetchWebPreviews(urls);
+  }, [backgroundWebPreviewPrefetchEnabled, content, hoverWebLinkPreviewsEnabled, webPreviewsEnabled]);
+
   function handleClick(e: React.MouseEvent<HTMLDivElement>) {
     if (!onWikilinkClick) return;
     const el = (e.target as HTMLElement).closest<HTMLElement>('.wikilink');
     if (el?.dataset.path) onWikilinkClick(el.dataset.path);
   }
 
+  function handleMouseMove(e: React.MouseEvent<HTMLDivElement>) {
+    if (!webPreviewsEnabled || !hoverWebLinkPreviewsEnabled) {
+      if (hoveredUrl) {
+        setHoveredUrl(null);
+        setHoverRect(null);
+      }
+      return;
+    }
+    const anchor = (e.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
+    const href = anchor?.getAttribute('href');
+    if (anchor && isPreviewableHttpUrl(href)) {
+      const nextUrl = href ?? null;
+      const nextRect = anchor.getBoundingClientRect();
+      if (nextUrl !== hoveredUrl) setHoveredUrl(nextUrl);
+      setHoverRect(nextRect);
+      return;
+    }
+    if (hoveredUrl) {
+      setHoveredUrl(null);
+      setHoverRect(null);
+    }
+  }
+
+  function handleMouseLeave() {
+    setHoveredUrl(null);
+    setHoverRect(null);
+  }
+
   return (
-    <div
-      className={`markdown-preview ${className}`}
-      // eslint-disable-next-line react/no-danger
-      dangerouslySetInnerHTML={{ __html: html }}
-      onClick={handleClick}
-    />
+    <>
+      <div
+        ref={rootRef}
+        className={`markdown-preview ${className}`}
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: html }}
+        onClick={handleClick}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+      />
+      <WebLinkPreviewPopover
+        anchorRect={hoverRect}
+        url={hoveredUrl}
+        enabled={webPreviewsEnabled && hoverWebLinkPreviewsEnabled}
+      />
+    </>
   );
 }
 

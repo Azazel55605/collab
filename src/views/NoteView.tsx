@@ -8,6 +8,8 @@ import { MarkdownEditor, type MarkdownEditorHandle } from '../components/editor/
 import { EditorToolbar } from '../components/editor/EditorToolbar';
 import { toast } from 'sonner';
 import { ensureTagsLine, addTagToContent, setTagsInContent } from '../lib/frontmatter';
+import { useUiStore } from '../store/uiStore';
+import { extractHttpUrls, prefetchWebPreviews } from '../lib/webPreviewCache';
 
 const SNAPSHOT_INTERVAL_MS = 60_000;
 
@@ -34,6 +36,7 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   const { markDirty, markSaved, setSavedHash, renameTab, forceReloadPath, setForceReloadPath } = useEditorStore();
   const { addConflict, myUserId, myUserName } = useCollabStore();
   const [content, setContent] = useState<string | null>(null);
+  const { webPreviewsEnabled, hoverWebLinkPreviewsEnabled, backgroundWebPreviewPrefetchEnabled } = useUiStore();
   const savedHashRef = useRef<string | null>(null);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
   const lastSnapshotHashRef = useRef<string | null>(null);
@@ -52,6 +55,13 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   };
 
   useEffect(() => { loadNote(); }, [relativePath, vault?.path]);
+
+  useEffect(() => {
+    if (!content || !webPreviewsEnabled || !hoverWebLinkPreviewsEnabled || !backgroundWebPreviewPrefetchEnabled) return;
+    const urls = extractHttpUrls(content);
+    if (urls.length === 0) return;
+    prefetchWebPreviews(urls);
+  }, [backgroundWebPreviewPrefetchEnabled, content, hoverWebLinkPreviewsEnabled, webPreviewsEnabled]);
 
   // Command bar insert events
   useEffect(() => {

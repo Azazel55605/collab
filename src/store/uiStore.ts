@@ -190,6 +190,10 @@ interface UiState {
   animationsEnabled: boolean;
   animationSpeed: AnimationSpeed;
   canvasWebCardDefaultMode: CanvasWebCardDefaultMode;
+  canvasWebCardAutoLoad: boolean;
+  webPreviewsEnabled: boolean;
+  hoverWebLinkPreviewsEnabled: boolean;
+  backgroundWebPreviewPrefetchEnabled: boolean;
 
   // Actions
   setActiveView:    (view: ActiveView) => void;
@@ -224,6 +228,10 @@ interface UiState {
   setAnimationsEnabled: (v: boolean) => void;
   setAnimationSpeed:    (speed: AnimationSpeed) => void;
   setCanvasWebCardDefaultMode: (mode: CanvasWebCardDefaultMode) => void;
+  setCanvasWebCardAutoLoad: (value: boolean) => void;
+  setWebPreviewsEnabled: (value: boolean) => void;
+  setHoverWebLinkPreviewsEnabled: (value: boolean) => void;
+  setBackgroundWebPreviewPrefetchEnabled: (value: boolean) => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -261,6 +269,10 @@ export const useUiStore = create<UiState>()(
       animationsEnabled: true,
       animationSpeed: 'normal',
       canvasWebCardDefaultMode: 'preview',
+      canvasWebCardAutoLoad: true,
+      webPreviewsEnabled: true,
+      hoverWebLinkPreviewsEnabled: true,
+      backgroundWebPreviewPrefetchEnabled: true,
 
       setActiveView:   (activeView)   => set({ activeView }),
       setSidebarPanel: (sidebarPanel) => set({ sidebarPanel }),
@@ -297,6 +309,10 @@ export const useUiStore = create<UiState>()(
       setAnimationsEnabled: (animationsEnabled) => set({ animationsEnabled }),
       setAnimationSpeed:    (animationSpeed)    => set({ animationSpeed }),
       setCanvasWebCardDefaultMode: (canvasWebCardDefaultMode) => set({ canvasWebCardDefaultMode }),
+      setCanvasWebCardAutoLoad: (canvasWebCardAutoLoad) => set({ canvasWebCardAutoLoad }),
+      setWebPreviewsEnabled: (webPreviewsEnabled) => set({ webPreviewsEnabled }),
+      setHoverWebLinkPreviewsEnabled: (hoverWebLinkPreviewsEnabled) => set({ hoverWebLinkPreviewsEnabled }),
+      setBackgroundWebPreviewPrefetchEnabled: (backgroundWebPreviewPrefetchEnabled) => set({ backgroundWebPreviewPrefetchEnabled }),
     }),
     {
       name: 'ui-storage',
@@ -332,6 +348,10 @@ export const useUiStore = create<UiState>()(
         animationsEnabled: s.animationsEnabled,
         animationSpeed:    s.animationSpeed,
         canvasWebCardDefaultMode: s.canvasWebCardDefaultMode,
+        canvasWebCardAutoLoad: s.canvasWebCardAutoLoad,
+        webPreviewsEnabled: s.webPreviewsEnabled,
+        hoverWebLinkPreviewsEnabled: s.hoverWebLinkPreviewsEnabled,
+        backgroundWebPreviewPrefetchEnabled: s.backgroundWebPreviewPrefetchEnabled,
       }),
     }
   )

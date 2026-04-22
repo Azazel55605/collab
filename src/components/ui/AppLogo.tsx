@@ -1,30 +1,49 @@
+import { useUiStore } from '../../store/uiStore';
+
 interface AppLogoProps {
   size?: number;
   className?: string;
 }
 
 export function AppLogo({ size = 24, className }: AppLogoProps) {
+  const theme = useUiStore((state) => state.theme);
+  const isLight = theme === 'light';
+  const backCardOpacity = isLight ? 0.14 : 0.10;
+  const frontCardOpacity = isLight ? 0.18 : 0.14;
+  const secondaryStrokeOpacity = isLight ? 0.84 : 0.72;
+
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 24 24"
+      viewBox="0 0 64 64"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
+      aria-hidden="true"
     >
-      {/* Connector lines */}
-      <line x1="12" y1="12" x2="12" y2="4"  stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" opacity="0.5" />
-      <line x1="12" y1="12" x2="19" y2="16" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" opacity="0.5" />
-      <line x1="12" y1="12" x2="5"  y2="16" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" opacity="0.5" />
-
-      {/* Satellite nodes */}
-      <circle cx="12" cy="4"  r="2.2" fill="currentColor" opacity="0.7" />
-      <circle cx="19" cy="16" r="2.2" fill="currentColor" opacity="0.7" />
-      <circle cx="5"  cy="16" r="2.2" fill="currentColor" opacity="0.7" />
-
-      {/* Hub node */}
-      <circle cx="12" cy="12" r="3" fill="currentColor" />
+      <rect x="7" y="10" width="30" height="34" rx="8" fill="currentColor" opacity={backCardOpacity} />
+      <rect x="18" y="6" width="30" height="34" rx="8" fill="currentColor" opacity={frontCardOpacity} />
+      <path
+        d="M35 8H45V18"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M25 24H39"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+      <path
+        d="M25 30H34"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        opacity={secondaryStrokeOpacity}
+      />
     </svg>
   );
 }

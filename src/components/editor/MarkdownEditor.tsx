@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { EditorState, EditorSelection, Compartment, RangeSetBuilder } from '@codemirror/state';
 import { useUiStore, EDITOR_FONTS, type ColorPreviewFormat } from '../../store/uiStore';
 import {
@@ -57,6 +57,7 @@ import {
 } from '../ui/context-menu';
 import { parseFenceInfoLanguage, type ParsedCodeBlockAtCursor } from './codeBlockUtils';
 import { dispatchEditorToolbarAction } from '../../lib/editorToolbarActions';
+import { WebLinkPreviewPopover } from '../previews/WebLinkPreviewPopover';
 
 export interface MarkdownEditorHandle {
   /** Wrap selection with `before`/`after`; if no selection, insert `before + placeholder + after` and select placeholder. */
@@ -1070,6 +1071,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
   function MarkdownEditor({ content, onChange, onSave, relativePath }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
+    const [hoveredUrl, setHoveredUrl] = useState<string | null>(null);
+    const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
     const contentRef = useRef(content);
     const onChangeRef = useRef(onChange);
     const onSaveRef = useRef(onSave);
@@ -1090,6 +1093,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       colorPreviewShowSwatch,
       colorPreviewTintText,
       colorPreviewFormats,
+      webPreviewsEnabled,
+      hoverWebLinkPreviewsEnabled,
     } = useUiStore();
     const fontFamily = EDITOR_FONTS[editorFont]?.css ?? EDITOR_FONTS.codingMono.css;
 
@@ -1529,18 +1534,43 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       );
 
       const handleDrop = (event: DragEvent) => { void handleImageDrop(event); };
+      const handlePreviewHover = (event: MouseEvent) => {
+        if (!webPreviewsEnabled || !hoverWebLinkPreviewsEnabled) {
+          setHoveredUrl(null);
+          setHoverRect(null);
+          return;
+        }
+        const target = event.target instanceof Element ? event.target : null;
+        const linkEl = target?.closest('.cm-lp-link') as HTMLElement | null;
+        const url = linkEl?.dataset.url ?? null;
+        if (url && linkEl && /^https?:\/\//i.test(url)) {
+          setHoveredUrl(url);
+          setHoverRect(linkEl.getBoundingClientRect());
+        } else {
+          setHoveredUrl(null);
+          setHoverRect(null);
+        }
+      };
+      const handlePreviewLeave = () => {
+        setHoveredUrl(null);
+        setHoverRect(null);
+      };
       editorDom.addEventListener('drop', handleDrop);
+      editorDom.addEventListener('mousemove', handlePreviewHover);
+      editorDom.addEventListener('mouseleave', handlePreviewLeave);
       view.focus();
 
       return () => {
         editorDom.removeEventListener('drop', handleDrop);
+        editorDom.removeEventListener('mousemove', handlePreviewHover);
+        editorDom.removeEventListener('mouseleave', handlePreviewLeave);
         unlistenWebviewDragDrop?.();
         unlistenWindowDragDrop?.();
         view.destroy();
         viewRef.current = null;
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [relativePath]);
+    }, [hoverWebLinkPreviewsEnabled, relativePath, webPreviewsEnabled]);
 
     // Sync external content changes (e.g. file reloaded from disk)
     useEffect(() => {
@@ -1599,11 +1629,12 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     // to 0, not the flex-grown size). The absolute element's getBoundingClientRect()
     // is always correct, so CodeMirror's posAtCoords() maps clicks accurately.
     return (
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div ref={containerRef} className="absolute inset-0 cm-editor-container" />
-        </ContextMenuTrigger>
-        <ContextMenuContent className="w-44">
+      <>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div ref={containerRef} className="absolute inset-0 cm-editor-container" />
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-44">
           <ContextMenuItem className="text-xs" onSelect={cutSelection}>
             Cut <span className="ml-auto text-muted-foreground">⌘X</span>
           </ContextMenuItem>
@@ -1650,8 +1681,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           }}>
             Add tags line
           </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
+          </ContextMenuContent>
+        </ContextMenu>
+        <WebLinkPreviewPopover
+          anchorRect={hoverRect}
+          url={hoveredUrl}
+          enabled={webPreviewsEnabled && hoverWebLinkPreviewsEnabled}
+        />
+      </>
     );
   }
 );
