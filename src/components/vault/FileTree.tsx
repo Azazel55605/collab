@@ -201,9 +201,10 @@ export default function FileTree() {
 
     try {
       await tauriCommands.renameNote(vault.path, fromPath, newPath);
+      renameTab(fromPath, newPath, fileName.replace(/\.[^.]+$/, ''));
       await refreshFileTree();
     } catch (e) { toast.error('Failed to move: ' + e); }
-  }, [vault, refreshFileTree]);
+  }, [vault, refreshFileTree, renameTab]);
 
   useEffect(() => {
     if (!vault) return;

@@ -127,7 +127,7 @@ export default function AppShell() {
       const ctrl = e.ctrlKey || e.metaKey;
       const inInput = !!(document.activeElement?.matches('input,textarea,[contenteditable]'));
 
-      if (ctrl && e.code === 'Tab') {
+      if (ctrl && e.key === 'Tab') {
         e.preventDefault();
         e.stopPropagation();
         const next = getCycleIndex(e.shiftKey);
@@ -151,10 +151,6 @@ export default function AppShell() {
             e.preventDefault();
             isSettingsOpen ? closeSettings() : openSettings();
           }
-          break;
-        case ',':
-          e.preventDefault();
-          isSettingsOpen ? closeSettings() : openSettings();
           break;
         case 'w':
           e.preventDefault();
@@ -227,6 +223,10 @@ export default function AppShell() {
   const activeTab = openTabs.find((t) => t.relativePath === activeTabPath);
   const switcherTab = tabSwitcherIndex !== null ? openTabs[tabSwitcherIndex] : null;
 
+  const activeDocumentKey = activeTab
+    ? `${activeTab.type}:${activeTab.relativePath}`
+    : `view:${activeView}`;
+
   const renderMainContent = () => {
     // Grid mode is self-contained — always shown when activeView === 'grid'
     if (activeView === 'grid') return <GridView />;
@@ -236,13 +236,13 @@ export default function AppShell() {
     if (activeTab) {
       if (activeTab.type === 'graph')    return <GraphPage />;
       if (activeTab.type === 'settings') return <SettingsPage />;
-      if (activeTab.type === 'image')    return <ImageView relativePath={activeTab.relativePath} />;
-      if (activeTab.type === 'pdf')      return <PdfView relativePath={activeTab.relativePath} />;
-      if (activeTab.type === 'canvas')   return <CanvasPage relativePath={activeTab.relativePath === '__canvas__' ? null : activeTab.relativePath} />;
-      if (activeTab.type === 'kanban')   return <KanbanPage relativePath={activeTab.relativePath === '__kanban__' ? null : activeTab.relativePath} />;
+      if (activeTab.type === 'image')    return <ImageView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
+      if (activeTab.type === 'pdf')      return <PdfView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
+      if (activeTab.type === 'canvas')   return <CanvasPage key={activeDocumentKey} relativePath={activeTab.relativePath === '__canvas__' ? null : activeTab.relativePath} />;
+      if (activeTab.type === 'kanban')   return <KanbanPage key={activeDocumentKey} relativePath={activeTab.relativePath === '__kanban__' ? null : activeTab.relativePath} />;
       // Note tab: only show the note when activeView is editor — if the user
       // clicked Graph/Canvas/Kanban in the ActivityBar, show that view instead.
-      if (activeView === 'editor')       return <NoteView relativePath={activeTab.relativePath} />;
+      if (activeView === 'editor')       return <NoteView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
     }
 
     // Fallback to activeView (covers: no open tabs, or note tab active but view changed)

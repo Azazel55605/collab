@@ -1,5 +1,6 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { ChatMessage, PresenceEntry, SnapshotMeta } from '../types/collab';
+import type { VaultConfig } from '../types/vault';
 import { tauriCommands } from './tauri';
 
 export type Unsubscribe = () => void;
@@ -14,9 +15,11 @@ export type Unsubscribe = () => void;
 export interface CollabTransport {
   broadcastPresence(entry: PresenceEntry): Promise<void>;
   readPresence(): Promise<PresenceEntry[]>;
+  clearPresence(userId: string): Promise<void>;
 
   sendChatMessage(msg: ChatMessage): Promise<void>;
   readChatMessages(limit: number): Promise<ChatMessage[]>;
+  readVaultConfig(): Promise<VaultConfig>;
 
   createSnapshot(
     relativePath: string,
@@ -30,6 +33,7 @@ export interface CollabTransport {
 
   onPresenceChanged(cb: () => void): Unsubscribe;
   onChatUpdated(cb: () => void): Unsubscribe;
+  onConfigChanged(cb: () => void): Unsubscribe;
 }
 
 export class FileSystemTransport implements CollabTransport {
@@ -43,12 +47,20 @@ export class FileSystemTransport implements CollabTransport {
     return tauriCommands.readAllPresence(this.vaultPath);
   }
 
+  clearPresence(userId: string) {
+    return tauriCommands.clearPresence(this.vaultPath, userId);
+  }
+
   sendChatMessage(msg: ChatMessage) {
     return tauriCommands.sendChatMessage(this.vaultPath, msg);
   }
 
   readChatMessages(limit: number) {
     return tauriCommands.readChatMessages(this.vaultPath, limit);
+  }
+
+  readVaultConfig() {
+    return tauriCommands.getVaultConfig(this.vaultPath);
   }
 
   createSnapshot(
@@ -80,4 +92,14 @@ export class FileSystemTransport implements CollabTransport {
     listen('collab:chat-updated', cb).then((u) => { unsub = u; });
     return () => unsub?.();
   }
+
+  onConfigChanged(cb: () => void): Unsubscribe {
+    let unsub: UnlistenFn | undefined;
+    listen('collab:config-changed', cb).then((u) => { unsub = u; });
+    return () => unsub?.();
+  }
+}
+
+export function createCollabTransport(vaultPath: string): CollabTransport {
+  return new FileSystemTransport(vaultPath);
 }

@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Vault, FolderOpen, Plus, Download, Upload, Trash2, Pencil,
   Check, X, ChevronRight, Clock, ShieldCheck, Lock, LockOpen, Eye, EyeOff,
@@ -20,6 +19,7 @@ import { useVaultStore } from '../../store/vaultStore';
 import { useUiStore } from '../../store/uiStore';
 import { useCollabStore } from '../../store/collabStore';
 import { tauriCommands } from '../../lib/tauri';
+import { createCollabTransport } from '../../lib/collabTransport';
 import type { VaultMeta, VaultConfig, MemberRole } from '../../types/vault';
 import { toast } from 'sonner';
 
@@ -349,6 +349,10 @@ function PermissionsTab() {
   const [config, setConfig] = useState<VaultConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null); // userId currently being updated
+  const transport = useMemo(
+    () => (selectedPath ? createCollabTransport(selectedPath) : null),
+    [selectedPath],
+  );
 
   const selectedPathRef = useRef(selectedPath);
   useEffect(() => { selectedPathRef.current = selectedPath; }, [selectedPath]);
@@ -356,7 +360,10 @@ function PermissionsTab() {
   const loadConfig = async (path: string) => {
     if (!path) return;
     setLoading(true);
-    try { setConfig(await tauriCommands.getVaultConfig(path)); }
+    try {
+      const pathTransport = createCollabTransport(path);
+      setConfig(await pathTransport.readVaultConfig());
+    }
     catch { setConfig(null); }
     finally { setLoading(false); }
   };
@@ -365,13 +372,12 @@ function PermissionsTab() {
 
   // Stay in sync with real-time permission changes from other windows
   useEffect(() => {
-    let unsub: (() => void) | undefined;
-    listen('collab:config-changed', () => {
-      const p = selectedPathRef.current;
-      if (p) tauriCommands.getVaultConfig(p).then(setConfig).catch(() => {});
-    }).then((u) => { unsub = u; });
-    return () => { unsub?.(); };
-  }, []);
+    if (!transport) return;
+    const unsub = transport.onConfigChanged(() => {
+      void transport.readVaultConfig().then(setConfig).catch(() => {});
+    });
+    return () => { unsub(); };
+  }, [transport]);
 
   const isOwner = config?.owner === myUserId;
   const isAdmin = isOwner || (config?.members?.some((m) => m.userId === myUserId && m.role === 'admin') ?? false);

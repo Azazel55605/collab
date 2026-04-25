@@ -489,13 +489,13 @@ export default function PdfView({ relativePath }: Props) {
     const handleKeyDown = (event: KeyboardEvent) => {
       const ctrl = event.ctrlKey || event.metaKey;
       if (ctrl) {
-        if (event.key === '+' || event.key === '=') {
+        if (event.key === 'ArrowUp' || event.key === '+' || event.key === '=') {
           event.preventDefault();
           adjustCustomZoom(ZOOM_STEP);
           return;
         }
 
-        if (event.key === '-') {
+        if (event.key === 'ArrowDown' || event.key === '-') {
           event.preventDefault();
           adjustCustomZoom(-ZOOM_STEP);
           return;
