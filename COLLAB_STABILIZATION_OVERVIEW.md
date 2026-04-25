@@ -20,7 +20,9 @@ The broad Phase 2 shared document-session refactor is intentionally deferred. Th
 | Stage 3 regression coverage | Complete for current gates | 100% | Current save/reload/conflict regression coverage is in place for note, kanban, and canvas, and `pnpm test` exits cleanly again. |
 | Stage 3 `CanvasPage` decomposition | In progress | 11 slices landed | `CanvasPickerDialog`, `CanvasNodeTypes`, `CanvasEdgeTypes`, `CanvasPreviewUtils`, `CanvasEdgeInspector`, `CanvasToolbar`, `useCanvasViewportControls`, `useCanvasNodeCommands`, `useCanvasPreviews`, `useCanvasDocumentSession`, and `CanvasFlowNodeUtils` are extracted and tested. |
 | Stage 3 `ImageView` decomposition | Complete enough for now | 8 landed slices | The utility extraction, annotations popover/header UI extraction, additive toolbar extraction, additive stage rendering extraction, permanent stage/crop footer extraction, permanent toolbar extraction, image document/session hook extraction, and interaction hook extraction are landed. `ImageView.tsx` is down to 848 lines and now reads primarily as orchestration/composition. |
-| Remaining large-file decomposition | Started | Early progress | `ImageView` is now underway; `MarkdownEditor`, `CardDialog`, `SettingsModal`, and `CommandBar` still need decomposition after it. |
+| Stage 3 `MarkdownEditor` decomposition | Complete enough for now | 7 landed slices | The inline color preview plugin, indent/ligature plugin extraction, editor construction/config extraction, theme/highlighting extraction, drop/open/preview integration extraction, imperative handle extraction, and context-menu/clipboard extraction are landed. `MarkdownEditor.tsx` is down to 486 lines and now reads primarily as orchestration/composition. |
+| Stage 3 `CardDialog` decomposition | Not started | 0 of ~6-8 slices | The next likely seams are the draft/session hook, move/archive/status actions hook, checklist/comments hook, and the larger UI section components. |
+| Remaining large-file decomposition | In progress | CardDialog next | `ImageView` and `MarkdownEditor` are complete enough for now; `CardDialog` is the next active target, and `SettingsModal` plus `CommandBar` remain after it. |
 | Deferred document-session retry | Deferred | 0% | Intentionally blocked on decomposition, then retried in small document-type slices. |
 | Later roadmap | Not started | 0% | Live session expansion, recovery UX, and broader product features remain later work. |
 
@@ -103,7 +105,7 @@ Next decomposition slices should keep the same approach:
 - extract render-only canvas UI before deeper persistence/session logic
 - preserve the already-stabilized save and reload behavior while reducing file size
 
-### ImageView decomposition starting
+### ImageView decomposition completed enough for now
 
 `ImageView.tsx` is the next large-file target after the `CanvasPage` work. Based on the current shape of the file, the expected decomposition is roughly 6 to 8 slices:
 
@@ -162,13 +164,92 @@ Current assessment:
 - Further splitting is possible, but the next slices would be smaller-value glue refactors rather than the high-yield decompositions we have been landing.
 - Recommendation: stop the `ImageView` split here and move to the next stabilization target unless a new bug or awkward boundary shows up during normal work.
 
+### MarkdownEditor decomposition starting
+
+`MarkdownEditor.tsx` is now the active large-file target. Based on its current shape, the expected decomposition is roughly 6 to 8 slices:
+
+- editor document helpers
+- theme and highlighting configuration
+- indent and ligature plugins
+- inline color preview plugin
+- editor construction/config hook
+- drop/open/preview integration hook
+- imperative editor handle helpers
+- context-menu and clipboard glue
+
+The first slice is now landed:
+
+- `colorPreview` has been extracted from `MarkdownEditor.tsx` into `src/components/editor/colorPreview.ts`
+- `colorPreview.test.ts` covers color parsing, match detection, and disabled-extension behavior
+
+The second slice is now landed:
+
+- `indentationPlugins` has been extracted from `MarkdownEditor.tsx` into `src/components/editor/indentationPlugins.ts`
+- `indentationPlugins.test.tsx` covers indentation facet configuration, empty-selection tab insertion, and basic plugin wiring
+
+The third slice is now landed:
+
+- `markdownEditorViewConfig` has been extracted from `MarkdownEditor.tsx` into `src/components/editor/markdownEditorViewConfig.ts`
+- `markdownEditorViewConfig.test.ts` covers compartment setup, reconfigure effect generation, and editor-state construction with the configured indentation state
+
+The fourth slice is now landed:
+
+- `markdownEditorTheme` has been extracted from `MarkdownEditor.tsx` into `src/components/editor/markdownEditorTheme.ts`
+- `markdownEditorTheme.test.ts` covers the shared theme and highlight-style builders used by both `MarkdownEditor` and `CodeBlockEditorDialog`
+
+The fifth slice is now landed:
+
+- `useMarkdownEditorIntegrations` has been extracted from `MarkdownEditor.tsx` into `src/components/editor/useMarkdownEditorIntegrations.ts`
+- `useMarkdownEditorIntegrations.test.ts` covers hover preview resolution, dropped-image import behavior, and native drag-drop dedupe behavior
+
+The sixth slice is now landed:
+
+- `useMarkdownEditorHandle` has been extracted from `MarkdownEditor.tsx` into `src/components/editor/useMarkdownEditorHandle.ts`
+- `useMarkdownEditorHandle.test.ts` covers wrap/line/snippet/range editor mutations behind the imperative editor handle
+
+The seventh slice is now landed:
+
+- `MarkdownEditorContextMenu` has been extracted from `MarkdownEditor.tsx` into `src/components/editor/MarkdownEditorContextMenu.tsx`
+- `MarkdownEditorContextMenu.test.tsx` covers clipboard actions, select-all behavior, inline formatting actions, and the tags-line event dispatch
+
+Current assessment:
+
+- `MarkdownEditor.tsx` is now down to 486 lines and mostly acts as orchestration/composition glue.
+- The highest-yield seams have already been extracted.
+- Further splitting is possible around the document-helper functions, but the remaining work is lower-yield than the slices already landed.
+- Recommendation: stop the `MarkdownEditor` split here and move to the next stabilization target unless a new bug or awkward boundary shows up during normal work.
+
+### CardDialog decomposition queued next
+
+`CardDialog.tsx` is the next active large-file target. Based on its current shape at 1030 lines, the realistic decomposition is roughly 6 to 8 slices:
+
+- small utilities and card/file helpers
+- draft/session hook
+- move/archive/status actions hook
+- metadata/sidebar actions hook
+- checklist/comments hook
+- extracted tags/attachments/checklist UI sections
+- extracted sidebar/meta UI sections
+- move-tags prompt dialog cleanup
+
+Recommended order:
+
+1. draft/session hook
+2. move/archive/status actions hook
+3. checklist/comments hook
+4. larger UI section extraction
+
+Current assessment:
+
+- `CardDialog.tsx` has several clear stateful seams and should decompose cleanly.
+- The highest-value work is in the draft/update/move logic before the render-only UI splits.
+- Estimated practical total: about 7 slices, with a realistic range of 6 to 8.
+
 ### Large-file decomposition still pending
 
 These are still the main decomposition targets:
 
 - `src/views/CanvasPage.tsx`
-- `src/views/ImageView.tsx`
-- `src/components/editor/MarkdownEditor.tsx`
 - `src/components/kanban/CardDialog.tsx`
 - `src/components/settings/SettingsModal.tsx`
 - `src/components/command-bar/CommandBar.tsx`
@@ -235,8 +316,8 @@ These items are still intentionally later than the stabilization and decompositi
 
 ## Next Steps
 
-1. Continue decomposing `CanvasPage.tsx`, starting with more render-only canvas UI pieces before touching deeper session logic.
-2. Decompose the other large stateful files after the `CanvasPage` split is in a safer place.
+1. Continue decomposing `MarkdownEditor.tsx`, with the editor construction/config hook as the next highest-value slice.
+2. Decompose `CardDialog.tsx`, `SettingsModal.tsx`, and `CommandBar.tsx` after `MarkdownEditor` is in a safer place.
 3. Retry the broader shared document-session refactor in this order: `NoteView`, `KanbanPage`, `CanvasPage`.
-4. Add any additional focused unmount/remount regression tests needed during that decomposition and retry work.
+4. Add any additional focused unmount/remount regression tests needed during decomposition and the later retry work.
 5. After that architecture work is stable, continue with live-session and recovery/versioning work.

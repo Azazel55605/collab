@@ -17,7 +17,8 @@ import {
 } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { useUiStore, EDITOR_FONTS } from '../../store/uiStore';
-import { asciiArrowLigatures, buildHighlightStyle, indentationConfig, indentVisualization } from './MarkdownEditor';
+import { buildMarkdownHighlightStyle } from './markdownEditorTheme';
+import { asciiArrowLigatures, indentationConfig, indentVisualization } from './indentationPlugins';
 import {
   CODE_BLOCK_LANGUAGE_OPTIONS,
   detectCodeLanguage,
@@ -173,7 +174,7 @@ function CodeEditorSurface({
         indentOnInput(),
         autocompletion(),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-        syntaxHighlighting(buildHighlightStyle(isDark)),
+        syntaxHighlighting(buildMarkdownHighlightStyle(isDark)),
         themeCompartment.current.of(buildCodeEditorTheme(isDark, fontFamily, editorFontSize)),
         languageCompartment.current.of([]),
         indentationCompartment.current.of(indentationConfig(indentStyle, tabWidth)),
