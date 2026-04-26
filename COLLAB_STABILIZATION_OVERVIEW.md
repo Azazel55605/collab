@@ -22,8 +22,8 @@ The broad Phase 2 shared document-session refactor is intentionally deferred. Th
 | Stage 3 `ImageView` decomposition | Complete enough for now | 8 landed slices | The utility extraction, annotations popover/header UI extraction, additive toolbar extraction, additive stage rendering extraction, permanent stage/crop footer extraction, permanent toolbar extraction, image document/session hook extraction, and interaction hook extraction are landed. `ImageView.tsx` is down to 848 lines and now reads primarily as orchestration/composition. |
 | Stage 3 `MarkdownEditor` decomposition | Complete enough for now | 7 landed slices | The inline color preview plugin, indent/ligature plugin extraction, editor construction/config extraction, theme/highlighting extraction, drop/open/preview integration extraction, imperative handle extraction, and context-menu/clipboard extraction are landed. `MarkdownEditor.tsx` is down to 486 lines and now reads primarily as orchestration/composition. |
 | Stage 3 `CardDialog` decomposition | Complete enough for now | 7 landed slices | The draft/session hook, move/archive/status actions extraction, checklist/comments hook, sidebar/meta UI extraction, tags/attachments UI extraction, checklist/comments UI extraction, and move-tags prompt extraction are landed. `CardDialog.tsx` is down to 354 lines and now reads primarily as orchestration/composition. |
-| Stage 3 `SettingsModal` decomposition | Queued next | 0 of ~6-8 slices | `SettingsModal.tsx` is 952 lines and looks like a clean next target. The likely seams are the sidebar/search shell, shared setting-control helpers, general section, appearance section, editor section, grouped display/canvas/calendar sections, profile section, and about/update glue. |
-| Remaining large-file decomposition | In progress | SettingsModal next | `ImageView`, `MarkdownEditor`, and `CardDialog` are complete enough for now; `SettingsModal` is the next active target, with `CommandBar` still remaining after it. |
+| Stage 3 `SettingsModal` decomposition | Complete enough for now | 7 landed slices | The shared settings controls plus appearance, editor, general, display, canvas, calendar, and profile section extractions are landed. `SettingsModal.tsx` is down to 283 lines and now reads primarily as shell/composition glue. |
+| Remaining large-file decomposition | In progress | CommandBar next | `ImageView`, `MarkdownEditor`, `CardDialog`, and `SettingsModal` are complete enough for now; `CommandBar` is the next obvious large-file target. |
 | Deferred document-session retry | Deferred | 0% | Intentionally blocked on decomposition, then retried in small document-type slices. |
 | Later roadmap | Not started | 0% | Live session expansion, recovery UX, and broader product features remain later work. |
 
@@ -314,6 +314,50 @@ Current assessment:
 - `SettingsModal.tsx` has several clear render-section seams and should decompose cleanly.
 - The most likely high-yield slices are the larger tab content sections, especially appearance and editor.
 - Estimated practical total: about 7 slices, with a realistic range of 6 to 8.
+
+The first slice is now landed:
+
+- `settingsControls.tsx` has been extracted from `SettingsModal.tsx` into `src/components/settings/settingsControls.tsx`
+- `SettingsAppearanceSection` has been extracted from `SettingsModal.tsx` into `src/components/settings/SettingsAppearanceSection.tsx`
+- `SettingsAppearanceSection.test.tsx` covers theme, accent, interface font, and interface font-size interactions
+
+The second slice is now landed:
+
+- `SettingsEditorSection` has been extracted from `SettingsModal.tsx` into `src/components/settings/SettingsEditorSection.tsx`
+- `SettingsEditorSection.test.tsx` covers editor font, font-size, indentation, and inline color-preview settings interactions
+
+The third slice is now landed:
+
+- `SettingsGeneralSection` has been extracted from `SettingsModal.tsx` into `src/components/settings/SettingsGeneralSection.tsx`
+- `SettingsGeneralSection.test.tsx` covers startup, web-preview, and delete-confirmation settings interactions
+
+The fourth slice is now landed:
+
+- `SettingsDisplaySection` has been extracted from `SettingsModal.tsx` into `src/components/settings/SettingsDisplaySection.tsx`
+- `SettingsDisplaySection.test.tsx` covers interface scale and motion settings interactions
+
+The fifth slice is now landed:
+
+- `SettingsCanvasSection` has been extracted from `SettingsModal.tsx` into `src/components/settings/SettingsCanvasSection.tsx`
+- `SettingsCanvasSection.test.tsx` covers canvas web-card mode and auto-load settings interactions
+
+The sixth slice is now landed:
+
+- `SettingsCalendarSection` has been extracted from `SettingsModal.tsx` into `src/components/settings/SettingsCalendarSection.tsx`
+- `SettingsCalendarSection.test.tsx` covers date-format and week-start settings interactions
+
+The seventh slice is now landed:
+
+- `SettingsProfileSection` has been extracted from `SettingsModal.tsx` into `src/components/settings/SettingsProfileSection.tsx`
+- `SettingsProfileSection.test.tsx` covers profile name editing and save action behavior
+
+Current assessment:
+
+- `SettingsModal.tsx` is now down to 283 lines from 952.
+- The remaining code is mostly search/sidebar shell, tab switching, about/shortcuts mounting, and footer composition.
+- Further splitting is possible, but the next cuts would be lower-yield than the slices already landed.
+- The shared settings-control scaffolding is now in place, which should make the next settings slices cleaner and more consistent.
+- Recommendation: stop the `SettingsModal` split here and move to the next stabilization target unless a new bug or awkward boundary shows up during normal work.
 
 ### Large-file decomposition still pending
 
