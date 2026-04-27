@@ -23,7 +23,8 @@ The broad Phase 2 shared document-session refactor is intentionally deferred. Th
 | Stage 3 `MarkdownEditor` decomposition | Complete enough for now | 7 landed slices | The inline color preview plugin, indent/ligature plugin extraction, editor construction/config extraction, theme/highlighting extraction, drop/open/preview integration extraction, imperative handle extraction, and context-menu/clipboard extraction are landed. `MarkdownEditor.tsx` is down to 486 lines and now reads primarily as orchestration/composition. |
 | Stage 3 `CardDialog` decomposition | Complete enough for now | 7 landed slices | The draft/session hook, move/archive/status actions extraction, checklist/comments hook, sidebar/meta UI extraction, tags/attachments UI extraction, checklist/comments UI extraction, and move-tags prompt extraction are landed. `CardDialog.tsx` is down to 354 lines and now reads primarily as orchestration/composition. |
 | Stage 3 `SettingsModal` decomposition | Complete enough for now | 7 landed slices | The shared settings controls plus appearance, editor, general, display, canvas, calendar, and profile section extractions are landed. `SettingsModal.tsx` is down to 283 lines and now reads primarily as shell/composition glue. |
-| Remaining large-file decomposition | In progress | CommandBar next | `ImageView`, `MarkdownEditor`, `CardDialog`, and `SettingsModal` are complete enough for now; `CommandBar` is the next obvious large-file target. |
+| Stage 3 `CommandBar` decomposition | Complete enough for now | 4 landed slices | The parsing/helper layer, action registry/action executors, grouped mode-rendering layer, and shell-state hook are landed. `CommandBar.tsx` is down to 69 lines and now reads primarily as shell/composition glue. |
+| Remaining large-file decomposition | Complete enough for now | No major targets left | `ImageView`, `MarkdownEditor`, `CardDialog`, `SettingsModal`, and `CommandBar` are all complete enough for now. |
 | Deferred document-session retry | Deferred | 0% | Intentionally blocked on decomposition, then retried in small document-type slices. |
 | Later roadmap | Not started | 0% | Live session expansion, recovery UX, and broader product features remain later work. |
 
@@ -359,21 +360,69 @@ Current assessment:
 - The shared settings-control scaffolding is now in place, which should make the next settings slices cleaner and more consistent.
 - Recommendation: stop the `SettingsModal` split here and move to the next stabilization target unless a new bug or awkward boundary shows up during normal work.
 
-### Large-file decomposition still pending
+### CommandBar decomposition completed enough for now
 
-These are still the main decomposition targets:
+`CommandBar.tsx` is the current active large-file target. Based on its original shape at 979 lines, the realistic decomposition is roughly 7 to 9 slices:
 
-- `src/views/CanvasPage.tsx`
-- `src/components/kanban/CardDialog.tsx`
-- `src/components/settings/SettingsModal.tsx`
-- `src/components/command-bar/CommandBar.tsx`
+- command parsing and mode-detection helpers
+- file/type/view helper utilities
+- action registry and action executors
+- search-mode renderer
+- math/tag/file/name renderers
+- insert/snippet/nerd-font renderer helpers
+- mode hint strip and small presentation helpers
+- main command-bar state/effects shell
+- final shell/composition cleanup if needed
 
-Recommended decomposition direction:
+Recommended order:
 
-- extract document-session hooks
-- extract canvas save/load/preview hooks
-- extract kanban editing/move/save hooks
-- split large dialogs into focused subcomponents
+1. extract command parsing and helper utilities first
+2. split the action registry from the main component
+3. peel off the mode renderers in logical groups
+4. leave the shell/effects cleanup for last
+
+Current assessment:
+
+- `CommandBar.tsx` has several clear functional seams and should decompose cleanly.
+- The highest-yield first cut is the parsing/helper layer because it reduces cognitive load for every later slice.
+- Estimated practical total: about 8 slices, with a realistic range of 7 to 9.
+
+The first slice is now landed:
+
+- `commandBarUtils.ts` has been extracted from `CommandBar.tsx` into `src/components/command-bar/commandBarUtils.ts`
+- `commandBarUtils.test.ts` covers mode detection, file/view helpers, tree flattening, and mode placeholders
+
+The second slice is now landed:
+
+- `commandBarActions.tsx` has been extracted from `CommandBar.tsx` into `src/components/command-bar/commandBarActions.tsx`
+- `commandBarActions.test.tsx` covers settings action discovery, graph view opening, note creation, and editor-only action guards
+
+The third slice is now landed:
+
+- `CommandBarModeContent.tsx` has been extracted from `CommandBar.tsx` into `src/components/command-bar/CommandBarModeContent.tsx`
+- `CommandBarModeContent.test.tsx` covers recent-file search rendering, settings search routing, math result copying, insert-mode editor guards, and mode-hint highlighting
+
+The fourth slice is now landed:
+
+- `useCommandBarShell.ts` has been extracted from `CommandBar.tsx` into `src/components/command-bar/useCommandBarShell.ts`
+- the hook now owns the command-bar shell state, hotkeys, programmatic open handling, reset behavior, search-effect wiring, and render context construction
+
+Current assessment:
+
+- `CommandBar.tsx` is now down to 69 lines from 979.
+- The remaining code is almost entirely top-level composition glue.
+- Recommendation: stop the `CommandBar` split here and move on to the next stabilization phase instead of forcing lower-yield micro-splits.
+
+### Large-file decomposition status
+
+- The previously targeted large files are now all complete enough for now:
+  - `src/views/CanvasPage.tsx`
+  - `src/views/ImageView.tsx`
+  - `src/components/editor/MarkdownEditor.tsx`
+  - `src/components/kanban/CardDialog.tsx`
+  - `src/components/settings/SettingsModal.tsx`
+  - `src/components/command-bar/CommandBar.tsx`
+- The next phase should no longer be large-file decomposition. The next meaningful work is the deferred architecture retry, starting only if we want to revisit the shared editable-document session work with the smaller surfaces now in place.
 
 ## Deferred Architecture Retry
 
