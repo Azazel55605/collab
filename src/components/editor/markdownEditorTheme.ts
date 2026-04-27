@@ -87,6 +87,7 @@ export function buildMarkdownEditorTheme(dark: boolean, fontFamily: string, font
         pointerEvents: 'none',
       },
       '.cm-color-preview-swatch': {
+        appearance: 'none',
         display: 'inline-block',
         width: '0.8em',
         height: '0.8em',
@@ -95,6 +96,16 @@ export function buildMarkdownEditorTheme(dark: boolean, fontFamily: string, font
         marginRight: '0.35em',
         verticalAlign: '-0.08em',
         boxShadow: '0 0 0 1px oklch(1 0 0 / 0.08), 0 1px 2px oklch(0 0 0 / 0.24)',
+        cursor: 'copy',
+        padding: '0',
+      },
+      '.cm-color-preview-swatch:hover': {
+        transform: 'translateY(-0.5px)',
+        boxShadow: '0 0 0 1px oklch(1 0 0 / 0.12), 0 3px 10px oklch(0 0 0 / 0.24)',
+      },
+      '.cm-color-preview-swatch:focus-visible': {
+        outline: '2px solid var(--primary)',
+        outlineOffset: '2px',
       },
       '.cm-color-preview-token': {
         border: '1px solid transparent',

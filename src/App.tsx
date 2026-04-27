@@ -11,6 +11,7 @@ import VaultManagerModal from './components/vault/VaultManagerModal';
 import VaultUnlockModal from './components/vault/VaultUnlockModal';
 import { Toaster } from './components/ui/sonner';
 import { tauriCommands } from './lib/tauri';
+import { subscribeMediaQueryChange } from './lib/browserCompat';
 import { useUpdateStore } from './store/updateStore';
 import { toast } from 'sonner';
 
@@ -139,6 +140,14 @@ export default function App() {
 
   useEffect(() => {
     const root = document.documentElement;
+    if (typeof window.matchMedia !== 'function') {
+      root.dataset.motion = animationsEnabled ? 'on' : 'off';
+      root.dataset.motionSpeed = animationSpeed;
+      root.dataset.motionSystem = 'unknown';
+      root.style.setProperty('--motion-scale', animationsEnabled ? '1' : '0');
+      return;
+    }
+
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
 
     const applyMotion = () => {
@@ -157,8 +166,7 @@ export default function App() {
     };
 
     applyMotion();
-    media.addEventListener('change', applyMotion);
-    return () => media.removeEventListener('change', applyMotion);
+    return subscribeMediaQueryChange(media, applyMotion);
   }, [animationsEnabled, animationSpeed]);
 
   // Block browser-level zoom (Ctrl+scroll, pinch, Ctrl+±/0) — zoom must not affect the entire UI.

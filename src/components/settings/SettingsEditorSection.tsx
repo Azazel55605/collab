@@ -163,6 +163,7 @@ export default function SettingsEditorSection({
       <OptionRow
         label="Show swatches"
         description="Render a small color block before each recognized color string"
+        disabled={!showInlineColorPreviews}
       >
         <ToggleSwitch
           checked={colorPreviewShowSwatch}
@@ -174,6 +175,7 @@ export default function SettingsEditorSection({
       <OptionRow
         label="Tint matching text"
         description="Add a soft color background behind recognized color strings"
+        disabled={!showInlineColorPreviews}
       >
         <ToggleSwitch
           checked={colorPreviewTintText}
@@ -189,8 +191,9 @@ export default function SettingsEditorSection({
           disabled={!showInlineColorPreviews}
           className={cn(
             'w-full flex items-center justify-between rounded-lg border px-3 py-2.5 text-left transition-all',
-            'border-border/40 hover:border-border hover:bg-accent/30',
-            !showInlineColorPreviews && 'opacity-50',
+            showInlineColorPreviews
+              ? 'border-border/40 hover:border-border hover:bg-accent/30'
+              : 'cursor-not-allowed border-border/30 opacity-50',
           )}
         >
           <div>
@@ -220,7 +223,7 @@ export default function SettingsEditorSection({
                   colorPreviewFormats[format]
                     ? 'border-primary/50 bg-primary/8'
                     : 'border-border/40 hover:border-border hover:bg-accent/30',
-                  !showInlineColorPreviews && 'opacity-50',
+                  !showInlineColorPreviews && 'cursor-not-allowed opacity-50 hover:border-border/40 hover:bg-transparent',
                 )}
               >
                 <div>

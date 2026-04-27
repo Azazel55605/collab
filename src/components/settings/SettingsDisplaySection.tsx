@@ -2,7 +2,6 @@ import { Sparkles } from 'lucide-react';
 
 import type { AnimationSpeed } from '../../store/uiStore';
 import { ANIMATION_SPEED_OPTIONS, SCALE_OPTIONS } from '../../store/uiStore';
-import { cn } from '../../lib/utils';
 import { Separator } from '../ui/separator';
 import { OptionRow, PillSelect, SectionLabel, ToggleSwitch } from './settingsControls';
 
@@ -58,15 +57,15 @@ export default function SettingsDisplaySection({
       <OptionRow
         label="Animation speed"
         description="Controls how quickly interface motion runs when animations are enabled"
+        disabled={!animationsEnabled}
       >
-        <div className={cn(!animationsEnabled && 'pointer-events-none opacity-45')}>
-          <PillSelect
-            options={ANIMATION_SPEED_OPTIONS}
-            value={animationSpeed}
-            onChange={setAnimationSpeed}
-            getLabel={(value: AnimationSpeed) => value.charAt(0).toUpperCase() + value.slice(1)}
-          />
-        </div>
+        <PillSelect
+          options={ANIMATION_SPEED_OPTIONS}
+          value={animationSpeed}
+          onChange={setAnimationSpeed}
+          getLabel={(value: AnimationSpeed) => value.charAt(0).toUpperCase() + value.slice(1)}
+          disabled={!animationsEnabled}
+        />
       </OptionRow>
 
       <div className="mt-3 rounded-lg border border-border/40 bg-accent/10 p-3 text-xs text-muted-foreground">

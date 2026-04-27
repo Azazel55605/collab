@@ -8,6 +8,10 @@ export interface NerdFontIconEntry {
   categoryLabel: string;
   nameLabel: string;
   searchText: string;
+  idLower: string;
+  nameLower: string;
+  categoryLower: string;
+  nameWords: string[];
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -50,16 +54,12 @@ function buildSearchText(id: string, categoryLabel: string, nameLabel: string) {
 }
 
 function scoreEntry(entry: NerdFontIconEntry, query: string) {
-  const exactName = entry.nameLabel.toLowerCase();
-  const exactId = entry.id.toLowerCase();
-  const category = entry.categoryLabel.toLowerCase();
+  if (entry.idLower === query || entry.nameLower === query) return 0;
+  if (entry.nameLower.startsWith(query)) return 1;
+  if (entry.idLower.startsWith(query)) return 2;
+  if (entry.categoryLower.startsWith(query)) return 3;
 
-  if (exactId === query || exactName === query) return 0;
-  if (exactName.startsWith(query)) return 1;
-  if (exactId.startsWith(query)) return 2;
-  if (category.startsWith(query)) return 3;
-
-  const nameWordIndex = exactName.split(/\s+/).findIndex((word) => word.startsWith(query));
+  const nameWordIndex = entry.nameWords.findIndex((word) => word.startsWith(query));
   if (nameWordIndex >= 0) return 4 + nameWordIndex;
 
   if (entry.searchText.includes(query)) return 12;
@@ -79,6 +79,10 @@ export const NERD_FONT_ICONS: NerdFontIconEntry[] = (Object.entries(mappings) as
       categoryLabel,
       nameLabel,
       searchText: buildSearchText(id, categoryLabel, nameLabel),
+      idLower: id.toLowerCase(),
+      nameLower: nameLabel.toLowerCase(),
+      categoryLower: categoryLabel.toLowerCase(),
+      nameWords: nameLabel.toLowerCase().split(/\s+/).filter(Boolean),
     };
   })
   .sort((left, right) => (
@@ -119,19 +123,38 @@ export function completeNerdFontIconQuery(query: string) {
   return 'icon ';
 }
 
+const SEARCH_CACHE = new Map<string, NerdFontIconEntry[]>();
+
 export function searchNerdFontIcons(rawQuery: string, limit = 240) {
   const query = rawQuery.trim().replace(/^(?:icon|icons|glyph|glyphs|symbol|symbols|nf)\s*/i, '').toLowerCase();
   if (!query) return NERD_FONT_ICONS.slice(0, limit);
+  const cacheKey = `${limit}:${query}`;
+  const cached = SEARCH_CACHE.get(cacheKey);
+  if (cached) return cached;
 
-  return NERD_FONT_ICONS
-    .map((entry) => ({ entry, score: scoreEntry(entry, query) }))
-    .filter((result): result is { entry: NerdFontIconEntry; score: number } => result.score != null)
-    .sort((left, right) => (
-      left.score - right.score ||
-      left.entry.categoryLabel.localeCompare(right.entry.categoryLabel) ||
-      left.entry.nameLabel.localeCompare(right.entry.nameLabel) ||
-      left.entry.id.localeCompare(right.entry.id)
-    ))
-    .slice(0, limit)
-    .map((result) => result.entry);
+  const buckets = new Map<number, NerdFontIconEntry[]>();
+  for (const entry of NERD_FONT_ICONS) {
+    const score = scoreEntry(entry, query);
+    if (score == null) continue;
+    const bucket = buckets.get(score);
+    if (bucket) bucket.push(entry);
+    else buckets.set(score, [entry]);
+  }
+
+  const results: NerdFontIconEntry[] = [];
+  const sortedScores = Array.from(buckets.keys()).sort((a, b) => a - b);
+  for (const score of sortedScores) {
+    const entries = buckets.get(score);
+    if (!entries) continue;
+    for (const entry of entries) {
+      results.push(entry);
+      if (results.length >= limit) {
+        SEARCH_CACHE.set(cacheKey, results);
+        return results;
+      }
+    }
+  }
+
+  SEARCH_CACHE.set(cacheKey, results);
+  return results;
 }

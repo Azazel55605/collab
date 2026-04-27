@@ -61,4 +61,24 @@ describe('SettingsGeneralSection', () => {
     fireEvent.click(switches[3]);
     expect(setBackgroundWebPreviewPrefetchEnabled).toHaveBeenCalledWith(true);
   });
+
+  it('visually marks dependent web preview rows as disabled', () => {
+    render(
+      <SettingsGeneralSection
+        restorePreviousSession={true}
+        setRestorePreviousSession={vi.fn()}
+        webPreviewsEnabled={false}
+        setWebPreviewsEnabled={vi.fn()}
+        hoverWebLinkPreviewsEnabled={false}
+        setHoverWebLinkPreviewsEnabled={vi.fn()}
+        backgroundWebPreviewPrefetchEnabled={false}
+        setBackgroundWebPreviewPrefetchEnabled={vi.fn()}
+        confirmDelete={true}
+        setConfirmDelete={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Hover previews for links').closest('[aria-disabled="true"]')).not.toBeNull();
+    expect(screen.getByText('Background prefetch for open documents').closest('[aria-disabled="true"]')).not.toBeNull();
+  });
 });

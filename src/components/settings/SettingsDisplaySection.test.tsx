@@ -29,4 +29,21 @@ describe('SettingsDisplaySection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Fast' }));
     expect(setAnimationSpeed).toHaveBeenCalledWith('fast');
   });
+
+  it('disables animation speed controls when animations are off', () => {
+    render(
+      <SettingsDisplaySection
+        scale={100}
+        setScale={vi.fn()}
+        animationsEnabled={false}
+        setAnimationsEnabled={vi.fn()}
+        animationSpeed="normal"
+        setAnimationSpeed={vi.fn()}
+      />,
+    );
+
+    const speedButton = screen.getByRole('button', { name: 'Fast' });
+    expect(speedButton).toHaveProperty('disabled', true);
+    expect(screen.getByText('Animation speed').closest('[aria-disabled="true"]')).not.toBeNull();
+  });
 });

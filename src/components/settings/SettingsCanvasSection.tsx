@@ -38,6 +38,7 @@ export default function SettingsCanvasSection({
       <OptionRow
         label="Disable web preview auto-load"
         description="Require a manual click before canvas web cards fetch preview metadata"
+        disabled={!webPreviewsEnabled}
       >
         <ToggleSwitch
           checked={!canvasWebCardAutoLoad}

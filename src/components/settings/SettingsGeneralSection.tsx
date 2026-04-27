@@ -57,6 +57,7 @@ export default function SettingsGeneralSection({
       <OptionRow
         label="Hover previews for links"
         description="Show a small website preview below external links when hovering over them"
+        disabled={!webPreviewsEnabled}
       >
         <ToggleSwitch
           checked={hoverWebLinkPreviewsEnabled}
@@ -69,6 +70,7 @@ export default function SettingsGeneralSection({
       <OptionRow
         label="Background prefetch for open documents"
         description="Warm website previews in the background for visible or open documents instead of the whole vault"
+        disabled={!webPreviewsEnabled || !hoverWebLinkPreviewsEnabled}
       >
         <ToggleSwitch
           checked={backgroundWebPreviewPrefetchEnabled}

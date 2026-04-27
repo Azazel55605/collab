@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Shapes } from 'lucide-react';
 import {
   formatNerdFontHexCode,
@@ -25,6 +25,7 @@ interface NerdFontIconPickerProps {
 export function NerdFontIconPicker({ onInsert }: NerdFontIconPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -37,7 +38,7 @@ export function NerdFontIconPicker({ onInsert }: NerdFontIconPickerProps) {
     return () => window.removeEventListener(EDITOR_TOOLBAR_ACTION_EVENT, handler);
   }, []);
 
-  const filteredEntries = useMemo(() => searchNerdFontIcons(query, 240), [query]);
+  const filteredEntries = useMemo(() => searchNerdFontIcons(deferredQuery, 180), [deferredQuery]);
   const groupedEntries = useMemo(() => groupNerdFontIcons(filteredEntries), [filteredEntries]);
 
   const handleInsert = (glyph: string) => {
@@ -79,7 +80,9 @@ export function NerdFontIconPicker({ onInsert }: NerdFontIconPickerProps) {
           </div>
           <CommandInput
             value={query}
-            onValueChange={setQuery}
+            onValueChange={(value) => {
+              startTransition(() => setQuery(value));
+            }}
             autoFocus
             placeholder="Search icons by name, id, or category..."
           />
@@ -112,7 +115,7 @@ export function NerdFontIconPicker({ onInsert }: NerdFontIconPickerProps) {
             ))}
             <div className="border-t border-border/70 px-3 py-2 text-[11px] text-muted-foreground">
               Showing {filteredEntries.length} icon{filteredEntries.length === 1 ? '' : 's'}
-              {query.trim() ? ' for this search' : ' from the bundled catalog'}.
+              {deferredQuery.trim() ? ' for this search' : ' from the bundled catalog'}.
             </div>
           </CommandList>
         </Command>

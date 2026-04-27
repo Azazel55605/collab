@@ -3,9 +3,9 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 
 // Apply dark mode synchronously before first paint to avoid flash
-const stored = localStorage.getItem('ui-storage');
 let theme: string = 'dark';
 try {
+  const stored = localStorage.getItem('ui-storage');
   const parsed = JSON.parse(stored ?? '{}');
   theme = parsed?.state?.theme ?? 'dark';
 } catch {}
@@ -46,7 +46,10 @@ function isIgnorableBrowserError(message: string) {
 }
 
 window.addEventListener('error', (e) => {
-  const msg = e.error?.stack ?? `${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}`;
+  const errorName = e.error?.name ? `${e.error.name}: ` : '';
+  const errorMessage = e.error?.message ?? e.message;
+  const stack = e.error?.stack;
+  const msg = stack ?? `${errorName}${errorMessage}\n  at ${e.filename}:${e.lineno}:${e.colno}`;
   if (isIgnorableBrowserError(e.message ?? '') || isIgnorableBrowserError(msg)) {
     e.preventDefault();
     return;
@@ -55,7 +58,9 @@ window.addEventListener('error', (e) => {
 });
 
 window.addEventListener('unhandledrejection', (e) => {
-  const msg = e.reason?.stack ?? String(e.reason);
+  const reasonName = e.reason?.name ? `${e.reason.name}: ` : '';
+  const reasonMessage = e.reason?.message;
+  const msg = e.reason?.stack ?? (reasonMessage ? `${reasonName}${reasonMessage}` : String(e.reason));
   if (isIgnorableBrowserError(msg)) {
     e.preventDefault();
     return;
