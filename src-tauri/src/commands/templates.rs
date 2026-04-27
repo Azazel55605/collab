@@ -544,3 +544,124 @@ pub fn create_blank_kanban_template(
         &state,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        board_hash, built_in_templates, normalize_relative_path, parse_template_file,
+        template_file_name,
+    };
+    use crate::test_support::TempVault;
+    use serde_json::json;
+    use std::path::PathBuf;
+
+    #[test]
+    fn normalize_relative_path_accepts_safe_template_paths() {
+        let normalized = normalize_relative_path("Templates/../Templates/Board.kanban")
+            .expect("path should normalize");
+
+        assert_eq!(normalized, PathBuf::from("Templates/Board.kanban"));
+    }
+
+    #[test]
+    fn normalize_relative_path_rejects_escaping_template_paths() {
+        let err = normalize_relative_path("../../outside.json")
+            .expect_err("escaping path should fail");
+
+        assert!(err.contains("escapes the vault root"));
+    }
+
+    #[test]
+    fn board_hash_is_stable_for_the_same_board() {
+        let board = json!({
+            "columns": [
+                { "id": "todo", "title": "Todo", "cards": [] }
+            ]
+        });
+
+        let hash_a = board_hash(&board).expect("hashing should succeed");
+        let hash_b = board_hash(&board).expect("hashing should succeed");
+
+        assert_eq!(hash_a, hash_b);
+        assert_eq!(hash_a.len(), 64);
+    }
+
+    #[test]
+    fn template_file_name_sanitizes_and_adds_digest_suffix() {
+        let file_name = template_file_name("..Roadmap:/Board?..");
+
+        assert!(file_name.starts_with("Roadmap__Board_--"));
+        assert!(file_name.ends_with(".json"));
+    }
+
+    #[test]
+    fn built_in_templates_have_expected_shape() {
+        let templates = built_in_templates();
+
+        assert!(!templates.is_empty());
+        assert!(templates.iter().all(|template| template.kind == "kanban"));
+        assert!(templates.iter().all(|template| !template.hash.is_empty()));
+    }
+
+    #[test]
+    fn parse_template_file_accepts_named_template_payload() {
+        let vault = TempVault::new().expect("temp vault should exist");
+        let path = vault.resolve("template.json");
+        std::fs::write(
+            &path,
+            serde_json::to_string(&json!({
+                "name": "Imported Template",
+                "board": {
+                    "columns": []
+                }
+            }))
+            .expect("json should serialize"),
+        )
+        .expect("template file should be written");
+
+        let (name, board) = parse_template_file(&path.to_string_lossy())
+            .expect("template file should parse");
+
+        assert_eq!(name, "Imported Template");
+        assert_eq!(board, json!({ "columns": [] }));
+    }
+
+    #[test]
+    fn parse_template_file_accepts_raw_board_payload() {
+        let vault = TempVault::new().expect("temp vault should exist");
+        let path = vault.resolve("Roadmap.kanban-template.json");
+        std::fs::write(
+            &path,
+            serde_json::to_string(&json!({
+                "columns": []
+            }))
+            .expect("json should serialize"),
+        )
+        .expect("template file should be written");
+
+        let (name, board) = parse_template_file(&path.to_string_lossy())
+            .expect("raw board payload should parse");
+
+        assert_eq!(name, "Roadmap");
+        assert_eq!(board, json!({ "columns": [] }));
+    }
+
+    #[test]
+    fn parse_template_file_rejects_invalid_template_payload() {
+        let vault = TempVault::new().expect("temp vault should exist");
+        let path = vault.resolve("invalid.json");
+        std::fs::write(
+            &path,
+            serde_json::to_string(&json!({
+                "name": "Missing board"
+            }))
+            .expect("json should serialize"),
+        )
+        .expect("template file should be written");
+
+        let err = parse_template_file(&path.to_string_lossy())
+            .expect_err("invalid template should fail");
+
+        assert!(err.contains("valid kanban template"));
+    }
+}

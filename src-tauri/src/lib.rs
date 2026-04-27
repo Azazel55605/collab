@@ -2,6 +2,8 @@ mod models;
 mod state;
 mod commands;
 mod crypto;
+#[cfg(test)]
+pub mod test_support;
 
 use state::AppState;
 

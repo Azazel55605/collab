@@ -368,3 +368,91 @@ pub fn search_notes(
 
     Ok(results)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{count_words, extract_tags, extract_title, extract_wikilinks, make_excerpt};
+
+    #[test]
+    fn extract_wikilinks_handles_simple_and_aliased_links() {
+        let content = "Before [[Alpha]] middle [[Beta Note|beta alias]] after";
+
+        let links = extract_wikilinks(content);
+
+        assert_eq!(links, vec!["Alpha".to_string(), "Beta Note".to_string()]);
+    }
+
+    #[test]
+    fn extract_wikilinks_ignores_unclosed_markup() {
+        let content = "Broken [[Alpha without any closing brackets";
+
+        let links = extract_wikilinks(content);
+
+        assert!(links.is_empty());
+    }
+
+    #[test]
+    fn extract_title_prefers_frontmatter_title() {
+        let content = "---\ntitle: \"Frontmatter Title\"\n---\n# Heading Title\n";
+
+        let title = extract_title(content, "Fallback.md");
+
+        assert_eq!(title, "Frontmatter Title");
+    }
+
+    #[test]
+    fn extract_title_falls_back_to_first_heading_then_filename() {
+        let heading_title = extract_title("# Heading Title\nBody", "Fallback.md");
+        let filename_title = extract_title("Body only", "Fallback.md");
+
+        assert_eq!(heading_title, "Heading Title");
+        assert_eq!(filename_title, "Fallback");
+    }
+
+    #[test]
+    fn extract_tags_supports_inline_and_list_forms() {
+        let inline = "---\ntags: [alpha, \"beta note\", 'gamma']\n---\nBody";
+        let list = "---\ntags:\n  - alpha\n  - \"beta note\"\n  - 'gamma'\n---\nBody";
+
+        let inline_tags = extract_tags(inline);
+        let list_tags = extract_tags(list);
+
+        assert_eq!(inline_tags, vec!["alpha", "beta note", "gamma"]);
+        assert_eq!(list_tags, vec!["alpha", "beta note", "gamma"]);
+    }
+
+    #[test]
+    fn extract_tags_returns_empty_when_frontmatter_is_missing() {
+        let content = "# Title\nNo frontmatter here";
+
+        let tags = extract_tags(content);
+
+        assert!(tags.is_empty());
+    }
+
+    #[test]
+    fn count_words_counts_whitespace_separated_tokens() {
+        let count = count_words("one two\nthree\tfour");
+
+        assert_eq!(count, 4);
+    }
+
+    #[test]
+    fn make_excerpt_prefers_query_neighborhood() {
+        let content = "First line with some text before the SearchTerm appears in the middle of the note and keeps going after it.";
+
+        let excerpt = make_excerpt(content, "searchterm", 80);
+
+        assert!(excerpt.to_lowercase().contains("searchterm"));
+        assert!(excerpt.len() <= 83);
+    }
+
+    #[test]
+    fn make_excerpt_falls_back_to_leading_content_when_query_is_missing() {
+        let content = "This is the first sentence. This is the second sentence.";
+
+        let excerpt = make_excerpt(content, "missing", 20);
+
+        assert_eq!(excerpt, "This is the first se...");
+    }
+}

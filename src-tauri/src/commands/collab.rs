@@ -44,6 +44,32 @@ fn compute_hash(content: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
+fn persist_chat_message(vault_path: &str, message: &ChatMessage) -> Result<(), String> {
+    let dir = chat_dir(vault_path);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let file_path = dir.join("messages.json");
+
+    let mut messages: Vec<ChatMessage> = if file_path.exists() {
+        let data = std::fs::read_to_string(&file_path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&data).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    messages.push(message.clone());
+
+    if messages.len() > 500 {
+        messages.drain(0..messages.len() - 500);
+    }
+
+    let data = serde_json::to_string_pretty(&messages).map_err(|e| e.to_string())?;
+    let tmp = file_path.with_extension("tmp");
+    std::fs::write(&tmp, data).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &file_path).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 // ── Presence ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -206,28 +232,7 @@ pub fn send_chat_message(
     message: ChatMessage,
     app: AppHandle,
 ) -> Result<(), String> {
-    let dir = chat_dir(&vault_path);
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let file_path = dir.join("messages.json");
-
-    let mut messages: Vec<ChatMessage> = if file_path.exists() {
-        let data = std::fs::read_to_string(&file_path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&data).unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-
-    messages.push(message.clone());
-
-    // Prune to last 500 messages
-    if messages.len() > 500 {
-        messages.drain(0..messages.len() - 500);
-    }
-
-    let data = serde_json::to_string_pretty(&messages).map_err(|e| e.to_string())?;
-    let tmp = file_path.with_extension("tmp");
-    std::fs::write(&tmp, data).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &file_path).map_err(|e| e.to_string())?;
+    persist_chat_message(&vault_path, &message)?;
 
     // Emit so other open windows receive the message immediately
     let _ = app.emit("collab:chat-message", &message);
@@ -496,4 +501,182 @@ pub fn remove_member(
     config.members.retain(|m| m.user_id != user_id);
     write_config_atomic(&vault_path, &config, &app)?;
     Ok(config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        clear_presence, create_snapshot, list_snapshots, path_key, persist_chat_message,
+        read_all_presence, read_chat_messages, read_snapshot, write_presence,
+    };
+    use crate::{
+        models::{
+            collab::ChatMessage,
+            presence::PresenceEntry,
+        },
+        test_support::TempVault,
+    };
+
+    fn sample_presence(user_id: &str, last_seen: u64) -> PresenceEntry {
+        PresenceEntry {
+            user_id: user_id.to_string(),
+            user_name: format!("User {user_id}"),
+            user_color: "#abcdef".into(),
+            active_file: Some("Notes/Test.md".into()),
+            cursor_line: Some(3),
+            chat_typing_until: None,
+            last_seen,
+            app_version: "0.2.8".into(),
+        }
+    }
+
+    fn sample_chat_message(index: u64) -> ChatMessage {
+        ChatMessage {
+            id: format!("msg-{index}"),
+            user_id: format!("user-{index}"),
+            user_name: format!("User {index}"),
+            user_color: "#00aaff".into(),
+            content: format!("message {index}"),
+            timestamp: index,
+        }
+    }
+
+    #[test]
+    fn path_key_flattens_relative_paths() {
+        assert_eq!(path_key("notes/foo.md"), "notes__foo.md");
+        assert_eq!(path_key("Board.kanban"), "Board.kanban");
+    }
+
+    #[test]
+    fn presence_write_read_filters_stale_and_clear_removes_file() {
+        let vault = TempVault::new().expect("temp vault should exist");
+        let now = super::now_ms();
+
+        write_presence(
+            vault.path_string(),
+            "fresh".into(),
+            sample_presence("fresh", now),
+        )
+        .expect("fresh presence should write");
+        write_presence(
+            vault.path_string(),
+            "stale".into(),
+            sample_presence("stale", now.saturating_sub(31_000)),
+        )
+        .expect("stale presence should write");
+
+        let presence = read_all_presence(vault.path_string())
+            .expect("presence should read");
+
+        assert_eq!(presence.len(), 1);
+        assert_eq!(presence[0].user_id, "fresh");
+
+        clear_presence(vault.path_string(), "fresh".into())
+            .expect("presence file should clear");
+        let cleared = read_all_presence(vault.path_string())
+            .expect("presence should read after clear");
+        assert!(cleared.is_empty());
+    }
+
+    #[test]
+    fn chat_persistence_prunes_history_and_reads_latest_messages() {
+        let vault = TempVault::new().expect("temp vault should exist");
+
+        for index in 0..505 {
+            persist_chat_message(&vault.path_string(), &sample_chat_message(index))
+                .expect("chat message should persist");
+        }
+
+        let latest = read_chat_messages(vault.path_string(), 3)
+            .expect("latest chat messages should read");
+
+        assert_eq!(latest.len(), 3);
+        assert_eq!(latest[0].id, "msg-502");
+        assert_eq!(latest[1].id, "msg-503");
+        assert_eq!(latest[2].id, "msg-504");
+
+        let all = read_chat_messages(vault.path_string(), 600)
+            .expect("full pruned chat history should read");
+        assert_eq!(all.len(), 500);
+        assert_eq!(all.first().map(|msg| msg.id.as_str()), Some("msg-5"));
+        assert_eq!(all.last().map(|msg| msg.id.as_str()), Some("msg-504"));
+    }
+
+    #[test]
+    fn snapshot_create_list_and_read_roundtrip() {
+        let vault = TempVault::new().expect("temp vault should exist");
+
+        let first = create_snapshot(
+            vault.path_string(),
+            "Notes/Test.md".into(),
+            "first version".into(),
+            "user-1".into(),
+            "User One".into(),
+            Some("Initial".into()),
+        )
+        .expect("first snapshot should create");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let second = create_snapshot(
+            vault.path_string(),
+            "Notes/Test.md".into(),
+            "second version".into(),
+            "user-2".into(),
+            "User Two".into(),
+            None,
+        )
+        .expect("second snapshot should create");
+
+        let snapshots = list_snapshots(vault.path_string(), "Notes/Test.md".into())
+            .expect("snapshots should list");
+        assert_eq!(snapshots.len(), 2);
+        assert_eq!(snapshots[0].id, second.id);
+        assert_eq!(snapshots[1].id, first.id);
+
+        let restored = read_snapshot(
+            vault.path_string(),
+            "Notes/Test.md".into(),
+            first.id.clone(),
+        )
+        .expect("snapshot content should read");
+        assert_eq!(restored, "first version");
+    }
+
+    #[test]
+    fn snapshot_history_prunes_to_fifty_entries() {
+        let vault = TempVault::new().expect("temp vault should exist");
+
+        for index in 0..55 {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            create_snapshot(
+                vault.path_string(),
+                "Notes/Test.md".into(),
+                format!("version {index}"),
+                "user".into(),
+                "User".into(),
+                None,
+            )
+            .expect("snapshot should create");
+        }
+
+        let snapshots = list_snapshots(vault.path_string(), "Notes/Test.md".into())
+            .expect("snapshots should list");
+
+        assert_eq!(snapshots.len(), 50);
+        assert_eq!(snapshots.first().map(|meta| meta.label.clone()), Some(None));
+        assert_eq!(snapshots.last().map(|meta| meta.id.as_str()).is_some(), true);
+    }
+
+    #[test]
+    fn read_snapshot_errors_for_missing_snapshot() {
+        let vault = TempVault::new().expect("temp vault should exist");
+
+        let err = read_snapshot(
+            vault.path_string(),
+            "Notes/Test.md".into(),
+            "missing".into(),
+        )
+        .expect_err("missing snapshot should fail");
+
+        assert!(err.contains("not found"));
+    }
 }

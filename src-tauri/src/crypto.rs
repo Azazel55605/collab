@@ -182,3 +182,110 @@ pub fn decrypt_vault_files(vault_path: &str, key: &[u8; 32]) -> Result<(), Strin
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        create_enc_header, decrypt_bytes, derive_key, encrypt_bytes, is_encrypted_data,
+        load_key_from_password, load_enc_header, save_enc_header, verify_enc_header, MAGIC,
+    };
+    use crate::test_support::TempVault;
+
+    fn sample_salt() -> [u8; 32] {
+        [
+            0x10, 0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87,
+            0x98, 0xa9, 0xba, 0xcb, 0xdc, 0xed, 0xfe, 0x0f,
+            0x1f, 0x2e, 0x3d, 0x4c, 0x5b, 0x6a, 0x79, 0x88,
+            0x97, 0xa6, 0xb5, 0xc4, 0xd3, 0xe2, 0xf1, 0x00,
+        ]
+    }
+
+    #[test]
+    fn derive_key_is_stable_for_same_password_and_salt() {
+        let salt = sample_salt();
+
+        let key_a = derive_key("correct horse battery staple", &salt).expect("key derivation should succeed");
+        let key_b = derive_key("correct horse battery staple", &salt).expect("key derivation should succeed");
+
+        assert_eq!(key_a, key_b);
+        assert_eq!(key_a.len(), 32);
+    }
+
+    #[test]
+    fn encrypt_and_decrypt_roundtrip_bytes() {
+        let salt = sample_salt();
+        let key = derive_key("roundtrip", &salt).expect("key derivation should succeed");
+
+        let encrypted = encrypt_bytes(&key, b"hello vault").expect("encryption should succeed");
+        let decrypted = decrypt_bytes(&key, &encrypted).expect("decryption should succeed");
+
+        assert!(is_encrypted_data(&encrypted));
+        assert_eq!(decrypted, b"hello vault");
+    }
+
+    #[test]
+    fn encrypted_data_detection_requires_magic_prefix() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(MAGIC);
+        bytes.extend_from_slice(b"payload");
+
+        assert!(is_encrypted_data(&bytes));
+        assert!(!is_encrypted_data(b"not-encrypted"));
+        assert!(!is_encrypted_data(b"CEN"));
+    }
+
+    #[test]
+    fn decrypt_rejects_missing_magic_header() {
+        let salt = sample_salt();
+        let key = derive_key("header-check", &salt).expect("key derivation should succeed");
+
+        let err = decrypt_bytes(&key, b"plain-text-data-that-is-long-enough")
+            .expect_err("missing header should fail");
+
+        assert!(err.contains("header"));
+    }
+
+    #[test]
+    fn decrypt_rejects_corrupted_ciphertext() {
+        let salt = sample_salt();
+        let key = derive_key("corruption-check", &salt).expect("key derivation should succeed");
+        let mut encrypted = encrypt_bytes(&key, b"important note").expect("encryption should succeed");
+
+        let last = encrypted.len() - 1;
+        encrypted[last] ^= 0xff;
+
+        let err = decrypt_bytes(&key, &encrypted).expect_err("corrupted ciphertext should fail");
+
+        assert!(err.contains("incorrect password or corrupted file"));
+    }
+
+    #[test]
+    fn enc_header_roundtrip_verifies_and_loads_key_from_password() {
+        let vault = TempVault::new().expect("temp vault should be created");
+        let salt = sample_salt();
+        let key = derive_key("vault-password", &salt).expect("key derivation should succeed");
+        let header = create_enc_header(&key, &salt).expect("header should be created");
+
+        save_enc_header(&vault.path_string(), &header).expect("header should be saved");
+
+        let loaded_header = load_enc_header(&vault.path_string()).expect("header should load");
+        verify_enc_header(&key, &loaded_header).expect("header should verify");
+
+        let loaded_key = load_key_from_password(&vault.path_string(), "vault-password")
+            .expect("password should load the same key");
+
+        assert_eq!(loaded_key, key);
+    }
+
+    #[test]
+    fn verify_enc_header_rejects_wrong_key() {
+        let salt = sample_salt();
+        let right_key = derive_key("correct-password", &salt).expect("key derivation should succeed");
+        let wrong_key = derive_key("wrong-password", &salt).expect("key derivation should succeed");
+        let header = create_enc_header(&right_key, &salt).expect("header should be created");
+
+        let err = verify_enc_header(&wrong_key, &header).expect_err("wrong key should fail verification");
+
+        assert!(err.contains("incorrect password or corrupted file"));
+    }
+}

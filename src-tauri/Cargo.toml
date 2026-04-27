@@ -51,3 +51,7 @@ base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 scraper = "0.24"
 url = "2.5"
+
+[dev-dependencies]
+tempfile = "3"
+httpmock = "0.7"
