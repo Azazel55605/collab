@@ -12,29 +12,61 @@ import {
   type CollisionDetection,
 } from '@dnd-kit/core';
 import { SortableContext, horizontalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
-import { Plus, LayoutDashboard, CalendarDays, GanttChart, Archive, ArchiveRestore } from 'lucide-react';
+import {
+  Plus,
+  LayoutDashboard,
+  CalendarDays,
+  GanttChart,
+  Archive,
+  ArchiveRestore,
+  Clock3,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  Check,
+  Search,
+  MoreHorizontal,
+  Flag,
+  Users,
+  Calendar,
+} from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useKanbanContext } from '../../views/KanbanPage';
 import { useCollabStore } from '../../store/collabStore';
+import { useKanbanStore } from '../../store/kanbanStore';
+import { formatDate, useUiStore } from '../../store/uiStore';
 import KanbanColumnView from './KanbanColumn';
 import KanbanCardView from './KanbanCard';
 import CalendarView from './CalendarView';
 import TimelineView from './TimelineView';
 import {
+  getCardAttachmentPaths,
   getMissingColumnDefaultTags,
   mergeUniqueTags,
   syncChecklistReferences,
+  type ColumnSortField,
   type KanbanCard,
   type KanbanColumn,
 } from '../../types/kanban';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
 import {
   DocumentTopBar,
   documentTopBarGroupClass,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../layout/DocumentTopBar';
+import CardDialog from './CardDialog';
 
 interface MoveTagsPromptState {
   cardId: string;
@@ -44,74 +76,302 @@ interface MoveTagsPromptState {
   missingTags: string[];
 }
 
-// ── Archive panel ─────────────────────────────────────────────────────────────
+const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
+const PRIORITY_BADGES: Record<'high' | 'medium' | 'low', { label: string; cls: string }> = {
+  high: { label: 'High', cls: 'bg-red-500/20 text-red-400 border-red-500/30' },
+  medium: { label: 'Medium', cls: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
+  low: { label: 'Low', cls: 'bg-green-500/20 text-green-400 border-green-500/30' },
+};
+const SORT_FIELDS: { field: ColumnSortField; label: string }[] = [
+  { field: 'none', label: 'Manual (default)' },
+  { field: 'name', label: 'Name' },
+  { field: 'priority', label: 'Priority' },
+  { field: 'createdAt', label: 'Creation date' },
+  { field: 'startDate', label: 'Start date' },
+  { field: 'dueDate', label: 'Due date' },
+  { field: 'assignees', label: 'Assignees' },
+];
 
-function ArchivePanel() {
-  const { board, updateBoard } = useKanbanContext();
+function archiveSearchText(card: KanbanCard) {
+  return [
+    card.title,
+    card.description,
+    ...card.tags,
+    ...getCardAttachmentPaths(card),
+    ...card.checklist.map((item) => item.text),
+    ...card.comments.map((comment) => comment.content),
+    card.archivedByUserName,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function sortCards(cards: KanbanCard[], column: KanbanColumn, knownUsers: Array<{ userId: string; userName: string }>) {
+  const sort = column.sort;
+  if (!sort || sort.field === 'none') return cards;
+  const next = [...cards];
+  next.sort((a, b) => {
+    let cmp = 0;
+    switch (sort.field) {
+      case 'name':
+        cmp = a.title.localeCompare(b.title);
+        break;
+      case 'priority': {
+        const pa = PRIORITY_ORDER[a.priority ?? ''] ?? 3;
+        const pb = PRIORITY_ORDER[b.priority ?? ''] ?? 3;
+        cmp = pa - pb;
+        break;
+      }
+      case 'createdAt':
+        cmp = (a.createdAt ?? 0) - (b.createdAt ?? 0);
+        break;
+      case 'startDate':
+        cmp = (a.startDate ?? '').localeCompare(b.startDate ?? '');
+        break;
+      case 'dueDate':
+        cmp = (a.dueDate ?? '').localeCompare(b.dueDate ?? '');
+        break;
+      case 'assignees': {
+        const aName = knownUsers.find((user) => a.assignees[0] === user.userId)?.userName ?? a.assignees[0] ?? '';
+        const bName = knownUsers.find((user) => b.assignees[0] === user.userId)?.userName ?? b.assignees[0] ?? '';
+        cmp = aName.localeCompare(bName);
+        break;
+      }
+    }
+    return sort.dir === 'asc' ? cmp : -cmp;
+  });
+  return next;
+}
+
+function clearArchivedState(card: KanbanCard) {
+  return {
+    ...card,
+    archived: undefined,
+    archivedColumnId: undefined,
+    archivedAt: undefined,
+    archivedByUserId: undefined,
+    archivedByUserName: undefined,
+  };
+}
+
+function ArchiveView({ onOpenCard }: { onOpenCard: (card: KanbanCard, columnId: string) => void }) {
+  const { board, updateBoard, knownUsers } = useKanbanContext();
+  const { dateFormat } = useUiStore();
+  const [searchQuery, setSearchQuery] = useState('');
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+
+  function setColumnSort(columnId: string, field: ColumnSortField) {
+    updateBoard((prev) => ({
+      ...prev,
+      columns: prev.columns.map((column) => {
+        if (column.id !== columnId) return column;
+        if (field === 'none') return { ...column, sort: undefined };
+        const dir = column.sort?.field === field && column.sort.dir === 'asc' ? 'desc' : 'asc';
+        return { ...column, sort: { field, dir } };
+      }),
+    }));
+  }
 
   const archivedGroups = board.columns
-    .map(col => ({
+    .map((col) => ({
       col,
-      cards: col.cards.filter(c => c.archived),
+      cards: sortCards(
+        col.cards
+          .filter((card) => card.archived)
+          .filter((card) => !normalizedQuery || archiveSearchText(card).includes(normalizedQuery)),
+        col,
+        knownUsers,
+      ),
     }))
-    .filter(g => g.cards.length > 0);
+    .filter((group) => group.cards.length > 0);
 
-  const totalArchived = archivedGroups.reduce((n, g) => n + g.cards.length, 0);
+  const totalArchived = archivedGroups.reduce((count, group) => count + group.cards.length, 0);
 
   function restoreCard(cardId: string, columnId: string) {
-    updateBoard(prev => ({
+    updateBoard((prev) => ({
       ...prev,
-      columns: prev.columns.map(col =>
-        col.id !== columnId ? col : {
-          ...col,
-          cards: col.cards.map(c =>
-            c.id !== cardId ? c : { ...c, archived: undefined, archivedColumnId: undefined },
-          ),
-        },
+      columns: prev.columns.map((col) =>
+        col.id !== columnId
+          ? col
+          : {
+              ...col,
+              cards: col.cards.map((card) => (card.id !== cardId ? card : clearArchivedState(card))),
+            },
       ),
     }));
   }
 
-  return (
-    <div className="border-t border-border/30 bg-muted/10 shrink-0 max-h-64 overflow-y-auto">
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-border/20 sticky top-0 bg-background/80 backdrop-blur-sm-webkit">
-        <Archive size={12} className="text-muted-foreground" />
-        <span className="text-xs font-medium text-muted-foreground">
-          Archive — {totalArchived} {totalArchived === 1 ? 'card' : 'cards'}
-        </span>
+  if (totalArchived === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center px-6">
+        <div className="rounded-2xl border border-dashed border-border/50 bg-muted/10 px-6 py-8 text-center">
+          <Archive size={24} className="mx-auto mb-3 text-muted-foreground/50" />
+          <p className="text-sm font-medium text-foreground">
+            {normalizedQuery ? 'No archived cards match this search' : 'Archive is empty'}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {normalizedQuery ? 'Try a different title, tag, checklist, or attachment term.' : 'Archived cards will show up here.'}
+          </p>
+        </div>
       </div>
-      {totalArchived === 0 ? (
-        <p className="text-xs text-muted-foreground/50 px-4 py-3">No archived cards.</p>
-      ) : (
-        <div className="p-4 flex flex-col gap-4">
-          {archivedGroups.map(({ col, cards }) => (
-            <div key={col.id}>
-              <div className="flex items-center gap-1.5 mb-2">
-                <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: col.color ?? '#64748b' }} />
-                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">{col.title}</span>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="mb-4 sticky top-0 z-10 bg-background/90 backdrop-blur-sm-webkit pb-3">
+        <div className="relative max-w-md">
+          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
+          <Input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search archived cards..."
+            className="h-9 pl-9 text-sm"
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-4">
+        {archivedGroups.map(({ col, cards }) => (
+          <section key={col.id} className="rounded-2xl border border-border/40 bg-card/30 overflow-hidden">
+            <div className="flex items-center justify-between gap-3 border-b border-border/30 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: col.color ?? '#64748b' }} />
+                <span className="text-sm font-semibold text-foreground">{col.title}</span>
+                {col.sort && col.sort.field !== 'none' && (
+                  <span title={`Sorted by ${col.sort.field} (${col.sort.dir})`} className="shrink-0">
+                    {col.sort.dir === 'asc'
+                      ? <ArrowUp size={11} className="text-primary/60" />
+                      : <ArrowDown size={11} className="text-primary/60" />}
+                  </span>
+                )}
               </div>
-              <div className="flex flex-col gap-1">
-                {cards.map(card => (
-                  <div
-                    key={card.id}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-card/40 border border-border/30 text-xs"
-                  >
-                    <span className="flex-1 truncate text-muted-foreground">{card.title}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {cards.length} {cards.length === 1 ? 'archived card' : 'archived cards'}
+                </span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
                     <button
-                      onClick={() => restoreCard(card.id, col.id)}
-                      className="flex items-center gap-1 shrink-0 text-[10px] text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 px-1.5 py-0.5 rounded transition-colors"
-                      title="Restore to column"
+                      type="button"
+                      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent/50 hover:text-foreground"
+                      aria-label={`Sort archived cards in ${col.title}`}
                     >
-                      <ArchiveRestore size={10} />
-                      Restore
+                      <MoreHorizontal size={13} />
                     </button>
-                  </div>
-                ))}
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52">
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger className="text-xs">
+                        <ArrowUpDown size={11} className="mr-2" />
+                        Sort by
+                        {col.sort && col.sort.field !== 'none' && (
+                          <span className="ml-auto text-[10px] text-primary/70 capitalize">
+                            {col.sort.field}
+                          </span>
+                        )}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-48">
+                        {SORT_FIELDS.map(({ field, label }) => {
+                          const isActive = field === 'none' ? !col.sort || col.sort.field === 'none' : col.sort?.field === field;
+                          const dir = isActive && field !== 'none' ? col.sort?.dir : null;
+                          return (
+                            <DropdownMenuItem key={field} onClick={() => setColumnSort(col.id, field)} className="text-xs">
+                              <span className="flex-1">{label}</span>
+                              {isActive && field === 'none' && <Check size={11} className="text-primary/70" />}
+                              {dir === 'asc' && <ArrowUp size={11} className="text-primary/70" />}
+                              {dir === 'desc' && <ArrowDown size={11} className="text-primary/70" />}
+                            </DropdownMenuItem>
+                          );
+                        })}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
-          ))}
-        </div>
-      )}
+
+            <div className="divide-y divide-border/20">
+              {cards.map((card) => {
+                const attachments = getCardAttachmentPaths(card);
+                const assigneeNames = card.assignees
+                  .map((userId) => knownUsers.find((user) => user.userId === userId)?.userName ?? userId)
+                  .filter(Boolean);
+                return (
+                  <div key={card.id} className="flex items-start gap-3 px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => onOpenCard(card, col.id)}
+                      className="flex-1 min-w-0 text-left rounded-lg transition-colors hover:bg-accent/25 px-2 py-1.5 -mx-2 -my-1.5"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">{card.title}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                            {card.archivedAt && (
+                              <span className="flex items-center gap-1">
+                                <Clock3 size={11} />
+                                {new Date(card.archivedAt).toLocaleString()}
+                              </span>
+                            )}
+                            {card.archivedByUserName && <span>Archived by {card.archivedByUserName}</span>}
+                            {card.priority && (
+                              <span
+                                className={cn(
+                                  'inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 font-medium capitalize',
+                                  PRIORITY_BADGES[card.priority].cls,
+                                )}
+                              >
+                                <Flag size={11} />
+                                {PRIORITY_BADGES[card.priority].label}
+                              </span>
+                            )}
+                            {assigneeNames.length > 0 && (
+                              <span className="flex items-center gap-1">
+                                <Users size={11} />
+                                {assigneeNames.join(', ')}
+                              </span>
+                            )}
+                            {card.startDate && (
+                              <span className="flex items-center gap-1">
+                                <Calendar size={11} />
+                                Start {formatDate(new Date(`${card.startDate}T12:00:00`), dateFormat)}
+                              </span>
+                            )}
+                            {card.dueDate && (
+                              <span className="flex items-center gap-1">
+                                <Calendar size={11} />
+                                Due {formatDate(new Date(`${card.dueDate}T12:00:00`), dateFormat)}
+                              </span>
+                            )}
+                            {attachments.length > 0 && <span>{attachments.length} attachment{attachments.length === 1 ? '' : 's'}</span>}
+                            {card.checklist.length > 0 && (
+                              <span>{card.checklist.filter((item) => item.checked).length}/{card.checklist.length} tasks</span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="shrink-0 text-[11px] text-muted-foreground">Open</span>
+                      </div>
+                    </button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1.5 text-xs"
+                      onClick={() => restoreCard(card.id, col.id)}
+                    >
+                      <ArchiveRestore size={12} />
+                      Restore
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+      </div>
     </div>
   );
 }
@@ -121,13 +381,13 @@ function ArchivePanel() {
 export default function KanbanBoardView() {
   const { board, updateBoard, relativePath } = useKanbanContext();
   const { peers } = useCollabStore();
+  const { boardPath, cardId: editingCardId, columnId: editingColumnId, clearEditing, setEditing } = useKanbanStore();
   const boardViewportRef = useRef<HTMLDivElement | null>(null);
-  const [view, setView] = useState<'board' | 'calendar' | 'timeline'>('board');
+  const [view, setView] = useState<'board' | 'calendar' | 'timeline' | 'archive'>('board');
   const [activeCard,   setActiveCard]   = useState<KanbanCard | null>(null);
   const [activeColumn, setActiveColumn] = useState<KanbanColumn | null>(null);
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColTitle, setNewColTitle] = useState('');
-  const [showArchive, setShowArchive] = useState(false);
   const [moveTagsPrompt, setMoveTagsPrompt] = useState<MoveTagsPromptState | null>(null);
 
   useEffect(() => {
@@ -150,6 +410,16 @@ export default function KanbanBoardView() {
     () => peers.filter(p => p.activeFile === relativePath),
     [peers, relativePath],
   );
+  const archivedCount = useMemo(
+    () => board.columns.reduce((count, column) => count + column.cards.filter((card) => card.archived).length, 0),
+    [board.columns],
+  );
+  const archivedEditingCard = useMemo(() => {
+    if (boardPath !== relativePath || !editingCardId || !editingColumnId) return null;
+    const column = board.columns.find((entry) => entry.id === editingColumnId);
+    const card = column?.cards.find((entry) => entry.id === editingCardId);
+    return card?.archived ? { card, columnId: editingColumnId } : null;
+  }, [board.columns, boardPath, editingCardId, editingColumnId, relativePath]);
 
   // Track which column the dragged card started in so we can apply autoComplete
   // correctly even after onDragOver has already moved the card cross-column.
@@ -400,6 +670,10 @@ export default function KanbanBoardView() {
           event.preventDefault();
           setView('timeline');
           break;
+        case '4':
+          event.preventDefault();
+          setView('archive');
+          break;
         case 'b':
         case 'B':
           event.preventDefault();
@@ -415,17 +689,16 @@ export default function KanbanBoardView() {
           event.preventDefault();
           setView('timeline');
           break;
+        case 'a':
+        case 'A':
+          event.preventDefault();
+          setView('archive');
+          break;
         case 'n':
         case 'N':
           if (view === 'board') {
             event.preventDefault();
             setAddingColumn(true);
-          }
-          break;
-        case 'A':
-          if (event.shiftKey && view === 'board') {
-            event.preventDefault();
-            setShowArchive((current) => !current);
           }
           break;
         case 'ArrowRight':
@@ -501,6 +774,9 @@ export default function KanbanBoardView() {
             <span className="shrink-0 text-xs text-muted-foreground">
               {totalCards} {totalCards === 1 ? 'card' : 'cards'} across {board.columns.length} columns
             </span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {archivedCount} archived
+            </span>
             {boardPeers.length > 0 && (
               <div className="flex items-center gap-1" title="Also viewing this board">
                 {boardPeers.map(p => (
@@ -556,26 +832,27 @@ export default function KanbanBoardView() {
                 <GanttChart size={12} />
                 Timeline
               </button>
+              <button
+                onClick={() => setView('archive')}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                  view === 'archive'
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Archive size={12} />
+                Archive
+                {archivedCount > 0 && (
+                  <span className="rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] leading-none">
+                    {archivedCount}
+                  </span>
+                )}
+              </button>
             </div>
 
             {view === 'board' && (
               <>
-                <div className={documentTopBarGroupClass}>
-                  <button
-                    onClick={() => setShowArchive(v => !v)}
-                    title={showArchive ? 'Hide archive' : 'Show archive'}
-                    className={cn(
-                      'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
-                      showArchive
-                        ? 'bg-accent text-accent-foreground'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    <Archive size={12} />
-                    Archive
-                  </button>
-                </div>
-
                 <div className={documentTopBarGroupClass}>
                   <button
                     onClick={() => setAddingColumn(true)}
@@ -596,6 +873,15 @@ export default function KanbanBoardView() {
 
       {/* Timeline view */}
       {view === 'timeline' && <TimelineView />}
+
+      {/* Archive view */}
+      {view === 'archive' && (
+        <ArchiveView
+          onOpenCard={(card, columnId) => {
+            setEditing(relativePath, card.id, columnId, card);
+          }}
+        />
+      )}
 
       {/* Board body — horizontal scroll */}
       {view === 'board' && <div className="flex-1 flex flex-col overflow-hidden">
@@ -677,10 +963,15 @@ export default function KanbanBoardView() {
             </DragOverlay>
           </DndContext>
         </div>
-
-        {/* Archive panel */}
-        {showArchive && <ArchivePanel />}
       </div>}
+
+      {archivedEditingCard && (
+        <CardDialog
+          card={archivedEditingCard.card}
+          columnId={archivedEditingCard.columnId}
+          onClose={clearEditing}
+        />
+      )}
 
       <Dialog open={moveTagsPrompt !== null} onOpenChange={(open) => !open && setMoveTagsPrompt(null)}>
         <DialogContent className="sm:max-w-md">

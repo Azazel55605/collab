@@ -10,6 +10,7 @@ import { cn } from '../../lib/utils';
 import { useKanbanContext } from '../../views/KanbanPage';
 import { useUiStore, formatDate, type DateFormat } from '../../store/uiStore';
 import { useKanbanStore } from '../../store/kanbanStore';
+import { useCollabStore } from '../../store/collabStore';
 import {
   getCardAttachmentPaths,
   getMissingColumnDefaultTags,
@@ -196,6 +197,7 @@ interface Props {
 
 export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
   const { knownUsers, updateBoard, board, relativePath } = useKanbanContext();
+  const { myUserId, myUserName } = useCollabStore();
   const { dateFormat } = useUiStore();
   const { boardPath, cardId: editingCardId, setEditing, clearEditing } = useKanbanStore();
   const [destPicker, setDestPicker] = useState<KanbanColumn[] | null>(null);
@@ -314,11 +316,18 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
       columns: prev.columns.map(col =>
         col.id !== columnId ? col : {
           ...col,
-          cards: col.cards.map(c => c.id !== card.id ? c : { ...c, archived: true, archivedColumnId: columnId }),
+          cards: col.cards.map(c => c.id !== card.id ? c : {
+            ...c,
+            archived: true,
+            archivedColumnId: columnId,
+            archivedAt: Date.now(),
+            archivedByUserId: myUserId,
+            archivedByUserName: myUserName,
+          }),
         },
       ),
     }));
-  }, []);
+  }, [myUserId, myUserName]);
 
   const restoreCard = useCallback(() => {
     const { card, columnId, updateBoard } = stateRef.current;
@@ -327,7 +336,14 @@ export default function KanbanCardView({ card, columnId, isOverlay }: Props) {
       columns: prev.columns.map(col =>
         col.id !== columnId ? col : {
           ...col,
-          cards: col.cards.map(c => c.id !== card.id ? c : { ...c, archived: undefined, archivedColumnId: undefined }),
+          cards: col.cards.map(c => c.id !== card.id ? c : {
+            ...c,
+            archived: undefined,
+            archivedColumnId: undefined,
+            archivedAt: undefined,
+            archivedByUserId: undefined,
+            archivedByUserName: undefined,
+          }),
         },
       ),
     }));

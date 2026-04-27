@@ -31,6 +31,9 @@ export interface KanbanCard {
   isDone?: boolean;
   archived?: boolean;
   archivedColumnId?: string; // remembers the column the card was in when archived
+  archivedAt?: number;
+  archivedByUserId?: string;
+  archivedByUserName?: string;
 }
 
 export type ColumnSortField = 'none' | 'name' | 'priority' | 'createdAt' | 'startDate' | 'dueDate' | 'assignees';

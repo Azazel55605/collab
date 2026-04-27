@@ -77,7 +77,12 @@ describe('CardDialogSidebar', () => {
 
     render(
       <CardDialogSidebar
-        draft={{ ...DRAFT, archived: true }}
+        draft={{
+          ...DRAFT,
+          archived: true,
+          archivedAt: new Date('2026-04-27T14:20:00Z').getTime(),
+          archivedByUserName: 'User One',
+        }}
         priorities={[]}
         dateFormat="YYYY_MM_DD"
         knownUsers={[]}
@@ -103,5 +108,9 @@ describe('CardDialogSidebar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
     expect(setConfirmDelete).toHaveBeenCalledWith(false);
+
+    expect(screen.getByText('Archived')).toBeTruthy();
+    expect(screen.getByText('By')).toBeTruthy();
+    expect(screen.getByText('User One')).toBeTruthy();
   });
 });

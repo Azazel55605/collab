@@ -105,6 +105,8 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
   } = useCardDialogActions({
     board,
     draft,
+    myUserId,
+    myUserName,
     setDraft,
     currentColIdRef,
     setCurrentColumnId,

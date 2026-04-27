@@ -2,6 +2,7 @@ import { format } from 'date-fns';
 import {
   Archive,
   ArchiveRestore,
+  ArchiveX,
   Calendar,
   Columns2,
   Flag,
@@ -220,6 +221,28 @@ export function CardDialogSidebar({
           {draft.archived ? 'Restore from archive' : 'Archive card'}
         </button>
       </section>
+
+      {draft.archived && (
+        <section>
+          <label className="section-label flex items-center gap-1"><ArchiveX size={11} /> Archive</label>
+          <div className="rounded-lg border border-border/30 bg-muted/25 px-2.5 py-2 text-xs text-muted-foreground space-y-1.5">
+            {draft.archivedAt && (
+              <div className="flex items-start justify-between gap-3">
+                <span className="shrink-0">Archived</span>
+                <span className="text-right text-foreground/80">
+                  {format(new Date(draft.archivedAt), 'PPp')}
+                </span>
+              </div>
+            )}
+            {draft.archivedByUserName && (
+              <div className="flex items-start justify-between gap-3">
+                <span className="shrink-0">By</span>
+                <span className="text-right text-foreground/80">{draft.archivedByUserName}</span>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       <section className="mt-auto pt-3 border-t border-border/20">
         {confirmDelete ? (

@@ -29,9 +29,53 @@ const BOARD: KanbanBoard = {
 describe('useCardDialogActions helpers', () => {
   it('deletes and archives cards within the targeted column', () => {
     expect(deleteCardFromBoard(BOARD, 'todo', 'card-1').columns[0].cards).toHaveLength(0);
-    expect(toggleArchivedCardInBoard(BOARD, 'todo', 'card-1', false).columns[0].cards[0]).toEqual(
-      expect.objectContaining({ archived: true, archivedColumnId: 'todo' }),
+    const now = vi.spyOn(Date, 'now').mockReturnValue(123456789);
+
+    expect(
+      toggleArchivedCardInBoard(BOARD, 'todo', 'card-1', false, { userId: 'user-1', userName: 'Test User' }).columns[0].cards[0],
+    ).toEqual(
+      expect.objectContaining({
+        archived: true,
+        archivedColumnId: 'todo',
+        archivedAt: 123456789,
+        archivedByUserId: 'user-1',
+        archivedByUserName: 'Test User',
+      }),
     );
+
+    expect(
+      toggleArchivedCardInBoard(
+        {
+          columns: [
+            {
+              id: 'todo',
+              title: 'Todo',
+              cards: [{
+                ...CARD,
+                archived: true,
+                archivedColumnId: 'todo',
+                archivedAt: 123456789,
+                archivedByUserId: 'user-1',
+                archivedByUserName: 'Test User',
+              }],
+            },
+          ],
+        },
+        'todo',
+        'card-1',
+        true,
+      ).columns[0].cards[0],
+    ).toEqual(
+      expect.objectContaining({
+        archived: undefined,
+        archivedColumnId: undefined,
+        archivedAt: undefined,
+        archivedByUserId: undefined,
+        archivedByUserName: undefined,
+      }),
+    );
+
+    now.mockRestore();
   });
 
   it('moves cards between columns and requests prompt tags when needed', () => {
@@ -77,6 +121,8 @@ describe('useCardDialogActions', () => {
       useCardDialogActions({
         board: BOARD,
         draft: draftState,
+        myUserId: 'user-1',
+        myUserName: 'Test User',
         setDraft,
         currentColIdRef: { current: 'todo' },
         setCurrentColumnId,

@@ -20,6 +20,8 @@ export interface MoveTagsPromptState {
 type UseCardDialogActionsArgs = {
   board: KanbanBoard;
   draft: KanbanCard;
+  myUserId: string;
+  myUserName: string;
   setDraft: React.Dispatch<React.SetStateAction<KanbanCard>>;
   currentColIdRef: React.MutableRefObject<string>;
   setCurrentColumnId: (columnId: string) => void;
@@ -43,7 +45,13 @@ export function deleteCardFromBoard(board: KanbanBoard, columnId: string, cardId
   };
 }
 
-export function toggleArchivedCardInBoard(board: KanbanBoard, columnId: string, cardId: string, isArchived?: boolean): KanbanBoard {
+export function toggleArchivedCardInBoard(
+  board: KanbanBoard,
+  columnId: string,
+  cardId: string,
+  isArchived: boolean | undefined,
+  actor?: { userId: string; userName: string },
+): KanbanBoard {
   return {
     ...board,
     columns: board.columns.map((column) =>
@@ -58,6 +66,9 @@ export function toggleArchivedCardInBoard(board: KanbanBoard, columnId: string, 
                     ...card,
                     archived: isArchived ? undefined : true,
                     archivedColumnId: isArchived ? undefined : columnId,
+                    archivedAt: isArchived ? undefined : Date.now(),
+                    archivedByUserId: isArchived ? undefined : actor?.userId,
+                    archivedByUserName: isArchived ? undefined : actor?.userName,
                   },
             ),
           },
@@ -147,6 +158,8 @@ export function moveCardBetweenColumns(
 export function useCardDialogActions({
   board,
   draft,
+  myUserId,
+  myUserName,
   setDraft,
   currentColIdRef,
   setCurrentColumnId,
@@ -197,7 +210,13 @@ export function useCardDialogActions({
 
   function toggleArchive() {
     cancelPendingFlush();
-    updateBoard((prev) => toggleArchivedCardInBoard(prev, currentColIdRef.current, draft.id, draft.archived));
+    updateBoard((prev) => toggleArchivedCardInBoard(
+      prev,
+      currentColIdRef.current,
+      draft.id,
+      draft.archived,
+      { userId: myUserId, userName: myUserName },
+    ));
     onClose();
   }
 
