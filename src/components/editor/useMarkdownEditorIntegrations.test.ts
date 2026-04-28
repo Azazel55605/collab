@@ -1,15 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  handleEditorImageShiftClick,
   handleNativeEditorDrop,
   importDroppedImagesIntoEditor,
   resolveHoverPreviewState,
 } from './useMarkdownEditorIntegrations';
+import { useEditorStore } from '../../store/editorStore';
+import { useUiStore } from '../../store/uiStore';
 
 describe('useMarkdownEditorIntegrations helpers', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = '';
+    useEditorStore.setState({
+      sessionVaultPath: null,
+      openTabs: [],
+      activeTabPath: null,
+      forceReloadPath: null,
+    });
+    useUiStore.setState({
+      activeView: 'editor',
+    });
   });
 
   it('resolves hovered http links when previews are enabled', () => {
@@ -108,5 +120,26 @@ describe('useMarkdownEditorIntegrations helpers', () => {
 
     expect(importDroppedImages).toHaveBeenCalledTimes(2);
     expect(importDroppedImages).toHaveBeenCalledWith(['a.png'], 7);
+  });
+
+  it('opens vault-backed live preview images in the image viewer on shift-mousedown', () => {
+    const openTab = vi.spyOn(useEditorStore.getState(), 'openTab');
+    const setActiveView = vi.spyOn(useUiStore.getState(), 'setActiveView');
+
+    const wrap = document.createElement('span');
+    const img = document.createElement('img');
+    img.className = 'cm-lp-image';
+    img.dataset.assetKind = 'vault';
+    img.dataset.assetValue = 'Pictures/demo.png';
+    wrap.appendChild(img);
+    document.body.appendChild(wrap);
+
+    const event = new MouseEvent('mousedown', { bubbles: true, shiftKey: true, cancelable: true });
+    Object.defineProperty(event, 'target', { value: img });
+
+    expect(handleEditorImageShiftClick(event)).toBe(true);
+    expect(openTab).toHaveBeenCalledWith('Pictures/demo.png', 'demo', 'image');
+    expect(setActiveView).toHaveBeenCalledWith('editor');
+    expect(event.defaultPrevented).toBe(true);
   });
 });

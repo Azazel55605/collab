@@ -6,6 +6,7 @@ import {
 } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { Checkbox } from '../ui/checkbox';
 
 // ─── Confirm delete ───────────────────────────────────────────────────────────
 
@@ -13,11 +14,23 @@ interface ConfirmDeleteProps {
   open: boolean;
   name: string;
   isFolder: boolean;
+  showReferenceOption?: boolean;
+  removeReferences?: boolean;
+  onRemoveReferencesChange?: (value: boolean) => void;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
-export function ConfirmDeleteDialog({ open, name, isFolder, onConfirm, onCancel }: ConfirmDeleteProps) {
+export function ConfirmDeleteDialog({
+  open,
+  name,
+  isFolder,
+  showReferenceOption = false,
+  removeReferences = false,
+  onRemoveReferencesChange,
+  onConfirm,
+  onCancel,
+}: ConfirmDeleteProps) {
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onCancel(); }}>
       <DialogContent showCloseButton={false} className="max-w-sm">
@@ -35,6 +48,21 @@ export function ConfirmDeleteDialog({ open, name, isFolder, onConfirm, onCancel 
             {' '}This cannot be undone.
           </DialogDescription>
         </DialogHeader>
+        {showReferenceOption && onRemoveReferencesChange && (
+          <label className="flex items-start gap-3 rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5">
+            <Checkbox
+              checked={removeReferences}
+              onCheckedChange={(checked) => onRemoveReferencesChange(checked === true)}
+              className="mt-0.5"
+            />
+            <div className="space-y-1">
+              <div className="text-sm font-medium text-foreground">Also remove file references</div>
+              <div className="text-xs text-muted-foreground">
+                Update notes, boards, and canvases that link to this {isFolder ? 'folder' : 'file'} by removing the affected references.
+              </div>
+            </div>
+          </label>
+        )}
         <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
           <Button variant="outline" onClick={onCancel}>Cancel</Button>
           <Button variant="destructive" onClick={onConfirm} autoFocus>Delete</Button>

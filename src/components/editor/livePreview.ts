@@ -399,11 +399,15 @@ class ImageWidget extends WidgetType {
   toDOM() {
     const wrap = document.createElement('span');
     wrap.className = 'cm-lp-image-wrap';
+    wrap.dataset.assetKind = this.target.kind;
+    wrap.dataset.assetValue = this.target.value;
 
     const img = document.createElement('img');
     img.className = 'cm-lp-image';
     img.alt = this.alt;
     img.loading = 'lazy';
+    img.dataset.assetKind = this.target.kind;
+    img.dataset.assetValue = this.target.value;
     wrap.appendChild(img);
 
     if (this.target.kind === 'direct') {

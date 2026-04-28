@@ -94,7 +94,7 @@ function groupKanbanTemplates(templates: KanbanTemplate[]): KanbanTemplate[] {
 export default function BoardsPanel({ kind }: Props) {
   const { vault, fileTree, refreshFileTree } = useVaultStore();
   const { openTab, closeTab, activeTabPath } = useEditorStore();
-  const { setActiveView, confirmDelete: confirmDeleteSetting } = useUiStore();
+  const { setActiveView } = useUiStore();
   const [creating, setCreating] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createTemplate, setCreateTemplate] = useState('__blank__');
@@ -102,6 +102,7 @@ export default function BoardsPanel({ kind }: Props) {
   const [loadingTemplateChoices, setLoadingTemplateChoices] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [deleteBoard, setDeleteBoard] = useState<NoteFile | null>(null);
+  const [deleteRemoveReferences, setDeleteRemoveReferences] = useState(false);
   const [templateBoard, setTemplateBoard] = useState<NoteFile | null>(null);
 
   const boards = collectByExtension(fileTree, kind);
@@ -186,10 +187,10 @@ export default function BoardsPanel({ kind }: Props) {
     }
   }, [createName, createTemplate, label, openTab, refreshFileTree, setActiveView, vault, visibleTemplateChoices]);
 
-  const deleteBoardFile = useCallback(async (file: NoteFile) => {
+  const deleteBoardFile = useCallback(async (file: NoteFile, removeReferences = false) => {
     if (!vault) return;
     try {
-      await tauriCommands.deleteNote(vault.path, file.relativePath);
+      await tauriCommands.deleteNote(vault.path, file.relativePath, removeReferences);
       closeTab(file.relativePath);
       await refreshFileTree();
       toast.success(`Deleted ${file.name}`);
@@ -199,12 +200,9 @@ export default function BoardsPanel({ kind }: Props) {
   }, [vault, closeTab, refreshFileTree, label]);
 
   const handleDelete = useCallback((file: NoteFile) => {
-    if (!confirmDeleteSetting) {
-      void deleteBoardFile(file);
-      return;
-    }
+    setDeleteRemoveReferences(false);
     setDeleteBoard(file);
-  }, [confirmDeleteSetting, deleteBoardFile]);
+  }, [deleteBoardFile]);
 
   const handleSaveAsTemplate = useCallback((file: NoteFile) => {
     setTemplateBoard(file);
@@ -356,12 +354,19 @@ export default function BoardsPanel({ kind }: Props) {
         open={!!deleteBoard}
         name={deleteBoard?.name ?? ''}
         isFolder={false}
+        showReferenceOption
+        removeReferences={deleteRemoveReferences}
+        onRemoveReferencesChange={setDeleteRemoveReferences}
         onConfirm={() => {
           if (!deleteBoard) return;
-          void deleteBoardFile(deleteBoard);
+          void deleteBoardFile(deleteBoard, deleteRemoveReferences);
           setDeleteBoard(null);
+          setDeleteRemoveReferences(false);
         }}
-        onCancel={() => setDeleteBoard(null)}
+        onCancel={() => {
+          setDeleteBoard(null);
+          setDeleteRemoveReferences(false);
+        }}
       />
 
       {/* Toolbar */}

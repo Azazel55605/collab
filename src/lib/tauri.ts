@@ -80,8 +80,10 @@ export const tauriCommands = {
   writeNote: (vaultPath: string, relativePath: string, content: string, expectedHash?: string) =>
     invoke<WriteResult>('write_note', { vaultPath, relativePath, content, expectedHash: expectedHash ?? null }),
   createNote: (vaultPath: string, relativePath: string) => invoke<NoteFile>('create_note', { vaultPath, relativePath }),
-  deleteNote: (vaultPath: string, relativePath: string) => invoke<void>('delete_note', { vaultPath, relativePath }),
-  renameNote: (vaultPath: string, oldPath: string, newPath: string) => invoke<void>('rename_note', { vaultPath, oldPath, newPath }),
+  deleteNote: (vaultPath: string, relativePath: string, removeReferences?: boolean) =>
+    invoke<void>('delete_note', { vaultPath, relativePath, removeReferences: removeReferences ?? null }),
+  renameNote: (vaultPath: string, oldPath: string, newPath: string, updateReferences?: boolean) =>
+    invoke<void>('rename_note', { vaultPath, oldPath, newPath, updateReferences: updateReferences ?? null }),
   createFolder: (vaultPath: string, relativePath: string) => invoke<void>('create_folder', { vaultPath, relativePath }),
   fetchLinkPreview: (url: string) => invoke<LinkPreviewData>('fetch_link_preview', { url }),
 

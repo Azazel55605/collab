@@ -5,6 +5,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { toast } from 'sonner';
 
 import { tauriCommands } from '../../lib/tauri';
+import { useEditorStore } from '../../store/editorStore';
+import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
 
 type HoverPreviewState = {
@@ -124,6 +126,25 @@ export function handleNativeEditorDrop({
   return true;
 }
 
+export function handleEditorImageShiftClick(event: MouseEvent) {
+  if (!event.shiftKey) return false;
+
+  const target = event.target instanceof Element ? event.target : null;
+  const imageEl = target?.closest('.cm-lp-image') as HTMLElement | null;
+  if (!imageEl) return false;
+
+  const assetKind = imageEl.dataset.assetKind;
+  const assetValue = imageEl.dataset.assetValue;
+  if (assetKind !== 'vault' || !assetValue) return false;
+
+  const title = assetValue.split('/').pop()?.replace(/\.[^.]+$/, '') ?? assetValue;
+  useEditorStore.getState().openTab(assetValue, title, 'image');
+  useUiStore.getState().setActiveView('editor');
+  event.preventDefault();
+  event.stopPropagation();
+  return true;
+}
+
 type UseMarkdownEditorIntegrationsArgs = {
   view: EditorView | null;
   webPreviewsEnabled: boolean;
@@ -224,15 +245,20 @@ export function useMarkdownEditorIntegrations({
       setHoveredUrl(null);
       setHoverRect(null);
     };
+    const handleMouseDown = (event: MouseEvent) => {
+      handleEditorImageShiftClick(event);
+    };
 
     editorDom.addEventListener('drop', handleDrop);
     editorDom.addEventListener('mousemove', handlePreviewHover);
     editorDom.addEventListener('mouseleave', handlePreviewLeave);
+    editorDom.addEventListener('mousedown', handleMouseDown, true);
 
     return () => {
       editorDom.removeEventListener('drop', handleDrop);
       editorDom.removeEventListener('mousemove', handlePreviewHover);
       editorDom.removeEventListener('mouseleave', handlePreviewLeave);
+      editorDom.removeEventListener('mousedown', handleMouseDown, true);
       unlistenWebviewDragDrop?.();
       unlistenWindowDragDrop?.();
     };

@@ -2,6 +2,7 @@ use crate::crypto;
 use crate::models::note::{ConflictInfo, NoteContent, NoteFile, WriteResult};
 use crate::state::AppState;
 use base64::Engine as _;
+use regex::{Captures, Regex};
 use sha2::{Digest, Sha256};
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -182,6 +183,346 @@ fn unique_target_path(base_dir: &Path, file_name: &str) -> PathBuf {
         }
         index += 1;
     }
+}
+
+fn path_matches_or_descends(candidate: &str, target: &str) -> bool {
+    candidate == target || candidate.starts_with(&format!("{target}/"))
+}
+
+fn remap_path(candidate: &str, old_path: &str, new_path: &str) -> Option<String> {
+    if candidate == old_path {
+        return Some(new_path.to_string());
+    }
+    candidate
+        .strip_prefix(&format!("{old_path}/"))
+        .map(|suffix| format!("{new_path}/{suffix}"))
+}
+
+fn split_path_suffix(value: &str) -> (&str, &str) {
+    match value.find(['?', '#']) {
+        Some(index) => (&value[..index], &value[index..]),
+        None => (value, ""),
+    }
+}
+
+fn relative_path_from_dir(base_dir: &Path, target: &Path) -> String {
+    let base_parts: Vec<_> = base_dir
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(part) => Some(part.to_string_lossy().to_string()),
+            _ => None,
+        })
+        .collect();
+    let target_parts: Vec<_> = target
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(part) => Some(part.to_string_lossy().to_string()),
+            _ => None,
+        })
+        .collect();
+
+    let mut common = 0;
+    while common < base_parts.len()
+        && common < target_parts.len()
+        && base_parts[common] == target_parts[common]
+    {
+        common += 1;
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    for _ in common..base_parts.len() {
+        parts.push("..".into());
+    }
+    for part in target_parts.iter().skip(common) {
+        parts.push(part.clone());
+    }
+
+    if parts.is_empty() {
+        ".".into()
+    } else {
+        parts.join("/")
+    }
+}
+
+fn format_rewritten_target(note_relative_path: &str, original_target_path: &str, rewritten_path: &str, suffix: &str) -> String {
+    if original_target_path.starts_with('/') {
+        return format!("/{rewritten_path}{suffix}");
+    }
+
+    let note_dir = normalize_relative_path(note_relative_path)
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+        .unwrap_or_default();
+    let relative = relative_path_from_dir(&note_dir, Path::new(rewritten_path));
+    format!("{relative}{suffix}")
+}
+
+fn rewrite_target_reference(
+    raw_target: &str,
+    note_relative_path: &str,
+    old_path: &str,
+    new_path: Option<&str>,
+) -> Option<Option<String>> {
+    let trimmed = raw_target.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with("data:")
+        || trimmed.starts_with("blob:")
+        || trimmed.starts_with("//")
+        || trimmed.contains("://")
+    {
+        return None;
+    }
+
+    let (path_part, suffix) = split_path_suffix(trimmed);
+    let resolved = if path_part.starts_with('/') {
+        normalize_relative_path(path_part).ok()?
+    } else {
+        let note_dir = note_relative_path
+            .rsplit_once('/')
+            .map(|(dir, _)| dir)
+            .unwrap_or("");
+        normalize_relative_path(
+            if note_dir.is_empty() {
+                path_part.to_string()
+            } else {
+                format!("{note_dir}/{path_part}")
+            }
+            .as_str(),
+        )
+        .ok()?
+    };
+
+    let resolved_str = resolved.to_string_lossy().replace('\\', "/");
+    if !path_matches_or_descends(&resolved_str, old_path) {
+        return None;
+    }
+
+    match new_path {
+      Some(next_path) => {
+        let rewritten = remap_path(&resolved_str, old_path, next_path)?;
+        Some(Some(format_rewritten_target(note_relative_path, path_part, &rewritten, suffix)))
+      }
+      None => Some(None),
+    }
+}
+
+fn replace_markdown_references(
+    content: &str,
+    note_relative_path: &str,
+    old_path: &str,
+    new_path: Option<&str>,
+) -> String {
+    let image_md = Regex::new(r"!\[([^\]\n]*?)\]\(([^)\n]*?)\)").unwrap();
+    let image_wiki = Regex::new(r"!\[\[([^\]|]+?)(\|([^\]]+?))?\]\]").unwrap();
+    let link_md = Regex::new(r"\[([^\]\n]+?)\]\(([^)\n]*?)\)").unwrap();
+    let wiki = Regex::new(r"\[\[([^\]|]+?)(\|([^\]]+?))?\]\]").unwrap();
+
+    let content = image_md.replace_all(content, |caps: &Captures| {
+        match rewrite_target_reference(&caps[2], note_relative_path, old_path, new_path) {
+            Some(Some(next_target)) => format!("![{}]({next_target})", &caps[1]),
+            Some(None) => String::new(),
+            None => caps[0].to_string(),
+        }
+    });
+
+    let content = image_wiki.replace_all(&content, |caps: &Captures| {
+        match rewrite_target_reference(&caps[1], note_relative_path, old_path, new_path) {
+            Some(Some(next_target)) => {
+                if let Some(label) = caps.get(3) {
+                    format!("![[{next_target}|{}]]", label.as_str())
+                } else {
+                    format!("![[{next_target}]]")
+                }
+            }
+            Some(None) => String::new(),
+            None => caps[0].to_string(),
+        }
+    });
+
+    let content_string = content.into_owned();
+    let content = link_md.replace_all(&content_string, |caps: &Captures| {
+        let full = caps.get(0).map(|m| m.as_str()).unwrap_or_default();
+        if full.starts_with("![") {
+            return full.to_string();
+        }
+        match rewrite_target_reference(&caps[2], note_relative_path, old_path, new_path) {
+            Some(Some(next_target)) => format!("[{}]({next_target})", &caps[1]),
+            Some(None) => caps[1].to_string(),
+            None => full.to_string(),
+        }
+    });
+
+    let content_string = content.into_owned();
+    wiki.replace_all(&content_string, |caps: &Captures| {
+        let full = caps.get(0).map(|m| m.as_str()).unwrap_or_default();
+        if full.starts_with("![[") {
+            return full.to_string();
+        }
+        match rewrite_target_reference(&caps[1], note_relative_path, old_path, new_path) {
+            Some(Some(next_target)) => {
+                if let Some(label) = caps.get(3) {
+                    format!("[[{next_target}|{}]]", label.as_str())
+                } else {
+                    format!("[[{next_target}]]")
+                }
+            }
+            Some(None) => caps.get(3).map(|label| label.as_str().to_string()).unwrap_or_else(|| caps[1].to_string()),
+            None => full.to_string(),
+        }
+    }).into_owned()
+}
+
+fn rewrite_kanban_references(content: &str, old_path: &str, new_path: Option<&str>) -> Result<String, String> {
+    let mut value: serde_json::Value = serde_json::from_str(content).map_err(|e| e.to_string())?;
+    let Some(columns) = value.get_mut("columns").and_then(|columns| columns.as_array_mut()) else {
+        return Ok(content.to_string());
+    };
+
+    for column in columns {
+        let Some(cards) = column.get_mut("cards").and_then(|cards| cards.as_array_mut()) else {
+            continue;
+        };
+        for card in cards {
+            let Some(card_obj) = card.as_object_mut() else { continue; };
+
+            let mut remaining_paths: Vec<String> = card_obj
+                .get("attachmentPaths")
+                .and_then(|paths| paths.as_array())
+                .map(|paths| {
+                    paths.iter().filter_map(|value| value.as_str()).filter_map(|path| {
+                        if !path_matches_or_descends(path, old_path) {
+                            return Some(path.to_string());
+                        }
+                        new_path.and_then(|next_path| remap_path(path, old_path, next_path))
+                    }).collect()
+                })
+                .unwrap_or_default();
+
+            if let Some(path) = card_obj.get("relativePath").and_then(|value| value.as_str()) {
+                if !remaining_paths.iter().any(|candidate| candidate == path) && !path_matches_or_descends(path, old_path) {
+                    remaining_paths.push(path.to_string());
+                }
+            }
+
+            if remaining_paths.is_empty() {
+                card_obj.remove("attachmentPaths");
+                card_obj.remove("relativePath");
+            } else {
+                let primary = remaining_paths.first().cloned();
+                card_obj.insert(
+                    "attachmentPaths".into(),
+                    serde_json::Value::Array(remaining_paths.into_iter().map(serde_json::Value::String).collect()),
+                );
+                if let Some(primary_path) = primary {
+                    card_obj.insert("relativePath".into(), serde_json::Value::String(primary_path));
+                }
+            }
+        }
+    }
+
+    serde_json::to_string_pretty(&value).map_err(|e| e.to_string())
+}
+
+fn rewrite_canvas_references(content: &str, old_path: &str, new_path: Option<&str>) -> Result<String, String> {
+    let mut value: serde_json::Value = serde_json::from_str(content).map_err(|e| e.to_string())?;
+    let Some(nodes) = value.get_mut("nodes").and_then(|nodes| nodes.as_array_mut()) else {
+        return Ok(content.to_string());
+    };
+
+    let mut next_nodes = Vec::with_capacity(nodes.len());
+    for mut node in nodes.drain(..) {
+        let should_keep = if let Some(node_obj) = node.as_object_mut() {
+            let node_type = node_obj.get("type").and_then(|value| value.as_str()).unwrap_or_default();
+            if matches!(node_type, "file" | "note") {
+                if let Some(relative_path) = node_obj.get("relativePath").and_then(|value| value.as_str()) {
+                    if path_matches_or_descends(relative_path, old_path) {
+                        if let Some(next_path) = new_path.and_then(|next| remap_path(relative_path, old_path, next)) {
+                            node_obj.insert("relativePath".into(), serde_json::Value::String(next_path));
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        true
+                    }
+                } else {
+                    true
+                }
+            } else {
+                true
+            }
+        } else {
+            true
+        };
+
+        if should_keep {
+            next_nodes.push(node);
+        }
+    }
+    *nodes = next_nodes;
+
+    serde_json::to_string_pretty(&value).map_err(|e| e.to_string())
+}
+
+fn move_image_overlay_if_needed(vault_path: &str, old_path: &str, new_path: &str) -> Result<(), String> {
+    let old_overlay = resolve_vault_path(vault_path, &overlay_relative_path(old_path))?;
+    if !old_overlay.exists() {
+        return Ok(());
+    }
+    let new_overlay = resolve_vault_path(vault_path, &overlay_relative_path(new_path))?;
+    if let Some(parent) = new_overlay.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::rename(old_overlay, new_overlay).map_err(|e| e.to_string())
+}
+
+fn delete_image_overlay_if_needed(vault_path: &str, image_relative_path: &str) -> Result<(), String> {
+    let overlay = resolve_vault_path(vault_path, &overlay_relative_path(image_relative_path))?;
+    if overlay.exists() {
+        std::fs::remove_file(overlay).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn rewrite_all_references(
+    vault_path: &str,
+    old_path: &str,
+    new_path: Option<&str>,
+    key_opt: Option<[u8; 32]>,
+) -> Result<(), String> {
+    let entries = collect_entries(vault_path)?;
+
+    for entry in entries {
+        if entry.is_folder || entry.relative_path == old_path || path_matches_or_descends(&entry.relative_path, old_path) {
+            continue;
+        }
+
+        let updated = match entry.extension.as_str() {
+            "md" => {
+                let note = read_note_from_path(&resolve_vault_path(vault_path, &entry.relative_path)?, &entry.relative_path, key_opt)?;
+                let next = replace_markdown_references(&note.content, &entry.relative_path, old_path, new_path);
+                if next == note.content { None } else { Some(next) }
+            }
+            "kanban" => {
+                let note = read_note_from_path(&resolve_vault_path(vault_path, &entry.relative_path)?, &entry.relative_path, key_opt)?;
+                let next = rewrite_kanban_references(&note.content, old_path, new_path)?;
+                if next == note.content { None } else { Some(next) }
+            }
+            "canvas" => {
+                let note = read_note_from_path(&resolve_vault_path(vault_path, &entry.relative_path)?, &entry.relative_path, key_opt)?;
+                let next = rewrite_canvas_references(&note.content, old_path, new_path)?;
+                if next == note.content { None } else { Some(next) }
+            }
+            _ => None,
+        };
+
+        if let Some(next_content) = updated {
+            let full_path = resolve_vault_path(vault_path, &entry.relative_path)?;
+            write_note_to_path(&full_path, &entry.relative_path, next_content, None, key_opt)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn read_note_from_path(
@@ -659,11 +1000,13 @@ mod tests {
     use super::{
         build_tree, collect_entries, create_note_at_path, extension_for_mime, guess_mime_type,
         is_allowed_extension, normalize_relative_path, overlay_relative_path, parse_data_url,
-        read_note_from_path, read_vault_bytes, resolve_vault_path, sanitize_file_name,
+        read_note_from_path, read_vault_bytes, relative_path_from_dir, remap_path,
+        replace_markdown_references, resolve_vault_path, rewrite_all_references,
+        rewrite_canvas_references, rewrite_kanban_references, sanitize_file_name,
         should_skip_walk_entry, unique_target_path, write_note_to_path, write_vault_bytes,
     };
     use crate::{crypto, test_support::TempVault};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn normalize_relative_path_accepts_safe_paths() {
@@ -754,6 +1097,114 @@ mod tests {
         let unique = unique_target_path(&vault.resolve("Pictures"), "image.png");
 
         assert_eq!(unique, vault.resolve("Pictures/image-2.png"));
+    }
+
+    #[test]
+    fn relative_path_from_dir_builds_relative_targets() {
+        let relative = relative_path_from_dir(Path::new("Notes/Daily"), Path::new("Pictures/image.png"));
+        assert_eq!(relative, "../../Pictures/image.png");
+    }
+
+    #[test]
+    fn remap_path_updates_exact_and_descendant_matches() {
+        assert_eq!(remap_path("Docs/file.pdf", "Docs/file.pdf", "Archive/file.pdf"), Some("Archive/file.pdf".into()));
+        assert_eq!(remap_path("Docs/sub/file.pdf", "Docs", "Archive"), Some("Archive/sub/file.pdf".into()));
+        assert_eq!(remap_path("Other/file.pdf", "Docs", "Archive"), None);
+    }
+
+    #[test]
+    fn replace_markdown_references_rewrites_links_and_removes_deleted_targets() {
+        let content = "\
+![Preview](../Pictures/demo.png)\n\
+[Spec](../Docs/spec.pdf)\n\
+![[../Pictures/demo.png|Preview]]\n\
+[[../Docs/spec.pdf|Spec Doc]]\n";
+
+        let renamed = replace_markdown_references(
+            content,
+            "Notes/today.md",
+            "Pictures/demo.png",
+            Some("Archive/demo.png"),
+        );
+        assert!(renamed.contains("![](../Archive/demo.png)") || renamed.contains("![Preview](../Archive/demo.png)"));
+        assert!(renamed.contains("![[../Archive/demo.png|Preview]]"));
+
+        let removed = replace_markdown_references(
+            content,
+            "Notes/today.md",
+            "Docs/spec.pdf",
+            None,
+        );
+        assert!(removed.contains("Spec"));
+        assert!(!removed.contains("../Docs/spec.pdf"));
+    }
+
+    #[test]
+    fn rewrite_kanban_references_updates_attachment_paths() {
+        let content = r#"{
+  "columns": [
+    {
+      "id": "todo",
+      "title": "Todo",
+      "cards": [
+        {
+          "id": "card-1",
+          "title": "Card",
+          "assignees": [],
+          "tags": [],
+          "comments": [],
+          "checklist": [],
+          "attachmentPaths": ["Docs/spec.pdf", "Other/file.pdf"],
+          "relativePath": "Docs/spec.pdf"
+        }
+      ]
+    }
+  ]
+}"#;
+
+        let renamed = rewrite_kanban_references(content, "Docs/spec.pdf", Some("Archive/spec.pdf"))
+            .expect("kanban refs should rewrite");
+        assert!(renamed.contains("Archive/spec.pdf"));
+
+        let removed = rewrite_kanban_references(content, "Docs/spec.pdf", None)
+            .expect("kanban refs should remove");
+        assert!(!removed.contains("Docs/spec.pdf"));
+    }
+
+    #[test]
+    fn rewrite_canvas_references_updates_and_removes_file_nodes() {
+        let content = r#"{
+  "nodes": [
+    { "id": "n1", "type": "file", "relativePath": "Docs/spec.pdf" },
+    { "id": "n2", "type": "text", "content": "keep" }
+  ],
+  "edges": [],
+  "viewport": { "x": 0, "y": 0, "zoom": 1 }
+}"#;
+
+        let renamed = rewrite_canvas_references(content, "Docs/spec.pdf", Some("Archive/spec.pdf"))
+            .expect("canvas refs should rewrite");
+        assert!(renamed.contains("Archive/spec.pdf"));
+
+        let removed = rewrite_canvas_references(content, "Docs/spec.pdf", None)
+            .expect("canvas refs should remove");
+        assert!(!removed.contains("Docs/spec.pdf"));
+        assert!(removed.contains("\"n2\""));
+    }
+
+    #[test]
+    fn rewrite_all_references_updates_notes_boards_and_canvas_files() {
+        let vault = TempVault::new().expect("temp vault should exist");
+        vault.write_text("Notes/a.md", "![Img](../Pictures/demo.png)\n[Spec](../Docs/spec.pdf)\n").expect("note should be written");
+        vault.write_text("Board.kanban", r#"{"columns":[{"id":"c1","title":"Todo","cards":[{"id":"card-1","title":"Card","assignees":[],"tags":[],"comments":[],"checklist":[],"attachmentPaths":["Docs/spec.pdf"],"relativePath":"Docs/spec.pdf"}]}]}"#).expect("board should be written");
+        vault.write_text("Board.canvas", r#"{"nodes":[{"id":"n1","type":"file","relativePath":"Docs/spec.pdf"}],"edges":[],"viewport":{"x":0,"y":0,"zoom":1}}"#).expect("canvas should be written");
+
+        rewrite_all_references(&vault.path_string(), "Docs/spec.pdf", Some("Archive/spec.pdf"), None)
+            .expect("references should rewrite");
+
+        assert!(vault.read_text("Notes/a.md").expect("note should be readable").contains("../Archive/spec.pdf"));
+        assert!(vault.read_text("Board.kanban").expect("board should be readable").contains("Archive/spec.pdf"));
+        assert!(vault.read_text("Board.canvas").expect("canvas should be readable").contains("Archive/spec.pdf"));
     }
 
     #[test]
@@ -961,12 +1412,31 @@ pub fn create_note(
 }
 
 #[tauri::command]
-pub fn delete_note(vault_path: String, relative_path: String) -> Result<(), String> {
+pub fn delete_note(
+    vault_path: String,
+    relative_path: String,
+    remove_references: Option<bool>,
+    state: State<AppState>,
+) -> Result<(), String> {
     let normalized = normalize_relative_path(&relative_path)?;
     if normalized == PathBuf::from("Pictures") {
         return Err("The Pictures folder is managed by the app and cannot be deleted".into());
     }
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    if remove_references.unwrap_or(false) {
+        rewrite_all_references(&vault_path, &relative_path, None, key_opt)?;
+    }
     let full_path = resolve_vault_path(&vault_path, &relative_path)?;
+    if !normalized.as_os_str().is_empty() {
+        let ext = Path::new(&relative_path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_ascii_lowercase())
+            .unwrap_or_default();
+        if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico" | "avif") {
+            let _ = delete_image_overlay_if_needed(&vault_path, &relative_path);
+        }
+    }
     if full_path.is_dir() {
         std::fs::remove_dir_all(&full_path).map_err(|e| e.to_string())
     } else {
@@ -979,17 +1449,35 @@ pub fn rename_note(
     vault_path: String,
     old_path: String,
     new_path: String,
+    update_references: Option<bool>,
+    state: State<AppState>,
 ) -> Result<(), String> {
     let base = Path::new(&vault_path);
     let old_full = base.join(normalize_relative_path(&old_path)?);
     let new_full = base.join(normalize_relative_path(&new_path)?);
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
 
     // Create parent directories for destination if needed
     if let Some(parent) = new_full.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    std::fs::rename(&old_full, &new_full).map_err(|e| e.to_string())
+    std::fs::rename(&old_full, &new_full).map_err(|e| e.to_string())?;
+
+    if update_references.unwrap_or(true) {
+        rewrite_all_references(&vault_path, &old_path, Some(&new_path), key_opt)?;
+    }
+
+    let ext = Path::new(&new_path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+    if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico" | "avif") {
+        let _ = move_image_overlay_if_needed(&vault_path, &old_path, &new_path);
+    }
+
+    Ok(())
 }
 
 #[tauri::command]

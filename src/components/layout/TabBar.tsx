@@ -29,6 +29,13 @@ export default function TabBar() {
     else                         setActiveView('editor');
   };
 
+  const handleTabMiddleClick = (event: React.MouseEvent, relativePath: string) => {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeTab(relativePath);
+  };
+
   const getTabIcon = (type: string) => {
     if (type === 'canvas')   return <Layout size={11} className="shrink-0" />;
     if (type === 'kanban')   return <LayoutDashboard size={11} className="shrink-0" />;
@@ -86,6 +93,7 @@ export default function TabBar() {
               setDraggingTab(null);
               setDropIndicator(null);
             }}
+            onMouseDown={(event) => handleTabMiddleClick(event, tab.relativePath)}
             onClick={() => handleTabClick(tab.relativePath, tab.type)}
             className={cn(
               'tab-active relative flex items-center gap-1.5 px-3 h-8 text-xs cursor-pointer whitespace-nowrap',

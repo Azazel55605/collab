@@ -56,9 +56,10 @@ function isManagedPicturesFolder(node: Pick<NoteFile, 'isFolder' | 'relativePath
 export default function FileTree() {
   const { vault, fileTree, refreshFileTree } = useVaultStore();
   const { openTab, closeTab, renameTab } = useEditorStore();
-  const { setActiveView, confirmDelete: confirmDeleteSetting } = useUiStore();
+  const { setActiveView } = useUiStore();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [dialog, setDialog] = useState<DialogState>({ type: 'none' });
+  const [deleteRemoveReferences, setDeleteRemoveReferences] = useState(false);
   const [taskAttachmentsByPath, setTaskAttachmentsByPath] = useState<Record<string, TaskAttachmentRef[]>>({});
 
   // ── Drag-and-drop state ────────────────────────────────────────────────────
@@ -95,25 +96,7 @@ export default function FileTree() {
       toast.error('The Pictures folder is managed by the app and cannot be deleted');
       return;
     }
-    if (!confirmDeleteSetting) {
-      void (async () => {
-        if (!vault) return;
-        try {
-          await tauriCommands.deleteNote(vault.path, file.relativePath);
-          const prefix = file.isFolder ? file.relativePath + '/' : null;
-          for (const tab of useEditorStore.getState().openTabs) {
-            if (
-              tab.relativePath === file.relativePath ||
-              (prefix && tab.relativePath.startsWith(prefix))
-            ) {
-              closeTab(tab.relativePath);
-            }
-          }
-          await refreshFileTree();
-        } catch (e) { toast.error('Failed to delete: ' + e); }
-      })();
-      return;
-    }
+    setDeleteRemoveReferences(false);
     setDialog({ type: 'delete', file });
   };
 
@@ -126,7 +109,7 @@ export default function FileTree() {
     const { file } = dialog;
     setDialog({ type: 'none' });
     try {
-      await tauriCommands.deleteNote(vault.path, file.relativePath);
+      await tauriCommands.deleteNote(vault.path, file.relativePath, deleteRemoveReferences);
       const prefix = file.isFolder ? file.relativePath + '/' : null;
       for (const tab of useEditorStore.getState().openTabs) {
         if (
@@ -138,6 +121,7 @@ export default function FileTree() {
       }
       await refreshFileTree();
     } catch (e) { toast.error('Failed to delete: ' + e); }
+    finally { setDeleteRemoveReferences(false); }
   };
 
   const confirmCreate = async (name: string) => {
@@ -263,8 +247,14 @@ export default function FileTree() {
         open={dialog.type === 'delete'}
         name={dialog.type === 'delete' ? dialog.file.name : ''}
         isFolder={dialog.type === 'delete' ? dialog.file.isFolder : false}
+        showReferenceOption={dialog.type === 'delete'}
+        removeReferences={deleteRemoveReferences}
+        onRemoveReferencesChange={setDeleteRemoveReferences}
         onConfirm={confirmDelete}
-        onCancel={() => setDialog({ type: 'none' })}
+        onCancel={() => {
+          setDialog({ type: 'none' });
+          setDeleteRemoveReferences(false);
+        }}
       />
       <InputDialog
         open={dialog.type === 'create-note' || dialog.type === 'create-folder' || dialog.type === 'rename'}
