@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getDocument, GlobalWorkerOptions, PixelsPerInch, RenderingCancelledException, TextLayer } from 'pdfjs-dist';
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import {
@@ -18,6 +18,8 @@ import { Input } from '../components/ui/input';
 import { cn } from '../lib/utils';
 import { tauriCommands } from '../lib/tauri';
 import { useVaultStore } from '../store/vaultStore';
+import { enqueuePdfRender } from './pdfRenderQueue';
+import type { LayoutMode, ZoomMode } from './pdfViewTypes';
 import {
   DocumentTopBar,
   documentTopBarGroupClass,
@@ -27,9 +29,6 @@ import {
 
 const workerUrl = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
 GlobalWorkerOptions.workerSrc = workerUrl;
-
-type ZoomMode = 'custom' | 'fit-width' | 'fit-height' | 'fit-page';
-type LayoutMode = 'single' | 'scroll' | 'spread';
 
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 3;
@@ -97,12 +96,28 @@ interface PdfPageCanvasProps {
   documentProxy: PDFDocumentProxy;
   pageNumber: number;
   scale: number;
+  zoomMode: ZoomMode;
   rotation: number;
   active: boolean;
+  eager: boolean;
+  observerRoot: HTMLDivElement | null;
+  estimatedSize: { width: number; height: number } | null;
   onMeasured: (pageNumber: number, width: number, height: number) => void;
 }
 
-function PdfPageCanvas({ documentProxy, pageNumber, scale, rotation, active, onMeasured }: PdfPageCanvasProps) {
+function PdfPageCanvas({
+  documentProxy,
+  pageNumber,
+  scale,
+  zoomMode,
+  rotation,
+  active,
+  eager,
+  observerRoot,
+  estimatedSize,
+  onMeasured,
+}: PdfPageCanvasProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const textLayerRef = useRef<HTMLDivElement | null>(null);
   const renderTaskRef = useRef<RenderTask | null>(null);
@@ -111,75 +126,128 @@ function PdfPageCanvas({ documentProxy, pageNumber, scale, rotation, active, onM
   const [rendering, setRendering] = useState(true);
   const [hasRendered, setHasRendered] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
+  const [isNearViewport, setIsNearViewport] = useState(eager);
+  const placeholderWidth = estimatedSize ? Math.max(120, scale * estimatedSize.width * PDF_CSS_SCALE) : 360;
+  const placeholderHeight = estimatedSize ? Math.max(160, scale * estimatedSize.height * PDF_CSS_SCALE) : 480;
+  const [displaySize, setDisplaySize] = useState<{ width: number; height: number } | null>(null);
+  const [renderSize, setRenderSize] = useState<{ width: number; height: number } | null>(null);
 
   useEffect(() => {
-    if (!canvasRef.current || !textLayerRef.current) return;
+    if (eager) {
+      setIsNearViewport(true);
+      return;
+    }
 
+    const element = containerRef.current;
+    if (!element || !observerRoot || hasRenderedRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting) {
+          setIsNearViewport(true);
+          observer.disconnect();
+        }
+      },
+      {
+        root: observerRoot,
+        rootMargin: '800px 0px',
+        threshold: 0,
+      },
+    );
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [eager, observerRoot]);
+
+  const shouldRender = eager || isNearViewport || hasRendered;
+
+  useEffect(() => {
     let cancelled = false;
-    if (!hasRenderedRef.current) setRendering(true);
-    setRenderError(null);
     if (renderTaskRef.current) {
       void renderTaskRef.current.promise.catch(() => {});
       renderTaskRef.current.cancel();
     }
     textLayerTaskRef.current?.cancel();
+    renderTaskRef.current = null;
+    textLayerTaskRef.current = null;
+
+    if (!canvasRef.current || !textLayerRef.current) return;
+    if (!shouldRender && !hasRenderedRef.current) {
+      setRendering(false);
+      return;
+    }
+
+    if (!hasRenderedRef.current) setRendering(true);
+    setRenderError(null);
 
     const renderPage = async () => {
       try {
-        const page = await documentProxy.getPage(pageNumber);
-        if (cancelled || !canvasRef.current || !textLayerRef.current) return;
+        await enqueuePdfRender(async () => {
+          if (cancelled || !canvasRef.current || !textLayerRef.current) return;
 
-        const renderScale = scale * PDF_CSS_SCALE;
-        const viewport = page.getViewport({ scale: renderScale, rotation });
-        const baseViewport = page.getViewport({ scale: 1, rotation: 0 });
-        onMeasured(pageNumber, baseViewport.width, baseViewport.height);
+          const page = await documentProxy.getPage(pageNumber);
+          if (cancelled || !canvasRef.current || !textLayerRef.current) return;
 
-        const canvas = canvasRef.current;
-        const textLayer = textLayerRef.current;
-        const context = canvas.getContext('2d', { alpha: false });
-        if (!context) throw new Error('Failed to get PDF canvas context');
+          const displayScale = scale * PDF_CSS_SCALE;
+          const renderScale = Math.max(displayScale, PDF_CSS_SCALE);
+          const displayViewport = page.getViewport({ scale: displayScale, rotation });
+          const baseViewport = page.getViewport({ scale: 1, rotation: 0 });
+          onMeasured(pageNumber, baseViewport.width, baseViewport.height);
 
-        const deviceScale = Math.min(window.devicePixelRatio || 1, DEVICE_SCALE_LIMIT);
-        canvas.width = Math.max(1, Math.floor(viewport.width * deviceScale));
-        canvas.height = Math.max(1, Math.floor(viewport.height * deviceScale));
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
-        context.setTransform(deviceScale, 0, 0, deviceScale, 0, 0);
+          const canvas = canvasRef.current;
+          const textLayer = textLayerRef.current;
+          const context = canvas.getContext('2d');
+          if (!context) throw new Error('Failed to get PDF canvas context');
 
-        textLayer.replaceChildren();
-        textLayer.style.width = `${viewport.width}px`;
-        textLayer.style.height = `${viewport.height}px`;
-        textLayer.style.setProperty('--scale-factor', String(renderScale));
-        textLayer.style.setProperty('--total-scale-factor', String(renderScale));
-        textLayer.style.setProperty('--user-unit', '1');
+          const deviceScale = Math.min(window.devicePixelRatio || 1, DEVICE_SCALE_LIMIT);
+          const renderViewport = page.getViewport({ scale: renderScale, rotation });
+          setDisplaySize({ width: displayViewport.width, height: displayViewport.height });
+          setRenderSize({ width: renderViewport.width, height: renderViewport.height });
+          canvas.width = Math.max(1, Math.ceil(renderViewport.width * deviceScale));
+          canvas.height = Math.max(1, Math.ceil(renderViewport.height * deviceScale));
+          canvas.style.width = `${renderViewport.width}px`;
+          canvas.style.height = `${renderViewport.height}px`;
+          context.setTransform(1, 0, 0, 1, 0, 0);
+          context.clearRect(0, 0, canvas.width, canvas.height);
+          context.setTransform(deviceScale, 0, 0, deviceScale, 0, 0);
+          context.imageSmoothingEnabled = true;
 
-        const task = page.render({
-          canvas,
-          canvasContext: context,
-          viewport,
+          textLayer.replaceChildren();
+          textLayer.style.width = `${renderViewport.width}px`;
+          textLayer.style.height = `${renderViewport.height}px`;
+          textLayer.style.setProperty('--scale-factor', String(renderScale));
+          textLayer.style.setProperty('--total-scale-factor', String(renderScale));
+          textLayer.style.setProperty('--user-unit', '1');
+
+          const task = page.render({
+            canvas,
+            canvasContext: context,
+            viewport: renderViewport,
+          });
+          renderTaskRef.current = task;
+
+          const textContent = await page.getTextContent();
+          if (cancelled || !textLayerRef.current) return;
+
+          const textLayerTask = new TextLayer({
+            container: textLayer,
+            textContentSource: textContent,
+            viewport: displayViewport,
+          });
+          textLayerTaskRef.current = textLayerTask;
+
+          await Promise.all([
+            task.promise.catch((error: unknown) => {
+              if (error instanceof RenderingCancelledException) return;
+              throw error;
+            }),
+            textLayerTask.render().catch((error: unknown) => {
+              if (error instanceof RenderingCancelledException) return;
+              throw error;
+            }),
+          ]);
         });
-        renderTaskRef.current = task;
-
-        const textContent = await page.getTextContent();
-        if (cancelled || !textLayerRef.current) return;
-
-        const textLayerTask = new TextLayer({
-          container: textLayer,
-          textContentSource: textContent,
-          viewport,
-        });
-        textLayerTaskRef.current = textLayerTask;
-
-        await Promise.all([
-          task.promise.catch((error: unknown) => {
-            if (error instanceof RenderingCancelledException) return;
-            throw error;
-          }),
-          textLayerTask.render().catch((error: unknown) => {
-            if (error instanceof RenderingCancelledException) return;
-            throw error;
-          }),
-        ]);
         if (!cancelled) {
           hasRenderedRef.current = true;
           setHasRendered(true);
@@ -190,6 +258,7 @@ function PdfPageCanvas({ documentProxy, pageNumber, scale, rotation, active, onM
         if (error instanceof RenderingCancelledException) return;
         const message = error instanceof Error ? error.message : String(error);
         if (message.toLowerCase().includes('rendering cancelled')) return;
+        setRendering(false);
         setRenderError(message);
       }
     };
@@ -206,23 +275,52 @@ function PdfPageCanvas({ documentProxy, pageNumber, scale, rotation, active, onM
       textLayerTaskRef.current?.cancel();
       textLayerTaskRef.current = null;
     };
-  }, [documentProxy, onMeasured, pageNumber, rotation, scale]);
+  }, [documentProxy, onMeasured, pageNumber, rotation, scale, shouldRender, zoomMode]);
+
+  const visibleWidth = displaySize?.width ?? placeholderWidth;
+  const visibleHeight = displaySize?.height ?? placeholderHeight;
+  const renderWidth = renderSize?.width ?? visibleWidth;
+  const renderHeight = renderSize?.height ?? visibleHeight;
+  const shrinkFactor = renderWidth > 0 ? visibleWidth / renderWidth : 1;
 
   return (
     <div
+      ref={containerRef}
       className={cn(
         'relative overflow-hidden rounded-2xl border bg-card shadow-2xl shadow-black/20 transition-[transform,border-color,box-shadow] app-motion-fast',
         active ? 'border-primary/35 shadow-primary/10' : 'border-border/60',
       )}
       data-pdf-page={pageNumber}
+      style={{
+        width: `${visibleWidth}px`,
+        minWidth: `${visibleWidth}px`,
+        minHeight: `${visibleHeight}px`,
+        height: `${visibleHeight}px`,
+      }}
     >
-      <canvas ref={canvasRef} className="block bg-white" />
-      <div ref={textLayerRef} className="pdf-text-layer textLayer" />
-      {rendering && !hasRendered && (
+      <div
+        className="absolute left-0 top-0 origin-top-left"
+        style={{
+          width: `${renderWidth}px`,
+          height: `${renderHeight}px`,
+          transform: `scale(${shrinkFactor})`,
+        }}
+      >
+        <canvas ref={canvasRef} className="block bg-white" />
+        <div ref={textLayerRef} className="pdf-text-layer textLayer" />
+      </div>
+      {rendering && !hasRendered && shouldRender && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/28 backdrop-blur-2px-webkit">
           <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-popover/90 px-3 py-2 text-sm text-muted-foreground shadow-lg">
             <Loader2 size={16} className="animate-spin" />
             Rendering page {pageNumber}…
+          </div>
+        </div>
+      )}
+      {!hasRendered && !rendering && !renderError && !shouldRender && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/12">
+          <div className="rounded-xl border border-border/50 bg-popover/80 px-3 py-1.5 text-xs text-muted-foreground shadow-sm">
+            Page {pageNumber} loads when you scroll closer
           </div>
         </div>
       )}
@@ -398,13 +496,13 @@ export default function PdfView({ relativePath }: Props) {
     setCustomZoom(effectiveScale * factor);
   };
 
-  const handleMeasured = (nextPage: number, width: number, height: number) => {
+  const handleMeasured = useCallback((nextPage: number, width: number, height: number) => {
     setPageSizes((current) => {
       const existing = current[nextPage];
       if (existing?.width === width && existing?.height === height) return current;
       return { ...current, [nextPage]: { width, height } };
     });
-  };
+  }, []);
 
   const scrollToPage = (nextPage: number) => {
     const element = pageRefs.current[nextPage];
@@ -878,8 +976,12 @@ export default function PdfView({ relativePath }: Props) {
                   documentProxy={documentProxy}
                   pageNumber={renderedPage}
                   scale={effectiveScale}
+                  zoomMode={zoomMode}
                   rotation={rotation}
                   active={renderedPage === pageNumber}
+                  eager={layoutMode === 'single' || renderedPage === pageNumber}
+                  observerRoot={viewportRef.current}
+                  estimatedSize={pageSizes[renderedPage] ?? activePageSize ?? pageSizes[1] ?? null}
                   onMeasured={handleMeasured}
                 />
               </div>

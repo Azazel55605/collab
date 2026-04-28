@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  handleEditorDocumentLinkMouseDown,
   handleEditorImageShiftClick,
   handleNativeEditorDrop,
   importDroppedImagesIntoEditor,
@@ -8,6 +9,7 @@ import {
 } from './useMarkdownEditorIntegrations';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
+import { useVaultStore } from '../../store/vaultStore';
 
 describe('useMarkdownEditorIntegrations helpers', () => {
   beforeEach(() => {
@@ -21,6 +23,51 @@ describe('useMarkdownEditorIntegrations helpers', () => {
     });
     useUiStore.setState({
       activeView: 'editor',
+    });
+    useVaultStore.setState({
+      vault: null,
+      isVaultLocked: false,
+      fileTree: [
+        {
+          relativePath: 'Notes',
+          name: 'Notes',
+          extension: '',
+          modifiedAt: 0,
+          size: 0,
+          isFolder: true,
+          children: [
+            {
+              relativePath: 'Notes/a.md',
+              name: 'a.md',
+              extension: 'md',
+              modifiedAt: 0,
+              size: 1,
+              isFolder: false,
+            },
+          ],
+        },
+        {
+          relativePath: 'Docs',
+          name: 'Docs',
+          extension: '',
+          modifiedAt: 0,
+          size: 0,
+          isFolder: true,
+          children: [
+            {
+              relativePath: 'Docs/spec.pdf',
+              name: 'spec.pdf',
+              extension: 'pdf',
+              modifiedAt: 0,
+              size: 1,
+              isFolder: false,
+            },
+          ],
+        },
+      ],
+      recentVaults: [],
+      lastOpenedVaultPath: null,
+      isLoading: false,
     });
   });
 
@@ -141,5 +188,38 @@ describe('useMarkdownEditorIntegrations helpers', () => {
     expect(openTab).toHaveBeenCalledWith('Pictures/demo.png', 'demo', 'image');
     expect(setActiveView).toHaveBeenCalledWith('editor');
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('opens wikilinked PDFs in the PDF viewer on mousedown', () => {
+    const openTab = vi.spyOn(useEditorStore.getState(), 'openTab');
+    const setActiveView = vi.spyOn(useUiStore.getState(), 'setActiveView');
+
+    const link = document.createElement('span');
+    link.className = 'cm-lp-wikilink';
+    link.dataset.path = 'spec.pdf';
+    document.body.append(link);
+
+    const event = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'target', { value: link });
+
+    expect(handleEditorDocumentLinkMouseDown(event, 'Notes/a.md')).toBe(true);
+    expect(openTab).toHaveBeenCalledWith('Docs/spec.pdf', 'spec', 'pdf');
+    expect(setActiveView).toHaveBeenCalledWith('editor');
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('opens relative markdown links to PDFs in the PDF viewer on mousedown', () => {
+    const openTab = vi.spyOn(useEditorStore.getState(), 'openTab');
+
+    const link = document.createElement('span');
+    link.className = 'cm-lp-link';
+    link.dataset.url = '../Docs/spec.pdf';
+    document.body.append(link);
+
+    const event = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'target', { value: link });
+
+    expect(handleEditorDocumentLinkMouseDown(event, 'Notes/a.md')).toBe(true);
+    expect(openTab).toHaveBeenCalledWith('Docs/spec.pdf', 'spec', 'pdf');
   });
 });

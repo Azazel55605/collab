@@ -57,6 +57,16 @@ import { resolveNoteAssetTarget, isLikelyImagePath, type NoteAssetTarget } from 
 import { useVaultStore } from '../../store/vaultStore';
 import { tauriCommands } from '../../lib/tauri';
 
+export function buildTaskCheckboxToggleChange(markerFrom: number, markerTo: number, checked: boolean) {
+  return {
+    changes: {
+      from: markerFrom,
+      to: markerTo,
+      insert: checked ? '[ ]' : '[x]',
+    },
+  };
+}
+
 // ─── Widgets ──────────────────────────────────────────────────────────────────
 
 class MathWidget extends WidgetType {
@@ -349,15 +359,7 @@ class TaskCheckboxWidget extends WidgetType {
     }
 
     const toggleChecked = () => {
-      const nextChecked = !this.checked;
-      view.dispatch({
-        changes: {
-          from: this.markerFrom,
-          to: this.markerTo,
-          insert: nextChecked ? '[x]' : '[ ]',
-        },
-        selection: { anchor: this.markerTo },
-      });
+      view.dispatch(buildTaskCheckboxToggleChange(this.markerFrom, this.markerTo, this.checked));
       view.focus();
     };
 

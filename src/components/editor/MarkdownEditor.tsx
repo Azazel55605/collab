@@ -7,8 +7,6 @@ import {
   type ViewUpdate,
 } from '@codemirror/view';
 import { syntaxHighlighting } from '@codemirror/language';
-import { useNoteIndexStore } from '../../store/noteIndexStore';
-import { useEditorStore } from '../../store/editorStore';
 import { createLivePreviewPlugin } from './livePreview';
 import { openUrl, openPath } from '@tauri-apps/plugin-opener';
 import 'katex/dist/katex.min.css';
@@ -27,7 +25,7 @@ import {
   createMarkdownWikiAutocompleteOverride,
 } from './markdownEditorViewConfig';
 import { buildMarkdownEditorTheme, buildMarkdownHighlightStyle } from './markdownEditorTheme';
-import { useMarkdownEditorIntegrations } from './useMarkdownEditorIntegrations';
+import { handleEditorDocumentLinkMouseDown, useMarkdownEditorIntegrations } from './useMarkdownEditorIntegrations';
 import { useMarkdownEditorHandle } from './useMarkdownEditorHandle';
 import { MarkdownEditorContextMenu } from './MarkdownEditorContextMenu';
 
@@ -342,30 +340,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       // Stores are accessed via .getState() (not hooks) since this runs outside React.
       const linkClickHandler = EditorView.domEventHandlers({
         mousedown(event: MouseEvent, _view: EditorView) {
-          if (event.button !== 0) return false; // left-click only
+          if (handleEditorDocumentLinkMouseDown(event, relativePath)) return true;
+          if (event.button !== 0) return false;
+
           const target = event.target as Element;
-          const wikiEl = target.closest('.cm-lp-wikilink') as HTMLElement | null;
-          const linkEl = target.closest('.cm-lp-link')     as HTMLElement | null;
-          if (!wikiEl && !linkEl) return false;
+          const linkEl = target.closest('.cm-lp-link') as HTMLElement | null;
+          if (!linkEl) return false;
 
           event.preventDefault();
-
-          if (wikiEl) {
-            const path = wikiEl.dataset.path;
-            if (!path) return true;
-            const stem  = path.split('/').pop()!.replace(/\.md$/i, '');
-            const notes = useNoteIndexStore.getState().notes;
-            const found = notes.find(n => {
-              const s = n.relativePath.split('/').pop()!.replace(/\.md$/i, '');
-              return s.toLowerCase() === stem.toLowerCase();
-            });
-            if (found) {
-              useEditorStore.getState().openTab(found.relativePath, found.title ?? stem, 'note');
-              useUiStore.getState().setActiveView('editor');
-            }
-            return true;
-          }
-
           if (linkEl) {
             const url = linkEl.dataset.url;
             if (!url) return true;

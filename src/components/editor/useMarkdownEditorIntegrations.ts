@@ -5,6 +5,11 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { toast } from 'sonner';
 
 import { tauriCommands } from '../../lib/tauri';
+import {
+  getVaultDocumentView,
+  resolveVaultRelativeLinkTarget,
+  resolveVaultWikilinkTarget,
+} from '../../lib/vaultLinks';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
@@ -140,6 +145,30 @@ export function handleEditorImageShiftClick(event: MouseEvent) {
   const title = assetValue.split('/').pop()?.replace(/\.[^.]+$/, '') ?? assetValue;
   useEditorStore.getState().openTab(assetValue, title, 'image');
   useUiStore.getState().setActiveView('editor');
+  event.preventDefault();
+  event.stopPropagation();
+  return true;
+}
+
+export function handleEditorDocumentLinkMouseDown(event: MouseEvent, currentDocumentRelativePath: string) {
+  if (event.button !== 0) return false;
+
+  const target = event.target instanceof Element ? event.target : null;
+  const wikiEl = target?.closest('.cm-lp-wikilink') as HTMLElement | null;
+  const linkEl = target?.closest('.cm-lp-link') as HTMLElement | null;
+  if (!wikiEl && !linkEl) return false;
+
+  const fileTree = useVaultStore.getState().fileTree;
+  const linkTarget = wikiEl?.dataset.path
+    ? resolveVaultWikilinkTarget(wikiEl.dataset.path, fileTree)
+    : linkEl?.dataset.url
+    ? resolveVaultRelativeLinkTarget(linkEl.dataset.url, currentDocumentRelativePath, fileTree)
+    : null;
+
+  if (!linkTarget) return false;
+
+  useEditorStore.getState().openTab(linkTarget.relativePath, linkTarget.title, linkTarget.type);
+  useUiStore.getState().setActiveView(getVaultDocumentView(linkTarget.type));
   event.preventDefault();
   event.stopPropagation();
   return true;
