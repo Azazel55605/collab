@@ -1,6 +1,6 @@
 use crate::crypto;
 use crate::models::note::NoteFile;
-use crate::models::template::{KanbanTemplate, TemplateSource};
+use crate::models::template::{KanbanTemplate, NoteSnippet, NoteSnippetScope, TemplateSource};
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -16,6 +16,18 @@ struct StoredKanbanTemplate {
     kind: String,
     name: String,
     board: Value,
+    updated_at: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredNoteSnippet {
+    version: u32,
+    id: String,
+    name: String,
+    description: Option<String>,
+    category: Option<String>,
+    body: String,
     updated_at: u64,
 }
 
@@ -79,6 +91,18 @@ fn scope_templates_dir(vault_path: Option<&str>, source: &TemplateSource) -> Res
     Ok(dir)
 }
 
+fn scope_note_snippets_dir(vault_path: Option<&str>, scope: &NoteSnippetScope) -> Result<PathBuf, String> {
+    let dir = match scope {
+        NoteSnippetScope::Vault => {
+            let vault_path = vault_path.ok_or("Vault path is required for vault note snippets")?;
+            Path::new(vault_path).join(".collab").join("templates").join("notes")
+        }
+        NoteSnippetScope::App => app_config_dir()?.join("templates").join("notes"),
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
 fn normalize_board(board: &Value) -> Result<String, String> {
     serde_json::to_string(board).map_err(|e| e.to_string())
 }
@@ -110,6 +134,33 @@ fn template_file_name(name: &str) -> String {
 
 fn template_path(vault_path: Option<&str>, source: &TemplateSource, name: &str) -> Result<PathBuf, String> {
     Ok(scope_templates_dir(vault_path, source)?.join(template_file_name(name)))
+}
+
+fn snippet_file_name(id: &str) -> String {
+    let safe = id
+        .chars()
+        .map(|ch| match ch {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => ch,
+        })
+        .collect::<String>()
+        .trim()
+        .trim_matches('.')
+        .to_string();
+    let stem = if safe.is_empty() { "snippet".to_string() } else { safe };
+    format!("{stem}.json")
+}
+
+fn snippet_path(vault_path: Option<&str>, scope: &NoteSnippetScope, id: &str) -> Result<PathBuf, String> {
+    Ok(scope_note_snippets_dir(vault_path, scope)?.join(snippet_file_name(id)))
+}
+
+fn generate_note_snippet_id(name: &str) -> String {
+    let ts = now_ms();
+    let mut hasher = Sha256::new();
+    hasher.update(format!("{name}:{ts}").as_bytes());
+    let digest = hex::encode(hasher.finalize());
+    format!("snippet-{}-{}", ts, &digest[..10])
 }
 
 fn maybe_decrypt_vault_bytes(bytes: Vec<u8>, state: &State<AppState>) -> Result<Vec<u8>, String> {
@@ -203,6 +254,68 @@ fn read_template_by_name(
         return Err(format!("Template '{}' not found", name));
     }
     load_template_from_path(&path, source.clone(), state)
+}
+
+fn load_note_snippet_from_path(
+    path: &Path,
+    scope: NoteSnippetScope,
+    state: &State<AppState>,
+) -> Result<NoteSnippet, String> {
+    let raw = std::fs::read(path).map_err(|e| e.to_string())?;
+    let bytes = match scope {
+        NoteSnippetScope::Vault => maybe_decrypt_vault_bytes(raw, state)?,
+        NoteSnippetScope::App => raw,
+    };
+    let stored: StoredNoteSnippet = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    Ok(NoteSnippet {
+        id: stored.id,
+        name: stored.name,
+        description: stored.description,
+        scope,
+        category: stored.category,
+        body: stored.body,
+        updated_at: stored.updated_at,
+    })
+}
+
+fn write_note_snippet_to_scope(
+    vault_path: Option<&str>,
+    scope: &NoteSnippetScope,
+    snippet_id: Option<String>,
+    name: String,
+    description: Option<String>,
+    category: Option<String>,
+    body: String,
+    state: &State<AppState>,
+) -> Result<NoteSnippet, String> {
+    let id = snippet_id
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| generate_note_snippet_id(&name));
+    let path = snippet_path(vault_path, scope, &id)?;
+    let stored = StoredNoteSnippet {
+        version: 1,
+        id: id.clone(),
+        name: name.clone(),
+        description: description.clone().filter(|value| !value.trim().is_empty()),
+        category: category.clone().filter(|value| !value.trim().is_empty()),
+        body: body.clone(),
+        updated_at: now_ms(),
+    };
+    let serialized = serde_json::to_vec_pretty(&stored).map_err(|e| e.to_string())?;
+    let bytes = match scope {
+        NoteSnippetScope::Vault => maybe_encrypt_vault_bytes(&serialized, state)?,
+        NoteSnippetScope::App => serialized,
+    };
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(NoteSnippet {
+        id,
+        name,
+        description: stored.description,
+        scope: scope.clone(),
+        category: stored.category,
+        body,
+        updated_at: stored.updated_at,
+    })
 }
 
 fn default_blank_board() -> Value {
@@ -545,11 +658,83 @@ pub fn create_blank_kanban_template(
     )
 }
 
+#[tauri::command]
+pub fn list_note_snippets(
+    vault_path: Option<String>,
+    state: State<AppState>,
+) -> Result<Vec<NoteSnippet>, String> {
+    let mut out = Vec::new();
+
+    for scope in [NoteSnippetScope::Vault, NoteSnippetScope::App] {
+        let dir = match scope_note_snippets_dir(vault_path.as_deref(), &scope) {
+            Ok(dir) => dir,
+            Err(err) if scope == NoteSnippetScope::Vault && vault_path.is_none() => return Err(err),
+            Err(_) => continue,
+        };
+        if !dir.exists() {
+            continue;
+        }
+        for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            if !path.is_file() {
+                continue;
+            }
+            if let Ok(snippet) = load_note_snippet_from_path(&path, scope.clone(), &state) {
+                out.push(snippet);
+            }
+        }
+    }
+
+    out.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then(a.updated_at.cmp(&b.updated_at))
+    });
+    Ok(out)
+}
+
+#[tauri::command]
+pub fn save_note_snippet(
+    vault_path: Option<String>,
+    scope: NoteSnippetScope,
+    snippet_id: Option<String>,
+    name: String,
+    description: Option<String>,
+    category: Option<String>,
+    body: String,
+    state: State<AppState>,
+) -> Result<NoteSnippet, String> {
+    write_note_snippet_to_scope(
+        vault_path.as_deref(),
+        &scope,
+        snippet_id,
+        name,
+        description,
+        category,
+        body,
+        &state,
+    )
+}
+
+#[tauri::command]
+pub fn delete_note_snippet(
+    vault_path: Option<String>,
+    scope: NoteSnippetScope,
+    snippet_id: String,
+) -> Result<(), String> {
+    let path = snippet_path(vault_path.as_deref(), &scope, &snippet_id)?;
+    if !path.exists() {
+        return Ok(());
+    }
+    std::fs::remove_file(path).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        board_hash, built_in_templates, normalize_relative_path, parse_template_file,
-        template_file_name,
+        board_hash, built_in_templates, generate_note_snippet_id, normalize_relative_path,
+        parse_template_file, snippet_file_name, template_file_name,
     };
     use crate::test_support::TempVault;
     use serde_json::json;
@@ -663,5 +848,16 @@ mod tests {
             .expect_err("invalid template should fail");
 
         assert!(err.contains("valid kanban template"));
+    }
+
+    #[test]
+    fn snippet_file_name_keeps_ids_stable() {
+        assert_eq!(snippet_file_name("snippet-123"), "snippet-123.json");
+    }
+
+    #[test]
+    fn generated_note_snippet_ids_are_prefixed() {
+        let id = generate_note_snippet_id("Meeting Notes");
+        assert!(id.starts_with("snippet-"));
     }
 }

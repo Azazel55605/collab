@@ -27,6 +27,34 @@ export interface WriteResult {
   conflict?: ConflictInfo;
 }
 
+export interface RestoreConflictInfo {
+  existingRelativePath: string;
+  suggestedRelativePath: string;
+}
+
+export interface TrashEntry {
+  id: string;
+  originalRelativePath: string;
+  deletedAt: number;
+  deletedByUserId?: string | null;
+  deletedByUserName?: string | null;
+  itemKind: 'file' | 'folder';
+  extension?: string | null;
+  size: number;
+  rootName: string;
+  restoreConflict?: RestoreConflictInfo | null;
+}
+
+export interface PathChangePreview {
+  oldRelativePath: string;
+  newRelativePath: string;
+  itemKind: 'file' | 'folder';
+  operation: 'move' | 'rename' | 'move-and-rename' | 'unchanged';
+  nestedItemCount: number;
+  affectedReferencePaths: string[];
+  blockedReason?: string | null;
+}
+
 export interface ConflictInfo {
   ourContent: string;
   theirContent: string;

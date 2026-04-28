@@ -69,6 +69,9 @@ export default function SettingsModal() {
     webPreviewsEnabled, setWebPreviewsEnabled,
     hoverWebLinkPreviewsEnabled, setHoverWebLinkPreviewsEnabled,
     backgroundWebPreviewPrefetchEnabled, setBackgroundWebPreviewPrefetchEnabled,
+    spellcheckEnabled, setSpellcheckEnabled,
+    spellcheckLanguage, setSpellcheckLanguage,
+    respectNoteSpellcheckLanguage, setRespectNoteSpellcheckLanguage,
   } = useUiStore();
 
   const { myUserName, myUserColor, myUserId, setMyProfile } = useCollabStore();
@@ -208,6 +211,12 @@ export default function SettingsModal() {
                 setColorPreviewFormatEnabled={setColorPreviewFormatEnabled}
                 showColorPreviewFormats={showColorPreviewFormats}
                 setShowColorPreviewFormats={setShowColorPreviewFormats}
+                spellcheckEnabled={spellcheckEnabled}
+                setSpellcheckEnabled={setSpellcheckEnabled}
+                spellcheckLanguage={spellcheckLanguage}
+                setSpellcheckLanguage={setSpellcheckLanguage}
+                respectNoteSpellcheckLanguage={respectNoteSpellcheckLanguage}
+                setRespectNoteSpellcheckLanguage={setRespectNoteSpellcheckLanguage}
               />
             )}
 

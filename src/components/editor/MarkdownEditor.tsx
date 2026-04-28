@@ -14,6 +14,7 @@ import { parseFenceInfoLanguage, type ParsedCodeBlockAtCursor } from './codeBloc
 import { dispatchEditorToolbarAction } from '../../lib/editorToolbarActions';
 import { WebLinkPreviewPopover } from '../previews/WebLinkPreviewPopover';
 import { createColorPreviewExtension } from './colorPreview';
+import { createSnippetSessionExtension } from './snippetEngine';
 import {
   indentationConfig,
   indentVisualization,
@@ -24,10 +25,12 @@ import {
   createMarkdownEditorState,
   createMarkdownWikiAutocompleteOverride,
 } from './markdownEditorViewConfig';
+import { createSlashCommandSource } from './slashCommands';
 import { buildMarkdownEditorTheme, buildMarkdownHighlightStyle } from './markdownEditorTheme';
 import { handleEditorDocumentLinkMouseDown, useMarkdownEditorIntegrations } from './useMarkdownEditorIntegrations';
 import { useMarkdownEditorHandle } from './useMarkdownEditorHandle';
 import { MarkdownEditorContextMenu } from './MarkdownEditorContextMenu';
+import { getFrontmatterField } from '../../lib/frontmatter';
 
 export interface MarkdownEditorHandle {
   /** Wrap selection with `before`/`after`; if no selection, insert `before + placeholder + after` and select placeholder. */
@@ -36,6 +39,7 @@ export interface MarkdownEditorHandle {
   insertLine: (prefix: string) => void;
   /** Insert arbitrary text at cursor / replace selection. Supports a single `<cursor>` marker. */
   insertSnippet: (text: string) => void;
+  insertFootnote: () => void;
   focus: () => void;
   replaceRange: (from: number, to: number, text: string) => void;
   getTableAtCursor: () => { from: number; to: number; text: string } | null;
@@ -213,7 +217,7 @@ function getCodeBlockRangeAtCursor(view: EditorView): ParsedCodeBlockAtCursor | 
   return null;
 }
 
-function openToolbarAction(action: 'icon' | 'table' | 'link' | 'image' | 'taskList' | 'math' | 'code') {
+function openToolbarAction(action: 'icon' | 'table' | 'link' | 'image' | 'taskList' | 'math' | 'code' | 'snippets') {
   return () => {
     dispatchEditorToolbarAction(action);
     return true;
@@ -247,8 +251,15 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       colorPreviewFormats,
       webPreviewsEnabled,
       hoverWebLinkPreviewsEnabled,
+      spellcheckEnabled,
+      spellcheckLanguage,
+      respectNoteSpellcheckLanguage,
     } = useUiStore();
     const fontFamily = EDITOR_FONTS[editorFont]?.css ?? EDITOR_FONTS.codingMono.css;
+    const noteSpellcheckLanguage = respectNoteSpellcheckLanguage
+      ? getFrontmatterField(content, 'spellcheckLanguage') ?? getFrontmatterField(content, 'language')
+      : null;
+    const effectiveSpellcheckLanguage = (noteSpellcheckLanguage ?? spellcheckLanguage ?? 'en').trim() || 'en';
 
     onChangeRef.current = onChange;
     onSaveRef.current = onSave;
@@ -281,9 +292,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             tintText: colorPreviewTintText,
             formats: colorPreviewFormats,
           }),
+          contentAttrsExtension: EditorView.contentAttributes.of({
+            spellcheck: spellcheckEnabled ? 'true' : 'false',
+            lang: effectiveSpellcheckLanguage,
+          }),
         }),
       });
-    }, [theme, fontFamily, editorFontSize, indentStyle, tabWidth, showIndentMarkers, showColoredIndents, showInlineColorPreviews, colorPreviewShowSwatch, colorPreviewTintText, colorPreviewFormats]);
+    }, [theme, fontFamily, editorFontSize, indentStyle, tabWidth, showIndentMarkers, showColoredIndents, showInlineColorPreviews, colorPreviewShowSwatch, colorPreviewTintText, colorPreviewFormats, spellcheckEnabled, effectiveSpellcheckLanguage]);
 
     useMarkdownEditorHandle({
       ref,
@@ -372,6 +387,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         { key: 'Mod-Alt-k', run: openToolbarAction('taskList') },
         { key: 'Mod-Alt-m', run: openToolbarAction('math') },
         { key: 'Mod-Alt-c', run: openToolbarAction('code') },
+        { key: 'Mod-Alt-n', run: openToolbarAction('snippets') },
       ]);
 
       const updateListener = EditorView.updateListener.of((update: ViewUpdate) => {
@@ -406,12 +422,17 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             tintText: uiState.colorPreviewTintText,
             formats: uiState.colorPreviewFormats,
           }),
+          contentAttrsExtension: EditorView.contentAttributes.of({
+            spellcheck: uiState.spellcheckEnabled ? 'true' : 'false',
+            lang: effectiveSpellcheckLanguage,
+          }),
         },
         wikiAutocompleteOverride: createMarkdownWikiAutocompleteOverride(),
+        slashCommandOverride: createSlashCommandSource(),
         linkClickHandler,
         saveKeymap,
         updateListener,
-        livePreviewExtension: createLivePreviewPlugin(relativePath),
+        livePreviewExtension: [createLivePreviewPlugin(relativePath), createSnippetSessionExtension()],
       });
 
       let view: EditorView;

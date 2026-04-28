@@ -11,6 +11,7 @@ import { ensureTagsLine, addTagToContent, setTagsInContent } from '../lib/frontm
 import { useUiStore } from '../store/uiStore';
 import { extractHttpUrls, prefetchWebPreviews } from '../lib/webPreviewCache';
 import { useDocumentSessionState } from '../lib/documentSession';
+import { useNoteSnippetStore } from '../store/noteSnippetStore';
 
 function extractFirstH1(content: string): string | null {
   for (const line of content.split('\n')) {
@@ -36,6 +37,7 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   const { addConflict, myUserId, myUserName } = useCollabStore();
   const [content, setContent] = useState<string | null>(null);
   const { webPreviewsEnabled, hoverWebLinkPreviewsEnabled, backgroundWebPreviewPrefetchEnabled } = useUiStore();
+  const loadSnippets = useNoteSnippetStore((state) => state.loadSnippets);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
   const { hashRef, markLoaded, shouldSkipAutosave, markWriteStarted, shouldCreateSnapshot } = useDocumentSessionState();
 
@@ -52,6 +54,11 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   };
 
   useEffect(() => { loadNote(); }, [relativePath, vault?.path]);
+
+  useEffect(() => {
+    if (!vault) return;
+    void loadSnippets(vault.path);
+  }, [loadSnippets, vault?.path]);
 
   useEffect(() => {
     if (!content || !webPreviewsEnabled || !hoverWebLinkPreviewsEnabled || !backgroundWebPreviewPrefetchEnabled) return;

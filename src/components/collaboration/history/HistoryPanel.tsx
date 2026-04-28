@@ -51,16 +51,18 @@ function DiffModal({ snapshotContent, currentContent, onClose }: DiffModalProps)
 }
 
 export function HistoryPanel() {
-  const { activeTabPath, setForceReloadPath } = useEditorStore();
+  const { activeTabPath, openTabs, setForceReloadPath } = useEditorStore();
   const { vault } = useVaultStore();
   const { myUserId, myUserName } = useCollabStore();
   const [snapshots, setSnapshots] = useState<SnapshotMeta[]>([]);
   const [loading, setLoading] = useState(false);
   const [diffState, setDiffState] = useState<{ snapshot: string; current: string } | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const activeTab = openTabs.find((tab) => tab.relativePath === activeTabPath) ?? null;
+  const supportsHistory = activeTab ? ['note', 'kanban', 'canvas'].includes(activeTab.type) : false;
 
   const load = useCallback(async () => {
-    if (!vault || !activeTabPath) return;
+    if (!vault || !activeTabPath || !supportsHistory) return;
     setLoading(true);
     try {
       const list = await tauriCommands.listSnapshots(vault.path, activeTabPath);
@@ -70,7 +72,7 @@ export function HistoryPanel() {
     } finally {
       setLoading(false);
     }
-  }, [vault?.path, activeTabPath]);
+  }, [vault?.path, activeTabPath, supportsHistory]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -101,7 +103,15 @@ export function HistoryPanel() {
   if (!activeTabPath) {
     return (
       <p className="px-3 py-8 text-xs text-muted-foreground text-center">
-        Open a note to see its history
+        Open a note, kanban board, or canvas to see its history
+      </p>
+    );
+  }
+
+  if (!supportsHistory) {
+    return (
+      <p className="px-3 py-8 text-xs text-muted-foreground text-center">
+        History is available for notes, kanban boards, and canvas boards.
       </p>
     );
   }
@@ -116,7 +126,7 @@ export function HistoryPanel() {
           <p className="px-3 py-6 text-xs text-muted-foreground text-center">Loading...</p>
         ) : snapshots.length === 0 ? (
           <p className="px-3 py-8 text-xs text-muted-foreground text-center">
-            No snapshots yet. Save with Ctrl+S to create one.
+            No snapshots yet. Save this document to create one.
           </p>
         ) : (
           <div className="flex flex-col divide-y divide-border/40">

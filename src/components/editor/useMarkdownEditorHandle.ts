@@ -3,6 +3,8 @@ import { useImperativeHandle } from 'react';
 import type { EditorView } from '@codemirror/view';
 
 import type { ParsedCodeBlockAtCursor } from './codeBlockUtils';
+import { insertOrNavigateFootnote } from './noteAuthoring';
+import { insertSnippetTemplate } from './snippetEngine';
 
 type SelectionRange = { from: number; to: number };
 
@@ -45,16 +47,7 @@ export function toggleLinePrefix(view: EditorView, prefix: string) {
 }
 
 export function insertSnippetAtSelection(view: EditorView, text: string) {
-  const { from, to } = view.state.selection.main;
-  const cursorMarker = '<cursor>';
-  const markerIndex = text.indexOf(cursorMarker);
-  const insertText = markerIndex >= 0 ? text.replace(cursorMarker, '') : text;
-  const cursorPos = markerIndex >= 0 ? from + markerIndex : from + insertText.length;
-  view.dispatch({
-    changes: { from, to, insert: insertText },
-    selection: { anchor: cursorPos },
-  });
-  view.focus();
+  insertSnippetTemplate(view, text);
 }
 
 export function replaceEditorRange(view: EditorView, range: SelectionRange, text: string) {
@@ -69,6 +62,7 @@ type MarkdownEditorHandleShape = {
   insertAround: (before: string, after: string, placeholder: string) => void;
   insertLine: (prefix: string) => void;
   insertSnippet: (text: string) => void;
+  insertFootnote: () => void;
   focus: () => void;
   replaceRange: (from: number, to: number, text: string) => void;
   getTableAtCursor: () => { from: number; to: number; text: string } | null;
@@ -108,6 +102,12 @@ export function useMarkdownEditorHandle({
       const view = viewRef.current;
       if (!view) return;
       insertSnippetAtSelection(view, text);
+    },
+
+    insertFootnote() {
+      const view = viewRef.current;
+      if (!view) return;
+      insertOrNavigateFootnote(view);
     },
 
     focus() {

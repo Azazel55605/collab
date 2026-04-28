@@ -3,11 +3,61 @@ use crate::models::note::{ConflictInfo, NoteContent, NoteFile, WriteResult};
 use crate::state::AppState;
 use base64::Engine as _;
 use regex::{Captures, Regex};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 use walkdir::WalkDir;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreConflictInfo {
+    pub existing_relative_path: String,
+    pub suggested_relative_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashEntry {
+    pub id: String,
+    pub original_relative_path: String,
+    pub deleted_at: u64,
+    pub deleted_by_user_id: Option<String>,
+    pub deleted_by_user_name: Option<String>,
+    pub item_kind: String,
+    pub extension: Option<String>,
+    pub size: u64,
+    pub root_name: String,
+    pub restore_conflict: Option<RestoreConflictInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredTrashEntry {
+    id: String,
+    original_relative_path: String,
+    deleted_at: u64,
+    deleted_by_user_id: Option<String>,
+    deleted_by_user_name: Option<String>,
+    item_kind: String,
+    extension: Option<String>,
+    size: u64,
+    root_name: String,
+    image_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PathChangePreview {
+    pub old_relative_path: String,
+    pub new_relative_path: String,
+    pub item_kind: String,
+    pub operation: String,
+    pub nested_item_count: usize,
+    pub affected_reference_paths: Vec<String>,
+    pub blocked_reason: Option<String>,
+}
 
 fn is_ignored_dir_name(name: &str) -> bool {
     matches!(
@@ -65,6 +115,29 @@ fn resolve_vault_path(vault_path: &str, relative_path: &str) -> Result<PathBuf, 
 fn overlay_relative_path(image_relative_path: &str) -> String {
     let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(image_relative_path);
     format!(".collab/image-overlays/{encoded}.json")
+}
+
+fn trash_entries_relative_dir() -> &'static str {
+    ".collab/trash/entries"
+}
+
+fn trash_items_relative_dir() -> &'static str {
+    ".collab/trash/items"
+}
+
+fn trash_entry_metadata_relative_path(entry_id: &str) -> String {
+    format!("{}/{}.json", trash_entries_relative_dir(), entry_id)
+}
+
+fn trash_entry_payload_dir_relative_path(entry_id: &str) -> String {
+    format!("{}/{}", trash_items_relative_dir(), entry_id)
+}
+
+fn is_image_extension(ext: &str) -> bool {
+    matches!(
+        ext,
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico" | "avif"
+    )
 }
 
 fn guess_mime_type(relative_path: &str) -> &'static str {
@@ -132,6 +205,22 @@ fn read_vault_bytes(
     } else {
         Ok(raw)
     }
+}
+
+fn read_trash_entry(vault_path: &str, entry_id: &str, key_opt: Option<[u8; 32]>) -> Result<StoredTrashEntry, String> {
+    let metadata_path = resolve_vault_path(vault_path, &trash_entry_metadata_relative_path(entry_id))?;
+    let bytes = read_vault_bytes(&metadata_path, key_opt)?;
+    serde_json::from_slice(&bytes).map_err(|e| e.to_string())
+}
+
+fn write_trash_entry(vault_path: &str, entry: &StoredTrashEntry, key_opt: Option<[u8; 32]>) -> Result<(), String> {
+    let metadata_path = resolve_vault_path(vault_path, &trash_entry_metadata_relative_path(&entry.id))?;
+    let bytes = serde_json::to_vec_pretty(entry).map_err(|e| e.to_string())?;
+    write_vault_bytes(&metadata_path, &bytes, key_opt)
+}
+
+fn payload_root_path(vault_path: &str, entry: &StoredTrashEntry) -> Result<PathBuf, String> {
+    Ok(resolve_vault_path(vault_path, &trash_entry_payload_dir_relative_path(&entry.id))?.join(&entry.root_name))
 }
 
 fn parse_data_url(data_url: &str) -> Result<(&str, &str), String> {
@@ -482,6 +571,400 @@ fn delete_image_overlay_if_needed(vault_path: &str, image_relative_path: &str) -
         std::fs::remove_file(overlay).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+fn gather_image_paths_for_entry(vault_path: &str, relative_path: &str) -> Result<Vec<String>, String> {
+    let full_path = resolve_vault_path(vault_path, relative_path)?;
+    let metadata = std::fs::metadata(&full_path).map_err(|e| e.to_string())?;
+    if metadata.is_file() {
+        let ext = Path::new(relative_path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_ascii_lowercase())
+            .unwrap_or_default();
+        return Ok(if is_image_extension(&ext) {
+            vec![relative_path.to_string()]
+        } else {
+            Vec::new()
+        });
+    }
+
+    let mut image_paths = Vec::new();
+    for entry in WalkDir::new(&full_path).into_iter() {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let ext = entry
+            .path()
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_ascii_lowercase())
+            .unwrap_or_default();
+        if !is_image_extension(&ext) {
+            continue;
+        }
+        let relative = entry
+            .path()
+            .strip_prefix(Path::new(vault_path))
+            .map_err(|e| e.to_string())?
+            .to_string_lossy()
+            .replace('\\', "/");
+        image_paths.push(relative);
+    }
+
+    Ok(image_paths)
+}
+
+fn compute_total_size(full_path: &Path) -> Result<u64, String> {
+    let metadata = std::fs::metadata(full_path).map_err(|e| e.to_string())?;
+    if metadata.is_file() {
+        return Ok(metadata.len());
+    }
+
+    let mut size = 0;
+    for entry in WalkDir::new(full_path).into_iter() {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if entry.file_type().is_file() {
+            size += entry.metadata().map_err(|e| e.to_string())?.len();
+        }
+    }
+    Ok(size)
+}
+
+fn count_nested_items(full_path: &Path) -> Result<usize, String> {
+    let metadata = std::fs::metadata(full_path).map_err(|e| e.to_string())?;
+    if metadata.is_file() {
+        return Ok(1);
+    }
+
+    let mut count = 0;
+    for entry in WalkDir::new(full_path).min_depth(1).into_iter() {
+        let _ = entry.map_err(|e| e.to_string())?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+fn generate_trash_entry_id(relative_path: &str) -> String {
+    let ts = system_time_to_ms(SystemTime::now());
+    let hash = compute_hash(&format!("{relative_path}:{ts}"));
+    format!("{ts}-{}", &hash[..10])
+}
+
+fn suggest_available_relative_path(vault_path: &str, desired_relative_path: &str) -> Result<String, String> {
+    let desired = normalize_relative_path(desired_relative_path)?;
+    let desired_full = Path::new(vault_path).join(&desired);
+    if !desired_full.exists() {
+        return Ok(desired.to_string_lossy().replace('\\', "/"));
+    }
+
+    let parent = desired.parent().map(Path::to_path_buf).unwrap_or_default();
+    let stem = desired
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("item");
+    let ext = desired.extension().and_then(|value| value.to_str()).filter(|value| !value.is_empty());
+    let mut index = 2;
+    loop {
+        let name = match ext {
+            Some(ext) => format!("{stem}-restored-{index}.{ext}"),
+            None => format!("{stem}-restored-{index}"),
+        };
+        let candidate = if parent.as_os_str().is_empty() {
+            PathBuf::from(&name)
+        } else {
+            parent.join(&name)
+        };
+        if !Path::new(vault_path).join(&candidate).exists() {
+            return Ok(candidate.to_string_lossy().replace('\\', "/"));
+        }
+        index += 1;
+    }
+}
+
+fn move_path_to_trash(
+    vault_path: &str,
+    relative_path: &str,
+    deleted_by_user_id: Option<String>,
+    deleted_by_user_name: Option<String>,
+    key_opt: Option<[u8; 32]>,
+) -> Result<TrashEntry, String> {
+    let normalized = normalize_relative_path(relative_path)?;
+    if normalized == PathBuf::from("Pictures") {
+        return Err("The Pictures folder is managed by the app and cannot be deleted".into());
+    }
+
+    let full_path = Path::new(vault_path).join(&normalized);
+    let metadata = std::fs::metadata(&full_path).map_err(|e| e.to_string())?;
+    let root_name = normalized
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_string())
+        .ok_or("Invalid path")?;
+    let extension = if metadata.is_file() {
+        Path::new(relative_path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_ascii_lowercase())
+    } else {
+        None
+    };
+    let entry = StoredTrashEntry {
+        id: generate_trash_entry_id(relative_path),
+        original_relative_path: normalized.to_string_lossy().replace('\\', "/"),
+        deleted_at: system_time_to_ms(SystemTime::now()),
+        deleted_by_user_id,
+        deleted_by_user_name,
+        item_kind: if metadata.is_dir() { "folder".into() } else { "file".into() },
+        extension,
+        size: compute_total_size(&full_path)?,
+        root_name: root_name.clone(),
+        image_paths: gather_image_paths_for_entry(vault_path, relative_path)?,
+    };
+
+    let payload_dir = resolve_vault_path(vault_path, &trash_entry_payload_dir_relative_path(&entry.id))?;
+    std::fs::create_dir_all(&payload_dir).map_err(|e| e.to_string())?;
+    std::fs::rename(&full_path, payload_dir.join(root_name)).map_err(|e| e.to_string())?;
+    write_trash_entry(vault_path, &entry, key_opt)?;
+
+    Ok(TrashEntry {
+        id: entry.id,
+        original_relative_path: entry.original_relative_path,
+        deleted_at: entry.deleted_at,
+        deleted_by_user_id: entry.deleted_by_user_id,
+        deleted_by_user_name: entry.deleted_by_user_name,
+        item_kind: entry.item_kind,
+        extension: entry.extension,
+        size: entry.size,
+        root_name: entry.root_name,
+        restore_conflict: None,
+    })
+}
+
+fn list_trash_entries_inner(vault_path: &str, key_opt: Option<[u8; 32]>) -> Result<Vec<TrashEntry>, String> {
+    let entries_dir = resolve_vault_path(vault_path, trash_entries_relative_dir())?;
+    if !entries_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut items = Vec::new();
+    for entry in std::fs::read_dir(&entries_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if !entry.file_type().map_err(|e| e.to_string())?.is_file() {
+            continue;
+        }
+        let entry_path = entry.path();
+        let Some(file_stem) = entry_path.file_stem().and_then(|value| value.to_str()).map(|value| value.to_string()) else {
+            continue;
+        };
+        let stored = read_trash_entry(vault_path, &file_stem, key_opt)?;
+        let original_full = Path::new(vault_path).join(normalize_relative_path(&stored.original_relative_path)?);
+        let restore_conflict = if original_full.exists() {
+            Some(RestoreConflictInfo {
+                existing_relative_path: stored.original_relative_path.clone(),
+                suggested_relative_path: suggest_available_relative_path(vault_path, &stored.original_relative_path)?,
+            })
+        } else {
+            None
+        };
+        items.push(TrashEntry {
+            id: stored.id,
+            original_relative_path: stored.original_relative_path,
+            deleted_at: stored.deleted_at,
+            deleted_by_user_id: stored.deleted_by_user_id,
+            deleted_by_user_name: stored.deleted_by_user_name,
+            item_kind: stored.item_kind,
+            extension: stored.extension,
+            size: stored.size,
+            root_name: stored.root_name,
+            restore_conflict,
+        });
+    }
+
+    items.sort_by(|a, b| b.deleted_at.cmp(&a.deleted_at));
+    Ok(items)
+}
+
+fn remap_image_overlays_for_restore(vault_path: &str, entry: &StoredTrashEntry, restored_relative_path: &str) {
+    for image_path in &entry.image_paths {
+        if let Some(remapped) = remap_path(image_path, &entry.original_relative_path, restored_relative_path) {
+            let _ = move_image_overlay_if_needed(vault_path, image_path, &remapped);
+        }
+    }
+}
+
+fn purge_image_overlays(vault_path: &str, entry: &StoredTrashEntry) {
+    for image_path in &entry.image_paths {
+        let _ = delete_image_overlay_if_needed(vault_path, image_path);
+    }
+}
+
+fn restore_trashed_item_inner(
+    vault_path: &str,
+    entry_id: &str,
+    target_relative_path: Option<String>,
+    key_opt: Option<[u8; 32]>,
+) -> Result<String, String> {
+    let entry = read_trash_entry(vault_path, entry_id, key_opt)?;
+    let restore_target = target_relative_path.unwrap_or_else(|| entry.original_relative_path.clone());
+    let target_normalized = normalize_relative_path(&restore_target)?;
+    let target_full = Path::new(vault_path).join(&target_normalized);
+    if target_full.exists() {
+        return Err(format!(
+            "Restore target '{}' already exists",
+            target_normalized.to_string_lossy().replace('\\', "/")
+        ));
+    }
+
+    let payload_root = payload_root_path(vault_path, &entry)?;
+    if !payload_root.exists() {
+        return Err("Trashed item payload is missing".into());
+    }
+    if let Some(parent) = target_full.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::rename(&payload_root, &target_full).map_err(|e| e.to_string())?;
+    remap_image_overlays_for_restore(
+        vault_path,
+        &entry,
+        &target_normalized.to_string_lossy().replace('\\', "/"),
+    );
+
+    let payload_dir = resolve_vault_path(vault_path, &trash_entry_payload_dir_relative_path(&entry.id))?;
+    if payload_dir.exists() {
+        let _ = std::fs::remove_dir(&payload_dir);
+    }
+    let metadata_path = resolve_vault_path(vault_path, &trash_entry_metadata_relative_path(&entry.id))?;
+    if metadata_path.exists() {
+        std::fs::remove_file(metadata_path).map_err(|e| e.to_string())?;
+    }
+
+    Ok(target_normalized.to_string_lossy().replace('\\', "/"))
+}
+
+fn purge_trashed_item_inner(
+    vault_path: &str,
+    entry_id: &str,
+    remove_references: bool,
+    key_opt: Option<[u8; 32]>,
+) -> Result<(), String> {
+    let entry = read_trash_entry(vault_path, entry_id, key_opt)?;
+    if remove_references {
+        rewrite_all_references(vault_path, &entry.original_relative_path, None, key_opt)?;
+    }
+    purge_image_overlays(vault_path, &entry);
+
+    let payload_dir = resolve_vault_path(vault_path, &trash_entry_payload_dir_relative_path(&entry.id))?;
+    if payload_dir.exists() {
+        std::fs::remove_dir_all(&payload_dir).map_err(|e| e.to_string())?;
+    }
+    let metadata_path = resolve_vault_path(vault_path, &trash_entry_metadata_relative_path(&entry.id))?;
+    if metadata_path.exists() {
+        std::fs::remove_file(&metadata_path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn purge_all_trash_inner(vault_path: &str, key_opt: Option<[u8; 32]>) -> Result<(), String> {
+    let items = list_trash_entries_inner(vault_path, key_opt)?;
+    for entry in items {
+        purge_trashed_item_inner(vault_path, &entry.id, false, key_opt)?;
+    }
+    Ok(())
+}
+
+fn collect_reference_impacts(
+    vault_path: &str,
+    old_path: &str,
+    new_path: &str,
+    key_opt: Option<[u8; 32]>,
+) -> Result<Vec<String>, String> {
+    let entries = collect_entries(vault_path)?;
+    let mut impacted = Vec::new();
+
+    for entry in entries {
+        if entry.is_folder || entry.relative_path == old_path || path_matches_or_descends(&entry.relative_path, old_path) {
+            continue;
+        }
+
+        let impacted_here = match entry.extension.as_str() {
+            "md" => {
+                let note = read_note_from_path(&resolve_vault_path(vault_path, &entry.relative_path)?, &entry.relative_path, key_opt)?;
+                replace_markdown_references(&note.content, &entry.relative_path, old_path, Some(new_path)) != note.content
+            }
+            "kanban" => {
+                let note = read_note_from_path(&resolve_vault_path(vault_path, &entry.relative_path)?, &entry.relative_path, key_opt)?;
+                rewrite_kanban_references(&note.content, old_path, Some(new_path))? != note.content
+            }
+            "canvas" => {
+                let note = read_note_from_path(&resolve_vault_path(vault_path, &entry.relative_path)?, &entry.relative_path, key_opt)?;
+                rewrite_canvas_references(&note.content, old_path, Some(new_path))? != note.content
+            }
+            _ => false,
+        };
+
+        if impacted_here {
+            impacted.push(entry.relative_path);
+        }
+    }
+
+    impacted.sort();
+    Ok(impacted)
+}
+
+fn preview_path_change_inner(
+    vault_path: &str,
+    old_path: &str,
+    new_path: &str,
+    key_opt: Option<[u8; 32]>,
+) -> Result<PathChangePreview, String> {
+    let old_normalized = normalize_relative_path(old_path)?;
+    let new_normalized = normalize_relative_path(new_path)?;
+    let old_full = Path::new(vault_path).join(&old_normalized);
+    let new_full = Path::new(vault_path).join(&new_normalized);
+    let old_str = old_normalized.to_string_lossy().replace('\\', "/");
+    let new_str = new_normalized.to_string_lossy().replace('\\', "/");
+
+    let metadata = std::fs::metadata(&old_full).map_err(|e| e.to_string())?;
+    let item_kind = if metadata.is_dir() { "folder" } else { "file" }.to_string();
+    let old_parent = old_normalized.parent().map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+    let new_parent = new_normalized.parent().map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+    let old_name = old_normalized.file_name().and_then(|value| value.to_str()).unwrap_or_default();
+    let new_name = new_normalized.file_name().and_then(|value| value.to_str()).unwrap_or_default();
+    let operation = match (old_parent != new_parent, old_name != new_name) {
+        (true, true) => "move-and-rename",
+        (true, false) => "move",
+        (false, true) => "rename",
+        (false, false) => "unchanged",
+    }.to_string();
+
+    let blocked_reason = if old_str == new_str {
+        Some("The destination matches the current path".into())
+    } else if metadata.is_dir() && new_str.starts_with(&format!("{old_str}/")) {
+        Some("A folder cannot be moved into itself or one of its descendants".into())
+    } else if new_full.exists() {
+        Some("The destination path already exists".into())
+    } else {
+        None
+    };
+
+    let affected_reference_paths = if blocked_reason.is_none() {
+        collect_reference_impacts(vault_path, &old_str, &new_str, key_opt)?
+    } else {
+        Vec::new()
+    };
+
+    Ok(PathChangePreview {
+        old_relative_path: old_str,
+        new_relative_path: new_str,
+        item_kind,
+        operation,
+        nested_item_count: count_nested_items(&old_full)?,
+        affected_reference_paths,
+        blocked_reason,
+    })
 }
 
 fn rewrite_all_references(
@@ -1000,10 +1483,12 @@ mod tests {
     use super::{
         build_tree, collect_entries, create_note_at_path, extension_for_mime, guess_mime_type,
         is_allowed_extension, normalize_relative_path, overlay_relative_path, parse_data_url,
+        list_trash_entries_inner, move_path_to_trash, preview_path_change_inner, purge_trashed_item_inner,
         read_note_from_path, read_vault_bytes, relative_path_from_dir, remap_path,
         replace_markdown_references, resolve_vault_path, rewrite_all_references,
         rewrite_canvas_references, rewrite_kanban_references, sanitize_file_name,
-        should_skip_walk_entry, unique_target_path, write_note_to_path, write_vault_bytes,
+        should_skip_walk_entry, restore_trashed_item_inner, unique_target_path, write_note_to_path,
+        write_vault_bytes,
     };
     use crate::{crypto, test_support::TempVault};
     use std::path::{Path, PathBuf};
@@ -1385,6 +1870,84 @@ mod tests {
             .expect("updated encrypted note should decrypt");
         assert_eq!(updated.content, "# Test\n\nEncrypted body");
     }
+
+    #[test]
+    fn trash_roundtrip_moves_lists_restores_and_purges_items() {
+        let vault = TempVault::new().expect("temp vault should exist");
+        vault.write_text("Notes/alpha.md", "# Alpha").expect("note should be written");
+
+        let trashed = move_path_to_trash(
+            &vault.path_string(),
+            "Notes/alpha.md",
+            Some("user-1".into()),
+            Some("Test User".into()),
+            None,
+        )
+        .expect("move to trash should succeed");
+
+        assert!(!vault.resolve("Notes/alpha.md").exists());
+
+        let listed = list_trash_entries_inner(&vault.path_string(), None).expect("trash should list");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, trashed.id);
+        assert_eq!(listed[0].deleted_by_user_name.as_deref(), Some("Test User"));
+
+        let restored_path = restore_trashed_item_inner(&vault.path_string(), &trashed.id, None, None)
+            .expect("restore should succeed");
+        assert_eq!(restored_path, "Notes/alpha.md");
+        assert!(vault.resolve("Notes/alpha.md").exists());
+
+        let trashed_again = move_path_to_trash(&vault.path_string(), "Notes/alpha.md", None, None, None)
+            .expect("move to trash should succeed again");
+        purge_trashed_item_inner(&vault.path_string(), &trashed_again.id, false, None)
+            .expect("purge should succeed");
+        assert!(list_trash_entries_inner(&vault.path_string(), None).expect("trash should list").is_empty());
+    }
+
+    #[test]
+    fn trash_listing_reports_restore_conflicts() {
+        let vault = TempVault::new().expect("temp vault should exist");
+        vault.write_text("Docs/spec.pdf", "pdf").expect("pdf should exist");
+
+        let trashed = move_path_to_trash(&vault.path_string(), "Docs/spec.pdf", None, None, None)
+            .expect("move to trash should succeed");
+        vault.write_text("Docs/spec.pdf", "replacement").expect("replacement file should exist");
+
+        let listed = list_trash_entries_inner(&vault.path_string(), None).expect("trash should list");
+        let entry = listed.into_iter().find(|entry| entry.id == trashed.id).expect("entry should exist");
+        let conflict = entry.restore_conflict.expect("restore conflict should be reported");
+        assert_eq!(conflict.existing_relative_path, "Docs/spec.pdf");
+        assert!(conflict.suggested_relative_path.starts_with("Docs/spec-restored-"));
+    }
+
+    #[test]
+    fn rename_move_preview_reports_reference_impacts() {
+        let vault = TempVault::new().expect("temp vault should exist");
+        vault.write_text("Docs/spec.pdf", "pdf").expect("pdf should exist");
+        vault
+            .write_text("Notes/alpha.md", "[Spec](../Docs/spec.pdf)")
+            .expect("note should exist");
+        vault
+            .write_text(
+                "Board.canvas",
+                r#"{"nodes":[{"id":"n1","type":"file","relativePath":"Docs/spec.pdf"}],"edges":[],"viewport":{"x":0,"y":0,"zoom":1}}"#,
+            )
+            .expect("canvas should exist");
+
+        let preview = preview_path_change_inner(
+            &vault.path_string(),
+            "Docs/spec.pdf",
+            "Archive/spec.pdf",
+            None,
+        )
+        .expect("preview should succeed");
+
+        assert_eq!(preview.operation, "move");
+        assert_eq!(preview.item_kind, "file");
+        assert!(preview.affected_reference_paths.contains(&"Notes/alpha.md".to_string()));
+        assert!(preview.affected_reference_paths.contains(&"Board.canvas".to_string()));
+        assert_eq!(preview.blocked_reason, None);
+    }
 }
 
 #[tauri::command]
@@ -1442,6 +2005,75 @@ pub fn delete_note(
     } else {
         std::fs::remove_file(&full_path).map_err(|e| e.to_string())
     }
+}
+
+#[tauri::command]
+pub fn move_note_to_trash(
+    vault_path: String,
+    relative_path: String,
+    deleted_by_user_id: Option<String>,
+    deleted_by_user_name: Option<String>,
+    state: State<AppState>,
+) -> Result<TrashEntry, String> {
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    move_path_to_trash(
+        &vault_path,
+        &relative_path,
+        deleted_by_user_id,
+        deleted_by_user_name,
+        key_opt,
+    )
+}
+
+#[tauri::command]
+pub fn list_trash_entries(
+    vault_path: String,
+    state: State<AppState>,
+) -> Result<Vec<TrashEntry>, String> {
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    list_trash_entries_inner(&vault_path, key_opt)
+}
+
+#[tauri::command]
+pub fn restore_trashed_item(
+    vault_path: String,
+    entry_id: String,
+    target_relative_path: Option<String>,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    restore_trashed_item_inner(&vault_path, &entry_id, target_relative_path, key_opt)
+}
+
+#[tauri::command]
+pub fn purge_trashed_item(
+    vault_path: String,
+    entry_id: String,
+    remove_references: Option<bool>,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    purge_trashed_item_inner(&vault_path, &entry_id, remove_references.unwrap_or(false), key_opt)
+}
+
+#[tauri::command]
+pub fn purge_all_trash(
+    vault_path: String,
+    state: State<AppState>,
+) -> Result<(), String> {
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    purge_all_trash_inner(&vault_path, key_opt)
+}
+
+#[tauri::command]
+pub fn preview_rename_move(
+    vault_path: String,
+    old_path: String,
+    new_path: String,
+    state: State<AppState>,
+) -> Result<PathChangePreview, String> {
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    preview_path_change_inner(&vault_path, &old_path, &new_path, key_opt)
 }
 
 #[tauri::command]

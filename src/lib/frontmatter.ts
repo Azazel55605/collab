@@ -16,6 +16,14 @@ function parse(content: string): ParsedFrontmatter | null {
   return { yaml: match[1], body: content.slice(match[0].length) };
 }
 
+export function getFrontmatterField(content: string, field: string): string | null {
+  const fm = parse(content);
+  if (!fm) return null;
+  const match = fm.yaml.match(new RegExp(`^${field}:\\s*(.+)$`, 'im'));
+  if (!match) return null;
+  return match[1].trim().replace(/^['"]|['"]$/g, '');
+}
+
 /** Extract tags from note content. Handles both inline and block list formats. */
 export function getTagsFromContent(content: string): string[] {
   const fm = parse(content);

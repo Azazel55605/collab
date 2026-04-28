@@ -36,6 +36,12 @@ describe('SettingsEditorSection', () => {
         setColorPreviewFormatEnabled={vi.fn()}
         showColorPreviewFormats={false}
         setShowColorPreviewFormats={vi.fn()}
+        spellcheckEnabled={true}
+        setSpellcheckEnabled={vi.fn()}
+        spellcheckLanguage="en"
+        setSpellcheckLanguage={vi.fn()}
+        respectNoteSpellcheckLanguage={true}
+        setRespectNoteSpellcheckLanguage={vi.fn()}
       />,
     );
 
@@ -89,6 +95,12 @@ describe('SettingsEditorSection', () => {
         setColorPreviewFormatEnabled={setColorPreviewFormatEnabled}
         showColorPreviewFormats={true}
         setShowColorPreviewFormats={setShowColorPreviewFormats}
+        spellcheckEnabled={true}
+        setSpellcheckEnabled={vi.fn()}
+        spellcheckLanguage="en"
+        setSpellcheckLanguage={vi.fn()}
+        respectNoteSpellcheckLanguage={true}
+        setRespectNoteSpellcheckLanguage={vi.fn()}
       />,
     );
 
@@ -106,5 +118,54 @@ describe('SettingsEditorSection', () => {
 
     fireEvent.click(screen.getByText('RGB / RGBA'));
     expect(setColorPreviewFormatEnabled).toHaveBeenCalledWith('rgb', true);
+  });
+
+  it('handles spellcheck controls', () => {
+    const setSpellcheckEnabled = vi.fn();
+    const setSpellcheckLanguage = vi.fn();
+    const setRespectNoteSpellcheckLanguage = vi.fn();
+
+    render(
+      <SettingsEditorSection
+        editorFont="codingMono"
+        setEditorFont={vi.fn()}
+        editorFontSize={14}
+        setEditorFontSize={vi.fn()}
+        indentStyle="spaces"
+        setIndentStyle={vi.fn()}
+        tabWidth={2}
+        setTabWidth={vi.fn()}
+        showIndentMarkers={false}
+        setShowIndentMarkers={vi.fn()}
+        showColoredIndents={false}
+        setShowColoredIndents={vi.fn()}
+        showInlineColorPreviews={true}
+        setShowInlineColorPreviews={vi.fn()}
+        colorPreviewShowSwatch={true}
+        setColorPreviewShowSwatch={vi.fn()}
+        colorPreviewTintText={false}
+        setColorPreviewTintText={vi.fn()}
+        colorPreviewFormats={{ hex: true, rgb: false, hsl: false, oklab: false, oklch: false }}
+        setColorPreviewFormatEnabled={vi.fn()}
+        showColorPreviewFormats={false}
+        setShowColorPreviewFormats={vi.fn()}
+        spellcheckEnabled={true}
+        setSpellcheckEnabled={setSpellcheckEnabled}
+        spellcheckLanguage="en"
+        setSpellcheckLanguage={setSpellcheckLanguage}
+        respectNoteSpellcheckLanguage={true}
+        setRespectNoteSpellcheckLanguage={setRespectNoteSpellcheckLanguage}
+      />,
+    );
+
+    const switches = screen.getAllByRole('switch');
+    fireEvent.click(switches[switches.length - 2]);
+    expect(setSpellcheckEnabled).toHaveBeenCalledWith(false);
+
+    fireEvent.change(screen.getByPlaceholderText('en'), { target: { value: 'de' } });
+    expect(setSpellcheckLanguage).toHaveBeenCalledWith('de');
+
+    fireEvent.click(switches[switches.length - 1]);
+    expect(setRespectNoteSpellcheckLanguage).toHaveBeenCalledWith(false);
   });
 });

@@ -20,6 +20,9 @@ import {
   Highlighter,
   Tags,
   FileText,
+  NotebookPen,
+  MessageSquareQuote,
+  ScrollText,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { useEffect, useState, type MouseEvent, type RefObject } from 'react';
@@ -49,9 +52,11 @@ import {
 import { MathBlockEditorDialog } from './MathBlockEditorDialog';
 import { CodeBlockEditorDialog } from './CodeBlockEditorDialog';
 import { NerdFontIconPicker } from './NerdFontIconPicker';
+import { NoteSnippetsDialog } from './NoteSnippetsDialog';
 import { open } from '@tauri-apps/plugin-dialog';
 import { renderMarkdownCodeBlock } from './codeBlockUtils';
 import { EDITOR_TOOLBAR_ACTION_EVENT, type EditorToolbarAction } from '../../lib/editorToolbarActions';
+import { buildCalloutSnippet } from './noteAuthoring';
 
 interface EditorToolbarProps {
   relativePath: string;
@@ -318,6 +323,7 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
   const [codeLanguage, setCodeLanguage] = useState('');
   const [codeContent, setCodeContent] = useState('');
   const [codeReplaceRange, setCodeReplaceRange] = useState<{ from: number; to: number } | null>(null);
+  const [snippetsDialogOpen, setSnippetsDialogOpen] = useState(false);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -340,6 +346,9 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
           break;
         case 'code':
           openCodeDialog();
+          break;
+        case 'snippets':
+          setSnippetsDialogOpen(true);
           break;
         default:
           break;
@@ -610,6 +619,21 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
             </div>
 
             <div className={documentTopBarGroupClass}>
+              <TBtn
+                icon={<MessageSquareQuote size={13} />}
+                label="Callout block"
+                onClick={() => ed()?.insertSnippet(buildCalloutSnippet('note'))}
+              />
+              <TBtn
+                icon={<ScrollText size={13} />}
+                label="Footnote"
+                onClick={() => ed()?.insertFootnote()}
+              />
+              <TBtn
+                icon={<NotebookPen size={13} />}
+                label="Note snippets"
+                onClick={() => setSnippetsDialogOpen(true)}
+              />
               <TagsBtn />
             </div>
           </>
@@ -688,6 +712,19 @@ export function EditorToolbar({ relativePath, editorRef }: EditorToolbarProps) {
           if (!open) restoreEditorFocus();
         }}
         onApply={applyCodeDialog}
+      />
+
+      <NoteSnippetsDialog
+        open={snippetsDialogOpen}
+        onOpenChange={(open) => {
+          setSnippetsDialogOpen(open);
+          if (!open) restoreEditorFocus();
+        }}
+        onInsert={(body) => {
+          ed()?.insertSnippet(body);
+          setSnippetsDialogOpen(false);
+          restoreEditorFocus();
+        }}
       />
     </>
   );

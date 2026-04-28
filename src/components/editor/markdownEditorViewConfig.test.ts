@@ -18,10 +18,11 @@ describe('markdownEditorViewConfig', () => {
       indentationExtension: indentationConfig('spaces', 2),
       indentVisualExtension: [],
       colorPreviewExtension: [],
+      contentAttrsExtension: [],
     };
 
-    expect(buildMarkdownEditorInitialExtensions(compartments, compartmentExtensions)).toHaveLength(5);
-    expect(buildMarkdownEditorReconfigureEffects(compartments, compartmentExtensions)).toHaveLength(5);
+    expect(buildMarkdownEditorInitialExtensions(compartments, compartmentExtensions)).toHaveLength(6);
+    expect(buildMarkdownEditorReconfigureEffects(compartments, compartmentExtensions)).toHaveLength(6);
   });
 
   it('builds an editor state with the provided content and indentation config', () => {
@@ -35,8 +36,10 @@ describe('markdownEditorViewConfig', () => {
         indentationExtension: indentationConfig('spaces', 4),
         indentVisualExtension: [],
         colorPreviewExtension: [],
+        contentAttrsExtension: [],
       },
       wikiAutocompleteOverride: [],
+      slashCommandOverride: () => null,
       linkClickHandler: [],
       saveKeymap: keymap.of([]),
       updateListener: EditorView.updateListener.of(() => {}),

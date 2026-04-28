@@ -119,6 +119,12 @@ pub fn run() {
             commands::files::write_note,
             commands::files::create_note,
             commands::files::delete_note,
+            commands::files::move_note_to_trash,
+            commands::files::list_trash_entries,
+            commands::files::restore_trashed_item,
+            commands::files::purge_trashed_item,
+            commands::files::purge_all_trash,
+            commands::files::preview_rename_move,
             commands::files::rename_note,
             commands::files::create_folder,
             // web
@@ -132,6 +138,9 @@ pub fn run() {
             commands::templates::export_kanban_template_to_file,
             commands::templates::apply_kanban_template,
             commands::templates::create_blank_kanban_template,
+            commands::templates::list_note_snippets,
+            commands::templates::save_note_snippet,
+            commands::templates::delete_note_snippet,
             // index
             commands::index::build_note_index,
             commands::index::get_backlinks,

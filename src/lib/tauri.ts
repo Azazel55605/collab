@@ -3,11 +3,21 @@ import { getVersion } from '@tauri-apps/api/app';
 import { open, save } from '@tauri-apps/plugin-dialog';
 
 export const getAppVersion = getVersion;
-import type { VaultMeta, NoteFile, NoteContent, WriteResult, VaultConfig, MemberRole } from '../types/vault';
+import type {
+  VaultMeta,
+  NoteFile,
+  NoteContent,
+  WriteResult,
+  VaultConfig,
+  MemberRole,
+  TrashEntry,
+  PathChangePreview,
+} from '../types/vault';
 import type { NoteMetadata, SearchResult } from '../types/note';
 import type { PresenceEntry, ChatMessage, SnapshotMeta } from '../types/collab';
 import type { KanbanBoard } from '../types/kanban';
 import type { KanbanTemplate, TemplateSource } from '../types/template';
+import type { NoteSnippet, NoteSnippetDraft, NoteSnippetScope } from '../types/noteSnippet';
 import type { UpdateInfo } from '../store/updateStore';
 
 export interface LinkPreviewData {
@@ -80,6 +90,21 @@ export const tauriCommands = {
   writeNote: (vaultPath: string, relativePath: string, content: string, expectedHash?: string) =>
     invoke<WriteResult>('write_note', { vaultPath, relativePath, content, expectedHash: expectedHash ?? null }),
   createNote: (vaultPath: string, relativePath: string) => invoke<NoteFile>('create_note', { vaultPath, relativePath }),
+  moveNoteToTrash: (vaultPath: string, relativePath: string, deletedByUserId?: string | null, deletedByUserName?: string | null) =>
+    invoke<TrashEntry>('move_note_to_trash', {
+      vaultPath,
+      relativePath,
+      deletedByUserId: deletedByUserId ?? null,
+      deletedByUserName: deletedByUserName ?? null,
+    }),
+  listTrashEntries: (vaultPath: string) => invoke<TrashEntry[]>('list_trash_entries', { vaultPath }),
+  restoreTrashedItem: (vaultPath: string, entryId: string, targetRelativePath?: string | null) =>
+    invoke<string>('restore_trashed_item', { vaultPath, entryId, targetRelativePath: targetRelativePath ?? null }),
+  purgeTrashedItem: (vaultPath: string, entryId: string, removeReferences?: boolean) =>
+    invoke<void>('purge_trashed_item', { vaultPath, entryId, removeReferences: removeReferences ?? null }),
+  purgeAllTrash: (vaultPath: string) => invoke<void>('purge_all_trash', { vaultPath }),
+  previewRenameMove: (vaultPath: string, oldPath: string, newPath: string) =>
+    invoke<PathChangePreview>('preview_rename_move', { vaultPath, oldPath, newPath }),
   deleteNote: (vaultPath: string, relativePath: string, removeReferences?: boolean) =>
     invoke<void>('delete_note', { vaultPath, relativePath, removeReferences: removeReferences ?? null }),
   renameNote: (vaultPath: string, oldPath: string, newPath: string, updateReferences?: boolean) =>
@@ -126,6 +151,25 @@ export const tauriCommands = {
     source: TemplateSource,
     templateName: string,
   ) => invoke<KanbanTemplate>('create_blank_kanban_template', { vaultPath: vaultPath ?? null, source, templateName }),
+  listNoteSnippets: (vaultPath?: string | null) =>
+    invoke<NoteSnippet[]>('list_note_snippets', { vaultPath: vaultPath ?? null }),
+  saveNoteSnippet: (
+    vaultPath: string | null | undefined,
+    snippet: NoteSnippetDraft,
+  ) => invoke<NoteSnippet>('save_note_snippet', {
+    vaultPath: vaultPath ?? null,
+    scope: snippet.scope,
+    snippetId: snippet.id ?? null,
+    name: snippet.name,
+    description: snippet.description ?? null,
+    category: snippet.category ?? null,
+    body: snippet.body,
+  }),
+  deleteNoteSnippet: (
+    vaultPath: string | null | undefined,
+    scope: NoteSnippetScope,
+    snippetId: string,
+  ) => invoke<void>('delete_note_snippet', { vaultPath: vaultPath ?? null, scope, snippetId }),
   showOpenTemplateFileDialog: async () => {
     const result = await open({
       multiple: false,

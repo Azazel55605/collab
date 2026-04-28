@@ -94,7 +94,7 @@ function groupKanbanTemplates(templates: KanbanTemplate[]): KanbanTemplate[] {
 export default function BoardsPanel({ kind }: Props) {
   const { vault, fileTree, refreshFileTree } = useVaultStore();
   const { openTab, closeTab, activeTabPath } = useEditorStore();
-  const { setActiveView } = useUiStore();
+  const { setActiveView, confirmDelete: confirmDeleteEnabled } = useUiStore();
   const [creating, setCreating] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createTemplate, setCreateTemplate] = useState('__blank__');
@@ -199,10 +199,26 @@ export default function BoardsPanel({ kind }: Props) {
     }
   }, [vault, closeTab, refreshFileTree, label]);
 
+  const moveBoardToTrash = useCallback(async (file: NoteFile) => {
+    if (!vault) return;
+    try {
+      await tauriCommands.moveNoteToTrash(vault.path, file.relativePath, null, null);
+      closeTab(file.relativePath);
+      await refreshFileTree();
+      toast.success(`Moved ${file.name} to trash`);
+    } catch (error) {
+      toast.error(`Failed to move ${label} board to trash: ${error}`);
+    }
+  }, [vault, closeTab, refreshFileTree, label]);
+
   const handleDelete = useCallback((file: NoteFile) => {
     setDeleteRemoveReferences(false);
+    if (!confirmDeleteEnabled) {
+      void moveBoardToTrash(file);
+      return;
+    }
     setDeleteBoard(file);
-  }, [deleteBoardFile]);
+  }, [confirmDeleteEnabled, moveBoardToTrash]);
 
   const handleSaveAsTemplate = useCallback((file: NoteFile) => {
     setTemplateBoard(file);
@@ -354,9 +370,22 @@ export default function BoardsPanel({ kind }: Props) {
         open={!!deleteBoard}
         name={deleteBoard?.name ?? ''}
         isFolder={false}
+        primaryActionLabel="Delete permanently"
         showReferenceOption
         removeReferences={deleteRemoveReferences}
         onRemoveReferencesChange={setDeleteRemoveReferences}
+        onMoveToTrash={() => {
+          if (!deleteBoard) return;
+          void moveBoardToTrash(deleteBoard);
+          setDeleteBoard(null);
+          setDeleteRemoveReferences(false);
+        }}
+        onDeletePermanently={() => {
+          if (!deleteBoard) return;
+          void deleteBoardFile(deleteBoard, deleteRemoveReferences);
+          setDeleteBoard(null);
+          setDeleteRemoveReferences(false);
+        }}
         onConfirm={() => {
           if (!deleteBoard) return;
           void deleteBoardFile(deleteBoard, deleteRemoveReferences);

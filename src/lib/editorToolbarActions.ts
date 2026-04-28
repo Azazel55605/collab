@@ -5,7 +5,8 @@ export type EditorToolbarAction =
   | 'image'
   | 'taskList'
   | 'math'
-  | 'code';
+  | 'code'
+  | 'snippets';
 
 export const EDITOR_TOOLBAR_ACTION_EVENT = 'editor:toolbar-action';
 

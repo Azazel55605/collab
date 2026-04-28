@@ -15,6 +15,7 @@ const tauriMocks = vi.hoisted(() => ({
   writeNote: vi.fn(),
   createSnapshot: vi.fn(),
   renameNote: vi.fn(),
+  listNoteSnippets: vi.fn(async () => []),
 }));
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -36,6 +37,7 @@ vi.mock('../lib/tauri', () => ({
     writeNote: tauriMocks.writeNote,
     createSnapshot: tauriMocks.createSnapshot,
     renameNote: tauriMocks.renameNote,
+    listNoteSnippets: tauriMocks.listNoteSnippets,
   },
 }));
 

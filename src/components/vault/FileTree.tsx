@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import {
   ChevronRight, ChevronDown, FileText, Folder, FolderOpen,
-  Plus, FolderPlus, Layout, LayoutDashboard, Paperclip, Image as ImageIcon,
+  Plus, FolderPlus, Layout, LayoutDashboard, Paperclip, Image as ImageIcon, Trash2,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useVaultStore } from '../../store/vaultStore';
@@ -19,7 +19,9 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { toast } from 'sonner';
-import { ConfirmDeleteDialog, InputDialog } from './VaultDialogs';
+import { ConfirmDeleteDialog, InputDialog, RenameMovePreviewDialog } from './VaultDialogs';
+import TrashPanel from './TrashPanel';
+import type { PathChangePreview } from '../../types/vault';
 
 type DialogState =
   | { type: 'none' }
@@ -56,11 +58,17 @@ function isManagedPicturesFolder(node: Pick<NoteFile, 'isFolder' | 'relativePath
 export default function FileTree() {
   const { vault, fileTree, refreshFileTree } = useVaultStore();
   const { openTab, closeTab, renameTab } = useEditorStore();
-  const { setActiveView } = useUiStore();
+  const { setActiveView, confirmDelete: confirmDeleteEnabled } = useUiStore();
+  const { myUserId, myUserName } = useCollabStore();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [dialog, setDialog] = useState<DialogState>({ type: 'none' });
   const [deleteRemoveReferences, setDeleteRemoveReferences] = useState(false);
   const [taskAttachmentsByPath, setTaskAttachmentsByPath] = useState<Record<string, TaskAttachmentRef[]>>({});
+  const [mode, setMode] = useState<'files' | 'trash'>('files');
+  const [previewState, setPreviewState] = useState<{
+    preview: PathChangePreview;
+    apply: () => Promise<void>;
+  } | null>(null);
 
   // ── Drag-and-drop state ────────────────────────────────────────────────────
   const [draggingPath, setDraggingPath] = useState<string | null>(null);
@@ -97,6 +105,10 @@ export default function FileTree() {
       return;
     }
     setDeleteRemoveReferences(false);
+    if (!confirmDeleteEnabled) {
+      void moveFileToTrash(file);
+      return;
+    }
     setDialog({ type: 'delete', file });
   };
 
@@ -122,6 +134,33 @@ export default function FileTree() {
       await refreshFileTree();
     } catch (e) { toast.error('Failed to delete: ' + e); }
     finally { setDeleteRemoveReferences(false); }
+  };
+
+  const moveFileToTrash = async (file: NoteFile) => {
+    if (!vault) return;
+    try {
+      await tauriCommands.moveNoteToTrash(vault.path, file.relativePath, myUserId, myUserName);
+      const prefix = file.isFolder ? `${file.relativePath}/` : null;
+      for (const tab of useEditorStore.getState().openTabs) {
+        if (tab.relativePath === file.relativePath || (prefix && tab.relativePath.startsWith(prefix))) {
+          closeTab(tab.relativePath);
+        }
+      }
+      await refreshFileTree();
+      setMode('trash');
+      toast.success(`Moved ${file.name} to trash`);
+    } catch (error) {
+      toast.error(`Failed to move to trash: ${error}`);
+    } finally {
+      setDeleteRemoveReferences(false);
+    }
+  };
+
+  const moveToTrash = async () => {
+    if (dialog.type !== 'delete') return;
+    const { file } = dialog;
+    setDialog({ type: 'none' });
+    await moveFileToTrash(file);
   };
 
   const confirmCreate = async (name: string) => {
@@ -161,10 +200,16 @@ export default function FileTree() {
     parts[parts.length - 1] = nextSegment;
     const newPath = parts.join('/');
     try {
-      await tauriCommands.renameNote(vault.path, file.relativePath, newPath);
-      renameTab(file.relativePath, newPath, nextSegment.replace(/\.[^.]+$/, ''));
-      await refreshFileTree();
-    } catch (e) { toast.error('Failed to rename: ' + e); }
+      const preview = await tauriCommands.previewRenameMove(vault.path, file.relativePath, newPath);
+      setPreviewState({
+        preview,
+        apply: async () => {
+          await tauriCommands.renameNote(vault.path, file.relativePath, newPath);
+          renameTab(file.relativePath, newPath, nextSegment.replace(/\.[^.]+$/, ''));
+          await refreshFileTree();
+        },
+      });
+    } catch (e) { toast.error('Failed to prepare rename: ' + e); }
   };
 
   // ── Move file via drag ─────────────────────────────────────────────────────
@@ -184,10 +229,16 @@ export default function FileTree() {
     if (fromPath === toFolderPath) return;
 
     try {
-      await tauriCommands.renameNote(vault.path, fromPath, newPath);
-      renameTab(fromPath, newPath, fileName.replace(/\.[^.]+$/, ''));
-      await refreshFileTree();
-    } catch (e) { toast.error('Failed to move: ' + e); }
+      const preview = await tauriCommands.previewRenameMove(vault.path, fromPath, newPath);
+      setPreviewState({
+        preview,
+        apply: async () => {
+          await tauriCommands.renameNote(vault.path, fromPath, newPath);
+          renameTab(fromPath, newPath, fileName.replace(/\.[^.]+$/, ''));
+          await refreshFileTree();
+        },
+      });
+    } catch (e) { toast.error('Failed to preview move: ' + e); }
   }, [vault, refreshFileTree, renameTab]);
 
   useEffect(() => {
@@ -247,9 +298,12 @@ export default function FileTree() {
         open={dialog.type === 'delete'}
         name={dialog.type === 'delete' ? dialog.file.name : ''}
         isFolder={dialog.type === 'delete' ? dialog.file.isFolder : false}
+        primaryActionLabel="Delete permanently"
         showReferenceOption={dialog.type === 'delete'}
         removeReferences={deleteRemoveReferences}
         onRemoveReferencesChange={setDeleteRemoveReferences}
+        onMoveToTrash={() => void moveToTrash()}
+        onDeletePermanently={confirmDelete}
         onConfirm={confirmDelete}
         onCancel={() => {
           setDialog({ type: 'none' });
@@ -267,34 +321,80 @@ export default function FileTree() {
         onConfirm={dialog.type === 'rename' ? confirmRename : confirmCreate}
         onCancel={() => setDialog({ type: 'none' })}
       />
+      <RenameMovePreviewDialog
+        open={!!previewState}
+        preview={previewState?.preview ?? null}
+        affectedOpenTabs={
+          previewState
+            ? useEditorStore.getState().openTabs
+                .filter((tab) => tab.relativePath === previewState.preview.oldRelativePath || tab.relativePath.startsWith(`${previewState.preview.oldRelativePath}/`))
+                .map((tab) => tab.relativePath)
+            : []
+        }
+        onConfirm={() => {
+          if (!previewState) return;
+          void previewState.apply()
+            .catch((error) => toast.error(`Failed to apply path change: ${error}`))
+            .finally(() => setPreviewState(null));
+        }}
+        onCancel={() => setPreviewState(null)}
+      />
 
       {/* Toolbar row */}
-      <div className="flex items-center justify-end gap-0.5 px-2 py-1.5 border-b border-border/30">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => handleCreateNote()}
-              className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
-            >
-              <Plus size={13} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-xs text-foreground">New note</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => handleCreateFolder()}
-              className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
-            >
-              <FolderPlus size={13} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-xs text-foreground">New folder</TooltipContent>
-        </Tooltip>
+      <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b border-border/30">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setMode('files')}
+            className={cn(
+              'rounded px-2 py-1 text-[11px] font-medium transition-colors',
+              mode === 'files' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground',
+            )}
+          >
+            Files
+          </button>
+          <button
+            onClick={() => setMode('trash')}
+            className={cn(
+              'flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors',
+              mode === 'trash' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground',
+            )}
+          >
+            <Trash2 size={11} />
+            Trash
+          </button>
+        </div>
+        {mode === 'files' && (
+          <div className="flex items-center gap-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => handleCreateNote()}
+                  className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
+                >
+                  <Plus size={13} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs text-foreground">New note</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => handleCreateFolder()}
+                  className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
+                >
+                  <FolderPlus size={13} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs text-foreground">New folder</TooltipContent>
+            </Tooltip>
+          </div>
+        )}
       </div>
 
       {/* Tree — root is also a drop target */}
+      {mode === 'trash' ? (
+        <TrashPanel />
+      ) : (
       <div
         className={cn(
           'flex-1 overflow-y-auto py-1 transition-colors duration-100 app-motion-fast',
@@ -349,6 +449,7 @@ export default function FileTree() {
           ))
         )}
       </div>
+      )}
     </div>
   );
 }

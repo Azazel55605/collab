@@ -43,6 +43,7 @@ export type MarkdownEditorCompartments = {
   indentation: Compartment;
   indentVisual: Compartment;
   colorPreview: Compartment;
+  contentAttrs: Compartment;
 };
 
 export type MarkdownEditorCompartmentExtensions = {
@@ -51,6 +52,7 @@ export type MarkdownEditorCompartmentExtensions = {
   indentationExtension: Extension;
   indentVisualExtension: Extension;
   colorPreviewExtension: Extension;
+  contentAttrsExtension: Extension;
 };
 
 type CreateMarkdownEditorStateOptions = {
@@ -62,6 +64,7 @@ type CreateMarkdownEditorStateOptions = {
   saveKeymap: Extension;
   updateListener: Extension;
   livePreviewExtension: Extension;
+  slashCommandOverride: CompletionSource;
 };
 
 export function createMarkdownEditorCompartments(): MarkdownEditorCompartments {
@@ -71,6 +74,7 @@ export function createMarkdownEditorCompartments(): MarkdownEditorCompartments {
     indentation: new Compartment(),
     indentVisual: new Compartment(),
     colorPreview: new Compartment(),
+    contentAttrs: new Compartment(),
   };
 }
 
@@ -84,6 +88,7 @@ export function buildMarkdownEditorInitialExtensions(
     compartments.indentation.of(extensions.indentationExtension),
     compartments.indentVisual.of(extensions.indentVisualExtension),
     compartments.colorPreview.of(extensions.colorPreviewExtension),
+    compartments.contentAttrs.of(extensions.contentAttrsExtension),
   ];
 }
 
@@ -97,6 +102,7 @@ export function buildMarkdownEditorReconfigureEffects(
     compartments.indentation.reconfigure(extensions.indentationExtension),
     compartments.indentVisual.reconfigure(extensions.indentVisualExtension),
     compartments.colorPreview.reconfigure(extensions.colorPreviewExtension),
+    compartments.contentAttrs.reconfigure(extensions.contentAttrsExtension),
   ];
 }
 
@@ -109,6 +115,7 @@ export function createMarkdownEditorState({
   saveKeymap,
   updateListener,
   livePreviewExtension,
+  slashCommandOverride,
 }: CreateMarkdownEditorStateOptions) {
   const initialCompartmentExtensions = buildMarkdownEditorInitialExtensions(compartments, compartmentExtensions);
 
@@ -131,7 +138,7 @@ export function createMarkdownEditorState({
         markdown({ base: markdownLanguage, extensions: GFM, codeLanguages: languages }),
         livePreviewExtension,
         autocompletion({
-          override: wikiAutocompleteOverride,
+          override: [slashCommandOverride, ...wikiAutocompleteOverride],
         }),
         keymap.of([
           { key: 'Tab', run: handleTabKey, shift: indentLess },
