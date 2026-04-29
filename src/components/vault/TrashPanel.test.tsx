@@ -114,4 +114,21 @@ describe('TrashPanel', () => {
       expect(purgeAllTrash).toHaveBeenCalledWith('/vault');
     });
   });
+
+  it('can purge a trashed item while removing references', async () => {
+    render(
+      <TooltipProvider>
+        <TrashPanel />
+      </TooltipProvider>,
+    );
+
+    expect(await screen.findByText('spec.pdf')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /purge spec\.pdf/i }));
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: /delete permanently/i }));
+
+    await waitFor(() => {
+      expect(purgeTrashedItem).toHaveBeenCalledWith('/vault', 'one', true);
+    });
+  });
 });

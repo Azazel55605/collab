@@ -37,7 +37,16 @@ function sanitizeFilename(name: string): string {
 
 export default function NoteView({ relativePath }: { relativePath: string }) {
   const { vault, refreshFileTree } = useVaultStore();
-  const { markDirty, markSaved, setSavedHash, renameTab, forceReloadPath, setForceReloadPath } = useEditorStore();
+  const {
+    markDirty,
+    markSaved,
+    setSavedHash,
+    renameTab,
+    forceReloadPath,
+    setForceReloadPath,
+    revealEditorPath,
+    setRevealEditorPath,
+  } = useEditorStore();
   const { addConflict, myUserId, myUserName } = useCollabStore();
   const [content, setContent] = useState<string | null>(null);
   const {
@@ -117,6 +126,15 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
       loadNote();
     }
   }, [forceReloadPath]);
+
+  useEffect(() => {
+    if (revealEditorPath !== relativePath || content === null) return;
+    const frame = window.requestAnimationFrame(() => {
+      editorRef.current?.moveCursorToEnd();
+      setRevealEditorPath(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [content, relativePath, revealEditorPath, setRevealEditorPath]);
 
   // Auto-reload when another user edits the same file (no local dirty changes)
   const isDirtyRef = useRef(false);

@@ -42,6 +42,7 @@ export interface MarkdownEditorHandle {
   insertFootnote: () => void;
   focus: () => void;
   replaceRange: (from: number, to: number, text: string) => void;
+  moveCursorToEnd: () => void;
   getTableAtCursor: () => { from: number; to: number; text: string } | null;
   getMathBlockAtCursor: () => { from: number; to: number; text: string } | null;
   getCodeBlockAtCursor: () => ParsedCodeBlockAtCursor | null;

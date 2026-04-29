@@ -76,7 +76,7 @@ export function ConfirmDeleteDialog({
             <div className="space-y-1">
               <div className="text-sm font-medium text-foreground">Also remove file references</div>
               <div className="text-xs text-muted-foreground">
-                Update notes, boards, and canvases that link to this {isFolder ? 'folder' : 'file'} by removing the affected references when you permanently delete it.
+                Update notes, boards, and canvases that link to this {isFolder ? 'folder' : 'file'} by removing the affected references as part of this delete action. If you move it to trash, those references will not be restored automatically.
               </div>
             </div>
           </label>

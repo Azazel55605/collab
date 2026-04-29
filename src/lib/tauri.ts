@@ -19,6 +19,7 @@ import type { PresenceEntry, ChatMessage, SnapshotMeta } from '../types/collab';
 import type { KanbanBoard } from '../types/kanban';
 import type { KanbanTemplate, TemplateSource } from '../types/template';
 import type { NoteSnippet, NoteSnippetDraft, NoteSnippetScope } from '../types/noteSnippet';
+import type { PdfSidecarState } from '../types/pdf';
 import type { UpdateInfo } from '../store/updateStore';
 
 export interface LinkPreviewData {
@@ -73,6 +74,10 @@ export const tauriCommands = {
     invoke<void>('write_image_overlay', { vaultPath, imageRelativePath, content }),
   deleteImageOverlay: (vaultPath: string, imageRelativePath: string) =>
     invoke<void>('delete_image_overlay', { vaultPath, imageRelativePath }),
+  readPdfSidecarState: (vaultPath: string, pdfRelativePath: string) =>
+    invoke<PdfSidecarState>('read_pdf_sidecar_state', { vaultPath, pdfRelativePath }),
+  writePdfSidecarState: (vaultPath: string, pdfRelativePath: string, state: PdfSidecarState) =>
+    invoke<void>('write_pdf_sidecar_state', { vaultPath, pdfRelativePath, state }),
   saveGeneratedImage: (
     vaultPath: string,
     sourceRelativePath: string,
@@ -91,12 +96,19 @@ export const tauriCommands = {
   writeNote: (vaultPath: string, relativePath: string, content: string, expectedHash?: string) =>
     invoke<WriteResult>('write_note', { vaultPath, relativePath, content, expectedHash: expectedHash ?? null }),
   createNote: (vaultPath: string, relativePath: string) => invoke<NoteFile>('create_note', { vaultPath, relativePath }),
-  moveNoteToTrash: (vaultPath: string, relativePath: string, deletedByUserId?: string | null, deletedByUserName?: string | null) =>
+  moveNoteToTrash: (
+    vaultPath: string,
+    relativePath: string,
+    deletedByUserId?: string | null,
+    deletedByUserName?: string | null,
+    removeReferences?: boolean,
+  ) =>
     invoke<TrashEntry>('move_note_to_trash', {
       vaultPath,
       relativePath,
       deletedByUserId: deletedByUserId ?? null,
       deletedByUserName: deletedByUserName ?? null,
+      removeReferences: removeReferences ?? null,
     }),
   listTrashEntries: (vaultPath: string) => invoke<TrashEntry[]>('list_trash_entries', { vaultPath }),
   restoreTrashedItem: (vaultPath: string, entryId: string, targetRelativePath?: string | null) =>

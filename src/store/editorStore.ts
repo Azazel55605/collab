@@ -14,6 +14,7 @@ interface EditorState {
   openTabs: OpenTab[];
   activeTabPath: string | null;
   forceReloadPath: string | null;
+  revealEditorPath: string | null;
   setSessionVaultPath: (vaultPath: string | null) => void;
   resetSession: (vaultPath?: string | null) => void;
   openTab: (relativePath: string, title: string, type?: 'note' | 'canvas' | 'kanban' | 'graph' | 'settings' | 'image' | 'pdf') => void;
@@ -26,6 +27,7 @@ interface EditorState {
   renameTab: (oldPath: string, newPath: string, newTitle: string) => void;
   reorderTabs: (fromPath: string, toPath: string, before: boolean) => void;
   setForceReloadPath: (path: string | null) => void;
+  setRevealEditorPath: (path: string | null) => void;
 }
 
 export const useEditorStore = create<EditorState>()(
@@ -35,6 +37,7 @@ export const useEditorStore = create<EditorState>()(
   openTabs: [],
   activeTabPath: null,
   forceReloadPath: null,
+  revealEditorPath: null,
 
   setSessionVaultPath: (sessionVaultPath) => set({ sessionVaultPath }),
 
@@ -43,6 +46,7 @@ export const useEditorStore = create<EditorState>()(
     openTabs: [],
     activeTabPath: null,
     forceReloadPath: null,
+    revealEditorPath: null,
   }),
 
   openTab: (relativePath, title, type = 'note') => {
@@ -134,6 +138,7 @@ export const useEditorStore = create<EditorState>()(
   },
 
   setForceReloadPath: (forceReloadPath) => set({ forceReloadPath }),
+  setRevealEditorPath: (revealEditorPath) => set({ revealEditorPath }),
 }),
     {
       name: 'editor-storage',

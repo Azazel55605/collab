@@ -70,6 +70,56 @@ pub struct FileReference {
     pub context: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfHighlightRect {
+    pub left: f32,
+    pub top: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfBookmark {
+    pub id: String,
+    pub page: u32,
+    pub label: Option<String>,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfHighlight {
+    pub id: String,
+    pub page: u32,
+    pub text: String,
+    pub rects: Vec<PdfHighlightRect>,
+    pub color: Option<String>,
+    pub note: Option<String>,
+    pub created_at: u64,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfViewerState {
+    pub last_page: Option<u32>,
+    pub last_zoom_mode: Option<String>,
+    pub last_zoom: Option<f32>,
+    pub last_layout_mode: Option<String>,
+    pub last_rotation: Option<u16>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfSidecarState {
+    pub bookmarks: Vec<PdfBookmark>,
+    pub highlights: Vec<PdfHighlight>,
+    pub viewer_state: Option<PdfViewerState>,
+}
+
 fn is_ignored_dir_name(name: &str) -> bool {
     matches!(
         name,
@@ -126,6 +176,11 @@ fn resolve_vault_path(vault_path: &str, relative_path: &str) -> Result<PathBuf, 
 fn overlay_relative_path(image_relative_path: &str) -> String {
     let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(image_relative_path);
     format!(".collab/image-overlays/{encoded}.json")
+}
+
+fn pdf_sidecar_relative_path(pdf_relative_path: &str) -> String {
+    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(pdf_relative_path);
+    format!(".collab/pdf/{encoded}.json")
 }
 
 fn trash_entries_relative_dir() -> &'static str {
@@ -1072,6 +1127,7 @@ fn move_path_to_trash(
     relative_path: &str,
     deleted_by_user_id: Option<String>,
     deleted_by_user_name: Option<String>,
+    remove_references: bool,
     key_opt: Option<[u8; 32]>,
 ) -> Result<TrashEntry, String> {
     let normalized = normalize_relative_path(relative_path)?;
@@ -1106,6 +1162,10 @@ fn move_path_to_trash(
         root_name: root_name.clone(),
         image_paths: gather_image_paths_for_entry(vault_path, relative_path)?,
     };
+
+    if remove_references {
+        rewrite_all_references(vault_path, relative_path, None, key_opt)?;
+    }
 
     let payload_dir = resolve_vault_path(vault_path, &trash_entry_payload_dir_relative_path(&entry.id))?;
     std::fs::create_dir_all(&payload_dir).map_err(|e| e.to_string())?;
@@ -1773,6 +1833,37 @@ pub fn delete_image_overlay(
 }
 
 #[tauri::command]
+pub fn read_pdf_sidecar_state(
+    vault_path: String,
+    pdf_relative_path: String,
+    state: State<AppState>,
+) -> Result<PdfSidecarState, String> {
+    let relative_path = pdf_sidecar_relative_path(&pdf_relative_path);
+    let full_path = resolve_vault_path(&vault_path, &relative_path)?;
+    if !full_path.exists() {
+        return Ok(PdfSidecarState::default());
+    }
+
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    let bytes = read_vault_bytes(&full_path, key_opt)?;
+    serde_json::from_slice(&bytes).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn write_pdf_sidecar_state(
+    vault_path: String,
+    pdf_relative_path: String,
+    state: PdfSidecarState,
+    app_state: State<AppState>,
+) -> Result<(), String> {
+    let relative_path = pdf_sidecar_relative_path(&pdf_relative_path);
+    let full_path = resolve_vault_path(&vault_path, &relative_path)?;
+    let key_opt: Option<[u8; 32]> = *app_state.encryption_key.read();
+    let bytes = serde_json::to_vec_pretty(&state).map_err(|e| e.to_string())?;
+    write_vault_bytes(&full_path, &bytes, key_opt)
+}
+
+#[tauri::command]
 pub fn save_generated_image(
     vault_path: String,
     source_relative_path: String,
@@ -1867,6 +1958,7 @@ mod tests {
         build_tree, collect_entries, create_note_at_path, extension_for_mime, guess_mime_type,
         list_file_references_inner,
         is_allowed_extension, normalize_relative_path, overlay_relative_path, parse_data_url,
+        pdf_sidecar_relative_path,
         list_trash_entries_inner, move_path_to_trash, preview_path_change_inner, purge_trashed_item_inner,
         read_note_from_path, read_vault_bytes, relative_path_from_dir, remap_path,
         replace_markdown_references, resolve_vault_path, rewrite_all_references,
@@ -2265,6 +2357,7 @@ mod tests {
             "Notes/alpha.md",
             Some("user-1".into()),
             Some("Test User".into()),
+            false,
             None,
         )
         .expect("move to trash should succeed");
@@ -2281,7 +2374,7 @@ mod tests {
         assert_eq!(restored_path, "Notes/alpha.md");
         assert!(vault.resolve("Notes/alpha.md").exists());
 
-        let trashed_again = move_path_to_trash(&vault.path_string(), "Notes/alpha.md", None, None, None)
+        let trashed_again = move_path_to_trash(&vault.path_string(), "Notes/alpha.md", None, None, false, None)
             .expect("move to trash should succeed again");
         purge_trashed_item_inner(&vault.path_string(), &trashed_again.id, false, None)
             .expect("purge should succeed");
@@ -2293,7 +2386,7 @@ mod tests {
         let vault = TempVault::new().expect("temp vault should exist");
         vault.write_text("Docs/spec.pdf", "pdf").expect("pdf should exist");
 
-        let trashed = move_path_to_trash(&vault.path_string(), "Docs/spec.pdf", None, None, None)
+        let trashed = move_path_to_trash(&vault.path_string(), "Docs/spec.pdf", None, None, false, None)
             .expect("move to trash should succeed");
         vault.write_text("Docs/spec.pdf", "replacement").expect("replacement file should exist");
 
@@ -2302,6 +2395,28 @@ mod tests {
         let conflict = entry.restore_conflict.expect("restore conflict should be reported");
         assert_eq!(conflict.existing_relative_path, "Docs/spec.pdf");
         assert!(conflict.suggested_relative_path.starts_with("Docs/spec-restored-"));
+    }
+
+    #[test]
+    fn move_to_trash_can_remove_references_immediately() {
+        let vault = TempVault::new().expect("temp vault should exist");
+        vault.write_text("Docs/spec.pdf", "pdf").expect("pdf should exist");
+        vault
+            .write_text("Notes/alpha.md", "[Spec](../Docs/spec.pdf)\n")
+            .expect("note should exist");
+
+        let _trashed = move_path_to_trash(
+            &vault.path_string(),
+            "Docs/spec.pdf",
+            None,
+            None,
+            true,
+            None,
+        )
+        .expect("move to trash should succeed");
+
+        let note = vault.read_text("Notes/alpha.md").expect("note should still exist");
+        assert!(!note.contains("../Docs/spec.pdf"));
     }
 
     #[test]
@@ -2379,6 +2494,13 @@ mod tests {
             && entry.reference_kind == "canvas-file-node"
         ));
     }
+
+    #[test]
+    fn pdf_sidecar_path_uses_hidden_collab_namespace() {
+        let relative = pdf_sidecar_relative_path("Docs/spec.pdf");
+        assert!(relative.starts_with(".collab/pdf/"));
+        assert!(relative.ends_with(".json"));
+    }
 }
 
 #[tauri::command]
@@ -2444,6 +2566,7 @@ pub fn move_note_to_trash(
     relative_path: String,
     deleted_by_user_id: Option<String>,
     deleted_by_user_name: Option<String>,
+    remove_references: Option<bool>,
     state: State<AppState>,
 ) -> Result<TrashEntry, String> {
     let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
@@ -2452,6 +2575,7 @@ pub fn move_note_to_trash(
         &relative_path,
         deleted_by_user_id,
         deleted_by_user_name,
+        remove_references.unwrap_or(false),
         key_opt,
     )
 }

@@ -25,6 +25,7 @@ export default function TrashPanel() {
   const [restoreEntry, setRestoreEntry] = useState<TrashEntry | null>(null);
   const [restoreTarget, setRestoreTarget] = useState('');
   const [purgeEntry, setPurgeEntry] = useState<TrashEntry | null>(null);
+  const [purgeRemoveReferences, setPurgeRemoveReferences] = useState(false);
   const [purgeAllOpen, setPurgeAllOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -78,8 +79,9 @@ export default function TrashPanel() {
   const handlePurge = async (entry: TrashEntry) => {
     if (!vault) return;
     try {
-      await tauriCommands.purgeTrashedItem(vault.path, entry.id, false);
+      await tauriCommands.purgeTrashedItem(vault.path, entry.id, purgeRemoveReferences);
       setPurgeEntry(null);
+      setPurgeRemoveReferences(false);
       await loadEntries();
       toast.success(`Permanently deleted ${entry.rootName}`);
     } catch (error) {
@@ -116,10 +118,16 @@ export default function TrashPanel() {
         name={purgeEntry?.rootName ?? ''}
         isFolder={purgeEntry?.itemKind === 'folder'}
         primaryActionLabel="Delete permanently"
+        showReferenceOption
+        removeReferences={purgeRemoveReferences}
+        onRemoveReferencesChange={setPurgeRemoveReferences}
         onConfirm={() => {
           if (purgeEntry) void handlePurge(purgeEntry);
         }}
-        onCancel={() => setPurgeEntry(null)}
+        onCancel={() => {
+          setPurgeEntry(null);
+          setPurgeRemoveReferences(false);
+        }}
       />
       <ConfirmDeleteDialog
         open={purgeAllOpen}
@@ -211,6 +219,7 @@ export default function TrashPanel() {
                           setRestoreEntry(entry);
                           setRestoreTarget(entry.restoreConflict?.suggestedRelativePath ?? entry.originalRelativePath);
                         }}
+                        aria-label={`Restore ${entry.rootName}`}
                         className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/70 hover:text-foreground transition-colors"
                       >
                         <RotateCcw size={12} />
@@ -221,7 +230,11 @@ export default function TrashPanel() {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
-                        onClick={() => setPurgeEntry(entry)}
+                        onClick={() => {
+                          setPurgeEntry(entry);
+                          setPurgeRemoveReferences(false);
+                        }}
+                        aria-label={`Purge ${entry.rootName}`}
                         className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/15 hover:text-destructive transition-colors"
                       >
                         <Trash2 size={12} />

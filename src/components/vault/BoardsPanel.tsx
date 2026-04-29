@@ -202,14 +202,14 @@ export default function BoardsPanel({ kind }: Props) {
   const moveBoardToTrash = useCallback(async (file: NoteFile) => {
     if (!vault) return;
     try {
-      await tauriCommands.moveNoteToTrash(vault.path, file.relativePath, null, null);
+      await tauriCommands.moveNoteToTrash(vault.path, file.relativePath, null, null, deleteRemoveReferences);
       closeTab(file.relativePath);
       await refreshFileTree();
       toast.success(`Moved ${file.name} to trash`);
     } catch (error) {
       toast.error(`Failed to move ${label} board to trash: ${error}`);
     }
-  }, [vault, closeTab, refreshFileTree, label]);
+  }, [vault, closeTab, refreshFileTree, label, deleteRemoveReferences]);
 
   const handleDelete = useCallback((file: NoteFile) => {
     setDeleteRemoveReferences(false);

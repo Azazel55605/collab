@@ -153,7 +153,13 @@ export default function FileTree() {
   const moveFileToTrash = async (file: NoteFile) => {
     if (!vault) return;
     try {
-      await tauriCommands.moveNoteToTrash(vault.path, file.relativePath, myUserId, myUserName);
+      await tauriCommands.moveNoteToTrash(
+        vault.path,
+        file.relativePath,
+        myUserId,
+        myUserName,
+        deleteRemoveReferences,
+      );
       const prefix = file.isFolder ? `${file.relativePath}/` : null;
       for (const tab of useEditorStore.getState().openTabs) {
         if (tab.relativePath === file.relativePath || (prefix && tab.relativePath.startsWith(prefix))) {

@@ -65,6 +65,7 @@ type MarkdownEditorHandleShape = {
   insertFootnote: () => void;
   focus: () => void;
   replaceRange: (from: number, to: number, text: string) => void;
+  moveCursorToEnd: () => void;
   getTableAtCursor: () => { from: number; to: number; text: string } | null;
   getMathBlockAtCursor: () => { from: number; to: number; text: string } | null;
   getCodeBlockAtCursor: () => ParsedCodeBlockAtCursor | null;
@@ -118,6 +119,16 @@ export function useMarkdownEditorHandle({
       const view = viewRef.current;
       if (!view) return;
       replaceEditorRange(view, { from, to }, text);
+    },
+
+    moveCursorToEnd() {
+      const view = viewRef.current;
+      if (!view) return;
+      const end = view.state.doc.length;
+      view.dispatch({
+        selection: { anchor: end, head: end },
+      });
+      view.focus();
     },
 
     getTableAtCursor() {
