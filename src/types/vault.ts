@@ -55,6 +55,23 @@ export interface PathChangePreview {
   blockedReason?: string | null;
 }
 
+export type FileReferenceSourceDocumentType = 'note' | 'kanban' | 'canvas';
+export type FileReferenceKind =
+  | 'note-markdown-link'
+  | 'note-wikilink'
+  | 'kanban-attachment'
+  | 'canvas-file-node'
+  | 'canvas-note-node';
+
+export interface FileReference {
+  referencedRelativePath: string;
+  sourceRelativePath: string;
+  sourceDocumentType: FileReferenceSourceDocumentType;
+  referenceKind: FileReferenceKind;
+  displayLabel?: string | null;
+  context?: string | null;
+}
+
 export interface ConflictInfo {
   ourContent: string;
   theirContent: string;

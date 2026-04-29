@@ -125,6 +125,7 @@ pub fn run() {
             commands::files::purge_trashed_item,
             commands::files::purge_all_trash,
             commands::files::preview_rename_move,
+            commands::files::list_file_references,
             commands::files::rename_note,
             commands::files::create_folder,
             // web

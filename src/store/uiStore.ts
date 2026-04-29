@@ -194,9 +194,6 @@ interface UiState {
   webPreviewsEnabled: boolean;
   hoverWebLinkPreviewsEnabled: boolean;
   backgroundWebPreviewPrefetchEnabled: boolean;
-  spellcheckEnabled: boolean;
-  spellcheckLanguage: string;
-  respectNoteSpellcheckLanguage: boolean;
 
   // Actions
   setActiveView:    (view: ActiveView) => void;
@@ -235,9 +232,6 @@ interface UiState {
   setWebPreviewsEnabled: (value: boolean) => void;
   setHoverWebLinkPreviewsEnabled: (value: boolean) => void;
   setBackgroundWebPreviewPrefetchEnabled: (value: boolean) => void;
-  setSpellcheckEnabled: (value: boolean) => void;
-  setSpellcheckLanguage: (value: string) => void;
-  setRespectNoteSpellcheckLanguage: (value: boolean) => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -279,9 +273,6 @@ export const useUiStore = create<UiState>()(
       webPreviewsEnabled: true,
       hoverWebLinkPreviewsEnabled: true,
       backgroundWebPreviewPrefetchEnabled: true,
-      spellcheckEnabled: true,
-      spellcheckLanguage: 'en',
-      respectNoteSpellcheckLanguage: true,
 
       setActiveView:   (activeView)   => set({ activeView }),
       setSidebarPanel: (sidebarPanel) => set({ sidebarPanel }),
@@ -322,9 +313,6 @@ export const useUiStore = create<UiState>()(
       setWebPreviewsEnabled: (webPreviewsEnabled) => set({ webPreviewsEnabled }),
       setHoverWebLinkPreviewsEnabled: (hoverWebLinkPreviewsEnabled) => set({ hoverWebLinkPreviewsEnabled }),
       setBackgroundWebPreviewPrefetchEnabled: (backgroundWebPreviewPrefetchEnabled) => set({ backgroundWebPreviewPrefetchEnabled }),
-      setSpellcheckEnabled: (spellcheckEnabled) => set({ spellcheckEnabled }),
-      setSpellcheckLanguage: (spellcheckLanguage) => set({ spellcheckLanguage }),
-      setRespectNoteSpellcheckLanguage: (respectNoteSpellcheckLanguage) => set({ respectNoteSpellcheckLanguage }),
     }),
     {
       name: 'ui-storage',
@@ -364,9 +352,6 @@ export const useUiStore = create<UiState>()(
         webPreviewsEnabled: s.webPreviewsEnabled,
         hoverWebLinkPreviewsEnabled: s.hoverWebLinkPreviewsEnabled,
         backgroundWebPreviewPrefetchEnabled: s.backgroundWebPreviewPrefetchEnabled,
-        spellcheckEnabled: s.spellcheckEnabled,
-        spellcheckLanguage: s.spellcheckLanguage,
-        respectNoteSpellcheckLanguage: s.respectNoteSpellcheckLanguage,
       }),
     }
   )

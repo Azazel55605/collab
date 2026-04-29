@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildVaultLinkInsertText,
   getVaultWikilinkAutocompleteItems,
   resolveVaultRelativeLinkTarget,
   resolveVaultWikilinkTarget,
@@ -19,6 +20,14 @@ const FILES: NoteFile[] = [
       {
         relativePath: 'Notes/alpha.md',
         name: 'alpha.md',
+        extension: 'md',
+        modifiedAt: 0,
+        size: 1,
+        isFolder: false,
+      },
+      {
+        relativePath: 'Notes/beta.md',
+        name: 'beta.md',
         extension: 'md',
         modifiedAt: 0,
         size: 1,
@@ -54,6 +63,14 @@ const FILES: NoteFile[] = [
         relativePath: 'Docs/diagram.png',
         name: 'diagram.png',
         extension: 'png',
+        modifiedAt: 0,
+        size: 1,
+        isFolder: false,
+      },
+      {
+        relativePath: 'Docs/alpha.md',
+        name: 'alpha.md',
+        extension: 'md',
         modifiedAt: 0,
         size: 1,
         isFolder: false,
@@ -97,5 +114,14 @@ describe('vaultLinks', () => {
       ]),
     );
     expect(items.some((item) => item.label === 'diagram.png')).toBe(false);
+  });
+
+  it('builds markdown path links for non-note vault files', () => {
+    expect(buildVaultLinkInsertText('Docs/spec.pdf', 'Notes/alpha.md', FILES)).toBe('[spec](../Docs/spec.pdf)');
+  });
+
+  it('keeps unique notes as stem wikilinks and falls back to full paths for duplicates', () => {
+    expect(buildVaultLinkInsertText('Notes/beta.md', 'Docs/spec.pdf', FILES)).toBe('[[beta]]');
+    expect(buildVaultLinkInsertText('Docs/alpha.md', 'Notes/alpha.md', FILES)).toBe('[[Docs/alpha.md]]');
   });
 });

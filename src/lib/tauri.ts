@@ -12,6 +12,7 @@ import type {
   MemberRole,
   TrashEntry,
   PathChangePreview,
+  FileReference,
 } from '../types/vault';
 import type { NoteMetadata, SearchResult } from '../types/note';
 import type { PresenceEntry, ChatMessage, SnapshotMeta } from '../types/collab';
@@ -105,6 +106,8 @@ export const tauriCommands = {
   purgeAllTrash: (vaultPath: string) => invoke<void>('purge_all_trash', { vaultPath }),
   previewRenameMove: (vaultPath: string, oldPath: string, newPath: string) =>
     invoke<PathChangePreview>('preview_rename_move', { vaultPath, oldPath, newPath }),
+  listFileReferences: (vaultPath: string, relativePath: string) =>
+    invoke<FileReference[]>('list_file_references', { vaultPath, relativePath }),
   deleteNote: (vaultPath: string, relativePath: string, removeReferences?: boolean) =>
     invoke<void>('delete_note', { vaultPath, relativePath, removeReferences: removeReferences ?? null }),
   renameNote: (vaultPath: string, oldPath: string, newPath: string, updateReferences?: boolean) =>

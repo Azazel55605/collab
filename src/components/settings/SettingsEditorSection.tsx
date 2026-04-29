@@ -11,7 +11,6 @@ import {
 } from '../../store/uiStore';
 import { cn } from '../../lib/utils';
 import { Separator } from '../ui/separator';
-import { Input } from '../ui/input';
 import { OptionRow, PillSelect, SectionLabel, ToggleSwitch } from './settingsControls';
 
 type Props = {
@@ -37,12 +36,6 @@ type Props = {
   setColorPreviewFormatEnabled: (format: ColorPreviewFormat, enabled: boolean) => void;
   showColorPreviewFormats: boolean;
   setShowColorPreviewFormats: React.Dispatch<React.SetStateAction<boolean>>;
-  spellcheckEnabled: boolean;
-  setSpellcheckEnabled: (enabled: boolean) => void;
-  spellcheckLanguage: string;
-  setSpellcheckLanguage: (language: string) => void;
-  respectNoteSpellcheckLanguage: boolean;
-  setRespectNoteSpellcheckLanguage: (enabled: boolean) => void;
 };
 
 export default function SettingsEditorSection({
@@ -68,12 +61,6 @@ export default function SettingsEditorSection({
   setColorPreviewFormatEnabled,
   showColorPreviewFormats,
   setShowColorPreviewFormats,
-  spellcheckEnabled,
-  setSpellcheckEnabled,
-  spellcheckLanguage,
-  setSpellcheckLanguage,
-  respectNoteSpellcheckLanguage,
-  setRespectNoteSpellcheckLanguage,
 }: Props) {
   return (
     <div>
@@ -249,42 +236,6 @@ export default function SettingsEditorSection({
           </div>
         )}
       </div>
-
-      <Separator className="bg-border/40 my-4" />
-
-      <SectionLabel>Spellcheck</SectionLabel>
-      <OptionRow
-        label="Enable spellcheck"
-        description="Use the editor’s native spellchecker while writing notes"
-      >
-        <ToggleSwitch checked={spellcheckEnabled} onToggle={() => setSpellcheckEnabled(!spellcheckEnabled)} />
-      </OptionRow>
-
-      <OptionRow
-        label="Default language"
-        description="Used when a note does not define a spellcheck language override in frontmatter"
-        disabled={!spellcheckEnabled}
-      >
-        <Input
-          value={spellcheckLanguage}
-          onChange={(event) => setSpellcheckLanguage(event.target.value)}
-          placeholder="en"
-          className="h-8 w-28 text-xs"
-          disabled={!spellcheckEnabled}
-        />
-      </OptionRow>
-
-      <OptionRow
-        label="Respect note frontmatter language"
-        description="Use `spellcheckLanguage:` or `language:` from note frontmatter when present"
-        disabled={!spellcheckEnabled}
-      >
-        <ToggleSwitch
-          checked={respectNoteSpellcheckLanguage}
-          onToggle={() => setRespectNoteSpellcheckLanguage(!respectNoteSpellcheckLanguage)}
-          disabled={!spellcheckEnabled}
-        />
-      </OptionRow>
     </div>
   );
 }

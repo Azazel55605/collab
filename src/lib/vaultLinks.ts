@@ -12,6 +12,30 @@ export interface VaultLinkTarget {
   type: VaultDocumentTabType;
 }
 
+function getRelativeLinkPath(currentDocumentRelativePath: string, targetRelativePath: string) {
+  const currentDir = normalizeRelativePath(
+    currentDocumentRelativePath.includes('/')
+      ? currentDocumentRelativePath.split('/').slice(0, -1).join('/')
+      : '',
+  );
+  const baseParts = currentDir ? currentDir.split('/') : [];
+  const targetParts = normalizeRelativePath(targetRelativePath).split('/');
+
+  let common = 0;
+  while (
+    common < baseParts.length &&
+    common < targetParts.length &&
+    baseParts[common] === targetParts[common]
+  ) {
+    common += 1;
+  }
+
+  const up = Array.from({ length: baseParts.length - common }, () => '..');
+  const down = targetParts.slice(common);
+  const parts = [...up, ...down];
+  return parts.length > 0 ? parts.join('/') : '.';
+}
+
 function normalizeSeparators(path: string) {
   return path.replace(/\\/g, '/');
 }
@@ -69,6 +93,32 @@ export function getVaultDocumentView(type: VaultDocumentTabType): ActiveView {
 
 export function getVaultDocumentTitle(relativePath: string) {
   return relativePath.split('/').pop()?.replace(/\.[^.]+$/, '') ?? relativePath;
+}
+
+function isUniqueNoteTitle(relativePath: string, fileTree: NoteFile[]) {
+  const title = getVaultDocumentTitle(relativePath).toLowerCase();
+  return flattenVaultFiles(fileTree).filter((file) => (
+    getVaultDocumentTabType(file.relativePath) === 'note'
+    && getVaultDocumentTitle(file.relativePath).toLowerCase() === title
+  )).length === 1;
+}
+
+export function buildVaultLinkInsertText(
+  relativePath: string,
+  currentDocumentRelativePath: string,
+  fileTree: NoteFile[],
+) {
+  const type = getVaultDocumentTabType(relativePath);
+  if (type === 'note') {
+    const insertTarget = isUniqueNoteTitle(relativePath, fileTree)
+      ? getVaultDocumentTitle(relativePath)
+      : relativePath;
+    return `[[${insertTarget}]]`;
+  }
+
+  const label = getVaultDocumentTitle(relativePath);
+  const target = getRelativeLinkPath(currentDocumentRelativePath, relativePath);
+  return `[${label}](${target})`;
 }
 
 function isImagePath(relativePath: string) {

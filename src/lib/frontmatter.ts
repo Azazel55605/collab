@@ -16,12 +16,55 @@ function parse(content: string): ParsedFrontmatter | null {
   return { yaml: match[1], body: content.slice(match[0].length) };
 }
 
+function serializeFrontmatterLines(lines: string[], body: string): string {
+  if (lines.length === 0) {
+    return body.startsWith('\n') ? body.slice(1) : body;
+  }
+  return `---\n${lines.join('\n')}\n---${body}`;
+}
+
 export function getFrontmatterField(content: string, field: string): string | null {
   const fm = parse(content);
   if (!fm) return null;
   const match = fm.yaml.match(new RegExp(`^${field}:\\s*(.+)$`, 'im'));
   if (!match) return null;
   return match[1].trim().replace(/^['"]|['"]$/g, '');
+}
+
+export function setFrontmatterField(content: string, field: string, value: string): string {
+  const nextLine = `${field}: ${value}`;
+  const fm = parse(content);
+
+  if (!fm) {
+    return `---\n${nextLine}\n---\n${content}`;
+  }
+
+  const lines = fm.yaml.split('\n');
+  const newLines: string[] = [];
+  let handled = false;
+
+  for (const line of lines) {
+    if (new RegExp(`^${field}:`, 'i').test(line)) {
+      newLines.push(nextLine);
+      handled = true;
+    } else {
+      newLines.push(line);
+    }
+  }
+
+  if (!handled) newLines.push(nextLine);
+  return serializeFrontmatterLines(newLines, fm.body);
+}
+
+export function removeFrontmatterField(content: string, field: string): string {
+  const fm = parse(content);
+  if (!fm) return content;
+
+  const newLines = fm.yaml
+    .split('\n')
+    .filter((line) => !new RegExp(`^${field}:`, 'i').test(line));
+
+  return serializeFrontmatterLines(newLines, fm.body);
 }
 
 /** Extract tags from note content. Handles both inline and block list formats. */

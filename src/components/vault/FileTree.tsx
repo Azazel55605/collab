@@ -9,9 +9,10 @@ import { useEditorStore } from '../../store/editorStore';
 import { useCollabStore } from '../../store/collabStore';
 import { useUiStore } from '../../store/uiStore';
 import { tauriCommands } from '../../lib/tauri';
-import type { NoteFile } from '../../types/vault';
+import type { FileReference, NoteFile } from '../../types/vault';
 import { getCardAttachmentPaths, type KanbanBoard, type KanbanCard } from '../../types/kanban';
 import { useKanbanStore } from '../../store/kanbanStore';
+import { getVaultDocumentTabType, getVaultDocumentTitle, getVaultDocumentView } from '../../lib/vaultLinks';
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem,
   ContextMenuSeparator, ContextMenuTrigger,
@@ -22,6 +23,7 @@ import { toast } from 'sonner';
 import { ConfirmDeleteDialog, InputDialog, RenameMovePreviewDialog } from './VaultDialogs';
 import TrashPanel from './TrashPanel';
 import type { PathChangePreview } from '../../types/vault';
+import FileReferencesPanel from './FileReferencesPanel';
 
 type DialogState =
   | { type: 'none' }
@@ -65,10 +67,22 @@ export default function FileTree() {
   const [deleteRemoveReferences, setDeleteRemoveReferences] = useState(false);
   const [taskAttachmentsByPath, setTaskAttachmentsByPath] = useState<Record<string, TaskAttachmentRef[]>>({});
   const [mode, setMode] = useState<'files' | 'trash'>('files');
+  const [selectedRelativePath, setSelectedRelativePath] = useState<string | null>(null);
+  const [selectedReferences, setSelectedReferences] = useState<FileReference[]>([]);
+  const [selectedReferencesLoading, setSelectedReferencesLoading] = useState(false);
+  const [selectedReferencesError, setSelectedReferencesError] = useState<string | null>(null);
   const [previewState, setPreviewState] = useState<{
     preview: PathChangePreview;
     apply: () => Promise<void>;
   } | null>(null);
+
+  function flatten(nodes: NoteFile[]): NoteFile[] {
+    return nodes.flatMap((node) => [node, ...(node.children ? flatten(node.children) : [])]);
+  }
+
+  const selectedNode = selectedRelativePath
+    ? flatten(fileTree).find((entry) => entry.relativePath === selectedRelativePath) ?? null
+    : null;
 
   // ── Drag-and-drop state ────────────────────────────────────────────────────
   const [draggingPath, setDraggingPath] = useState<string | null>(null);
@@ -289,6 +303,44 @@ export default function FileTree() {
     return () => { cancelled = true; };
   }, [vault?.path, fileTree]);
 
+  useEffect(() => {
+    if (!vault || !selectedRelativePath || mode !== 'files' || !selectedNode || selectedNode.isFolder) {
+      setSelectedReferences([]);
+      setSelectedReferencesLoading(false);
+      setSelectedReferencesError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setSelectedReferencesLoading(true);
+    setSelectedReferencesError(null);
+    void tauriCommands.listFileReferences(vault.path, selectedRelativePath)
+      .then((references) => {
+        if (cancelled) return;
+        setSelectedReferences(references);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setSelectedReferences([]);
+        setSelectedReferencesError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (!cancelled) setSelectedReferencesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, selectedNode, selectedRelativePath, vault?.path]);
+
+  const selectedFile = selectedNode && !selectedNode.isFolder ? selectedNode : null;
+
+  const handleOpenReference = useCallback((reference: FileReference) => {
+    const type = getVaultDocumentTabType(reference.sourceRelativePath);
+    openTab(reference.sourceRelativePath, getVaultDocumentTitle(reference.sourceRelativePath), type);
+    setActiveView(getVaultDocumentView(type));
+  }, [openTab, setActiveView]);
+
   if (!vault) return null;
 
   return (
@@ -439,6 +491,7 @@ export default function FileTree() {
               onCreateFolder={handleCreateFolder}
               onDelete={handleDelete}
               onRename={handleRename}
+              onSelect={setSelectedRelativePath}
               draggingPath={draggingPath}
               dropTargetPath={dropTargetPath}
               taskAttachmentsByPath={taskAttachmentsByPath}
@@ -450,6 +503,15 @@ export default function FileTree() {
         )}
       </div>
       )}
+      {mode === 'files' && selectedFile ? (
+        <FileReferencesPanel
+          selectedFile={selectedFile}
+          references={selectedReferences}
+          loading={selectedReferencesLoading}
+          error={selectedReferencesError}
+          onOpenReference={handleOpenReference}
+        />
+      ) : null}
     </div>
   );
 }
@@ -464,6 +526,7 @@ interface FileTreeNodeProps {
   onCreateFolder: (parentPath?: string) => void;
   onDelete: (file: NoteFile) => void;
   onRename: (file: NoteFile) => void;
+  onSelect: (relativePath: string) => void;
   draggingPath: string | null;
   dropTargetPath: string | null | '__root__';
   taskAttachmentsByPath: Record<string, TaskAttachmentRef[]>;
@@ -475,6 +538,7 @@ interface FileTreeNodeProps {
 function FileTreeNode({
   node, depth, collapsed, setCollapsed,
   onOpenFile, onCreateNote, onCreateFolder, onDelete, onRename,
+  onSelect,
   draggingPath, dropTargetPath, taskAttachmentsByPath, setDraggingPath, setDropTargetPath, onMove,
 }: FileTreeNodeProps) {
   const { activeTabPath, openTab } = useEditorStore();
@@ -571,7 +635,11 @@ function FileTreeNode({
               setDraggingPath(null);
               setDropTargetPath(null);
             }}
-            onClick={() => node.isFolder ? toggleCollapse() : onOpenFile(node)}
+            onClick={() => {
+              onSelect(node.relativePath);
+              if (node.isFolder) toggleCollapse();
+              else onOpenFile(node);
+            }}
             style={{ paddingLeft: `${depth * 14 + 6}px` }}
             className={cn(
               'group flex items-center gap-1 py-[3px] pr-2 cursor-pointer rounded-sm mx-1 transition-colors app-motion-fast select-none',
@@ -680,6 +748,7 @@ function FileTreeNode({
                   onCreateFolder={onCreateFolder}
                   onDelete={onDelete}
                   onRename={onRename}
+                  onSelect={onSelect}
                   draggingPath={draggingPath}
                   dropTargetPath={dropTargetPath}
                   taskAttachmentsByPath={taskAttachmentsByPath}

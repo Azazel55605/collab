@@ -59,6 +59,17 @@ pub struct PathChangePreview {
     pub blocked_reason: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FileReference {
+    pub referenced_relative_path: String,
+    pub source_relative_path: String,
+    pub source_document_type: String,
+    pub reference_kind: String,
+    pub display_label: Option<String>,
+    pub context: Option<String>,
+}
+
 fn is_ignored_dir_name(name: &str) -> bool {
     matches!(
         name,
@@ -459,6 +470,378 @@ fn replace_markdown_references(
             None => full.to_string(),
         }
     }).into_owned()
+}
+
+#[derive(Debug, Clone)]
+struct VaultReferenceLookupEntry {
+    relative_path: String,
+    name: String,
+    title: String,
+    is_note: bool,
+}
+
+fn build_reference_lookup(entries: &[NoteFile]) -> Vec<VaultReferenceLookupEntry> {
+    entries
+        .iter()
+        .filter(|entry| !entry.is_folder)
+        .map(|entry| {
+            let name = entry.name.clone();
+            let title = Path::new(&entry.relative_path)
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or(&name)
+                .to_string();
+            VaultReferenceLookupEntry {
+                relative_path: entry.relative_path.clone(),
+                name,
+                title,
+                is_note: entry.extension.eq_ignore_ascii_case("md"),
+            }
+        })
+        .collect()
+}
+
+fn resolve_vault_note_target_reference(
+    raw_target: &str,
+    note_relative_path: &str,
+) -> Option<String> {
+    let trimmed = raw_target.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with("data:")
+        || trimmed.starts_with("blob:")
+        || trimmed.starts_with("//")
+        || trimmed.contains("://")
+    {
+        return None;
+    }
+
+    let (path_part, _) = split_path_suffix(trimmed);
+    let resolved = if path_part.starts_with('/') {
+        normalize_relative_path(path_part).ok()?
+    } else {
+        let note_dir = note_relative_path
+            .rsplit_once('/')
+            .map(|(dir, _)| dir)
+            .unwrap_or("");
+        normalize_relative_path(
+            if note_dir.is_empty() {
+                path_part.to_string()
+            } else {
+                format!("{note_dir}/{path_part}")
+            }
+            .as_str(),
+        )
+        .ok()?
+    };
+
+    Some(resolved.to_string_lossy().replace('\\', "/"))
+}
+
+fn resolve_vault_wikilink_reference(
+    raw_target: &str,
+    note_relative_path: &str,
+    lookup: &[VaultReferenceLookupEntry],
+) -> Option<String> {
+    let trimmed = raw_target.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let normalized = normalize_relative_path(split_path_suffix(trimmed).0)
+        .ok()?
+        .to_string_lossy()
+        .replace('\\', "/");
+    let normalized_lower = normalized.to_ascii_lowercase();
+
+    if let Some(entry) = lookup
+        .iter()
+        .find(|entry| entry.relative_path.eq_ignore_ascii_case(&normalized))
+    {
+        return Some(entry.relative_path.clone());
+    }
+
+    if let Some(path_like) = resolve_vault_note_target_reference(trimmed, note_relative_path) {
+        if let Some(entry) = lookup
+            .iter()
+            .find(|entry| entry.relative_path.eq_ignore_ascii_case(&path_like))
+        {
+            return Some(entry.relative_path.clone());
+        }
+    }
+
+    if let Some(entry) = lookup
+        .iter()
+        .find(|entry| entry.name.eq_ignore_ascii_case(&normalized))
+    {
+        return Some(entry.relative_path.clone());
+    }
+
+    if !normalized.contains('/') && Path::new(&normalized).extension().is_none() {
+        if let Some(entry) = lookup
+            .iter()
+            .find(|entry| entry.is_note && entry.title.eq_ignore_ascii_case(&normalized_lower))
+        {
+            return Some(entry.relative_path.clone());
+        }
+
+        let matching_titles: Vec<_> = lookup
+            .iter()
+            .filter(|entry| entry.title.eq_ignore_ascii_case(&normalized_lower))
+            .collect();
+        if matching_titles.len() == 1 {
+            return Some(matching_titles[0].relative_path.clone());
+        }
+    }
+
+    None
+}
+
+fn snippet_for_reference_context(label: &str, target: &str) -> String {
+    if label.trim().is_empty() {
+        target.to_string()
+    } else {
+        format!("{label} -> {target}")
+    }
+}
+
+fn collect_note_references(
+    content: &str,
+    note_relative_path: &str,
+    lookup: &[VaultReferenceLookupEntry],
+    target_path: &str,
+) -> Vec<FileReference> {
+    let image_md = Regex::new(r"!\[([^\]\n]*?)\]\(([^)\n]*?)\)").unwrap();
+    let image_wiki = Regex::new(r"!\[\[([^\]|]+?)(\|([^\]]+?))?\]\]").unwrap();
+    let link_md = Regex::new(r"\[([^\]\n]+?)\]\(([^)\n]*?)\)").unwrap();
+    let wiki = Regex::new(r"\[\[([^\]|]+?)(\|([^\]]+?))?\]\]").unwrap();
+    let mut references = Vec::new();
+
+    for caps in image_md.captures_iter(content) {
+        let Some(resolved) = resolve_vault_note_target_reference(&caps[2], note_relative_path) else {
+            continue;
+        };
+        if !path_matches_or_descends(&resolved, target_path) {
+            continue;
+        }
+        let label = caps.get(1).map(|value| value.as_str().trim()).unwrap_or_default();
+        references.push(FileReference {
+            referenced_relative_path: resolved,
+            source_relative_path: note_relative_path.to_string(),
+            source_document_type: "note".into(),
+            reference_kind: "note-markdown-link".into(),
+            display_label: if label.is_empty() { None } else { Some(label.to_string()) },
+            context: Some(snippet_for_reference_context(label, &caps[2])),
+        });
+    }
+
+    for caps in image_wiki.captures_iter(content) {
+        let Some(resolved) = resolve_vault_wikilink_reference(&caps[1], note_relative_path, lookup) else {
+            continue;
+        };
+        if !path_matches_or_descends(&resolved, target_path) {
+            continue;
+        }
+        let label = caps.get(3).map(|value| value.as_str().trim()).unwrap_or_default();
+        references.push(FileReference {
+            referenced_relative_path: resolved,
+            source_relative_path: note_relative_path.to_string(),
+            source_document_type: "note".into(),
+            reference_kind: "note-wikilink".into(),
+            display_label: if label.is_empty() { Some(caps[1].to_string()) } else { Some(label.to_string()) },
+            context: Some(snippet_for_reference_context(
+                if label.is_empty() { &caps[1] } else { label },
+                &caps[1],
+            )),
+        });
+    }
+
+    for caps in link_md.captures_iter(content) {
+        let Some(full) = caps.get(0) else { continue; };
+        if full.as_str().starts_with("![") {
+            continue;
+        }
+        let Some(resolved) = resolve_vault_note_target_reference(&caps[2], note_relative_path) else {
+            continue;
+        };
+        if !path_matches_or_descends(&resolved, target_path) {
+            continue;
+        }
+        let label = caps.get(1).map(|value| value.as_str().trim()).unwrap_or_default();
+        references.push(FileReference {
+            referenced_relative_path: resolved,
+            source_relative_path: note_relative_path.to_string(),
+            source_document_type: "note".into(),
+            reference_kind: "note-markdown-link".into(),
+            display_label: if label.is_empty() { None } else { Some(label.to_string()) },
+            context: Some(snippet_for_reference_context(label, &caps[2])),
+        });
+    }
+
+    for caps in wiki.captures_iter(content) {
+        let Some(full) = caps.get(0) else { continue; };
+        if full.as_str().starts_with("![[") {
+            continue;
+        }
+        let Some(resolved) = resolve_vault_wikilink_reference(&caps[1], note_relative_path, lookup) else {
+            continue;
+        };
+        if !path_matches_or_descends(&resolved, target_path) {
+            continue;
+        }
+        let label = caps.get(3).map(|value| value.as_str().trim()).unwrap_or_default();
+        references.push(FileReference {
+            referenced_relative_path: resolved,
+            source_relative_path: note_relative_path.to_string(),
+            source_document_type: "note".into(),
+            reference_kind: "note-wikilink".into(),
+            display_label: if label.is_empty() { Some(caps[1].to_string()) } else { Some(label.to_string()) },
+            context: Some(snippet_for_reference_context(
+                if label.is_empty() { &caps[1] } else { label },
+                &caps[1],
+            )),
+        });
+    }
+
+    references
+}
+
+fn collect_kanban_file_references(
+    content: &str,
+    source_relative_path: &str,
+    target_path: &str,
+) -> Result<Vec<FileReference>, String> {
+    let value: serde_json::Value = serde_json::from_str(content).map_err(|e| e.to_string())?;
+    let Some(columns) = value.get("columns").and_then(|columns| columns.as_array()) else {
+        return Ok(Vec::new());
+    };
+
+    let mut references = Vec::new();
+    for column in columns {
+        let column_title = column
+            .get("title")
+            .and_then(|value| value.as_str())
+            .unwrap_or("Column");
+        let Some(cards) = column.get("cards").and_then(|cards| cards.as_array()) else {
+            continue;
+        };
+        for card in cards {
+            let card_title = card
+                .get("title")
+                .and_then(|value| value.as_str())
+                .unwrap_or("Card");
+            let attachment_paths = card
+                .get("attachmentPaths")
+                .and_then(|paths| paths.as_array())
+                .map(|paths| paths.iter().filter_map(|value| value.as_str()).collect::<Vec<_>>())
+                .unwrap_or_default();
+
+            for attachment_path in attachment_paths {
+                if !path_matches_or_descends(attachment_path, target_path) {
+                    continue;
+                }
+                references.push(FileReference {
+                    referenced_relative_path: attachment_path.to_string(),
+                    source_relative_path: source_relative_path.to_string(),
+                    source_document_type: "kanban".into(),
+                    reference_kind: "kanban-attachment".into(),
+                    display_label: Some(card_title.to_string()),
+                    context: Some(column_title.to_string()),
+                });
+            }
+        }
+    }
+
+    Ok(references)
+}
+
+fn collect_canvas_file_references(
+    content: &str,
+    source_relative_path: &str,
+    target_path: &str,
+) -> Result<Vec<FileReference>, String> {
+    let value: serde_json::Value = serde_json::from_str(content).map_err(|e| e.to_string())?;
+    let Some(nodes) = value.get("nodes").and_then(|nodes| nodes.as_array()) else {
+        return Ok(Vec::new());
+    };
+
+    let mut references = Vec::new();
+    for node in nodes {
+        let Some(node_type) = node.get("type").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        if !matches!(node_type, "file" | "note") {
+            continue;
+        }
+        let Some(relative_path) = node.get("relativePath").and_then(|value| value.as_str()) else {
+            continue;
+        };
+        if !path_matches_or_descends(relative_path, target_path) {
+            continue;
+        }
+        references.push(FileReference {
+            referenced_relative_path: relative_path.to_string(),
+            source_relative_path: source_relative_path.to_string(),
+            source_document_type: "canvas".into(),
+            reference_kind: if node_type == "note" {
+                "canvas-note-node".into()
+            } else {
+                "canvas-file-node".into()
+            },
+            display_label: node
+                .get("id")
+                .and_then(|value| value.as_str())
+                .map(|value| value.to_string()),
+            context: Some(if node_type == "note" {
+                "Note card".to_string()
+            } else {
+                "File card".to_string()
+            }),
+        });
+    }
+
+    Ok(references)
+}
+
+fn list_file_references_inner(
+    vault_path: &str,
+    relative_path: &str,
+    key_opt: Option<[u8; 32]>,
+) -> Result<Vec<FileReference>, String> {
+    let target_path = normalize_relative_path(relative_path)?
+        .to_string_lossy()
+        .replace('\\', "/");
+    let entries = collect_entries(vault_path)?;
+    let lookup = build_reference_lookup(&entries);
+    let mut references = Vec::new();
+
+    for entry in entries {
+        if entry.is_folder || entry.relative_path == target_path || path_matches_or_descends(&entry.relative_path, &target_path) {
+            continue;
+        }
+
+        let note = match entry.extension.as_str() {
+            "md" | "kanban" | "canvas" => {
+                read_note_from_path(&resolve_vault_path(vault_path, &entry.relative_path)?, &entry.relative_path, key_opt)?
+            }
+            _ => continue,
+        };
+
+        let mut next = match entry.extension.as_str() {
+            "md" => collect_note_references(&note.content, &entry.relative_path, &lookup, &target_path),
+            "kanban" => collect_kanban_file_references(&note.content, &entry.relative_path, &target_path)?,
+            "canvas" => collect_canvas_file_references(&note.content, &entry.relative_path, &target_path)?,
+            _ => Vec::new(),
+        };
+        references.append(&mut next);
+    }
+
+    references.sort_by(|a, b| {
+        a.source_relative_path
+            .cmp(&b.source_relative_path)
+            .then(a.reference_kind.cmp(&b.reference_kind))
+            .then(a.display_label.cmp(&b.display_label))
+    });
+    Ok(references)
 }
 
 fn rewrite_kanban_references(content: &str, old_path: &str, new_path: Option<&str>) -> Result<String, String> {
@@ -1482,6 +1865,7 @@ pub fn import_asset_into_vault(
 mod tests {
     use super::{
         build_tree, collect_entries, create_note_at_path, extension_for_mime, guess_mime_type,
+        list_file_references_inner,
         is_allowed_extension, normalize_relative_path, overlay_relative_path, parse_data_url,
         list_trash_entries_inner, move_path_to_trash, preview_path_change_inner, purge_trashed_item_inner,
         read_note_from_path, read_vault_bytes, relative_path_from_dir, remap_path,
@@ -1948,6 +2332,53 @@ mod tests {
         assert!(preview.affected_reference_paths.contains(&"Board.canvas".to_string()));
         assert_eq!(preview.blocked_reason, None);
     }
+
+    #[test]
+    fn list_file_references_reports_note_kanban_and_canvas_hits() {
+        let vault = TempVault::new().expect("temp vault should exist");
+        vault.write_text("Docs/spec.pdf", "pdf").expect("pdf should exist");
+        vault
+            .write_text(
+                "Notes/alpha.md",
+                "[Spec Doc](../Docs/spec.pdf)\n[[spec.pdf|PDF Alias]]\n",
+            )
+            .expect("note should exist");
+        vault
+            .write_text(
+                "Board.kanban",
+                r#"{"columns":[{"id":"todo","title":"Todo","cards":[{"id":"card-1","title":"Review spec","assignees":[],"tags":[],"comments":[],"checklist":[],"attachmentPaths":["Docs/spec.pdf"]}]}]}"#,
+            )
+            .expect("board should exist");
+        vault
+            .write_text(
+                "Board.canvas",
+                r#"{"nodes":[{"id":"n1","type":"file","relativePath":"Docs/spec.pdf"}],"edges":[],"viewport":{"x":0,"y":0,"zoom":1}}"#,
+            )
+            .expect("canvas should exist");
+
+        let references = list_file_references_inner(&vault.path_string(), "Docs/spec.pdf", None)
+            .expect("references should list");
+
+        assert!(references.iter().any(|entry|
+            entry.source_relative_path == "Notes/alpha.md"
+            && entry.reference_kind == "note-markdown-link"
+            && entry.display_label.as_deref() == Some("Spec Doc")
+        ));
+        assert!(references.iter().any(|entry|
+            entry.source_relative_path == "Notes/alpha.md"
+            && entry.reference_kind == "note-wikilink"
+            && entry.display_label.as_deref() == Some("PDF Alias")
+        ));
+        assert!(references.iter().any(|entry|
+            entry.source_relative_path == "Board.kanban"
+            && entry.reference_kind == "kanban-attachment"
+            && entry.display_label.as_deref() == Some("Review spec")
+        ));
+        assert!(references.iter().any(|entry|
+            entry.source_relative_path == "Board.canvas"
+            && entry.reference_kind == "canvas-file-node"
+        ));
+    }
 }
 
 #[tauri::command]
@@ -2074,6 +2505,16 @@ pub fn preview_rename_move(
 ) -> Result<PathChangePreview, String> {
     let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
     preview_path_change_inner(&vault_path, &old_path, &new_path, key_opt)
+}
+
+#[tauri::command]
+pub fn list_file_references(
+    vault_path: String,
+    relative_path: String,
+    state: State<AppState>,
+) -> Result<Vec<FileReference>, String> {
+    let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    list_file_references_inner(&vault_path, &relative_path, key_opt)
 }
 
 #[tauri::command]

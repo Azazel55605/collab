@@ -13,6 +13,7 @@ import 'katex/dist/katex.min.css';
 import { parseFenceInfoLanguage, type ParsedCodeBlockAtCursor } from './codeBlockUtils';
 import { dispatchEditorToolbarAction } from '../../lib/editorToolbarActions';
 import { WebLinkPreviewPopover } from '../previews/WebLinkPreviewPopover';
+import { PdfLinkPreviewPopover } from '../previews/PdfLinkPreviewPopover';
 import { createColorPreviewExtension } from './colorPreview';
 import { createSnippetSessionExtension } from './snippetEngine';
 import {
@@ -30,7 +31,6 @@ import { buildMarkdownEditorTheme, buildMarkdownHighlightStyle } from './markdow
 import { handleEditorDocumentLinkMouseDown, useMarkdownEditorIntegrations } from './useMarkdownEditorIntegrations';
 import { useMarkdownEditorHandle } from './useMarkdownEditorHandle';
 import { MarkdownEditorContextMenu } from './MarkdownEditorContextMenu';
-import { getFrontmatterField } from '../../lib/frontmatter';
 
 export interface MarkdownEditorHandle {
   /** Wrap selection with `before`/`after`; if no selection, insert `before + placeholder + after` and select placeholder. */
@@ -232,6 +232,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const viewRef = useRef<EditorView | null>(null);
     const [editorView, setEditorView] = useState<EditorView | null>(null);
     const [hoveredUrl, setHoveredUrl] = useState<string | null>(null);
+    const [hoveredPdfRelativePath, setHoveredPdfRelativePath] = useState<string | null>(null);
     const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
     const contentRef = useRef(content);
     const onChangeRef = useRef(onChange);
@@ -251,15 +252,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       colorPreviewFormats,
       webPreviewsEnabled,
       hoverWebLinkPreviewsEnabled,
-      spellcheckEnabled,
-      spellcheckLanguage,
-      respectNoteSpellcheckLanguage,
     } = useUiStore();
     const fontFamily = EDITOR_FONTS[editorFont]?.css ?? EDITOR_FONTS.codingMono.css;
-    const noteSpellcheckLanguage = respectNoteSpellcheckLanguage
-      ? getFrontmatterField(content, 'spellcheckLanguage') ?? getFrontmatterField(content, 'language')
-      : null;
-    const effectiveSpellcheckLanguage = (noteSpellcheckLanguage ?? spellcheckLanguage ?? 'en').trim() || 'en';
 
     onChangeRef.current = onChange;
     onSaveRef.current = onSave;
@@ -269,10 +263,12 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       webPreviewsEnabled,
       hoverWebLinkPreviewsEnabled,
       setHoveredUrl,
+      setHoveredPdfRelativePath,
       setHoverRect,
       getDroppedFilePaths,
       isImageLikePath,
       buildImageMarkdown,
+      currentDocumentRelativePath: relativePath,
     });
 
     // ─── Swap theme/font/size/highlight when settings change ──────────────
@@ -292,13 +288,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             tintText: colorPreviewTintText,
             formats: colorPreviewFormats,
           }),
-          contentAttrsExtension: EditorView.contentAttributes.of({
-            spellcheck: spellcheckEnabled ? 'true' : 'false',
-            lang: effectiveSpellcheckLanguage,
-          }),
+          contentAttrsExtension: [],
         }),
       });
-    }, [theme, fontFamily, editorFontSize, indentStyle, tabWidth, showIndentMarkers, showColoredIndents, showInlineColorPreviews, colorPreviewShowSwatch, colorPreviewTintText, colorPreviewFormats, spellcheckEnabled, effectiveSpellcheckLanguage]);
+    }, [theme, fontFamily, editorFontSize, indentStyle, tabWidth, showIndentMarkers, showColoredIndents, showInlineColorPreviews, colorPreviewShowSwatch, colorPreviewTintText, colorPreviewFormats]);
 
     useMarkdownEditorHandle({
       ref,
@@ -422,13 +415,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
             tintText: uiState.colorPreviewTintText,
             formats: uiState.colorPreviewFormats,
           }),
-          contentAttrsExtension: EditorView.contentAttributes.of({
-            spellcheck: uiState.spellcheckEnabled ? 'true' : 'false',
-            lang: effectiveSpellcheckLanguage,
-          }),
+          contentAttrsExtension: [],
         },
         wikiAutocompleteOverride: createMarkdownWikiAutocompleteOverride(),
-        slashCommandOverride: createSlashCommandSource(),
+        slashCommandOverride: createSlashCommandSource(relativePath),
         linkClickHandler,
         saveKeymap,
         updateListener,
@@ -482,6 +472,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           anchorRect={hoverRect}
           url={hoveredUrl}
           enabled={webPreviewsEnabled && hoverWebLinkPreviewsEnabled}
+        />
+        <PdfLinkPreviewPopover
+          anchorRect={hoverRect}
+          relativePath={hoveredPdfRelativePath}
+          enabled={hoverWebLinkPreviewsEnabled}
         />
       </>
     );

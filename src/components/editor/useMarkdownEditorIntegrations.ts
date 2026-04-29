@@ -16,6 +16,7 @@ import { useVaultStore } from '../../store/vaultStore';
 
 type HoverPreviewState = {
   url: string | null;
+  pdfRelativePath: string | null;
   rect: DOMRect | null;
 };
 
@@ -48,22 +49,42 @@ type NativeDropArgs = {
 export function resolveHoverPreviewState(
   event: MouseEvent,
   enabled: boolean,
+  currentDocumentRelativePath?: string,
 ): HoverPreviewState {
   if (!enabled) {
-    return { url: null, rect: null };
+    return { url: null, pdfRelativePath: null, rect: null };
   }
 
   const target = event.target instanceof Element ? event.target : null;
   const linkEl = target?.closest('.cm-lp-link') as HTMLElement | null;
+  const wikiEl = target?.closest('.cm-lp-wikilink') as HTMLElement | null;
   const url = linkEl?.dataset.url ?? null;
   if (url && linkEl && /^https?:\/\//i.test(url)) {
     return {
       url,
+      pdfRelativePath: null,
       rect: linkEl.getBoundingClientRect(),
     };
   }
 
-  return { url: null, rect: null };
+  if (currentDocumentRelativePath) {
+    const fileTree = useVaultStore.getState().fileTree;
+    const linkTarget = wikiEl?.dataset.path
+      ? resolveVaultWikilinkTarget(wikiEl.dataset.path, fileTree)
+      : linkEl?.dataset.url
+      ? resolveVaultRelativeLinkTarget(linkEl.dataset.url, currentDocumentRelativePath, fileTree)
+      : null;
+    if (linkTarget?.type === 'pdf') {
+      const anchor = wikiEl ?? linkEl;
+      return {
+        url: null,
+        pdfRelativePath: linkTarget.relativePath,
+        rect: anchor?.getBoundingClientRect() ?? null,
+      };
+    }
+  }
+
+  return { url: null, pdfRelativePath: null, rect: null };
 }
 
 export async function importDroppedImagesIntoEditor({
@@ -179,10 +200,12 @@ type UseMarkdownEditorIntegrationsArgs = {
   webPreviewsEnabled: boolean;
   hoverWebLinkPreviewsEnabled: boolean;
   setHoveredUrl: (url: string | null) => void;
+  setHoveredPdfRelativePath: (path: string | null) => void;
   setHoverRect: (rect: DOMRect | null) => void;
   getDroppedFilePaths: (event: DragEvent) => string[];
   isImageLikePath: (path: string) => boolean;
   buildImageMarkdown: (relativePath: string) => string;
+  currentDocumentRelativePath: string;
 };
 
 export function useMarkdownEditorIntegrations({
@@ -190,10 +213,12 @@ export function useMarkdownEditorIntegrations({
   webPreviewsEnabled,
   hoverWebLinkPreviewsEnabled,
   setHoveredUrl,
+  setHoveredPdfRelativePath,
   setHoverRect,
   getDroppedFilePaths,
   isImageLikePath,
   buildImageMarkdown,
+  currentDocumentRelativePath,
 }: UseMarkdownEditorIntegrationsArgs) {
   const nativeDropStateRef = useRef<NativeDropState>({ lastDropKey: '', lastDropAt: 0 });
 
@@ -266,12 +291,15 @@ export function useMarkdownEditorIntegrations({
 
     const handleDrop = (event: DragEvent) => { void handleImageDrop(event); };
     const handlePreviewHover = (event: MouseEvent) => {
-      const next = resolveHoverPreviewState(event, webPreviewsEnabled && hoverWebLinkPreviewsEnabled);
-      setHoveredUrl(next.url);
+      const next = resolveHoverPreviewState(event, hoverWebLinkPreviewsEnabled, currentDocumentRelativePath);
+      const nextUrl = webPreviewsEnabled ? next.url : null;
+      setHoveredUrl(nextUrl);
+      setHoveredPdfRelativePath(next.pdfRelativePath);
       setHoverRect(next.rect);
     };
     const handlePreviewLeave = () => {
       setHoveredUrl(null);
+      setHoveredPdfRelativePath(null);
       setHoverRect(null);
     };
     const handleMouseDown = (event: MouseEvent) => {
@@ -293,10 +321,12 @@ export function useMarkdownEditorIntegrations({
     };
   }, [
     buildImageMarkdown,
+    currentDocumentRelativePath,
     getDroppedFilePaths,
     hoverWebLinkPreviewsEnabled,
     isImageLikePath,
     setHoverRect,
+    setHoveredPdfRelativePath,
     setHoveredUrl,
     view,
     webPreviewsEnabled,

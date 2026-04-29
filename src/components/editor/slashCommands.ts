@@ -2,7 +2,14 @@ import type { Completion, CompletionSource } from '@codemirror/autocomplete';
 import type { EditorView } from '@codemirror/view';
 
 import { useNoteSnippetStore } from '../../store/noteSnippetStore';
+import { useVaultStore } from '../../store/vaultStore';
 import type { NoteSnippet } from '../../types/noteSnippet';
+import {
+  buildVaultLinkInsertText,
+  flattenVaultFiles,
+  getVaultDocumentTabType,
+  getVaultDocumentTitle,
+} from '../../lib/vaultLinks';
 import { buildCalloutSnippet, buildReferencesSectionSnippet, insertOrNavigateFootnote, insertSnippetReference, shouldOpenSlashMenu } from './noteAuthoring';
 import { insertSnippetTemplate } from './snippetEngine';
 
@@ -49,6 +56,29 @@ function snippetToCommand(snippet: NoteSnippet): SlashCommandItem {
   };
 }
 
+function createVaultFileCommands(currentDocumentRelativePath: string): SlashCommandItem[] {
+  const fileTree = useVaultStore.getState().fileTree;
+  return flattenVaultFiles(fileTree).map((file) => {
+    const type = getVaultDocumentTabType(file.relativePath);
+    const folder = file.relativePath.includes('/')
+      ? file.relativePath.split('/').slice(0, -1).join('/')
+      : undefined;
+    const detail = [folder, type === 'note' ? 'Note' : type === 'pdf' ? 'PDF' : type === 'canvas' ? 'Canvas' : type === 'kanban' ? 'Kanban' : 'Image']
+      .filter(Boolean)
+      .join(' · ');
+    return {
+      label: `Link: ${type === 'note' ? getVaultDocumentTitle(file.relativePath) : file.name}`,
+      detail,
+      type: 'text',
+      keywords: [file.relativePath, file.name, type, 'vault file'],
+      apply: (view) => insertSnippetTemplate(
+        view,
+        `${buildVaultLinkInsertText(file.relativePath, currentDocumentRelativePath, fileTree)}<cursor>`,
+      ),
+    };
+  });
+}
+
 function matchesCommand(item: SlashCommandItem, query: string) {
   if (!query) return true;
   const haystack = [item.label, item.detail ?? '', ...(item.keywords ?? [])].join(' ').toLowerCase();
@@ -67,7 +97,7 @@ function toCompletion(item: SlashCommandItem): Completion {
   };
 }
 
-export function createSlashCommandSource(): CompletionSource {
+export function createSlashCommandSource(currentDocumentRelativePath: string): CompletionSource {
   return (context) => {
     const before = context.matchBefore(/\/[A-Za-z0-9:_ -]*$/);
     if (!before) return null;
@@ -79,6 +109,7 @@ export function createSlashCommandSource(): CompletionSource {
     const query = before.text.slice(1).trim();
     const commands = [
       ...createBaseCommands(),
+      ...createVaultFileCommands(currentDocumentRelativePath),
       ...useNoteSnippetStore.getState().snippets.map(snippetToCommand),
     ].filter((item) => matchesCommand(item, query));
 

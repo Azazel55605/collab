@@ -4,10 +4,11 @@ import { describe, expect, it } from 'vitest';
 
 import { createSlashCommandSource } from './slashCommands';
 import { useNoteSnippetStore } from '../../store/noteSnippetStore';
+import { useVaultStore } from '../../store/vaultStore';
 
 describe('slashCommands', () => {
   it('offers base slash commands in normal text', async () => {
-    const source = createSlashCommandSource();
+    const source = createSlashCommandSource('Notes/current.md');
     const state = EditorState.create({ doc: '/cal' });
     const result = await source(new CompletionContext(state, 4, true));
 
@@ -30,7 +31,7 @@ describe('slashCommands', () => {
       isLoading: false,
     } as never);
 
-    const source = createSlashCommandSource();
+    const source = createSlashCommandSource('Notes/current.md');
     const state = EditorState.create({ doc: '/meet' });
     const result = await source(new CompletionContext(state, 5, true));
 
@@ -38,10 +39,41 @@ describe('slashCommands', () => {
   });
 
   it('does not open inside fenced code blocks', async () => {
-    const source = createSlashCommandSource();
+    const source = createSlashCommandSource('Notes/current.md');
     const state = EditorState.create({ doc: '```\n/meet\n```' });
     const result = await source(new CompletionContext(state, 8, true));
 
     expect(result).toBeNull();
+  });
+
+  it('offers vault file link commands', async () => {
+    useVaultStore.setState({
+      fileTree: [
+        {
+          relativePath: 'Docs',
+          name: 'Docs',
+          extension: '',
+          modifiedAt: 0,
+          size: 0,
+          isFolder: true,
+          children: [
+            {
+              relativePath: 'Docs/spec.pdf',
+              name: 'spec.pdf',
+              extension: 'pdf',
+              modifiedAt: 0,
+              size: 1,
+              isFolder: false,
+            },
+          ],
+        },
+      ],
+    } as never);
+
+    const source = createSlashCommandSource('Notes/current.md');
+    const state = EditorState.create({ doc: '/spec' });
+    const result = await source(new CompletionContext(state, 5, true));
+
+    expect(result?.options.some((option: { label: string }) => option.label === 'Link: spec.pdf')).toBe(true);
   });
 });

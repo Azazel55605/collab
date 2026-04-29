@@ -83,6 +83,24 @@ describe('useMarkdownEditorIntegrations helpers', () => {
 
     expect(resolveHoverPreviewState(event, true)).toEqual({
       url: 'https://example.com',
+      pdfRelativePath: null,
+      rect: expect.any(DOMRect),
+    });
+  });
+
+  it('resolves hovered vault PDF links for local preview', () => {
+    const link = document.createElement('span');
+    link.className = 'cm-lp-link';
+    link.dataset.url = '../Docs/spec.pdf';
+    link.getBoundingClientRect = vi.fn(() => new DOMRect(10, 20, 30, 40));
+    document.body.append(link);
+
+    const event = new MouseEvent('mousemove', { bubbles: true });
+    Object.defineProperty(event, 'target', { value: link });
+
+    expect(resolveHoverPreviewState(event, true, 'Notes/a.md')).toEqual({
+      url: null,
+      pdfRelativePath: 'Docs/spec.pdf',
       rect: expect.any(DOMRect),
     });
   });

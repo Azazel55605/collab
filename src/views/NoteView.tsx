@@ -7,7 +7,11 @@ import { tauriCommands } from '../lib/tauri';
 import { MarkdownEditor, type MarkdownEditorHandle } from '../components/editor/MarkdownEditor';
 import { EditorToolbar } from '../components/editor/EditorToolbar';
 import { toast } from 'sonner';
-import { ensureTagsLine, addTagToContent, setTagsInContent } from '../lib/frontmatter';
+import {
+  addTagToContent,
+  ensureTagsLine,
+  setTagsInContent,
+} from '../lib/frontmatter';
 import { useUiStore } from '../store/uiStore';
 import { extractHttpUrls, prefetchWebPreviews } from '../lib/webPreviewCache';
 import { useDocumentSessionState } from '../lib/documentSession';
@@ -36,7 +40,11 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   const { markDirty, markSaved, setSavedHash, renameTab, forceReloadPath, setForceReloadPath } = useEditorStore();
   const { addConflict, myUserId, myUserName } = useCollabStore();
   const [content, setContent] = useState<string | null>(null);
-  const { webPreviewsEnabled, hoverWebLinkPreviewsEnabled, backgroundWebPreviewPrefetchEnabled } = useUiStore();
+  const {
+    webPreviewsEnabled,
+    hoverWebLinkPreviewsEnabled,
+    backgroundWebPreviewPrefetchEnabled,
+  } = useUiStore();
   const loadSnippets = useNoteSnippetStore((state) => state.loadSnippets);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
   const { hashRef, markLoaded, shouldSkipAutosave, markWriteStarted, shouldCreateSnapshot } = useDocumentSessionState();
@@ -80,26 +88,17 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   // Tag event listeners — fired by TagsPanel, EditorToolbar, and MarkdownEditor context menu
   useEffect(() => {
     const onAddTagsLine = () => {
-      setContent((prev) => {
-        if (prev === null) return prev;
-        return ensureTagsLine(prev);
-      });
+      applyContentTransform(ensureTagsLine);
     };
     const onAddTag = (e: Event) => {
       const tag = (e as CustomEvent<{ tag: string }>).detail?.tag;
       if (!tag) return;
-      setContent((prev) => {
-        if (prev === null) return prev;
-        return addTagToContent(prev, tag);
-      });
+      applyContentTransform((prev) => addTagToContent(prev, tag));
     };
     const onSetTags = (e: Event) => {
       const tags = (e as CustomEvent<{ tags: string[] }>).detail?.tags;
       if (!tags) return;
-      setContent((prev) => {
-        if (prev === null) return prev;
-        return setTagsInContent(prev, tags);
-      });
+      applyContentTransform((prev) => setTagsInContent(prev, tags));
     };
     window.addEventListener('tag:add-tags-line', onAddTagsLine);
     window.addEventListener('tag:add-tag', onAddTag);
@@ -143,6 +142,18 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
     setContent(newContent);
     isDirtyRef.current = true;
     markDirty(relativePath);
+  };
+
+  const applyContentTransform = (transform: (value: string) => string) => {
+    setContent((prev) => {
+      if (prev === null) return prev;
+      const next = transform(prev);
+      if (next !== prev) {
+        isDirtyRef.current = true;
+        markDirty(relativePath);
+      }
+      return next;
+    });
   };
 
   // Autosave 600 ms after the last keystroke
