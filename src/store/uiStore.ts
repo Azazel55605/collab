@@ -158,6 +158,7 @@ interface UiState {
   activeView:    ActiveView;
   sidebarPanel:  SidebarPanel;
   collabTab:     CollabTab;
+  fileTreeCollapsedPaths: string[];
   sidebarWidth:  number;
   isSidebarOpen: boolean;
   isSettingsOpen: boolean;
@@ -199,6 +200,7 @@ interface UiState {
   setActiveView:    (view: ActiveView) => void;
   setSidebarPanel:  (panel: SidebarPanel) => void;
   setCollabTab:     (tab: CollabTab) => void;
+  setFileTreeCollapsedPaths: (paths: string[]) => void;
   setSidebarWidth:  (width: number) => void;
   toggleSidebar:    () => void;
   openSettings:     () => void;
@@ -240,6 +242,7 @@ export const useUiStore = create<UiState>()(
       activeView:     'editor',
       sidebarPanel:   'files',
       collabTab:      'peers',
+      fileTreeCollapsedPaths: [],
       sidebarWidth:   240,
       isSidebarOpen:      true,
       isSettingsOpen:     false,
@@ -277,6 +280,7 @@ export const useUiStore = create<UiState>()(
       setActiveView:   (activeView)   => set({ activeView }),
       setSidebarPanel: (sidebarPanel) => set({ sidebarPanel }),
       setCollabTab:    (collabTab)    => set({ collabTab }),
+      setFileTreeCollapsedPaths: (fileTreeCollapsedPaths) => set({ fileTreeCollapsedPaths }),
       setSidebarWidth: (sidebarWidth) => set({ sidebarWidth }),
       toggleSidebar:   ()             => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
       openSettings:     ()             => set({ isSettingsOpen: true }),
@@ -324,6 +328,7 @@ export const useUiStore = create<UiState>()(
       // Don't persist transient state
       partialize: (s) => ({
         collabTab:      s.collabTab,
+        fileTreeCollapsedPaths: s.fileTreeCollapsedPaths,
         sidebarWidth:  s.sidebarWidth,
         isSidebarOpen: s.isSidebarOpen,
         theme:         s.theme,

@@ -33,7 +33,6 @@ import {
 import { GFM } from '@lezer/markdown';
 
 import { asciiArrowLigatures, handleTabKey } from './indentationPlugins';
-import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useVaultStore } from '../../store/vaultStore';
 import { getVaultWikilinkAutocompleteItems } from '../../lib/vaultLinks';
 
@@ -180,49 +179,25 @@ export function createMarkdownWikiAutocompleteOverride() {
     ((context) => {
       const before = context.matchBefore(/\[\[[^\]]*$/);
       if (!before) return null;
-      const noteList = useNoteIndexStore.getState().notes;
-      const fileItems = getVaultWikilinkAutocompleteItems(useVaultStore.getState().fileTree)
-        .filter((item) => item.insertText.includes('.') && !item.insertText.toLowerCase().endsWith('.md'));
       const from = before.from + 2;
+      const options = getVaultWikilinkAutocompleteItems(useVaultStore.getState().fileTree)
+        .map((item) => ({
+          label: item.label,
+          detail: item.detail,
+          type: item.type,
+          apply: (view: EditorView, _completion: unknown, applyFrom: number, applyTo: number) => {
+            const afterCursor = view.state.sliceDoc(applyTo, applyTo + 2);
+            const insertTo = afterCursor === ']]' ? applyTo + 2 : applyTo;
+            const insert = `${item.insertText}]]`;
+            view.dispatch({
+              changes: { from: applyFrom, to: insertTo, insert },
+              selection: { anchor: applyFrom + insert.length },
+            });
+          },
+        }));
       return {
         from,
-        filter: false,
-        options: [
-          ...noteList.map((n) => {
-            const stem = n.relativePath.split('/').pop()!.replace(/\.md$/, '');
-            const folder = n.relativePath.includes('/')
-              ? n.relativePath.split('/').slice(0, -1).join('/')
-              : undefined;
-            return {
-              label: stem,
-              detail: folder,
-              type: 'text',
-              apply: (view: EditorView, _completion: unknown, applyFrom: number, applyTo: number) => {
-                const afterCursor = view.state.sliceDoc(applyTo, applyTo + 2);
-                const insertTo = afterCursor === ']]' ? applyTo + 2 : applyTo;
-                const insert = `${stem}]]`;
-                view.dispatch({
-                  changes: { from: applyFrom, to: insertTo, insert },
-                  selection: { anchor: applyFrom + insert.length },
-                });
-              },
-            };
-          }),
-          ...fileItems.map((item) => ({
-            label: item.label,
-            detail: item.detail,
-            type: item.type,
-            apply: (view: EditorView, _completion: unknown, applyFrom: number, applyTo: number) => {
-              const afterCursor = view.state.sliceDoc(applyTo, applyTo + 2);
-              const insertTo = afterCursor === ']]' ? applyTo + 2 : applyTo;
-              const insert = `${item.insertText}]]`;
-              view.dispatch({
-                changes: { from: applyFrom, to: insertTo, insert },
-                selection: { anchor: applyFrom + insert.length },
-              });
-            },
-          })),
-        ],
+        options,
       };
     }) satisfies CompletionSource,
   ] satisfies readonly CompletionSource[];

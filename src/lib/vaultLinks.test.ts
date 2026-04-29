@@ -108,7 +108,7 @@ describe('vaultLinks', () => {
     const items = getVaultWikilinkAutocompleteItems(FILES);
     expect(items).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ label: 'alpha', insertText: 'alpha' }),
+        expect.objectContaining({ label: 'alpha', insertText: 'Notes/alpha.md' }),
         expect.objectContaining({ label: 'spec.pdf', insertText: 'Docs/spec.pdf' }),
         expect.objectContaining({ label: 'board.kanban', insertText: 'Docs/board.kanban' }),
       ]),
@@ -123,5 +123,16 @@ describe('vaultLinks', () => {
   it('keeps unique notes as stem wikilinks and falls back to full paths for duplicates', () => {
     expect(buildVaultLinkInsertText('Notes/beta.md', 'Docs/spec.pdf', FILES)).toBe('[[beta]]');
     expect(buildVaultLinkInsertText('Docs/alpha.md', 'Notes/alpha.md', FILES)).toBe('[[Docs/alpha.md]]');
+  });
+
+  it('keeps unique note autocomplete items as stems and duplicate notes as full paths', () => {
+    const items = getVaultWikilinkAutocompleteItems(FILES);
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'beta', insertText: 'beta' }),
+        expect.objectContaining({ label: 'alpha', detail: 'Notes', insertText: 'Notes/alpha.md' }),
+        expect.objectContaining({ label: 'alpha', detail: 'Docs', insertText: 'Docs/alpha.md' }),
+      ]),
+    );
   });
 });

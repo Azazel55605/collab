@@ -36,12 +36,15 @@ class IndentMarkerWidget extends WidgetType {
 }
 
 class AsciiArrowLigatureWidget extends WidgetType {
-  constructor(private readonly symbol: string) {
+  constructor(
+    private readonly source: string,
+    private readonly symbol: string,
+  ) {
     super();
   }
 
   eq(other: AsciiArrowLigatureWidget) {
-    return this.symbol === other.symbol;
+    return this.source === other.source && this.symbol === other.symbol;
   }
 
   toDOM() {
@@ -49,6 +52,7 @@ class AsciiArrowLigatureWidget extends WidgetType {
     span.className = 'cm-ascii-arrow-ligature';
     span.textContent = this.symbol;
     span.setAttribute('aria-hidden', 'true');
+    span.dataset.ligatureSource = this.source;
     return span;
   }
 
@@ -56,6 +60,13 @@ class AsciiArrowLigatureWidget extends WidgetType {
     return true;
   }
 }
+
+export const ASCII_LIGATURE_PAIRS: Record<string, string> = {
+  '/\\': '↑',
+  '\\/': '↓',
+  '<=': '≤',
+  '>=': '≥',
+};
 
 function buildAsciiArrowLigatureDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
@@ -79,13 +90,13 @@ function buildAsciiArrowLigatureDecorations(view: EditorView): DecorationSet {
 
       for (let index = 0; index < line.text.length - 1; index += 1) {
         const pair = line.text.slice(index, index + 2);
-        const symbol = pair === '/\\' ? '↑' : pair === '\\/' ? '↓' : null;
+        const symbol = ASCII_LIGATURE_PAIRS[pair] ?? null;
         if (!symbol) continue;
 
         builder.add(
           line.from + index,
           line.from + index + 2,
-          Decoration.replace({ widget: new AsciiArrowLigatureWidget(symbol) }),
+          Decoration.replace({ widget: new AsciiArrowLigatureWidget(pair, symbol) }),
         );
         index += 1;
       }

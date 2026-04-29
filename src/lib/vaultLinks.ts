@@ -12,6 +12,13 @@ export interface VaultLinkTarget {
   type: VaultDocumentTabType;
 }
 
+export interface VaultWikilinkAutocompleteItem {
+  label: string;
+  detail?: string;
+  type: 'text';
+  insertText: string;
+}
+
 function getRelativeLinkPath(currentDocumentRelativePath: string, targetRelativePath: string) {
   const currentDir = normalizeRelativePath(
     currentDocumentRelativePath.includes('/')
@@ -103,6 +110,12 @@ function isUniqueNoteTitle(relativePath: string, fileTree: NoteFile[]) {
   )).length === 1;
 }
 
+function getVaultWikilinkInsertTarget(relativePath: string, fileTree: NoteFile[]) {
+  return isUniqueNoteTitle(relativePath, fileTree)
+    ? getVaultDocumentTitle(relativePath)
+    : relativePath;
+}
+
 export function buildVaultLinkInsertText(
   relativePath: string,
   currentDocumentRelativePath: string,
@@ -110,10 +123,7 @@ export function buildVaultLinkInsertText(
 ) {
   const type = getVaultDocumentTabType(relativePath);
   if (type === 'note') {
-    const insertTarget = isUniqueNoteTitle(relativePath, fileTree)
-      ? getVaultDocumentTitle(relativePath)
-      : relativePath;
-    return `[[${insertTarget}]]`;
+    return `[[${getVaultWikilinkInsertTarget(relativePath, fileTree)}]]`;
   }
 
   const label = getVaultDocumentTitle(relativePath);
@@ -197,17 +207,19 @@ export function resolveVaultWikilinkTarget(rawLink: string, fileTree: NoteFile[]
 export function getVaultWikilinkAutocompleteItems(fileTree: NoteFile[]) {
   return flattenVaultFiles(fileTree)
     .filter((file) => !isImagePath(file.relativePath))
-    .map((file) => {
+    .map((file): VaultWikilinkAutocompleteItem => {
       const type = getVaultDocumentTabType(file.relativePath);
       const folder = file.relativePath.includes('/')
         ? file.relativePath.split('/').slice(0, -1).join('/')
         : undefined;
       const insertText = type === 'note'
-        ? getVaultDocumentTitle(file.relativePath)
+        ? getVaultWikilinkInsertTarget(file.relativePath, fileTree)
         : file.relativePath;
 
       return {
-        label: type === 'note' ? getVaultDocumentTitle(file.relativePath) : file.name,
+        label: type === 'note'
+          ? getVaultDocumentTitle(file.relativePath)
+          : file.name,
         detail: [folder, type === 'pdf' ? 'PDF' : type === 'canvas' ? 'Canvas' : type === 'kanban' ? 'Kanban' : undefined]
           .filter(Boolean)
           .join(' · ') || undefined,

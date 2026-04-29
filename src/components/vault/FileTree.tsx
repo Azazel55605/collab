@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   ChevronRight, ChevronDown, FileText, Folder, FolderOpen,
   Plus, FolderPlus, Layout, LayoutDashboard, Paperclip, Image as ImageIcon, Trash2,
@@ -60,9 +60,13 @@ function isManagedPicturesFolder(node: Pick<NoteFile, 'isFolder' | 'relativePath
 export default function FileTree() {
   const { vault, fileTree, refreshFileTree } = useVaultStore();
   const { openTab, closeTab, renameTab } = useEditorStore();
-  const { setActiveView, confirmDelete: confirmDeleteEnabled } = useUiStore();
+  const {
+    setActiveView,
+    confirmDelete: confirmDeleteEnabled,
+    fileTreeCollapsedPaths,
+    setFileTreeCollapsedPaths,
+  } = useUiStore();
   const { myUserId, myUserName } = useCollabStore();
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [dialog, setDialog] = useState<DialogState>({ type: 'none' });
   const [deleteRemoveReferences, setDeleteRemoveReferences] = useState(false);
   const [taskAttachmentsByPath, setTaskAttachmentsByPath] = useState<Record<string, TaskAttachmentRef[]>>({});
@@ -75,6 +79,13 @@ export default function FileTree() {
     preview: PathChangePreview;
     apply: () => Promise<void>;
   } | null>(null);
+  const collapsed = useMemo(() => new Set(fileTreeCollapsedPaths), [fileTreeCollapsedPaths]);
+
+  const setCollapsed = useCallback((value: React.SetStateAction<Set<string>>) => {
+    const previous = new Set(fileTreeCollapsedPaths);
+    const next = value instanceof Function ? value(previous) : value;
+    setFileTreeCollapsedPaths(Array.from(next));
+  }, [fileTreeCollapsedPaths, setFileTreeCollapsedPaths]);
 
   function flatten(nodes: NoteFile[]): NoteFile[] {
     return nodes.flatMap((node) => [node, ...(node.children ? flatten(node.children) : [])]);

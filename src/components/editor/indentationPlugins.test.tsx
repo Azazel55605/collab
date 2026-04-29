@@ -4,6 +4,7 @@ import { EditorView } from '@codemirror/view';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  ASCII_LIGATURE_PAIRS,
   asciiArrowLigatures,
   handleTabKey,
   indentationConfig,
@@ -46,5 +47,10 @@ describe('indentationPlugins', () => {
 
   it('provides codemirror extensions for ligatures when enabled', () => {
     expect(asciiArrowLigatures()).toBeTruthy();
+  });
+
+  it('includes <= and >= operator ligatures in the substitution map', () => {
+    expect(ASCII_LIGATURE_PAIRS['<=']).toBe('≤');
+    expect(ASCII_LIGATURE_PAIRS['>=']).toBe('≥');
   });
 });
