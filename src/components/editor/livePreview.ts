@@ -562,12 +562,104 @@ interface Item {
 // ─── Inline decoration scan ───────────────────────────────────────────────────
 
 /**
+ * Find all spans of `marker` in `text` that can contain nested formatting.
+ * For single-char markers (*, _): opening/closing must not be part of ** / __.
+ * For double-char markers (**, __, ~~, ==): no extra checks needed.
+ * Returns spans sorted by start position.
+ */
+function findFormattedSpans(
+  text: string,
+  marker: string,
+): Array<{ s: number; e: number }> {
+  const mLen = marker.length;
+  const mChar = marker[0];
+  const isDouble = mLen === 2;
+  const spans: Array<{ s: number; e: number }> = [];
+
+  let i = 0;
+  while (i < text.length) {
+    if (text.slice(i, i + mLen) !== marker) { i++; continue; }
+
+    // Single-char: must not be part of a double marker (e.g. * inside **)
+    if (!isDouble) {
+      if (text[i + 1] === mChar) { i++; continue; }
+      if (i > 0 && text[i - 1] === mChar) { i++; continue; }
+    }
+
+    // Scan for matching closing marker
+    let j = i + mLen;
+    let found = false;
+    while (j < text.length) {
+      if (text.slice(j, j + mLen) === marker) {
+	        // Single-char closing must also not be part of a double marker
+	        if (!isDouble) {
+	          if (text[j + 1] === mChar) { j++; continue; }
+	          if (text[j - 1] === mChar) { j++; continue; }
+	          // Underscore italic: closing _ must not be followed by a word char
+	          // (prevents matching snake_case as italic)
+	          if (mChar === '_') {
+	            const after = text[j + mLen];
+	            if (after && /\w/.test(after)) { j++; continue; }
+	          }
+	        }
+        spans.push({ s: i, e: j + mLen });
+        i = j + mLen;
+        found = true;
+        break;
+      }
+      j++;
+    }
+    if (!found) break; // no closing marker — stop looking on this line
+    // i will be incremented by the while loop
+  }
+  return spans;
+}
+
+/**
+ * Resolve overlapping spans by preferring wider spans.
+ * Sorts by width descending, then greedily selects non-overlapping spans.
+ */
+function resolveSpanOverlaps(
+  spans: Array<{ s: number; e: number }>,
+): Array<{ s: number; e: number }> {
+  // Sort by width descending, then by start position ascending
+  const sorted = [...spans].sort((a, b) => {
+    const wA = a.e - a.s;
+    const wB = b.e - b.s;
+    if (wB !== wA) return wB - wA;
+    return a.s - b.s;
+  });
+
+  const selected: Array<{ s: number; e: number }> = [];
+  const occupied = new Uint8Array(Math.max(0, ...spans.map(s => s.e)));
+
+  for (const span of sorted) {
+    let overlaps = false;
+    for (let k = span.s; k < span.e; k++) {
+      if (occupied[k]) { overlaps = true; break; }
+    }
+    if (!overlaps) {
+      selected.push(span);
+      for (let k = span.s; k < span.e; k++) occupied[k] = 1;
+    }
+  }
+
+  // Return sorted by start position
+  selected.sort((a, b) => a.s - b.s);
+  return selected;
+}
+
+/**
  * Scan one line's text for inline markdown elements and push decoration
  * items. Elements that contain the cursor are skipped (shown as raw).
- * We use a simple "consumed" bitmask so patterns don't overlap each other.
  *
- * No lookbehind assertions are used — they are not reliably available in
- * all WebKit/WebKitGTK versions.
+ * Two-phase approach:
+ * 1. Find all outer formatting spans (bold, italic, strikethrough, highlight)
+ *    independently — they can nest arbitrarily.
+ * 2. Resolve overlaps (wider span wins), apply decorations with inner
+ *    formatting via processInlineWithin.
+ * 3. Process remaining inline patterns (code, images, math, wikilinks, links)
+ *    using a consumed bitmask that respects the outer spans.
  */
 function processInline(
   out: Item[],
@@ -595,19 +687,83 @@ function processInline(
       if (!free(s, e)) continue;
       const docS = base + s;
       const docE = base + e;
-      // Cursor inside → show raw
       if (cursor > docS && cursor < docE) continue;
       const result = handle(m, s, e);
       if (result) { occupy(s, e); for (const it of result) out.push(it); }
     }
   }
 
-  // ── Inline code — highest priority so backticks protect inner content ────
+  // ── Phase 1: find all outer formatting spans ───────────────────────────
+  const outerSpans: Array<{ s: number; e: number; kind: string }> = [];
+
+  const addSpans = (spans: Array<{ s: number; e: number }>, kind: string) => {
+    for (const span of spans) {
+      outerSpans.push({ s: span.s, e: span.e, kind });
+    }
+  };
+
+  addSpans(findFormattedSpans(text, '**'), 'strong-star');
+  addSpans(findFormattedSpans(text, '__'), 'strong-underscore');
+  addSpans(findFormattedSpans(text, '*'), 'em-star');
+  addSpans(findFormattedSpans(text, '_'), 'em-underscore');
+  addSpans(findFormattedSpans(text, '~~'), 'strike');
+  addSpans(findFormattedSpans(text, '=='), 'mark');
+
+  // ── Phase 2: resolve overlaps, apply decorations ───────────────────────
+  const outerResolved = resolveSpanOverlaps(
+    outerSpans.map(s => ({ s: s.s, e: s.e })),
+  );
+
+  // Build a map from resolved span to its kind
+  const resolvedKind = new Map<string, string>();
+  for (const span of outerSpans) {
+    const key = `${span.s}:${span.e}`;
+    if (outerResolved.some(r => r.s === span.s && r.e === span.e)) {
+      // If multiple kinds have the same span, prefer the one with wider marker
+      const existing = resolvedKind.get(key);
+      if (!existing || (span.kind.length > existing.length)) {
+        resolvedKind.set(key, span.kind);
+      }
+    }
+  }
+
+  for (const span of outerResolved) {
+    const docS = base + span.s;
+    const docE = base + span.e;
+    // Cursor inside → show raw
+    if (cursor > docS && cursor < docE) continue;
+
+    const kind = resolvedKind.get(`${span.s}:${span.e}`) ?? '';
+    const innerStart = span.s + (kind.includes('star') || kind.includes('underscore') ? (kind.startsWith('strong') ? 2 : 1) : 2);
+    const innerEnd = span.e - (kind.includes('star') || kind.includes('underscore') ? (kind.startsWith('strong') ? 2 : 1) : 2);
+    const innerText = text.slice(innerStart, innerEnd);
+    const innerBase = base + innerStart;
+
+    const cssClass =
+      kind.startsWith('strong') ? 'cm-lp-strong' :
+      kind.startsWith('em') ? 'cm-lp-em' :
+      kind === 'strike' ? 'cm-lp-strike' :
+      kind === 'mark'   ? 'cm-lp-mark' : '';
+
+    if (cssClass) {
+      const markerLen = kind.startsWith('strong') || kind === 'strike' || kind === 'mark' ? 2 : 1;
+      out.push(hide(span.s, span.s + markerLen));
+      out.push(mark(span.s + markerLen, span.e - markerLen, cssClass));
+      out.push(hide(span.e - markerLen, span.e));
+      processInlineWithin(out, innerText, innerBase, cursor);
+    }
+
+    // Mark as occupied so Phase 3 patterns don't overlap
+    occupy(span.s, span.e);
+  }
+
+  // ── Phase 3: remaining inline patterns ──────────────────────────────────
+  // Inline code
   run(/`([^`\n]+?)`/g, (_, s, e) => [
     hide(s, s + 1), mark(s + 1, e - 1, 'cm-lp-icode'), hide(e - 1, e),
   ]);
 
-  // ── Images ![alt](path) and ![[path]] ───────────────────────────────────
+  // Images ![alt](path) and ![[path]]
   run(/!\[([^\]\n]*?)\]\(([^)\n]*?)\)/g, (m, s, e) => {
     const target = resolveNoteAssetTarget(m[2], noteRelativePath, useVaultStore.getState().fileTree);
     if (!target) return null;
@@ -622,73 +778,24 @@ function processInline(
     return [widget(s, e, new ImageWidget(target, alt))];
   });
 
-  // ── Bold **text** or __text__ — run before math so $ inside bold works ───
-  // Allow single * inside bold (e.g. **bold *italic* bold**) by matching
-  // any char that is not a newline and not part of a closing ** sequence.
-  // The pattern (?:[^*\n]|\*(?!\*))+ greedily consumes text that contains at
-  // most single * characters, stopping before any ** that would close the span.
-  run(/\*\*((?:[^*\n]|\*(?!\*))+)\*\*/g, (_, s, e) => {
-    const outItems: Item[] = [
-      hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-strong'), hide(e - 2, e),
-    ];
-    // Run inline formatting (italic / math / code / strikethrough / highlight)
-    // on the inner content so nested styling inside **bold** is also rendered.
-    processInlineWithin(outItems, text.slice(s + 2, e - 2), base + s + 2, cursor);
-    return outItems;
-  });
-  run(/__((?:[^_\n]|_(?!_))+)__/g, (_, s, e) => {
-    const outItems: Item[] = [
-      hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-strong'), hide(e - 2, e),
-    ];
-    processInlineWithin(outItems, text.slice(s + 2, e - 2), base + s + 2, cursor);
-    return outItems;
-  });
-
-  // ── Inline math $...$ — after bold so $ inside ** works, before italic ──
-  // Avoid matching $$ by checking the char before/after manually (no lookbehind)
+  // Inline math $...$ — after outer spans so $ inside ** works
   run(/\$([^$\n]+?)\$/g, (m, s, e) => {
     if (text[s - 1] === '$' || text[e] === '$') return null;
     return [widget(s, e, new MathWidget(m[1], false))];
   });
 
-  // ── Italic *text* — only single *, not part of ** ────────────────────────
-  run(/\*([^*\n]+?)\*/g, (_m, s, e) => {
-    // Skip if surrounded by * (i.e. part of bold)
-    if (text[s - 1] === '*' || text[e] === '*') return null;
-    return [hide(s, s + 1), mark(s + 1, e - 1, 'cm-lp-em'), hide(e - 1, e)];
-  });
-  // ── Italic _text_ — single _, not part of __ ─────────────────────────────
-  run(/_([^_\n]+?)_/g, (_m, s, e) => {
-    if (text[s - 1] === '_' || text[e] === '_') return null;
-    // Don't italicise words_with_underscores (next char after closing _ should be non-word or end)
-    const after = text[e];
-    if (after && /\w/.test(after)) return null;
-    return [hide(s, s + 1), mark(s + 1, e - 1, 'cm-lp-em'), hide(e - 1, e)];
-  });
-
-  // ── Strikethrough ~~text~~ ───────────────────────────────────────────────
-  run(/~~([^~\n]+?)~~/g, (_, s, e) => [
-    hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-strike'), hide(e - 2, e),
-  ]);
-
-  // ── Highlight ==text== ───────────────────────────────────────────────────
-  run(/==([^=\n]+?)==/g, (_, s, e) => [
-    hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-mark'), hide(e - 2, e),
-  ]);
-
-  // ── Wikilinks [[Path]] or [[Path|Label]] ─────────────────────────────────
+  // Wikilinks [[Path]] or [[Path|Label]]
   run(/\[\[([^\]|]+?)(\|([^\]]+?))?\]\]/g, (m, s, e) => {
     const path  = m[1];
     const label = m[3];
     if (label) {
-      const labelStart = s + 2 + path.length + 1; // skip [[path|
+      const labelStart = s + 2 + path.length + 1;
       return [hide(s, labelStart), mark(labelStart, e - 2, 'cm-lp-wikilink', { 'data-path': path }), hide(e - 2, e)];
     }
     return [hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-wikilink', { 'data-path': path }), hide(e - 2, e)];
   });
 
-  // ── Links [text](url) ────────────────────────────────────────────────────
-  // Skip ![ images by checking preceding char (no lookbehind — WebKitGTK compat)
+  // Links [text](url) — skip ![ images
   run(/\[([^\]\n]+?)\]\(([^)\n]*?)\)/g, (m, s, e) => {
     if (text[s - 1] === '!') return null;
     const url    = m[2];
@@ -700,8 +807,8 @@ function processInline(
 
 /**
  * Process inline formatting on a substring that is already inside a parent
- * decoration (e.g. bold).  Only runs the non-bold patterns — code, math,
- * italic, strikethrough, and highlight — so there is no infinite recursion.
+ * decoration (e.g. bold containing italic, or italic containing bold).
+ * Handles all inline patterns including bold so nesting works at any depth.
  */
 function processInlineWithin(
   out: Item[],
@@ -732,12 +839,30 @@ function processInlineWithin(
     }
   }
 
-  // Inline code
+  // Inline code — highest priority
   run(/`([^`\n]+?)`/g, (_, s, e) => [
     hide(s, s + 1), mark(s + 1, e - 1, 'cm-lp-icode'), hide(e - 1, e),
   ]);
 
-  // Inline math $...$ — before italic so $ inside * works
+  // Bold **text** — allows * inside for italic nesting
+  run(/\*\*((?:[^*\n]|\*(?!\*))+)\*\*/g, (_, s, e) => {
+    const outItems: Item[] = [
+      hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-strong'), hide(e - 2, e),
+    ];
+    processInlineWithin(outItems, text.slice(s + 2, e - 2), base + s + 2, cursor);
+    return outItems;
+  });
+
+  // Bold __text__ — allows _ inside
+  run(/__((?:[^_\n]|_(?!_))+)__/g, (_, s, e) => {
+    const outItems: Item[] = [
+      hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-strong'), hide(e - 2, e),
+    ];
+    processInlineWithin(outItems, text.slice(s + 2, e - 2), base + s + 2, cursor);
+    return outItems;
+  });
+
+  // Inline math $...$
   run(/\$([^$\n]+?)\$/g, (_m, s, e) => {
     if (text[s - 1] === '$' || text[e] === '$') return null;
     return [widget(s, e, new MathWidget(_m[1], false))];
