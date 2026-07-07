@@ -622,15 +622,7 @@ function processInline(
     return [widget(s, e, new ImageWidget(target, alt))];
   });
 
-  // ── Inline math $...$ — run before bold/italic to catch $ signs ─────────
-  // Avoid matching $$ by checking the char before/after manually (no lookbehind)
-  run(/\$([^$\n]+?)\$/g, (m, s, e) => {
-    // Skip if this is part of $$...$$
-    if (text[s - 1] === '$' || text[e] === '$') return null;
-    return [widget(s, e, new MathWidget(m[1], false))];
-  });
-
-  // ── Bold **text** or __text__ ────────────────────────────────────────────
+  // ── Bold **text** or __text__ — run before math so $ inside bold works ───
   // Allow single * inside bold (e.g. **bold *italic* bold**) by matching
   // any char that is not a newline and not part of a closing ** sequence.
   // The pattern (?:[^*\n]|\*(?!\*))+ greedily consumes text that contains at
@@ -639,8 +631,8 @@ function processInline(
     const outItems: Item[] = [
       hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-strong'), hide(e - 2, e),
     ];
-    // Run inline formatting (italic / code / strikethrough / highlight) on the
-    // inner content so nested *cursive* inside **bold** is also styled.
+    // Run inline formatting (italic / math / code / strikethrough / highlight)
+    // on the inner content so nested styling inside **bold** is also rendered.
     processInlineWithin(outItems, text.slice(s + 2, e - 2), base + s + 2, cursor);
     return outItems;
   });
@@ -650,6 +642,13 @@ function processInline(
     ];
     processInlineWithin(outItems, text.slice(s + 2, e - 2), base + s + 2, cursor);
     return outItems;
+  });
+
+  // ── Inline math $...$ — after bold so $ inside ** works, before italic ──
+  // Avoid matching $$ by checking the char before/after manually (no lookbehind)
+  run(/\$([^$\n]+?)\$/g, (m, s, e) => {
+    if (text[s - 1] === '$' || text[e] === '$') return null;
+    return [widget(s, e, new MathWidget(m[1], false))];
   });
 
   // ── Italic *text* — only single *, not part of ** ────────────────────────
@@ -701,8 +700,8 @@ function processInline(
 
 /**
  * Process inline formatting on a substring that is already inside a parent
- * decoration (e.g. bold).  Only runs the non-bold patterns — italic, code,
- * strikethrough, and highlight — so there is no infinite recursion.
+ * decoration (e.g. bold).  Only runs the non-bold patterns — code, math,
+ * italic, strikethrough, and highlight — so there is no infinite recursion.
  */
 function processInlineWithin(
   out: Item[],
@@ -716,6 +715,7 @@ function processInlineWithin(
   const free   = (s: number, e: number) => { for (let i = s; i < e; i++) { if (used[i]) return false; } return true; };
   const hide   = (s: number, e: number): Item => ({ from: base + s, to: base + e, deco: Decoration.replace({}), excl: true });
   const mark   = (s: number, e: number, cls: string, attrs?: Record<string, string>): Item => ({ from: base + s, to: base + e, deco: Decoration.mark({ class: cls, attributes: attrs }), excl: false });
+  const widget = (s: number, e: number, w: WidgetType): Item => ({ from: base + s, to: base + e, deco: Decoration.replace({ widget: w }), excl: true });
 
   function run(re: RegExp, handle: (m: RegExpExecArray, s: number, e: number) => Item[] | null) {
     re.lastIndex = 0;
@@ -736,6 +736,12 @@ function processInlineWithin(
   run(/`([^`\n]+?)`/g, (_, s, e) => [
     hide(s, s + 1), mark(s + 1, e - 1, 'cm-lp-icode'), hide(e - 1, e),
   ]);
+
+  // Inline math $...$ — before italic so $ inside * works
+  run(/\$([^$\n]+?)\$/g, (_m, s, e) => {
+    if (text[s - 1] === '$' || text[e] === '$') return null;
+    return [widget(s, e, new MathWidget(_m[1], false))];
+  });
 
   // Italic *text* — only single *, not part of **
   run(/\*([^*\n]+?)\*/g, (_m, s, e) => {
