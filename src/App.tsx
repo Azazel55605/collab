@@ -13,6 +13,8 @@ import VaultManagerModal from './components/vault/VaultManagerModal';
 import VaultUnlockModal from './components/vault/VaultUnlockModal';
 import { Toaster } from './components/ui/sonner';
 import { MathPlotModalHost } from './components/editor/MathPlotModal';
+import { LiveDebugPanel } from './components/collaboration/LiveDebugPanel';
+import { setLiveCollabDebug } from './lib/liveDebugLog';
 import { tauriCommands } from './lib/tauri';
 import { subscribeMediaQueryChange } from './lib/browserCompat';
 import { useUpdateStore } from './store/updateStore';
@@ -282,6 +284,13 @@ export default function App() {
   // Automatically restore a previously connected hosted-server session at startup
   // using the OS-stored refresh token. If it cannot be restored, prompt the user
   // to reconnect manually rather than silently failing.
+  // Apply the persisted "Live collaboration debug" toggle to the runtime tracing
+  // sink so flipping it in Settings takes effect immediately for open sessions.
+  const liveCollabDebug = useUiStore((s) => s.liveCollabDebug);
+  useEffect(() => {
+    setLiveCollabDebug(liveCollabDebug);
+  }, [liveCollabDebug]);
+
   useEffect(() => {
     useServerStore.getState().restoreSession().then((result) => {
       if (result === 'failed') {
@@ -318,6 +327,7 @@ export default function App() {
               : <VaultPicker />)}
         {isSettingsOpen && <SettingsModal />}
         {isVaultManagerOpen && <VaultManagerModal />}
+        {liveCollabDebug && <LiveDebugPanel />}
         <MathPlotModalHost />
         <Toaster richColors position="bottom-right" />
       </div>

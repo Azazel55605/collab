@@ -22,7 +22,7 @@
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex as StdMutex,
     },
     time::{Duration, Instant},
@@ -321,6 +321,7 @@ impl Room {
         update_bytes: &[u8],
         author: Uuid,
         origin: Uuid,
+        debug: bool,
     ) -> Result<(), sqlx::Error> {
         // Validate the update before allocating a sequence or touching the doc.
         if Update::decode_v1(update_bytes).is_err() {
@@ -358,15 +359,17 @@ impl Room {
                 payload: Arc::new(update_bytes.to_vec()),
             })
             .unwrap_or(0);
-        tracing::debug!(
-            target: "collab_server::ws",
-            file_id = %self.file_id,
-            seq = next,
-            bytes = update_bytes.len(),
-            content_changed,
-            broadcast_receivers = delivered,
-            "applied remote SYNC_UPDATE and broadcast to peers"
-        );
+        if debug {
+            tracing::info!(
+                target: "collab_server::ws",
+                file_id = %self.file_id,
+                seq = next,
+                bytes = update_bytes.len(),
+                content_changed,
+                broadcast_receivers = delivered,
+                "applied remote SYNC_UPDATE and broadcast to peers"
+            );
+        }
         // Sync-handshake/no-op updates still belong in the CRDT log for
         // convergence. Wake the quiet-period worker for every valid update so
         // it can compact the CRDT log even when materialized content is
@@ -588,6 +591,10 @@ pub struct Hub {
     blobs: Arc<dyn BlobStorage>,
     rooms: Mutex<HashMap<Uuid, Arc<Room>>>,
     active_connections: AtomicU64,
+    /// Runtime-toggleable verbose live-collaboration tracing (admin-controlled,
+    /// process-local, off by default). When on, the WS relay emits `info!` traces
+    /// of subscribe/apply/broadcast/forward events without an env var or restart.
+    live_debug: AtomicBool,
 }
 
 pub struct HubRuntimeMetrics {
@@ -607,7 +614,19 @@ impl Hub {
             blobs,
             rooms: Mutex::new(HashMap::new()),
             active_connections: AtomicU64::new(0),
+            live_debug: AtomicBool::new(false),
         }
+    }
+
+    /// Whether verbose live-collaboration tracing is currently enabled.
+    pub fn live_debug(&self) -> bool {
+        self.live_debug.load(Ordering::Relaxed)
+    }
+
+    /// Enables or disables verbose live-collaboration tracing at runtime.
+    pub fn set_live_debug(&self, enabled: bool) {
+        self.live_debug.store(enabled, Ordering::Relaxed);
+        tracing::info!(target: "collab_server::ws", enabled, "live-collaboration debug tracing toggled");
     }
 
     pub fn track_connection(self: &Arc<Self>) -> ConnectionGuard {
@@ -945,6 +964,7 @@ async fn handle_subscribe(
         }
     };
 
+    let debug = state.hub.live_debug();
     // Subscribe to broadcasts before sending our state vector so no concurrent
     // update is missed between the snapshot and the live stream.
     let mut rx = room.tx.subscribe();
@@ -957,14 +977,16 @@ async fn handle_subscribe(
                         continue;
                     }
                     let frame = encode_binary(broadcast.tag, file_id, &broadcast.payload);
-                    tracing::debug!(
-                        target: "collab_server::ws",
-                        %file_id,
-                        %session_id,
-                        tag = broadcast.tag,
-                        bytes = broadcast.payload.len(),
-                        "forwarding broadcast to subscriber"
-                    );
+                    if debug {
+                        tracing::info!(
+                            target: "collab_server::ws",
+                            %file_id,
+                            %session_id,
+                            tag = broadcast.tag,
+                            bytes = broadcast.payload.len(),
+                            "forwarding broadcast to subscriber"
+                        );
+                    }
                     if forward_out
                         .send(Message::Binary(frame.into()))
                         .await
@@ -985,13 +1007,15 @@ async fn handle_subscribe(
             forwarder: handle,
         },
     );
-    tracing::debug!(
-        target: "collab_server::ws",
-        %file_id,
-        %session_id,
-        room_subscribers = room.tx.receiver_count(),
-        "session subscribed to document room"
-    );
+    if debug {
+        tracing::info!(
+            target: "collab_server::ws",
+            %file_id,
+            %session_id,
+            room_subscribers = room.tx.receiver_count(),
+            "session subscribed to document room"
+        );
+    }
 
     let _ = send_control(
         out_tx,
@@ -1068,7 +1092,13 @@ async fn handle_binary(
                 return;
             }
             let _ = room
-                .apply_remote_update(&state.database, payload, current_access.user_id, session_id)
+                .apply_remote_update(
+                    &state.database,
+                    payload,
+                    current_access.user_id,
+                    session_id,
+                    state.hub.live_debug(),
+                )
                 .await;
         }
         // Awareness is allowed for every subscribed reader, including viewers,

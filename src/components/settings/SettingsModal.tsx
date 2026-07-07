@@ -74,6 +74,7 @@ export default function SettingsModal() {
     hoverWebLinkPreviewsEnabled, setHoverWebLinkPreviewsEnabled,
     backgroundWebPreviewPrefetchEnabled, setBackgroundWebPreviewPrefetchEnabled,
     fileTreeHoverPreviewsEnabled, setFileTreeHoverPreviewsEnabled,
+    liveCollabDebug, setLiveCollabDebug,
     ocrLanguage, setOcrLanguage,
     ocrModelSource, setOcrModelSource,
     ocrRenderScale, setOcrRenderScale,
@@ -177,6 +178,8 @@ export default function SettingsModal() {
                 setFileTreeHoverPreviewsEnabled={setFileTreeHoverPreviewsEnabled}
                 confirmDelete={confirmDelete}
                 setConfirmDelete={setConfirmDelete}
+                liveCollabDebug={liveCollabDebug}
+                setLiveCollabDebug={setLiveCollabDebug}
               />
             )}
 

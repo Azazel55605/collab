@@ -4668,6 +4668,60 @@ pub async fn admin_run_maintenance(
     Ok(Json(DataResponse::new(report)))
 }
 
+/// Current state of the runtime live-collaboration debug tracing toggle.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveDebugState {
+    pub enabled: bool,
+}
+
+/// Request body for toggling live-collaboration debug tracing.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetLiveDebugRequest {
+    pub enabled: bool,
+}
+
+/// Reads whether verbose live-collaboration WS tracing is currently on.
+pub async fn admin_get_live_debug(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+) -> Result<Json<DataResponse<LiveDebugState>>, ApiFailure> {
+    require_admin(&state, &headers, &request_id).await?;
+    Ok(Json(DataResponse::new(LiveDebugState {
+        enabled: state.hub.live_debug(),
+    })))
+}
+
+/// Toggles verbose live-collaboration WS tracing at runtime (process-local, not
+/// persisted). When enabled the relay emits `info!` traces of subscribe / apply /
+/// broadcast / forward events so a live co-editing fault can be localized without
+/// an env var or restart.
+pub async fn admin_set_live_debug(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Json(payload): Json<SetLiveDebugRequest>,
+) -> Result<Json<DataResponse<LiveDebugState>>, ApiFailure> {
+    let actor = require_admin_csrf(&state, &headers, &request_id).await?;
+    state.hub.set_live_debug(payload.enabled);
+    record_audit(
+        &state.database,
+        Some(&actor.user.id),
+        "admin.live_debug.set",
+        Some("live_debug"),
+        None,
+        "success",
+        &request_id,
+        json!({ "enabled": payload.enabled }),
+    )
+    .await?;
+    Ok(Json(DataResponse::new(LiveDebugState {
+        enabled: payload.enabled,
+    })))
+}
+
 pub async fn admin_update_settings(
     State(state): State<AppState>,
     Extension(request_id): Extension<String>,

@@ -132,6 +132,10 @@ export interface MaintenanceReport {
   reclaimedBlobBytes: number;
 }
 
+export interface LiveDebugState {
+  enabled: boolean;
+}
+
 export interface AdminServerSettings {
   runtime: {
     browserSecureCookies: AdminRuntimeSetting<boolean>;

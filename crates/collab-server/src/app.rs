@@ -207,6 +207,10 @@ pub fn build_router(state: AppState) -> Router {
             post(api::admin_run_maintenance),
         )
         .route(
+            "/api/v1/admin/live-debug",
+            get(api::admin_get_live_debug).put(api::admin_set_live_debug),
+        )
+        .route(
             "/api/v1/admin/backups",
             get(api::admin_backups).post(api::admin_run_backup),
         )

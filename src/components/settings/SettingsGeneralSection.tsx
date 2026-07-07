@@ -15,6 +15,8 @@ type Props = {
   setFileTreeHoverPreviewsEnabled: (value: boolean) => void;
   confirmDelete: boolean;
   setConfirmDelete: (value: boolean) => void;
+  liveCollabDebug: boolean;
+  setLiveCollabDebug: (value: boolean) => void;
 };
 
 export default function SettingsGeneralSection({
@@ -30,6 +32,8 @@ export default function SettingsGeneralSection({
   setFileTreeHoverPreviewsEnabled,
   confirmDelete,
   setConfirmDelete,
+  liveCollabDebug,
+  setLiveCollabDebug,
 }: Props) {
   return (
     <div>
@@ -108,6 +112,20 @@ export default function SettingsGeneralSection({
         <ToggleSwitch
           checked={confirmDelete}
           onToggle={() => setConfirmDelete(!confirmDelete)}
+        />
+      </OptionRow>
+
+      <Separator className="bg-border/40 my-4" />
+
+      <SectionLabel>Diagnostics</SectionLabel>
+      <OptionRow
+        label="Live collaboration debug"
+        description="Trace live co-editing (connect, sync, and awareness frames) in an on-screen panel you can copy from — useful for diagnosing sync problems without devtools"
+      >
+        <ToggleSwitch
+          checked={liveCollabDebug}
+          onToggle={() => setLiveCollabDebug(!liveCollabDebug)}
+          animated
         />
       </OptionRow>
 

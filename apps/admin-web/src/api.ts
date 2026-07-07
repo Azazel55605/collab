@@ -17,6 +17,7 @@ import type {
   HostedVaultManifest,
   HostedVaultSummary,
   Invitation,
+  LiveDebugState,
   MaintenanceReport,
   PermissionTemplate,
   ServerUser,
@@ -105,6 +106,9 @@ export const serverApi = {
   updateSettings: (payload: Record<string, unknown>) =>
     api<AdminServerSettings>('/api/v1/admin/settings', { method: 'PATCH', body: JSON.stringify(payload) }),
   runMaintenance: () => api<MaintenanceReport>('/api/v1/admin/maintenance', { method: 'POST' }),
+  liveDebug: () => api<LiveDebugState>('/api/v1/admin/live-debug'),
+  setLiveDebug: (enabled: boolean) =>
+    api<LiveDebugState>('/api/v1/admin/live-debug', { method: 'PUT', body: JSON.stringify({ enabled }) }),
   backups: () => api<AdminBackupOverview>('/api/v1/admin/backups'),
   updateBackupSettings: (payload: Record<string, unknown>) =>
     api<AdminBackupOverview>('/api/v1/admin/backups/settings', { method: 'PATCH', body: JSON.stringify(payload) }),

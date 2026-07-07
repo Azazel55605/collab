@@ -6,6 +6,7 @@ import {
   removeAwarenessStates,
 } from 'y-protocols/awareness';
 import { tauriCommands } from './tauri';
+import { isLiveCollabDebugEnabled, liveDebugPush } from './liveDebugLog';
 import type { VaultClient } from './vaultClient';
 
 /**
@@ -122,29 +123,20 @@ function frame(tag: number, fileIdBytes: Uint8Array, payload: Uint8Array): Uint8
 }
 
 /**
- * Opt-in live-collaboration tracing. Enable in the desktop app's devtools with
- * `localStorage.collabLiveDebug = '1'` (and reload); disable with
- * `delete localStorage.collabLiveDebug`. Off by default and zero-cost in
- * production. Used to localize live co-editing faults (send vs. transport vs.
- * receive vs. editor binding) that the unit tests — which bypass the real
- * WebSocket transport and the CodeMirror binding — cannot reach.
+ * Opt-in live-collaboration tracing, controlled by the Settings → "Live
+ * collaboration debug" toggle (or the legacy `localStorage.collabLiveDebug`
+ * fallback). Events are mirrored to the console and to the in-app Live Debug
+ * panel. Off by default and zero-cost when disabled. Used to localize live
+ * co-editing faults (send vs. transport vs. receive vs. editor binding) that the
+ * unit tests — which bypass the real WebSocket transport and the CodeMirror
+ * binding — cannot reach.
  */
-let liveDebugEnabled: boolean | null = null;
 function liveDebugOn(): boolean {
-  if (liveDebugEnabled === null) {
-    try {
-      liveDebugEnabled = typeof localStorage !== 'undefined'
-        && localStorage.getItem('collabLiveDebug') === '1';
-    } catch {
-      liveDebugEnabled = false;
-    }
-  }
-  return liveDebugEnabled;
+  return isLiveCollabDebugEnabled();
 }
-function liveLog(file: string, ...args: unknown[]): void {
-  if (!liveDebugOn()) return;
-  // eslint-disable-next-line no-console
-  console.info(`[live ${file.slice(0, 8)}]`, ...args);
+function liveLog(file: string, message: string, detail?: unknown): void {
+  if (!isLiveCollabDebugEnabled()) return;
+  liveDebugPush(file, detail === undefined ? message : `${message} ${JSON.stringify(detail)}`);
 }
 function tagName(tag: number): string {
   return tag === SYNC_STEP1 ? 'SYNC_STEP1' : tag === SYNC_UPDATE ? 'SYNC_UPDATE' : tag === AWARENESS ? 'AWARENESS' : `tag#${tag}`;

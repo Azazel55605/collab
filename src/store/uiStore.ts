@@ -227,6 +227,8 @@ interface UiState {
   hoverWebLinkPreviewsEnabled: boolean;
   backgroundWebPreviewPrefetchEnabled: boolean;
   fileTreeHoverPreviewsEnabled: boolean;
+  /** Enables verbose live-collaboration tracing (in-app Live Debug panel + console). */
+  liveCollabDebug: boolean;
   ocrLanguage: string;
   ocrModelSource: OcrModelSource;
   ocrRenderScale: OcrRenderScale;
@@ -272,6 +274,7 @@ interface UiState {
   setHoverWebLinkPreviewsEnabled: (value: boolean) => void;
   setBackgroundWebPreviewPrefetchEnabled: (value: boolean) => void;
   setFileTreeHoverPreviewsEnabled: (value: boolean) => void;
+  setLiveCollabDebug: (value: boolean) => void;
   setOcrLanguage: (language: string) => void;
   setOcrModelSource: (source: OcrModelSource) => void;
   setOcrRenderScale: (scale: OcrRenderScale) => void;
@@ -320,6 +323,7 @@ export const useUiStore = create<UiState>()(
       hoverWebLinkPreviewsEnabled: true,
       backgroundWebPreviewPrefetchEnabled: true,
       fileTreeHoverPreviewsEnabled: true,
+      liveCollabDebug: false,
       ocrLanguage: 'eng',
       ocrModelSource: 'official-fast',
       ocrRenderScale: 2,
@@ -372,6 +376,7 @@ export const useUiStore = create<UiState>()(
       setHoverWebLinkPreviewsEnabled: (hoverWebLinkPreviewsEnabled) => set({ hoverWebLinkPreviewsEnabled }),
       setBackgroundWebPreviewPrefetchEnabled: (backgroundWebPreviewPrefetchEnabled) => set({ backgroundWebPreviewPrefetchEnabled }),
       setFileTreeHoverPreviewsEnabled: (fileTreeHoverPreviewsEnabled) => set({ fileTreeHoverPreviewsEnabled }),
+      setLiveCollabDebug: (liveCollabDebug) => set({ liveCollabDebug }),
       setOcrLanguage: (ocrLanguage) => set({ ocrLanguage }),
       setOcrModelSource: (ocrModelSource) => set({ ocrModelSource }),
       setOcrRenderScale: (ocrRenderScale) => set({ ocrRenderScale }),
@@ -418,6 +423,7 @@ export const useUiStore = create<UiState>()(
         hoverWebLinkPreviewsEnabled: s.hoverWebLinkPreviewsEnabled,
         backgroundWebPreviewPrefetchEnabled: s.backgroundWebPreviewPrefetchEnabled,
         fileTreeHoverPreviewsEnabled: s.fileTreeHoverPreviewsEnabled,
+        liveCollabDebug: s.liveCollabDebug,
         ocrLanguage: s.ocrLanguage,
         ocrModelSource: s.ocrModelSource,
         ocrRenderScale: s.ocrRenderScale,

@@ -346,6 +346,8 @@ function ServerConfigurationPanel() {
   const [busy, setBusy] = useState(false);
   const [maintenance, setMaintenance] = useState<MaintenanceReport | null>(null);
   const [maintenanceBusy, setMaintenanceBusy] = useState(false);
+  const [liveDebug, setLiveDebug] = useState<boolean | null>(null);
+  const [liveDebugBusy, setLiveDebugBusy] = useState(false);
   const applySettings = useCallback((next: AdminServerSettings) => {
     setSettings(next);
     setDraft({
@@ -371,6 +373,19 @@ function ServerConfigurationPanel() {
   }, []);
   const load = useCallback(() => serverApi.settings().then((next) => { applySettings(next); setError(''); }).catch((reason) => setError(String(reason))), [applySettings]);
   useEffect(() => void load(), [load]);
+  useEffect(() => { serverApi.liveDebug().then((s) => setLiveDebug(s.enabled)).catch(() => setLiveDebug(false)); }, []);
+
+  async function toggleLiveDebug(enabled: boolean) {
+    setLiveDebugBusy(true);
+    try {
+      const result = await serverApi.setLiveDebug(enabled);
+      setLiveDebug(result.enabled);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setLiveDebugBusy(false);
+    }
+  }
 
   async function saveCurrentSettings() {
     setBusy(true);
@@ -499,6 +514,23 @@ function ServerConfigurationPanel() {
             pruned {maintenance.prunedAuditEvents + maintenance.prunedActivityEvents} log event(s).
           </p>
         )}
+      </div>
+      <Separator />
+      <div className="settings-stack">
+        <div className="settings-row">
+          <div>
+            <strong>Live collaboration debug tracing</strong>
+            <small>Emit verbose <code>info</code> logs of live co-editing subscribe/apply/broadcast/forward events to the server log — for diagnosing sync problems. Process-local, resets on restart, off by default.</small>
+          </div>
+          <Switch
+            label="Live collaboration debug tracing"
+            checked={liveDebug ?? false}
+            onCheckedChange={(enabled) => {
+              if (liveDebug === null || liveDebugBusy) return;
+              void toggleLiveDebug(enabled);
+            }}
+          />
+        </div>
       </div>
     </Panel>
   );

@@ -26,6 +26,8 @@ describe('SettingsGeneralSection', () => {
         setFileTreeHoverPreviewsEnabled={vi.fn()}
         confirmDelete={false}
         setConfirmDelete={setConfirmDelete}
+        liveCollabDebug={false}
+        setLiveCollabDebug={vi.fn()}
       />,
     );
 
@@ -56,6 +58,8 @@ describe('SettingsGeneralSection', () => {
         setFileTreeHoverPreviewsEnabled={setFileTreeHoverPreviewsEnabled}
         confirmDelete={true}
         setConfirmDelete={vi.fn()}
+        liveCollabDebug={false}
+        setLiveCollabDebug={vi.fn()}
       />,
     );
 
@@ -87,6 +91,8 @@ describe('SettingsGeneralSection', () => {
         setFileTreeHoverPreviewsEnabled={vi.fn()}
         confirmDelete={true}
         setConfirmDelete={vi.fn()}
+        liveCollabDebug={false}
+        setLiveCollabDebug={vi.fn()}
       />,
     );
 
@@ -109,6 +115,8 @@ describe('SettingsGeneralSection', () => {
         setFileTreeHoverPreviewsEnabled={vi.fn()}
         confirmDelete={true}
         setConfirmDelete={vi.fn()}
+        liveCollabDebug={false}
+        setLiveCollabDebug={vi.fn()}
       />,
     );
 
