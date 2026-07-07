@@ -631,12 +631,26 @@ function processInline(
   });
 
   // ── Bold **text** or __text__ ────────────────────────────────────────────
-  run(/\*\*([^*\n]+?)\*\*/g, (_, s, e) => [
-    hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-strong'), hide(e - 2, e),
-  ]);
-  run(/__([^_\n]+?)__/g, (_, s, e) => [
-    hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-strong'), hide(e - 2, e),
-  ]);
+  // Allow single * inside bold (e.g. **bold *italic* bold**) by matching
+  // any char that is not a newline and not part of a closing ** sequence.
+  // The pattern (?:[^*\n]|\*(?!\*))+ greedily consumes text that contains at
+  // most single * characters, stopping before any ** that would close the span.
+  run(/\*\*((?:[^*\n]|\*(?!\*))+)\*\*/g, (_, s, e) => {
+    const outItems: Item[] = [
+      hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-strong'), hide(e - 2, e),
+    ];
+    // Run inline formatting (italic / code / strikethrough / highlight) on the
+    // inner content so nested *cursive* inside **bold** is also styled.
+    processInlineWithin(outItems, text.slice(s + 2, e - 2), base + s + 2, cursor);
+    return outItems;
+  });
+  run(/__((?:[^_\n]|_(?!_))+)__/g, (_, s, e) => {
+    const outItems: Item[] = [
+      hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-strong'), hide(e - 2, e),
+    ];
+    processInlineWithin(outItems, text.slice(s + 2, e - 2), base + s + 2, cursor);
+    return outItems;
+  });
 
   // ── Italic *text* — only single *, not part of ** ────────────────────────
   run(/\*([^*\n]+?)\*/g, (_m, s, e) => {
@@ -683,6 +697,69 @@ function processInline(
     const textE  = textS + m[1].length;
     return [hide(s, textS), mark(textS, textE, 'cm-lp-link', { 'data-url': url }), hide(textE, e)];
   });
+}
+
+/**
+ * Process inline formatting on a substring that is already inside a parent
+ * decoration (e.g. bold).  Only runs the non-bold patterns — italic, code,
+ * strikethrough, and highlight — so there is no infinite recursion.
+ */
+function processInlineWithin(
+  out: Item[],
+  text: string,
+  base: number,
+  cursor: number,
+) {
+  const len = text.length;
+  const used = new Uint8Array(len);
+  const occupy = (s: number, e: number) => { for (let i = s; i < e; i++) used[i] = 1; };
+  const free   = (s: number, e: number) => { for (let i = s; i < e; i++) { if (used[i]) return false; } return true; };
+  const hide   = (s: number, e: number): Item => ({ from: base + s, to: base + e, deco: Decoration.replace({}), excl: true });
+  const mark   = (s: number, e: number, cls: string, attrs?: Record<string, string>): Item => ({ from: base + s, to: base + e, deco: Decoration.mark({ class: cls, attributes: attrs }), excl: false });
+
+  function run(re: RegExp, handle: (m: RegExpExecArray, s: number, e: number) => Item[] | null) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const s = m.index;
+      const e = s + m[0].length;
+      if (!free(s, e)) continue;
+      const docS = base + s;
+      const docE = base + e;
+      if (cursor > docS && cursor < docE) continue;
+      const result = handle(m, s, e);
+      if (result) { occupy(s, e); for (const it of result) out.push(it); }
+    }
+  }
+
+  // Inline code
+  run(/`([^`\n]+?)`/g, (_, s, e) => [
+    hide(s, s + 1), mark(s + 1, e - 1, 'cm-lp-icode'), hide(e - 1, e),
+  ]);
+
+  // Italic *text* — only single *, not part of **
+  run(/\*([^*\n]+?)\*/g, (_m, s, e) => {
+    if (text[s - 1] === '*' || text[e] === '*') return null;
+    return [hide(s, s + 1), mark(s + 1, e - 1, 'cm-lp-em'), hide(e - 1, e)];
+  });
+
+  // Italic _text_ — single _, not part of __
+  run(/_([^_\n]+?)_/g, (_m, s, e) => {
+    if (text[s - 1] === '_' || text[e] === '_') return null;
+    const after = text[e];
+    if (after && /\w/.test(after)) return null;
+    return [hide(s, s + 1), mark(s + 1, e - 1, 'cm-lp-em'), hide(e - 1, e)];
+  });
+
+  // Strikethrough
+  run(/~~([^~\n]+?)~~/g, (_, s, e) => [
+    hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-strike'), hide(e - 2, e),
+  ]);
+
+  // Highlight
+  run(/==([^=\n]+?)==/g, (_, s, e) => [
+    hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-mark'), hide(e - 2, e),
+  ]);
 }
 
 // ─── Core decoration builder ──────────────────────────────────────────────────
