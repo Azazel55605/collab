@@ -2437,26 +2437,26 @@ function LogicDiagramEditor({ relativePath }: Props) {
 
   const loadTransientWaveform = useCallback((sourceId: string) => {
     const waveform = diagram.simulation?.transient?.sourceWaveforms[sourceId];
-    const kind = waveform?.kind ?? 'pulse';
-    setTransientWaveformKind(kind);
-    if (kind === 'pulse') {
+    setTransientWaveformKind(waveform?.kind ?? 'pulse');
+    if (!waveform || waveform.kind === 'pulse') {
+      const pulse = waveform?.kind === 'pulse' ? waveform : undefined;
       setTransientWaveformInputs({
-        lowValue: String(waveform?.lowValue ?? 0),
-        highValue: String(waveform?.highValue ?? 5),
-        delaySeconds: String(waveform?.delaySeconds ?? 0.001),
-        riseSeconds: String(waveform?.riseSeconds ?? 0),
-        fallSeconds: String(waveform?.fallSeconds ?? 0),
-        pulseWidthSeconds: String(waveform?.pulseWidthSeconds ?? 0.005),
-        periodSeconds: String(waveform?.periodSeconds ?? 0.01),
+        lowValue: String(pulse?.lowValue ?? 0),
+        highValue: String(pulse?.highValue ?? 5),
+        delaySeconds: String(pulse?.delaySeconds ?? 0.001),
+        riseSeconds: String(pulse?.riseSeconds ?? 0),
+        fallSeconds: String(pulse?.fallSeconds ?? 0),
+        pulseWidthSeconds: String(pulse?.pulseWidthSeconds ?? 0.005),
+        periodSeconds: String(pulse?.periodSeconds ?? 0.01),
       });
-    } else if (kind === 'sine') {
+    } else if (waveform.kind === 'sine') {
       setTransientWaveformInputs({
-        offset: String(waveform?.offset ?? 0),
-        amplitude: String(waveform?.amplitude ?? 5),
-        frequencyHertz: String(waveform?.frequencyHertz ?? 50),
-        phaseDegrees: String(waveform?.phaseDegrees ?? 0),
-        delaySeconds: String(waveform?.delaySeconds ?? 0),
-        dampingPerSecond: String(waveform?.dampingPerSecond ?? 0),
+        offset: String(waveform.offset),
+        amplitude: String(waveform.amplitude),
+        frequencyHertz: String(waveform.frequencyHertz),
+        phaseDegrees: String(waveform.phaseDegrees),
+        delaySeconds: String(waveform.delaySeconds),
+        dampingPerSecond: String(waveform.dampingPerSecond),
       });
     } else {
       setTransientWaveformInputs({});
@@ -4072,7 +4072,7 @@ function LogicDiagramEditor({ relativePath }: Props) {
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                     <span>{transientResult.sampleCount.toLocaleString()} samples</span>
                     <span>{transientResult.traces.length} {transientResult.traces.length === 1 ? 'trace' : 'traces'}</span>
-                    <span>{formatEngineering(transientResult.timeSeconds.at(-1) ?? 0, 's')}</span>
+                    <span>{formatEngineering(transientResult.timeSeconds[transientResult.timeSeconds.length - 1] ?? 0, 's')}</span>
                   </div>
                   <CircuitTransientPlot result={transientResult} />
                 </div>
