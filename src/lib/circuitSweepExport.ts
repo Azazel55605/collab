@@ -10,7 +10,7 @@ export function circuitSweepTraceUnit(output: CircuitSweepOutput): 'V' | 'A' {
   return output.kind === 'node-voltage' ? 'V' : 'A';
 }
 
-export function circuitSweepTraceLabel(result: CircuitSweepResult, output: CircuitSweepOutput): string {
+export function circuitSweepTraceLabel(result: Pick<CircuitSweepResult, 'sourceMap'>, output: CircuitSweepOutput): string {
   const probe = result.sourceMap.probes.find((candidate) => (
     output.kind === 'node-voltage'
       ? candidate.kind === 'node-voltage' && candidate.electricalNode === output.node

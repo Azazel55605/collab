@@ -44,7 +44,7 @@ Deferred until the core is stable:
 | 6.2 Schematic compiler | Complete | Compile validated `.logic` connectivity into deterministic electrical nets and solver systems. |
 | 6.3 DC operating point | Complete | Expand the baseline solver with diagnostics, nonlinear devices, and live overlays. |
 | 6.4 Runtime integration | In progress | Run, cancel, and stream simulations through typed Tauri commands on desktop and Android. |
-| 6.5 Transient and DC sweep | In progress | Add dynamic elements, time integration, sweeps, and plot inspection. |
+| 6.5 Transient and DC sweep | Complete | Dynamic elements, adaptive trapezoidal integration with backward-Euler fallback, bounded sweeps, and shared desktop/Android plot inspection are implemented. |
 | 6.6 AC analysis | Planned | Add small-signal magnitude/phase analysis and Bode plots. |
 | 6.7 Mixed-signal simulation | Planned | Coordinate the existing digital evaluator with analog timesteps through explicit bridges. |
 | 6.8 Offline, cache, and collaboration | Planned | Cache derived results locally while synchronizing source and configuration only. |
@@ -206,8 +206,17 @@ Implemented slice:
 - Both clients use one chunk assembler and one responsive SVG plot. Native chunks are validated for continuity, trace identity, and aligned lengths before display; retained jobs are discarded even when validation fails. Trace visibility is interactive and rendering downsamples large traces without changing the retained source arrays.
 - The shared plot synchronizes a nearest-sample cursor across every visible trace, keeps voltage and current readouts unit-aware, and supports bounded button/wheel zoom plus pointer or touch panning with an explicit reset.
 - Desktop exports the exact retained samples as CSV or a standalone full-resolution SVG through the native download boundary. Android shares the inspection and navigation controls while remaining viewer-only and does not expose file-export actions.
+- `.logic` schema v6 now also preserves a bounded transient configuration with duration, maximum timestep, and per-independent-source DC, pulse, or damped-sine waveforms. Normalization caps duration at one hour and raises undersized timesteps to keep persisted runs within 4,096 samples.
+- The pure Rust core implements bounded adaptive transient integration. Capacitors and inductors are converted to method-specific Norton companions per timestep, then reuse the bounded nonlinear DC/Newton solver; reactive branch currents are reconstructed under the original component identities.
+- Transient requests have explicit time-axis/trace/result/error types, exact endpoint sampling, source/output validation, cancellation, 4,096-sample and 1,048,576-value budgets, and a 30-second wall-clock limit. RC and RL fixtures verify delayed pulse response and reactive current behavior.
+- Transient analysis now runs through the shared four-active/32-retained native worker registry with typed start, status, cancellation, summary, 512-sample aligned chunk-read, and explicit-discard commands on desktop and Android. Result arrays remain in Rust until the shared TypeScript assembler validates and consumes them.
+- Native worker tests cover an RC pulse from persisted configuration through compilation, asynchronous execution, typed summary serialization, multiple chunk reads, and disposal. Malformed frontend chunks still release retained native memory.
+- Desktop now configures transient duration, maximum timestep, and per-voltage-source DC/pulse/sine waveforms with bounded validation before persisting them. It runs or cancels the native job, marks results stale after electrical edits, and renders the retained traces in a dedicated result drawer.
+- Android remains viewer-only but can run or cancel a persisted transient configuration and inspect its results. Both clients use the shared sampled-series plot for trace visibility, synchronized unit-aware cursors, wheel/button zoom, and pointer/touch panning over a time axis.
+- Each candidate timestep is solved with backward Euler as the stable reference and trapezoidal integration as the higher-accuracy result. The trapezoidal candidate is accepted only within absolute/relative error tolerances and when it does not reverse a reactive-state delta against the backward-Euler reference; convergence failure, excessive local error, or detected ringing falls back to backward Euler.
+- Adaptive timesteps never exceed the persisted maximum. Their minimum is derived from the stricter of the 4,096-sample and 1,048,576-value budgets, retries are capped at 12 per accepted sample, fallback reduces the following step, and successful low-error steps grow only up to the configured maximum. Accepted nonuniform timestamps remain exact through native retained-result chunking and the shared desktop/Android plot.
 
-Remaining in Phase 6.5: persist transient source-waveform configuration and implement transient companion models.
+Phase 6.5 is complete. Phase 6.6 begins the separate complex-valued AC-analysis path.
 
 ## Phase 6.6: AC Analysis
 

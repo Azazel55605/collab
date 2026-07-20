@@ -66,10 +66,39 @@ export interface LogicDcSweepConfig {
   sampleCount: number;
 }
 
+export type LogicSourceWaveform =
+  | { kind: 'dc' }
+  | {
+      kind: 'pulse';
+      lowValue: number;
+      highValue: number;
+      delaySeconds: number;
+      riseSeconds: number;
+      fallSeconds: number;
+      pulseWidthSeconds: number;
+      periodSeconds: number;
+    }
+  | {
+      kind: 'sine';
+      offset: number;
+      amplitude: number;
+      frequencyHertz: number;
+      phaseDegrees: number;
+      delaySeconds: number;
+      dampingPerSecond: number;
+    };
+
+export interface LogicTransientConfig {
+  durationSeconds: number;
+  maxTimeStepSeconds: number;
+  sourceWaveforms: Record<string, LogicSourceWaveform>;
+}
+
 export interface LogicSimulationConfig {
-  analysis: 'dc-operating-point' | 'dc-sweep';
+  analysis: 'dc-operating-point' | 'dc-sweep' | 'transient';
   probes: LogicCircuitProbe[];
   dcSweep?: LogicDcSweepConfig;
+  transient?: LogicTransientConfig;
 }
 
 export interface LogicComponentPort {
@@ -340,9 +369,62 @@ function normalizeCircuitProbe(value: unknown): LogicCircuitProbe | null {
   };
 }
 
+function normalizeSourceWaveform(value: unknown): LogicSourceWaveform | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  if (record.kind === 'dc') return { kind: 'dc' };
+  if (record.kind === 'pulse') {
+    const values = [
+      record.lowValue,
+      record.highValue,
+      record.delaySeconds,
+      record.riseSeconds,
+      record.fallSeconds,
+      record.pulseWidthSeconds,
+      record.periodSeconds,
+    ];
+    if (!values.every((candidate) => typeof candidate === 'number' && Number.isFinite(candidate))) return null;
+    const [lowValue, highValue, delaySeconds, riseSeconds, fallSeconds, pulseWidthSeconds, periodSeconds] = values as number[];
+    if (delaySeconds < 0 || riseSeconds < 0 || fallSeconds < 0 || pulseWidthSeconds <= 0 || periodSeconds <= 0) return null;
+    if (riseSeconds + pulseWidthSeconds + fallSeconds > periodSeconds) return null;
+    return { kind: 'pulse', lowValue, highValue, delaySeconds, riseSeconds, fallSeconds, pulseWidthSeconds, periodSeconds };
+  }
+  if (record.kind === 'sine') {
+    const values = [record.offset, record.amplitude, record.frequencyHertz, record.phaseDegrees, record.delaySeconds, record.dampingPerSecond];
+    if (!values.every((candidate) => typeof candidate === 'number' && Number.isFinite(candidate))) return null;
+    const [offset, amplitude, frequencyHertz, phaseDegrees, delaySeconds, dampingPerSecond] = values as number[];
+    if (frequencyHertz <= 0 || delaySeconds < 0 || dampingPerSecond < 0) return null;
+    return { kind: 'sine', offset, amplitude, frequencyHertz, phaseDegrees, delaySeconds, dampingPerSecond };
+  }
+  return null;
+}
+
+function normalizeTransientConfig(value: unknown): LogicTransientConfig | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const durationSeconds = record.durationSeconds;
+  const maxTimeStepSeconds = record.maxTimeStepSeconds;
+  if (
+    typeof durationSeconds !== 'number' || !Number.isFinite(durationSeconds) || durationSeconds <= 0
+    || typeof maxTimeStepSeconds !== 'number' || !Number.isFinite(maxTimeStepSeconds) || maxTimeStepSeconds <= 0
+  ) return undefined;
+  const boundedDuration = Math.min(durationSeconds, 3_600);
+  const boundedTimeStep = Math.max(Math.min(maxTimeStepSeconds, boundedDuration), boundedDuration / 4_095);
+  const waveforms = asRecord(record.sourceWaveforms);
+  const sourceWaveforms: Record<string, LogicSourceWaveform> = {};
+  if (waveforms) {
+    for (const [sourceNodeId, waveformValue] of Object.entries(waveforms)) {
+      if (!sourceNodeId) continue;
+      const waveform = normalizeSourceWaveform(waveformValue);
+      if (waveform) sourceWaveforms[sourceNodeId] = waveform;
+    }
+  }
+  return { durationSeconds: boundedDuration, maxTimeStepSeconds: boundedTimeStep, sourceWaveforms };
+}
+
 function normalizeSimulationConfig(value: unknown): LogicSimulationConfig | undefined {
   const record = asRecord(value);
-  if (!record || (record.analysis !== 'dc-operating-point' && record.analysis !== 'dc-sweep')) {
+  if (!record || !['dc-operating-point', 'dc-sweep', 'transient'].includes(String(record.analysis))) {
     return undefined;
   }
   const sweep = asRecord(record.dcSweep);
@@ -362,12 +444,18 @@ function normalizeSimulationConfig(value: unknown): LogicSimulationConfig | unde
         sampleCount: Math.min(4096, Math.max(2, Math.floor(sampleCount))),
       }
     : undefined;
+  const transient = normalizeTransientConfig(record.transient);
   return {
-    analysis: record.analysis === 'dc-sweep' && dcSweep ? 'dc-sweep' : 'dc-operating-point',
+    analysis: record.analysis === 'dc-sweep' && dcSweep
+      ? 'dc-sweep'
+      : record.analysis === 'transient' && transient
+        ? 'transient'
+        : 'dc-operating-point',
     probes: Array.isArray(record.probes)
       ? record.probes.map(normalizeCircuitProbe).filter((probe): probe is LogicCircuitProbe => Boolean(probe))
       : [],
     dcSweep,
+    transient,
   };
 }
 

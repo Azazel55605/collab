@@ -25,10 +25,12 @@ const tauriMocks = vi.hoisted(() => ({
   circuitSolveDc: vi.fn(),
   circuitStartDc: vi.fn(),
   circuitStartDcSweep: vi.fn(),
+  circuitStartTransient: vi.fn(),
   circuitJobStatus: vi.fn(),
   circuitCancelJob: vi.fn(),
   circuitTakeJobResult: vi.fn(),
   circuitReadSweepChunk: vi.fn(),
+  circuitReadTransientChunk: vi.fn(),
   circuitDiscardJob: vi.fn(),
   showDownloadDialog: vi.fn(),
   writeDownloadedFile: vi.fn(),
@@ -67,10 +69,12 @@ vi.mock('../lib/tauri', () => ({
     circuitSolveDc: tauriMocks.circuitSolveDc,
     circuitStartDc: tauriMocks.circuitStartDc,
     circuitStartDcSweep: tauriMocks.circuitStartDcSweep,
+    circuitStartTransient: tauriMocks.circuitStartTransient,
     circuitJobStatus: tauriMocks.circuitJobStatus,
     circuitCancelJob: tauriMocks.circuitCancelJob,
     circuitTakeJobResult: tauriMocks.circuitTakeJobResult,
     circuitReadSweepChunk: tauriMocks.circuitReadSweepChunk,
+    circuitReadTransientChunk: tauriMocks.circuitReadTransientChunk,
     circuitDiscardJob: tauriMocks.circuitDiscardJob,
     showDownloadDialog: tauriMocks.showDownloadDialog,
     writeDownloadedFile: tauriMocks.writeDownloadedFile,
@@ -192,6 +196,7 @@ describe('LogicDiagramView safe reload policy', () => {
     tauriMocks.circuitSolveDc.mockReset();
     tauriMocks.circuitStartDc.mockResolvedValue('circuit-job-1');
     tauriMocks.circuitStartDcSweep.mockResolvedValue('sweep-job-1');
+    tauriMocks.circuitStartTransient.mockResolvedValue('transient-job-1');
     tauriMocks.circuitJobStatus.mockResolvedValue({ phase: 'completed', stage: null, elapsedMillis: 1 });
     tauriMocks.circuitCancelJob.mockResolvedValue('cancelling');
     tauriMocks.circuitTakeJobResult.mockImplementation(async () => {
@@ -202,6 +207,7 @@ describe('LogicDiagramView safe reload policy', () => {
       }
     });
     tauriMocks.circuitReadSweepChunk.mockReset();
+    tauriMocks.circuitReadTransientChunk.mockReset();
     tauriMocks.circuitDiscardJob.mockResolvedValue(undefined);
     tauriMocks.showDownloadDialog.mockResolvedValue(null);
     tauriMocks.writeDownloadedFile.mockResolvedValue(undefined);
@@ -541,6 +547,69 @@ describe('LogicDiagramView safe reload policy', () => {
     const exported = atob(tauriMocks.writeDownloadedFile.mock.calls[0][1]);
     expect(exported).toContain('Supply (source value),Output (V)');
     expect(exported).toContain('5,2.5');
+  });
+
+  it('persists pulse settings and renders chunked transient traces', async () => {
+    tauriMocks.readNote.mockResolvedValueOnce({
+      content: JSON.stringify({
+        schemaVersion: 6,
+        kind: 'logic-diagram',
+        diagramMode: 'schematic',
+        nodes: [
+          { id: 'source', kind: 'voltage-source', label: 'Supply', position: { x: 0, y: 0 }, electrical: { voltageVolts: 0 } },
+          { id: 'ground', kind: 'ground', position: { x: 240, y: 0 } },
+        ],
+        wires: [],
+        simulation: {
+          analysis: 'dc-operating-point',
+          probes: [{ id: 'output', kind: 'node-voltage', nodeId: 'source', handleId: 'positive', label: 'Output' }],
+        },
+        viewport: { x: 0, y: 0, zoom: 1 },
+      }),
+      hash: 'v1',
+      modifiedAt: 1,
+    });
+    tauriMocks.circuitTakeJobResult.mockResolvedValue({
+      state: 'transient-completed',
+      summary: {
+        sampleCount: 3,
+        outputs: [{ kind: 'node-voltage', node: 'net1' }],
+        sourceMap: {
+          terminals: [],
+          wires: [],
+          probes: [{ probeId: 'output', label: 'Output', kind: 'node-voltage', electricalNode: 'net1' }],
+        },
+      },
+    });
+    tauriMocks.circuitReadTransientChunk.mockResolvedValue({
+      offset: 0,
+      timeSeconds: [0, 0.001, 0.002],
+      traces: [{ output: { kind: 'node-voltage', node: 'net1' }, values: [0, 2.5, 3.75] }],
+      done: true,
+    });
+
+    render(<LogicDiagramView relativePath={PATH} />);
+    expect(await screen.findByText(/2 symbols/)).toBeTruthy();
+    fireEvent.click(screen.getByTitle('Configure transient analysis'));
+    fireEvent.change(screen.getByLabelText('Duration (s)'), { target: { value: '0.002' } });
+    fireEvent.change(screen.getByLabelText('Maximum timestep (s)'), { target: { value: '0.001' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save transient' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Transient' }));
+
+    expect(await screen.findByRole('img', { name: 'Transient plot' })).toBeTruthy();
+    expect(screen.getByText('3 samples')).toBeTruthy();
+    expect(tauriMocks.circuitStartTransient).toHaveBeenCalledWith(expect.objectContaining({
+      simulation: expect.objectContaining({
+        analysis: 'transient',
+        transient: expect.objectContaining({
+          durationSeconds: 0.002,
+          maxTimeStepSeconds: 0.001,
+          sourceWaveforms: expect.objectContaining({ source: expect.objectContaining({ kind: 'pulse' }) }),
+        }),
+      }),
+    }));
+    expect(tauriMocks.circuitReadTransientChunk).toHaveBeenCalledWith('transient-job-1', 0, 512);
+    expect(tauriMocks.circuitDiscardJob).toHaveBeenCalledWith('transient-job-1');
   });
 
   it('splits a schematic wire through an explicit junction', async () => {

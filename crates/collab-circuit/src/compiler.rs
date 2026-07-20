@@ -112,6 +112,8 @@ pub struct SchematicSimulationConfig {
     pub probes: Vec<SchematicProbe>,
     #[serde(default)]
     pub dc_sweep: Option<SchematicDcSweepConfig>,
+    #[serde(default)]
+    pub transient: Option<SchematicTransientConfig>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -121,6 +123,42 @@ pub struct SchematicDcSweepConfig {
     pub start: f64,
     pub stop: f64,
     pub sample_count: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchematicTransientConfig {
+    pub duration_seconds: f64,
+    pub max_time_step_seconds: f64,
+    #[serde(default)]
+    pub source_waveforms: BTreeMap<String, SchematicSourceWaveform>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
+pub enum SchematicSourceWaveform {
+    Dc,
+    Pulse {
+        low_value: f64,
+        high_value: f64,
+        delay_seconds: f64,
+        rise_seconds: f64,
+        fall_seconds: f64,
+        pulse_width_seconds: f64,
+        period_seconds: f64,
+    },
+    Sine {
+        offset: f64,
+        amplitude: f64,
+        frequency_hertz: f64,
+        phase_degrees: f64,
+        delay_seconds: f64,
+        damping_per_second: f64,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1101,6 +1139,7 @@ mod tests {
                 },
             ],
             dc_sweep: None,
+            transient: None,
         });
 
         let compiled = compile_schematic(&document).unwrap();
@@ -1131,6 +1170,7 @@ mod tests {
                 label: None,
             }],
             dc_sweep: None,
+            transient: None,
         });
         assert_eq!(
             compile_schematic(&document),

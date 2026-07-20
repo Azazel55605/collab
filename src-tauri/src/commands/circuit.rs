@@ -1,13 +1,15 @@
 use collab_circuit::{
     compile_schematic, dc_sweep_outputs_for_probes, solve_dc, solve_dc_with_control,
-    sweep_dc_with_control, CompilationError, ComponentId, DcOperatingPoint, DcSweepError,
-    DcSweepLimits, DcSweepOutput, DcSweepRequest, DcSweepResult, DcSweepTrace, ProbeTarget,
-    SchematicDocument, SchematicSourceMap, SimulationError,
+    solve_transient_with_control, sweep_dc_with_control, transient_outputs_for_probes,
+    CompilationError, ComponentId, DcOperatingPoint, DcSweepError, DcSweepLimits, DcSweepOutput,
+    DcSweepRequest, DcSweepResult, DcSweepTrace, ProbeTarget, SchematicDocument,
+    SchematicSourceMap, SchematicSourceWaveform, SimulationError, SourceWaveform, TransientError,
+    TransientLimits, TransientOutput, TransientRequest, TransientResult, TransientTrace,
 };
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     panic::{catch_unwind, AssertUnwindSafe},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -24,6 +26,7 @@ use crate::state::AppState;
 const MAX_ACTIVE_CIRCUIT_JOBS: usize = 4;
 const MAX_RETAINED_CIRCUIT_JOBS: usize = 32;
 const MAX_SWEEP_CHUNK_SAMPLES: usize = 512;
+const MAX_TRANSIENT_CHUNK_SAMPLES: usize = 512;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -61,6 +64,8 @@ pub enum CircuitCommandError {
     Simulation(#[from] SimulationError),
     #[error(transparent)]
     Sweep(#[from] DcSweepError),
+    #[error(transparent)]
+    Transient(#[from] TransientError),
     #[error("invalid simulation configuration: {message}")]
     Configuration { message: String },
     #[error("circuit worker failed: {message}")]
@@ -100,6 +105,7 @@ pub struct CircuitJobStatus {
 pub enum CircuitJobOutcome {
     Completed { result: CircuitDcResult },
     SweepCompleted { summary: CircuitSweepSummary },
+    TransientCompleted { summary: CircuitTransientSummary },
     Failed { error: CircuitCommandError },
     Cancelled,
 }
@@ -128,6 +134,29 @@ struct CircuitSweepData {
     source_map: SchematicSourceMap,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CircuitTransientSummary {
+    pub sample_count: usize,
+    pub outputs: Vec<TransientOutput>,
+    pub source_map: SchematicSourceMap,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CircuitTransientChunk {
+    pub offset: usize,
+    pub time_seconds: Vec<f64>,
+    pub traces: Vec<TransientTrace>,
+    pub done: bool,
+}
+
+#[derive(Clone, Debug)]
+struct CircuitTransientData {
+    result: TransientResult,
+    source_map: SchematicSourceMap,
+}
+
 #[derive(Clone, Debug)]
 enum CircuitJobState {
     Queued,
@@ -151,6 +180,10 @@ impl CircuitJobState {
             } => CircuitJobPhase::Completed,
             Self::Terminal {
                 outcome: CircuitJobOutcome::SweepCompleted { .. },
+                ..
+            } => CircuitJobPhase::Completed,
+            Self::Terminal {
+                outcome: CircuitJobOutcome::TransientCompleted { .. },
                 ..
             } => CircuitJobPhase::Completed,
             Self::Terminal {
@@ -183,6 +216,7 @@ struct CircuitJob {
     created_at: Instant,
     state: Mutex<CircuitJobState>,
     sweep_data: Mutex<Option<CircuitSweepData>>,
+    transient_data: Mutex<Option<CircuitTransientData>>,
 }
 
 #[derive(Debug, Default)]
@@ -218,6 +252,7 @@ impl CircuitJobRegistry {
             created_at: Instant::now(),
             state: Mutex::new(CircuitJobState::Queued),
             sweep_data: Mutex::new(None),
+            transient_data: Mutex::new(None),
         });
         jobs.insert(job_id.clone(), Arc::clone(&job));
         Ok((job_id, job))
@@ -323,6 +358,58 @@ impl CircuitJobRegistry {
         Ok(job_id)
     }
 
+    fn start_transient(&self, document: SchematicDocument) -> Result<String, String> {
+        let (job_id, job) = self.reserve_job()?;
+        let worker_id = job_id.clone();
+        let spawn_result = thread::Builder::new()
+            .name(format!("collab-circuit-transient-{worker_id}"))
+            .spawn(move || {
+                if !begin_job(&job) {
+                    return;
+                }
+                let solved = catch_unwind(AssertUnwindSafe(|| {
+                    transient_document_with_control(
+                        document,
+                        || job.cancelled.load(Ordering::Acquire),
+                        |stage| set_job_stage(&job, stage),
+                    )
+                }));
+                let outcome = match solved {
+                    Ok(Ok(data)) => {
+                        let summary = CircuitTransientSummary {
+                            sample_count: data.result.time_seconds.len(),
+                            outputs: data
+                                .result
+                                .traces
+                                .iter()
+                                .map(|trace| trace.output.clone())
+                                .collect(),
+                            source_map: data.source_map.clone(),
+                        };
+                        *job.transient_data.lock() = Some(data);
+                        CircuitJobOutcome::TransientCompleted { summary }
+                    }
+                    Ok(Err(CircuitCommandError::Transient(TransientError::Cancelled))) => {
+                        CircuitJobOutcome::Cancelled
+                    }
+                    Ok(Err(error)) => CircuitJobOutcome::Failed { error },
+                    Err(_) => CircuitJobOutcome::Failed {
+                        error: CircuitCommandError::Runtime {
+                            message: "the worker panicked".to_string(),
+                        },
+                    },
+                };
+                set_terminal(&job, outcome);
+            });
+        if let Err(error) = spawn_result {
+            self.jobs.lock().remove(&job_id);
+            return Err(format!(
+                "Could not start the circuit transient worker: {error}"
+            ));
+        }
+        Ok(job_id)
+    }
+
     fn status(&self, job_id: &str) -> Result<CircuitJobStatus, String> {
         let job = self
             .jobs
@@ -370,10 +457,13 @@ impl CircuitJobRegistry {
             CircuitJobState::Terminal { outcome, .. } => Some(outcome.clone()),
             _ => None,
         };
-        if outcome
-            .as_ref()
-            .is_some_and(|outcome| !matches!(outcome, CircuitJobOutcome::SweepCompleted { .. }))
-        {
+        if outcome.as_ref().is_some_and(|outcome| {
+            !matches!(
+                outcome,
+                CircuitJobOutcome::SweepCompleted { .. }
+                    | CircuitJobOutcome::TransientCompleted { .. }
+            )
+        }) {
             self.jobs.lock().remove(job_id);
         }
         Ok(outcome)
@@ -424,6 +514,59 @@ impl CircuitJobRegistry {
                 .traces
                 .iter()
                 .map(|trace| DcSweepTrace {
+                    output: trace.output.clone(),
+                    values: trace.values[offset..end].to_vec(),
+                })
+                .collect(),
+            done: end == sample_count,
+        })
+    }
+
+    fn read_transient_chunk(
+        &self,
+        job_id: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<CircuitTransientChunk, String> {
+        if limit == 0 || limit > MAX_TRANSIENT_CHUNK_SAMPLES {
+            return Err(format!(
+                "Transient chunks must request between 1 and {MAX_TRANSIENT_CHUNK_SAMPLES} samples."
+            ));
+        }
+        let job = self
+            .jobs
+            .lock()
+            .get(job_id)
+            .cloned()
+            .ok_or_else(|| format!("Unknown circuit job '{job_id}'."))?;
+        if !matches!(
+            &*job.state.lock(),
+            CircuitJobState::Terminal {
+                outcome: CircuitJobOutcome::TransientCompleted { .. },
+                ..
+            }
+        ) {
+            return Err("The circuit transient result is not ready.".to_string());
+        }
+        let data = job.transient_data.lock();
+        let data = data
+            .as_ref()
+            .ok_or_else(|| "The circuit transient result is unavailable.".to_string())?;
+        let sample_count = data.result.time_seconds.len();
+        if offset > sample_count {
+            return Err(format!(
+                "Transient chunk offset {offset} exceeds the {sample_count}-sample result."
+            ));
+        }
+        let end = offset.saturating_add(limit).min(sample_count);
+        Ok(CircuitTransientChunk {
+            offset,
+            time_seconds: data.result.time_seconds[offset..end].to_vec(),
+            traces: data
+                .result
+                .traces
+                .iter()
+                .map(|trace| TransientTrace {
                     output: trace.output.clone(),
                     values: trace.values[offset..end].to_vec(),
                 })
@@ -544,6 +687,93 @@ fn sweep_document_with_control(
     })
 }
 
+fn transient_document_with_control(
+    document: SchematicDocument,
+    mut should_cancel: impl FnMut() -> bool,
+    mut on_stage: impl FnMut(CircuitJobStage),
+) -> Result<CircuitTransientData, CircuitCommandError> {
+    let config = document
+        .simulation
+        .as_ref()
+        .and_then(|simulation| simulation.transient.clone())
+        .ok_or_else(|| CircuitCommandError::Configuration {
+            message: "the document has no transient configuration".to_string(),
+        })?;
+    let compiled = compile_schematic(&document)?;
+    if should_cancel() {
+        return Err(TransientError::Cancelled.into());
+    }
+    on_stage(CircuitJobStage::Solving);
+    let source_waveforms = config
+        .source_waveforms
+        .into_iter()
+        .map(|(source_node_id, waveform)| {
+            (
+                ComponentId::new(source_node_id),
+                source_waveform_from_schematic(waveform),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let request = TransientRequest {
+        duration_seconds: config.duration_seconds,
+        max_time_step_seconds: config.max_time_step_seconds,
+        source_waveforms,
+        outputs: transient_outputs_for_probes(&compiled.source_map.probes),
+    };
+    let result = solve_transient_with_control(
+        &compiled.circuit,
+        &request,
+        TransientLimits::default(),
+        &mut should_cancel,
+    )?;
+    if should_cancel() {
+        return Err(TransientError::Cancelled.into());
+    }
+    on_stage(CircuitJobStage::Finalizing);
+    Ok(CircuitTransientData {
+        result,
+        source_map: compiled.source_map,
+    })
+}
+
+fn source_waveform_from_schematic(waveform: SchematicSourceWaveform) -> SourceWaveform {
+    match waveform {
+        SchematicSourceWaveform::Dc => SourceWaveform::Dc,
+        SchematicSourceWaveform::Pulse {
+            low_value,
+            high_value,
+            delay_seconds,
+            rise_seconds,
+            fall_seconds,
+            pulse_width_seconds,
+            period_seconds,
+        } => SourceWaveform::Pulse {
+            low_value,
+            high_value,
+            delay_seconds,
+            rise_seconds,
+            fall_seconds,
+            pulse_width_seconds,
+            period_seconds,
+        },
+        SchematicSourceWaveform::Sine {
+            offset,
+            amplitude,
+            frequency_hertz,
+            phase_degrees,
+            delay_seconds,
+            damping_per_second,
+        } => SourceWaveform::Sine {
+            offset,
+            amplitude,
+            frequency_hertz,
+            phase_degrees,
+            delay_seconds,
+            damping_per_second,
+        },
+    }
+}
+
 fn build_dc_result(
     operating_point: DcOperatingPoint,
     source_map: SchematicSourceMap,
@@ -600,6 +830,14 @@ pub fn circuit_start_dc_sweep(
 }
 
 #[tauri::command]
+pub fn circuit_start_transient(
+    document: SchematicDocument,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    state.circuit_jobs.start_transient(document)
+}
+
+#[tauri::command]
 pub fn circuit_job_status(
     job_id: String,
     state: State<'_, AppState>,
@@ -634,6 +872,18 @@ pub fn circuit_read_sweep_chunk(
 }
 
 #[tauri::command]
+pub fn circuit_read_transient_chunk(
+    job_id: String,
+    offset: usize,
+    limit: usize,
+    state: State<'_, AppState>,
+) -> Result<CircuitTransientChunk, String> {
+    state
+        .circuit_jobs
+        .read_transient_chunk(&job_id, offset, limit)
+}
+
+#[tauri::command]
 pub fn circuit_discard_job(job_id: String, state: State<'_, AppState>) -> Result<(), String> {
     state.circuit_jobs.discard(&job_id)
 }
@@ -644,7 +894,8 @@ mod tests {
     use collab_circuit::{
         ComponentId, DcDiagnostic, DiagramMode, SchematicComponentKind, SchematicDcSweepConfig,
         SchematicElectricalParameters, SchematicNode, SchematicProbe, SchematicProbeKind,
-        SchematicSimulationConfig, SchematicWire,
+        SchematicSimulationConfig, SchematicSourceWaveform, SchematicTransientConfig,
+        SchematicWire,
     };
     use std::time::Duration;
 
@@ -730,6 +981,91 @@ mod tests {
                     start: 0.0,
                     stop: 10.0,
                     sample_count: 3,
+                }),
+                transient: None,
+            }),
+        }
+    }
+
+    fn transient_document() -> SchematicDocument {
+        let node =
+            |id: &str,
+             kind: SchematicComponentKind,
+             electrical: Option<SchematicElectricalParameters>| SchematicNode {
+                id: id.to_string(),
+                kind,
+                rotation: None,
+                electrical,
+            };
+        let wire =
+            |id: &str, source: &str, source_handle: &str, target: &str, target_handle: &str| {
+                SchematicWire {
+                    id: id.to_string(),
+                    source: source.to_string(),
+                    target: target.to_string(),
+                    source_handle: Some(source_handle.to_string()),
+                    target_handle: Some(target_handle.to_string()),
+                }
+            };
+        SchematicDocument {
+            diagram_mode: DiagramMode::Schematic,
+            nodes: vec![
+                node(
+                    "source",
+                    SchematicComponentKind::VoltageSource,
+                    Some(SchematicElectricalParameters {
+                        voltage_volts: Some(0.0),
+                        ..Default::default()
+                    }),
+                ),
+                node(
+                    "resistor",
+                    SchematicComponentKind::Resistor,
+                    Some(SchematicElectricalParameters {
+                        resistance_ohms: Some(1_000.0),
+                        ..Default::default()
+                    }),
+                ),
+                node(
+                    "capacitor",
+                    SchematicComponentKind::Capacitor,
+                    Some(SchematicElectricalParameters {
+                        capacitance_farads: Some(1.0e-6),
+                        ..Default::default()
+                    }),
+                ),
+                node("ground", SchematicComponentKind::Ground, None),
+            ],
+            wires: vec![
+                wire("w1", "source", "positive", "resistor", "terminal-a"),
+                wire("w2", "resistor", "terminal-b", "capacitor", "terminal-a"),
+                wire("w3", "capacitor", "terminal-b", "ground", "terminal"),
+                wire("w4", "source", "negative", "ground", "terminal"),
+            ],
+            simulation: Some(SchematicSimulationConfig {
+                probes: vec![SchematicProbe {
+                    id: "output".to_string(),
+                    kind: SchematicProbeKind::NodeVoltage,
+                    node_id: "capacitor".to_string(),
+                    handle_id: Some("terminal-a".to_string()),
+                    label: Some("Output".to_string()),
+                }],
+                dc_sweep: None,
+                transient: Some(SchematicTransientConfig {
+                    duration_seconds: 0.003,
+                    max_time_step_seconds: 0.001,
+                    source_waveforms: BTreeMap::from([(
+                        "source".to_string(),
+                        SchematicSourceWaveform::Pulse {
+                            low_value: 0.0,
+                            high_value: 5.0,
+                            delay_seconds: 0.001,
+                            rise_seconds: 0.0,
+                            fall_seconds: 0.0,
+                            pulse_width_seconds: 0.008,
+                            period_seconds: 0.02,
+                        },
+                    )]),
                 }),
             }),
         }
@@ -820,6 +1156,15 @@ mod tests {
         assert_eq!(serialized["stage"], "sweep");
         assert_eq!(serialized["detail"]["code"], "invalidSampleCount");
         assert_eq!(serialized["detail"]["context"]["sampleCount"], 1);
+
+        let error = CircuitCommandError::Transient(TransientError::InvalidTimeRange {
+            duration_seconds: 0.0,
+            max_time_step_seconds: 0.001,
+        });
+        let serialized = serde_json::to_value(error).unwrap();
+        assert_eq!(serialized["stage"], "transient");
+        assert_eq!(serialized["detail"]["code"], "invalidTimeRange");
+        assert_eq!(serialized["detail"]["context"]["durationSeconds"], 0.0);
     }
 
     #[test]
@@ -868,6 +1213,7 @@ mod tests {
                     label: Some("Load current".to_string()),
                 }],
                 dc_sweep: None,
+                transient: None,
             }),
         })
         .unwrap();
@@ -970,6 +1316,68 @@ mod tests {
     }
 
     #[test]
+    fn transient_jobs_retain_aligned_chunks_until_explicitly_discarded() {
+        let registry = CircuitJobRegistry::default();
+        let job_id = registry.start_transient(transient_document()).unwrap();
+        let status = (0..100)
+            .find_map(|_| {
+                let status = registry.status(&job_id).unwrap();
+                if status.phase == CircuitJobPhase::Completed {
+                    Some(status)
+                } else if matches!(
+                    status.phase,
+                    CircuitJobPhase::Failed | CircuitJobPhase::Cancelled
+                ) {
+                    panic!("transient analysis did not complete: {status:?}");
+                } else {
+                    thread::sleep(Duration::from_millis(5));
+                    None
+                }
+            })
+            .expect("transient worker should finish within the test timeout");
+        assert_eq!(status.stage, None);
+
+        let outcome = registry.take_outcome(&job_id).unwrap().unwrap();
+        let CircuitJobOutcome::TransientCompleted { summary } = outcome else {
+            panic!("expected a completed transient analysis");
+        };
+        assert!(summary.sample_count > 4);
+        assert!(summary.sample_count <= 4_096);
+        assert_eq!(summary.outputs.len(), 1);
+        assert_eq!(summary.source_map.probes[0].probe_id, "output");
+        let serialized = serde_json::to_value(CircuitJobOutcome::TransientCompleted {
+            summary: summary.clone(),
+        })
+        .unwrap();
+        assert_eq!(serialized["state"], "transient-completed");
+        assert_eq!(serialized["summary"]["sampleCount"], summary.sample_count);
+
+        let first = registry.read_transient_chunk(&job_id, 0, 2).unwrap();
+        assert_eq!(first.time_seconds.first(), Some(&0.0));
+        assert_eq!(first.time_seconds.len(), 2);
+        assert_eq!(first.traces[0].values.len(), 2);
+        assert!(!first.done);
+        let final_chunk = registry.read_transient_chunk(&job_id, 2, 512).unwrap();
+        assert_eq!(final_chunk.time_seconds.len(), summary.sample_count - 2);
+        assert_eq!(final_chunk.time_seconds.last(), Some(&0.003));
+        assert!(final_chunk
+            .time_seconds
+            .windows(2)
+            .all(|pair| pair[1] > pair[0]));
+        assert!(final_chunk.traces[0]
+            .values
+            .windows(2)
+            .all(|pair| pair[1] >= pair[0]));
+        assert!(final_chunk.done);
+        assert!(registry
+            .read_transient_chunk(&job_id, 0, MAX_TRANSIENT_CHUNK_SAMPLES + 1)
+            .is_err());
+
+        registry.discard(&job_id).unwrap();
+        assert!(registry.status(&job_id).is_err());
+    }
+
+    #[test]
     fn job_registry_exposes_cancelling_and_stable_wire_shapes() {
         let registry = CircuitJobRegistry::default();
         let job_id = "queued-job".to_string();
@@ -978,6 +1386,7 @@ mod tests {
             created_at: Instant::now(),
             state: Mutex::new(CircuitJobState::Queued),
             sweep_data: Mutex::new(None),
+            transient_data: Mutex::new(None),
         });
         registry
             .jobs
@@ -1021,6 +1430,7 @@ mod tests {
                     created_at: Instant::now(),
                     state: Mutex::new(CircuitJobState::Queued),
                     sweep_data: Mutex::new(None),
+                    transient_data: Mutex::new(None),
                 }),
             );
         }

@@ -75,8 +75,31 @@ export interface CircuitSweepResult extends CircuitSweepSummary {
   traces: Array<{ output: CircuitSweepOutput; values: number[] }>;
 }
 
+export type CircuitTransientOutput =
+  | { kind: 'node-voltage'; node: string }
+  | { kind: 'component-current'; component: string };
+
+export interface CircuitTransientSummary {
+  sampleCount: number;
+  outputs: CircuitTransientOutput[];
+  sourceMap: CircuitDcResult['sourceMap'];
+}
+
+export interface CircuitTransientChunk {
+  offset: number;
+  timeSeconds: number[];
+  traces: Array<{ output: CircuitTransientOutput; values: number[] }>;
+  done: boolean;
+}
+
+export interface CircuitTransientResult extends CircuitTransientSummary {
+  timeSeconds: number[];
+  traces: Array<{ output: CircuitTransientOutput; values: number[] }>;
+}
+
 export type CircuitJobOutcome =
   | { state: 'completed'; result: CircuitDcResult }
   | { state: 'sweep-completed'; summary: CircuitSweepSummary }
+  | { state: 'transient-completed'; summary: CircuitTransientSummary }
   | { state: 'failed'; error: unknown }
   | { state: 'cancelled' };

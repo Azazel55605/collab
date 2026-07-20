@@ -1,4 +1,5 @@
 import {
+  Activity,
   ArrowLeft,
   Calendar,
   CheckCircle2,
@@ -79,18 +80,22 @@ import {
   circuitDiscardJob,
   circuitJobStatus,
   circuitReadSweepChunk,
+  circuitReadTransientChunk,
   circuitStartDc,
   circuitStartDcSweep,
+  circuitStartTransient,
   circuitTakeJobResult,
   type CircuitDcResult,
   type CircuitJobStatus,
   type CircuitSweepResult,
+  type CircuitTransientResult,
 } from '../mobileTauri';
 import { useMobileStore } from '../state/store';
 import { runCircuitJob, type CircuitJobClient } from '../../../../src/lib/circuitJobRunner';
 import { runCircuitSweepJob, type CircuitSweepJobClient } from '../../../../src/lib/circuitSweepRunner';
+import { runCircuitTransientJob, type CircuitTransientJobClient } from '../../../../src/lib/circuitTransientRunner';
 import { circuitErrorText } from '../../../../src/lib/circuitErrorText';
-import { CircuitSweepPlot } from '../../../../src/components/logic/CircuitSweepPlot';
+import { CircuitSweepPlot, CircuitTransientPlot } from '../../../../src/components/logic/CircuitSweepPlot';
 
 const workerUrl = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString();
 GlobalWorkerOptions.workerSrc = workerUrl;
@@ -104,6 +109,13 @@ const MOBILE_SWEEP_JOB_CLIENT: CircuitSweepJobClient = {
   status: circuitJobStatus,
   takeResult: circuitTakeJobResult,
   readChunk: circuitReadSweepChunk,
+  discard: circuitDiscardJob,
+};
+const MOBILE_TRANSIENT_JOB_CLIENT: CircuitTransientJobClient = {
+  start: circuitStartTransient,
+  status: circuitJobStatus,
+  takeResult: circuitTakeJobResult,
+  readChunk: circuitReadTransientChunk,
   discard: circuitDiscardJob,
 };
 const ANALOG_ACTIVE_VOLTAGE = 1e-9;
@@ -1673,7 +1685,7 @@ export function LogicMobileViewer({
   const [pan, setPan] = useState<TouchPoint>({ x: 0, y: 0 });
   const [inputValues, setInputValues] = useState<Record<string, boolean>>({});
   const [circuitRunning, setCircuitRunning] = useState(false);
-  const [circuitRunKind, setCircuitRunKind] = useState<'dc' | 'sweep' | null>(null);
+  const [circuitRunKind, setCircuitRunKind] = useState<'dc' | 'sweep' | 'transient' | null>(null);
   const [circuitStatus, setCircuitStatus] = useState<CircuitJobStatus | null>(null);
   const [circuitResult, setCircuitResult] = useState<CircuitDcResult | null>(null);
   const [circuitError, setCircuitError] = useState<string | null>(null);
@@ -1681,6 +1693,9 @@ export function LogicMobileViewer({
   const [sweepResult, setSweepResult] = useState<CircuitSweepResult | null>(null);
   const [sweepError, setSweepError] = useState<string | null>(null);
   const [sweepResultsOpen, setSweepResultsOpen] = useState(false);
+  const [transientResult, setTransientResult] = useState<CircuitTransientResult | null>(null);
+  const [transientError, setTransientError] = useState<string | null>(null);
+  const [transientResultsOpen, setTransientResultsOpen] = useState(false);
   const circuitJobIdRef = useRef<string | null>(null);
   const circuitRunSequenceRef = useRef(0);
   const circuitMountedRef = useRef(true);
@@ -1710,6 +1725,9 @@ export function LogicMobileViewer({
     setSweepResult(null);
     setSweepError(null);
     setSweepResultsOpen(false);
+    setTransientResult(null);
+    setTransientError(null);
+    setTransientResultsOpen(false);
     return () => {
       circuitMountedRef.current = false;
       circuitRunSequenceRef.current += 1;
@@ -1755,6 +1773,7 @@ export function LogicMobileViewer({
     setCircuitError(null);
     setCircuitResultsOpen(true);
     setSweepResultsOpen(false);
+    setTransientResultsOpen(false);
     try {
       const outcome = await runCircuitJob(MOBILE_CIRCUIT_JOB_CLIENT, logic, {
         onStarted: (jobId) => {
@@ -1807,6 +1826,7 @@ export function LogicMobileViewer({
     setSweepError(null);
     setSweepResultsOpen(true);
     setCircuitResultsOpen(false);
+    setTransientResultsOpen(false);
     try {
       const result = await runCircuitSweepJob(MOBILE_SWEEP_JOB_CLIENT, logic, {
         onStarted: (jobId) => {
@@ -1844,6 +1864,54 @@ export function LogicMobileViewer({
     }
   }, [circuitRunning, logic]);
 
+  const runTransient = useCallback(async () => {
+    if (logic.diagramMode !== 'schematic' || circuitRunning || !logic.simulation?.transient) return;
+    if ((logic.simulation.probes?.length ?? 0) === 0) {
+      setTransientError('This transient analysis has no configured voltage or current probes.');
+      setTransientResultsOpen(true);
+      return;
+    }
+    const runSequence = ++circuitRunSequenceRef.current;
+    let startedJobId: string | null = null;
+    setCircuitRunning(true);
+    setCircuitRunKind('transient');
+    setTransientResult(null);
+    setTransientError(null);
+    setTransientResultsOpen(true);
+    setCircuitResultsOpen(false);
+    setSweepResultsOpen(false);
+    try {
+      const result = await runCircuitTransientJob(MOBILE_TRANSIENT_JOB_CLIENT, logic, {
+        onStarted: (jobId) => {
+          startedJobId = jobId;
+          circuitJobIdRef.current = jobId;
+          if (circuitMountedRef.current && circuitRunSequenceRef.current === runSequence) {
+            setCircuitStatus({ phase: 'queued', stage: 'queued', elapsedMillis: 0 });
+          } else {
+            void circuitCancelJob(jobId).catch(() => undefined);
+          }
+        },
+        onStatus: (status) => {
+          if (circuitMountedRef.current && circuitRunSequenceRef.current === runSequence) setCircuitStatus(status);
+        },
+      });
+      if (!circuitMountedRef.current || circuitRunSequenceRef.current !== runSequence) return;
+      if ('timeSeconds' in result) setTransientResult(result);
+      else if (result.state === 'failed') throw result.error;
+    } catch (error) {
+      if (circuitMountedRef.current && circuitRunSequenceRef.current === runSequence) {
+        setTransientError(circuitErrorText(error));
+      }
+    } finally {
+      if (startedJobId && circuitJobIdRef.current === startedJobId) circuitJobIdRef.current = null;
+      if (circuitMountedRef.current && circuitRunSequenceRef.current === runSequence) {
+        setCircuitStatus(null);
+        setCircuitRunning(false);
+        setCircuitRunKind(null);
+      }
+    }
+  }, [circuitRunning, logic]);
+
   const cancelDcSimulation = useCallback(async () => {
     const activeJobId = circuitJobIdRef.current;
     if (!activeJobId) return;
@@ -1855,6 +1923,7 @@ export function LogicMobileViewer({
     } catch (error) {
       if (circuitMountedRef.current) {
         if (circuitRunKind === 'sweep') setSweepError(circuitErrorText(error));
+        else if (circuitRunKind === 'transient') setTransientError(circuitErrorText(error));
         else setCircuitError(circuitErrorText(error));
       }
     }
@@ -2021,6 +2090,21 @@ export function LogicMobileViewer({
                     <span>{circuitRunning && circuitRunKind === 'sweep' ? circuitStageLabel(circuitStatus) : 'Sweep'}</span>
                   </button>
                 ) : null}
+                {logic.simulation?.transient ? (
+                  <button
+                    type="button"
+                    className="logic-circuit-action"
+                    aria-label={circuitRunning && circuitRunKind === 'transient' ? 'Cancel transient analysis' : 'Run transient analysis'}
+                    disabled={(circuitRunning && circuitRunKind !== 'transient') || (circuitRunning && (!circuitStatus || circuitStatus.phase === 'cancelling'))}
+                    onTouchStart={(event) => event.stopPropagation()}
+                    onClick={() => circuitRunning && circuitRunKind === 'transient' ? void cancelDcSimulation() : void runTransient()}
+                  >
+                    {circuitRunning && circuitRunKind === 'transient' && (!circuitStatus || circuitStatus.phase === 'cancelling')
+                      ? <Spinner size={14} />
+                      : circuitRunning && circuitRunKind === 'transient' ? <X size={14} aria-hidden /> : <Activity size={14} aria-hidden />}
+                    <span>{circuitRunning && circuitRunKind === 'transient' ? circuitStageLabel(circuitStatus) : 'Transient'}</span>
+                  </button>
+                ) : null}
                 {!circuitResultsOpen && (circuitResult || circuitError) ? (
                   <button
                     type="button"
@@ -2029,6 +2113,7 @@ export function LogicMobileViewer({
                     onTouchStart={(event) => event.stopPropagation()}
                     onClick={() => {
                       setSweepResultsOpen(false);
+                      setTransientResultsOpen(false);
                       setCircuitResultsOpen(true);
                     }}
                   >
@@ -2043,10 +2128,26 @@ export function LogicMobileViewer({
                     onTouchStart={(event) => event.stopPropagation()}
                     onClick={() => {
                       setCircuitResultsOpen(false);
+                      setTransientResultsOpen(false);
                       setSweepResultsOpen(true);
                     }}
                   >
                     <ChartLine size={14} aria-hidden />
+                  </button>
+                ) : null}
+                {!transientResultsOpen && (transientResult || transientError) ? (
+                  <button
+                    type="button"
+                    className="logic-circuit-result-button"
+                    aria-label="Show transient results"
+                    onTouchStart={(event) => event.stopPropagation()}
+                    onClick={() => {
+                      setCircuitResultsOpen(false);
+                      setSweepResultsOpen(false);
+                      setTransientResultsOpen(true);
+                    }}
+                  >
+                    <Activity size={14} aria-hidden />
                   </button>
                 ) : null}
               </>
@@ -2152,9 +2253,67 @@ export function LogicMobileViewer({
               onClose={() => setSweepResultsOpen(false)}
             />
           ) : null}
+          {logic.diagramMode === 'schematic' && transientResultsOpen ? (
+            <MobileCircuitTransientResults
+              result={transientResult}
+              error={transientError}
+              running={circuitRunning && circuitRunKind === 'transient'}
+              status={circuitStatus}
+              onClose={() => setTransientResultsOpen(false)}
+            />
+          ) : null}
         </>
       )}
     </section>
+  );
+}
+
+function MobileCircuitTransientResults({
+  result,
+  error,
+  running,
+  status,
+  onClose,
+}: {
+  result: CircuitTransientResult | null;
+  error: string | null;
+  running: boolean;
+  status: CircuitJobStatus | null;
+  onClose: () => void;
+}) {
+  return (
+    <aside className="mobile-circuit-results mobile-circuit-sweep-results" aria-label="Transient results">
+      <header>
+        <Activity size={16} aria-hidden />
+        <strong>Transient analysis</strong>
+        <button type="button" className="icon-button" aria-label="Close transient results" onClick={onClose}>
+          <X size={15} aria-hidden />
+        </button>
+      </header>
+      <div className="mobile-circuit-results-body">
+        {running ? (
+          <div className="mobile-circuit-status">
+            <Spinner size={15} />
+            <span>{circuitStageLabel(status)}</span>
+            {status ? <small>{status.elapsedMillis} ms</small> : null}
+          </div>
+        ) : null}
+        {error && !running ? (
+          <div className="mobile-circuit-error">
+            <strong>Transient analysis failed</strong>
+            <span>{error}</span>
+          </div>
+        ) : null}
+        {result && !running ? (
+          <>
+            <p className="mobile-circuit-summary">
+              {result.sampleCount.toLocaleString()} samples · {result.traces.length} {result.traces.length === 1 ? 'trace' : 'traces'}
+            </p>
+            <CircuitTransientPlot result={result} />
+          </>
+        ) : null}
+      </div>
+    </aside>
   );
 }
 

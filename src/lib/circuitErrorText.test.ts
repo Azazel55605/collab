@@ -17,4 +17,22 @@ describe('circuit error text', () => {
       detail: { code: 'denseSolverSizeLimitExceeded', context: { unknowns: 640, maxUnknowns: 512 } },
     })).toContain('640 solver unknowns');
   });
+
+  it('formats transient limits and nested sample failures', () => {
+    expect(circuitErrorText({
+      stage: 'transient',
+      detail: { code: 'timeLimitExceeded', context: { limitMillis: 30_000 } },
+    })).toBe('The transient analysis exceeded its 30000 ms execution limit.');
+    expect(circuitErrorText({
+      stage: 'transient',
+      detail: {
+        code: 'sampleFailed',
+        context: {
+          sampleIndex: 4,
+          timeSeconds: 0.004,
+          error: { code: 'singularSystem', context: { index: 2 } },
+        },
+      },
+    })).toBe('Transient sample 4 at 0.004 s failed: The circuit is floating, underconstrained, or contains conflicting ideal sources.');
+  });
 });

@@ -30,6 +30,7 @@ import type {
   CircuitJobPhase,
   CircuitJobStatus,
   CircuitSweepChunk,
+  CircuitTransientChunk,
 } from '../types/circuitRuntime';
 import type {
   CacheCleanupReport,
@@ -56,6 +57,10 @@ export type {
   CircuitSweepOutput,
   CircuitSweepResult,
   CircuitSweepSummary,
+  CircuitTransientChunk,
+  CircuitTransientOutput,
+  CircuitTransientResult,
+  CircuitTransientSummary,
   CircuitTerminalNet,
   CircuitWireNet,
 } from '../types/circuitRuntime';
@@ -388,6 +393,8 @@ export const tauriCommands = {
     invoke<string>('circuit_start_dc', { document }),
   circuitStartDcSweep: (document: LogicDiagramDocument) =>
     invoke<string>('circuit_start_dc_sweep', { document }),
+  circuitStartTransient: (document: LogicDiagramDocument) =>
+    invoke<string>('circuit_start_transient', { document }),
   circuitJobStatus: (jobId: string) =>
     invoke<CircuitJobStatus>('circuit_job_status', { jobId }),
   circuitCancelJob: (jobId: string) =>
@@ -396,6 +403,8 @@ export const tauriCommands = {
     invoke<CircuitJobOutcome | null>('circuit_take_job_result', { jobId }),
   circuitReadSweepChunk: (jobId: string, offset: number, limit: number) =>
     invoke<CircuitSweepChunk>('circuit_read_sweep_chunk', { jobId, offset, limit }),
+  circuitReadTransientChunk: (jobId: string, offset: number, limit: number) =>
+    invoke<CircuitTransientChunk>('circuit_read_transient_chunk', { jobId, offset, limit }),
   circuitDiscardJob: (jobId: string) =>
     invoke<void>('circuit_discard_job', { jobId }),
 

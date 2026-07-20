@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import type { CircuitSweepResult } from '../../types/circuitRuntime';
-import { CircuitSweepPlot } from './CircuitSweepPlot';
+import type { CircuitSweepResult, CircuitTransientResult } from '../../types/circuitRuntime';
+import { CircuitSweepPlot, CircuitTransientPlot } from './CircuitSweepPlot';
 
 const RESULT: CircuitSweepResult = {
   source: 'source',
@@ -56,5 +56,19 @@ describe('CircuitSweepPlot', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset sweep plot view' }));
     expect(screen.getByText('3 / 3 samples')).toBeTruthy();
     expect(container.querySelector('.circuit-sweep-cursor-line')).toBeNull();
+  });
+
+  it('uses the shared interaction model for transient time traces', () => {
+    const transient: CircuitTransientResult = {
+      sampleCount: 3,
+      outputs: RESULT.outputs,
+      sourceMap: RESULT.sourceMap,
+      timeSeconds: [0, 0.001, 0.002],
+      traces: RESULT.traces,
+    };
+    render(<CircuitTransientPlot result={transient} />);
+    expect(screen.getByRole('img', { name: 'Transient plot' })).toBeTruthy();
+    expect(screen.getByText('Time (s)')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Zoom in transient plot' })).toBeTruthy();
   });
 });

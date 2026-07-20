@@ -6,20 +6,24 @@ import type { LogicDiagramDocument } from '../../../../src/types/logicDiagram';
 const circuitMocks = vi.hoisted(() => ({
   start: vi.fn(),
   sweepStart: vi.fn(),
+  transientStart: vi.fn(),
   status: vi.fn(),
   cancel: vi.fn(),
   take: vi.fn(),
   readSweep: vi.fn(),
+  readTransient: vi.fn(),
   discard: vi.fn(),
 }));
 
 vi.mock('../mobileTauri', () => ({
   circuitStartDc: circuitMocks.start,
   circuitStartDcSweep: circuitMocks.sweepStart,
+  circuitStartTransient: circuitMocks.transientStart,
   circuitJobStatus: circuitMocks.status,
   circuitCancelJob: circuitMocks.cancel,
   circuitTakeJobResult: circuitMocks.take,
   circuitReadSweepChunk: circuitMocks.readSweep,
+  circuitReadTransientChunk: circuitMocks.readTransient,
   circuitDiscardJob: circuitMocks.discard,
 }));
 
@@ -87,10 +91,12 @@ describe('mobile schematic simulation', () => {
   beforeEach(() => {
     circuitMocks.start.mockResolvedValue('job-1');
     circuitMocks.sweepStart.mockResolvedValue('sweep-1');
+    circuitMocks.transientStart.mockResolvedValue('transient-1');
     circuitMocks.status.mockResolvedValue({ phase: 'completed', stage: null, elapsedMillis: 2 });
     circuitMocks.cancel.mockResolvedValue('cancelling');
     circuitMocks.take.mockResolvedValue({ state: 'completed', result: RESULT });
     circuitMocks.readSweep.mockReset();
+    circuitMocks.readTransient.mockReset();
     circuitMocks.discard.mockResolvedValue(undefined);
   });
 
@@ -162,6 +168,57 @@ describe('mobile schematic simulation', () => {
     expect(circuitMocks.sweepStart).toHaveBeenCalledWith(logic);
     expect(circuitMocks.readSweep).toHaveBeenCalledWith('sweep-1', 0, 512);
     expect(circuitMocks.discard).toHaveBeenCalledWith('sweep-1');
+  });
+
+  it('runs persisted transient analysis and renders the touch trace viewer', async () => {
+    const logic: LogicDiagramDocument = {
+      ...LOGIC,
+      simulation: {
+        analysis: 'transient',
+        probes: [{ id: 'output', kind: 'node-voltage', nodeId: 'v1', handleId: 'positive', label: 'Output' }],
+        transient: {
+          durationSeconds: 0.002,
+          maxTimeStepSeconds: 0.001,
+          sourceWaveforms: { v1: { kind: 'pulse', lowValue: 0, highValue: 5, delaySeconds: 0.001, riseSeconds: 0, fallSeconds: 0, pulseWidthSeconds: 0.005, periodSeconds: 0.01 } },
+        },
+      },
+    };
+    circuitMocks.take.mockResolvedValue({
+      state: 'transient-completed',
+      summary: {
+        sampleCount: 3,
+        outputs: [{ kind: 'node-voltage', node: 'net1' }],
+        sourceMap: {
+          terminals: [],
+          wires: [],
+          probes: [{ probeId: 'output', label: 'Output', kind: 'node-voltage', electricalNode: 'net1' }],
+        },
+      },
+    });
+    circuitMocks.readTransient.mockResolvedValue({
+      offset: 0,
+      timeSeconds: [0, 0.001, 0.002],
+      traces: [{ output: { kind: 'node-voltage', node: 'net1' }, values: [0, 2.5, 3.75] }],
+      done: true,
+    });
+
+    render(
+      <LogicMobileViewer
+        logic={logic}
+        zoom={1}
+        setZoom={vi.fn()}
+        resetToken={0}
+        onWheel={vi.fn()}
+        schematicSymbolSet="ansi"
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Run transient analysis' }));
+
+    expect(await screen.findByRole('img', { name: 'Transient plot' })).toBeTruthy();
+    expect(screen.getByText('3 samples · 1 trace')).toBeTruthy();
+    expect(circuitMocks.transientStart).toHaveBeenCalledWith(logic);
+    expect(circuitMocks.readTransient).toHaveBeenCalledWith('transient-1', 0, 512);
+    expect(circuitMocks.discard).toHaveBeenCalledWith('transient-1');
   });
 
   it('routes schematic wires from the actual rotated terminal sides', () => {

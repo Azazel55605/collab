@@ -190,6 +190,76 @@ describe('logic diagram document helpers', () => {
     });
   });
 
+  it('normalizes bounded transient source waveforms and drops malformed entries', () => {
+    const document = normalizeLogicDiagramDocument({
+      kind: 'logic-diagram',
+      diagramMode: 'schematic',
+      nodes: [],
+      wires: [],
+      simulation: {
+        analysis: 'transient',
+        probes: [],
+        transient: {
+          durationSeconds: 10_000,
+          maxTimeStepSeconds: 1e-9,
+          sourceWaveforms: {
+            pulse: {
+              kind: 'pulse',
+              lowValue: 0,
+              highValue: 5,
+              delaySeconds: 0.001,
+              riseSeconds: 0,
+              fallSeconds: 0,
+              pulseWidthSeconds: 0.005,
+              periodSeconds: 0.01,
+            },
+            sine: {
+              kind: 'sine',
+              offset: 1,
+              amplitude: 2,
+              frequencyHertz: 50,
+              phaseDegrees: 90,
+              delaySeconds: 0,
+              dampingPerSecond: 0.1,
+            },
+            invalid: { kind: 'sine', frequencyHertz: 0 },
+          },
+        },
+      },
+    });
+
+    expect(document.simulation).toEqual({
+      analysis: 'transient',
+      probes: [],
+      dcSweep: undefined,
+      transient: {
+        durationSeconds: 3600,
+        maxTimeStepSeconds: 3600 / 4095,
+        sourceWaveforms: {
+          pulse: {
+            kind: 'pulse',
+            lowValue: 0,
+            highValue: 5,
+            delaySeconds: 0.001,
+            riseSeconds: 0,
+            fallSeconds: 0,
+            pulseWidthSeconds: 0.005,
+            periodSeconds: 0.01,
+          },
+          sine: {
+            kind: 'sine',
+            offset: 1,
+            amplitude: 2,
+            frequencyHertz: 50,
+            phaseDegrees: 90,
+            delaySeconds: 0,
+            dampingPerSecond: 0.1,
+          },
+        },
+      },
+    });
+  });
+
   it('provides explicit electrical defaults only for newly inserted symbols', () => {
     expect(defaultSchematicElectricalParameters('resistor')).toEqual({ resistanceOhms: 1000 });
     expect(defaultSchematicElectricalParameters('voltage-source')).toEqual({ voltageVolts: 5 });

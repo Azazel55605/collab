@@ -227,10 +227,12 @@ pub fn run() {
             commands::circuit::circuit_solve_dc,
             commands::circuit::circuit_start_dc,
             commands::circuit::circuit_start_dc_sweep,
+            commands::circuit::circuit_start_transient,
             commands::circuit::circuit_job_status,
             commands::circuit::circuit_cancel_job,
             commands::circuit::circuit_take_job_result,
             commands::circuit::circuit_read_sweep_chunk,
+            commands::circuit::circuit_read_transient_chunk,
             commands::circuit::circuit_discard_job,
             // ui
             commands::ui::set_ui_zoom,

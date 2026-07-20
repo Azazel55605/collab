@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
 import { getSmoothStepPath, type Connection, type Viewport } from '@xyflow/react';
 import {
+  Activity,
   CircuitBoard,
   ChartLine,
   Download,
@@ -107,11 +108,12 @@ import { useLiveDocumentStatus } from '../lib/useLiveDocumentStatus';
 import { getMarkdownImageTarget } from '../lib/noteAssets';
 import { buildLogicDiagramSvg } from '../lib/logicDiagramExport';
 import { flattenVaultFiles } from '../lib/vaultLinks';
-import { tauriCommands, type CircuitDcResult, type CircuitJobStatus, type CircuitSweepResult } from '../lib/tauri';
+import { tauriCommands, type CircuitDcResult, type CircuitJobStatus, type CircuitSweepResult, type CircuitTransientResult } from '../lib/tauri';
 import { runCircuitJob, type CircuitJobClient } from '../lib/circuitJobRunner';
 import { runCircuitSweepJob, type CircuitSweepJobClient } from '../lib/circuitSweepRunner';
+import { runCircuitTransientJob, type CircuitTransientJobClient } from '../lib/circuitTransientRunner';
 import { circuitErrorText } from '../lib/circuitErrorText';
-import { CircuitSweepPlot } from '../components/logic/CircuitSweepPlot';
+import { CircuitSweepPlot, CircuitTransientPlot } from '../components/logic/CircuitSweepPlot';
 import {
   buildCircuitSweepCsv,
   buildCircuitSweepSvg,
@@ -129,6 +131,7 @@ import {
   type LogicDiagramMode,
   type LogicCircuitProbe,
   type LogicNodeKind,
+  type LogicSourceWaveform,
   type SchematicElectricalParameters,
   type SchematicSymbolSet,
 } from '../types/logicDiagram';
@@ -186,6 +189,13 @@ const DESKTOP_SWEEP_JOB_CLIENT: CircuitSweepJobClient = {
   status: tauriCommands.circuitJobStatus,
   takeResult: tauriCommands.circuitTakeJobResult,
   readChunk: tauriCommands.circuitReadSweepChunk,
+  discard: tauriCommands.circuitDiscardJob,
+};
+const DESKTOP_TRANSIENT_JOB_CLIENT: CircuitTransientJobClient = {
+  start: tauriCommands.circuitStartTransient,
+  status: tauriCommands.circuitJobStatus,
+  takeResult: tauriCommands.circuitTakeJobResult,
+  readChunk: tauriCommands.circuitReadTransientChunk,
   discard: tauriCommands.circuitDiscardJob,
 };
 const LOGIC_SIGNAL_ON = 'color-mix(in oklch, var(--primary) 82%, white 18%)';
@@ -1004,7 +1014,7 @@ function LogicDiagramEditor({ relativePath }: Props) {
   const [schematicValueInput, setSchematicValueInput] = useState('');
   const [schematicSwitchClosed, setSchematicSwitchClosed] = useState(false);
   const [circuitRunning, setCircuitRunning] = useState(false);
-  const [circuitRunKind, setCircuitRunKind] = useState<'dc' | 'sweep' | null>(null);
+  const [circuitRunKind, setCircuitRunKind] = useState<'dc' | 'sweep' | 'transient' | null>(null);
   const [circuitJobId, setCircuitJobId] = useState<string | null>(null);
   const [circuitJobStatus, setCircuitJobStatus] = useState<CircuitJobStatus | null>(null);
   const circuitJobIdRef = useRef<string | null>(null);
@@ -1023,6 +1033,16 @@ function LogicDiagramEditor({ relativePath }: Props) {
   const [sweepResultSignature, setSweepResultSignature] = useState<string | null>(null);
   const [sweepError, setSweepError] = useState<string | null>(null);
   const [sweepResultsOpen, setSweepResultsOpen] = useState(false);
+  const [transientConfigOpen, setTransientConfigOpen] = useState(false);
+  const [transientDurationInput, setTransientDurationInput] = useState('0.01');
+  const [transientStepInput, setTransientStepInput] = useState('0.0001');
+  const [transientSourceInput, setTransientSourceInput] = useState('');
+  const [transientWaveformKind, setTransientWaveformKind] = useState<LogicSourceWaveform['kind']>('pulse');
+  const [transientWaveformInputs, setTransientWaveformInputs] = useState<Record<string, string>>({});
+  const [transientResult, setTransientResult] = useState<CircuitTransientResult | null>(null);
+  const [transientResultSignature, setTransientResultSignature] = useState<string | null>(null);
+  const [transientError, setTransientError] = useState<string | null>(null);
+  const [transientResultsOpen, setTransientResultsOpen] = useState(false);
   const clockStartedAtRef = useRef(Date.now());
   const [logicComponents, setLogicComponents] = useState<LogicComponentDefinition[]>([]);
   const [loadingComponents, setLoadingComponents] = useState(false);
@@ -1145,6 +1165,9 @@ function LogicDiagramEditor({ relativePath }: Props) {
   );
   const sweepResultStale = Boolean(
     sweepResult && sweepResultSignature && sweepResultSignature !== circuitInputSignature,
+  );
+  const transientResultStale = Boolean(
+    transientResult && transientResultSignature && transientResultSignature !== circuitInputSignature,
   );
   const sweepSourceChoices = useMemo(() => nodes
     .filter((node) => node.data.kind === 'voltage-source')
@@ -2412,6 +2435,174 @@ function LogicDiagramEditor({ relativePath }: Props) {
     }
   }, [circuitInputSignature, circuitRunning, diagram, edges, nodes, openSweepConfiguration, viewport]);
 
+  const loadTransientWaveform = useCallback((sourceId: string) => {
+    const waveform = diagram.simulation?.transient?.sourceWaveforms[sourceId];
+    const kind = waveform?.kind ?? 'pulse';
+    setTransientWaveformKind(kind);
+    if (kind === 'pulse') {
+      setTransientWaveformInputs({
+        lowValue: String(waveform?.lowValue ?? 0),
+        highValue: String(waveform?.highValue ?? 5),
+        delaySeconds: String(waveform?.delaySeconds ?? 0.001),
+        riseSeconds: String(waveform?.riseSeconds ?? 0),
+        fallSeconds: String(waveform?.fallSeconds ?? 0),
+        pulseWidthSeconds: String(waveform?.pulseWidthSeconds ?? 0.005),
+        periodSeconds: String(waveform?.periodSeconds ?? 0.01),
+      });
+    } else if (kind === 'sine') {
+      setTransientWaveformInputs({
+        offset: String(waveform?.offset ?? 0),
+        amplitude: String(waveform?.amplitude ?? 5),
+        frequencyHertz: String(waveform?.frequencyHertz ?? 50),
+        phaseDegrees: String(waveform?.phaseDegrees ?? 0),
+        delaySeconds: String(waveform?.delaySeconds ?? 0),
+        dampingPerSecond: String(waveform?.dampingPerSecond ?? 0),
+      });
+    } else {
+      setTransientWaveformInputs({});
+    }
+  }, [diagram.simulation?.transient?.sourceWaveforms]);
+
+  const openTransientConfiguration = useCallback(() => {
+    const config = diagram.simulation?.transient;
+    const sourceId = Object.keys(config?.sourceWaveforms ?? {})[0] ?? sweepSourceChoices[0]?.id ?? '';
+    setTransientDurationInput(String(config?.durationSeconds ?? 0.01));
+    setTransientStepInput(String(config?.maxTimeStepSeconds ?? 0.0001));
+    setTransientSourceInput(sourceId);
+    loadTransientWaveform(sourceId);
+    setTransientConfigOpen(true);
+  }, [diagram.simulation?.transient, loadTransientWaveform, sweepSourceChoices]);
+
+  const saveTransientConfiguration = useCallback(() => {
+    if (readOnly) return;
+    const durationSeconds = Number(transientDurationInput);
+    const maxTimeStepSeconds = Number(transientStepInput);
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 3_600) {
+      toast.error('Transient duration must be greater than zero and at most one hour.');
+      return;
+    }
+    if (!Number.isFinite(maxTimeStepSeconds) || maxTimeStepSeconds <= 0 || maxTimeStepSeconds > durationSeconds) {
+      toast.error('Maximum timestep must be greater than zero and no larger than the duration.');
+      return;
+    }
+    if (Math.ceil(durationSeconds / maxTimeStepSeconds) + 1 > 4_096) {
+      toast.error('Increase the maximum timestep so the run contains at most 4,096 samples.');
+      return;
+    }
+    if (!sweepSourceChoices.some((source) => source.id === transientSourceInput)) {
+      toast.error('Select an independent voltage source.');
+      return;
+    }
+    const numberValue = (name: string) => Number(transientWaveformInputs[name]);
+    let waveform: LogicSourceWaveform;
+    if (transientWaveformKind === 'dc') {
+      waveform = { kind: 'dc' };
+    } else if (transientWaveformKind === 'pulse') {
+      const lowValue = numberValue('lowValue');
+      const highValue = numberValue('highValue');
+      const delaySeconds = numberValue('delaySeconds');
+      const riseSeconds = numberValue('riseSeconds');
+      const fallSeconds = numberValue('fallSeconds');
+      const pulseWidthSeconds = numberValue('pulseWidthSeconds');
+      const periodSeconds = numberValue('periodSeconds');
+      if (![lowValue, highValue, delaySeconds, riseSeconds, fallSeconds, pulseWidthSeconds, periodSeconds].every(Number.isFinite)
+        || delaySeconds < 0 || riseSeconds < 0 || fallSeconds < 0 || pulseWidthSeconds <= 0 || periodSeconds <= 0
+        || riseSeconds + pulseWidthSeconds + fallSeconds > periodSeconds) {
+        toast.error('Pulse values must be finite, non-negative, and fit within the period.');
+        return;
+      }
+      waveform = { kind: 'pulse', lowValue, highValue, delaySeconds, riseSeconds, fallSeconds, pulseWidthSeconds, periodSeconds };
+    } else {
+      const offset = numberValue('offset');
+      const amplitude = numberValue('amplitude');
+      const frequencyHertz = numberValue('frequencyHertz');
+      const phaseDegrees = numberValue('phaseDegrees');
+      const delaySeconds = numberValue('delaySeconds');
+      const dampingPerSecond = numberValue('dampingPerSecond');
+      if (![offset, amplitude, frequencyHertz, phaseDegrees, delaySeconds, dampingPerSecond].every(Number.isFinite)
+        || frequencyHertz <= 0 || delaySeconds < 0 || dampingPerSecond < 0) {
+        toast.error('Sine values must be finite with positive frequency and non-negative delay and damping.');
+        return;
+      }
+      waveform = { kind: 'sine', offset, amplitude, frequencyHertz, phaseDegrees, delaySeconds, dampingPerSecond };
+    }
+    setDiagram((current) => ({
+      ...current,
+      simulation: {
+        ...current.simulation,
+        analysis: 'transient',
+        probes: current.simulation?.probes ?? [],
+        transient: {
+          durationSeconds,
+          maxTimeStepSeconds,
+          sourceWaveforms: {
+            ...(current.simulation?.transient?.sourceWaveforms ?? {}),
+            [transientSourceInput]: waveform,
+          },
+        },
+      },
+    }));
+    markChanged();
+    setTransientConfigOpen(false);
+  }, [markChanged, readOnly, sweepSourceChoices, transientDurationInput, transientSourceInput, transientStepInput, transientWaveformInputs, transientWaveformKind]);
+
+  const runTransient = useCallback(async () => {
+    if (diagram.diagramMode !== 'schematic' || circuitRunning) return;
+    if (!diagram.simulation?.transient) {
+      openTransientConfiguration();
+      return;
+    }
+    if ((diagram.simulation.probes?.length ?? 0) === 0) {
+      toast.error('Add at least one voltage or current probe before running transient analysis.');
+      return;
+    }
+    const runSequence = ++circuitRunSequenceRef.current;
+    const document = fromFlowGraph(diagram, nodes, edges, viewport);
+    setCircuitRunning(true);
+    setCircuitRunKind('transient');
+    setTransientError(null);
+    setTransientResultsOpen(true);
+    setCircuitResultsOpen(false);
+    setSweepResultsOpen(false);
+    try {
+      const result = await runCircuitTransientJob(DESKTOP_TRANSIENT_JOB_CLIENT, document, {
+        onStarted: (jobId) => {
+          circuitJobIdRef.current = jobId;
+          if (circuitMountedRef.current && circuitRunSequenceRef.current === runSequence) {
+            setCircuitJobId(jobId);
+            setCircuitJobStatus({ phase: 'queued', stage: 'queued', elapsedMillis: 0 });
+          } else {
+            void tauriCommands.circuitCancelJob(jobId).catch(() => undefined);
+          }
+        },
+        onStatus: (status) => {
+          if (circuitMountedRef.current && circuitRunSequenceRef.current === runSequence) setCircuitJobStatus(status);
+        },
+      });
+      if (!circuitMountedRef.current || circuitRunSequenceRef.current !== runSequence) return;
+      if ('timeSeconds' in result) {
+        setTransientResult(result);
+        setTransientResultSignature(circuitInputSignature);
+      } else if (result.state === 'failed') {
+        throw result.error;
+      }
+    } catch (error) {
+      if (circuitMountedRef.current && circuitRunSequenceRef.current === runSequence) {
+        setTransientResult(null);
+        setTransientResultSignature(null);
+        setTransientError(circuitErrorText(error));
+      }
+    } finally {
+      if (circuitJobIdRef.current) circuitJobIdRef.current = null;
+      if (circuitMountedRef.current && circuitRunSequenceRef.current === runSequence) {
+        setCircuitJobId(null);
+        setCircuitJobStatus(null);
+        setCircuitRunning(false);
+        setCircuitRunKind(null);
+      }
+    }
+  }, [circuitInputSignature, circuitRunning, diagram, edges, nodes, openTransientConfiguration, viewport]);
+
   const cancelDcSimulation = useCallback(async () => {
     const activeJobId = circuitJobIdRef.current;
     if (!activeJobId) return;
@@ -2421,9 +2612,13 @@ function LogicDiagramEditor({ relativePath }: Props) {
         setCircuitJobStatus((current) => current ? { ...current, phase } : current);
       }
     } catch (error) {
-      if (circuitMountedRef.current) setCircuitError(circuitErrorText(error));
+      if (circuitMountedRef.current) {
+        if (circuitRunKind === 'sweep') setSweepError(circuitErrorText(error));
+        else if (circuitRunKind === 'transient') setTransientError(circuitErrorText(error));
+        else setCircuitError(circuitErrorText(error));
+      }
     }
-  }, []);
+  }, [circuitRunKind]);
 
   const resetCircuitResults = useCallback(() => {
     setCircuitResult(null);
@@ -2437,6 +2632,13 @@ function LogicDiagramEditor({ relativePath }: Props) {
     setSweepResultSignature(null);
     setSweepError(null);
     setSweepResultsOpen(false);
+  }, []);
+
+  const resetTransientResults = useCallback(() => {
+    setTransientResult(null);
+    setTransientResultSignature(null);
+    setTransientError(null);
+    setTransientResultsOpen(false);
   }, []);
 
   const exportSweepResult = useCallback(async (format: 'csv' | 'svg') => {
@@ -2510,7 +2712,13 @@ function LogicDiagramEditor({ relativePath }: Props) {
       const removesSweepSource = current.simulation?.dcSweep
         ? nodeIds.has(current.simulation.dcSweep.sourceNodeId)
         : false;
-      if (probes.length === (current.simulation?.probes.length ?? 0) && !removesSweepSource) return current;
+      const sourceWaveforms = Object.fromEntries(
+        Object.entries(current.simulation?.transient?.sourceWaveforms ?? {})
+          .filter(([sourceNodeId]) => !nodeIds.has(sourceNodeId)),
+      );
+      const removesTransientSource = Object.keys(sourceWaveforms).length
+        !== Object.keys(current.simulation?.transient?.sourceWaveforms ?? {}).length;
+      if (probes.length === (current.simulation?.probes.length ?? 0) && !removesSweepSource && !removesTransientSource) return current;
       return {
         ...current,
         simulation: {
@@ -2518,6 +2726,9 @@ function LogicDiagramEditor({ relativePath }: Props) {
           analysis: removesSweepSource ? 'dc-operating-point' : current.simulation?.analysis ?? 'dc-operating-point',
           probes,
           dcSweep: removesSweepSource ? undefined : current.simulation?.dcSweep,
+          transient: current.simulation?.transient
+            ? { ...current.simulation.transient, sourceWaveforms }
+            : undefined,
         },
       };
     });
@@ -3319,10 +3530,31 @@ function LogicDiagramEditor({ relativePath }: Props) {
         >
           <SlidersHorizontal size={14} />
         </DocumentTopBarIconButton>
+        <DocumentTopBarButton
+          onClick={() => circuitRunning && circuitRunKind === 'transient' ? void cancelDcSimulation() : void runTransient()}
+          disabled={loading || (circuitRunning && circuitRunKind !== 'transient') || (!circuitRunning && nodes.length === 0) || (circuitRunning && (!circuitJobId || circuitJobStatus?.phase === 'cancelling'))}
+          title={circuitRunning && circuitRunKind === 'transient' ? 'Cancel transient analysis' : 'Run the persisted transient analysis locally'}
+          className="min-w-[124px]"
+        >
+          {circuitRunning && circuitRunKind === 'transient' && (!circuitJobId || circuitJobStatus?.phase === 'cancelling')
+            ? <Loader2 size={14} className="animate-spin" />
+            : circuitRunning && circuitRunKind === 'transient' ? <X size={14} /> : <Activity size={14} />}
+          {circuitRunning && circuitRunKind === 'transient'
+            ? circuitJobStatus?.phase === 'cancelling' ? 'Cancelling' : 'Transient...'
+            : 'Transient'}
+        </DocumentTopBarButton>
+        <DocumentTopBarIconButton
+          title="Configure transient analysis"
+          onClick={openTransientConfiguration}
+          disabled={readOnly || sweepSourceChoices.length === 0 || circuitRunning}
+        >
+          <SlidersHorizontal size={14} />
+        </DocumentTopBarIconButton>
         <DocumentTopBarIconButton
           title={circuitResultsOpen ? 'Hide DC results' : 'Show DC results'}
           onClick={() => {
             setSweepResultsOpen(false);
+            setTransientResultsOpen(false);
             setCircuitResultsOpen((open) => !open);
           }}
           disabled={!circuitResult && !circuitError}
@@ -3333,11 +3565,23 @@ function LogicDiagramEditor({ relativePath }: Props) {
           title={sweepResultsOpen ? 'Hide sweep results' : 'Show sweep results'}
           onClick={() => {
             setCircuitResultsOpen(false);
+            setTransientResultsOpen(false);
             setSweepResultsOpen((open) => !open);
           }}
           disabled={!sweepResult && !sweepError}
         >
           <ChartLine size={14} />
+        </DocumentTopBarIconButton>
+        <DocumentTopBarIconButton
+          title={transientResultsOpen ? 'Hide transient results' : 'Show transient results'}
+          onClick={() => {
+            setCircuitResultsOpen(false);
+            setSweepResultsOpen(false);
+            setTransientResultsOpen((open) => !open);
+          }}
+          disabled={!transientResult && !transientError}
+        >
+          <Activity size={14} />
         </DocumentTopBarIconButton>
       </div>
       )}
@@ -3562,7 +3806,7 @@ function LogicDiagramEditor({ relativePath }: Props) {
       <LivePeers peers={livePeers} />
       <div className="rounded-full border border-border/60 px-2 py-1 text-[11px] text-muted-foreground">
         {diagram.diagramMode === 'schematic'
-          ? `${counts.schematicCount} symbols · ${counts.groupCount} groups · ${edges.length} wires · ${circuitRunning ? circuitRunKind === 'sweep' ? 'sweeping' : 'solving' : sweepResultStale ? 'sweep stale' : sweepResult ? 'sweep result' : circuitResultStale ? 'DC stale' : circuitResult ? 'DC result' : 'DC ready'}`
+          ? `${counts.schematicCount} symbols · ${counts.groupCount} groups · ${edges.length} wires · ${circuitRunning ? circuitRunKind === 'sweep' ? 'sweeping' : circuitRunKind === 'transient' ? 'transient' : 'solving' : transientResultStale ? 'transient stale' : transientResult ? 'transient result' : sweepResultStale ? 'sweep stale' : sweepResult ? 'sweep result' : circuitResultStale ? 'DC stale' : circuitResult ? 'DC result' : 'DC ready'}`
           : `${counts.gateCount} gates · ${counts.componentCount} components · ${counts.groupCount} groups · ${edges.length} wires`}
       </div>
     </div>
@@ -3783,6 +4027,54 @@ function LogicDiagramEditor({ relativePath }: Props) {
                     result={sweepResult}
                     sourceLabel={sweepSourceChoices.find((source) => source.id === sweepResult.source)?.label}
                   />
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
+        {diagram.diagramMode === 'schematic' && transientResultsOpen && (
+          <aside className="absolute bottom-3 right-3 z-20 flex max-h-[min(72vh,620px)] w-[min(680px,calc(100%-24px))] flex-col overflow-hidden rounded-md border border-border/70 bg-popover/96 text-popover-foreground shadow-xl backdrop-blur-xs-webkit">
+            <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/60 px-3">
+              {circuitRunning && circuitRunKind === 'transient'
+                ? <Loader2 size={15} className="animate-spin text-primary" />
+                : <Activity size={15} className="text-primary" />}
+              <div className="min-w-0 flex-1 truncate text-sm font-semibold">Transient analysis</div>
+              <button
+                type="button"
+                title="Clear transient results"
+                aria-label="Clear transient results"
+                className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                onClick={resetTransientResults}
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="min-h-0 overflow-y-auto px-3 py-3 text-xs">
+              {circuitRunning && circuitRunKind === 'transient' && (
+                <div className="flex items-center gap-2 py-6 text-muted-foreground">
+                  <Loader2 size={14} className="animate-spin" />
+                  {circuitJobStatus?.stage === 'solving' ? 'Advancing transient samples locally...' : 'Preparing transient analysis...'}
+                </div>
+              )}
+              {transientError && !(circuitRunning && circuitRunKind === 'transient') && (
+                <div className="border-l-2 border-destructive pl-3 text-destructive">
+                  <div className="font-semibold">Transient analysis failed</div>
+                  <div className="mt-1 leading-relaxed text-foreground/80">{transientError}</div>
+                </div>
+              )}
+              {transientResultStale && transientResult && (
+                <div className="mb-3 border-l-2 border-amber-500 pl-3 text-amber-600 dark:text-amber-400">
+                  Results are stale. Run transient analysis again to update the traces.
+                </div>
+              )}
+              {transientResult && !(circuitRunning && circuitRunKind === 'transient') && (
+                <div className={cn('space-y-2', transientResultStale && 'opacity-55')}>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                    <span>{transientResult.sampleCount.toLocaleString()} samples</span>
+                    <span>{transientResult.traces.length} {transientResult.traces.length === 1 ? 'trace' : 'traces'}</span>
+                    <span>{formatEngineering(transientResult.timeSeconds.at(-1) ?? 0, 's')}</span>
+                  </div>
+                  <CircuitTransientPlot result={transientResult} />
                 </div>
               )}
             </div>
@@ -4555,6 +4847,100 @@ function LogicDiagramEditor({ relativePath }: Props) {
             <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
               <Button type="button" variant="outline" onClick={() => setSweepConfigOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={readOnly || sweepSourceChoices.length === 0}>Save sweep</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={transientConfigOpen} onOpenChange={setTransientConfigOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Transient analysis</DialogTitle>
+            <DialogDescription>
+              Configure the bounded time range and waveform for an independent voltage source.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveTransientConfiguration();
+            }}
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                Duration (s)
+                <Input type="number" inputMode="decimal" step="any" min={Number.MIN_VALUE} value={transientDurationInput} onChange={(event) => setTransientDurationInput(event.target.value)} />
+              </label>
+              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                Maximum timestep (s)
+                <Input type="number" inputMode="decimal" step="any" min={Number.MIN_VALUE} value={transientStepInput} onChange={(event) => setTransientStepInput(event.target.value)} />
+              </label>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                Source
+                <Select value={transientSourceInput} onValueChange={(value) => {
+                  setTransientSourceInput(value);
+                  loadTransientWaveform(value);
+                }}>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="Select voltage source" /></SelectTrigger>
+                  <SelectContent>
+                    {sweepSourceChoices.map((source) => <SelectItem key={source.id} value={source.id}>{source.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </label>
+              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                Waveform
+                <Select value={transientWaveformKind} onValueChange={(value) => {
+                  const kind = value as LogicSourceWaveform['kind'];
+                  setTransientWaveformKind(kind);
+                  setTransientWaveformInputs(kind === 'pulse'
+                    ? { lowValue: '0', highValue: '5', delaySeconds: '0.001', riseSeconds: '0', fallSeconds: '0', pulseWidthSeconds: '0.005', periodSeconds: '0.01' }
+                    : kind === 'sine'
+                      ? { offset: '0', amplitude: '5', frequencyHertz: '50', phaseDegrees: '0', delaySeconds: '0', dampingPerSecond: '0' }
+                      : {});
+                }}>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="dc">DC value</SelectItem>
+                    <SelectItem value="pulse">Pulse</SelectItem>
+                    <SelectItem value="sine">Sine</SelectItem>
+                  </SelectContent>
+                </Select>
+              </label>
+            </div>
+            {transientWaveformKind === 'pulse' ? (
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  ['lowValue', 'Low level (V)'], ['highValue', 'High level (V)'],
+                  ['delaySeconds', 'Delay (s)'], ['riseSeconds', 'Rise time (s)'],
+                  ['fallSeconds', 'Fall time (s)'], ['pulseWidthSeconds', 'Pulse width (s)'],
+                  ['periodSeconds', 'Period (s)'],
+                ].map(([name, label]) => (
+                  <label key={name} className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                    {label}
+                    <Input type="number" inputMode="decimal" step="any" value={transientWaveformInputs[name] ?? ''} onChange={(event) => setTransientWaveformInputs((current) => ({ ...current, [name]: event.target.value }))} />
+                  </label>
+                ))}
+              </div>
+            ) : null}
+            {transientWaveformKind === 'sine' ? (
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  ['offset', 'Offset (V)'], ['amplitude', 'Amplitude (V)'],
+                  ['frequencyHertz', 'Frequency (Hz)'], ['phaseDegrees', 'Phase (deg)'],
+                  ['delaySeconds', 'Delay (s)'], ['dampingPerSecond', 'Damping (1/s)'],
+                ].map(([name, label]) => (
+                  <label key={name} className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                    {label}
+                    <Input type="number" inputMode="decimal" step="any" value={transientWaveformInputs[name] ?? ''} onChange={(event) => setTransientWaveformInputs((current) => ({ ...current, [name]: event.target.value }))} />
+                  </label>
+                ))}
+              </div>
+            ) : null}
+            <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
+              <Button type="button" variant="outline" onClick={() => setTransientConfigOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={readOnly || sweepSourceChoices.length === 0}>Save transient</Button>
             </DialogFooter>
           </form>
         </DialogContent>

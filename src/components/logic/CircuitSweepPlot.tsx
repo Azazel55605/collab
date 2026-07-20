@@ -1,7 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
 import { RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
 
-import type { CircuitSweepOutput, CircuitSweepResult } from '../../types/circuitRuntime';
+import type {
+  CircuitSweepOutput,
+  CircuitSweepResult,
+  CircuitTransientResult,
+} from '../../types/circuitRuntime';
 import {
   circuitSweepOutputKey,
   circuitSweepTraceLabel,
@@ -52,12 +56,20 @@ function formatAxis(value: number): string {
   return Number(value.toPrecision(4)).toString();
 }
 
-export function CircuitSweepPlot({
+function CircuitSeriesPlot({
   result,
-  sourceLabel,
+  axisValues,
+  axisTitle,
+  cursorLabel,
+  plotLabel,
+  controlLabel,
 }: {
-  result: CircuitSweepResult;
-  sourceLabel?: string;
+  result: CircuitSweepResult | CircuitTransientResult;
+  axisValues: number[];
+  axisTitle: string;
+  cursorLabel: string;
+  plotLabel: string;
+  controlLabel: string;
 }) {
   const clipId = useId().replace(/:/g, '');
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -75,7 +87,7 @@ export function CircuitSweepPlot({
 
   const visible = useMemo(() => new Set(visibleKeys), [visibleKeys]);
   const range = boundedRange(viewRange.start, viewRange.end, result.sampleCount);
-  const [xMin, xMax] = finiteExtent(result.sourceValues.slice(range.start, range.end + 1));
+  const [xMin, xMax] = finiteExtent(axisValues.slice(range.start, range.end + 1));
   const visibleTraces = result.traces.filter((trace) => visible.has(circuitSweepOutputKey(trace.output)));
   const voltageValues = visibleTraces.flatMap((trace) => trace.output.kind === 'node-voltage' ? trace.values.slice(range.start, range.end + 1) : []);
   const currentValues = visibleTraces.flatMap((trace) => trace.output.kind === 'component-current' ? trace.values.slice(range.start, range.end + 1) : []);
@@ -150,7 +162,7 @@ export function CircuitSweepPlot({
     zoomAt(event.deltaY < 0 ? 0.78 : 1.28, anchor ?? undefined);
   };
 
-  const cursorX = cursorIndex === null ? null : x(result.sourceValues[cursorIndex]);
+  const cursorX = cursorIndex === null ? null : x(axisValues[cursorIndex]);
 
   return (
     <div className="circuit-sweep-plot">
@@ -175,17 +187,17 @@ export function CircuitSweepPlot({
           );
         })}
       </div>
-      <div className="circuit-sweep-tools" aria-label="Sweep plot controls">
-        <button type="button" title="Zoom out" aria-label="Zoom out sweep plot" onClick={() => zoomAt(1.28)} disabled={!isZoomed}>
+      <div className="circuit-sweep-tools" aria-label={`${controlLabel} controls`}>
+        <button type="button" title="Zoom out" aria-label={`Zoom out ${controlLabel}`} onClick={() => zoomAt(1.28)} disabled={!isZoomed}>
           <ZoomOut size={14} aria-hidden />
         </button>
-        <button type="button" title="Reset view" aria-label="Reset sweep plot view" onClick={() => {
+        <button type="button" title="Reset view" aria-label={`Reset ${controlLabel} view`} onClick={() => {
           setViewRange({ start: 0, end: Math.max(1, result.sampleCount - 1) });
           setCursorIndex(null);
         }} disabled={!isZoomed && cursorIndex === null}>
           <RotateCcw size={14} aria-hidden />
         </button>
-        <button type="button" title="Zoom in" aria-label="Zoom in sweep plot" onClick={() => zoomAt(0.78)}>
+        <button type="button" title="Zoom in" aria-label={`Zoom in ${controlLabel}`} onClick={() => zoomAt(0.78)}>
           <ZoomIn size={14} aria-hidden />
         </button>
         <span>{range.end - range.start + 1} / {result.sampleCount} samples</span>
@@ -195,7 +207,7 @@ export function CircuitSweepPlot({
           ref={svgRef}
           viewBox={`0 0 ${PLOT_WIDTH} ${PLOT_HEIGHT}`}
           role="img"
-          aria-label="DC sweep plot"
+          aria-label={plotLabel}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerEnd}
@@ -239,8 +251,8 @@ export function CircuitSweepPlot({
               const key = circuitSweepOutputKey(trace.output);
               if (!visible.has(key)) return null;
               const points = indices
-                .filter((index) => Number.isFinite(trace.values[index]) && Number.isFinite(result.sourceValues[index]))
-                .map((index) => `${x(result.sourceValues[index]).toFixed(2)},${y(trace.values[index], trace.output).toFixed(2)}`)
+                .filter((index) => Number.isFinite(trace.values[index]) && Number.isFinite(axisValues[index]))
+                .map((index) => `${x(axisValues[index]).toFixed(2)},${y(trace.values[index], trace.output).toFixed(2)}`)
                 .join(' ');
               return <polyline key={key} points={points} fill="none" stroke={TRACE_COLORS[traceIndex % TRACE_COLORS.length]} strokeWidth="2.25" vectorEffect="non-scaling-stroke" />;
             })}
@@ -262,13 +274,13 @@ export function CircuitSweepPlot({
             ) : null}
           </g>
           <text className="circuit-sweep-axis-title" x={marginLeft + plotWidth / 2} y={PLOT_HEIGHT - 2} textAnchor="middle">
-            {sourceLabel || result.source} (source value)
+            {axisTitle}
           </text>
         </svg>
       </div>
       {cursorIndex !== null ? (
         <div className="circuit-sweep-cursor-readout" aria-live="polite">
-          <strong>{sourceLabel || result.source}: {formatAxis(result.sourceValues[cursorIndex])}</strong>
+          <strong>{cursorLabel}: {formatAxis(axisValues[cursorIndex])}</strong>
           {visibleTraces.map((trace) => (
             <span key={circuitSweepOutputKey(trace.output)}>
               {circuitSweepTraceLabel(result, trace.output)}
@@ -278,5 +290,38 @@ export function CircuitSweepPlot({
         </div>
       ) : null}
     </div>
+  );
+}
+
+export function CircuitSweepPlot({
+  result,
+  sourceLabel,
+}: {
+  result: CircuitSweepResult;
+  sourceLabel?: string;
+}) {
+  const label = sourceLabel || result.source;
+  return (
+    <CircuitSeriesPlot
+      result={result}
+      axisValues={result.sourceValues}
+      axisTitle={`${label} (source value)`}
+      cursorLabel={label}
+      plotLabel="DC sweep plot"
+      controlLabel="sweep plot"
+    />
+  );
+}
+
+export function CircuitTransientPlot({ result }: { result: CircuitTransientResult }) {
+  return (
+    <CircuitSeriesPlot
+      result={result}
+      axisValues={result.timeSeconds}
+      axisTitle="Time (s)"
+      cursorLabel="Time (s)"
+      plotLabel="Transient plot"
+      controlLabel="transient plot"
+    />
   );
 }

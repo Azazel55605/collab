@@ -58,10 +58,28 @@ export function circuitErrorText(error: unknown): string {
     case 'invalidBipolarModel': return 'The transistor model contains invalid parameters.';
     case 'convergenceFailed':
       return `The nonlinear DC solution did not converge after ${String(context.iterations ?? 'the maximum number of')} iterations.`;
+    case 'invalidTimeRange': return 'Transient duration and maximum timestep must both be greater than zero.';
+    case 'sampleLimitExceeded':
+      return `The analysis requests ${String(context.sampleCount ?? '?')} samples; the current limit is ${String(context.maxSamples ?? '?')}.`;
+    case 'resultBufferLimitExceeded': return 'The requested traces exceed the bounded circuit result-buffer limit.';
+    case 'missingOutputs': return 'Add at least one voltage or current probe before running the analysis.';
+    case 'duplicateOutput': return 'The analysis contains a duplicate output trace.';
+    case 'unknownNodeOutput': return 'A voltage probe references an electrical node that no longer exists.';
+    case 'unknownComponentOutput': return 'A current probe references a component that no longer exists.';
+    case 'unknownWaveformSource': return 'A transient waveform references a source that no longer exists.';
+    case 'unsupportedWaveformSource': return 'Transient waveforms can only target independent voltage or current sources.';
+    case 'invalidWaveform':
+      return `The transient source has an invalid ${String(context.field ?? 'waveform')} value.`;
+    case 'sampleFailed':
+      return `Transient sample ${String(context.sampleIndex ?? '?')} at ${String(context.timeSeconds ?? '?')} s failed: ${circuitErrorText(context.error)}`;
     case 'denseSolverSizeLimitExceeded':
       return `This circuit requires ${String(context.unknowns ?? '?')} solver unknowns; the bounded dense backend currently supports ${String(context.maxUnknowns ?? '?')}.`;
-    case 'timeLimitExceeded':
-      return `The DC simulation exceeded its ${String(context.limitMillis ?? '?')} ms execution limit.`;
+    case 'timeLimitExceeded': {
+      const analysis = record.stage === 'transient'
+        ? 'transient analysis'
+        : record.stage === 'sweep' ? 'DC sweep' : 'DC simulation';
+      return `The ${analysis} exceeded its ${String(context.limitMillis ?? '?')} ms execution limit.`;
+    }
     case 'matrixMemoryLimitExceeded':
       return `The ${String(context.unknowns ?? '?')}-unknown DC system exceeds the bounded dense-solver memory limit.`;
     case 'nonFiniteValue': return 'A component contains an invalid numerical value.';

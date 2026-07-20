@@ -7,6 +7,8 @@ import type {
   CircuitJobStatus,
   CircuitSweepChunk,
   CircuitSweepResult,
+  CircuitTransientChunk,
+  CircuitTransientResult,
 } from '../../../src/types/circuitRuntime';
 
 export interface ServerHealthStatus {
@@ -178,6 +180,10 @@ export function circuitStartDcSweep(document: LogicDiagramDocument): Promise<str
   return invoke('circuit_start_dc_sweep', { document });
 }
 
+export function circuitStartTransient(document: LogicDiagramDocument): Promise<string> {
+  return invoke('circuit_start_transient', { document });
+}
+
 export function circuitJobStatus(jobId: string): Promise<CircuitJobStatus> {
   return invoke('circuit_job_status', { jobId });
 }
@@ -198,6 +204,14 @@ export function circuitReadSweepChunk(
   return invoke('circuit_read_sweep_chunk', { jobId, offset, limit });
 }
 
+export function circuitReadTransientChunk(
+  jobId: string,
+  offset: number,
+  limit: number,
+): Promise<CircuitTransientChunk> {
+  return invoke('circuit_read_transient_chunk', { jobId, offset, limit });
+}
+
 export function circuitDiscardJob(jobId: string): Promise<void> {
   return invoke('circuit_discard_job', { jobId });
 }
@@ -209,6 +223,8 @@ export type {
   CircuitJobStatus,
   CircuitSweepChunk,
   CircuitSweepResult,
+  CircuitTransientChunk,
+  CircuitTransientResult,
 };
 
 function asRecord(value: unknown, message: string): Record<string, unknown> {
