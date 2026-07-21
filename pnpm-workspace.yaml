@@ -1,5 +1,9 @@
 verifyDepsBeforeRun: false
 
+overrides:
+  'brace-expansion@>=3.0.0 <5.0.7': 5.0.7
+  'js-yaml@>=4.0.0 <4.3.0': 4.3.0
+
 allowBuilds:
   esbuild: true
   msw: true
