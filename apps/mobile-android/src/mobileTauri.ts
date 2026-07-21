@@ -1,4 +1,5 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
+import { open, save } from '@tauri-apps/plugin-dialog';
 import type { LogicDiagramDocument } from '../../../src/types/logicDiagram';
 import type {
   CircuitDcResult,
@@ -43,6 +44,7 @@ export interface HostedVault {
   manifestSequence: number;
   updatedAt: string | null;
   capabilities: string[];
+  requireOfflineCopy?: boolean;
 }
 
 export type HostedFileKind = 'document' | 'asset' | 'folder';
@@ -121,6 +123,13 @@ export interface CachedContentStatus {
 export interface ConnectOptions {
   allowInvalidCertificates?: boolean;
   persistAcrossReboots?: boolean;
+}
+
+export interface HostedUploadPayload {
+  name: string;
+  mediaType: string;
+  contentBase64: string;
+  expectedHash: string;
 }
 
 export function checkServerHealth(
@@ -270,6 +279,7 @@ export async function listHostedVaults(serverUrl: string): Promise<HostedVault[]
       manifestSequence: optNumber(entry.manifestSequence) ?? 0,
       updatedAt: optString(entry.updatedAt),
       capabilities: stringArray(entry.capabilities),
+      requireOfflineCopy: entry.requireOfflineCopy === true,
     };
   });
 }
@@ -329,6 +339,75 @@ export function hostedAssetDataUrl(
   fileId: string,
 ): Promise<string> {
   return invoke('hosted_vault_asset_data_url', { serverUrl, vaultId, fileId });
+}
+
+export async function showMobileOpenFiles(extensions: string[]): Promise<string[]> {
+  const result = await open({
+    multiple: true,
+    title: 'Upload files',
+    filters: [{ name: 'Supported files', extensions }],
+  });
+  if (Array.isArray(result)) return result;
+  return typeof result === 'string' ? [result] : [];
+}
+
+export function showMobileSaveDialog(defaultName: string): Promise<string | null> {
+  return save({ title: 'Download', defaultPath: defaultName });
+}
+
+export function downloadHostedEntry(
+  serverUrl: string,
+  vaultId: string,
+  fileId: string,
+  archive: boolean,
+  destinationPath: string,
+): Promise<void> {
+  return invoke('hosted_vault_download_entry', {
+    serverUrl,
+    vaultId,
+    fileId,
+    archive,
+    destinationPath,
+  });
+}
+
+export function downloadHostedVault(
+  serverUrl: string,
+  vaultId: string,
+  destinationPath: string,
+): Promise<void> {
+  return invoke('hosted_vault_export_zip', { serverUrl, vaultId, destinationPath });
+}
+
+export async function uploadHostedFile(
+  serverUrl: string,
+  vaultId: string,
+  parentId: string | null,
+  sourcePath: string,
+): Promise<HostedFileEntry> {
+  return parseFileEntry(await invoke('hosted_vault_upload_file', { serverUrl, vaultId, parentId, sourcePath }));
+}
+
+export function readFileForUpload(sourcePath: string): Promise<HostedUploadPayload> {
+  return invoke('read_file_for_upload', { sourcePath });
+}
+
+export async function createHostedDocument(
+  serverUrl: string,
+  vaultId: string,
+  parentId: string | null,
+  name: string,
+  documentType: 'note' | 'kanban' | 'canvas',
+  content = '',
+): Promise<HostedFileEntry> {
+  const value = await hostedRequest<unknown>(serverUrl, 'POST', `/api/v1/vaults/${vaultId}/files`, {
+    parentId,
+    name,
+    kind: 'document',
+    documentType,
+    content,
+  });
+  return parseFileEntry(value);
 }
 
 function parseHostedTextDocument(value: unknown): HostedTextDocument {

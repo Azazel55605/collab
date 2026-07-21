@@ -45,7 +45,7 @@ Deferred until the core is stable:
 | 6.3 DC operating point | Complete | Expand the baseline solver with diagnostics, nonlinear devices, and live overlays. |
 | 6.4 Runtime integration | In progress | Run, cancel, and stream simulations through typed Tauri commands on desktop and Android. |
 | 6.5 Transient and DC sweep | Complete | Dynamic elements, adaptive trapezoidal integration with backward-Euler fallback, bounded sweeps, and shared desktop/Android plot inspection are implemented. |
-| 6.6 AC analysis | Planned | Add small-signal magnitude/phase analysis and Bode plots. |
+| 6.6 AC analysis | In progress | The bounded linear complex sweep core is implemented; DC-bias small-signal linearization, native jobs, and Bode UI remain. |
 | 6.7 Mixed-signal simulation | Planned | Coordinate the existing digital evaluator with analog timesteps through explicit bridges. |
 | 6.8 Offline, cache, and collaboration | Planned | Cache derived results locally while synchronizing source and configuration only. |
 | 6.9 Numerical hardening and release | Planned | Add sparse solving, convergence controls, platform stress tests, and reproducible validation. |
@@ -224,6 +224,14 @@ Phase 6.5 is complete. Phase 6.6 begins the separate complex-valued AC-analysis 
 - Support logarithmic and linear frequency sweeps.
 - Plot magnitude and phase and support transfer-function probes.
 - Keep DC, transient, and frequency-domain result types explicit rather than sharing ambiguous arrays.
+
+Implemented first slice:
+
+- `collab-circuit` exposes a bounded complex-valued AC sweep with explicit frequency, magnitude, and phase result fields.
+- Linear and logarithmic frequency axes support independent voltage/current source excitation and node-voltage or component-current outputs.
+- Resistors, capacitors, inductors, switches, and independent sources use direct frequency-domain MNA stamping with cancellation, wall-clock, dense-matrix, sample, and result-buffer limits.
+- Analytic RC low-pass fixtures verify cutoff magnitude and phase. Diodes and transistors currently return an explicit small-signal-linearization-required error instead of silently using an invalid zero-bias model.
+- Native retained-result jobs, persisted AC analysis configuration, transfer-function normalization, Bode plots, and nonlinear DC-bias linearization remain for the next Phase 6.6 slices.
 
 ## Phase 6.7: Mixed-Signal Simulation
 

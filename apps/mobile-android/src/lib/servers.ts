@@ -10,6 +10,7 @@ export interface KnownServer {
   username: string;
   allowInvalidCertificates: boolean;
   persistAcrossReboots: boolean;
+  offlineCopyMode?: 'inherit' | 'always' | 'never';
 }
 
 const KNOWN_SERVERS_KEY = 'collab-mobile-servers';

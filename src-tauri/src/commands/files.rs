@@ -6,9 +6,11 @@ use collab_core::{
     normalize_relative_path as normalize_core_relative_path, sha256_bytes, sha256_text,
 };
 use serde::{Deserialize, Serialize};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
 use walkdir::WalkDir;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1954,26 +1956,50 @@ pub struct HostedUploadPayload {
     pub expected_hash: String,
 }
 
-/// Reads an external desktop file into a base64 + SHA-256 payload that the hosted
+/// Reads an external file into a base64 + SHA-256 payload that the hosted
 /// vault client uploads through the authenticated server gateway. The source is an
-/// arbitrary filesystem path (a dragged/imported asset), never vault content, so
-/// no vault encryption key is involved.
+/// arbitrary desktop path or Android content URI, never vault content, so no
+/// vault encryption key is involved.
 #[tauri::command]
-pub fn read_file_for_upload(source_path: String) -> Result<HostedUploadPayload, String> {
-    let source = Path::new(&source_path);
-    if !source.is_file() {
-        return Err(format!(
-            "Source asset does not exist or is not a file: {}",
-            source_path
-        ));
-    }
-    let name = source
-        .file_name()
-        .and_then(|n| n.to_str())
+pub fn read_file_for_upload(
+    app: AppHandle,
+    source_path: FilePath,
+) -> Result<HostedUploadPayload, String> {
+    let fallback_name = match &source_path {
+        FilePath::Path(path) => path.file_name().and_then(|name| name.to_str()).map(str::to_owned),
+        FilePath::Url(url) => {
+            #[cfg(target_os = "android")]
+            let name = crate::android_jni::call_static_string(
+                "com.azazel.collab.companion.CollabContentUri",
+                "displayName",
+                &[url.as_str()],
+            )
+            .ok()
+            .flatten();
+            #[cfg(not(target_os = "android"))]
+            let name = None;
+            name.or_else(|| {
+                url.path_segments()
+                    .and_then(|mut segments| segments.next_back())
+                    .map(str::to_owned)
+            })
+        }
+    };
+    let name = fallback_name
+        .as_deref()
         .map(sanitize_file_name)
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "asset".into());
-    let bytes = std::fs::read(source).map_err(|e| e.to_string())?;
+    let mut options = OpenOptions::new();
+    options.read(true);
+    let mut source = app
+        .fs()
+        .open(source_path, options)
+        .map_err(|_| "Could not open the selected upload file.".to_string())?;
+    let mut bytes = Vec::new();
+    source
+        .read_to_end(&mut bytes)
+        .map_err(|_| "Could not read the selected upload file.".to_string())?;
     let expected_hash = sha256_bytes(&bytes);
     let media_type = guess_mime_type(&name).to_string();
     let content_base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);

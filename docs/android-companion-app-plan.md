@@ -622,6 +622,30 @@ Current implementation notes:
   Phase 6 slices because they need actual read-only node/wire rendering with
   pan/zoom rather than a misleading JSON fallback.
 
+### Post-Phase 6: Mobile Management And Kanban Parity
+
+Status: Complete.
+
+- Hosted server entries can be edited, including URL and the explicit untrusted
+  TLS certificate opt-in. Re-authentication is required when applying changes.
+- The mobile settings include the same always-create-offline-copy preference;
+  selecting an eligible hosted vault automatically starts replica creation.
+- The file browser can create notes, upload the supported Collab file types,
+  download individual files, download folders as ZIP archives, and export the
+  full vault. Every action is hidden or rejected according to the current
+  hosted capability grant.
+- Android picker sources and destinations use Tauri's Android-aware filesystem
+  API so Storage Access Framework `content://` locations work for uploads and
+  downloads.
+- Kanban columns can be added, renamed, recolored, configured, reordered, and
+  deleted when empty. Cards can be archived/restored, and the mobile board now
+  includes Calendar, Timeline, and Archive views.
+- Follow-up mobile polish keeps server editing attached to its server row,
+  supports per-server Default/Always/Never offline-copy behavior, and replaces
+  per-row download controls with long-press multi-selection. Kanban view and
+  column controls remain compact, while Calendar and Timeline use real month
+  and day-scale layouts. Scrollable sheets render above the bottom navigation.
+
 ### Phase 7: Android Hardening And Release Prep
 
 Estimated effort: 4-8 weeks.

@@ -168,6 +168,7 @@ pub fn run() {
             commands::server::hosted_vault_request,
             commands::server::hosted_vault_asset_data_url,
             commands::server::hosted_vault_upload_file,
+            commands::server::hosted_vault_download_entry,
             commands::server::hosted_user_directory,
             commands::server::hosted_vault_export_zip,
             commands::server::hosted_ws_ticket,

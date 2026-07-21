@@ -1,8 +1,8 @@
-import { ChevronRight, Cloud, LogOut, Plus, RefreshCw, ShieldAlert } from 'lucide-react';
+import { ChevronRight, Cloud, LogOut, Pencil, Plus, RefreshCw, ShieldAlert } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 
 import { Banner, EmptyState, Spinner, StatusDot } from '../components/ui';
-import { normalizeServerUrl } from '../lib/servers';
+import { normalizeServerUrl, type KnownServer } from '../lib/servers';
 import { useMobileStore } from '../state/store';
 
 function errorMessage(reason: unknown): string {
@@ -21,9 +21,32 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [allowInvalid, setAllowInvalid] = useState(false);
+  const [offlineCopyMode, setOfflineCopyMode] = useState<NonNullable<KnownServer['offlineCopyMode']>>('inherit');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  const [editingServer, setEditingServer] = useState<string | null>(null);
+
+  function beginEdit(server: (typeof servers)[number]) {
+    const normalized = normalizeServerUrl(server.serverUrl);
+    setEditingServer(normalized);
+    setServerUrl(normalized);
+    setUsername(server.username);
+    setPassword('');
+    setAllowInvalid(server.allowInvalidCertificates);
+    setOfflineCopyMode(server.offlineCopyMode ?? 'inherit');
+    setShowForm(false);
+  }
+
+  function beginAdd() {
+    setEditingServer(null);
+    setServerUrl('https://');
+    setUsername('');
+    setPassword('');
+    setAllowInvalid(false);
+    setOfflineCopyMode('inherit');
+    setShowForm(true);
+  }
 
   const connectedCount = useMemo(
     () => Object.values(statuses).filter((status) => status.connected).length,
@@ -38,8 +61,12 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
       await connect(serverUrl, username.trim(), password, {
         allowInvalidCertificates: allowInvalid,
         persistAcrossReboots: true,
+        offlineCopyMode,
       });
+      const normalizedNext = normalizeServerUrl(serverUrl);
+      if (editingServer && editingServer !== normalizedNext) await disconnect(editingServer);
       setPassword('');
+      setEditingServer(null);
       setShowForm(false);
     } catch (reason) {
       setError(errorMessage(reason));
@@ -67,8 +94,8 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
           <h1>Servers</h1>
           <p>{connectedCount > 0 ? `${connectedCount} connected` : 'Not connected'}</p>
         </div>
-        {!showForm ? (
-          <button className="header-action" type="button" onClick={() => setShowForm(true)}>
+        {!showForm && !editingServer ? (
+          <button className="header-action" type="button" onClick={beginAdd}>
             <Plus size={18} aria-hidden />
             Add
           </button>
@@ -77,7 +104,7 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
 
       {error ? <Banner tone="error">{error}</Banner> : null}
 
-      {showForm ? (
+      {showForm && !editingServer ? (
         <form className="card form-card" onSubmit={handleConnect}>
           <div className="card-title">
             <Cloud size={18} aria-hidden />
@@ -129,7 +156,7 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
               <button
                 type="button"
                 className="ghost-button"
-                onClick={() => setShowForm(false)}
+                onClick={() => { setShowForm(false); setEditingServer(null); }}
                 disabled={busy}
               >
                 Cancel
@@ -161,49 +188,98 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
           const status = statuses[key];
           const online = !!status?.connected;
           const isPending = pending === key;
+          const editing = editingServer === key;
           return (
-            <li className="list-row server-row" key={key}>
-              <button
-                type="button"
-                className="row-main"
-                disabled={!online}
-                onClick={() => onOpenServer(key)}
-              >
-                <StatusDot online={online} />
-                <div className="row-text">
-                  <strong>{key.replace(/^https?:\/\//, '')}</strong>
-                  <span>
-                    {online
-                      ? status?.user?.displayName || status?.user?.username || server.username
-                      : 'Disconnected'}
-                    {server.allowInvalidCertificates ? ' · untrusted TLS' : ''}
-                  </span>
+            <li className={`server-list-item ${editing ? 'editing' : ''}`} key={key}>
+              <div className="list-row server-row">
+                <button
+                  type="button"
+                  className="row-main"
+                  disabled={!online || editing}
+                  onClick={() => onOpenServer(key)}
+                >
+                  <StatusDot online={online} />
+                  <div className="row-text">
+                    <strong>{key.replace(/^https?:\/\//, '')}</strong>
+                    <span>
+                      {online
+                        ? status?.user?.displayName || status?.user?.username || server.username
+                        : 'Disconnected'}
+                      {server.allowInvalidCertificates ? ' · untrusted TLS' : ''}
+                      {server.offlineCopyMode === 'always' ? ' · offline copies' : ''}
+                    </span>
+                  </div>
+                  {online && !editing ? <ChevronRight size={18} aria-hidden className="row-chevron" /> : null}
+                </button>
+                <div className="row-actions">
+                  <button
+                    type="button"
+                    className={`icon-button ${editing ? 'active' : ''}`}
+                    aria-label={`Edit ${key}`}
+                    disabled={isPending}
+                    onClick={() => editing ? setEditingServer(null) : beginEdit(server)}
+                  >
+                    <Pencil size={16} aria-hidden />
+                  </button>
+                  {online ? (
+                    <button
+                      type="button"
+                      className="icon-button danger"
+                      aria-label="Disconnect"
+                      disabled={isPending || editing}
+                      onClick={() => withPending(key, () => disconnect(key))}
+                    >
+                      {isPending ? <Spinner size={16} /> : <LogOut size={16} aria-hidden />}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label="Reconnect"
+                      disabled={isPending || editing}
+                      onClick={() => withPending(key, () => reconnect(key))}
+                    >
+                      {isPending ? <Spinner size={16} /> : <RefreshCw size={16} aria-hidden />}
+                    </button>
+                  )}
                 </div>
-                {online ? <ChevronRight size={18} aria-hidden className="row-chevron" /> : null}
-              </button>
-              <div className="row-actions">
-                {online ? (
-                  <button
-                    type="button"
-                    className="icon-button danger"
-                    aria-label="Disconnect"
-                    disabled={isPending}
-                    onClick={() => withPending(key, () => disconnect(key))}
-                  >
-                    {isPending ? <Spinner size={16} /> : <LogOut size={16} aria-hidden />}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="icon-button"
-                    aria-label="Reconnect"
-                    disabled={isPending}
-                    onClick={() => withPending(key, () => reconnect(key))}
-                  >
-                    {isPending ? <Spinner size={16} /> : <RefreshCw size={16} aria-hidden />}
-                  </button>
-                )}
               </div>
+              {editing ? (
+                <form className="server-inline-editor" aria-label={`Edit ${key}`} onSubmit={handleConnect}>
+                  <label className="field">
+                    <span>Server URL</span>
+                    <input value={serverUrl} inputMode="url" autoCapitalize="none" autoCorrect="off" onChange={(event) => setServerUrl(event.target.value)} />
+                  </label>
+                  <label className="field">
+                    <span>Username</span>
+                    <input value={username} autoCapitalize="none" autoCorrect="off" onChange={(event) => setUsername(event.target.value)} />
+                  </label>
+                  <label className="field">
+                    <span>Password</span>
+                    <input value={password} type="password" autoCapitalize="none" autoCorrect="off" placeholder="Required to apply changes" onChange={(event) => setPassword(event.target.value)} />
+                  </label>
+                  <label className="toggle-field compact-toggle">
+                    <input type="checkbox" checked={allowInvalid} onChange={(event) => setAllowInvalid(event.target.checked)} />
+                    <span><strong>Allow untrusted certificate</strong><em>Only for private, trusted deployments.</em></span>
+                  </label>
+                  <fieldset className="server-offline-mode">
+                    <legend>Automatic offline copies</legend>
+                    <div className="segmented-control">
+                      {(['inherit', 'always', 'never'] as const).map((mode) => (
+                        <button key={mode} type="button" className={offlineCopyMode === mode ? 'selected' : ''} onClick={() => setOfflineCopyMode(mode)}>
+                          {mode === 'inherit' ? 'Default' : mode === 'always' ? 'Always' : 'Never'}
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <div className="form-actions">
+                    <button type="button" className="ghost-button" disabled={busy} onClick={() => setEditingServer(null)}>Cancel</button>
+                    <button type="submit" className="primary-button" disabled={busy || !serverUrl.trim() || !username.trim() || !password}>
+                      {busy ? <Spinner /> : <Pencil size={17} aria-hidden />} Apply changes
+                    </button>
+                  </div>
+                </form>
+              ) : null}
             </li>
           );
         })}

@@ -3,9 +3,11 @@ import { parseLogicDiagramDocument } from '../../../../src/types/logicDiagram';
 import { fileEntryExtension } from './format';
 import {
   type HostedFileEntry,
+  type HostedTextDocument,
   readHostedDocument,
   replicaCacheDocument,
   replicaReadCachedDocument,
+  writeHostedDocument,
 } from '../mobileTauri';
 
 export type { LogicDiagramDocument };
@@ -18,6 +20,28 @@ export function isLogicFile(file: HostedFileEntry): boolean {
 export function parseLogicContent(content: string): LogicDiagramDocument {
   if (!content.trim()) return parseLogicDiagramDocument('{"kind":"logic-diagram","nodes":[],"wires":[]}');
   return parseLogicDiagramDocument(content);
+}
+
+export function serializeLogicDocument(logic: LogicDiagramDocument): string {
+  return JSON.stringify(logic, null, 2);
+}
+
+export async function saveLogicDocument(
+  serverUrl: string,
+  vaultId: string,
+  file: HostedFileEntry,
+  logic: LogicDiagramDocument,
+): Promise<HostedTextDocument> {
+  const content = serializeLogicDocument(logic);
+  const document = await writeHostedDocument(
+    serverUrl,
+    vaultId,
+    file.id,
+    file.revisionSequence ?? 0,
+    content,
+  );
+  await replicaCacheDocument(serverUrl, vaultId, file.id, content).catch(() => {});
+  return document;
 }
 
 export interface LoadedLogicDocument {

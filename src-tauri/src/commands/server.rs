@@ -3,7 +3,8 @@ use base64::Engine as _;
 use collab_protocol::{NativeSession, ServerUser};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
 use tokio::io::AsyncWriteExt;
 
 use crate::hosted_client::{
@@ -300,11 +301,12 @@ pub async fn hosted_vault_asset_data_url(
 
 #[tauri::command]
 pub async fn hosted_vault_upload_file(
+    app: AppHandle,
     state: State<'_, AppState>,
     server_url: String,
     vault_id: String,
     parent_id: Option<String>,
-    source_path: String,
+    source_path: FilePath,
 ) -> Result<Value, String> {
     validate_identifier(&vault_id)?;
     if let Some(parent_id) = parent_id.as_deref() {
@@ -316,7 +318,7 @@ pub async fn hosted_vault_upload_file(
         "Connect to the Collab server before uploading hosted assets.",
     )
     .await?;
-    let payload = super::files::read_file_for_upload(source_path)?;
+    let payload = super::files::read_file_for_upload(app, source_path)?;
     let response = server_client(session.allow_invalid_certificates)?
         .post(format!(
             "{}/api/v1/vaults/{vault_id}/uploads",
@@ -334,6 +336,60 @@ pub async fn hosted_vault_upload_file(
         .await
         .map_err(server_request_error)?;
     decode_hosted_json_response(response).await
+}
+
+#[tauri::command]
+pub async fn hosted_vault_download_entry(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    server_url: String,
+    vault_id: String,
+    file_id: String,
+    archive: bool,
+    destination_path: FilePath,
+) -> Result<(), String> {
+    validate_identifier(&vault_id)?;
+    validate_identifier(&file_id)?;
+    let session = fresh_session_for(
+        &state,
+        &server_url,
+        "Connect to the Collab server before downloading hosted files.",
+    )
+    .await?;
+    let suffix = if archive { "archive" } else { "content" };
+    let response = server_client(session.allow_invalid_certificates)?
+        .get(format!(
+            "{}/api/v1/vaults/{vault_id}/files/{file_id}/{suffix}",
+            session.server_url,
+        ))
+        .bearer_auth(&session.access_token)
+        .send()
+        .await
+        .map_err(server_request_error)?;
+    if !response.status().is_success() {
+        return Err(decode_hosted_error(response).await);
+    }
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    let file = app
+        .fs()
+        .open(destination_path, options)
+        .map_err(|_| "Could not create the downloaded file.".to_string())?;
+    let mut file = tokio::fs::File::from_std(file);
+    let mut response = response;
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "The server returned an invalid download response.".to_string())?
+    {
+        file.write_all(&chunk)
+            .await
+            .map_err(|_| "Could not write the downloaded file.".to_string())?;
+    }
+    file.flush()
+        .await
+        .map_err(|_| "Could not finish writing the downloaded file.".to_string())?;
+    Ok(())
 }
 
 /// Read-only authenticated user directory used when adding hosted vault members.
@@ -363,10 +419,11 @@ pub async fn hosted_user_directory(
 /// webview. Server authorization (vault admin) is enforced server-side.
 #[tauri::command]
 pub async fn hosted_vault_export_zip(
+    app: AppHandle,
     state: State<'_, AppState>,
     server_url: String,
     vault_id: String,
-    destination_path: String,
+    destination_path: FilePath,
 ) -> Result<(), String> {
     validate_identifier(&vault_id)?;
     let session = fresh_session_for(
@@ -387,9 +444,13 @@ pub async fn hosted_vault_export_zip(
     if !response.status().is_success() {
         return Err(decode_hosted_error(response).await);
     }
-    let mut file = tokio::fs::File::create(&destination_path)
-        .await
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    let file = app
+        .fs()
+        .open(destination_path, options)
         .map_err(|_| "Could not write the exported vault archive to disk.".to_string())?;
+    let mut file = tokio::fs::File::from_std(file);
     let mut response = response;
     while let Some(chunk) = response
         .chunk()

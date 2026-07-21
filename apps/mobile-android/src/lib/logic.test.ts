@@ -4,7 +4,7 @@ const invoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 
 import type { HostedFileEntry } from '../mobileTauri';
-import { isLogicFile, parseLogicContent, readLogicDocument } from './logic';
+import { isLogicFile, parseLogicContent, readLogicDocument, saveLogicDocument } from './logic';
 
 const SERVER = 'https://collab.example.com';
 const VAULT = 'v1';
@@ -95,5 +95,35 @@ describe('mobile logic documents', () => {
     const loaded = await readLogicDocument(SERVER, VAULT, LOGIC_FILE, false);
     expect(loaded.source).toBe('cache');
     expect(loaded.logic.wires[2].source).toBe('and');
+  });
+
+  it('writes the current revision and refreshes the offline cache', async () => {
+    invoke.mockImplementation((command: string) => {
+      if (command === 'hosted_vault_request') {
+        return Promise.resolve({
+          file: {
+            ...LOGIC_FILE,
+            currentRevision: { sequence: 5, contentHash: 'saved-hash', sizeBytes: CONTENT.length },
+          },
+          content: CONTENT,
+        });
+      }
+      if (command === 'replica_cache_document') return Promise.resolve(null);
+      return Promise.reject(new Error(`unhandled ${command}`));
+    });
+
+    const logic = parseLogicContent(CONTENT);
+    const saved = await saveLogicDocument(SERVER, VAULT, LOGIC_FILE, logic);
+
+    expect(saved.file.revisionSequence).toBe(5);
+    expect(invoke).toHaveBeenCalledWith('hosted_vault_request', expect.objectContaining({
+      method: 'POST',
+      path: `/api/v1/vaults/${VAULT}/files/${LOGIC_FILE.id}/revisions`,
+      body: expect.objectContaining({ expectedRevisionSequence: 4 }),
+    }));
+    expect(invoke).toHaveBeenCalledWith('replica_cache_document', expect.objectContaining({
+      fileId: LOGIC_FILE.id,
+      content: expect.stringContaining('"schemaVersion": 6'),
+    }));
   });
 });

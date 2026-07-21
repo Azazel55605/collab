@@ -659,7 +659,7 @@ fn damp_voltage_update(
     }
 }
 
-fn validate(circuit: &Circuit) -> Result<(), SimulationError> {
+pub(crate) fn validate(circuit: &Circuit) -> Result<(), SimulationError> {
     if circuit.reference.0.is_empty() {
         return Err(SimulationError::EmptyReference);
     }

@@ -1,5 +1,5 @@
-import { CloudOff, ChevronRight, FolderOpen, Home, Info, RefreshCw, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, CloudOff, ChevronRight, Download, FilePlus2, FolderOpen, Home, Info, ListChecks, RefreshCw, Upload, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import { Banner, CacheBadge, EmptyState, GlyphIcon, ReadOnlyBadge, Spinner } from '../components/ui';
 import {
@@ -20,9 +20,13 @@ import { KanbanScreen } from './KanbanScreen';
 import { NoteScreen } from './NoteScreen';
 import { RichFileViewerScreen } from './RichFileViewerScreen';
 import { useMobileStore } from '../state/store';
+import { createHostedDocument } from '../mobileTauri';
+import { downloadEntireVault, downloadEntry, normalizedNoteName, pickAndUploadFiles } from '../lib/fileTransfer';
 
 const PAGE_SIZE = 60;
 const FOLDER_SCAN_BUDGET_MS = 7;
+const LONG_PRESS_MS = 450;
+const LONG_PRESS_MOVE_TOLERANCE = 10;
 const fileCollator = new Intl.Collator(undefined, { sensitivity: 'base' });
 
 function sortFolderEntries(entries: HostedFileEntry[]): HostedFileEntry[] {
@@ -36,6 +40,7 @@ function sortFolderEntries(entries: HostedFileEntry[]): HostedFileEntry[] {
 export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   const selected = useMobileStore((s) => s.selected);
   const files = useMobileStore((s) => s.files);
+  const statuses = useMobileStore((s) => s.statuses);
   const filesBusy = useMobileStore((s) => s.filesBusy);
   const filesError = useMobileStore((s) => s.filesError);
   const filesOffline = useMobileStore((s) => s.filesOffline);
@@ -52,7 +57,117 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   const currentParent = trail[trail.length - 1]?.id ?? null;
   const [entries, setEntries] = useState<HostedFileEntry[]>([]);
   const [folderBusy, setFolderBusy] = useState(false);
+  const [transferBusy, setTransferBusy] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [showCreateNote, setShowCreateNote] = useState(false);
+  const [newNoteName, setNewNoteName] = useState('');
+  const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(() => new Set());
+  const longPressRef = useRef<{
+    id: string;
+    x: number;
+    y: number;
+    timer: number;
+    fired: boolean;
+  } | null>(null);
   const readOnly = selected ? isReadOnlyRole(selected.vault.role) : false;
+  const connected = selected ? !!statuses[selected.serverUrl]?.connected : false;
+
+  async function runTransfer(action: () => Promise<void>) {
+    setTransferBusy(true);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      await action();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTransferBusy(false);
+    }
+  }
+
+  async function handleUpload() {
+    await runTransfer(async () => {
+      const result = await pickAndUploadFiles(selected!.serverUrl, selected!.vault, currentParent);
+      await loadFiles();
+      setActionMessage(`${result.completed.length} uploaded${result.failed.length ? ` · ${result.failed.length} failed` : ''}`);
+      if (result.failed.length) setActionError(result.failed.map((failure) => `${failure.name}: ${failure.error}`).join('\n'));
+    });
+  }
+
+  async function handleCreateNote() {
+    await runTransfer(async () => {
+      const name = normalizedNoteName(newNoteName);
+      const created = await createHostedDocument(selected!.serverUrl, selected!.vault.id, currentParent, name, 'note');
+      await loadFiles();
+      setShowCreateNote(false);
+      setNewNoteName('');
+      openSheet({ kind: 'note', fileId: created.id });
+    });
+  }
+
+  function toggleEntrySelection(id: string) {
+    setSelectedEntryIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function cancelLongPress() {
+    const pending = longPressRef.current;
+    if (pending) window.clearTimeout(pending.timer);
+    if (!pending?.fired) longPressRef.current = null;
+  }
+
+  function startLongPress(event: ReactPointerEvent, id: string) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    cancelLongPress();
+    const pending = {
+      id,
+      x: event.clientX,
+      y: event.clientY,
+      timer: 0,
+      fired: false,
+    };
+    pending.timer = window.setTimeout(() => {
+      pending.fired = true;
+      toggleEntrySelection(id);
+      navigator.vibrate?.(20);
+    }, LONG_PRESS_MS);
+    longPressRef.current = pending;
+  }
+
+  function moveLongPress(event: ReactPointerEvent) {
+    const pending = longPressRef.current;
+    if (!pending || pending.fired) return;
+    if (
+      Math.abs(event.clientX - pending.x) > LONG_PRESS_MOVE_TOLERANCE ||
+      Math.abs(event.clientY - pending.y) > LONG_PRESS_MOVE_TOLERANCE
+    ) {
+      cancelLongPress();
+    }
+  }
+
+  function endLongPress() {
+    const pending = longPressRef.current;
+    if (!pending) return;
+    window.clearTimeout(pending.timer);
+    if (!pending.fired) longPressRef.current = null;
+    else window.setTimeout(() => { longPressRef.current = null; }, 0);
+  }
+
+  async function handleBatchDownload() {
+    await runTransfer(async () => {
+      const selectedEntries = entries.filter((entry) => selectedEntryIds.has(entry.id));
+      let completed = 0;
+      for (const entry of selectedEntries) {
+        if (await downloadEntry(selected!.serverUrl, selected!.vault, entry)) completed += 1;
+      }
+      setSelectedEntryIds(new Set());
+      setActionMessage(`${completed} downloaded`);
+    });
+  }
 
   // Reveal the folder in pages so a large directory never renders (or cache-checks)
   // thousands of rows at once; more load as the user scrolls to the bottom.
@@ -62,6 +177,7 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   // Reset paging whenever the folder or vault changes.
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
+    setSelectedEntryIds(new Set());
   }, [currentParent, selected?.vault.id, selected?.serverUrl]);
 
   useEffect(() => {
@@ -96,6 +212,7 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   }, [currentParent, files]);
 
   const visibleEntries = useMemo(() => entries.slice(0, visibleCount), [entries, visibleCount]);
+  const selectionMode = selectedEntryIds.size > 0;
 
   // Load more when the bottom sentinel scrolls into view.
   useEffect(() => {
@@ -158,12 +275,46 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
     <div className="screen">
       <header className="screen-header">
         <div>
-          <h1 className="truncate">{selected.vault.name}</h1>
-          <p>{readOnly ? 'Read-only vault' : 'Browsing files'}</p>
+          <h1 className="truncate">{selectionMode ? `${selectedEntryIds.size} selected` : selected.vault.name}</h1>
+          <p>{selectionMode ? 'Tap more items to add them' : readOnly ? 'Read-only vault' : 'Browsing files'}</p>
         </div>
         <div className="header-side">
-          {readOnly ? <ReadOnlyBadge /> : null}
-          <button
+          {selectionMode ? (
+            <>
+              <button type="button" className="icon-button" aria-label="Select all in folder" onClick={() => setSelectedEntryIds(new Set(entries.map((entry) => entry.id)))}>
+                <ListChecks size={16} aria-hidden />
+              </button>
+              <button type="button" className="icon-button" aria-label="Download selected" disabled={transferBusy || !connected || !selected.vault.capabilities.includes('vault.read')} onClick={() => void handleBatchDownload()}>
+                <Download size={16} aria-hidden />
+              </button>
+              <button type="button" className="icon-button" aria-label="Clear selection" onClick={() => setSelectedEntryIds(new Set())}>
+                <X size={16} aria-hidden />
+              </button>
+            </>
+          ) : null}
+          {!selectionMode && readOnly ? <ReadOnlyBadge /> : null}
+          {!selectionMode && !readOnly && connected && selected.vault.capabilities.includes('file.create') ? (
+            <button type="button" className="icon-button" aria-label="New note" onClick={() => setShowCreateNote(true)}>
+              <FilePlus2 size={16} aria-hidden />
+            </button>
+          ) : null}
+          {!selectionMode && !readOnly && connected && (selected.vault.capabilities.includes('file.create') || selected.vault.capabilities.includes('file.uploadAsset')) ? (
+            <button type="button" className="icon-button" aria-label="Upload files" disabled={transferBusy} onClick={() => void handleUpload()}>
+              <Upload size={16} aria-hidden />
+            </button>
+          ) : null}
+          {!selectionMode && connected && selected.vault.capabilities.includes('vault.export') ? (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Download entire vault"
+              disabled={transferBusy}
+              onClick={() => void runTransfer(async () => { await downloadEntireVault(selected.serverUrl, selected.vault); })}
+            >
+              <Download size={16} aria-hidden />
+            </button>
+          ) : null}
+          {!selectionMode ? <button
             type="button"
             className="icon-button"
             aria-label="Refresh"
@@ -171,7 +322,7 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
             disabled={filesBusy}
           >
             {filesBusy ? <Spinner size={16} /> : <RefreshCw size={16} aria-hidden />}
-          </button>
+          </button> : null}
         </div>
       </header>
 
@@ -200,6 +351,8 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
       ) : null}
 
       {filesError ? <Banner tone="error">{filesError}</Banner> : null}
+      {actionError ? <Banner tone="error">{actionError}</Banner> : null}
+      {actionMessage ? <Banner tone="info">{actionMessage}</Banner> : null}
 
       {(filesBusy && files.length === 0) || folderBusy ? (
         <div className="loading-block">
@@ -221,24 +374,41 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
           {visibleEntries.map((entry) => {
             const glyph = fileGlyph(entry);
             const isFolder = entry.kind === 'folder';
+            const selectedEntry = selectedEntryIds.has(entry.id);
             return (
-              <li className="list-row" key={entry.id}>
+              <li className={`list-row ${selectedEntry ? 'selected' : ''}`} key={entry.id}>
                 <button
                   type="button"
                   className="row-main file-row"
-                  onClick={() =>
-                    isFolder
-                      ? enterFolder({ id: entry.id, name: entry.name })
-                      : isLogicFile(entry)
-                        ? openSheet({ kind: 'viewer', fileId: entry.id })
-                        : isNoteFile(entry)
-                          ? openSheet({ kind: 'note', fileId: entry.id })
-                          : isKanbanFile(entry)
-                          ? openSheet({ kind: 'kanban', fileId: entry.id })
-                          : isRichViewableFile(entry) || isCanvasFile(entry)
-                            ? openSheet({ kind: 'viewer', fileId: entry.id })
-                            : openSheet({ kind: 'fileDetail', fileId: entry.id })
-                  }
+                  aria-pressed={selectionMode ? selectedEntry : undefined}
+                  onPointerDown={(event) => startLongPress(event, entry.id)}
+                  onPointerMove={moveLongPress}
+                  onPointerUp={endLongPress}
+                  onPointerCancel={cancelLongPress}
+                  onContextMenu={(event) => { event.preventDefault(); if (!selectedEntry) toggleEntrySelection(entry.id); }}
+                  onClick={(event) => {
+                    if (longPressRef.current?.id === entry.id && longPressRef.current.fired) {
+                      event.preventDefault();
+                      return;
+                    }
+                    if (selectionMode) {
+                      toggleEntrySelection(entry.id);
+                      return;
+                    }
+                    if (isFolder) {
+                      enterFolder({ id: entry.id, name: entry.name });
+                    } else if (isLogicFile(entry)) {
+                      openSheet({ kind: 'viewer', fileId: entry.id });
+                    } else if (isNoteFile(entry)) {
+                      openSheet({ kind: 'note', fileId: entry.id });
+                    } else if (isKanbanFile(entry)) {
+                      openSheet({ kind: 'kanban', fileId: entry.id });
+                    } else if (isRichViewableFile(entry) || isCanvasFile(entry)) {
+                      openSheet({ kind: 'viewer', fileId: entry.id });
+                    } else {
+                      openSheet({ kind: 'fileDetail', fileId: entry.id });
+                    }
+                  }}
                 >
                   <div className={`file-icon glyph-${glyph}`}>
                     <GlyphIcon glyph={glyph} />
@@ -258,7 +428,7 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
                     </span>
                   </div>
                   {!isFolder && fileCache[entry.id] ? <CacheBadge state={fileCache[entry.id]} /> : null}
-                  <ChevronRight size={18} aria-hidden className="row-chevron" />
+                  {selectedEntry ? <Check size={18} aria-hidden className="row-selected-check" /> : <ChevronRight size={18} aria-hidden className="row-chevron" />}
                 </button>
               </li>
             );
@@ -279,6 +449,25 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
           cacheState={fileCache[detailFile.id]}
           onClose={closeSheet}
         />
+      ) : null}
+
+      {showCreateNote ? (
+        <div className="sheet-backdrop" onClick={() => setShowCreateNote(false)}>
+          <form className="sheet" aria-label="Create note" onSubmit={(event) => { event.preventDefault(); void handleCreateNote(); }} onClick={(event) => event.stopPropagation()}>
+            <div className="sheet-handle" />
+            <div className="sheet-head">
+              <div className="row-text"><strong>New note</strong><span>Created in the current folder</span></div>
+              <button type="button" className="icon-button" aria-label="Close" onClick={() => setShowCreateNote(false)}><X size={18} /></button>
+            </div>
+            <label className="field">
+              <span>Name</span>
+              <input autoFocus value={newNoteName} placeholder="Untitled.md" onChange={(event) => setNewNoteName(event.target.value)} />
+            </label>
+            <button className="primary-button" type="submit" disabled={transferBusy || !newNoteName.trim()}>
+              {transferBusy ? <Spinner size={16} /> : <FilePlus2 size={16} />} Create note
+            </button>
+          </form>
+        </div>
       ) : null}
     </div>
   );

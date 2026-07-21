@@ -4,12 +4,17 @@
 //! public model is intentionally independent of the matrix backend so later
 //! sparse and transient solvers can reuse the same validated circuit boundary.
 
+mod ac;
 mod compiler;
 mod dc;
 mod model;
 mod sweep;
 mod transient;
 
+pub use ac::{
+    sweep_ac, sweep_ac_with_control, AcOutput, AcSource, AcSweepError, AcSweepLimits,
+    AcSweepRequest, AcSweepResult, AcSweepScale, AcTrace,
+};
 pub use compiler::{
     compile_schematic, CompilationError, CompiledCircuit, DiagramMode, ProbeMap, ProbeTarget,
     SchematicComponentKind, SchematicDcSweepConfig, SchematicDocument,

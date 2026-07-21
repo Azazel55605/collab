@@ -32,7 +32,7 @@ const REMOTE_AWARENESS_ORIGIN = Symbol('mobile-live-awareness-remote');
 const LOCAL_JSON_ORIGIN = Symbol('mobile-live-json-local');
 
 export type LiveStatus = 'connecting' | 'connected' | 'disconnected';
-export type MobileLiveDocumentKind = 'note' | 'kanban' | 'canvas';
+export type MobileLiveDocumentKind = 'note' | 'kanban' | 'canvas' | 'logic';
 export type JsonValue =
   | string
   | number

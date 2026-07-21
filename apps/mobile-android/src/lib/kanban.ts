@@ -144,6 +144,65 @@ export function createCard(title: string): KanbanCard {
   };
 }
 
+export function createColumn(title: string): KanbanColumn {
+  return {
+    id: crypto.randomUUID(),
+    title: title.trim() || 'Untitled column',
+    cards: [],
+  };
+}
+
+export function addColumn(board: KanbanBoard, column: KanbanColumn): KanbanBoard {
+  return { ...board, columns: [...board.columns, column] };
+}
+
+export function updateColumn(
+  board: KanbanBoard,
+  columnId: string,
+  patch: (column: KanbanColumn) => KanbanColumn,
+): KanbanBoard {
+  return {
+    ...board,
+    columns: board.columns.map((column) => column.id === columnId ? patch(column) : column),
+  };
+}
+
+export function moveColumn(board: KanbanBoard, columnId: string, offset: -1 | 1): KanbanBoard {
+  const index = board.columns.findIndex((column) => column.id === columnId);
+  const target = index + offset;
+  if (index < 0 || target < 0 || target >= board.columns.length) return board;
+  const columns = [...board.columns];
+  [columns[index], columns[target]] = [columns[target], columns[index]];
+  return { ...board, columns };
+}
+
+export function removeColumn(board: KanbanBoard, columnId: string): KanbanBoard {
+  const column = board.columns.find((candidate) => candidate.id === columnId);
+  if (!column) return board;
+  if (column.cards.length > 0) {
+    throw new Error('Move or delete every card before deleting this column.');
+  }
+  return { ...board, columns: board.columns.filter((candidate) => candidate.id !== columnId) };
+}
+
+export function setCardArchived(
+  board: KanbanBoard,
+  cardId: string,
+  archived: boolean,
+  actor?: Pick<CommentAuthor, 'userId' | 'userName'>,
+): KanbanBoard {
+  const located = findCard(board, cardId);
+  if (!located) return board;
+  return updateCard(board, cardId, (card) => ({
+    ...card,
+    archived: archived ? true : undefined,
+    archivedColumnId: archived ? located.columnId : undefined,
+    archivedAt: archived ? Date.now() : undefined,
+    archivedByUserId: archived ? actor?.userId : undefined,
+    archivedByUserName: archived ? actor?.userName : undefined,
+  }));
+}
+
 /** Append a new card to a column. */
 export function addCardToColumn(board: KanbanBoard, columnId: string, card: KanbanCard): KanbanBoard {
   return {

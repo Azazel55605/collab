@@ -32,6 +32,7 @@ import {
   refreshVaultOfflineContents,
 } from '../lib/replica';
 import { replayPendingOperations } from '../lib/sync';
+import { shouldAlwaysCreateOfflineCopy } from '../lib/preferences';
 
 export interface SelectedVault {
   serverUrl: string;
@@ -110,7 +111,11 @@ interface MobileState {
     serverUrl: string,
     username: string,
     password: string,
-    opts: { allowInvalidCertificates: boolean; persistAcrossReboots: boolean },
+    opts: {
+      allowInvalidCertificates: boolean;
+      persistAcrossReboots: boolean;
+      offlineCopyMode?: 'inherit' | 'always' | 'never';
+    },
   ) => Promise<void>;
   reconnect: (serverUrl: string) => Promise<void>;
   disconnect: (serverUrl: string) => Promise<void>;
@@ -320,6 +325,7 @@ export const useMobileStore = create<MobileState>((set, get) => ({
       username,
       allowInvalidCertificates: opts.allowInvalidCertificates,
       persistAcrossReboots: opts.persistAcrossReboots,
+      offlineCopyMode: opts.offlineCopyMode ?? 'inherit',
     });
     set({ servers: listKnownServers() });
     await get().refreshStatuses();
@@ -370,8 +376,9 @@ export const useMobileStore = create<MobileState>((set, get) => ({
   },
 
   selectVault: async (serverUrl, vault) => {
+    const normalized = normalizeServerUrl(serverUrl);
     set({
-      selected: { serverUrl: normalizeServerUrl(serverUrl), vault },
+      selected: { serverUrl: normalized, vault },
       files: [],
       filesError: null,
       fileCache: {},
@@ -381,6 +388,15 @@ export const useMobileStore = create<MobileState>((set, get) => ({
       activeSheet: null,
     });
     await get().loadFiles();
+    const key = replicaKey(normalized, vault.id);
+    if (
+      (shouldAlwaysCreateOfflineCopy(normalized) || vault.requireOfflineCopy) &&
+      vault.capabilities.includes('vault.offlineCopy') &&
+      !get().replicas[key] &&
+      !get().offlineBusy[key]
+    ) {
+      void get().makeOffline(normalized, vault).catch(() => {});
+    }
   },
 
   clearSelection: () =>

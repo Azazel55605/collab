@@ -23,6 +23,9 @@ import {
   Plus,
   Route,
   RotateCcw,
+  Save,
+  Settings2,
+  SlidersHorizontal,
   SquareDashedKanban,
   Users,
   X,
@@ -46,7 +49,14 @@ import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy, type RenderTas
 
 import { Banner, EmptyState, Spinner } from '../components/ui';
 import { isCanvasFile, readCanvasDocument, type CanvasData, type CanvasEdge, type CanvasNode } from '../lib/canvas';
-import { isLogicFile, readLogicDocument, type LogicDiagramDocument } from '../lib/logic';
+import {
+  isLogicFile,
+  parseLogicContent,
+  readLogicDocument,
+  saveLogicDocument,
+  serializeLogicDocument,
+  type LogicDiagramDocument,
+} from '../lib/logic';
 import {
   isImageFile,
   isPdfFile,
@@ -61,8 +71,12 @@ import {
   type LogicSignal,
 } from '../../../../src/components/logic/logicDiagramEvaluator';
 import {
+  defaultSchematicElectricalParameters,
   isElectronicComponentKind,
+  type ElectronicComponentKind,
   type LogicDiagramNode,
+  type LogicSourceWaveform,
+  type SchematicElectricalParameters,
   type SchematicSymbolSet,
 } from '../../../../src/types/logicDiagram';
 import {
@@ -85,6 +99,7 @@ import {
   circuitStartDcSweep,
   circuitStartTransient,
   circuitTakeJobResult,
+  replicaCacheDocument,
   type CircuitDcResult,
   type CircuitJobStatus,
   type CircuitSweepResult,
@@ -96,6 +111,13 @@ import { runCircuitSweepJob, type CircuitSweepJobClient } from '../../../../src/
 import { runCircuitTransientJob, type CircuitTransientJobClient } from '../../../../src/lib/circuitTransientRunner';
 import { circuitErrorText } from '../../../../src/lib/circuitErrorText';
 import { CircuitSweepPlot, CircuitTransientPlot } from '../../../../src/components/logic/CircuitSweepPlot';
+import { isReadOnlyRole } from '../lib/format';
+import { enqueueDocumentEdit, isLikelyConnectivityError } from '../lib/sync';
+import {
+  openMobileLiveJsonSession,
+  type JsonObject,
+  type MobileLiveJsonSession,
+} from '../lib/liveNote';
 
 const workerUrl = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString();
 GlobalWorkerOptions.workerSrc = workerUrl;
@@ -118,12 +140,14 @@ const MOBILE_TRANSIENT_JOB_CLIENT: CircuitTransientJobClient = {
   readChunk: circuitReadTransientChunk,
   discard: circuitDiscardJob,
 };
+const MOBILE_CIRCUIT_POLL_INTERVAL_MS = 180;
 const ANALOG_ACTIVE_VOLTAGE = 1e-9;
 
 type LoadState =
   | { status: 'loading' }
   | { status: 'ready'; dataUrl?: string; canvas?: CanvasData; logic?: LogicDiagramDocument; source: 'network' | 'cache' }
   | { status: 'error'; message: string };
+type LogicSaveState = { status: 'idle' | 'saving' | 'saved' | 'offline' | 'error'; message?: string };
 type PdfLayoutMode = 'single' | 'scroll';
 type TouchPoint = { x: number; y: number };
 type CanvasWorldBounds = {
@@ -162,14 +186,23 @@ export function RichFileViewerScreen({
   const selected = useMobileStore((s) => s.selected);
   const statuses = useMobileStore((s) => s.statuses);
   const closeSheet = useMobileStore((s) => s.closeSheet);
+  const replaceFile = useMobileStore((s) => s.replaceFile);
   const connected = selected ? !!statuses[selected.serverUrl]?.connected : false;
   const [loadState, setLoadState] = useState<LoadState>({ status: 'loading' });
+  const [logicSaveState, setLogicSaveState] = useState<LogicSaveState>({ status: 'idle' });
+  const currentFileRef = useRef(file);
+  const currentLogicRef = useRef<LogicDiagramDocument | null>(null);
+  const logicLiveSessionRef = useRef<MobileLiveJsonSession | null>(null);
   const [zoom, setZoom] = useState(1);
   const [resetToken, setResetToken] = useState(0);
   const image = isImageFile(file);
   const pdf = isPdfFile(file);
   const canvas = isCanvasFile(file);
   const logic = isLogicFile(file);
+
+  useEffect(() => {
+    currentFileRef.current = file;
+  }, [file]);
 
   useEffect(() => {
     let cancelled = false;
@@ -183,7 +216,11 @@ export function RichFileViewerScreen({
           if (!cancelled) setLoadState({ status: 'ready', canvas: result.canvas, source: result.source });
         } else if (logic) {
           const result = await readLogicDocument(selected.serverUrl, selected.vault.id, file, connected);
-          if (!cancelled) setLoadState({ status: 'ready', logic: result.logic, source: result.source });
+          if (!cancelled) {
+            currentFileRef.current = result.file;
+            currentLogicRef.current = result.logic;
+            setLoadState({ status: 'ready', logic: result.logic, source: result.source });
+          }
         } else {
           const result = await readMobileAssetDataUrl({
             serverUrl: selected.serverUrl,
@@ -207,6 +244,124 @@ export function RichFileViewerScreen({
       cancelled = true;
     };
   }, [canvas, connected, file, logic, selected]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let opened: MobileLiveJsonSession | null = null;
+    let offChange: (() => void) | undefined;
+
+    logicLiveSessionRef.current = null;
+    if (!logic || !selected || isReadOnlyRole(selected.vault.role)) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const applyLiveLogic = (json: JsonObject) => {
+      if (Object.keys(json).length === 0) return;
+      try {
+        const nextLogic = parseLogicContent(JSON.stringify(json));
+        const canonical = currentLogicRef.current;
+        if (canonical) {
+          const nodeIds = new Set(nextLogic.nodes.map((node) => node.id));
+          const wireIds = new Set(nextLogic.wires.map((wire) => wire.id));
+          if (!canonical.nodes.every((node) => nodeIds.has(node.id))
+            || !canonical.wires.every((wire) => wireIds.has(wire.id))) return;
+        }
+        currentLogicRef.current = nextLogic;
+        setLoadState((current) => current.status === 'ready'
+          ? { ...current, logic: nextLogic, source: opened?.getStatus() === 'connected' ? 'network' : 'cache' }
+          : current);
+        void replicaCacheDocument(
+          selected.serverUrl,
+          selected.vault.id,
+          file.id,
+          serializeLogicDocument(nextLogic),
+        ).catch(() => {});
+      } catch {
+        // Ignore an incomplete CRDT seed and keep the canonical loaded document.
+      }
+    };
+
+    openMobileLiveJsonSession(selected.serverUrl, selected.vault.id, file.id, 'logic')
+      .then((session) => {
+        if (cancelled || !session) {
+          session?.destroy();
+          return;
+        }
+        opened = session;
+        logicLiveSessionRef.current = session;
+        applyLiveLogic(session.readJson());
+        offChange = session.onChange(applyLiveLogic);
+      })
+      .catch(() => {
+        // REST and the offline mutation queue remain available as fallback.
+      });
+
+    return () => {
+      cancelled = true;
+      offChange?.();
+      if (logicLiveSessionRef.current === opened) logicLiveSessionRef.current = null;
+      opened?.destroy();
+    };
+  }, [file.id, logic, selected?.serverUrl, selected?.vault.id, selected?.vault.role]);
+
+  const persistLogic = useCallback(async (nextLogic: LogicDiagramDocument) => {
+    if (!selected || isReadOnlyRole(selected.vault.role)) {
+      throw new Error('This vault is read-only.');
+    }
+    const content = serializeLogicDocument(nextLogic);
+    currentLogicRef.current = nextLogic;
+    setLoadState((current) => current.status === 'ready'
+      ? { ...current, logic: nextLogic }
+      : current);
+    setLogicSaveState({ status: 'saving' });
+    try {
+      const liveSession = logicLiveSessionRef.current;
+      if (liveSession) {
+        liveSession.writeJson(JSON.parse(content) as JsonObject);
+        await replicaCacheDocument(
+          selected.serverUrl,
+          selected.vault.id,
+          currentFileRef.current.id,
+          content,
+        ).catch(() => {});
+        setLogicSaveState({ status: 'saved', message: 'Circuit values saved live.' });
+        return;
+      }
+      if (connected) {
+        try {
+          const document = await saveLogicDocument(
+            selected.serverUrl,
+            selected.vault.id,
+            currentFileRef.current,
+            nextLogic,
+          );
+          currentFileRef.current = document.file;
+          replaceFile(document.file);
+          setLogicSaveState({ status: 'saved', message: 'Circuit values saved.' });
+          return;
+        } catch (error) {
+          if (!isLikelyConnectivityError(error)) throw error;
+        }
+      }
+      await enqueueDocumentEdit(
+        selected.serverUrl,
+        selected.vault.id,
+        currentFileRef.current,
+        content,
+        selected.vault.manifestSequence,
+      );
+      setLoadState((current) => current.status === 'ready'
+        ? { ...current, source: 'cache' }
+        : current);
+      setLogicSaveState({ status: 'offline', message: 'Saved offline. The circuit will sync when reconnected.' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setLogicSaveState({ status: 'error', message });
+      throw error;
+    }
+  }, [connected, replaceFile, selected]);
 
   function adjustZoom(delta: number) {
     setZoom((value) => clamp(Number((value + delta).toFixed(2)), 0.35, 4));
@@ -249,6 +404,8 @@ export function RichFileViewerScreen({
       {loadState.status === 'ready' && loadState.source === 'cache' ? (
         <Banner tone="info">Showing cached content. The server copy was not reachable.</Banner>
       ) : null}
+      {logicSaveState.status === 'error' ? <Banner tone="error">{logicSaveState.message}</Banner> : null}
+      {logicSaveState.status === 'offline' ? <Banner tone="info">{logicSaveState.message}</Banner> : null}
 
       {loadState.status === 'loading' ? (
         <div className="loading-block">
@@ -288,6 +445,9 @@ export function RichFileViewerScreen({
           resetToken={resetToken}
           onWheel={handleWheel}
           schematicSymbolSet={schematicSymbolSet}
+          readOnly={!selected || isReadOnlyRole(selected.vault.role)}
+          saving={logicSaveState.status === 'saving'}
+          onSaveLogic={persistLogic}
         />
       ) : (
         <EmptyState
@@ -1671,6 +1831,9 @@ export function LogicMobileViewer({
   resetToken,
   onWheel,
   schematicSymbolSet,
+  readOnly = true,
+  saving = false,
+  onSaveLogic,
 }: {
   logic: LogicDiagramDocument;
   zoom: number;
@@ -1678,6 +1841,9 @@ export function LogicMobileViewer({
   resetToken: number;
   onWheel: (event: WheelEvent<HTMLElement>) => void;
   schematicSymbolSet: SchematicSymbolSet;
+  readOnly?: boolean;
+  saving?: boolean;
+  onSaveLogic?: (logic: LogicDiagramDocument) => Promise<void>;
 }) {
   const stageRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<TouchPoint | null>(null);
@@ -1696,6 +1862,8 @@ export function LogicMobileViewer({
   const [transientResult, setTransientResult] = useState<CircuitTransientResult | null>(null);
   const [transientError, setTransientError] = useState<string | null>(null);
   const [transientResultsOpen, setTransientResultsOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectedNodeId, setInspectedNodeId] = useState<string | null>(null);
   const circuitJobIdRef = useRef<string | null>(null);
   const circuitRunSequenceRef = useRef(0);
   const circuitMountedRef = useRef(true);
@@ -1776,6 +1944,7 @@ export function LogicMobileViewer({
     setTransientResultsOpen(false);
     try {
       const outcome = await runCircuitJob(MOBILE_CIRCUIT_JOB_CLIENT, logic, {
+        pollIntervalMs: MOBILE_CIRCUIT_POLL_INTERVAL_MS,
         onStarted: (jobId) => {
           startedJobId = jobId;
           circuitJobIdRef.current = jobId;
@@ -1829,6 +1998,7 @@ export function LogicMobileViewer({
     setTransientResultsOpen(false);
     try {
       const result = await runCircuitSweepJob(MOBILE_SWEEP_JOB_CLIENT, logic, {
+        pollIntervalMs: MOBILE_CIRCUIT_POLL_INTERVAL_MS,
         onStarted: (jobId) => {
           startedJobId = jobId;
           circuitJobIdRef.current = jobId;
@@ -1882,6 +2052,7 @@ export function LogicMobileViewer({
     setSweepResultsOpen(false);
     try {
       const result = await runCircuitTransientJob(MOBILE_TRANSIENT_JOB_CLIENT, logic, {
+        pollIntervalMs: MOBILE_CIRCUIT_POLL_INTERVAL_MS,
         onStarted: (jobId) => {
           startedJobId = jobId;
           circuitJobIdRef.current = jobId;
@@ -2060,8 +2231,18 @@ export function LogicMobileViewer({
           <div className="logic-sim-toolbar">
             {logic.diagramMode === 'schematic' ? (
               <>
-                <span className="logic-stat">{simulatedNodes.length} symbols</span>
-                <span className="logic-stat">{logic.wires.length} wires</span>
+                <button
+                  type="button"
+                  className="logic-circuit-result-button"
+                  aria-label="Circuit settings"
+                  onTouchStart={(event) => event.stopPropagation()}
+                  onClick={() => {
+                    setInspectedNodeId(null);
+                    setInspectorOpen(true);
+                  }}
+                >
+                  {saving ? <Spinner size={14} /> : <Settings2 size={14} aria-hidden />}
+                </button>
                 <button
                   type="button"
                   className="logic-circuit-action"
@@ -2222,6 +2403,15 @@ export function LogicMobileViewer({
                 onToggleInput={node.kind === 'input'
                   ? () => setInputValues((current) => ({ ...current, [node.id]: !(current[node.id] ?? node.value ?? false) }))
                   : undefined}
+                onInspect={logic.diagramMode === 'schematic'
+                  && isElectronicComponentKind(node.kind)
+                  && node.kind !== 'ground'
+                  && node.kind !== 'junction'
+                  ? () => {
+                      setInspectedNodeId(node.id);
+                      setInspectorOpen(true);
+                    }
+                  : undefined}
                 schematicSymbolSet={schematicSymbolSet}
               />
             ))}
@@ -2262,9 +2452,485 @@ export function LogicMobileViewer({
               onClose={() => setTransientResultsOpen(false)}
             />
           ) : null}
+          {logic.diagramMode === 'schematic' && inspectorOpen ? (
+            <MobileCircuitInspector
+              logic={logic}
+              initialNodeId={inspectedNodeId}
+              readOnly={readOnly}
+              saving={saving}
+              onSave={onSaveLogic}
+              onClose={() => setInspectorOpen(false)}
+            />
+          ) : null}
         </>
       )}
     </section>
+  );
+}
+
+type MobileElectricalField = {
+  key: 'resistanceOhms' | 'capacitanceFarads' | 'inductanceHenries' | 'voltageVolts';
+  label: string;
+  unit: string;
+  positive: boolean;
+};
+
+function mobileElectricalField(kind: ElectronicComponentKind): MobileElectricalField | null {
+  switch (kind) {
+    case 'resistor': return { key: 'resistanceOhms', label: 'Resistance', unit: 'ohm', positive: true };
+    case 'capacitor': return { key: 'capacitanceFarads', label: 'Capacitance', unit: 'F', positive: true };
+    case 'inductor': return { key: 'inductanceHenries', label: 'Inductance', unit: 'H', positive: true };
+    case 'voltage-source': return { key: 'voltageVolts', label: 'DC voltage', unit: 'V', positive: false };
+    default: return null;
+  }
+}
+
+function schematicMobileValueLabel(
+  kind: ElectronicComponentKind,
+  electrical?: SchematicElectricalParameters,
+): string {
+  const values = electrical ?? defaultSchematicElectricalParameters(kind);
+  const field = mobileElectricalField(kind);
+  if (field) {
+    const value = values?.[field.key];
+    return typeof value === 'number' ? formatCircuitMeasurement(value, field.unit) : 'Value missing';
+  }
+  if (kind === 'switch') return values?.switchClosed ? 'Closed' : 'Open';
+  if (kind === 'diode' || kind === 'led' || kind === 'transistor') {
+    return values?.modelRef?.replace('builtin:', '') ?? 'Model missing';
+  }
+  return '';
+}
+
+function MobileCircuitInspector({
+  logic,
+  initialNodeId,
+  readOnly,
+  saving,
+  onSave,
+  onClose,
+}: {
+  logic: LogicDiagramDocument;
+  initialNodeId: string | null;
+  readOnly: boolean;
+  saving: boolean;
+  onSave?: (logic: LogicDiagramDocument) => Promise<void>;
+  onClose: () => void;
+}) {
+  const components = logic.nodes.filter((node) =>
+    isElectronicComponentKind(node.kind) && node.kind !== 'ground' && node.kind !== 'junction');
+  const [tab, setTab] = useState<'components' | 'analysis'>('components');
+  const [selectedNodeId, setSelectedNodeId] = useState(
+    initialNodeId && components.some((node) => node.id === initialNodeId)
+      ? initialNodeId
+      : components[0]?.id ?? '',
+  );
+  const selectedNode = components.find((node) => node.id === selectedNodeId) ?? null;
+
+  return (
+    <aside
+      className="mobile-circuit-inspector"
+      role="dialog"
+      aria-label="Circuit settings"
+      onTouchStart={(event) => event.stopPropagation()}
+      onTouchMove={(event) => event.stopPropagation()}
+    >
+      <header>
+        <Settings2 size={16} aria-hidden />
+        <strong>Circuit settings</strong>
+        {readOnly ? <span className="logic-stat">Read only</span> : null}
+        <button type="button" className="icon-button" aria-label="Close circuit settings" onClick={onClose}>
+          <X size={15} aria-hidden />
+        </button>
+      </header>
+      <div className="mobile-circuit-inspector-tabs" role="tablist" aria-label="Circuit settings sections">
+        <button type="button" role="tab" aria-selected={tab === 'components'} onClick={() => setTab('components')}>
+          <SlidersHorizontal size={14} aria-hidden /> Components
+        </button>
+        <button type="button" role="tab" aria-selected={tab === 'analysis'} onClick={() => setTab('analysis')}>
+          <ChartLine size={14} aria-hidden /> Analysis
+        </button>
+      </div>
+      {tab === 'components' ? (
+        <div className="mobile-circuit-inspector-body">
+          {components.length === 0 ? (
+            <p className="mobile-circuit-summary">This circuit has no editable electrical components.</p>
+          ) : (
+            <>
+              <label className="mobile-circuit-field">
+                <span>Component</span>
+                <select value={selectedNodeId} onChange={(event) => setSelectedNodeId(event.target.value)}>
+                  {components.map((node) => (
+                    <option key={node.id} value={node.id}>{logicNodeLabel(node)} - {node.kind}</option>
+                  ))}
+                </select>
+              </label>
+              {selectedNode && isElectronicComponentKind(selectedNode.kind) ? (
+                <MobileElectricalComponentEditor
+                  key={selectedNode.id}
+                  logic={logic}
+                  node={selectedNode as LogicDiagramNode & { kind: ElectronicComponentKind }}
+                  readOnly={readOnly}
+                  saving={saving}
+                  onSave={onSave}
+                />
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : (
+        <MobileCircuitAnalysisEditor
+          logic={logic}
+          readOnly={readOnly}
+          saving={saving}
+          onSave={onSave}
+        />
+      )}
+    </aside>
+  );
+}
+
+function MobileElectricalComponentEditor({
+  logic,
+  node,
+  readOnly,
+  saving,
+  onSave,
+}: {
+  logic: LogicDiagramDocument;
+  node: LogicDiagramNode & { kind: ElectronicComponentKind };
+  readOnly: boolean;
+  saving: boolean;
+  onSave?: (logic: LogicDiagramDocument) => Promise<void>;
+}) {
+  const defaults = defaultSchematicElectricalParameters(node.kind);
+  const electrical = node.electrical ?? defaults;
+  const field = mobileElectricalField(node.kind);
+  const [numericValue, setNumericValue] = useState(() => field && typeof electrical?.[field.key] === 'number'
+    ? String(electrical[field.key])
+    : '');
+  const [switchClosed, setSwitchClosed] = useState(electrical?.switchClosed === true);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    if (readOnly || !onSave) return;
+    let nextElectrical: SchematicElectricalParameters | undefined = electrical;
+    if (field) {
+      const parsed = Number(numericValue);
+      if (!Number.isFinite(parsed) || (field.positive && parsed <= 0)) {
+        setError(`${field.label} must be ${field.positive ? 'greater than zero' : 'a finite number'}.`);
+        return;
+      }
+      nextElectrical = { ...electrical, [field.key]: parsed };
+    } else if (node.kind === 'switch') {
+      nextElectrical = { ...electrical, switchClosed };
+    }
+    setError(null);
+    const nextLogic: LogicDiagramDocument = {
+      ...logic,
+      nodes: logic.nodes.map((candidate) => candidate.id === node.id
+        ? { ...candidate, electrical: nextElectrical }
+        : candidate),
+    };
+    try {
+      await onSave(nextLogic);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }
+
+  return (
+    <div className="mobile-electrical-editor">
+      <div className="mobile-electrical-editor-heading">
+        <div>
+          <strong>{logicNodeLabel(node)}</strong>
+          <span>{node.kind}</span>
+        </div>
+        <code>{schematicMobileValueLabel(node.kind, electrical)}</code>
+      </div>
+      {field ? (
+        <label className="mobile-circuit-field">
+          <span>{field.label} ({field.unit})</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            step="any"
+            value={numericValue}
+            disabled={readOnly || saving}
+            onChange={(event) => setNumericValue(event.target.value)}
+          />
+        </label>
+      ) : node.kind === 'switch' ? (
+        <label className="mobile-circuit-toggle">
+          <input
+            type="checkbox"
+            checked={switchClosed}
+            disabled={readOnly || saving}
+            onChange={(event) => setSwitchClosed(event.target.checked)}
+          />
+          <span>{switchClosed ? 'Closed' : 'Open'}</span>
+        </label>
+      ) : (
+        <div className="mobile-circuit-readout">
+          <span>Model</span>
+          <code>{electrical?.modelRef ?? 'No model configured'}</code>
+        </div>
+      )}
+      {error ? <p className="mobile-circuit-form-error">{error}</p> : null}
+      {!readOnly && (field || node.kind === 'switch') ? (
+        <button type="button" className="primary-button mobile-circuit-save" disabled={saving} onClick={() => void save()}>
+          {saving ? <Spinner size={14} /> : <Save size={14} aria-hidden />}
+          Save value
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function MobileCircuitAnalysisEditor({
+  logic,
+  readOnly,
+  saving,
+  onSave,
+}: {
+  logic: LogicDiagramDocument;
+  readOnly: boolean;
+  saving: boolean;
+  onSave?: (logic: LogicDiagramDocument) => Promise<void>;
+}) {
+  const sources = logic.nodes.filter((node) => node.kind === 'voltage-source');
+  const probeChoices = logic.nodes.flatMap((node) => {
+    if (!isElectronicComponentKind(node.kind) || node.kind === 'ground' || node.kind === 'junction') return [];
+    return getSchematicTerminals(node.kind).map((handleId) => ({
+      key: `${node.id}::${handleId}`,
+      nodeId: node.id,
+      handleId,
+      label: `${logicNodeLabel(node)} - ${handleId}`,
+    }));
+  });
+  const existingProbe = logic.simulation?.probes[0];
+  const defaultProbeKey = existingProbe
+    ? `${existingProbe.nodeId}::${existingProbe.handleId ?? ''}`
+    : probeChoices.find((choice) => choice.handleId === 'positive')?.key
+      ?? probeChoices[0]?.key
+      ?? '';
+  const defaultSourceId = logic.simulation?.dcSweep?.sourceNodeId
+    ?? Object.keys(logic.simulation?.transient?.sourceWaveforms ?? {})[0]
+    ?? sources[0]?.id
+    ?? '';
+  const [analysis, setAnalysis] = useState(logic.simulation?.analysis ?? 'dc-operating-point');
+  const [sourceId, setSourceId] = useState(defaultSourceId);
+  const [probeKey, setProbeKey] = useState(defaultProbeKey);
+  const [sweepStart, setSweepStart] = useState(String(logic.simulation?.dcSweep?.start ?? 0));
+  const [sweepStop, setSweepStop] = useState(String(logic.simulation?.dcSweep?.stop ?? 5));
+  const [sweepSamples, setSweepSamples] = useState(String(logic.simulation?.dcSweep?.sampleCount ?? 101));
+  const [duration, setDuration] = useState(String(logic.simulation?.transient?.durationSeconds ?? 0.02));
+  const [maxStep, setMaxStep] = useState(String(logic.simulation?.transient?.maxTimeStepSeconds ?? 0.0001));
+  const existingWaveform = sourceId ? logic.simulation?.transient?.sourceWaveforms[sourceId] : undefined;
+  const [waveformKind, setWaveformKind] = useState<'dc' | 'pulse' | 'sine'>(existingWaveform?.kind ?? 'pulse');
+  const [lowValue, setLowValue] = useState(String(existingWaveform?.kind === 'pulse' ? existingWaveform.lowValue : 0));
+  const [highValue, setHighValue] = useState(String(existingWaveform?.kind === 'pulse' ? existingWaveform.highValue : 5));
+  const [delay, setDelay] = useState(String(existingWaveform && existingWaveform.kind !== 'dc' ? existingWaveform.delaySeconds : 0.001));
+  const [pulseWidth, setPulseWidth] = useState(String(existingWaveform?.kind === 'pulse' ? existingWaveform.pulseWidthSeconds : 0.008));
+  const [period, setPeriod] = useState(String(existingWaveform?.kind === 'pulse' ? existingWaveform.periodSeconds : 0.02));
+  const [sineOffset, setSineOffset] = useState(String(existingWaveform?.kind === 'sine' ? existingWaveform.offset : 0));
+  const [sineAmplitude, setSineAmplitude] = useState(String(existingWaveform?.kind === 'sine' ? existingWaveform.amplitude : 5));
+  const [sineFrequency, setSineFrequency] = useState(String(existingWaveform?.kind === 'sine' ? existingWaveform.frequencyHertz : 50));
+  const [error, setError] = useState<string | null>(null);
+
+  async function saveAnalysis() {
+    if (readOnly || !onSave) return;
+    const selectedProbe = probeChoices.find((choice) => choice.key === probeKey);
+    const probes = [...(logic.simulation?.probes ?? [])];
+    if (analysis !== 'dc-operating-point') {
+      if (!selectedProbe) {
+        setError('Select an output probe for sampled analysis.');
+        return;
+      }
+      if (!probes.some((probe) => probe.nodeId === selectedProbe.nodeId && probe.handleId === selectedProbe.handleId)) {
+        probes.push({
+          id: `mobile-probe-${selectedProbe.nodeId}-${selectedProbe.handleId}`,
+          kind: 'node-voltage',
+          nodeId: selectedProbe.nodeId,
+          handleId: selectedProbe.handleId,
+          label: selectedProbe.label,
+        });
+      }
+    }
+    let dcSweep = logic.simulation?.dcSweep;
+    let transient = logic.simulation?.transient;
+    if (analysis === 'dc-sweep') {
+      const start = Number(sweepStart);
+      const stop = Number(sweepStop);
+      const sampleCount = Number(sweepSamples);
+      if (!sourceId || !Number.isFinite(start) || !Number.isFinite(stop) || start === stop) {
+        setError('Choose a voltage source and two distinct finite sweep values.');
+        return;
+      }
+      if (!Number.isInteger(sampleCount) || sampleCount < 2 || sampleCount > 4096) {
+        setError('Sweep samples must be an integer from 2 to 4096.');
+        return;
+      }
+      dcSweep = { sourceNodeId: sourceId, start, stop, sampleCount };
+    } else if (analysis === 'transient') {
+      const durationSeconds = Number(duration);
+      const maxTimeStepSeconds = Number(maxStep);
+      if (!sourceId || !Number.isFinite(durationSeconds) || durationSeconds <= 0
+        || !Number.isFinite(maxTimeStepSeconds) || maxTimeStepSeconds <= 0
+        || maxTimeStepSeconds > durationSeconds
+        || Math.ceil(durationSeconds / maxTimeStepSeconds) + 1 > 4096) {
+        setError('Choose a source and a positive duration/timestep producing at most 4096 samples.');
+        return;
+      }
+      let waveform: LogicSourceWaveform = { kind: 'dc' };
+      if (waveformKind === 'pulse') {
+        const low = Number(lowValue);
+        const high = Number(highValue);
+        const delaySeconds = Number(delay);
+        const pulseWidthSeconds = Number(pulseWidth);
+        const periodSeconds = Number(period);
+        if (![low, high, delaySeconds, pulseWidthSeconds, periodSeconds].every(Number.isFinite)
+          || delaySeconds < 0 || pulseWidthSeconds <= 0 || periodSeconds <= 0
+          || pulseWidthSeconds > periodSeconds) {
+          setError('Pulse values must be finite, with positive width/period and width no greater than period.');
+          return;
+        }
+        waveform = {
+          kind: 'pulse',
+          lowValue: low,
+          highValue: high,
+          delaySeconds,
+          riseSeconds: 0,
+          fallSeconds: 0,
+          pulseWidthSeconds,
+          periodSeconds,
+        };
+      } else if (waveformKind === 'sine') {
+        const offset = Number(sineOffset);
+        const amplitude = Number(sineAmplitude);
+        const frequencyHertz = Number(sineFrequency);
+        const delaySeconds = Number(delay);
+        if (![offset, amplitude, frequencyHertz, delaySeconds].every(Number.isFinite)
+          || frequencyHertz <= 0 || delaySeconds < 0) {
+          setError('Sine values must be finite, with positive frequency and a non-negative delay.');
+          return;
+        }
+        waveform = {
+          kind: 'sine',
+          offset,
+          amplitude,
+          frequencyHertz,
+          phaseDegrees: 0,
+          delaySeconds,
+          dampingPerSecond: 0,
+        };
+      }
+      transient = {
+        durationSeconds,
+        maxTimeStepSeconds,
+        sourceWaveforms: {
+          ...(logic.simulation?.transient?.sourceWaveforms ?? {}),
+          [sourceId]: waveform,
+        },
+      };
+    }
+    setError(null);
+    try {
+      await onSave({
+        ...logic,
+        simulation: {
+          analysis,
+          probes,
+          dcSweep,
+          transient,
+        },
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }
+
+  return (
+    <div className="mobile-circuit-inspector-body mobile-analysis-editor">
+      <div className="mobile-analysis-modes" role="group" aria-label="Analysis type">
+        {([
+          ['dc-operating-point', 'DC'],
+          ['dc-sweep', 'Sweep'],
+          ['transient', 'Transient'],
+        ] as const).map(([value, label]) => (
+          <button key={value} type="button" aria-pressed={analysis === value} disabled={readOnly || saving} onClick={() => setAnalysis(value)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {analysis !== 'dc-operating-point' ? (
+        <>
+          <label className="mobile-circuit-field">
+            <span>Voltage source</span>
+            <select value={sourceId} onChange={(event) => setSourceId(event.target.value)} disabled={readOnly || saving}>
+              <option value="">Select source</option>
+              {sources.map((node) => <option key={node.id} value={node.id}>{logicNodeLabel(node)}</option>)}
+            </select>
+          </label>
+          <label className="mobile-circuit-field">
+            <span>Output probe</span>
+            <select value={probeKey} onChange={(event) => setProbeKey(event.target.value)} disabled={readOnly || saving}>
+              <option value="">Select probe target</option>
+              {probeChoices.map((choice) => <option key={choice.key} value={choice.key}>{choice.label}</option>)}
+            </select>
+          </label>
+        </>
+      ) : (
+        <p className="mobile-circuit-summary">DC operating point uses the current component values and reports every solved node and branch.</p>
+      )}
+      {analysis === 'dc-sweep' ? (
+        <div className="mobile-circuit-field-grid">
+          <label className="mobile-circuit-field"><span>Start (V)</span><input type="number" step="any" value={sweepStart} disabled={readOnly || saving} onChange={(event) => setSweepStart(event.target.value)} /></label>
+          <label className="mobile-circuit-field"><span>Stop (V)</span><input type="number" step="any" value={sweepStop} disabled={readOnly || saving} onChange={(event) => setSweepStop(event.target.value)} /></label>
+          <label className="mobile-circuit-field"><span>Samples</span><input type="number" min="2" max="4096" value={sweepSamples} disabled={readOnly || saving} onChange={(event) => setSweepSamples(event.target.value)} /></label>
+        </div>
+      ) : null}
+      {analysis === 'transient' ? (
+        <>
+          <div className="mobile-circuit-field-grid">
+            <label className="mobile-circuit-field"><span>Duration (s)</span><input type="number" step="any" value={duration} disabled={readOnly || saving} onChange={(event) => setDuration(event.target.value)} /></label>
+            <label className="mobile-circuit-field"><span>Max timestep (s)</span><input type="number" step="any" value={maxStep} disabled={readOnly || saving} onChange={(event) => setMaxStep(event.target.value)} /></label>
+          </div>
+          <label className="mobile-circuit-field">
+            <span>Source waveform</span>
+            <select value={waveformKind} disabled={readOnly || saving} onChange={(event) => setWaveformKind(event.target.value as typeof waveformKind)}>
+              <option value="dc">DC</option>
+              <option value="pulse">Pulse</option>
+              <option value="sine">Sine</option>
+            </select>
+          </label>
+          {waveformKind === 'pulse' ? (
+            <div className="mobile-circuit-field-grid">
+              <label className="mobile-circuit-field"><span>Low (V)</span><input type="number" step="any" value={lowValue} disabled={readOnly || saving} onChange={(event) => setLowValue(event.target.value)} /></label>
+              <label className="mobile-circuit-field"><span>High (V)</span><input type="number" step="any" value={highValue} disabled={readOnly || saving} onChange={(event) => setHighValue(event.target.value)} /></label>
+              <label className="mobile-circuit-field"><span>Delay (s)</span><input type="number" step="any" value={delay} disabled={readOnly || saving} onChange={(event) => setDelay(event.target.value)} /></label>
+              <label className="mobile-circuit-field"><span>Width (s)</span><input type="number" step="any" value={pulseWidth} disabled={readOnly || saving} onChange={(event) => setPulseWidth(event.target.value)} /></label>
+              <label className="mobile-circuit-field"><span>Period (s)</span><input type="number" step="any" value={period} disabled={readOnly || saving} onChange={(event) => setPeriod(event.target.value)} /></label>
+            </div>
+          ) : null}
+          {waveformKind === 'sine' ? (
+            <div className="mobile-circuit-field-grid">
+              <label className="mobile-circuit-field"><span>Offset (V)</span><input type="number" step="any" value={sineOffset} disabled={readOnly || saving} onChange={(event) => setSineOffset(event.target.value)} /></label>
+              <label className="mobile-circuit-field"><span>Amplitude (V)</span><input type="number" step="any" value={sineAmplitude} disabled={readOnly || saving} onChange={(event) => setSineAmplitude(event.target.value)} /></label>
+              <label className="mobile-circuit-field"><span>Frequency (Hz)</span><input type="number" step="any" value={sineFrequency} disabled={readOnly || saving} onChange={(event) => setSineFrequency(event.target.value)} /></label>
+              <label className="mobile-circuit-field"><span>Delay (s)</span><input type="number" step="any" value={delay} disabled={readOnly || saving} onChange={(event) => setDelay(event.target.value)} /></label>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+      {error ? <p className="mobile-circuit-form-error">{error}</p> : null}
+      {!readOnly ? (
+        <button type="button" className="primary-button mobile-circuit-save" disabled={saving} onClick={() => void saveAnalysis()}>
+          {saving ? <Spinner size={14} /> : <Save size={14} aria-hidden />}
+          Save analysis
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -2523,12 +3189,14 @@ function MobileLogicNode({
   nodeById,
   value,
   onToggleInput,
+  onInspect,
   schematicSymbolSet,
 }: {
   node: LogicDiagramNode;
   nodeById: Map<string, LogicDiagramNode>;
   value: LogicSignal;
   onToggleInput?: () => void;
+  onInspect?: () => void;
   schematicSymbolSet: SchematicSymbolSet;
 }) {
   const position = absoluteLogicNodePosition(node, nodeById);
@@ -2553,8 +3221,8 @@ function MobileLogicNode({
     const kind = node.kind;
     const rotation = node.rotation ?? 0;
     const terminals = getSchematicTerminals(kind);
-    return (
-      <div className="mobile-logic-node mobile-logic-schematic" style={style}>
+    const content = (
+      <>
         {terminals.map((handleId) => {
           const point = schematicTerminalPoint(kind, handleId, rotation);
           return (
@@ -2571,8 +3239,27 @@ function MobileLogicNode({
             dangerouslySetInnerHTML={{ __html: schematicSymbolMarkup(kind, 'currentColor', schematicSymbolSet) }}
           />
         </svg>
-        {kind !== 'junction' ? <strong>{logicNodeLabel(node)}</strong> : null}
-      </div>
+        {kind !== 'junction' ? (
+          <strong>
+            {logicNodeLabel(node)}
+            <small>{schematicMobileValueLabel(kind, node.electrical)}</small>
+          </strong>
+        ) : null}
+      </>
+    );
+    return onInspect ? (
+      <button
+        type="button"
+        className="mobile-logic-node mobile-logic-schematic inspectable"
+        style={style}
+        aria-label={`Inspect ${logicNodeLabel(node)}`}
+        onTouchStart={(event) => event.stopPropagation()}
+        onClick={onInspect}
+      >
+        {content}
+      </button>
+    ) : (
+      <div className="mobile-logic-node mobile-logic-schematic" style={style}>{content}</div>
     );
   }
 

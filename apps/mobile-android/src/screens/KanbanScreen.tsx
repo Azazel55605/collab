@@ -1,9 +1,17 @@
 import {
   ArrowLeft,
+  ArrowRight,
+  Archive,
+  CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Circle,
   CloudOff,
+  Columns3,
+  GanttChart,
   MessageSquare,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -27,29 +35,36 @@ import { DateField } from '../components/DateField';
 import { isReadOnlyRole } from '../lib/format';
 import {
   addCardToColumn,
+  addColumn,
   addChecklistItem,
   addComment,
   addTag,
   checklistProgress,
   collectBoardTags,
   createCard,
+  createColumn,
   findCard,
+  moveColumn,
   moveCardToColumn,
   parseBoardContent,
   readKanbanDocument,
   removeCard,
+  removeColumn,
   removeChecklistItem,
   removeTag,
   saveKanbanDocument,
+  setCardArchived,
   serializeBoard,
   toggleCardDone,
   toggleChecklistItem,
   updateCard,
+  updateColumn,
   viewCards,
   type CardSortField,
   type CommentAuthor,
   type KanbanBoard,
   type KanbanCard,
+  type KanbanColumn,
   type KanbanPriority,
 } from '../lib/kanban';
 import {
@@ -97,6 +112,9 @@ const SORT_OPTIONS: Array<{ value: CardSortField; label: string }> = [
 
 const SWIPE_THRESHOLD = 60;
 const SAVE_DEBOUNCE_MS = 500;
+const TIMELINE_DAY_WIDTH = 34;
+const TIMELINE_DAYS = 42;
+type MobileKanbanView = 'board' | 'calendar' | 'timeline' | 'archive';
 
 function boardToJson(board: KanbanBoard): JsonObject {
   return JSON.parse(serializeBoard(board)) as JsonObject;
@@ -148,6 +166,11 @@ export function KanbanScreen({ file }: { file: HostedFileEntry }) {
   const [filterQuery, setFilterQuery] = useState('');
   const [showTools, setShowTools] = useState(false);
   const [slideDir, setSlideDir] = useState<1 | -1>(1);
+  const [view, setView] = useState<MobileKanbanView>('board');
+  const [showViewMenu, setShowViewMenu] = useState(false);
+  const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
+  const [showAddColumn, setShowAddColumn] = useState(false);
+  const [newColumnTitle, setNewColumnTitle] = useState('');
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const columnStripRef = useRef<HTMLElement | null>(null);
 
@@ -510,6 +533,26 @@ export function KanbanScreen({ file }: { file: HostedFileEntry }) {
     setOpenCardId(card.id);
   }
 
+  function handleAddColumn() {
+    if (readOnly || !newColumnTitle.trim()) return;
+    const column = createColumn(newColumnTitle);
+    commitBoard(addColumn(board, column));
+    setSelectedColumnId(column.id);
+    setNewColumnTitle('');
+    setShowAddColumn(false);
+  }
+
+  function handleDeleteColumn(columnId: string) {
+    try {
+      const next = removeColumn(board, columnId);
+      commitBoard(next);
+      setSelectedColumnId(next.columns[0]?.id ?? null);
+      setEditingColumnId(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }
+
   return (
     <div className="screen kanban-screen">
       <header className="note-header">
@@ -523,7 +566,7 @@ export function KanbanScreen({ file }: { file: HostedFileEntry }) {
         <div className="header-side">
           {readOnly ? <ReadOnlyBadge /> : null}
           {saving ? <Spinner size={16} /> : null}
-          {!busy && columns.length > 0 ? (
+          {!busy && view === 'board' && columns.length > 0 ? (
             <button
               type="button"
               className={`icon-button ${showTools || sortField !== 'manual' || filterQuery ? 'active' : ''}`}
@@ -534,11 +577,37 @@ export function KanbanScreen({ file }: { file: HostedFileEntry }) {
               <SlidersHorizontal size={17} aria-hidden />
             </button>
           ) : null}
+          {!busy ? (
+            <button
+              type="button"
+              className={`icon-button ${showViewMenu || view !== 'board' ? 'active' : ''}`}
+              aria-label="Switch Kanban view"
+              aria-expanded={showViewMenu}
+              onClick={() => setShowViewMenu((value) => !value)}
+            >
+              {view === 'calendar' ? <CalendarDays size={17} aria-hidden /> : view === 'timeline' ? <GanttChart size={17} aria-hidden /> : view === 'archive' ? <Archive size={17} aria-hidden /> : <Columns3 size={17} aria-hidden />}
+            </button>
+          ) : null}
         </div>
       </header>
 
       {error ? <Banner tone="error">{error}</Banner> : null}
       {message ? <Banner tone="info">{message}</Banner> : null}
+
+      {showViewMenu ? (
+        <div className="kanban-view-menu" role="menu" aria-label="Kanban view">
+          {([
+            ['board', 'Board', Columns3],
+            ['calendar', 'Calendar', CalendarDays],
+            ['timeline', 'Timeline', GanttChart],
+            ['archive', 'Archive', Archive],
+          ] as const).map(([value, label, Icon]) => (
+            <button key={value} type="button" role="menuitemradio" aria-checked={view === value} className={view === value ? 'active' : ''} onClick={() => { setView(value); setShowViewMenu(false); setShowTools(false); }}>
+              <Icon size={16} aria-hidden /><span>{label}</span>{view === value ? <CheckCircle2 size={15} aria-hidden /> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {pendingFailed ? (
         <div className="banner banner-error sync-recovery">
@@ -592,9 +661,16 @@ export function KanbanScreen({ file }: { file: HostedFileEntry }) {
           <Spinner size={22} />
           <span>Loading board…</span>
         </div>
+      ) : view === 'calendar' ? (
+        <MobileCalendarView board={board} onOpenCard={setOpenCardId} />
+      ) : view === 'timeline' ? (
+        <MobileTimelineView board={board} onOpenCard={setOpenCardId} />
+      ) : view === 'archive' ? (
+        <MobileArchiveView board={board} onOpenCard={setOpenCardId} />
       ) : columns.length === 0 ? (
         <div className="kanban-empty">
-          <span>This board has no columns yet. Open it on the desktop app to set it up.</span>
+          <span>This board has no columns yet.</span>
+          {!readOnly ? <button type="button" className="primary-button" onClick={() => setShowAddColumn(true)}><Plus size={16} /> Add column</button> : null}
         </div>
       ) : (
         <>
@@ -622,6 +698,16 @@ export function KanbanScreen({ file }: { file: HostedFileEntry }) {
                 </button>
               );
             })}
+            {!readOnly ? (
+              <>
+                <button type="button" className="kanban-column-chip kanban-column-add" aria-label="Add column" onClick={() => setShowAddColumn(true)}>
+                  <Plus size={15} aria-hidden />
+                </button>
+                <button type="button" className="kanban-column-chip kanban-column-add" aria-label={`Edit ${activeColumn?.title ?? 'column'}`} disabled={!activeColumn} onClick={() => activeColumn && setEditingColumnId(activeColumn.id)}>
+                  <Pencil size={15} aria-hidden />
+                </button>
+              </>
+            ) : null}
           </nav>
 
           {showTools ? (
@@ -742,8 +828,233 @@ export function KanbanScreen({ file }: { file: HostedFileEntry }) {
             commitBoard(removeCard(board, openCard.id));
             setOpenCardId(null);
           }}
+          onArchive={() => commitBoard(setCardArchived(board, openCard.id, !openCard.archived, author))}
         />
       ) : null}
+
+      {showAddColumn ? (
+        <div className="sheet-backdrop" onClick={() => setShowAddColumn(false)}>
+          <form className="sheet" aria-label="Add column" onSubmit={(event) => { event.preventDefault(); handleAddColumn(); }} onClick={(event) => event.stopPropagation()}>
+            <div className="sheet-handle" />
+            <div className="sheet-head"><div className="row-text"><strong>Add column</strong><span>Create a new board stage</span></div><button type="button" className="icon-button" aria-label="Close" onClick={() => setShowAddColumn(false)}><X size={18} /></button></div>
+            <label className="field"><span>Title</span><input autoFocus value={newColumnTitle} onChange={(event) => setNewColumnTitle(event.target.value)} /></label>
+            <button type="submit" className="primary-button" disabled={!newColumnTitle.trim()}><Plus size={16} /> Add column</button>
+          </form>
+        </div>
+      ) : null}
+
+      {editingColumnId ? (
+        <ColumnEditSheet
+          column={columns.find((column) => column.id === editingColumnId) ?? null}
+          index={columns.findIndex((column) => column.id === editingColumnId)}
+          total={columns.length}
+          onClose={() => setEditingColumnId(null)}
+          onChange={(patch) => commitBoard(updateColumn(board, editingColumnId, (column) => ({ ...column, ...patch })))}
+          onMove={(offset) => {
+            commitBoard(moveColumn(board, editingColumnId, offset));
+          }}
+          onDelete={() => handleDeleteColumn(editingColumnId)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function boardCards(board: KanbanBoard): Array<{ card: KanbanCard; column: KanbanColumn }> {
+  return board.columns.flatMap((column) => column.cards.map((card) => ({ card, column })));
+}
+
+function parseDateOnly(value: string): Date {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function dateOnlyKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function addDays(date: Date, amount: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
+}
+
+function dayDifference(start: Date, end: Date): number {
+  return Math.round((end.getTime() - start.getTime()) / 86_400_000);
+}
+
+function cardDateRange(card: KanbanCard): { start: string; end: string } | null {
+  const start = card.startDate ?? card.dueDate;
+  const end = card.dueDate ?? card.startDate;
+  if (!start || !end) return null;
+  return start <= end ? { start, end } : { start: end, end: start };
+}
+
+export function MobileCalendarView({ board, onOpenCard }: { board: KanbanBoard; onOpenCard: (id: string) => void }) {
+  const today = useMemo(() => new Date(), []);
+  const [month, setMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
+  const [selectedDay, setSelectedDay] = useState<string | null>(() => dateOnlyKey(today));
+  const cards = useMemo(
+    () => boardCards(board).filter(({ card }) => !card.archived && cardDateRange(card)),
+    [board],
+  );
+  const firstWeekday = month.getDay();
+  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const cells: Array<{ day: number; key: string } | null> = [
+    ...Array.from({ length: firstWeekday }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, index) => {
+      const day = index + 1;
+      return { day, key: dateOnlyKey(new Date(month.getFullYear(), month.getMonth(), day)) };
+    }),
+  ];
+  const cardsForDay = (key: string) => cards.filter(({ card }) => {
+    const range = cardDateRange(card)!;
+    return range.start <= key && key <= range.end;
+  });
+  const selectedCards = selectedDay ? cardsForDay(selectedDay) : [];
+  const monthLabel = month.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+  return (
+    <div className="mobile-board-calendar">
+      <div className="mobile-calendar-toolbar">
+        <button type="button" className="icon-button" aria-label="Previous month" onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}><ChevronLeft size={17} /></button>
+        <button type="button" className="mobile-calendar-title" aria-label="Return to the current month" onClick={() => { setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); setSelectedDay(dateOnlyKey(today)); }}>{monthLabel}</button>
+        <button type="button" className="icon-button" aria-label="Next month" onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}><ChevronRight size={17} /></button>
+      </div>
+      <div className="mobile-calendar-weekdays">
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}
+      </div>
+      <div className="mobile-calendar-grid">
+        {cells.map((cell, index) => cell ? (() => {
+          const assigned = cardsForDay(cell.key);
+          return (
+            <button key={cell.key} type="button" className={`mobile-calendar-day ${cell.key === dateOnlyKey(today) ? 'today' : ''} ${selectedDay === cell.key ? 'selected' : ''}`} onClick={() => setSelectedDay(cell.key)}>
+              <span>{cell.day}</span>
+              <span className="mobile-calendar-dots" aria-label={`${assigned.length} tasks`}>
+                {assigned.slice(0, 3).map(({ card, column }) => <i key={card.id} style={{ background: column.color ?? 'var(--primary)' }} />)}
+                {assigned.length > 3 ? <em>+{assigned.length - 3}</em> : null}
+              </span>
+            </button>
+          );
+        })() : <span className="mobile-calendar-blank" key={`blank-${index}`} />)}
+      </div>
+      <div className="mobile-calendar-agenda">
+        <h2>{selectedDay ? parseDateOnly(selectedDay).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) : 'Tasks'}</h2>
+        {selectedCards.length ? selectedCards.map(({ card, column }) => (
+          <button key={card.id} type="button" className="kanban-view-card" onClick={() => onOpenCard(card.id)}>
+            <span className="mobile-calendar-task-color" style={{ background: column.color ?? 'var(--primary)' }} />
+            <strong>{card.title}</strong>
+            <span>{column.title}</span>
+          </button>
+        )) : <p>No tasks assigned to this day.</p>}
+      </div>
+    </div>
+  );
+}
+
+export function MobileTimelineView({ board, onOpenCard }: { board: KanbanBoard; onOpenCard: (id: string) => void }) {
+  const today = useMemo(() => new Date(), []);
+  const [rangeStart, setRangeStart] = useState(() => addDays(today, -7));
+  const rangeEnd = addDays(rangeStart, TIMELINE_DAYS - 1);
+  const days = Array.from({ length: TIMELINE_DAYS }, (_, index) => addDays(rangeStart, index));
+  const allCards = boardCards(board)
+    .filter(({ card, column }) => !card.archived && !column.hideFromTimeline && cardDateRange(card));
+  const cards = allCards
+    .filter(({ card }) => {
+      const range = cardDateRange(card)!;
+      return parseDateOnly(range.start) <= rangeEnd && parseDateOnly(range.end) >= rangeStart;
+    })
+    .sort((left, right) => cardDateRange(left.card)!.start.localeCompare(cardDateRange(right.card)!.start));
+  if (allCards.length === 0) return <div className="kanban-empty"><span>No cards are scheduled on the timeline.</span></div>;
+  const trackWidth = TIMELINE_DAYS * TIMELINE_DAY_WIDTH;
+  const todayIndex = dayDifference(rangeStart, today);
+  return (
+    <div className="mobile-board-timeline">
+      <div className="mobile-timeline-toolbar">
+        <button type="button" className="icon-button" aria-label="Earlier dates" onClick={() => setRangeStart((current) => addDays(current, -21))}><ChevronLeft size={17} /></button>
+        <button type="button" aria-label="Return timeline to today" onClick={() => setRangeStart(addDays(today, -7))}>{rangeStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - {rangeEnd.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</button>
+        <button type="button" className="icon-button" aria-label="Later dates" onClick={() => setRangeStart((current) => addDays(current, 21))}><ChevronRight size={17} /></button>
+      </div>
+      <div className="mobile-timeline-scroll">
+        <div className="mobile-timeline-content" style={{ '--timeline-track-width': `${trackWidth}px` } as CSSProperties}>
+          <div className="mobile-timeline-header">
+            <span className="mobile-timeline-label">Task</span>
+            <div className="mobile-timeline-days">
+              {days.map((day) => <span key={dateOnlyKey(day)} className={dateOnlyKey(day) === dateOnlyKey(today) ? 'today' : ''}><small>{day.toLocaleDateString(undefined, { weekday: 'narrow' })}</small>{day.getDate()}</span>)}
+            </div>
+          </div>
+          {cards.length === 0 ? <div className="mobile-timeline-window-empty">No tasks in this date range.</div> : null}
+          {cards.map(({ card, column }) => {
+            const range = cardDateRange(card)!;
+            const startIndex = Math.max(0, dayDifference(rangeStart, parseDateOnly(range.start)));
+            const endIndex = Math.min(TIMELINE_DAYS - 1, dayDifference(rangeStart, parseDateOnly(range.end)));
+            return (
+              <button key={card.id} type="button" className="mobile-timeline-row" onClick={() => onOpenCard(card.id)}>
+                <span className="mobile-timeline-label"><i style={{ background: column.color ?? 'var(--primary)' }} /><strong>{card.title}</strong><small>{column.title}</small></span>
+                <span className="mobile-timeline-track">
+                  {todayIndex >= 0 && todayIndex < TIMELINE_DAYS ? <i className="mobile-timeline-today" style={{ left: `${todayIndex * TIMELINE_DAY_WIDTH + TIMELINE_DAY_WIDTH / 2}px` }} /> : null}
+                  <span className="mobile-timeline-bar" style={{ left: `${startIndex * TIMELINE_DAY_WIDTH + 3}px`, width: `${Math.max(1, endIndex - startIndex + 1) * TIMELINE_DAY_WIDTH - 6}px`, background: column.color ?? 'var(--primary)' }} />
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MobileArchiveView({ board, onOpenCard }: { board: KanbanBoard; onOpenCard: (id: string) => void }) {
+  const cards = boardCards(board)
+    .filter(({ card }) => card.archived)
+    .sort((left, right) => (right.card.archivedAt ?? 0) - (left.card.archivedAt ?? 0));
+  if (cards.length === 0) return <div className="kanban-empty"><span>Archive is empty.</span></div>;
+  return (
+    <div className="kanban-mobile-view">
+      {cards.map(({ card, column }) => (
+        <button key={card.id} type="button" className="kanban-view-card" onClick={() => onOpenCard(card.id)}>
+          <strong>{card.title}</strong>
+          <span>{column.title}{card.archivedByUserName ? ` · by ${card.archivedByUserName}` : ''}</span>
+          {card.archivedAt ? <time>{new Date(card.archivedAt).toLocaleString()}</time> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ColumnEditSheet({
+  column,
+  index,
+  total,
+  onClose,
+  onChange,
+  onMove,
+  onDelete,
+}: {
+  column: KanbanColumn | null;
+  index: number;
+  total: number;
+  onClose: () => void;
+  onChange: (patch: Partial<KanbanColumn>) => void;
+  onMove: (offset: -1 | 1) => void;
+  onDelete: () => void;
+}) {
+  if (!column) return null;
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet" role="dialog" aria-label={`Edit ${column.title}`} onClick={(event) => event.stopPropagation()}>
+        <div className="sheet-handle" />
+        <div className="sheet-head"><div className="row-text"><strong>Edit column</strong><span>{column.cards.length} cards</span></div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={18} /></button></div>
+        <label className="field"><span>Title</span><input value={column.title} onChange={(event) => onChange({ title: event.target.value })} /></label>
+        <label className="field"><span>Color</span><input type="color" value={column.color ?? '#64748b'} onChange={(event) => onChange({ color: event.target.value })} /></label>
+        <label className="toggle-row"><span><strong>Auto-complete moved cards</strong><small>Cards moved here are marked done.</small></span><input type="checkbox" checked={column.autoComplete ?? false} onChange={(event) => onChange({ autoComplete: event.target.checked })} /></label>
+        <label className="toggle-row"><span><strong>Hide from timeline</strong><small>Exclude this column from the timeline view.</small></span><input type="checkbox" checked={column.hideFromTimeline ?? false} onChange={(event) => onChange({ hideFromTimeline: event.target.checked })} /></label>
+        <div className="column-order-actions">
+          <button type="button" className="ghost-button" disabled={index <= 0} onClick={() => onMove(-1)}><ArrowLeft size={15} /> Move left</button>
+          <button type="button" className="ghost-button" disabled={index < 0 || index >= total - 1} onClick={() => onMove(1)}>Move right <ArrowRight size={15} /></button>
+        </div>
+        <button type="button" className="kanban-delete" onClick={onDelete}><Trash2 size={15} /> Delete column</button>
+      </div>
     </div>
   );
 }
@@ -804,6 +1115,7 @@ function CardDetailSheet({
   onClose,
   onChange,
   onDelete,
+  onArchive,
 }: {
   card: KanbanCard;
   board: KanbanBoard;
@@ -814,6 +1126,7 @@ function CardDetailSheet({
   onClose: () => void;
   onChange: (next: KanbanBoard) => void;
   onDelete: () => void;
+  onArchive: () => void;
 }) {
   const [tagDraft, setTagDraft] = useState('');
   const [checklistDraft, setChecklistDraft] = useState('');
@@ -1107,10 +1420,16 @@ function CardDetailSheet({
           </div>
 
           {!readOnly ? (
-            <button type="button" className="kanban-delete" onClick={onDelete}>
-              <Trash2 size={15} aria-hidden />
-              Delete card
-            </button>
+            <div className="kanban-card-danger-actions">
+              <button type="button" className="kanban-delete" onClick={onArchive}>
+                <Archive size={15} aria-hidden />
+                {card.archived ? 'Restore card' : 'Archive card'}
+              </button>
+              <button type="button" className="kanban-delete" onClick={onDelete}>
+                <Trash2 size={15} aria-hidden />
+                Delete card
+              </button>
+            </div>
           ) : null}
         </div>
       </div>

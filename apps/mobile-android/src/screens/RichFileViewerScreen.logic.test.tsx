@@ -115,7 +115,7 @@ describe('mobile schematic simulation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Run DC simulation' }));
 
     expect(await screen.findByText('Converged in 1 iteration')).toBeTruthy();
-    expect(screen.getByText('5 V')).toBeTruthy();
+    expect(screen.getAllByText('5 V')).toHaveLength(2);
     expect(container.querySelector('[data-circuit-polarity="positive"]')).toBeTruthy();
     expect(circuitMocks.start).toHaveBeenCalledWith(LOGIC);
     expect(circuitMocks.take).toHaveBeenCalledWith('job-1');
@@ -263,5 +263,59 @@ describe('mobile schematic simulation', () => {
     await waitFor(() => expect(circuitMocks.cancel).toHaveBeenCalledWith('job-1'));
     expect(await screen.findByRole('button', { name: 'Run DC simulation' })).toBeTruthy();
     expect(screen.queryByText('Simulation failed')).toBeNull();
+  });
+
+  it('edits an electrical component value without exposing diagram layout controls', async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    render(
+      <LogicMobileViewer
+        logic={LOGIC}
+        zoom={1}
+        setZoom={vi.fn()}
+        resetToken={0}
+        onWheel={vi.fn()}
+        schematicSymbolSet="ansi"
+        readOnly={false}
+        onSaveLogic={save}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect VOLTAGE-SOURCE' }));
+    const value = screen.getByLabelText('DC voltage (V)');
+    fireEvent.change(value, { target: { value: '12' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save value' }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][0].nodes.find((node: { id: string }) => node.id === 'v1').electrical)
+      .toEqual({ voltageVolts: 12 });
+    expect(screen.queryByText(/position/i)).toBeNull();
+  });
+
+  it('creates a runnable sweep configuration from the mobile analysis settings', async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    render(
+      <LogicMobileViewer
+        logic={LOGIC}
+        zoom={1}
+        setZoom={vi.fn()}
+        resetToken={0}
+        onWheel={vi.fn()}
+        schematicSymbolSet="ansi"
+        readOnly={false}
+        onSaveLogic={save}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Circuit settings' }));
+    fireEvent.click(screen.getByRole('tab', { name: /Analysis/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sweep' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save analysis' }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][0].simulation).toMatchObject({
+      analysis: 'dc-sweep',
+      dcSweep: { sourceNodeId: 'v1', start: 0, stop: 5, sampleCount: 101 },
+      probes: [{ kind: 'node-voltage', nodeId: 'v1', handleId: 'positive' }],
+    });
   });
 });

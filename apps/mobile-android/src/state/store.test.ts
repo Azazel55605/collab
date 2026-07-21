@@ -366,7 +366,7 @@ describe('offline replica store actions', () => {
 
     await useMobileStore.getState().loadVaults(SERVER);
 
-    expect(useMobileStore.getState().vaults[SERVER]).toEqual([vault]);
+    expect(useMobileStore.getState().vaults[SERVER]).toEqual([{ ...vault, requireOfflineCopy: false }]);
     expect(invoke).toHaveBeenCalledWith(
       'hosted_vault_request',
       expect.objectContaining({ path: '/api/v1/vaults/v2/manifest' }),

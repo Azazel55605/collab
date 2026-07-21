@@ -9,6 +9,8 @@ import {
   type ThemePrefs,
 } from '../lib/theme';
 import { useMobileStore } from '../state/store';
+import { alwaysCreateOfflineCopy, setAlwaysCreateOfflineCopy } from '../lib/preferences';
+import { useState } from 'react';
 
 const FONT_SCALES: { value: number; label: string }[] = [
   { value: 0.9, label: 'S' },
@@ -27,6 +29,7 @@ export function SettingsScreen({
   const servers = useMobileStore((s) => s.servers);
   const statuses = useMobileStore((s) => s.statuses);
   const connectedCount = Object.values(statuses).filter((s) => s.connected).length;
+  const [alwaysOffline, setAlwaysOffline] = useState(alwaysCreateOfflineCopy);
   const colorFormats = Object.entries(COLOR_PREVIEW_FORMAT_OPTIONS) as [
     ColorPreviewFormat,
     typeof COLOR_PREVIEW_FORMAT_OPTIONS[ColorPreviewFormat],
@@ -50,6 +53,28 @@ export function SettingsScreen({
           <p>Appearance & account</p>
         </div>
       </header>
+
+      <section className="card">
+        <div className="card-title">
+          <Server size={18} aria-hidden />
+          <span>Hosted vaults</span>
+        </div>
+        <label className="toggle-row">
+          <span>
+            <strong>Default to offline copies</strong>
+            <small>Used by servers whose offline setting is set to Default.</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={alwaysOffline}
+            onChange={(event) => {
+              const enabled = event.currentTarget.checked;
+              setAlwaysOffline(enabled);
+              setAlwaysCreateOfflineCopy(enabled);
+            }}
+          />
+        </label>
+      </section>
 
       <section className="card">
         <div className="card-title">

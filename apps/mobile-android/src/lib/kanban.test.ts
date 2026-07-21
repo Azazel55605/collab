@@ -5,6 +5,8 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(
 
 import type { HostedFileEntry } from '../mobileTauri';
 import {
+  addColumn,
+  createColumn,
   addCardToColumn,
   addChecklistItem,
   addComment,
@@ -13,15 +15,18 @@ import {
   createCard,
   findCard,
   isKanbanFile,
+  moveColumn,
   moveCardToColumn,
   parseBoardContent,
   readKanbanDocument,
   removeCard,
+  removeColumn,
   removeTag,
   saveKanbanDocument,
   serializeBoard,
   toggleCardDone,
   toggleChecklistItem,
+  updateColumn,
   viewCards,
   type KanbanBoard,
   type KanbanCard,
@@ -202,5 +207,20 @@ describe('mobile kanban model', () => {
     expect(posted!.path).toBe(`/api/v1/vaults/${VAULT}/files/board-1/revisions`);
     expect((posted!.body as Record<string, unknown>).expectedRevisionSequence).toBe(4);
     expect(result.file.revisionSequence).toBe(5);
+  });
+
+  it('creates, edits, reorders, and removes empty columns', () => {
+    const first = createColumn('Backlog');
+    const second = createColumn('Doing');
+    let board = addColumn(addColumn({ columns: [] }, first), second);
+    board = updateColumn(board, first.id, (column) => ({ ...column, title: 'Ready' }));
+    board = moveColumn(board, second.id, -1);
+    expect(board.columns.map((column) => column.title)).toEqual(['Doing', 'Ready']);
+    expect(removeColumn(board, first.id).columns).toHaveLength(1);
+  });
+
+  it('refuses to remove a non-empty column', () => {
+    const { board, todoId } = boardWithCard();
+    expect(() => removeColumn(board, todoId)).toThrow(/every card/);
   });
 });
