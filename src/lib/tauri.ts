@@ -24,7 +24,7 @@ import type { NoteSnippet, NoteSnippetDraft, NoteSnippetScope } from '../types/n
 import type { PdfSidecarState } from '../types/pdf';
 import type { UpdateInfo } from '../store/updateStore';
 import type { LogicDiagramDocument } from '../types/logicDiagram';
-import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarOperation, CalendarSyncState } from '../types/calendar';
+import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSyncState } from '../types/calendar';
 import type {
   CircuitDcResult,
   CircuitJobOutcome,
@@ -155,8 +155,20 @@ export const tauriCommands = {
     invoke<CalendarSyncState | null>('calendar_read_sync_state', { profileId, originKey }),
   calendarWriteSyncState: (profileId: string, state: CalendarSyncState) =>
     invoke<void>('calendar_write_sync_state', { profileId, state }),
+  calendarApplyRemoteChanges: (profileId: string, changes: CalendarRemoteChange[], state: CalendarSyncState) =>
+    invoke<void>('calendar_apply_remote_changes', { profileId, changes, state }),
   calendarListPendingOperations: (profileId: string) =>
     invoke<CalendarOperation[]>('calendar_list_pending_operations', { profileId }),
+  calendarListFailedOperations: (profileId: string) =>
+    invoke<CalendarOperationFailure[]>('calendar_list_failed_operations', { profileId }),
+  calendarMarkOperationFailed: (profileId: string, clientOperationId: string, error: string, attemptedAt: string) =>
+    invoke<void>('calendar_mark_operation_failed', { profileId, clientOperationId, error, attemptedAt }),
+  calendarRetryOperation: (profileId: string, clientOperationId: string) =>
+    invoke<void>('calendar_retry_operation', { profileId, clientOperationId }),
+  calendarDiscardOperation: (profileId: string, clientOperationId: string) =>
+    invoke<void>('calendar_discard_operation', { profileId, clientOperationId }),
+  calendarRemoveHostedCache: (profileId: string, serverUrl: string, userId: string) =>
+    invoke<CalendarCleanupResult>('calendar_remove_hosted_cache', { profileId, serverUrl, userId }),
 
   // Vault
   openVault: (path: string) => invoke<VaultMeta>('open_vault', { path }),

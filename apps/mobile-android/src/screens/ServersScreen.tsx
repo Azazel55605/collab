@@ -1,4 +1,4 @@
-import { ChevronRight, Cloud, LogOut, Pencil, Plus, RefreshCw, ShieldAlert } from 'lucide-react';
+import { CalendarX2, ChevronRight, Cloud, LogOut, Pencil, Plus, RefreshCw, ShieldAlert } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 
 import { Banner, EmptyState, Spinner, StatusDot } from '../components/ui';
@@ -15,6 +15,8 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
   const connect = useMobileStore((s) => s.connect);
   const reconnect = useMobileStore((s) => s.reconnect);
   const disconnect = useMobileStore((s) => s.disconnect);
+  const calendarCacheOrigins = useMobileStore((s) => s.calendarCacheOrigins);
+  const removeCalendarCachesForServer = useMobileStore((s) => s.removeCalendarCachesForServer);
 
   const [showForm, setShowForm] = useState(servers.length === 0);
   const [serverUrl, setServerUrl] = useState('https://');
@@ -189,6 +191,9 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
           const online = !!status?.connected;
           const isPending = pending === key;
           const editing = editingServer === key;
+          const hasCalendarCache = calendarCacheOrigins.some(
+            (origin) => normalizeServerUrl(origin.serverUrl) === key,
+          );
           return (
             <li className={`server-list-item ${editing ? 'editing' : ''}`} key={key}>
               <div className="list-row server-row">
@@ -212,6 +217,21 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
                   {online && !editing ? <ChevronRight size={18} aria-hidden className="row-chevron" /> : null}
                 </button>
                 <div className="row-actions">
+                  {hasCalendarCache ? (
+                    <button
+                      type="button"
+                      className="icon-button danger"
+                      aria-label={`Remove cached calendars from ${key}`}
+                      title="Remove cached calendars"
+                      disabled={isPending || editing}
+                      onClick={() => {
+                        if (!window.confirm(`Remove cached calendars from ${key.replace(/^https?:\/\//, '')}? Server data is not changed.`)) return;
+                        void withPending(key, () => removeCalendarCachesForServer(key));
+                      }}
+                    >
+                      {isPending ? <Spinner size={16} /> : <CalendarX2 size={16} aria-hidden />}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className={`icon-button ${editing ? 'active' : ''}`}

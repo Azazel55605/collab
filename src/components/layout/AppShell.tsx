@@ -44,6 +44,7 @@ import KanbanPage from '../../views/KanbanPage';
 import SettingsPage from '../../views/SettingsPage';
 import GridView from '../../views/GridView';
 import CalendarPage from '../../views/CalendarPage';
+import CalendarSyncCoordinator from './CalendarSyncCoordinator';
 import { CollabProvider } from '../collaboration/CollabProvider';
 import { CommandBar } from '../command-bar/CommandBar';
 import { DragProvider } from '../../contexts/DragContext';
@@ -276,6 +277,7 @@ export default function AppShell() {
 
   return (
     <CollabProvider>
+      <CalendarSyncCoordinator />
       <DragProvider>
       <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
         {/* Activity bar */}

@@ -33,6 +33,13 @@ import {
 } from '../lib/replica';
 import { replayPendingOperations } from '../lib/sync';
 import { shouldAlwaysCreateOfflineCopy } from '../lib/preferences';
+import {
+  listMobileCalendarCacheOrigins,
+  removeMobileCalendarCache,
+  syncMobileCalendars,
+} from '../lib/calendarSync';
+import type { CalendarOperationFailure } from '../../../../src/types/calendar';
+import type { CalendarOriginSyncResult, CalendarSyncProgress } from '../../../../src/lib/calendarSync';
 
 export interface SelectedVault {
   serverUrl: string;
@@ -99,12 +106,19 @@ interface MobileState {
   offlineBusy: Record<string, boolean>;
   offlineProgress: Record<string, OfflineProgress | null>;
   offlineError: string | null;
+  calendarSyncing: boolean;
+  calendarSyncProgress: Record<string, CalendarSyncProgress>;
+  calendarSyncResults: CalendarOriginSyncResult[];
+  calendarConflicts: CalendarOperationFailure[];
+  calendarCacheOrigins: Array<{ serverUrl: string; userId: string }>;
 
   restore: () => Promise<void>;
   refreshStatuses: () => Promise<void>;
   loadReplicas: () => Promise<void>;
   /** Replay every offline-queued write for a connected server's replicas. */
   syncServer: (serverUrl: string) => Promise<void>;
+  syncCalendars: () => Promise<void>;
+  removeCalendarCachesForServer: (serverUrl: string) => Promise<void>;
   /** Keep already-enabled offline copies current while their server is connected. */
   refreshOfflineCopies: (serverUrl?: string) => Promise<void>;
   connect: (
@@ -149,6 +163,11 @@ export const useMobileStore = create<MobileState>((set, get) => ({
   offlineBusy: {},
   offlineProgress: {},
   offlineError: null,
+  calendarSyncing: false,
+  calendarSyncProgress: {},
+  calendarSyncResults: [],
+  calendarConflicts: [],
+  calendarCacheOrigins: [],
 
   tab: 'servers',
   folderTrail: [ROOT_CRUMB],
@@ -223,6 +242,8 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     // Load offline replicas first so a reconnected server can immediately replay
     // any writes queued while it was offline, then preload vault inventories.
     await get().loadReplicas().catch(() => {});
+    const calendarCacheOrigins = await listMobileCalendarCacheOrigins().catch(() => []);
+    set({ calendarCacheOrigins });
     await Promise.all([
       ...Object.keys(get().statuses).map((serverUrl) =>
         get().loadVaults(serverUrl).catch(() => {}),
@@ -230,6 +251,7 @@ export const useMobileStore = create<MobileState>((set, get) => ({
       ...Object.keys(get().statuses).map((serverUrl) =>
         get().syncServer(serverUrl).catch(() => {}),
       ),
+      get().syncCalendars().catch(() => {}),
     ]);
     set({ restored: true });
   },
@@ -266,6 +288,39 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     if (selected && normalizeServerUrl(selected.serverUrl) === normalized) {
       await get().loadFiles().catch(() => {});
     }
+  },
+
+  syncCalendars: async () => {
+    const origins = Object.values(get().statuses).flatMap((status) => (
+      status.connected && status.serverUrl && status.user
+        ? [{ serverUrl: normalizeServerUrl(status.serverUrl), userId: status.user.id }]
+        : []
+    ));
+    if (origins.length === 0 || get().calendarSyncing) return;
+    set({ calendarSyncing: true });
+    try {
+      const synced = await syncMobileCalendars(origins, (progress) => {
+        set((state) => ({
+          calendarSyncProgress: { ...state.calendarSyncProgress, [progress.originKey]: progress },
+        }));
+      });
+      set({
+        calendarSyncResults: synced.results,
+        calendarConflicts: synced.conflicts,
+        calendarCacheOrigins: synced.cacheOrigins,
+      });
+    } finally {
+      set({ calendarSyncing: false });
+    }
+  },
+
+  removeCalendarCachesForServer: async (serverUrl) => {
+    const normalized = normalizeServerUrl(serverUrl);
+    const matching = get().calendarCacheOrigins.filter(
+      (origin) => normalizeServerUrl(origin.serverUrl) === normalized,
+    );
+    for (const origin of matching) await removeMobileCalendarCache(origin);
+    set({ calendarCacheOrigins: await listMobileCalendarCacheOrigins() });
   },
 
   refreshOfflineCopies: async (serverUrl) => {
@@ -332,6 +387,7 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     await get().loadReplicas().catch(() => {});
     await get().loadVaults(normalized);
     await get().syncServer(normalized).catch(() => {});
+    await get().syncCalendars().catch(() => {});
   },
 
   reconnect: async (serverUrl) => {
@@ -345,6 +401,7 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     await get().loadReplicas().catch(() => {});
     await get().loadVaults(normalized);
     await get().syncServer(normalized).catch(() => {});
+    await get().syncCalendars().catch(() => {});
   },
 
   disconnect: async (serverUrl) => {

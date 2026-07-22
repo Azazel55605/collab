@@ -1,5 +1,11 @@
 import { create } from 'zustand';
 import { tauriCommands } from '../lib/tauri';
+import {
+  syncHostedCalendars,
+  type CalendarOriginSyncResult,
+  type CalendarSyncProgress,
+  type HostedCalendarOrigin,
+} from '../lib/calendarSync';
 import { expandRecurringItem } from '../lib/calendarRecurrence';
 import {
   planRecurringEdit,
@@ -17,10 +23,13 @@ import {
   type CalendarItem,
   type CalendarLocation,
   type CalendarOperation,
+  type CalendarOperationFailure,
 } from '../types/calendar';
 
 const DEVICE_ID_KEY = 'collab-calendar-device-id';
 const profileInitializations = new Map<string, Promise<void>>();
+const hostedSyncs = new Map<string, Promise<CalendarOriginSyncResult[]>>();
+const activeHostedSyncs = new Map<string, number>();
 
 function deviceId(): string {
   const existing = localStorage.getItem(DEVICE_ID_KEY);
@@ -43,9 +52,17 @@ interface CalendarStoreState {
   range: { from: string; to: string } | null;
   loading: boolean;
   saving: boolean;
+  syncing: boolean;
+  syncResults: CalendarOriginSyncResult[];
+  syncProgress: Record<string, CalendarSyncProgress>;
+  conflicts: CalendarOperationFailure[];
   error: string | null;
   initialize: (profileId: string) => Promise<void>;
   loadRange: (from: string, to: string) => Promise<void>;
+  syncHosted: (origins: HostedCalendarOrigin[]) => Promise<CalendarOriginSyncResult[]>;
+  retryConflict: (clientOperationId: string) => Promise<void>;
+  discardConflict: (clientOperationId: string) => Promise<void>;
+  removeHostedCache: (origin: HostedCalendarOrigin) => Promise<void>;
   setCalendarVisible: (calendarId: string, visible: boolean) => void;
   createCalendar: (name: string, color: string, location?: CalendarLocation) => Promise<CalendarDefinition>;
   createEvent: (input: {
@@ -130,15 +147,22 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
   range: null,
   loading: false,
   saving: false,
+  syncing: false,
+  syncResults: [],
+  syncProgress: {},
+  conflicts: [],
   error: null,
 
   initialize: async (profileId) => {
     const pending = profileInitializations.get(profileId);
     if (pending) return pending;
     const initialization = (async () => {
-      set({ profileId, loading: true, error: null });
+      set({ profileId, loading: true, syncing: false, syncResults: [], syncProgress: {}, conflicts: [], error: null });
       try {
-        let calendars = await tauriCommands.calendarList(profileId);
+        let [calendars, conflicts] = await Promise.all([
+          tauriCommands.calendarList(profileId),
+          tauriCommands.calendarListFailedOperations(profileId),
+        ]);
         if (calendars.length === 0) {
           const calendar = createCalendarDefinition({
             location: { kind: 'local', profileId },
@@ -154,6 +178,7 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
           const survivingIds = state.visibleCalendarIds.filter((id) => activeIds.includes(id));
           return {
             calendars,
+            conflicts,
             visibleCalendarIds: survivingIds.length > 0 ? survivingIds : activeIds,
           };
         });
@@ -185,6 +210,132 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
       set({ error: error instanceof Error ? error.message : String(error) });
     } finally {
       set({ loading: false });
+    }
+  },
+
+  syncHosted: async (origins) => {
+    const profileId = get().profileId;
+    if (!profileId || origins.length === 0) return [];
+    const syncKey = `${profileId}:${origins
+      .map((origin) => `${origin.serverUrl}:${origin.userId}`)
+      .sort()
+      .join('|')}`;
+    const existing = hostedSyncs.get(syncKey);
+    if (existing) return existing;
+    const sync = (async () => {
+      activeHostedSyncs.set(profileId, (activeHostedSyncs.get(profileId) ?? 0) + 1);
+      set({ syncing: true });
+      const results = await syncHostedCalendars(profileId, origins, get().calendars, (progress) => {
+        if (get().profileId !== profileId) return;
+        set((state) => ({
+          syncProgress: { ...state.syncProgress, [progress.originKey]: progress },
+        }));
+      });
+      if (get().profileId !== profileId) return results;
+      try {
+        const [calendars, conflicts] = await Promise.all([
+          tauriCommands.calendarList(profileId),
+          tauriCommands.calendarListFailedOperations(profileId),
+        ]);
+        const activeIds = calendars.filter((calendar) => !calendar.archived).map((calendar) => calendar.id);
+        const range = get().range;
+        let sourceItems = get().sourceItems;
+        let items = get().items;
+        if (range) {
+          sourceItems = await tauriCommands.calendarListItems(
+            profileId,
+            range.from,
+            range.to,
+            5_000,
+            true,
+          );
+          items = projectedItems(sourceItems, range);
+        }
+        set((state) => ({
+          calendars,
+          sourceItems,
+          items,
+          syncResults: results,
+          conflicts,
+          visibleCalendarIds: Array.from(new Set([
+            ...state.visibleCalendarIds.filter((id) => activeIds.includes(id)),
+            ...activeIds.filter((id) => !state.calendars.some((calendar) => calendar.id === id)),
+          ])),
+        }));
+      } catch (error) {
+        set({ error: error instanceof Error ? error.message : String(error), syncResults: results });
+      }
+      return results;
+    })();
+    hostedSyncs.set(syncKey, sync);
+    try {
+      return await sync;
+    } finally {
+      hostedSyncs.delete(syncKey);
+      const remaining = Math.max(0, (activeHostedSyncs.get(profileId) ?? 1) - 1);
+      if (remaining === 0) activeHostedSyncs.delete(profileId);
+      else activeHostedSyncs.set(profileId, remaining);
+      if (get().profileId === profileId) set({ syncing: remaining > 0 });
+    }
+  },
+
+  retryConflict: async (clientOperationId) => {
+    const profileId = get().profileId;
+    if (!profileId) return;
+    try {
+      await tauriCommands.calendarRetryOperation(profileId, clientOperationId);
+      const conflicts = await tauriCommands.calendarListFailedOperations(profileId);
+      if (get().profileId === profileId) set({ conflicts, error: null });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
+  },
+
+  discardConflict: async (clientOperationId) => {
+    const profileId = get().profileId;
+    if (!profileId) return;
+    try {
+      await tauriCommands.calendarDiscardOperation(profileId, clientOperationId);
+      const conflicts = await tauriCommands.calendarListFailedOperations(profileId);
+      if (get().profileId === profileId) set({ conflicts, error: null });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
+  },
+
+  removeHostedCache: async (origin) => {
+    const profileId = get().profileId;
+    if (!profileId) return;
+    const originKey = `${origin.serverUrl.replace(/\/$/, '')}::${origin.userId}`;
+    try {
+      await tauriCommands.calendarRemoveHostedCache(profileId, origin.serverUrl, origin.userId);
+      const [calendars, conflicts] = await Promise.all([
+        tauriCommands.calendarList(profileId),
+        tauriCommands.calendarListFailedOperations(profileId),
+      ]);
+      const range = get().range;
+      const sourceItems = range
+        ? await tauriCommands.calendarListItems(profileId, range.from, range.to, 5_000, true)
+        : get().sourceItems;
+      set((state) => {
+        const syncProgress = { ...state.syncProgress };
+        delete syncProgress[originKey];
+        return {
+          calendars,
+          conflicts,
+          sourceItems,
+          items: projectedItems(sourceItems, range),
+          visibleCalendarIds: state.visibleCalendarIds.filter((id) => calendars.some((calendar) => calendar.id === id)),
+          syncResults: state.syncResults.filter((result) => result.originKey !== originKey),
+          syncProgress,
+          error: null,
+        };
+      });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+      throw error;
     }
   },
 

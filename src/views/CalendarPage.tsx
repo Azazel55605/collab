@@ -11,6 +11,7 @@ import {
   MapPin,
   Pencil,
   Plus,
+  RefreshCw,
   SquareKanban,
   Trash2,
 } from 'lucide-react';
@@ -233,6 +234,12 @@ export default function CalendarPage() {
     if (viewMode === 'agenda') return { from: selectedDate, to: nextDateKey(selectedDate) };
     return { from: calendarDateKey(monthDays[0]), to: calendarDateKey(addDays(monthDays[41], 1)) };
   }, [anchor, monthDays, selectedDate, viewMode, weekDays]);
+  const hostedOrigins = useMemo(() => Object.values(serverConnections).flatMap((connection) => {
+    const { status } = connection;
+    return status.connected && status.serverUrl && status.user
+      ? [{ serverUrl: status.serverUrl, userId: status.user.id }]
+      : [];
+  }), [serverConnections]);
 
   useEffect(() => { void store.initialize(profileId); }, [profileId, store.initialize]);
   useEffect(() => {
@@ -329,6 +336,7 @@ export default function CalendarPage() {
           ))}
         </div>
         {store.loading && <LoaderCircle className="size-4 animate-spin text-muted-foreground" />}
+        {hostedOrigins.length > 0 && <Button variant="ghost" size="icon-sm" aria-label="Sync hosted calendars" title="Sync hosted calendars" disabled={store.syncing} onClick={() => void store.syncHosted(hostedOrigins)}><RefreshCw className={cn(store.syncing && 'animate-spin')} /></Button>}
         <Button size="sm" onClick={() => openEditor({ date: selectedDate, kind: 'event' })} disabled={store.calendars.length === 0}><Plus /> New</Button>
       </header>
 

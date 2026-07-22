@@ -123,7 +123,13 @@ pub fn run() {
             commands::calendar::calendar_acknowledge_operations,
             commands::calendar::calendar_read_sync_state,
             commands::calendar::calendar_write_sync_state,
+            commands::calendar::calendar_apply_remote_changes,
             commands::calendar::calendar_list_pending_operations,
+            commands::calendar::calendar_list_failed_operations,
+            commands::calendar::calendar_mark_operation_failed,
+            commands::calendar::calendar_retry_operation,
+            commands::calendar::calendar_discard_operation,
+            commands::calendar::calendar_remove_hosted_cache,
             // vault
             commands::vault::open_vault,
             commands::vault::create_vault,

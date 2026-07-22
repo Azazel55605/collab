@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { tauriCommands } from '../lib/tauri';
+import { syncHostedCalendars } from '../lib/calendarSync';
 import { useCalendarStore } from './calendarStore';
-import { normalizeCalendarItem } from '../types/calendar';
+import { createCalendarDefinition, normalizeCalendarItem } from '../types/calendar';
 
 vi.mock('../lib/tauri', () => ({
   tauriCommands: {
@@ -11,8 +12,16 @@ vi.mock('../lib/tauri', () => ({
     calendarUpsertItem: vi.fn(),
     calendarDeleteItem: vi.fn(),
     calendarAcknowledgeOperations: vi.fn(),
+    calendarListFailedOperations: vi.fn(),
+    calendarRetryOperation: vi.fn(),
+    calendarDiscardOperation: vi.fn(),
+    calendarRemoveHostedCache: vi.fn(),
     hostedCalendarRequest: vi.fn(),
   },
+}));
+
+vi.mock('../lib/calendarSync', () => ({
+  syncHostedCalendars: vi.fn(),
 }));
 
 beforeEach(() => {
@@ -27,6 +36,10 @@ beforeEach(() => {
     range: null,
     loading: false,
     saving: false,
+    syncing: false,
+    syncResults: [],
+    syncProgress: {},
+    conflicts: [],
     error: null,
   });
   vi.mocked(tauriCommands.calendarSave).mockResolvedValue(undefined);
@@ -34,6 +47,11 @@ beforeEach(() => {
   vi.mocked(tauriCommands.calendarUpsertItem).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarDeleteItem).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarAcknowledgeOperations).mockResolvedValue(undefined);
+  vi.mocked(tauriCommands.calendarListFailedOperations).mockResolvedValue([]);
+  vi.mocked(tauriCommands.calendarRetryOperation).mockResolvedValue(undefined);
+  vi.mocked(tauriCommands.calendarDiscardOperation).mockResolvedValue(undefined);
+  vi.mocked(tauriCommands.calendarRemoveHostedCache).mockResolvedValue({ calendarsRemoved: 0, itemsRemoved: 0 });
+  vi.mocked(syncHostedCalendars).mockResolvedValue([]);
 });
 
 describe('calendarStore', () => {
@@ -60,6 +78,77 @@ describe('calendarStore', () => {
 
     expect(tauriCommands.calendarList).toHaveBeenCalledOnce();
     expect(tauriCommands.calendarSave).toHaveBeenCalledOnce();
+  });
+
+  it('deduplicates concurrent hosted sync passes and clears progress', async () => {
+    vi.mocked(tauriCommands.calendarList).mockResolvedValue([]);
+    await useCalendarStore.getState().initialize('profile-1');
+    let finish!: (value: []) => void;
+    vi.mocked(syncHostedCalendars).mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const origins = [{ serverUrl: 'https://calendar.example', userId: 'user-1' }];
+
+    const first = useCalendarStore.getState().syncHosted(origins);
+    const second = useCalendarStore.getState().syncHosted(origins);
+    expect(useCalendarStore.getState().syncing).toBe(true);
+    expect(syncHostedCalendars).toHaveBeenCalledOnce();
+
+    finish([]);
+    await Promise.all([first, second]);
+    expect(useCalendarStore.getState().syncing).toBe(false);
+  });
+
+  it('refreshes durable conflicts after retry and discard actions', async () => {
+    const conflict = {
+      operation: {
+        clientOperationId: 'operation-1',
+        deviceId: 'device-1',
+        mutation: { type: 'deleteCalendar' as const, calendarId: 'calendar-1' },
+      },
+      attemptCount: 1,
+      lastError: 'revision conflict',
+      lastAttemptAt: '2026-07-22T10:00:00Z',
+    };
+    vi.mocked(tauriCommands.calendarList).mockResolvedValue([]);
+    vi.mocked(tauriCommands.calendarListFailedOperations)
+      .mockResolvedValueOnce([conflict])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    await useCalendarStore.getState().initialize('profile-1');
+    expect(useCalendarStore.getState().conflicts).toEqual([conflict]);
+
+    await useCalendarStore.getState().retryConflict('operation-1');
+    expect(tauriCommands.calendarRetryOperation).toHaveBeenCalledWith('profile-1', 'operation-1');
+    expect(useCalendarStore.getState().conflicts).toEqual([]);
+
+    useCalendarStore.setState({ conflicts: [conflict] });
+    await useCalendarStore.getState().discardConflict('operation-1');
+    expect(tauriCommands.calendarDiscardOperation).toHaveBeenCalledWith('profile-1', 'operation-1');
+    expect(useCalendarStore.getState().conflicts).toEqual([]);
+  });
+
+  it('removes a disconnected hosted calendar cache and its visible items', async () => {
+    const hosted = createCalendarDefinition({
+      id: 'calendar-1',
+      location: { kind: 'hosted', serverUrl: 'https://calendar.example', userId: 'user-1' },
+      name: 'Hosted',
+      color: '#60a5fa',
+      defaultTimeZone: 'UTC',
+    });
+    vi.mocked(tauriCommands.calendarList)
+      .mockResolvedValueOnce([hosted])
+      .mockResolvedValueOnce([]);
+    await useCalendarStore.getState().initialize('profile-1');
+    await useCalendarStore.getState().removeHostedCache({
+      serverUrl: 'https://calendar.example',
+      userId: 'user-1',
+    });
+
+    expect(tauriCommands.calendarRemoveHostedCache).toHaveBeenCalledWith(
+      'profile-1',
+      'https://calendar.example',
+      'user-1',
+    );
+    expect(useCalendarStore.getState().calendars).toEqual([]);
   });
 
   it('expands recurring masters returned by the native range query', async () => {

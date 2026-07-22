@@ -16,6 +16,17 @@ const circuitMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../mobileTauri', () => ({
+  hostedCalendarRequest: vi.fn(),
+  saveProfileCalendar: vi.fn(),
+  readProfileCalendarSyncState: vi.fn(),
+  writeProfileCalendarSyncState: vi.fn(),
+  listProfileCalendarPendingOperations: vi.fn(),
+  acknowledgeProfileCalendarOperations: vi.fn(),
+  markProfileCalendarOperationFailed: vi.fn(),
+  applyProfileCalendarRemoteChanges: vi.fn(),
+  listProfileCalendars: vi.fn(),
+  listProfileCalendarFailedOperations: vi.fn(),
+  removeHostedCalendarCache: vi.fn(),
   circuitStartDc: circuitMocks.start,
   circuitStartDcSweep: circuitMocks.sweepStart,
   circuitStartTransient: circuitMocks.transientStart,

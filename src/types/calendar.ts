@@ -193,11 +193,33 @@ export interface CalendarOperation {
   mutation: CalendarMutation;
 }
 
+export interface CalendarOperationFailure {
+  operation: CalendarOperation;
+  attemptCount: number;
+  lastError: string;
+  lastAttemptAt: string;
+}
+
 export interface CalendarSyncState {
   originKey: string;
   cursor?: string;
   lastSyncedAt?: string;
   lastError?: string;
+}
+
+export interface CalendarRemoteChange {
+  sequence: number;
+  entityType: 'calendar' | 'item';
+  entityId: string;
+  operation: 'upsert' | 'delete';
+  payload?: unknown;
+  changedAt: string;
+}
+
+export interface CalendarChangesPage {
+  changes: CalendarRemoteChange[];
+  cursor: number;
+  hasMore: boolean;
 }
 
 export interface CalendarCleanupResult {

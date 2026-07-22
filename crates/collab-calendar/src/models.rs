@@ -307,6 +307,15 @@ pub struct CalendarOperation {
     pub mutation: CalendarMutation,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarOperationFailure {
+    pub operation: CalendarOperation,
+    pub attempt_count: i64,
+    pub last_error: String,
+    pub last_attempt_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CalendarSyncState {
@@ -317,6 +326,18 @@ pub struct CalendarSyncState {
     pub last_synced_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarRemoteChange {
+    pub sequence: i64,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub operation: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<serde_json::Value>,
+    pub changed_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

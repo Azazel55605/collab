@@ -1,7 +1,7 @@
 use super::app_config_dir;
 use collab_calendar::{
-    CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarOperation, CalendarStore,
-    CalendarSyncState,
+    CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarOperation,
+    CalendarOperationFailure, CalendarRemoteChange, CalendarStore, CalendarSyncState,
 };
 
 async fn store(profile_id: &str) -> Result<CalendarStore, String> {
@@ -151,12 +151,87 @@ pub async fn calendar_write_sync_state(
 }
 
 #[tauri::command]
+pub async fn calendar_apply_remote_changes(
+    profile_id: String,
+    changes: Vec<CalendarRemoteChange>,
+    state: CalendarSyncState,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .apply_remote_changes(&changes, &state)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn calendar_list_pending_operations(
     profile_id: String,
 ) -> Result<Vec<CalendarOperation>, String> {
     store(&profile_id)
         .await?
         .list_pending_operations()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_list_failed_operations(
+    profile_id: String,
+) -> Result<Vec<CalendarOperationFailure>, String> {
+    store(&profile_id)
+        .await?
+        .list_failed_operations()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_mark_operation_failed(
+    profile_id: String,
+    client_operation_id: String,
+    error: String,
+    attempted_at: String,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .mark_operation_failed(&client_operation_id, &error, &attempted_at)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_retry_operation(
+    profile_id: String,
+    client_operation_id: String,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .retry_operation(&client_operation_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_discard_operation(
+    profile_id: String,
+    client_operation_id: String,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .discard_operation(&client_operation_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_remove_hosted_cache(
+    profile_id: String,
+    server_url: String,
+    user_id: String,
+) -> Result<CalendarCleanupResult, String> {
+    store(&profile_id)
+        .await?
+        .remove_hosted_origin_cache(&server_url, &user_id)
         .await
         .map_err(|error| error.to_string())
 }

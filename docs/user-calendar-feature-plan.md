@@ -53,7 +53,7 @@ models.
 | 0. Domain contract and interoperability spike | Complete | RFC 5545 selection, fixtures, bounded recurrence, and deterministic edit-scope operations are implemented. |
 | 1. Shared calendar domain and local profile store | Complete | Canonical model, native profile database, bounded recurrence queries, migrations, tombstones, and operation log are implemented. |
 | 2. Hosted server calendar domain | In progress | Add user-owned PostgreSQL storage, authenticated APIs, quotas, and private usage rollups. |
-| 3. Multi-server offline sync | Not started | Sync independent hosted calendar replicas on desktop and Android with durable cursors and queued operations. |
+| 3. Multi-server offline sync | Complete | Desktop and Android sync independent hosted replicas with durable cursors, queued/conflicted operations, lifecycle triggers, progress, and guarded cache removal. |
 | 4. Desktop calendar experience | In progress | Add the global Calendar view and complete everyday event/task workflows. |
 | 5. Android calendar experience | Not started | Add phone-first calendar navigation, editing, offline use, and multi-server management. |
 | 6. Cross-location calendar mirroring | Not started | Explicitly mirror calendars across local and hosted locations without server-to-server credentials. |
@@ -140,14 +140,38 @@ Landed in the first implementation slice:
   exceptions are indexed by both their original recurrence slot and rendered
   date, and PostgreSQL/SQLite now permit one UID master plus distinct recurrence
   instances without allowing duplicate instances.
+- Added the first desktop multi-server sync pass. Connected origins discover
+  their hosted calendars, replay only their own durable operation queue in
+  bounded batches, pull bounded delta pages, and isolate failures per server.
+- Added a transactional native remote-change boundary so calendar/item upserts,
+  tombstones, and cursor advancement commit together. Calendar changes are
+  rebound to the authenticated connected origin before entering the profile
+  cache, and the visible desktop range refreshes after each sync pass.
+- Moved desktop hosted-calendar synchronization into an app-level coordinator
+  so it runs outside the Calendar screen on connection changes, window focus,
+  browser online events, and a bounded foreground interval. Added a status-bar
+  rollup with per-server upload/download counts, errors, and manual retry.
+- Added durable failed-operation retention to the shared profile store. Replay
+  now isolates rejected operations, keeps connectivity failures pending, avoids
+  pulling over unresolved local edits, and exposes retry/discard controls in the
+  desktop calendar sync status menu. Desktop and Android share the typed native
+  recovery commands.
+- Added shared per-origin sync progress for discovery, bounded uploads, and
+  downloaded change counts. The desktop status menu shows active progress and
+  keeps disconnected cached origins visible.
+- Connected Android startup, reconnect, foreground/resume, and online events to
+  the shared calendar replay/pull engine through mobile Tauri wrappers. Android
+  retains progress, results, conflicts, and cached-origin state independently
+  of any open vault.
+- Added atomic hosted-origin cache removal. It removes only the selected
+  server/user replica and cursor, refuses while pending or failed operations
+  exist, and is available for disconnected desktop caches and Android server
+  entries.
 
 Remaining implementation work:
 
 - Complete Phase 2 with attendee/attachment/subscription tables, calendar quota
   accounting, aggregate-only admin rollups, and live PostgreSQL API tests.
-- Connect Phase 3 replay/pull logic to the new operation and change APIs, apply
-  remote changes transactionally to the local profile store, and expose hosted
-  calendar creation/selection in the clients.
 - Complete timed week/day layouts, recurrence-aware editing, drag/reschedule,
   calendar settings/archive operations, and keyboard/accessibility coverage.
 

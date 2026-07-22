@@ -1,7 +1,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import type { LogicDiagramDocument } from '../../../src/types/logicDiagram';
-import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarOperation, CalendarSyncState } from '../../../src/types/calendar';
+import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSyncState } from '../../../src/types/calendar';
 import type {
   CircuitDcResult,
   CircuitJobOutcome,
@@ -84,8 +84,45 @@ export function writeProfileCalendarSyncState(profileId: string, state: Calendar
   return invoke('calendar_write_sync_state', { profileId, state });
 }
 
+export function applyProfileCalendarRemoteChanges(
+  profileId: string,
+  changes: CalendarRemoteChange[],
+  state: CalendarSyncState,
+): Promise<void> {
+  return invoke('calendar_apply_remote_changes', { profileId, changes, state });
+}
+
 export function listProfileCalendarPendingOperations(profileId: string): Promise<CalendarOperation[]> {
   return invoke('calendar_list_pending_operations', { profileId });
+}
+
+export function listProfileCalendarFailedOperations(profileId: string): Promise<CalendarOperationFailure[]> {
+  return invoke('calendar_list_failed_operations', { profileId });
+}
+
+export function markProfileCalendarOperationFailed(
+  profileId: string,
+  clientOperationId: string,
+  error: string,
+  attemptedAt: string,
+): Promise<void> {
+  return invoke('calendar_mark_operation_failed', { profileId, clientOperationId, error, attemptedAt });
+}
+
+export function retryProfileCalendarOperation(profileId: string, clientOperationId: string): Promise<void> {
+  return invoke('calendar_retry_operation', { profileId, clientOperationId });
+}
+
+export function discardProfileCalendarOperation(profileId: string, clientOperationId: string): Promise<void> {
+  return invoke('calendar_discard_operation', { profileId, clientOperationId });
+}
+
+export function removeHostedCalendarCache(
+  profileId: string,
+  serverUrl: string,
+  userId: string,
+): Promise<CalendarCleanupResult> {
+  return invoke('calendar_remove_hosted_cache', { profileId, serverUrl, userId });
 }
 
 export function hostedCalendarRequest<T>(

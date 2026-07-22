@@ -1,6 +1,7 @@
 use crate::models::{
     CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarItemKind, CalendarMutation,
-    CalendarOperation, CalendarSyncState, CalendarTimeValue, CALENDAR_SCHEMA_VERSION,
+    CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSyncState,
+    CalendarTimeValue, CALENDAR_SCHEMA_VERSION,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
@@ -10,7 +11,7 @@ use std::time::Duration;
 
 pub const MAX_RANGE_QUERY_ITEMS: u32 = 5_000;
 pub const MAX_SEARCH_QUERY_ITEMS: u32 = 500;
-pub const LOCAL_STORE_SCHEMA_VERSION: i64 = 3;
+pub const LOCAL_STORE_SCHEMA_VERSION: i64 = 4;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CalendarStoreError {
@@ -183,6 +184,35 @@ impl CalendarStore {
         )
         .execute(&mut *tx)
         .await?;
+        let pending_columns = sqlx::query("PRAGMA table_info(pending_operations)")
+            .fetch_all(&mut *tx)
+            .await?;
+        if !pending_columns
+            .iter()
+            .any(|row| row.get::<String, _>("name") == "attempt_count")
+        {
+            sqlx::query(
+                "ALTER TABLE pending_operations ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0",
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        if !pending_columns
+            .iter()
+            .any(|row| row.get::<String, _>("name") == "last_error")
+        {
+            sqlx::query("ALTER TABLE pending_operations ADD COLUMN last_error TEXT")
+                .execute(&mut *tx)
+                .await?;
+        }
+        if !pending_columns
+            .iter()
+            .any(|row| row.get::<String, _>("name") == "last_attempt_at")
+        {
+            sqlx::query("ALTER TABLE pending_operations ADD COLUMN last_attempt_at TEXT")
+                .execute(&mut *tx)
+                .await?;
+        }
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS sync_state (
@@ -734,6 +764,70 @@ impl CalendarStore {
         Ok(())
     }
 
+    pub async fn remove_hosted_origin_cache(
+        &self,
+        server_url: &str,
+        user_id: &str,
+    ) -> Result<CalendarCleanupResult, CalendarStoreError> {
+        validate_non_empty(server_url, "hosted calendar server URL")?;
+        validate_non_empty(user_id, "hosted calendar user ID")?;
+        let normalized_server_url = server_url.trim_end_matches('/');
+        let origin_key = format!("{normalized_server_url}::{user_id}");
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query("SELECT id, location_json FROM calendars")
+            .fetch_all(&mut *tx)
+            .await?;
+        let mut calendar_ids = Vec::new();
+        for row in rows {
+            let location: crate::models::CalendarLocation =
+                serde_json::from_str(row.get::<&str, _>("location_json"))?;
+            if matches!(
+                location,
+                crate::models::CalendarLocation::Hosted { server_url, user_id: owner }
+                    if server_url.trim_end_matches('/') == normalized_server_url && owner == user_id
+            ) {
+                calendar_ids.push(row.get::<String, _>("id"));
+            }
+        }
+
+        for calendar_id in &calendar_ids {
+            let unresolved = sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM pending_operations WHERE calendar_id=? AND status IN ('pending', 'failed'))",
+            )
+            .bind(calendar_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if unresolved {
+                return Err(CalendarStoreError::Validation(
+                    "hosted calendar cache has unresolved changes".into(),
+                ));
+            }
+        }
+
+        let mut items_removed = 0_u64;
+        for calendar_id in &calendar_ids {
+            items_removed += sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM calendar_items WHERE calendar_id=?",
+            )
+            .bind(calendar_id)
+            .fetch_one(&mut *tx)
+            .await? as u64;
+            sqlx::query("DELETE FROM calendars WHERE id=?")
+                .bind(calendar_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        sqlx::query("DELETE FROM sync_state WHERE origin_key=?")
+            .bind(origin_key)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(CalendarCleanupResult {
+            calendars_removed: calendar_ids.len() as u64,
+            items_removed,
+        })
+    }
+
     pub async fn read_sync_state(
         &self,
         origin_key: &str,
@@ -778,6 +872,209 @@ impl CalendarStore {
         Ok(())
     }
 
+    /// Applies one server change page and advances its cursor in the same
+    /// transaction. A failed page is therefore safe to retry after restart.
+    pub async fn apply_remote_changes(
+        &self,
+        changes: &[CalendarRemoteChange],
+        state: &CalendarSyncState,
+    ) -> Result<(), CalendarStoreError> {
+        validate_non_empty(&state.origin_key, "sync origin key")?;
+        if let Some(value) = &state.last_synced_at {
+            validate_timestamp(value, "sync lastSyncedAt")?;
+        }
+        let mut tx = self.pool.begin().await?;
+        for change in changes {
+            if change.sequence < 1 {
+                return Err(CalendarStoreError::Validation(
+                    "remote change sequence must be positive".into(),
+                ));
+            }
+            validate_non_empty(&change.entity_id, "remote entity ID")?;
+            validate_timestamp(&change.changed_at, "remote changedAt")?;
+            match (change.entity_type.as_str(), change.operation.as_str()) {
+                ("calendar", "upsert") => {
+                    let mut calendar: CalendarDefinition =
+                        serde_json::from_value(change.payload.clone().ok_or_else(|| {
+                            CalendarStoreError::Validation(
+                                "remote calendar upserts require a payload".into(),
+                            )
+                        })?)?;
+                    if calendar.id != change.entity_id {
+                        return Err(CalendarStoreError::Validation(
+                            "remote calendar payload ID does not match its change".into(),
+                        ));
+                    }
+                    validate_calendar(&calendar)?;
+                    calendar.schema_version = CALENDAR_SCHEMA_VERSION;
+                    calendar.read_only =
+                        calendar.read_only || calendar.location.is_inherently_read_only();
+                    sqlx::query(
+                        r#"INSERT INTO calendars (
+                            id, global_id, location_json, name, color, default_time_zone,
+                            archived, read_only, revision, deleted_at, created_at, updated_at, data_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            global_id=excluded.global_id, location_json=excluded.location_json,
+                            name=excluded.name, color=excluded.color,
+                            default_time_zone=excluded.default_time_zone,
+                            archived=excluded.archived, read_only=excluded.read_only,
+                            revision=excluded.revision, deleted_at=excluded.deleted_at,
+                            created_at=excluded.created_at, updated_at=excluded.updated_at,
+                            data_json=excluded.data_json"#,
+                    )
+                    .bind(&calendar.id)
+                    .bind(&calendar.global_id)
+                    .bind(serde_json::to_string(&calendar.location)?)
+                    .bind(&calendar.name)
+                    .bind(&calendar.color)
+                    .bind(&calendar.default_time_zone)
+                    .bind(calendar.archived)
+                    .bind(calendar.read_only)
+                    .bind(calendar.revision)
+                    .bind(calendar.deleted_at.as_deref())
+                    .bind(&calendar.created_at)
+                    .bind(&calendar.updated_at)
+                    .bind(serde_json::to_string(&calendar)?)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+                ("calendar", "delete") => {
+                    reject_delete_payload(change)?;
+                    if let Some(row) = sqlx::query("SELECT data_json FROM calendars WHERE id=?")
+                        .bind(&change.entity_id)
+                        .fetch_optional(&mut *tx)
+                        .await?
+                    {
+                        let mut calendar: CalendarDefinition =
+                            serde_json::from_str(row.get("data_json"))?;
+                        calendar.deleted_at = Some(change.changed_at.clone());
+                        calendar.updated_at = change.changed_at.clone();
+                        sqlx::query(
+                            "UPDATE calendars SET deleted_at=?, updated_at=?, data_json=? WHERE id=?",
+                        )
+                        .bind(&change.changed_at)
+                        .bind(&change.changed_at)
+                        .bind(serde_json::to_string(&calendar)?)
+                        .bind(&change.entity_id)
+                        .execute(&mut *tx)
+                        .await?;
+                    }
+                }
+                ("item", "upsert") => {
+                    let item: CalendarItem =
+                        serde_json::from_value(change.payload.clone().ok_or_else(|| {
+                            CalendarStoreError::Validation(
+                                "remote item upserts require a payload".into(),
+                            )
+                        })?)?;
+                    if item.id != change.entity_id {
+                        return Err(CalendarStoreError::Validation(
+                            "remote item payload ID does not match its change".into(),
+                        ));
+                    }
+                    validate_item(&item)?;
+                    let calendar_exists = sqlx::query_scalar::<_, bool>(
+                        "SELECT EXISTS(SELECT 1 FROM calendars WHERE id=?)",
+                    )
+                    .bind(&item.calendar_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                    if !calendar_exists {
+                        return Err(CalendarStoreError::CalendarNotFound);
+                    }
+                    let (start_sort, end_sort) = item_sort_range(&item)?;
+                    let recurrence_id = item
+                        .recurrence_id
+                        .as_ref()
+                        .map(serde_json::to_string)
+                        .transpose()?;
+                    let recurrence_sort = item
+                        .recurrence_id
+                        .as_ref()
+                        .map(|value| time_sort_value(value, false))
+                        .transpose()?;
+                    sqlx::query(
+                        r#"INSERT INTO calendar_items (
+                            id, calendar_id, uid, kind, start_sort, end_sort, recurrence_rule,
+                            recurrence_id, recurrence_sort, recurrence_series_id, revision,
+                            deleted_at, created_at, updated_at, data_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            calendar_id=excluded.calendar_id, uid=excluded.uid, kind=excluded.kind,
+                            start_sort=excluded.start_sort, end_sort=excluded.end_sort,
+                            recurrence_rule=excluded.recurrence_rule,
+                            recurrence_id=excluded.recurrence_id,
+                            recurrence_sort=excluded.recurrence_sort,
+                            recurrence_series_id=excluded.recurrence_series_id,
+                            revision=excluded.revision, deleted_at=excluded.deleted_at,
+                            created_at=excluded.created_at, updated_at=excluded.updated_at,
+                            data_json=excluded.data_json"#,
+                    )
+                    .bind(&item.id)
+                    .bind(&item.calendar_id)
+                    .bind(&item.uid)
+                    .bind(item.kind.as_str())
+                    .bind(start_sort)
+                    .bind(end_sort)
+                    .bind(item.recurrence.as_ref().map(|value| value.rrule.as_str()))
+                    .bind(recurrence_id)
+                    .bind(recurrence_sort)
+                    .bind(item.recurrence_series_id.as_deref())
+                    .bind(item.revision)
+                    .bind(item.deleted_at.as_deref())
+                    .bind(&item.created_at)
+                    .bind(&item.updated_at)
+                    .bind(serde_json::to_string(&item)?)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+                ("item", "delete") => {
+                    reject_delete_payload(change)?;
+                    if let Some(row) =
+                        sqlx::query("SELECT data_json FROM calendar_items WHERE id=?")
+                            .bind(&change.entity_id)
+                            .fetch_optional(&mut *tx)
+                            .await?
+                    {
+                        let mut item: CalendarItem = serde_json::from_str(row.get("data_json"))?;
+                        item.deleted_at = Some(change.changed_at.clone());
+                        item.updated_at = change.changed_at.clone();
+                        sqlx::query(
+                            "UPDATE calendar_items SET deleted_at=?, updated_at=?, data_json=? WHERE id=?",
+                        )
+                        .bind(&change.changed_at)
+                        .bind(&change.changed_at)
+                        .bind(serde_json::to_string(&item)?)
+                        .bind(&change.entity_id)
+                        .execute(&mut *tx)
+                        .await?;
+                    }
+                }
+                _ => {
+                    return Err(CalendarStoreError::Validation(
+                        "remote calendar change type is invalid".into(),
+                    ));
+                }
+            }
+        }
+        sqlx::query(
+            r#"INSERT INTO sync_state (origin_key, cursor, last_synced_at, last_error)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(origin_key) DO UPDATE SET
+                 cursor=excluded.cursor, last_synced_at=excluded.last_synced_at,
+                 last_error=excluded.last_error"#,
+        )
+        .bind(&state.origin_key)
+        .bind(state.cursor.as_deref())
+        .bind(state.last_synced_at.as_deref())
+        .bind(state.last_error.as_deref())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn list_pending_operations(
         &self,
     ) -> Result<Vec<CalendarOperation>, CalendarStoreError> {
@@ -807,6 +1104,117 @@ impl CalendarStore {
             })
             .collect()
     }
+
+    pub async fn list_failed_operations(
+        &self,
+    ) -> Result<Vec<CalendarOperationFailure>, CalendarStoreError> {
+        let rows = sqlx::query(
+            r#"SELECT client_operation_id, device_id, expected_revision,
+                      source_change_id, propagation_lineage_json, mutation_json,
+                      attempt_count, last_error, last_attempt_at
+                 FROM pending_operations
+                WHERE status = 'failed'
+                ORDER BY last_attempt_at DESC, created_at, client_operation_id"#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(CalendarOperationFailure {
+                    operation: CalendarOperation {
+                        client_operation_id: row.get("client_operation_id"),
+                        device_id: row.get("device_id"),
+                        expected_revision: row.get("expected_revision"),
+                        source_change_id: row.get("source_change_id"),
+                        propagation_lineage: serde_json::from_str(
+                            row.get::<&str, _>("propagation_lineage_json"),
+                        )?,
+                        mutation: serde_json::from_str(row.get::<&str, _>("mutation_json"))?,
+                    },
+                    attempt_count: row.get("attempt_count"),
+                    last_error: row.get("last_error"),
+                    last_attempt_at: row.get("last_attempt_at"),
+                })
+            })
+            .collect()
+    }
+
+    pub async fn mark_operation_failed(
+        &self,
+        client_operation_id: &str,
+        error: &str,
+        attempted_at: &str,
+    ) -> Result<(), CalendarStoreError> {
+        validate_non_empty(client_operation_id, "client operation ID")?;
+        validate_non_empty(error, "calendar sync error")?;
+        validate_timestamp(attempted_at, "calendar operation attemptedAt")?;
+        let result = sqlx::query(
+            r#"UPDATE pending_operations
+                  SET status='failed', attempt_count=attempt_count+1,
+                      last_error=?, last_attempt_at=?
+                WHERE client_operation_id=?"#,
+        )
+        .bind(error)
+        .bind(attempted_at)
+        .bind(client_operation_id)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(CalendarStoreError::Validation(
+                "calendar operation not found".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub async fn retry_operation(
+        &self,
+        client_operation_id: &str,
+    ) -> Result<(), CalendarStoreError> {
+        validate_non_empty(client_operation_id, "client operation ID")?;
+        let result = sqlx::query(
+            r#"UPDATE pending_operations
+                  SET status='pending', last_error=NULL, last_attempt_at=NULL
+                WHERE client_operation_id=? AND status='failed'"#,
+        )
+        .bind(client_operation_id)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(CalendarStoreError::Validation(
+                "failed calendar operation not found".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub async fn discard_operation(
+        &self,
+        client_operation_id: &str,
+    ) -> Result<(), CalendarStoreError> {
+        validate_non_empty(client_operation_id, "client operation ID")?;
+        let result = sqlx::query(
+            "DELETE FROM pending_operations WHERE client_operation_id=? AND status='failed'",
+        )
+        .bind(client_operation_id)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(CalendarStoreError::Validation(
+                "failed calendar operation not found".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn reject_delete_payload(change: &CalendarRemoteChange) -> Result<(), CalendarStoreError> {
+    if change.payload.is_some() {
+        return Err(CalendarStoreError::Validation(
+            "remote deletes must not include a payload".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_segment(value: &str, label: &str) -> Result<(), CalendarStoreError> {
@@ -1283,6 +1691,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn retains_failed_operations_until_retry_or_discard() {
+        let root = tempfile::tempdir().unwrap();
+        let store = CalendarStore::open(root.path(), "profile-1").await.unwrap();
+        store.upsert_calendar(&calendar(false)).await.unwrap();
+        store
+            .upsert_item_with_operation(&event(), &operation())
+            .await
+            .unwrap();
+
+        store
+            .mark_operation_failed("operation-1", "revision conflict", "2026-07-22T12:00:00Z")
+            .await
+            .unwrap();
+        assert!(store.list_pending_operations().await.unwrap().is_empty());
+        let failures = store.list_failed_operations().await.unwrap();
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].attempt_count, 1);
+        assert_eq!(failures[0].last_error, "revision conflict");
+
+        store.retry_operation("operation-1").await.unwrap();
+        assert_eq!(store.list_pending_operations().await.unwrap().len(), 1);
+        assert!(store.list_failed_operations().await.unwrap().is_empty());
+
+        store
+            .mark_operation_failed("operation-1", "still conflicting", "2026-07-22T12:05:00Z")
+            .await
+            .unwrap();
+        assert_eq!(
+            store.list_failed_operations().await.unwrap()[0].attempt_count,
+            2
+        );
+        store.discard_operation("operation-1").await.unwrap();
+        assert!(store.list_pending_operations().await.unwrap().is_empty());
+        assert!(store.list_failed_operations().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn removes_only_resolved_hosted_origin_caches() {
+        let root = tempfile::tempdir().unwrap();
+        let store = CalendarStore::open(root.path(), "profile-1").await.unwrap();
+        let mut hosted = calendar(false);
+        hosted.location = CalendarLocation::Hosted {
+            server_url: "https://server.test".into(),
+            user_id: "user-1".into(),
+        };
+        store.upsert_calendar(&hosted).await.unwrap();
+        store
+            .upsert_item_with_operation(&event(), &operation())
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            store
+                .remove_hosted_origin_cache("https://server.test/", "user-1")
+                .await,
+            Err(CalendarStoreError::Validation(_))
+        ));
+        store
+            .acknowledge_operations(&["operation-1".into()])
+            .await
+            .unwrap();
+        let result = store
+            .remove_hosted_origin_cache("https://server.test/", "user-1")
+            .await
+            .unwrap();
+        assert_eq!(result.calendars_removed, 1);
+        assert_eq!(result.items_removed, 1);
+        assert!(store.list_calendars().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn tombstones_items_and_persists_sync_bookkeeping() {
         let root = tempfile::tempdir().unwrap();
         let store = CalendarStore::open(root.path(), "profile-1").await.unwrap();
@@ -1343,6 +1822,97 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(cleanup.items_removed, 1);
+    }
+
+    #[tokio::test]
+    async fn applies_remote_pages_and_cursor_atomically() {
+        let root = tempfile::tempdir().unwrap();
+        let store = CalendarStore::open(root.path(), "profile-1").await.unwrap();
+        let changed_at = "2026-07-22T12:00:00Z";
+        let state = CalendarSyncState {
+            origin_key: "https://server.test::user-1".into(),
+            cursor: Some("2".into()),
+            last_synced_at: Some(changed_at.into()),
+            last_error: None,
+        };
+        let changes = vec![
+            CalendarRemoteChange {
+                sequence: 1,
+                entity_type: "calendar".into(),
+                entity_id: "calendar-1".into(),
+                operation: "upsert".into(),
+                payload: Some(serde_json::to_value(calendar(false)).unwrap()),
+                changed_at: changed_at.into(),
+            },
+            CalendarRemoteChange {
+                sequence: 2,
+                entity_type: "item".into(),
+                entity_id: "event-1".into(),
+                operation: "upsert".into(),
+                payload: Some(serde_json::to_value(event()).unwrap()),
+                changed_at: changed_at.into(),
+            },
+        ];
+        store.apply_remote_changes(&changes, &state).await.unwrap();
+        assert_eq!(store.list_calendars().await.unwrap(), vec![calendar(false)]);
+        assert_eq!(
+            store
+                .list_items_in_range("2026-07-22", "2026-07-23", 10, false)
+                .await
+                .unwrap(),
+            vec![event()]
+        );
+        assert_eq!(
+            store.read_sync_state(&state.origin_key).await.unwrap(),
+            Some(state)
+        );
+
+        let failed_state = CalendarSyncState {
+            origin_key: "https://other.test::user-2".into(),
+            cursor: Some("4".into()),
+            last_synced_at: Some(changed_at.into()),
+            last_error: None,
+        };
+        let invalid = vec![
+            CalendarRemoteChange {
+                sequence: 3,
+                entity_type: "calendar".into(),
+                entity_id: "calendar-2".into(),
+                operation: "upsert".into(),
+                payload: Some(
+                    serde_json::to_value(CalendarDefinition {
+                        id: "calendar-2".into(),
+                        global_id: "global-2".into(),
+                        ..calendar(false)
+                    })
+                    .unwrap(),
+                ),
+                changed_at: changed_at.into(),
+            },
+            CalendarRemoteChange {
+                sequence: 4,
+                entity_type: "unknown".into(),
+                entity_id: "broken".into(),
+                operation: "upsert".into(),
+                payload: None,
+                changed_at: changed_at.into(),
+            },
+        ];
+        assert!(store
+            .apply_remote_changes(&invalid, &failed_state)
+            .await
+            .is_err());
+        assert!(store
+            .list_calendars()
+            .await
+            .unwrap()
+            .iter()
+            .all(|calendar| calendar.id != "calendar-2"));
+        assert!(store
+            .read_sync_state(&failed_state.origin_key)
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

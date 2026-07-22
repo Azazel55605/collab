@@ -44,6 +44,7 @@ export function MobileApp() {
   const restore = useMobileStore((s) => s.restore);
   const refreshStatuses = useMobileStore((s) => s.refreshStatuses);
   const syncServer = useMobileStore((s) => s.syncServer);
+  const syncCalendars = useMobileStore((s) => s.syncCalendars);
   const tab = useMobileStore((s) => s.tab);
   const setTab = useMobileStore((s) => s.setTab);
   const swipeTab = useMobileStore((s) => s.swipeTab);
@@ -66,6 +67,7 @@ export function MobileApp() {
   // sync — Android may suspend background work, so this is the primary trigger).
   useEffect(() => {
     const onFocus = () => {
+      if (document.visibilityState === 'hidden') return;
       void (async () => {
         await refreshStatuses().catch(() => {});
         const { statuses: current, syncServer: sync } = useMobileStore.getState();
@@ -74,15 +76,18 @@ export function MobileApp() {
             .filter((status) => status.connected && status.serverUrl)
             .map((status) => sync(status.serverUrl as string).catch(() => {})),
         );
+        await useMobileStore.getState().syncCalendars().catch(() => {});
       })();
     };
     window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onFocus);
     document.addEventListener('visibilitychange', onFocus);
     return () => {
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onFocus);
       document.removeEventListener('visibilitychange', onFocus);
     };
-  }, [refreshStatuses, syncServer]);
+  }, [refreshStatuses, syncCalendars, syncServer]);
 
   // Android hardware back / back-gesture handling. Native Android dispatches a
   // DOM event for every back press so the WebView history stack can never
