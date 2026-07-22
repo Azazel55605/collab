@@ -10,7 +10,7 @@ use std::time::Duration;
 
 pub const MAX_RANGE_QUERY_ITEMS: u32 = 5_000;
 pub const MAX_SEARCH_QUERY_ITEMS: u32 = 500;
-pub const LOCAL_STORE_SCHEMA_VERSION: i64 = 2;
+pub const LOCAL_STORE_SCHEMA_VERSION: i64 = 3;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CalendarStoreError {
@@ -104,6 +104,9 @@ impl CalendarStore {
                 start_sort INTEGER,
                 end_sort INTEGER,
                 recurrence_rule TEXT,
+                recurrence_id TEXT,
+                recurrence_sort INTEGER,
+                recurrence_series_id TEXT,
                 revision INTEGER NOT NULL,
                 deleted_at TEXT,
                 created_at TEXT NOT NULL,
@@ -112,6 +115,43 @@ impl CalendarStore {
                 UNIQUE(calendar_id, uid, id)
             )
             "#,
+        )
+        .execute(&mut *tx)
+        .await?;
+        let item_columns = sqlx::query("PRAGMA table_info(calendar_items)")
+            .fetch_all(&mut *tx)
+            .await?;
+        if !item_columns
+            .iter()
+            .any(|row| row.get::<String, _>("name") == "recurrence_id")
+        {
+            sqlx::query("ALTER TABLE calendar_items ADD COLUMN recurrence_id TEXT")
+                .execute(&mut *tx)
+                .await?;
+        }
+        if !item_columns
+            .iter()
+            .any(|row| row.get::<String, _>("name") == "recurrence_series_id")
+        {
+            sqlx::query("ALTER TABLE calendar_items ADD COLUMN recurrence_series_id TEXT")
+                .execute(&mut *tx)
+                .await?;
+        }
+        if !item_columns
+            .iter()
+            .any(|row| row.get::<String, _>("name") == "recurrence_sort")
+        {
+            sqlx::query("ALTER TABLE calendar_items ADD COLUMN recurrence_sort INTEGER")
+                .execute(&mut *tx)
+                .await?;
+        }
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS calendar_items_uid_recurrence_idx ON calendar_items(calendar_id, uid, COALESCE(recurrence_id, ''))",
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS calendar_items_recurrence_range_idx ON calendar_items(recurrence_sort)",
         )
         .execute(&mut *tx)
         .await?;
@@ -385,8 +425,17 @@ impl CalendarStore {
               FROM calendar_items
              WHERE (? OR deleted_at IS NULL)
                AND (
+                 recurrence_series_id IS NULL
+                 OR EXISTS (
+                   SELECT 1 FROM calendar_items master
+                   WHERE master.id = calendar_items.recurrence_series_id
+                     AND (? OR master.deleted_at IS NULL)
+                 )
+               )
+               AND (
                  kind = 'birthday'
                  OR recurrence_rule IS NOT NULL
+                 OR (recurrence_sort >= ? AND recurrence_sort < ?)
                  OR (start_sort < ? AND end_sort > ?)
                )
              ORDER BY COALESCE(start_sort, 0), id
@@ -394,6 +443,9 @@ impl CalendarStore {
             "#,
         )
         .bind(include_deleted)
+        .bind(include_deleted)
+        .bind(from_sort)
+        .bind(to_sort)
         .bind(to_sort)
         .bind(from_sort)
         .bind(limit)
@@ -465,8 +517,8 @@ impl CalendarStore {
             r#"
             INSERT INTO calendar_items (
                 id, calendar_id, uid, kind, start_sort, end_sort, recurrence_rule,
-                revision, deleted_at, created_at, updated_at, data_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                recurrence_id, recurrence_sort, recurrence_series_id, revision, deleted_at, created_at, updated_at, data_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 calendar_id = excluded.calendar_id,
                 uid = excluded.uid,
@@ -474,6 +526,9 @@ impl CalendarStore {
                 start_sort = excluded.start_sort,
                 end_sort = excluded.end_sort,
                 recurrence_rule = excluded.recurrence_rule,
+                recurrence_id = excluded.recurrence_id,
+                recurrence_sort = excluded.recurrence_sort,
+                recurrence_series_id = excluded.recurrence_series_id,
                 revision = excluded.revision,
                 deleted_at = excluded.deleted_at,
                 updated_at = excluded.updated_at,
@@ -487,6 +542,19 @@ impl CalendarStore {
         .bind(start_sort)
         .bind(end_sort)
         .bind(item.recurrence.as_ref().map(|value| value.rrule.as_str()))
+        .bind(
+            item.recurrence_id
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?,
+        )
+        .bind(
+            item.recurrence_id
+                .as_ref()
+                .map(|value| time_sort_value(value, false))
+                .transpose()?,
+        )
+        .bind(item.recurrence_series_id.as_deref())
         .bind(item.revision)
         .bind(item.deleted_at.as_deref())
         .bind(&item.created_at)
@@ -920,6 +988,7 @@ mod tests {
             attachments: Vec::new(),
             recurrence: None,
             recurrence_id: None,
+            recurrence_series_id: None,
             source_binding: None,
             start: Some(CalendarTimeValue::DateTime {
                 date_time: "2026-07-22T10:00:00Z".into(),
@@ -1095,6 +1164,65 @@ mod tests {
             store.list_pending_operations().await.unwrap(),
             vec![operation()]
         );
+    }
+
+    #[tokio::test]
+    async fn stores_recurrence_exceptions_with_the_master_uid_and_queries_the_original_slot() {
+        let root = tempfile::tempdir().unwrap();
+        let store = CalendarStore::open(root.path(), "profile-1").await.unwrap();
+        store.upsert_calendar(&calendar(false)).await.unwrap();
+
+        let mut master = event();
+        master.recurrence = Some(crate::models::CalendarRecurrence {
+            rrule: "FREQ=DAILY;COUNT=3".into(),
+            rdates: Vec::new(),
+            exdates: Vec::new(),
+        });
+        let master_operation = CalendarOperation {
+            client_operation_id: "master-operation".into(),
+            mutation: CalendarMutation::UpsertItem {
+                item: master.clone(),
+            },
+            ..operation()
+        };
+        store
+            .upsert_item_with_operation(&master, &master_operation)
+            .await
+            .unwrap();
+
+        let mut exception = event();
+        exception.id = "exception-1".into();
+        exception.start = Some(CalendarTimeValue::DateTime {
+            date_time: "2026-07-24T10:00:00Z".into(),
+            time_zone: "Europe/Berlin".into(),
+        });
+        exception.end = Some(CalendarTimeValue::DateTime {
+            date_time: "2026-07-24T11:00:00Z".into(),
+            time_zone: "Europe/Berlin".into(),
+        });
+        exception.recurrence_id = Some(CalendarTimeValue::DateTime {
+            date_time: "2026-07-22T10:00:00Z".into(),
+            time_zone: "Europe/Berlin".into(),
+        });
+        exception.recurrence_series_id = Some(master.id.clone());
+        let exception_operation = CalendarOperation {
+            client_operation_id: "exception-operation".into(),
+            mutation: CalendarMutation::UpsertItem {
+                item: exception.clone(),
+            },
+            ..operation()
+        };
+        store
+            .upsert_item_with_operation(&exception, &exception_operation)
+            .await
+            .unwrap();
+
+        let queried = store
+            .list_items_in_range("2026-07-22", "2026-07-23", 100, false)
+            .await
+            .unwrap();
+        assert_eq!(queried.len(), 2);
+        assert!(queried.iter().any(|item| item.id == exception.id));
     }
 
     #[tokio::test]

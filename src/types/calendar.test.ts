@@ -240,4 +240,36 @@ describe('calendar domain', () => {
       limit: 5_001,
     })).toThrow(/limit/i);
   });
+
+  it('replaces generated recurrence instances with stored exceptions', () => {
+    const master = normalizeCalendarItem(baseItem({
+      id: 'series-1',
+      uid: 'series@collab.local',
+      kind: 'event',
+      start: { kind: 'date', date: '2026-07-20' },
+      end: { kind: 'date', date: '2026-07-21' },
+      recurrence: { rrule: 'FREQ=DAILY;COUNT=3' },
+    }));
+    const exception = normalizeCalendarItem(baseItem({
+      id: 'exception-1',
+      uid: 'series@collab.local',
+      title: 'Moved occurrence',
+      kind: 'event',
+      start: { kind: 'date', date: '2026-07-23' },
+      end: { kind: 'date', date: '2026-07-24' },
+      recurrenceId: { kind: 'date', date: '2026-07-21' },
+      recurrenceSeriesId: 'series-1',
+    }));
+
+    const items = queryCalendarItems([master, exception], {
+      from: '2026-07-20',
+      to: '2026-07-25',
+    });
+
+    expect(items.map((item) => [item.title, item.kind === 'event' ? item.start : null])).toEqual([
+      ['Planning', { kind: 'date', date: '2026-07-20' }],
+      ['Planning', { kind: 'date', date: '2026-07-22' }],
+      ['Moved occurrence', { kind: 'date', date: '2026-07-23' }],
+    ]);
+  });
 });

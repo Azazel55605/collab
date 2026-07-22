@@ -105,19 +105,20 @@ function shiftedOccurrence(item: CalendarItem, base: CalendarTimeValue, start: D
   const recurrenceId = shiftTimeValue(base, delta);
   const id = `${item.id}::${recurrenceId.kind === 'date' ? recurrenceId.date : recurrenceId.dateTime}`;
   if (item.kind === 'event') {
-    return { ...item, id, recurrenceId, start: shiftTimeValue(item.start, delta), end: shiftTimeValue(item.end, delta) };
+    return { ...item, id, recurrenceId, recurrenceSeriesId: item.id, start: shiftTimeValue(item.start, delta), end: shiftTimeValue(item.end, delta) };
   }
   if (item.kind === 'task') {
     return {
       ...item,
       id,
       recurrenceId,
+      recurrenceSeriesId: item.id,
       start: item.start ? shiftTimeValue(item.start, delta) : undefined,
       due: item.due ? shiftTimeValue(item.due, delta) : undefined,
     };
   }
   const shifted = shiftTimeValue({ kind: 'date', date: item.date }, delta);
-  return { ...item, id, recurrenceId, date: shifted.kind === 'date' ? shifted.date : item.date };
+  return { ...item, id, recurrenceId, recurrenceSeriesId: item.id, date: shifted.kind === 'date' ? shifted.date : item.date };
 }
 
 function itemDuration(item: CalendarItem, base: CalendarTimeValue): number {
@@ -154,4 +155,18 @@ export function expandRecurringItem(
     if (instant.getTime() + duration > from) results.push(shiftedOccurrence(item, base, instant));
   }
   return results;
+}
+
+export function recurrenceIncludes(item: CalendarItem, recurrenceId: CalendarTimeValue): boolean {
+  if (!item.recurrence) return false;
+  const target = timeValueInstant(recurrenceId).getTime();
+  return expandRecurringItem(item, target, target + 1, MAX_RECURRENCE_ITERATIONS)
+    .some((occurrence) => {
+      const occurrenceId = occurrence.recurrenceId;
+      if (!occurrenceId || occurrenceId.kind !== recurrenceId.kind) return false;
+      return occurrenceId.kind === 'date' && recurrenceId.kind === 'date'
+        ? occurrenceId.date === recurrenceId.date
+        : occurrenceId.kind === 'dateTime' && recurrenceId.kind === 'dateTime'
+          && occurrenceId.dateTime === recurrenceId.dateTime;
+    });
 }

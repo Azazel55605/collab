@@ -1,9 +1,17 @@
 import { create } from 'zustand';
 import { tauriCommands } from '../lib/tauri';
-import { queryCalendarItems } from '../types/calendar';
+import { expandRecurringItem } from '../lib/calendarRecurrence';
 import {
+  planRecurringEdit,
+  splitRecurrence,
+  type CalendarRecurrenceEditScope,
+} from '../lib/calendarRecurringEdit';
+import {
+  calendarItemRange,
+  calendarTimeValueKey,
   createCalendarDefinition,
   normalizeCalendarItem,
+  queryCalendarItems,
   type CalendarDefinition,
   type CalendarEvent,
   type CalendarItem,
@@ -29,6 +37,7 @@ function localTimeZone(): string {
 interface CalendarStoreState {
   profileId: string | null;
   calendars: CalendarDefinition[];
+  sourceItems: CalendarItem[];
   items: CalendarItem[];
   visibleCalendarIds: string[];
   range: { from: string; to: string } | null;
@@ -47,8 +56,8 @@ interface CalendarStoreState {
     allDay: boolean;
     description?: string;
   }) => Promise<CalendarEvent>;
-  saveItem: (item: CalendarItem) => Promise<CalendarItem>;
-  deleteItem: (item: CalendarItem) => Promise<void>;
+  saveItem: (item: CalendarItem, scope?: CalendarRecurrenceEditScope) => Promise<CalendarItem>;
+  deleteItem: (item: CalendarItem, scope?: CalendarRecurrenceEditScope) => Promise<void>;
   clearError: () => void;
 }
 
@@ -59,6 +68,34 @@ function operationFor(item: CalendarItem, expectedRevision: number): CalendarOpe
     expectedRevision,
     mutation: { type: 'upsertItem', item },
   };
+}
+
+function projectedItems(
+  sourceItems: CalendarItem[],
+  range: { from: string; to: string } | null,
+): CalendarItem[] {
+  return range
+    ? queryCalendarItems(sourceItems, { ...range, limit: 5_000 })
+    : sourceItems.filter((item) => item.deletedAt == null);
+}
+
+function replaceSourceItems(sourceItems: CalendarItem[], replacements: CalendarItem[]): CalendarItem[] {
+  const replacementIds = new Set(replacements.map((item) => item.id));
+  return [...sourceItems.filter((item) => !replacementIds.has(item.id)), ...replacements];
+}
+
+function recurrenceInstant(item: CalendarItem): number {
+  if (!item.recurrenceId) return Number.NaN;
+  return item.recurrenceId.kind === 'date'
+    ? Date.parse(`${item.recurrenceId.date}T00:00:00.000Z`)
+    : Date.parse(item.recurrenceId.dateTime);
+}
+
+function priorOccurrenceCount(master: CalendarItem, occurrence: CalendarItem): number {
+  const range = calendarItemRange(master);
+  const selected = recurrenceInstant(occurrence);
+  if (!range || !Number.isFinite(selected)) return 0;
+  return Math.max(0, expandRecurringItem(master, range.start - 1, selected + 1, 20_000).length - 1);
 }
 
 async function pushHostedOperation(
@@ -87,6 +124,7 @@ async function pushHostedOperation(
 export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
   profileId: null,
   calendars: [],
+  sourceItems: [],
   items: [],
   visibleCalendarIds: [],
   range: null,
@@ -138,10 +176,10 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
     if (!profileId) return;
     set({ loading: true, error: null, range: { from, to } });
     try {
-      const storedItems = await tauriCommands.calendarListItems(profileId, from, to, 5_000);
+      const storedItems = await tauriCommands.calendarListItems(profileId, from, to, 5_000, true);
       const items = queryCalendarItems(storedItems, { from, to, limit: 5_000 });
       if (get().profileId === profileId && get().range?.from === from && get().range?.to === to) {
-        set({ items });
+        set({ sourceItems: storedItems, items });
       }
     } catch (error) {
       set({ error: error instanceof Error ? error.message : String(error) });
@@ -221,7 +259,10 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
       const operation = operationFor(event, 0);
       await tauriCommands.calendarUpsertItem(profileId, event, operation);
       await pushHostedOperation(profileId, calendar, operation);
-      set((state) => ({ items: [...state.items.filter((item) => item.id !== event.id), event] }));
+      set((state) => {
+        const sourceItems = replaceSourceItems(state.sourceItems, [event]);
+        return { sourceItems, items: projectedItems(sourceItems, state.range) };
+      });
       return event;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -232,27 +273,53 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
     }
   },
 
-  saveItem: async (input) => {
+  saveItem: async (input, scope = 'series') => {
     const profileId = get().profileId;
     if (!profileId) throw new Error('Calendar profile is not initialized.');
-    const existing = get().items.find((item) => item.id === input.id);
-    const item = normalizeCalendarItem({
-      ...input,
-      revision: existing ? existing.revision + 1 : input.revision,
-      createdAt: existing?.createdAt ?? input.createdAt,
-      updatedAt: new Date().toISOString(),
-    });
-    const calendar = get().calendars.find((entry) => entry.id === item.calendarId);
-    if (!calendar) throw new Error('Calendar is not available.');
-    const operation = operationFor(item, existing?.revision ?? 0);
+    const now = new Date().toISOString();
+    const originalOccurrence = get().items.find((item) => item.id === input.id) ?? input;
+    let plannedInputs = [input];
+    if (input.recurrenceId && input.recurrenceSeriesId) {
+      const master = get().sourceItems.find((item) => item.id === input.recurrenceSeriesId);
+      if (!master?.recurrence) throw new Error('The recurring series is not available in the local calendar cache.');
+      const recurrenceKey = calendarTimeValueKey(input.recurrenceId);
+      const existingException = get().sourceItems.find((item) => item.uid === master.uid
+        && item.recurrenceId != null
+        && calendarTimeValueKey(item.recurrenceId) === recurrenceKey);
+      plannedInputs = planRecurringEdit({
+        master,
+        originalOccurrence,
+        editedOccurrence: input,
+        scope,
+        now,
+        exceptionId: existingException?.id ?? crypto.randomUUID(),
+        followingSeriesId: crypto.randomUUID(),
+        priorOccurrences: priorOccurrenceCount(master, originalOccurrence),
+      }).upserts;
+    }
     set({ saving: true, error: null });
     try {
-      await tauriCommands.calendarUpsertItem(profileId, item, operation);
-      await pushHostedOperation(profileId, calendar, operation);
-      set((state) => ({
-        items: [...state.items.filter((entry) => entry.id !== item.id), item],
-      }));
-      return item;
+      const savedItems: CalendarItem[] = [];
+      for (const planned of plannedInputs) {
+        const existing = get().sourceItems.find((item) => item.id === planned.id);
+        const item = normalizeCalendarItem({
+          ...planned,
+          revision: existing ? existing.revision + 1 : planned.revision,
+          createdAt: existing?.createdAt ?? planned.createdAt,
+          updatedAt: now,
+        });
+        const calendar = get().calendars.find((entry) => entry.id === item.calendarId);
+        if (!calendar) throw new Error('Calendar is not available.');
+        const operation = operationFor(item, existing?.revision ?? 0);
+        await tauriCommands.calendarUpsertItem(profileId, item, operation);
+        await pushHostedOperation(profileId, calendar, operation);
+        savedItems.push(item);
+      }
+      set((state) => {
+        const sourceItems = replaceSourceItems(state.sourceItems, savedItems);
+        return { sourceItems, items: projectedItems(sourceItems, state.range) };
+      });
+      return savedItems[savedItems.length - 1];
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       set({ error: message });
@@ -262,10 +329,34 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
     }
   },
 
-  deleteItem: async (item) => {
+  deleteItem: async (item, scope = 'occurrence') => {
     const profileId = get().profileId;
+    if (!profileId) throw new Error('Calendar is not available.');
+    if (item.recurrenceId && item.recurrenceSeriesId) {
+      const master = get().sourceItems.find((entry) => entry.id === item.recurrenceSeriesId);
+      if (!master?.recurrence) throw new Error('The recurring series is not available in the local calendar cache.');
+      if (scope === 'occurrence') {
+        const exdates = [...(master.recurrence.exdates ?? [])];
+        const key = calendarTimeValueKey(item.recurrenceId);
+        if (!exdates.some((value) => calendarTimeValueKey(value) === key)) exdates.push(item.recurrenceId);
+        await get().saveItem({ ...master, recurrence: { ...master.recurrence, exdates } }, 'series');
+        return;
+      }
+      if (scope === 'following') {
+        const recurrence = splitRecurrence(
+          master.recurrence,
+          item.recurrenceId,
+          priorOccurrenceCount(master, item),
+        ).previous;
+        if (recurrence) {
+          await get().saveItem({ ...master, recurrence }, 'series');
+          return;
+        }
+      }
+      item = master;
+    }
     const calendar = get().calendars.find((entry) => entry.id === item.calendarId);
-    if (!profileId || !calendar) throw new Error('Calendar is not available.');
+    if (!calendar) throw new Error('Calendar is not available.');
     const deletedAt = new Date().toISOString();
     const operation: CalendarOperation = {
       clientOperationId: crypto.randomUUID(),
@@ -277,7 +368,11 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
     try {
       await tauriCommands.calendarDeleteItem(profileId, item.calendarId, item.id, deletedAt, operation);
       await pushHostedOperation(profileId, calendar, operation);
-      set((state) => ({ items: state.items.filter((entry) => entry.id !== item.id) }));
+      set((state) => {
+        const tombstone = { ...item, revision: item.revision + 1, updatedAt: deletedAt, deletedAt };
+        const sourceItems = replaceSourceItems(state.sourceItems, [tombstone]);
+        return { sourceItems, items: projectedItems(sourceItems, state.range) };
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       set({ error: message });

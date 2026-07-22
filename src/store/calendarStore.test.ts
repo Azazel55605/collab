@@ -21,6 +21,7 @@ beforeEach(() => {
   useCalendarStore.setState({
     profileId: null,
     calendars: [],
+    sourceItems: [],
     items: [],
     visibleCalendarIds: [],
     range: null,
@@ -89,6 +90,7 @@ describe('calendarStore', () => {
       '2026-07-21',
       '2026-07-23',
       5_000,
+      true,
     );
     expect(useCalendarStore.getState().items.map((item) => item.recurrenceId)).toEqual([
       { kind: 'date', date: '2026-07-21' },
@@ -136,6 +138,95 @@ describe('calendarStore', () => {
     );
     expect(useCalendarStore.getState().items).toEqual([]);
     expect(tauriCommands.calendarAcknowledgeOperations).toHaveBeenCalledTimes(3);
+  });
+
+  it('persists a recurring occurrence edit as a detached exception', async () => {
+    vi.mocked(tauriCommands.calendarList).mockResolvedValue([]);
+    await useCalendarStore.getState().initialize('profile-1');
+    const calendarId = useCalendarStore.getState().calendars[0].id;
+    const master = normalizeCalendarItem({
+      id: crypto.randomUUID(),
+      uid: 'daily-event@collab.local',
+      calendarId,
+      kind: 'event',
+      title: 'Daily event',
+      reminders: [],
+      start: { kind: 'date', date: '2026-07-20' },
+      end: { kind: 'date', date: '2026-07-21' },
+      recurrence: { rrule: 'FREQ=DAILY;COUNT=3' },
+      revision: 0,
+      createdAt: '2026-07-20T00:00:00Z',
+      updatedAt: '2026-07-20T00:00:00Z',
+    });
+    vi.mocked(tauriCommands.calendarListItems).mockResolvedValue([master]);
+    await useCalendarStore.getState().loadRange('2026-07-20', '2026-07-24');
+    const occurrence = useCalendarStore.getState().items[1];
+
+    await useCalendarStore.getState().saveItem(
+      normalizeCalendarItem({ ...occurrence, title: 'Changed occurrence' }),
+      'occurrence',
+    );
+
+    const upsertCalls = vi.mocked(tauriCommands.calendarUpsertItem).mock.calls;
+    const saved = upsertCalls[upsertCalls.length - 1]?.[1];
+    expect(saved).toMatchObject({
+      uid: master.uid,
+      title: 'Changed occurrence',
+      recurrenceId: occurrence.recurrenceId,
+      recurrenceSeriesId: master.id,
+      revision: 0,
+    });
+    expect(saved?.id).not.toContain('::');
+    expect(saved?.recurrence).toBeUndefined();
+    expect(useCalendarStore.getState().items.map((item) => item.title)).toEqual([
+      'Daily event',
+      'Changed occurrence',
+      'Daily event',
+    ]);
+  });
+
+  it('deletes recurring occurrences through explicit scopes', async () => {
+    vi.mocked(tauriCommands.calendarList).mockResolvedValue([]);
+    await useCalendarStore.getState().initialize('profile-1');
+    const calendarId = useCalendarStore.getState().calendars[0].id;
+    const master = normalizeCalendarItem({
+      id: crypto.randomUUID(),
+      uid: 'scoped-delete@collab.local',
+      calendarId,
+      kind: 'event',
+      title: 'Scoped delete',
+      reminders: [],
+      start: { kind: 'date', date: '2026-07-20' },
+      end: { kind: 'date', date: '2026-07-21' },
+      recurrence: { rrule: 'FREQ=DAILY;COUNT=3' },
+      revision: 0,
+      createdAt: '2026-07-20T00:00:00Z',
+      updatedAt: '2026-07-20T00:00:00Z',
+    });
+    vi.mocked(tauriCommands.calendarListItems).mockResolvedValue([master]);
+    await useCalendarStore.getState().loadRange('2026-07-20', '2026-07-24');
+    const secondOccurrence = useCalendarStore.getState().items[1];
+
+    await useCalendarStore.getState().deleteItem(secondOccurrence, 'occurrence');
+
+    const upsertCalls = vi.mocked(tauriCommands.calendarUpsertItem).mock.calls;
+    expect(upsertCalls[upsertCalls.length - 1]?.[1]).toMatchObject({
+      id: master.id,
+      recurrence: { exdates: [secondOccurrence.recurrenceId] },
+    });
+    expect(tauriCommands.calendarDeleteItem).not.toHaveBeenCalled();
+    expect(useCalendarStore.getState().items).toHaveLength(2);
+
+    const remainingOccurrence = useCalendarStore.getState().items[0];
+    await useCalendarStore.getState().deleteItem(remainingOccurrence, 'series');
+    expect(tauriCommands.calendarDeleteItem).toHaveBeenCalledWith(
+      'profile-1',
+      calendarId,
+      master.id,
+      expect.any(String),
+      expect.objectContaining({ expectedRevision: 1 }),
+    );
+    expect(useCalendarStore.getState().items).toEqual([]);
   });
 
   it('creates hosted calendars and pushes their item operations', async () => {

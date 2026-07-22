@@ -42,6 +42,7 @@ import {
   DialogTitle,
 } from '../components/ui/dialog';
 import { cn } from '../lib/utils';
+import type { CalendarRecurrenceEditScope } from '../lib/calendarRecurringEdit';
 import { useCalendarStore } from '../store/calendarStore';
 import { useCollabStore } from '../store/collabStore';
 import { useServerStore } from '../store/serverStore';
@@ -57,6 +58,7 @@ import {
 
 type CalendarViewMode = 'month' | 'week' | 'agenda' | 'year';
 type EditorRequest = { date: string; kind: CalendarItemKind; item?: CalendarItem };
+type RecurrencePreset = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom';
 
 const DAY_MS = 86_400_000;
 const HORIZONTAL_GESTURE_THRESHOLD = 90;
@@ -68,6 +70,19 @@ const VIEW_MODES: Array<{ value: CalendarViewMode; label: string }> = [
   { value: 'agenda', label: 'Agenda' },
   { value: 'year', label: 'Year' },
 ];
+const RECURRENCE_PRESETS: Array<{ value: RecurrencePreset; label: string; rule?: string }> = [
+  { value: 'none', label: 'Does not repeat' },
+  { value: 'daily', label: 'Every day', rule: 'FREQ=DAILY' },
+  { value: 'weekly', label: 'Every week', rule: 'FREQ=WEEKLY' },
+  { value: 'monthly', label: 'Every month', rule: 'FREQ=MONTHLY' },
+  { value: 'yearly', label: 'Every year', rule: 'FREQ=YEARLY' },
+  { value: 'custom', label: 'Custom' },
+];
+
+function recurrencePreset(rule: string | undefined): RecurrencePreset {
+  if (!rule) return 'none';
+  return RECURRENCE_PRESETS.find((preset) => preset.rule === rule)?.value ?? 'custom';
+}
 
 export function calendarDateKey(date: Date): string {
   const year = date.getFullYear();
@@ -203,6 +218,7 @@ export default function CalendarPage() {
   const [anchor, setAnchor] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => calendarDateKey(new Date()));
   const [editorRequest, setEditorRequest] = useState<EditorRequest | null>(null);
+  const [deleteRequest, setDeleteRequest] = useState<CalendarItem | null>(null);
   const [calendarDialogOpen, setCalendarDialogOpen] = useState(false);
   const [periodTransition, setPeriodTransition] = useState<{ direction: -1 | 1; sequence: number }>({ direction: 1, sequence: 0 });
   const horizontalGestureDelta = useRef(0);
@@ -285,6 +301,10 @@ export default function CalendarPage() {
     setEditorRequest(request);
   };
   const editItem = (item: CalendarItem) => openEditor({ date: itemDate(item), kind: item.kind, item });
+  const deleteItem = (item: CalendarItem) => {
+    if (item.recurrenceId && item.recurrenceSeriesId) setDeleteRequest(item);
+    else void store.deleteItem(item);
+  };
   const selectedDay = dateFromKey(selectedDate);
   const selectedItems = visibleItems.filter((item) => itemOccursOn(item, selectedDay));
 
@@ -319,20 +339,32 @@ export default function CalendarPage() {
         <main className={cn('grid min-h-0 min-w-0 flex-1', showMonthAgenda && 'grid-cols-[minmax(0,1fr)_240px]')}>
           <div className="h-full min-h-0 min-w-0 overflow-auto overscroll-contain" onWheel={handleWheel}>
             <div key={periodTransition.sequence} className={cn('h-full min-h-0', periodTransition.sequence > 0 && 'calendar-period-transition', periodTransition.direction > 0 ? 'calendar-period-transition-next' : 'calendar-period-transition-previous')}>
-              {viewMode === 'month' && <MonthView anchor={anchor} days={monthDays} weekStart={weekStart} items={visibleItems} calendarById={calendarById} selectedDate={selectedDate} onSelect={setSelectedDate} onAdd={openEditor} onEdit={editItem} onDelete={(item) => void store.deleteItem(item)} />}
-              {viewMode === 'week' && <WeekView days={weekDays} items={visibleItems} calendarById={calendarById} selectedDate={selectedDate} onSelect={setSelectedDate} onAdd={openEditor} onEdit={editItem} onDelete={(item) => void store.deleteItem(item)} />}
-              {viewMode === 'agenda' && <AgendaView day={selectedDay} items={selectedItems} calendarById={calendarById} onAdd={openEditor} onEdit={editItem} onDelete={(item) => void store.deleteItem(item)} />}
+              {viewMode === 'month' && <MonthView anchor={anchor} days={monthDays} weekStart={weekStart} items={visibleItems} calendarById={calendarById} selectedDate={selectedDate} onSelect={setSelectedDate} onAdd={openEditor} onEdit={editItem} onDelete={deleteItem} />}
+              {viewMode === 'week' && <WeekView days={weekDays} items={visibleItems} calendarById={calendarById} selectedDate={selectedDate} onSelect={setSelectedDate} onAdd={openEditor} onEdit={editItem} onDelete={deleteItem} />}
+              {viewMode === 'agenda' && <AgendaView day={selectedDay} items={selectedItems} calendarById={calendarById} onAdd={openEditor} onEdit={editItem} onDelete={deleteItem} />}
               {viewMode === 'year' && <YearView year={anchor.getFullYear()} weekStart={weekStart} items={visibleItems} calendarById={calendarById} onOpenMonth={(date) => { setAnchor(date); setSelectedDate(calendarDateKey(date)); setViewMode('month'); }} onAdd={openEditor} />}
             </div>
           </div>
-          {showMonthAgenda && <AgendaPanel day={selectedDay} items={selectedItems} calendarById={calendarById} onEdit={editItem} onDelete={(item) => void store.deleteItem(item)} />}
+          {showMonthAgenda && <AgendaPanel day={selectedDay} items={selectedItems} calendarById={calendarById} onEdit={editItem} onDelete={deleteItem} />}
         </main>
       </div>
 
       <ItemEditorDialog request={editorRequest} onOpenChange={(open) => !open && setEditorRequest(null)} calendars={store.calendars.filter((calendar) => !calendar.archived && !calendar.readOnly)} saving={store.saving} onSave={store.saveItem} />
+      <RecurringDeleteDialog item={deleteRequest} saving={store.saving} onOpenChange={(open) => !open && setDeleteRequest(null)} onDelete={async (scope) => { if (!deleteRequest) return; await store.deleteItem(deleteRequest, scope); setDeleteRequest(null); }} />
       <CalendarDialog open={calendarDialogOpen} onOpenChange={setCalendarDialogOpen} saving={store.saving} locations={calendarLocations} onCreate={store.createCalendar} />
     </div>
   );
+}
+
+function RecurringDeleteDialog({ item, saving, onOpenChange, onDelete }: {
+  item: CalendarItem | null;
+  saving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDelete: (scope: CalendarRecurrenceEditScope) => Promise<void>;
+}) {
+  const [scope, setScope] = useState<CalendarRecurrenceEditScope>('occurrence');
+  useEffect(() => { if (item) setScope('occurrence'); }, [item]);
+  return <Dialog open={item != null} onOpenChange={onOpenChange}><DialogContent className="sm:max-w-sm"><DialogHeader><DialogTitle>Delete recurring item</DialogTitle></DialogHeader><div className="space-y-2"><p className="text-sm text-muted-foreground">Choose which occurrences of <span className="font-medium text-foreground">{item?.title}</span> to delete.</p><Select value={scope} onValueChange={(value) => setScope(value as CalendarRecurrenceEditScope)}><SelectTrigger aria-label="Recurring delete scope"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="occurrence">This occurrence</SelectItem><SelectItem value="following">This and following occurrences</SelectItem><SelectItem value="series">Entire series</SelectItem></SelectContent></Select></div><DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" variant="destructive" disabled={saving} onClick={() => void onDelete(scope)}>{saving ? 'Deleting...' : 'Delete'}</Button></DialogFooter></DialogContent></Dialog>;
 }
 
 function viewTitle(mode: CalendarViewMode, anchor: Date, selected: Date, weekDays: Date[]): string {
@@ -453,7 +485,7 @@ function ReminderEditor({ values, onChange }: { values: number[]; onChange: (val
   return <div className="space-y-1.5"><span className="text-xs font-medium">Reminders</span>{values.map((minutes) => <div key={minutes} className="flex items-center gap-2 rounded-md bg-muted/50 px-2 py-1 text-xs"><Bell className="size-3 text-muted-foreground" /><span className="flex-1">{REMINDER_OPTIONS.find((option) => option.value === minutes)?.label ?? `${minutes} minutes before`}</span><Button type="button" variant="ghost" size="icon-xs" aria-label="Remove reminder" onClick={() => onChange(values.filter((value) => value !== minutes))}><Trash2 /></Button></div>)}<div className="flex gap-2"><Select value={draft} onValueChange={setDraft}><SelectTrigger className="flex-1"><SelectValue /></SelectTrigger><SelectContent>{REMINDER_OPTIONS.map((option) => <SelectItem key={option.value} value={String(option.value)}>{option.label}</SelectItem>)}<SelectItem value="custom">Custom...</SelectItem></SelectContent></Select><Button type="button" variant="outline" size="sm" disabled={values.includes(selectedMinutes)} onClick={() => onChange([...values, selectedMinutes].sort((left, right) => left - right))}>Add</Button></div>{draft === 'custom' && <div className="grid grid-cols-[1fr_1.4fr] gap-2"><Input type="number" min={1} max={10_000} value={customAmount} onChange={(event) => setCustomAmount(event.target.value)} aria-label="Custom reminder amount" /><Select value={customUnit} onValueChange={(value) => setCustomUnit(value as typeof customUnit)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="minutes">Minutes before</SelectItem><SelectItem value="hours">Hours before</SelectItem><SelectItem value="days">Days before</SelectItem><SelectItem value="weeks">Weeks before</SelectItem></SelectContent></Select></div>}</div>;
 }
 
-function ItemEditorDialog({ request, onOpenChange, calendars, saving, onSave }: { request: EditorRequest | null; onOpenChange: (open: boolean) => void; calendars: CalendarDefinition[]; saving: boolean; onSave: (item: CalendarItem) => Promise<CalendarItem> }) {
+function ItemEditorDialog({ request, onOpenChange, calendars, saving, onSave }: { request: EditorRequest | null; onOpenChange: (open: boolean) => void; calendars: CalendarDefinition[]; saving: boolean; onSave: (item: CalendarItem, scope?: CalendarRecurrenceEditScope) => Promise<CalendarItem> }) {
   const timeFormat = useUiStore((state) => state.timeFormat);
   const [title, setTitle] = useState('');
   const [calendarId, setCalendarId] = useState('');
@@ -465,6 +497,9 @@ function ItemEditorDialog({ request, onOpenChange, calendars, saving, onSave }: 
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
   const [relativeReminders, setRelativeReminders] = useState<number[]>([]);
+  const [repeat, setRepeat] = useState<RecurrencePreset>('none');
+  const [customRecurrence, setCustomRecurrence] = useState('FREQ=WEEKLY;INTERVAL=2');
+  const [editScope, setEditScope] = useState<CalendarRecurrenceEditScope>('occurrence');
   useEffect(() => {
     if (!request) return;
     const item = request.item;
@@ -472,6 +507,10 @@ function ItemEditorDialog({ request, onOpenChange, calendars, saving, onSave }: 
     setCalendarId(item?.calendarId ?? calendars[0]?.id ?? '');
     setDescription(item?.description ?? '');
     setRelativeReminders((item?.reminders ?? []).flatMap((reminder) => reminder.kind === 'relative' ? [reminder.minutesBefore] : []));
+    const preset = recurrencePreset(item?.recurrence?.rrule);
+    setRepeat(preset);
+    if (preset === 'custom' && item?.recurrence?.rrule) setCustomRecurrence(item.recurrence.rrule);
+    setEditScope(item?.recurrenceId ? 'occurrence' : 'series');
     if (item?.kind === 'event') {
       const eventAllDay = item.start.kind === 'date';
       setAllDay(eventAllDay);
@@ -505,6 +544,8 @@ function ItemEditorDialog({ request, onOpenChange, calendars, saving, onSave }: 
       setDescription('');
       setLocation('');
       setRelativeReminders([]);
+      setRepeat('none');
+      setEditScope('series');
     }
   }, [calendars, request]);
 
@@ -514,7 +555,11 @@ function ItemEditorDialog({ request, onOpenChange, calendars, saving, onSave }: 
     const now = new Date().toISOString();
     const id = request.item?.id ?? crypto.randomUUID();
     const preservedAbsoluteReminders = request.item?.reminders.filter((reminder) => reminder.kind === 'absolute') ?? [];
-    const base = { id, uid: request.item?.uid ?? `${id}@collab.local`, calendarId, title: title.trim(), description: description.trim() || undefined, reminders: [...relativeReminders.map((minutesBefore) => ({ kind: 'relative' as const, minutesBefore })), ...preservedAbsoluteReminders], recurrence: request.item?.recurrence, sourceBinding: request.item?.sourceBinding, revision: request.item?.revision ?? 0, createdAt: request.item?.createdAt ?? now, updatedAt: now };
+    const recurrenceRule = RECURRENCE_PRESETS.find((preset) => preset.value === repeat)?.rule;
+    const recurrence = repeat === 'none'
+      ? undefined
+      : { rrule: repeat === 'custom' ? customRecurrence.trim() : recurrenceRule! };
+    const base = { id, uid: request.item?.uid ?? `${id}@collab.local`, calendarId, title: title.trim(), description: description.trim() || undefined, reminders: [...relativeReminders.map((minutesBefore) => ({ kind: 'relative' as const, minutesBefore })), ...preservedAbsoluteReminders], recurrence, recurrenceId: request.item?.recurrenceId, recurrenceSeriesId: request.item?.recurrenceSeriesId, sourceBinding: request.item?.sourceBinding, revision: request.item?.revision ?? 0, createdAt: request.item?.createdAt ?? now, updatedAt: now };
     const calendar = calendars.find((entry) => entry.id === calendarId);
     const timeZone = calendar?.defaultTimeZone ?? 'UTC';
     const startValue = allDay ? { kind: 'date' as const, date: startDate } : { kind: 'dateTime' as const, dateTime: new Date(`${startDate}T${startTime}`).toISOString(), timeZone };
@@ -524,7 +569,7 @@ function ItemEditorDialog({ request, onOpenChange, calendars, saving, onSave }: 
       : request.kind === 'task'
         ? normalizeCalendarItem({ ...base, kind: 'task', start: startValue, due: endValue, status: request.item?.kind === 'task' ? request.item.status : 'needs-action', priority: request.item?.kind === 'task' ? request.item.priority : undefined })
         : normalizeCalendarItem({ ...base, kind: 'birthday', date: startDate, birthYear: request.item?.kind === 'birthday' ? request.item.birthYear : undefined });
-    await onSave(item);
+    await onSave(item, request.item?.recurrenceId ? editScope : 'series');
     onOpenChange(false);
   };
 
@@ -537,7 +582,7 @@ function ItemEditorDialog({ request, onOpenChange, calendars, saving, onSave }: 
 
   const kindLabel = request?.kind === 'birthday' ? 'birthday' : request?.kind ?? 'event';
   const isScheduled = request?.kind === 'event' || request?.kind === 'task';
-  return <Dialog open={request != null} onOpenChange={onOpenChange}><DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg"><DialogHeader><DialogTitle>{request?.item ? `Edit ${kindLabel}` : `New ${kindLabel}`}</DialogTitle></DialogHeader><form id="calendar-item-form" className="space-y-4" onSubmit={(event) => void submit(event)}><label className="block space-y-1"><span className="text-xs font-medium">Title</span><Input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} required /></label><label className="block space-y-1"><span className="text-xs font-medium">Calendar</span><CalendarPicker calendars={calendars} value={calendarId} onValueChange={setCalendarId} /></label>{isScheduled ? <><div className="flex items-center gap-2"><Checkbox id="calendar-item-all-day" checked={allDay} onCheckedChange={(checked) => setAllDay(checked === true)} /><label htmlFor="calendar-item-all-day" className="cursor-pointer text-xs font-medium">All day</label></div><div className="grid grid-cols-2 gap-2"><DatePicker label={request?.kind === 'task' ? 'Starts' : 'Start date'} value={startDate} onChange={setStartDate} /><DatePicker label={request?.kind === 'task' ? 'Deadline' : 'End date'} value={endDate} min={startDate} onChange={setEndDate} /></div>{!allDay && <div className="grid grid-cols-2 gap-2"><TimePicker label="Start time" value={startTime} onChange={updateStartTime} format={timeFormat} /><TimePicker label={request?.kind === 'task' ? 'Deadline time' : 'End time'} value={endTime} onChange={setEndTime} format={timeFormat} /></div>}</> : <DatePicker label="Birthday" value={startDate} onChange={setStartDate} />}{request?.kind === 'event' && <label className="block space-y-1"><span className="text-xs font-medium">Location</span><div className="relative"><MapPin className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" /><Input className="pl-8" value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Add a place or address" /></div></label>}{request?.kind !== 'birthday' && <label className="block space-y-1"><span className="text-xs font-medium">Description</span><Textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Add details" rows={4} /></label>}<ReminderEditor values={relativeReminders} onChange={setRelativeReminders} /></form><DialogFooter><Button type="submit" form="calendar-item-form" disabled={saving || !title.trim() || !calendarId || !startDate || (isScheduled && !endDate)}>{saving ? 'Saving...' : request?.item ? 'Save' : 'Create'}</Button></DialogFooter></DialogContent></Dialog>;
+  return <Dialog open={request != null} onOpenChange={onOpenChange}><DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg"><DialogHeader><DialogTitle>{request?.item ? `Edit ${kindLabel}` : `New ${kindLabel}`}</DialogTitle></DialogHeader><form id="calendar-item-form" className="space-y-4" onSubmit={(event) => void submit(event)}><label className="block space-y-1"><span className="text-xs font-medium">Title</span><Input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} required /></label><label className="block space-y-1"><span className="text-xs font-medium">Calendar</span><CalendarPicker calendars={calendars} value={calendarId} onValueChange={setCalendarId} /></label>{isScheduled ? <><div className="flex items-center gap-2"><Checkbox id="calendar-item-all-day" checked={allDay} onCheckedChange={(checked) => setAllDay(checked === true)} /><label htmlFor="calendar-item-all-day" className="cursor-pointer text-xs font-medium">All day</label></div><div className="grid grid-cols-2 gap-2"><DatePicker label={request?.kind === 'task' ? 'Starts' : 'Start date'} value={startDate} onChange={setStartDate} /><DatePicker label={request?.kind === 'task' ? 'Deadline' : 'End date'} value={endDate} min={startDate} onChange={setEndDate} /></div>{!allDay && <div className="grid grid-cols-2 gap-2"><TimePicker label="Start time" value={startTime} onChange={updateStartTime} format={timeFormat} /><TimePicker label={request?.kind === 'task' ? 'Deadline time' : 'End time'} value={endTime} onChange={setEndTime} format={timeFormat} /></div>}<label className="block space-y-1"><span className="text-xs font-medium">Repeats</span><Select value={repeat} onValueChange={(value) => setRepeat(value as RecurrencePreset)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{RECURRENCE_PRESETS.map((preset) => <SelectItem key={preset.value} value={preset.value}>{preset.label}</SelectItem>)}</SelectContent></Select></label>{repeat === 'custom' && <label className="block space-y-1"><span className="text-xs font-medium">Recurrence rule</span><Input value={customRecurrence} onChange={(event) => setCustomRecurrence(event.target.value)} placeholder="FREQ=WEEKLY;INTERVAL=2" /></label>}{request?.item?.recurrenceId && <label className="block space-y-1"><span className="text-xs font-medium">Apply changes to</span><Select value={editScope} onValueChange={(value) => setEditScope(value as CalendarRecurrenceEditScope)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="occurrence">This occurrence</SelectItem><SelectItem value="following">This and following occurrences</SelectItem><SelectItem value="series">Entire series</SelectItem></SelectContent></Select></label>}</> : <DatePicker label="Birthday" value={startDate} onChange={setStartDate} />}{request?.kind === 'event' && <label className="block space-y-1"><span className="text-xs font-medium">Location</span><div className="relative"><MapPin className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" /><Input className="pl-8" value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Add a place or address" /></div></label>}{request?.kind !== 'birthday' && <label className="block space-y-1"><span className="text-xs font-medium">Description</span><Textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Add details" rows={4} /></label>}<ReminderEditor values={relativeReminders} onChange={setRelativeReminders} /></form><DialogFooter><Button type="submit" form="calendar-item-form" disabled={saving || !title.trim() || !calendarId || !startDate || (isScheduled && (!endDate || (repeat === 'custom' && !customRecurrence.trim())))}>{saving ? 'Saving...' : request?.item ? 'Save' : 'Create'}</Button></DialogFooter></DialogContent></Dialog>;
 }
 
 function CalendarDialog({ open, onOpenChange, saving, locations, onCreate }: {

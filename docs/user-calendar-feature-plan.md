@@ -50,7 +50,7 @@ models.
 
 | Phase | Status | Goal |
 | --- | --- | --- |
-| 0. Domain contract and interoperability spike | In progress | RFC 5545 selection and fixtures are complete; recurring edit-scope operations remain. |
+| 0. Domain contract and interoperability spike | Complete | RFC 5545 selection, fixtures, bounded recurrence, and deterministic edit-scope operations are implemented. |
 | 1. Shared calendar domain and local profile store | Complete | Canonical model, native profile database, bounded recurrence queries, migrations, tombstones, and operation log are implemented. |
 | 2. Hosted server calendar domain | In progress | Add user-owned PostgreSQL storage, authenticated APIs, quotas, and private usage rollups. |
 | 3. Multi-server offline sync | Not started | Sync independent hosted calendar replicas on desktop and Android with durable cursors and queued operations. |
@@ -132,11 +132,17 @@ Landed in the first implementation slice:
   locations with legacy-string compatibility, vault-file/Kanban/upload/link
   attachments, and the inactive reminder-scheduler connector contract required
   before native notification delivery.
+- Added repeat presets plus custom RFC 5545 rules to the desktop event/task
+  editor. Recurring edits explicitly target one occurrence, the selected and
+  following occurrences, or the entire series; recurring deletes use `EXDATE`,
+  deterministic rule truncation, or a series tombstone respectively.
+- Added stable series/instance identity and exception-aware projection. Moved
+  exceptions are indexed by both their original recurrence slot and rendered
+  date, and PostgreSQL/SQLite now permit one UID master plus distinct recurrence
+  instances without allowing duplicate instances.
 
 Remaining implementation work:
 
-- Complete Phase 0's recurring edit-scope contract (`occurrence`, `following`,
-  or `series`) and prove deterministic local/server operations for each scope.
 - Complete Phase 2 with attendee/attachment/subscription tables, calendar quota
   accounting, aggregate-only admin rollups, and live PostgreSQL API tests.
 - Connect Phase 3 replay/pull logic to the new operation and change APIs, apply

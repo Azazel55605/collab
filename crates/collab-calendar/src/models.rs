@@ -237,6 +237,8 @@ pub struct CalendarItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recurrence_id: Option<CalendarTimeValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recurrence_series_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_binding: Option<CalendarSourceBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start: Option<CalendarTimeValue>,

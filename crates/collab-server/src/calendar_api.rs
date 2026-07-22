@@ -535,19 +535,45 @@ async fn apply_operation(
             let payload = serde_json::to_value(&canonical)
                 .map_err(|_| CalendarApiError::server(request_id))?;
             let (start_at, end_at, start_date, end_date) = item_range(&canonical);
+            let recurrence_id = canonical
+                .recurrence_id
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()
+                .map_err(|_| CalendarApiError::server(request_id))?;
+            let (recurrence_at, recurrence_date) = match canonical.recurrence_id.as_ref() {
+                Some(CalendarTimeValue::DateTime { date_time, .. }) => (
+                    DateTime::parse_from_rfc3339(date_time)
+                        .ok()
+                        .map(|value| value.with_timezone(&Utc)),
+                    None,
+                ),
+                Some(CalendarTimeValue::Date { date }) => {
+                    (None, NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())
+                }
+                None => (None, None),
+            };
+            let recurrence_series_id = canonical
+                .recurrence_series_id
+                .as_deref()
+                .map(|value| parse_uuid(value, "Recurrence series ID", request_id))
+                .transpose()?;
             sqlx::query(
                 r#"INSERT INTO calendar_items
-                   (id,owner_id,calendar_id,uid,kind,start_at,end_at,start_date,end_date,recurrence_rule,revision,payload,deleted_at)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL)
+                   (id,owner_id,calendar_id,uid,kind,start_at,end_at,start_date,end_date,recurrence_rule,recurrence_id,recurrence_at,recurrence_date,recurrence_series_id,revision,payload,deleted_at)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NULL)
                    ON CONFLICT (id) DO UPDATE SET calendar_id=EXCLUDED.calendar_id,uid=EXCLUDED.uid,
                      kind=EXCLUDED.kind,start_at=EXCLUDED.start_at,end_at=EXCLUDED.end_at,
                      start_date=EXCLUDED.start_date,end_date=EXCLUDED.end_date,
-                     recurrence_rule=EXCLUDED.recurrence_rule,revision=EXCLUDED.revision,
+                     recurrence_rule=EXCLUDED.recurrence_rule,recurrence_id=EXCLUDED.recurrence_id,
+                     recurrence_at=EXCLUDED.recurrence_at,recurrence_date=EXCLUDED.recurrence_date,
+                     recurrence_series_id=EXCLUDED.recurrence_series_id,revision=EXCLUDED.revision,
                      payload=EXCLUDED.payload,deleted_at=NULL,updated_at=now()"#,
             ).bind(item_id).bind(owner).bind(calendar_id).bind(&canonical.uid)
               .bind(canonical.kind.as_str()).bind(start_at).bind(end_at).bind(start_date).bind(end_date)
               .bind(canonical.recurrence.as_ref().map(|value| value.rrule.as_str()))
-              .bind(canonical.revision).bind(&payload).execute(&mut **tx).await
+              .bind(recurrence_id).bind(recurrence_at).bind(recurrence_date)
+              .bind(recurrence_series_id).bind(canonical.revision).bind(&payload).execute(&mut **tx).await
               .map_err(|error| {
                   if error.as_database_error().is_some_and(|value| value.is_unique_violation()) {
                       CalendarApiError::conflict("An item with that UID already exists in the calendar.", request_id)
@@ -663,8 +689,15 @@ pub async fn query_items(
     let from_date = from.date_naive();
     let to_date = to.date_naive();
     let rows = sqlx::query(
-        r#"SELECT payload FROM calendar_items WHERE owner_id=$1 AND ($2 OR deleted_at IS NULL)
+        r#"SELECT payload FROM calendar_items item WHERE owner_id=$1 AND ($2 OR deleted_at IS NULL)
+           AND (recurrence_series_id IS NULL OR EXISTS (
+             SELECT 1 FROM calendar_items master
+             WHERE master.owner_id=$1 AND master.id=item.recurrence_series_id
+               AND ($2 OR master.deleted_at IS NULL)
+           ))
            AND (recurrence_rule IS NOT NULL
+             OR (recurrence_at >= $3 AND recurrence_at < $4)
+             OR (recurrence_date >= $5 AND recurrence_date < $6)
              OR (start_at < $4 AND COALESCE(end_at,start_at) >= $3)
              OR (start_date < $6 AND COALESCE(end_date,start_date) >= $5)
              OR kind='birthday')

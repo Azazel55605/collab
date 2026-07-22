@@ -1,3 +1,5 @@
+import { expandRecurringItem, recurrenceIncludes, validateRecurrenceRule } from '../lib/calendarRecurrence';
+
 export const CALENDAR_SCHEMA_VERSION = 1;
 export const MAX_CALENDAR_QUERY_ITEMS = 5_000;
 export const MAX_CALENDAR_NAME_LENGTH = 120;
@@ -126,6 +128,7 @@ interface CalendarItemBase {
   attachments: CalendarAttachment[];
   recurrence?: CalendarRecurrence;
   recurrenceId?: CalendarTimeValue;
+  recurrenceSeriesId?: string;
   sourceBinding?: CalendarSourceBinding;
   revision: number;
   createdAt: string;
@@ -551,6 +554,7 @@ function normalizeItemBase(input: Record<string, unknown>) {
     recurrenceId: input.recurrenceId == null
       ? undefined
       : normalizeCalendarTimeValue(input.recurrenceId, 'Recurrence instance'),
+    recurrenceSeriesId: optionalString(input.recurrenceSeriesId, 'Recurrence series ID', 255),
     sourceBinding: normalizeSourceBinding(input.sourceBinding),
     revision: nonNegativeInteger(input.revision, 'Calendar item revision'),
     createdAt: normalizeInstant(input.createdAt, 'Calendar item createdAt'),
@@ -690,11 +694,31 @@ export function queryCalendarItems(items: CalendarItem[], range: CalendarQueryRa
     throw new CalendarValidationError(`Calendar query limit must be between 1 and ${MAX_CALENDAR_QUERY_ITEMS}.`);
   }
 
+  const masterById = new Map(items.filter((item) => item.recurrence && !item.recurrenceId)
+    .map((item) => [item.id, item]));
+  const activeExceptions = new Set(items.flatMap((item) => {
+    if (!item.recurrenceId) return [];
+    const master = item.recurrenceSeriesId ? masterById.get(item.recurrenceSeriesId) : undefined;
+    if (master && (master.deletedAt || !recurrenceIncludes(master, item.recurrenceId))) return [];
+    return [item.id];
+  }));
+  const exceptionKeys = new Set(items.flatMap((item) => item.recurrenceId && activeExceptions.has(item.id)
+    ? [`${item.calendarId}\u0000${item.uid}\u0000${calendarTimeValueKey(item.recurrenceId)}`]
+    : []));
   const expanded: CalendarItem[] = [];
   for (const item of items) {
     const remaining = MAX_CALENDAR_EXPANDED_CANDIDATES - expanded.length;
     if (remaining <= 0) break;
-    expanded.push(...expandRecurringItem(item, from, to, Math.min(requestedLimit, remaining)));
+    if (item.recurrenceId) {
+      if (!activeExceptions.has(item.id)) continue;
+      const master = item.recurrenceSeriesId ? masterById.get(item.recurrenceSeriesId) : undefined;
+      expanded.push(master && !item.recurrence ? { ...item, recurrence: master.recurrence } : item);
+      continue;
+    }
+    const occurrences = expandRecurringItem(item, from, to, Math.min(requestedLimit, remaining));
+    expanded.push(...occurrences.filter((occurrence) => !occurrence.recurrenceId || !exceptionKeys.has(
+      `${occurrence.calendarId}\u0000${occurrence.uid}\u0000${calendarTimeValueKey(occurrence.recurrenceId)}`,
+    )));
   }
   return expanded
     .filter((item) => range.includeDeleted === true || item.deletedAt == null)
@@ -717,6 +741,10 @@ export function queryCalendarItems(items: CalendarItem[], range: CalendarQueryRa
       || left.item.id.localeCompare(right.item.id))
     .slice(0, requestedLimit)
     .map((entry) => entry.item);
+}
+
+export function calendarTimeValueKey(value: CalendarTimeValue): string {
+  return value.kind === 'date' ? `date:${value.date}` : `dateTime:${value.dateTime}`;
 }
 
 export function createCalendarDefinition(input: {
@@ -744,4 +772,3 @@ export function createCalendarDefinition(input: {
     updatedAt: now,
   });
 }
-import { expandRecurringItem, validateRecurrenceRule } from '../lib/calendarRecurrence';

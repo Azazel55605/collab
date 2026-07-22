@@ -29,13 +29,19 @@ CREATE TABLE calendar_items (
     start_date DATE,
     end_date DATE,
     recurrence_rule TEXT,
+    recurrence_id TEXT,
+    recurrence_at TIMESTAMPTZ,
+    recurrence_date DATE,
+    recurrence_series_id UUID,
     revision BIGINT NOT NULL DEFAULT 1,
     payload JSONB NOT NULL,
     deleted_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (calendar_id, uid)
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX calendar_items_uid_recurrence_idx
+    ON calendar_items (calendar_id, uid, COALESCE(recurrence_id, ''));
 
 CREATE INDEX calendar_items_owner_range_idx
     ON calendar_items (owner_id, start_at, end_at) WHERE deleted_at IS NULL;
@@ -43,6 +49,12 @@ CREATE INDEX calendar_items_owner_date_range_idx
     ON calendar_items (owner_id, start_date, end_date) WHERE deleted_at IS NULL;
 CREATE INDEX calendar_items_calendar_updated_idx
     ON calendar_items (calendar_id, updated_at DESC);
+CREATE INDEX calendar_items_recurrence_at_idx
+    ON calendar_items (owner_id, recurrence_at) WHERE recurrence_at IS NOT NULL;
+CREATE INDEX calendar_items_recurrence_date_idx
+    ON calendar_items (owner_id, recurrence_date) WHERE recurrence_date IS NOT NULL;
+CREATE INDEX calendar_items_recurrence_series_idx
+    ON calendar_items (owner_id, recurrence_series_id) WHERE recurrence_series_id IS NOT NULL;
 
 CREATE TABLE calendar_change_log (
     sequence BIGSERIAL PRIMARY KEY,
