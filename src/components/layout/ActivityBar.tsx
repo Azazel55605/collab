@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { Files, GitFork, Layout, LayoutDashboard, Settings, PanelLeftClose, PanelLeft, LayoutGrid, Vault, Users2 } from 'lucide-react';
+import { CalendarDays, Files, GitFork, Layout, LayoutDashboard, Settings, PanelLeftClose, PanelLeft, LayoutGrid, Vault, Users2 } from 'lucide-react';
 import { AppLogo } from '../ui/AppLogo';
 import { cn } from '../../lib/utils';
 import { useUiStore, type ActiveView } from '../../store/uiStore';
@@ -12,6 +12,7 @@ const NAV_ITEMS: { view: ActiveView; icon: React.ReactNode; label: string }[] = 
   { view: 'graph',   icon: <GitFork         size={18} />, label: 'Graph View' },
   { view: 'canvas',  icon: <Layout          size={18} />, label: 'Canvas'     },
   { view: 'kanban',  icon: <LayoutDashboard size={18} />, label: 'Kanban'     },
+  { view: 'calendar', icon: <CalendarDays size={18} />, label: 'Calendar' },
   { view: 'grid',    icon: <LayoutGrid      size={18} />, label: 'Grid View'  },
 ];
 const ACTIVITY_INDICATOR_INSET = 2;

@@ -1,3 +1,4 @@
+pub mod calendar;
 pub mod circuit;
 pub mod collab;
 pub mod crypto;

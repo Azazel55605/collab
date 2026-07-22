@@ -432,6 +432,23 @@
   to { opacity: 1; }
 }
 
+.calendar-period-transition {
+  animation: calendar-period-enter var(--motion-base) var(--motion-ease-standard) both;
+}
+
+.calendar-period-transition-next {
+  --calendar-period-enter-x: 14px;
+}
+
+.calendar-period-transition-previous {
+  --calendar-period-enter-x: -14px;
+}
+
+@keyframes calendar-period-enter {
+  from { opacity: 0.72; transform: translateX(var(--calendar-period-enter-x)); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 [data-motion='off'] {
   scroll-behavior: auto !important;
 }

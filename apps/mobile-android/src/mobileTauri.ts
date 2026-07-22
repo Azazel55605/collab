@@ -1,6 +1,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import type { LogicDiagramDocument } from '../../../src/types/logicDiagram';
+import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarOperation, CalendarSyncState } from '../../../src/types/calendar';
 import type {
   CircuitDcResult,
   CircuitJobOutcome,
@@ -16,6 +17,84 @@ export interface ServerHealthStatus {
   ok: boolean;
   serverUrl: string;
   message: string;
+}
+
+export function listProfileCalendars(profileId: string): Promise<CalendarDefinition[]> {
+  return invoke('calendar_list', { profileId });
+}
+
+export function saveProfileCalendar(profileId: string, calendar: CalendarDefinition): Promise<void> {
+  return invoke('calendar_save', { profileId, calendar });
+}
+
+export function deleteProfileCalendar(
+  profileId: string,
+  calendarId: string,
+  deletedAt: string,
+  operation: CalendarOperation,
+): Promise<void> {
+  return invoke('calendar_delete', { profileId, calendarId, deletedAt, operation });
+}
+
+export function cleanupProfileCalendar(profileId: string, retentionDays = 90): Promise<CalendarCleanupResult> {
+  return invoke('calendar_cleanup', { profileId, retentionDays });
+}
+
+export function listProfileCalendarItems(
+  profileId: string,
+  from: string,
+  to: string,
+  limit = 500,
+  includeDeleted = false,
+): Promise<CalendarItem[]> {
+  return invoke('calendar_list_items', { profileId, from, to, limit, includeDeleted });
+}
+
+export function upsertProfileCalendarItem(
+  profileId: string,
+  item: CalendarItem,
+  operation: CalendarOperation,
+): Promise<void> {
+  return invoke('calendar_upsert_item', { profileId, item, operation });
+}
+
+export function deleteProfileCalendarItem(
+  profileId: string,
+  calendarId: string,
+  itemId: string,
+  deletedAt: string,
+  operation: CalendarOperation,
+): Promise<void> {
+  return invoke('calendar_delete_item', { profileId, calendarId, itemId, deletedAt, operation });
+}
+
+export function searchProfileCalendarItems(profileId: string, query: string, limit = 100): Promise<CalendarItem[]> {
+  return invoke('calendar_search_items', { profileId, query, limit });
+}
+
+export function acknowledgeProfileCalendarOperations(profileId: string, clientOperationIds: string[]): Promise<void> {
+  return invoke('calendar_acknowledge_operations', { profileId, clientOperationIds });
+}
+
+export function readProfileCalendarSyncState(profileId: string, originKey: string): Promise<CalendarSyncState | null> {
+  return invoke('calendar_read_sync_state', { profileId, originKey });
+}
+
+export function writeProfileCalendarSyncState(profileId: string, state: CalendarSyncState): Promise<void> {
+  return invoke('calendar_write_sync_state', { profileId, state });
+}
+
+export function listProfileCalendarPendingOperations(profileId: string): Promise<CalendarOperation[]> {
+  return invoke('calendar_list_pending_operations', { profileId });
+}
+
+export function hostedCalendarRequest<T>(
+  serverUrl: string,
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  return invoke('hosted_calendar_request', { serverUrl, method, path, body: body ?? null });
 }
 
 export interface ServerUser {

@@ -67,6 +67,7 @@ export default function SettingsModal() {
     scale, setScale,
     dateFormat, setDateFormat,
     weekStart, setWeekStart,
+    timeFormat, setTimeFormat,
     confirmDelete, setConfirmDelete,
     animationsEnabled, setAnimationsEnabled,
     animationSpeed, setAnimationSpeed,
@@ -278,6 +279,8 @@ export default function SettingsModal() {
                 setDateFormat={setDateFormat}
                 weekStart={weekStart}
                 setWeekStart={setWeekStart}
+                timeFormat={timeFormat}
+                setTimeFormat={setTimeFormat}
               />
             )}
 

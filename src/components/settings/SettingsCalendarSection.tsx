@@ -5,6 +5,7 @@ import {
   formatDate,
   type DateFormat,
   type WeekStart,
+  type TimeFormat,
 } from '../../store/uiStore';
 import { cn } from '../../lib/utils';
 import { Separator } from '../ui/separator';
@@ -15,6 +16,8 @@ type Props = {
   setDateFormat: (format: DateFormat) => void;
   weekStart: WeekStart;
   setWeekStart: (weekStart: WeekStart) => void;
+  timeFormat: TimeFormat;
+  setTimeFormat: (format: TimeFormat) => void;
 };
 
 export default function SettingsCalendarSection({
@@ -22,6 +25,8 @@ export default function SettingsCalendarSection({
   setDateFormat,
   weekStart,
   setWeekStart,
+  timeFormat,
+  setTimeFormat,
 }: Props) {
   return (
     <div>
@@ -54,6 +59,33 @@ export default function SettingsCalendarSection({
 
       <Separator className="bg-border/40 my-4" />
 
+      <SectionLabel>Time Format</SectionLabel>
+      <p className="text-xs text-muted-foreground mb-3">
+        Controls time labels and calendar time inputs.
+      </p>
+      <div className="grid grid-cols-3 gap-2">
+        {([
+          ['system', 'System'],
+          ['12-hour', '12 hour'],
+          ['24-hour', '24 hour'],
+        ] as Array<[TimeFormat, string]>).map(([value, label]) => (
+          <button
+            key={value}
+            onClick={() => setTimeFormat(value)}
+            className={cn(
+              'rounded-xl border py-2.5 text-sm font-medium transition-all app-motion-fast',
+              timeFormat === value
+                ? 'border-primary/45 bg-primary/8 text-primary shadow-sm shadow-primary/10'
+                : 'border-border/40 bg-card/25 text-muted-foreground hover:border-border hover:bg-accent/25 hover:text-foreground',
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <Separator className="bg-border/40 my-4" />
+
       <SectionLabel>First Day of Week</SectionLabel>
       <p className="text-xs text-muted-foreground mb-3">
         Sets the starting column in the calendar view.
@@ -81,6 +113,7 @@ export default function SettingsCalendarSection({
       <div className="rounded-xl border border-border/40 bg-card/25 p-3 text-sm text-muted-foreground">
         <p>Today: <span className="text-foreground font-medium">{formatDate(new Date(), dateFormat)}</span></p>
         <p className="mt-1.5">Week starts on: <span className="text-foreground font-medium">{weekStart === 1 ? 'Monday' : 'Sunday'}</span></p>
+        <p className="mt-1.5">Time format: <span className="text-foreground font-medium">{timeFormat === 'system' ? 'System default' : timeFormat}</span></p>
       </div>
     </div>
   );

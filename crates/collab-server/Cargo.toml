@@ -11,6 +11,7 @@ async-trait.workspace = true
 axum.workspace = true
 base64.workspace = true
 chrono.workspace = true
+collab-calendar = { path = "../collab-calendar" }
 collab-core = { path = "../collab-core" }
 collab-protocol = { path = "../collab-protocol" }
 futures-util.workspace = true

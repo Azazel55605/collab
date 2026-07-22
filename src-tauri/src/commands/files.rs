@@ -1966,7 +1966,10 @@ pub fn read_file_for_upload(
     source_path: FilePath,
 ) -> Result<HostedUploadPayload, String> {
     let fallback_name = match &source_path {
-        FilePath::Path(path) => path.file_name().and_then(|name| name.to_str()).map(str::to_owned),
+        FilePath::Path(path) => path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_owned),
         FilePath::Url(url) => {
             #[cfg(target_os = "android")]
             let name = crate::android_jni::call_static_string(

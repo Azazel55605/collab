@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type { SchematicSymbolSet } from '../types/logicDiagram';
 
-export type ActiveView    = 'editor' | 'graph' | 'canvas' | 'kanban' | 'grid';
+export type ActiveView    = 'editor' | 'graph' | 'canvas' | 'kanban' | 'calendar' | 'grid';
 export type SidebarPanel  = 'files' | 'search' | 'tags' | 'canvas-boards' | 'kanban-boards' | 'collab';
 export type CollabTab     = 'peers' | 'chat' | 'history';
 export type Theme         = 'dark' | 'midnight' | 'warm' | 'light';
@@ -13,6 +13,7 @@ export type IndentStyle   = 'spaces' | 'tabs';
 export type ColorPreviewFormat = 'hex' | 'rgb' | 'hsl' | 'oklch' | 'oklab';
 export type DateFormat    = 'MMM_D_YYYY' | 'D_MMM_YYYY' | 'YYYY_MM_DD' | 'MM_DD_YYYY' | 'DD_MM_YYYY';
 export type WeekStart     = 0 | 1; // 0 = Sunday, 1 = Monday
+export type TimeFormat    = 'system' | '12-hour' | '24-hour';
 export type AnimationSpeed = 'slow' | 'normal' | 'fast';
 export type CanvasWebCardDefaultMode = 'preview' | 'embed';
 export type OcrModelSource = 'official-fast';
@@ -96,6 +97,10 @@ function isSchematicSymbolSet(value: unknown): value is SchematicSymbolSet {
   return value === 'ansi' || value === 'iec';
 }
 
+function isTimeFormat(value: unknown): value is TimeFormat {
+  return value === 'system' || value === '12-hour' || value === '24-hour';
+}
+
 function normalizeFontSize(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
@@ -134,6 +139,7 @@ function normalizePersistedUiState(
     editorFont,
     editorFontSize: normalizeFontSize(state.editorFontSize, DEFAULT_EDITOR_FONT_SIZE),
     schematicSymbolSet: isSchematicSymbolSet(state.schematicSymbolSet) ? state.schematicSymbolSet : 'ansi',
+    timeFormat: isTimeFormat(state.timeFormat) ? state.timeFormat : 'system',
     ocrLanguage: typeof state.ocrLanguage === 'string' && state.ocrLanguage.length > 0 ? state.ocrLanguage : 'eng',
     ocrModelSource: isOcrModelSource(state.ocrModelSource) ? state.ocrModelSource : 'official-fast',
     ocrRenderScale: state.ocrRenderScale === 1 || state.ocrRenderScale === 2 || state.ocrRenderScale === 3 ? state.ocrRenderScale : 2,
@@ -183,6 +189,14 @@ export function formatDate(date: Date, fmt: DateFormat): string {
   }
 }
 
+export function formatTime(date: Date, format: TimeFormat): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: format === 'system' ? undefined : format === '12-hour',
+  }).format(date);
+}
+
 export const DATE_FORMAT_OPTIONS: Record<DateFormat, { label: string; description: string }> = {
   MMM_D_YYYY: { label: 'Apr 1, 2026',  description: 'Month Day, Year' },
   D_MMM_YYYY: { label: '1 Apr 2026',   description: 'Day Month Year' },
@@ -222,6 +236,7 @@ interface UiState {
   // Calendar
   dateFormat: DateFormat;
   weekStart:  WeekStart;
+  timeFormat: TimeFormat;
 
   // Behavior
   confirmDelete: boolean;
@@ -272,6 +287,7 @@ interface UiState {
   setScale:         (scale: number) => void;
   setDateFormat:    (fmt: DateFormat) => void;
   setWeekStart:     (day: WeekStart) => void;
+  setTimeFormat:    (format: TimeFormat) => void;
   setConfirmDelete: (v: boolean) => void;
   setAnimationsEnabled: (v: boolean) => void;
   setAnimationSpeed:    (speed: AnimationSpeed) => void;
@@ -321,6 +337,7 @@ export const useUiStore = create<UiState>()(
 
       dateFormat: 'MMM_D_YYYY',
       weekStart:  1,
+      timeFormat: 'system',
 
       confirmDelete: true,
       animationsEnabled: true,
@@ -376,6 +393,7 @@ export const useUiStore = create<UiState>()(
       setScale:         (scale)         => set({ scale }),
       setDateFormat:    (dateFormat)    => set({ dateFormat }),
       setWeekStart:     (weekStart)     => set({ weekStart }),
+      setTimeFormat:    (timeFormat)    => set({ timeFormat }),
       setConfirmDelete: (confirmDelete) => set({ confirmDelete }),
       setAnimationsEnabled: (animationsEnabled) => set({ animationsEnabled }),
       setAnimationSpeed:    (animationSpeed)    => set({ animationSpeed }),
@@ -424,6 +442,7 @@ export const useUiStore = create<UiState>()(
         scale:         s.scale,
         dateFormat:    s.dateFormat,
         weekStart:     s.weekStart,
+        timeFormat:    s.timeFormat,
         confirmDelete: s.confirmDelete,
         animationsEnabled: s.animationsEnabled,
         animationSpeed:    s.animationSpeed,

@@ -111,6 +111,19 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // user calendar profile store
+            commands::calendar::calendar_list,
+            commands::calendar::calendar_save,
+            commands::calendar::calendar_delete,
+            commands::calendar::calendar_cleanup,
+            commands::calendar::calendar_list_items,
+            commands::calendar::calendar_upsert_item,
+            commands::calendar::calendar_delete_item,
+            commands::calendar::calendar_search_items,
+            commands::calendar::calendar_acknowledge_operations,
+            commands::calendar::calendar_read_sync_state,
+            commands::calendar::calendar_write_sync_state,
+            commands::calendar::calendar_list_pending_operations,
             // vault
             commands::vault::open_vault,
             commands::vault::create_vault,
@@ -166,6 +179,7 @@ pub fn run() {
             commands::server::server_health_check,
             commands::server::server_has_saved_session,
             commands::server::hosted_vault_request,
+            commands::server::hosted_calendar_request,
             commands::server::hosted_vault_asset_data_url,
             commands::server::hosted_vault_upload_file,
             commands::server::hosted_vault_download_entry,

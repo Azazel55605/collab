@@ -29,6 +29,7 @@ keyring = { version = "3", features = ["sync-secret-service", "linux-native"] }
 
 [dependencies]
 collab-circuit = { path = "../crates/collab-circuit" }
+collab-calendar = { path = "../crates/collab-calendar" }
 collab-core = { path = "../crates/collab-core" }
 collab-protocol = { path = "../crates/collab-protocol" }
 collab-replica = { path = "../crates/collab-replica" }

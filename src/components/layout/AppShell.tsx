@@ -43,6 +43,7 @@ import CanvasPage from '../../views/CanvasPage';
 import KanbanPage from '../../views/KanbanPage';
 import SettingsPage from '../../views/SettingsPage';
 import GridView from '../../views/GridView';
+import CalendarPage from '../../views/CalendarPage';
 import { CollabProvider } from '../collaboration/CollabProvider';
 import { CommandBar } from '../command-bar/CommandBar';
 import { DragProvider } from '../../contexts/DragContext';
@@ -247,6 +248,7 @@ export default function AppShell() {
   const renderMainContent = () => {
     // Grid mode is self-contained — always shown when activeView === 'grid'
     if (activeView === 'grid') return <GridView />;
+    if (activeView === 'calendar') return <CalendarPage />;
 
     // View tabs (graph/canvas/kanban/settings) always take priority — they were
     // explicitly opened and their type unambiguously identifies the content.
@@ -305,7 +307,7 @@ export default function AppShell() {
 
         {/* Main pane */}
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-          {activeView !== 'grid' && <TabBar />}
+          {activeView !== 'grid' && activeView !== 'calendar' && <TabBar />}
           {/* position:relative so the split drop zones are positioned inside the content area */}
           <div className="relative flex-1 overflow-hidden">
             <EditorErrorBoundary key={activeTabPath ?? activeView}>
@@ -314,7 +316,7 @@ export default function AppShell() {
               </div>
             </EditorErrorBoundary>
             {/* Edge drop zones — only visible when a tab is being dragged */}
-            {activeView !== 'grid' && <SplitDropZones />}
+            {activeView !== 'grid' && activeView !== 'calendar' && <SplitDropZones />}
           </div>
           <StatusBar />
         </div>

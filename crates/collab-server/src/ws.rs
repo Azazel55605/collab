@@ -2596,9 +2596,7 @@ mod tests {
             .await
             .expect("server state vector");
         let server_sv = StateVector::decode_v1(&server_state_vector).expect("valid server sv");
-        let missing_update = offline_doc
-            .transact()
-            .encode_state_as_update_v1(&server_sv);
+        let missing_update = offline_doc.transact().encode_state_as_update_v1(&server_sv);
         reconnect
             .send_binary(ws_message::SYNC_UPDATE, file, &missing_update)
             .await;

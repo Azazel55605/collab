@@ -9,8 +9,8 @@ use tokio::io::AsyncWriteExt;
 
 use crate::hosted_client::{
     decode_hosted_error, decode_hosted_json_response, decode_session, hosted_request_method,
-    server_client, server_request_error, validate_hosted_vault_path, validate_identifier,
-    validate_server_url,
+    server_client, server_request_error, validate_hosted_calendar_path, validate_hosted_vault_path,
+    validate_identifier, validate_server_url,
 };
 use crate::hosted_session::{fresh_session_for, refresh_session_locked};
 use crate::server_token_store::{delete_refresh_token, read_refresh_token, store_refresh_token};
@@ -199,6 +199,31 @@ pub async fn hosted_vault_request(
     .await?;
     let method = hosted_request_method(&method)?;
     let path = validate_hosted_vault_path(&path)?;
+    let mut request = server_client(session.allow_invalid_certificates)?
+        .request(method, format!("{}{}", session.server_url, path))
+        .bearer_auth(&session.access_token);
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+    decode_hosted_json_response(request.send().await.map_err(server_request_error)?).await
+}
+
+#[tauri::command]
+pub async fn hosted_calendar_request(
+    state: State<'_, AppState>,
+    server_url: String,
+    method: String,
+    path: String,
+    body: Option<Value>,
+) -> Result<Value, String> {
+    let session = fresh_session_for(
+        &state,
+        &server_url,
+        "Connect to the Collab server before synchronizing calendars.",
+    )
+    .await?;
+    let method = hosted_request_method(&method)?;
+    let path = validate_hosted_calendar_path(&path)?;
     let mut request = server_client(session.allow_invalid_certificates)?
         .request(method, format!("{}{}", session.server_url, path))
         .bearer_auth(&session.access_token);

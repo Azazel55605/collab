@@ -24,6 +24,7 @@ import type { NoteSnippet, NoteSnippetDraft, NoteSnippetScope } from '../types/n
 import type { PdfSidecarState } from '../types/pdf';
 import type { UpdateInfo } from '../store/updateStore';
 import type { LogicDiagramDocument } from '../types/logicDiagram';
+import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarOperation, CalendarSyncState } from '../types/calendar';
 import type {
   CircuitDcResult,
   CircuitJobOutcome,
@@ -127,6 +128,36 @@ export interface NativeOcrResult {
 }
 
 export const tauriCommands = {
+  // User calendar profile store
+  calendarList: (profileId: string) => invoke<CalendarDefinition[]>('calendar_list', { profileId }),
+  calendarSave: (profileId: string, calendar: CalendarDefinition) =>
+    invoke<void>('calendar_save', { profileId, calendar }),
+  calendarDelete: (profileId: string, calendarId: string, deletedAt: string, operation: CalendarOperation) =>
+    invoke<void>('calendar_delete', { profileId, calendarId, deletedAt, operation }),
+  calendarCleanup: (profileId: string, retentionDays = 90) =>
+    invoke<CalendarCleanupResult>('calendar_cleanup', { profileId, retentionDays }),
+  calendarListItems: (
+    profileId: string,
+    from: string,
+    to: string,
+    limit = 500,
+    includeDeleted = false,
+  ) => invoke<CalendarItem[]>('calendar_list_items', { profileId, from, to, limit, includeDeleted }),
+  calendarUpsertItem: (profileId: string, item: CalendarItem, operation: CalendarOperation) =>
+    invoke<void>('calendar_upsert_item', { profileId, item, operation }),
+  calendarDeleteItem: (profileId: string, calendarId: string, itemId: string, deletedAt: string, operation: CalendarOperation) =>
+    invoke<void>('calendar_delete_item', { profileId, calendarId, itemId, deletedAt, operation }),
+  calendarSearchItems: (profileId: string, query: string, limit = 100) =>
+    invoke<CalendarItem[]>('calendar_search_items', { profileId, query, limit }),
+  calendarAcknowledgeOperations: (profileId: string, clientOperationIds: string[]) =>
+    invoke<void>('calendar_acknowledge_operations', { profileId, clientOperationIds }),
+  calendarReadSyncState: (profileId: string, originKey: string) =>
+    invoke<CalendarSyncState | null>('calendar_read_sync_state', { profileId, originKey }),
+  calendarWriteSyncState: (profileId: string, state: CalendarSyncState) =>
+    invoke<void>('calendar_write_sync_state', { profileId, state }),
+  calendarListPendingOperations: (profileId: string) =>
+    invoke<CalendarOperation[]>('calendar_list_pending_operations', { profileId }),
+
   // Vault
   openVault: (path: string) => invoke<VaultMeta>('open_vault', { path }),
   createVault: (path: string, name: string, ownerUserId?: string, ownerUserName?: string, ownerUserColor?: string) =>
@@ -428,6 +459,8 @@ export const tauriCommands = {
   serverHasSavedSession: (serverUrl: string) => invoke<boolean>('server_has_saved_session', { serverUrl }),
   hostedVaultRequest: <T>(serverUrl: string, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown) =>
     invoke<T>('hosted_vault_request', { serverUrl, method, path, body: body ?? null }),
+  hostedCalendarRequest: <T>(serverUrl: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown) =>
+    invoke<T>('hosted_calendar_request', { serverUrl, method, path, body: body ?? null }),
   hostedVaultAssetDataUrl: (serverUrl: string, vaultId: string, fileId: string) =>
     invoke<string>('hosted_vault_asset_data_url', { serverUrl, vaultId, fileId }),
   hostedVaultUploadFile: <T>(serverUrl: string, vaultId: string, parentId: string | null, sourcePath: string) =>

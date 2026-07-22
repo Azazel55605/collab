@@ -88,6 +88,28 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v1/users/{user_id}/avatar", get(api::get_user_avatar))
         .route("/api/v1/users/directory", get(api::user_directory))
         .route(
+            "/api/v1/calendars",
+            get(crate::calendar_api::list_calendars).post(crate::calendar_api::create_calendar),
+        )
+        .route(
+            "/api/v1/calendars/query",
+            get(crate::calendar_api::query_items),
+        )
+        .route(
+            "/api/v1/calendars/changes",
+            get(crate::calendar_api::list_changes),
+        )
+        .route(
+            "/api/v1/calendars/operations",
+            post(crate::calendar_api::apply_operations),
+        )
+        .route(
+            "/api/v1/calendars/{calendar_id}",
+            get(crate::calendar_api::get_calendar)
+                .patch(crate::calendar_api::update_calendar)
+                .delete(crate::calendar_api::delete_calendar),
+        )
+        .route(
             "/api/v1/vaults",
             get(api::list_vaults).post(api::create_vault),
         )

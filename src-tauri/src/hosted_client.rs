@@ -134,6 +134,28 @@ pub fn validate_hosted_vault_path(value: &str) -> Result<&str, String> {
     Ok(value)
 }
 
+pub fn validate_hosted_calendar_path(value: &str) -> Result<&str, String> {
+    let request_path = value.split('?').next().unwrap_or(value);
+    let lower_path = request_path.to_ascii_lowercase();
+    if !(value == "/api/v1/calendars"
+        || value.starts_with("/api/v1/calendars/")
+        || value.starts_with("/api/v1/calendars?"))
+        || value.starts_with("//")
+        || value.contains("://")
+        || value.contains('#')
+        || request_path.contains("..")
+        || request_path.contains('\\')
+        || lower_path.contains("%2e")
+        || lower_path.contains("%2f")
+        || lower_path.contains("%5c")
+    {
+        return Err(
+            "Hosted-calendar requests must target the connected server calendar API.".into(),
+        );
+    }
+    Ok(value)
+}
+
 pub fn validate_identifier(value: &str) -> Result<(), String> {
     if value.is_empty()
         || !value
@@ -170,8 +192,8 @@ pub async fn decode_hosted_error(response: reqwest::Response) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        hosted_request_method, server_request_error, validate_hosted_vault_path,
-        validate_identifier, validate_server_url,
+        hosted_request_method, server_request_error, validate_hosted_calendar_path,
+        validate_hosted_vault_path, validate_identifier, validate_server_url,
     };
 
     #[test]
@@ -204,6 +226,19 @@ mod tests {
         assert!(hosted_request_method("TRACE").is_err());
         assert!(validate_identifier("019eb16e-2a85-7070-bbe7-8cf09911c2c1").is_ok());
         assert!(validate_identifier("../vault").is_err());
+    }
+
+    #[test]
+    fn validates_hosted_calendar_proxy_paths() {
+        assert!(validate_hosted_calendar_path("/api/v1/calendars").is_ok());
+        assert!(
+            validate_hosted_calendar_path("/api/v1/calendars/changes?cursor=42&limit=100").is_ok()
+        );
+        assert!(validate_hosted_calendar_path("/api/v1/calendars/query?from=x&to=y").is_ok());
+        assert!(validate_hosted_calendar_path("/api/v1/users/me").is_err());
+        assert!(validate_hosted_calendar_path("/api/v1/calendars-evil").is_err());
+        assert!(validate_hosted_calendar_path("/api/v1/calendars/../admin").is_err());
+        assert!(validate_hosted_calendar_path("/api/v1/calendars/%2e%2e/admin").is_err());
     }
 
     #[test]

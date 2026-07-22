@@ -359,9 +359,7 @@ impl ServerConfig {
             return Err(ConfigError::Invalid("COLLAB_REVISION_HISTORY_LIMIT"));
         }
         if self.revision_storage_target_bytes > 64 * 1024 * 1024 * 1024 * 1024 {
-            return Err(ConfigError::Invalid(
-                "COLLAB_REVISION_STORAGE_TARGET_BYTES",
-            ));
+            return Err(ConfigError::Invalid("COLLAB_REVISION_STORAGE_TARGET_BYTES"));
         }
         Ok(())
     }

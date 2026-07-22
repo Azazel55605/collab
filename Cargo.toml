@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/collab-circuit",
   "crates/collab-core",
+  "crates/collab-calendar",
   "crates/collab-protocol",
   "crates/collab-replica",
   "crates/collab-server",

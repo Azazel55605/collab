@@ -7,6 +7,7 @@ describe('SettingsCalendarSection', () => {
   it('handles date format and week start changes', () => {
     const setDateFormat = vi.fn();
     const setWeekStart = vi.fn();
+    const setTimeFormat = vi.fn();
 
     render(
       <SettingsCalendarSection
@@ -14,6 +15,8 @@ describe('SettingsCalendarSection', () => {
         setDateFormat={setDateFormat}
         weekStart={1}
         setWeekStart={setWeekStart}
+        timeFormat="system"
+        setTimeFormat={setTimeFormat}
       />,
     );
 
@@ -22,5 +25,8 @@ describe('SettingsCalendarSection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Sunday' }));
     expect(setWeekStart).toHaveBeenCalledWith(0);
+
+    fireEvent.click(screen.getByRole('button', { name: '24 hour' }));
+    expect(setTimeFormat).toHaveBeenCalledWith('24-hour');
   });
 });
