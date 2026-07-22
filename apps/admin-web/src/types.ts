@@ -55,6 +55,15 @@ export interface AdminOverview {
     storedContentBytes: number;
     quotaBytes: number;
   };
+  calendarUsage?: {
+    usersWithCalendars: number;
+    calendars: number;
+    items: number;
+    uploadedAttachments: number;
+    logicalBytes: number;
+    quotaBytesPerUser: number;
+    usersByCalendarCount: Array<{ calendarCount: number; users: number }>;
+  };
   liveCollaboration: {
     activeConnections: number;
     loadedRooms: number;

@@ -4800,6 +4800,24 @@ pub async fn overview(
     let stored_content_bytes = stored_content_bytes(&state.database)
         .await
         .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let calendar_counts = sqlx::query(
+        r#"SELECT
+          (SELECT COUNT(DISTINCT owner_id) FROM calendars WHERE deleted_at IS NULL) AS users_with_calendars,
+          (SELECT COUNT(*) FROM calendars WHERE deleted_at IS NULL) AS calendars,
+          (SELECT COUNT(*) FROM calendar_items WHERE deleted_at IS NULL) AS items,
+          (SELECT COUNT(*) FROM calendar_attachment_uploads) AS uploaded_attachments,
+          (COALESCE((SELECT SUM(logical_size_bytes) FROM calendars WHERE deleted_at IS NULL),0) +
+          COALESCE((SELECT SUM(logical_size_bytes) FROM calendar_items WHERE deleted_at IS NULL),0) +
+          COALESCE((SELECT SUM(size_bytes) FROM calendar_attachment_uploads),0) +
+          COALESCE((SELECT SUM(logical_size_bytes) FROM calendar_subscriptions),0))::bigint AS logical_bytes"#,
+    ).fetch_one(&state.database).await
+      .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let calendar_distribution = sqlx::query(
+        r#"SELECT calendar_count, COUNT(*) AS users
+           FROM (SELECT owner_id, COUNT(*) AS calendar_count FROM calendars WHERE deleted_at IS NULL GROUP BY owner_id) counts
+           GROUP BY calendar_count ORDER BY calendar_count"#,
+    ).fetch_all(&state.database).await
+      .map_err(|_| ApiFailure::server(request_id.clone()))?;
     let blob_health_ok = state.blobs.health_check().await.is_ok();
     let settings = load_effective_runtime_settings(&state.config);
     let maintenance = load_maintenance_mode(&state.config);
@@ -4956,6 +4974,21 @@ pub async fn overview(
             warning_threshold_bytes: settings.storage_warning_bytes,
             stored_content_bytes,
             quota_bytes: settings.storage_quota_bytes,
+        },
+        calendar_usage: collab_protocol::CalendarUsageMetrics {
+            users_with_calendars: calendar_counts.get("users_with_calendars"),
+            calendars: calendar_counts.get("calendars"),
+            items: calendar_counts.get("items"),
+            uploaded_attachments: calendar_counts.get("uploaded_attachments"),
+            logical_bytes: calendar_counts.get("logical_bytes"),
+            quota_bytes_per_user: state.config.calendar_quota_bytes,
+            users_by_calendar_count: calendar_distribution
+                .into_iter()
+                .map(|row| collab_protocol::CalendarCountBucket {
+                    calendar_count: row.get("calendar_count"),
+                    users: row.get("users"),
+                })
+                .collect(),
         },
         live_collaboration: LiveCollaborationMetrics {
             active_connections: runtime_live_metrics.active_connections,

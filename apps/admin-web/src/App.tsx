@@ -3,6 +3,7 @@ import {
   Archive,
   Ban,
   Boxes,
+  CalendarDays,
   CircleAlert,
   ChevronDown,
   ChevronRight,
@@ -603,6 +604,16 @@ function Dashboard() {
             />
           </div>
         </Panel>
+        {overview.calendarUsage && (
+          <Panel title="Calendar usage" icon={<CalendarDays size={17} />}>
+            <div className="storage-grid">
+              <Metric icon={<Users />} label="Calendar users" value={overview.calendarUsage.usersWithCalendars} detail={`${overview.calendarUsage.calendars} calendars`} />
+              <Metric icon={<CalendarDays />} label="Calendar items" value={overview.calendarUsage.items} detail={`${overview.calendarUsage.uploadedAttachments} uploaded attachments`} />
+              <Metric icon={<Database />} label="Calendar storage" value={formatBytes(overview.calendarUsage.logicalBytes)} detail={overview.calendarUsage.quotaBytesPerUser > 0 ? `${formatBytes(overview.calendarUsage.quotaBytesPerUser)} per-user quota` : 'No calendar quota set'} />
+              <Metric icon={<Gauge />} label="Calendar distribution" value={overview.calendarUsage.usersByCalendarCount.length} detail={overview.calendarUsage.usersByCalendarCount.map((bucket) => `${bucket.users} user${bucket.users === 1 ? '' : 's'} × ${bucket.calendarCount}`).join(' · ') || 'No hosted calendars'} />
+            </div>
+          </Panel>
+        )}
         {overview.operationalWarnings.length > 0 && <Panel title="Operational warnings" icon={<CircleAlert size={17} />}><div className="warning-list">{overview.operationalWarnings.map((warning) => <div className={`warning-row ${warning.severity}`} key={warning.code}><CircleAlert size={16} /><div><strong>{warning.code.replaceAll('_', ' ')}</strong><small>{warning.message}</small></div></div>)}</div></Panel>}
         <Panel title="Recent activity" icon={<Activity size={17} />}><AuditTable events={overview.recentAuditEvents} /></Panel>
       </>}

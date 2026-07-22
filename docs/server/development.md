@@ -177,6 +177,10 @@ are 1024-based and case-insensitive. The same string forms are accepted by the
   operations (asset uploads, text document writes, document creation, and ZIP
   imports) are rejected with `413`/`507 QUOTA_EXCEEDED` once the quota would be
   crossed. Set to `0` (the default) for no quota.
+- `COLLAB_CALENDAR_QUOTA_BYTES`: per-user logical quota for hosted calendars,
+  items, subscriptions, and calendar-owned uploads. Calendar writes return
+  `413 QUOTA_EXCEEDED` before persistence when the quota would be crossed. Set
+  to `0` (the default) for no quota.
 - `COLLAB_REST_RATE_LIMIT_PER_MINUTE`: coarse per-client-IP request budget for
   `/api/v1/*` routes (default `1200`). Exceeding it returns `429 RATE_LIMITED`
   with a `Retry-After` header. Set to `0` to disable. Clients are identified by

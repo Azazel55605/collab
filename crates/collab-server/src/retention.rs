@@ -20,6 +20,8 @@ const BLOB_GC_GRACE: &str = "1 hour";
 
 /// Presence rows not refreshed within this window are considered abandoned.
 const PRESENCE_STALE_AFTER: &str = "1 day";
+const CALENDAR_OPERATION_RETENTION: &str = "30 days";
+const ABANDONED_CALENDAR_UPLOAD_GRACE: &str = "1 day";
 
 #[derive(Debug, Clone, Copy)]
 pub struct MaintenancePolicy {
@@ -76,6 +78,22 @@ pub async fn run_maintenance(
         db,
         &format!("DELETE FROM hosted_presence WHERE updated_at < NOW() - INTERVAL '{PRESENCE_STALE_AFTER}'"),
         "hosted_presence",
+    )
+    .await;
+    report.expired_calendar_operations = delete_count(
+        db,
+        &format!(
+            "DELETE FROM calendar_client_operations WHERE applied_at < NOW() - INTERVAL '{CALENDAR_OPERATION_RETENTION}'"
+        ),
+        "calendar_client_operations",
+    )
+    .await;
+    report.reclaimed_calendar_uploads = delete_count(
+        db,
+        &format!(
+            "DELETE FROM calendar_attachment_uploads upload WHERE upload.created_at < NOW() - INTERVAL '{ABANDONED_CALENDAR_UPLOAD_GRACE}' AND NOT EXISTS (SELECT 1 FROM calendar_attachments attachment WHERE attachment.upload_id=upload.id)"
+        ),
+        "calendar_attachment_uploads",
     )
     .await;
 

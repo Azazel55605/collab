@@ -52,7 +52,7 @@ models.
 | --- | --- | --- |
 | 0. Domain contract and interoperability spike | Complete | RFC 5545 selection, fixtures, bounded recurrence, and deterministic edit-scope operations are implemented. |
 | 1. Shared calendar domain and local profile store | Complete | Canonical model, native profile database, bounded recurrence queries, migrations, tombstones, and operation log are implemented. |
-| 2. Hosted server calendar domain | In progress | Add user-owned PostgreSQL storage, authenticated APIs, quotas, and private usage rollups. |
+| 2. Hosted server calendar domain | Complete | User-owned PostgreSQL storage, authenticated APIs, invitations, attachments, quotas, private aggregate usage, maintenance, and live database coverage are implemented. |
 | 3. Multi-server offline sync | Complete | Desktop and Android sync independent hosted replicas with durable cursors, queued/conflicted operations, lifecycle triggers, progress, and guarded cache removal. |
 | 4. Desktop calendar experience | In progress | Add the global Calendar view and complete everyday event/task workflows. |
 | 5. Android calendar experience | Not started | Add phone-first calendar navigation, editing, offline use, and multi-server management. |
@@ -167,11 +167,22 @@ Landed in the first implementation slice:
   server/user replica and cursor, refuses while pending or failed operations
   exist, and is available for disconnected desktop caches and Android server
   entries.
+- Completed the hosted calendar domain in migration
+  `0021_calendar_hosted_domain_completion.sql`: relational attendee,
+  invitation, attachment/upload, and subscription records plus indexed logical
+  usage accounting.
+- Added same-server attendee validation, durable per-attendee invitations,
+  authenticated invitation listing and RSVP write-through to the organizer's
+  item/change stream, and event-level attachment download authorization.
+- Added `COLLAB_CALENDAR_QUOTA_BYTES` as a per-user hosted calendar quota,
+  aggregate-only calendar metrics in the existing admin overview and dashboard,
+  and maintenance cleanup for expired idempotency records and abandoned uploads.
+- Added a live PostgreSQL router test covering ownership isolation, cross-server
+  attendee rejection, idempotent replay, invitation privacy, RSVP propagation,
+  attachment authorization, admin-content privacy, and quota rejection.
 
 Remaining implementation work:
 
-- Complete Phase 2 with attendee/attachment/subscription tables, calendar quota
-  accounting, aggregate-only admin rollups, and live PostgreSQL API tests.
 - Complete timed week/day layouts, recurrence-aware editing, drag/reschedule,
   calendar settings/archive operations, and keyboard/accessibility coverage.
 
@@ -505,16 +516,16 @@ Add PostgreSQL migrations for at least:
 - `calendars`: owner, display metadata, revision, logical usage, archived state.
 - `calendar_items`: structured scheduling fields, recurrence data, item revision,
   source binding, and tombstone state.
-- `calendar_event_attendees`: organizer event, attendee user, RSVP state,
+- `calendar_attendees`: organizer event, attendee user, RSVP state,
   visibility, invitation revision, and timestamps.
-- `calendar_invitation_outbox`: durable attendee projection/update/cancellation
-  delivery without exposing event content in operational logs.
+- `calendar_invitations`: durable attendee projection and RSVP state without
+  exposing event content in operational logs or administration APIs.
 - `calendar_attachments`: typed reference metadata and optional deduplicated
   calendar-upload blob linkage.
 - `calendar_change_log`: monotonic per-user sequence for bounded delta sync.
 - `calendar_client_operations`: idempotency records with retention.
-- `calendar_usage_rollups`: per-user calendar count and logical bytes, maintained
-  transactionally for admin queries.
+- Aggregate usage is calculated from indexed logical-size columns without
+  selecting calendar names, item payloads, attendee data, or attachment content.
 - `calendar_subscriptions`: external feed configuration and refresh state.
 - `calendar_publish_tokens`: hashed, revocable read-only feed tokens.
 - `kanban_task_assignments`: generated assignment projection for hosted boards.
@@ -790,27 +801,23 @@ Server-side feed refresh must defend against SSRF:
 
 ## Admin Calendar Overview
 
-Add a dedicated `Calendars` view to `apps/admin-web`, backed by a separate
-admin-only aggregate endpoint such as:
+Expose a dedicated aggregate section in the admin dashboard through the existing
+admin overview endpoint:
 
 ```text
-GET /api/v1/admin/calendars/overview
+GET /api/v1/admin/overview
 ```
 
 Response fields should be limited to:
 
-- `usersWithCalendars`
-- `totalCalendars`
-- `logicalStorageBytes`
-- `users[]`: user ID, display name, calendar count, logical bytes
-- count distribution buckets
-- configured per-user quota and users near/over quota
-- subscription worker health totals without URLs or calendar IDs
+- users with calendars, total calendars/items/uploads, and logical storage bytes
+- anonymous count-distribution buckets
+- configured per-user quota
 
-The endpoint reads `calendar_usage_rollups`, not calendar-item payload columns.
-Add response-shape and SQL-review tests that fail if private fields are added.
-The UI has no row expansion, calendar link, event count drill-down, export, or
-impersonation action.
+The endpoint reads count and logical-size columns, not calendar-item payload
+columns. Tests assert that calendar names, item titles, descriptions, attendees,
+and attachment content never appear. The UI has no row expansion, calendar
+link, content drill-down, export, or impersonation action.
 
 Calendar logical bytes should be reported separately from the existing blob
 quota while database size continues to include the physical rows. Add a

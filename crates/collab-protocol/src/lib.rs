@@ -178,6 +178,8 @@ pub struct StorageSummary {
 pub struct MaintenanceReport {
     pub expired_ws_tickets: u64,
     pub expired_sessions: u64,
+    pub expired_calendar_operations: u64,
+    pub reclaimed_calendar_uploads: u64,
     pub stale_presence: u64,
     pub pruned_audit_events: u64,
     pub pruned_activity_events: u64,
@@ -920,9 +922,29 @@ pub struct AdminOverview {
     pub pending_invitations: i64,
     pub hosted_vaults: i64,
     pub storage: StorageSummary,
+    pub calendar_usage: CalendarUsageMetrics,
     pub live_collaboration: LiveCollaborationMetrics,
     pub operational_warnings: Vec<OperationalWarning>,
     pub recent_audit_events: Vec<AuditEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarUsageMetrics {
+    pub users_with_calendars: i64,
+    pub calendars: i64,
+    pub items: i64,
+    pub uploaded_attachments: i64,
+    pub logical_bytes: i64,
+    pub quota_bytes_per_user: u64,
+    pub users_by_calendar_count: Vec<CalendarCountBucket>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarCountBucket {
+    pub calendar_count: i64,
+    pub users: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

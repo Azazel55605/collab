@@ -110,6 +110,23 @@ pub fn build_router(state: AppState) -> Router {
                 .delete(crate::calendar_api::delete_calendar),
         )
         .route(
+            "/api/v1/calendars/{calendar_id}/attachments",
+            post(crate::calendar_api::upload_attachment),
+        )
+        .route(
+            "/api/v1/calendars/attachments/{attachment_id}",
+            get(crate::calendar_api::download_attachment)
+                .delete(crate::calendar_api::delete_attachment),
+        )
+        .route(
+            "/api/v1/calendars/invitations",
+            get(crate::calendar_api::list_invitations),
+        )
+        .route(
+            "/api/v1/calendars/invitations/{invitation_id}/response",
+            post(crate::calendar_api::respond_to_invitation),
+        )
+        .route(
             "/api/v1/vaults",
             get(api::list_vaults).post(api::create_vault),
         )

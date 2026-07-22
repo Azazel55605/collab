@@ -20,6 +20,8 @@ vi.mock('./api', () => ({
     settings: vi.fn(),
     updateSettings: vi.fn(),
     runMaintenance: vi.fn(),
+    liveDebug: vi.fn(),
+    setLiveDebug: vi.fn(),
     backups: vi.fn(),
     updateBackupSettings: vi.fn(),
     runBackup: vi.fn(),
@@ -148,6 +150,15 @@ describe('admin application', () => {
         compactedStateBytes: 4096,
         lastCompactionAt: '2026-06-17T10:00:00Z',
       },
+      calendarUsage: {
+        usersWithCalendars: 1,
+        calendars: 2,
+        items: 7,
+        uploadedAttachments: 3,
+        logicalBytes: 4096,
+        quotaBytesPerUser: 0,
+        usersByCalendarCount: [{ calendarCount: 2, users: 1 }],
+      },
       operationalWarnings: [],
       recentAuditEvents: [],
     });
@@ -187,6 +198,8 @@ describe('admin application', () => {
       backup: { scheduleEnabled: false, intervalSeconds: 86_400, retentionDays: 14, exportDir: null, locks: unlockedBackupLocks },
       maintenance: { enabled: true, message: 'Short upgrade window', updatedAt: '2026-06-19T09:00:00Z' },
     });
+    vi.mocked(serverApi.liveDebug).mockResolvedValue({ enabled: false });
+    vi.mocked(serverApi.setLiveDebug).mockResolvedValue({ enabled: true });
     vi.mocked(serverApi.invitations).mockResolvedValue([]);
     vi.mocked(serverApi.backups).mockResolvedValue({
       backupDir: '/backups',
@@ -261,6 +274,8 @@ describe('admin application', () => {
     await waitFor(() => expect(serverApi.overview).toHaveBeenCalled());
     expect(screen.getByText('Active users')).toBeTruthy();
     expect(screen.getByText('Live collaboration')).toBeTruthy();
+    expect(screen.getByText('Calendar usage')).toBeTruthy();
+    expect(screen.getByText('2 calendars')).toBeTruthy();
     expect(screen.getByText('Live connections')).toBeTruthy();
     expect(screen.getByText('Active presence')).toBeTruthy();
     expect(screen.getByText('CRDT update log')).toBeTruthy();
