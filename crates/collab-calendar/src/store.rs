@@ -31,6 +31,7 @@ pub enum CalendarStoreError {
     Io(#[from] std::io::Error),
 }
 
+#[derive(Clone)]
 pub struct CalendarStore {
     pool: SqlitePool,
     path: PathBuf,

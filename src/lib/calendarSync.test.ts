@@ -199,6 +199,26 @@ describe('calendarSync', () => {
     expect(tauriCommands.calendarAcknowledgeOperations).not.toHaveBeenCalled();
   });
 
+  it('turns an initial local sync-state lock into a reported sync error', async () => {
+    vi.mocked(tauriCommands.calendarReadSyncState).mockRejectedValue(
+      new Error('database is locked'),
+    );
+
+    const result = await syncHostedCalendarOrigin('profile-1', origin, []);
+
+    expect(result).toMatchObject({
+      serverUrl: origin.serverUrl,
+      appliedChanges: 0,
+      replayedOperations: 0,
+      failedOperations: 0,
+      error: 'database is locked',
+    });
+    expect(tauriCommands.calendarWriteSyncState).toHaveBeenCalledWith(
+      'profile-1',
+      expect.objectContaining({ cursor: '0', lastError: 'database is locked' }),
+    );
+  });
+
   it('isolates failures between connected servers', async () => {
     vi.mocked(tauriCommands.hostedCalendarRequest).mockImplementation(
       async (serverUrl, _method, path) => {

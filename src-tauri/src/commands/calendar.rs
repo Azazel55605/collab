@@ -3,11 +3,25 @@ use collab_calendar::{
     CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarOperation,
     CalendarOperationFailure, CalendarRemoteChange, CalendarStore, CalendarSyncState,
 };
+use std::{collections::HashMap, sync::OnceLock};
+use tokio::sync::Mutex;
+
+static CALENDAR_STORES: OnceLock<Mutex<HashMap<String, CalendarStore>>> = OnceLock::new();
+
+fn calendar_stores() -> &'static Mutex<HashMap<String, CalendarStore>> {
+    CALENDAR_STORES.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 async fn store(profile_id: &str) -> Result<CalendarStore, String> {
-    CalendarStore::open(&app_config_dir()?, profile_id)
+    let mut stores = calendar_stores().lock().await;
+    if let Some(store) = stores.get(profile_id) {
+        return Ok(store.clone());
+    }
+    let store = CalendarStore::open(&app_config_dir()?, profile_id)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    stores.insert(profile_id.to_owned(), store.clone());
+    Ok(store)
 }
 
 #[tauri::command]

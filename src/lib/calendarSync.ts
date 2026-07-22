@@ -172,15 +172,16 @@ export async function syncHostedCalendarOrigin(
     onProgress?.({ originKey, serverUrl: origin.serverUrl, phase, processedItems, totalItems });
   };
   report('discovering', 0);
-  let cursor = Number.parseInt(
-    (await adapter.calendarReadSyncState(profileId, originKey))?.cursor ?? '0',
-    10,
-  );
-  if (!Number.isSafeInteger(cursor) || cursor < 0) cursor = 0;
+  let cursor = 0;
   let appliedChanges = 0;
   let replayedOperations = 0;
   let failedOperations = 0;
   try {
+    cursor = Number.parseInt(
+      (await adapter.calendarReadSyncState(profileId, originKey))?.cursor ?? '0',
+      10,
+    );
+    if (!Number.isSafeInteger(cursor) || cursor < 0) cursor = 0;
     const discovered = await discoverCalendars(profileId, origin, adapter);
     const calendarIds = new Set([
       ...discovered.map((calendar) => calendar.id),

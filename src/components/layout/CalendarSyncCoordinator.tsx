@@ -23,13 +23,21 @@ export default function CalendarSyncCoordinator() {
     if (origins.length > 0) await syncHosted(origins);
   }, [initialize, origins, profileId, syncHosted]);
 
-  useEffect(() => {
-    void sync();
+  const runSync = useCallback(() => {
+    void sync().catch((error) => {
+      useCalendarStore.setState({
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   }, [sync]);
 
   useEffect(() => {
+    runSync();
+  }, [runSync]);
+
+  useEffect(() => {
     const runWhenVisible = () => {
-      if (document.visibilityState === 'visible') void sync();
+      if (document.visibilityState === 'visible') runSync();
     };
     const timer = window.setInterval(runWhenVisible, BACKGROUND_SYNC_INTERVAL_MS);
     window.addEventListener('focus', runWhenVisible);
@@ -39,7 +47,7 @@ export default function CalendarSyncCoordinator() {
       window.removeEventListener('focus', runWhenVisible);
       window.removeEventListener('online', runWhenVisible);
     };
-  }, [sync]);
+  }, [runSync]);
 
   return null;
 }
