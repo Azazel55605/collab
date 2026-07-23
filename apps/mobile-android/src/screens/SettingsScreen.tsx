@@ -1,4 +1,4 @@
-import { CircuitBoard, Code2, Palette, Server, Type } from 'lucide-react';
+import { CalendarDays, CircuitBoard, Code2, Palette, Server, Type } from 'lucide-react';
 
 import {
   ACCENTS,
@@ -11,6 +11,7 @@ import {
 import { useMobileStore } from '../state/store';
 import { alwaysCreateOfflineCopy, setAlwaysCreateOfflineCopy } from '../lib/preferences';
 import { useState } from 'react';
+import { TimeField } from '../components/TimeField';
 
 const FONT_SCALES: { value: number; label: string }[] = [
   { value: 0.9, label: 'S' },
@@ -73,6 +74,72 @@ export function SettingsScreen({
               setAlwaysCreateOfflineCopy(enabled);
             }}
           />
+        </label>
+      </section>
+
+      <section className="card">
+        <div className="card-title">
+          <CalendarDays size={18} aria-hidden />
+          <span>Calendar</span>
+        </div>
+        <div className="setting-row">
+          <div><strong>Default time zone</strong><span>Read from this device.</span></div>
+          <strong className="setting-value">{Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'}</strong>
+        </div>
+        <div className="setting-row stacked">
+          <div><strong>Date format</strong><span>Used for calendar dates across the app.</span></div>
+          <div className="segmented-control calendar-date-options">
+            {([
+              ['MMM_D_YYYY', 'Jul 23, 2026'],
+              ['D_MMM_YYYY', '23 Jul 2026'],
+              ['YYYY_MM_DD', '2026-07-23'],
+              ['MM_DD_YYYY', '07/23/2026'],
+              ['DD_MM_YYYY', '23/07/2026'],
+            ] as const).map(([value, label]) => <button key={value} type="button" className={prefs.calendarDateFormat === value ? 'selected' : ''} onClick={() => onChange({ ...prefs, calendarDateFormat: value })}>{label}</button>)}
+          </div>
+        </div>
+        <div className="setting-row stacked">
+          <div><strong>Time format</strong><span>Used by calendar labels and time controls.</span></div>
+          <div className="segmented-control">
+            {([['system', 'System'], ['12-hour', '12 hour'], ['24-hour', '24 hour']] as const).map(([value, label]) => <button key={value} type="button" className={prefs.calendarTimeFormat === value ? 'selected' : ''} onClick={() => onChange({ ...prefs, calendarTimeFormat: value })}>{label}</button>)}
+          </div>
+        </div>
+        <div className="setting-row stacked">
+          <div><strong>First day of week</strong><span>Controls the first Month column.</span></div>
+          <div className="segmented-control">
+            <button type="button" className={prefs.calendarWeekStart === 1 ? 'selected' : ''} onClick={() => onChange({ ...prefs, calendarWeekStart: 1 })}>Monday</button>
+            <button type="button" className={prefs.calendarWeekStart === 0 ? 'selected' : ''} onClick={() => onChange({ ...prefs, calendarWeekStart: 0 })}>Sunday</button>
+          </div>
+        </div>
+        <div className="setting-row stacked">
+          <div><strong>Default duration</strong><span>Used when creating timed events and tasks.</span></div>
+          <div className="segmented-control calendar-duration-options">
+            {([15, 30, 45, 60, 90, 120] as const).map(minutes => <button key={minutes} type="button" className={prefs.calendarDefaultDurationMinutes === minutes ? 'selected' : ''} onClick={() => onChange({ ...prefs, calendarDefaultDurationMinutes: minutes })}>{minutes < 60 ? `${minutes}m` : `${minutes / 60}h`}</button>)}
+          </div>
+        </div>
+        <div className="setting-row stacked">
+          <div><strong>Default reminder</strong><span>Applied to newly created calendar items.</span></div>
+          <div className="segmented-control calendar-reminder-options">
+            {([['none', 'None'], ['0', 'At start'], ['10', '10m'], ['30', '30m'], ['60', '1h'], ['1440', '1d']] as const).map(([value, label]) => {
+              const selected = value === 'none' ? prefs.calendarDefaultReminderMinutes === null : prefs.calendarDefaultReminderMinutes === Number(value);
+              return <button key={value} type="button" className={selected ? 'selected' : ''} onClick={() => onChange({ ...prefs, calendarDefaultReminderMinutes: value === 'none' ? null : Number(value) })}>{label}</button>;
+            })}
+          </div>
+        </div>
+        <div className="setting-row stacked">
+          <div><strong>Working hours</strong><span>Used when timed schedule views open.</span></div>
+          <div className="calendar-working-hours">
+            <div><span>Start</span><TimeField label="Working hours start" format={prefs.calendarTimeFormat} value={prefs.calendarWorkingHoursStart} onChange={calendarWorkingHoursStart => onChange({ ...prefs, calendarWorkingHoursStart })} /></div>
+            <div><span>End</span><TimeField label="Working hours end" format={prefs.calendarTimeFormat} value={prefs.calendarWorkingHoursEnd} onChange={calendarWorkingHoursEnd => onChange({ ...prefs, calendarWorkingHoursEnd })} /></div>
+          </div>
+        </div>
+        <label className="toggle-row">
+          <span><strong>Hide weekends</strong><small>Show a five-day Month layout.</small></span>
+          <input type="checkbox" checked={prefs.calendarHideWeekends} onChange={event => onChange({ ...prefs, calendarHideWeekends: event.currentTarget.checked })} />
+        </label>
+        <label className="toggle-row">
+          <span><strong>Show declined items</strong><small>Keep declined invitations visible.</small></span>
+          <input type="checkbox" checked={prefs.calendarShowDeclined} onChange={event => onChange({ ...prefs, calendarShowDeclined: event.currentTarget.checked })} />
         </label>
       </section>
 

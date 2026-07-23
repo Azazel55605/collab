@@ -264,7 +264,7 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   }
 
   if (kanbanFile) {
-    return <KanbanScreen file={kanbanFile} />;
+    return <KanbanScreen file={kanbanFile} initialCardId={activeSheet?.kind === 'kanban' ? activeSheet.cardId : undefined} />;
   }
 
   if (viewerFile) {

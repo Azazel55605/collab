@@ -1,4 +1,4 @@
-import { Cloud, FolderOpen, Library, Settings as SettingsIcon } from 'lucide-react';
+import { CalendarDays, Cloud, FolderOpen, Library, Settings as SettingsIcon } from 'lucide-react';
 import type { ReactNode, TouchEvent as ReactTouchEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -9,12 +9,14 @@ import { FilesScreen } from './screens/FilesScreen';
 import { ServersScreen } from './screens/ServersScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { VaultsScreen } from './screens/VaultsScreen';
+import { CalendarScreen } from './screens/CalendarScreen';
 import { TAB_ORDER, type Tab, useMobileStore } from './state/store';
 
 const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
   { id: 'servers', label: 'Servers', icon: <Cloud size={20} aria-hidden /> },
   { id: 'vaults', label: 'Vaults', icon: <Library size={20} aria-hidden /> },
   { id: 'files', label: 'Files', icon: <FolderOpen size={20} aria-hidden /> },
+  { id: 'calendar', label: 'Calendar', icon: <CalendarDays size={20} aria-hidden /> },
   { id: 'settings', label: 'Settings', icon: <SettingsIcon size={20} aria-hidden /> },
 ];
 
@@ -168,6 +170,7 @@ export function MobileApp() {
           {tab === 'servers' ? <ServersScreen onOpenServer={() => navigateToTab('vaults')} /> : null}
           {tab === 'vaults' ? <VaultsScreen /> : null}
           {tab === 'files' ? <FilesScreen prefs={prefs} /> : null}
+          {tab === 'calendar' ? <CalendarScreen prefs={prefs} /> : null}
           {tab === 'settings' ? <SettingsScreen prefs={prefs} onChange={updatePrefs} /> : null}
         </div>
       </main>

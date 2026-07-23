@@ -135,7 +135,7 @@ function formatTime(ts: number): string {
   });
 }
 
-export function KanbanScreen({ file }: { file: HostedFileEntry }) {
+export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; initialCardId?: string }) {
   const selected = useMobileStore((s) => s.selected);
   const statuses = useMobileStore((s) => s.statuses);
   const closeSheet = useMobileStore((s) => s.closeSheet);
@@ -151,7 +151,7 @@ export function KanbanScreen({ file }: { file: HostedFileEntry }) {
   const [board, setBoard] = useState<KanbanBoard>({ columns: [] });
   const [currentFile, setCurrentFile] = useState(file);
   const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null);
-  const [openCardId, setOpenCardId] = useState<string | null>(null);
+  const [openCardId, setOpenCardId] = useState<string | null>(initialCardId ?? null);
   const [source, setSource] = useState<'network' | 'cache'>('network');
   const [savedContent, setSavedContent] = useState('');
   const [busy, setBusy] = useState(true);

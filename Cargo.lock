@@ -781,7 +781,7 @@ dependencies = [
 
 [[package]]
 name = "collab"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -833,7 +833,7 @@ dependencies = [
 
 [[package]]
 name = "collab-calendar"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "chrono",
  "serde",
@@ -846,7 +846,7 @@ dependencies = [
 
 [[package]]
 name = "collab-circuit"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "serde",
  "serde_json",
@@ -855,7 +855,7 @@ dependencies = [
 
 [[package]]
 name = "collab-core"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "aes-gcm",
  "hex",
@@ -871,7 +871,7 @@ dependencies = [
 
 [[package]]
 name = "collab-protocol"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "serde",
  "serde_json",
@@ -879,7 +879,7 @@ dependencies = [
 
 [[package]]
 name = "collab-replica"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "chrono",
  "collab-core",
@@ -893,7 +893,7 @@ dependencies = [
 
 [[package]]
 name = "collab-server"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
  "anyhow",
  "argon2",

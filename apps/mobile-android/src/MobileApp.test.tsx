@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const invoke = vi.fn();
@@ -59,6 +59,43 @@ describe('MobileApp shell', () => {
     expect(screen.getByRole('navigation', { name: 'Primary' })).toBeTruthy();
   });
 
+  it('opens the profile calendar without selecting a vault', async () => {
+    mockInvoke({
+      server_connection_statuses: () => [],
+      calendar_list: () => [{
+        schemaVersion: 1,
+        id: 'calendar-1',
+        globalId: 'global-1',
+        location: { kind: 'local', profileId: 'mobile-profile' },
+        name: 'Personal',
+        color: '#a78bfa',
+        defaultTimeZone: 'UTC',
+        archived: false,
+        readOnly: false,
+        revision: 0,
+        createdAt: '2026-07-23T08:00:00.000Z',
+        updatedAt: '2026-07-23T08:00:00.000Z',
+      }],
+      calendar_list_items: () => [],
+    });
+    render(<MobileApp />);
+    await waitFor(() => expect(useMobileStore.getState().restored).toBe(true));
+
+    screen.getByRole('button', { name: /Calendar/ }).click();
+
+    expect(await screen.findByRole('heading', { name: 'Calendar' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Personal/ })).toBeTruthy();
+    expect(useMobileStore.getState().selected).toBeNull();
+
+    screen.getByRole('button', { name: 'Month' }).click();
+    await waitFor(() => expect(document.querySelector('.mobile-calendar-content.view-month')).toBeTruthy());
+    const month = document.querySelector('.mobile-calendar-content.view-month');
+    expect(month).toBeTruthy();
+    fireEvent.touchStart(month!, { touches: [{ clientX: 280, clientY: 240 }] });
+    fireEvent.touchEnd(month!, { changedTouches: [{ clientX: 80, clientY: 242 }] });
+    expect(useMobileStore.getState().tab).toBe('calendar');
+  });
+
   it('persists the IEC/DIN schematic notation preference', async () => {
     mockInvoke({ server_connection_statuses: () => [] });
     render(<MobileApp />);
@@ -69,6 +106,25 @@ describe('MobileApp shell', () => {
 
     const stored = JSON.parse(localStorage.getItem('collab-mobile-theme') ?? '{}') as Record<string, unknown>;
     expect(stored.schematicSymbolSet).toBe('iec');
+  });
+
+  it('shows and persists the mobile Calendar settings', async () => {
+    mockInvoke({ server_connection_statuses: () => [] });
+    render(<MobileApp />);
+    await waitFor(() => expect(useMobileStore.getState().restored).toBe(true));
+
+    screen.getByRole('button', { name: /Settings/ }).click();
+    expect(await screen.findByText('Default time zone')).toBeTruthy();
+    screen.getByRole('button', { name: '2026-07-23' }).click();
+    await waitFor(() => expect(screen.getByRole('button', { name: '2026-07-23' }).className).toContain('selected'));
+    screen.getByRole('button', { name: '24 hour' }).click();
+    await waitFor(() => expect(screen.getByRole('button', { name: '24 hour' }).className).toContain('selected'));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Hide weekends/ }));
+
+    const stored = JSON.parse(localStorage.getItem('collab-mobile-theme') ?? '{}') as Record<string, unknown>;
+    expect(stored.calendarDateFormat).toBe('YYYY_MM_DD');
+    expect(stored.calendarTimeFormat).toBe('24-hour');
+    expect(stored.calendarHideWeekends).toBe(true);
   });
 
   it('restores a saved session and lists vaults on the Vaults tab', async () => {

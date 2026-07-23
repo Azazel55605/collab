@@ -1,5 +1,6 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import type { LogicDiagramDocument } from '../../../src/types/logicDiagram';
 import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSyncState } from '../../../src/types/calendar';
 import type {
@@ -25,6 +26,14 @@ export function listProfileCalendars(profileId: string): Promise<CalendarDefinit
 
 export function saveProfileCalendar(profileId: string, calendar: CalendarDefinition): Promise<void> {
   return invoke('calendar_save', { profileId, calendar });
+}
+
+export function saveProfileCalendarWithOperation(
+  profileId: string,
+  calendar: CalendarDefinition,
+  operation: CalendarOperation,
+): Promise<void> {
+  return invoke('calendar_save_with_operation', { profileId, calendar, operation });
 }
 
 export function deleteProfileCalendar(
@@ -138,6 +147,20 @@ export interface ServerUser {
   id: string;
   username: string;
   displayName: string | null;
+}
+
+export interface UserDirectoryEntry {
+  userId: string;
+  username: string;
+  displayName: string | null;
+}
+
+export function hostedUserDirectory(serverUrl: string, query: string): Promise<UserDirectoryEntry[]> {
+  return invoke('hosted_user_directory', { serverUrl, query });
+}
+
+export function openExternalUrl(url: string): Promise<void> {
+  return openUrl(url);
 }
 
 export interface ServerConnectionStatus {

@@ -55,7 +55,7 @@ models.
 | 2. Hosted server calendar domain | Complete | User-owned PostgreSQL storage, authenticated APIs, invitations, attachments, quotas, private aggregate usage, maintenance, and live database coverage are implemented. |
 | 3. Multi-server offline sync | Complete | Desktop and Android sync independent hosted replicas with durable cursors, queued/conflicted operations, lifecycle triggers, progress, and guarded cache removal. |
 | 4. Desktop calendar experience | Complete | Global Calendar navigation, everyday event/task workflows, hosted collaboration controls, typed attachments, defaults, and accessibility coverage are implemented. |
-| 5. Android calendar experience | Not started | Add phone-first calendar navigation, editing, offline use, and multi-server management. |
+| 5. Android calendar experience | Complete | Phone-first multi-server views, profile storage, offline editing/deletion, recurrence scopes, collaboration, attachments, management, and actionable recovery are implemented. |
 | 6. Cross-location calendar mirroring | Not started | Explicitly mirror calendars across local and hosted locations without server-to-server credentials. |
 | 7. Kanban assigned-task integration | Not started | Surface assigned local and hosted cards as linked calendar tasks with safe write-through behavior. |
 | 8. iCalendar import, export, and subscriptions | Not started | Support `.ics`, subscribed feeds, publishing, deduplication, and bounded refresh. |
@@ -245,6 +245,90 @@ Landed in the first implementation slice:
   drag/resize, settings, store, sync, recurrence, and timed-layout tests plus
   TypeScript and whitespace checks. Phase 5 Android calendar work is the next
   implementation phase.
+- Started Phase 5 with a vault-independent Android Calendar destination in the
+  primary navigation. It opens directly against the profile calendar database,
+  creates a local Personal calendar when the profile is empty, and displays
+  cached hosted calendars grouped by their visible source identity.
+- Added phone-first Agenda, Month, Day, and Tasks views with compact event,
+  task, and birthday icons, calendar-color indicators, month/day navigation,
+  per-calendar visibility controls, sync progress, and conflict warnings.
+- Added the first mobile item sheet for local and hosted events, tasks, and
+  birthdays. It uses the shared calendar contract and native date control,
+  persists through the durable operation queue, acknowledges local-only writes,
+  and triggers hosted reconciliation without requiring an open vault.
+- Added Android shell coverage proving that Calendar remains usable without a
+  selected vault. Remaining Phase 5 work includes three-day/timed layouts,
+  advanced attendee/attachment editing, calendar management, conflict actions,
+  and Kanban attachment deep links.
+- Expanded the Android month grid for portrait phones with viewport-aware
+  six-week sizing, while retaining bounded compact rows in landscape and on
+  short displays.
+- Extended the mobile item sheet with timed and all-day event/task semantics,
+  the shared editable stepper-based time modal, automatic one-hour end-time
+  adjustment, daily/weekly/monthly/yearly recurrence presets, multiple standard
+  and custom-minute reminders, and task needs-action/in-progress/completed/
+  cancelled states. Timed item labels now render in agenda, day, and task lists.
+- Added focused persistence coverage for timed event creation, default
+  reminders, local operation acknowledgement, and vault-independent navigation;
+  the complete Android frontend suite passes. Remaining Phase 5 work is the
+  three-day/timed schedule view, advanced recurrence-instance editing, hosted
+  attendees and invitations, typed attachments/Kanban deep links, calendar
+  management, and actionable conflict recovery.
+- Refined mobile navigation so Month consumes the remaining portrait viewport
+  without scrolling, while Agenda and Tasks retain internal scrolling.
+  Horizontal gestures inside Month and Day now advance their period instead of
+  switching the app's primary tab. Arrow, swipe, Today, and subview changes use
+  the same reduced-motion-aware directional transition, and the current date is
+  highlighted and exposed through accessible current-date semantics.
+- Reworked Android Month cells to the compact Google Calendar pattern: dates
+  sit in the upper-right and up to three calendar-colored, ellipsized title bars
+  open the associated item directly. Added the desktop Calendar preference set
+  to mobile Settings, using the device time zone and persisting date/time
+  format, week start, event duration/reminder defaults, working hours, weekend
+  visibility, and declined-invitation visibility. Month layout, list labels,
+  the shared time picker, and new-item defaults consume those preferences.
+- Month date taps now transition directly into that date's Day view. Replaced
+  the mobile Day item list with a desktop-aligned vertical 24-hour timeline
+  backed by the shared overlap-layout engine, with pinned all-day items,
+  calendar-colored timed blocks, a current-time indicator, and initial
+  positioning near the configured working hours.
+- Added accessible half-hour creation slots to the Android Day timeline.
+  Tapping an empty slot opens the normal event sheet with that date and start
+  time prefilled; the configured default duration determines the initial end
+  time, and saving continues through the standard local/hosted operation queue.
+- Completed the Android three-day timed schedule with shared hour gutters,
+  independently laid-out day columns, sticky day and all-day headers,
+  overlapping timed items, current-time indication, and half-hour creation
+  slots. Arrow and horizontal-swipe navigation advance by three days, while
+  tapping a day header drills into the single-day timeline. Remaining Phase 5
+  work is advanced recurrence-instance editing, hosted attendees/invitations,
+  typed attachments and Kanban deep links, calendar management, and actionable
+  conflict recovery.
+- Added Android calendar management without requiring a vault: users can create
+  calendars on the device or any currently connected server, edit names and
+  accent colors, and archive or restore writable calendars. Hosted creation
+  uses the authenticated calendar API, while hosted edits are first written to
+  the durable profile operation queue and then reconciled through normal
+  multi-server sync.
+- Completed Phase 5 by projecting stored recurring series through the shared
+  recurrence engine and routing occurrence/following/series edits and deletes
+  through the desktop-aligned recurrence planner. Mobile item sheets now support
+  custom RRULEs, structured locations with Android map handoff, hosted user
+  lookup, attendee roles and RSVP visibility, and the multi-server invitation
+  inbox with accept/maybe/decline actions.
+- Added typed mobile attachments for selected-vault files, stable Kanban card
+  references, external links, and hosted uploads. Opening a Kanban attachment
+  selects its hosted vault when available and opens the referenced board
+  directly at the stored card ID.
+- Replaced passive conflict counts with per-operation retry and discard
+  recovery. Local and hosted create/edit/complete/delete mutations continue to
+  use the durable operation queue, and the reminder lifecycle now reconciles
+  through the shared no-op scheduler boundary reserved for Phase 11 native
+  notification delivery.
+- Verified Phase 5 with 95 Android frontend tests, including recurrence
+  exceptions, attendee lookup, invitation RSVP, conflict recovery, reminder
+  schedule derivation, and Kanban deep links, plus mobile/root TypeScript checks
+  and a production mobile frontend build.
 
 ## Current System Constraints
 
@@ -1040,7 +1124,8 @@ Acceptance criteria:
 - All sheets remain above the bottom/system navigation areas.
 - Multi-server calendars remain distinguishable on phone-sized screens.
 - Offline create/edit/complete/delete works and later reconciles.
-- Large months and agendas scroll smoothly on representative physical devices.
+- Large months render without page scrolling and agendas scroll smoothly on
+  representative physical devices.
 - Calendar opens and remains usable without opening a vault.
 - Task and birthday editor fields match desktop semantics, and tapping an
   attached Kanban task opens the actual card when its vault is available.

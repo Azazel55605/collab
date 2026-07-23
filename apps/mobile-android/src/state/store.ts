@@ -46,8 +46,8 @@ export interface SelectedVault {
   vault: HostedVault;
 }
 
-export type Tab = 'servers' | 'vaults' | 'files' | 'settings';
-export const TAB_ORDER: Tab[] = ['servers', 'vaults', 'files', 'settings'];
+export type Tab = 'servers' | 'vaults' | 'files' | 'calendar' | 'settings';
+export const TAB_ORDER: Tab[] = ['servers', 'vaults', 'files', 'calendar', 'settings'];
 
 export interface Crumb {
   id: string | null;
@@ -59,7 +59,7 @@ export interface Crumb {
 export type ActiveSheet =
   | { kind: 'fileDetail'; fileId: string }
   | { kind: 'note'; fileId: string }
-  | { kind: 'kanban'; fileId: string }
+  | { kind: 'kanban'; fileId: string; cardId?: string }
   | { kind: 'viewer'; fileId: string }
   | { kind: 'removeOffline'; serverUrl: string; vault: HostedVault }
   | null;

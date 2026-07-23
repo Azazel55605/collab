@@ -10,6 +10,9 @@ export type AccentColor = 'violet' | 'blue' | 'emerald' | 'rose' | 'orange' | 'c
 export type IndentStyle = 'spaces' | 'tabs';
 export type ColorPreviewFormat = 'hex' | 'rgb' | 'hsl' | 'oklch' | 'oklab';
 export type SchematicSymbolSet = 'ansi' | 'iec';
+export type CalendarTimeFormat = 'system' | '12-hour' | '24-hour';
+export type CalendarDefaultDuration = 15 | 30 | 45 | 60 | 90 | 120;
+export type CalendarDateFormat = 'MMM_D_YYYY' | 'D_MMM_YYYY' | 'YYYY_MM_DD' | 'MM_DD_YYYY' | 'DD_MM_YYYY';
 
 export interface ThemePrefs {
   theme: Theme;
@@ -22,6 +25,15 @@ export interface ThemePrefs {
   colorPreviewTintText: boolean;
   colorPreviewFormats: Record<ColorPreviewFormat, boolean>;
   schematicSymbolSet: SchematicSymbolSet;
+  calendarDateFormat: CalendarDateFormat;
+  calendarWeekStart: 0 | 1;
+  calendarTimeFormat: CalendarTimeFormat;
+  calendarDefaultDurationMinutes: CalendarDefaultDuration;
+  calendarWorkingHoursStart: string;
+  calendarWorkingHoursEnd: string;
+  calendarDefaultReminderMinutes: number | null;
+  calendarHideWeekends: boolean;
+  calendarShowDeclined: boolean;
 }
 
 export const TAB_WIDTH_OPTIONS = [2, 3, 4, 6, 8] as const;
@@ -53,6 +65,15 @@ export const DEFAULT_PREFS: ThemePrefs = {
   colorPreviewTintText: true,
   colorPreviewFormats: { ...DEFAULT_COLOR_PREVIEW_FORMATS },
   schematicSymbolSet: 'ansi',
+  calendarDateFormat: 'MMM_D_YYYY',
+  calendarWeekStart: 1,
+  calendarTimeFormat: 'system',
+  calendarDefaultDurationMinutes: 60,
+  calendarWorkingHoursStart: '08:00',
+  calendarWorkingHoursEnd: '17:00',
+  calendarDefaultReminderMinutes: 10,
+  calendarHideWeekends: false,
+  calendarShowDeclined: true,
 };
 
 export const THEMES: { id: Theme; label: string }[] = [
@@ -129,6 +150,22 @@ function normalizeColorPreviewFormats(value: unknown): Record<ColorPreviewFormat
   };
 }
 
+function validClockTime(value: unknown): value is string {
+  return typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function validDuration(value: unknown): value is CalendarDefaultDuration {
+  return value === 15 || value === 30 || value === 45 || value === 60 || value === 90 || value === 120;
+}
+
+function validDateFormat(value: unknown): value is CalendarDateFormat {
+  return value === 'MMM_D_YYYY'
+    || value === 'D_MMM_YYYY'
+    || value === 'YYYY_MM_DD'
+    || value === 'MM_DD_YYYY'
+    || value === 'DD_MM_YYYY';
+}
+
 export function loadPrefs(): ThemePrefs {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -162,6 +199,37 @@ export function loadPrefs(): ThemePrefs {
             : DEFAULT_PREFS.colorPreviewTintText,
         colorPreviewFormats: normalizeColorPreviewFormats(parsed.colorPreviewFormats),
         schematicSymbolSet: parsed.schematicSymbolSet === 'iec' ? 'iec' : 'ansi',
+        calendarDateFormat: validDateFormat(parsed.calendarDateFormat)
+          ? parsed.calendarDateFormat
+          : DEFAULT_PREFS.calendarDateFormat,
+        calendarWeekStart: parsed.calendarWeekStart === 0 ? 0 : 1,
+        calendarTimeFormat: parsed.calendarTimeFormat === '12-hour' || parsed.calendarTimeFormat === '24-hour'
+          ? parsed.calendarTimeFormat
+          : 'system',
+        calendarDefaultDurationMinutes: validDuration(parsed.calendarDefaultDurationMinutes)
+          ? parsed.calendarDefaultDurationMinutes
+          : DEFAULT_PREFS.calendarDefaultDurationMinutes,
+        calendarWorkingHoursStart: validClockTime(parsed.calendarWorkingHoursStart)
+          ? parsed.calendarWorkingHoursStart
+          : DEFAULT_PREFS.calendarWorkingHoursStart,
+        calendarWorkingHoursEnd: validClockTime(parsed.calendarWorkingHoursEnd)
+          ? parsed.calendarWorkingHoursEnd
+          : DEFAULT_PREFS.calendarWorkingHoursEnd,
+        calendarDefaultReminderMinutes:
+          parsed.calendarDefaultReminderMinutes === null
+          || (
+            typeof parsed.calendarDefaultReminderMinutes === 'number'
+            && Number.isInteger(parsed.calendarDefaultReminderMinutes)
+            && parsed.calendarDefaultReminderMinutes >= 0
+          )
+            ? parsed.calendarDefaultReminderMinutes
+            : DEFAULT_PREFS.calendarDefaultReminderMinutes,
+        calendarHideWeekends: typeof parsed.calendarHideWeekends === 'boolean'
+          ? parsed.calendarHideWeekends
+          : DEFAULT_PREFS.calendarHideWeekends,
+        calendarShowDeclined: typeof parsed.calendarShowDeclined === 'boolean'
+          ? parsed.calendarShowDeclined
+          : DEFAULT_PREFS.calendarShowDeclined,
       };
     }
   } catch {
