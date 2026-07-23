@@ -54,7 +54,7 @@ models.
 | 1. Shared calendar domain and local profile store | Complete | Canonical model, native profile database, bounded recurrence queries, migrations, tombstones, and operation log are implemented. |
 | 2. Hosted server calendar domain | Complete | User-owned PostgreSQL storage, authenticated APIs, invitations, attachments, quotas, private aggregate usage, maintenance, and live database coverage are implemented. |
 | 3. Multi-server offline sync | Complete | Desktop and Android sync independent hosted replicas with durable cursors, queued/conflicted operations, lifecycle triggers, progress, and guarded cache removal. |
-| 4. Desktop calendar experience | In progress | Add the global Calendar view and complete everyday event/task workflows. |
+| 4. Desktop calendar experience | Complete | Global Calendar navigation, everyday event/task workflows, hosted collaboration controls, typed attachments, defaults, and accessibility coverage are implemented. |
 | 5. Android calendar experience | Not started | Add phone-first calendar navigation, editing, offline use, and multi-server management. |
 | 6. Cross-location calendar mirroring | Not started | Explicitly mirror calendars across local and hosted locations without server-to-server credentials. |
 | 7. Kanban assigned-task integration | Not started | Surface assigned local and hosted cards as linked calendar tasks with safe write-through behavior. |
@@ -63,7 +63,7 @@ models.
 | 10. Admin overview, privacy verification, and hardening | Not started | Ship aggregate-only administration, migration, load, security, and recovery coverage. |
 | 11. Reminder delivery and notifications | Not started | Activate desktop and Android notification scheduling through the calendar reminder connectors after the core calendar implementation. |
 
-### Implementation Status (2026-07-22)
+### Implementation Status (2026-07-23)
 
 Landed in the first implementation slice:
 
@@ -97,10 +97,52 @@ Landed in the first implementation slice:
   tall windows.
 - Added touchpad/mouse-wheel period navigation plus Month, Week, Agenda, and
   Year views.
+- Replaced the placeholder Week columns with a 24-hour schedule, a sticky
+  all-day lane, overlap-safe timed event columns, a current-time marker,
+  keyboard/double-click creation at a specific hour, and working-hours initial
+  positioning.
+- Added a dedicated timed Day view using the same all-day, overlap, current-time,
+  keyboard creation, and working-hours behavior while preserving Agenda as the
+  compact selected-day list.
+- Added 15-minute drag-to-reschedule for timed events and tasks across Day and
+  Week columns, preserving event/task duration and due-only task semantics.
+  Recurring drops require an explicit occurrence, following, or series scope
+  before saving through the normal offline/sync mutation path.
+- Extended drag-to-reschedule to all-day events, tasks, and birthdays. Multi-day
+  events preserve both their span and the specific visible segment grabbed by
+  the user when moved between Week lanes.
+- Added 15-minute timed resize handles in Day and Week views. Pointer dragging
+  shows a live duration preview, keyboard arrows adjust the focused handle, task
+  resizing updates its deadline, and recurring changes use the same explicit
+  edit-scope confirmation.
+- Bounded calendar drag previews to a compact, interface-scale-aware footprint
+  so long events and tasks no longer obscure the active drop-time indicator.
+- Restricted timed-item dragging to the event body so the separate duration
+  handle always starts a resize rather than a native element drag.
+- Kept the optimistic resize preview visible until the saved calendar item
+  reflects the new duration, removing the flash back to the previous time range.
+- Isolated item-editor form hydration from background calendar-store updates so
+  sync progress and refreshed calendar metadata cannot overwrite an in-progress
+  event, task, or birthday draft.
 - Added date and item context menus for creating events, tasks, and birthdays,
   and for editing or deleting existing entries.
 - Added SQLite busy-wait handling, serialized profile initialization, and range
   loading only after initialization to prevent concurrent startup locks.
+- Added calendar management in the desktop sidebar. Writable calendars can be
+  renamed, recolored, archived, and restored; archived calendars remain
+  recoverable without contributing visible items.
+- Moved the new-calendar default time zone into the main Calendar settings and
+  added a searchable selector backed by the runtime's supported IANA time-zone
+  list. Existing calendars retain their stored time zone.
+- Added an atomic calendar-definition-plus-operation write boundary so hosted
+  calendar setting and archive changes remain replayable when the server is
+  offline, while local calendar changes remain profile-local.
+- Added bounded profile-wide desktop search across cached local and hosted
+  events, tasks, and birthdays with calendar color and origin context.
+- Added a dedicated Tasks view with open/completed grouping, period navigation,
+  compact calendar attribution, and direct task creation/editing.
+- Completed task status and priority editing and preserved typed attendees,
+  attachments, URLs, and source bindings when existing items are edited.
 - Added the client-local system/12-hour/24-hour preference and explicit calendar
   time picker controls, the custom color/origin Calendar Select, timed event and
   task defaults, task start/deadline/all-day editing, descriptions, event
@@ -151,6 +193,10 @@ Landed in the first implementation slice:
   so it runs outside the Calendar screen on connection changes, window focus,
   browser online events, and a bounded foreground interval. Added a status-bar
   rollup with per-server upload/download counts, errors, and manual retry.
+- Stabilized the coordinator's semantic origin list and made successful profile
+  initialization idempotent, preventing unrelated server-store updates and
+  background sync triggers from continuously restarting sync and flickering the
+  status bar.
 - Added durable failed-operation retention to the shared profile store. Replay
   now isolates rejected operations, keeps connectivity failures pending, avoids
   pulling over unresolved local edits, and exposes retry/discard controls in the
@@ -180,11 +226,25 @@ Landed in the first implementation slice:
 - Added a live PostgreSQL router test covering ownership isolation, cross-server
   attendee rejection, idempotent replay, invitation privacy, RSVP propagation,
   attachment authorization, admin-content privacy, and quota rejection.
-
-Remaining implementation work:
-
-- Complete timed week/day layouts, recurrence-aware editing, drag/reschedule,
-  calendar settings/archive operations, and keyboard/accessibility coverage.
+- Completed the desktop hosted collaboration workflow: hosted event editors
+  search only the selected server's user directory, add/remove required or
+  optional attendees, display RSVP state, and expose a multi-server invitation
+  inbox with accept, tentative, and decline actions.
+- Added typed desktop attachment controls for vault-file references, searchable
+  Kanban-card references, external links, and native-file uploads to hosted
+  calendar storage. Existing uploaded attachments remain visible and removable.
+- Extended application Calendar settings with validated default duration,
+  default reminders, working hours, hidden weekends, and declined-item
+  visibility. New items consume the duration/reminder defaults, timed views
+  position near working hours, and month/week/year layouts adapt to five-day
+  display without changing the queried data range.
+- Completed the Phase 4 keyboard and accessibility audit across compact item
+  type icons, date/time creation cells, view selection, custom date/time and
+  calendar controls, attendee/attachment actions, and invitation responses.
+- Verified the complete desktop slice with focused editor, navigation,
+  drag/resize, settings, store, sync, recurrence, and timed-layout tests plus
+  TypeScript and whitespace checks. Phase 5 Android calendar work is the next
+  implementation phase.
 
 ## Current System Constraints
 

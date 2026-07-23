@@ -3,13 +3,17 @@ import { Check } from 'lucide-react';
 import {
   DATE_FORMAT_OPTIONS,
   formatDate,
+  type CalendarDefaultDuration,
   type DateFormat,
   type WeekStart,
   type TimeFormat,
 } from '../../store/uiStore';
 import { cn } from '../../lib/utils';
 import { Separator } from '../ui/separator';
-import { SectionLabel } from './settingsControls';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { TimePicker } from '../ui/time-picker';
+import { OptionRow, SectionLabel, ToggleSwitch } from './settingsControls';
+import TimeZoneSelect from './TimeZoneSelect';
 
 type Props = {
   dateFormat: DateFormat;
@@ -18,6 +22,20 @@ type Props = {
   setWeekStart: (weekStart: WeekStart) => void;
   timeFormat: TimeFormat;
   setTimeFormat: (format: TimeFormat) => void;
+  defaultTimeZone: string;
+  setDefaultTimeZone: (timeZone: string) => void;
+  defaultDurationMinutes: CalendarDefaultDuration;
+  setDefaultDurationMinutes: (minutes: CalendarDefaultDuration) => void;
+  workingHoursStart: string;
+  setWorkingHoursStart: (time: string) => void;
+  workingHoursEnd: string;
+  setWorkingHoursEnd: (time: string) => void;
+  defaultReminderMinutes: number | null;
+  setDefaultReminderMinutes: (minutes: number | null) => void;
+  hideWeekends: boolean;
+  setHideWeekends: (hidden: boolean) => void;
+  showDeclined: boolean;
+  setShowDeclined: (visible: boolean) => void;
 };
 
 export default function SettingsCalendarSection({
@@ -27,6 +45,20 @@ export default function SettingsCalendarSection({
   setWeekStart,
   timeFormat,
   setTimeFormat,
+  defaultTimeZone,
+  setDefaultTimeZone,
+  defaultDurationMinutes,
+  setDefaultDurationMinutes,
+  workingHoursStart,
+  setWorkingHoursStart,
+  workingHoursEnd,
+  setWorkingHoursEnd,
+  defaultReminderMinutes,
+  setDefaultReminderMinutes,
+  hideWeekends,
+  setHideWeekends,
+  showDeclined,
+  setShowDeclined,
 }: Props) {
   return (
     <div>
@@ -86,6 +118,74 @@ export default function SettingsCalendarSection({
 
       <Separator className="bg-border/40 my-4" />
 
+      <SectionLabel>Default Time Zone</SectionLabel>
+      <p className="text-xs text-muted-foreground mb-3">
+        Used when creating calendars. Existing calendars keep their stored time zone.
+      </p>
+      <TimeZoneSelect value={defaultTimeZone} onValueChange={setDefaultTimeZone} />
+
+      <Separator className="bg-border/40 my-4" />
+
+      <SectionLabel>Event Defaults</SectionLabel>
+      <OptionRow label="Default duration" description="Length used for new timed events and tasks.">
+        <Select
+          value={String(defaultDurationMinutes)}
+          onValueChange={(value) => setDefaultDurationMinutes(Number(value) as CalendarDefaultDuration)}
+        >
+          <SelectTrigger aria-label="Default event duration" className="w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {[15, 30, 45, 60, 90, 120].map((minutes) => (
+              <SelectItem key={minutes} value={String(minutes)}>
+                {minutes < 60 ? `${minutes} minutes` : `${minutes / 60} ${minutes === 60 ? 'hour' : 'hours'}`}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </OptionRow>
+      <OptionRow label="Default reminder" description="Applied when a new item is created.">
+        <Select
+          value={defaultReminderMinutes === null ? 'none' : String(defaultReminderMinutes)}
+          onValueChange={(value) => setDefaultReminderMinutes(value === 'none' ? null : Number(value))}
+        >
+          <SelectTrigger aria-label="Default calendar reminder" className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">No reminder</SelectItem>
+            <SelectItem value="0">At start</SelectItem>
+            <SelectItem value="10">10 minutes before</SelectItem>
+            <SelectItem value="30">30 minutes before</SelectItem>
+            <SelectItem value="60">1 hour before</SelectItem>
+            <SelectItem value="1440">1 day before</SelectItem>
+          </SelectContent>
+        </Select>
+      </OptionRow>
+
+      <Separator className="bg-border/40 my-4" />
+
+      <SectionLabel>Working Hours</SectionLabel>
+      <p className="text-xs text-muted-foreground mb-3">
+        Week and day views open near this range.
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <TimePicker value={workingHoursStart} onChange={setWorkingHoursStart} format={timeFormat} label="Start" />
+        <TimePicker value={workingHoursEnd} onChange={setWorkingHoursEnd} format={timeFormat} label="End" />
+      </div>
+
+      <Separator className="bg-border/40 my-4" />
+
+      <SectionLabel>Display</SectionLabel>
+      <OptionRow label="Hide weekends" description="Use a five-day month and week layout.">
+        <ToggleSwitch checked={hideWeekends} onToggle={() => setHideWeekends(!hideWeekends)} />
+      </OptionRow>
+      <OptionRow label="Show declined items" description="Keep invitations you declined visible.">
+        <ToggleSwitch checked={showDeclined} onToggle={() => setShowDeclined(!showDeclined)} />
+      </OptionRow>
+
+      <Separator className="bg-border/40 my-4" />
+
       <SectionLabel>First Day of Week</SectionLabel>
       <p className="text-xs text-muted-foreground mb-3">
         Sets the starting column in the calendar view.
@@ -114,6 +214,7 @@ export default function SettingsCalendarSection({
         <p>Today: <span className="text-foreground font-medium">{formatDate(new Date(), dateFormat)}</span></p>
         <p className="mt-1.5">Week starts on: <span className="text-foreground font-medium">{weekStart === 1 ? 'Monday' : 'Sunday'}</span></p>
         <p className="mt-1.5">Time format: <span className="text-foreground font-medium">{timeFormat === 'system' ? 'System default' : timeFormat}</span></p>
+        <p className="mt-1.5">Default time zone: <span className="text-foreground font-medium">{defaultTimeZone}</span></p>
       </div>
     </div>
   );

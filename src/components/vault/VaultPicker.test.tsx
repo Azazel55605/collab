@@ -89,6 +89,15 @@ describe('VaultPicker hosted vaults', () => {
     })));
   });
 
+  it('keeps branding outside a bounded scrollable vault inventory', () => {
+    render(<VaultPicker />);
+
+    const inventory = screen.getByRole('region', { name: 'Vaults and servers' });
+    expect(inventory.className).toContain('overflow-y-auto');
+    expect(inventory.contains(screen.getByRole('heading', { name: 'collab' }))).toBe(false);
+    expect(inventory.contains(screen.getByRole('button', { name: /Team Vault/ }))).toBe(true);
+  });
+
   it('creates a hosted vault and opens it', async () => {
     render(<VaultPicker />);
     fireEvent.click(screen.getByTitle('New hosted vault'));

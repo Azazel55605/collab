@@ -654,13 +654,11 @@
 /* ─── Vault picker background ───────────────────────────────────────────── */
 
 .vault-bg {
-  background: radial-gradient(ellipse 80% 60% at 50% 0%,
-    oklch(0.20 0.06 293 / 40%) 0%,
-    transparent 60%),
-    radial-gradient(ellipse 60% 40% at 80% 80%,
-    oklch(0.25 0.08 220 / 25%) 0%,
-    transparent 60%),
-    oklch(0.09 0.01 264);
+  background: var(--background);
+}
+
+.vault-picker-glass {
+  border-color: var(--border);
 }
 
 /* ─── Canvas view ──────────────────────────────────────────────────────── */

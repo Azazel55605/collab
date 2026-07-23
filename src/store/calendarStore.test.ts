@@ -2,13 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { tauriCommands } from '../lib/tauri';
 import { syncHostedCalendars } from '../lib/calendarSync';
 import { useCalendarStore } from './calendarStore';
+import { useUiStore } from './uiStore';
 import { createCalendarDefinition, normalizeCalendarItem } from '../types/calendar';
 
 vi.mock('../lib/tauri', () => ({
   tauriCommands: {
     calendarList: vi.fn(),
     calendarSave: vi.fn(),
+    calendarSaveWithOperation: vi.fn(),
     calendarListItems: vi.fn(),
+    calendarSearchItems: vi.fn(),
     calendarUpsertItem: vi.fn(),
     calendarDeleteItem: vi.fn(),
     calendarAcknowledgeOperations: vi.fn(),
@@ -27,6 +30,7 @@ vi.mock('../lib/calendarSync', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  useUiStore.setState({ calendarDefaultTimeZone: 'UTC' });
   useCalendarStore.setState({
     profileId: null,
     calendars: [],
@@ -43,7 +47,9 @@ beforeEach(() => {
     error: null,
   });
   vi.mocked(tauriCommands.calendarSave).mockResolvedValue(undefined);
+  vi.mocked(tauriCommands.calendarSaveWithOperation).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarListItems).mockResolvedValue([]);
+  vi.mocked(tauriCommands.calendarSearchItems).mockResolvedValue([]);
   vi.mocked(tauriCommands.calendarUpsertItem).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarDeleteItem).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarAcknowledgeOperations).mockResolvedValue(undefined);
@@ -63,10 +69,25 @@ describe('calendarStore', () => {
     expect(useCalendarStore.getState().calendars[0]).toMatchObject({
       name: 'Personal',
       location: { kind: 'local', profileId: 'profile-1' },
+      defaultTimeZone: 'UTC',
     });
     expect(useCalendarStore.getState().visibleCalendarIds).toEqual([
       useCalendarStore.getState().calendars[0].id,
     ]);
+  });
+
+  it('uses the application default time zone for newly created calendars', async () => {
+    useUiStore.setState({ calendarDefaultTimeZone: 'Asia/Tokyo' });
+    vi.mocked(tauriCommands.calendarList).mockResolvedValue([]);
+    await useCalendarStore.getState().initialize('profile-1');
+
+    const created = await useCalendarStore.getState().createCalendar(
+      'Tokyo',
+      '#60a5fa',
+      { kind: 'local', profileId: 'profile-1' },
+    );
+
+    expect(created.defaultTimeZone).toBe('Asia/Tokyo');
   });
 
   it('deduplicates concurrent profile initialization', async () => {
@@ -78,6 +99,28 @@ describe('calendarStore', () => {
 
     expect(tauriCommands.calendarList).toHaveBeenCalledOnce();
     expect(tauriCommands.calendarSave).toHaveBeenCalledOnce();
+  });
+
+  it('does not reinitialize an already loaded profile during background sync', async () => {
+    vi.mocked(tauriCommands.calendarList).mockResolvedValue([]);
+    await useCalendarStore.getState().initialize('profile-1');
+    const calendars = useCalendarStore.getState().calendars;
+    useCalendarStore.setState({
+      syncResults: [{
+        originKey: 'https://calendar.example::user-1',
+        serverUrl: 'https://calendar.example',
+        appliedChanges: 0,
+        replayedOperations: 0,
+        failedOperations: 0,
+        completedAt: '2026-07-23T08:00:00.000Z',
+      }],
+    });
+
+    await useCalendarStore.getState().initialize('profile-1');
+
+    expect(tauriCommands.calendarList).toHaveBeenCalledOnce();
+    expect(useCalendarStore.getState().calendars).toBe(calendars);
+    expect(useCalendarStore.getState().syncResults).toHaveLength(1);
   });
 
   it('deduplicates concurrent hosted sync passes and clears progress', async () => {
@@ -185,6 +228,16 @@ describe('calendarStore', () => {
       { kind: 'date', date: '2026-07-21' },
       { kind: 'date', date: '2026-07-22' },
     ]);
+  });
+
+  it('searches the bounded native profile index instead of the loaded range', async () => {
+    vi.mocked(tauriCommands.calendarList).mockResolvedValue([]);
+    vi.mocked(tauriCommands.calendarSearchItems).mockResolvedValue([]);
+    await useCalendarStore.getState().initialize('profile-1');
+
+    await useCalendarStore.getState().searchItems(' planning ', 25);
+
+    expect(tauriCommands.calendarSearchItems).toHaveBeenCalledWith('profile-1', 'planning', 25);
   });
 
   it('writes events and tombstones through operation-bearing commands', async () => {
@@ -351,5 +404,65 @@ describe('calendarStore', () => {
       { operations: [expect.objectContaining({ mutation: expect.objectContaining({ type: 'upsertItem' }) })] },
     );
     expect(tauriCommands.calendarAcknowledgeOperations).toHaveBeenCalledOnce();
+  });
+
+  it('updates local calendar settings without queuing a hosted operation', async () => {
+    const local = createCalendarDefinition({
+      id: 'calendar-1',
+      location: { kind: 'local', profileId: 'profile-1' },
+      name: 'Personal',
+      color: '#a78bfa',
+      defaultTimeZone: 'UTC',
+    });
+    vi.mocked(tauriCommands.calendarList).mockResolvedValue([local]);
+    await useCalendarStore.getState().initialize('profile-1');
+
+    const updated = await useCalendarStore.getState().updateCalendar(local.id, {
+      name: 'Private',
+      color: '#60a5fa',
+      archived: true,
+    });
+
+    expect(updated).toMatchObject({
+      name: 'Private',
+      color: '#60a5fa',
+      archived: true,
+      revision: 1,
+    });
+    expect(tauriCommands.calendarSave).toHaveBeenCalledWith('profile-1', updated);
+    expect(tauriCommands.calendarSaveWithOperation).not.toHaveBeenCalled();
+    expect(useCalendarStore.getState().visibleCalendarIds).not.toContain(local.id);
+  });
+
+  it('persists hosted calendar settings with a replayable operation', async () => {
+    const hosted = createCalendarDefinition({
+      id: 'calendar-1',
+      location: { kind: 'hosted', serverUrl: 'https://calendar.example', userId: 'user-1' },
+      name: 'Hosted',
+      color: '#60a5fa',
+      defaultTimeZone: 'UTC',
+    });
+    vi.mocked(tauriCommands.calendarList).mockResolvedValue([hosted]);
+    vi.mocked(tauriCommands.hostedCalendarRequest).mockResolvedValue({});
+    await useCalendarStore.getState().initialize('profile-1');
+
+    const updated = await useCalendarStore.getState().updateCalendar(hosted.id, {
+      archived: true,
+    });
+
+    expect(tauriCommands.calendarSaveWithOperation).toHaveBeenCalledWith(
+      'profile-1',
+      updated,
+      expect.objectContaining({
+        expectedRevision: 0,
+        mutation: { type: 'updateCalendar', calendar: updated },
+      }),
+    );
+    expect(tauriCommands.hostedCalendarRequest).toHaveBeenCalledWith(
+      'https://calendar.example',
+      'POST',
+      '/api/v1/calendars/operations',
+      { operations: [expect.objectContaining({ mutation: { type: 'updateCalendar', calendar: updated } })] },
+    );
   });
 });

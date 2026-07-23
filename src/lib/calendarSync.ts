@@ -56,6 +56,17 @@ export function hostedCalendarOriginKey(origin: HostedCalendarOrigin): string {
   return `${origin.serverUrl.replace(/\/$/, '')}::${origin.userId}`;
 }
 
+export function normalizeHostedCalendarOrigins(
+  origins: HostedCalendarOrigin[],
+): HostedCalendarOrigin[] {
+  return Array.from(new Map(origins.map((origin) => {
+    const normalized = { ...origin, serverUrl: origin.serverUrl.replace(/\/$/, '') };
+    return [hostedCalendarOriginKey(normalized), normalized];
+  })).values()).sort((left, right) => (
+    hostedCalendarOriginKey(left).localeCompare(hostedCalendarOriginKey(right))
+  ));
+}
+
 function operationCalendarId(operation: CalendarOperation): string | undefined {
   switch (operation.mutation.type) {
     case 'createCalendar':
@@ -289,10 +300,7 @@ export async function syncHostedCalendars(
   onProgress?: CalendarSyncProgressListener,
   adapter: CalendarSyncAdapter = tauriCommands,
 ): Promise<CalendarOriginSyncResult[]> {
-  const uniqueOrigins = Array.from(new Map(origins.map((origin) => [
-    hostedCalendarOriginKey(origin),
-    { ...origin, serverUrl: origin.serverUrl.replace(/\/$/, '') },
-  ])).values());
+  const uniqueOrigins = normalizeHostedCalendarOrigins(origins);
   return Promise.all(uniqueOrigins.map((origin) => (
     syncHostedCalendarOrigin(profileId, origin, cachedCalendars, onProgress, adapter)
   )));

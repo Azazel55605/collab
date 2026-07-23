@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo } from 'react';
 import { useCalendarStore } from '../../store/calendarStore';
 import { useCollabStore } from '../../store/collabStore';
 import { useServerStore } from '../../store/serverStore';
+import {
+  normalizeHostedCalendarOrigins,
+  type HostedCalendarOrigin,
+} from '../../lib/calendarSync';
 
 const BACKGROUND_SYNC_INTERVAL_MS = 60_000;
 
@@ -10,12 +14,16 @@ export default function CalendarSyncCoordinator() {
   const connections = useServerStore((state) => state.connections);
   const initialize = useCalendarStore((state) => state.initialize);
   const syncHosted = useCalendarStore((state) => state.syncHosted);
-  const origins = useMemo(() => Object.values(connections).flatMap((connection) => {
+  const originsJson = JSON.stringify(normalizeHostedCalendarOrigins(Object.values(connections).flatMap((connection) => {
     const { status } = connection;
     return status.connected && status.serverUrl && status.user
       ? [{ serverUrl: status.serverUrl, userId: status.user.id }]
       : [];
-  }), [connections]);
+  })));
+  const origins = useMemo(
+    () => JSON.parse(originsJson) as HostedCalendarOrigin[],
+    [originsJson],
+  );
 
   const sync = useCallback(async () => {
     if (!profileId) return;

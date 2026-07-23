@@ -14,6 +14,7 @@ export type ColorPreviewFormat = 'hex' | 'rgb' | 'hsl' | 'oklch' | 'oklab';
 export type DateFormat    = 'MMM_D_YYYY' | 'D_MMM_YYYY' | 'YYYY_MM_DD' | 'MM_DD_YYYY' | 'DD_MM_YYYY';
 export type WeekStart     = 0 | 1; // 0 = Sunday, 1 = Monday
 export type TimeFormat    = 'system' | '12-hour' | '24-hour';
+export type CalendarDefaultDuration = 15 | 30 | 45 | 60 | 90 | 120;
 export type AnimationSpeed = 'slow' | 'normal' | 'fast';
 export type CanvasWebCardDefaultMode = 'preview' | 'embed';
 export type OcrModelSource = 'official-fast';
@@ -101,6 +102,35 @@ function isTimeFormat(value: unknown): value is TimeFormat {
   return value === 'system' || value === '12-hour' || value === '24-hour';
 }
 
+function isCalendarDefaultDuration(value: unknown): value is CalendarDefaultDuration {
+  return value === 15 || value === 30 || value === 45 || value === 60 || value === 90 || value === 120;
+}
+
+function isClockTime(value: unknown): value is string {
+  return typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function normalizeDefaultReminder(value: unknown): number | null {
+  if (value === null) return null;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 525_600
+    ? value
+    : 10;
+}
+
+export function systemTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+}
+
+export function isSupportedTimeZone(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0) return false;
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: value }).format(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function normalizeFontSize(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
@@ -140,6 +170,25 @@ function normalizePersistedUiState(
     editorFontSize: normalizeFontSize(state.editorFontSize, DEFAULT_EDITOR_FONT_SIZE),
     schematicSymbolSet: isSchematicSymbolSet(state.schematicSymbolSet) ? state.schematicSymbolSet : 'ansi',
     timeFormat: isTimeFormat(state.timeFormat) ? state.timeFormat : 'system',
+    calendarDefaultTimeZone: isSupportedTimeZone(state.calendarDefaultTimeZone)
+      ? state.calendarDefaultTimeZone
+      : systemTimeZone(),
+    calendarDefaultDurationMinutes: isCalendarDefaultDuration(state.calendarDefaultDurationMinutes)
+      ? state.calendarDefaultDurationMinutes
+      : 60,
+    calendarWorkingHoursStart: isClockTime(state.calendarWorkingHoursStart)
+      ? state.calendarWorkingHoursStart
+      : '08:00',
+    calendarWorkingHoursEnd: isClockTime(state.calendarWorkingHoursEnd)
+      ? state.calendarWorkingHoursEnd
+      : '17:00',
+    calendarDefaultReminderMinutes: normalizeDefaultReminder(state.calendarDefaultReminderMinutes),
+    calendarHideWeekends: typeof state.calendarHideWeekends === 'boolean'
+      ? state.calendarHideWeekends
+      : false,
+    calendarShowDeclined: typeof state.calendarShowDeclined === 'boolean'
+      ? state.calendarShowDeclined
+      : true,
     ocrLanguage: typeof state.ocrLanguage === 'string' && state.ocrLanguage.length > 0 ? state.ocrLanguage : 'eng',
     ocrModelSource: isOcrModelSource(state.ocrModelSource) ? state.ocrModelSource : 'official-fast',
     ocrRenderScale: state.ocrRenderScale === 1 || state.ocrRenderScale === 2 || state.ocrRenderScale === 3 ? state.ocrRenderScale : 2,
@@ -237,6 +286,13 @@ interface UiState {
   dateFormat: DateFormat;
   weekStart:  WeekStart;
   timeFormat: TimeFormat;
+  calendarDefaultTimeZone: string;
+  calendarDefaultDurationMinutes: CalendarDefaultDuration;
+  calendarWorkingHoursStart: string;
+  calendarWorkingHoursEnd: string;
+  calendarDefaultReminderMinutes: number | null;
+  calendarHideWeekends: boolean;
+  calendarShowDeclined: boolean;
 
   // Behavior
   confirmDelete: boolean;
@@ -288,6 +344,13 @@ interface UiState {
   setDateFormat:    (fmt: DateFormat) => void;
   setWeekStart:     (day: WeekStart) => void;
   setTimeFormat:    (format: TimeFormat) => void;
+  setCalendarDefaultTimeZone: (timeZone: string) => void;
+  setCalendarDefaultDurationMinutes: (minutes: CalendarDefaultDuration) => void;
+  setCalendarWorkingHoursStart: (time: string) => void;
+  setCalendarWorkingHoursEnd: (time: string) => void;
+  setCalendarDefaultReminderMinutes: (minutes: number | null) => void;
+  setCalendarHideWeekends: (hidden: boolean) => void;
+  setCalendarShowDeclined: (visible: boolean) => void;
   setConfirmDelete: (v: boolean) => void;
   setAnimationsEnabled: (v: boolean) => void;
   setAnimationSpeed:    (speed: AnimationSpeed) => void;
@@ -338,6 +401,13 @@ export const useUiStore = create<UiState>()(
       dateFormat: 'MMM_D_YYYY',
       weekStart:  1,
       timeFormat: 'system',
+      calendarDefaultTimeZone: systemTimeZone(),
+      calendarDefaultDurationMinutes: 60,
+      calendarWorkingHoursStart: '08:00',
+      calendarWorkingHoursEnd: '17:00',
+      calendarDefaultReminderMinutes: 10,
+      calendarHideWeekends: false,
+      calendarShowDeclined: true,
 
       confirmDelete: true,
       animationsEnabled: true,
@@ -394,6 +464,34 @@ export const useUiStore = create<UiState>()(
       setDateFormat:    (dateFormat)    => set({ dateFormat }),
       setWeekStart:     (weekStart)     => set({ weekStart }),
       setTimeFormat:    (timeFormat)    => set({ timeFormat }),
+      setCalendarDefaultTimeZone: (calendarDefaultTimeZone) => {
+        if (isSupportedTimeZone(calendarDefaultTimeZone)) set({ calendarDefaultTimeZone });
+      },
+      setCalendarDefaultDurationMinutes: (calendarDefaultDurationMinutes) => {
+        if (isCalendarDefaultDuration(calendarDefaultDurationMinutes)) {
+          set({ calendarDefaultDurationMinutes });
+        }
+      },
+      setCalendarWorkingHoursStart: (calendarWorkingHoursStart) => {
+        if (isClockTime(calendarWorkingHoursStart)) set({ calendarWorkingHoursStart });
+      },
+      setCalendarWorkingHoursEnd: (calendarWorkingHoursEnd) => {
+        if (isClockTime(calendarWorkingHoursEnd)) set({ calendarWorkingHoursEnd });
+      },
+      setCalendarDefaultReminderMinutes: (calendarDefaultReminderMinutes) => {
+        if (
+          calendarDefaultReminderMinutes === null
+          || (
+            Number.isInteger(calendarDefaultReminderMinutes)
+            && calendarDefaultReminderMinutes >= 0
+            && calendarDefaultReminderMinutes <= 525_600
+          )
+        ) {
+          set({ calendarDefaultReminderMinutes });
+        }
+      },
+      setCalendarHideWeekends: (calendarHideWeekends) => set({ calendarHideWeekends }),
+      setCalendarShowDeclined: (calendarShowDeclined) => set({ calendarShowDeclined }),
       setConfirmDelete: (confirmDelete) => set({ confirmDelete }),
       setAnimationsEnabled: (animationsEnabled) => set({ animationsEnabled }),
       setAnimationSpeed:    (animationSpeed)    => set({ animationSpeed }),
@@ -443,6 +541,13 @@ export const useUiStore = create<UiState>()(
         dateFormat:    s.dateFormat,
         weekStart:     s.weekStart,
         timeFormat:    s.timeFormat,
+        calendarDefaultTimeZone: s.calendarDefaultTimeZone,
+        calendarDefaultDurationMinutes: s.calendarDefaultDurationMinutes,
+        calendarWorkingHoursStart: s.calendarWorkingHoursStart,
+        calendarWorkingHoursEnd: s.calendarWorkingHoursEnd,
+        calendarDefaultReminderMinutes: s.calendarDefaultReminderMinutes,
+        calendarHideWeekends: s.calendarHideWeekends,
+        calendarShowDeclined: s.calendarShowDeclined,
         confirmDelete: s.confirmDelete,
         animationsEnabled: s.animationsEnabled,
         animationSpeed:    s.animationSpeed,

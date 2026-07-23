@@ -68,6 +68,13 @@ export default function SettingsModal() {
     dateFormat, setDateFormat,
     weekStart, setWeekStart,
     timeFormat, setTimeFormat,
+    calendarDefaultTimeZone, setCalendarDefaultTimeZone,
+    calendarDefaultDurationMinutes, setCalendarDefaultDurationMinutes,
+    calendarWorkingHoursStart, setCalendarWorkingHoursStart,
+    calendarWorkingHoursEnd, setCalendarWorkingHoursEnd,
+    calendarDefaultReminderMinutes, setCalendarDefaultReminderMinutes,
+    calendarHideWeekends, setCalendarHideWeekends,
+    calendarShowDeclined, setCalendarShowDeclined,
     confirmDelete, setConfirmDelete,
     animationsEnabled, setAnimationsEnabled,
     animationSpeed, setAnimationSpeed,
@@ -281,6 +288,20 @@ export default function SettingsModal() {
                 setWeekStart={setWeekStart}
                 timeFormat={timeFormat}
                 setTimeFormat={setTimeFormat}
+                defaultTimeZone={calendarDefaultTimeZone}
+                setDefaultTimeZone={setCalendarDefaultTimeZone}
+                defaultDurationMinutes={calendarDefaultDurationMinutes}
+                setDefaultDurationMinutes={setCalendarDefaultDurationMinutes}
+                workingHoursStart={calendarWorkingHoursStart}
+                setWorkingHoursStart={setCalendarWorkingHoursStart}
+                workingHoursEnd={calendarWorkingHoursEnd}
+                setWorkingHoursEnd={setCalendarWorkingHoursEnd}
+                defaultReminderMinutes={calendarDefaultReminderMinutes}
+                setDefaultReminderMinutes={setCalendarDefaultReminderMinutes}
+                hideWeekends={calendarHideWeekends}
+                setHideWeekends={setCalendarHideWeekends}
+                showDeclined={calendarShowDeclined}
+                setShowDeclined={setCalendarShowDeclined}
               />
             )}
 

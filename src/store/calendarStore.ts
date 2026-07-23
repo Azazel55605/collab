@@ -16,6 +16,7 @@ import {
   calendarItemRange,
   calendarTimeValueKey,
   createCalendarDefinition,
+  normalizeCalendarDefinition,
   normalizeCalendarItem,
   queryCalendarItems,
   type CalendarDefinition,
@@ -25,6 +26,7 @@ import {
   type CalendarOperation,
   type CalendarOperationFailure,
 } from '../types/calendar';
+import { isSupportedTimeZone, systemTimeZone, useUiStore } from './uiStore';
 
 const DEVICE_ID_KEY = 'collab-calendar-device-id';
 const profileInitializations = new Map<string, Promise<void>>();
@@ -39,8 +41,9 @@ function deviceId(): string {
   return created;
 }
 
-function localTimeZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+function defaultCalendarTimeZone(): string {
+  const configured = useUiStore.getState().calendarDefaultTimeZone;
+  return isSupportedTimeZone(configured) ? configured : systemTimeZone();
 }
 
 interface CalendarStoreState {
@@ -63,8 +66,13 @@ interface CalendarStoreState {
   retryConflict: (clientOperationId: string) => Promise<void>;
   discardConflict: (clientOperationId: string) => Promise<void>;
   removeHostedCache: (origin: HostedCalendarOrigin) => Promise<void>;
+  searchItems: (query: string, limit?: number) => Promise<CalendarItem[]>;
   setCalendarVisible: (calendarId: string, visible: boolean) => void;
   createCalendar: (name: string, color: string, location?: CalendarLocation) => Promise<CalendarDefinition>;
+  updateCalendar: (
+    calendarId: string,
+    changes: Partial<Pick<CalendarDefinition, 'name' | 'color' | 'defaultTimeZone' | 'archived'>>,
+  ) => Promise<CalendarDefinition>;
   createEvent: (input: {
     calendarId: string;
     title: string;
@@ -156,6 +164,7 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
   initialize: async (profileId) => {
     const pending = profileInitializations.get(profileId);
     if (pending) return pending;
+    if (get().profileId === profileId && get().calendars.length > 0) return;
     const initialization = (async () => {
       set({ profileId, loading: true, syncing: false, syncResults: [], syncProgress: {}, conflicts: [], error: null });
       try {
@@ -168,7 +177,7 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
             location: { kind: 'local', profileId },
             name: 'Personal',
             color: '#a78bfa',
-            defaultTimeZone: localTimeZone(),
+            defaultTimeZone: defaultCalendarTimeZone(),
           });
           await tauriCommands.calendarSave(profileId, calendar);
           calendars = [calendar];
@@ -339,6 +348,17 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
     }
   },
 
+  searchItems: async (query, limit = 100) => {
+    const profileId = get().profileId;
+    if (!profileId || !query.trim()) return [];
+    try {
+      return await tauriCommands.calendarSearchItems(profileId, query.trim(), limit);
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
+  },
+
   setCalendarVisible: (calendarId, visible) => set((state) => ({
     visibleCalendarIds: visible
       ? Array.from(new Set([...state.visibleCalendarIds, calendarId]))
@@ -353,7 +373,7 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
       location,
       name,
       color,
-      defaultTimeZone: localTimeZone(),
+      defaultTimeZone: defaultCalendarTimeZone(),
     });
     set({ saving: true, error: null });
     try {
@@ -369,6 +389,47 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
       set((state) => ({
         calendars: [...state.calendars, calendar],
         visibleCalendarIds: [...state.visibleCalendarIds, calendar.id],
+      }));
+      return calendar;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set({ error: message });
+      throw error;
+    } finally {
+      set({ saving: false });
+    }
+  },
+
+  updateCalendar: async (calendarId, changes) => {
+    const profileId = get().profileId;
+    const existing = get().calendars.find((calendar) => calendar.id === calendarId);
+    if (!profileId || !existing) throw new Error('Calendar is not available.');
+    if (existing.readOnly) throw new Error('Calendar is read-only.');
+    const calendar = normalizeCalendarDefinition({
+      ...existing,
+      ...changes,
+      revision: existing.revision + 1,
+      updatedAt: new Date().toISOString(),
+    });
+    const operation: CalendarOperation = {
+      clientOperationId: crypto.randomUUID(),
+      deviceId: deviceId(),
+      expectedRevision: existing.revision,
+      mutation: { type: 'updateCalendar', calendar },
+    };
+    set({ saving: true, error: null });
+    try {
+      if (calendar.location.kind === 'hosted') {
+        await tauriCommands.calendarSaveWithOperation(profileId, calendar, operation);
+        await pushHostedOperation(profileId, calendar, operation);
+      } else {
+        await tauriCommands.calendarSave(profileId, calendar);
+      }
+      set((state) => ({
+        calendars: state.calendars.map((entry) => entry.id === calendar.id ? calendar : entry),
+        visibleCalendarIds: calendar.archived
+          ? state.visibleCalendarIds.filter((id) => id !== calendar.id)
+          : Array.from(new Set([...state.visibleCalendarIds, calendar.id])),
       }));
       return calendar;
     } catch (error) {

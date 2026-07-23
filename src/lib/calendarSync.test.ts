@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { tauriCommands } from './tauri';
-import { syncHostedCalendarOrigin, syncHostedCalendars } from './calendarSync';
+import {
+  normalizeHostedCalendarOrigins,
+  syncHostedCalendarOrigin,
+  syncHostedCalendars,
+} from './calendarSync';
 import { createCalendarDefinition, normalizeCalendarItem } from '../types/calendar';
 
 vi.mock('./tauri', () => ({
@@ -56,6 +60,17 @@ beforeEach(() => {
 });
 
 describe('calendarSync', () => {
+  it('normalizes hosted origins into a stable deduplicated order', () => {
+    expect(normalizeHostedCalendarOrigins([
+      { serverUrl: 'https://second.example/', userId: 'user-b' },
+      { serverUrl: 'https://first.example', userId: 'user-a' },
+      { serverUrl: 'https://second.example', userId: 'user-b' },
+    ])).toEqual([
+      { serverUrl: 'https://first.example', userId: 'user-a' },
+      { serverUrl: 'https://second.example', userId: 'user-b' },
+    ]);
+  });
+
   it('replays queued operations before atomically applying remote pages', async () => {
     const pending = {
       clientOperationId: 'operation-1',

@@ -43,6 +43,19 @@ pub async fn calendar_save(profile_id: String, calendar: CalendarDefinition) -> 
 }
 
 #[tauri::command]
+pub async fn calendar_save_with_operation(
+    profile_id: String,
+    calendar: CalendarDefinition,
+    operation: CalendarOperation,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .upsert_calendar_with_operation(&calendar, &operation)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn calendar_delete(
     profile_id: String,
     calendar_id: String,

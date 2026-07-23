@@ -150,26 +150,20 @@ export default function VaultPicker() {
   };
 
   return (
-    <div className="vault-bg flex h-screen items-center justify-center overflow-hidden">
-      {/* Ambient glow orbs */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[600px] h-[400px] rounded-full bg-primary/8 blur-[120px] app-ambient-drift" />
-        <div className="absolute bottom-0 right-1/4 w-[400px] h-[300px] rounded-full bg-blue-500/6 blur-[100px] app-ambient-drift [animation-delay:-2.4s]" />
-      </div>
-
-      <div className="relative w-full max-w-2xl px-4">
+    <div className="vault-bg flex h-screen min-h-0 justify-center overflow-hidden text-foreground">
+      <div className="relative flex h-full min-h-0 w-full max-w-2xl flex-col px-4 py-4 sm:py-6">
         {/* Logo block */}
-        <div className="text-center mb-8 app-fade-slide-in">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/15 border border-primary/20 mb-4 glow-primary-sm app-fade-scale-in">
-            <AppLogo size={28} className="text-primary" />
+        <div className="mb-4 shrink-0 text-center app-fade-slide-in sm:mb-6">
+          <div className="mb-2.5 inline-flex size-12 items-center justify-center rounded-lg border border-primary/20 bg-primary/15 glow-primary-sm app-fade-scale-in">
+            <AppLogo size={25} className="text-primary" />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">collab</h1>
-          <p className="text-sm text-muted-foreground mt-1.5">Your collaborative knowledge base</p>
+          <h1 className="text-2xl font-bold text-foreground">collab</h1>
+          <p className="mt-1 text-xs text-muted-foreground">Your collaborative knowledge base</p>
         </div>
 
         {/* Glass card */}
-        <div className="vault-picker-glass glass rounded-xl p-5 shadow-2xl app-fade-scale-in">
-          <div className="flex flex-col gap-2.5">
+        <div className="vault-picker-glass glass flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg shadow-xl shadow-black/10 app-fade-scale-in">
+          <div className="grid shrink-0 gap-2.5 border-b border-border/50 p-4 sm:grid-cols-2">
             <Button
               onClick={handleOpenDialog}
               disabled={isLoading}
@@ -182,23 +176,28 @@ export default function VaultPicker() {
               onClick={handleCreateVault}
               variant="outline"
               disabled={isLoading}
-              className="h-11 gap-2 text-sm font-medium border-border/60 bg-white/4 hover:bg-white/8 transition-all app-motion-base"
+              className="h-11 gap-2 border-border/60 bg-card/50 text-sm font-medium transition-all hover:bg-accent app-motion-base"
             >
               <Plus size={16} />
               Create New Vault
             </Button>
           </div>
 
-          <div className="flex items-center gap-2 mt-5 mb-3">
-            <Separator className="flex-1 bg-border/40" />
-            <span className="flex items-center gap-1 text-[11px] text-muted-foreground uppercase tracking-widest shrink-0">
-              <Server size={10} />
-              Hosted
-            </span>
-            <Separator className="flex-1 bg-border/40" />
-          </div>
+          <div
+            role="region"
+            aria-label="Vaults and servers"
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4"
+          >
+            <div className="mb-3 flex items-center gap-2">
+              <Separator className="flex-1 bg-border/40" />
+              <span className="flex shrink-0 items-center gap-1 text-[11px] uppercase tracking-widest text-muted-foreground">
+                <Server size={10} />
+                Hosted
+              </span>
+              <Separator className="flex-1 bg-border/40" />
+            </div>
 
-          <div className="space-y-3">
+            <div className="space-y-3">
             {connectedServers.map(({ status, hostedVaults }) => {
               const serverUrl = status.serverUrl!;
               const activeHostedVaults = hostedVaults.filter((vault) => vault.status === 'active');
@@ -309,8 +308,8 @@ export default function VaultPicker() {
             )}
           </div>
 
-          {offlineReplicasByServer.length > 0 && (
-            <div className="mt-3 space-y-3">
+            {offlineReplicasByServer.length > 0 && (
+              <div className="mt-3 space-y-3">
               {offlineReplicasByServer.map(([serverUrl, replicas]) => (
                 <div key={serverUrl} className="space-y-1">
                   <div className="flex items-center gap-1.5 px-1 text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -354,47 +353,48 @@ export default function VaultPicker() {
                   ))}
                 </div>
               ))}
-            </div>
-          )}
-
-          {localRecentVaults.length > 0 && (
-            <>
-              <div className="flex items-center gap-2 mt-5 mb-3">
-                <Separator className="flex-1 bg-border/40" />
-                <span className="flex items-center gap-1 text-[11px] text-muted-foreground uppercase tracking-widest shrink-0">
-                  <Clock size={10} />
-                  Recent
-                </span>
-                <Separator className="flex-1 bg-border/40" />
               </div>
+            )}
 
-              <div className="space-y-1">
-                {localRecentVaults.map((v) => (
-                  <button
-                    key={v.id}
-                    onClick={() => openVault(v.path)}
-                    disabled={isLoading}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border border-transparent hover:border-border/50 hover:bg-white/5 text-left transition-all app-motion-base group"
-                  >
-                    <div className="w-7 h-7 rounded-md bg-primary/10 border border-primary/15 flex items-center justify-center shrink-0">
-                      <div className="w-2 h-2 rounded-sm bg-primary/70" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-foreground truncate">{v.name}</div>
-                      <div className="text-[11px] text-muted-foreground truncate opacity-70">{v.path}</div>
-                    </div>
-                    <ArrowRight
-                      size={13}
-                      className="text-muted-foreground opacity-0 group-hover:opacity-60 group-hover:translate-x-0.5 transition-all app-motion-base shrink-0"
-                    />
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+            {localRecentVaults.length > 0 && (
+              <>
+                <div className="mb-3 mt-5 flex items-center gap-2">
+                  <Separator className="flex-1 bg-border/40" />
+                  <span className="flex shrink-0 items-center gap-1 text-[11px] uppercase tracking-widest text-muted-foreground">
+                    <Clock size={10} />
+                    Recent
+                  </span>
+                  <Separator className="flex-1 bg-border/40" />
+                </div>
+
+                <div className="space-y-1">
+                  {localRecentVaults.map((v) => (
+                    <button
+                      key={v.id}
+                      onClick={() => openVault(v.path)}
+                      disabled={isLoading}
+                      className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition-all hover:border-border/50 hover:bg-accent/60 app-motion-base"
+                    >
+                      <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-primary/15 bg-primary/10">
+                        <div className="size-2 rounded-sm bg-primary/70" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-foreground">{v.name}</div>
+                        <div className="truncate text-[11px] text-muted-foreground opacity-70">{v.path}</div>
+                      </div>
+                      <ArrowRight
+                        size={13}
+                        className="shrink-0 text-muted-foreground opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-60 app-motion-base"
+                      />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
-        <p className="text-center text-[11px] text-muted-foreground/40 mt-4">
+        <p className="mt-3 shrink-0 text-center text-[11px] text-muted-foreground/60">
           Local-first vaults · Optional hosted collaboration
         </p>
       </div>

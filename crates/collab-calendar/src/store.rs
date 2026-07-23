@@ -314,6 +314,130 @@ impl CalendarStore {
         Ok(())
     }
 
+    pub async fn upsert_calendar_with_operation(
+        &self,
+        calendar: &CalendarDefinition,
+        operation: &CalendarOperation,
+    ) -> Result<(), CalendarStoreError> {
+        validate_calendar(calendar)?;
+        validate_non_empty(&operation.client_operation_id, "client operation ID")?;
+        validate_non_empty(&operation.device_id, "device ID")?;
+        match &operation.mutation {
+            CalendarMutation::CreateCalendar {
+                calendar: operation_calendar,
+            }
+            | CalendarMutation::UpdateCalendar {
+                calendar: operation_calendar,
+            } if operation_calendar == calendar => {}
+            CalendarMutation::CreateCalendar { .. } | CalendarMutation::UpdateCalendar { .. } => {
+                return Err(CalendarStoreError::Validation(
+                    "queued operation calendar does not match the persisted calendar".into(),
+                ));
+            }
+            _ => {
+                return Err(CalendarStoreError::Validation(
+                    "calendar writes require a createCalendar or updateCalendar operation".into(),
+                ));
+            }
+        }
+
+        let mut normalized = calendar.clone();
+        normalized.schema_version = CALENDAR_SCHEMA_VERSION;
+        normalized.read_only =
+            normalized.read_only || normalized.location.is_inherently_read_only();
+        let data_json = serde_json::to_string(&normalized)?;
+        let location_json = serde_json::to_string(&normalized.location)?;
+        let mutation_json = serde_json::to_string(&operation.mutation)?;
+        let lineage_json = serde_json::to_string(&operation.propagation_lineage)?;
+        let mut tx = self.pool.begin().await?;
+        let operation_exists = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM pending_operations WHERE client_operation_id = ?)",
+        )
+        .bind(&operation.client_operation_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if operation_exists {
+            tx.commit().await?;
+            return Ok(());
+        }
+        let existing = sqlx::query("SELECT revision, read_only FROM calendars WHERE id = ?")
+            .bind(&calendar.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if existing
+            .as_ref()
+            .is_some_and(|row| row.get::<bool, _>("read_only"))
+        {
+            return Err(CalendarStoreError::ReadOnly);
+        }
+        if let Some(expected) = operation.expected_revision {
+            let actual = existing
+                .as_ref()
+                .map(|row| row.get::<i64, _>("revision"))
+                .unwrap_or(0);
+            if actual != expected {
+                return Err(CalendarStoreError::Conflict { expected, actual });
+            }
+        }
+        sqlx::query(
+            r#"
+            INSERT INTO calendars (
+                id, global_id, location_json, name, color, default_time_zone,
+                archived, read_only, revision, deleted_at, created_at, updated_at, data_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                global_id = excluded.global_id,
+                location_json = excluded.location_json,
+                name = excluded.name,
+                color = excluded.color,
+                default_time_zone = excluded.default_time_zone,
+                archived = excluded.archived,
+                read_only = excluded.read_only,
+                revision = excluded.revision,
+                deleted_at = excluded.deleted_at,
+                updated_at = excluded.updated_at,
+                data_json = excluded.data_json
+            "#,
+        )
+        .bind(&normalized.id)
+        .bind(&normalized.global_id)
+        .bind(location_json)
+        .bind(&normalized.name)
+        .bind(&normalized.color)
+        .bind(&normalized.default_time_zone)
+        .bind(normalized.archived)
+        .bind(normalized.read_only)
+        .bind(normalized.revision)
+        .bind(normalized.deleted_at.as_deref())
+        .bind(&normalized.created_at)
+        .bind(&normalized.updated_at)
+        .bind(data_json)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            r#"
+            INSERT INTO pending_operations (
+                client_operation_id, device_id, calendar_id, item_id,
+                expected_revision, source_change_id, propagation_lineage_json,
+                mutation_json, status, created_at
+            ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, 'pending', ?)
+            ON CONFLICT(client_operation_id) DO NOTHING
+            "#,
+        )
+        .bind(&operation.client_operation_id)
+        .bind(&operation.device_id)
+        .bind(&calendar.id)
+        .bind(operation.expected_revision)
+        .bind(operation.source_change_id.as_deref())
+        .bind(lineage_json)
+        .bind(mutation_json)
+        .bind(Utc::now().to_rfc3339())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn delete_calendar_with_operation(
         &self,
         calendar_id: &str,
@@ -1453,6 +1577,40 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(profile_id, "profile-1");
+    }
+
+    #[tokio::test]
+    async fn atomically_updates_a_calendar_and_queues_its_operation() {
+        let root = tempfile::tempdir().unwrap();
+        let store = CalendarStore::open(root.path(), "profile-1").await.unwrap();
+        let original = calendar(false);
+        store.upsert_calendar(&original).await.unwrap();
+        let mut updated = original.clone();
+        updated.name = "Private".into();
+        updated.archived = true;
+        updated.revision = 1;
+        updated.updated_at = "2026-07-22T09:00:00Z".into();
+        let operation = CalendarOperation {
+            client_operation_id: "calendar-operation-1".into(),
+            device_id: "device-1".into(),
+            expected_revision: Some(0),
+            source_change_id: None,
+            propagation_lineage: Vec::new(),
+            mutation: CalendarMutation::UpdateCalendar {
+                calendar: updated.clone(),
+            },
+        };
+
+        store
+            .upsert_calendar_with_operation(&updated, &operation)
+            .await
+            .unwrap();
+
+        assert_eq!(store.list_calendars().await.unwrap(), vec![updated]);
+        assert_eq!(
+            store.list_pending_operations().await.unwrap(),
+            vec![operation]
+        );
     }
 
     #[tokio::test]

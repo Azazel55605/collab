@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calendarHorizontalGestureDelta } from './CalendarPage';
+import { calendarHorizontalGestureDelta, calendarPeriodDayStep } from './CalendarPage';
 
 describe('calendar horizontal gesture navigation', () => {
   it('accepts horizontal-dominant touchpad movement', () => {
@@ -14,5 +14,11 @@ describe('calendar horizontal gesture navigation', () => {
 
   it('normalizes line-based wheel deltas', () => {
     expect(calendarHorizontalGestureDelta({ deltaX: 6, deltaY: 0, deltaMode: 1 })).toBe(96);
+  });
+
+  it('moves week by seven days and day or agenda by one day', () => {
+    expect(calendarPeriodDayStep('week')).toBe(7);
+    expect(calendarPeriodDayStep('day')).toBe(1);
+    expect(calendarPeriodDayStep('agenda')).toBe(1);
   });
 });
