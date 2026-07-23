@@ -31,7 +31,7 @@ rsync -a --delete \
 sed 's|path: ..|path: source-tree|' "$MANIFEST" > "$LOCAL_MANIFEST"
 
 flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-flatpak install --user -y flathub org.gnome.Platform//50 org.gnome.Sdk//50 org.freedesktop.Sdk.Extension.node20//25.08 org.freedesktop.Sdk.Extension.rust-stable//25.08
+flatpak install --user -y flathub org.gnome.Platform//50 org.gnome.Sdk//50 org.freedesktop.Sdk.Extension.node22//25.08 org.freedesktop.Sdk.Extension.rust-stable//25.08
 
 flatpak-builder --user --install-deps-from=flathub --force-clean "$BUILD_DIR" "$LOCAL_MANIFEST"
 flatpak-builder --repo="$REPO_DIR" --force-clean "$BUILD_DIR" "$LOCAL_MANIFEST"

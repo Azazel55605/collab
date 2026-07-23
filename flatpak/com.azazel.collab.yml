@@ -3,7 +3,7 @@ runtime: org.gnome.Platform
 runtime-version: "50"
 sdk: org.gnome.Sdk
 sdk-extensions:
-  - org.freedesktop.Sdk.Extension.node20
+  - org.freedesktop.Sdk.Extension.node22
   - org.freedesktop.Sdk.Extension.rust-stable
 command: collab
 finish-args:
@@ -14,7 +14,7 @@ finish-args:
   - --device=dri
   - --filesystem=home
 build-options:
-  append-path: /usr/lib/sdk/node20/bin:/usr/lib/sdk/rust-stable/bin
+  append-path: /usr/lib/sdk/node22/bin:/usr/lib/sdk/rust-stable/bin
   build-args:
     # Build-time dependency resolution also needs network access; runtime
     # server connectivity is granted separately through finish-args above.

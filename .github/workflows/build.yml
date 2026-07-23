@@ -201,10 +201,10 @@ jobs:
       - name: Install runtimes and SDK extensions
         run: |
           flatpak install --user -y flathub \
-            org.gnome.Platform//48 \
-            org.gnome.Sdk//48 \
-            org.freedesktop.Sdk.Extension.node20//24.08 \
-            org.freedesktop.Sdk.Extension.rust-stable//24.08
+            org.gnome.Platform//50 \
+            org.gnome.Sdk//50 \
+            org.freedesktop.Sdk.Extension.node22//25.08 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08
 
       - name: Build Flatpak repo
         run: |

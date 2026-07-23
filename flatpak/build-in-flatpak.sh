@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export PATH="/usr/lib/sdk/node20/bin:/usr/lib/sdk/rust-stable/bin:${PATH}"
+export PATH="/usr/lib/sdk/node22/bin:/usr/lib/sdk/rust-stable/bin:${PATH}"
 export CARGO_HOME="${PWD}/.flatpak-cargo"
 export npm_config_cache="${PWD}/.flatpak-npm"
 export CARGO_REGISTRIES_CRATES_IO_PROTOCOL="sparse"
 export COREPACK_HOME="${PWD}/.flatpak-corepack"
 export CI="true"
+
+node -e '
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  if (major < 22 || (major === 22 && minor < 13)) {
+    throw new Error(`Flatpak build requires Node.js >=22.13, found ${process.version}`);
+  }
+'
 
 corepack pnpm install --frozen-lockfile
 corepack pnpm build
