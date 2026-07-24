@@ -38,7 +38,12 @@ import {
   removeMobileCalendarCache,
   syncMobileCalendars,
 } from '../lib/calendarSync';
-import type { CalendarOperationFailure } from '../../../../src/types/calendar';
+import type {
+  CalendarMirrorConflict,
+  CalendarMirrorGroupStatus,
+  CalendarMirrorProgress,
+  CalendarOperationFailure,
+} from '../../../../src/types/calendar';
 import type { CalendarOriginSyncResult, CalendarSyncProgress } from '../../../../src/lib/calendarSync';
 
 export interface SelectedVault {
@@ -110,6 +115,9 @@ interface MobileState {
   calendarSyncProgress: Record<string, CalendarSyncProgress>;
   calendarSyncResults: CalendarOriginSyncResult[];
   calendarConflicts: CalendarOperationFailure[];
+  calendarMirrorConflicts: CalendarMirrorConflict[];
+  calendarMirrorStatuses: CalendarMirrorGroupStatus[];
+  calendarMirrorProgress: Record<string, CalendarMirrorProgress>;
   calendarCacheOrigins: Array<{ serverUrl: string; userId: string }>;
 
   restore: () => Promise<void>;
@@ -167,6 +175,9 @@ export const useMobileStore = create<MobileState>((set, get) => ({
   calendarSyncProgress: {},
   calendarSyncResults: [],
   calendarConflicts: [],
+  calendarMirrorConflicts: [],
+  calendarMirrorStatuses: [],
+  calendarMirrorProgress: {},
   calendarCacheOrigins: [],
 
   tab: 'servers',
@@ -299,14 +310,27 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     if (origins.length === 0 || get().calendarSyncing) return;
     set({ calendarSyncing: true });
     try {
-      const synced = await syncMobileCalendars(origins, (progress) => {
-        set((state) => ({
-          calendarSyncProgress: { ...state.calendarSyncProgress, [progress.originKey]: progress },
-        }));
-      });
+      const synced = await syncMobileCalendars(
+        origins,
+        (progress) => {
+          set((state) => ({
+            calendarSyncProgress: { ...state.calendarSyncProgress, [progress.originKey]: progress },
+          }));
+        },
+        (mirrorProgress) => {
+          set((state) => ({
+            calendarMirrorProgress: {
+              ...state.calendarMirrorProgress,
+              [mirrorProgress.groupId]: mirrorProgress,
+            },
+          }));
+        },
+      );
       set({
         calendarSyncResults: synced.results,
         calendarConflicts: synced.conflicts,
+        calendarMirrorConflicts: synced.mirrorConflicts,
+        calendarMirrorStatuses: synced.mirrorStatuses,
         calendarCacheOrigins: synced.cacheOrigins,
       });
     } finally {

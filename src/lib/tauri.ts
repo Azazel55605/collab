@@ -24,7 +24,7 @@ import type { NoteSnippet, NoteSnippetDraft, NoteSnippetScope } from '../types/n
 import type { PdfSidecarState } from '../types/pdf';
 import type { UpdateInfo } from '../store/updateStore';
 import type { LogicDiagramDocument } from '../types/logicDiagram';
-import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSyncState } from '../types/calendar';
+import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarMirrorAnchor, CalendarMirrorConflict, CalendarMirrorGroup, CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSyncState } from '../types/calendar';
 import type {
   CircuitDcResult,
   CircuitJobOutcome,
@@ -171,6 +171,22 @@ export const tauriCommands = {
     invoke<void>('calendar_discard_operation', { profileId, clientOperationId }),
   calendarRemoveHostedCache: (profileId: string, serverUrl: string, userId: string) =>
     invoke<CalendarCleanupResult>('calendar_remove_hosted_cache', { profileId, serverUrl, userId }),
+  calendarListMirrorGroups: (profileId: string) =>
+    invoke<CalendarMirrorGroup[]>('calendar_list_mirror_groups', { profileId }),
+  calendarSaveMirrorGroup: (profileId: string, group: CalendarMirrorGroup) =>
+    invoke<void>('calendar_save_mirror_group', { profileId, group }),
+  calendarDeleteMirrorGroup: (profileId: string, groupId: string) =>
+    invoke<void>('calendar_delete_mirror_group', { profileId, groupId }),
+  calendarListMirrorAnchors: (profileId: string, groupId: string) =>
+    invoke<CalendarMirrorAnchor[]>('calendar_list_mirror_anchors', { profileId, groupId }),
+  calendarSaveMirrorAnchors: (profileId: string, anchors: CalendarMirrorAnchor[]) =>
+    invoke<void>('calendar_save_mirror_anchors', { profileId, anchors }),
+  calendarListMirrorConflicts: (profileId: string, groupId?: string, includeResolved = false) =>
+    invoke<CalendarMirrorConflict[]>('calendar_list_mirror_conflicts', { profileId, groupId: groupId ?? null, includeResolved }),
+  calendarSaveMirrorConflict: (profileId: string, conflict: CalendarMirrorConflict) =>
+    invoke<void>('calendar_save_mirror_conflict', { profileId, conflict }),
+  calendarListMirrorItems: (profileId: string, calendarIds: string[], limit = 5_000) =>
+    invoke<CalendarItem[]>('calendar_list_mirror_items', { profileId, calendarIds, limit }),
 
   // Vault
   openVault: (path: string) => invoke<VaultMeta>('open_vault', { path }),

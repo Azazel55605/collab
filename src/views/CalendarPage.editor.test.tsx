@@ -98,8 +98,10 @@ describe('calendar management', () => {
       calendars={[localCalendar, archived]}
       visibleIds={[localCalendar.id]}
       saving={false}
+      mirrorAttention={false}
       onVisible={vi.fn()}
       onAdd={vi.fn()}
+      onMirrors={vi.fn()}
       onEdit={vi.fn()}
       onArchive={onArchive}
     />);

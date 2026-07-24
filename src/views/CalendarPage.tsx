@@ -11,6 +11,8 @@ import {
   Gift,
   Bell,
   CheckCircle2,
+  CloudOff,
+  Link2,
   LoaderCircle,
   MapPin,
   Pencil,
@@ -65,6 +67,7 @@ import {
   PopoverTrigger,
 } from '../components/ui/popover';
 import { cn } from '../lib/utils';
+import { calendarMirrorLocationKey } from '../lib/calendarMirroring';
 import {
   CALENDAR_MINUTES_PER_DAY,
   layoutCalendarTimedItems,
@@ -88,6 +91,9 @@ import {
   type CalendarItem,
   type CalendarItemKind,
   type CalendarLocation,
+  type CalendarMirrorConflict,
+  type CalendarMirrorGroup,
+  type CalendarMirrorGroupStatus,
   type CalendarTaskPriority,
   type CalendarTaskStatus,
 } from '../types/calendar';
@@ -265,6 +271,7 @@ export default function CalendarPage() {
   const [deleteRequest, setDeleteRequest] = useState<CalendarItem | null>(null);
   const [rescheduleRequest, setRescheduleRequest] = useState<RescheduleRequest | null>(null);
   const [calendarDialogOpen, setCalendarDialogOpen] = useState(false);
+  const [mirrorDialogOpen, setMirrorDialogOpen] = useState(false);
   const [calendarEditor, setCalendarEditor] = useState<CalendarDefinition | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -472,6 +479,8 @@ export default function CalendarPage() {
           saving={store.saving}
           onVisible={store.setCalendarVisible}
           onAdd={() => setCalendarDialogOpen(true)}
+          onMirrors={() => setMirrorDialogOpen(true)}
+          mirrorAttention={store.mirrorStatuses.some((status) => status.state === 'waiting' || status.state === 'conflict' || status.state === 'error')}
           onEdit={setCalendarEditor}
           onArchive={(calendar, archived) => {
             void store.updateCalendar(calendar.id, { archived }).catch(() => {});
@@ -496,6 +505,19 @@ export default function CalendarPage() {
       <RecurringDeleteDialog item={deleteRequest} saving={store.saving} onOpenChange={(open) => !open && setDeleteRequest(null)} onDelete={async (scope) => { if (!deleteRequest) return; await store.deleteItem(deleteRequest, scope); setDeleteRequest(null); }} />
       <RecurringRescheduleDialog item={rescheduleRequest?.item ?? null} saving={store.saving} onOpenChange={(open) => !open && setRescheduleRequest(null)} onSave={async (scope) => { if (!rescheduleRequest) return; await store.saveItem(rescheduleRequest.item, scope); setRescheduleRequest(null); }} />
       <CalendarDialog open={calendarDialogOpen} onOpenChange={setCalendarDialogOpen} saving={store.saving} locations={calendarLocations} onCreate={store.createCalendar} />
+      <CalendarMirrorDialog
+        open={mirrorDialogOpen}
+        onOpenChange={setMirrorDialogOpen}
+        calendars={store.calendars}
+        groups={store.mirrorGroups}
+        statuses={store.mirrorStatuses}
+        conflicts={store.mirrorConflicts}
+        saving={store.saving}
+        onCreate={store.createMirrorGroup}
+        onUpdate={store.updateMirrorGroup}
+        onDelete={store.deleteMirrorGroup}
+        onResolve={(conflictId, memberId) => store.resolveMirrorConflict(conflictId, memberId, hostedOrigins)}
+      />
       <CalendarSettingsDialog
         calendar={calendarEditor}
         saving={store.saving}
@@ -576,19 +598,21 @@ export function setCompactCalendarDragImage(
   window.setTimeout(() => preview.remove(), 0);
 }
 
-export function CalendarRail({ calendars, visibleIds, saving, onVisible, onAdd, onEdit, onArchive }: {
+export function CalendarRail({ calendars, visibleIds, saving, mirrorAttention, onVisible, onAdd, onMirrors, onEdit, onArchive }: {
   calendars: CalendarDefinition[];
   visibleIds: string[];
   saving: boolean;
+  mirrorAttention: boolean;
   onVisible: (id: string, visible: boolean) => void;
   onAdd: () => void;
+  onMirrors: () => void;
   onEdit: (calendar: CalendarDefinition) => void;
   onArchive: (calendar: CalendarDefinition, archived: boolean) => void;
 }) {
   const activeCalendars = calendars.filter((calendar) => !calendar.archived);
   const archivedCalendars = calendars.filter((calendar) => calendar.archived);
   return <aside className="flex w-44 shrink-0 flex-col border-r border-border/60 bg-sidebar/40 p-3">
-    <div className="mb-2 flex items-center justify-between"><span className="text-[10px] font-semibold uppercase text-muted-foreground">Calendars</span><Button variant="ghost" size="icon-xs" aria-label="Add calendar" onClick={onAdd}><CirclePlus /></Button></div>
+    <div className="mb-2 flex items-center justify-between"><span className="text-[10px] font-semibold uppercase text-muted-foreground">Calendars</span><span className="flex items-center"><Button variant="ghost" size="icon-xs" aria-label="Manage calendar mirrors" title="Manage calendar mirrors" className="relative" onClick={onMirrors}><Link2 />{mirrorAttention && <span className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-destructive" />}</Button><Button variant="ghost" size="icon-xs" aria-label="Add calendar" onClick={onAdd}><CirclePlus /></Button></span></div>
     <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">{activeCalendars.map((calendar) => {
       const checkboxId = `calendar-visible-${calendar.id}`;
       return <div key={calendar.id} className="group flex items-center gap-1 rounded-md px-1.5 py-1.5 text-xs hover:bg-accent/60"><Checkbox id={checkboxId} checked={visibleIds.includes(calendar.id)} onCheckedChange={(checked) => onVisible(calendar.id, checked === true)} /><label htmlFor={checkboxId} className="flex min-w-0 flex-1 cursor-pointer items-center gap-2"><span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: calendar.color }} /><span className="truncate">{calendar.name}</span></label><CalendarActions calendar={calendar} saving={saving} onEdit={onEdit} onArchive={onArchive} /></div>;
@@ -1323,6 +1347,128 @@ export function CalendarSettingsDialog({ calendar, saving, onOpenChange, onSave 
       <fieldset className="space-y-2"><legend className="text-xs font-medium">Accent color</legend><div className="flex flex-wrap gap-2">{CALENDAR_COLORS.map((value) => <button key={value} type="button" aria-label={`Use color ${value}`} aria-pressed={color === value} onClick={() => setColor(value)} className={cn('size-7 rounded-full', color === value && 'ring-2 ring-foreground ring-offset-2 ring-offset-background')} style={{ backgroundColor: value }} />)}</div></fieldset>
     </form>
     <DialogFooter><Button type="submit" form="calendar-settings-form" disabled={saving || !calendar || !name.trim()}>{saving ? 'Saving...' : 'Save changes'}</Button></DialogFooter>
+  </DialogContent></Dialog>;
+}
+
+function mirrorStatusLabel(group: CalendarMirrorGroup, status: CalendarMirrorGroupStatus | undefined): string {
+  if (!group.enabled || status?.state === 'disabled') return 'Paused';
+  if (status?.state === 'waiting') return 'Waiting for connection';
+  if (status?.state === 'conflict') return `${status.conflictCount} conflict${status.conflictCount === 1 ? '' : 's'}`;
+  if (status?.state === 'error') return 'Sync error';
+  return status?.lastBridgedAt ? 'Up to date' : 'Ready to sync';
+}
+
+function CalendarMirrorDialog({ open, onOpenChange, calendars, groups, statuses, conflicts, saving, onCreate, onUpdate, onDelete, onResolve }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  calendars: CalendarDefinition[];
+  groups: CalendarMirrorGroup[];
+  statuses: CalendarMirrorGroupStatus[];
+  conflicts: CalendarMirrorConflict[];
+  saving: boolean;
+  onCreate: (name: string, calendarIds: string[]) => Promise<CalendarMirrorGroup>;
+  onUpdate: (groupId: string, changes: Partial<Pick<CalendarMirrorGroup, 'name' | 'enabled'>>) => Promise<CalendarMirrorGroup>;
+  onDelete: (groupId: string) => Promise<void>;
+  onResolve: (conflictId: string, memberId: string) => Promise<void>;
+}) {
+  const [name, setName] = useState('');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const eligibleCalendars = calendars.filter((calendar) => (
+    !calendar.archived
+    && !calendar.readOnly
+    && (calendar.location.kind === 'local' || calendar.location.kind === 'hosted')
+  ));
+  const selectedLocationKeys = new Set(selectedIds.flatMap((calendarId) => {
+    const calendar = eligibleCalendars.find((entry) => entry.id === calendarId);
+    return calendar && (calendar.location.kind === 'local' || calendar.location.kind === 'hosted')
+      ? [calendarMirrorLocationKey({ location: calendar.location })]
+      : [];
+  }));
+  const toggleCalendar = (calendar: CalendarDefinition, selected: boolean) => {
+    setSelectedIds((current) => (
+      selected
+        ? [...current, calendar.id]
+        : current.filter((calendarId) => calendarId !== calendar.id)
+    ));
+  };
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!name.trim() || selectedIds.length < 2) return;
+    try {
+      await onCreate(name.trim(), selectedIds);
+      setName('');
+      setSelectedIds([]);
+    } catch {
+      // The calendar store exposes the validation or persistence error in the page banner.
+    }
+  };
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg"><DialogHeader><DialogTitle>Calendar mirrors</DialogTitle></DialogHeader>
+    <div className="space-y-5">
+      <section aria-labelledby="calendar-mirror-groups">
+        <h2 id="calendar-mirror-groups" className="mb-2 text-xs font-semibold">Mirror groups</h2>
+        <div className="divide-y divide-border/60 border-y border-border/60">
+          {groups.map((group) => {
+            const status = statuses.find((entry) => entry.groupId === group.id);
+            const waiting = status?.state === 'waiting';
+            const conflict = status?.state === 'conflict' || status?.state === 'error';
+            return <div key={group.id} className="flex items-center gap-3 py-2.5">
+              <Checkbox
+                checked={group.enabled}
+                disabled={saving}
+                aria-label={`${group.enabled ? 'Pause' : 'Enable'} ${group.name}`}
+                onCheckedChange={(checked) => void onUpdate(group.id, { enabled: checked === true }).catch(() => {})}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">{group.name}</span>
+                <span className="block truncate text-[10px] text-muted-foreground">{group.members.map((member) => calendars.find((calendar) => calendar.id === member.calendarId)?.name ?? 'Unavailable calendar').join(' ↔ ')}</span>
+              </span>
+              <span className={cn('flex shrink-0 items-center gap-1 text-[10px]', conflict ? 'text-destructive' : waiting ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
+                {waiting ? <CloudOff className="size-3" /> : <Link2 className="size-3" />}
+                {mirrorStatusLabel(group, status)}
+              </span>
+              <Button type="button" variant="ghost" size="icon-xs" disabled={saving} aria-label={`Delete ${group.name}`} onClick={() => void onDelete(group.id).catch(() => {})}><Trash2 /></Button>
+            </div>;
+          })}
+          {groups.length === 0 && <div className="py-6 text-center text-xs text-muted-foreground">No mirror groups yet</div>}
+        </div>
+      </section>
+
+      {conflicts.length > 0 && <section aria-labelledby="calendar-mirror-conflicts">
+        <h2 id="calendar-mirror-conflicts" className="mb-2 text-xs font-semibold">Conflicts</h2>
+        <div className="divide-y divide-border/60 border-y border-border/60">{conflicts.map((conflict) => {
+          const group = groups.find((entry) => entry.id === conflict.groupId);
+          return <div key={conflict.id} className="py-3">
+            <div className="mb-2"><span className="block text-xs font-medium">{group?.name ?? 'Mirror group'}</span><span className="text-[10px] text-muted-foreground">Choose the version that should replace the others.</span></div>
+            <div className="grid gap-1.5">{conflict.versions.map((version) => {
+              const member = group?.members.find((entry) => entry.id === version.memberId);
+              const calendar = member && calendars.find((entry) => entry.id === member.calendarId);
+              return <Button key={version.memberId} type="button" variant="outline" className="h-auto min-h-9 justify-start px-2 py-1.5 text-left" disabled={saving || !member} onClick={() => void onResolve(conflict.id, version.memberId).catch(() => {})}>
+                <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: calendar?.color }} />
+                <span className="min-w-0 flex-1"><span className="block truncate text-xs">{version.item?.deletedAt || !version.item ? 'Deleted' : version.item.title}</span><span className="block truncate text-[9px] font-normal text-muted-foreground">{calendar?.name ?? 'Unavailable calendar'} · {calendar ? calendarOrigin(calendar) : 'Unknown location'}</span></span>
+              </Button>;
+            })}</div>
+          </div>;
+        })}</div>
+      </section>}
+
+      <form id="calendar-mirror-form" className="space-y-3" onSubmit={(event) => void submit(event)}>
+        <div><h2 className="text-xs font-semibold">New mirror group</h2><p className="mt-0.5 text-[10px] text-muted-foreground">Choose one writable calendar from each local profile or connected server location.</p></div>
+        <label className="block space-y-1"><span className="text-xs font-medium">Name</span><Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Work calendar mirror" maxLength={120} /></label>
+        <fieldset className="space-y-1"><legend className="mb-1 text-xs font-medium">Calendars</legend>{eligibleCalendars.map((calendar) => {
+          const checked = selectedIds.includes(calendar.id);
+          const locationKey = calendarMirrorLocationKey({ location: calendar.location as Extract<CalendarLocation, { kind: 'local' | 'hosted' }> });
+          const locationAlreadySelected = !checked && selectedLocationKeys.has(locationKey);
+          const checkboxId = `mirror-calendar-${calendar.id}`;
+          return <label key={calendar.id} htmlFor={checkboxId} className={cn('flex items-center gap-2 rounded-md px-2 py-2 text-xs hover:bg-accent/50', locationAlreadySelected && 'opacity-45')}>
+            <Checkbox id={checkboxId} checked={checked} disabled={locationAlreadySelected || saving} onCheckedChange={(value) => toggleCalendar(calendar, value === true)} />
+            <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: calendar.color }} />
+            <span className="min-w-0 flex-1 truncate">{calendar.name}</span>
+            <span className="truncate text-[10px] text-muted-foreground">{calendarOrigin(calendar)}</span>
+          </label>;
+        })}{eligibleCalendars.length < 2 && <p className="py-3 text-xs text-muted-foreground">At least two writable calendar locations are required.</p>}</fieldset>
+      </form>
+    </div>
+    <DialogFooter><Button type="submit" form="calendar-mirror-form" disabled={saving || !name.trim() || selectedIds.length < 2}><Link2 />Create mirror</Button></DialogFooter>
   </DialogContent></Dialog>;
 }
 

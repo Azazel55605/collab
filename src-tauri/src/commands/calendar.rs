@@ -1,7 +1,8 @@
 use super::app_config_dir;
 use collab_calendar::{
-    CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarOperation,
-    CalendarOperationFailure, CalendarRemoteChange, CalendarStore, CalendarSyncState,
+    CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarMirrorAnchor,
+    CalendarMirrorConflict, CalendarMirrorGroup, CalendarOperation, CalendarOperationFailure,
+    CalendarRemoteChange, CalendarStore, CalendarSyncState,
 };
 use std::{collections::HashMap, sync::OnceLock};
 use tokio::sync::Mutex;
@@ -259,6 +260,103 @@ pub async fn calendar_remove_hosted_cache(
     store(&profile_id)
         .await?
         .remove_hosted_origin_cache(&server_url, &user_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_list_mirror_groups(
+    profile_id: String,
+) -> Result<Vec<CalendarMirrorGroup>, String> {
+    store(&profile_id)
+        .await?
+        .list_mirror_groups()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_save_mirror_group(
+    profile_id: String,
+    group: CalendarMirrorGroup,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .upsert_mirror_group(&group)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_delete_mirror_group(
+    profile_id: String,
+    group_id: String,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .delete_mirror_group(&group_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_list_mirror_anchors(
+    profile_id: String,
+    group_id: String,
+) -> Result<Vec<CalendarMirrorAnchor>, String> {
+    store(&profile_id)
+        .await?
+        .list_mirror_anchors(&group_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_save_mirror_anchors(
+    profile_id: String,
+    anchors: Vec<CalendarMirrorAnchor>,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .upsert_mirror_anchors(&anchors)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_list_mirror_conflicts(
+    profile_id: String,
+    group_id: Option<String>,
+    include_resolved: bool,
+) -> Result<Vec<CalendarMirrorConflict>, String> {
+    store(&profile_id)
+        .await?
+        .list_mirror_conflicts(group_id.as_deref(), include_resolved)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_save_mirror_conflict(
+    profile_id: String,
+    conflict: CalendarMirrorConflict,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .upsert_mirror_conflict(&conflict)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_list_mirror_items(
+    profile_id: String,
+    calendar_ids: Vec<String>,
+    limit: u32,
+) -> Result<Vec<CalendarItem>, String> {
+    store(&profile_id)
+        .await?
+        .list_items_for_mirror(&calendar_ids, limit)
         .await
         .map_err(|error| error.to_string())
 }

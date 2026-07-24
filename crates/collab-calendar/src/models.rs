@@ -328,6 +328,70 @@ pub struct CalendarSyncState {
     pub last_error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarMirrorMember {
+    pub id: String,
+    pub calendar_id: String,
+    pub location: CalendarLocation,
+    pub added_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarMirrorGroup {
+    pub schema_version: u32,
+    pub id: String,
+    pub name: String,
+    #[serde(default = "mirror_enabled")]
+    pub enabled: bool,
+    pub members: Vec<CalendarMirrorMember>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+fn mirror_enabled() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarMirrorAnchor {
+    pub group_id: String,
+    pub logical_item_key: String,
+    pub member_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<i64>,
+    pub fingerprint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarMirrorConflictVersion {
+    pub member_id: String,
+    pub fingerprint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item: Option<CalendarItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarMirrorConflict {
+    pub id: String,
+    pub group_id: String,
+    pub logical_item_key: String,
+    pub status: String,
+    pub versions: Vec<CalendarMirrorConflictVersion>,
+    pub detected_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CalendarRemoteChange {

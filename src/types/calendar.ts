@@ -207,6 +207,80 @@ export interface CalendarSyncState {
   lastError?: string;
 }
 
+export interface CalendarMirrorMember {
+  id: string;
+  calendarId: string;
+  location: Extract<CalendarLocation, { kind: 'local' | 'hosted' }>;
+  addedAt: string;
+}
+
+export interface CalendarMirrorGroup {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  enabled: boolean;
+  members: CalendarMirrorMember[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CalendarMirrorAnchor {
+  groupId: string;
+  logicalItemKey: string;
+  memberId: string;
+  itemId?: string;
+  revision?: number;
+  fingerprint: string;
+  deletedAt?: string;
+  updatedAt: string;
+}
+
+export interface CalendarMirrorConflictVersion {
+  memberId: string;
+  fingerprint: string;
+  item?: CalendarItem;
+}
+
+export interface CalendarMirrorConflict {
+  id: string;
+  groupId: string;
+  logicalItemKey: string;
+  status: 'unresolved' | 'resolved';
+  versions: CalendarMirrorConflictVersion[];
+  detectedAt: string;
+  resolvedAt?: string;
+}
+
+export type CalendarMirrorGroupState = 'ready' | 'waiting' | 'conflict' | 'disabled' | 'error';
+
+export interface CalendarMirrorGroupStatus {
+  groupId: string;
+  state: CalendarMirrorGroupState;
+  missingMemberIds: string[];
+  conflictCount: number;
+  lastBridgedAt?: string;
+  error?: string;
+}
+
+export type CalendarMirrorProgressPhase =
+  | 'checking'
+  | 'applying'
+  | 'waiting'
+  | 'conflict'
+  | 'complete'
+  | 'disabled'
+  | 'error';
+
+export interface CalendarMirrorProgress {
+  groupId: string;
+  groupName: string;
+  phase: CalendarMirrorProgressPhase;
+  processedOperations: number;
+  totalOperations: number | null;
+  detail?: string;
+  error?: string;
+}
+
 export interface CalendarRemoteChange {
   sequence: number;
   entityType: 'calendar' | 'item';

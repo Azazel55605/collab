@@ -2,10 +2,16 @@ import { create } from 'zustand';
 import { tauriCommands } from '../lib/tauri';
 import {
   syncHostedCalendars,
+  hostedCalendarOriginKey,
   type CalendarOriginSyncResult,
   type CalendarSyncProgress,
   type HostedCalendarOrigin,
 } from '../lib/calendarSync';
+import {
+  bridgeCalendarMirrors,
+  resolveCalendarMirrorConflict,
+  validateCalendarMirrorGroup,
+} from '../lib/calendarMirroring';
 import { expandRecurringItem } from '../lib/calendarRecurrence';
 import {
   planRecurringEdit,
@@ -23,6 +29,10 @@ import {
   type CalendarEvent,
   type CalendarItem,
   type CalendarLocation,
+  type CalendarMirrorConflict,
+  type CalendarMirrorGroup,
+  type CalendarMirrorGroupStatus,
+  type CalendarMirrorProgress,
   type CalendarOperation,
   type CalendarOperationFailure,
 } from '../types/calendar';
@@ -59,6 +69,10 @@ interface CalendarStoreState {
   syncResults: CalendarOriginSyncResult[];
   syncProgress: Record<string, CalendarSyncProgress>;
   conflicts: CalendarOperationFailure[];
+  mirrorGroups: CalendarMirrorGroup[];
+  mirrorConflicts: CalendarMirrorConflict[];
+  mirrorStatuses: CalendarMirrorGroupStatus[];
+  mirrorProgress: Record<string, CalendarMirrorProgress>;
   error: string | null;
   initialize: (profileId: string) => Promise<void>;
   loadRange: (from: string, to: string) => Promise<void>;
@@ -73,6 +87,17 @@ interface CalendarStoreState {
     calendarId: string,
     changes: Partial<Pick<CalendarDefinition, 'name' | 'color' | 'defaultTimeZone' | 'archived'>>,
   ) => Promise<CalendarDefinition>;
+  createMirrorGroup: (name: string, calendarIds: string[]) => Promise<CalendarMirrorGroup>;
+  updateMirrorGroup: (
+    groupId: string,
+    changes: Partial<Pick<CalendarMirrorGroup, 'name' | 'enabled'>>,
+  ) => Promise<CalendarMirrorGroup>;
+  deleteMirrorGroup: (groupId: string) => Promise<void>;
+  resolveMirrorConflict: (
+    conflictId: string,
+    chosenMemberId: string,
+    origins: HostedCalendarOrigin[],
+  ) => Promise<void>;
   createEvent: (input: {
     calendarId: string;
     title: string;
@@ -159,6 +184,10 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
   syncResults: [],
   syncProgress: {},
   conflicts: [],
+  mirrorGroups: [],
+  mirrorConflicts: [],
+  mirrorStatuses: [],
+  mirrorProgress: {},
   error: null,
 
   initialize: async (profileId) => {
@@ -166,11 +195,25 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
     if (pending) return pending;
     if (get().profileId === profileId && get().calendars.length > 0) return;
     const initialization = (async () => {
-      set({ profileId, loading: true, syncing: false, syncResults: [], syncProgress: {}, conflicts: [], error: null });
+      set({
+        profileId,
+        loading: true,
+        syncing: false,
+        syncResults: [],
+        syncProgress: {},
+        conflicts: [],
+        mirrorGroups: [],
+        mirrorConflicts: [],
+        mirrorStatuses: [],
+        mirrorProgress: {},
+        error: null,
+      });
       try {
-        let [calendars, conflicts] = await Promise.all([
+        let [calendars, conflicts, mirrorGroups, mirrorConflicts] = await Promise.all([
           tauriCommands.calendarList(profileId),
           tauriCommands.calendarListFailedOperations(profileId),
+          tauriCommands.calendarListMirrorGroups(profileId),
+          tauriCommands.calendarListMirrorConflicts(profileId, undefined, false),
         ]);
         if (calendars.length === 0) {
           const calendar = createCalendarDefinition({
@@ -188,6 +231,8 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
           return {
             calendars,
             conflicts,
+            mirrorGroups,
+            mirrorConflicts,
             visibleCalendarIds: survivingIds.length > 0 ? survivingIds : activeIds,
           };
         });
@@ -234,7 +279,7 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
     const sync = (async () => {
       activeHostedSyncs.set(profileId, (activeHostedSyncs.get(profileId) ?? 0) + 1);
       set({ syncing: true });
-      const results = await syncHostedCalendars(profileId, origins, get().calendars, (progress) => {
+      let results = await syncHostedCalendars(profileId, origins, get().calendars, (progress) => {
         if (get().profileId !== profileId) return;
         set((state) => ({
           syncProgress: { ...state.syncProgress, [progress.originKey]: progress },
@@ -246,6 +291,31 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
           tauriCommands.calendarList(profileId),
           tauriCommands.calendarListFailedOperations(profileId),
         ]);
+        const mirror = await bridgeCalendarMirrors({
+          profileId,
+          calendars,
+          connectedOriginKeys: new Set(origins.map(hostedCalendarOriginKey)),
+          deviceId: deviceId(),
+          adapter: tauriCommands,
+          onProgress: (mirrorProgress) => {
+            if (get().profileId !== profileId) return;
+            set((state) => ({
+              mirrorProgress: {
+                ...state.mirrorProgress,
+                [mirrorProgress.groupId]: mirrorProgress,
+              },
+            }));
+          },
+        });
+        if (mirror.appliedOperations > 0) {
+          results = await syncHostedCalendars(profileId, origins, calendars, (progress) => {
+            if (get().profileId !== profileId) return;
+            set((state) => ({
+              syncProgress: { ...state.syncProgress, [progress.originKey]: progress },
+            }));
+          });
+        }
+        const mirrorConflicts = await tauriCommands.calendarListMirrorConflicts(profileId, undefined, false);
         const activeIds = calendars.filter((calendar) => !calendar.archived).map((calendar) => calendar.id);
         const range = get().range;
         let sourceItems = get().sourceItems;
@@ -266,6 +336,8 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
           items,
           syncResults: results,
           conflicts,
+          mirrorConflicts,
+          mirrorStatuses: mirror.statuses,
           visibleCalendarIds: Array.from(new Set([
             ...state.visibleCalendarIds.filter((id) => activeIds.includes(id)),
             ...activeIds.filter((id) => !state.calendars.some((calendar) => calendar.id === id)),
@@ -435,6 +507,136 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       set({ error: message });
+      throw error;
+    } finally {
+      set({ saving: false });
+    }
+  },
+
+  createMirrorGroup: async (name, calendarIds) => {
+    const profileId = get().profileId;
+    if (!profileId) throw new Error('Calendar profile is not initialized.');
+    const calendars = calendarIds.map((calendarId) => {
+      const calendar = get().calendars.find((entry) => entry.id === calendarId);
+      if (!calendar) throw new Error('A selected calendar is no longer available.');
+      if (calendar.location.kind !== 'local' && calendar.location.kind !== 'hosted') {
+        throw new Error(`${calendar.name} cannot be mirrored.`);
+      }
+      return calendar;
+    });
+    const now = new Date().toISOString();
+    const group: CalendarMirrorGroup = {
+      schemaVersion: 1,
+      id: crypto.randomUUID(),
+      name: name.trim(),
+      enabled: true,
+      members: calendars.map((calendar) => ({
+        id: crypto.randomUUID(),
+        calendarId: calendar.id,
+        location: calendar.location as Extract<CalendarLocation, { kind: 'local' | 'hosted' }>,
+        addedAt: now,
+      })),
+      createdAt: now,
+      updatedAt: now,
+    };
+    validateCalendarMirrorGroup(group, get().calendars);
+    set({ saving: true, error: null });
+    try {
+      await tauriCommands.calendarSaveMirrorGroup(profileId, group);
+      set((state) => ({ mirrorGroups: [...state.mirrorGroups, group] }));
+      return group;
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    } finally {
+      set({ saving: false });
+    }
+  },
+
+  updateMirrorGroup: async (groupId, changes) => {
+    const profileId = get().profileId;
+    const existing = get().mirrorGroups.find((group) => group.id === groupId);
+    if (!profileId || !existing) throw new Error('Calendar mirror group is not available.');
+    const group: CalendarMirrorGroup = {
+      ...existing,
+      ...changes,
+      name: changes.name?.trim() || existing.name,
+      updatedAt: new Date().toISOString(),
+    };
+    validateCalendarMirrorGroup(group, get().calendars);
+    set({ saving: true, error: null });
+    try {
+      await tauriCommands.calendarSaveMirrorGroup(profileId, group);
+      set((state) => ({
+        mirrorGroups: state.mirrorGroups.map((entry) => entry.id === group.id ? group : entry),
+        mirrorStatuses: state.mirrorStatuses.map((status) => (
+          status.groupId === group.id && !group.enabled
+            ? { ...status, state: 'disabled', missingMemberIds: [] }
+            : status
+        )),
+      }));
+      return group;
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    } finally {
+      set({ saving: false });
+    }
+  },
+
+  deleteMirrorGroup: async (groupId) => {
+    const profileId = get().profileId;
+    if (!profileId) throw new Error('Calendar profile is not initialized.');
+    set({ saving: true, error: null });
+    try {
+      await tauriCommands.calendarDeleteMirrorGroup(profileId, groupId);
+      set((state) => ({
+        mirrorGroups: state.mirrorGroups.filter((group) => group.id !== groupId),
+        mirrorStatuses: state.mirrorStatuses.filter((status) => status.groupId !== groupId),
+        mirrorConflicts: state.mirrorConflicts.filter((conflict) => conflict.groupId !== groupId),
+        mirrorProgress: Object.fromEntries(
+          Object.entries(state.mirrorProgress).filter(([entryGroupId]) => entryGroupId !== groupId),
+        ),
+      }));
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    } finally {
+      set({ saving: false });
+    }
+  },
+
+  resolveMirrorConflict: async (conflictId, chosenMemberId, origins) => {
+    const profileId = get().profileId;
+    const conflict = get().mirrorConflicts.find((entry) => entry.id === conflictId);
+    const group = conflict && get().mirrorGroups.find((entry) => entry.id === conflict.groupId);
+    if (!profileId || !conflict || !group) throw new Error('Calendar mirror conflict is not available.');
+    set({ saving: true, error: null });
+    try {
+      const result = await resolveCalendarMirrorConflict({
+        profileId,
+        group,
+        conflict,
+        chosenMemberId,
+        calendars: get().calendars,
+        connectedOriginKeys: new Set(origins.map(hostedCalendarOriginKey)),
+        deviceId: deviceId(),
+        adapter: tauriCommands,
+      });
+      const mirrorConflicts = await tauriCommands.calendarListMirrorConflicts(profileId, undefined, false);
+      set((state) => ({
+        mirrorConflicts,
+        mirrorStatuses: state.mirrorStatuses.map((status) => {
+          if (status.groupId !== group.id) return status;
+          const conflictCount = mirrorConflicts.filter((entry) => entry.groupId === group.id).length;
+          return { ...status, conflictCount, state: conflictCount > 0 ? 'conflict' : 'ready' };
+        }),
+      }));
+      if (result.appliedOperations > 0 && origins.length > 0) {
+        await get().syncHosted(origins);
+      }
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : String(error) });
       throw error;
     } finally {
       set({ saving: false });

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { tauriCommands } from '../lib/tauri';
 import { syncHostedCalendars } from '../lib/calendarSync';
+import { bridgeCalendarMirrors } from '../lib/calendarMirroring';
 import { useCalendarStore } from './calendarStore';
 import { useUiStore } from './uiStore';
 import { createCalendarDefinition, normalizeCalendarItem } from '../types/calendar';
@@ -19,12 +20,23 @@ vi.mock('../lib/tauri', () => ({
     calendarRetryOperation: vi.fn(),
     calendarDiscardOperation: vi.fn(),
     calendarRemoveHostedCache: vi.fn(),
+    calendarListMirrorGroups: vi.fn(),
+    calendarSaveMirrorGroup: vi.fn(),
+    calendarDeleteMirrorGroup: vi.fn(),
+    calendarListMirrorConflicts: vi.fn(),
     hostedCalendarRequest: vi.fn(),
   },
 }));
 
 vi.mock('../lib/calendarSync', () => ({
   syncHostedCalendars: vi.fn(),
+  hostedCalendarOriginKey: (origin: { serverUrl: string; userId: string }) => `${origin.serverUrl}::${origin.userId}`,
+}));
+
+vi.mock('../lib/calendarMirroring', () => ({
+  bridgeCalendarMirrors: vi.fn(),
+  resolveCalendarMirrorConflict: vi.fn(),
+  validateCalendarMirrorGroup: vi.fn(),
 }));
 
 beforeEach(() => {
@@ -44,6 +56,10 @@ beforeEach(() => {
     syncResults: [],
     syncProgress: {},
     conflicts: [],
+    mirrorGroups: [],
+    mirrorConflicts: [],
+    mirrorStatuses: [],
+    mirrorProgress: {},
     error: null,
   });
   vi.mocked(tauriCommands.calendarSave).mockResolvedValue(undefined);
@@ -57,7 +73,12 @@ beforeEach(() => {
   vi.mocked(tauriCommands.calendarRetryOperation).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarDiscardOperation).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarRemoveHostedCache).mockResolvedValue({ calendarsRemoved: 0, itemsRemoved: 0 });
+  vi.mocked(tauriCommands.calendarListMirrorGroups).mockResolvedValue([]);
+  vi.mocked(tauriCommands.calendarSaveMirrorGroup).mockResolvedValue(undefined);
+  vi.mocked(tauriCommands.calendarDeleteMirrorGroup).mockResolvedValue(undefined);
+  vi.mocked(tauriCommands.calendarListMirrorConflicts).mockResolvedValue([]);
   vi.mocked(syncHostedCalendars).mockResolvedValue([]);
+  vi.mocked(bridgeCalendarMirrors).mockResolvedValue({ statuses: [], appliedOperations: 0, conflicts: [] });
 });
 
 describe('calendarStore', () => {

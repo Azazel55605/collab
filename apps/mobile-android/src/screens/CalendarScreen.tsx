@@ -7,8 +7,10 @@ import {
   ChevronRight,
   CirclePlus,
   ClipboardCheck,
+  CloudOff,
   Gift,
   Link,
+  Link2,
   MapPin,
   Paperclip,
   Pencil,
@@ -38,22 +40,32 @@ import {
   hostedCalendarRequest,
   hostedUserDirectory,
   listProfileCalendarItems,
+  listProfileCalendarMirrorGroups,
   listProfileCalendars,
   openExternalUrl,
   readFileForUpload,
   readHostedDocument,
   retryProfileCalendarOperation,
+  saveProfileCalendarMirrorGroup,
   saveProfileCalendar,
   saveProfileCalendarWithOperation,
   showMobileOpenFiles,
   upsertProfileCalendarItem,
+  deleteProfileCalendarMirrorGroup,
   type ServerConnectionStatus,
   type UserDirectoryEntry,
 } from '../mobileTauri';
 import { DateField } from '../components/DateField';
 import { TimeField } from '../components/TimeField';
 import { Banner, EmptyState, Spinner } from '../components/ui';
-import { mobileCalendarProfileId } from '../lib/calendarSync';
+import {
+  mobileCalendarProfileId,
+  resolveMobileCalendarMirrorConflict,
+} from '../lib/calendarSync';
+import {
+  calendarMirrorLocationKey,
+  validateCalendarMirrorGroup,
+} from '../../../../src/lib/calendarMirroring';
 import type { ThemePrefs } from '../lib/theme';
 import { useMobileStore } from '../state/store';
 import { layoutCalendarTimedItems } from '../../../../src/lib/calendarTimedLayout';
@@ -82,6 +94,9 @@ import {
   type CalendarItem,
   type CalendarItemKind,
   type CalendarLocation,
+  type CalendarMirrorGroup,
+  type CalendarMirrorConflict,
+  type CalendarMirrorGroupStatus,
   type CalendarOperation,
   type CalendarTaskStatus,
 } from '../../../../src/types/calendar';
@@ -233,6 +248,9 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
   const syncCalendars = useMobileStore((state) => state.syncCalendars);
   const syncing = useMobileStore((state) => state.calendarSyncing);
   const conflicts = useMobileStore((state) => state.calendarConflicts);
+  const mirrorConflicts = useMobileStore((state) => state.calendarMirrorConflicts);
+  const mirrorStatuses = useMobileStore((state) => state.calendarMirrorStatuses);
+  const mirrorProgress = useMobileStore((state) => state.calendarMirrorProgress);
   const statuses = useMobileStore((state) => state.statuses);
   const [calendars, setCalendars] = useState<CalendarDefinition[]>([]);
   const [sourceItems, setSourceItems] = useState<CalendarItem[]>([]);
@@ -417,7 +435,9 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
     </header>
 
     {error ? <Banner tone="error">{error}</Banner> : null}
+    {Object.values(mirrorProgress).some((entry) => entry.phase === 'checking' || entry.phase === 'applying') ? <Banner tone="info"><span>{Object.values(mirrorProgress).find((entry) => entry.phase === 'applying' || entry.phase === 'checking')?.detail ?? 'Updating calendar mirrors'}</span></Banner> : null}
     {conflicts.length > 0 ? <button type="button" className="calendar-conflict-banner" onClick={() => setConflictsOpen(true)}><span>{conflicts.length} calendar change{conflicts.length === 1 ? '' : 's'} need attention.</span><span>Review</span></button> : null}
+    {mirrorStatuses.some((status) => status.state === 'waiting' || status.state === 'conflict' || status.state === 'error') ? <button type="button" className="calendar-conflict-banner" onClick={() => setManagerOpen(true)}><span>{mirrorConflicts.length > 0 ? `${mirrorConflicts.length} mirrored item${mirrorConflicts.length === 1 ? '' : 's'} need attention.` : mirrorStatuses.some((status) => status.state === 'error') ? 'A calendar mirror could not be updated.' : 'A calendar mirror is waiting for a server connection.'}</span><span>Manage</span></button> : null}
 
     <div className="mobile-calendar-view-tabs" role="group" aria-label="Calendar view">
       {VIEW_OPTIONS.map((option) => <button key={option.value} type="button" className={view === option.value ? 'active' : ''} aria-pressed={view === option.value} onClick={() => changeView(option.value)}>{option.label}</button>)}
@@ -470,6 +490,8 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
     {managerOpen ? <CalendarManager
       calendars={calendars}
       statuses={statuses}
+      mirrorStatuses={mirrorStatuses}
+      mirrorConflicts={mirrorConflicts}
       profileId={profileId}
       onClose={() => setManagerOpen(false)}
       onChanged={async (calendarId, visible) => {
@@ -607,19 +629,38 @@ type CalendarDraft = {
   location: CalendarLocation;
 };
 
-function CalendarManager({ calendars, statuses, profileId, onClose, onChanged }: {
+function CalendarManager({ calendars, statuses, mirrorStatuses, mirrorConflicts, profileId, onClose, onChanged }: {
   calendars: CalendarDefinition[];
   statuses: Record<string, ServerConnectionStatus>;
+  mirrorStatuses: CalendarMirrorGroupStatus[];
+  mirrorConflicts: CalendarMirrorConflict[];
   profileId: string;
   onClose: () => void;
   onChanged: (calendarId?: string, visible?: boolean) => Promise<void>;
 }) {
   const syncCalendars = useMobileStore((state) => state.syncCalendars);
   const [draft, setDraft] = useState<CalendarDraft | null>(null);
+  const [mirrorGroups, setMirrorGroups] = useState<CalendarMirrorGroup[]>([]);
+  const [mirrorName, setMirrorName] = useState('');
+  const [mirrorCalendarIds, setMirrorCalendarIds] = useState<string[]>([]);
+  const [addingMirror, setAddingMirror] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const active = calendars.filter(calendar => !calendar.archived && !calendar.deletedAt);
   const archived = calendars.filter(calendar => calendar.archived && !calendar.deletedAt);
+  const mirrorEligible = calendars.filter((calendar) => (
+    !calendar.archived
+    && !calendar.deletedAt
+    && !calendar.readOnly
+    && (calendar.location.kind === 'local' || calendar.location.kind === 'hosted')
+  ));
+  useEffect(() => {
+    let active = true;
+    void listProfileCalendarMirrorGroups(profileId)
+      .then((groups) => { if (active) setMirrorGroups(groups); })
+      .catch((reason) => { if (active) setError(String(reason)); });
+    return () => { active = false; };
+  }, [profileId]);
   const locations = useMemo(() => {
     const local = [{ key: `local:${profileId}`, label: 'On this device', location: { kind: 'local', profileId } as CalendarLocation }];
     const hosted = Object.entries(statuses).flatMap(([key, status]) => (
@@ -718,6 +759,97 @@ function CalendarManager({ calendars, statuses, profileId, onClose, onChanged }:
       setSaving(false);
     }
   };
+  const saveMirror = async () => {
+    if (!mirrorName.trim() || mirrorCalendarIds.length < 2) return;
+    const now = new Date().toISOString();
+    const group: CalendarMirrorGroup = {
+      schemaVersion: 1,
+      id: crypto.randomUUID(),
+      name: mirrorName.trim(),
+      enabled: true,
+      members: mirrorCalendarIds.map((calendarId) => {
+        const calendar = mirrorEligible.find((entry) => entry.id === calendarId);
+        if (!calendar || (calendar.location.kind !== 'local' && calendar.location.kind !== 'hosted')) {
+          throw new Error('A selected mirror calendar is no longer available.');
+        }
+        return {
+          id: crypto.randomUUID(),
+          calendarId,
+          location: calendar.location,
+          addedAt: now,
+        };
+      }),
+      createdAt: now,
+      updatedAt: now,
+    };
+    setSaving(true);
+    setError('');
+    try {
+      validateCalendarMirrorGroup(group, calendars);
+      await saveProfileCalendarMirrorGroup(profileId, group);
+      setMirrorGroups((current) => [...current, group]);
+      setMirrorName('');
+      setMirrorCalendarIds([]);
+      setAddingMirror(false);
+      await syncCalendars().catch(() => {});
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const toggleMirror = async (group: CalendarMirrorGroup, enabled: boolean) => {
+    const updated = { ...group, enabled, updatedAt: new Date().toISOString() };
+    setSaving(true);
+    setError('');
+    try {
+      await saveProfileCalendarMirrorGroup(profileId, updated);
+      setMirrorGroups((current) => current.map((entry) => entry.id === group.id ? updated : entry));
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const deleteMirror = async (groupId: string) => {
+    setSaving(true);
+    setError('');
+    try {
+      await deleteProfileCalendarMirrorGroup(profileId, groupId);
+      setMirrorGroups((current) => current.filter((group) => group.id !== groupId));
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const resolveMirror = async (
+    group: CalendarMirrorGroup,
+    conflict: CalendarMirrorConflict,
+    memberId: string,
+  ) => {
+    const origins = Object.values(statuses).flatMap((status) => (
+      status.connected && status.serverUrl && status.user
+        ? [{ serverUrl: status.serverUrl, userId: status.user.id }]
+        : []
+    ));
+    setSaving(true);
+    setError('');
+    try {
+      await resolveMobileCalendarMirrorConflict(group, conflict, memberId, origins);
+      await syncCalendars();
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const selectedMirrorLocations = new Set(mirrorCalendarIds.flatMap((calendarId) => {
+    const calendar = mirrorEligible.find((entry) => entry.id === calendarId);
+    return calendar && (calendar.location.kind === 'local' || calendar.location.kind === 'hosted')
+      ? [calendarMirrorLocationKey({ location: calendar.location })]
+      : [];
+  }));
 
   return <div className="sheet-backdrop" onClick={onClose}>
     <div className="sheet calendar-manager-sheet" role="dialog" aria-label="Manage calendars" onClick={event => event.stopPropagation()}>
@@ -733,6 +865,34 @@ function CalendarManager({ calendars, statuses, profileId, onClose, onChanged }:
         {archived.length > 0 ? <h3>Archived</h3> : null}
         {archived.map(calendar => <CalendarManagerRow key={calendar.id} calendar={calendar} saving={saving} onEdit={startEdit} onArchive={() => void setArchived(calendar, false)} />)}
       </div>
+      <section className="calendar-mirror-manager" aria-labelledby="mobile-calendar-mirrors">
+        <div className="calendar-mirror-manager-head"><h3 id="mobile-calendar-mirrors">Mirrors</h3><button type="button" className="icon-button" aria-label="Add calendar mirror" disabled={saving} onClick={() => setAddingMirror((current) => !current)}><Link2 size={16} /></button></div>
+        {mirrorGroups.map((group) => {
+          const status = mirrorStatuses.find((entry) => entry.groupId === group.id);
+          const conflicts = mirrorConflicts.filter((entry) => entry.groupId === group.id);
+          return <div key={group.id} className="calendar-mirror-manager-group"><div className="calendar-mirror-manager-row">
+            <button type="button" className={group.enabled ? 'active' : ''} aria-pressed={group.enabled} disabled={saving} onClick={() => void toggleMirror(group, !group.enabled)}><Link2 size={15} /></button>
+            <div><strong>{group.name}</strong><small>{status?.state === 'waiting' ? 'Waiting for connection' : status?.state === 'conflict' ? `${status.conflictCount} conflict${status.conflictCount === 1 ? '' : 's'}` : status?.state === 'error' ? status.error ?? 'Sync error' : group.enabled ? 'Ready to sync' : 'Paused'}</small></div>
+            {status?.state === 'waiting' ? <CloudOff size={15} className="calendar-mirror-waiting" /> : <span />}
+            <button type="button" className="icon-button" aria-label={`Delete ${group.name}`} disabled={saving} onClick={() => void deleteMirror(group.id)}><Trash2 size={15} /></button>
+          </div>{conflicts.map((conflict) => <div key={conflict.id} className="calendar-mirror-conflict"><strong>Choose the version to keep</strong>{conflict.versions.map((version) => {
+            const member = group.members.find((entry) => entry.id === version.memberId);
+            const calendar = member && calendars.find((entry) => entry.id === member.calendarId);
+            return <button key={version.memberId} type="button" disabled={saving || !member} onClick={() => void resolveMirror(group, conflict, version.memberId)}><span style={{ background: calendar?.color }} /><span><strong>{version.item?.deletedAt || !version.item ? 'Deleted' : version.item.title}</strong><small>{calendar?.name ?? 'Unavailable calendar'} · {calendar ? calendarOrigin(calendar) : 'Unknown location'}</small></span></button>;
+          })}</div>)}</div>;
+        })}
+        {mirrorGroups.length === 0 && !addingMirror ? <p className="calendar-manager-origin">No mirror groups yet.</p> : null}
+        {addingMirror ? <div className="calendar-manager-editor">
+          <label className="form-field"><span>Name</span><input aria-label="Mirror name" value={mirrorName} onChange={(event) => setMirrorName(event.target.value)} autoFocus /></label>
+          <fieldset className="calendar-mirror-calendar-list"><legend>Calendars</legend>{mirrorEligible.map((calendar) => {
+            const checked = mirrorCalendarIds.includes(calendar.id);
+            const locationKey = calendarMirrorLocationKey({ location: calendar.location as Extract<CalendarLocation, { kind: 'local' | 'hosted' }> });
+            const unavailable = !checked && selectedMirrorLocations.has(locationKey);
+            return <button key={calendar.id} type="button" className={checked ? 'active' : ''} disabled={unavailable || saving} onClick={() => setMirrorCalendarIds((current) => checked ? current.filter((id) => id !== calendar.id) : [...current, calendar.id])}><span style={{ background: calendar.color }} /><strong>{calendar.name}</strong><small>{calendarOrigin(calendar)}</small></button>;
+          })}</fieldset>
+          <div className="form-actions"><button type="button" className="ghost-button" onClick={() => setAddingMirror(false)}>Cancel</button><button type="button" className="primary-button" disabled={saving || !mirrorName.trim() || mirrorCalendarIds.length < 2} onClick={() => void saveMirror()}>{saving ? <Spinner /> : null}Create mirror</button></div>
+        </div> : null}
+      </section>
       {draft ? <div className="calendar-manager-editor">
         <h3>{draft.calendar ? 'Edit calendar' : 'New calendar'}</h3>
         <label className="form-field"><span>Name</span><input aria-label="Calendar name" value={draft.name} onChange={event => setDraft(current => current ? { ...current, name: event.target.value } : current)} autoFocus /></label>

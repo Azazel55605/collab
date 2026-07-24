@@ -2,7 +2,7 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import type { LogicDiagramDocument } from '../../../src/types/logicDiagram';
-import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSyncState } from '../../../src/types/calendar';
+import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarMirrorAnchor, CalendarMirrorConflict, CalendarMirrorGroup, CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSyncState } from '../../../src/types/calendar';
 import type {
   CircuitDcResult,
   CircuitJobOutcome,
@@ -132,6 +132,42 @@ export function removeHostedCalendarCache(
   userId: string,
 ): Promise<CalendarCleanupResult> {
   return invoke('calendar_remove_hosted_cache', { profileId, serverUrl, userId });
+}
+
+export function listProfileCalendarMirrorGroups(profileId: string): Promise<CalendarMirrorGroup[]> {
+  return invoke('calendar_list_mirror_groups', { profileId });
+}
+
+export function saveProfileCalendarMirrorGroup(profileId: string, group: CalendarMirrorGroup): Promise<void> {
+  return invoke('calendar_save_mirror_group', { profileId, group });
+}
+
+export function deleteProfileCalendarMirrorGroup(profileId: string, groupId: string): Promise<void> {
+  return invoke('calendar_delete_mirror_group', { profileId, groupId });
+}
+
+export function listProfileCalendarMirrorAnchors(profileId: string, groupId: string): Promise<CalendarMirrorAnchor[]> {
+  return invoke('calendar_list_mirror_anchors', { profileId, groupId });
+}
+
+export function saveProfileCalendarMirrorAnchors(profileId: string, anchors: CalendarMirrorAnchor[]): Promise<void> {
+  return invoke('calendar_save_mirror_anchors', { profileId, anchors });
+}
+
+export function listProfileCalendarMirrorConflicts(
+  profileId: string,
+  groupId?: string,
+  includeResolved = false,
+): Promise<CalendarMirrorConflict[]> {
+  return invoke('calendar_list_mirror_conflicts', { profileId, groupId: groupId ?? null, includeResolved });
+}
+
+export function saveProfileCalendarMirrorConflict(profileId: string, conflict: CalendarMirrorConflict): Promise<void> {
+  return invoke('calendar_save_mirror_conflict', { profileId, conflict });
+}
+
+export function listProfileCalendarMirrorItems(profileId: string, calendarIds: string[], limit = 5_000): Promise<CalendarItem[]> {
+  return invoke('calendar_list_mirror_items', { profileId, calendarIds, limit });
 }
 
 export function hostedCalendarRequest<T>(

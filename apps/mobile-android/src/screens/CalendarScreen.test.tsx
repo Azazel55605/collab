@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const invoke = vi.fn();
@@ -7,7 +7,13 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(
 import { CalendarScreen } from './CalendarScreen';
 import { DEFAULT_PREFS } from '../lib/theme';
 import { useMobileStore } from '../state/store';
-import type { CalendarDefinition, CalendarItem, CalendarOperationFailure } from '../../../../src/types/calendar';
+import { calendarMirrorItemFingerprint } from '../../../../src/lib/calendarMirroring';
+import type {
+  CalendarDefinition,
+  CalendarItem,
+  CalendarMirrorGroup,
+  CalendarOperationFailure,
+} from '../../../../src/types/calendar';
 
 const calendar: CalendarDefinition = {
   schemaVersion: 1,
@@ -31,6 +37,9 @@ describe('mobile Calendar screen', () => {
       statuses: {},
       calendarSyncing: false,
       calendarConflicts: [],
+      calendarMirrorConflicts: [],
+      calendarMirrorStatuses: [],
+      calendarMirrorProgress: {},
       calendarSyncProgress: {},
       calendarSyncResults: [],
       calendarCacheOrigins: [],
@@ -297,6 +306,106 @@ describe('mobile Calendar screen', () => {
         location: expect.objectContaining({ kind: 'hosted', serverUrl: 'https://collab.example.com' }),
       }),
     }));
+  });
+
+  it('resolves a preserved mirror conflict from calendar management', async () => {
+    const serverUrl = 'https://calendar.example.test';
+    const hostedCalendar: CalendarDefinition = {
+      ...calendar,
+      id: 'hosted-calendar',
+      globalId: 'hosted-global',
+      name: 'Hosted',
+      location: { kind: 'hosted', serverUrl, userId: 'user-1' },
+    };
+    const group: CalendarMirrorGroup = {
+      schemaVersion: 1,
+      id: 'mirror-1',
+      name: 'Personal mirror',
+      enabled: true,
+      members: [
+        { id: 'local-member', calendarId: calendar.id, location: calendar.location as Extract<CalendarDefinition['location'], { kind: 'local' }>, addedAt: calendar.createdAt },
+        { id: 'hosted-member', calendarId: hostedCalendar.id, location: hostedCalendar.location as Extract<CalendarDefinition['location'], { kind: 'hosted' }>, addedAt: calendar.createdAt },
+      ],
+      createdAt: calendar.createdAt,
+      updatedAt: calendar.updatedAt,
+    };
+    const source: CalendarItem = {
+      id: 'local-item',
+      uid: 'shared-item@collab.test',
+      calendarId: calendar.id,
+      kind: 'event',
+      title: 'Keep local version',
+      start: { kind: 'date', date: '2026-07-24' },
+      end: { kind: 'date', date: '2026-07-25' },
+      availability: 'busy',
+      reminders: [],
+      attendees: [],
+      attachments: [],
+      revision: 1,
+      createdAt: calendar.createdAt,
+      updatedAt: calendar.updatedAt,
+    };
+    const hosted = { ...source, id: 'hosted-item', calendarId: hostedCalendar.id, title: 'Hosted version' };
+    const conflict = {
+      id: 'mirror-conflict-1',
+      groupId: group.id,
+      logicalItemKey: `${source.uid}\u0000master`,
+      status: 'unresolved' as const,
+      versions: [
+        { memberId: 'local-member', fingerprint: calendarMirrorItemFingerprint(source), item: source },
+        { memberId: 'hosted-member', fingerprint: calendarMirrorItemFingerprint(hosted), item: hosted },
+      ],
+      detectedAt: calendar.updatedAt,
+    };
+    const syncCalendars = vi.fn().mockResolvedValue(undefined);
+    useMobileStore.setState({
+      statuses: {
+        [serverUrl]: {
+          connected: true,
+          serverUrl,
+          allowInvalidCertificates: false,
+          accessExpiresAt: '2999-01-01T00:00:00.000Z',
+          user: {
+            id: 'user-1',
+            username: 'alice',
+            displayName: 'Alice',
+          },
+        },
+      },
+      calendarMirrorStatuses: [{
+        groupId: group.id,
+        state: 'conflict',
+        missingMemberIds: [],
+        conflictCount: 1,
+      }],
+      calendarMirrorConflicts: [conflict],
+      syncCalendars,
+    });
+    invoke.mockImplementation((command: string) => {
+      if (command === 'calendar_list') return Promise.resolve([calendar, hostedCalendar]);
+      if (command === 'calendar_list_items' || command === 'calendar_list_mirror_items') return Promise.resolve([source, hosted]);
+      if (command === 'calendar_list_mirror_groups') return Promise.resolve([group]);
+      if (
+        command === 'calendar_upsert_item'
+        || command === 'calendar_save_mirror_anchors'
+        || command === 'calendar_save_mirror_conflict'
+      ) return Promise.resolve();
+      return Promise.reject(new Error(`unhandled command ${command}`));
+    });
+
+    render(<CalendarScreen prefs={DEFAULT_PREFS} />);
+    await screen.findAllByRole('button', { name: /Personal/ });
+    fireEvent.click(screen.getByRole('button', { name: 'Manage calendars' }));
+    const manager = await screen.findByRole('dialog', { name: 'Manage calendars' });
+    fireEvent.click(await within(manager).findByRole('button', { name: /Keep local version/ }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(
+      'calendar_save_mirror_conflict',
+      expect.objectContaining({
+        conflict: expect.objectContaining({ id: conflict.id, status: 'resolved' }),
+      }),
+    ));
+    expect(syncCalendars).toHaveBeenCalled();
   });
 
   it('edits a recurring occurrence through the shared exception model', async () => {

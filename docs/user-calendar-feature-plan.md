@@ -56,7 +56,7 @@ models.
 | 3. Multi-server offline sync | Complete | Desktop and Android sync independent hosted replicas with durable cursors, queued/conflicted operations, lifecycle triggers, progress, and guarded cache removal. |
 | 4. Desktop calendar experience | Complete | Global Calendar navigation, everyday event/task workflows, hosted collaboration controls, typed attachments, defaults, and accessibility coverage are implemented. |
 | 5. Android calendar experience | Complete | Phone-first multi-server views, profile storage, offline editing/deletion, recurrence scopes, collaboration, attachments, management, and actionable recovery are implemented. |
-| 6. Cross-location calendar mirroring | Not started | Explicitly mirror calendars across local and hosted locations without server-to-server credentials. |
+| 6. Cross-location calendar mirroring | In progress | Mirror groups, deterministic client bridging, tombstones, isolated retryable failures, global progress visibility, and desktop/Android conflict resolution are implemented; physical-device end-to-end validation remains. |
 | 7. Kanban assigned-task integration | Not started | Surface assigned local and hosted cards as linked calendar tasks with safe write-through behavior. |
 | 8. iCalendar import, export, and subscriptions | Not started | Support `.ics`, subscribed feeds, publishing, deduplication, and bounded refresh. |
 | 9. CalDAV and external two-way sync | Not started | Add standards-based two-way synchronization for capable external calendar applications. |
@@ -329,6 +329,47 @@ Landed in the first implementation slice:
   exceptions, attendee lookup, invitation RSVP, conflict recovery, reminder
   schedule derivation, and Kanban deep links, plus mobile/root TypeScript checks
   and a production mobile frontend build.
+- Started Phase 6 with a shared mirror-group contract and schema-v5 profile
+  migration for groups, per-item/member convergence anchors, and preserved
+  conflict snapshots. Native desktop and Android wrappers expose bounded group,
+  item, anchor, and conflict operations through the existing profile store.
+- Added the shared deterministic mirror planner used by desktop and Android.
+  It enforces one writable calendar per location, waits before writing unless
+  every hosted location is connected, bridges local/server and server/server
+  groups through the signed-in client, records source change IDs and propagation
+  lineage, and propagates deletions as tombstones without echo loops.
+- Concurrent changes after a common anchor now preserve every location's full
+  version as one visible conflict. Desktop users can select the version to keep;
+  resolution revalidates the selected snapshot and all server connections,
+  propagates a deterministic resolution operation, advances anchors, and only
+  then marks the conflict resolved.
+- Added desktop and Android mirror management for creating, pausing, and
+  deleting groups. Both clients expose waiting/conflict attention states, and
+  the Android foreground sync path can perform the same bounded bridge pass as
+  desktop without requiring a vault.
+- Verified the initial Phase 6 slice with shared planner coverage for
+  local/server and server/server convergence, echo suppression, disconnected
+  waiting, concurrent conflict preservation/resolution, and tombstones; native
+  persistence tests; focused desktop/mobile UI suites; root/mobile TypeScript;
+  and `cargo check --workspace`. Remaining work is global sync-menu visibility,
+  broader retry/failure integration coverage, and desktop/physical-device
+  end-to-end validation.
+- Extended Phase 6 with typed per-group checking, applying, waiting, conflict,
+  complete, paused, and error progress. A failed mirror group no longer aborts
+  unrelated groups, and `ready` is published only after every planned write and
+  convergence anchor succeeds.
+- The global hosted-calendar sync popover now rolls mirror activity into its
+  status label and lists operation progress, waiting locations, errors, and
+  preserved conflicts per group. Failed groups have an explicit retry action;
+  conflicts open Calendar directly for resolution.
+- Android now exposes active mirror progress and can resolve preserved
+  conflicts from Calendar management by choosing the version to keep. The
+  shared resolver still requires every hosted location to be connected and
+  revalidates the chosen snapshot before applying anything.
+- Added failure-injection coverage proving that one broken group does not block
+  another and that a retry after a partial multi-destination write reuses the
+  deterministic operation ID, avoids echoing the already-written destination,
+  and commits anchors only after convergence.
 
 ## Current System Constraints
 

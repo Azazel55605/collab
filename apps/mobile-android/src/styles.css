@@ -1680,6 +1680,160 @@ p {
   color: var(--muted-foreground);
   font-size: 0.61rem;
 }
+.calendar-mirror-manager {
+  display: grid;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.calendar-mirror-manager-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.calendar-mirror-manager-head h3 {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.64rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+.calendar-mirror-manager-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 20px 36px;
+  align-items: center;
+  gap: 7px;
+  min-height: 48px;
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.calendar-mirror-manager-group {
+  display: grid;
+  gap: 5px;
+}
+.calendar-mirror-manager-row > button:first-child {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted-foreground);
+}
+.calendar-mirror-manager-row > button:first-child.active {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.calendar-mirror-manager-row > div {
+  min-width: 0;
+}
+.calendar-mirror-manager-row strong,
+.calendar-mirror-manager-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendar-mirror-manager-row strong {
+  font-size: 0.79rem;
+}
+.calendar-mirror-manager-row small {
+  margin-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 0.61rem;
+}
+.calendar-mirror-waiting {
+  color: var(--warning, #eab308);
+}
+.calendar-mirror-conflict {
+  display: grid;
+  gap: 5px;
+  padding: 7px;
+  border: 1px solid color-mix(in oklch, var(--destructive) 45%, var(--border));
+  border-radius: var(--radius-sm);
+}
+.calendar-mirror-conflict > strong {
+  color: var(--destructive);
+  font-size: 0.66rem;
+}
+.calendar-mirror-conflict > button {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+}
+.calendar-mirror-conflict > button > span:first-child {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.calendar-mirror-conflict > button strong,
+.calendar-mirror-conflict > button small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendar-mirror-conflict > button strong {
+  font-size: 0.72rem;
+}
+.calendar-mirror-conflict > button small {
+  margin-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 0.61rem;
+}
+.calendar-mirror-calendar-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.calendar-mirror-calendar-list legend {
+  margin-bottom: 2px;
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+.calendar-mirror-calendar-list button {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+}
+.calendar-mirror-calendar-list button.active {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 9%, transparent);
+}
+.calendar-mirror-calendar-list button:disabled {
+  opacity: 0.45;
+}
+.calendar-mirror-calendar-list button > span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.calendar-mirror-calendar-list button strong {
+  overflow: hidden;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendar-mirror-calendar-list button small {
+  color: var(--muted-foreground);
+  font-size: 0.61rem;
+}
 .calendar-manager-editor {
   display: grid;
   gap: 10px;

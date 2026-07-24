@@ -1,17 +1,19 @@
 use crate::models::{
-    CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarItemKind, CalendarMutation,
+    CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarItemKind,
+    CalendarMirrorAnchor, CalendarMirrorConflict, CalendarMirrorGroup, CalendarMutation,
     CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSyncState,
     CalendarTimeValue, CALENDAR_SCHEMA_VERSION,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
-use sqlx::{Row, SqlitePool};
+use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub const MAX_RANGE_QUERY_ITEMS: u32 = 5_000;
 pub const MAX_SEARCH_QUERY_ITEMS: u32 = 500;
-pub const LOCAL_STORE_SCHEMA_VERSION: i64 = 4;
+pub const LOCAL_STORE_SCHEMA_VERSION: i64 = 5;
+pub const MAX_MIRROR_GROUP_MEMBERS: usize = 8;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CalendarStoreError {
@@ -223,6 +225,63 @@ impl CalendarStore {
                 last_error TEXT
             )
             "#,
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS calendar_mirror_groups (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                enabled INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                data_json TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS calendar_mirror_anchors (
+                group_id TEXT NOT NULL REFERENCES calendar_mirror_groups(id) ON DELETE CASCADE,
+                logical_item_key TEXT NOT NULL,
+                member_id TEXT NOT NULL,
+                item_id TEXT,
+                revision INTEGER,
+                fingerprint TEXT NOT NULL,
+                deleted_at TEXT,
+                updated_at TEXT NOT NULL,
+                data_json TEXT NOT NULL,
+                PRIMARY KEY (group_id, logical_item_key, member_id)
+            )
+            "#,
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS calendar_mirror_anchors_item_idx ON calendar_mirror_anchors(group_id, item_id)",
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS calendar_mirror_conflicts (
+                id TEXT PRIMARY KEY NOT NULL,
+                group_id TEXT NOT NULL REFERENCES calendar_mirror_groups(id) ON DELETE CASCADE,
+                logical_item_key TEXT NOT NULL,
+                status TEXT NOT NULL,
+                detected_at TEXT NOT NULL,
+                resolved_at TEXT,
+                data_json TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS calendar_mirror_conflicts_open_idx ON calendar_mirror_conflicts(group_id, logical_item_key) WHERE status='unresolved'",
         )
         .execute(&mut *tx)
         .await?;
@@ -1331,6 +1390,212 @@ impl CalendarStore {
         }
         Ok(())
     }
+
+    pub async fn list_mirror_groups(&self) -> Result<Vec<CalendarMirrorGroup>, CalendarStoreError> {
+        let rows = sqlx::query(
+            "SELECT data_json FROM calendar_mirror_groups ORDER BY name COLLATE NOCASE, id",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| serde_json::from_str(row.get::<&str, _>("data_json")).map_err(Into::into))
+            .collect()
+    }
+
+    pub async fn upsert_mirror_group(
+        &self,
+        group: &CalendarMirrorGroup,
+    ) -> Result<(), CalendarStoreError> {
+        validate_mirror_group(group)?;
+        let mut tx = self.pool.begin().await?;
+        for member in &group.members {
+            let calendar = sqlx::query(
+                "SELECT location_json, read_only, deleted_at FROM calendars WHERE id=?",
+            )
+            .bind(&member.calendar_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(CalendarStoreError::CalendarNotFound)?;
+            let location: crate::models::CalendarLocation =
+                serde_json::from_str(calendar.get::<&str, _>("location_json"))?;
+            if location != member.location {
+                return Err(CalendarStoreError::Validation(
+                    "mirror member location does not match its calendar".into(),
+                ));
+            }
+            if calendar.get::<bool, _>("read_only")
+                || calendar.get::<Option<String>, _>("deleted_at").is_some()
+            {
+                return Err(CalendarStoreError::ReadOnly);
+            }
+        }
+        sqlx::query(
+            r#"INSERT INTO calendar_mirror_groups
+               (id,name,enabled,created_at,updated_at,data_json)
+               VALUES (?,?,?,?,?,?)
+               ON CONFLICT(id) DO UPDATE SET name=excluded.name,enabled=excluded.enabled,
+                 updated_at=excluded.updated_at,data_json=excluded.data_json"#,
+        )
+        .bind(&group.id)
+        .bind(&group.name)
+        .bind(group.enabled)
+        .bind(&group.created_at)
+        .bind(&group.updated_at)
+        .bind(serde_json::to_string(group)?)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn delete_mirror_group(&self, group_id: &str) -> Result<(), CalendarStoreError> {
+        validate_non_empty(group_id, "mirror group ID")?;
+        sqlx::query("DELETE FROM calendar_mirror_groups WHERE id=?")
+            .bind(group_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_mirror_anchors(
+        &self,
+        group_id: &str,
+    ) -> Result<Vec<CalendarMirrorAnchor>, CalendarStoreError> {
+        validate_non_empty(group_id, "mirror group ID")?;
+        let rows = sqlx::query(
+            "SELECT data_json FROM calendar_mirror_anchors WHERE group_id=? ORDER BY logical_item_key, member_id",
+        )
+        .bind(group_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| serde_json::from_str(row.get::<&str, _>("data_json")).map_err(Into::into))
+            .collect()
+    }
+
+    pub async fn upsert_mirror_anchors(
+        &self,
+        anchors: &[CalendarMirrorAnchor],
+    ) -> Result<(), CalendarStoreError> {
+        let mut tx = self.pool.begin().await?;
+        for anchor in anchors {
+            validate_mirror_anchor(anchor)?;
+            sqlx::query(
+                r#"INSERT INTO calendar_mirror_anchors
+                   (group_id,logical_item_key,member_id,item_id,revision,fingerprint,deleted_at,updated_at,data_json)
+                   VALUES (?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(group_id,logical_item_key,member_id) DO UPDATE SET
+                     item_id=excluded.item_id,revision=excluded.revision,
+                     fingerprint=excluded.fingerprint,deleted_at=excluded.deleted_at,
+                     updated_at=excluded.updated_at,data_json=excluded.data_json"#,
+            )
+            .bind(&anchor.group_id)
+            .bind(&anchor.logical_item_key)
+            .bind(&anchor.member_id)
+            .bind(anchor.item_id.as_deref())
+            .bind(anchor.revision)
+            .bind(&anchor.fingerprint)
+            .bind(anchor.deleted_at.as_deref())
+            .bind(&anchor.updated_at)
+            .bind(serde_json::to_string(anchor)?)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn list_mirror_conflicts(
+        &self,
+        group_id: Option<&str>,
+        include_resolved: bool,
+    ) -> Result<Vec<CalendarMirrorConflict>, CalendarStoreError> {
+        let rows = match (group_id, include_resolved) {
+            (Some(group_id), true) => {
+                validate_non_empty(group_id, "mirror group ID")?;
+                sqlx::query("SELECT data_json FROM calendar_mirror_conflicts WHERE group_id=? ORDER BY detected_at DESC")
+                    .bind(group_id)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+            (Some(group_id), false) => {
+                validate_non_empty(group_id, "mirror group ID")?;
+                sqlx::query("SELECT data_json FROM calendar_mirror_conflicts WHERE group_id=? AND status='unresolved' ORDER BY detected_at DESC")
+                    .bind(group_id)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+            (None, true) => sqlx::query("SELECT data_json FROM calendar_mirror_conflicts ORDER BY detected_at DESC")
+                .fetch_all(&self.pool)
+                .await?,
+            (None, false) => sqlx::query("SELECT data_json FROM calendar_mirror_conflicts WHERE status='unresolved' ORDER BY detected_at DESC")
+                .fetch_all(&self.pool)
+                .await?,
+        };
+        rows.into_iter()
+            .map(|row| serde_json::from_str(row.get::<&str, _>("data_json")).map_err(Into::into))
+            .collect()
+    }
+
+    pub async fn upsert_mirror_conflict(
+        &self,
+        conflict: &CalendarMirrorConflict,
+    ) -> Result<(), CalendarStoreError> {
+        validate_mirror_conflict(conflict)?;
+        sqlx::query(
+            r#"INSERT INTO calendar_mirror_conflicts
+               (id,group_id,logical_item_key,status,detected_at,resolved_at,data_json)
+               VALUES (?,?,?,?,?,?,?)
+               ON CONFLICT(id) DO UPDATE SET status=excluded.status,
+                 resolved_at=excluded.resolved_at,data_json=excluded.data_json"#,
+        )
+        .bind(&conflict.id)
+        .bind(&conflict.group_id)
+        .bind(&conflict.logical_item_key)
+        .bind(&conflict.status)
+        .bind(&conflict.detected_at)
+        .bind(conflict.resolved_at.as_deref())
+        .bind(serde_json::to_string(conflict)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn list_items_for_mirror(
+        &self,
+        calendar_ids: &[String],
+        limit: u32,
+    ) -> Result<Vec<CalendarItem>, CalendarStoreError> {
+        if calendar_ids.len() < 2 || calendar_ids.len() > MAX_MIRROR_GROUP_MEMBERS {
+            return Err(CalendarStoreError::Validation(
+                "mirror item queries require between 2 and 8 calendars".into(),
+            ));
+        }
+        if limit == 0 || limit > MAX_RANGE_QUERY_ITEMS {
+            return Err(CalendarStoreError::Validation(format!(
+                "query limit must be between 1 and {MAX_RANGE_QUERY_ITEMS}"
+            )));
+        }
+        let mut query = QueryBuilder::<Sqlite>::new(
+            "SELECT data_json FROM calendar_items WHERE calendar_id IN (",
+        );
+        let mut separated = query.separated(", ");
+        for id in calendar_ids {
+            validate_non_empty(id, "calendar ID")?;
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(") ORDER BY updated_at, id LIMIT ");
+        query.push_bind(limit + 1);
+        let rows = query.build().fetch_all(&self.pool).await?;
+        if rows.len() > limit as usize {
+            return Err(CalendarStoreError::Validation(format!(
+                "mirror group exceeds the bounded {limit}-item pass limit"
+            )));
+        }
+        rows.into_iter()
+            .map(|row| serde_json::from_str(row.get::<&str, _>("data_json")).map_err(Into::into))
+            .collect()
+    }
 }
 
 fn reject_delete_payload(change: &CalendarRemoteChange) -> Result<(), CalendarStoreError> {
@@ -1413,6 +1678,84 @@ fn validate_item(item: &CalendarItem) -> Result<(), CalendarStoreError> {
     }
 }
 
+fn validate_mirror_group(group: &CalendarMirrorGroup) -> Result<(), CalendarStoreError> {
+    validate_non_empty(&group.id, "mirror group ID")?;
+    validate_non_empty(&group.name, "mirror group name")?;
+    validate_timestamp(&group.created_at, "mirror group createdAt")?;
+    validate_timestamp(&group.updated_at, "mirror group updatedAt")?;
+    if group.schema_version != 1 {
+        return Err(CalendarStoreError::Validation(
+            "unsupported mirror group schema version".into(),
+        ));
+    }
+    if group.members.len() < 2 || group.members.len() > MAX_MIRROR_GROUP_MEMBERS {
+        return Err(CalendarStoreError::Validation(
+            "mirror groups require between 2 and 8 members".into(),
+        ));
+    }
+    let mut member_ids = std::collections::HashSet::new();
+    let mut calendar_ids = std::collections::HashSet::new();
+    let mut location_keys = std::collections::HashSet::new();
+    for member in &group.members {
+        validate_non_empty(&member.id, "mirror member ID")?;
+        validate_non_empty(&member.calendar_id, "mirror member calendar ID")?;
+        validate_timestamp(&member.added_at, "mirror member addedAt")?;
+        if member.location.is_inherently_read_only() {
+            return Err(CalendarStoreError::ReadOnly);
+        }
+        let location_key = serde_json::to_string(&member.location)?;
+        if !member_ids.insert(&member.id)
+            || !calendar_ids.insert(&member.calendar_id)
+            || !location_keys.insert(location_key)
+        {
+            return Err(CalendarStoreError::Validation(
+                "mirror group members must have unique IDs, calendars, and locations".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_mirror_anchor(anchor: &CalendarMirrorAnchor) -> Result<(), CalendarStoreError> {
+    validate_non_empty(&anchor.group_id, "mirror group ID")?;
+    validate_non_empty(&anchor.logical_item_key, "mirror logical item key")?;
+    validate_non_empty(&anchor.member_id, "mirror member ID")?;
+    validate_non_empty(&anchor.fingerprint, "mirror fingerprint")?;
+    validate_timestamp(&anchor.updated_at, "mirror anchor updatedAt")?;
+    if let Some(revision) = anchor.revision {
+        if revision < 0 {
+            return Err(CalendarStoreError::Validation(
+                "mirror anchor revision cannot be negative".into(),
+            ));
+        }
+    }
+    if let Some(deleted_at) = &anchor.deleted_at {
+        validate_timestamp(deleted_at, "mirror anchor deletedAt")?;
+    }
+    Ok(())
+}
+
+fn validate_mirror_conflict(conflict: &CalendarMirrorConflict) -> Result<(), CalendarStoreError> {
+    validate_non_empty(&conflict.id, "mirror conflict ID")?;
+    validate_non_empty(&conflict.group_id, "mirror group ID")?;
+    validate_non_empty(&conflict.logical_item_key, "mirror logical item key")?;
+    validate_timestamp(&conflict.detected_at, "mirror conflict detectedAt")?;
+    if conflict.status != "unresolved" && conflict.status != "resolved" {
+        return Err(CalendarStoreError::Validation(
+            "mirror conflict status is invalid".into(),
+        ));
+    }
+    if conflict.versions.len() < 2 {
+        return Err(CalendarStoreError::Validation(
+            "mirror conflicts require at least two versions".into(),
+        ));
+    }
+    if let Some(resolved_at) = &conflict.resolved_at {
+        validate_timestamp(resolved_at, "mirror conflict resolvedAt")?;
+    }
+    Ok(())
+}
+
 fn parse_date(value: &str) -> Result<i64, CalendarStoreError> {
     let date = NaiveDate::parse_from_str(value, "%Y-%m-%d")
         .map_err(|_| CalendarStoreError::Validation("invalid calendar date".into()))?;
@@ -1485,7 +1828,9 @@ fn parse_query_bound(value: &str) -> Result<i64, CalendarStoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{CalendarLocation, CalendarTimeValue};
+    use crate::models::{
+        CalendarLocation, CalendarMirrorConflictVersion, CalendarMirrorMember, CalendarTimeValue,
+    };
 
     fn calendar(read_only: bool) -> CalendarDefinition {
         CalendarDefinition {
@@ -2088,5 +2433,124 @@ mod tests {
                 .await,
             Err(CalendarStoreError::Validation(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn persists_mirror_groups_anchors_conflicts_and_bounded_items() {
+        let root = tempfile::tempdir().unwrap();
+        let store = CalendarStore::open(root.path(), "profile-1").await.unwrap();
+        let local = calendar(false);
+        let hosted = CalendarDefinition {
+            id: "calendar-2".into(),
+            global_id: "global-2".into(),
+            location: CalendarLocation::Hosted {
+                server_url: "https://calendar.example".into(),
+                user_id: "user-1".into(),
+            },
+            name: "Hosted".into(),
+            ..local.clone()
+        };
+        store.upsert_calendar(&local).await.unwrap();
+        store.upsert_calendar(&hosted).await.unwrap();
+        let group = CalendarMirrorGroup {
+            schema_version: 1,
+            id: "mirror-1".into(),
+            name: "Personal mirror".into(),
+            enabled: true,
+            members: vec![
+                CalendarMirrorMember {
+                    id: "local-member".into(),
+                    calendar_id: local.id.clone(),
+                    location: local.location.clone(),
+                    added_at: "2026-07-24T08:00:00Z".into(),
+                },
+                CalendarMirrorMember {
+                    id: "hosted-member".into(),
+                    calendar_id: hosted.id.clone(),
+                    location: hosted.location.clone(),
+                    added_at: "2026-07-24T08:00:00Z".into(),
+                },
+            ],
+            created_at: "2026-07-24T08:00:00Z".into(),
+            updated_at: "2026-07-24T08:00:00Z".into(),
+        };
+        store.upsert_mirror_group(&group).await.unwrap();
+        assert_eq!(
+            store.list_mirror_groups().await.unwrap(),
+            vec![group.clone()]
+        );
+
+        let anchor = CalendarMirrorAnchor {
+            group_id: group.id.clone(),
+            logical_item_key: "uid-1\0master".into(),
+            member_id: "local-member".into(),
+            item_id: Some("event-1".into()),
+            revision: Some(0),
+            fingerprint: "v1:abc".into(),
+            deleted_at: None,
+            updated_at: "2026-07-24T08:00:00Z".into(),
+        };
+        store
+            .upsert_mirror_anchors(std::slice::from_ref(&anchor))
+            .await
+            .unwrap();
+        assert_eq!(
+            store.list_mirror_anchors(&group.id).await.unwrap(),
+            vec![anchor]
+        );
+
+        let conflict = CalendarMirrorConflict {
+            id: "conflict-1".into(),
+            group_id: group.id.clone(),
+            logical_item_key: "uid-1\0master".into(),
+            status: "unresolved".into(),
+            versions: vec![
+                CalendarMirrorConflictVersion {
+                    member_id: "local-member".into(),
+                    fingerprint: "v1:a".into(),
+                    item: Some(event()),
+                },
+                CalendarMirrorConflictVersion {
+                    member_id: "hosted-member".into(),
+                    fingerprint: "v1:b".into(),
+                    item: None,
+                },
+            ],
+            detected_at: "2026-07-24T08:00:00Z".into(),
+            resolved_at: None,
+        };
+        store.upsert_mirror_conflict(&conflict).await.unwrap();
+        assert_eq!(
+            store
+                .list_mirror_conflicts(Some(&group.id), false)
+                .await
+                .unwrap(),
+            vec![conflict]
+        );
+
+        let local_event = event();
+        store
+            .upsert_item_with_operation(&local_event, &operation())
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .list_items_for_mirror(&[local.id.clone(), hosted.id.clone()], 100)
+                .await
+                .unwrap(),
+            vec![local_event]
+        );
+        store.delete_mirror_group(&group.id).await.unwrap();
+        assert!(store.list_mirror_groups().await.unwrap().is_empty());
+        assert!(store
+            .list_mirror_anchors(&group.id)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(store
+            .list_mirror_conflicts(Some(&group.id), true)
+            .await
+            .unwrap()
+            .is_empty());
     }
 }
