@@ -6,13 +6,13 @@ separate mobile React shell under `apps/mobile-android`.
 
 ## Start Here
 
-- [Android companion plan](./android-companion-app-plan.md) — product scope,
+- [Android companion plan](../plans/android-companion-app-plan.md) — product scope,
   phase status, implementation notes, and remaining mobile work.
 - [Android companion build](./android-companion-build.md) — local SDK/JDK/NDK
   setup, debug builds, APK builds, and troubleshooting.
 - [Android Play release](./android-play-release.md) — upload keystore, AAB
   signing, Play Console rollout, and policy checklist.
-- [Versioning and releases](./versioning-and-releases.md) — how the mobile
+- [Versioning and releases](../build/versioning-and-releases.md) — how the mobile
   `versionName` and Play `versionCode` are decoupled from desktop, server, and
   admin-web versions.
 

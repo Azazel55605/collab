@@ -2,7 +2,7 @@
 
 This covers going from the source tree to a signed release on the Google Play
 Store. It assumes you can already build the app locally (see
-`docs/android-companion-build.md`) and have a Google Play Developer account.
+`docs/mobile/android-companion-build.md`) and have a Google Play Developer account.
 
 The app's package name (Play "application ID") is **`com.collab.companion`**
 (the `applicationId` in `src-tauri/gen/android/app/build.gradle.kts`). **This is
@@ -89,7 +89,7 @@ Play distributes **App Bundles**, not APKs:
 
 ```bash
 # Make sure JAVA_HOME points at JDK 17/21 and the Android SDK/NDK env is set
-# (see docs/android-companion-build.md).
+# (see docs/mobile/android-companion-build.md).
 pnpm android:build:aab
 ```
 

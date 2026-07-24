@@ -49,5 +49,5 @@ flatpak run com.azazel.collab
 
 GitHub Actions builds a testable Flatpak bundle artifact from the same manifest. This is intended for Phase 2 validation before deciding whether to publish to Flathub or your own Flatpak repository.
 
-Distribution planning notes for those later phases live in
-[docs/flatpak-distribution-plan.md](./flatpak-distribution-plan.md).
+Distribution planning notes for those later phases live in the
+[Flatpak Distribution Plan](../plans/flatpak-distribution-plan.md).

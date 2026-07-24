@@ -14,7 +14,7 @@ val tauriProperties = Properties().apply {
 }
 
 // Release signing is driven by a git-ignored `key.properties` in the gen/android
-// root (see docs/android-play-release.md). When it is absent (dev machines / CI
+// root (see docs/mobile/android-play-release.md). When it is absent (dev machines / CI
 // without secrets) the release build stays unsigned exactly as before, so nothing
 // breaks; when present the release AAB/APK is signed with the upload key.
 val keyProperties = Properties().apply {

@@ -277,7 +277,7 @@ Dockerfile.server     Cached multi-stage server and admin-web image
 - `curl` for server smoke tests
 
 Linux packaging and install notes live in
-[docs/linux-install.md](./docs/linux-install.md).
+[docs/build/linux-install.md](./docs/build/linux-install.md).
 
 ## Build Instructions
 
@@ -451,7 +451,7 @@ acceptance rather than a silent suppression: the machine-readable ignore list
 lives in [`.cargo/audit.toml`](./.cargo/audit.toml), and every entry there has a
 matching explanation — dependency path, why it is not reachable, why it is
 unfixed, and the condition to drop it — in
-[docs/security-advisories.md](./docs/security-advisories.md).
+[docs/build/security-advisories.md](./docs/build/security-advisories.md).
 
 Currently accepted: `RUSTSEC-2023-0071` (`rsa`, reachable only through the
 unused MySQL backend) and `RUSTSEC-2026-0194` / `RUSTSEC-2026-0195` (`quick-xml`,
@@ -464,7 +464,9 @@ deliberately kept out of the ignore list. Keep the tracking doc in sync whenever
 
 ### Project And Contribution Guides
 
-- [Security advisory tracking](./docs/security-advisories.md) - accepted/ignored dependency advisories and why they are unresolved
+- [Documentation index](./docs/README.md) - plans, archived work, and platform/build documentation
+- [Open development work](./docs/plans/open-development-work.md) - consolidated status and remaining work across active, testing, planned, and deferred projects
+- [Security advisory tracking](./docs/build/security-advisories.md) - accepted/ignored dependency advisories and why they are unresolved
 
 ### Collaboration Server
 
@@ -486,11 +488,11 @@ deliberately kept out of the ignore list. Keep the tracking doc in sync whenever
 
 ### Packaging And Installation
 
-- [Versioning and releases](./docs/versioning-and-releases.md)
-- [Mobile companion docs](./docs/mobile.md)
-- [Linux installation](./docs/linux-install.md)
-- [macOS installation](./docs/macos-install.md) - unsigned Apple Silicon build and the Gatekeeper workaround
-- [Flatpak guide](./docs/flatpak.md)
+- [Versioning and releases](./docs/build/versioning-and-releases.md)
+- [Mobile companion docs](./docs/mobile/README.md)
+- [Linux installation](./docs/build/linux-install.md)
+- [macOS installation](./docs/build/macos-install.md) - unsigned Apple Silicon build and the Gatekeeper workaround
+- [Flatpak guide](./docs/build/flatpak.md)
 
 ## Notes For Contributors
 

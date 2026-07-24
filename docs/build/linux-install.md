@@ -37,9 +37,10 @@ sudo zypper install ./collab-<version>.x86_64.rpm
 
 ### Arch Linux
 
-An AUR source package is planned. Draft packaging lives in
-[packaging/aur/collab](../packaging/aur/collab)
-until the AUR account and package repository are ready.
+An AUR source package is planned. See the
+[stable AUR package guide](./aur-stable.md); draft packaging metadata lives in
+[`packaging/aur/collab`](../../packaging/aur/collab) until the AUR account and
+package repository are ready.
 
 Until then, use the Flatpak bundle or the portable tarball. Arch systems need the
 normal Tauri runtime stack, especially `webkit2gtk-4.1` and `gtk3`.
@@ -83,7 +84,7 @@ flatpak install --user ./collab-flatpak-x86_64.flatpak
 
 If `collab` is later distributed through Flathub or a custom Flatpak repository, normal `flatpak update com.azazel.collab` updates will work through that configured remote.
 
-Flatpak development/build notes are in [docs/flatpak.md](./flatpak.md).
+Flatpak development/build notes are in the [Flatpak guide](./flatpak.md).
 
 ## AppImage
 

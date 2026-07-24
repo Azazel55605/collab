@@ -4,7 +4,7 @@ This document tracks every dependency security advisory that the project's
 automated scans currently surface but that is **not yet resolved by an upgrade**,
 along with the reasoning for each accepted risk. It is the human-readable
 companion to the machine-readable ignore list in
-[`.cargo/audit.toml`](../.cargo/audit.toml): every advisory ignored there must
+[`.cargo/audit.toml`](../../.cargo/audit.toml): every advisory ignored there must
 have a corresponding entry here explaining *why* and *what would let us drop the
 ignore*.
 

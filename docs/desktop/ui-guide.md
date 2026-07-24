@@ -1,6 +1,9 @@
-# UI_GUIDE.md
+# UI Guide
 
-Visual language guide for the Collab application. This file is the UI counterpart to `CODEBASE.md`: `CODEBASE.md` explains how the project is organized, while this guide explains how the product should look, feel, and behave.
+Visual language guide for the Collab application. This file is the UI
+counterpart to the [Codebase Reference](./codebase.md): the codebase reference
+explains how the project is organized, while this guide explains how the
+product should look, feel, and behave.
 
 Use this document whenever adding or changing UI. If a new pattern is important enough to repeat, update this file in the same change.
 
@@ -292,7 +295,7 @@ Reserve destructive color for:
 
 When making UI changes:
 
-1. Check `CODEBASE.md` for the correct structural home.
+1. Check the [Codebase Reference](./codebase.md) for the correct structural home.
 2. Check this file for the intended visual and interaction language.
 3. Reuse existing tokens, layout shells, and interaction patterns.
 4. Verify the result in context, not just in isolation.
@@ -300,6 +303,6 @@ When making UI changes:
 
 ## Documentation Links
 
-- Structural reference: `CODEBASE.md`
+- Structural reference: [Codebase Reference](./codebase.md)
 - Agent/project implementation rules: `AGENTS.md`
 - Additional model-facing guidance: `CLAUDE.md`

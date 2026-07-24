@@ -198,7 +198,8 @@ Landed as `src/lib/documentSessionController.ts`:
   offline-queued surfacing, live disable/ignore, external-mutation re-read, and
   dirty merge. Existing `documentSession.test.tsx` still green.
 
-Phase 2 is in progress and should continue one document surface at a time.
+Phase 2 was completed one document surface at a time; the migration record
+below is retained as implementation history.
 
 ## Phase 2: Safe Reload Policy Rollout
 

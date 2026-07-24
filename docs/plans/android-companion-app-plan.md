@@ -169,7 +169,7 @@ Current implementation notes:
 - Added a native server health command, native auth probe, and app-data
   persistence probe that reports whether a previous value was restored.
 - Added Android build scripts and detailed APK build instructions in
-  `docs/android-companion-build.md`.
+  `docs/mobile/android-companion-build.md`.
 - Verified on a physical Android device with a debug APK and reachable hosted
   test server.
 - Android refresh-token persistence started as a compile-safe placeholder during
@@ -677,8 +677,10 @@ Candidates:
 
 - Broader live editing for rich file types if mobile authoring demand justifies
   it.
-- Push notifications for mentions/activity.
-- Android background sync with OS constraints respected.
+- Push notifications for mentions/activity, tracked cross-platform in the
+  [Notification System Plan](./notification-system-plan.md).
+- Android background sync with OS constraints respected, tracked
+  cross-platform in the [Background Running Plan](./background-running-plan.md).
 - iOS feasibility and build pipeline.
 - Better PDF search/annotations.
 - Lightweight canvas or logic editing, only if mobile usage justifies it.

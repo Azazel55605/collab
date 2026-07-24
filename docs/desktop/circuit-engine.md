@@ -65,4 +65,6 @@ public circuit and result types are kept independent of that backend so later
 sparse, transient, AC, and mixed-signal solvers can replace or extend
 it without changing callers.
 
-See `docs/electronic-circuit-simulation-plan.md` for scope and sequencing.
+See the
+[Electronic Circuit Simulation Plan](../plans/electronic-circuit-simulation-plan.md)
+for scope and sequencing.

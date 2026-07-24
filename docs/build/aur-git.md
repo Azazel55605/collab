@@ -7,7 +7,7 @@ until the items below are resolved.
 
 ## Relationship to the stable `collab` package
 
-- `collab` (see `../collab/`) builds an immutable upstream release tarball with a
+- `collab` (see the [stable package guide](./aur-stable.md)) builds an immutable upstream release tarball with a
   real checksum. `collab-git` builds from the live Git repository.
 - The two are mutually exclusive: `collab-git` declares `provides=('collab')` and
   `conflicts=('collab')`, so only one can be installed at a time.

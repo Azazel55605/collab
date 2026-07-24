@@ -29,14 +29,11 @@ public/ocr-assets/
 *.sw?
 features - bugs.md
 CLAUDE.md
-CODEBASE.md
 AGENTS.md
 .codex
 .flatpak-builder/
 flatpak-build/
 flatpak-repo/
 *.flatpak
-flatpak-distribution-plan.md
 .directory
 COLLAB_SERVER_PERMISSIONSYSTEM.md
-docs/ocr-implementation-plan.md

@@ -15,7 +15,7 @@ Settings category provides browser-local theme, accent-color, and
 compact-density preferences. Appearance preferences may use local storage;
 authentication state and secrets must never do so.
 
-Per `UI_GUIDE.md`, the admin interface must not fall back to browser-default
+Per the [UI Guide](../desktop/ui-guide.md), the admin interface must not fall back to browser-default
 controls: confirmation and text-input flows use the shared `ConfirmDialog` and
 `PromptDialog` primitives instead of `window.confirm`/`window.prompt`, and
 option pickers use the shared `SelectMenu` popover listbox instead of native

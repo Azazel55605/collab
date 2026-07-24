@@ -63,6 +63,11 @@ models.
 | 10. Admin overview, privacy verification, and hardening | Not started | Ship aggregate-only administration, migration, load, security, and recovery coverage. |
 | 11. Reminder delivery and notifications | Not started | Activate desktop and Android notification scheduling through the calendar reminder connectors after the core calendar implementation. |
 
+Phase 11 is detailed in the cross-platform
+[Notification System Plan](./notification-system-plan.md), with lifecycle and
+scheduled execution supplied by the
+[Background Running Plan](./background-running-plan.md).
+
 ### Implementation Status (2026-07-23)
 
 Landed in the first implementation slice:
@@ -1286,7 +1291,8 @@ Tasks:
   limits.
 - Run privacy response audits, logs review, fuzz/property tests for recurrence
   and iCalendar, mobile lifecycle tests, and multi-server soak tests.
-- Update `AGENTS.md`, `CODEBASE.md`, server protocol, backup, security, and mobile
+- Update `AGENTS.md`, `docs/desktop/codebase.md`, server protocol, backup,
+  security, and mobile
   documentation when implementation lands.
 
 Acceptance criteria:
