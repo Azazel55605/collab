@@ -38,6 +38,7 @@ import {
   deleteProfileCalendarItem,
   discardProfileCalendarOperation,
   hostedCalendarRequest,
+  hostedRequest,
   hostedUserDirectory,
   listProfileCalendarItems,
   listProfileCalendarMirrorGroups,
@@ -80,6 +81,7 @@ import {
   reconcileCalendarReminders,
 } from '../../../../src/lib/calendarReminderScheduler';
 import { normalizeKanbanBoard } from '../../../../src/types/kanban';
+import { calendarTaskToKanbanPatch } from '../../../../src/lib/kanbanCalendarProjection';
 import {
   calendarItemRange,
   calendarTimeValueKey,
@@ -315,8 +317,12 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
   const currentUserIds = useMemo(() => new Set(Object.values(statuses).flatMap(status => status.user ? [status.user.id] : [])), [statuses]);
   const projectedItems = useMemo(() => {
     const range = monthRange(anchor);
-    return queryCalendarItems(sourceItems, { ...range, limit: 5_000 });
-  }, [anchor, sourceItems]);
+    return queryCalendarItems(sourceItems, {
+      ...range,
+      limit: 5_000,
+      includeUnscheduledTasks: view === 'tasks',
+    });
+  }, [anchor, sourceItems, view]);
   const visibleItems = useMemo(
     () => projectedItems.filter((item) => visibleIds.has(item.calendarId) && (
       prefs.calendarShowDeclined
@@ -479,7 +485,10 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
     {editor ? <MobileItemEditor
       request={editor}
       date={selectedDate}
-      calendars={calendars.filter((calendar) => !calendar.archived && !calendar.readOnly)}
+      calendars={calendars.filter((calendar) => (
+        !calendar.archived
+        && (!calendar.readOnly || calendar.id === editor.item?.calendarId)
+      ))}
       sourceItems={sourceItems}
       profileId={profileId}
       prefs={prefs}
@@ -1206,8 +1215,12 @@ function MobileItemEditor({ request, date, calendars, sourceItems, profileId, pr
   const [kind, setKind] = useState<CalendarItemKind>(request.kind);
   const [title, setTitle] = useState(request.item?.title ?? '');
   const [calendarId, setCalendarId] = useState(request.item?.calendarId ?? calendars[0]?.id ?? '');
-  const [startDate, setStartDate] = useState(request.item ? itemDate(request.item) : date);
-  const [endDate, setEndDate] = useState(request.item?.kind === 'event' && request.item.end.kind === 'date' ? addDays(request.item.end.date, -1) : request.item ? itemDate(request.item) : date);
+  const [startDate, setStartDate] = useState(request.item?.kind === 'task'
+    ? request.item.start?.kind === 'date' ? request.item.start.date : request.item.start?.dateTime.slice(0, 10) ?? ''
+    : request.item ? itemDate(request.item) : date);
+  const [endDate, setEndDate] = useState(request.item?.kind === 'task'
+    ? request.item.due?.kind === 'date' ? request.item.due.date : request.item.due?.dateTime.slice(0, 10) ?? ''
+    : request.item?.kind === 'event' && request.item.end.kind === 'date' ? addDays(request.item.end.date, -1) : request.item ? itemDate(request.item) : date);
   const existingStart = request.item?.kind === 'event' ? request.item.start : request.item?.kind === 'task' ? request.item.start ?? request.item.due : undefined;
   const existingEnd = request.item?.kind === 'event' ? request.item.end : request.item?.kind === 'task' ? request.item.due ?? request.item.start : undefined;
   const [allDay, setAllDay] = useState(existingStart ? existingStart.kind !== 'dateTime' : false);
@@ -1233,9 +1246,27 @@ function MobileItemEditor({ request, date, calendars, sourceItems, profileId, pr
   const [error, setError] = useState('');
   const syncCalendars = useMobileStore((state) => state.syncCalendars);
   const selectedCalendar = calendars.find(entry => entry.id === calendarId);
+  const kanbanBound = request.item?.sourceBinding?.kind === 'kanban';
 
   const persistItem = async (item: CalendarItem) => {
     const existing = sourceItems.find(entry => entry.id === item.id);
+    if (item.kind === 'task' && existing?.kind === 'task'
+      && existing.sourceBinding?.kind === 'kanban') {
+      const binding = existing.sourceBinding;
+      if (!binding.serverUrl || !binding.vaultId) {
+        throw new Error('The source Kanban vault is not available on this device.');
+      }
+      await hostedRequest(
+        binding.serverUrl,
+        'POST',
+        `/api/v1/vaults/${encodeURIComponent(binding.vaultId)}/files/${encodeURIComponent(binding.fileId)}/kanban-cards/${encodeURIComponent(binding.cardId)}/calendar`,
+        {
+          expectedSourceRevision: binding.sourceRevision ?? 0,
+          ...calendarTaskToKanbanPatch(item),
+        },
+      );
+      return;
+    }
     const normalized = normalizeCalendarItem({
       ...item,
       revision: existing ? existing.revision + 1 : item.revision,
@@ -1276,19 +1307,23 @@ function MobileItemEditor({ request, date, calendars, sourceItems, profileId, pr
         createdAt: request.item?.createdAt ?? now, updatedAt: now,
       };
       const timeZone = calendar.defaultTimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-      const startValue = allDay
-        ? { kind: 'date' as const, date: startDate }
-        : { kind: 'dateTime' as const, dateTime: new Date(`${startDate}T${startTime}`).toISOString(), timeZone };
-      const endValue = allDay
-        ? { kind: 'date' as const, date: endDate }
-        : { kind: 'dateTime' as const, dateTime: new Date(`${endDate}T${endTime}`).toISOString(), timeZone };
+      const startValue = startDate
+        ? allDay
+          ? { kind: 'date' as const, date: startDate }
+          : { kind: 'dateTime' as const, dateTime: new Date(`${startDate}T${startTime}`).toISOString(), timeZone }
+        : undefined;
+      const endValue = endDate
+        ? allDay
+          ? { kind: 'date' as const, date: endDate }
+          : { kind: 'dateTime' as const, dateTime: new Date(`${endDate}T${endTime}`).toISOString(), timeZone }
+        : undefined;
       const item = kind === 'event'
-        ? normalizeCalendarItem({ ...base, kind, start: startValue, end: allDay ? { kind: 'date', date: addDays(endDate, 1) } : endValue, location: location.trim() ? { label: location.trim(), address: location.trim() } : undefined, availability: request.item?.kind === 'event' ? request.item.availability : 'busy' })
+        ? normalizeCalendarItem({ ...base, kind, start: startValue!, end: allDay ? { kind: 'date', date: addDays(endDate, 1) } : endValue!, location: location.trim() ? { label: location.trim(), address: location.trim() } : undefined, availability: request.item?.kind === 'event' ? request.item.availability : 'busy' })
         : kind === 'task'
           ? normalizeCalendarItem({ ...base, kind, start: startValue, due: endValue, status: taskStatus, priority: request.item?.kind === 'task' ? request.item.priority : undefined, completedAt: taskStatus === 'completed' ? (request.item?.kind === 'task' ? request.item.completedAt : undefined) ?? now : undefined })
           : normalizeCalendarItem({ ...base, kind, date: startDate, birthYear: request.item?.kind === 'birthday' ? request.item.birthYear : undefined });
       let planned = [item];
-      if (request.item?.recurrenceId && request.item.recurrenceSeriesId) {
+      if (!kanbanBound && request.item?.recurrenceId && request.item.recurrenceSeriesId) {
         const master = sourceItems.find(entry => entry.id === request.item?.recurrenceSeriesId);
         if (!master?.recurrence) throw new Error('The recurring series is not available in the local cache.');
         const recurrenceKey = calendarTimeValueKey(request.item.recurrenceId);
@@ -1363,39 +1398,43 @@ function MobileItemEditor({ request, date, calendars, sourceItems, profileId, pr
       setSaving(false);
     }
   };
-
   return <div className="sheet-backdrop" onClick={onClose}><div className="sheet calendar-item-sheet" role="dialog" aria-label={request.item ? 'Edit calendar item' : 'New calendar item'} onClick={event => event.stopPropagation()}>
     <div className="sheet-handle" />
     <div className="sheet-head"><strong>{request.item ? 'Edit item' : 'New item'}</strong><button type="button" className="icon-button" aria-label="Close editor" onClick={onClose}><X size={18} /></button></div>
     {error ? <Banner tone="error">{error}</Banner> : null}
+    {kanbanBound ? <Banner tone="info">Dates, completion, and supported recurrence write back to Kanban. Other details remain source-owned.</Banner> : null}
     <div className="calendar-kind-picker" role="group" aria-label="Item type">{(['event', 'task', 'birthday'] as CalendarItemKind[]).map(value => <button key={value} type="button" className={kind === value ? 'active' : ''} disabled={!!request.item} onClick={() => setKind(value)}>{value === 'event' ? <CalendarDays size={15} /> : value === 'task' ? <ClipboardCheck size={15} /> : <Gift size={15} />}{value}</button>)}</div>
-    <label className="form-field"><span>Title</span><input value={title} onChange={event => setTitle(event.target.value)} autoFocus /></label>
-    <fieldset className="calendar-editor-calendars"><legend>Calendar</legend>{calendars.map(calendar => <button key={calendar.id} type="button" className={calendarId === calendar.id ? 'active' : ''} aria-pressed={calendarId === calendar.id} onClick={() => setCalendarId(calendar.id)}><span style={{ background: calendar.color }} /><span>{calendar.name}</span><small>{calendarOrigin(calendar)}</small></button>)}</fieldset>
-    {kind !== 'birthday' ? <button type="button" role="switch" aria-checked={allDay} className="calendar-all-day-toggle" onClick={() => setAllDay(value => !value)}><span aria-hidden><i /></span><b>All day</b></button> : null}
-    <label className="form-field"><span>{kind === 'birthday' ? 'Birthday' : 'Start'}</span><DateField value={startDate} onChange={value => value && setStartDate(value)} />{kind !== 'birthday' && !allDay ? <TimeField label="Start time" format={prefs.calendarTimeFormat} value={startTime} onChange={(value) => {
+    <label className="form-field"><span>Title</span><input value={title} onChange={event => setTitle(event.target.value)} autoFocus disabled={kanbanBound} /></label>
+    <fieldset className="calendar-editor-calendars" disabled={kanbanBound}><legend>Calendar</legend>{calendars.map(calendar => <button key={calendar.id} type="button" className={calendarId === calendar.id ? 'active' : ''} aria-pressed={calendarId === calendar.id} onClick={() => setCalendarId(calendar.id)}><span style={{ background: calendar.color }} /><span>{calendar.name}</span><small>{calendarOrigin(calendar)}</small></button>)}</fieldset>
+    {kind !== 'birthday' ? <button type="button" role="switch" aria-checked={allDay} className="calendar-all-day-toggle" disabled={kanbanBound} onClick={() => setAllDay(value => !value)}><span aria-hidden><i /></span><b>All day</b></button> : null}
+    <label className="form-field"><span>{kind === 'birthday' ? 'Birthday' : 'Start'}</span><DateField value={startDate || undefined} onChange={value => {
+      if (value || kanbanBound) setStartDate(value ?? '');
+    }} />{kind !== 'birthday' && !allDay && startDate ? <TimeField label="Start time" format={prefs.calendarTimeFormat} value={startTime} onChange={(value) => {
       setStartTime(value);
       setEndTime(addMinutes(value, prefs.calendarDefaultDurationMinutes));
     }} /> : null}</label>
-    {kind !== 'birthday' ? <label className="form-field"><span>{kind === 'task' ? 'Deadline' : 'End'}</span><DateField value={endDate} min={startDate} onChange={value => value && setEndDate(value)} /></label> : null}
-    {kind !== 'birthday' && !allDay ? <div className="form-field"><span>{kind === 'task' ? 'Deadline time' : 'End time'}</span><TimeField label={kind === 'task' ? 'Deadline time' : 'End time'} format={prefs.calendarTimeFormat} value={endTime} onChange={setEndTime} /></div> : null}
-    {kind === 'task' ? <fieldset className="calendar-editor-options"><legend>Status</legend>{(['needs-action', 'in-progress', 'completed', 'cancelled'] as CalendarTaskStatus[]).map(value => <button key={value} type="button" className={taskStatus === value ? 'active' : ''} onClick={() => setTaskStatus(value)}>{value.replace('-', ' ')}</button>)}</fieldset> : null}
+    {kind !== 'birthday' ? <label className="form-field"><span>{kind === 'task' ? 'Deadline' : 'End'}</span><DateField value={endDate || undefined} min={startDate || undefined} onChange={value => {
+      if (value || kanbanBound) setEndDate(value ?? '');
+    }} /></label> : null}
+    {kind !== 'birthday' && !allDay && endDate ? <div className="form-field"><span>{kind === 'task' ? 'Deadline time' : 'End time'}</span><TimeField label={kind === 'task' ? 'Deadline time' : 'End time'} format={prefs.calendarTimeFormat} value={endTime} onChange={setEndTime} /></div> : null}
+    {kind === 'task' ? <fieldset className="calendar-editor-options"><legend>Status</legend>{(['needs-action', 'in-progress', 'completed', 'cancelled'] as CalendarTaskStatus[]).filter(value => !kanbanBound || value === 'needs-action' || value === 'completed').map(value => <button key={value} type="button" className={taskStatus === value ? 'active' : ''} onClick={() => setTaskStatus(value)}>{value.replace('-', ' ')}</button>)}</fieldset> : null}
     {kind !== 'birthday' ? <><fieldset className="calendar-editor-options"><legend>Repeats</legend>{RECURRENCE_OPTIONS.map(option => <button key={option.value || 'none'} type="button" className={recurrence === option.value ? 'active' : ''} onClick={() => setRecurrence(option.value)}>{option.label}</button>)}</fieldset>{recurrence === 'CUSTOM' ? <label className="form-field"><span>Recurrence rule</span><input aria-label="Recurrence rule" value={customRecurrence} onChange={event => setCustomRecurrence(event.target.value)} placeholder="FREQ=WEEKLY;INTERVAL=2" /></label> : null}{request.item?.recurrenceId ? <fieldset className="calendar-editor-options"><legend>Apply changes to</legend>{([
       ['occurrence', 'This occurrence'],
       ['following', 'This and following'],
       ['series', 'Entire series'],
     ] as const).map(([value, label]) => <button key={value} type="button" className={editScope === value ? 'active' : ''} onClick={() => setEditScope(value)}>{label}</button>)}</fieldset> : null}</> : null}
     {kind === 'event' ? <label className="form-field"><span>Location</span><div className="calendar-location-field"><MapPin size={16} aria-hidden /><input aria-label="Location" value={location} onChange={event => setLocation(event.target.value)} placeholder="Place or address" /><button type="button" aria-label="Open location in maps" disabled={!location.trim()} onClick={() => void openExternalUrl(`geo:0,0?q=${encodeURIComponent(location.trim())}`).catch(reason => setError(String(reason)))}><MapPin size={16} /></button></div></label> : null}
-    <fieldset className="calendar-editor-options"><legend>Reminders</legend>{REMINDER_OPTIONS.map(option => {
+    {!kanbanBound ? <fieldset className="calendar-editor-options"><legend>Reminders</legend>{REMINDER_OPTIONS.map(option => {
       const active = option.value < 0 ? reminders.length === 0 : reminders.includes(option.value);
       return <button key={option.value} type="button" className={active ? 'active' : ''} onClick={() => setReminders(current => {
         if (option.value < 0) return [];
         return current.includes(option.value) ? current.filter(value => value !== option.value) : [...current, option.value].sort((left, right) => left - right);
       })}>{option.label}</button>;
-    })}<div className="calendar-custom-reminder"><input aria-label="Custom reminder minutes" inputMode="numeric" type="number" min={1} max={525600} value={customReminder} onChange={event => setCustomReminder(event.target.value)} /><span>minutes before</span><button type="button" disabled={!Number(customReminder) || reminders.includes(Number(customReminder))} onClick={() => setReminders(current => [...current, Number(customReminder)].sort((left, right) => left - right))}>Add</button></div></fieldset>
-    {kind !== 'birthday' ? <label className="form-field"><span>Description</span><textarea rows={4} value={description} onChange={event => setDescription(event.target.value)} /></label> : null}
+    })}<div className="calendar-custom-reminder"><input aria-label="Custom reminder minutes" inputMode="numeric" type="number" min={1} max={525600} value={customReminder} onChange={event => setCustomReminder(event.target.value)} /><span>minutes before</span><button type="button" disabled={!Number(customReminder) || reminders.includes(Number(customReminder))} onClick={() => setReminders(current => [...current, Number(customReminder)].sort((left, right) => left - right))}>Add</button></div></fieldset> : null}
+    {kind !== 'birthday' && !kanbanBound ? <label className="form-field"><span>Description</span><textarea rows={4} value={description} onChange={event => setDescription(event.target.value)} /></label> : null}
     {kind === 'event' ? <MobileAttendeeEditor calendar={selectedCalendar} attendees={attendees} onChange={setAttendees} /> : null}
-    {kind !== 'birthday' ? <MobileAttachmentEditor calendar={selectedCalendar} attachments={attachments} onChange={setAttachments} onOpen={onOpenAttachment} /> : null}
-    <div className="form-actions calendar-item-actions">{request.item ? <button type="button" className="ghost-button destructive" disabled={saving} onClick={() => void remove()}><Trash2 size={15} />Delete</button> : null}<span /><button type="button" className="ghost-button" onClick={onClose}>Cancel</button><button type="button" className="primary-button" disabled={saving || !title.trim() || !calendarId || (recurrence === 'CUSTOM' && !customRecurrence.trim())} onClick={() => void save()}>{saving ? <Spinner /> : null}{request.item ? 'Save' : 'Create'}</button></div>
+    {kind !== 'birthday' && !kanbanBound ? <MobileAttachmentEditor calendar={selectedCalendar} attachments={attachments} onChange={setAttachments} onOpen={onOpenAttachment} /> : null}
+    <div className="form-actions calendar-item-actions">{request.item && !kanbanBound ? <button type="button" className="ghost-button destructive" disabled={saving} onClick={() => void remove()}><Trash2 size={15} />Delete</button> : null}<span /><button type="button" className="ghost-button" onClick={onClose}>Cancel</button><button type="button" className="primary-button" disabled={saving || !title.trim() || !calendarId || (recurrence === 'CUSTOM' && !customRecurrence.trim())} onClick={() => void save()}>{saving ? <Spinner /> : null}{request.item ? 'Save' : 'Create'}</button></div>
   </div></div>;
 }
 

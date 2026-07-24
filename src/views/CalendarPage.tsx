@@ -94,6 +94,7 @@ import {
   type CalendarMirrorConflict,
   type CalendarMirrorGroup,
   type CalendarMirrorGroupStatus,
+  type CalendarTask,
   type CalendarTaskPriority,
   type CalendarTaskStatus,
 } from '../types/calendar';
@@ -304,9 +305,9 @@ export default function CalendarPage() {
   useEffect(() => { void store.initialize(profileId); }, [profileId, store.initialize]);
   useEffect(() => {
     if (store.profileId === profileId && store.calendars.length > 0) {
-      void store.loadRange(range.from, range.to);
+      void store.loadRange(range.from, range.to, viewMode === 'tasks');
     }
-  }, [profileId, range.from, range.to, store.calendars.length, store.loadRange, store.profileId]);
+  }, [profileId, range.from, range.to, store.calendars.length, store.loadRange, store.profileId, viewMode]);
   useEffect(() => {
     if (!searchOpen || searchQuery.trim().length < 2) {
       setSearchResults([]);
@@ -430,6 +431,10 @@ export default function CalendarPage() {
   };
   const selectedDay = dateFromKey(selectedDate);
   const selectedItems = visibleItems.filter((item) => itemOccursOn(item, selectedDay));
+  const kanbanEditorItem = editorRequest?.item?.kind === 'task'
+    && editorRequest.item.sourceBinding?.kind === 'kanban'
+    ? editorRequest.item
+    : null;
 
   return (
     <div ref={rootRef} data-time-format={timeFormat} className="flex h-full min-h-0 flex-col bg-background">
@@ -501,7 +506,8 @@ export default function CalendarPage() {
         </main>
       </div>
 
-      <ItemEditorDialog request={editorRequest} onOpenChange={(open) => !open && setEditorRequest(null)} calendars={editableCalendars} saving={store.saving} onSave={store.saveItem} />
+      <ItemEditorDialog request={kanbanEditorItem ? null : editorRequest} onOpenChange={(open) => !open && setEditorRequest(null)} calendars={editableCalendars} saving={store.saving} onSave={store.saveItem} />
+      <KanbanTaskEditorDialog item={kanbanEditorItem} saving={store.saving} onOpenChange={(open) => !open && setEditorRequest(null)} onSave={(item) => store.saveItem(item, 'series')} />
       <RecurringDeleteDialog item={deleteRequest} saving={store.saving} onOpenChange={(open) => !open && setDeleteRequest(null)} onDelete={async (scope) => { if (!deleteRequest) return; await store.deleteItem(deleteRequest, scope); setDeleteRequest(null); }} />
       <RecurringRescheduleDialog item={rescheduleRequest?.item ?? null} saving={store.saving} onOpenChange={(open) => !open && setRescheduleRequest(null)} onSave={async (scope) => { if (!rescheduleRequest) return; await store.saveItem(rescheduleRequest.item, scope); setRescheduleRequest(null); }} />
       <CalendarDialog open={calendarDialogOpen} onOpenChange={setCalendarDialogOpen} saving={store.saving} locations={calendarLocations} onCreate={store.createCalendar} />
@@ -1163,9 +1169,9 @@ function calendarOrigin(calendar: CalendarDefinition): string {
   return 'Kanban';
 }
 
-function CalendarPicker({ calendars, value, onValueChange }: { calendars: CalendarDefinition[]; value: string; onValueChange: (value: string) => void }) {
+function CalendarPicker({ calendars, value, onValueChange, disabled = false }: { calendars: CalendarDefinition[]; value: string; onValueChange: (value: string) => void; disabled?: boolean }) {
   const selected = calendars.find((calendar) => calendar.id === value);
-  return <Select value={value} onValueChange={onValueChange}><SelectTrigger className="w-full">{selected ? <span className="flex min-w-0 items-center gap-2"><span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: selected.color }} /><span className="truncate">{selected.name}</span><span className="ml-auto text-[10px] text-muted-foreground">{calendarOrigin(selected)}</span></span> : <SelectValue placeholder="Choose calendar" />}</SelectTrigger><SelectContent position="popper" className="min-w-[var(--radix-select-trigger-width)]">{calendars.map((calendar) => <SelectItem key={calendar.id} value={calendar.id}><span className="size-2.5 rounded-full" style={{ backgroundColor: calendar.color }} /><span>{calendar.name}</span><span className="ml-auto text-[10px] text-muted-foreground">{calendarOrigin(calendar)}</span></SelectItem>)}</SelectContent></Select>;
+  return <Select value={value} onValueChange={onValueChange} disabled={disabled}><SelectTrigger className="w-full">{selected ? <span className="flex min-w-0 items-center gap-2"><span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: selected.color }} /><span className="truncate">{selected.name}</span><span className="ml-auto text-[10px] text-muted-foreground">{calendarOrigin(selected)}</span></span> : <SelectValue placeholder="Choose calendar" />}</SelectTrigger><SelectContent position="popper" className="min-w-[var(--radix-select-trigger-width)]">{calendars.map((calendar) => <SelectItem key={calendar.id} value={calendar.id}><span className="size-2.5 rounded-full" style={{ backgroundColor: calendar.color }} /><span>{calendar.name}</span><span className="ml-auto text-[10px] text-muted-foreground">{calendarOrigin(calendar)}</span></SelectItem>)}</SelectContent></Select>;
 }
 
 const REMINDER_OPTIONS = [
@@ -1310,6 +1316,55 @@ export function ItemEditorDialog({ request, onOpenChange, calendars, saving, onS
     setCalendarId(nextCalendarId);
   };
   return <Dialog open={request != null} onOpenChange={onOpenChange}><DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg"><DialogHeader><DialogTitle>{request?.item ? `Edit ${kindLabel}` : `New ${kindLabel}`}</DialogTitle></DialogHeader><form id="calendar-item-form" className="space-y-4" onSubmit={(event) => void submit(event)}><label className="block space-y-1"><span className="text-xs font-medium">Title</span><Input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} required /></label><label className="block space-y-1"><span className="text-xs font-medium">Calendar</span><CalendarPicker calendars={calendars} value={calendarId} onValueChange={updateCalendarId} /></label>{request?.kind === 'task' && <div className="grid grid-cols-2 gap-2"><label className="block space-y-1"><span className="text-xs font-medium">Status</span><Select value={taskStatus} onValueChange={(value) => setTaskStatus(value as CalendarTaskStatus)}><SelectTrigger aria-label="Task status"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="needs-action">Needs action</SelectItem><SelectItem value="in-progress">In progress</SelectItem><SelectItem value="completed">Completed</SelectItem><SelectItem value="cancelled">Cancelled</SelectItem></SelectContent></Select></label><label className="block space-y-1"><span className="text-xs font-medium">Priority</span><Select value={taskPriority} onValueChange={(value) => setTaskPriority(value as CalendarTaskPriority | 'none')}><SelectTrigger aria-label="Task priority"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">No priority</SelectItem><SelectItem value="low">Low</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="high">High</SelectItem></SelectContent></Select></label></div>}{isScheduled ? <><div className="flex items-center gap-2"><Checkbox id="calendar-item-all-day" checked={allDay} onCheckedChange={(checked) => setAllDay(checked === true)} /><label htmlFor="calendar-item-all-day" className="cursor-pointer text-xs font-medium">All day</label></div><div className="grid grid-cols-2 gap-2"><DatePicker label={request?.kind === 'task' ? 'Starts' : 'Start date'} value={startDate} onChange={setStartDate} /><DatePicker label={request?.kind === 'task' ? 'Deadline' : 'End date'} value={endDate} min={startDate} onChange={setEndDate} /></div>{!allDay && <div className="grid grid-cols-2 gap-2"><TimePicker label="Start time" value={startTime} onChange={updateStartTime} format={timeFormat} /><TimePicker label={request?.kind === 'task' ? 'Deadline time' : 'End time'} value={endTime} onChange={setEndTime} format={timeFormat} /></div>}<label className="block space-y-1"><span className="text-xs font-medium">Repeats</span><Select value={repeat} onValueChange={(value) => setRepeat(value as RecurrencePreset)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{RECURRENCE_PRESETS.map((preset) => <SelectItem key={preset.value} value={preset.value}>{preset.label}</SelectItem>)}</SelectContent></Select></label>{repeat === 'custom' && <label className="block space-y-1"><span className="text-xs font-medium">Recurrence rule</span><Input value={customRecurrence} onChange={(event) => setCustomRecurrence(event.target.value)} placeholder="FREQ=WEEKLY;INTERVAL=2" /></label>}{request?.item?.recurrenceId && <label className="block space-y-1"><span className="text-xs font-medium">Apply changes to</span><Select value={editScope} onValueChange={(value) => setEditScope(value as CalendarRecurrenceEditScope)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="occurrence">This occurrence</SelectItem><SelectItem value="following">This and following occurrences</SelectItem><SelectItem value="series">Entire series</SelectItem></SelectContent></Select></label>}</> : <DatePicker label="Birthday" value={startDate} onChange={setStartDate} />}{request?.kind === 'event' && <label className="block space-y-1"><span className="text-xs font-medium">Location</span><div className="relative"><MapPin className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" /><Input className="pl-8" value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Add a place or address" /></div></label>}{request?.kind !== 'birthday' && <label className="block space-y-1"><span className="text-xs font-medium">Description</span><Textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Add details" rows={4} /></label>}{request?.kind === 'event' && <CalendarAttendeeEditor calendar={selectedCalendar} attendees={attendees} onChange={setAttendees} />}{request?.kind !== 'birthday' && <CalendarAttachmentEditor calendar={selectedCalendar} attachments={attachments} onChange={setAttachments} />}<ReminderEditor values={relativeReminders} onChange={setRelativeReminders} /></form><DialogFooter><Button type="submit" form="calendar-item-form" disabled={saving || !title.trim() || !calendarId || !startDate || (isScheduled && (!endDate || (repeat === 'custom' && !customRecurrence.trim())))}>{saving ? 'Saving...' : request?.item ? 'Save' : 'Create'}</Button></DialogFooter></DialogContent></Dialog>;
+}
+
+function KanbanTaskEditorDialog({ item, saving, onOpenChange, onSave }: {
+  item: CalendarTask | null;
+  saving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (item: CalendarTask) => Promise<CalendarItem>;
+}) {
+  const [startDate, setStartDate] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [completed, setCompleted] = useState(false);
+  const [repeat, setRepeat] = useState<RecurrencePreset>('none');
+  const [customRecurrence, setCustomRecurrence] = useState('');
+  useEffect(() => {
+    if (!item) return;
+    setStartDate(item.start?.kind === 'date' ? item.start.date : item.start?.dateTime.slice(0, 10) ?? '');
+    setDueDate(item.due?.kind === 'date' ? item.due.date : item.due?.dateTime.slice(0, 10) ?? '');
+    setCompleted(item.status === 'completed');
+    const preset = recurrencePreset(item.recurrence?.rrule);
+    setRepeat(preset);
+    setCustomRecurrence(preset === 'custom' ? item.recurrence?.rrule ?? '' : '');
+  }, [item]);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!item) return;
+    const preset = RECURRENCE_PRESETS.find((entry) => entry.value === repeat)?.rule;
+    const recurrence = repeat === 'none'
+      ? undefined
+      : { rrule: repeat === 'custom' ? customRecurrence.trim() : preset! };
+    await onSave(normalizeCalendarItem({
+      ...item,
+      start: startDate ? { kind: 'date', date: startDate } : undefined,
+      due: dueDate ? { kind: 'date', date: dueDate } : undefined,
+      status: completed ? 'completed' : 'needs-action',
+      completedAt: completed ? item.completedAt ?? new Date().toISOString() : undefined,
+      recurrence,
+    }) as CalendarTask);
+    onOpenChange(false);
+  };
+  return <Dialog open={item != null} onOpenChange={onOpenChange}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Update Kanban task</DialogTitle></DialogHeader>
+    <form id="kanban-calendar-task-form" className="space-y-4" onSubmit={(event) => void submit(event)}>
+      <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground"><strong className="text-foreground">{item?.title}</strong><br />Dates, completion, and supported recurrence write back to the source board. Other task details remain source-owned.</div>
+      <div className="grid grid-cols-2 gap-2"><div className="space-y-1"><DatePicker label="Starts" value={startDate} onChange={setStartDate} /><Button type="button" variant="ghost" size="sm" className="h-7 px-1 text-xs" onClick={() => setStartDate('')}>Clear</Button></div><div className="space-y-1"><DatePicker label="Deadline" value={dueDate} min={startDate || undefined} onChange={setDueDate} /><Button type="button" variant="ghost" size="sm" className="h-7 px-1 text-xs" onClick={() => setDueDate('')}>Clear</Button></div></div>
+      <div className="flex items-center gap-2"><Checkbox id="kanban-calendar-completed" checked={completed} onCheckedChange={(checked) => setCompleted(checked === true)} /><label htmlFor="kanban-calendar-completed" className="text-xs font-medium">Completed</label></div>
+      <label className="block space-y-1"><span className="text-xs font-medium">Repeats</span><Select value={repeat} onValueChange={(value) => setRepeat(value as RecurrencePreset)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{RECURRENCE_PRESETS.filter((entry) => entry.value !== 'yearly').map((entry) => <SelectItem key={entry.value} value={entry.value}>{entry.label}</SelectItem>)}</SelectContent></Select></label>
+      {repeat === 'custom' && <label className="block space-y-1"><span className="text-xs font-medium">Recurrence rule</span><Input value={customRecurrence} onChange={(event) => setCustomRecurrence(event.target.value)} placeholder="FREQ=WEEKLY;INTERVAL=2" /></label>}
+    </form>
+    <DialogFooter><Button type="submit" form="kanban-calendar-task-form" disabled={saving || !item || (repeat === 'custom' && !customRecurrence.trim())}>{saving ? 'Saving...' : 'Save'}</Button></DialogFooter>
+  </DialogContent></Dialog>;
 }
 
 export function CalendarSettingsDialog({ calendar, saving, onOpenChange, onSave }: {

@@ -1,5 +1,5 @@
 use crate::models::{
-    CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarItemKind,
+    CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarItemKind, CalendarLocation,
     CalendarMirrorAnchor, CalendarMirrorConflict, CalendarMirrorGroup, CalendarMutation,
     CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSyncState,
     CalendarTimeValue, CALENDAR_SCHEMA_VERSION,
@@ -7,6 +7,7 @@ use crate::models::{
 use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -373,6 +374,130 @@ impl CalendarStore {
         Ok(())
     }
 
+    pub async fn replace_generated_kanban_calendar(
+        &self,
+        calendar: &CalendarDefinition,
+        items: &[CalendarItem],
+    ) -> Result<(), CalendarStoreError> {
+        validate_calendar(calendar)?;
+        if !matches!(calendar.location, CalendarLocation::Kanban { .. }) || !calendar.read_only {
+            return Err(CalendarStoreError::Validation(
+                "generated Kanban calendars must use a read-only Kanban location".into(),
+            ));
+        }
+        if items.len() > MAX_RANGE_QUERY_ITEMS as usize {
+            return Err(CalendarStoreError::Validation(format!(
+                "generated Kanban calendars cannot exceed {MAX_RANGE_QUERY_ITEMS} items"
+            )));
+        }
+        let mut ids = HashSet::with_capacity(items.len());
+        for item in items {
+            validate_item(item)?;
+            if item.calendar_id != calendar.id
+                || !matches!(
+                    item.source_binding.as_ref(),
+                    Some(crate::models::CalendarSourceBinding::Kanban { .. })
+                )
+                || !ids.insert(item.id.clone())
+            {
+                return Err(CalendarStoreError::Validation(
+                    "generated Kanban items must have unique IDs, the target calendar, and a Kanban source binding".into(),
+                ));
+            }
+        }
+
+        let mut normalized = calendar.clone();
+        normalized.schema_version = CALENDAR_SCHEMA_VERSION;
+        normalized.read_only = true;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            r#"INSERT INTO calendars (
+                 id,global_id,location_json,name,color,default_time_zone,archived,
+                 read_only,revision,deleted_at,created_at,updated_at,data_json
+               ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(id) DO UPDATE SET global_id=excluded.global_id,
+                 location_json=excluded.location_json,name=excluded.name,color=excluded.color,
+                 default_time_zone=excluded.default_time_zone,archived=excluded.archived,
+                 read_only=1,revision=excluded.revision,deleted_at=NULL,
+                 updated_at=excluded.updated_at,data_json=excluded.data_json"#,
+        )
+        .bind(&normalized.id)
+        .bind(&normalized.global_id)
+        .bind(serde_json::to_string(&normalized.location)?)
+        .bind(&normalized.name)
+        .bind(&normalized.color)
+        .bind(&normalized.default_time_zone)
+        .bind(normalized.archived)
+        .bind(true)
+        .bind(normalized.revision)
+        .bind(normalized.deleted_at.as_deref())
+        .bind(&normalized.created_at)
+        .bind(&normalized.updated_at)
+        .bind(serde_json::to_string(&normalized)?)
+        .execute(&mut *tx)
+        .await?;
+
+        let existing_ids =
+            sqlx::query_scalar::<_, String>("SELECT id FROM calendar_items WHERE calendar_id=?")
+                .bind(&normalized.id)
+                .fetch_all(&mut *tx)
+                .await?;
+        for existing_id in existing_ids {
+            if !ids.contains(&existing_id) {
+                sqlx::query("DELETE FROM calendar_items WHERE id=?")
+                    .bind(existing_id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+        for item in items {
+            let (start_sort, end_sort) = item_sort_range(item)?;
+            sqlx::query(
+                r#"INSERT INTO calendar_items (
+                     id,calendar_id,uid,kind,start_sort,end_sort,recurrence_rule,
+                     recurrence_id,recurrence_sort,recurrence_series_id,revision,
+                     deleted_at,created_at,updated_at,data_json
+                   ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(id) DO UPDATE SET calendar_id=excluded.calendar_id,
+                     uid=excluded.uid,kind=excluded.kind,start_sort=excluded.start_sort,
+                     end_sort=excluded.end_sort,recurrence_rule=excluded.recurrence_rule,
+                     recurrence_id=excluded.recurrence_id,recurrence_sort=excluded.recurrence_sort,
+                     recurrence_series_id=excluded.recurrence_series_id,
+                     revision=excluded.revision,deleted_at=excluded.deleted_at,
+                     updated_at=excluded.updated_at,data_json=excluded.data_json"#,
+            )
+            .bind(&item.id)
+            .bind(&item.calendar_id)
+            .bind(&item.uid)
+            .bind(item.kind.as_str())
+            .bind(start_sort)
+            .bind(end_sort)
+            .bind(item.recurrence.as_ref().map(|value| value.rrule.as_str()))
+            .bind(
+                item.recurrence_id
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()?,
+            )
+            .bind(
+                item.recurrence_id
+                    .as_ref()
+                    .map(|value| time_sort_value(value, false))
+                    .transpose()?,
+            )
+            .bind(item.recurrence_series_id.as_deref())
+            .bind(item.revision)
+            .bind(item.deleted_at.as_deref())
+            .bind(&item.created_at)
+            .bind(&item.updated_at)
+            .bind(serde_json::to_string(item)?)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn upsert_calendar_with_operation(
         &self,
         calendar: &CalendarDefinition,
@@ -648,6 +773,7 @@ impl CalendarStore {
                )
                AND (
                  kind = 'birthday'
+                 OR (kind = 'task' AND start_sort IS NULL AND recurrence_rule IS NULL)
                  OR recurrence_rule IS NOT NULL
                  OR (recurrence_sort >= ? AND recurrence_sort < ?)
                  OR (start_sort < ? AND end_sort > ?)
@@ -1922,6 +2048,57 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(profile_id, "profile-1");
+    }
+
+    #[tokio::test]
+    async fn replaces_generated_kanban_items_without_pending_operations() {
+        let root = tempfile::tempdir().unwrap();
+        let store = CalendarStore::open(root.path(), "profile-1").await.unwrap();
+        let mut generated_calendar = calendar(true);
+        generated_calendar.location = CalendarLocation::Kanban {
+            origin_key: "local-vault:/vault".into(),
+        };
+        generated_calendar.name = "Assigned tasks · Project".into();
+        let mut task = event();
+        task.id = "task-1".into();
+        task.uid = "kanban:/vault:board:card-1".into();
+        task.kind = CalendarItemKind::Task;
+        task.start = None;
+        task.end = None;
+        task.due = None;
+        task.availability = None;
+        task.status = Some("needs-action".into());
+        task.source_binding = Some(crate::models::CalendarSourceBinding::Kanban {
+            server_url: None,
+            vault_id: None,
+            file_id: "Board.kanban".into(),
+            card_id: "card-1".into(),
+            path: Some("Board.kanban".into()),
+            source_revision: Some(1),
+        });
+
+        store
+            .replace_generated_kanban_calendar(&generated_calendar, &[task.clone()])
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .list_items_in_range("2026-07-01", "2026-08-01", 100, false)
+                .await
+                .unwrap(),
+            vec![task]
+        );
+        assert!(store.list_pending_operations().await.unwrap().is_empty());
+
+        store
+            .replace_generated_kanban_calendar(&generated_calendar, &[])
+            .await
+            .unwrap();
+        assert!(store
+            .list_items_in_range("2026-07-01", "2026-08-01", 100, false)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]

@@ -14,6 +14,7 @@ use axum::{
     Json,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
+use chrono::Utc;
 use collab_protocol::GrantSubjectType;
 use collab_protocol::{
     capabilities_for_role, AdminBackupArtifactVerification, AdminBackupCommandResult,
@@ -251,6 +252,16 @@ pub struct CreateVaultFileRequest {
 pub struct WriteTextRevisionRequest {
     pub expected_revision_sequence: i64,
     pub content: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KanbanCalendarWriteRequest {
+    pub expected_source_revision: i64,
+    pub start_date: Option<String>,
+    pub due_date: Option<String>,
+    pub completed: bool,
+    pub recurrence: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2001,6 +2012,9 @@ pub async fn remove_vault_member(
         .execute(&mut *transaction)
         .await
         .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    crate::calendar_api::remove_kanban_access_projections(&mut transaction, vault_id, user_id)
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
     vault_activity_event(
         &mut transaction,
         vault_id,
@@ -2289,6 +2303,21 @@ pub async fn create_vault_file(
             .execute(&mut *transaction)
             .await
             .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    }
+    if payload.document_type == Some(HostedDocumentType::Kanban) {
+        let kanban_content = content
+            .as_deref()
+            .and_then(|bytes| std::str::from_utf8(bytes).ok())
+            .unwrap_or(r#"{"columns":[]}"#);
+        crate::calendar_api::project_kanban_assignments(
+            &mut transaction,
+            vault_id,
+            file_id,
+            1,
+            kanban_content,
+        )
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
     }
     let result_manifest = increment_manifest(&mut transaction, vault_id, &request_id).await?;
     mark_manifest_file_changed(
@@ -2594,7 +2623,8 @@ pub async fn restore_file_revision(
     lock_active_vault(&mut transaction, vault_id, &request_id).await?;
     let current = sqlx::query(
         r#"
-        SELECT f.kind::text AS kind, f.state::text AS state, current.sequence,
+        SELECT f.kind::text AS kind, f.state::text AS state,
+               f.document_type::text AS document_type, current.sequence,
                source.blob_digest, source.content_hash, source.size_bytes
         FROM hosted_file_entries f
         LEFT JOIN hosted_file_revisions current ON current.id = f.current_revision_id
@@ -2646,6 +2676,30 @@ pub async fn restore_file_revision(
     .execute(&mut *transaction)
     .await
     .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    if current.get::<Option<String>, _>("document_type").as_deref() == Some("kanban") {
+        let digest = current.get::<String, _>("blob_digest");
+        let bytes = state
+            .blobs
+            .get(&digest)
+            .await
+            .map_err(|_| ApiFailure::server(request_id.clone()))?
+            .ok_or_else(|| ApiFailure::server(request_id.clone()))?;
+        let content = std::str::from_utf8(&bytes).map_err(|_| {
+            ApiFailure::validation(
+                "The restored Kanban revision is invalid.",
+                request_id.clone(),
+            )
+        })?;
+        crate::calendar_api::project_kanban_assignments(
+            &mut transaction,
+            vault_id,
+            file_id,
+            next_sequence,
+            content,
+        )
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    }
     let result_manifest = increment_manifest(&mut transaction, vault_id, &request_id).await?;
     mark_manifest_file_changed(
         &mut transaction,
@@ -2973,7 +3027,8 @@ pub(crate) async fn persist_materialized_document(
     }
     let current = sqlx::query(
         r#"
-        SELECT f.kind::text AS kind, f.state::text AS state, r.sequence, r.blob_digest
+        SELECT f.kind::text AS kind, f.state::text AS state,
+               f.document_type::text AS document_type, r.sequence, r.blob_digest
         FROM hosted_file_entries f
         LEFT JOIN hosted_file_revisions r ON r.id = f.current_revision_id
         WHERE f.vault_id = $1 AND f.id = $2
@@ -3056,6 +3111,17 @@ pub(crate) async fn persist_materialized_document(
     .execute(&mut *transaction)
     .await
     .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    if current.get::<Option<String>, _>("document_type").as_deref() == Some("kanban") {
+        crate::calendar_api::project_kanban_assignments(
+            &mut transaction,
+            vault_id,
+            file_id,
+            next_sequence,
+            content,
+        )
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    }
     let result_manifest = increment_manifest(&mut transaction, vault_id, &request_id).await?;
     mark_manifest_file_changed(
         &mut transaction,
@@ -3181,6 +3247,186 @@ pub async fn issue_ws_ticket(
         expires_at: expires_at.to_rfc3339(),
         protocol_version: collab_protocol::PROTOCOL_VERSION,
     })))
+}
+
+fn validate_calendar_kanban_date(value: Option<&str>, request_id: &str) -> Result<(), ApiFailure> {
+    if value.is_some_and(|date| chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_err()) {
+        return Err(ApiFailure::validation(
+            "Kanban task dates must use YYYY-MM-DD.",
+            request_id.to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_calendar_kanban_recurrence(
+    recurrence: Option<&Value>,
+    request_id: &str,
+) -> Result<(), ApiFailure> {
+    let Some(rule) = recurrence else {
+        return Ok(());
+    };
+    let Some(rule) = rule.as_object() else {
+        return Err(ApiFailure::validation(
+            "Kanban recurrence must be an object.",
+            request_id.to_owned(),
+        ));
+    };
+    if rule.get("enabled").and_then(Value::as_bool) != Some(true)
+        || !matches!(
+            rule.get("mode").and_then(Value::as_str),
+            Some("daily" | "weekly" | "monthly" | "interval")
+        )
+        || rule
+            .get("interval")
+            .and_then(Value::as_i64)
+            .is_some_and(|interval| !(1..=365).contains(&interval))
+        || rule
+            .get("weekdays")
+            .and_then(Value::as_array)
+            .is_some_and(|days| {
+                days.len() > 7
+                    || days
+                        .iter()
+                        .any(|day| day.as_i64().is_none_or(|value| !(0..=6).contains(&value)))
+            })
+    {
+        return Err(ApiFailure::validation(
+            "Kanban recurrence is not supported.",
+            request_id.to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+pub async fn write_kanban_task_from_calendar(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path((vault_id, file_id, card_id)): Path<(Uuid, Uuid, String)>,
+    Json(payload): Json<KanbanCalendarWriteRequest>,
+) -> Result<(StatusCode, Json<DataResponse<HostedTextDocument>>), ApiFailure> {
+    validate_calendar_kanban_date(payload.start_date.as_deref(), &request_id)?;
+    validate_calendar_kanban_date(payload.due_date.as_deref(), &request_id)?;
+    validate_calendar_kanban_recurrence(payload.recurrence.as_ref(), &request_id)?;
+    if card_id.is_empty() || card_id.len() > 255 {
+        return Err(ApiFailure::validation(
+            "The Kanban card ID is invalid.",
+            request_id,
+        ));
+    }
+    let actor = require_any_user(&state, &headers, &request_id).await?;
+    require_active_capability(
+        &state.database,
+        vault_id,
+        &actor.user,
+        Capability::FileWrite,
+        &request_id,
+    )
+    .await?;
+    let row = sqlx::query(
+        r#"SELECT f.state::text AS state,f.document_type::text AS document_type,
+                  revision.sequence,revision.blob_digest
+           FROM hosted_file_entries f
+           JOIN hosted_file_revisions revision ON revision.id=f.current_revision_id
+           WHERE f.vault_id=$1 AND f.id=$2"#,
+    )
+    .bind(vault_id)
+    .bind(file_id)
+    .fetch_optional(&state.database)
+    .await
+    .map_err(|_| ApiFailure::server(request_id.clone()))?
+    .ok_or_else(|| ApiFailure::not_found(request_id.clone()))?;
+    if row.get::<String, _>("state") != "active"
+        || row.get::<Option<String>, _>("document_type").as_deref() != Some("kanban")
+    {
+        return Err(ApiFailure::not_found(request_id));
+    }
+    let source_revision: i64 = row.get("sequence");
+    if source_revision != payload.expected_source_revision {
+        return Err(ApiFailure::revision_conflict(request_id));
+    }
+    let digest: String = row.get("blob_digest");
+    let bytes = state
+        .blobs
+        .get(&digest)
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?
+        .ok_or_else(|| ApiFailure::server(request_id.clone()))?;
+    let mut board: Value = serde_json::from_slice(&bytes).map_err(|_| {
+        ApiFailure::validation("The Kanban document is invalid.", request_id.clone())
+    })?;
+    let actor_id = user_uuid(&actor.user).to_string();
+    let card = board
+        .get_mut("columns")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .flat_map(|column| {
+            column
+                .get_mut("cards")
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+        })
+        .find(|card| card.get("id").and_then(Value::as_str) == Some(card_id.as_str()))
+        .ok_or_else(|| ApiFailure::not_found(request_id.clone()))?;
+    let assigned = card
+        .get("assignees")
+        .and_then(Value::as_array)
+        .is_some_and(|assignees| {
+            assignees
+                .iter()
+                .any(|value| value.as_str() == Some(actor_id.as_str()))
+        });
+    if !assigned {
+        return Err(ApiFailure::vault_permission_denied(request_id));
+    }
+    let card = card
+        .as_object_mut()
+        .ok_or_else(|| ApiFailure::validation("The Kanban card is invalid.", request_id.clone()))?;
+    match payload.start_date {
+        Some(value) => {
+            card.insert("startDate".into(), Value::String(value));
+        }
+        None => {
+            card.remove("startDate");
+        }
+    }
+    match payload.due_date {
+        Some(value) => {
+            card.insert("dueDate".into(), Value::String(value));
+        }
+        None => {
+            card.remove("dueDate");
+        }
+    }
+    card.insert("isDone".into(), Value::Bool(payload.completed));
+    card.insert(
+        "completedAt".into(),
+        if payload.completed {
+            serde_json::json!(Utc::now().timestamp_millis())
+        } else {
+            Value::Null
+        },
+    );
+    card.insert(
+        "recurrence".into(),
+        payload.recurrence.unwrap_or(Value::Null),
+    );
+    let content =
+        serde_json::to_string_pretty(&board).map_err(|_| ApiFailure::server(request_id.clone()))?;
+    write_text_revision(
+        State(state),
+        Extension(request_id),
+        headers,
+        Path((vault_id, file_id)),
+        Json(WriteTextRevisionRequest {
+            expected_revision_sequence: source_revision,
+            content,
+        }),
+    )
+    .await
 }
 
 pub async fn write_text_revision(
@@ -3322,6 +3568,21 @@ pub async fn write_text_revision(
     .execute(&mut *transaction)
     .await
     .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    if current
+        .get::<String, _>("name")
+        .to_lowercase()
+        .ends_with(".kanban")
+    {
+        crate::calendar_api::project_kanban_assignments(
+            &mut transaction,
+            vault_id,
+            file_id,
+            next_sequence,
+            &content,
+        )
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    }
     let result_manifest = increment_manifest(&mut transaction, vault_id, &request_id).await?;
     mark_manifest_file_changed(
         &mut transaction,
@@ -3845,6 +4106,13 @@ pub async fn apply_structural_operation(
             .map_err(|error| map_path_database_error(error, request_id.clone()))?;
         }
         HostedStructuralOperationType::Trash => {
+            crate::calendar_api::remove_kanban_subtree_projections(
+                &mut transaction,
+                vault_id,
+                payload.target_file_id,
+            )
+            .await
+            .map_err(|_| ApiFailure::server(request_id.clone()))?;
             sqlx::query(
                 r#"
                 WITH RECURSIVE affected AS (
@@ -3907,6 +4175,14 @@ pub async fn apply_structural_operation(
                 &request_id,
             )
             .await?;
+            restore_kanban_subtree_projections(
+                &state,
+                &mut transaction,
+                vault_id,
+                payload.target_file_id,
+                &request_id,
+            )
+            .await?;
             delete_subtree_trash_records(
                 &mut transaction,
                 vault_id,
@@ -3916,6 +4192,13 @@ pub async fn apply_structural_operation(
             .await?;
         }
         HostedStructuralOperationType::Purge => {
+            crate::calendar_api::remove_kanban_subtree_projections(
+                &mut transaction,
+                vault_id,
+                payload.target_file_id,
+            )
+            .await
+            .map_err(|_| ApiFailure::server(request_id.clone()))?;
             update_subtree_state(
                 &mut transaction,
                 vault_id,
@@ -7016,6 +7299,9 @@ pub async fn admin_remove_vault_member(
         .execute(&mut *transaction)
         .await
         .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    crate::calendar_api::remove_kanban_access_projections(&mut transaction, vault_id, user_id)
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
     vault_activity_event(
         &mut transaction,
         vault_id,
@@ -9797,6 +10083,63 @@ async fn update_subtree_state(
     .execute(&mut **transaction)
     .await
     .map_err(|error| map_path_database_error(error, request_id.to_owned()))?;
+    Ok(())
+}
+
+async fn restore_kanban_subtree_projections(
+    state: &AppState,
+    transaction: &mut Transaction<'_, Postgres>,
+    vault_id: Uuid,
+    target_file_id: Uuid,
+    request_id: &str,
+) -> Result<(), ApiFailure> {
+    let rows = sqlx::query(
+        r#"
+        WITH RECURSIVE affected AS (
+          SELECT id FROM hosted_file_entries WHERE vault_id = $1 AND id = $2
+          UNION ALL
+          SELECT child.id FROM hosted_file_entries child
+          JOIN affected parent ON child.parent_id = parent.id
+          WHERE child.vault_id = $1
+        )
+        SELECT file.id, revision.sequence, revision.blob_digest
+        FROM hosted_file_entries file
+        JOIN affected ON affected.id = file.id
+        JOIN hosted_file_revisions revision ON revision.id = file.current_revision_id
+        WHERE file.state = 'active' AND file.document_type = 'kanban'
+        "#,
+    )
+    .bind(vault_id)
+    .bind(target_file_id)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|_| ApiFailure::server(request_id.to_owned()))?;
+    for row in rows {
+        let file_id: Uuid = row.get("id");
+        let source_revision: i64 = row.get("sequence");
+        let digest: String = row.get("blob_digest");
+        let bytes = state
+            .blobs
+            .get(&digest)
+            .await
+            .map_err(|_| ApiFailure::server(request_id.to_owned()))?
+            .ok_or_else(|| ApiFailure::server(request_id.to_owned()))?;
+        let content = std::str::from_utf8(&bytes).map_err(|_| {
+            ApiFailure::validation(
+                "A restored Kanban document is invalid.",
+                request_id.to_owned(),
+            )
+        })?;
+        crate::calendar_api::project_kanban_assignments(
+            transaction,
+            vault_id,
+            file_id,
+            source_revision,
+            content,
+        )
+        .await
+        .map_err(|_| ApiFailure::server(request_id.to_owned()))?;
+    }
     Ok(())
 }
 
@@ -14358,7 +14701,12 @@ mod tests {
                 "id": "c1",
                 "title": "Todo",
                 "cards": [
-                    {"id": "a", "title": "A", "comments": []},
+                    {
+                        "id": "a",
+                        "title": "A",
+                        "comments": [],
+                        "assignees": [admin_id.clone(), invited_id.clone()]
+                    },
                     {"id": "b", "title": "B", "comments": []}
                 ]
             }]
@@ -14390,7 +14738,12 @@ mod tests {
                 "title": "Todo",
                 "cards": [
                     {"id": "b", "title": "B", "comments": []},
-                    {"id": "a", "title": "A", "comments": []}
+                    {
+                        "id": "a",
+                        "title": "A",
+                        "comments": [],
+                        "assignees": [admin_id.clone(), invited_id.clone()]
+                    }
                 ]
             }]
         });
@@ -14413,7 +14766,12 @@ mod tests {
                 "title": "Todo",
                 "cards": [
                     {"id": "b", "title": "B", "comments": []},
-                    {"id": "a", "title": "A renamed", "comments": []}
+                    {
+                        "id": "a",
+                        "title": "A renamed",
+                        "comments": [],
+                        "assignees": [admin_id.clone(), invited_id.clone()]
+                    }
                 ]
             }]
         });
@@ -14444,6 +14802,56 @@ mod tests {
         )
         .await;
         assert_eq!(owner_edit.status(), StatusCode::CREATED);
+
+        let denied_calendar_write = request(
+            &app,
+            "POST",
+            &format!(
+                "/api/v1/vaults/{kanban_vault_id}/files/{kanban_file_id}/kanban-cards/a/calendar"
+            ),
+            json!({
+                "expectedSourceRevision": 3,
+                "startDate": "2026-07-25",
+                "dueDate": "2026-07-27",
+                "completed": true,
+                "recurrence": {"enabled": true, "mode": "weekly", "interval": 1, "weekdays": [1]}
+            }),
+            Some(&invited_cookie),
+            Some(&invited_csrf),
+        )
+        .await;
+        assert_eq!(denied_calendar_write.status(), StatusCode::FORBIDDEN);
+
+        let allowed_calendar_write = request(
+            &app,
+            "POST",
+            &format!(
+                "/api/v1/vaults/{kanban_vault_id}/files/{kanban_file_id}/kanban-cards/a/calendar"
+            ),
+            json!({
+                "expectedSourceRevision": 3,
+                "startDate": "2026-07-25",
+                "dueDate": "2026-07-27",
+                "completed": true,
+                "recurrence": {"enabled": true, "mode": "weekly", "interval": 1, "weekdays": [1]}
+            }),
+            Some(&admin_cookie),
+            Some(&admin_csrf),
+        )
+        .await;
+        assert_eq!(allowed_calendar_write.status(), StatusCode::CREATED);
+        let calendar_written_document = json_body(allowed_calendar_write).await;
+        let calendar_written_board: Value = serde_json::from_str(
+            calendar_written_document["data"]["content"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        let calendar_written_card = &calendar_written_board["columns"][0]["cards"][1];
+        assert_eq!(calendar_written_card["title"], "A renamed");
+        assert_eq!(calendar_written_card["startDate"], "2026-07-25");
+        assert_eq!(calendar_written_card["dueDate"], "2026-07-27");
+        assert_eq!(calendar_written_card["isDone"], true);
 
         // --- PDF annotation permissions (pdf.comment vs pdf.annotate) ---
         //

@@ -4,7 +4,11 @@ import { syncHostedCalendars } from '../lib/calendarSync';
 import { bridgeCalendarMirrors } from '../lib/calendarMirroring';
 import { useCalendarStore } from './calendarStore';
 import { useUiStore } from './uiStore';
-import { createCalendarDefinition, normalizeCalendarItem } from '../types/calendar';
+import {
+  createCalendarDefinition,
+  normalizeCalendarItem,
+  type CalendarTask,
+} from '../types/calendar';
 
 vi.mock('../lib/tauri', () => ({
   tauriCommands: {
@@ -25,6 +29,7 @@ vi.mock('../lib/tauri', () => ({
     calendarDeleteMirrorGroup: vi.fn(),
     calendarListMirrorConflicts: vi.fn(),
     hostedCalendarRequest: vi.fn(),
+    hostedVaultRequest: vi.fn(),
   },
 }));
 
@@ -77,6 +82,7 @@ beforeEach(() => {
   vi.mocked(tauriCommands.calendarSaveMirrorGroup).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarDeleteMirrorGroup).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarListMirrorConflicts).mockResolvedValue([]);
+  vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue({});
   vi.mocked(syncHostedCalendars).mockResolvedValue([]);
   vi.mocked(bridgeCalendarMirrors).mockResolvedValue({ statuses: [], appliedOperations: 0, conflicts: [] });
 });
@@ -346,6 +352,68 @@ describe('calendarStore', () => {
       'Changed occurrence',
       'Daily event',
     ]);
+  });
+
+  it('writes generated hosted task changes through to the Kanban card', async () => {
+    const generated = createCalendarDefinition({
+      id: 'kanban-calendar',
+      location: { kind: 'kanban', originKey: 'https://collab.example::vault-1' },
+      name: 'Assigned tasks · Project',
+      color: '#a78bfa',
+      defaultTimeZone: 'UTC',
+      now: '2026-07-24T08:00:00Z',
+    });
+    generated.readOnly = true;
+    const task = normalizeCalendarItem({
+      id: 'generated-task',
+      uid: 'kanban:vault-1:board-1:card-1',
+      calendarId: generated.id,
+      kind: 'task',
+      title: 'Ship release',
+      reminders: [],
+      attendees: [],
+      attachments: [],
+      due: { kind: 'date', date: '2026-07-25' },
+      status: 'needs-action',
+      sourceBinding: {
+        kind: 'kanban',
+        serverUrl: 'https://collab.example',
+        vaultId: 'vault-1',
+        fileId: 'board-1',
+        cardId: 'card-1',
+        sourceRevision: 7,
+      },
+      revision: 7,
+      createdAt: '2026-07-24T08:00:00Z',
+      updatedAt: '2026-07-24T08:00:00Z',
+    }) as CalendarTask;
+    useCalendarStore.setState({
+      profileId: 'profile-1',
+      calendars: [generated],
+      sourceItems: [task],
+      items: [task],
+      visibleCalendarIds: [generated.id],
+    });
+
+    await useCalendarStore.getState().saveItem({
+      ...task,
+      status: 'completed',
+      completedAt: '2026-07-24T09:00:00Z',
+    });
+
+    expect(tauriCommands.hostedVaultRequest).toHaveBeenCalledWith(
+      'https://collab.example',
+      'POST',
+      '/api/v1/vaults/vault-1/files/board-1/kanban-cards/card-1/calendar',
+      {
+        expectedSourceRevision: 7,
+        startDate: undefined,
+        dueDate: '2026-07-25',
+        completed: true,
+        recurrence: undefined,
+      },
+    );
+    expect(tauriCommands.calendarUpsertItem).not.toHaveBeenCalled();
   });
 
   it('deletes recurring occurrences through explicit scopes', async () => {

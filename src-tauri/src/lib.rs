@@ -114,6 +114,7 @@ pub fn run() {
             // user calendar profile store
             commands::calendar::calendar_list,
             commands::calendar::calendar_save,
+            commands::calendar::calendar_replace_generated_kanban,
             commands::calendar::calendar_save_with_operation,
             commands::calendar::calendar_delete,
             commands::calendar::calendar_cleanup,

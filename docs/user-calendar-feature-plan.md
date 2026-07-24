@@ -56,8 +56,8 @@ models.
 | 3. Multi-server offline sync | Complete | Desktop and Android sync independent hosted replicas with durable cursors, queued/conflicted operations, lifecycle triggers, progress, and guarded cache removal. |
 | 4. Desktop calendar experience | Complete | Global Calendar navigation, everyday event/task workflows, hosted collaboration controls, typed attachments, defaults, and accessibility coverage are implemented. |
 | 5. Android calendar experience | Complete | Phone-first multi-server views, profile storage, offline editing/deletion, recurrence scopes, collaboration, attachments, management, and actionable recovery are implemented. |
-| 6. Cross-location calendar mirroring | In progress | Mirror groups, deterministic client bridging, tombstones, isolated retryable failures, global progress visibility, and desktop/Android conflict resolution are implemented; physical-device end-to-end validation remains. |
-| 7. Kanban assigned-task integration | Not started | Surface assigned local and hosted cards as linked calendar tasks with safe write-through behavior. |
+| 6. Cross-location calendar mirroring | Testing | Mirror groups, deterministic client bridging, tombstones, isolated retryable failures, global progress visibility, and desktop/Android conflict resolution are implemented; physical-device end-to-end validation remains. |
+| 7. Kanban assigned-task integration | Complete | Local and hosted assignment projection, generated read-only calendars, REST/live materialization, narrow date/completion/recurrence write-through, source lifecycle handling, and access-loss privacy cleanup are implemented and covered. |
 | 8. iCalendar import, export, and subscriptions | Not started | Support `.ics`, subscribed feeds, publishing, deduplication, and bounded refresh. |
 | 9. CalDAV and external two-way sync | Not started | Add standards-based two-way synchronization for capable external calendar applications. |
 | 10. Admin overview, privacy verification, and hardening | Not started | Ship aggregate-only administration, migration, load, security, and recovery coverage. |
@@ -370,6 +370,34 @@ Landed in the first implementation slice:
   another and that a retry after a partial multi-destination write reuses the
   deterministic operation ID, avoids echoing the already-written destination,
   and commits anchors only after convergence.
+- Moved Phase 6 to testing after completing global progress visibility,
+  isolated retry behavior, and desktop/Android conflict resolution. Physical
+  device validation remains the exit criterion.
+- Started Phase 7 with a hosted assignment index and generated, read-only
+  “Assigned tasks” calendars. Initial document creation, REST revisions, and
+  live-CRDT materialization reconcile assigned cards in the same PostgreSQL
+  transaction as the Kanban revision and publish changes through the existing
+  per-user calendar change stream.
+- Reassignment, archive, source trash/purge, and vault-access removal now emit
+  task/calendar tombstones. Access removal also deletes historical generated
+  upsert payloads before appending tombstones so a fresh sync cannot retrieve
+  private card details. Desktop and Android preserve the generated Kanban
+  calendar location and namespace it by server while hydrating task bindings
+  with the connected server URL for deep links.
+- Completed Phase 7 with local-vault projection into the profile SQLite store,
+  including immediate file-watcher refresh, stable source links, unscheduled
+  task visibility, recurrence mapping, and atomic removal of stale assignments
+  without creating ordinary calendar operations.
+- Added the narrow hosted and local write-through path for start date, deadline,
+  completion, and supported recurrence. Desktop and Android keep source-owned
+  titles, descriptions, assignees, and board placement read-only; hosted writes
+  enforce assignment, optimistic source revision, file-write, and semantic
+  Kanban edit-content capabilities.
+- Restoring a Kanban source or an older Kanban revision now rebuilds generated
+  assignments in the same server transaction. Focused TypeScript, Rust store,
+  hosted projection, Android editor, and authenticated PostgreSQL lifecycle
+  tests cover projection stability, stale removal, recurrence, privacy, and
+  allowed/denied write-through.
 
 ## Current System Constraints
 

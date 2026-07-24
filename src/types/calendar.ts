@@ -68,6 +68,7 @@ export type CalendarAttachment =
       vaultId?: string;
       fileId: string;
       cardId: string;
+      path?: string;
     })
   | (CalendarAttachmentBase & {
       kind: 'uploaded';
@@ -108,6 +109,7 @@ export type CalendarSourceBinding =
       vaultId?: string;
       fileId: string;
       cardId: string;
+      path?: string;
       sourceRevision?: number;
     }
   | {
@@ -306,6 +308,7 @@ export interface CalendarQueryRange {
   to: string;
   limit?: number;
   includeDeleted?: boolean;
+  includeUnscheduledTasks?: boolean;
 }
 
 export class CalendarValidationError extends Error {
@@ -530,6 +533,7 @@ function normalizeAttachment(value: unknown): CalendarAttachment {
       vaultId: optionalString(input.vaultId, 'Attachment vault ID', 255),
       fileId: requiredString(input.fileId, 'Attachment file ID', 255),
       cardId: requiredString(input.cardId, 'Attachment card ID', 255),
+      path: optionalString(input.path, 'Attachment path', 4_096),
     };
   }
   if (input.kind === 'uploaded') {
@@ -612,6 +616,7 @@ function normalizeSourceBinding(value: unknown): CalendarSourceBinding | undefin
       vaultId: optionalString(input.vaultId, 'Source vault ID', 255),
       fileId: requiredString(input.fileId, 'Source file ID', 255),
       cardId: requiredString(input.cardId, 'Source card ID', 255),
+      path: optionalString(input.path, 'Source display path', 2_048),
       sourceRevision: input.sourceRevision == null
         ? undefined
         : nonNegativeInteger(input.sourceRevision, 'Source revision'),
@@ -831,8 +836,13 @@ export function queryCalendarItems(items: CalendarItem[], range: CalendarQueryRa
       }
       return { item, itemRange: null };
     })
-    .filter((entry) => entry.itemRange != null && entry.itemRange.start < to && entry.itemRange.end > from)
-    .sort((left, right) => left.itemRange!.start - right.itemRange!.start
+    .filter((entry) => (
+      entry.itemRange != null
+        ? entry.itemRange.start < to && entry.itemRange.end > from
+        : range.includeUnscheduledTasks === true && entry.item.kind === 'task'
+    ))
+    .sort((left, right) => (left.itemRange?.start ?? Number.POSITIVE_INFINITY)
+      - (right.itemRange?.start ?? Number.POSITIVE_INFINITY)
       || left.item.title.localeCompare(right.item.title)
       || left.item.id.localeCompare(right.item.id))
     .slice(0, requestedLimit)

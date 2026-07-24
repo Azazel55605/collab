@@ -137,6 +137,8 @@ pub enum CalendarAttachment {
         vault_id: Option<String>,
         file_id: String,
         card_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
     },
     Uploaded {
         id: String,
@@ -187,6 +189,8 @@ pub enum CalendarSourceBinding {
         vault_id: Option<String>,
         file_id: String,
         card_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         source_revision: Option<i64>,
     },

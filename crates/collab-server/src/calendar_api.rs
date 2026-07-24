@@ -9,7 +9,7 @@ use axum::{
     Json,
 };
 use base64::Engine as _;
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use collab_calendar::{
     CalendarAttachment, CalendarAttendee, CalendarDefinition, CalendarItem, CalendarMutation,
     CalendarOperation, CalendarTimeValue,
@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Row, Transaction};
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 const MAX_QUERY_ITEMS: i64 = 5_000;
@@ -629,6 +630,532 @@ async fn insert_change(
     .bind(payload)
     .fetch_one(&mut **tx)
     .await
+}
+
+#[derive(Clone, Debug)]
+struct ProjectedKanbanCard {
+    card_id: String,
+    title: String,
+    description: Option<String>,
+    assignees: Vec<Uuid>,
+    start_date: Option<String>,
+    due_date: Option<String>,
+    completed: bool,
+    completed_at: Option<String>,
+    created_at: String,
+    recurrence: Option<Value>,
+}
+
+fn stable_projection_uuid(namespace: &str, parts: &[&str]) -> Uuid {
+    let mut digest = Sha256::new();
+    digest.update(namespace.as_bytes());
+    for part in parts {
+        digest.update([0]);
+        digest.update(part.as_bytes());
+    }
+    let hash = digest.finalize();
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&hash[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes)
+}
+
+fn valid_date(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .filter(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok())
+        .map(str::to_owned)
+}
+
+fn timestamp_millis(value: Option<&Value>, fallback: &str) -> String {
+    value
+        .and_then(Value::as_i64)
+        .and_then(|millis| Utc.timestamp_millis_opt(millis).single())
+        .map(|value| value.to_rfc3339())
+        .unwrap_or_else(|| fallback.to_owned())
+}
+
+fn projected_recurrence(value: Option<&Value>) -> Option<Value> {
+    let rule = value?.as_object()?;
+    if !rule
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    let interval = rule
+        .get("interval")
+        .and_then(Value::as_i64)
+        .unwrap_or(1)
+        .clamp(1, 365);
+    let mode = rule.get("mode").and_then(Value::as_str).unwrap_or("daily");
+    let rrule = match mode {
+        "weekly" => {
+            const DAYS: [&str; 7] = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+            let byday = rule
+                .get("weekdays")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_u64)
+                .filter_map(|day| DAYS.get(day as usize))
+                .copied()
+                .collect::<Vec<_>>();
+            format!(
+                "FREQ=WEEKLY;INTERVAL={interval}{}",
+                if byday.is_empty() {
+                    String::new()
+                } else {
+                    format!(";BYDAY={}", byday.join(","))
+                }
+            )
+        }
+        "monthly" => format!("FREQ=MONTHLY;INTERVAL={interval}"),
+        _ => format!("FREQ=DAILY;INTERVAL={interval}"),
+    };
+    Some(serde_json::json!({ "rrule": rrule }))
+}
+
+fn projected_kanban_cards(content: &str, now: &str) -> Option<Vec<ProjectedKanbanCard>> {
+    let board: Value = serde_json::from_str(content).ok()?;
+    let columns = board.get("columns")?.as_array()?;
+    let mut cards = Vec::new();
+    for column in columns {
+        let Some(column_cards) = column.get("cards").and_then(Value::as_array) else {
+            continue;
+        };
+        for card in column_cards {
+            let Some(card_id) = card
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+            else {
+                continue;
+            };
+            if card
+                .get("archived")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            let assignees = card
+                .get("assignees")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter_map(|value| Uuid::parse_str(value).ok())
+                .collect::<Vec<_>>();
+            if assignees.is_empty() {
+                continue;
+            }
+            cards.push(ProjectedKanbanCard {
+                card_id: card_id.to_owned(),
+                title: card
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .filter(|title| !title.trim().is_empty())
+                    .unwrap_or("Untitled task")
+                    .chars()
+                    .take(500)
+                    .collect(),
+                description: card
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .filter(|description| !description.is_empty())
+                    .map(|description| description.chars().take(100_000).collect()),
+                assignees,
+                start_date: valid_date(card.get("startDate")),
+                due_date: valid_date(card.get("dueDate")),
+                completed: card.get("isDone").and_then(Value::as_bool).unwrap_or(false),
+                completed_at: card
+                    .get("completedAt")
+                    .filter(|value| !value.is_null())
+                    .map(|value| timestamp_millis(Some(value), now)),
+                created_at: timestamp_millis(card.get("createdAt"), now),
+                recurrence: projected_recurrence(card.get("recurrence")),
+            });
+        }
+    }
+    Some(cards)
+}
+
+/// Reconciles the read-only generated task calendars for one hosted Kanban
+/// document. This runs in the same transaction as the canonical document
+/// revision so assignment and calendar change streams cannot diverge.
+pub(crate) async fn project_kanban_assignments(
+    tx: &mut Transaction<'_, Postgres>,
+    vault_id: Uuid,
+    file_id: Uuid,
+    source_revision: i64,
+    content: &str,
+) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    let Some(cards) = projected_kanban_cards(content, &now) else {
+        return Ok(());
+    };
+    let requested_users = cards
+        .iter()
+        .flat_map(|card| card.assignees.iter().copied())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let allowed_users = if requested_users.is_empty() {
+        HashSet::new()
+    } else {
+        sqlx::query_scalar::<_, Uuid>(
+            r#"SELECT user_account.id
+               FROM users user_account
+               JOIN hosted_vaults vault ON vault.id=$1
+               WHERE user_account.id=ANY($2)
+                 AND user_account.status='active'
+                 AND (vault.owner_user_id=user_account.id OR EXISTS (
+                   SELECT 1 FROM hosted_vault_memberships membership
+                   WHERE membership.vault_id=vault.id AND membership.user_id=user_account.id
+                 ))"#,
+        )
+        .bind(vault_id)
+        .bind(&requested_users)
+        .fetch_all(&mut **tx)
+        .await?
+        .into_iter()
+        .collect::<HashSet<_>>()
+    };
+    let vault_name = sqlx::query_scalar::<_, String>("SELECT name FROM hosted_vaults WHERE id=$1")
+        .bind(vault_id)
+        .fetch_one(&mut **tx)
+        .await?;
+    let desired = cards
+        .iter()
+        .flat_map(|card| {
+            card.assignees
+                .iter()
+                .filter(|owner| allowed_users.contains(owner))
+                .map(move |owner| ((*owner, card.card_id.clone()), card.clone()))
+        })
+        .collect::<HashMap<_, _>>();
+
+    let existing = sqlx::query(
+        r#"SELECT owner_id,card_id,item_id,calendar_id
+           FROM kanban_calendar_projections
+           WHERE vault_id=$1 AND file_id=$2 FOR UPDATE"#,
+    )
+    .bind(vault_id)
+    .bind(file_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    for row in existing {
+        let owner: Uuid = row.get("owner_id");
+        let card_id: String = row.get("card_id");
+        if desired.contains_key(&(owner, card_id.clone())) {
+            continue;
+        }
+        let item_id: Uuid = row.get("item_id");
+        sqlx::query(
+            "UPDATE calendar_items SET deleted_at=now(),updated_at=now() WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL",
+        )
+        .bind(owner)
+        .bind(item_id)
+        .execute(&mut **tx)
+        .await?;
+        insert_change(tx, owner, "item", item_id, "delete", None).await?;
+        sqlx::query(
+            "DELETE FROM kanban_calendar_projections WHERE owner_id=$1 AND vault_id=$2 AND file_id=$3 AND card_id=$4",
+        )
+        .bind(owner)
+        .bind(vault_id)
+        .bind(file_id)
+        .bind(card_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    for ((owner, card_id), card) in desired {
+        let owner_text = owner.to_string();
+        let vault_text = vault_id.to_string();
+        let file_text = file_id.to_string();
+        let calendar_id =
+            stable_projection_uuid("collab-kanban-calendar", &[&owner_text, &vault_text]);
+        let item_id = stable_projection_uuid(
+            "collab-kanban-task",
+            &[&owner_text, &vault_text, &file_text, &card_id],
+        );
+        let calendar_payload = serde_json::json!({
+            "schemaVersion": collab_calendar::CALENDAR_SCHEMA_VERSION,
+            "id": calendar_id.to_string(),
+            "globalId": calendar_id.to_string(),
+            "location": {
+                "kind": "kanban",
+                "originKey": format!("hosted-vault:{vault_id}"),
+            },
+            "name": format!("Assigned tasks · {vault_name}"),
+            "color": "#a78bfa",
+            "defaultTimeZone": "UTC",
+            "archived": false,
+            "readOnly": true,
+            "revision": 1,
+            "createdAt": now,
+            "updatedAt": now,
+        });
+        let inserted_calendar = sqlx::query(
+            r#"INSERT INTO calendars
+               (id,owner_id,global_id,name,color,default_time_zone,archived,read_only,revision,payload,logical_size_bytes)
+               VALUES ($1,$2,$1,$3,'#a78bfa','UTC',FALSE,TRUE,1,$4,$5)
+               ON CONFLICT (id) DO NOTHING"#,
+        )
+        .bind(calendar_id)
+        .bind(owner)
+        .bind(format!("Assigned tasks · {vault_name}"))
+        .bind(&calendar_payload)
+        .bind(logical_size(&calendar_payload))
+        .execute(&mut **tx)
+        .await?
+        .rows_affected()
+            > 0;
+        if inserted_calendar {
+            insert_change(
+                tx,
+                owner,
+                "calendar",
+                calendar_id,
+                "upsert",
+                Some(&calendar_payload),
+            )
+            .await?;
+        }
+
+        let existing_revision = sqlx::query_scalar::<_, i64>(
+            "SELECT revision FROM calendar_items WHERE owner_id=$1 AND id=$2",
+        )
+        .bind(owner)
+        .bind(item_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        let revision = existing_revision.map_or(1, |value| value + 1);
+        let item_payload = serde_json::json!({
+            "id": item_id.to_string(),
+            "uid": format!("kanban:{vault_id}:{file_id}:{card_id}"),
+            "calendarId": calendar_id.to_string(),
+            "kind": "task",
+            "title": card.title,
+            "description": card.description,
+            "reminders": [],
+            "attendees": [],
+            "attachments": [{
+                "id": format!("kanban:{file_id}:{card_id}"),
+                "kind": "kanbanTask",
+                "name": "Open Kanban task",
+                "vaultId": vault_text,
+                "fileId": file_text,
+                "cardId": card_id,
+            }],
+            "sourceBinding": {
+                "kind": "kanban",
+                "vaultId": vault_id.to_string(),
+                "fileId": file_id.to_string(),
+                "cardId": card_id,
+                "sourceRevision": source_revision,
+            },
+            "recurrence": card.recurrence,
+            "start": card.start_date.map(|date| serde_json::json!({ "kind": "date", "date": date })),
+            "due": card.due_date.map(|date| serde_json::json!({ "kind": "date", "date": date })),
+            "status": if card.completed { "completed" } else { "needs-action" },
+            "completedAt": card.completed_at,
+            "revision": revision,
+            "createdAt": card.created_at,
+            "updatedAt": now,
+        });
+        let start_date = item_payload
+            .pointer("/start/date")
+            .and_then(Value::as_str)
+            .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok());
+        let due_date = item_payload
+            .pointer("/due/date")
+            .and_then(Value::as_str)
+            .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok());
+        let recurrence_rule = item_payload
+            .pointer("/recurrence/rrule")
+            .and_then(Value::as_str);
+        sqlx::query(
+            r#"INSERT INTO calendar_items
+               (id,owner_id,calendar_id,uid,kind,start_date,end_date,recurrence_rule,revision,payload,logical_size_bytes,deleted_at)
+               VALUES ($1,$2,$3,$4,'task',$5,$6,$7,$8,$9,$10,NULL)
+               ON CONFLICT (id) DO UPDATE SET start_date=EXCLUDED.start_date,
+                 end_date=EXCLUDED.end_date,recurrence_rule=EXCLUDED.recurrence_rule,
+                 revision=EXCLUDED.revision,payload=EXCLUDED.payload,
+                 logical_size_bytes=EXCLUDED.logical_size_bytes,deleted_at=NULL,updated_at=now()"#,
+        )
+        .bind(item_id)
+        .bind(owner)
+        .bind(calendar_id)
+        .bind(format!("kanban:{vault_id}:{file_id}:{card_id}"))
+        .bind(start_date)
+        .bind(due_date.or(start_date))
+        .bind(recurrence_rule)
+        .bind(revision)
+        .bind(&item_payload)
+        .bind(logical_size(&item_payload))
+        .execute(&mut **tx)
+        .await?;
+        sqlx::query(
+            r#"INSERT INTO kanban_calendar_projections
+               (owner_id,vault_id,file_id,card_id,calendar_id,item_id,source_revision)
+               VALUES ($1,$2,$3,$4,$5,$6,$7)
+               ON CONFLICT (owner_id,vault_id,file_id,card_id) DO UPDATE SET
+                 calendar_id=EXCLUDED.calendar_id,item_id=EXCLUDED.item_id,
+                 source_revision=EXCLUDED.source_revision,updated_at=now()"#,
+        )
+        .bind(owner)
+        .bind(vault_id)
+        .bind(file_id)
+        .bind(&card_id)
+        .bind(calendar_id)
+        .bind(item_id)
+        .bind(source_revision)
+        .execute(&mut **tx)
+        .await?;
+        insert_change(tx, owner, "item", item_id, "upsert", Some(&item_payload)).await?;
+    }
+    Ok(())
+}
+
+/// Removes every generated Kanban calendar projection for a user who no longer
+/// has access to its source vault. Historical upsert payloads are removed before
+/// tombstones are appended so a fresh sync cannot recover private card details.
+pub(crate) async fn remove_kanban_access_projections(
+    tx: &mut Transaction<'_, Postgres>,
+    vault_id: Uuid,
+    owner: Uuid,
+) -> Result<(), sqlx::Error> {
+    let rows = sqlx::query(
+        r#"SELECT calendar_id,item_id
+           FROM kanban_calendar_projections
+           WHERE vault_id=$1 AND owner_id=$2 FOR UPDATE"#,
+    )
+    .bind(vault_id)
+    .bind(owner)
+    .fetch_all(&mut **tx)
+    .await?;
+    let owner_text = owner.to_string();
+    let vault_text = vault_id.to_string();
+    let generated_calendar_id =
+        stable_projection_uuid("collab-kanban-calendar", &[&owner_text, &vault_text]);
+    let generated_calendar_exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM calendars WHERE owner_id=$1 AND id=$2)",
+    )
+    .bind(owner)
+    .bind(generated_calendar_id)
+    .fetch_one(&mut **tx)
+    .await?;
+    if rows.is_empty() && !generated_calendar_exists {
+        return Ok(());
+    }
+    let mut item_ids = rows
+        .iter()
+        .map(|row| row.get::<Uuid, _>("item_id"))
+        .collect::<HashSet<_>>();
+    let mut calendar_ids = rows
+        .iter()
+        .map(|row| row.get::<Uuid, _>("calendar_id"))
+        .collect::<HashSet<_>>();
+    if generated_calendar_exists {
+        calendar_ids.insert(generated_calendar_id);
+        item_ids.extend(
+            sqlx::query_scalar::<_, Uuid>(
+                "SELECT id FROM calendar_items WHERE owner_id=$1 AND calendar_id=$2",
+            )
+            .bind(owner)
+            .bind(generated_calendar_id)
+            .fetch_all(&mut **tx)
+            .await?,
+        );
+    }
+    let item_ids = item_ids.into_iter().collect::<Vec<_>>();
+    let calendar_ids = calendar_ids.into_iter().collect::<Vec<_>>();
+    let mut entity_ids = item_ids.clone();
+    entity_ids.extend(calendar_ids.iter().copied());
+    sqlx::query("DELETE FROM calendar_change_log WHERE owner_id=$1 AND entity_id=ANY($2)")
+        .bind(owner)
+        .bind(&entity_ids)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query(
+        "UPDATE calendar_items SET deleted_at=now(),updated_at=now() WHERE owner_id=$1 AND id=ANY($2)",
+    )
+    .bind(owner)
+    .bind(&item_ids)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        "UPDATE calendars SET deleted_at=now(),updated_at=now() WHERE owner_id=$1 AND id=ANY($2)",
+    )
+    .bind(owner)
+    .bind(&calendar_ids)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query("DELETE FROM kanban_calendar_projections WHERE vault_id=$1 AND owner_id=$2")
+        .bind(vault_id)
+        .bind(owner)
+        .execute(&mut **tx)
+        .await?;
+    for item_id in item_ids {
+        insert_change(tx, owner, "item", item_id, "delete", None).await?;
+    }
+    for calendar_id in calendar_ids {
+        insert_change(tx, owner, "calendar", calendar_id, "delete", None).await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn remove_kanban_subtree_projections(
+    tx: &mut Transaction<'_, Postgres>,
+    vault_id: Uuid,
+    root_file_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    let rows = sqlx::query(
+        r#"WITH RECURSIVE affected AS (
+             SELECT id FROM hosted_file_entries WHERE vault_id=$1 AND id=$2
+             UNION ALL
+             SELECT child.id FROM hosted_file_entries child
+             JOIN affected parent ON child.parent_id=parent.id
+             WHERE child.vault_id=$1
+           )
+           SELECT projection.owner_id,projection.file_id,projection.card_id,projection.item_id
+           FROM kanban_calendar_projections projection
+           JOIN affected ON affected.id=projection.file_id
+           WHERE projection.vault_id=$1 FOR UPDATE"#,
+    )
+    .bind(vault_id)
+    .bind(root_file_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    for row in rows {
+        let owner: Uuid = row.get("owner_id");
+        let file_id: Uuid = row.get("file_id");
+        let card_id: String = row.get("card_id");
+        let item_id: Uuid = row.get("item_id");
+        sqlx::query(
+            "UPDATE calendar_items SET deleted_at=now(),updated_at=now() WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL",
+        )
+        .bind(owner)
+        .bind(item_id)
+        .execute(&mut **tx)
+        .await?;
+        insert_change(tx, owner, "item", item_id, "delete", None).await?;
+        sqlx::query(
+            "DELETE FROM kanban_calendar_projections WHERE owner_id=$1 AND vault_id=$2 AND file_id=$3 AND card_id=$4",
+        )
+        .bind(owner)
+        .bind(vault_id)
+        .bind(file_id)
+        .bind(card_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
 }
 
 pub async fn list_calendars(
@@ -1460,6 +1987,7 @@ pub async fn query_items(
                AND ($2 OR master.deleted_at IS NULL)
            ))
            AND (recurrence_rule IS NOT NULL
+             OR (kind='task' AND start_at IS NULL AND start_date IS NULL)
              OR (recurrence_at >= $3 AND recurrence_at < $4)
              OR (recurrence_date >= $5 AND recurrence_date < $6)
              OR (start_at < $4 AND COALESCE(end_at,start_at) >= $3)
@@ -1645,6 +2173,226 @@ mod tests {
         assert!(validate_recurrence_rule("FREQ=DAILY;INTERVAL=0", "request").is_err());
         assert!(validate_recurrence_rule("RRULE:FREQ=DAILY", "request").is_err());
         assert!(validate_recurrence_rule("FREQ=DAILY;FREQ=WEEKLY", "request").is_err());
+    }
+
+    #[test]
+    fn kanban_projection_extracts_only_active_assigned_cards() {
+        let assignee = Uuid::now_v7();
+        let content = serde_json::json!({
+            "columns": [{
+                "id": "todo",
+                "cards": [
+                    {
+                        "id": "active",
+                        "title": "Ship calendar projection",
+                        "description": "Visible to the assignee",
+                        "assignees": [assignee.to_string()],
+                        "startDate": "2026-07-24",
+                        "dueDate": "2026-07-25",
+                        "isDone": true,
+                        "completedAt": 1784916000000_i64,
+                        "recurrence": {
+                            "enabled": true,
+                            "mode": "weekly",
+                            "interval": 2,
+                            "weekdays": [1, 4]
+                        }
+                    },
+                    {
+                        "id": "unassigned",
+                        "title": "Private board detail",
+                        "assignees": []
+                    },
+                    {
+                        "id": "archived",
+                        "title": "Archived detail",
+                        "assignees": [assignee.to_string()],
+                        "archived": true
+                    }
+                ]
+            }]
+        })
+        .to_string();
+
+        let cards = projected_kanban_cards(&content, "2026-07-24T10:00:00Z").unwrap();
+
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].card_id, "active");
+        assert_eq!(cards[0].assignees, vec![assignee]);
+        assert_eq!(cards[0].start_date.as_deref(), Some("2026-07-24"));
+        assert_eq!(cards[0].due_date.as_deref(), Some("2026-07-25"));
+        assert!(cards[0].completed);
+        assert!(cards[0].completed_at.is_some());
+        assert_eq!(
+            cards[0]
+                .recurrence
+                .as_ref()
+                .and_then(|value| value["rrule"].as_str()),
+            Some("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TH")
+        );
+    }
+
+    #[tokio::test]
+    async fn hosted_kanban_projection_reconciles_assignments_and_access_loss() {
+        let Ok(url) = std::env::var("COLLAB_TEST_DATABASE_URL") else {
+            return;
+        };
+        let _db_guard = database::db_test_guard().lock().await;
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&url)
+            .await
+            .unwrap();
+        database::migrate(&pool).await.unwrap();
+        sqlx::query("TRUNCATE users RESTART IDENTITY CASCADE")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let owner = Uuid::now_v7();
+        let assignee = Uuid::now_v7();
+        for (id, username) in [
+            (owner, "projection-owner"),
+            (assignee, "projection-assignee"),
+        ] {
+            sqlx::query(
+                "INSERT INTO users (id,username,normalized_username,display_name) VALUES ($1,$2,$2,$2)",
+            )
+            .bind(id)
+            .bind(username)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let vault_id = Uuid::now_v7();
+        let file_id = Uuid::now_v7();
+        sqlx::query("INSERT INTO hosted_vaults (id,name,owner_user_id) VALUES ($1,'Project',$2)")
+            .bind(vault_id)
+            .bind(owner)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO hosted_vault_memberships (vault_id,user_id,role) VALUES ($1,$2,'editor')",
+        )
+        .bind(vault_id)
+        .bind(assignee)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"INSERT INTO hosted_file_entries
+               (id,vault_id,name,normalized_name,kind,document_type,created_by)
+               VALUES ($1,$2,'Board.kanban','board.kanban','document','kanban',$3)"#,
+        )
+        .bind(file_id)
+        .bind(vault_id)
+        .bind(owner)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let board = serde_json::json!({
+            "columns": [{
+                "id": "todo",
+                "cards": [{
+                    "id": "card-1",
+                    "title": "Assigned from Kanban",
+                    "assignees": [assignee.to_string()],
+                    "dueDate": "2026-07-25"
+                }]
+            }]
+        })
+        .to_string();
+        let mut tx = pool.begin().await.unwrap();
+        project_kanban_assignments(&mut tx, vault_id, file_id, 1, &board)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let calendar_payload: Value =
+            sqlx::query_scalar("SELECT payload FROM calendars WHERE owner_id=$1")
+                .bind(assignee)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            calendar_payload.pointer("/location/kind"),
+            Some(&Value::String("kanban".into()))
+        );
+        let item_payload: Value =
+            sqlx::query_scalar("SELECT payload FROM calendar_items WHERE owner_id=$1")
+                .bind(assignee)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            item_payload.pointer("/sourceBinding/sourceRevision"),
+            Some(&Value::Number(1.into()))
+        );
+
+        let archived = board.replace(
+            r#""dueDate":"2026-07-25""#,
+            r#""dueDate":"2026-07-25","archived":true"#,
+        );
+        let mut tx = pool.begin().await.unwrap();
+        project_kanban_assignments(&mut tx, vault_id, file_id, 2, &archived)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let active_items: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM calendar_items WHERE owner_id=$1 AND deleted_at IS NULL",
+        )
+        .bind(assignee)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(active_items, 0);
+
+        let mut tx = pool.begin().await.unwrap();
+        project_kanban_assignments(&mut tx, vault_id, file_id, 3, &board)
+            .await
+            .unwrap();
+        let unassigned = board.replace(
+            &format!(r#""assignees":["{assignee}"]"#),
+            r#""assignees":[] "#,
+        );
+        project_kanban_assignments(&mut tx, vault_id, file_id, 4, &unassigned)
+            .await
+            .unwrap();
+        let remaining_projections: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM kanban_calendar_projections WHERE owner_id=$1 AND vault_id=$2",
+        )
+        .bind(assignee)
+        .bind(vault_id)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(remaining_projections, 0);
+        sqlx::query("DELETE FROM hosted_vault_memberships WHERE vault_id=$1 AND user_id=$2")
+            .bind(vault_id)
+            .bind(assignee)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        remove_kanban_access_projections(&mut tx, vault_id, assignee)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let leaked_payloads: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM calendar_change_log WHERE owner_id=$1 AND payload IS NOT NULL",
+        )
+        .bind(assignee)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(leaked_payloads, 0);
+        let visible_generated_calendars: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM calendars WHERE owner_id=$1 AND deleted_at IS NULL",
+        )
+        .bind(assignee)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(visible_generated_calendars, 0);
     }
 
     #[tokio::test]

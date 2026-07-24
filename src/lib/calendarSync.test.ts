@@ -127,6 +127,104 @@ describe('calendarSync', () => {
     );
   });
 
+  it('preserves generated Kanban calendars and attaches their hosted origin', async () => {
+    const generatedCalendar = {
+      ...remoteCalendar,
+      id: 'kanban-calendar-1',
+      globalId: 'kanban-calendar-1',
+      location: { kind: 'kanban', originKey: 'hosted-vault:vault-1' },
+      name: 'Assigned tasks · Project',
+      readOnly: true,
+    };
+    const generatedTask = normalizeCalendarItem({
+      id: 'kanban-task-1',
+      uid: 'kanban:vault-1:file-1:card-1',
+      calendarId: generatedCalendar.id,
+      kind: 'task',
+      title: 'Review launch checklist',
+      reminders: [],
+      attachments: [],
+      sourceBinding: {
+        kind: 'kanban',
+        vaultId: 'vault-1',
+        fileId: 'file-1',
+        cardId: 'card-1',
+        sourceRevision: 4,
+      },
+      due: { kind: 'date', date: '2026-07-24' },
+      status: 'needs-action',
+      revision: 1,
+      createdAt: '2026-07-22T08:00:00Z',
+      updatedAt: '2026-07-24T08:00:00Z',
+    });
+    vi.mocked(tauriCommands.hostedCalendarRequest).mockImplementation(
+      async (_serverUrl, _method, path) => {
+        if (path === '/api/v1/calendars') return [generatedCalendar];
+        return {
+          changes: [
+            {
+              sequence: 1,
+              entityType: 'calendar',
+              entityId: generatedCalendar.id,
+              operation: 'upsert',
+              payload: generatedCalendar,
+              changedAt: '2026-07-24T08:00:00Z',
+            },
+            {
+              sequence: 2,
+              entityType: 'item',
+              entityId: generatedTask.id,
+              operation: 'upsert',
+              payload: generatedTask,
+              changedAt: '2026-07-24T08:00:00Z',
+            },
+          ],
+          cursor: 2,
+          hasMore: false,
+        };
+      },
+    );
+
+    await syncHostedCalendarOrigin('profile-1', origin, []);
+
+    expect(tauriCommands.calendarSave).toHaveBeenCalledWith(
+      'profile-1',
+      expect.objectContaining({
+        id: generatedCalendar.id,
+        location: {
+          kind: 'kanban',
+          originKey: 'https://calendar.example::hosted-vault:vault-1',
+        },
+        readOnly: true,
+      }),
+    );
+    expect(tauriCommands.calendarApplyRemoteChanges).toHaveBeenCalledWith(
+      'profile-1',
+      [
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            location: {
+              kind: 'kanban',
+              originKey: 'https://calendar.example::hosted-vault:vault-1',
+            },
+          }),
+        }),
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            sourceBinding: expect.objectContaining({
+              kind: 'kanban',
+              serverUrl: 'https://calendar.example',
+              vaultId: 'vault-1',
+              fileId: 'file-1',
+              cardId: 'card-1',
+            }),
+          }),
+        }),
+      ],
+      expect.objectContaining({ cursor: '2' }),
+    );
+  });
+
   it('reports bounded upload and download progress', async () => {
     const progress = vi.fn();
     vi.mocked(tauriCommands.hostedCalendarRequest).mockImplementation(

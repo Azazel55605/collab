@@ -37,6 +37,8 @@ import {
   type CalendarOperationFailure,
 } from '../types/calendar';
 import { isSupportedTimeZone, systemTimeZone, useUiStore } from './uiStore';
+import { writeThroughKanbanCalendarTask } from '../lib/kanbanCalendarProjection';
+import { useVaultStore } from './vaultStore';
 
 const DEVICE_ID_KEY = 'collab-calendar-device-id';
 const profileInitializations = new Map<string, Promise<void>>();
@@ -62,7 +64,7 @@ interface CalendarStoreState {
   sourceItems: CalendarItem[];
   items: CalendarItem[];
   visibleCalendarIds: string[];
-  range: { from: string; to: string } | null;
+  range: { from: string; to: string; includeUnscheduledTasks?: boolean } | null;
   loading: boolean;
   saving: boolean;
   syncing: boolean;
@@ -75,7 +77,7 @@ interface CalendarStoreState {
   mirrorProgress: Record<string, CalendarMirrorProgress>;
   error: string | null;
   initialize: (profileId: string) => Promise<void>;
-  loadRange: (from: string, to: string) => Promise<void>;
+  loadRange: (from: string, to: string, includeUnscheduledTasks?: boolean) => Promise<void>;
   syncHosted: (origins: HostedCalendarOrigin[]) => Promise<CalendarOriginSyncResult[]>;
   retryConflict: (clientOperationId: string) => Promise<void>;
   discardConflict: (clientOperationId: string) => Promise<void>;
@@ -122,7 +124,7 @@ function operationFor(item: CalendarItem, expectedRevision: number): CalendarOpe
 
 function projectedItems(
   sourceItems: CalendarItem[],
-  range: { from: string; to: string } | null,
+  range: { from: string; to: string; includeUnscheduledTasks?: boolean } | null,
 ): CalendarItem[] {
   return range
     ? queryCalendarItems(sourceItems, { ...range, limit: 5_000 })
@@ -250,14 +252,20 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
     }
   },
 
-  loadRange: async (from, to) => {
+  loadRange: async (from, to, includeUnscheduledTasks = false) => {
     const profileId = get().profileId;
     if (!profileId) return;
-    set({ loading: true, error: null, range: { from, to } });
+    set({ loading: true, error: null, range: { from, to, includeUnscheduledTasks } });
     try {
       const storedItems = await tauriCommands.calendarListItems(profileId, from, to, 5_000, true);
-      const items = queryCalendarItems(storedItems, { from, to, limit: 5_000 });
-      if (get().profileId === profileId && get().range?.from === from && get().range?.to === to) {
+      const items = queryCalendarItems(storedItems, {
+        from,
+        to,
+        limit: 5_000,
+        includeUnscheduledTasks,
+      });
+      if (get().profileId === profileId && get().range?.from === from && get().range?.to === to
+        && get().range?.includeUnscheduledTasks === includeUnscheduledTasks) {
         set({ sourceItems: storedItems, items });
       }
     } catch (error) {
@@ -692,6 +700,28 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
     if (!profileId) throw new Error('Calendar profile is not initialized.');
     const now = new Date().toISOString();
     const originalOccurrence = get().items.find((item) => item.id === input.id) ?? input;
+    if (input.kind === 'task' && originalOccurrence.kind === 'task'
+      && input.sourceBinding?.kind === 'kanban') {
+      set({ saving: true, error: null });
+      try {
+        const saved = await writeThroughKanbanCalendarTask(
+          originalOccurrence,
+          input,
+          useVaultStore.getState().vault,
+        );
+        set((state) => {
+          const sourceItems = replaceSourceItems(state.sourceItems, [saved]);
+          return { sourceItems, items: projectedItems(sourceItems, state.range) };
+        });
+        return saved;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        set({ error: message });
+        throw error;
+      } finally {
+        set({ saving: false });
+      }
+    }
     let plannedInputs = [input];
     if (input.recurrenceId && input.recurrenceSeriesId) {
       const master = get().sourceItems.find((item) => item.id === input.recurrenceSeriesId);
@@ -746,6 +776,11 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
   deleteItem: async (item, scope = 'occurrence') => {
     const profileId = get().profileId;
     if (!profileId) throw new Error('Calendar is not available.');
+    if (item.sourceBinding?.kind === 'kanban') {
+      const message = 'Kanban tasks must be archived or deleted from their source board.';
+      set({ error: message });
+      throw new Error(message);
+    }
     if (item.recurrenceId && item.recurrenceSeriesId) {
       const master = get().sourceItems.find((entry) => entry.id === item.recurrenceSeriesId);
       if (!master?.recurrence) throw new Error('The recurring series is not available in the local calendar cache.');

@@ -132,6 +132,11 @@ export const tauriCommands = {
   calendarList: (profileId: string) => invoke<CalendarDefinition[]>('calendar_list', { profileId }),
   calendarSave: (profileId: string, calendar: CalendarDefinition) =>
     invoke<void>('calendar_save', { profileId, calendar }),
+  calendarReplaceGeneratedKanban: (
+    profileId: string,
+    calendar: CalendarDefinition,
+    items: CalendarItem[],
+  ) => invoke<void>('calendar_replace_generated_kanban', { profileId, calendar, items }),
   calendarSaveWithOperation: (profileId: string, calendar: CalendarDefinition, operation: CalendarOperation) =>
     invoke<void>('calendar_save_with_operation', { profileId, calendar, operation }),
   calendarDelete: (profileId: string, calendarId: string, deletedAt: string, operation: CalendarOperation) =>

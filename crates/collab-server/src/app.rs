@@ -200,6 +200,10 @@ pub fn build_router(state: AppState) -> Router {
                 .delete(api::delete_file_revisions),
         )
         .route(
+            "/api/v1/vaults/{vault_id}/files/{file_id}/kanban-cards/{card_id}/calendar",
+            post(api::write_kanban_task_from_calendar),
+        )
+        .route(
             "/api/v1/vaults/{vault_id}/files/{file_id}/revisions/{revision_id}",
             get(api::get_text_revision)
                 .post(api::restore_file_revision)

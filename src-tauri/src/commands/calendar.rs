@@ -44,6 +44,19 @@ pub async fn calendar_save(profile_id: String, calendar: CalendarDefinition) -> 
 }
 
 #[tauri::command]
+pub async fn calendar_replace_generated_kanban(
+    profile_id: String,
+    calendar: CalendarDefinition,
+    items: Vec<CalendarItem>,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .replace_generated_kanban_calendar(&calendar, &items)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn calendar_save_with_operation(
     profile_id: String,
     calendar: CalendarDefinition,

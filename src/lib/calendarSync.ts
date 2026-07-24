@@ -2,6 +2,7 @@ import { tauriCommands } from './tauri';
 import { isLikelyConnectivityError } from './vaultReplica';
 import {
   normalizeCalendarDefinition,
+  normalizeCalendarItem,
   type CalendarChangesPage,
   type CalendarDefinition,
   type CalendarLocation,
@@ -143,6 +144,22 @@ function normalizeRemoteCalendar(value: unknown, origin: HostedCalendarOrigin): 
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('The server returned an invalid calendar definition.');
   }
+  const location = (value as { location?: unknown }).location;
+  if (location && typeof location === 'object' && !Array.isArray(location)
+    && (location as { kind?: unknown }).kind === 'kanban') {
+    const originKey = (location as { originKey?: unknown }).originKey;
+    if (typeof originKey !== 'string' || !originKey.trim()) {
+      throw new Error('The server returned an invalid Kanban calendar origin.');
+    }
+    return normalizeCalendarDefinition({
+      ...value,
+      location: {
+        kind: 'kanban',
+        originKey: `${origin.serverUrl.replace(/\/$/, '')}::${originKey}`,
+      },
+      readOnly: true,
+    });
+  }
   return normalizeCalendarDefinition({ ...value, location: hostedLocation(origin) });
 }
 
@@ -150,8 +167,22 @@ function normalizeRemoteChange(
   change: CalendarRemoteChange,
   origin: HostedCalendarOrigin,
 ): CalendarRemoteChange {
-  if (change.entityType !== 'calendar' || change.operation !== 'upsert') return change;
-  return { ...change, payload: normalizeRemoteCalendar(change.payload, origin) };
+  if (change.operation !== 'upsert') return change;
+  if (change.entityType === 'calendar') {
+    return { ...change, payload: normalizeRemoteCalendar(change.payload, origin) };
+  }
+  const item = normalizeCalendarItem(change.payload);
+  if (item.sourceBinding?.kind !== 'kanban') return { ...change, payload: item };
+  return {
+    ...change,
+    payload: {
+      ...item,
+      sourceBinding: {
+        ...item.sourceBinding,
+        serverUrl: origin.serverUrl.replace(/\/$/, ''),
+      },
+    },
+  };
 }
 
 async function discoverCalendars(

@@ -570,4 +570,63 @@ describe('mobile Calendar screen', () => {
     expect(useMobileStore.getState().tab).toBe('files');
     expect(useMobileStore.getState().activeSheet).toEqual({ kind: 'kanban', fileId: 'board-1', cardId: 'card-7' });
   });
+
+  it('writes generated hosted task completion through to its Kanban card', async () => {
+    const generatedCalendar: CalendarDefinition = {
+      ...calendar,
+      id: 'kanban-calendar',
+      globalId: 'kanban-calendar',
+      location: { kind: 'kanban', originKey: 'https://collab.example::vault-1' },
+      name: 'Assigned tasks · Project',
+      readOnly: true,
+    };
+    const task: CalendarItem = {
+      id: 'generated-task',
+      uid: 'kanban:vault-1:board-1:card-1',
+      calendarId: generatedCalendar.id,
+      kind: 'task',
+      title: 'Ship release',
+      reminders: [],
+      attendees: [],
+      attachments: [],
+      due: { kind: 'date', date: new Date().toISOString().slice(0, 10) },
+      status: 'needs-action',
+      sourceBinding: {
+        kind: 'kanban',
+        serverUrl: 'https://collab.example',
+        vaultId: 'vault-1',
+        fileId: 'board-1',
+        cardId: 'card-1',
+        sourceRevision: 7,
+      },
+      revision: 7,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    invoke.mockImplementation((command: string) => {
+      if (command === 'calendar_list') return Promise.resolve([generatedCalendar]);
+      if (command === 'calendar_list_items') return Promise.resolve([task]);
+      if (command === 'hosted_vault_request') return Promise.resolve({});
+      return Promise.reject(new Error(`unhandled command ${command}`));
+    });
+
+    render(<CalendarScreen prefs={DEFAULT_PREFS} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Ship release/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'completed' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(
+      'hosted_vault_request',
+      expect.objectContaining({
+        serverUrl: 'https://collab.example',
+        method: 'POST',
+        path: '/api/v1/vaults/vault-1/files/board-1/kanban-cards/card-1/calendar',
+        body: expect.objectContaining({
+          expectedSourceRevision: 7,
+          completed: true,
+        }),
+      }),
+    ));
+    expect(invoke).not.toHaveBeenCalledWith('calendar_upsert_item', expect.anything());
+  });
 });
