@@ -307,6 +307,9 @@ impl ReplicaStore {
         failure_code: &str,
         failure_message: &str,
     ) -> Result<(), String> {
+        let failure_code = collab_vault_domain::VaultDomainError::from_code(failure_code)
+            .map(|conflict| conflict.code())
+            .unwrap_or(failure_code);
         let mut ops = self.list_pending_operations()?;
         let mut found = false;
         for op in ops.iter_mut() {
@@ -1014,6 +1017,10 @@ mod tests {
         let ops = store.list_pending_operations().unwrap();
         assert_eq!(ops[0].status, PendingOpStatus::Failed);
         assert_eq!(ops[0].failure_code.as_deref(), Some("manifest_conflict"));
+        assert_eq!(
+            ops[0].domain_conflict(),
+            Some(collab_vault_domain::VaultDomainError::ManifestConflict)
+        );
         assert_eq!(
             ops[0].failure_message.as_deref(),
             Some("The vault manifest changed.")

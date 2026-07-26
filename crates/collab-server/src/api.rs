@@ -33,6 +33,14 @@ use collab_protocol::{
     PermissionTemplate, ServerUser, ServerUserRole, StorageSummary, UserDirectoryEntry, UserGroup,
     UserGroupMember, VaultGrant, WritePdfAnnotationsRequest, WsTicket, WsTicketRequest,
 };
+use collab_vault_domain::{
+    added_content_bytes, check_manifest_sequence, check_revision_sequence, check_storage_quota,
+    next_sequence, CapabilityRequirement as DomainCapability, EntryKind as DomainEntryKind,
+    EntrySnapshot as DomainEntry, EntryState as DomainEntryState,
+    MutationContext as DomainMutationContext, MutationPlan as DomainMutationPlan,
+    MutationRequest as DomainMutationRequest, VaultDomainError,
+    VaultSnapshot as DomainVaultSnapshot,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -2658,10 +2666,11 @@ pub async fn restore_file_revision(
         ));
     }
     let current_sequence = current.get::<Option<i64>, _>("sequence").unwrap_or(0);
-    if current_sequence != payload.expected_revision_sequence {
+    if check_revision_sequence(payload.expected_revision_sequence, current_sequence).is_err() {
         return Err(ApiFailure::revision_conflict(request_id));
     }
-    let next_sequence = current_sequence + 1;
+    let next_sequence = next_sequence(current_sequence)
+        .map_err(|error| map_vault_domain_error(error, &request_id))?;
     sqlx::query(
         "INSERT INTO hosted_file_revisions (id, vault_id, file_id, sequence, blob_digest, content_hash, size_bytes, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
     )
@@ -2909,10 +2918,11 @@ pub async fn restore_file_snapshot(
         ));
     }
     let current_sequence = current.get::<Option<i64>, _>("sequence").unwrap_or(0);
-    if current_sequence != payload.expected_revision_sequence {
+    if check_revision_sequence(payload.expected_revision_sequence, current_sequence).is_err() {
         return Err(ApiFailure::revision_conflict(request_id));
     }
-    let next_sequence = current_sequence + 1;
+    let next_sequence = next_sequence(current_sequence)
+        .map_err(|error| map_vault_domain_error(error, &request_id))?;
     sqlx::query(
         "INSERT INTO hosted_file_revisions (id, vault_id, file_id, sequence, blob_digest, content_hash, size_bytes, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
     )
@@ -3487,7 +3497,7 @@ pub async fn write_text_revision(
         ));
     }
     let current_sequence = current.get::<Option<i64>, _>("sequence").unwrap_or(0);
-    if current_sequence != payload.expected_revision_sequence {
+    if check_revision_sequence(payload.expected_revision_sequence, current_sequence).is_err() {
         return Err(ApiFailure::revision_conflict(request_id));
     }
     let prior_content = match current.get::<Option<String>, _>("blob_digest") {
@@ -3560,7 +3570,8 @@ pub async fn write_text_revision(
             &request_id,
         )?;
     }
-    let next_sequence = current_sequence + 1;
+    let next_sequence = next_sequence(current_sequence)
+        .map_err(|error| map_vault_domain_error(error, &request_id))?;
     insert_blob_record(
         &mut transaction,
         &digest,
@@ -3748,7 +3759,7 @@ pub async fn write_pdf_annotations(
         Some(row) => (row.get::<Value, _>("state"), row.get::<i64, _>("sequence")),
         None => (json!({}), 0),
     };
-    if current_sequence != payload.expected_sequence {
+    if check_revision_sequence(payload.expected_sequence, current_sequence).is_err() {
         return Err(ApiFailure::revision_conflict(request_id));
     }
     let annotation_bytes = serde_json::to_vec(&payload.state).map_err(|_| {
@@ -3770,7 +3781,8 @@ pub async fn write_pdf_annotations(
             return Err(ApiFailure::vault_permission_denied(request_id));
         }
     }
-    let next_sequence = current_sequence + 1;
+    let next_sequence = next_sequence(current_sequence)
+        .map_err(|error| map_vault_domain_error(error, &request_id))?;
     sqlx::query(
         r#"
         INSERT INTO hosted_pdf_annotations (vault_id, file_id, state, sequence, updated_by, updated_at)
@@ -4051,7 +4063,7 @@ pub async fn apply_structural_operation(
     }
 
     let manifest = load_vault_manifest(&state.database, vault_id, &request_id).await?;
-    if manifest.sequence != payload.base_manifest_sequence {
+    if check_manifest_sequence(payload.base_manifest_sequence, manifest.sequence).is_err() {
         return Err(ApiFailure::manifest_conflict(request_id));
     }
     let target = manifest
@@ -4059,15 +4071,11 @@ pub async fn apply_structural_operation(
         .iter()
         .find(|file| file.id == payload.target_file_id.to_string())
         .ok_or_else(|| ApiFailure::not_found(request_id.clone()))?;
-    let new_prefix = validate_structural_operation(&manifest, target, &payload, &request_id)?;
-
-    let rewrite_destination = match payload.operation_type {
-        HostedStructuralOperationType::Rename | HostedStructuralOperationType::Move => {
-            Some(new_prefix.as_deref())
-        }
-        HostedStructuralOperationType::Trash if payload.remove_references => Some(None),
-        _ => None,
-    };
+    let mutation_plan = validate_structural_operation(&manifest, target, &payload, &request_id)?;
+    let rewrite_destination = mutation_plan
+        .reference_rewrites
+        .first()
+        .map(|rewrite| rewrite.new_path.as_deref());
     let rewrites = if let Some(new_path) = rewrite_destination {
         compute_reference_rewrites(
             &state,
@@ -4104,7 +4112,7 @@ pub async fn apply_structural_operation(
         .await
         .map_err(|_| ApiFailure::server(request_id.clone()))?;
     let current_manifest = lock_active_vault(&mut transaction, vault_id, &request_id).await?;
-    if current_manifest != payload.base_manifest_sequence {
+    if check_manifest_sequence(payload.base_manifest_sequence, current_manifest).is_err() {
         return Err(ApiFailure::manifest_conflict(request_id));
     }
     match payload.operation_type {
@@ -4392,12 +4400,16 @@ pub async fn preview_structural_operation(
         parent_id: payload.parent_id,
         remove_references: false,
     };
-    let mut new_relative_path = None;
+    let mut mutation_plan = None;
     let mut blocked_reason = None;
     match validate_structural_operation(&manifest, target, &validation, &request_id) {
-        Ok(prefix) => new_relative_path = prefix,
+        Ok(plan) => mutation_plan = Some(plan),
         Err(failure) => blocked_reason = Some(failure.message().to_owned()),
     }
+    let new_relative_path = mutation_plan
+        .as_ref()
+        .and_then(|plan| plan.path_change.as_ref())
+        .map(|change| change.new_path.clone());
     if blocked_reason.is_none() {
         if let Some(next_path) = new_relative_path.as_deref() {
             if next_path == target.relative_path {
@@ -10111,107 +10123,146 @@ fn validate_structural_operation(
     target: &HostedFileEntry,
     payload: &StructuralOperationRequest,
     request_id: &str,
-) -> Result<Option<String>, ApiFailure> {
+) -> Result<DomainMutationPlan, ApiFailure> {
     if payload.base_manifest_sequence < 0 {
         return Err(ApiFailure::validation(
             "Base manifest sequence cannot be negative.",
             request_id.to_owned(),
         ));
     }
-    match payload.operation_type {
-        HostedStructuralOperationType::Rename | HostedStructuralOperationType::Move => {
-            if target.state != HostedFileState::Active {
-                return Err(ApiFailure::validation(
-                    "Only active files can be renamed or moved.",
-                    request_id.to_owned(),
-                ));
-            }
-            let new_name = if payload.operation_type == HostedStructuralOperationType::Rename {
-                payload.name.as_deref().ok_or_else(|| {
-                    ApiFailure::validation("Rename requires a name.", request_id.to_owned())
-                })?
-            } else {
-                &target.name
-            };
-            let (new_name, _) = collab_core::normalize_hosted_name(new_name).map_err(|error| {
-                ApiFailure::path_invalid(error.to_string(), request_id.to_owned())
-            })?;
-            let parent_id = if payload.operation_type == HostedStructuralOperationType::Move {
-                payload.parent_id
-            } else {
-                target
-                    .parent_id
-                    .as_deref()
-                    .map(Uuid::parse_str)
-                    .transpose()
-                    .expect("stored file IDs are valid UUIDs")
-            };
-            let parent_path = if let Some(parent_id) = parent_id {
-                let parent = manifest
-                    .files
-                    .iter()
-                    .find(|file| file.id == parent_id.to_string())
-                    .ok_or_else(|| ApiFailure::not_found(request_id.to_owned()))?;
-                if parent.kind != HostedFileKind::Folder || parent.state != HostedFileState::Active
-                {
-                    return Err(ApiFailure::path_invalid(
-                        "The destination must be an active folder.",
-                        request_id.to_owned(),
-                    ));
+    let capability = domain_capability(payload.operation_type);
+    let request = match payload.operation_type {
+        HostedStructuralOperationType::Rename => DomainMutationRequest::Rename {
+            target_id: target.id.clone(),
+            name: payload.name.clone().ok_or_else(|| {
+                ApiFailure::validation("Rename requires a name.", request_id.to_owned())
+            })?,
+        },
+        HostedStructuralOperationType::Move => DomainMutationRequest::Move {
+            target_id: target.id.clone(),
+            parent_id: payload.parent_id.map(|id| id.to_string()),
+        },
+        HostedStructuralOperationType::Trash => DomainMutationRequest::Trash {
+            target_id: target.id.clone(),
+            remove_references: payload.remove_references,
+        },
+        HostedStructuralOperationType::Restore => DomainMutationRequest::Restore {
+            target_id: target.id.clone(),
+        },
+        HostedStructuralOperationType::Purge => DomainMutationRequest::Purge {
+            target_id: target.id.clone(),
+            remove_references: payload.remove_references,
+        },
+    };
+    let plan = collab_vault_domain::plan_mutation(
+        &domain_snapshot(manifest),
+        &DomainMutationContext {
+            capabilities: [capability].into_iter().collect(),
+            operation_id: payload.client_operation_id.to_string(),
+            base_manifest_sequence: payload.base_manifest_sequence,
+        },
+        request,
+    )
+    .map_err(|error| {
+        if error == VaultDomainError::InvalidState {
+            let message = match payload.operation_type {
+                HostedStructuralOperationType::Rename | HostedStructuralOperationType::Move => {
+                    "Only active files can be renamed or moved."
                 }
-                if parent.id == target.id
-                    || parent
-                        .relative_path
-                        .starts_with(&format!("{}/", target.relative_path))
-                {
-                    return Err(ApiFailure::path_invalid(
-                        "A folder cannot be moved inside itself.",
-                        request_id.to_owned(),
-                    ));
+                HostedStructuralOperationType::Trash => "Only active files can be trashed.",
+                HostedStructuralOperationType::Restore | HostedStructuralOperationType::Purge => {
+                    "Only trashed files can be restored or purged."
                 }
-                parent.relative_path.as_str()
-            } else {
-                ""
             };
-            let new_prefix = if parent_path.is_empty() {
-                new_name
-            } else {
-                format!("{parent_path}/{new_name}")
-            };
-            collab_core::normalize_hosted_path(&new_prefix).map_err(|error| {
-                ApiFailure::path_invalid(error.to_string(), request_id.to_owned())
-            })?;
-            for child in manifest.files.iter().filter(|file| {
-                file.relative_path
-                    .starts_with(&format!("{}/", target.relative_path))
-            }) {
-                let suffix = child
-                    .relative_path
-                    .strip_prefix(&target.relative_path)
-                    .expect("prefix was checked");
-                collab_core::normalize_hosted_path(&format!("{new_prefix}{suffix}")).map_err(
-                    |error| ApiFailure::path_invalid(error.to_string(), request_id.to_owned()),
-                )?;
-            }
-            return Ok(Some(new_prefix));
+            ApiFailure::validation(message, request_id.to_owned())
+        } else {
+            map_vault_domain_error(error, request_id)
         }
-        HostedStructuralOperationType::Trash if target.state != HostedFileState::Active => {
-            return Err(ApiFailure::validation(
-                "Only active files can be trashed.",
-                request_id.to_owned(),
-            ));
-        }
-        HostedStructuralOperationType::Restore | HostedStructuralOperationType::Purge
-            if target.state != HostedFileState::Trashed =>
-        {
-            return Err(ApiFailure::validation(
-                "Only trashed files can be restored or purged.",
-                request_id.to_owned(),
-            ));
-        }
-        _ => {}
+    })?;
+    Ok(plan)
+}
+
+fn domain_capability(operation: HostedStructuralOperationType) -> DomainCapability {
+    match operation {
+        HostedStructuralOperationType::Rename => DomainCapability::Rename,
+        HostedStructuralOperationType::Move => DomainCapability::Move,
+        HostedStructuralOperationType::Trash => DomainCapability::Trash,
+        HostedStructuralOperationType::Restore => DomainCapability::Restore,
+        HostedStructuralOperationType::Purge => DomainCapability::Purge,
     }
-    Ok(None)
+}
+
+fn domain_snapshot(manifest: &HostedVaultManifest) -> DomainVaultSnapshot {
+    DomainVaultSnapshot {
+        manifest_sequence: manifest.sequence,
+        entries: manifest
+            .files
+            .iter()
+            .map(|entry| DomainEntry {
+                id: entry.id.clone(),
+                parent_id: entry.parent_id.clone(),
+                name: entry.name.clone(),
+                relative_path: entry.relative_path.clone(),
+                kind: if entry.kind == HostedFileKind::Folder {
+                    DomainEntryKind::Folder
+                } else {
+                    DomainEntryKind::File
+                },
+                state: match entry.state {
+                    HostedFileState::Active => DomainEntryState::Active,
+                    HostedFileState::Trashed => DomainEntryState::Trashed,
+                    HostedFileState::Tombstoned => DomainEntryState::Tombstoned,
+                },
+                current_revision_sequence: entry
+                    .current_revision
+                    .as_ref()
+                    .map(|revision| revision.sequence),
+                size_bytes: entry
+                    .current_revision
+                    .as_ref()
+                    .map_or(0, |revision| revision.size_bytes),
+            })
+            .collect(),
+        applied_operation_ids: Default::default(),
+    }
+}
+
+fn map_vault_domain_error(error: VaultDomainError, request_id: &str) -> ApiFailure {
+    match error {
+        VaultDomainError::ManifestConflict => ApiFailure::manifest_conflict(request_id.to_owned()),
+        VaultDomainError::PathConflict => ApiFailure::new(
+            StatusCode::CONFLICT,
+            ErrorCode::PathConflict,
+            error.to_string(),
+            request_id.to_owned(),
+        ),
+        VaultDomainError::EntryNotFound | VaultDomainError::ParentNotFound => {
+            ApiFailure::not_found(request_id.to_owned())
+        }
+        VaultDomainError::InvalidParent
+        | VaultDomainError::MoveIntoDescendant
+        | VaultDomainError::InvalidPath => {
+            ApiFailure::path_invalid(error.to_string(), request_id.to_owned())
+        }
+        VaultDomainError::CapabilityDenied => {
+            ApiFailure::vault_permission_denied(request_id.to_owned())
+        }
+        VaultDomainError::QuotaExceeded => {
+            ApiFailure::storage_quota_exceeded(request_id.to_owned())
+        }
+        VaultDomainError::RevisionConflict => ApiFailure::revision_conflict(request_id.to_owned()),
+        VaultDomainError::OperationAlreadyApplied => ApiFailure::new(
+            StatusCode::CONFLICT,
+            ErrorCode::OperationAlreadyApplied,
+            error.to_string(),
+            request_id.to_owned(),
+        ),
+        VaultDomainError::InvalidState
+        | VaultDomainError::UnchangedPath
+        | VaultDomainError::SequenceOverflow => {
+            ApiFailure::validation(error.to_string(), request_id.to_owned())
+        }
+    }
 }
 
 async fn load_structural_operation(
@@ -10577,37 +10628,15 @@ async fn enforce_storage_quota(
             .await
             .map_err(|_| ApiFailure::server(request_id.to_owned()))?;
     let existing: HashSet<String> = existing.into_iter().collect();
-    let added = quota_added_bytes(incoming, &existing);
+    let added = added_content_bytes(incoming, &existing);
     if added == 0 {
         return Ok(());
     }
     let current = stored_content_bytes(db)
         .await
         .map_err(|_| ApiFailure::server(request_id.to_owned()))?;
-    if quota_would_exceed(current, added, quota_bytes) {
-        return Err(ApiFailure::storage_quota_exceeded(request_id.to_owned()));
-    }
-    Ok(())
-}
-
-/// Bytes a content-addressed write would newly store: sums the size of each
-/// incoming digest that is neither already stored (`existing`) nor a duplicate
-/// of an earlier entry in `incoming`.
-fn quota_added_bytes(incoming: &[(String, usize)], existing: &HashSet<String>) -> u64 {
-    let mut counted: HashSet<&str> = existing.iter().map(String::as_str).collect();
-    let mut added: u64 = 0;
-    for (digest, size) in incoming {
-        if counted.insert(digest.as_str()) {
-            added = added.saturating_add(*size as u64);
-        }
-    }
-    added
-}
-
-/// Whether storing `added` more bytes over the current `current` total would
-/// cross `quota`. A `quota` of `0` means unlimited.
-fn quota_would_exceed(current: u64, added: u64, quota: u64) -> bool {
-    quota > 0 && current.saturating_add(added) > quota
+    check_storage_quota(current, added, quota_bytes)
+        .map_err(|_| ApiFailure::storage_quota_exceeded(request_id.to_owned()))
 }
 
 fn map_path_database_error(error: sqlx::Error, request_id: String) -> ApiFailure {
@@ -11793,10 +11822,10 @@ impl IntoResponse for ApiFailure {
 mod tests {
     use super::{
         cookie, delete_or_quarantine_backup_dir, indexed_note_tags, indexed_note_title,
-        is_safe_backup_name, parse_backup_created_at, parse_vault_zip, quota_added_bytes,
-        quota_would_exceed, run_operator_command, search_excerpt, sha256_file,
-        validate_backup_archive_entries, validate_backup_manifest_version, validate_file_kind,
-        verify_backup, BackupRuntimeSettings, Capability, STANDARD,
+        is_safe_backup_name, parse_backup_created_at, parse_vault_zip, run_operator_command,
+        search_excerpt, sha256_file, validate_backup_archive_entries,
+        validate_backup_manifest_version, validate_file_kind, verify_backup, BackupRuntimeSettings,
+        Capability, STANDARD,
     };
     use crate::auth::hash_secret;
     use crate::{
@@ -11871,7 +11900,10 @@ mod tests {
             ("b".to_string(), 10),
             ("c".to_string(), 5),
         ];
-        assert_eq!(quota_added_bytes(&incoming, &existing), 15);
+        assert_eq!(
+            collab_vault_domain::added_content_bytes(&incoming, &existing),
+            15
+        );
     }
 
     #[test]
@@ -11879,7 +11911,10 @@ mod tests {
         let mut existing = HashSet::new();
         existing.insert("a".to_string());
         let incoming = vec![("a".to_string(), 100)];
-        assert_eq!(quota_added_bytes(&incoming, &existing), 0);
+        assert_eq!(
+            collab_vault_domain::added_content_bytes(&incoming, &existing),
+            0
+        );
     }
 
     #[test]
@@ -11933,12 +11968,12 @@ mod tests {
     #[test]
     fn quota_would_exceed_respects_unlimited_and_threshold() {
         // Unlimited quota never trips.
-        assert!(!quota_would_exceed(1_000, 1_000, 0));
+        assert!(collab_vault_domain::check_storage_quota(1_000, 1_000, 0).is_ok());
         // Exactly at the quota is allowed; one byte over is rejected.
-        assert!(!quota_would_exceed(900, 100, 1_000));
-        assert!(quota_would_exceed(901, 100, 1_000));
+        assert!(collab_vault_domain::check_storage_quota(900, 100, 1_000).is_ok());
+        assert!(collab_vault_domain::check_storage_quota(901, 100, 1_000).is_err());
         // Saturating addition cannot wrap around the limit.
-        assert!(quota_would_exceed(u64::MAX, 1, 1_000));
+        assert!(collab_vault_domain::check_storage_quota(u64::MAX, 1, 1_000).is_err());
     }
 
     #[test]

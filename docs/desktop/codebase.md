@@ -649,6 +649,7 @@ The repository root is a Cargo workspace:
 | `crates/collab-documents/` | Framework-free bounded document classification/validation, note/Kanban/canvas references, Kanban/PDF capability semantics, and canvas inspection |
 | `crates/collab-net-policy/` | IO-free outbound URL, resolved-address, redirect-origin, response-budget, and timeout policy shared by native previews/subscriptions and hosted calendar feeds |
 | `crates/collab-protocol/` | Shared server response DTOs, error envelope, and protocol versions |
+| `crates/collab-vault-domain/` | IO-free vault metadata snapshots and deterministic mutation, path, state-transition, optimistic-sequence, reference-impact, quota, idempotency, and conflict decisions |
 | `crates/collab-replica/` | Encrypted native hosted-vault offline replica, pending mutation queue, and document/asset/CRDT/logic-component caches |
 | `crates/collab-calendar/` | Shared user-calendar wire model and profile-scoped SQLite store with indexed range queries, pending operations, optimistic item revisions, cross-location mirror groups/anchors/conflicts, and atomic local generated-Kanban projection replacement |
 | `crates/collab-server/` | Standalone Axum server, PostgreSQL migrations, hosted-vault authorization/storage APIs, owner-scoped calendar/CalDAV APIs, runtime calendar quota/request controls, aggregate-only calendar operations health, health checks, and blob storage |
@@ -661,12 +662,12 @@ The repository root is a Cargo workspace:
 
 The table above is the current source of truth. The
 [Rust Crate Boundary Refactor Plan](../plans/rust-crate-boundary-refactor-plan.md)
-has delivered `collab-net-policy` and `collab-documents`, and proposes
-`collab-vault-domain` and `collab-live`, with `collab-archive` subject to a
+has delivered `collab-net-policy`, `collab-documents`, and
+`collab-vault-domain`, and proposes `collab-live`, with `collab-archive` subject to a
 measured reuse decision. The remaining crates do not exist until their plan
 phases land.
 
-Phases 0-2 are complete. `pnpm rust:boundaries` enforces the allowed workspace graph
+Phases 0-3 are complete. `pnpm rust:boundaries` enforces the allowed workspace graph
 through `cargo metadata`; every new workspace crate must be added to that
 policy and domain crates cannot depend on HTTP execution frameworks. Portable behavior is first isolated and characterized in private
 adapter modules: server archive planning currently lives in `api/archive.rs`,
@@ -682,6 +683,9 @@ and server adapters.
 `collab-documents` owns portable parsing and semantic decisions; filesystem,
 database, authorization, revision, and transport orchestration remain in the
 native and server adapters.
+`collab-vault-domain` owns portable metadata mutation plans and conflict
+classification; PostgreSQL transactions, filesystem changes, blob persistence,
+authorization lookup, and watcher suppression remain adapter responsibilities.
 
 `src-tauri/src/`
 

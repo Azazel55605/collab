@@ -5,6 +5,10 @@ use base64::Engine as _;
 use collab_core::{
     normalize_relative_path as normalize_core_relative_path, sha256_bytes, sha256_text,
 };
+use collab_vault_domain::{
+    classify_path_change, plan_path_change, plan_state_transition, EntryState as DomainEntryState,
+    PathChangeKind,
+};
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -592,6 +596,8 @@ fn move_path_to_trash(
     remove_references: bool,
     key_opt: Option<[u8; 32]>,
 ) -> Result<TrashEntry, String> {
+    plan_state_transition(DomainEntryState::Active, DomainEntryState::Trashed)
+        .map_err(|error| error.to_string())?;
     let normalized = normalize_relative_path(relative_path)?;
     if normalized == PathBuf::from("Pictures") {
         return Err("The Pictures folder is managed by the app and cannot be deleted".into());
@@ -738,6 +744,8 @@ fn restore_trashed_item_inner(
     target_relative_path: Option<String>,
     key_opt: Option<[u8; 32]>,
 ) -> Result<String, String> {
+    plan_state_transition(DomainEntryState::Trashed, DomainEntryState::Active)
+        .map_err(|error| error.to_string())?;
     let entry = read_trash_entry(vault_path, entry_id, key_opt)?;
     let restore_target =
         target_relative_path.unwrap_or_else(|| entry.original_relative_path.clone());
@@ -786,6 +794,8 @@ fn purge_trashed_item_inner(
     remove_references: bool,
     key_opt: Option<[u8; 32]>,
 ) -> Result<(), String> {
+    plan_state_transition(DomainEntryState::Trashed, DomainEntryState::Tombstoned)
+        .map_err(|error| error.to_string())?;
     let entry = read_trash_entry(vault_path, entry_id, key_opt)?;
     if remove_references {
         rewrite_all_references(vault_path, &entry.original_relative_path, None, key_opt)?;
@@ -889,39 +899,23 @@ fn preview_path_change_inner(
 
     let metadata = std::fs::metadata(&old_full).map_err(|e| e.to_string())?;
     let item_kind = if metadata.is_dir() { "folder" } else { "file" }.to_string();
-    let old_parent = old_normalized
-        .parent()
-        .map(|p| p.to_string_lossy().replace('\\', "/"))
-        .unwrap_or_default();
-    let new_parent = new_normalized
-        .parent()
-        .map(|p| p.to_string_lossy().replace('\\', "/"))
-        .unwrap_or_default();
-    let old_name = old_normalized
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default();
-    let new_name = new_normalized
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default();
-    let operation = match (old_parent != new_parent, old_name != new_name) {
-        (true, true) => "move-and-rename",
-        (true, false) => "move",
-        (false, true) => "rename",
-        (false, false) => "unchanged",
-    }
-    .to_string();
-
-    let blocked_reason = if old_str == new_str {
-        Some("The destination matches the current path".into())
-    } else if metadata.is_dir() && new_str.starts_with(&format!("{old_str}/")) {
-        Some("A folder cannot be moved into itself or one of its descendants".into())
-    } else if new_full.exists() {
-        Some("The destination path already exists".into())
-    } else {
-        None
-    };
+    let operation =
+        match classify_path_change(&old_str, &new_str).map_err(|error| error.to_string())? {
+            PathChangeKind::Unchanged => "unchanged",
+            PathChangeKind::Rename => "rename",
+            PathChangeKind::Move => "move",
+            PathChangeKind::MoveAndRename => "move-and-rename",
+        }
+        .to_string();
+    let blocked_reason = plan_path_change(
+        &old_str,
+        &new_str,
+        metadata.is_dir(),
+        new_full.exists(),
+        std::iter::empty(),
+    )
+    .err()
+    .map(|error| error.to_string());
 
     let affected_reference_paths = if blocked_reason.is_none() {
         collect_reference_impacts(vault_path, &old_str, &new_str, key_opt)?
@@ -2746,6 +2740,15 @@ pub fn rename_note(
     let old_full = base.join(normalize_relative_path(&old_path)?);
     let new_full = base.join(normalize_relative_path(&new_path)?);
     let key_opt: Option<[u8; 32]> = *state.encryption_key.read();
+    let metadata = std::fs::metadata(&old_full).map_err(|e| e.to_string())?;
+    plan_path_change(
+        &old_path,
+        &new_path,
+        metadata.is_dir(),
+        new_full.exists(),
+        std::iter::empty(),
+    )
+    .map_err(|error| error.to_string())?;
 
     // Create parent directories for destination if needed
     if let Some(parent) = new_full.parent() {

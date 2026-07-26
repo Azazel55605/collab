@@ -4,6 +4,7 @@
 //! they round-trip cleanly to and from the frontend. The replica holds vault
 //! *content* only — never access or refresh tokens.
 
+use collab_vault_domain::VaultDomainError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -142,6 +143,16 @@ pub struct PendingOperation {
     /// Human-readable failure detail from the last replay attempt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure_message: Option<String>,
+}
+
+impl PendingOperation {
+    /// Returns the portable vault-domain conflict represented by the persisted
+    /// machine code. Legacy free-form messages are intentionally not parsed.
+    pub fn domain_conflict(&self) -> Option<VaultDomainError> {
+        self.failure_code
+            .as_deref()
+            .and_then(VaultDomainError::from_code)
+    }
 }
 
 /// A locally-known deletion. Tombstones let the replica distinguish an item the

@@ -9,6 +9,7 @@ members = [
   "crates/collab-protocol",
   "crates/collab-replica",
   "crates/collab-server",
+  "crates/collab-vault-domain",
   "src-tauri",
 ]
 

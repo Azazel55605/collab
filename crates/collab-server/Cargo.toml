@@ -17,6 +17,7 @@ collab-core = { path = "../collab-core" }
 collab-documents = { path = "../collab-documents" }
 collab-net-policy = { path = "../collab-net-policy" }
 collab-protocol = { path = "../collab-protocol" }
+collab-vault-domain = { path = "../collab-vault-domain" }
 futures-util.workspace = true
 hex.workspace = true
 rand.workspace = true

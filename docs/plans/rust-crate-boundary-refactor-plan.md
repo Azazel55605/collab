@@ -318,7 +318,7 @@ remaining in one API file or being prematurely made public.
 | 0. Baseline and dependency design | Complete | Baselines, consumer maps, draft contracts, dependency enforcement, characterization tests, and initial internal adapter ownership modules are in place. |
 | 1. Outbound network policy | Complete | `collab-net-policy` now owns shared URL, resolved-target, redirect, sensitive-header, response-budget, and timeout policy used by native and server adapters. |
 | 2. Document domain | Complete | `collab-documents` owns bounded document classification/validation, references, Kanban semantics, PDF semantics, and shared canvas inspection across native and server adapters. |
-| 3. Vault mutation domain | Not started | Add `collab-vault-domain` and move portable file/revision/manifest/trash mutation planning behind stable inputs. |
+| 3. Vault mutation domain | Complete | `collab-vault-domain` owns portable file/revision/manifest/trash mutation planning behind stable inputs and is consumed by hosted, local, and replica adapters. |
 | 4. Archive boundary | Not started | Consolidate bounded import/export planning in `collab-archive` or a vault-domain module based on measured reuse. |
 | 5. Live document domain | Not started | Add `collab-live` for Yrs conversion, updates, compaction, recovery, and materialization guards. |
 | 6. Enforcement and cleanup | Not started | Remove compatibility re-exports, enforce dependency rules, update docs, and complete cross-platform regression validation. |
@@ -481,6 +481,26 @@ Acceptance criteria:
   one PostgreSQL transaction.
 - Local vault behavior, trash semantics, optimistic writes, and hosted replica
   replay remain unchanged.
+
+Completion notes:
+
+- `crates/collab-vault-domain` now defines canonical entry/vault snapshots,
+  capability-resolved mutation requests, deterministic plans, metadata and
+  reference intents, path-change classification, state transitions, optimistic
+  sequence checks, content-addressed quota deltas, and typed conflict codes.
+- Hosted structural validation, manifest/revision preconditions, and storage
+  quota enforcement consume the shared decisions while preserving the existing
+  PostgreSQL transaction that commits metadata, revisions, activity, and
+  reference rewrites atomically.
+- Local rename/move preview and execution plus trash/restore/purge state
+  transitions use the same portable path and state rules; filesystem and
+  sidecar operations remain in the Tauri adapter.
+- Replica recovery maps persisted machine-readable failure codes to
+  `VaultDomainError` without parsing server message text. Existing replica
+  storage and frontend wire shapes remain compatible.
+- Domain invariant tests cover rename/move, descendant and path conflicts,
+  state transitions, manifest/revision/idempotency conflicts, quota
+  deduplication, and deterministic descendant remapping.
 
 ## Phase 4: Archive Boundary
 

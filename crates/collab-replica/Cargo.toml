@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 collab-core = { path = "../collab-core" }
 collab-protocol = { path = "../collab-protocol" }
+collab-vault-domain = { path = "../collab-vault-domain" }
 chrono.workspace = true
 hex.workspace = true
 serde.workspace = true
