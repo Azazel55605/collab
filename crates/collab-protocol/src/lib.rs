@@ -267,6 +267,8 @@ pub struct AdminRuntimeSettings {
     pub max_import_expanded_bytes: AdminRuntimeSetting<u64>,
     pub storage_warning_bytes: AdminRuntimeSetting<u64>,
     pub storage_quota_bytes: AdminRuntimeSetting<u64>,
+    pub calendar_quota_bytes: AdminRuntimeSetting<u64>,
+    pub calendar_rate_limit_per_minute: AdminRuntimeSetting<u64>,
     pub revision_history_limit: AdminRuntimeSetting<u64>,
     pub revision_storage_target_bytes: AdminRuntimeSetting<u64>,
 }
@@ -937,7 +939,21 @@ pub struct CalendarUsageMetrics {
     pub uploaded_attachments: i64,
     pub logical_bytes: i64,
     pub quota_bytes_per_user: u64,
+    pub max_user_logical_bytes: i64,
+    pub users_near_quota: i64,
+    pub users_at_quota: i64,
+    pub subscription_worker: CalendarSubscriptionWorkerMetrics,
     pub users_by_calendar_count: Vec<CalendarCountBucket>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarSubscriptionWorkerMetrics {
+    pub subscriptions: i64,
+    pub subscriptions_with_errors: i64,
+    pub overdue_subscriptions: i64,
+    pub active_refresh_leases: i64,
+    pub last_successful_refresh_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

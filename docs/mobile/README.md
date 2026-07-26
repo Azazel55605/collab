@@ -25,6 +25,10 @@ separate mobile React shell under `apps/mobile-android`.
   log, so external changes reach Android through the existing hosted-calendar
   delta sync. Android does not store CalDAV app passwords; credential setup and
   revocation currently live in the desktop Calendar view.
+- Calendar synchronization has deterministic repeated disconnect/reconnect
+  coverage across two independent hosted locations. Multi-day Android
+  background/lifecycle validation on physical devices remains a Phase 10
+  release gate and is not replaced by the in-process soak test.
 - Mobile does not support local filesystem vaults, desktop-style workspaces,
   native file drag/drop, full rich-file editing, or admin-web workflows.
 - Android-native behavior that must survive project regeneration is documented

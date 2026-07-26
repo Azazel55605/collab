@@ -60,7 +60,7 @@ models.
 | 7. Kanban assigned-task integration | Complete | Local and hosted assignment projection, generated read-only calendars, REST/live materialization, narrow date/completion/recurrence write-through, source lifecycle handling, and access-loss privacy cleanup are implemented and covered. |
 | 8. iCalendar import, export, and subscriptions | Complete | Desktop range/item export, desktop and Android bounded import/export, local and hosted read-only HTTPS subscriptions, scheduled conditional refresh, revocable publication links, safe extension preservation, provider/time-zone fixtures, and SSRF/parser hardening are implemented. |
 | 9. CalDAV and external two-way sync | Testing | Hosted discovery, collections, reports, sync tokens, ETags, writes/deletes, recurrence resources, revocable app passwords, and shared change-log convergence are implemented; maintained external-client interoperability testing remains. |
-| 10. Admin overview, privacy verification, and hardening | Not started | Ship aggregate-only administration, migration, load, security, and recovery coverage. |
+| 10. Admin overview, privacy verification, and hardening | Testing | Aggregate-only administration, runtime quota/rate controls, usage warnings, subscription health, bounded recurrence, retention coverage, and deterministic multi-server soak tests are implemented; physical-device and full restore drills remain. |
 | 11. Reminder delivery and notifications | Not started | Activate desktop and Android notification scheduling through the calendar reminder connectors after the core calendar implementation. |
 
 Phase 11 is detailed in the cross-platform
@@ -469,6 +469,19 @@ Landed in the first implementation slice:
   A local-only outbound CalDAV connector is deferred until the background
   execution and secure external-credential lifecycle can support provider
   secrets without storing them in the calendar profile database.
+- Started Phase 10 with admin-configurable per-user calendar quota and
+  calendar-specific request budgets. Environment values remain authoritative
+  when set; otherwise the administration settings page can change both at
+  runtime.
+- Extended the aggregate-only admin overview with anonymous largest-account,
+  near-quota, and at-quota counts plus subscription refresh health. Operational
+  warnings report quota pressure, failed subscriptions, and overdue refreshes
+  without returning owner IDs, calendar names, item payloads, attendees, or
+  attachment content.
+- Added bounded explicit recurrence dates, adversarial long-range recurrence
+  tests, calendar-specific rate-limit coverage, live retention coverage for
+  operation deduplication records and abandoned attachment uploads, and a
+  repeated two-server disconnect/reconnect convergence test.
 
 ## Current System Constraints
 
@@ -1360,15 +1373,18 @@ Estimated effort: 2-3 weeks after the earlier vertical slices.
 
 Tasks:
 
-- Add aggregate admin API/view, quota settings, usage warnings, and operational
-  worker health.
-- Add migration/load/retention/backup/restore tests and calendar-specific rate
-  limits.
-- Run privacy response audits, logs review, fuzz/property tests for recurrence
-  and iCalendar, mobile lifecycle tests, and multi-server soak tests.
-- Update `AGENTS.md`, `docs/desktop/codebase.md`, server protocol, backup,
-  security, and mobile
-  documentation when implementation lands.
+- [x] Add aggregate admin API/view, runtime quota settings, usage warnings, and
+  operational subscription-worker health.
+- [x] Add calendar-specific rate limits plus live retention coverage for
+  calendar operation records and abandoned attachment uploads.
+- [x] Run privacy response assertions, bounded adversarial recurrence tests,
+  and deterministic repeated two-server offline/reconnect soak coverage.
+- [x] Update `AGENTS.md`, `docs/desktop/codebase.md`, server protocol, backup,
+  security, load-testing, and mobile documentation.
+- [ ] Complete a full deployment backup/restore drill and verify calendars,
+  change sequences, CalDAV mappings, and tombstones after restore.
+- [ ] Complete multi-day physical desktop and Android lifecycle testing across
+  two independently hosted servers.
 
 Acceptance criteria:
 
@@ -1376,6 +1392,11 @@ Acceptance criteria:
 - Backup/restore preserves calendars, change sequences, and tombstones.
 - Query and recurrence limits remain stable under adversarial inputs.
 - Desktop and Android pass multi-day offline/reconnect tests across two servers.
+
+Current testing note: the API privacy boundary, rate limiting, retention,
+recurrence bounds, and deterministic two-server convergence are covered
+automatically. The destructive restore drill and multi-day physical-device
+matrix remain manual release gates, so this phase stays in **Testing**.
 
 ### Phase 11: Reminder Delivery And Notifications
 

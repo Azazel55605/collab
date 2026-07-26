@@ -2,7 +2,11 @@ import ICAL from 'ical.js';
 import { describe, expect, it } from 'vitest';
 
 import { expandRecurringItem } from './calendarRecurrence';
-import { normalizeCalendarItem, type CalendarItem } from '../types/calendar';
+import {
+  MAX_CALENDAR_RECURRENCE_DATES,
+  normalizeCalendarItem,
+  type CalendarItem,
+} from '../types/calendar';
 
 const createdAt = '2026-01-01T00:00:00Z';
 
@@ -105,6 +109,38 @@ describe('calendar recurrence', () => {
       Date.parse('2030-01-01T00:00:00Z'),
       25,
     )).toHaveLength(25);
+  });
+
+  it('keeps adversarial recurrence ranges bounded and ordered', () => {
+    for (const interval of [1, 2, 7, 31]) {
+      const item = event({
+        start: { kind: 'date', date: '2026-01-01' },
+        end: { kind: 'date', date: '2026-01-02' },
+        recurrence: { rrule: `FREQ=DAILY;INTERVAL=${interval}` },
+      });
+      const instances = expandRecurringItem(
+        item,
+        Date.parse('2026-01-01T00:00:00Z'),
+        Date.parse('2126-01-01T00:00:00Z'),
+        64,
+      );
+      expect(instances).toHaveLength(64);
+      const keys = instances.map((instance) => JSON.stringify(instance.recurrenceId));
+      expect(new Set(keys).size).toBe(keys.length);
+      expect(keys).toEqual([...keys].sort());
+    }
+  });
+
+  it('rejects excessive explicit recurrence additions and exclusions', () => {
+    const values = Array.from({ length: MAX_CALENDAR_RECURRENCE_DATES + 1 }, (_, index) => ({
+      kind: 'date',
+      date: `2026-01-${String((index % 28) + 1).padStart(2, '0')}`,
+    }));
+    expect(() => event({
+      start: { kind: 'date', date: '2026-01-01' },
+      end: { kind: 'date', date: '2026-01-02' },
+      recurrence: { rrule: 'FREQ=DAILY', rdates: values },
+    })).toThrow(/cannot exceed/i);
   });
 
   it('rejects malformed recurrence rules during domain normalization', () => {

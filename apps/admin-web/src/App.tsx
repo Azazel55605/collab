@@ -333,6 +333,8 @@ function ServerConfigurationPanel() {
     maxImportExpandedBytes: '2 GiB',
     storageWarningBytes: '10 GiB',
     storageQuotaBytes: '0',
+    calendarQuotaBytes: '0',
+    calendarRateLimitPerMinute: 600,
     revisionHistoryLimit: 0,
     revisionStorageTargetBytes: '0',
     scheduleEnabled: false,
@@ -362,6 +364,8 @@ function ServerConfigurationPanel() {
       maxImportExpandedBytes: formatByteSize(next.runtime.maxImportExpandedBytes.value),
       storageWarningBytes: formatByteSize(next.runtime.storageWarningBytes.value),
       storageQuotaBytes: formatByteSize(next.runtime.storageQuotaBytes.value),
+      calendarQuotaBytes: formatByteSize(next.runtime.calendarQuotaBytes.value),
+      calendarRateLimitPerMinute: next.runtime.calendarRateLimitPerMinute.value,
       revisionHistoryLimit: next.runtime.revisionHistoryLimit.value,
       revisionStorageTargetBytes: formatByteSize(next.runtime.revisionStorageTargetBytes.value),
       scheduleEnabled: next.backup.scheduleEnabled,
@@ -405,6 +409,8 @@ function ServerConfigurationPanel() {
           maxImportExpandedBytes: draft.maxImportExpandedBytes,
           storageWarningBytes: draft.storageWarningBytes,
           storageQuotaBytes: draft.storageQuotaBytes,
+          calendarQuotaBytes: draft.calendarQuotaBytes,
+          calendarRateLimitPerMinute: draft.calendarRateLimitPerMinute,
           revisionHistoryLimit: draft.revisionHistoryLimit,
           revisionStorageTargetBytes: draft.revisionStorageTargetBytes,
         },
@@ -470,6 +476,8 @@ function ServerConfigurationPanel() {
           <SettingField label="Max expanded ZIP size" setting={runtime.maxImportExpandedBytes} type="text" placeholder="e.g. 2 GiB" value={draft.maxImportExpandedBytes} onChange={(event) => setDraft((current) => ({ ...current, maxImportExpandedBytes: event.target.value }))} />
           <SettingField label="Storage warning size" setting={runtime.storageWarningBytes} type="text" placeholder="e.g. 10 GiB" value={draft.storageWarningBytes} onChange={(event) => setDraft((current) => ({ ...current, storageWarningBytes: event.target.value }))} />
           <SettingField label="Storage quota (0 = unlimited)" setting={runtime.storageQuotaBytes} type="text" placeholder="e.g. 50 GiB or 0" value={draft.storageQuotaBytes} onChange={(event) => setDraft((current) => ({ ...current, storageQuotaBytes: event.target.value }))} />
+          <SettingField label="Calendar quota per user (0 = unlimited)" setting={runtime.calendarQuotaBytes} type="text" placeholder="e.g. 1 GiB or 0" value={draft.calendarQuotaBytes} onChange={(event) => setDraft((current) => ({ ...current, calendarQuotaBytes: event.target.value }))} />
+          <SettingField label="Calendar requests per minute (0 = unlimited)" setting={runtime.calendarRateLimitPerMinute} type="number" min={0} max={1_000_000} value={draft.calendarRateLimitPerMinute} onChange={(event) => setDraft((current) => ({ ...current, calendarRateLimitPerMinute: Number(event.target.value) || 0 }))} />
           <SettingField label="File history versions (0 = unlimited)" setting={runtime.revisionHistoryLimit} type="number" min={0} max={1_000_000} value={draft.revisionHistoryLimit} onChange={(event) => setDraft((current) => ({ ...current, revisionHistoryLimit: Number(event.target.value) || 0 }))} />
           <SettingField label="File history storage target (0 = disabled)" setting={runtime.revisionStorageTargetBytes} type="text" placeholder="e.g. 20 GiB or 0" value={draft.revisionStorageTargetBytes} onChange={(event) => setDraft((current) => ({ ...current, revisionStorageTargetBytes: event.target.value }))} />
         </div>
@@ -610,6 +618,8 @@ function Dashboard() {
               <Metric icon={<Users />} label="Calendar users" value={overview.calendarUsage.usersWithCalendars} detail={`${overview.calendarUsage.calendars} calendars`} />
               <Metric icon={<CalendarDays />} label="Calendar items" value={overview.calendarUsage.items} detail={`${overview.calendarUsage.uploadedAttachments} uploaded attachments`} />
               <Metric icon={<Database />} label="Calendar storage" value={formatBytes(overview.calendarUsage.logicalBytes)} detail={overview.calendarUsage.quotaBytesPerUser > 0 ? `${formatBytes(overview.calendarUsage.quotaBytesPerUser)} per-user quota` : 'No calendar quota set'} />
+              <Metric icon={<Gauge />} label="Largest calendar account" value={formatBytes(overview.calendarUsage.maxUserLogicalBytes)} detail={overview.calendarUsage.quotaBytesPerUser > 0 ? `${overview.calendarUsage.usersAtQuota} at quota · ${overview.calendarUsage.usersNearQuota} near quota` : 'Anonymous aggregate'} />
+              <Metric icon={<Activity />} label="Subscription worker" value={overview.calendarUsage.subscriptionWorker.subscriptions} detail={`${overview.calendarUsage.subscriptionWorker.subscriptionsWithErrors} failed · ${overview.calendarUsage.subscriptionWorker.overdueSubscriptions} overdue · ${overview.calendarUsage.subscriptionWorker.activeRefreshLeases} active`} />
               <Metric icon={<Gauge />} label="Calendar distribution" value={overview.calendarUsage.usersByCalendarCount.length} detail={overview.calendarUsage.usersByCalendarCount.map((bucket) => `${bucket.users} user${bucket.users === 1 ? '' : 's'} × ${bucket.calendarCount}`).join(' · ') || 'No hosted calendars'} />
             </div>
           </Panel>

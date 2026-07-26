@@ -140,6 +140,11 @@ Backup and blob retention must prevent garbage collection from deleting content 
   from bypassing the coarse guard. Exceeding a limit returns
   `429 RATE_LIMITED` with a `Retry-After` header. Health checks, the admin SPA,
   and the root redirect are never rate limited.
+- Calendar JSON APIs, published feeds, and CalDAV also consume an independent
+  `COLLAB_CALENDAR_RATE_LIMIT_PER_MINUTE` budget (default `600`) in addition to
+  the REST budget. Bearer and CalDAV Basic credentials are reduced to one-way
+  digests for per-session buckets; raw credentials are never retained in
+  limiter keys or diagnostics.
 - IP-scoped traffic uses the last `X-Forwarded-For` hop appended by the trusted
   reverse proxy (falling back to `X-Real-IP`, then the socket peer). This trusts
   the front proxy to set `X-Forwarded-For`; do not expose the server port
@@ -148,6 +153,15 @@ Backup and blob retention must prevent garbage collection from deleting content 
   message flood guard (2,000 frames per 10 seconds) that disconnects a runaway or
   hostile socket; the client reconnects and re-syncs through the state-vector
   handshake. Ping/pong keepalives are exempt.
+
+## Calendar Privacy And Operations
+
+The admin overview exposes calendar totals, logical bytes, anonymous
+calendar-count distribution, anonymous near/at-quota counts, and subscription
+refresh health only. Its queries and response DTO do not retrieve owner
+identities, calendar names, item titles/descriptions, attendees, or attachment
+content. Operational warnings use stable category codes and aggregate counts;
+logs must not add calendar payloads while reporting those warnings.
 
 ## Import and Upload Limits
 

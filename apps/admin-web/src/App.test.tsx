@@ -157,6 +157,16 @@ describe('admin application', () => {
         uploadedAttachments: 3,
         logicalBytes: 4096,
         quotaBytesPerUser: 0,
+        maxUserLogicalBytes: 4096,
+        usersNearQuota: 0,
+        usersAtQuota: 0,
+        subscriptionWorker: {
+          subscriptions: 1,
+          subscriptionsWithErrors: 0,
+          overdueSubscriptions: 0,
+          activeRefreshLeases: 0,
+          lastSuccessfulRefreshAt: '2026-07-26T08:00:00Z',
+        },
         usersByCalendarCount: [{ calendarCount: 2, users: 1 }],
       },
       operationalWarnings: [],
@@ -174,6 +184,8 @@ describe('admin application', () => {
         maxImportExpandedBytes: setting(2_147_483_648, 'COLLAB_MAX_IMPORT_EXPANDED_BYTES'),
         storageWarningBytes: setting(10_737_418_240, 'COLLAB_STORAGE_WARNING_BYTES'),
         storageQuotaBytes: setting(0, 'COLLAB_STORAGE_QUOTA_BYTES'),
+        calendarQuotaBytes: setting(0, 'COLLAB_CALENDAR_QUOTA_BYTES'),
+        calendarRateLimitPerMinute: setting(600, 'COLLAB_CALENDAR_RATE_LIMIT_PER_MINUTE'),
         revisionHistoryLimit: setting(0, 'COLLAB_REVISION_HISTORY_LIMIT'),
         revisionStorageTargetBytes: setting(0, 'COLLAB_REVISION_STORAGE_TARGET_BYTES'),
       },
@@ -192,6 +204,8 @@ describe('admin application', () => {
         maxImportExpandedBytes: setting(2_147_483_648, 'COLLAB_MAX_IMPORT_EXPANDED_BYTES'),
         storageWarningBytes: setting(10_737_418_240, 'COLLAB_STORAGE_WARNING_BYTES'),
         storageQuotaBytes: setting(0, 'COLLAB_STORAGE_QUOTA_BYTES'),
+        calendarQuotaBytes: setting(0, 'COLLAB_CALENDAR_QUOTA_BYTES'),
+        calendarRateLimitPerMinute: setting(600, 'COLLAB_CALENDAR_RATE_LIMIT_PER_MINUTE'),
         revisionHistoryLimit: setting(0, 'COLLAB_REVISION_HISTORY_LIMIT'),
         revisionStorageTargetBytes: setting(0, 'COLLAB_REVISION_STORAGE_TARGET_BYTES'),
       },
@@ -276,6 +290,8 @@ describe('admin application', () => {
     expect(screen.getByText('Live collaboration')).toBeTruthy();
     expect(screen.getByText('Calendar usage')).toBeTruthy();
     expect(screen.getByText('2 calendars')).toBeTruthy();
+    expect(screen.getByText('Largest calendar account')).toBeTruthy();
+    expect(screen.getByText('Subscription worker')).toBeTruthy();
     expect(screen.getByText('Live connections')).toBeTruthy();
     expect(screen.getByText('Active presence')).toBeTruthy();
     expect(screen.getByText('CRDT update log')).toBeTruthy();
@@ -1193,6 +1209,8 @@ describe('admin application', () => {
         maxImportExpandedBytes: setting(2_147_483_648, 'COLLAB_MAX_IMPORT_EXPANDED_BYTES'),
         storageWarningBytes: setting(10_737_418_240, 'COLLAB_STORAGE_WARNING_BYTES'),
         storageQuotaBytes: setting(0, 'COLLAB_STORAGE_QUOTA_BYTES'),
+        calendarQuotaBytes: setting(0, 'COLLAB_CALENDAR_QUOTA_BYTES'),
+        calendarRateLimitPerMinute: setting(600, 'COLLAB_CALENDAR_RATE_LIMIT_PER_MINUTE'),
         revisionHistoryLimit: setting(0, 'COLLAB_REVISION_HISTORY_LIMIT'),
         revisionStorageTargetBytes: setting(0, 'COLLAB_REVISION_STORAGE_TARGET_BYTES'),
       },
@@ -1209,13 +1227,21 @@ describe('admin application', () => {
     expect((screen.getByLabelText('Storage warning size') as HTMLInputElement).value).toBe('10 GiB');
     fireEvent.change(screen.getByLabelText('Session TTL hours'), { target: { value: '24' } });
     fireEvent.change(screen.getByLabelText('Storage quota (0 = unlimited)'), { target: { value: '12 GiB' } });
+    fireEvent.change(screen.getByLabelText('Calendar quota per user (0 = unlimited)'), { target: { value: '2 GiB' } });
+    fireEvent.change(screen.getByLabelText('Calendar requests per minute (0 = unlimited)'), { target: { value: '240' } });
     fireEvent.click(screen.getByRole('switch', { name: 'Maintenance mode' }));
     fireEvent.change(screen.getByLabelText('Maintenance message'), { target: { value: 'Short upgrade window' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save server settings' }));
 
     // Byte fields submit the raw human-readable string; the server parses it.
     await waitFor(() => expect(serverApi.updateSettings).toHaveBeenCalledWith(expect.objectContaining({
-      runtime: expect.objectContaining({ sessionTtlHours: 24, storageQuotaBytes: '12 GiB', maxFileBytes: '256 MiB' }),
+      runtime: expect.objectContaining({
+        sessionTtlHours: 24,
+        storageQuotaBytes: '12 GiB',
+        calendarQuotaBytes: '2 GiB',
+        calendarRateLimitPerMinute: 240,
+        maxFileBytes: '256 MiB',
+      }),
       maintenance: { enabled: true, message: 'Short upgrade window' },
     })));
 

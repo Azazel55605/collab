@@ -458,6 +458,46 @@ mod tests {
         .await
         .unwrap();
 
+        // --- expired calendar idempotency and abandoned upload data ---
+        let calendar = Uuid::now_v7();
+        sqlx::query(
+            r#"INSERT INTO calendars
+               (id,owner_id,global_id,name,color,default_time_zone,payload)
+               VALUES ($1,$2,$3,'Maintenance calendar','#7c3aed','UTC','{}')"#,
+        )
+        .bind(calendar)
+        .bind(user)
+        .bind(Uuid::now_v7())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"INSERT INTO calendar_client_operations
+               (owner_id,client_operation_id,result,applied_at)
+               VALUES ($1,'expired-calendar-operation','{}',now() - interval '31 days'),
+                      ($1,'recent-calendar-operation','{}',now())"#,
+        )
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"INSERT INTO calendar_attachment_uploads
+               (id,owner_id,calendar_id,name,media_type,sha256,size_bytes,content,created_at)
+               VALUES ($1,$2,$3,'expired.txt','text/plain',$4,1,$5,now() - interval '2 days'),
+                      ($6,$2,$3,'recent.txt','text/plain',$7,1,$5,now())"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(user)
+        .bind(calendar)
+        .bind("0".repeat(64))
+        .bind(vec![1_u8])
+        .bind(Uuid::now_v7())
+        .bind("1".repeat(64))
+        .execute(&pool)
+        .await
+        .unwrap();
+
         // --- old vs recent audit / activity events ---
         sqlx::query(
             "INSERT INTO audit_events (id, action, result, request_id, created_at) \
@@ -493,6 +533,8 @@ mod tests {
 
         assert_eq!(report.expired_ws_tickets, 1);
         assert_eq!(report.expired_sessions, 1);
+        assert_eq!(report.expired_calendar_operations, 1);
+        assert_eq!(report.reclaimed_calendar_uploads, 1);
         assert_eq!(report.stale_presence, 1);
         assert_eq!(report.pruned_audit_events, 1);
         assert_eq!(report.pruned_activity_events, 1);
@@ -539,5 +581,17 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(tickets, 1);
+        let calendar_operations: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM calendar_client_operations")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(calendar_operations, 1);
+        let calendar_uploads: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM calendar_attachment_uploads")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(calendar_uploads, 1);
     }
 }

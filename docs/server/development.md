@@ -180,7 +180,14 @@ are 1024-based and case-insensitive. The same string forms are accepted by the
 - `COLLAB_CALENDAR_QUOTA_BYTES`: per-user logical quota for hosted calendars,
   items, subscriptions, and calendar-owned uploads. Calendar writes return
   `413 QUOTA_EXCEEDED` before persistence when the quota would be crossed. Set
-  to `0` (the default) for no quota.
+  to `0` (the default) for no quota. When the variable is absent, administrators
+  can change this quota at runtime in `/admin/settings`; an environment value
+  locks and overrides the GUI value.
+- `COLLAB_CALENDAR_RATE_LIMIT_PER_MINUTE`: independent per-session request
+  budget for `/api/v1/calendars*`, `/api/v1/calendar-feeds*`, and `/caldav*`
+  (default `600`). It is applied in addition to the general REST budget.
+  Set it to `0` to disable the calendar-specific budget. When absent, it is
+  configurable at runtime in `/admin/settings`.
 - `COLLAB_REST_RATE_LIMIT_PER_MINUTE`: coarse request budget for `/api/v1/*`
   routes (default `1200`). Authenticated bearer sessions receive independent
   budgets; anonymous requests fall back to the client IP. Exceeding it returns

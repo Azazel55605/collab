@@ -402,6 +402,18 @@ their existing delta synchronization path. Resource ETags are derived from the
 canonical iCalendar payload; failed `If-Match` or `If-None-Match` preconditions
 return `412` and never overwrite newer data.
 
+Calendar, feed, and CalDAV routes consume both the general REST request budget
+and the independently configurable calendar budget. The administration runtime
+settings expose the effective per-user logical quota and calendar requests per
+minute, including whether each value comes from the environment, GUI, or
+default.
+
+`GET /api/v1/admin/overview` exposes only aggregate calendar usage and
+subscription-worker health: totals, logical bytes, anonymous calendar-count
+distribution, anonymous near/at-quota counts, refresh failures/overdue counts,
+active leases, and the last successful refresh time. It never includes owner
+IDs, calendar definitions, item payloads, attendees, or attachment content.
+
 ## Idempotency and Concurrency
 
 - The server records accepted `clientOperationId` values and returns the original result for safe retries.

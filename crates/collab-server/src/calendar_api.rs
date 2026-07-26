@@ -1,4 +1,5 @@
 use crate::{
+    api::effective_calendar_quota_bytes,
     app::AppState,
     auth::{authenticate_native_access_token, generate_secret, hash_secret, AuthenticatedUser},
     calendar_feeds::fetch_calendar_feed,
@@ -28,6 +29,7 @@ const MAX_CHANGE_ITEMS: i64 = 1_000;
 const MAX_OPERATION_ITEMS: usize = 500;
 const MAX_PUBLISHED_FEED_ITEMS: i64 = 5_000;
 const MAX_PUBLISHED_FEED_BYTES: usize = 5 * 1024 * 1024;
+const MAX_RECURRENCE_DATES: usize = 512;
 
 #[derive(Debug)]
 pub struct CalendarApiError {
@@ -608,6 +610,14 @@ fn validate_item(item: &CalendarItem, request_id: &str) -> Result<(), CalendarAp
     }
     if let Some(recurrence) = &item.recurrence {
         validate_recurrence_rule(&recurrence.rrule, request_id)?;
+        if recurrence.rdates.len() > MAX_RECURRENCE_DATES
+            || recurrence.exdates.len() > MAX_RECURRENCE_DATES
+        {
+            return Err(CalendarApiError::validation(
+                "Recurrence additions and exclusions exceed the supported limit.",
+                request_id,
+            ));
+        }
         for value in recurrence.rdates.iter().chain(&recurrence.exdates) {
             validate_time_value(value, "Recurrence date", request_id)?;
         }
@@ -1441,7 +1451,7 @@ async fn replace_subscription_items(
     ensure_calendar_quota(
         &mut tx,
         owner,
-        state.config.calendar_quota_bytes,
+        effective_calendar_quota_bytes(&state.config),
         replaced_bytes,
         proposed_bytes,
         request_id,
@@ -1786,7 +1796,7 @@ pub async fn create_subscription(
     ensure_calendar_quota(
         &mut tx,
         owner,
-        state.config.calendar_quota_bytes,
+        effective_calendar_quota_bytes(&state.config),
         0,
         initial_bytes,
         &request_id,
@@ -2231,7 +2241,7 @@ pub async fn create_calendar(
     ensure_calendar_quota(
         &mut tx,
         owner,
-        state.config.calendar_quota_bytes,
+        effective_calendar_quota_bytes(&state.config),
         0,
         logical_size_bytes,
         &request_id,
@@ -2301,7 +2311,7 @@ pub async fn update_calendar(
     ensure_calendar_quota(
         &mut tx,
         owner,
-        state.config.calendar_quota_bytes,
+        effective_calendar_quota_bytes(&state.config),
         existing.get("logical_size_bytes"),
         logical_size_bytes,
         &request_id,
@@ -2438,7 +2448,7 @@ pub async fn upload_attachment(
     ensure_calendar_quota(
         &mut tx,
         owner,
-        state.config.calendar_quota_bytes,
+        effective_calendar_quota_bytes(&state.config),
         0,
         content.len() as i64,
         &request_id,
@@ -2600,7 +2610,7 @@ pub async fn respond_to_invitation(
     ensure_calendar_quota(
         &mut tx,
         organizer_owner_id,
-        state.config.calendar_quota_bytes,
+        effective_calendar_quota_bytes(&state.config),
         row.get("logical_size_bytes"),
         logical_size_bytes,
         &request_id,
@@ -2953,7 +2963,7 @@ pub async fn apply_operations(
                 &mut tx,
                 owner,
                 operation,
-                state.config.calendar_quota_bytes,
+                effective_calendar_quota_bytes(&state.config),
                 &request_id,
             )
             .await?,
@@ -3186,6 +3196,30 @@ mod tests {
         assert!(validate_recurrence_rule("FREQ=DAILY;INTERVAL=0", "request").is_err());
         assert!(validate_recurrence_rule("RRULE:FREQ=DAILY", "request").is_err());
         assert!(validate_recurrence_rule("FREQ=DAILY;FREQ=WEEKLY", "request").is_err());
+        let recurrence_dates = (0..=MAX_RECURRENCE_DATES)
+            .map(|index| {
+                serde_json::json!({
+                    "kind":"date",
+                    "date":format!("2026-01-{:02}", index % 28 + 1),
+                })
+            })
+            .collect::<Vec<_>>();
+        let item: CalendarItem = serde_json::from_value(serde_json::json!({
+            "id":"0198f9c1-5b21-7000-8000-000000000001",
+            "uid":"bounded@example",
+            "calendarId":"0198f9c1-5b21-7000-8000-000000000002",
+            "kind":"event",
+            "title":"Bounded recurrence",
+            "reminders":[],
+            "start":{"kind":"date","date":"2026-01-01"},
+            "end":{"kind":"date","date":"2026-01-02"},
+            "recurrence":{"rrule":"FREQ=DAILY","rdates":recurrence_dates},
+            "revision":1,
+            "createdAt":"2026-07-22T08:00:00Z",
+            "updatedAt":"2026-07-22T08:00:00Z"
+        }))
+        .unwrap();
+        assert!(validate_item(&item, "request").is_err());
     }
 
     #[test]
@@ -3744,6 +3778,16 @@ mod tests {
         assert_eq!(overview.status(), StatusCode::OK);
         let overview_body = json_body(overview).await;
         assert_eq!(overview_body["data"]["calendarUsage"]["calendars"], 1);
+        assert!(
+            overview_body["data"]["calendarUsage"]["maxUserLogicalBytes"]
+                .as_i64()
+                .unwrap()
+                > 0
+        );
+        assert_eq!(
+            overview_body["data"]["calendarUsage"]["subscriptionWorker"]["subscriptions"],
+            0
+        );
         let serialized_overview = overview_body.to_string();
         assert!(!serialized_overview.contains("Private work"));
         assert!(!serialized_overview.contains("Private planning"));

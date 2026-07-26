@@ -31,6 +31,7 @@ pub struct ServerConfig {
     pub storage_warning_bytes: u64,
     pub storage_quota_bytes: u64,
     pub calendar_quota_bytes: u64,
+    pub calendar_rate_limit_per_minute: u32,
     pub rest_rate_limit_per_minute: u32,
     pub ws_rate_limit_per_minute: u32,
     pub maintenance_interval_seconds: u64,
@@ -67,6 +68,7 @@ impl Default for ServerConfig {
             storage_warning_bytes: 10 * 1024 * 1024 * 1024,
             storage_quota_bytes: 0,
             calendar_quota_bytes: 0,
+            calendar_rate_limit_per_minute: 600,
             rest_rate_limit_per_minute: 1200,
             ws_rate_limit_per_minute: 120,
             maintenance_interval_seconds: 3600,
@@ -224,6 +226,11 @@ impl ServerConfig {
             self.calendar_quota_bytes = parse_byte_size(&value)
                 .map_err(|_| ConfigError::Invalid("COLLAB_CALENDAR_QUOTA_BYTES"))?;
         }
+        if let Ok(value) = env::var("COLLAB_CALENDAR_RATE_LIMIT_PER_MINUTE") {
+            self.calendar_rate_limit_per_minute = value
+                .parse()
+                .map_err(|_| ConfigError::Invalid("COLLAB_CALENDAR_RATE_LIMIT_PER_MINUTE"))?;
+        }
         if let Ok(value) = env::var("COLLAB_REST_RATE_LIMIT_PER_MINUTE") {
             self.rest_rate_limit_per_minute = value
                 .parse()
@@ -350,6 +357,11 @@ impl ServerConfig {
         if self.calendar_quota_bytes > 64 * 1024 * 1024 * 1024 * 1024 {
             return Err(ConfigError::Invalid("COLLAB_CALENDAR_QUOTA_BYTES"));
         }
+        if self.calendar_rate_limit_per_minute > 1_000_000 {
+            return Err(ConfigError::Invalid(
+                "COLLAB_CALENDAR_RATE_LIMIT_PER_MINUTE",
+            ));
+        }
         // `0` disables the limit; otherwise cap to catch obvious misconfiguration.
         if self.rest_rate_limit_per_minute > 1_000_000 {
             return Err(ConfigError::Invalid("COLLAB_REST_RATE_LIMIT_PER_MINUTE"));
@@ -434,6 +446,7 @@ mod tests {
         assert_eq!(config.storage_warning_bytes, 10 * 1024 * 1024 * 1024);
         assert_eq!(config.storage_quota_bytes, 0);
         assert_eq!(config.calendar_quota_bytes, 0);
+        assert_eq!(config.calendar_rate_limit_per_minute, 600);
         assert_eq!(config.rest_rate_limit_per_minute, 1200);
         assert_eq!(config.ws_rate_limit_per_minute, 120);
         assert_eq!(config.maintenance_interval_seconds, 3600);
@@ -478,6 +491,12 @@ mod tests {
 
         let config = ServerConfig {
             calendar_quota_bytes: 64 * 1024 * 1024 * 1024 * 1024 + 1,
+            ..ServerConfig::default()
+        };
+        assert!(config.validate().is_err());
+
+        let config = ServerConfig {
+            calendar_rate_limit_per_minute: 1_000_001,
             ..ServerConfig::default()
         };
         assert!(config.validate().is_err());

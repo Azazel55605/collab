@@ -62,6 +62,16 @@ export interface AdminOverview {
     uploadedAttachments: number;
     logicalBytes: number;
     quotaBytesPerUser: number;
+    maxUserLogicalBytes: number;
+    usersNearQuota: number;
+    usersAtQuota: number;
+    subscriptionWorker: {
+      subscriptions: number;
+      subscriptionsWithErrors: number;
+      overdueSubscriptions: number;
+      activeRefreshLeases: number;
+      lastSuccessfulRefreshAt: string | null;
+    };
     usersByCalendarCount: Array<{ calendarCount: number; users: number }>;
   };
   liveCollaboration: {
@@ -157,6 +167,8 @@ export interface AdminServerSettings {
     maxImportExpandedBytes: AdminRuntimeSetting<number>;
     storageWarningBytes: AdminRuntimeSetting<number>;
     storageQuotaBytes: AdminRuntimeSetting<number>;
+    calendarQuotaBytes: AdminRuntimeSetting<number>;
+    calendarRateLimitPerMinute: AdminRuntimeSetting<number>;
     revisionHistoryLimit: AdminRuntimeSetting<number>;
     revisionStorageTargetBytes: AdminRuntimeSetting<number>;
   };

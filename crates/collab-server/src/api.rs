@@ -387,6 +387,9 @@ pub struct UpdateRuntimeSettingsRequest {
     pub storage_warning_bytes: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_opt_byte_size")]
     pub storage_quota_bytes: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_opt_byte_size")]
+    pub calendar_quota_bytes: Option<u64>,
+    pub calendar_rate_limit_per_minute: Option<u64>,
     pub revision_history_limit: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_opt_byte_size")]
     pub revision_storage_target_bytes: Option<u64>,
@@ -5101,8 +5104,55 @@ pub async fn overview(
            GROUP BY calendar_count ORDER BY calendar_count"#,
     ).fetch_all(&state.database).await
       .map_err(|_| ApiFailure::server(request_id.clone()))?;
-    let blob_health_ok = state.blobs.health_check().await.is_ok();
     let settings = load_effective_runtime_settings(&state.config);
+    let calendar_user_usage = sqlx::query(
+        r#"WITH owner_usage AS (
+             SELECT owner_id, SUM(bytes)::bigint AS logical_bytes
+             FROM (
+               SELECT owner_id, logical_size_bytes AS bytes FROM calendars WHERE deleted_at IS NULL
+               UNION ALL
+               SELECT owner_id, logical_size_bytes AS bytes FROM calendar_items WHERE deleted_at IS NULL
+               UNION ALL
+               SELECT owner_id, size_bytes AS bytes FROM calendar_attachment_uploads
+               UNION ALL
+               SELECT owner_id, logical_size_bytes AS bytes FROM calendar_subscriptions
+             ) entries
+             GROUP BY owner_id
+           )
+           SELECT
+             COALESCE(MAX(logical_bytes),0)::bigint AS max_user_logical_bytes,
+             COUNT(*) FILTER (
+               WHERE $1::bigint > 0 AND logical_bytes >= $1::bigint
+             )::bigint AS users_at_quota,
+             COUNT(*) FILTER (
+               WHERE $1::bigint > 0
+                 AND logical_bytes < $1::bigint
+                 AND logical_bytes::numeric >= ($1::numeric * 9 / 10)
+             )::bigint AS users_near_quota
+           FROM owner_usage"#,
+    )
+    .bind(settings.calendar_quota_bytes.min(i64::MAX as u64) as i64)
+    .fetch_one(&state.database)
+    .await
+    .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let calendar_worker = sqlx::query(
+        r#"SELECT
+             COUNT(*)::bigint AS subscriptions,
+             COUNT(*) FILTER (WHERE last_error IS NOT NULL)::bigint AS subscriptions_with_errors,
+             COUNT(*) FILTER (
+               WHERE (last_refreshed_at IS NULL OR last_refreshed_at < now() - interval '30 minutes')
+                 AND (refresh_cursor IS NULL OR updated_at < now() - interval '30 minutes')
+             )::bigint AS overdue_subscriptions,
+             COUNT(*) FILTER (
+               WHERE refresh_cursor IS NOT NULL AND updated_at >= now() - interval '30 minutes'
+             )::bigint AS active_refresh_leases,
+             MAX(last_refreshed_at) FILTER (WHERE last_error IS NULL) AS last_successful_refresh_at
+           FROM calendar_subscriptions"#,
+    )
+    .fetch_one(&state.database)
+    .await
+    .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let blob_health_ok = state.blobs.health_check().await.is_ok();
     let maintenance = load_maintenance_mode(&state.config);
     let pending_update_count: i64 = persisted_live_metrics.get("pending_update_count");
     let pending_update_bytes: i64 = persisted_live_metrics.get("pending_update_bytes");
@@ -5225,6 +5275,45 @@ pub async fn overview(
             });
         }
     }
+    let users_at_calendar_quota: i64 = calendar_user_usage.get("users_at_quota");
+    let users_near_calendar_quota: i64 = calendar_user_usage.get("users_near_quota");
+    if users_at_calendar_quota > 0 {
+        warnings.push(OperationalWarning {
+            code: "calendar_quota_exceeded".into(),
+            message: format!(
+                "{users_at_calendar_quota} calendar user(s) reached the configured per-user quota."
+            ),
+            severity: "critical".into(),
+        });
+    } else if users_near_calendar_quota > 0 {
+        warnings.push(OperationalWarning {
+            code: "calendar_quota_pressure".into(),
+            message: format!(
+                "{users_near_calendar_quota} calendar user(s) are within 10% of the configured per-user quota."
+            ),
+            severity: "warning".into(),
+        });
+    }
+    let subscriptions_with_errors: i64 = calendar_worker.get("subscriptions_with_errors");
+    let overdue_subscriptions: i64 = calendar_worker.get("overdue_subscriptions");
+    if subscriptions_with_errors > 0 {
+        warnings.push(OperationalWarning {
+            code: "calendar_subscription_failures".into(),
+            message: format!(
+                "{subscriptions_with_errors} calendar subscription(s) are preserving their last good copy after a refresh failure."
+            ),
+            severity: "warning".into(),
+        });
+    }
+    if overdue_subscriptions > 0 {
+        warnings.push(OperationalWarning {
+            code: "calendar_subscription_overdue".into(),
+            message: format!(
+                "{overdue_subscriptions} calendar subscription(s) are overdue for background refresh."
+            ),
+            severity: "warning".into(),
+        });
+    }
     if pending_update_count >= CRDT_PENDING_UPDATE_WARNING_COUNT
         || pending_update_bytes >= CRDT_PENDING_UPDATE_WARNING_BYTES
     {
@@ -5264,7 +5353,19 @@ pub async fn overview(
             items: calendar_counts.get("items"),
             uploaded_attachments: calendar_counts.get("uploaded_attachments"),
             logical_bytes: calendar_counts.get("logical_bytes"),
-            quota_bytes_per_user: state.config.calendar_quota_bytes,
+            quota_bytes_per_user: settings.calendar_quota_bytes,
+            max_user_logical_bytes: calendar_user_usage.get("max_user_logical_bytes"),
+            users_near_quota: users_near_calendar_quota,
+            users_at_quota: users_at_calendar_quota,
+            subscription_worker: collab_protocol::CalendarSubscriptionWorkerMetrics {
+                subscriptions: calendar_worker.get("subscriptions"),
+                subscriptions_with_errors,
+                overdue_subscriptions,
+                active_refresh_leases: calendar_worker.get("active_refresh_leases"),
+                last_successful_refresh_at: calendar_worker
+                    .get::<Option<chrono::DateTime<chrono::Utc>>, _>("last_successful_refresh_at")
+                    .map(|value| value.to_rfc3339()),
+            },
             users_by_calendar_count: calendar_distribution
                 .into_iter()
                 .map(|row| collab_protocol::CalendarCountBucket {
@@ -7447,6 +7548,8 @@ struct StoredRuntimeSettings {
     max_import_expanded_bytes: Option<u64>,
     storage_warning_bytes: Option<u64>,
     storage_quota_bytes: Option<u64>,
+    calendar_quota_bytes: Option<u64>,
+    calendar_rate_limit_per_minute: Option<u64>,
     revision_history_limit: Option<u64>,
     revision_storage_target_bytes: Option<u64>,
 }
@@ -7463,6 +7566,8 @@ pub(crate) struct EffectiveRuntimeSettings {
     max_import_expanded_bytes: usize,
     storage_warning_bytes: u64,
     storage_quota_bytes: u64,
+    pub(crate) calendar_quota_bytes: u64,
+    pub(crate) calendar_rate_limit_per_minute: u32,
     revision_history_limit: u64,
     revision_storage_target_bytes: u64,
 }
@@ -7685,6 +7790,21 @@ pub(crate) fn load_effective_runtime_settings(
                 .storage_quota_bytes
                 .unwrap_or(config.storage_quota_bytes)
         },
+        calendar_quota_bytes: if env_locked("COLLAB_CALENDAR_QUOTA_BYTES") {
+            config.calendar_quota_bytes
+        } else {
+            stored
+                .calendar_quota_bytes
+                .unwrap_or(config.calendar_quota_bytes)
+        },
+        calendar_rate_limit_per_minute: if env_locked("COLLAB_CALENDAR_RATE_LIMIT_PER_MINUTE") {
+            config.calendar_rate_limit_per_minute
+        } else {
+            stored
+                .calendar_rate_limit_per_minute
+                .unwrap_or(config.calendar_rate_limit_per_minute as u64)
+                .min(u32::MAX as u64) as u32
+        },
         revision_history_limit: if env_locked("COLLAB_REVISION_HISTORY_LIMIT") {
             config.revision_history_limit as u64
         } else {
@@ -7700,6 +7820,10 @@ pub(crate) fn load_effective_runtime_settings(
                 .unwrap_or(config.revision_storage_target_bytes)
         },
     }
+}
+
+pub(crate) fn effective_calendar_quota_bytes(config: &crate::config::ServerConfig) -> u64 {
+    load_effective_runtime_settings(config).calendar_quota_bytes
 }
 
 fn runtime_settings_to_protocol(
@@ -7757,6 +7881,16 @@ fn runtime_settings_to_protocol(
             effective.storage_quota_bytes,
             "COLLAB_STORAGE_QUOTA_BYTES",
             stored.storage_quota_bytes.is_some(),
+        ),
+        calendar_quota_bytes: setting_u64(
+            effective.calendar_quota_bytes,
+            "COLLAB_CALENDAR_QUOTA_BYTES",
+            stored.calendar_quota_bytes.is_some(),
+        ),
+        calendar_rate_limit_per_minute: setting_u64(
+            effective.calendar_rate_limit_per_minute as u64,
+            "COLLAB_CALENDAR_RATE_LIMIT_PER_MINUTE",
+            stored.calendar_rate_limit_per_minute.is_some(),
         ),
         revision_history_limit: setting_u64(
             effective.revision_history_limit,
@@ -7943,6 +8077,36 @@ fn apply_runtime_update(
             &mut stored.storage_quota_bytes,
             value,
             "COLLAB_STORAGE_QUOTA_BYTES",
+            request_id,
+        )?;
+    }
+    if let Some(value) = payload.calendar_quota_bytes {
+        validate_range_u64(
+            value,
+            0,
+            64 * 1024 * 1024 * 1024 * 1024,
+            "Calendar quota bytes",
+            request_id,
+        )?;
+        set_if_unlocked_u64(
+            &mut stored.calendar_quota_bytes,
+            value,
+            "COLLAB_CALENDAR_QUOTA_BYTES",
+            request_id,
+        )?;
+    }
+    if let Some(value) = payload.calendar_rate_limit_per_minute {
+        validate_range_u64(
+            value,
+            0,
+            1_000_000,
+            "Calendar rate limit per minute",
+            request_id,
+        )?;
+        set_if_unlocked_u64(
+            &mut stored.calendar_rate_limit_per_minute,
+            value,
+            "COLLAB_CALENDAR_RATE_LIMIT_PER_MINUTE",
             request_id,
         )?;
     }
@@ -11801,11 +11965,15 @@ mod tests {
                 "maxFileBytes": "256 MiB",
                 "maxImportBytes": 536_870_912u64,
                 "storageQuotaBytes": "12 GiB",
+                "calendarQuotaBytes": "2 GiB",
+                "calendarRateLimitPerMinute": 240,
             }))
             .unwrap();
         assert_eq!(request.max_file_bytes, Some(256 * 1024 * 1024));
         assert_eq!(request.max_import_bytes, Some(536_870_912));
         assert_eq!(request.storage_quota_bytes, Some(12 * 1024 * 1024 * 1024));
+        assert_eq!(request.calendar_quota_bytes, Some(2 * 1024 * 1024 * 1024));
+        assert_eq!(request.calendar_rate_limit_per_minute, Some(240));
         // Omitted byte fields stay absent.
         assert_eq!(request.max_import_expanded_bytes, None);
         assert_eq!(request.storage_warning_bytes, None);
@@ -11816,6 +11984,26 @@ mod tests {
         let result: Result<super::UpdateRuntimeSettingsRequest, _> =
             serde_json::from_value(serde_json::json!({ "maxFileBytes": "not a size" }));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn calendar_runtime_controls_round_trip_through_gui_settings() {
+        let mut config = ServerConfig::default();
+        config.backup_dir = tempfile::tempdir().unwrap().keep();
+        let payload: super::UpdateRuntimeSettingsRequest =
+            serde_json::from_value(serde_json::json!({
+                "calendarQuotaBytes": "2 GiB",
+                "calendarRateLimitPerMinute": 240,
+            }))
+            .unwrap();
+        let stored = super::apply_runtime_update(&config, payload, "request").unwrap();
+        super::save_stored_runtime_settings(&config.backup_dir, &stored, "request").unwrap();
+        let effective = super::load_effective_runtime_settings(&config);
+        assert_eq!(effective.calendar_quota_bytes, 2 * 1024 * 1024 * 1024);
+        assert_eq!(effective.calendar_rate_limit_per_minute, 240);
+        let protocol = super::runtime_settings_to_protocol(&config, &effective);
+        assert_eq!(protocol.calendar_quota_bytes.source, "gui");
+        assert_eq!(protocol.calendar_rate_limit_per_minute.source, "gui");
     }
 
     #[test]

@@ -60,6 +60,12 @@ COLLAB_LOAD_PASSWORD='…' \
   raise or disable (`0`) the limit in a disposable environment; to verify the
   limiter, keep the default and confirm `429`s with a `Retry-After` header
   appear.
+- **Calendar traffic has a second budget.** `/api/v1/calendars*`,
+  `/api/v1/calendar-feeds*`, and `/caldav*` also consume
+  `COLLAB_CALENDAR_RATE_LIMIT_PER_MINUTE` (default `600/min`). Test calendar
+  capacity with both limits recorded; a request must satisfy both. Include
+  bounded range queries, subscription refreshes, incremental sync pages, and
+  CalDAV reports when sizing a calendar-heavy deployment.
 - Watch the admin dashboard during the run: storage pressure, live-room counts,
   and CRDT compaction backlog are the operational signals that matter under
   load.
@@ -75,12 +81,14 @@ Host:            <vCPU> vCPU / <RAM> GiB, <storage>
 Generator:       oha 1.x
 Concurrency:     50      Duration: 30s
 REST limit:      1200/min (default) | raised to <n> | disabled
+Calendar limit:  600/min (default) | raised to <n> | disabled
 
 Endpoint                         req/s     p50      p95      errors
 health/ready                     …         …        …        0
 bootstrap-status                 …         …        …        0
 admin SPA                        …         …        …        0
 hosted vault list (auth)         …         …        …        <429s expected if > limit>
+calendar range query (auth)       …         …        …        <429s expected if > either limit>
 
 Observations:    <CPU/RAM ceiling, limiter behavior, dashboard warnings>
 ```

@@ -56,6 +56,26 @@ The PostgreSQL dump includes CalDAV resource mappings and app-password hashes.
 Raw CalDAV app passwords are intentionally unrecoverable and must be replaced
 if lost; restoring their hashes preserves credentials that clients still hold.
 
+## Calendar Restore Verification
+
+Before promoting a restored deployment, run the normal checksum verification
+and then validate calendar state with a disposable account:
+
+- calendar definitions and items remain visible to the owner;
+- the latest change sequence is unchanged and incremental sync resumes without
+  replaying or skipping changes;
+- deleted calendar items remain tombstoned and do not reappear;
+- CalDAV resource paths, ETags, sync tokens, and held app passwords still work;
+- attachment metadata still resolves to its restored content;
+- the admin overview reports the same aggregate counts and logical bytes without
+  exposing calendar names or item content.
+
+The repeatable deployment-level exercise is
+`./scripts/server-backup-restore-smoke.sh`. It is destructive to the disposable
+stack it creates and should be run before a production release and after
+calendar schema migrations. Automated database tests cover transactional
+retention and privacy, but do not replace this full artifact restore drill.
+
 ## Manual Backup
 
 Run one backup immediately:

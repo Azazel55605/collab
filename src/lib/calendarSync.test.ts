@@ -399,4 +399,40 @@ describe('calendarSync', () => {
     expect(results[1]).toMatchObject({ serverUrl: 'https://online.example' });
     expect(results[1].error).toBeUndefined();
   });
+
+  it('keeps two server origins isolated across repeated offline and reconnect cycles', async () => {
+    let cycle = 0;
+    vi.mocked(tauriCommands.hostedCalendarRequest).mockImplementation(
+      async (serverUrl, _method, path) => {
+        if (serverUrl.includes('first') && cycle < 10) throw new Error('offline');
+        if (path === '/api/v1/calendars') return [];
+        return { changes: [], cursor: cycle, hasMore: false };
+      },
+    );
+
+    for (cycle = 0; cycle < 50; cycle += 1) {
+      const results = await syncHostedCalendars('profile-1', [
+        { serverUrl: 'https://first.example', userId: 'user-a' },
+        { serverUrl: 'https://second.example', userId: 'user-b' },
+      ], []);
+      expect(results[1]).toMatchObject({ serverUrl: 'https://second.example' });
+      expect(results[1].error).toBeUndefined();
+      if (cycle < 10) {
+        expect(results[0]).toMatchObject({ error: 'offline' });
+      } else {
+        expect(results[0].error).toBeUndefined();
+      }
+    }
+
+    expect(tauriCommands.calendarApplyRemoteChanges).toHaveBeenCalledWith(
+      'profile-1',
+      [],
+      expect.objectContaining({ originKey: 'https://first.example::user-a' }),
+    );
+    expect(tauriCommands.calendarApplyRemoteChanges).toHaveBeenCalledWith(
+      'profile-1',
+      [],
+      expect.objectContaining({ originKey: 'https://second.example::user-b' }),
+    );
+  });
 });

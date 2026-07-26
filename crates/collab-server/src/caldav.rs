@@ -1,4 +1,5 @@
 use crate::{
+    api::effective_calendar_quota_bytes,
     app::AppState,
     auth::{generate_secret, hash_secret},
     calendar_api::{apply_operation, owner_id, require_native_user, CalendarApiError},
@@ -1211,7 +1212,7 @@ async fn apply_caldav_put(
             transaction,
             identity.owner,
             &operation,
-            state.config.calendar_quota_bytes,
+            effective_calendar_quota_bytes(&state.config),
             request_id,
         )
         .await
@@ -1240,7 +1241,7 @@ async fn apply_caldav_put(
             transaction,
             identity.owner,
             &operation,
-            state.config.calendar_quota_bytes,
+            effective_calendar_quota_bytes(&state.config),
             request_id,
         )
         .await
@@ -1346,7 +1347,7 @@ async fn delete_resource(
             &mut transaction,
             identity.owner,
             &operation,
-            state.config.calendar_quota_bytes,
+            effective_calendar_quota_bytes(&state.config),
             request_id,
         )
         .await

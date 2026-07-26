@@ -604,29 +604,42 @@ impl RateLimiter {
 }
 
 /// Coarse per-session or per-client-IP rate limiting for `/api/v1/*` and
-/// `/caldav/*` (REST) plus `/ws/v1/*` (WebSocket upgrade) traffic. Other paths
-/// (health checks, the admin SPA, and redirects) are never limited. Limits are
-/// operator-controlled and a value of `0` disables the corresponding limiter.
+/// `/caldav/*` (REST) plus `/ws/v1/*` (WebSocket upgrade) traffic. Calendar API,
+/// feed, and CalDAV routes also consume an independent calendar budget. Other
+/// paths (health checks, the admin SPA, and redirects) are never limited.
+/// Limits are operator-controlled and `0` disables the corresponding limiter.
 async fn rate_limit(State(state): State<AppState>, request: Request, next: Next) -> Response {
     let path = request.uri().path();
-    let (scope, limit) = if path.starts_with("/api/v1/") || path.starts_with("/caldav") {
-        ("rest", state.config.rest_rate_limit_per_minute)
+    let mut limits = if path.starts_with("/api/v1/") || path.starts_with("/caldav") {
+        vec![("rest", state.config.rest_rate_limit_per_minute)]
     } else if path.starts_with("/ws/v1/") {
-        ("ws", state.config.ws_rate_limit_per_minute)
+        vec![("ws", state.config.ws_rate_limit_per_minute)]
     } else {
         return next.run(request).await;
     };
-    if limit == 0 {
-        return next.run(request).await;
+    if path.starts_with("/api/v1/calendars")
+        || path.starts_with("/api/v1/calendar-feeds")
+        || path.starts_with("/caldav")
+    {
+        limits.push((
+            "calendar",
+            crate::api::load_effective_runtime_settings(&state.config)
+                .calendar_rate_limit_per_minute,
+        ));
     }
-    for (bucket, bucket_limit) in rate_limit_buckets(scope, &request, limit) {
-        if let Some(retry_after) = state.rate_limiter.check(&bucket, bucket_limit).await {
-            let request_id = request
-                .extensions()
-                .get::<String>()
-                .cloned()
-                .unwrap_or_else(|| Uuid::now_v7().to_string());
-            return rate_limited_response(retry_after, request_id);
+    for (scope, limit) in limits {
+        if limit == 0 {
+            continue;
+        }
+        for (bucket, bucket_limit) in rate_limit_buckets(scope, &request, limit) {
+            if let Some(retry_after) = state.rate_limiter.check(&bucket, bucket_limit).await {
+                let request_id = request
+                    .extensions()
+                    .get::<String>()
+                    .cloned()
+                    .unwrap_or_else(|| Uuid::now_v7().to_string());
+                return rate_limited_response(retry_after, request_id);
+            }
         }
     }
     next.run(request).await
@@ -635,7 +648,7 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
 fn rate_limit_buckets(scope: &str, request: &Request, limit: u32) -> Vec<(String, u32)> {
     let identity = rate_limit_identity(scope, request);
     let mut buckets = vec![(format!("{scope}:{identity}"), limit)];
-    if scope == "rest" && identity.starts_with("session:") {
+    if matches!(scope, "rest" | "calendar") && identity.starts_with("session:") {
         buckets.push((
             format!("{scope}:authenticated-ip:{}", client_key(request)),
             limit
@@ -651,7 +664,7 @@ fn rate_limit_buckets(scope: &str, request: &Request, limit: u32) -> Vec<(String
 /// Anonymous REST and WebSocket upgrades remain IP-scoped. Hashing avoids
 /// retaining bearer tokens in the limiter map or exposing them in diagnostics.
 fn rate_limit_identity(scope: &str, request: &Request) -> String {
-    if scope == "rest" {
+    if matches!(scope, "rest" | "calendar") {
         if let Some(authorization) = request
             .headers()
             .get(header::AUTHORIZATION)
@@ -1053,6 +1066,7 @@ mod tests {
         let dav_key = rate_limit_identity("rest", &dav);
         assert!(dav_key.starts_with("session:"));
         assert!(!dav_key.contains("Y2FsZGF2"));
+        assert_eq!(rate_limit_identity("calendar", &dav), dav_key);
 
         let buckets = rate_limit_buckets("rest", &first, 1_200);
         assert_eq!(buckets.len(), 2);
@@ -1061,6 +1075,9 @@ mod tests {
             buckets[1],
             ("rest:authenticated-ip:203.0.113.7".into(), 9_600)
         );
+        let calendar_buckets = rate_limit_buckets("calendar", &dav, 600);
+        assert_eq!(calendar_buckets.len(), 2);
+        assert_eq!(calendar_buckets[0].1, 600);
     }
 
     #[tokio::test]
@@ -1122,6 +1139,47 @@ mod tests {
                 .unwrap();
             assert_ne!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         }
+    }
+
+    #[tokio::test]
+    async fn calendar_requests_have_an_independent_rate_limit() {
+        let state = test_state_with(ServerConfig {
+            rest_rate_limit_per_minute: 100,
+            calendar_rate_limit_per_minute: 2,
+            ..ServerConfig::default()
+        })
+        .await;
+        let send = |state: AppState| async move {
+            build_router(state)
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/v1/calendars")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+        };
+        for _ in 0..2 {
+            assert_ne!(
+                send(state.clone()).await.status(),
+                StatusCode::TOO_MANY_REQUESTS
+            );
+        }
+        let blocked = send(state.clone()).await;
+        assert_eq!(blocked.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(blocked.headers().contains_key("retry-after"));
+
+        let unrelated = build_router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/users/directory")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_ne!(unrelated.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 
     #[tokio::test]

@@ -6,6 +6,7 @@ export const MAX_CALENDAR_NAME_LENGTH = 120;
 export const MAX_CALENDAR_ITEM_TITLE_LENGTH = 500;
 export const MAX_CALENDAR_ITEM_TEXT_LENGTH = 100_000;
 export const MAX_CALENDAR_RECURRENCE_VALUE_LENGTH = 4_096;
+export const MAX_CALENDAR_RECURRENCE_DATES = 512;
 export const MAX_CALENDAR_ATTENDEES = 100;
 export const MAX_CALENDAR_ATTACHMENTS = 50;
 export const MAX_CALENDAR_ICALENDAR_PROPERTIES = 64;
@@ -638,6 +639,14 @@ function normalizeRecurrence(value: unknown): CalendarRecurrence | undefined {
     validateRecurrenceRule(rrule);
   } catch {
     throw new CalendarValidationError('Recurrence rule is not valid RFC 5545 syntax.');
+  }
+  if (
+    (Array.isArray(input.rdates) && input.rdates.length > MAX_CALENDAR_RECURRENCE_DATES)
+    || (Array.isArray(input.exdates) && input.exdates.length > MAX_CALENDAR_RECURRENCE_DATES)
+  ) {
+    throw new CalendarValidationError(
+      `Recurrence additions and exclusions cannot exceed ${MAX_CALENDAR_RECURRENCE_DATES} values each.`,
+    );
   }
   return {
     rrule,
