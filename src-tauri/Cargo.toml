@@ -31,6 +31,7 @@ keyring = { version = "3", features = ["sync-secret-service", "linux-native"] }
 collab-circuit = { path = "../crates/collab-circuit" }
 collab-calendar = { path = "../crates/collab-calendar" }
 collab-core = { path = "../crates/collab-core" }
+collab-net-policy = { path = "../crates/collab-net-policy" }
 collab-protocol = { path = "../crates/collab-protocol" }
 collab-replica = { path = "../crates/collab-replica" }
 tauri = { version = "2", features = [] }

@@ -316,7 +316,7 @@ remaining in one API file or being prematurely made public.
 | Phase | Status | Goal |
 | --- | --- | --- |
 | 0. Baseline and dependency design | Complete | Baselines, consumer maps, draft contracts, dependency enforcement, characterization tests, and initial internal adapter ownership modules are in place. |
-| 1. Outbound network policy | Not started | Add `collab-net-policy` and migrate native/server URL, target, redirect, and response-limit rules. |
+| 1. Outbound network policy | Complete | `collab-net-policy` now owns shared URL, resolved-target, redirect, sensitive-header, response-budget, and timeout policy used by native and server adapters. |
 | 2. Document domain | Not started | Add `collab-documents`, move document-specific logic out of `collab-core`, and migrate both adapters. |
 | 3. Vault mutation domain | Not started | Add `collab-vault-domain` and move portable file/revision/manifest/trash mutation planning behind stable inputs. |
 | 4. Archive boundary | Not started | Consolidate bounded import/export planning in `collab-archive` or a vault-domain module based on measured reuse. |
@@ -375,13 +375,13 @@ Estimated effort: 1 week.
 
 Tasks:
 
-- Create `crates/collab-net-policy`.
-- Move IP classification, URL validation, redirect decisions, target
+- [x] Create `crates/collab-net-policy`.
+- [x] Move IP classification, URL validation, redirect decisions, target
   revalidation, and response budgets into pure policy functions.
-- Keep request execution in native and server adapters.
-- Add IPv4/IPv6, DNS rebinding, redirect-origin, credential, malformed URL,
+- [x] Keep request execution in native and server adapters.
+- [x] Add IPv4/IPv6, DNS rebinding, redirect-origin, credential, malformed URL,
   response-size, and timeout fixtures.
-- Replace duplicated policy code in native link/calendar fetching and server
+- [x] Replace duplicated policy code in native link/calendar fetching and server
   calendar feeds.
 
 Acceptance criteria:
@@ -392,6 +392,27 @@ Acceptance criteria:
 - Cross-origin redirects cannot forward sensitive conditional or credential
   headers.
 - Existing link preview and calendar subscription behavior remains green.
+
+Implementation:
+
+- Added the IO-free `collab-net-policy` crate with named web-preview and
+  HTTPS-calendar-feed profiles, deterministic policy errors, URL/host
+  validation, comprehensive reserved-address classification, all-address DNS
+  validation, bounded redirect resolution, cross-origin conditional-header
+  stripping, and streaming response budgets.
+- Native link previews and calendar subscriptions plus hosted calendar feed
+  refresh now use those profiles. Each adapter still owns DNS lookup,
+  `reqwest::Client` construction, pinned-address request execution, response
+  streaming, and application-specific error text.
+- Target syntax is validated before DNS, every returned address must pass the
+  shared classifier before a pinned request client is built, and each redirect
+  repeats the same process. Mixed public/private DNS answers are rejected.
+- The architecture check now rejects HTTP/WebSocket execution frameworks in
+  domain crates in addition to Tauri, Axum, and persistence frameworks.
+- Shared fixtures cover IPv4, IPv6, IPv4-mapped IPv6, malformed and local URLs,
+  credentials, mixed DNS answers, redirect revalidation and bounds, origin
+  changes, advertised/streamed response sizes, integer overflow, and the exact
+  timeout/size profiles.
 
 ## Phase 2: Document Domain
 

@@ -24,7 +24,12 @@ The first version does not defend against a malicious server operator. Hosted va
 - PostgreSQL and blob storage are not publicly exposed.
 - Server authorization is authoritative; client-side role checks improve UX only.
 - The server resolves storage keys internally from opaque IDs.
-- Remote web-preview fetching retains the existing private-network, redirect, credential, and response-size protections.
+- Native web previews and native/server calendar subscriptions use
+  `collab-net-policy` for identical scheme, credential, private/reserved target,
+  redirect, conditional-header, response-size, and timeout decisions. DNS lookup
+  and request execution stay in their adapters; every resolved address is
+  validated before an address-pinned client can send a request, including after
+  redirects.
 
 ## Secrets and Configuration
 

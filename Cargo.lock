@@ -801,6 +801,7 @@ dependencies = [
  "collab-calendar",
  "collab-circuit",
  "collab-core",
+ "collab-net-policy",
  "collab-protocol",
  "collab-replica",
  "futures-util",
@@ -883,6 +884,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "collab-net-policy"
+version = "0.6.6"
+dependencies = [
+ "thiserror 1.0.69",
+ "url",
+]
+
+[[package]]
 name = "collab-protocol"
 version = "0.6.6"
 dependencies = [
@@ -917,6 +926,7 @@ dependencies = [
  "chrono-tz",
  "collab-calendar",
  "collab-core",
+ "collab-net-policy",
  "collab-protocol",
  "futures-util",
  "hex",

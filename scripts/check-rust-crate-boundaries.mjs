@@ -73,7 +73,10 @@ const domainCrates = new Set([
 ]);
 const adapterFrameworks = new Set([
   'axum',
+  'hyper',
+  'reqwest',
   'tauri',
+  'tokio-tungstenite',
   'tower-http',
   'webkit2gtk',
   'wry',

@@ -28,7 +28,7 @@ work from being mistaken for an active roadmap item.
 | User calendar | Testing / planned | Complete physical-device validation for cross-location mirroring, the Phase 9 external-client CalDAV matrix, and Phase 10 restore/multi-day lifecycle drills before native reminder delivery. Phase 8 is complete; Phases 9 and 10 are in testing. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
 | Background running | Not started | Add a shared headless coordinator, desktop tray/autostart lifecycle, Android WorkManager scheduling, persisted progress, power controls, and platform QA. | [Background Running Plan](./background-running-plan.md) |
 | Notification system | Not started | Add a shared inbox/scheduler, native desktop and Android delivery, hosted activity invalidations, preferences, privacy controls, and release hardening. | [Notification System Plan](./notification-system-plan.md) |
-| Rust crate boundary refactor | In progress | Phase 0 baselines, contracts, dependency enforcement, characterization tests, and initial adapter modules are complete. Next extract shared outbound network policy in Phase 1. | [Rust Crate Boundary Refactor Plan](./rust-crate-boundary-refactor-plan.md) |
+| Rust crate boundary refactor | In progress | Phases 0-1 are complete, including shared outbound network policy across native and server adapters. Next extract the document domain in Phase 2. | [Rust Crate Boundary Refactor Plan](./rust-crate-boundary-refactor-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
 | Mobile widgets | Ideas only | Evaluate a calendar agenda widget first after background snapshots are available; no implementation commitment or phased schedule exists yet. | [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) |
 
@@ -36,11 +36,10 @@ work from being mistaken for an active roadmap item.
 
 1. Finish Android Phase 7 lifecycle and release validation that does not depend
    on new background behavior.
-2. Complete the crate-refactor Phase 0 characterization and adapter
-   modularization before further enlarging the server API, live-room, or Tauri
-   file-command modules.
-3. Extract the shared outbound-network policy before adding more server/native
-   feed, map, webhook, or preview integrations.
+2. Continue the crate refactor with the Phase 2 document-domain extraction
+   before further enlarging portable parsing and reference behavior.
+3. Route future server/native feed, map, webhook, or preview integrations
+   through the completed shared outbound-network policy.
 4. Build the shared headless coordinator from the background-running plan.
 5. Add desktop tray lifecycle and Android WorkManager scheduling.
 6. Activate local calendar reminders through the notification system.
@@ -123,8 +122,10 @@ Open tracker entries:
 - Phase 0, **Complete**: compile/module/dependency baselines, consumer maps,
   draft APIs, cargo-metadata enforcement, characterization tests, and private
   archive/live/sidecar adapter modules are implemented.
-- Phase 1, **Not started**: extract shared outbound target and bounded-response
-  policy.
+- Phase 1, **Complete**: shared URL, address, redirect, sensitive-header,
+  response-budget, and timeout policy is implemented in `collab-net-policy`;
+  native link/calendar fetching and hosted calendar feeds use it while retaining
+  adapter-owned DNS and HTTP execution.
 - Phase 2, **Not started**: move document-specific parsing, references, and
   rewrite rules out of `collab-core`.
 - Phase 3, **Not started**: extract portable vault mutation and revision

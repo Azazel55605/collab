@@ -1,16 +1,14 @@
+use collab_net_policy::{
+    normalize_http_input, resolve_redirect, sensitive_header_decision, validate_resolved_addresses,
+    validate_target, PolicyError, ResponseBudget, SensitiveHeaderDecision, CALENDAR_FEED_POLICY,
+};
 use reqwest::{
     header::{ACCEPT, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED, LOCATION, USER_AGENT},
     Client, Response,
 };
-use std::{
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
-    time::Duration,
-};
+use std::net::SocketAddr;
 use tokio::net::lookup_host;
-use url::{Host, Url};
-
-const MAX_REDIRECTS: usize = 5;
-const MAX_BYTES: usize = 5 * 1024 * 1024;
+use url::Url;
 
 #[derive(Debug, Clone)]
 pub struct CalendarFeedResponse {
@@ -21,94 +19,31 @@ pub struct CalendarFeedResponse {
     pub last_modified: Option<String>,
 }
 
-fn is_blocked_ipv4(ip: &Ipv4Addr) -> bool {
-    let [first, second, ..] = ip.octets();
-    ip.is_private()
-        || ip.is_loopback()
-        || ip.is_link_local()
-        || ip.is_broadcast()
-        || ip.is_multicast()
-        || ip.is_unspecified()
-        || ip.is_documentation()
-        || (first == 100 && (64..=127).contains(&second))
-        || (first == 198 && (18..=19).contains(&second))
-        || first >= 240
-}
-
-fn is_blocked_ipv6(ip: &Ipv6Addr) -> bool {
-    if let Some(mapped) = ip.to_ipv4_mapped() {
-        return is_blocked_ipv4(&mapped);
-    }
-    ip.is_loopback()
-        || ip.is_unspecified()
-        || ip.is_unique_local()
-        || ip.is_unicast_link_local()
-        || ip.is_multicast()
-        || ip.segments()[0..2] == [0x2001, 0x0db8]
-}
-
-fn is_blocked_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(value) => is_blocked_ipv4(&value),
-        IpAddr::V6(value) => is_blocked_ipv6(&value),
-    }
-}
-
 fn validate_url(url: &Url) -> Result<(), String> {
-    if url.scheme() != "https" {
-        return Err("Calendar subscriptions require HTTPS.".into());
-    }
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err("Calendar feed URLs cannot contain credentials.".into());
-    }
-    match url.host() {
-        Some(Host::Domain(host))
-            if host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost") =>
-        {
-            return Err("Calendar feed URLs cannot target localhost.".into());
-        }
-        Some(Host::Ipv4(ip)) if is_blocked_ipv4(&ip) => {
-            return Err("Calendar feed URLs cannot target private or reserved networks.".into());
-        }
-        Some(Host::Ipv6(ip)) if is_blocked_ipv6(&ip) => {
-            return Err("Calendar feed URLs cannot target private or reserved networks.".into());
-        }
-        None => {
-            return Err("Calendar feed URL must include a hostname.".into());
-        }
-        _ => {}
-    }
-    Ok(())
+    validate_target(url, CALENDAR_FEED_POLICY)
+        .map(|_| ())
+        .map_err(calendar_policy_error)
 }
 
 fn host_name(url: &Url) -> Result<String, String> {
-    match url.host() {
-        Some(Host::Domain(value)) => Ok(value.to_owned()),
-        Some(Host::Ipv4(value)) => Ok(value.to_string()),
-        Some(Host::Ipv6(value)) => Ok(value.to_string()),
-        None => Err("Calendar feed URL must include a hostname.".to_string()),
-    }
+    validate_target(url, CALENDAR_FEED_POLICY)
+        .map(|target| target.host)
+        .map_err(calendar_policy_error)
 }
 
 async fn resolve_target(url: &Url) -> Result<Vec<SocketAddr>, String> {
-    validate_url(url)?;
-    let host = host_name(url)?;
-    let port = url.port_or_known_default().unwrap_or(443);
-    let addresses = lookup_host((host, port))
+    let target = validate_target(url, CALENDAR_FEED_POLICY).map_err(calendar_policy_error)?;
+    let addresses = lookup_host((target.host, target.port))
         .await
-        .map_err(|_| "Unable to resolve the calendar feed host.".to_string())?
-        .collect::<Vec<_>>();
-    if addresses.is_empty() || addresses.iter().any(|address| is_blocked_ip(address.ip())) {
-        return Err("Calendar feed URLs cannot target private or reserved networks.".into());
-    }
-    Ok(addresses)
+        .map_err(|_| calendar_policy_error(PolicyError::NoResolvedAddresses))?;
+    validate_resolved_addresses(addresses, CALENDAR_FEED_POLICY).map_err(calendar_policy_error)
 }
 
 fn client_for(url: &Url, addresses: &[SocketAddr]) -> Result<Client, String> {
     Client::builder()
         .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(15))
+        .connect_timeout(CALENDAR_FEED_POLICY.limits.connect_timeout)
+        .timeout(CALENDAR_FEED_POLICY.limits.request_timeout)
         .resolve_to_addrs(&host_name(url)?, addresses)
         .build()
         .map_err(|_| "Could not initialize calendar feed networking.".into())
@@ -123,24 +58,44 @@ fn header(response: &Response, name: reqwest::header::HeaderName) -> Option<Stri
 }
 
 async fn limited_text(response: &mut Response) -> Result<String, String> {
-    if response
-        .content_length()
-        .is_some_and(|length| length > MAX_BYTES as u64)
-    {
-        return Err("Calendar feed exceeds the 5 MB response limit.".into());
-    }
+    let mut budget = ResponseBudget::new(
+        CALENDAR_FEED_POLICY.limits.max_response_bytes,
+        response.content_length(),
+    )
+    .map_err(calendar_policy_error)?;
     let mut bytes = Vec::new();
     while let Some(chunk) = response
         .chunk()
         .await
         .map_err(|_| "Could not read the calendar feed response.".to_string())?
     {
-        if bytes.len().saturating_add(chunk.len()) > MAX_BYTES {
-            return Err("Calendar feed exceeds the 5 MB response limit.".into());
-        }
+        budget.consume(chunk.len()).map_err(calendar_policy_error)?;
         bytes.extend_from_slice(&chunk);
     }
     String::from_utf8(bytes).map_err(|_| "Calendar feeds must use UTF-8.".into())
+}
+
+fn calendar_policy_error(error: PolicyError) -> String {
+    match error {
+        PolicyError::EmptyUrl | PolicyError::InvalidUrl => {
+            "Calendar feed URL must be a valid HTTPS URL.".into()
+        }
+        PolicyError::SchemeNotAllowed => "Calendar subscriptions require HTTPS.".into(),
+        PolicyError::CredentialsNotAllowed => {
+            "Calendar feed URLs cannot contain credentials.".into()
+        }
+        PolicyError::MissingHost => "Calendar feed URL must include a hostname.".into(),
+        PolicyError::LocalhostNotAllowed => "Calendar feed URLs cannot target localhost.".into(),
+        PolicyError::BlockedAddress => {
+            "Calendar feed URLs cannot target private or reserved networks.".into()
+        }
+        PolicyError::NoResolvedAddresses => "Unable to resolve the calendar feed host.".into(),
+        PolicyError::MissingRedirectLocation => {
+            "Calendar feed redirect is missing a location.".into()
+        }
+        PolicyError::TooManyRedirects => "Calendar feed redirected too many times.".into(),
+        PolicyError::ResponseTooLarge => "Calendar feed exceeds the 5 MB response limit.".into(),
+    }
 }
 
 pub async fn fetch_calendar_feed(
@@ -148,11 +103,10 @@ pub async fn fetch_calendar_feed(
     etag: Option<&str>,
     last_modified: Option<&str>,
 ) -> Result<CalendarFeedResponse, String> {
-    let mut current = Url::parse(feed_url.trim())
-        .map_err(|_| "Calendar feed URL must be a valid HTTPS URL.".to_string())?;
+    let mut current = normalize_http_input(feed_url, false).map_err(calendar_policy_error)?;
     validate_url(&current)?;
-    let validator_origin = current.origin();
-    for _ in 0..=MAX_REDIRECTS {
+    let validator_url = current.clone();
+    for redirects_followed in 0..=CALENDAR_FEED_POLICY.limits.max_redirects {
         let addresses = resolve_target(&current).await?;
         let client = client_for(&current, &addresses)?;
         let mut request = client
@@ -162,7 +116,7 @@ pub async fn fetch_calendar_feed(
                 ACCEPT,
                 "text/calendar, text/plain;q=0.9, application/octet-stream;q=0.5",
             );
-        if current.origin() == validator_origin {
+        if sensitive_header_decision(&validator_url, &current) == SensitiveHeaderDecision::Forward {
             if let Some(value) = etag {
                 request = request.header(IF_NONE_MATCH, value);
             }
@@ -178,13 +132,11 @@ pub async fn fetch_calendar_feed(
             let location = response
                 .headers()
                 .get(LOCATION)
-                .and_then(|value| value.to_str().ok())
-                .ok_or_else(|| "Calendar feed redirect is missing a location.".to_string())?;
-            current = current
-                .join(location)
-                .or_else(|_| Url::parse(location))
-                .map_err(|_| "Calendar feed redirect is invalid.".to_string())?;
-            validate_url(&current)?;
+                .and_then(|value| value.to_str().ok());
+            current =
+                resolve_redirect(&current, location, redirects_followed, CALENDAR_FEED_POLICY)
+                    .map_err(calendar_policy_error)?
+                    .url;
             continue;
         }
         let response_etag = header(&response, ETAG);
@@ -221,12 +173,13 @@ pub async fn fetch_calendar_feed(
             last_modified: response_last_modified,
         });
     }
-    Err("Calendar feed redirected too many times.".into())
+    Err(calendar_policy_error(PolicyError::TooManyRedirects))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use collab_net_policy::is_blocked_ip;
 
     #[test]
     fn blocks_credentials_and_non_public_targets() {
@@ -251,5 +204,12 @@ mod tests {
             );
         }
         assert!(validate_url(&Url::parse("https://calendar.example/feed.ics").unwrap()).is_ok());
+    }
+
+    #[test]
+    fn shared_ip_policy_matches_server_feed_policy() {
+        assert!(is_blocked_ip("224.0.0.1".parse().unwrap()));
+        assert!(is_blocked_ip("::ffff:127.0.0.1".parse().unwrap()));
+        assert!(!is_blocked_ip("93.184.216.34".parse().unwrap()));
     }
 }

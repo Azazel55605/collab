@@ -646,6 +646,7 @@ The repository root is a Cargo workspace:
 |------|---------------|
 | `crates/collab-circuit/` | First-party MIT circuit model, endpoint/junction net compiler, source maps, validation, DC/sweep/transient numerics, and the bounded linear complex AC sweep core shared by desktop and Android |
 | `crates/collab-core/` | Shared local/hosted path normalization, hashing, and note/kanban/canvas reference analysis and rewrite rules |
+| `crates/collab-net-policy/` | IO-free outbound URL, resolved-address, redirect-origin, response-budget, and timeout policy shared by native previews/subscriptions and hosted calendar feeds |
 | `crates/collab-protocol/` | Shared server response DTOs, error envelope, and protocol versions |
 | `crates/collab-replica/` | Encrypted native hosted-vault offline replica, pending mutation queue, and document/asset/CRDT/logic-component caches |
 | `crates/collab-calendar/` | Shared user-calendar wire model and profile-scoped SQLite store with indexed range queries, pending operations, optimistic item revisions, cross-location mirror groups/anchors/conflicts, and atomic local generated-Kanban projection replacement |
@@ -659,13 +660,14 @@ The repository root is a Cargo workspace:
 
 The table above is the current source of truth. The
 [Rust Crate Boundary Refactor Plan](../plans/rust-crate-boundary-refactor-plan.md)
-proposes `collab-net-policy`, `collab-documents`, `collab-vault-domain`, and
-`collab-live`, with `collab-archive` subject to a measured reuse decision. These
-crates do not exist until their plan phases land.
+has delivered `collab-net-policy` and proposes `collab-documents`,
+`collab-vault-domain`, and `collab-live`, with `collab-archive` subject to a
+measured reuse decision. The remaining crates do not exist until their plan
+phases land.
 
-Phase 0 is complete. `pnpm rust:boundaries` enforces the allowed workspace graph
+Phases 0-1 are complete. `pnpm rust:boundaries` enforces the allowed workspace graph
 through `cargo metadata`; every new workspace crate must be added to that
-policy. Portable behavior is first isolated and characterized in private
+policy and domain crates cannot depend on HTTP execution frameworks. Portable behavior is first isolated and characterized in private
 adapter modules: server archive planning currently lives in `api/archive.rs`,
 live merge/Yrs semantics in `ws/domain.rs`, and native sidecars in
 `commands/files/sidecars.rs`. Planned shared crates must remain free of Tauri,
@@ -673,6 +675,9 @@ Axum, SQLx, PostgreSQL, concrete filesystem/storage backends, and operating
 system integration. `collab-calendar` retains its explicit SQLite-store
 exception. `collab-core` should converge on low-level path, name, hashing, and
 byte-encryption primitives rather than accepting more document behavior.
+`collab-net-policy` owns pure allow/deny and budget decisions; DNS lookup,
+address pinning, request execution, and response streaming remain in the native
+and server adapters.
 
 `src-tauri/src/`
 

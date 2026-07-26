@@ -1,7 +1,13 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::time::Duration;
+use std::net::SocketAddr;
 use tokio::net::lookup_host;
 
+#[cfg(test)]
+use collab_net_policy::is_blocked_ip;
+use collab_net_policy::{
+    normalize_http_input, resolve_redirect, sensitive_header_decision, validate_resolved_addresses,
+    validate_target, OutboundPolicy, PolicyError, RequestLimits, ResponseBudget,
+    SensitiveHeaderDecision, CALENDAR_FEED_POLICY, WEB_PREVIEW_POLICY,
+};
 use reqwest::header::{
     CONTENT_TYPE, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED, LOCATION, USER_AGENT,
 };
@@ -23,120 +29,86 @@ pub struct LinkPreviewData {
     pub embed_block_reason: Option<String>,
 }
 
-const MAX_REDIRECTS: usize = 10;
-const MAX_HTML_PREVIEW_BYTES: usize = 512 * 1024;
-const MAX_CALENDAR_FEED_BYTES: usize = 5 * 1024 * 1024;
-const MAX_CALENDAR_REDIRECTS: usize = 5;
+const MAX_HTML_PREVIEW_BYTES: usize = WEB_PREVIEW_POLICY.limits.max_response_bytes;
 
+#[cfg(test)]
 fn normalize_input_url(input: &str) -> Result<Url, String> {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        return Err("URL is required".into());
-    }
-
-    Url::parse(trimmed)
-        .or_else(|_| Url::parse(&format!("https://{trimmed}")))
-        .map_err(|_| "Enter a valid HTTP or HTTPS URL".to_string())
-        .and_then(|url| match url.scheme() {
-            "http" | "https" => Ok(url),
-            _ => Err("Only HTTP and HTTPS links are supported".into()),
-        })
+    let url = normalize_http_input(input, true).map_err(preview_policy_error)?;
+    validate_target(&url, WEB_PREVIEW_POLICY)
+        .map(|target| target.url)
+        .map_err(preview_policy_error)
 }
 
-fn is_shared_cgnat_ipv4(ip: &Ipv4Addr) -> bool {
-    let [a, b, ..] = ip.octets();
-    a == 100 && (64..=127).contains(&b)
-}
-
-fn is_benchmarking_ipv4(ip: &Ipv4Addr) -> bool {
-    let [a, b, ..] = ip.octets();
-    a == 198 && (18..=19).contains(&b)
-}
-
-fn is_reserved_future_use_ipv4(ip: &Ipv4Addr) -> bool {
-    ip.octets()[0] >= 240
-}
-
-fn is_blocked_ipv4(ip: &Ipv4Addr) -> bool {
-    ip.is_private()
-        || ip.is_loopback()
-        || ip.is_link_local()
-        || ip.is_broadcast()
-        || ip.is_unspecified()
-        || ip.is_documentation()
-        || is_shared_cgnat_ipv4(ip)
-        || is_benchmarking_ipv4(ip)
-        || is_reserved_future_use_ipv4(ip)
-}
-
-fn is_blocked_ipv6(ip: &Ipv6Addr) -> bool {
-    if let Some(mapped) = ip.to_ipv4_mapped() {
-        return is_blocked_ipv4(&mapped);
-    }
-
-    ip.is_loopback()
-        || ip.is_unspecified()
-        || ip.is_unique_local()
-        || ip.is_unicast_link_local()
-        || ip.is_multicast()
-        || ip.segments()[0..2] == [0x2001, 0x0db8]
-}
-
-fn is_blocked_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => is_blocked_ipv4(&ip),
-        IpAddr::V6(ip) => is_blocked_ipv6(&ip),
-    }
-}
-
+#[cfg(test)]
 fn validate_url_syntax_for_preview(url: &Url) -> Result<(), String> {
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err("URLs with embedded credentials are not allowed".into());
-    }
-
-    let host = url
-        .host_str()
-        .ok_or_else(|| "URL must include a hostname".to_string())?;
-
-    if host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost") {
-        return Err("Localhost addresses are not allowed for web previews".into());
-    }
-
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        if is_blocked_ip(ip) {
-            return Err(
-                "Private or local network addresses are not allowed for web previews".into(),
-            );
-        }
-    }
-
-    Ok(())
+    validate_target(url, WEB_PREVIEW_POLICY)
+        .map(|_| ())
+        .map_err(preview_policy_error)
 }
 
 async fn resolve_and_validate_target(url: &Url) -> Result<Vec<SocketAddr>, String> {
-    validate_url_syntax_for_preview(url)?;
-
-    let host = url
-        .host_str()
-        .ok_or_else(|| "URL must include a hostname".to_string())?;
-    let port = url.port_or_known_default().unwrap_or(443);
-    let addrs = lookup_host((host, port))
+    resolve_and_validate_target_with_policy(url, WEB_PREVIEW_POLICY)
         .await
-        .map_err(|_| "Unable to resolve remote host".to_string())?;
+        .map_err(preview_policy_error)
+}
 
-    let mut validated = Vec::new();
-    for addr in addrs {
-        if is_blocked_ip(addr.ip()) {
-            return Err("Private or local network targets are not allowed for web previews".into());
+async fn resolve_and_validate_target_with_policy(
+    url: &Url,
+    policy: OutboundPolicy,
+) -> Result<Vec<SocketAddr>, PolicyError> {
+    let target = validate_target(url, policy)?;
+    let addrs = lookup_host((target.host.as_str(), target.port))
+        .await
+        .map_err(|_| PolicyError::NoResolvedAddresses)?;
+    validate_resolved_addresses(addrs, policy)
+}
+
+fn preview_policy_error(error: PolicyError) -> String {
+    match error {
+        PolicyError::EmptyUrl => "URL is required".into(),
+        PolicyError::InvalidUrl => "Enter a valid HTTP or HTTPS URL".into(),
+        PolicyError::SchemeNotAllowed => "Only HTTP and HTTPS links are supported".into(),
+        PolicyError::CredentialsNotAllowed => {
+            "URLs with embedded credentials are not allowed".into()
         }
-        validated.push(addr);
+        PolicyError::MissingHost => "URL must include a hostname".into(),
+        PolicyError::LocalhostNotAllowed => {
+            "Localhost addresses are not allowed for web previews".into()
+        }
+        PolicyError::BlockedAddress => {
+            "Private or local network targets are not allowed for web previews".into()
+        }
+        PolicyError::NoResolvedAddresses => "Unable to resolve remote host".into(),
+        PolicyError::MissingRedirectLocation => {
+            "Redirect response did not include a valid Location header".into()
+        }
+        PolicyError::TooManyRedirects => "Too many redirects while fetching web preview".into(),
+        PolicyError::ResponseTooLarge => "Remote page is too large to preview safely".into(),
     }
+}
 
-    if validated.is_empty() {
-        return Err("Unable to resolve remote host".into());
+fn calendar_policy_error(error: PolicyError) -> String {
+    match error {
+        PolicyError::EmptyUrl | PolicyError::InvalidUrl => "Enter a valid HTTPS URL".into(),
+        PolicyError::SchemeNotAllowed => "Calendar subscriptions require HTTPS".into(),
+        PolicyError::CredentialsNotAllowed => {
+            "Calendar feed URLs cannot contain embedded credentials".into()
+        }
+        PolicyError::MissingHost => "URL must include a hostname".into(),
+        PolicyError::LocalhostNotAllowed | PolicyError::BlockedAddress => {
+            "Private or local network targets are not allowed for calendar feeds".into()
+        }
+        PolicyError::NoResolvedAddresses => "Unable to resolve calendar feed host".into(),
+        PolicyError::MissingRedirectLocation => "Calendar feed redirect is missing Location".into(),
+        PolicyError::TooManyRedirects => "Calendar feed redirected too many times".into(),
+        PolicyError::ResponseTooLarge => "Calendar feed exceeds the 5 MB response limit".into(),
     }
+}
 
-    Ok(validated)
+fn policy_with_local_targets(mut policy: OutboundPolicy, allow: bool) -> OutboundPolicy {
+    policy.allow_localhost = allow;
+    policy.allow_private_networks = allow;
+    policy
 }
 
 fn first_meta_content(document: &Html, selectors: &[&str]) -> Option<String> {
@@ -244,17 +216,11 @@ async fn read_limited_text_body(
     response: &mut Response,
     max_bytes: usize,
 ) -> Result<String, String> {
-    if let Some(content_length) = response.content_length() {
-        if content_length > max_bytes as u64 {
-            return Err("Remote page is too large to preview safely".into());
-        }
-    }
-
+    let mut budget =
+        ResponseBudget::new(max_bytes, response.content_length()).map_err(preview_policy_error)?;
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
-        if bytes.len() + chunk.len() > max_bytes {
-            return Err("Remote page is too large to preview safely".into());
-        }
+        budget.consume(chunk.len()).map_err(preview_policy_error)?;
         bytes.extend_from_slice(&chunk);
     }
 
@@ -392,9 +358,13 @@ async fn fetch_link_preview_with_client(
     allow_initial_local_target: bool,
     allow_redirect_local_targets: bool,
 ) -> Result<LinkPreviewData, String> {
-    let normalized = normalize_input_url(&url)?;
+    let initial_policy = policy_with_local_targets(WEB_PREVIEW_POLICY, allow_initial_local_target);
+    let normalized = normalize_http_input(&url, true).map_err(preview_policy_error)?;
+    let normalized = validate_target(&normalized, initial_policy)
+        .map_err(preview_policy_error)?
+        .url;
     let mut current_url = normalized;
-    for _ in 0..=MAX_REDIRECTS {
+    for redirects_followed in 0..=WEB_PREVIEW_POLICY.limits.max_redirects {
         let target_addrs = if allow_initial_local_target && current_url.as_str() == url {
             None
         } else if allow_initial_local_target && allow_redirect_local_targets {
@@ -423,18 +393,13 @@ async fn fetch_link_preview_with_client(
             let location = response
                 .headers()
                 .get(reqwest::header::LOCATION)
-                .and_then(|value| value.to_str().ok())
-                .ok_or_else(|| {
-                    "Redirect response did not include a valid Location header".to_string()
-                })?;
-            let next_url = current_url
-                .join(location)
-                .or_else(|_| Url::parse(location))
-                .map_err(|_| "Redirect target is not a valid HTTP or HTTPS URL".to_string())?;
-
-            if !matches!(next_url.scheme(), "http" | "https") {
-                return Err("Redirect target must use HTTP or HTTPS".into());
-            }
+                .and_then(|value| value.to_str().ok());
+            let redirect_policy =
+                policy_with_local_targets(WEB_PREVIEW_POLICY, allow_redirect_local_targets);
+            let next_url =
+                resolve_redirect(&current_url, location, redirects_followed, redirect_policy)
+                    .map_err(preview_policy_error)?
+                    .url;
             if !allow_redirect_local_targets {
                 resolve_and_validate_target(&next_url).await?;
             }
@@ -450,22 +415,25 @@ async fn fetch_link_preview_with_client(
 }
 
 fn build_preview_client() -> Result<Client, String> {
-    Client::builder()
+    build_policy_client(WEB_PREVIEW_POLICY.limits, None)
+}
+
+fn build_policy_client(
+    limits: RequestLimits,
+    pinned_target: Option<(&str, &[SocketAddr])>,
+) -> Result<Client, String> {
+    let mut builder = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(4))
-        .timeout(Duration::from_secs(8))
-        .build()
-        .map_err(|e| e.to_string())
+        .connect_timeout(limits.connect_timeout)
+        .timeout(limits.request_timeout);
+    if let Some((host, addresses)) = pinned_target {
+        builder = builder.resolve_to_addrs(host, addresses);
+    }
+    builder.build().map_err(|error| error.to_string())
 }
 
 fn build_pinned_preview_client(addrs: &[SocketAddr], host: &str) -> Result<Client, String> {
-    Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(4))
-        .timeout(Duration::from_secs(8))
-        .resolve_to_addrs(host, addrs)
-        .build()
-        .map_err(|e| e.to_string())
+    build_policy_client(WEB_PREVIEW_POLICY.limits, Some((host, addrs)))
 }
 
 #[derive(Debug, Serialize)]
@@ -492,26 +460,24 @@ async fn fetch_calendar_feed_with_policy(
     last_modified: Option<String>,
     allow_local_targets: bool,
 ) -> Result<CalendarFeedResponse, String> {
-    let mut current_url = Url::parse(url.trim()).map_err(|_| "Enter a valid HTTPS URL")?;
-    if current_url.scheme() != "https" {
-        return Err("Calendar subscriptions require HTTPS".into());
-    }
-    validate_url_syntax_for_preview(&current_url)?;
-    let validator_origin = current_url.origin();
+    let policy = policy_with_local_targets(CALENDAR_FEED_POLICY, allow_local_targets);
+    let mut current_url = normalize_http_input(&url, false).map_err(calendar_policy_error)?;
+    validate_target(&current_url, policy).map_err(calendar_policy_error)?;
+    let validator_url = current_url.clone();
 
-    for _ in 0..=MAX_CALENDAR_REDIRECTS {
+    for redirects_followed in 0..=policy.limits.max_redirects {
         let addrs = if allow_local_targets {
             Vec::new()
         } else {
-            resolve_and_validate_target(&current_url).await?
+            resolve_and_validate_target_with_policy(&current_url, policy)
+                .await
+                .map_err(calendar_policy_error)?
         };
         let client = if allow_local_targets {
-            build_preview_client()?
+            build_policy_client(policy.limits, None)?
         } else {
-            let host = current_url
-                .host_str()
-                .ok_or_else(|| "URL must include a hostname".to_string())?;
-            build_pinned_preview_client(&addrs, host)?
+            let target = validate_target(&current_url, policy).map_err(calendar_policy_error)?;
+            build_policy_client(policy.limits, Some((&target.host, &addrs)))?
         };
         let mut request = client
             .get(current_url.clone())
@@ -520,7 +486,9 @@ async fn fetch_calendar_feed_with_policy(
                 reqwest::header::ACCEPT,
                 "text/calendar, text/plain;q=0.9, application/octet-stream;q=0.5",
             );
-        if current_url.origin() == validator_origin {
+        if sensitive_header_decision(&validator_url, &current_url)
+            == SensitiveHeaderDecision::Forward
+        {
             if let Some(value) = etag.as_deref() {
                 request = request.header(IF_NONE_MATCH, value);
             }
@@ -533,17 +501,14 @@ async fn fetch_calendar_feed_with_policy(
             let location = response
                 .headers()
                 .get(LOCATION)
-                .and_then(|value| value.to_str().ok())
-                .ok_or_else(|| "Calendar feed redirect is missing Location".to_string())?;
-            let next_url = current_url
-                .join(location)
-                .or_else(|_| Url::parse(location))
-                .map_err(|_| "Calendar feed redirect is invalid".to_string())?;
-            if next_url.scheme() != "https" {
-                return Err("Calendar feed redirects must remain on HTTPS".into());
-            }
+                .and_then(|value| value.to_str().ok());
+            let next_url = resolve_redirect(&current_url, location, redirects_followed, policy)
+                .map_err(calendar_policy_error)?
+                .url;
             if !allow_local_targets {
-                resolve_and_validate_target(&next_url).await?;
+                resolve_and_validate_target_with_policy(&next_url, policy)
+                    .await
+                    .map_err(calendar_policy_error)?;
             }
             current_url = next_url;
             continue;
@@ -562,7 +527,7 @@ async fn fetch_calendar_feed_with_policy(
         response = response
             .error_for_status()
             .map_err(|error| error.to_string())?;
-        let content = read_limited_text_body(&mut response, MAX_CALENDAR_FEED_BYTES)
+        let content = read_limited_text_body(&mut response, policy.limits.max_response_bytes)
             .await
             .map_err(|_| "Calendar feed exceeds the 5 MB response limit or is not UTF-8")?;
         if !content

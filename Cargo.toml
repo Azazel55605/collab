@@ -4,6 +4,7 @@ members = [
   "crates/collab-circuit",
   "crates/collab-core",
   "crates/collab-calendar",
+  "crates/collab-net-policy",
   "crates/collab-protocol",
   "crates/collab-replica",
   "crates/collab-server",
@@ -43,5 +44,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 unicode-normalization = "0.1"
+url = "2.5"
 yrs = "0.27"
 zip = "2"
