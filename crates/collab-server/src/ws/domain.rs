@@ -198,11 +198,6 @@ pub(super) fn doc_json_content(doc: &Doc) -> Option<String> {
     serde_json::to_string(&root.to_json(&txn)).ok()
 }
 
-pub(super) fn canvas_node_count(content: &str) -> Option<usize> {
-    let value = serde_json::from_str::<serde_json::Value>(content).ok()?;
-    value.get("nodes")?.as_array().map(Vec::len)
-}
-
 pub(super) fn apply_update_bytes(doc: &Doc, bytes: &[u8]) {
     let Ok(update) = Update::decode_v1(bytes) else {
         return;

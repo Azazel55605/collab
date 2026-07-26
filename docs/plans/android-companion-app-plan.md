@@ -107,7 +107,7 @@ built around drill-in navigation:
 
 Reuse:
 
-- `collab-core` path/reference rules.
+- `collab-core` path/name/hash primitives and `collab-documents` reference rules.
 - `collab-protocol` DTOs and error codes.
 - Hosted server auth/session concepts.
 - Hosted vault API client semantics.

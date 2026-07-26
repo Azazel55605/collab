@@ -2217,6 +2217,7 @@ pub async fn create_vault_file(
     validate_file_kind(
         payload.kind,
         payload.document_type,
+        &name,
         &payload.content,
         &request_id,
     )?;
@@ -3463,8 +3464,8 @@ pub async fn write_text_revision(
     lock_active_vault(&mut transaction, vault_id, &request_id).await?;
     let current = sqlx::query(
         r#"
-        SELECT f.kind::text AS kind, f.state::text AS state, f.name, r.sequence,
-               r.blob_digest
+        SELECT f.kind::text AS kind, f.state::text AS state, f.name,
+               f.document_type::text AS document_type, r.sequence, r.blob_digest
         FROM hosted_file_entries f
         LEFT JOIN hosted_file_revisions r ON r.id = f.current_revision_id
         WHERE f.vault_id = $1 AND f.id = $2
@@ -3514,6 +3515,24 @@ pub async fn write_text_revision(
         }
     };
     let content_bytes = content.as_bytes();
+    let document_type = current.get::<Option<String>, _>("document_type");
+    let file_name = current.get::<String, _>("name");
+    let document_kind = collab_documents::classify_path(&file_name).or_else(|| {
+        document_type
+            .as_deref()
+            .and_then(collab_documents::DocumentKind::from_storage_name)
+    });
+    if let Some(kind) = document_kind {
+        collab_documents::validate(
+            collab_documents::DocumentInput {
+                kind,
+                path: &file_name,
+                content: content_bytes,
+            },
+            collab_documents::DEFAULT_PARSER_LIMITS,
+        )
+        .map_err(|error| ApiFailure::validation(error.to_string(), request_id.clone()))?;
+    }
     let settings = load_effective_runtime_settings(&state.config);
     enforce_storage_quota(
         &state.database,
@@ -3530,14 +3549,10 @@ pub async fn write_text_revision(
         .put(content_bytes)
         .await
         .map_err(|_| ApiFailure::server(request_id.clone()))?;
-    // Kanban boards are semantically enforced: a `.kanban` write must hold the
+    // Kanban boards are semantically enforced: a Kanban document write must hold the
     // specific kanban capabilities for the changes it makes (move, comment,
     // edit content, etc.), not just the baseline `file.write`.
-    if current
-        .get::<String, _>("name")
-        .to_lowercase()
-        .ends_with(".kanban")
-    {
+    if document_kind == Some(collab_documents::DocumentKind::Kanban) {
         enforce_kanban_write(
             &access,
             prior_content.as_deref(),
@@ -3575,11 +3590,7 @@ pub async fn write_text_revision(
     .execute(&mut *transaction)
     .await
     .map_err(|_| ApiFailure::server(request_id.clone()))?;
-    if current
-        .get::<String, _>("name")
-        .to_lowercase()
-        .ends_with(".kanban")
-    {
+    if document_kind == Some(collab_documents::DocumentKind::Kanban) {
         crate::calendar_api::project_kanban_assignments(
             &mut transaction,
             vault_id,
@@ -3740,7 +3751,19 @@ pub async fn write_pdf_annotations(
     if current_sequence != payload.expected_sequence {
         return Err(ApiFailure::revision_conflict(request_id));
     }
-    for required in collab_core::pdf::classify_changes(&old_state, &payload.state) {
+    let annotation_bytes = serde_json::to_vec(&payload.state).map_err(|_| {
+        ApiFailure::validation("The PDF annotation state is invalid.", request_id.clone())
+    })?;
+    collab_documents::validate(
+        collab_documents::DocumentInput {
+            kind: collab_documents::DocumentKind::PdfSidecar,
+            path: &file.get::<String, _>("name"),
+            content: &annotation_bytes,
+        },
+        collab_documents::DEFAULT_PARSER_LIMITS,
+    )
+    .map_err(|error| ApiFailure::validation(error.to_string(), request_id.clone()))?;
+    for required in collab_documents::pdf::classify_changes(&old_state, &payload.state) {
         let capability = Capability::from_token(required.as_token())
             .expect("pdf capability tokens map to a Capability");
         if !access.has(capability) {
@@ -4467,7 +4490,7 @@ pub async fn list_file_references(
         ));
     }
     let target_path = target.relative_path.clone();
-    let lookup = collab_core::references::build_reference_lookup(
+    let lookup = collab_documents::references::build_reference_lookup(
         manifest
             .files
             .iter()
@@ -4487,7 +4510,10 @@ pub async fn list_file_references(
         if file.kind != HostedFileKind::Document
             || file.state != HostedFileState::Active
             || file.id == target.id
-            || collab_core::references::path_matches_or_descends(&file.relative_path, &target_path)
+            || collab_documents::references::path_matches_or_descends(
+                &file.relative_path,
+                &target_path,
+            )
         {
             continue;
         }
@@ -4496,19 +4522,19 @@ pub async fn list_file_references(
         };
         let content = load_blob_text(&state, &revision.content_hash, &request_id).await?;
         let collected = match file.document_type.unwrap_or(HostedDocumentType::Note) {
-            HostedDocumentType::Note => collab_core::references::collect_note_references(
+            HostedDocumentType::Note => collab_documents::references::collect_note_references(
                 &content,
                 &file.relative_path,
                 &lookup,
                 &target_path,
             ),
-            HostedDocumentType::Kanban => collab_core::references::collect_kanban_references(
+            HostedDocumentType::Kanban => collab_documents::references::collect_kanban_references(
                 &content,
                 &file.relative_path,
                 &target_path,
             )
             .unwrap_or_default(),
-            HostedDocumentType::Canvas => collab_core::references::collect_canvas_references(
+            HostedDocumentType::Canvas => collab_documents::references::collect_canvas_references(
                 &content,
                 &file.relative_path,
                 &target_path,
@@ -4984,7 +5010,7 @@ async fn compute_reference_rewrites(
     for file in &manifest.files {
         if file.kind != HostedFileKind::Document
             || file.state != HostedFileState::Active
-            || collab_core::references::path_matches_or_descends(&file.relative_path, old_path)
+            || collab_documents::references::path_matches_or_descends(&file.relative_path, old_path)
         {
             continue;
         }
@@ -4995,20 +5021,22 @@ async fn compute_reference_rewrites(
         // Unparseable board/canvas documents are skipped rather than blocking
         // the structural operation; they cannot hold resolvable references.
         let rewritten = match file.document_type.unwrap_or(HostedDocumentType::Note) {
-            HostedDocumentType::Note => Some(collab_core::references::rewrite_note_references(
-                &content,
-                &file.relative_path,
-                old_path,
-                new_path,
-            )),
-            HostedDocumentType::Kanban => {
-                collab_core::references::rewrite_kanban_references(&content, old_path, new_path)
-                    .ok()
+            HostedDocumentType::Note => {
+                Some(collab_documents::references::rewrite_note_references(
+                    &content,
+                    &file.relative_path,
+                    old_path,
+                    new_path,
+                ))
             }
-            HostedDocumentType::Canvas => {
-                collab_core::references::rewrite_canvas_references(&content, old_path, new_path)
-                    .ok()
-            }
+            HostedDocumentType::Kanban => collab_documents::references::rewrite_kanban_references(
+                &content, old_path, new_path,
+            )
+            .ok(),
+            HostedDocumentType::Canvas => collab_documents::references::rewrite_canvas_references(
+                &content, old_path, new_path,
+            )
+            .ok(),
         };
         let Some(rewritten) = rewritten else {
             continue;
@@ -9149,7 +9177,7 @@ const KANBAN_CAPABILITIES: [Capability; 7] = [
 ///
 /// Actors holding every kanban capability (including owners and server admins,
 /// who hold all capabilities) bypass diffing. For partially-capable actors, the
-/// prior and new content are classified through `collab_core::kanban`; if any
+/// prior and new content are classified through `collab_documents::kanban`; if any
 /// required capability is absent the write is rejected. An unparseable new board
 /// is rejected for partially-capable actors so malformed JSON cannot smuggle
 /// changes past the classifier.
@@ -9166,13 +9194,13 @@ fn enforce_kanban_write(
         return Ok(());
     }
 
-    let new_board = collab_core::kanban::Board::parse(new_content)
+    let new_board = collab_documents::kanban::Board::parse(new_content)
         .map_err(|_| ApiFailure::vault_permission_denied(request_id.to_owned()))?;
     let old_board = old_content
-        .and_then(|bytes| collab_core::kanban::Board::parse(bytes).ok())
-        .unwrap_or_else(collab_core::kanban::Board::empty);
+        .and_then(|bytes| collab_documents::kanban::Board::parse(bytes).ok())
+        .unwrap_or_else(collab_documents::kanban::Board::empty);
 
-    for required in collab_core::kanban::classify_changes(&old_board, &new_board) {
+    for required in collab_documents::kanban::classify_changes(&old_board, &new_board) {
         let capability = Capability::from_token(required.as_token())
             .expect("kanban capability tokens map to a Capability");
         if !access.has(capability) {
@@ -10330,12 +10358,33 @@ async fn delete_subtree_trash_records(
 fn validate_file_kind(
     kind: HostedFileKind,
     document_type: Option<HostedDocumentType>,
+    name: &str,
     content: &str,
     request_id: &str,
 ) -> Result<(), ApiFailure> {
     match kind {
         HostedFileKind::Folder if document_type.is_none() && content.is_empty() => Ok(()),
-        HostedFileKind::Document if document_type.is_some() => Ok(()),
+        HostedFileKind::Document if document_type.is_some() => {
+            if content.is_empty() {
+                return Ok(());
+            }
+            let fallback_kind = match document_type.expect("document type was checked") {
+                HostedDocumentType::Note => collab_documents::DocumentKind::Note,
+                HostedDocumentType::Kanban => collab_documents::DocumentKind::Kanban,
+                HostedDocumentType::Canvas => collab_documents::DocumentKind::Canvas,
+            };
+            let kind = collab_documents::classify_path(name).unwrap_or(fallback_kind);
+            collab_documents::validate(
+                collab_documents::DocumentInput {
+                    kind,
+                    path: name,
+                    content: content.as_bytes(),
+                },
+                collab_documents::DEFAULT_PARSER_LIMITS,
+            )
+            .map(|_| ())
+            .map_err(|error| ApiFailure::validation(error.to_string(), request_id.to_owned()))
+        }
         HostedFileKind::Asset => Err(ApiFailure::validation(
             "Binary assets must use the upload API.",
             request_id.to_owned(),
@@ -11746,8 +11795,8 @@ mod tests {
         cookie, delete_or_quarantine_backup_dir, indexed_note_tags, indexed_note_title,
         is_safe_backup_name, parse_backup_created_at, parse_vault_zip, quota_added_bytes,
         quota_would_exceed, run_operator_command, search_excerpt, sha256_file,
-        validate_backup_archive_entries, validate_backup_manifest_version, verify_backup,
-        BackupRuntimeSettings, Capability, STANDARD,
+        validate_backup_archive_entries, validate_backup_manifest_version, validate_file_kind,
+        verify_backup, BackupRuntimeSettings, Capability, STANDARD,
     };
     use crate::auth::hash_secret;
     use crate::{
@@ -11762,6 +11811,7 @@ mod tests {
         Router,
     };
     use base64::Engine;
+    use collab_protocol::{HostedDocumentType, HostedFileKind};
     use http_body_util::BodyExt;
     use serde_json::{json, Value};
     use sqlx::{postgres::PgPoolOptions, Row};
@@ -11773,6 +11823,42 @@ mod tests {
     };
     use tower::ServiceExt;
     use uuid::Uuid;
+
+    #[test]
+    fn hosted_document_validation_uses_path_kind_with_protocol_fallback() {
+        assert!(validate_file_kind(
+            HostedFileKind::Document,
+            Some(HostedDocumentType::Note),
+            "Circuit.logic",
+            r#"{"schemaVersion":6,"nodes":[],"wires":[]}"#,
+            "request",
+        )
+        .is_ok());
+        assert!(validate_file_kind(
+            HostedFileKind::Document,
+            Some(HostedDocumentType::Note),
+            "Drawing.svg",
+            "<svg/>",
+            "request",
+        )
+        .is_ok());
+        assert!(validate_file_kind(
+            HostedFileKind::Document,
+            Some(HostedDocumentType::Note),
+            "Board.kanban",
+            "not json",
+            "request",
+        )
+        .is_err());
+        assert!(validate_file_kind(
+            HostedFileKind::Document,
+            Some(HostedDocumentType::Canvas),
+            "Untyped.data",
+            r#"{"nodes":[]}"#,
+            "request",
+        )
+        .is_ok());
+    }
 
     #[test]
     fn quota_added_bytes_ignores_existing_and_duplicate_digests() {

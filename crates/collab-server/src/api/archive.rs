@@ -1,4 +1,5 @@
 use super::ApiFailure;
+use collab_documents::{classify_path, DocumentKind};
 use collab_protocol::{HostedDocumentType, HostedFileKind};
 use std::{
     collections::HashSet,
@@ -161,15 +162,14 @@ fn import_entry(
 }
 
 fn imported_file_kind(path: &str) -> (HostedFileKind, Option<HostedDocumentType>) {
-    let lower = path.to_ascii_lowercase();
-    if lower.ends_with(".md") {
-        (HostedFileKind::Document, Some(HostedDocumentType::Note))
-    } else if lower.ends_with(".kanban") {
-        (HostedFileKind::Document, Some(HostedDocumentType::Kanban))
-    } else if lower.ends_with(".canvas") {
-        (HostedFileKind::Document, Some(HostedDocumentType::Canvas))
-    } else {
-        (HostedFileKind::Asset, None)
+    match classify_path(path) {
+        Some(DocumentKind::Note) => (HostedFileKind::Document, Some(HostedDocumentType::Note)),
+        Some(DocumentKind::Kanban) => (HostedFileKind::Document, Some(HostedDocumentType::Kanban)),
+        Some(DocumentKind::Canvas) => (HostedFileKind::Document, Some(HostedDocumentType::Canvas)),
+        Some(DocumentKind::Logic | DocumentKind::Svg) => {
+            (HostedFileKind::Document, Some(HostedDocumentType::Note))
+        }
+        _ => (HostedFileKind::Asset, None),
     }
 }
 
@@ -214,5 +214,25 @@ mod tests {
         assert!(parse_vault_zip(&bytes, 600, 4096, "request").is_err());
         assert!(parse_vault_zip(&bytes, 1024, 1200, "request").is_err());
         assert!(parse_vault_zip(&bytes, 1024, 1600, "request").is_ok());
+    }
+
+    #[test]
+    fn archive_document_classification_uses_the_shared_document_kinds() {
+        assert_eq!(
+            imported_file_kind("Board.KANBAN"),
+            (HostedFileKind::Document, Some(HostedDocumentType::Kanban))
+        );
+        assert_eq!(
+            imported_file_kind("Circuit.logic"),
+            (HostedFileKind::Document, Some(HostedDocumentType::Note))
+        );
+        assert_eq!(
+            imported_file_kind("Drawing.svg"),
+            (HostedFileKind::Document, Some(HostedDocumentType::Note))
+        );
+        assert_eq!(
+            imported_file_kind("Manual.pdf"),
+            (HostedFileKind::Asset, None)
+        );
     }
 }

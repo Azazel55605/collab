@@ -14,12 +14,13 @@ chrono.workspace = true
 chrono-tz.workspace = true
 collab-calendar = { path = "../collab-calendar" }
 collab-core = { path = "../collab-core" }
+collab-documents = { path = "../collab-documents" }
 collab-net-policy = { path = "../collab-net-policy" }
 collab-protocol = { path = "../collab-protocol" }
 futures-util.workspace = true
 hex.workspace = true
 rand.workspace = true
-quick-xml = "0.41"
+quick-xml.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 serde.workspace = true
 serde_json.workspace = true

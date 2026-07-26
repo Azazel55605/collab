@@ -1,9 +1,6 @@
 pub mod crypto;
 mod hashing;
-pub mod kanban;
 mod paths;
-pub mod pdf;
-pub mod references;
 
 pub use hashing::{sha256_bytes, sha256_text};
 pub use paths::{

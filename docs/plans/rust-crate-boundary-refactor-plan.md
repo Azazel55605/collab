@@ -317,7 +317,7 @@ remaining in one API file or being prematurely made public.
 | --- | --- | --- |
 | 0. Baseline and dependency design | Complete | Baselines, consumer maps, draft contracts, dependency enforcement, characterization tests, and initial internal adapter ownership modules are in place. |
 | 1. Outbound network policy | Complete | `collab-net-policy` now owns shared URL, resolved-target, redirect, sensitive-header, response-budget, and timeout policy used by native and server adapters. |
-| 2. Document domain | Not started | Add `collab-documents`, move document-specific logic out of `collab-core`, and migrate both adapters. |
+| 2. Document domain | Complete | `collab-documents` owns bounded document classification/validation, references, Kanban semantics, PDF semantics, and shared canvas inspection across native and server adapters. |
 | 3. Vault mutation domain | Not started | Add `collab-vault-domain` and move portable file/revision/manifest/trash mutation planning behind stable inputs. |
 | 4. Archive boundary | Not started | Consolidate bounded import/export planning in `collab-archive` or a vault-domain module based on measured reuse. |
 | 5. Live document domain | Not started | Add `collab-live` for Yrs conversion, updates, compaction, recovery, and materialization guards. |
@@ -420,13 +420,13 @@ Estimated effort: 2-3 weeks.
 
 Tasks:
 
-- Create `crates/collab-documents`.
-- Move `references`, `kanban`, and `pdf` modules out of `collab-core`.
-- Introduce explicit document-kind and parser-limit types.
-- Move portable semantic validation currently embedded in server/Tauri handlers.
-- Keep temporary re-exports from `collab-core` for one migration phase.
-- Migrate server, Tauri, replica, and tests to direct imports.
-- Remove re-exports after all consumers move.
+- [x] Create `crates/collab-documents`.
+- [x] Move `references`, `kanban`, and `pdf` modules out of `collab-core`.
+- [x] Introduce explicit document-kind and parser-limit types.
+- [x] Move portable semantic validation currently embedded in server/Tauri handlers.
+- [x] Keep temporary re-exports from `collab-core` for one migration phase.
+- [x] Migrate server, Tauri, replica, and tests to direct imports.
+- [x] Remove re-exports after all consumers move.
 
 Acceptance criteria:
 
@@ -434,6 +434,28 @@ Acceptance criteria:
 - Server and Tauri use one reference/rewriting implementation.
 - Document logic has no Axum, Tauri, SQLx, filesystem, or network dependency.
 - Existing note, Kanban, canvas, PDF, and hosted-reference tests remain green.
+
+Implementation:
+
+- Added framework-free `collab-documents`, depending only on `collab-core` plus
+  parser/serialization libraries. It owns `DocumentKind`, `ParserLimits`,
+  bounded JSON/XML/UTF-8 validation, generic reference query/rewrite contracts,
+  canvas node inspection, Kanban capability classification, and PDF annotation
+  capability classification.
+- Moved all 1,627 lines of reference, Kanban, and PDF behavior and their
+  characterization tests out of `collab-core`. Native and server consumers now
+  import `collab-documents` directly; compatibility exports were removed after
+  the migration compiled. The replica had no imports from these modules and
+  correctly retains no document-domain dependency.
+- Local durable document writes validate classified note, Kanban, canvas,
+  logic, and SVG content before disk persistence. Hosted document creation,
+  REST revisions, PDF annotation state, and live note/Kanban/canvas
+  materialization validate through the same bounded API before persistence.
+- Hosted ZIP classification and local allowed-document extension checks use the
+  shared path classifier. Live canvas integrity checks use the shared canvas
+  inspection helper rather than a server-private JSON parser.
+- No REST route, WebSocket message, Tauri command, protocol enum, migration, or
+  persisted document schema changed.
 
 ## Phase 3: Vault Mutation Domain
 

@@ -52,9 +52,10 @@ use crate::{api, app::AppState, auth::hash_secret, storage::BlobStorage};
 
 #[path = "ws/domain.rs"]
 mod domain;
+use collab_documents::canvas_node_count;
 use domain::{
-    apply_update_bytes, canvas_node_count, doc_json_content, replace_structured_doc,
-    seed_structured_doc, try_auto_merge_text,
+    apply_update_bytes, doc_json_content, replace_structured_doc, seed_structured_doc,
+    try_auto_merge_text,
 };
 
 #[cfg(test)]
@@ -87,6 +88,15 @@ impl MaterializeKind {
     /// Whether this document materializes through the structured `doc` map.
     fn is_structured(self) -> bool {
         matches!(self, MaterializeKind::Json | MaterializeKind::Canvas)
+    }
+
+    fn document_kind(self) -> Option<collab_documents::DocumentKind> {
+        match self {
+            Self::None => None,
+            Self::NoteText => Some(collab_documents::DocumentKind::Note),
+            Self::Json => Some(collab_documents::DocumentKind::Kanban),
+            Self::Canvas => Some(collab_documents::DocumentKind::Canvas),
+        }
     }
 }
 
@@ -539,6 +549,21 @@ fn spawn_materializer(room: Arc<Room>, db: PgPool, blobs: Arc<dyn BlobStorage>) 
                 MaterializeKind::None => None,
             };
             let Some(content) = content else { continue };
+            let Some(document_kind) = room.materialize.document_kind() else {
+                continue;
+            };
+            if collab_documents::validate(
+                collab_documents::DocumentInput {
+                    kind: document_kind,
+                    path: "",
+                    content: content.as_bytes(),
+                },
+                collab_documents::DEFAULT_PARSER_LIMITS,
+            )
+            .is_err()
+            {
+                continue;
+            }
             // Canvas integrity guard: never overwrite a canonical revision that
             // has nodes with a live state that has lost all of them. Such a state
             // is the signature of the startup/hydration race that previously

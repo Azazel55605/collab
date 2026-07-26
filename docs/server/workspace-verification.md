@@ -11,7 +11,9 @@ apps/
 crates/
   collab-calendar/   Shared calendar model, recurrence, iCalendar, and native store
   collab-circuit/    Shared circuit model, compiler, and simulation numerics
-  collab-core/       Shared paths, names, hashing, encryption, and current reference logic
+  collab-core/       Shared paths, names, hashing, and encryption primitives
+  collab-documents/  Bounded document parsing, references, and semantic classifiers
+  collab-net-policy/ Shared outbound URL, address, redirect, and response policy
   collab-protocol/   Shared API/WebSocket DTOs, error codes, and protocol versions
   collab-replica/    Shared native hosted-vault offline replica store
   collab-server/     HTTP/WebSocket server, database, storage, auth, and migrations
@@ -23,6 +25,8 @@ Dependency direction:
 ```text
 collab-core      -> no application crates
 collab-protocol  -> no application crates
+collab-documents -> collab-core
+collab-net-policy -> no application crates
 collab-calendar  -> standalone shared domain/store
 collab-circuit   -> standalone shared domain
 collab-replica   -> collab-core + collab-protocol

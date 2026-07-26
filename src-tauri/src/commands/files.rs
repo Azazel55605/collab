@@ -71,7 +71,7 @@ pub struct PathChangePreview {
     pub blocked_reason: Option<String>,
 }
 
-pub use collab_core::references::FileReference;
+pub use collab_documents::references::FileReference;
 
 fn is_ignored_dir_name(name: &str) -> bool {
     matches!(
@@ -99,22 +99,11 @@ fn system_time_to_ms(t: SystemTime) -> u64 {
 }
 
 fn is_allowed_extension(ext: &str) -> bool {
-    matches!(
-        ext,
-        "md" | "canvas"
-            | "kanban"
-            | "logic"
-            | "png"
-            | "jpg"
-            | "jpeg"
-            | "gif"
-            | "webp"
-            | "svg"
-            | "bmp"
-            | "ico"
-            | "avif"
-            | "pdf"
-    )
+    collab_documents::classify_path(&format!("document.{ext}")).is_some()
+        || matches!(
+            ext,
+            "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico" | "avif" | "pdf"
+        )
 }
 
 fn normalize_relative_path(relative_path: &str) -> Result<PathBuf, String> {
@@ -305,11 +294,11 @@ fn unique_target_path(base_dir: &Path, file_name: &str) -> PathBuf {
 }
 
 fn path_matches_or_descends(candidate: &str, target: &str) -> bool {
-    collab_core::references::path_matches_or_descends(candidate, target)
+    collab_documents::references::path_matches_or_descends(candidate, target)
 }
 
 fn remap_path(candidate: &str, old_path: &str, new_path: &str) -> Option<String> {
-    collab_core::references::remap_path(candidate, old_path, new_path)
+    collab_documents::references::remap_path(candidate, old_path, new_path)
 }
 
 fn replace_markdown_references(
@@ -318,7 +307,7 @@ fn replace_markdown_references(
     old_path: &str,
     new_path: Option<&str>,
 ) -> String {
-    collab_core::references::rewrite_note_references(
+    collab_documents::references::rewrite_note_references(
         content,
         note_relative_path,
         old_path,
@@ -326,10 +315,10 @@ fn replace_markdown_references(
     )
 }
 
-use collab_core::references::ReferenceLookupEntry;
+use collab_documents::references::ReferenceLookupEntry;
 
 fn build_reference_lookup(entries: &[NoteFile]) -> Vec<ReferenceLookupEntry> {
-    collab_core::references::build_reference_lookup(
+    collab_documents::references::build_reference_lookup(
         entries
             .iter()
             .filter(|entry| !entry.is_folder)
@@ -343,7 +332,7 @@ fn collect_note_references(
     lookup: &[ReferenceLookupEntry],
     target_path: &str,
 ) -> Vec<FileReference> {
-    collab_core::references::collect_note_references(
+    collab_documents::references::collect_note_references(
         content,
         note_relative_path,
         lookup,
@@ -356,8 +345,12 @@ fn collect_kanban_file_references(
     source_relative_path: &str,
     target_path: &str,
 ) -> Result<Vec<FileReference>, String> {
-    collab_core::references::collect_kanban_references(content, source_relative_path, target_path)
-        .map_err(|error| error.to_string())
+    collab_documents::references::collect_kanban_references(
+        content,
+        source_relative_path,
+        target_path,
+    )
+    .map_err(|error| error.to_string())
 }
 
 fn collect_canvas_file_references(
@@ -365,8 +358,12 @@ fn collect_canvas_file_references(
     source_relative_path: &str,
     target_path: &str,
 ) -> Result<Vec<FileReference>, String> {
-    collab_core::references::collect_canvas_references(content, source_relative_path, target_path)
-        .map_err(|error| error.to_string())
+    collab_documents::references::collect_canvas_references(
+        content,
+        source_relative_path,
+        target_path,
+    )
+    .map_err(|error| error.to_string())
 }
 
 fn list_file_references_inner(
@@ -427,7 +424,7 @@ fn rewrite_kanban_references(
     old_path: &str,
     new_path: Option<&str>,
 ) -> Result<String, String> {
-    collab_core::references::rewrite_kanban_references(content, old_path, new_path)
+    collab_documents::references::rewrite_kanban_references(content, old_path, new_path)
         .map_err(|error| error.to_string())
 }
 
@@ -436,7 +433,7 @@ fn rewrite_canvas_references(
     old_path: &str,
     new_path: Option<&str>,
 ) -> Result<String, String> {
-    collab_core::references::rewrite_canvas_references(content, old_path, new_path)
+    collab_documents::references::rewrite_canvas_references(content, old_path, new_path)
         .map_err(|error| error.to_string())
 }
 
@@ -1270,6 +1267,18 @@ fn write_note_to_path(
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
+    if let Some(kind) = collab_documents::classify_path(relative_path) {
+        collab_documents::validate(
+            collab_documents::DocumentInput {
+                kind,
+                path: relative_path,
+                content: content_to_write.as_bytes(),
+            },
+            collab_documents::DEFAULT_PARSER_LIMITS,
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
     let bytes_to_write: Vec<u8> = if let Some(ref key) = key_opt {
         crypto::encrypt_bytes(key, content_to_write.as_bytes())?
     } else {
@@ -1879,7 +1888,7 @@ mod tests {
 
     #[test]
     fn relative_path_from_dir_builds_relative_targets() {
-        let relative = collab_core::references::relative_path_from_dir(
+        let relative = collab_documents::references::relative_path_from_dir(
             Path::new("Notes/Daily"),
             Path::new("Pictures/image.png"),
         );
@@ -2205,6 +2214,18 @@ mod tests {
             .expect("updated note should be readable");
         assert_eq!(updated.content, "# Test\n\nUpdated body");
         assert_eq!(updated.hash, write.hash);
+    }
+
+    #[test]
+    fn durable_structured_writes_reject_invalid_content_before_persistence() {
+        let vault = TempVault::new().expect("temp vault should exist");
+        let target = vault.resolve("Board.canvas");
+        let error =
+            write_note_to_path(&target, "Board.canvas", "not json".into(), None, None, None)
+                .expect_err("invalid canvas should be rejected");
+
+        assert!(error.contains("canvas document is not valid JSON"));
+        assert!(!target.exists());
     }
 
     #[test]

@@ -28,7 +28,7 @@ work from being mistaken for an active roadmap item.
 | User calendar | Testing / planned | Complete physical-device validation for cross-location mirroring, the Phase 9 external-client CalDAV matrix, and Phase 10 restore/multi-day lifecycle drills before native reminder delivery. Phase 8 is complete; Phases 9 and 10 are in testing. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
 | Background running | Not started | Add a shared headless coordinator, desktop tray/autostart lifecycle, Android WorkManager scheduling, persisted progress, power controls, and platform QA. | [Background Running Plan](./background-running-plan.md) |
 | Notification system | Not started | Add a shared inbox/scheduler, native desktop and Android delivery, hosted activity invalidations, preferences, privacy controls, and release hardening. | [Notification System Plan](./notification-system-plan.md) |
-| Rust crate boundary refactor | In progress | Phases 0-1 are complete, including shared outbound network policy across native and server adapters. Next extract the document domain in Phase 2. | [Rust Crate Boundary Refactor Plan](./rust-crate-boundary-refactor-plan.md) |
+| Rust crate boundary refactor | In progress | Phases 0-2 are complete, including shared outbound policy and the portable document domain. Next extract vault mutation planning in Phase 3. | [Rust Crate Boundary Refactor Plan](./rust-crate-boundary-refactor-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
 | Mobile widgets | Ideas only | Evaluate a calendar agenda widget first after background snapshots are available; no implementation commitment or phased schedule exists yet. | [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) |
 
@@ -36,8 +36,8 @@ work from being mistaken for an active roadmap item.
 
 1. Finish Android Phase 7 lifecycle and release validation that does not depend
    on new background behavior.
-2. Continue the crate refactor with the Phase 2 document-domain extraction
-   before further enlarging portable parsing and reference behavior.
+2. Continue the crate refactor with Phase 3 vault mutation planning before
+   further enlarging duplicated local/hosted revision behavior.
 3. Route future server/native feed, map, webhook, or preview integrations
    through the completed shared outbound-network policy.
 4. Build the shared headless coordinator from the background-running plan.
@@ -126,8 +126,10 @@ Open tracker entries:
   response-budget, and timeout policy is implemented in `collab-net-policy`;
   native link/calendar fetching and hosted calendar feeds use it while retaining
   adapter-owned DNS and HTTP execution.
-- Phase 2, **Not started**: move document-specific parsing, references, and
-  rewrite rules out of `collab-core`.
+- Phase 2, **Complete**: bounded document classification/validation, references,
+  Kanban/PDF semantics, and canvas inspection live in `collab-documents`; native
+  and server consumers use direct imports and `collab-core` has no document
+  modules.
 - Phase 3, **Not started**: extract portable vault mutation and revision
   planning.
 - Phase 4, **Not started**: decide whether archive planning warrants its own

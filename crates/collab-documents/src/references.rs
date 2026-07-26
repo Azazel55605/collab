@@ -1,4 +1,4 @@
-use crate::paths::normalize_relative_path;
+use collab_core::normalize_relative_path;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};

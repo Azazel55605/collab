@@ -1,4 +1,4 @@
-//! Semantic kanban diffing shared by the server (and available to the client).
+//! Semantic kanban diffing shared by the server and native clients.
 //!
 //! A `.kanban` document is parsed into a tolerant [`Board`] view and two
 //! revisions are compared with [`classify_changes`] to determine which

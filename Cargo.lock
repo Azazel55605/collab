@@ -801,6 +801,7 @@ dependencies = [
  "collab-calendar",
  "collab-circuit",
  "collab-core",
+ "collab-documents",
  "collab-net-policy",
  "collab-protocol",
  "collab-replica",
@@ -874,13 +875,22 @@ dependencies = [
  "aes-gcm",
  "hex",
  "rand 0.8.6",
- "regex",
- "serde",
- "serde_json",
  "sha2",
  "tempfile",
  "thiserror 1.0.69",
  "unicode-normalization",
+]
+
+[[package]]
+name = "collab-documents"
+version = "0.6.6"
+dependencies = [
+ "collab-core",
+ "quick-xml",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -926,6 +936,7 @@ dependencies = [
  "chrono-tz",
  "collab-calendar",
  "collab-core",
+ "collab-documents",
  "collab-net-policy",
  "collab-protocol",
  "futures-util",

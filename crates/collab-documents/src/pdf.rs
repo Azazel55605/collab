@@ -1,5 +1,4 @@
-//! Semantic PDF-annotation diffing shared by the server (and available to the
-//! client).
+//! Semantic PDF-annotation diffing shared by server and native clients.
 //!
 //! A hosted PDF's shared annotation state is a JSON object with four annotation
 //! collections — `bookmarks`, `highlights`, `textAnnotations`, and
