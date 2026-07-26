@@ -28,7 +28,7 @@ work from being mistaken for an active roadmap item.
 | User calendar | Testing / planned | Complete physical-device validation for cross-location mirroring, the Phase 9 external-client CalDAV matrix, and Phase 10 restore/multi-day lifecycle drills before native reminder delivery. Phase 8 is complete; Phases 9 and 10 are in testing. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
 | Background running | Not started | Add a shared headless coordinator, desktop tray/autostart lifecycle, Android WorkManager scheduling, persisted progress, power controls, and platform QA. | [Background Running Plan](./background-running-plan.md) |
 | Notification system | Not started | Add a shared inbox/scheduler, native desktop and Android delivery, hosted activity invalidations, preferences, privacy controls, and release hardening. | [Notification System Plan](./notification-system-plan.md) |
-| Rust crate boundary refactor | Not started | Characterize and modularize oversized adapters, then extract shared network-policy, document, vault, archive-planning, and live-document domains with enforced dependency direction. | [Rust Crate Boundary Refactor Plan](./rust-crate-boundary-refactor-plan.md) |
+| Rust crate boundary refactor | In progress | Phase 0 baselines, contracts, dependency enforcement, characterization tests, and initial adapter modules are complete. Next extract shared outbound network policy in Phase 1. | [Rust Crate Boundary Refactor Plan](./rust-crate-boundary-refactor-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
 | Mobile widgets | Ideas only | Evaluate a calendar agenda widget first after background snapshots are available; no implementation commitment or phased schedule exists yet. | [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) |
 
@@ -120,8 +120,9 @@ WorkManager, calendar, and push behavior from becoming one coupled subsystem.
 
 Open tracker entries:
 
-- Phase 0, **Not started**: characterize behavior, map dependencies, define
-  contracts, and split oversized server and Tauri adapters internally.
+- Phase 0, **Complete**: compile/module/dependency baselines, consumer maps,
+  draft APIs, cargo-metadata enforcement, characterization tests, and private
+  archive/live/sidecar adapter modules are implemented.
 - Phase 1, **Not started**: extract shared outbound target and bounded-response
   policy.
 - Phase 2, **Not started**: move document-specific parsing, references, and

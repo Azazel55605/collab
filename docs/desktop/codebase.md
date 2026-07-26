@@ -663,12 +663,16 @@ proposes `collab-net-policy`, `collab-documents`, `collab-vault-domain`, and
 `collab-live`, with `collab-archive` subject to a measured reuse decision. These
 crates do not exist until their plan phases land.
 
-Until then, isolate and characterize portable behavior inside its current
-adapter before extracting it. Planned shared crates must remain free of Tauri,
+Phase 0 is complete. `pnpm rust:boundaries` enforces the allowed workspace graph
+through `cargo metadata`; every new workspace crate must be added to that
+policy. Portable behavior is first isolated and characterized in private
+adapter modules: server archive planning currently lives in `api/archive.rs`,
+live merge/Yrs semantics in `ws/domain.rs`, and native sidecars in
+`commands/files/sidecars.rs`. Planned shared crates must remain free of Tauri,
 Axum, SQLx, PostgreSQL, concrete filesystem/storage backends, and operating
-system integration. `collab-core` should converge on low-level path, name,
-hashing, and byte-encryption primitives rather than accepting additional
-document-specific behavior.
+system integration. `collab-calendar` retains its explicit SQLite-store
+exception. `collab-core` should converge on low-level path, name, hashing, and
+byte-encryption primitives rather than accepting more document behavior.
 
 `src-tauri/src/`
 
@@ -683,7 +687,8 @@ document-specific behavior.
 | `commands/server.rs` | Hosted-server connection/login/refresh/logout and OS credential-store refresh-token storage |
 | `commands/replica.rs` | Thin Tauri command boundary over `collab-replica`, including hosted logic-component library cache reads/writes |
 | `commands/circuit.rs` | Typed first-party circuit runtime over `collab-circuit`; exposes bounded native DC/sweep/transient start, staged status, cancellation, compact DC results, retained chunked sweep/transient results, explicit job disposal, plus the compatibility synchronous DC command, probe values, source maps, and topology diagnostics |
-| `commands/files.rs` | File CRUD, trash/restore/purge flows, PDF sidecar persistence, rename/move previews, file-reference queries, reference rewrites, WalkDir traversal (filters .collab/, hidden files, non-.md/.canvas/.kanban), SHA256 hash |
+| `commands/files.rs` | File CRUD, trash/restore/purge flows, rename/move previews, file-reference queries, reference rewrites, WalkDir traversal (filters .collab/, hidden files, non-.md/.canvas/.kanban), SHA256 hash |
+| `commands/files/sidecars.rs` | Image overlay, PDF sidecar, and document-preview cache commands plus their stable hidden-path and serialization rules |
 | `commands/index.rs` | Frontmatter extraction, wikilink parsing, fuzzy search (fuzzy-matcher crate) |
 | `commands/templates.rs` | Kanban template CRUD plus vault/app note snippet CRUD and scope-aware persistence |
 | `commands/watcher.rs` | notify-debouncer-mini → Tauri events vault:file-{created,deleted,renamed,modified} |

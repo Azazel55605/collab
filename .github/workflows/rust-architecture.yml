@@ -1,0 +1,33 @@
+name: Rust Architecture
+
+on:
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/**'
+      - 'src-tauri/Cargo.toml'
+      - 'scripts/check-rust-crate-boundaries.mjs'
+  push:
+    branches:
+      - main
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/**'
+      - 'src-tauri/Cargo.toml'
+      - 'scripts/check-rust-crate-boundaries.mjs'
+
+jobs:
+  boundaries:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate workspace dependency direction
+        run: node scripts/check-rust-crate-boundaries.mjs

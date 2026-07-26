@@ -7,6 +7,7 @@
   "scripts": {
     "versions:sync": "node scripts/sync-versions.mjs",
     "versions:check": "node scripts/sync-versions.mjs --check",
+    "rust:boundaries": "node scripts/check-rust-crate-boundaries.mjs",
     "dev": "node scripts/prepare-ocr-assets.mjs && vite",
     "build": "node scripts/prepare-ocr-assets.mjs && tsc && vite build",
     "prepare:ocr": "node scripts/prepare-ocr-assets.mjs",

@@ -44,13 +44,21 @@ use sqlx::{PgPool, Row};
 use tokio::sync::{broadcast, mpsc, Mutex, Notify};
 use uuid::Uuid;
 use yrs::{
-    types::ToJson,
     updates::{decoder::Decode, encoder::Encode},
-    Any, ArrayPrelim, Doc, GetString, In, Map, MapPrelim, ReadTxn, StateVector, Text, Transact,
-    Update,
+    Doc, GetString, ReadTxn, StateVector, Text, Transact, Update,
 };
 
 use crate::{api, app::AppState, auth::hash_secret, storage::BlobStorage};
+
+#[path = "ws/domain.rs"]
+mod domain;
+use domain::{
+    apply_update_bytes, canvas_node_count, doc_json_content, replace_structured_doc,
+    seed_structured_doc, try_auto_merge_text,
+};
+
+#[cfg(test)]
+use yrs::{types::ToJson, Any, ArrayPrelim, In, Map};
 
 /// The Yjs text type name shared between the server and the browser for note
 /// documents. Both sides bind their CodeMirror/`yrs` text to this name.
@@ -58,6 +66,7 @@ const NOTE_TEXT_NAME: &str = "content";
 
 /// The Yjs root map name shared between the server and the browser for
 /// structured (Kanban / canvas) documents.
+#[cfg(test)]
 const JSON_ROOT_NAME: &str = "doc";
 
 /// What kind of materialization a room performs into REST revisions.
@@ -79,145 +88,6 @@ impl MaterializeKind {
     fn is_structured(self) -> bool {
         matches!(self, MaterializeKind::Json | MaterializeKind::Canvas)
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct TextEditHunk {
-    base_start: usize,
-    base_end: usize,
-    replacement: Vec<String>,
-}
-
-fn split_text_preserving_newlines(content: &str) -> Vec<String> {
-    content
-        .split_inclusive('\n')
-        .map(|part| part.to_string())
-        .collect()
-}
-
-fn compute_line_edit_hunks(base: &str, modified: &str) -> Vec<TextEditHunk> {
-    let base_lines = split_text_preserving_newlines(base);
-    let modified_lines = split_text_preserving_newlines(modified);
-    let n = base_lines.len();
-    let m = modified_lines.len();
-    let mut lcs = vec![vec![0usize; m + 1]; n + 1];
-
-    for i in (0..n).rev() {
-        for j in (0..m).rev() {
-            lcs[i][j] = if base_lines[i] == modified_lines[j] {
-                lcs[i + 1][j + 1] + 1
-            } else {
-                lcs[i + 1][j].max(lcs[i][j + 1])
-            };
-        }
-    }
-
-    let mut i = 0usize;
-    let mut j = 0usize;
-    let mut base_index = 0usize;
-    let mut hunks = Vec::new();
-    let mut active_start: Option<usize> = None;
-    let mut active_end = 0usize;
-    let mut replacement = Vec::new();
-
-    while i < n || j < m {
-        if i < n && j < m && base_lines[i] == modified_lines[j] {
-            if let Some(start) = active_start.take() {
-                hunks.push(TextEditHunk {
-                    base_start: start,
-                    base_end: active_end,
-                    replacement: std::mem::take(&mut replacement),
-                });
-            }
-            i += 1;
-            j += 1;
-            base_index += 1;
-            continue;
-        }
-
-        if active_start.is_none() {
-            active_start = Some(base_index);
-            active_end = base_index;
-        }
-
-        if j < m && (i == n || lcs[i][j + 1] >= lcs[i + 1][j]) {
-            replacement.push(modified_lines[j].clone());
-            j += 1;
-        } else if i < n {
-            i += 1;
-            base_index += 1;
-            active_end += 1;
-        }
-    }
-
-    if let Some(start) = active_start.take() {
-        hunks.push(TextEditHunk {
-            base_start: start,
-            base_end: active_end,
-            replacement,
-        });
-    }
-
-    hunks
-}
-
-fn try_auto_merge_text(base: &str, ours: &str, theirs: &str) -> Option<String> {
-    if ours == theirs {
-        return Some(ours.to_string());
-    }
-
-    let our_hunks = compute_line_edit_hunks(base, ours);
-    let their_hunks = compute_line_edit_hunks(base, theirs);
-    let base_lines = split_text_preserving_newlines(base);
-    let mut merged_hunks = Vec::new();
-    let mut our_index = 0usize;
-    let mut their_index = 0usize;
-
-    while our_index < our_hunks.len() || their_index < their_hunks.len() {
-        match (our_hunks.get(our_index), their_hunks.get(their_index)) {
-            (Some(our_hunk), Some(their_hunk)) => {
-                if our_hunk.base_end <= their_hunk.base_start {
-                    merged_hunks.push(our_hunk.clone());
-                    our_index += 1;
-                } else if their_hunk.base_end <= our_hunk.base_start {
-                    merged_hunks.push(their_hunk.clone());
-                    their_index += 1;
-                } else if our_hunk == their_hunk {
-                    merged_hunks.push(our_hunk.clone());
-                    our_index += 1;
-                    their_index += 1;
-                } else {
-                    return None;
-                }
-            }
-            (Some(our_hunk), None) => {
-                merged_hunks.push(our_hunk.clone());
-                our_index += 1;
-            }
-            (None, Some(their_hunk)) => {
-                merged_hunks.push(their_hunk.clone());
-                their_index += 1;
-            }
-            (None, None) => break,
-        }
-    }
-
-    let mut merged = String::new();
-    let mut cursor = 0usize;
-    for hunk in merged_hunks {
-        for line in &base_lines[cursor..hunk.base_start] {
-            merged.push_str(line);
-        }
-        for line in &hunk.replacement {
-            merged.push_str(line);
-        }
-        cursor = hunk.base_end;
-    }
-    for line in &base_lines[cursor..] {
-        merged.push_str(line);
-    }
-
-    Some(merged)
 }
 
 /// How long a document must be quiet (no new updates) before its live CRDT state
@@ -562,15 +432,8 @@ impl Room {
                     }
                 }
                 MaterializeKind::Json | MaterializeKind::Canvas => {
-                    let root = doc.get_or_insert_map(JSON_ROOT_NAME);
-                    let mut txn = doc.transact_mut();
-                    root.clear(&mut txn);
-                    if let Ok(serde_json::Value::Object(map)) =
-                        serde_json::from_str::<serde_json::Value>(content)
-                    {
-                        for (key, value) in map {
-                            root.insert(&mut txn, key, json_to_in(&value));
-                        }
+                    if !replace_structured_doc(&doc, content) {
+                        return Ok(false);
                     }
                 }
                 MaterializeKind::None => return Ok(false),
@@ -797,70 +660,6 @@ async fn compact_room_log(room: &Room, db: &PgPool) -> Result<(), sqlx::Error> {
         .await?;
     transaction.commit().await?;
     Ok(())
-}
-
-/// Converts a JSON value into a `yrs` preliminary input, building nested shared
-/// types (`Map`/`Array`) so the browser can do field-level CRDT edits, matching
-/// the client's `toShared` convention in `src/lib/liveJsonDocument.ts`.
-fn json_to_in(value: &serde_json::Value) -> In {
-    match value {
-        serde_json::Value::Null => In::Any(Any::Null),
-        serde_json::Value::Bool(b) => In::Any(Any::Bool(*b)),
-        serde_json::Value::Number(n) => {
-            // Structured documents are normal JSON. Encoding integral values as
-            // Yjs BigInt leaks JavaScript `bigint` into the frontend, where it
-            // is not JSON-stringifiable and breaks canvas numeric validation.
-            In::Any(Any::Number(n.as_f64().unwrap_or(0.0)))
-        }
-        serde_json::Value::String(s) => In::Any(Any::String(s.as_str().into())),
-        serde_json::Value::Array(items) => In::Array(ArrayPrelim::from(
-            items.iter().map(json_to_in).collect::<Vec<_>>(),
-        )),
-        serde_json::Value::Object(map) => In::Map(MapPrelim::from_iter(
-            map.iter()
-                .map(|(key, value)| (key.clone(), json_to_in(value))),
-        )),
-    }
-}
-
-/// Seeds a structured (`doc` map) document from a serialized JSON object,
-/// building nested shared types so the browser can do field-level CRDT edits.
-fn seed_structured_doc(doc: &Doc, content: &str) {
-    if let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(content) {
-        let root = doc.get_or_insert_map(JSON_ROOT_NAME);
-        let mut txn = doc.transact_mut();
-        for (key, value) in map {
-            root.insert(&mut txn, key, json_to_in(&value));
-        }
-    }
-}
-
-/// Serializes a structured `doc` map to JSON, or `None` when the root map is
-/// empty (not yet seeded), so an empty document is never treated as real content.
-fn doc_json_content(doc: &Doc) -> Option<String> {
-    let root = doc.get_or_insert_map(JSON_ROOT_NAME);
-    let txn = doc.transact();
-    if root.len(&txn) == 0 {
-        return None;
-    }
-    serde_json::to_string(&root.to_json(&txn)).ok()
-}
-
-/// Number of `nodes` entries in a serialized canvas document, or `None` when the
-/// content does not parse as a canvas object carrying a `nodes` array. Used as
-/// the canvas integrity signal: a canvas that has lost all of its nodes relative
-/// to the canonical revision is treated as a degenerate (damaged) live state.
-fn canvas_node_count(content: &str) -> Option<usize> {
-    let value = serde_json::from_str::<serde_json::Value>(content).ok()?;
-    value.get("nodes")?.as_array().map(|nodes| nodes.len())
-}
-
-fn apply_update_bytes(doc: &Doc, bytes: &[u8]) {
-    let Ok(update) = Update::decode_v1(bytes) else {
-        return;
-    };
-    let mut txn = doc.transact_mut();
-    let _ = txn.apply_update(update);
 }
 
 /// Registry of live document rooms keyed by file id. Rooms are created lazily on

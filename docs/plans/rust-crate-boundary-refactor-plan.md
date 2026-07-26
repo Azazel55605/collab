@@ -315,7 +315,7 @@ remaining in one API file or being prematurely made public.
 
 | Phase | Status | Goal |
 | --- | --- | --- |
-| 0. Baseline and dependency design | Not started | Characterize current behavior, map dependencies, define public contracts, and split oversized adapters internally. |
+| 0. Baseline and dependency design | Complete | Baselines, consumer maps, draft contracts, dependency enforcement, characterization tests, and initial internal adapter ownership modules are in place. |
 | 1. Outbound network policy | Not started | Add `collab-net-policy` and migrate native/server URL, target, redirect, and response-limit rules. |
 | 2. Document domain | Not started | Add `collab-documents`, move document-specific logic out of `collab-core`, and migrate both adapters. |
 | 3. Vault mutation domain | Not started | Add `collab-vault-domain` and move portable file/revision/manifest/trash mutation planning behind stable inputs. |
@@ -329,15 +329,15 @@ Estimated effort: 1-2 weeks.
 
 Tasks:
 
-- Capture module-size, dependency, and compile-time baselines.
-- Inventory duplicated behavior and every current consumer.
-- Add characterization tests around security, references, archive validation,
+- [x] Capture module-size, dependency, and compile-time baselines.
+- [x] Inventory duplicated behavior and every current consumer.
+- [x] Add characterization tests around security, references, archive validation,
   revision transitions, and live recovery.
-- Define domain input/output types before moving implementations.
-- Split `collab-server/src/api.rs`, `ws.rs`, and Tauri file commands into
+- [x] Define domain input/output types before moving implementations.
+- [x] Split `collab-server/src/api.rs`, `ws.rs`, and Tauri file commands into
   internal modules while preserving exported handlers.
-- Add an architecture dependency check script based on `cargo metadata`.
-- Record allowed crate edges and prohibited framework dependencies.
+- [x] Add an architecture dependency check script based on `cargo metadata`.
+- [x] Record allowed crate edges and prohibited framework dependencies.
 
 Acceptance criteria:
 
@@ -346,6 +346,28 @@ Acceptance criteria:
 - The largest adapter files have coherent internal ownership modules.
 - Each proposed crate has a documented consumer map and draft public API.
 - Characterization tests pass before extraction begins.
+
+Implementation:
+
+- Recorded clean/incremental compile timings, module sizes, the current workspace
+  graph, duplicate behavior, consumers, and draft APIs in the
+  [Phase 0 Baseline](./rust-crate-boundary-phase0-baseline.md).
+- Added `pnpm rust:boundaries` and a focused CI workflow. The check rejects
+  undeclared workspace edges, unregistered crates, adapter frameworks in domain
+  crates, and persistence frameworks outside the documented calendar-store
+  exception.
+- Moved hosted vault archive validation/planning into private
+  `api/archive.rs`, live text merge and structured-Yrs behavior into private
+  `ws/domain.rs`, and native image/PDF/preview sidecars into private
+  `commands/files/sidecars.rs`.
+- Added focused characterization tests for archive normalization/conflicts/
+  budgets, independent versus overlapping live text edits, JSON/Yrs round trips,
+  invalid update rejection, sidecar path privacy, and sidecar compatibility.
+  Existing integration suites continue to cover references, revision
+  transitions, security boundaries, and live recovery.
+- No REST route, WebSocket message, Tauri command name, migration, persisted
+  file, or document schema changed. Phase 1 can now extract outbound policy
+  against an enforced dependency direction.
 
 ## Phase 1: Outbound Network Policy
 
