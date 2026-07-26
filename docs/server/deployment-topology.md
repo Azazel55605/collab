@@ -42,10 +42,11 @@ one reverse-proxy gateway. The reference stack is the published Compose file
   internal app port (`8787`) must never be exposed to untrusted networks. Only
   the gateway port (`8788` by default, or `443` when TLS is terminated here) is
   published.
-- **The gateway sets `X-Forwarded-For`.** Client IP identification for rate
-  limiting trusts the last `X-Forwarded-For` hop appended by the trusted proxy.
+- **The gateway sets `X-Forwarded-For`.** Anonymous REST and WebSocket client-IP
+  identification trusts the last `X-Forwarded-For` hop appended by the trusted
+  proxy; authenticated REST requests use an isolated bearer-session digest.
   If you front the server with your own proxy, it must overwrite (not append to)
-  client-supplied `X-Forwarded-For`, or rate limiting can be spoofed. See
+  client-supplied `X-Forwarded-For`, or IP-scoped limiting can be spoofed. See
   [Security, Operations, and Compatibility](./security-operations.md#rate-limiting).
 - **Persistent volumes.** `postgres-data`, `blob-data`, and `backups` must be on
   durable storage. A blob volume and its PostgreSQL database are a matched pair:

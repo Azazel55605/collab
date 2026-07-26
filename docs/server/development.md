@@ -181,12 +181,14 @@ are 1024-based and case-insensitive. The same string forms are accepted by the
   items, subscriptions, and calendar-owned uploads. Calendar writes return
   `413 QUOTA_EXCEEDED` before persistence when the quota would be crossed. Set
   to `0` (the default) for no quota.
-- `COLLAB_REST_RATE_LIMIT_PER_MINUTE`: coarse per-client-IP request budget for
-  `/api/v1/*` routes (default `1200`). Exceeding it returns `429 RATE_LIMITED`
-  with a `Retry-After` header. Set to `0` to disable. Clients are identified by
-  the last `X-Forwarded-For` hop appended by the trusted gateway (falling back to
-  `X-Real-IP` and then the socket peer), so teams behind a single egress IP share
-  one budget — raise or disable it for large shared-IP deployments.
+- `COLLAB_REST_RATE_LIMIT_PER_MINUTE`: coarse request budget for `/api/v1/*`
+  routes (default `1200`). Authenticated bearer sessions receive independent
+  budgets; anonymous requests fall back to the client IP. Exceeding it returns
+  `429 RATE_LIMITED` with a `Retry-After` header. Set to `0` to disable.
+  Authenticated traffic also retains an aggregate IP cap at eight times the
+  configured session budget so arbitrary bearer strings cannot bypass the
+  limiter. IP identity uses the last `X-Forwarded-For` hop appended by the
+  trusted gateway, then `X-Real-IP`, then the socket peer.
 - `COLLAB_WS_RATE_LIMIT_PER_MINUTE`: coarse per-client-IP budget for
   `/ws/v1/*` WebSocket upgrade attempts (default `120`); `0` disables it. An
   established socket additionally has a generous per-connection inbound message

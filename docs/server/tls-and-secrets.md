@@ -42,8 +42,9 @@ that server connection in the native app.
 
 If an upstream proxy terminates TLS instead of Caddy, keep the Compose gateway
 bound to localhost or a private interface. The upstream proxy must overwrite or
-append `X-Forwarded-For` correctly; the REST and WebSocket rate limiters trust
-the last forwarded hop from that gateway.
+append `X-Forwarded-For` correctly; anonymous REST and WebSocket IP buckets
+trust the last forwarded hop from that gateway. Authenticated REST traffic uses
+separate hashed session buckets.
 
 ## Security Headers
 

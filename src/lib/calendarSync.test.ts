@@ -21,7 +21,10 @@ vi.mock('./tauri', () => ({
 }));
 
 vi.mock('./vaultReplica', () => ({
-  isLikelyConnectivityError: (error: unknown) => String(error).toLowerCase().includes('offline'),
+  isLikelyConnectivityError: (error: unknown) => {
+    const message = String(error).toLowerCase();
+    return message.includes('offline') || message.includes('too many requests');
+  },
 }));
 
 const origin = { serverUrl: 'https://calendar.example', userId: 'user-1' };
@@ -308,6 +311,35 @@ describe('calendarSync', () => {
     const result = await syncHostedCalendarOrigin('profile-1', origin, []);
 
     expect(result).toMatchObject({ error: 'offline', failedOperations: 0 });
+    expect(tauriCommands.calendarMarkOperationFailed).not.toHaveBeenCalled();
+    expect(tauriCommands.calendarAcknowledgeOperations).not.toHaveBeenCalled();
+  });
+
+  it('does not split a rate-limited operation batch into more requests', async () => {
+    const first = {
+      clientOperationId: 'operation-1',
+      deviceId: 'device-1',
+      mutation: { type: 'upsertItem' as const, item: remoteItem },
+    };
+    const second = {
+      ...first,
+      clientOperationId: 'operation-2',
+    };
+    vi.mocked(tauriCommands.calendarListPendingOperations).mockResolvedValue([first, second]);
+    vi.mocked(tauriCommands.hostedCalendarRequest).mockImplementation(
+      async (_serverUrl, method, path) => {
+        if (method === 'GET' && path === '/api/v1/calendars') return [remoteCalendar];
+        throw new Error('Too many requests. Slow down and try again shortly.');
+      },
+    );
+
+    const result = await syncHostedCalendarOrigin('profile-1', origin, []);
+
+    expect(result).toMatchObject({
+      error: 'Too many requests. Slow down and try again shortly.',
+      failedOperations: 0,
+    });
+    expect(tauriCommands.hostedCalendarRequest).toHaveBeenCalledTimes(2);
     expect(tauriCommands.calendarMarkOperationFailed).not.toHaveBeenCalled();
     expect(tauriCommands.calendarAcknowledgeOperations).not.toHaveBeenCalled();
   });

@@ -68,9 +68,11 @@ impact, owner, and removal condition (see
   `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and
   `Cross-Origin-Opener-Policy` are set at the gateway; HSTS is reserved for the
   TLS gateway example. `COLLAB_BROWSER_SECURE_COOKIES=true` is required for HTTPS.
-- **Rate limiting trust.** The per-IP limiter trusts the last `X-Forwarded-For`
-  hop from the gateway. This is safe only when the internal app port is not
-  exposed directly; documented in the deployment topology.
+- **Rate limiting trust.** Authenticated REST sessions have isolated hashed
+  buckets. Anonymous REST and WebSocket traffic trust the last
+  `X-Forwarded-For` hop from the gateway for their per-IP buckets. This is safe
+  only when the internal app port is not exposed directly; documented in the
+  deployment topology.
 
 ## Findings
 

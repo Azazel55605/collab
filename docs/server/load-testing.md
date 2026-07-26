@@ -52,13 +52,14 @@ COLLAB_LOAD_PASSWORD='…' \
 - **Health and admin endpoints are never rate limited.** Sustained throughput
   here reflects raw proxy + process capacity.
 - **`/api/v1/*` traffic is rate limited** by `COLLAB_REST_RATE_LIMIT_PER_MINUTE`
-  (default 1200/min per client IP). A capacity run that exceeds it will show
-  `429 RATE_LIMITED` responses — that is the limiter working, not a failure. To
-  measure raw capacity instead, raise or disable (`0`) the limit in a
-  disposable environment; to verify the limiter, keep the default and confirm
-  `429`s with a `Retry-After` header appear.
-- **Because the gateway sets `X-Forwarded-For`, all load from one host shares a
-  single rate-limit bucket.** Distributed clients each get their own bucket.
+  (default 1200/min). Authenticated sessions receive separate buckets;
+  authenticated traffic from one IP also shares an aggregate bucket at eight
+  times that limit, while anonymous load uses the base IP bucket. A capacity run
+  that exceeds its applicable bucket will show `429 RATE_LIMITED` responses —
+  that is the limiter working, not a failure. To measure raw capacity instead,
+  raise or disable (`0`) the limit in a disposable environment; to verify the
+  limiter, keep the default and confirm `429`s with a `Retry-After` header
+  appear.
 - Watch the admin dashboard during the run: storage pressure, live-room counts,
   and CRDT compaction backlog are the operational signals that matter under
   load.

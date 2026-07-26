@@ -1,7 +1,7 @@
 use crate::{api, config::ServerConfig, database, storage::BlobStorage};
 use axum::{
     extract::{ConnectInfo, DefaultBodyLimit, Request, State},
-    http::{HeaderName, HeaderValue, Method, StatusCode},
+    http::{header, HeaderName, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
     routing::{delete, get, patch, post, put},
@@ -10,6 +10,7 @@ use axum::{
 use collab_protocol::{
     ApiError, DataResponse, ErrorCode, ErrorResponse, HealthState, HealthStatus, PROTOCOL_VERSION,
 };
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::{
     collections::HashMap,
@@ -26,6 +27,7 @@ use tower_http::{
 use uuid::Uuid;
 
 const REQUEST_ID_HEADER: &str = "x-request-id";
+const AUTHENTICATED_REST_IP_MULTIPLIER: u32 = 8;
 const CONTENT_SECURITY_POLICY: &str =
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 const PERMISSIONS_POLICY: &str =
@@ -508,9 +510,8 @@ impl LoginRateLimiter {
 /// for the sweep.
 const RATE_LIMIT_SWEEP_THRESHOLD: usize = 4096;
 
-/// A generic fixed-window per-key rate limiter (used for coarse per-client-IP
-/// REST and WebSocket limits). Counts hits in a sliding window and reports how
-/// long a blocked caller should wait before retrying.
+/// A generic fixed-window per-key rate limiter. Counts hits in a sliding window
+/// and reports how long a blocked caller should wait before retrying.
 #[derive(Debug, Clone)]
 pub struct RateLimiter {
     hits: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
@@ -552,10 +553,10 @@ impl RateLimiter {
     }
 }
 
-/// Coarse per-client-IP rate limiting for `/api/v1/*` (REST) and `/ws/v1/*`
-/// (WebSocket upgrade) traffic. Other paths (health checks, the admin SPA, the
-/// root redirect) are never limited. Limits are operator-controlled and a value
-/// of `0` disables the corresponding limiter.
+/// Coarse per-session or per-client-IP rate limiting for `/api/v1/*` (REST) and
+/// `/ws/v1/*` (WebSocket upgrade) traffic. Other paths (health checks, the admin
+/// SPA, the root redirect) are never limited. Limits are operator-controlled
+/// and a value of `0` disables the corresponding limiter.
 async fn rate_limit(State(state): State<AppState>, request: Request, next: Next) -> Response {
     let path = request.uri().path();
     let (scope, limit) = if path.starts_with("/api/v1/") {
@@ -568,16 +569,52 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
     if limit == 0 {
         return next.run(request).await;
     }
-    let bucket = format!("{scope}:{}", client_key(&request));
-    if let Some(retry_after) = state.rate_limiter.check(&bucket, limit).await {
-        let request_id = request
-            .extensions()
-            .get::<String>()
-            .cloned()
-            .unwrap_or_else(|| Uuid::now_v7().to_string());
-        return rate_limited_response(retry_after, request_id);
+    for (bucket, bucket_limit) in rate_limit_buckets(scope, &request, limit) {
+        if let Some(retry_after) = state.rate_limiter.check(&bucket, bucket_limit).await {
+            let request_id = request
+                .extensions()
+                .get::<String>()
+                .cloned()
+                .unwrap_or_else(|| Uuid::now_v7().to_string());
+            return rate_limited_response(retry_after, request_id);
+        }
     }
     next.run(request).await
+}
+
+fn rate_limit_buckets(scope: &str, request: &Request, limit: u32) -> Vec<(String, u32)> {
+    let identity = rate_limit_identity(scope, request);
+    let mut buckets = vec![(format!("{scope}:{identity}"), limit)];
+    if scope == "rest" && identity.starts_with("session:") {
+        buckets.push((
+            format!("{scope}:authenticated-ip:{}", client_key(request)),
+            limit
+                .saturating_mul(AUTHENTICATED_REST_IP_MULTIPLIER)
+                .min(1_000_000),
+        ));
+    }
+    buckets
+}
+
+/// Authenticated REST traffic gets a per-session budget so users behind one
+/// NAT or reverse-proxy address do not consume a single shared allowance.
+/// Anonymous REST and WebSocket upgrades remain IP-scoped. Hashing avoids
+/// retaining bearer tokens in the limiter map or exposing them in diagnostics.
+fn rate_limit_identity(scope: &str, request: &Request) -> String {
+    if scope == "rest" {
+        if let Some(token) = request
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let digest = Sha256::digest(token.as_bytes());
+            return format!("session:{digest:x}");
+        }
+    }
+    format!("ip:{}", client_key(request))
 }
 
 /// Derives a stable per-client key for rate limiting. Behind the deployment's
@@ -740,7 +777,10 @@ async fn request_id(mut request: Request, next: Next) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_router, client_key, AppState, LoginRateLimiter, RateLimiter};
+    use super::{
+        build_router, client_key, rate_limit_buckets, rate_limit_identity, AppState,
+        LoginRateLimiter, RateLimiter,
+    };
     use crate::api::StoredMaintenanceMode;
     use crate::{config::ServerConfig, storage::FileSystemBlobStorage};
     use axum::{
@@ -923,6 +963,35 @@ mod tests {
         // With neither header (and no socket peer in tests) it degrades to a shared key.
         let bare = Request::builder().body(Body::empty()).unwrap();
         assert_eq!(client_key(&bare), "unknown");
+    }
+
+    #[test]
+    fn authenticated_rest_rate_limits_are_isolated_without_storing_tokens() {
+        let first = Request::builder()
+            .header("authorization", "Bearer session-a")
+            .header("x-forwarded-for", "203.0.113.7")
+            .body(Body::empty())
+            .unwrap();
+        let second = Request::builder()
+            .header("authorization", "Bearer session-b")
+            .header("x-forwarded-for", "203.0.113.7")
+            .body(Body::empty())
+            .unwrap();
+
+        let first_key = rate_limit_identity("rest", &first);
+        let second_key = rate_limit_identity("rest", &second);
+        assert_ne!(first_key, second_key);
+        assert!(first_key.starts_with("session:"));
+        assert!(!first_key.contains("session-a"));
+        assert_eq!(rate_limit_identity("ws", &first), "ip:203.0.113.7");
+
+        let buckets = rate_limit_buckets("rest", &first, 1_200);
+        assert_eq!(buckets.len(), 2);
+        assert_eq!(buckets[0].1, 1_200);
+        assert_eq!(
+            buckets[1],
+            ("rest:authenticated-ip:203.0.113.7".into(), 9_600)
+        );
     }
 
     #[tokio::test]

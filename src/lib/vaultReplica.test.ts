@@ -103,6 +103,8 @@ describe('vaultReplica', () => {
 
   it('detects connectivity-shaped errors without swallowing validation failures', () => {
     expect(isLikelyConnectivityError(new Error('NetworkError when attempting to fetch resource.'))).toBe(true);
+    expect(isLikelyConnectivityError(new Error('Too many requests. Slow down and try again shortly.'))).toBe(true);
+    expect(isLikelyConnectivityError(new Error('RATE_LIMITED'))).toBe(true);
     expect(isLikelyConnectivityError(new Error('manifest_conflict'))).toBe(false);
   });
 

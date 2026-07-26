@@ -262,7 +262,14 @@ export function isLikelyConnectivityError(error: unknown): boolean {
     message.includes('could not reach') ||
     message.includes('connection') ||
     message.includes('timed out') ||
-    message.includes('timeout')
+    message.includes('timeout') ||
+    // Rate limiting is a transient transport condition. Pending writes must
+    // remain queued and batch sync must stop instead of classifying each item
+    // as permanently rejected (which can amplify one 429 into many retries).
+    message.includes('too many requests') ||
+    message.includes('rate_limited') ||
+    message.includes('rate limited') ||
+    message.includes('slow down and try again')
   );
 }
 

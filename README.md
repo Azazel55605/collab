@@ -162,8 +162,9 @@ Container Registry and run with a single production Compose file.
 - Offline synchronization through a native per-vault replica store with a
   pending-operation queue, CRDT-state caching, integrity checks, reconnect
   convergence, and a status-bar sync/conflict recovery indicator
-- Operational hardening: server-wide storage quota and warnings, per-client-IP
-  REST/WebSocket rate limiting, and a retention/compaction maintenance worker
+- Operational hardening: server-wide storage quota and warnings, isolated
+  authenticated REST plus IP-scoped anonymous/WebSocket rate limiting, and a
+  retention/compaction maintenance worker
 - Published multi-architecture (AMD64/ARM64) images on GitHub Container Registry,
   built and vulnerability-scanned per platform before release tags are assigned
 - TLS certificates are verified by default. Private servers using self-signed
