@@ -28,6 +28,7 @@ work from being mistaken for an active roadmap item.
 | User calendar | Testing / planned | Complete physical-device validation for cross-location mirroring, then continue with CalDAV, admin privacy/hardening, and native reminder delivery. Phase 8 iCalendar interoperability is complete. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
 | Background running | Not started | Add a shared headless coordinator, desktop tray/autostart lifecycle, Android WorkManager scheduling, persisted progress, power controls, and platform QA. | [Background Running Plan](./background-running-plan.md) |
 | Notification system | Not started | Add a shared inbox/scheduler, native desktop and Android delivery, hosted activity invalidations, preferences, privacy controls, and release hardening. | [Notification System Plan](./notification-system-plan.md) |
+| Rust crate boundary refactor | Not started | Characterize and modularize oversized adapters, then extract shared network-policy, document, vault, archive-planning, and live-document domains with enforced dependency direction. | [Rust Crate Boundary Refactor Plan](./rust-crate-boundary-refactor-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
 | Mobile widgets | Ideas only | Evaluate a calendar agenda widget first after background snapshots are available; no implementation commitment or phased schedule exists yet. | [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) |
 
@@ -35,12 +36,17 @@ work from being mistaken for an active roadmap item.
 
 1. Finish Android Phase 7 lifecycle and release validation that does not depend
    on new background behavior.
-2. Build the shared headless coordinator from the background-running plan.
-3. Add desktop tray lifecycle and Android WorkManager scheduling.
-4. Activate local calendar reminders through the notification system.
-5. Complete calendar Phase 6 physical-device validation, then calendar
+2. Complete the crate-refactor Phase 0 characterization and adapter
+   modularization before further enlarging the server API, live-room, or Tauri
+   file-command modules.
+3. Extract the shared outbound-network policy before adding more server/native
+   feed, map, webhook, or preview integrations.
+4. Build the shared headless coordinator from the background-running plan.
+5. Add desktop tray lifecycle and Android WorkManager scheduling.
+6. Activate local calendar reminders through the notification system.
+7. Complete calendar Phase 6 physical-device validation, then calendar
    interoperability and hardening phases in product-priority order.
-6. Prototype the Android calendar agenda widget using the stable background
+8. Prototype the Android calendar agenda widget using the stable background
    snapshot boundary.
 
 Circuit simulation and Flatpak distribution can proceed independently, subject
@@ -103,6 +109,29 @@ execution owns bounded scheduling and headless sync. Notifications consume
 background scheduling and synchronized data but own delivery, preferences,
 privacy, and actions. Keeping those responsibilities separate prevents tray,
 WorkManager, calendar, and push behavior from becoming one coupled subsystem.
+
+### Rust Crate Boundary Refactor
+
+Open tracker entries:
+
+- Phase 0, **Not started**: characterize behavior, map dependencies, define
+  contracts, and split oversized server and Tauri adapters internally.
+- Phase 1, **Not started**: extract shared outbound target and bounded-response
+  policy.
+- Phase 2, **Not started**: move document-specific parsing, references, and
+  rewrite rules out of `collab-core`.
+- Phase 3, **Not started**: extract portable vault mutation and revision
+  planning.
+- Phase 4, **Not started**: decide whether archive planning warrants its own
+  crate after the vault boundary is measurable.
+- Phase 5, **Not started**: extract transport-independent live-document and Yrs
+  behavior.
+- Phase 6, **Not started**: remove compatibility re-exports and enforce the
+  final dependency graph.
+
+This is a behavior-preserving architecture program. It must not change REST,
+WebSocket, Tauri IPC, database, replica, or document-schema contracts merely to
+make an extraction easier.
 
 ### Flatpak Distribution
 

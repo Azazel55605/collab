@@ -9,8 +9,11 @@ Cargo.toml
 apps/
   admin-web/         Focused browser administration interface; no Tauri dependencies
 crates/
-  collab-core/       Pure shared domain rules, path handling, formats, and reference logic
+  collab-calendar/   Shared calendar model, recurrence, iCalendar, and native store
+  collab-circuit/    Shared circuit model, compiler, and simulation numerics
+  collab-core/       Shared paths, names, hashing, encryption, and current reference logic
   collab-protocol/   Shared API/WebSocket DTOs, error codes, and protocol versions
+  collab-replica/    Shared native hosted-vault offline replica store
   collab-server/     HTTP/WebSocket server, database, storage, auth, and migrations
 src-tauri/           Tauri application adapter and native-only commands
 ```
@@ -18,13 +21,22 @@ src-tauri/           Tauri application adapter and native-only commands
 Dependency direction:
 
 ```text
-collab-protocol -> no application crates
-collab-core     -> collab-protocol only when shared DTOs are required
-collab-server   -> collab-core + collab-protocol
-src-tauri       -> collab-core + collab-protocol
+collab-core      -> no application crates
+collab-protocol  -> no application crates
+collab-calendar  -> standalone shared domain/store
+collab-circuit   -> standalone shared domain
+collab-replica   -> collab-core + collab-protocol
+collab-server    -> collab-calendar + collab-core + collab-protocol
+src-tauri        -> collab-calendar + collab-circuit + collab-core
+                    + collab-protocol + collab-replica
 ```
 
 `collab-core` must not depend on Tauri, Axum, SQLx, PostgreSQL, or a concrete blob backend. Server authorization and persistence remain in `collab-server`.
+
+The phased target dependency graph is documented in the
+[Rust Crate Boundary Refactor Plan](../plans/rust-crate-boundary-refactor-plan.md).
+The inventory above remains authoritative until each extraction phase lands;
+planned crate names must not be imported or described as implemented early.
 
 The Phase 2 admin web application may reuse extracted design tokens and browser-safe
 UI primitives from the desktop frontend, but it must not import Tauri APIs or
@@ -32,11 +44,17 @@ become a general-purpose hosted-vault editor.
 
 ## Extraction Policy
 
-- Extract code only when both Tauri and server need the same behavior.
+- Start with a named internal module when only one adapter owns the behavior.
+- Extract a crate only when at least two consumers need a coherent, independently
+  testable domain contract.
 - Preserve existing Tauri command signatures until a frontend migration explicitly changes them.
-- Move path normalization, file-format parsing, reference analysis/rewrites, hashing, and compatible import/export rules first.
+- Keep framework, transport, persistence, process-lifecycle, and operating-system
+  dependencies in `collab-server` or `src-tauri`.
+- Add characterization tests and define domain inputs/outputs before moving
+  security-sensitive or persistence-sensitive behavior.
 - Do not move local-only dialogs, recent-vault persistence, watchers, updater logic, or encryption-session state into shared crates.
-- Add characterization tests before moving high-risk existing behavior.
+- Follow the extraction order and compatibility-re-export limits in the crate
+  refactor plan.
 
 ## Required Verification
 
@@ -88,4 +106,5 @@ A server phase task is complete only when:
 - Its behavior is implemented and tested.
 - Existing local-vault behavior remains green.
 - Relevant architecture and protocol documents are updated.
-- `COLLAB_SERVER_PLAN.md` status, checkboxes, and progress log are updated.
+- The canonical implementation plan and
+  [Open Development Work](../plans/open-development-work.md) are updated.

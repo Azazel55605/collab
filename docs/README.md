@@ -8,6 +8,8 @@ documentation.
 - [Open Development Work](./plans/open-development-work.md) is the consolidated
   view of every active, testing, planned, and deferred project.
 - [Plans](./plans/README.md) contains current implementation plans.
+- [Rust Crate Boundary Refactor](./plans/rust-crate-boundary-refactor-plan.md)
+  defines the planned shared-domain and adapter ownership boundaries.
 - [Archive](./archive/README.md) contains completed plans retained for
   implementation history.
 

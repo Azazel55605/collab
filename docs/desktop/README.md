@@ -17,6 +17,7 @@ Relevant active plans:
 - [User Calendar](../plans/user-calendar-feature-plan.md)
 - [Logic And Circuit Diagram Editor](../plans/logic-circuit-diagram-plan.md)
 - [Electronic Circuit Simulation](../plans/electronic-circuit-simulation-plan.md)
+- [Rust Crate Boundary Refactor](../plans/rust-crate-boundary-refactor-plan.md)
 
 Desktop packaging and installation documents live under
 [Build And Release](../build/README.md).

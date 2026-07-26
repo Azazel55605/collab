@@ -203,8 +203,11 @@ apps/
   admin-web/         Focused browser administration interface
 
 crates/
+  collab-calendar/   Shared calendar model, recurrence, iCalendar, and native store
+  collab-circuit/    Shared circuit model, compiler, and simulation numerics
   collab-core/       Shared hashing and relative-path rules
   collab-protocol/   Shared server DTOs, error codes, and protocol versions
+  collab-replica/    Shared native hosted-vault offline replica store
   collab-server/     Axum server, authentication, migrations, and blob storage
 
 src/
@@ -467,6 +470,7 @@ deliberately kept out of the ignore list. Keep the tracking doc in sync whenever
 
 - [Documentation index](./docs/README.md) - plans, archived work, and platform/build documentation
 - [Open development work](./docs/plans/open-development-work.md) - consolidated status and remaining work across active, testing, planned, and deferred projects
+- [Rust crate boundary refactor](./docs/plans/rust-crate-boundary-refactor-plan.md) - phased extraction of portable Rust domains from server and Tauri adapters
 - [Security advisory tracking](./docs/build/security-advisories.md) - accepted/ignored dependency advisories and why they are unresolved
 
 ### Collaboration Server

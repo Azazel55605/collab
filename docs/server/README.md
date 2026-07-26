@@ -11,6 +11,7 @@ The collaboration server is a separate Rust service that becomes authoritative f
 - [REST and WebSocket Protocol](./protocol.md)
 - [Security, Operations, and Compatibility](./security-operations.md)
 - [Workspace and Verification](./workspace-verification.md)
+- [Rust Crate Boundary Refactor Plan](../plans/rust-crate-boundary-refactor-plan.md)
 - [Server Development and Compose](./development.md)
 - [Deployment Topology and Upgrade Compatibility](./deployment-topology.md)
 - [Server Backups](./backups.md)
@@ -45,3 +46,8 @@ the Tauri client and keep their filesystem-backed behavior.
 Live CRDT collaboration is implemented for supported structured documents.
 Vault structure remains outside document CRDTs and is synchronized through the
 ordered server manifest plus idempotent structural operations.
+
+The server API and WebSocket modules remain the current adapters. Their internal
+modularization and the proposed shared domain crates are planned, not yet
+implemented. Follow the crate-boundary plan without changing routes, wire
+formats, database semantics, or authorization boundaries as a side effect.

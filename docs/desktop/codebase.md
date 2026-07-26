@@ -655,6 +655,21 @@ The repository root is a Cargo workspace:
 | `Dockerfile.server` | Cached multi-stage server image build |
 | `apps/admin-web/` | Focused Collab-style server administration React app served below `/admin/` |
 
+### Planned Crate Boundaries
+
+The table above is the current source of truth. The
+[Rust Crate Boundary Refactor Plan](../plans/rust-crate-boundary-refactor-plan.md)
+proposes `collab-net-policy`, `collab-documents`, `collab-vault-domain`, and
+`collab-live`, with `collab-archive` subject to a measured reuse decision. These
+crates do not exist until their plan phases land.
+
+Until then, isolate and characterize portable behavior inside its current
+adapter before extracting it. Planned shared crates must remain free of Tauri,
+Axum, SQLx, PostgreSQL, concrete filesystem/storage backends, and operating
+system integration. `collab-core` should converge on low-level path, name,
+hashing, and byte-encryption primitives rather than accepting additional
+document-specific behavior.
+
 `src-tauri/src/`
 
 | File | Responsibility |

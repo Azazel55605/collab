@@ -10,8 +10,8 @@ implementation status. Start with
 - [Flatpak Distribution](./flatpak-distribution-plan.md)
 - [Logic And Circuit Diagram Editor](./logic-circuit-diagram-plan.md)
 - [Notification System](./notification-system-plan.md)
+- [Rust Crate Boundary Refactor](./rust-crate-boundary-refactor-plan.md)
 - [User Calendar](./user-calendar-feature-plan.md)
 
 Completed plans move to [the archive](../archive/README.md) rather than remaining
 mixed with current work.
-
