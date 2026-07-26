@@ -2,7 +2,9 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 use tokio::net::lookup_host;
 
-use reqwest::header::{CONTENT_TYPE, USER_AGENT};
+use reqwest::header::{
+    CONTENT_TYPE, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED, LOCATION, USER_AGENT,
+};
 use reqwest::{Client, Response};
 use scraper::{Html, Selector};
 use serde::Serialize;
@@ -23,6 +25,8 @@ pub struct LinkPreviewData {
 
 const MAX_REDIRECTS: usize = 10;
 const MAX_HTML_PREVIEW_BYTES: usize = 512 * 1024;
+const MAX_CALENDAR_FEED_BYTES: usize = 5 * 1024 * 1024;
+const MAX_CALENDAR_REDIRECTS: usize = 5;
 
 fn normalize_input_url(input: &str) -> Result<Url, String> {
     let trimmed = input.trim();
@@ -464,6 +468,131 @@ fn build_pinned_preview_client(addrs: &[SocketAddr], host: &str) -> Result<Clien
         .map_err(|e| e.to_string())
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarFeedResponse {
+    pub resolved_url: String,
+    pub not_modified: bool,
+    pub content: Option<String>,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+}
+
+fn calendar_header(response: &Response, name: reqwest::header::HeaderName) -> Option<String> {
+    response
+        .headers()
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+}
+
+async fn fetch_calendar_feed_with_policy(
+    url: String,
+    etag: Option<String>,
+    last_modified: Option<String>,
+    allow_local_targets: bool,
+) -> Result<CalendarFeedResponse, String> {
+    let mut current_url = Url::parse(url.trim()).map_err(|_| "Enter a valid HTTPS URL")?;
+    if current_url.scheme() != "https" {
+        return Err("Calendar subscriptions require HTTPS".into());
+    }
+    validate_url_syntax_for_preview(&current_url)?;
+    let validator_origin = current_url.origin();
+
+    for _ in 0..=MAX_CALENDAR_REDIRECTS {
+        let addrs = if allow_local_targets {
+            Vec::new()
+        } else {
+            resolve_and_validate_target(&current_url).await?
+        };
+        let client = if allow_local_targets {
+            build_preview_client()?
+        } else {
+            let host = current_url
+                .host_str()
+                .ok_or_else(|| "URL must include a hostname".to_string())?;
+            build_pinned_preview_client(&addrs, host)?
+        };
+        let mut request = client
+            .get(current_url.clone())
+            .header(USER_AGENT, "Collab/0.6 (+calendar-subscription)")
+            .header(
+                reqwest::header::ACCEPT,
+                "text/calendar, text/plain;q=0.9, application/octet-stream;q=0.5",
+            );
+        if current_url.origin() == validator_origin {
+            if let Some(value) = etag.as_deref() {
+                request = request.header(IF_NONE_MATCH, value);
+            }
+            if let Some(value) = last_modified.as_deref() {
+                request = request.header(IF_MODIFIED_SINCE, value);
+            }
+        }
+        let mut response = request.send().await.map_err(|error| error.to_string())?;
+        if response.status().is_redirection() {
+            let location = response
+                .headers()
+                .get(LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .ok_or_else(|| "Calendar feed redirect is missing Location".to_string())?;
+            let next_url = current_url
+                .join(location)
+                .or_else(|_| Url::parse(location))
+                .map_err(|_| "Calendar feed redirect is invalid".to_string())?;
+            if next_url.scheme() != "https" {
+                return Err("Calendar feed redirects must remain on HTTPS".into());
+            }
+            if !allow_local_targets {
+                resolve_and_validate_target(&next_url).await?;
+            }
+            current_url = next_url;
+            continue;
+        }
+        let response_etag = calendar_header(&response, ETAG);
+        let response_last_modified = calendar_header(&response, LAST_MODIFIED);
+        if response.status() == reqwest::StatusCode::NOT_MODIFIED {
+            return Ok(CalendarFeedResponse {
+                resolved_url: current_url.to_string(),
+                not_modified: true,
+                content: None,
+                etag: response_etag.or(etag),
+                last_modified: response_last_modified.or(last_modified),
+            });
+        }
+        response = response
+            .error_for_status()
+            .map_err(|error| error.to_string())?;
+        let content = read_limited_text_body(&mut response, MAX_CALENDAR_FEED_BYTES)
+            .await
+            .map_err(|_| "Calendar feed exceeds the 5 MB response limit or is not UTF-8")?;
+        if !content
+            .trim_start_matches('\u{feff}')
+            .trim_start()
+            .to_ascii_uppercase()
+            .starts_with("BEGIN:VCALENDAR")
+        {
+            return Err("The remote response is not an iCalendar feed".into());
+        }
+        return Ok(CalendarFeedResponse {
+            resolved_url: current_url.to_string(),
+            not_modified: false,
+            content: Some(content),
+            etag: response_etag,
+            last_modified: response_last_modified,
+        });
+    }
+    Err("Calendar feed redirected too many times".into())
+}
+
+#[tauri::command]
+pub async fn fetch_calendar_feed(
+    url: String,
+    etag: Option<String>,
+    last_modified: Option<String>,
+) -> Result<CalendarFeedResponse, String> {
+    fetch_calendar_feed_with_policy(url, etag, last_modified, false).await
+}
+
 #[tauri::command]
 pub async fn fetch_link_preview(url: String) -> Result<LinkPreviewData, String> {
     let client = build_preview_client()?;
@@ -473,10 +602,10 @@ pub async fn fetch_link_preview(url: String) -> Result<LinkPreviewData, String> 
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_embed_policy, document_title, fetch_link_preview_with_client, first_href,
-        first_meta_content, is_blocked_ip, normalize_input_url, read_limited_text_body,
-        resolve_and_validate_target, resolve_optional_url, validate_url_syntax_for_preview,
-        MAX_HTML_PREVIEW_BYTES,
+        classify_embed_policy, document_title, fetch_calendar_feed_with_policy,
+        fetch_link_preview_with_client, first_href, first_meta_content, is_blocked_ip,
+        normalize_input_url, read_limited_text_body, resolve_and_validate_target,
+        resolve_optional_url, validate_url_syntax_for_preview, MAX_HTML_PREVIEW_BYTES,
     };
     use httpmock::prelude::*;
     use reqwest::Client;
@@ -518,6 +647,37 @@ mod tests {
         assert!(validate_url_syntax_for_preview(&private_ip)
             .unwrap_err()
             .contains("Private or local network"));
+    }
+
+    #[tokio::test]
+    async fn calendar_feeds_require_public_credential_free_https_targets() {
+        assert!(fetch_calendar_feed_with_policy(
+            "http://example.com/calendar.ics".into(),
+            None,
+            None,
+            false,
+        )
+        .await
+        .unwrap_err()
+        .contains("require HTTPS"));
+        assert!(fetch_calendar_feed_with_policy(
+            "https://user:secret@example.com/calendar.ics".into(),
+            None,
+            None,
+            false,
+        )
+        .await
+        .unwrap_err()
+        .contains("embedded credentials"));
+        assert!(fetch_calendar_feed_with_policy(
+            "https://127.0.0.1/calendar.ics".into(),
+            None,
+            None,
+            false,
+        )
+        .await
+        .unwrap_err()
+        .contains("Private or local"));
     }
 
     #[test]

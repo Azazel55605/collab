@@ -1,8 +1,8 @@
 use crate::models::{
     CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarItemKind, CalendarLocation,
     CalendarMirrorAnchor, CalendarMirrorConflict, CalendarMirrorGroup, CalendarMutation,
-    CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSyncState,
-    CalendarTimeValue, CALENDAR_SCHEMA_VERSION,
+    CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSubscription,
+    CalendarSyncState, CalendarTimeValue, CALENDAR_SCHEMA_VERSION,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
@@ -13,7 +13,7 @@ use std::time::Duration;
 
 pub const MAX_RANGE_QUERY_ITEMS: u32 = 5_000;
 pub const MAX_SEARCH_QUERY_ITEMS: u32 = 500;
-pub const LOCAL_STORE_SCHEMA_VERSION: i64 = 5;
+pub const LOCAL_STORE_SCHEMA_VERSION: i64 = 6;
 pub const MAX_MIRROR_GROUP_MEMBERS: usize = 8;
 
 #[derive(Debug, thiserror::Error)]
@@ -231,6 +231,22 @@ impl CalendarStore {
         .await?;
         sqlx::query(
             r#"
+            CREATE TABLE IF NOT EXISTS calendar_subscriptions (
+                id TEXT PRIMARY KEY NOT NULL,
+                calendar_id TEXT NOT NULL UNIQUE REFERENCES calendars(id) ON DELETE CASCADE,
+                feed_url TEXT NOT NULL UNIQUE,
+                last_refreshed_at TEXT,
+                last_error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                data_json TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            r#"
             CREATE TABLE IF NOT EXISTS calendar_mirror_groups (
                 id TEXT PRIMARY KEY NOT NULL,
                 name TEXT NOT NULL,
@@ -325,6 +341,86 @@ impl CalendarStore {
             .collect()
     }
 
+    pub async fn list_subscriptions(
+        &self,
+    ) -> Result<Vec<CalendarSubscription>, CalendarStoreError> {
+        let rows =
+            sqlx::query("SELECT data_json FROM calendar_subscriptions ORDER BY created_at, id")
+                .fetch_all(&self.pool)
+                .await?;
+        rows.into_iter()
+            .map(|row| serde_json::from_str(row.get::<&str, _>("data_json")).map_err(Into::into))
+            .collect()
+    }
+
+    pub async fn upsert_subscription(
+        &self,
+        subscription: &CalendarSubscription,
+    ) -> Result<(), CalendarStoreError> {
+        validate_subscription(subscription)?;
+        let location_json = sqlx::query_scalar::<_, String>(
+            "SELECT location_json FROM calendars WHERE id = ? AND deleted_at IS NULL",
+        )
+        .bind(&subscription.calendar_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(CalendarStoreError::CalendarNotFound)?;
+        let location: CalendarLocation = serde_json::from_str(&location_json)?;
+        if !matches!(
+            location,
+            CalendarLocation::Subscription {
+                ref subscription_id,
+                ..
+            } if subscription_id == &subscription.id
+        ) {
+            return Err(CalendarStoreError::Validation(
+                "subscription metadata must match its read-only calendar location".into(),
+            ));
+        }
+        sqlx::query(
+            r#"INSERT INTO calendar_subscriptions (
+                 id,calendar_id,feed_url,last_refreshed_at,last_error,created_at,updated_at,data_json
+               ) VALUES (?,?,?,?,?,?,?,?)
+               ON CONFLICT(id) DO UPDATE SET calendar_id=excluded.calendar_id,
+                 feed_url=excluded.feed_url,last_refreshed_at=excluded.last_refreshed_at,
+                 last_error=excluded.last_error,updated_at=excluded.updated_at,
+                 data_json=excluded.data_json"#,
+        )
+        .bind(&subscription.id)
+        .bind(&subscription.calendar_id)
+        .bind(&subscription.feed_url)
+        .bind(subscription.last_refreshed_at.as_deref())
+        .bind(subscription.last_error.as_deref())
+        .bind(&subscription.created_at)
+        .bind(&subscription.updated_at)
+        .bind(serde_json::to_string(subscription)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_subscription(
+        &self,
+        subscription_id: &str,
+    ) -> Result<(), CalendarStoreError> {
+        validate_non_empty(subscription_id, "subscription ID")?;
+        let mut tx = self.pool.begin().await?;
+        let calendar_id = sqlx::query_scalar::<_, String>(
+            "SELECT calendar_id FROM calendar_subscriptions WHERE id = ?",
+        )
+        .bind(subscription_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(calendar_id) = calendar_id {
+            sqlx::query("DELETE FROM calendars WHERE id = ?")
+                .bind(calendar_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn upsert_calendar(
         &self,
         calendar: &CalendarDefinition,
@@ -379,29 +475,81 @@ impl CalendarStore {
         calendar: &CalendarDefinition,
         items: &[CalendarItem],
     ) -> Result<(), CalendarStoreError> {
-        validate_calendar(calendar)?;
         if !matches!(calendar.location, CalendarLocation::Kanban { .. }) || !calendar.read_only {
             return Err(CalendarStoreError::Validation(
                 "generated Kanban calendars must use a read-only Kanban location".into(),
             ));
         }
+        if items.iter().any(|item| {
+            !matches!(
+                item.source_binding.as_ref(),
+                Some(crate::models::CalendarSourceBinding::Kanban { .. })
+            )
+        }) {
+            return Err(CalendarStoreError::Validation(
+                "generated Kanban items require a Kanban source binding".into(),
+            ));
+        }
+        self.replace_read_only_calendar(calendar, items, None).await
+    }
+
+    pub async fn replace_subscription_calendar(
+        &self,
+        calendar: &CalendarDefinition,
+        items: &[CalendarItem],
+        subscription: &CalendarSubscription,
+    ) -> Result<(), CalendarStoreError> {
+        let subscription_id = match &calendar.location {
+            CalendarLocation::Subscription {
+                subscription_id, ..
+            } if calendar.read_only => subscription_id,
+            _ => {
+                return Err(CalendarStoreError::Validation(
+                    "subscription calendars must use a read-only subscription location".into(),
+                ));
+            }
+        };
+        if items.iter().any(|item| {
+            !matches!(
+                item.source_binding.as_ref(),
+                Some(crate::models::CalendarSourceBinding::External {
+                    subscription_id: item_subscription_id,
+                    ..
+                }) if item_subscription_id == subscription_id
+            )
+        }) {
+            return Err(CalendarStoreError::Validation(
+                "subscription items require a matching external source binding".into(),
+            ));
+        }
+        validate_subscription(subscription)?;
+        if subscription.id != *subscription_id || subscription.calendar_id != calendar.id {
+            return Err(CalendarStoreError::Validation(
+                "subscription metadata must match the subscription calendar".into(),
+            ));
+        }
+        self.replace_read_only_calendar(calendar, items, Some(subscription))
+            .await
+    }
+
+    async fn replace_read_only_calendar(
+        &self,
+        calendar: &CalendarDefinition,
+        items: &[CalendarItem],
+        subscription: Option<&CalendarSubscription>,
+    ) -> Result<(), CalendarStoreError> {
+        validate_calendar(calendar)?;
         if items.len() > MAX_RANGE_QUERY_ITEMS as usize {
             return Err(CalendarStoreError::Validation(format!(
-                "generated Kanban calendars cannot exceed {MAX_RANGE_QUERY_ITEMS} items"
+                "read-only calendars cannot exceed {MAX_RANGE_QUERY_ITEMS} items"
             )));
         }
         let mut ids = HashSet::with_capacity(items.len());
         for item in items {
             validate_item(item)?;
-            if item.calendar_id != calendar.id
-                || !matches!(
-                    item.source_binding.as_ref(),
-                    Some(crate::models::CalendarSourceBinding::Kanban { .. })
-                )
-                || !ids.insert(item.id.clone())
-            {
+            if item.calendar_id != calendar.id || !ids.insert(item.id.clone()) {
                 return Err(CalendarStoreError::Validation(
-                    "generated Kanban items must have unique IDs, the target calendar, and a Kanban source binding".into(),
+                    "read-only calendar items must have unique IDs and target the calendar".into(),
                 ));
             }
         }
@@ -491,6 +639,27 @@ impl CalendarStore {
             .bind(&item.created_at)
             .bind(&item.updated_at)
             .bind(serde_json::to_string(item)?)
+            .execute(&mut *tx)
+            .await?;
+        }
+        if let Some(subscription) = subscription {
+            sqlx::query(
+                r#"INSERT INTO calendar_subscriptions (
+                     id,calendar_id,feed_url,last_refreshed_at,last_error,created_at,updated_at,data_json
+                   ) VALUES (?,?,?,?,?,?,?,?)
+                   ON CONFLICT(id) DO UPDATE SET calendar_id=excluded.calendar_id,
+                     feed_url=excluded.feed_url,last_refreshed_at=excluded.last_refreshed_at,
+                     last_error=excluded.last_error,updated_at=excluded.updated_at,
+                     data_json=excluded.data_json"#,
+            )
+            .bind(&subscription.id)
+            .bind(&subscription.calendar_id)
+            .bind(&subscription.feed_url)
+            .bind(subscription.last_refreshed_at.as_deref())
+            .bind(subscription.last_error.as_deref())
+            .bind(&subscription.created_at)
+            .bind(&subscription.updated_at)
+            .bind(serde_json::to_string(subscription)?)
             .execute(&mut *tx)
             .await?;
         }
@@ -923,6 +1092,153 @@ impl CalendarStore {
         .bind(Utc::now().to_rfc3339())
         .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn upsert_items_with_operations(
+        &self,
+        entries: &[(CalendarItem, CalendarOperation)],
+    ) -> Result<(), CalendarStoreError> {
+        if entries.is_empty() || entries.len() > MAX_RANGE_QUERY_ITEMS as usize {
+            return Err(CalendarStoreError::Validation(format!(
+                "item batches must contain between 1 and {MAX_RANGE_QUERY_ITEMS} entries"
+            )));
+        }
+        let mut prepared = Vec::with_capacity(entries.len());
+        for (item, operation) in entries {
+            validate_item(item)?;
+            validate_non_empty(&operation.client_operation_id, "client operation ID")?;
+            validate_non_empty(&operation.device_id, "device ID")?;
+            match &operation.mutation {
+                CalendarMutation::UpsertItem {
+                    item: operation_item,
+                } if operation_item == item => {}
+                CalendarMutation::UpsertItem { .. } => {
+                    return Err(CalendarStoreError::Validation(
+                        "queued operation item does not match the persisted item".into(),
+                    ));
+                }
+                _ => {
+                    return Err(CalendarStoreError::Validation(
+                        "item writes require an upsertItem operation".into(),
+                    ));
+                }
+            }
+            let (start_sort, end_sort) = item_sort_range(item)?;
+            prepared.push((
+                start_sort,
+                end_sort,
+                serde_json::to_string(item)?,
+                serde_json::to_string(&operation.mutation)?,
+                serde_json::to_string(&operation.propagation_lineage)?,
+            ));
+        }
+
+        let mut tx = self.pool.begin().await?;
+        for ((item, operation), (start_sort, end_sort, item_json, mutation_json, lineage_json)) in
+            entries.iter().zip(prepared)
+        {
+            let operation_exists = sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM pending_operations WHERE client_operation_id = ?)",
+            )
+            .bind(&operation.client_operation_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if operation_exists {
+                continue;
+            }
+            let calendar = sqlx::query("SELECT read_only FROM calendars WHERE id = ?")
+                .bind(&item.calendar_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or(CalendarStoreError::CalendarNotFound)?;
+            if calendar.get::<bool, _>("read_only") {
+                return Err(CalendarStoreError::ReadOnly);
+            }
+            if let Some(expected) = operation.expected_revision {
+                let actual = sqlx::query_scalar::<_, i64>(
+                    "SELECT revision FROM calendar_items WHERE id = ?",
+                )
+                .bind(&item.id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .unwrap_or(0);
+                if actual != expected {
+                    return Err(CalendarStoreError::Conflict { expected, actual });
+                }
+            }
+            sqlx::query(
+                r#"
+                INSERT INTO calendar_items (
+                    id, calendar_id, uid, kind, start_sort, end_sort, recurrence_rule,
+                    recurrence_id, recurrence_sort, recurrence_series_id, revision, deleted_at, created_at, updated_at, data_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    calendar_id = excluded.calendar_id,
+                    uid = excluded.uid,
+                    kind = excluded.kind,
+                    start_sort = excluded.start_sort,
+                    end_sort = excluded.end_sort,
+                    recurrence_rule = excluded.recurrence_rule,
+                    recurrence_id = excluded.recurrence_id,
+                    recurrence_sort = excluded.recurrence_sort,
+                    recurrence_series_id = excluded.recurrence_series_id,
+                    revision = excluded.revision,
+                    deleted_at = excluded.deleted_at,
+                    updated_at = excluded.updated_at,
+                    data_json = excluded.data_json
+                "#,
+            )
+            .bind(&item.id)
+            .bind(&item.calendar_id)
+            .bind(&item.uid)
+            .bind(item.kind.as_str())
+            .bind(start_sort)
+            .bind(end_sort)
+            .bind(item.recurrence.as_ref().map(|value| value.rrule.as_str()))
+            .bind(
+                item.recurrence_id
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()?,
+            )
+            .bind(
+                item.recurrence_id
+                    .as_ref()
+                    .map(|value| time_sort_value(value, false))
+                    .transpose()?,
+            )
+            .bind(item.recurrence_series_id.as_deref())
+            .bind(item.revision)
+            .bind(item.deleted_at.as_deref())
+            .bind(&item.created_at)
+            .bind(&item.updated_at)
+            .bind(item_json)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                r#"
+                INSERT INTO pending_operations (
+                    client_operation_id, device_id, calendar_id, item_id,
+                    expected_revision, source_change_id, propagation_lineage_json,
+                    mutation_json, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+                ON CONFLICT(client_operation_id) DO NOTHING
+                "#,
+            )
+            .bind(&operation.client_operation_id)
+            .bind(&operation.device_id)
+            .bind(&item.calendar_id)
+            .bind(&item.id)
+            .bind(operation.expected_revision)
+            .bind(operation.source_change_id.as_deref())
+            .bind(lineage_json)
+            .bind(mutation_json)
+            .bind(Utc::now().to_rfc3339())
+            .execute(&mut *tx)
+            .await?;
+        }
         tx.commit().await?;
         Ok(())
     }
@@ -1722,6 +2038,34 @@ impl CalendarStore {
             .map(|row| serde_json::from_str(row.get::<&str, _>("data_json")).map_err(Into::into))
             .collect()
     }
+
+    pub async fn list_items_for_calendar(
+        &self,
+        calendar_id: &str,
+        limit: u32,
+    ) -> Result<Vec<CalendarItem>, CalendarStoreError> {
+        validate_non_empty(calendar_id, "calendar ID")?;
+        if limit == 0 || limit > MAX_RANGE_QUERY_ITEMS {
+            return Err(CalendarStoreError::Validation(format!(
+                "query limit must be between 1 and {MAX_RANGE_QUERY_ITEMS}"
+            )));
+        }
+        let rows = sqlx::query(
+            "SELECT data_json FROM calendar_items WHERE calendar_id = ? ORDER BY updated_at, id LIMIT ?",
+        )
+        .bind(calendar_id)
+        .bind(limit + 1)
+        .fetch_all(&self.pool)
+        .await?;
+        if rows.len() > limit as usize {
+            return Err(CalendarStoreError::Validation(format!(
+                "calendar exceeds the bounded {limit}-item limit"
+            )));
+        }
+        rows.into_iter()
+            .map(|row| serde_json::from_str(row.get::<&str, _>("data_json")).map_err(Into::into))
+            .collect()
+    }
 }
 
 fn reject_delete_payload(change: &CalendarRemoteChange) -> Result<(), CalendarStoreError> {
@@ -1791,6 +2135,20 @@ fn validate_item(item: &CalendarItem) -> Result<(), CalendarStoreError> {
             "calendar item revision cannot be negative".into(),
         ));
     }
+    if item.icalendar_properties.len() > crate::MAX_ICALENDAR_PROPERTIES
+        || item.icalendar_properties.iter().any(|line| {
+            line.len() > crate::MAX_ICALENDAR_PROPERTY_LENGTH
+                || line.contains(['\r', '\n'])
+                || !line.split_once(':').is_some_and(|(head, _)| {
+                    let head = head.to_ascii_uppercase();
+                    head.starts_with("X-") && !head.starts_with("X-COLLAB-")
+                })
+        })
+    {
+        return Err(CalendarStoreError::Validation(
+            "invalid preserved iCalendar properties".into(),
+        ));
+    }
     validate_timestamp(&item.created_at, "calendar item createdAt")?;
     validate_timestamp(&item.updated_at, "calendar item updatedAt")?;
     match item.kind {
@@ -1802,6 +2160,18 @@ fn validate_item(item: &CalendarItem) -> Result<(), CalendarStoreError> {
         )),
         _ => Ok(()),
     }
+}
+
+fn validate_subscription(subscription: &CalendarSubscription) -> Result<(), CalendarStoreError> {
+    validate_non_empty(&subscription.id, "subscription ID")?;
+    validate_non_empty(&subscription.calendar_id, "subscription calendar ID")?;
+    validate_non_empty(&subscription.feed_url, "subscription feed URL")?;
+    validate_timestamp(&subscription.created_at, "subscription createdAt")?;
+    validate_timestamp(&subscription.updated_at, "subscription updatedAt")?;
+    if let Some(last_refreshed_at) = &subscription.last_refreshed_at {
+        validate_timestamp(last_refreshed_at, "subscription lastRefreshedAt")?;
+    }
+    Ok(())
 }
 
 fn validate_mirror_group(group: &CalendarMirrorGroup) -> Result<(), CalendarStoreError> {
@@ -1994,6 +2364,7 @@ mod tests {
             recurrence_id: None,
             recurrence_series_id: None,
             source_binding: None,
+            icalendar_properties: Vec::new(),
             start: Some(CalendarTimeValue::DateTime {
                 date_time: "2026-07-22T10:00:00Z".into(),
                 time_zone: "Europe/Berlin".into(),
@@ -2026,6 +2397,69 @@ mod tests {
             propagation_lineage: Vec::new(),
             mutation: CalendarMutation::UpsertItem { item: event() },
         }
+    }
+
+    #[tokio::test]
+    async fn imports_item_batches_atomically_and_lists_one_calendar() {
+        let root = tempfile::tempdir().unwrap();
+        let store = CalendarStore::open(root.path(), "profile-1").await.unwrap();
+        store.upsert_calendar(&calendar(false)).await.unwrap();
+
+        let first = event();
+        let first_operation = operation();
+        let mut second = event();
+        second.id = "event-2".into();
+        second.uid = "event-2@collab.local".into();
+        second.title = "Follow-up".into();
+        let mut stale_operation = CalendarOperation {
+            client_operation_id: "operation-2".into(),
+            mutation: CalendarMutation::UpsertItem {
+                item: second.clone(),
+            },
+            ..operation()
+        };
+        stale_operation.expected_revision = Some(9);
+
+        assert!(matches!(
+            store
+                .upsert_items_with_operations(&[
+                    (first.clone(), first_operation.clone()),
+                    (second.clone(), stale_operation),
+                ])
+                .await,
+            Err(CalendarStoreError::Conflict {
+                expected: 9,
+                actual: 0
+            })
+        ));
+        assert!(store
+            .list_items_for_calendar("calendar-1", 10)
+            .await
+            .unwrap()
+            .is_empty());
+
+        let second_operation = CalendarOperation {
+            client_operation_id: "operation-2".into(),
+            mutation: CalendarMutation::UpsertItem {
+                item: second.clone(),
+            },
+            ..operation()
+        };
+        store
+            .upsert_items_with_operations(&[
+                (first.clone(), first_operation),
+                (second.clone(), second_operation),
+            ])
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .list_items_for_calendar("calendar-1", 10)
+                .await
+                .unwrap(),
+            vec![first, second]
+        );
+        assert_eq!(store.list_pending_operations().await.unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -2099,6 +2533,81 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn persists_and_atomically_replaces_subscription_calendars() {
+        let root = tempfile::tempdir().unwrap();
+        let store = CalendarStore::open(root.path(), "profile-1").await.unwrap();
+        let mut subscription_calendar = calendar(true);
+        subscription_calendar.id = "subscription-calendar".into();
+        subscription_calendar.global_id = "subscription-calendar".into();
+        subscription_calendar.location = CalendarLocation::Subscription {
+            subscription_id: "subscription-1".into(),
+            server_url: None,
+            user_id: None,
+        };
+        subscription_calendar.name = "External".into();
+        let mut subscribed_event = event();
+        subscribed_event.id = "subscription-event".into();
+        subscribed_event.calendar_id = subscription_calendar.id.clone();
+        subscribed_event.source_binding = Some(crate::models::CalendarSourceBinding::External {
+            subscription_id: "subscription-1".into(),
+            external_uid: subscribed_event.uid.clone(),
+        });
+        let subscription = CalendarSubscription {
+            id: "subscription-1".into(),
+            calendar_id: subscription_calendar.id.clone(),
+            feed_url: "https://example.com/calendar.ics".into(),
+            etag: Some("\"revision-1\"".into()),
+            last_modified: None,
+            last_refreshed_at: Some("2026-07-26T12:00:00Z".into()),
+            last_error: None,
+            created_at: "2026-07-26T12:00:00Z".into(),
+            updated_at: "2026-07-26T12:00:00Z".into(),
+            server_url: None,
+            user_id: None,
+        };
+        store
+            .replace_subscription_calendar(
+                &subscription_calendar,
+                &[subscribed_event.clone()],
+                &subscription,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            store.list_subscriptions().await.unwrap(),
+            vec![subscription.clone()]
+        );
+        assert_eq!(
+            store
+                .list_items_for_calendar(&subscription_calendar.id, 10)
+                .await
+                .unwrap(),
+            vec![subscribed_event.clone()]
+        );
+
+        let mut invalid = subscribed_event.clone();
+        invalid.source_binding = Some(crate::models::CalendarSourceBinding::External {
+            subscription_id: "another-subscription".into(),
+            external_uid: invalid.uid.clone(),
+        });
+        assert!(store
+            .replace_subscription_calendar(&subscription_calendar, &[invalid], &subscription)
+            .await
+            .is_err());
+        assert_eq!(
+            store
+                .list_items_for_calendar(&subscription_calendar.id, 10)
+                .await
+                .unwrap(),
+            vec![subscribed_event]
+        );
+
+        store.delete_subscription("subscription-1").await.unwrap();
+        assert!(store.list_subscriptions().await.unwrap().is_empty());
+        assert!(store.list_calendars().await.unwrap().is_empty());
     }
 
     #[tokio::test]

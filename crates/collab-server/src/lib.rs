@@ -2,6 +2,7 @@ pub mod api;
 pub mod app;
 pub mod auth;
 pub mod calendar_api;
+pub mod calendar_feeds;
 pub mod config;
 pub mod database;
 pub mod retention;

@@ -14,10 +14,16 @@ vi.mock('../lib/tauri', () => ({
   tauriCommands: {
     calendarList: vi.fn(),
     calendarSave: vi.fn(),
+    calendarReplaceSubscription: vi.fn(),
+    calendarListSubscriptions: vi.fn(),
+    calendarSaveSubscription: vi.fn(),
+    calendarDeleteSubscription: vi.fn(),
     calendarSaveWithOperation: vi.fn(),
     calendarListItems: vi.fn(),
     calendarSearchItems: vi.fn(),
     calendarUpsertItem: vi.fn(),
+    calendarUpsertItems: vi.fn(),
+    calendarListCalendarItems: vi.fn(),
     calendarDeleteItem: vi.fn(),
     calendarAcknowledgeOperations: vi.fn(),
     calendarListFailedOperations: vi.fn(),
@@ -30,6 +36,7 @@ vi.mock('../lib/tauri', () => ({
     calendarListMirrorConflicts: vi.fn(),
     hostedCalendarRequest: vi.fn(),
     hostedVaultRequest: vi.fn(),
+    fetchCalendarFeed: vi.fn(),
   },
 }));
 
@@ -51,6 +58,7 @@ beforeEach(() => {
   useCalendarStore.setState({
     profileId: null,
     calendars: [],
+    subscriptions: [],
     sourceItems: [],
     items: [],
     visibleCalendarIds: [],
@@ -68,10 +76,16 @@ beforeEach(() => {
     error: null,
   });
   vi.mocked(tauriCommands.calendarSave).mockResolvedValue(undefined);
+  vi.mocked(tauriCommands.calendarReplaceSubscription).mockResolvedValue(undefined);
+  vi.mocked(tauriCommands.calendarListSubscriptions).mockResolvedValue([]);
+  vi.mocked(tauriCommands.calendarSaveSubscription).mockResolvedValue(undefined);
+  vi.mocked(tauriCommands.calendarDeleteSubscription).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarSaveWithOperation).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarListItems).mockResolvedValue([]);
   vi.mocked(tauriCommands.calendarSearchItems).mockResolvedValue([]);
   vi.mocked(tauriCommands.calendarUpsertItem).mockResolvedValue(undefined);
+  vi.mocked(tauriCommands.calendarUpsertItems).mockResolvedValue(undefined);
+  vi.mocked(tauriCommands.calendarListCalendarItems).mockResolvedValue([]);
   vi.mocked(tauriCommands.calendarDeleteItem).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarAcknowledgeOperations).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarListFailedOperations).mockResolvedValue([]);
@@ -307,6 +321,133 @@ describe('calendarStore', () => {
     );
     expect(useCalendarStore.getState().items).toEqual([]);
     expect(tauriCommands.calendarAcknowledgeOperations).toHaveBeenCalledTimes(3);
+  });
+
+  it('persists imports atomically and batches hosted operation requests', async () => {
+    const hosted = createCalendarDefinition({
+      id: 'calendar-hosted',
+      location: { kind: 'hosted', serverUrl: 'https://calendar.example', userId: 'user-1' },
+      name: 'Hosted',
+      color: '#60a5fa',
+      defaultTimeZone: 'UTC',
+      now: '2026-07-26T10:00:00Z',
+    });
+    useCalendarStore.setState({ profileId: 'profile-1', calendars: [hosted] });
+    vi.mocked(tauriCommands.hostedCalendarRequest).mockResolvedValue({});
+    const items = Array.from({ length: 501 }, (_, index) => normalizeCalendarItem({
+      id: `event-${index}`,
+      uid: `event-${index}@example.test`,
+      calendarId: hosted.id,
+      kind: 'event',
+      title: `Event ${index}`,
+      reminders: [],
+      attendees: [],
+      attachments: [],
+      start: { kind: 'date', date: '2026-07-27' },
+      end: { kind: 'date', date: '2026-07-28' },
+      availability: 'busy',
+      revision: 0,
+      createdAt: '2026-07-26T10:00:00Z',
+      updatedAt: '2026-07-26T10:00:00Z',
+    }));
+
+    await useCalendarStore.getState().importItems(hosted.id, items);
+
+    expect(tauriCommands.calendarUpsertItems).toHaveBeenCalledOnce();
+    expect(vi.mocked(tauriCommands.calendarUpsertItems).mock.calls[0][1]).toHaveLength(501);
+    expect(tauriCommands.hostedCalendarRequest).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(tauriCommands.hostedCalendarRequest).mock.calls[0][3]).toMatchObject({
+      operations: expect.arrayContaining([expect.objectContaining({ expectedRevision: 0 })]),
+    });
+    expect((vi.mocked(tauriCommands.hostedCalendarRequest).mock.calls[0][3] as { operations: unknown[] }).operations).toHaveLength(500);
+    expect((vi.mocked(tauriCommands.hostedCalendarRequest).mock.calls[1][3] as { operations: unknown[] }).operations).toHaveLength(1);
+    expect(tauriCommands.calendarAcknowledgeOperations).toHaveBeenCalledTimes(2);
+  });
+
+  it('creates a read-only HTTPS subscription from a bounded feed', async () => {
+    useCalendarStore.setState({ profileId: 'profile-1' });
+    vi.mocked(tauriCommands.fetchCalendarFeed).mockResolvedValue({
+      resolvedUrl: 'https://calendar.example/feed.ics',
+      notModified: false,
+      content: [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'BEGIN:VEVENT',
+        'UID:external-1@example.test',
+        'SUMMARY:External meeting',
+        'DTSTART:20260727T090000Z',
+        'DTEND:20260727T100000Z',
+        'END:VEVENT',
+        'END:VCALENDAR',
+      ].join('\r\n'),
+      etag: '"revision-1"',
+    });
+
+    const subscription = await useCalendarStore.getState().createSubscription(
+      'External',
+      '#22d3ee',
+      'https://calendar.example/feed.ics',
+    );
+
+    expect(tauriCommands.calendarReplaceSubscription).toHaveBeenCalledOnce();
+    expect(tauriCommands.calendarReplaceSubscription).toHaveBeenCalledWith(
+      'profile-1',
+      expect.objectContaining({ readOnly: true }),
+      expect.any(Array),
+      expect.objectContaining({ id: subscription.id, etag: '"revision-1"' }),
+    );
+    expect(useCalendarStore.getState().calendars[0]).toMatchObject({
+      name: 'External',
+      readOnly: true,
+      location: { kind: 'subscription', subscriptionId: subscription.id },
+    });
+    expect(useCalendarStore.getState().sourceItems[0]).toMatchObject({
+      title: 'External meeting',
+      sourceBinding: {
+        kind: 'external',
+        subscriptionId: subscription.id,
+        externalUid: 'external-1@example.test',
+      },
+    });
+  });
+
+  it('preserves the last good subscription copy when refresh fails', async () => {
+    useCalendarStore.setState({ profileId: 'profile-1' });
+    vi.mocked(tauriCommands.fetchCalendarFeed)
+      .mockResolvedValueOnce({
+        resolvedUrl: 'https://calendar.example/feed.ics',
+        notModified: false,
+        content: [
+          'BEGIN:VCALENDAR',
+          'VERSION:2.0',
+          'BEGIN:VEVENT',
+          'UID:external-1@example.test',
+          'SUMMARY:Last good event',
+          'DTSTART;VALUE=DATE:20260727',
+          'DTEND;VALUE=DATE:20260728',
+          'END:VEVENT',
+          'END:VCALENDAR',
+        ].join('\r\n'),
+      })
+      .mockRejectedValueOnce(new Error('feed unavailable'));
+    const subscription = await useCalendarStore.getState().createSubscription(
+      'External',
+      '#22d3ee',
+      'https://calendar.example/feed.ics',
+    );
+    const itemsBeforeFailure = useCalendarStore.getState().sourceItems;
+    vi.mocked(tauriCommands.calendarSaveSubscription).mockClear();
+
+    await expect(
+      useCalendarStore.getState().refreshSubscription(subscription.id),
+    ).rejects.toThrow('feed unavailable');
+
+    expect(useCalendarStore.getState().sourceItems).toBe(itemsBeforeFailure);
+    expect(tauriCommands.calendarReplaceSubscription).toHaveBeenCalledTimes(1);
+    expect(tauriCommands.calendarSaveSubscription).toHaveBeenCalledWith(
+      'profile-1',
+      expect.objectContaining({ id: subscription.id, lastError: 'feed unavailable' }),
+    );
   });
 
   it('persists a recurring occurrence edit as a detached exception', async () => {

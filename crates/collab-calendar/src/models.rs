@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 pub const CALENDAR_SCHEMA_VERSION: u32 = 1;
+pub const MAX_ICALENDAR_PROPERTIES: usize = 64;
+pub const MAX_ICALENDAR_PROPERTY_LENGTH: usize = 16_384;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(
@@ -9,10 +11,23 @@ pub const CALENDAR_SCHEMA_VERSION: u32 = 1;
     rename_all_fields = "camelCase"
 )]
 pub enum CalendarLocation {
-    Local { profile_id: String },
-    Hosted { server_url: String, user_id: String },
-    Subscription { subscription_id: String },
-    Kanban { origin_key: String },
+    Local {
+        profile_id: String,
+    },
+    Hosted {
+        server_url: String,
+        user_id: String,
+    },
+    Subscription {
+        subscription_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        server_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        user_id: Option<String>,
+    },
+    Kanban {
+        origin_key: String,
+    },
 }
 
 impl CalendarLocation {
@@ -41,6 +56,28 @@ pub struct CalendarDefinition {
     pub updated_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deleted_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarSubscription {
+    pub id: String,
+    pub calendar_id: String,
+    pub feed_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_modified: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_refreshed_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
 }
 
 fn calendar_schema_version() -> u32 {
@@ -244,6 +281,8 @@ pub struct CalendarItem {
     pub recurrence_series_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_binding: Option<CalendarSourceBinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub icalendar_properties: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start: Option<CalendarTimeValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

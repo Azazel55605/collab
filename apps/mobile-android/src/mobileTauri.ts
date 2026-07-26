@@ -67,6 +67,21 @@ export function upsertProfileCalendarItem(
   return invoke('calendar_upsert_item', { profileId, item, operation });
 }
 
+export function upsertProfileCalendarItems(
+  profileId: string,
+  entries: Array<[CalendarItem, CalendarOperation]>,
+): Promise<void> {
+  return invoke('calendar_upsert_items', { profileId, entries });
+}
+
+export function listProfileCalendarItemsForCalendar(
+  profileId: string,
+  calendarId: string,
+  limit = 5_000,
+): Promise<CalendarItem[]> {
+  return invoke('calendar_list_calendar_items', { profileId, calendarId, limit });
+}
+
 export function deleteProfileCalendarItem(
   profileId: string,
   calendarId: string,
@@ -528,6 +543,13 @@ export async function showMobileOpenFiles(extensions: string[]): Promise<string[
 
 export function showMobileSaveDialog(defaultName: string): Promise<string | null> {
   return save({ title: 'Download', defaultPath: defaultName });
+}
+
+export function writeMobileDownloadedFile(
+  destinationPath: string,
+  contentBase64: string,
+): Promise<void> {
+  return invoke('write_downloaded_file', { destinationPath, contentBase64 });
 }
 
 export function downloadHostedEntry(

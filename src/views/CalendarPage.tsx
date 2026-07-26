@@ -7,7 +7,10 @@ import {
   ChevronRight,
   CirclePlus,
   ClipboardCheck,
+  Copy,
   Ellipsis,
+  FileDown,
+  FileUp,
   Gift,
   Bell,
   CheckCircle2,
@@ -18,6 +21,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Rss,
   Search,
   SquareKanban,
   Trash2,
@@ -69,6 +73,13 @@ import {
 import { cn } from '../lib/utils';
 import { calendarMirrorLocationKey } from '../lib/calendarMirroring';
 import {
+  base64ToUtf8,
+  exportCalendarIcs,
+  previewCalendarIcsImport,
+  utf8ToBase64,
+  type CalendarIcsImportPreview,
+} from '../lib/calendarIcs';
+import {
   CALENDAR_MINUTES_PER_DAY,
   layoutCalendarTimedItems,
   rescheduleCalendarAllDayItem,
@@ -82,6 +93,7 @@ import { useCalendarStore } from '../store/calendarStore';
 import { useCollabStore } from '../store/collabStore';
 import { useServerStore } from '../store/serverStore';
 import { formatTime, useUiStore } from '../store/uiStore';
+import { tauriCommands } from '../lib/tauri';
 import {
   calendarItemRange,
   normalizeCalendarItem,
@@ -94,6 +106,9 @@ import {
   type CalendarMirrorConflict,
   type CalendarMirrorGroup,
   type CalendarMirrorGroupStatus,
+  type CalendarPublishedFeed,
+  type CreatedCalendarPublishedFeed,
+  type CalendarSubscription,
   type CalendarTask,
   type CalendarTaskPriority,
   type CalendarTaskStatus,
@@ -272,8 +287,21 @@ export default function CalendarPage() {
   const [deleteRequest, setDeleteRequest] = useState<CalendarItem | null>(null);
   const [rescheduleRequest, setRescheduleRequest] = useState<RescheduleRequest | null>(null);
   const [calendarDialogOpen, setCalendarDialogOpen] = useState(false);
+  const [subscriptionDialogOpen, setSubscriptionDialogOpen] = useState(false);
+  const [subscriptionDeleteRequest, setSubscriptionDeleteRequest] = useState<CalendarSubscription | null>(null);
+  const [publishCalendar, setPublishCalendar] = useState<CalendarDefinition | null>(null);
   const [mirrorDialogOpen, setMirrorDialogOpen] = useState(false);
   const [calendarEditor, setCalendarEditor] = useState<CalendarDefinition | null>(null);
+  const [importRequest, setImportRequest] = useState<{
+    calendar: CalendarDefinition;
+    fileName: string;
+    preview: CalendarIcsImportPreview;
+  } | null>(null);
+  const [exportRequest, setExportRequest] = useState<{
+    calendar: CalendarDefinition;
+    items: CalendarItem[];
+  } | null>(null);
+  const [interopError, setInteropError] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<CalendarItem[]>([]);
@@ -308,6 +336,11 @@ export default function CalendarPage() {
       void store.loadRange(range.from, range.to, viewMode === 'tasks');
     }
   }, [profileId, range.from, range.to, store.calendars.length, store.loadRange, store.profileId, viewMode]);
+  useEffect(() => {
+    if (store.profileId === profileId && store.subscriptions.length > 0) {
+      void store.refreshSubscriptions();
+    }
+  }, [profileId, store.profileId, store.refreshSubscriptions, store.subscriptions.length]);
   useEffect(() => {
     if (!searchOpen || searchQuery.trim().length < 2) {
       setSearchResults([]);
@@ -429,6 +462,34 @@ export default function CalendarPage() {
   const resizeItem = (item: CalendarItem, dateKey: string, endMinute: number) => {
     saveRescheduledItem(item, resizeCalendarTimedItem(item, dateKey, endMinute));
   };
+  const importCalendar = async (calendar: CalendarDefinition) => {
+    try {
+      setInteropError(null);
+      const path = await tauriCommands.showCalendarImportDialog();
+      if (!path) return;
+      const [payload, existing] = await Promise.all([
+        tauriCommands.readFileForUpload(path),
+        store.listCalendarItems(calendar.id),
+      ]);
+      const preview = previewCalendarIcsImport(
+        base64ToUtf8(payload.contentBase64),
+        calendar,
+        existing,
+      );
+      setImportRequest({ calendar, fileName: payload.name, preview });
+    } catch (error) {
+      setInteropError(error instanceof Error ? error.message : String(error));
+    }
+  };
+  const exportCalendar = async (calendar: CalendarDefinition) => {
+    try {
+      setInteropError(null);
+      const items = await store.listCalendarItems(calendar.id);
+      setExportRequest({ calendar, items });
+    } catch (error) {
+      setInteropError(error instanceof Error ? error.message : String(error));
+    }
+  };
   const selectedDay = dateFromKey(selectedDate);
   const selectedItems = visibleItems.filter((item) => itemOccursOn(item, selectedDay));
   const kanbanEditorItem = editorRequest?.item?.kind === 'task'
@@ -475,18 +536,25 @@ export default function CalendarPage() {
         <Button size="sm" onClick={() => openEditor({ date: selectedDate, kind: 'event' })} disabled={store.calendars.length === 0}><Plus /> New</Button>
       </header>
 
-      {store.error && <button type="button" className="shrink-0 border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-left text-xs text-destructive" onClick={store.clearError}>{store.error}</button>}
+      {(store.error || interopError) && <button type="button" className="shrink-0 border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-left text-xs text-destructive" onClick={() => { store.clearError(); setInteropError(null); }}>{store.error || interopError}</button>}
 
       <div className="flex min-h-0 flex-1">
         {showCalendarRail && <CalendarRail
           calendars={store.calendars}
+          subscriptions={store.subscriptions}
           visibleIds={store.visibleCalendarIds}
           saving={store.saving}
           onVisible={store.setCalendarVisible}
           onAdd={() => setCalendarDialogOpen(true)}
+          onSubscribe={() => setSubscriptionDialogOpen(true)}
           onMirrors={() => setMirrorDialogOpen(true)}
           mirrorAttention={store.mirrorStatuses.some((status) => status.state === 'waiting' || status.state === 'conflict' || status.state === 'error')}
           onEdit={setCalendarEditor}
+          onImport={(calendar) => void importCalendar(calendar)}
+          onExport={(calendar) => void exportCalendar(calendar)}
+          onPublish={setPublishCalendar}
+          onRefreshSubscription={(subscriptionId) => void store.refreshSubscription(subscriptionId).catch(() => {})}
+          onDeleteSubscription={(subscriptionId) => setSubscriptionDeleteRequest(store.subscriptions.find((entry) => entry.id === subscriptionId) ?? null)}
           onArchive={(calendar, archived) => {
             void store.updateCalendar(calendar.id, { archived }).catch(() => {});
           }}
@@ -511,6 +579,15 @@ export default function CalendarPage() {
       <RecurringDeleteDialog item={deleteRequest} saving={store.saving} onOpenChange={(open) => !open && setDeleteRequest(null)} onDelete={async (scope) => { if (!deleteRequest) return; await store.deleteItem(deleteRequest, scope); setDeleteRequest(null); }} />
       <RecurringRescheduleDialog item={rescheduleRequest?.item ?? null} saving={store.saving} onOpenChange={(open) => !open && setRescheduleRequest(null)} onSave={async (scope) => { if (!rescheduleRequest) return; await store.saveItem(rescheduleRequest.item, scope); setRescheduleRequest(null); }} />
       <CalendarDialog open={calendarDialogOpen} onOpenChange={setCalendarDialogOpen} saving={store.saving} locations={calendarLocations} onCreate={store.createCalendar} />
+      <CalendarSubscriptionDialog
+        open={subscriptionDialogOpen}
+        onOpenChange={setSubscriptionDialogOpen}
+        saving={store.saving}
+        locations={calendarLocations}
+        onCreate={store.createSubscription}
+      />
+      <CalendarPublishDialog calendar={publishCalendar} onOpenChange={(open) => !open && setPublishCalendar(null)} />
+      <Dialog open={subscriptionDeleteRequest != null} onOpenChange={(open) => !open && setSubscriptionDeleteRequest(null)}><DialogContent className="sm:max-w-sm"><DialogHeader><DialogTitle>Remove calendar subscription?</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">The cached read-only calendar and its entries will be removed from this profile. The external feed is not changed.</p><DialogFooter><Button type="button" variant="outline" onClick={() => setSubscriptionDeleteRequest(null)}>Cancel</Button><Button type="button" variant="destructive" disabled={store.saving} onClick={() => { if (!subscriptionDeleteRequest) return; void store.deleteSubscription(subscriptionDeleteRequest.id).then(() => setSubscriptionDeleteRequest(null)).catch(() => {}); }}>{store.saving ? 'Removing...' : 'Remove'}</Button></DialogFooter></DialogContent></Dialog>
       <CalendarMirrorDialog
         open={mirrorDialogOpen}
         onOpenChange={setMirrorDialogOpen}
@@ -533,8 +610,91 @@ export default function CalendarPage() {
           setCalendarEditor(null);
         }}
       />
+      <CalendarImportDialog
+        request={importRequest}
+        saving={store.saving}
+        onOpenChange={(open) => !open && setImportRequest(null)}
+        onImport={async (request) => {
+          const items = request.preview.entries
+            .filter((entry) => entry.action === 'create' || entry.action === 'update')
+            .map((entry) => entry.item);
+          await store.importItems(request.calendar.id, items);
+          setImportRequest(null);
+        }}
+      />
+      <CalendarExportDialog
+        request={exportRequest}
+        visibleRange={range}
+        selectedDate={selectedDate}
+        onOpenChange={(open) => !open && setExportRequest(null)}
+        onExport={async (calendar, items, suffix) => {
+          const safeName = calendar.name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').trim() || 'calendar';
+          const destination = await tauriCommands.showDownloadDialog(`${safeName}${suffix}.ics`);
+          if (!destination) return;
+          await tauriCommands.writeDownloadedFile(
+            destination,
+            utf8ToBase64(exportCalendarIcs(calendar, items)),
+          );
+          setExportRequest(null);
+        }}
+      />
     </div>
   );
+}
+
+function CalendarExportDialog({ request, visibleRange, selectedDate, onOpenChange, onExport }: {
+  request: { calendar: CalendarDefinition; items: CalendarItem[] } | null;
+  visibleRange: { from: string; to: string };
+  selectedDate: string;
+  onOpenChange: (open: boolean) => void;
+  onExport: (
+    calendar: CalendarDefinition,
+    items: CalendarItem[],
+    suffix: string,
+  ) => Promise<void>;
+}) {
+  const [scope, setScope] = useState<'calendar' | 'range' | 'day' | 'items'>('calendar');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!request) return;
+    setScope('calendar');
+    setSelectedIds([]);
+  }, [request]);
+  if (!request) return <Dialog open={false} onOpenChange={onOpenChange} />;
+  const rangeStart = Date.parse(`${visibleRange.from}T00:00:00`);
+  const rangeEnd = Date.parse(`${visibleRange.to}T00:00:00`);
+  const rangeItems = request.items.filter((item) => {
+    const itemRange = calendarItemRange(item);
+    return itemRange != null && itemRange.end > rangeStart && itemRange.start < rangeEnd;
+  });
+  const day = dateFromKey(selectedDate);
+  const dayItems = request.items.filter((item) => itemOccursOn(item, day));
+  const selectedItems = request.items.filter((item) => selectedIds.includes(item.id));
+  const output = scope === 'range'
+    ? rangeItems
+    : scope === 'day'
+      ? dayItems
+      : scope === 'items'
+        ? selectedItems
+        : request.items;
+  const suffix = scope === 'calendar'
+    ? ''
+    : scope === 'day'
+      ? `-${selectedDate}`
+      : scope === 'range'
+        ? `-${visibleRange.from}-to-${visibleRange.to}`
+        : '-selection';
+  return <Dialog open onOpenChange={onOpenChange}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Export calendar</DialogTitle></DialogHeader>
+    <div className="space-y-3">
+      <label className="block space-y-1"><span className="text-xs font-medium">Export scope</span><Select value={scope} onValueChange={(value) => setScope(value as typeof scope)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="calendar">Entire calendar</SelectItem><SelectItem value="range">Visible range</SelectItem><SelectItem value="day">Selected day</SelectItem><SelectItem value="items">Selected items</SelectItem></SelectContent></Select></label>
+      {scope === 'items' && <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-1">
+        {request.items.map((item) => <label key={item.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/50"><Checkbox checked={selectedIds.includes(item.id)} onCheckedChange={(checked) => setSelectedIds((current) => checked === true ? [...current, item.id] : current.filter((id) => id !== item.id))} /><ItemTypeIcon item={item} className="size-3 shrink-0" /><span className="min-w-0 flex-1 truncate">{item.title}</span></label>)}
+        {request.items.length === 0 && <p className="px-2 py-3 text-xs text-muted-foreground">No items are available.</p>}
+      </div>}
+      <p className="text-xs text-muted-foreground">{output.length} item{output.length === 1 ? '' : 's'} will be written to the iCalendar file.</p>
+    </div>
+    <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" disabled={scope === 'items' && output.length === 0} onClick={() => void onExport(request.calendar, output, suffix)}><FileDown />Export</Button></DialogFooter>
+  </DialogContent></Dialog>;
 }
 
 function RecurringDeleteDialog({ item, saving, onOpenChange, onDelete }: {
@@ -604,24 +764,32 @@ export function setCompactCalendarDragImage(
   window.setTimeout(() => preview.remove(), 0);
 }
 
-export function CalendarRail({ calendars, visibleIds, saving, mirrorAttention, onVisible, onAdd, onMirrors, onEdit, onArchive }: {
+export function CalendarRail({ calendars, subscriptions, visibleIds, saving, mirrorAttention, onVisible, onAdd, onSubscribe, onMirrors, onEdit, onImport, onExport, onPublish, onRefreshSubscription, onDeleteSubscription, onArchive }: {
   calendars: CalendarDefinition[];
+  subscriptions: CalendarSubscription[];
   visibleIds: string[];
   saving: boolean;
   mirrorAttention: boolean;
   onVisible: (id: string, visible: boolean) => void;
   onAdd: () => void;
+  onSubscribe: () => void;
   onMirrors: () => void;
   onEdit: (calendar: CalendarDefinition) => void;
+  onImport: (calendar: CalendarDefinition) => void;
+  onExport: (calendar: CalendarDefinition) => void;
+  onPublish: (calendar: CalendarDefinition) => void;
+  onRefreshSubscription: (subscriptionId: string) => void;
+  onDeleteSubscription: (subscriptionId: string) => void;
   onArchive: (calendar: CalendarDefinition, archived: boolean) => void;
 }) {
   const activeCalendars = calendars.filter((calendar) => !calendar.archived);
   const archivedCalendars = calendars.filter((calendar) => calendar.archived);
   return <aside className="flex w-44 shrink-0 flex-col border-r border-border/60 bg-sidebar/40 p-3">
-    <div className="mb-2 flex items-center justify-between"><span className="text-[10px] font-semibold uppercase text-muted-foreground">Calendars</span><span className="flex items-center"><Button variant="ghost" size="icon-xs" aria-label="Manage calendar mirrors" title="Manage calendar mirrors" className="relative" onClick={onMirrors}><Link2 />{mirrorAttention && <span className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-destructive" />}</Button><Button variant="ghost" size="icon-xs" aria-label="Add calendar" onClick={onAdd}><CirclePlus /></Button></span></div>
+    <div className="mb-2 flex items-center justify-between"><span className="text-[10px] font-semibold uppercase text-muted-foreground">Calendars</span><span className="flex items-center"><Button variant="ghost" size="icon-xs" aria-label="Manage calendar mirrors" title="Manage calendar mirrors" className="relative" onClick={onMirrors}><Link2 />{mirrorAttention && <span className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-destructive" />}</Button><Button variant="ghost" size="icon-xs" aria-label="Subscribe to calendar" title="Subscribe to calendar" onClick={onSubscribe}><Rss /></Button><Button variant="ghost" size="icon-xs" aria-label="Add calendar" onClick={onAdd}><CirclePlus /></Button></span></div>
     <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">{activeCalendars.map((calendar) => {
       const checkboxId = `calendar-visible-${calendar.id}`;
-      return <div key={calendar.id} className="group flex items-center gap-1 rounded-md px-1.5 py-1.5 text-xs hover:bg-accent/60"><Checkbox id={checkboxId} checked={visibleIds.includes(calendar.id)} onCheckedChange={(checked) => onVisible(calendar.id, checked === true)} /><label htmlFor={checkboxId} className="flex min-w-0 flex-1 cursor-pointer items-center gap-2"><span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: calendar.color }} /><span className="truncate">{calendar.name}</span></label><CalendarActions calendar={calendar} saving={saving} onEdit={onEdit} onArchive={onArchive} /></div>;
+      const subscription = subscriptions.find((entry) => entry.calendarId === calendar.id);
+      return <div key={calendar.id} className="group flex items-center gap-1 rounded-md px-1.5 py-1.5 text-xs hover:bg-accent/60"><Checkbox id={checkboxId} checked={visibleIds.includes(calendar.id)} onCheckedChange={(checked) => onVisible(calendar.id, checked === true)} /><label htmlFor={checkboxId} className="flex min-w-0 flex-1 cursor-pointer items-center gap-2" title={subscription?.lastError || undefined}><span className="relative size-2.5 shrink-0 rounded-full" style={{ backgroundColor: calendar.color }}>{subscription?.lastError && <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-destructive ring-1 ring-background" />}</span><span className="truncate">{calendar.name}</span></label><CalendarActions calendar={calendar} subscription={subscription} saving={saving} onEdit={onEdit} onImport={onImport} onExport={onExport} onPublish={onPublish} onRefreshSubscription={onRefreshSubscription} onDeleteSubscription={onDeleteSubscription} onArchive={onArchive} /></div>;
     })}
     {archivedCalendars.length > 0 && <>
       <div className="mb-1 mt-3 px-1 text-[9px] font-semibold uppercase text-muted-foreground">Archived</div>
@@ -629,16 +797,22 @@ export function CalendarRail({ calendars, visibleIds, saving, mirrorAttention, o
         <span className="size-2.5 shrink-0 rounded-full opacity-60" style={{ backgroundColor: calendar.color }} />
         <span className="min-w-0 flex-1 truncate">{calendar.name}</span>
         <Button type="button" variant="ghost" size="icon-xs" disabled={saving || calendar.readOnly} aria-label={`Restore ${calendar.name}`} title="Restore calendar" onClick={() => onArchive(calendar, false)}><ArchiveRestore /></Button>
-        <CalendarActions calendar={calendar} saving={saving} onEdit={onEdit} onArchive={onArchive} />
+        <CalendarActions calendar={calendar} subscription={subscriptions.find((entry) => entry.calendarId === calendar.id)} saving={saving} onEdit={onEdit} onImport={onImport} onExport={onExport} onPublish={onPublish} onRefreshSubscription={onRefreshSubscription} onDeleteSubscription={onDeleteSubscription} onArchive={onArchive} />
       </div>)}
     </>}</div>
   </aside>;
 }
 
-function CalendarActions({ calendar, saving, onEdit, onArchive }: {
+function CalendarActions({ calendar, subscription, saving, onEdit, onImport, onExport, onPublish, onRefreshSubscription, onDeleteSubscription, onArchive }: {
   calendar: CalendarDefinition;
+  subscription?: CalendarSubscription;
   saving: boolean;
   onEdit: (calendar: CalendarDefinition) => void;
+  onImport: (calendar: CalendarDefinition) => void;
+  onExport: (calendar: CalendarDefinition) => void;
+  onPublish: (calendar: CalendarDefinition) => void;
+  onRefreshSubscription: (subscriptionId: string) => void;
+  onDeleteSubscription: (subscriptionId: string) => void;
   onArchive: (calendar: CalendarDefinition, archived: boolean) => void;
 }) {
   return <DropdownMenu><DropdownMenuTrigger asChild><Button
@@ -647,13 +821,18 @@ function CalendarActions({ calendar, saving, onEdit, onArchive }: {
     size="icon-xs"
     className="opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 focus-visible:opacity-100"
     aria-label={`Manage ${calendar.name}`}
-  ><Ellipsis /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-36">
+  ><Ellipsis /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-40">
     <DropdownMenuItem disabled={saving || calendar.readOnly} onSelect={() => onEdit(calendar)}><Pencil />Edit</DropdownMenuItem>
+    <DropdownMenuItem disabled={saving || calendar.readOnly} onSelect={() => onImport(calendar)}><FileUp />Import .ics</DropdownMenuItem>
+    <DropdownMenuItem disabled={saving} onSelect={() => onExport(calendar)}><FileDown />Export .ics</DropdownMenuItem>
+    {calendar.location.kind === 'hosted' && <DropdownMenuItem disabled={saving} onSelect={() => onPublish(calendar)}><Rss />Publish feed</DropdownMenuItem>}
+    {subscription && <DropdownMenuItem disabled={saving} onSelect={() => onRefreshSubscription(subscription.id)}><RefreshCw />Refresh feed</DropdownMenuItem>}
     <DropdownMenuSeparator />
-    <DropdownMenuItem disabled={saving || calendar.readOnly} onSelect={() => onArchive(calendar, !calendar.archived)}>
+    {subscription && <DropdownMenuItem variant="destructive" disabled={saving} onSelect={() => onDeleteSubscription(subscription.id)}><Trash2 />Remove subscription</DropdownMenuItem>}
+    {!subscription && <DropdownMenuItem disabled={saving || calendar.readOnly} onSelect={() => onArchive(calendar, !calendar.archived)}>
       {calendar.archived ? <ArchiveRestore /> : <Archive />}
       {calendar.archived ? 'Restore' : 'Archive'}
-    </DropdownMenuItem>
+    </DropdownMenuItem>}
   </DropdownMenuContent></DropdownMenu>;
 }
 
@@ -1405,6 +1584,46 @@ export function CalendarSettingsDialog({ calendar, saving, onOpenChange, onSave 
   </DialogContent></Dialog>;
 }
 
+function CalendarImportDialog({ request, saving, onOpenChange, onImport }: {
+  request: {
+    calendar: CalendarDefinition;
+    fileName: string;
+    preview: CalendarIcsImportPreview;
+  } | null;
+  saving: boolean;
+  onOpenChange: (open: boolean) => void;
+  onImport: (request: {
+    calendar: CalendarDefinition;
+    fileName: string;
+    preview: CalendarIcsImportPreview;
+  }) => Promise<void>;
+}) {
+  const preview = request?.preview;
+  const changes = (preview?.creates ?? 0) + (preview?.updates ?? 0);
+  return <Dialog open={request != null} onOpenChange={onOpenChange}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Import iCalendar file</DialogTitle></DialogHeader>
+    <div className="space-y-4">
+      <div className="rounded-md bg-muted/45 px-3 py-2 text-xs text-muted-foreground">
+        <span className="block truncate font-medium text-foreground">{request?.fileName}</span>
+        Import into <span className="font-medium text-foreground">{request?.calendar.name}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {[
+          ['New', preview?.creates ?? 0],
+          ['Updates', preview?.updates ?? 0],
+          ['Unchanged', preview?.unchanged ?? 0],
+          ['Conflicts', preview?.conflicts ?? 0],
+        ].map(([label, count]) => <div key={String(label)} className="rounded-md border border-border/60 px-3 py-2"><div className="text-lg font-semibold">{count}</div><div className="text-[10px] uppercase text-muted-foreground">{label}</div></div>)}
+      </div>
+      {(preview?.warnings.length ?? 0) > 0 && <div className="max-h-28 overflow-y-auto rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+        {preview?.warnings.slice(0, 20).map((warning, index) => <div key={`${index}-${warning}`}>{warning}</div>)}
+        {(preview?.warnings.length ?? 0) > 20 && <div>And {(preview?.warnings.length ?? 0) - 20} more warnings.</div>}
+      </div>}
+      {(preview?.conflicts ?? 0) > 0 && <p className="text-xs text-muted-foreground">Conflicting duplicate identities are skipped. Resolve them in the source file before importing.</p>}
+    </div>
+    <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button type="button" disabled={saving || !request || changes === 0} onClick={() => request && void onImport(request)}>{saving ? 'Importing...' : `Import ${changes} item${changes === 1 ? '' : 's'}`}</Button></DialogFooter>
+  </DialogContent></Dialog>;
+}
+
 function mirrorStatusLabel(group: CalendarMirrorGroup, status: CalendarMirrorGroupStatus | undefined): string {
   if (!group.enabled || status?.state === 'disabled') return 'Paused';
   if (status?.state === 'waiting') return 'Waiting for connection';
@@ -1539,4 +1758,157 @@ function CalendarDialog({ open, onOpenChange, saving, locations, onCreate }: {
   const [locationKey, setLocationKey] = useState('local');
   const submit = async (event: React.FormEvent) => { event.preventDefault(); if (!name.trim()) return; const target = locations.find((entry) => entry.value === locationKey) ?? locations[0]; await onCreate(name.trim(), color, target?.location); setName(''); onOpenChange(false); };
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="sm:max-w-sm"><DialogHeader><DialogTitle>New calendar</DialogTitle></DialogHeader><form id="new-calendar-form" className="space-y-3" onSubmit={(event) => void submit(event)}><label className="block space-y-1"><span className="text-xs font-medium">Name</span><Input autoFocus value={name} onChange={(event) => setName(event.target.value)} required /></label><label className="block space-y-1"><span className="text-xs font-medium">Location</span><Select value={locationKey} onValueChange={setLocationKey}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{locations.map((entry) => <SelectItem key={entry.value} value={entry.value}>{entry.label}</SelectItem>)}</SelectContent></Select></label><div className="flex gap-2">{CALENDAR_COLORS.map((value) => <button key={value} type="button" aria-label={`Use color ${value}`} onClick={() => setColor(value)} className={cn('size-6 rounded-full', color === value && 'ring-2 ring-foreground ring-offset-2 ring-offset-background')} style={{ backgroundColor: value }} />)}</div></form><DialogFooter><Button type="submit" form="new-calendar-form" disabled={saving || !name.trim()}>{saving ? 'Saving...' : 'Create'}</Button></DialogFooter></DialogContent></Dialog>;
+}
+
+function CalendarSubscriptionDialog({ open, onOpenChange, saving, locations, onCreate }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  saving: boolean;
+  locations: Array<{ value: string; label: string; location: CalendarLocation }>;
+  onCreate: (
+    name: string,
+    color: string,
+    feedUrl: string,
+    location?: CalendarLocation,
+  ) => Promise<unknown>;
+}) {
+  const [name, setName] = useState('');
+  const [feedUrl, setFeedUrl] = useState('');
+  const [color, setColor] = useState(CALENDAR_COLORS[5]);
+  const [locationKey, setLocationKey] = useState('local');
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!name.trim() || !feedUrl.trim()) return;
+    try {
+      const target = locations.find((entry) => entry.value === locationKey) ?? locations[0];
+      await onCreate(name.trim(), color, feedUrl.trim(), target?.location);
+      setName('');
+      setFeedUrl('');
+      onOpenChange(false);
+    } catch {
+      // The calendar store exposes the fetch or parse error in the page banner.
+    }
+  };
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="sm:max-w-sm"><DialogHeader><DialogTitle>Subscribe to calendar</DialogTitle></DialogHeader>
+    <form id="calendar-subscription-form" className="space-y-3" onSubmit={(event) => void submit(event)}>
+      <label className="block space-y-1"><span className="text-xs font-medium">Name</span><Input autoFocus value={name} onChange={(event) => setName(event.target.value)} required maxLength={120} /></label>
+      <label className="block space-y-1"><span className="text-xs font-medium">iCalendar feed URL</span><Input type="url" inputMode="url" value={feedUrl} onChange={(event) => setFeedUrl(event.target.value)} required placeholder="https://example.com/calendar.ics" /></label>
+      <label className="block space-y-1"><span className="text-xs font-medium">Stored on</span><Select value={locationKey} onValueChange={setLocationKey}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{locations.map((entry) => <SelectItem key={entry.value} value={entry.value}>{entry.label}</SelectItem>)}</SelectContent></Select></label>
+      <p className="text-[10px] text-muted-foreground">Subscriptions are read-only and refresh from HTTPS feeds. Private and local network targets are blocked.</p>
+      <fieldset className="space-y-2"><legend className="text-xs font-medium">Accent color</legend><div className="flex gap-2">{CALENDAR_COLORS.map((value) => <button key={value} type="button" aria-label={`Use color ${value}`} aria-pressed={color === value} onClick={() => setColor(value)} className={cn('size-6 rounded-full', color === value && 'ring-2 ring-foreground ring-offset-2 ring-offset-background')} style={{ backgroundColor: value }} />)}</div></fieldset>
+    </form>
+    <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button type="submit" form="calendar-subscription-form" disabled={saving || !name.trim() || !feedUrl.trim()}>{saving ? 'Subscribing...' : 'Subscribe'}</Button></DialogFooter>
+  </DialogContent></Dialog>;
+}
+
+function CalendarPublishDialog({ calendar, onOpenChange }: {
+  calendar: CalendarDefinition | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [feeds, setFeeds] = useState<CalendarPublishedFeed[]>([]);
+  const [generatedUrl, setGeneratedUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!calendar || calendar.location.kind !== 'hosted') {
+      setFeeds([]);
+      setGeneratedUrl('');
+      setError(null);
+      return;
+    }
+    let active = true;
+    setBusy(true);
+    setGeneratedUrl('');
+    setCopied(false);
+    setError(null);
+    void tauriCommands.hostedCalendarRequest<CalendarPublishedFeed[]>(
+      calendar.location.serverUrl,
+      'GET',
+      `/api/v1/calendars/${calendar.id}/published-feeds`,
+    ).then((values) => {
+      if (active) setFeeds(values);
+    }).catch((reason) => {
+      if (active) setError(reason instanceof Error ? reason.message : String(reason));
+    }).finally(() => {
+      if (active) setBusy(false);
+    });
+    return () => { active = false; };
+  }, [calendar]);
+
+  const createFeed = async () => {
+    if (!calendar || calendar.location.kind !== 'hosted') return;
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await tauriCommands.hostedCalendarRequest<CreatedCalendarPublishedFeed>(
+        calendar.location.serverUrl,
+        'POST',
+        `/api/v1/calendars/${calendar.id}/published-feeds`,
+      );
+      setFeeds((current) => [created, ...current]);
+      setGeneratedUrl(`${calendar.location.serverUrl.replace(/\/$/, '')}${created.feedPath}`);
+      setCopied(false);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revokeFeed = async (feedId: string) => {
+    if (!calendar || calendar.location.kind !== 'hosted') return;
+    setBusy(true);
+    setError(null);
+    try {
+      await tauriCommands.hostedCalendarRequest(
+        calendar.location.serverUrl,
+        'DELETE',
+        `/api/v1/calendars/${calendar.id}/published-feeds/${feedId}`,
+      );
+      setFeeds((current) => current.filter((feed) => feed.id !== feedId));
+      setGeneratedUrl('');
+      setCopied(false);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <Dialog open={calendar != null} onOpenChange={onOpenChange}><DialogContent className="sm:max-w-lg">
+    <DialogHeader><DialogTitle>Publish {calendar?.name ?? 'calendar'}</DialogTitle></DialogHeader>
+    <p className="text-xs text-muted-foreground">Anyone with a published URL can read this calendar in an external calendar app. The URL is shown only when it is created.</p>
+    {error && <div className="rounded border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">{error}</div>}
+    {generatedUrl && <div className="space-y-1.5">
+      <span className="text-xs font-medium">New subscription URL</span>
+      <div className="flex gap-2">
+        <Input readOnly value={generatedUrl} className="min-w-0 font-mono text-xs" aria-label="Published calendar URL" />
+        <Button type="button" variant="outline" size="icon" aria-label="Copy published calendar URL" title="Copy URL" onClick={() => {
+          void navigator.clipboard.writeText(generatedUrl).then(() => setCopied(true)).catch(() => setError('Could not copy the published URL.'));
+        }}><Copy /></Button>
+      </div>
+      {copied && <p className="text-[10px] text-muted-foreground">Copied to clipboard</p>}
+    </div>}
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium">Active links</span>
+        <Button type="button" size="sm" disabled={busy} onClick={() => void createFeed()}><Plus />New link</Button>
+      </div>
+      <div className="max-h-56 space-y-1 overflow-y-auto">
+        {busy && feeds.length === 0 && <div className="flex items-center justify-center gap-2 py-5 text-xs text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading links</div>}
+        {!busy && feeds.length === 0 && <div className="rounded border border-dashed border-border px-3 py-5 text-center text-xs text-muted-foreground">No published links</div>}
+        {feeds.map((feed) => <div key={feed.id} className="flex items-center gap-2 rounded border border-border/70 px-2.5 py-2 text-xs">
+          <Rss className="size-3.5 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <div>Created {new Date(feed.createdAt).toLocaleString()}</div>
+            <div className="truncate text-[10px] text-muted-foreground">{feed.lastAccessedAt ? `Last fetched ${new Date(feed.lastAccessedAt).toLocaleString()}` : 'Not fetched yet'}</div>
+          </div>
+          <Button type="button" variant="ghost" size="icon-sm" disabled={busy} aria-label="Revoke published calendar link" title="Revoke link" onClick={() => void revokeFeed(feed.id)}><Trash2 /></Button>
+        </div>)}
+      </div>
+    </div>
+    <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Close</Button></DialogFooter>
+  </DialogContent></Dialog>;
 }

@@ -8,6 +8,8 @@ import {
   CirclePlus,
   ClipboardCheck,
   CloudOff,
+  FileDown,
+  FileUp,
   Gift,
   Link,
   Link2,
@@ -41,6 +43,7 @@ import {
   hostedRequest,
   hostedUserDirectory,
   listProfileCalendarItems,
+  listProfileCalendarItemsForCalendar,
   listProfileCalendarMirrorGroups,
   listProfileCalendars,
   openExternalUrl,
@@ -51,7 +54,10 @@ import {
   saveProfileCalendar,
   saveProfileCalendarWithOperation,
   showMobileOpenFiles,
+  showMobileSaveDialog,
   upsertProfileCalendarItem,
+  upsertProfileCalendarItems,
+  writeMobileDownloadedFile,
   deleteProfileCalendarMirrorGroup,
   type ServerConnectionStatus,
   type UserDirectoryEntry,
@@ -70,6 +76,12 @@ import {
 import type { ThemePrefs } from '../lib/theme';
 import { useMobileStore } from '../state/store';
 import { layoutCalendarTimedItems } from '../../../../src/lib/calendarTimedLayout';
+import {
+  base64ToUtf8,
+  exportCalendarIcs,
+  previewCalendarIcsImport,
+  utf8ToBase64,
+} from '../../../../src/lib/calendarIcs';
 import { expandRecurringItem } from '../../../../src/lib/calendarRecurrence';
 import {
   planRecurringEdit,
@@ -768,6 +780,88 @@ function CalendarManager({ calendars, statuses, mirrorStatuses, mirrorConflicts,
       setSaving(false);
     }
   };
+  const exportCalendar = async (calendar: CalendarDefinition) => {
+    setSaving(true);
+    setError('');
+    try {
+      const items = await listProfileCalendarItemsForCalendar(profileId, calendar.id);
+      const safeName = calendar.name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').trim() || 'calendar';
+      const destination = await showMobileSaveDialog(`${safeName}.ics`);
+      if (!destination) return;
+      await writeMobileDownloadedFile(
+        destination,
+        utf8ToBase64(exportCalendarIcs(calendar, items)),
+      );
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const importCalendar = async (calendar: CalendarDefinition) => {
+    if (calendar.readOnly) return;
+    setSaving(true);
+    setError('');
+    try {
+      const [sourcePath] = await showMobileOpenFiles(['ics']);
+      if (!sourcePath) return;
+      const [payload, existing] = await Promise.all([
+        readFileForUpload(sourcePath),
+        listProfileCalendarItemsForCalendar(profileId, calendar.id),
+      ]);
+      const preview = previewCalendarIcsImport(
+        base64ToUtf8(payload.contentBase64),
+        calendar,
+        existing,
+      );
+      if (preview.conflicts > 0) {
+        throw new Error('The iCalendar file contains conflicting duplicate item identities.');
+      }
+      const accepted = window.confirm(
+        `Import ${preview.creates} new and ${preview.updates} updated item${preview.creates + preview.updates === 1 ? '' : 's'} into ${calendar.name}?${preview.warnings.length > 0 ? `\n\n${preview.warnings.length} unsupported item${preview.warnings.length === 1 ? '' : 's'} will be skipped.` : ''}`,
+      );
+      if (!accepted) return;
+      const items = preview.entries
+        .filter((entry) => entry.action === 'create' || entry.action === 'update')
+        .map((entry) => entry.item);
+      const operations = items.map((item): CalendarOperation => ({
+        clientOperationId: crypto.randomUUID(),
+        deviceId: deviceId(),
+        expectedRevision: Math.max(0, item.revision - 1),
+        mutation: { type: 'upsertItem', item },
+      }));
+      await upsertProfileCalendarItems(
+        profileId,
+        items.map((item, index) => [item, operations[index]]),
+      );
+      if (calendar.location.kind === 'hosted') {
+        for (let index = 0; index < operations.length; index += 500) {
+          const batch = operations.slice(index, index + 500);
+          await hostedCalendarRequest(
+            calendar.location.serverUrl,
+            'POST',
+            '/api/v1/calendars/operations',
+            { operations: batch },
+          );
+          await acknowledgeProfileCalendarOperations(
+            profileId,
+            batch.map((operation) => operation.clientOperationId),
+          );
+        }
+      } else {
+        await acknowledgeProfileCalendarOperations(
+          profileId,
+          operations.map((operation) => operation.clientOperationId),
+        );
+      }
+      await syncCalendars().catch(() => {});
+      await onChanged(calendar.id, true);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setSaving(false);
+    }
+  };
   const saveMirror = async () => {
     if (!mirrorName.trim() || mirrorCalendarIds.length < 2) return;
     const now = new Date().toISOString();
@@ -870,9 +964,9 @@ function CalendarManager({ calendars, statuses, mirrorStatuses, mirrorConflicts,
       {error ? <Banner tone="error">{error}</Banner> : null}
       <button type="button" className="calendar-manager-add" onClick={startCreate} disabled={saving}><Plus size={16} />Add calendar</button>
       <div className="calendar-manager-list">
-        {active.map(calendar => <CalendarManagerRow key={calendar.id} calendar={calendar} saving={saving} onEdit={startEdit} onArchive={() => void setArchived(calendar, true)} />)}
+        {active.map(calendar => <CalendarManagerRow key={calendar.id} calendar={calendar} saving={saving} onEdit={startEdit} onImport={() => void importCalendar(calendar)} onExport={() => void exportCalendar(calendar)} onArchive={() => void setArchived(calendar, true)} />)}
         {archived.length > 0 ? <h3>Archived</h3> : null}
-        {archived.map(calendar => <CalendarManagerRow key={calendar.id} calendar={calendar} saving={saving} onEdit={startEdit} onArchive={() => void setArchived(calendar, false)} />)}
+        {archived.map(calendar => <CalendarManagerRow key={calendar.id} calendar={calendar} saving={saving} onEdit={startEdit} onImport={() => void importCalendar(calendar)} onExport={() => void exportCalendar(calendar)} onArchive={() => void setArchived(calendar, false)} />)}
       </div>
       <section className="calendar-mirror-manager" aria-labelledby="mobile-calendar-mirrors">
         <div className="calendar-mirror-manager-head"><h3 id="mobile-calendar-mirrors">Mirrors</h3><button type="button" className="icon-button" aria-label="Add calendar mirror" disabled={saving} onClick={() => setAddingMirror((current) => !current)}><Link2 size={16} /></button></div>
@@ -916,15 +1010,19 @@ function CalendarManager({ calendars, statuses, mirrorStatuses, mirrorConflicts,
   </div>;
 }
 
-function CalendarManagerRow({ calendar, saving, onEdit, onArchive }: {
+function CalendarManagerRow({ calendar, saving, onEdit, onImport, onExport, onArchive }: {
   calendar: CalendarDefinition;
   saving: boolean;
   onEdit: (calendar: CalendarDefinition) => void;
+  onImport: () => void;
+  onExport: () => void;
   onArchive: () => void;
 }) {
   return <div className="calendar-manager-row">
     <span style={{ background: calendar.color }} />
     <div><strong>{calendar.name}</strong><small>{calendarOrigin(calendar)}{calendar.readOnly ? ' · Read only' : ''}</small></div>
+    <button type="button" className="icon-button" aria-label={`Import into ${calendar.name}`} disabled={saving || calendar.readOnly} onClick={onImport}><FileUp size={15} /></button>
+    <button type="button" className="icon-button" aria-label={`Export ${calendar.name}`} disabled={saving} onClick={onExport}><FileDown size={15} /></button>
     <button type="button" className="icon-button" aria-label={`Edit ${calendar.name}`} disabled={saving || calendar.readOnly} onClick={() => onEdit(calendar)}><Pencil size={15} /></button>
     <button type="button" className="icon-button" aria-label={`${calendar.archived ? 'Restore' : 'Archive'} ${calendar.name}`} disabled={saving || calendar.readOnly} onClick={onArchive}>{calendar.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}</button>
   </div>;

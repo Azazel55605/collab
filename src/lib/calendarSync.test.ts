@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { tauriCommands } from './tauri';
 import {
+  normalizeRemoteCalendar,
   normalizeHostedCalendarOrigins,
   syncHostedCalendarOrigin,
   syncHostedCalendars,
@@ -72,6 +73,22 @@ describe('calendarSync', () => {
       { serverUrl: 'https://first.example', userId: 'user-a' },
       { serverUrl: 'https://second.example', userId: 'user-b' },
     ]);
+  });
+
+  it('keeps subscription calendars read-only and binds them to their server origin', () => {
+    expect(normalizeRemoteCalendar({
+      ...remoteCalendar,
+      location: { kind: 'subscription', subscriptionId: 'subscription-1' },
+      readOnly: true,
+    }, origin)).toMatchObject({
+      location: {
+        kind: 'subscription',
+        subscriptionId: 'subscription-1',
+        serverUrl: origin.serverUrl,
+        userId: origin.userId,
+      },
+      readOnly: true,
+    });
   });
 
   it('replays queued operations before atomically applying remote pages', async () => {

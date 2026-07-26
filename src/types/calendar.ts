@@ -8,6 +8,8 @@ export const MAX_CALENDAR_ITEM_TEXT_LENGTH = 100_000;
 export const MAX_CALENDAR_RECURRENCE_VALUE_LENGTH = 4_096;
 export const MAX_CALENDAR_ATTENDEES = 100;
 export const MAX_CALENDAR_ATTACHMENTS = 50;
+export const MAX_CALENDAR_ICALENDAR_PROPERTIES = 64;
+export const MAX_CALENDAR_ICALENDAR_PROPERTY_LENGTH = 16_384;
 const MAX_CALENDAR_EXPANDED_CANDIDATES = 20_000;
 
 export type CalendarItemKind = 'event' | 'task' | 'birthday';
@@ -20,7 +22,7 @@ export type CalendarAttendeeRole = 'organizer' | 'required' | 'optional';
 export type CalendarLocation =
   | { kind: 'local'; profileId: string }
   | { kind: 'hosted'; serverUrl: string; userId: string }
-  | { kind: 'subscription'; subscriptionId: string }
+  | { kind: 'subscription'; subscriptionId: string; serverUrl?: string; userId?: string }
   | { kind: 'kanban'; originKey: string };
 
 export type CalendarTimeValue =
@@ -132,6 +134,8 @@ interface CalendarItemBase {
   recurrenceId?: CalendarTimeValue;
   recurrenceSeriesId?: string;
   sourceBinding?: CalendarSourceBinding;
+  /** Bounded, validated unknown X-* content lines preserved for iCalendar round trips. */
+  icalendarProperties?: string[];
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -177,6 +181,31 @@ export interface CalendarDefinition {
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;
+}
+
+export interface CalendarSubscription {
+  id: string;
+  calendarId: string;
+  feedUrl: string;
+  etag?: string;
+  lastModified?: string;
+  lastRefreshedAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+  serverUrl?: string;
+  userId?: string;
+}
+
+export interface CalendarPublishedFeed {
+  id: string;
+  calendarId: string;
+  createdAt: string;
+  lastAccessedAt?: string;
+}
+
+export interface CreatedCalendarPublishedFeed extends CalendarPublishedFeed {
+  feedPath: string;
 }
 
 export type CalendarMutation =
@@ -435,6 +464,8 @@ function normalizeLocation(value: unknown): CalendarLocation {
     return {
       kind: 'subscription',
       subscriptionId: requiredString(input.subscriptionId, 'Subscription ID', 255),
+      serverUrl: input.serverUrl == null ? undefined : normalizeServerUrl(input.serverUrl, 'Subscription server URL'),
+      userId: optionalString(input.userId, 'Subscription user ID', 255),
     };
   }
   if (input.kind === 'kanban') {
@@ -632,6 +663,27 @@ function normalizeSourceBinding(value: unknown): CalendarSourceBinding | undefin
   throw new CalendarValidationError('Calendar source binding kind is invalid.');
 }
 
+function normalizeIcalendarProperties(value: unknown): string[] | undefined {
+  if (value == null) return undefined;
+  if (!Array.isArray(value) || value.length > MAX_CALENDAR_ICALENDAR_PROPERTIES) {
+    throw new CalendarValidationError(`Calendar items cannot preserve more than ${MAX_CALENDAR_ICALENDAR_PROPERTIES} iCalendar properties.`);
+  }
+  const properties = value.map((entry) => {
+    const line = requiredString(
+      entry,
+      'Preserved iCalendar property',
+      MAX_CALENDAR_ICALENDAR_PROPERTY_LENGTH,
+    );
+    if (/[\r\n]/.test(line)
+      || !/^X-[A-Z0-9-]+(?:;[^:]*)?:/i.test(line)
+      || /^X-COLLAB-/i.test(line)) {
+      throw new CalendarValidationError('Preserved iCalendar properties must be safe X-* content lines.');
+    }
+    return line;
+  });
+  return properties.length ? properties : undefined;
+}
+
 function normalizeItemBase(input: Record<string, unknown>) {
   const attendees = Array.isArray(input.attendees) ? input.attendees : [];
   const attachments = Array.isArray(input.attachments) ? input.attachments : [];
@@ -657,6 +709,7 @@ function normalizeItemBase(input: Record<string, unknown>) {
       : normalizeCalendarTimeValue(input.recurrenceId, 'Recurrence instance'),
     recurrenceSeriesId: optionalString(input.recurrenceSeriesId, 'Recurrence series ID', 255),
     sourceBinding: normalizeSourceBinding(input.sourceBinding),
+    icalendarProperties: normalizeIcalendarProperties(input.icalendarProperties),
     revision: nonNegativeInteger(input.revision, 'Calendar item revision'),
     createdAt: normalizeInstant(input.createdAt, 'Calendar item createdAt'),
     updatedAt: normalizeInstant(input.updatedAt, 'Calendar item updatedAt'),

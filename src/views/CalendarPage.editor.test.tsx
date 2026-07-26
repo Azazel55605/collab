@@ -96,13 +96,20 @@ describe('calendar management', () => {
     const onArchive = vi.fn();
     render(<CalendarRail
       calendars={[localCalendar, archived]}
+      subscriptions={[]}
       visibleIds={[localCalendar.id]}
       saving={false}
       mirrorAttention={false}
       onVisible={vi.fn()}
       onAdd={vi.fn()}
+      onSubscribe={vi.fn()}
       onMirrors={vi.fn()}
       onEdit={vi.fn()}
+      onImport={vi.fn()}
+      onExport={vi.fn()}
+      onPublish={vi.fn()}
+      onRefreshSubscription={vi.fn()}
+      onDeleteSubscription={vi.fn()}
       onArchive={onArchive}
     />);
 

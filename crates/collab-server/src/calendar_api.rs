@@ -1,18 +1,19 @@
 use crate::{
     app::AppState,
-    auth::{authenticate_native_access_token, AuthenticatedUser},
+    auth::{authenticate_native_access_token, generate_secret, hash_secret, AuthenticatedUser},
+    calendar_feeds::fetch_calendar_feed,
 };
 use axum::{
     extract::{Extension, Path, Query, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
 use base64::Engine as _;
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use collab_calendar::{
-    CalendarAttachment, CalendarAttendee, CalendarDefinition, CalendarItem, CalendarMutation,
-    CalendarOperation, CalendarTimeValue,
+    export_ics, parse_ics, CalendarAttachment, CalendarAttendee, CalendarDefinition, CalendarItem,
+    CalendarLocation, CalendarMutation, CalendarOperation, CalendarSubscription, CalendarTimeValue,
 };
 use collab_protocol::{ApiError, DataResponse, ErrorCode, ErrorResponse};
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,8 @@ use uuid::Uuid;
 const MAX_QUERY_ITEMS: i64 = 5_000;
 const MAX_CHANGE_ITEMS: i64 = 1_000;
 const MAX_OPERATION_ITEMS: usize = 500;
+const MAX_PUBLISHED_FEED_ITEMS: i64 = 5_000;
+const MAX_PUBLISHED_FEED_BYTES: usize = 5 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct CalendarApiError {
@@ -151,14 +154,16 @@ async fn replace_item_relations(
     item: &CalendarItem,
     request_id: &str,
 ) -> Result<(), CalendarApiError> {
-    let calendar_server_url = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT payload #>> '{location,serverUrl}' FROM calendars WHERE id=$1 AND owner_id=$2 AND deleted_at IS NULL",
+    let calendar_row = sqlx::query(
+        "SELECT payload #>> '{location,kind}' AS location_kind, payload #>> '{location,serverUrl}' AS server_url FROM calendars WHERE id=$1 AND owner_id=$2 AND deleted_at IS NULL",
     )
     .bind(calendar_id)
     .bind(owner)
     .fetch_one(&mut **tx)
     .await
     .map_err(|_| CalendarApiError::server(request_id))?;
+    let calendar_location_kind: Option<String> = calendar_row.get("location_kind");
+    let calendar_server_url: Option<String> = calendar_row.get("server_url");
     sqlx::query("DELETE FROM calendar_attendees WHERE owner_id=$1 AND item_id=$2")
         .bind(owner)
         .bind(item_id)
@@ -205,6 +210,15 @@ async fn replace_item_relations(
                     response,
                     role,
                 )
+            }
+            CalendarAttendee::Email {
+                id,
+                email,
+                response,
+                role,
+                ..
+            } if calendar_location_kind.as_deref() == Some("subscription") => {
+                (id, "email", None, Some(email.as_str()), response, role)
             }
             CalendarAttendee::Email { .. } => {
                 return Err(CalendarApiError::validation(
@@ -403,6 +417,41 @@ pub struct CalendarAttachmentUpload {
 #[serde(rename_all = "camelCase")]
 pub struct InvitationResponseRequest {
     response: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarPublishedFeed {
+    id: String,
+    calendar_id: String,
+    created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_accessed_at: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatedCalendarPublishedFeed {
+    #[serde(flatten)]
+    feed: CalendarPublishedFeed,
+    feed_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCalendarSubscriptionRequest {
+    name: String,
+    color: String,
+    default_time_zone: String,
+    feed_url: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatedCalendarSubscription {
+    calendar: CalendarDefinition,
+    subscription: CalendarSubscription,
+    warnings: Vec<String>,
 }
 
 async fn require_native_user(
@@ -1193,6 +1242,967 @@ pub async fn get_calendar(
     .map_err(|_| CalendarApiError::server(&request_id))?
     .ok_or_else(|| CalendarApiError::not_found(&request_id))?;
     Ok(Json(DataResponse::new(payload)))
+}
+
+fn subscription_from_row(row: &sqlx::postgres::PgRow) -> CalendarSubscription {
+    CalendarSubscription {
+        id: row.get::<Uuid, _>("id").to_string(),
+        calendar_id: row.get::<Uuid, _>("calendar_id").to_string(),
+        feed_url: row.get("feed_url"),
+        etag: row.get("etag"),
+        last_modified: row.get("last_modified"),
+        last_refreshed_at: row
+            .get::<Option<DateTime<Utc>>, _>("last_refreshed_at")
+            .map(|value| value.to_rfc3339()),
+        last_error: row.get("last_error"),
+        created_at: row.get::<DateTime<Utc>, _>("created_at").to_rfc3339(),
+        updated_at: row.get::<DateTime<Utc>, _>("updated_at").to_rfc3339(),
+        server_url: None,
+        user_id: None,
+    }
+}
+
+fn semantic_item_value(item: &CalendarItem) -> Value {
+    let mut value = serde_json::to_value(item).unwrap_or(Value::Null);
+    if let Some(object) = value.as_object_mut() {
+        for key in ["revision", "createdAt", "updatedAt", "deletedAt"] {
+            object.remove(key);
+        }
+    }
+    value
+}
+
+fn canonical_subscription_items(
+    parsed: Vec<CalendarItem>,
+    existing: &HashMap<Uuid, (CalendarItem, i64)>,
+    now: &str,
+) -> Vec<CalendarItem> {
+    parsed
+        .into_iter()
+        .map(|mut item| {
+            let Ok(id) = Uuid::parse_str(&item.id) else {
+                return item;
+            };
+            let Some((stored, _)) = existing.get(&id) else {
+                return item;
+            };
+            if semantic_item_value(stored) == semantic_item_value(&item) {
+                return stored.clone();
+            }
+            item.revision = stored.revision + 1;
+            item.created_at = stored.created_at.clone();
+            item.updated_at = now.to_owned();
+            item
+        })
+        .collect()
+}
+
+async fn upsert_subscription_item(
+    tx: &mut Transaction<'_, Postgres>,
+    owner: Uuid,
+    item: &CalendarItem,
+    request_id: &str,
+) -> Result<(), CalendarApiError> {
+    validate_item(item, request_id)?;
+    let item_id = parse_uuid(&item.id, "Item ID", request_id)?;
+    let calendar_id = parse_uuid(&item.calendar_id, "Calendar ID", request_id)?;
+    let payload = serde_json::to_value(item).map_err(|_| CalendarApiError::server(request_id))?;
+    let (start_at, end_at, start_date, end_date) = item_range(item);
+    let recurrence_id = item
+        .recurrence_id
+        .as_ref()
+        .map(|value| serde_json::to_value(value).unwrap_or(Value::Null));
+    let (recurrence_at, recurrence_date) = match item.recurrence_id.as_ref() {
+        Some(CalendarTimeValue::DateTime { date_time, .. }) => (
+            DateTime::parse_from_rfc3339(date_time)
+                .ok()
+                .map(|value| value.with_timezone(&Utc)),
+            None,
+        ),
+        Some(CalendarTimeValue::Date { date }) => {
+            (None, NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())
+        }
+        None => (None, None),
+    };
+    let recurrence_series_id = item
+        .recurrence_series_id
+        .as_deref()
+        .map(|value| parse_uuid(value, "Recurrence series ID", request_id))
+        .transpose()?;
+    sqlx::query(
+        r#"INSERT INTO calendar_items
+           (id,owner_id,calendar_id,uid,kind,start_at,end_at,start_date,end_date,recurrence_rule,
+            recurrence_id,recurrence_at,recurrence_date,recurrence_series_id,revision,payload,
+            logical_size_bytes,deleted_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NULL)
+           ON CONFLICT (id) DO UPDATE SET
+             uid=EXCLUDED.uid,kind=EXCLUDED.kind,start_at=EXCLUDED.start_at,end_at=EXCLUDED.end_at,
+             start_date=EXCLUDED.start_date,end_date=EXCLUDED.end_date,
+             recurrence_rule=EXCLUDED.recurrence_rule,recurrence_id=EXCLUDED.recurrence_id,
+             recurrence_at=EXCLUDED.recurrence_at,recurrence_date=EXCLUDED.recurrence_date,
+             recurrence_series_id=EXCLUDED.recurrence_series_id,revision=EXCLUDED.revision,
+             payload=EXCLUDED.payload,logical_size_bytes=EXCLUDED.logical_size_bytes,
+             deleted_at=NULL,updated_at=now()"#,
+    )
+    .bind(item_id)
+    .bind(owner)
+    .bind(calendar_id)
+    .bind(&item.uid)
+    .bind(item.kind.as_str())
+    .bind(start_at)
+    .bind(end_at)
+    .bind(start_date)
+    .bind(end_date)
+    .bind(item.recurrence.as_ref().map(|value| value.rrule.as_str()))
+    .bind(recurrence_id)
+    .bind(recurrence_at)
+    .bind(recurrence_date)
+    .bind(recurrence_series_id)
+    .bind(item.revision)
+    .bind(&payload)
+    .bind(logical_size(&payload))
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| {
+        if error
+            .as_database_error()
+            .is_some_and(|value| value.is_unique_violation())
+        {
+            CalendarApiError::conflict(
+                "The subscription contains duplicate item identities.",
+                request_id,
+            )
+        } else {
+            CalendarApiError::server(request_id)
+        }
+    })?;
+    replace_item_relations(tx, owner, item_id, calendar_id, item, request_id).await?;
+    insert_change(tx, owner, "item", item_id, "upsert", Some(&payload))
+        .await
+        .map_err(|_| CalendarApiError::server(request_id))?;
+    Ok(())
+}
+
+async fn replace_subscription_items(
+    state: &AppState,
+    owner: Uuid,
+    calendar: &CalendarDefinition,
+    subscription: &CalendarSubscription,
+    parsed_items: Vec<CalendarItem>,
+    request_id: &str,
+) -> Result<Vec<CalendarItem>, CalendarApiError> {
+    let calendar_id = parse_uuid(&calendar.id, "Calendar ID", request_id)?;
+    let existing_rows = sqlx::query(
+        "SELECT id,payload,logical_size_bytes FROM calendar_items WHERE owner_id=$1 AND calendar_id=$2",
+    )
+    .bind(owner)
+    .bind(calendar_id)
+    .fetch_all(&state.database)
+    .await
+    .map_err(|_| CalendarApiError::server(request_id))?;
+    let mut existing = HashMap::new();
+    let mut replaced_bytes = 0_i64;
+    for row in existing_rows {
+        let id: Uuid = row.get("id");
+        let item = serde_json::from_value::<CalendarItem>(row.get("payload"))
+            .map_err(|_| CalendarApiError::server(request_id))?;
+        let size: i64 = row.get("logical_size_bytes");
+        replaced_bytes = replaced_bytes.saturating_add(size);
+        existing.insert(id, (item, size));
+    }
+    let subscription_bytes = sqlx::query_scalar::<_, i64>(
+        "SELECT logical_size_bytes FROM calendar_subscriptions WHERE id=$1 AND owner_id=$2",
+    )
+    .bind(parse_uuid(&subscription.id, "Subscription ID", request_id)?)
+    .bind(owner)
+    .fetch_optional(&state.database)
+    .await
+    .map_err(|_| CalendarApiError::server(request_id))?
+    .unwrap_or(0);
+    replaced_bytes = replaced_bytes.saturating_add(subscription_bytes);
+    let now = Utc::now().to_rfc3339();
+    let items = canonical_subscription_items(parsed_items, &existing, &now);
+    let subscription_payload =
+        serde_json::to_value(subscription).map_err(|_| CalendarApiError::server(request_id))?;
+    let proposed_bytes = items
+        .iter()
+        .filter_map(|item| serde_json::to_value(item).ok())
+        .fold(logical_size(&subscription_payload), |total, value| {
+            total.saturating_add(logical_size(&value))
+        });
+    let mut tx = state
+        .database
+        .begin()
+        .await
+        .map_err(|_| CalendarApiError::server(request_id))?;
+    ensure_calendar_quota(
+        &mut tx,
+        owner,
+        state.config.calendar_quota_bytes,
+        replaced_bytes,
+        proposed_bytes,
+        request_id,
+    )
+    .await?;
+    let next_ids = items
+        .iter()
+        .filter_map(|item| Uuid::parse_str(&item.id).ok())
+        .collect::<HashSet<_>>();
+    for (item_id, _) in existing.iter().filter(|(id, _)| !next_ids.contains(id)) {
+        insert_change(&mut tx, owner, "item", *item_id, "delete", None)
+            .await
+            .map_err(|_| CalendarApiError::server(request_id))?;
+        sqlx::query("DELETE FROM calendar_items WHERE owner_id=$1 AND id=$2")
+            .bind(owner)
+            .bind(item_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|_| CalendarApiError::server(request_id))?;
+    }
+    for item in &items {
+        let id = parse_uuid(&item.id, "Item ID", request_id)?;
+        let unchanged = existing.get(&id).is_some_and(|(stored, _)| stored == item);
+        if !unchanged {
+            upsert_subscription_item(&mut tx, owner, item, request_id).await?;
+        }
+    }
+    sqlx::query(
+        r#"UPDATE calendar_subscriptions SET feed_url=$1,etag=$2,last_modified=$3,
+           last_refreshed_at=$4,last_error=$5,logical_size_bytes=$6,updated_at=now()
+           WHERE id=$7 AND owner_id=$8"#,
+    )
+    .bind(&subscription.feed_url)
+    .bind(&subscription.etag)
+    .bind(&subscription.last_modified)
+    .bind(
+        subscription
+            .last_refreshed_at
+            .as_deref()
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .map(|value| value.with_timezone(&Utc)),
+    )
+    .bind(&subscription.last_error)
+    .bind(logical_size(&subscription_payload))
+    .bind(parse_uuid(&subscription.id, "Subscription ID", request_id)?)
+    .bind(owner)
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| CalendarApiError::server(request_id))?;
+    tx.commit()
+        .await
+        .map_err(|_| CalendarApiError::server(request_id))?;
+    Ok(items)
+}
+
+async fn subscription_record(
+    state: &AppState,
+    owner: Uuid,
+    subscription_id: Uuid,
+    request_id: &str,
+) -> Result<(CalendarDefinition, CalendarSubscription), CalendarApiError> {
+    let row = sqlx::query(
+        r#"SELECT subscription.id,subscription.calendar_id,subscription.feed_url,
+                  subscription.etag,subscription.last_modified,subscription.last_refreshed_at,
+                  subscription.last_error,subscription.created_at,subscription.updated_at,
+                  calendar.payload AS calendar_payload
+           FROM calendar_subscriptions subscription
+           JOIN calendars calendar
+             ON calendar.id=subscription.calendar_id AND calendar.owner_id=subscription.owner_id
+           WHERE subscription.id=$1 AND subscription.owner_id=$2 AND calendar.deleted_at IS NULL"#,
+    )
+    .bind(subscription_id)
+    .bind(owner)
+    .fetch_optional(&state.database)
+    .await
+    .map_err(|_| CalendarApiError::server(request_id))?
+    .ok_or_else(|| CalendarApiError::not_found(request_id))?;
+    let calendar = serde_json::from_value(row.get("calendar_payload"))
+        .map_err(|_| CalendarApiError::server(request_id))?;
+    Ok((calendar, subscription_from_row(&row)))
+}
+
+async fn release_subscription_refresh(
+    state: &AppState,
+    owner: Uuid,
+    subscription_id: Uuid,
+    lease: &str,
+    error: Option<&str>,
+) {
+    let _ = sqlx::query(
+        r#"UPDATE calendar_subscriptions
+           SET refresh_cursor=NULL,last_error=COALESCE($1,last_error),updated_at=now()
+           WHERE id=$2 AND owner_id=$3 AND refresh_cursor=$4"#,
+    )
+    .bind(error)
+    .bind(subscription_id)
+    .bind(owner)
+    .bind(lease)
+    .execute(&state.database)
+    .await;
+}
+
+async fn refresh_subscription_record(
+    state: &AppState,
+    owner: Uuid,
+    subscription_id: Uuid,
+    request_id: &str,
+) -> Result<Option<CreatedCalendarSubscription>, CalendarApiError> {
+    let lease = Uuid::now_v7().to_string();
+    let acquired = sqlx::query_scalar::<_, bool>(
+        r#"UPDATE calendar_subscriptions
+           SET refresh_cursor=$1,updated_at=now()
+           WHERE id=$2 AND owner_id=$3
+             AND (refresh_cursor IS NULL OR updated_at < now() - interval '30 minutes')
+           RETURNING true"#,
+    )
+    .bind(&lease)
+    .bind(subscription_id)
+    .bind(owner)
+    .fetch_optional(&state.database)
+    .await
+    .map_err(|_| CalendarApiError::server(request_id))?
+    .unwrap_or(false);
+    if !acquired {
+        return Ok(None);
+    }
+
+    let result: Result<CreatedCalendarSubscription, CalendarApiError> = async {
+        let (calendar, mut subscription) =
+            subscription_record(state, owner, subscription_id, request_id).await?;
+        let response = fetch_calendar_feed(
+            &subscription.feed_url,
+            subscription.etag.as_deref(),
+            subscription.last_modified.as_deref(),
+        )
+        .await
+        .map_err(|message| {
+            CalendarApiError::new(
+                StatusCode::BAD_GATEWAY,
+                ErrorCode::ServerUnavailable,
+                message,
+                request_id,
+            )
+        })?;
+        let refreshed_at = Utc::now().to_rfc3339();
+        subscription.feed_url = response.resolved_url;
+        subscription.etag = response.etag;
+        subscription.last_modified = response.last_modified;
+        subscription.last_refreshed_at = Some(refreshed_at.clone());
+        subscription.last_error = None;
+        subscription.updated_at = refreshed_at.clone();
+        let warnings = if let Some(content) = response.content {
+            let parsed = parse_ics(&content, &calendar, &subscription.id, &refreshed_at).map_err(
+                |error| {
+                    CalendarApiError::validation(
+                        format!("The calendar feed could not be parsed: {error}."),
+                        request_id,
+                    )
+                },
+            )?;
+            let warnings = parsed.warnings;
+            replace_subscription_items(
+                state,
+                owner,
+                &calendar,
+                &subscription,
+                parsed.items,
+                request_id,
+            )
+            .await?;
+            warnings
+        } else {
+            let payload = serde_json::to_value(&subscription)
+                .map_err(|_| CalendarApiError::server(request_id))?;
+            sqlx::query(
+                r#"UPDATE calendar_subscriptions
+                   SET etag=$1,last_modified=$2,last_refreshed_at=$3,last_error=NULL,
+                       logical_size_bytes=$4,updated_at=now()
+                   WHERE id=$5 AND owner_id=$6"#,
+            )
+            .bind(&subscription.etag)
+            .bind(&subscription.last_modified)
+            .bind(
+                DateTime::parse_from_rfc3339(&refreshed_at)
+                    .ok()
+                    .map(|value| value.with_timezone(&Utc)),
+            )
+            .bind(logical_size(&payload))
+            .bind(subscription_id)
+            .bind(owner)
+            .execute(&state.database)
+            .await
+            .map_err(|_| CalendarApiError::server(request_id))?;
+            Vec::new()
+        };
+        Ok(CreatedCalendarSubscription {
+            calendar,
+            subscription,
+            warnings,
+        })
+    }
+    .await;
+
+    match &result {
+        Ok(_) => release_subscription_refresh(state, owner, subscription_id, &lease, None).await,
+        Err(error) => {
+            release_subscription_refresh(
+                state,
+                owner,
+                subscription_id,
+                &lease,
+                Some(&error.error.message),
+            )
+            .await
+        }
+    }
+    result.map(Some)
+}
+
+pub async fn list_subscriptions(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+) -> Result<Json<DataResponse<Vec<CalendarSubscription>>>, CalendarApiError> {
+    let user = require_native_user(&state, &headers, &request_id).await?;
+    let rows = sqlx::query(
+        r#"SELECT id,calendar_id,feed_url,etag,last_modified,last_refreshed_at,last_error,
+                  created_at,updated_at
+           FROM calendar_subscriptions WHERE owner_id=$1 ORDER BY updated_at DESC,id"#,
+    )
+    .bind(owner_id(&user, &request_id)?)
+    .fetch_all(&state.database)
+    .await
+    .map_err(|_| CalendarApiError::server(&request_id))?;
+    Ok(Json(DataResponse::new(
+        rows.iter().map(subscription_from_row).collect(),
+    )))
+}
+
+pub async fn create_subscription(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Json(request): Json<CreateCalendarSubscriptionRequest>,
+) -> Result<(StatusCode, Json<DataResponse<CreatedCalendarSubscription>>), CalendarApiError> {
+    let user = require_native_user(&state, &headers, &request_id).await?;
+    let owner = owner_id(&user, &request_id)?;
+    if request.name.trim().is_empty() || request.name.chars().count() > 120 {
+        return Err(CalendarApiError::validation(
+            "Calendar name must be between 1 and 120 characters.",
+            &request_id,
+        ));
+    }
+    if !request.color.starts_with('#')
+        || request.color.len() != 7
+        || !request.color[1..]
+            .chars()
+            .all(|value| value.is_ascii_hexdigit())
+    {
+        return Err(CalendarApiError::validation(
+            "Calendar color must be a six-digit hex color.",
+            &request_id,
+        ));
+    }
+    if request.default_time_zone.parse::<chrono_tz::Tz>().is_err() {
+        return Err(CalendarApiError::validation(
+            "Calendar time zone is invalid.",
+            &request_id,
+        ));
+    }
+    let response = fetch_calendar_feed(&request.feed_url, None, None)
+        .await
+        .map_err(|message| {
+            CalendarApiError::new(
+                StatusCode::BAD_GATEWAY,
+                ErrorCode::ServerUnavailable,
+                message,
+                &request_id,
+            )
+        })?;
+    let subscription_id = Uuid::now_v7();
+    let calendar_id = Uuid::now_v7();
+    let now = Utc::now();
+    let now_text = now.to_rfc3339();
+    let calendar = CalendarDefinition {
+        schema_version: collab_calendar::CALENDAR_SCHEMA_VERSION,
+        id: calendar_id.to_string(),
+        global_id: Uuid::now_v7().to_string(),
+        location: CalendarLocation::Subscription {
+            subscription_id: subscription_id.to_string(),
+            server_url: None,
+            user_id: None,
+        },
+        name: request.name.trim().to_owned(),
+        color: request.color,
+        default_time_zone: request.default_time_zone,
+        archived: false,
+        read_only: true,
+        revision: 1,
+        created_at: now_text.clone(),
+        updated_at: now_text.clone(),
+        deleted_at: None,
+    };
+    let parsed = parse_ics(
+        response
+            .content
+            .as_deref()
+            .unwrap_or("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"),
+        &calendar,
+        &subscription_id.to_string(),
+        &now_text,
+    )
+    .map_err(|error| {
+        CalendarApiError::validation(
+            format!("The calendar feed could not be parsed: {error}."),
+            &request_id,
+        )
+    })?;
+    let subscription = CalendarSubscription {
+        id: subscription_id.to_string(),
+        calendar_id: calendar_id.to_string(),
+        feed_url: response.resolved_url,
+        etag: response.etag,
+        last_modified: response.last_modified,
+        last_refreshed_at: Some(now_text.clone()),
+        last_error: None,
+        created_at: now_text.clone(),
+        updated_at: now_text,
+        server_url: None,
+        user_id: None,
+    };
+    let calendar_payload =
+        serde_json::to_value(&calendar).map_err(|_| CalendarApiError::server(&request_id))?;
+    let subscription_payload =
+        serde_json::to_value(&subscription).map_err(|_| CalendarApiError::server(&request_id))?;
+    let initial_bytes = logical_size(&calendar_payload) + logical_size(&subscription_payload);
+    let mut tx = state
+        .database
+        .begin()
+        .await
+        .map_err(|_| CalendarApiError::server(&request_id))?;
+    ensure_calendar_quota(
+        &mut tx,
+        owner,
+        state.config.calendar_quota_bytes,
+        0,
+        initial_bytes,
+        &request_id,
+    )
+    .await?;
+    sqlx::query(
+        r#"INSERT INTO calendars
+           (id,owner_id,global_id,name,color,default_time_zone,archived,read_only,revision,payload,
+            logical_size_bytes)
+           VALUES ($1,$2,$3,$4,$5,$6,false,true,1,$7,$8)"#,
+    )
+    .bind(calendar_id)
+    .bind(owner)
+    .bind(parse_uuid(
+        &calendar.global_id,
+        "Calendar global ID",
+        &request_id,
+    )?)
+    .bind(&calendar.name)
+    .bind(&calendar.color)
+    .bind(&calendar.default_time_zone)
+    .bind(&calendar_payload)
+    .bind(logical_size(&calendar_payload))
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| {
+        if error
+            .as_database_error()
+            .is_some_and(|value| value.is_unique_violation())
+        {
+            CalendarApiError::conflict("That calendar subscription already exists.", &request_id)
+        } else {
+            CalendarApiError::server(&request_id)
+        }
+    })?;
+    sqlx::query(
+        r#"INSERT INTO calendar_subscriptions
+           (id,owner_id,calendar_id,feed_url,etag,last_modified,last_refreshed_at,last_error,
+            logical_size_bytes)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,NULL,$8)"#,
+    )
+    .bind(subscription_id)
+    .bind(owner)
+    .bind(calendar_id)
+    .bind(&subscription.feed_url)
+    .bind(&subscription.etag)
+    .bind(&subscription.last_modified)
+    .bind(now)
+    .bind(logical_size(&subscription_payload))
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| {
+        if error
+            .as_database_error()
+            .is_some_and(|value| value.is_unique_violation())
+        {
+            CalendarApiError::conflict("That feed is already subscribed.", &request_id)
+        } else {
+            CalendarApiError::server(&request_id)
+        }
+    })?;
+    insert_change(
+        &mut tx,
+        owner,
+        "calendar",
+        calendar_id,
+        "upsert",
+        Some(&calendar_payload),
+    )
+    .await
+    .map_err(|_| CalendarApiError::server(&request_id))?;
+    tx.commit()
+        .await
+        .map_err(|_| CalendarApiError::server(&request_id))?;
+    if let Err(error) = replace_subscription_items(
+        &state,
+        owner,
+        &calendar,
+        &subscription,
+        parsed.items,
+        &request_id,
+    )
+    .await
+    {
+        let _ = sqlx::query("DELETE FROM calendars WHERE id=$1 AND owner_id=$2")
+            .bind(calendar_id)
+            .bind(owner)
+            .execute(&state.database)
+            .await;
+        return Err(error);
+    }
+    Ok((
+        StatusCode::CREATED,
+        Json(DataResponse::new(CreatedCalendarSubscription {
+            calendar,
+            subscription,
+            warnings: parsed.warnings,
+        })),
+    ))
+}
+
+pub async fn refresh_subscription(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path(subscription_id): Path<Uuid>,
+) -> Result<Json<DataResponse<CreatedCalendarSubscription>>, CalendarApiError> {
+    let user = require_native_user(&state, &headers, &request_id).await?;
+    let owner = owner_id(&user, &request_id)?;
+    let result = refresh_subscription_record(&state, owner, subscription_id, &request_id)
+        .await?
+        .ok_or_else(|| {
+            CalendarApiError::conflict("That subscription is already refreshing.", &request_id)
+        })?;
+    Ok(Json(DataResponse::new(result)))
+}
+
+pub async fn delete_subscription(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path(subscription_id): Path<Uuid>,
+) -> Result<StatusCode, CalendarApiError> {
+    let user = require_native_user(&state, &headers, &request_id).await?;
+    let owner = owner_id(&user, &request_id)?;
+    let mut tx = state
+        .database
+        .begin()
+        .await
+        .map_err(|_| CalendarApiError::server(&request_id))?;
+    let calendar_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT calendar_id FROM calendar_subscriptions WHERE id=$1 AND owner_id=$2 FOR UPDATE",
+    )
+    .bind(subscription_id)
+    .bind(owner)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| CalendarApiError::server(&request_id))?
+    .ok_or_else(|| CalendarApiError::not_found(&request_id))?;
+    let item_ids = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM calendar_items WHERE owner_id=$1 AND calendar_id=$2",
+    )
+    .bind(owner)
+    .bind(calendar_id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(|_| CalendarApiError::server(&request_id))?;
+    for item_id in item_ids {
+        insert_change(&mut tx, owner, "item", item_id, "delete", None)
+            .await
+            .map_err(|_| CalendarApiError::server(&request_id))?;
+    }
+    insert_change(&mut tx, owner, "calendar", calendar_id, "delete", None)
+        .await
+        .map_err(|_| CalendarApiError::server(&request_id))?;
+    sqlx::query("DELETE FROM calendars WHERE id=$1 AND owner_id=$2")
+        .bind(calendar_id)
+        .bind(owner)
+        .execute(&mut *tx)
+        .await
+        .map_err(|_| CalendarApiError::server(&request_id))?;
+    tx.commit()
+        .await
+        .map_err(|_| CalendarApiError::server(&request_id))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn refresh_due_subscriptions(state: &AppState) {
+    let rows = match sqlx::query(
+        r#"SELECT id,owner_id FROM calendar_subscriptions
+           WHERE (refresh_cursor IS NULL OR updated_at < now() - interval '30 minutes')
+             AND (last_refreshed_at IS NULL OR last_refreshed_at < now() - interval '15 minutes')
+           ORDER BY last_refreshed_at NULLS FIRST,id LIMIT 25"#,
+    )
+    .fetch_all(&state.database)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            tracing::warn!(?error, "could not scan due calendar subscriptions");
+            return;
+        }
+    };
+    for row in rows {
+        let subscription_id: Uuid = row.get("id");
+        let owner: Uuid = row.get("owner_id");
+        let request_id = format!("calendar-refresh-{subscription_id}");
+        if let Err(error) =
+            refresh_subscription_record(state, owner, subscription_id, &request_id).await
+        {
+            tracing::warn!(
+                subscription_id = %subscription_id,
+                message = %error.error.message,
+                "calendar subscription refresh failed"
+            );
+        }
+    }
+}
+
+pub async fn list_published_feeds(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path(calendar_id): Path<Uuid>,
+) -> Result<Json<DataResponse<Vec<CalendarPublishedFeed>>>, CalendarApiError> {
+    let user = require_native_user(&state, &headers, &request_id).await?;
+    let owner = owner_id(&user, &request_id)?;
+    let calendar_exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM calendars WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL)",
+    )
+    .bind(owner)
+    .bind(calendar_id)
+    .fetch_one(&state.database)
+    .await
+    .map_err(|_| CalendarApiError::server(&request_id))?;
+    if !calendar_exists {
+        return Err(CalendarApiError::not_found(&request_id));
+    }
+    let rows = sqlx::query(
+        r#"SELECT id,calendar_id,created_at,last_accessed_at
+           FROM calendar_published_feeds
+           WHERE owner_id=$1 AND calendar_id=$2
+           ORDER BY created_at DESC,id"#,
+    )
+    .bind(owner)
+    .bind(calendar_id)
+    .fetch_all(&state.database)
+    .await
+    .map_err(|_| CalendarApiError::server(&request_id))?;
+    Ok(Json(DataResponse::new(
+        rows.into_iter()
+            .map(|row| CalendarPublishedFeed {
+                id: row.get::<Uuid, _>("id").to_string(),
+                calendar_id: row.get::<Uuid, _>("calendar_id").to_string(),
+                created_at: row.get::<DateTime<Utc>, _>("created_at").to_rfc3339(),
+                last_accessed_at: row
+                    .get::<Option<DateTime<Utc>>, _>("last_accessed_at")
+                    .map(|value| value.to_rfc3339()),
+            })
+            .collect(),
+    )))
+}
+
+pub async fn create_published_feed(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path(calendar_id): Path<Uuid>,
+) -> Result<(StatusCode, Json<DataResponse<CreatedCalendarPublishedFeed>>), CalendarApiError> {
+    let user = require_native_user(&state, &headers, &request_id).await?;
+    let owner = owner_id(&user, &request_id)?;
+    let calendar_exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM calendars WHERE owner_id=$1 AND id=$2 AND deleted_at IS NULL)",
+    )
+    .bind(owner)
+    .bind(calendar_id)
+    .fetch_one(&state.database)
+    .await
+    .map_err(|_| CalendarApiError::server(&request_id))?;
+    if !calendar_exists {
+        return Err(CalendarApiError::not_found(&request_id));
+    }
+    let id = Uuid::now_v7();
+    let token = generate_secret();
+    let created_at = sqlx::query_scalar::<_, DateTime<Utc>>(
+        r#"INSERT INTO calendar_published_feeds (id,owner_id,calendar_id,token_hash)
+           VALUES ($1,$2,$3,$4) RETURNING created_at"#,
+    )
+    .bind(id)
+    .bind(owner)
+    .bind(calendar_id)
+    .bind(hash_secret(&token))
+    .fetch_one(&state.database)
+    .await
+    .map_err(|_| CalendarApiError::server(&request_id))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(DataResponse::new(CreatedCalendarPublishedFeed {
+            feed: CalendarPublishedFeed {
+                id: id.to_string(),
+                calendar_id: calendar_id.to_string(),
+                created_at: created_at.to_rfc3339(),
+                last_accessed_at: None,
+            },
+            feed_path: format!("/api/v1/calendar-feeds/{token}"),
+        })),
+    ))
+}
+
+pub async fn revoke_published_feed(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path((calendar_id, feed_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, CalendarApiError> {
+    let user = require_native_user(&state, &headers, &request_id).await?;
+    let owner = owner_id(&user, &request_id)?;
+    let result = sqlx::query(
+        "DELETE FROM calendar_published_feeds WHERE id=$1 AND calendar_id=$2 AND owner_id=$3",
+    )
+    .bind(feed_id)
+    .bind(calendar_id)
+    .bind(owner)
+    .execute(&state.database)
+    .await
+    .map_err(|_| CalendarApiError::server(&request_id))?;
+    if result.rows_affected() == 0 {
+        return Err(CalendarApiError::not_found(&request_id));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn read_published_feed(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path(token): Path<String>,
+) -> Result<Response, CalendarApiError> {
+    if token.len() < 32
+        || token.len() > 128
+        || !token
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err(CalendarApiError::not_found(&request_id));
+    }
+    let row = sqlx::query(
+        r#"SELECT feed.id,feed.owner_id,feed.calendar_id,calendar.payload
+           FROM calendar_published_feeds feed
+           JOIN calendars calendar
+             ON calendar.id=feed.calendar_id AND calendar.owner_id=feed.owner_id
+           WHERE feed.token_hash=$1 AND calendar.deleted_at IS NULL"#,
+    )
+    .bind(hash_secret(&token))
+    .fetch_optional(&state.database)
+    .await
+    .map_err(|_| CalendarApiError::server(&request_id))?
+    .ok_or_else(|| CalendarApiError::not_found(&request_id))?;
+    let feed_id: Uuid = row.get("id");
+    let owner: Uuid = row.get("owner_id");
+    let calendar_id: Uuid = row.get("calendar_id");
+    let database = state.database.clone();
+    tokio::spawn(async move {
+        let _ =
+            sqlx::query("UPDATE calendar_published_feeds SET last_accessed_at=now() WHERE id=$1")
+                .bind(feed_id)
+                .execute(&database)
+                .await;
+    });
+    let calendar = serde_json::from_value::<CalendarDefinition>(row.get("payload"))
+        .map_err(|_| CalendarApiError::server(&request_id))?;
+    let item_rows = sqlx::query(
+        r#"SELECT payload FROM calendar_items
+           WHERE owner_id=$1 AND calendar_id=$2 AND deleted_at IS NULL
+           ORDER BY uid,id LIMIT $3"#,
+    )
+    .bind(owner)
+    .bind(calendar_id)
+    .bind(MAX_PUBLISHED_FEED_ITEMS + 1)
+    .fetch_all(&state.database)
+    .await
+    .map_err(|_| CalendarApiError::server(&request_id))?;
+    if item_rows.len() as i64 > MAX_PUBLISHED_FEED_ITEMS {
+        return Err(CalendarApiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            ErrorCode::QuotaExceeded,
+            "The published calendar contains too many items.",
+            &request_id,
+        ));
+    }
+    let items = item_rows
+        .into_iter()
+        .map(|row| serde_json::from_value::<CalendarItem>(row.get("payload")))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| CalendarApiError::server(&request_id))?;
+    let body = export_ics(&calendar, &items);
+    if body.len() > MAX_PUBLISHED_FEED_BYTES {
+        return Err(CalendarApiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            ErrorCode::QuotaExceeded,
+            "The published calendar feed is too large.",
+            &request_id,
+        ));
+    }
+    let etag = format!("\"{}\"", hex::encode(Sha256::digest(body.as_bytes())));
+    if headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        == Some(etag.as_str())
+    {
+        let mut response = StatusCode::NOT_MODIFIED.into_response();
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("private, max-age=300"),
+        );
+        response.headers_mut().insert(
+            header::ETAG,
+            HeaderValue::from_str(&etag).map_err(|_| CalendarApiError::server(&request_id))?,
+        );
+        return Ok(response);
+    }
+    let mut response = body.into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/calendar; charset=utf-8"),
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=300"),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_static("inline; filename=\"calendar.ics\""),
+    );
+    response.headers_mut().insert(
+        header::ETAG,
+        HeaderValue::from_str(&etag).map_err(|_| CalendarApiError::server(&request_id))?,
+    );
+    Ok(response)
 }
 
 pub async fn create_calendar(
@@ -2562,6 +3572,91 @@ mod tests {
             1
         );
 
+        let published = bearer_request(
+            &app,
+            "POST",
+            &format!("/api/v1/calendars/{calendar_id}/published-feeds"),
+            json!({}),
+            &organizer_token,
+        )
+        .await;
+        assert_eq!(published.status(), StatusCode::CREATED);
+        let published_body = json_body(published).await;
+        let feed_id = published_body["data"]["id"].as_str().unwrap().to_owned();
+        let feed_path = published_body["data"]["feedPath"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(!feed_path.contains(&feed_id));
+        let feed_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(&feed_path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(feed_response.status(), StatusCode::OK);
+        assert_eq!(
+            feed_response.headers()[header::CONTENT_TYPE],
+            "text/calendar; charset=utf-8"
+        );
+        let etag = feed_response.headers()[header::ETAG].clone();
+        let feed_bytes = feed_response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        let feed_text = String::from_utf8(feed_bytes.to_vec()).unwrap();
+        assert!(feed_text.contains("BEGIN:VCALENDAR\r\n"));
+        assert!(feed_text.contains("SUMMARY:Private planning\r\n"));
+        assert!(!feed_text.contains("access-token"));
+        let unchanged_feed = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(&feed_path)
+                    .header(header::IF_NONE_MATCH, etag.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unchanged_feed.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(unchanged_feed.headers()[header::ETAG], etag);
+        let outsider_feeds = bearer_request(
+            &app,
+            "GET",
+            &format!("/api/v1/calendars/{calendar_id}/published-feeds"),
+            json!({}),
+            &outsider_token,
+        )
+        .await;
+        assert_eq!(outsider_feeds.status(), StatusCode::NOT_FOUND);
+        let revoked = bearer_request(
+            &app,
+            "DELETE",
+            &format!("/api/v1/calendars/{calendar_id}/published-feeds/{feed_id}"),
+            json!({}),
+            &organizer_token,
+        )
+        .await;
+        assert_eq!(revoked.status(), StatusCode::NO_CONTENT);
+        let revoked_feed = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(&feed_path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(revoked_feed.status(), StatusCode::NOT_FOUND);
+
         let invitations = bearer_request(
             &app,
             "GET",
@@ -2714,5 +3809,59 @@ mod tests {
         let quota_body = json_body(quota_failure).await;
         assert_eq!(quota_status, StatusCode::PAYLOAD_TOO_LARGE, "{quota_body}");
         assert_eq!(quota_body["error"]["code"], "quota_exceeded");
+
+        let subscription_id = Uuid::now_v7();
+        sqlx::query(
+            r#"INSERT INTO calendar_subscriptions
+               (id,owner_id,calendar_id,feed_url,last_refreshed_at)
+               VALUES ($1,$2,$3,'https://calendar.example.test/feed.ics',now())"#,
+        )
+        .bind(subscription_id)
+        .bind(organizer_id)
+        .bind(calendar_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let subscriptions = bearer_request(
+            &app,
+            "GET",
+            "/api/v1/calendars/subscriptions",
+            json!({}),
+            &organizer_token,
+        )
+        .await;
+        assert_eq!(subscriptions.status(), StatusCode::OK);
+        assert_eq!(
+            json_body(subscriptions).await["data"][0]["id"],
+            subscription_id.to_string()
+        );
+        let outsider_subscriptions = bearer_request(
+            &app,
+            "GET",
+            "/api/v1/calendars/subscriptions",
+            json!({}),
+            &outsider_token,
+        )
+        .await;
+        assert_eq!(json_body(outsider_subscriptions).await["data"], json!([]));
+        let deleted_subscription = bearer_request(
+            &app,
+            "DELETE",
+            &format!("/api/v1/calendars/subscriptions/{subscription_id}"),
+            json!({}),
+            &organizer_token,
+        )
+        .await;
+        assert_eq!(deleted_subscription.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM calendar_subscriptions WHERE id=$1",
+            )
+            .bind(subscription_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
     }
 }

@@ -140,7 +140,7 @@ function hostedLocation(origin: HostedCalendarOrigin): CalendarLocation {
   return { kind: 'hosted', serverUrl: origin.serverUrl, userId: origin.userId };
 }
 
-function normalizeRemoteCalendar(value: unknown, origin: HostedCalendarOrigin): CalendarDefinition {
+export function normalizeRemoteCalendar(value: unknown, origin: HostedCalendarOrigin): CalendarDefinition {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('The server returned an invalid calendar definition.');
   }
@@ -156,6 +156,23 @@ function normalizeRemoteCalendar(value: unknown, origin: HostedCalendarOrigin): 
       location: {
         kind: 'kanban',
         originKey: `${origin.serverUrl.replace(/\/$/, '')}::${originKey}`,
+      },
+      readOnly: true,
+    });
+  }
+  if (location && typeof location === 'object' && !Array.isArray(location)
+    && (location as { kind?: unknown }).kind === 'subscription') {
+    const subscriptionId = (location as { subscriptionId?: unknown }).subscriptionId;
+    if (typeof subscriptionId !== 'string' || !subscriptionId.trim()) {
+      throw new Error('The server returned an invalid calendar subscription.');
+    }
+    return normalizeCalendarDefinition({
+      ...value,
+      location: {
+        kind: 'subscription',
+        subscriptionId,
+        serverUrl: origin.serverUrl.replace(/\/$/, ''),
+        userId: origin.userId,
       },
       readOnly: true,
     });

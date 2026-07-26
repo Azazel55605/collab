@@ -58,7 +58,7 @@ models.
 | 5. Android calendar experience | Complete | Phone-first multi-server views, profile storage, offline editing/deletion, recurrence scopes, collaboration, attachments, management, and actionable recovery are implemented. |
 | 6. Cross-location calendar mirroring | Testing | Mirror groups, deterministic client bridging, tombstones, isolated retryable failures, global progress visibility, and desktop/Android conflict resolution are implemented; physical-device end-to-end validation remains. |
 | 7. Kanban assigned-task integration | Complete | Local and hosted assignment projection, generated read-only calendars, REST/live materialization, narrow date/completion/recurrence write-through, source lifecycle handling, and access-loss privacy cleanup are implemented and covered. |
-| 8. iCalendar import, export, and subscriptions | Not started | Support `.ics`, subscribed feeds, publishing, deduplication, and bounded refresh. |
+| 8. iCalendar import, export, and subscriptions | Complete | Desktop range/item export, desktop and Android bounded import/export, local and hosted read-only HTTPS subscriptions, scheduled conditional refresh, revocable publication links, safe extension preservation, provider/time-zone fixtures, and SSRF/parser hardening are implemented. |
 | 9. CalDAV and external two-way sync | Not started | Add standards-based two-way synchronization for capable external calendar applications. |
 | 10. Admin overview, privacy verification, and hardening | Not started | Ship aggregate-only administration, migration, load, security, and recovery coverage. |
 | 11. Reminder delivery and notifications | Not started | Activate desktop and Android notification scheduling through the calendar reminder connectors after the core calendar implementation. |
@@ -403,6 +403,49 @@ Landed in the first implementation slice:
   hosted projection, Android editor, and authenticated PostgreSQL lifecycle
   tests cover projection stability, stale removal, recurrence, privacy, and
   allowed/denied write-through.
+- Started Phase 8 with bounded desktop `.ics` import and export. The import
+  preview reports creates, updates, unchanged items, and conflicting duplicate
+  UID/recurrence identities before applying; reimports retain stable local IDs
+  and revisions instead of creating duplicate rows.
+- Calendar imports commit atomically to the profile SQLite store and retain the
+  normal durable operation queue. Hosted imports send operations in bounded
+  500-item batches so server synchronization does not amplify one file into
+  thousands of REST requests.
+- Added parser and round-trip fixtures for events, tasks, recurrence, all-day
+  values, relative alarms, priorities, CRLF output, provider extensions, and
+  DST-sensitive time zones, plus hard byte, line, and 5,000-item limits.
+- Added local-profile read-only HTTPS subscriptions with persisted ETag and
+  Last-Modified validators, a 15-minute stale refresh threshold, manual refresh
+  and removal controls, and independent failure handling. Successful refreshes
+  atomically replace the derived calendar, while fetch or parse errors preserve
+  the last good copy and surface a per-feed warning.
+- Native and server feed fetching require credential-free HTTPS, revalidate every
+  redirect and DNS result, pins each request to the validated addresses, blocks
+  local/private/reserved targets, limits redirects and response size, and does
+  not forward conditional validators across origins.
+- Added revocable published feeds for hosted calendars. Owners can create and
+  revoke high-entropy read-only URLs from the desktop calendar rail; only a hash
+  of each raw token is stored, and the raw URL is returned only at creation.
+  Anonymous feed reads remain IP rate-limited, are bounded to 5,000 items and
+  5 MiB, support ETag revalidation, and cannot list or infer another user's
+  calendars. A shared Rust serializer emits CRLF iCalendar feeds for events,
+  tasks, birthdays, recurrence, reminders, email attendees, and external links.
+- Completed Phase 8 with owner-scoped hosted subscription create/list/refresh/
+  delete APIs and a bounded 15-minute background refresh worker. Refresh leases
+  recover after interruption, conditional requests retain ETag and
+  Last-Modified metadata, and fetch/parser failures preserve the last good copy
+  while exposing the feed error.
+- Desktop subscription creation can target the local profile or any connected
+  server. Hosted subscription calendars and metadata hydrate through the normal
+  multi-server replica path on desktop and Android.
+- Desktop export now supports the whole calendar, current visible range,
+  selected day, or explicit item selection. Android calendar management uses
+  native document pickers for bounded `.ics` import and export, with atomic
+  local staging and 500-operation hosted batches.
+- Safe non-Collab `X-*` properties survive import/export within bounded count
+  and length limits. Reserved Collab properties, malformed lines, and content
+  line injection are rejected. Google-, Outlook-, and Apple-style fixtures
+  cover unknown extensions, all-day values, recurrence, alarms, and DST zones.
 
 ## Current System Constraints
 
@@ -1248,10 +1291,15 @@ Estimated effort: 3-5 weeks.
 
 Tasks:
 
-- Implement bounded `.ics` import preview/application and export.
-- Add external read-only subscriptions and refresh workers.
-- Add revocable published Collab feed tokens.
-- Add security limits, SSRF controls, parser fixtures, and round-trip tests.
+- [x] Implement bounded desktop `.ics` import preview/application and
+  full-calendar export.
+- [x] Add selected-range and selected-item export plus Android import/export.
+- [x] Preserve supported safe unknown properties and broaden time-zone fixtures.
+- [x] Add local-profile external read-only subscriptions and conditional stale
+  refresh.
+- [x] Add hosted external subscription APIs and refresh workers.
+- [x] Add revocable published Collab feed tokens.
+- [x] Add security limits, SSRF controls, parser fixtures, and round-trip tests.
 
 Acceptance criteria:
 

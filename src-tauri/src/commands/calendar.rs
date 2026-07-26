@@ -2,7 +2,7 @@ use super::app_config_dir;
 use collab_calendar::{
     CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarMirrorAnchor,
     CalendarMirrorConflict, CalendarMirrorGroup, CalendarOperation, CalendarOperationFailure,
-    CalendarRemoteChange, CalendarStore, CalendarSyncState,
+    CalendarRemoteChange, CalendarStore, CalendarSubscription, CalendarSyncState,
 };
 use std::{collections::HashMap, sync::OnceLock};
 use tokio::sync::Mutex;
@@ -52,6 +52,55 @@ pub async fn calendar_replace_generated_kanban(
     store(&profile_id)
         .await?
         .replace_generated_kanban_calendar(&calendar, &items)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_replace_subscription(
+    profile_id: String,
+    calendar: CalendarDefinition,
+    items: Vec<CalendarItem>,
+    subscription: CalendarSubscription,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .replace_subscription_calendar(&calendar, &items, &subscription)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_list_subscriptions(
+    profile_id: String,
+) -> Result<Vec<CalendarSubscription>, String> {
+    store(&profile_id)
+        .await?
+        .list_subscriptions()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_save_subscription(
+    profile_id: String,
+    subscription: CalendarSubscription,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .upsert_subscription(&subscription)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_delete_subscription(
+    profile_id: String,
+    subscription_id: String,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .delete_subscription(&subscription_id)
         .await
         .map_err(|error| error.to_string())
 }
@@ -123,6 +172,31 @@ pub async fn calendar_upsert_item(
     store(&profile_id)
         .await?
         .upsert_item_with_operation(&item, &operation)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_upsert_items(
+    profile_id: String,
+    entries: Vec<(CalendarItem, CalendarOperation)>,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .upsert_items_with_operations(&entries)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn calendar_list_calendar_items(
+    profile_id: String,
+    calendar_id: String,
+    limit: u32,
+) -> Result<Vec<CalendarItem>, String> {
+    store(&profile_id)
+        .await?
+        .list_items_for_calendar(&calendar_id, limit)
         .await
         .map_err(|error| error.to_string())
 }

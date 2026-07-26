@@ -1648,7 +1648,7 @@ p {
 }
 .calendar-manager-row {
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) 36px 36px;
+  grid-template-columns: 10px minmax(0, 1fr) repeat(4, 32px);
   align-items: center;
   gap: 7px;
   min-height: 48px;

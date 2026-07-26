@@ -3,6 +3,7 @@ import { tauriCommands } from '../lib/tauri';
 import {
   syncHostedCalendars,
   hostedCalendarOriginKey,
+  normalizeRemoteCalendar,
   type CalendarOriginSyncResult,
   type CalendarSyncProgress,
   type HostedCalendarOrigin,
@@ -13,6 +14,7 @@ import {
   validateCalendarMirrorGroup,
 } from '../lib/calendarMirroring';
 import { expandRecurringItem } from '../lib/calendarRecurrence';
+import { previewCalendarIcsImport } from '../lib/calendarIcs';
 import {
   planRecurringEdit,
   splitRecurrence,
@@ -35,6 +37,7 @@ import {
   type CalendarMirrorProgress,
   type CalendarOperation,
   type CalendarOperationFailure,
+  type CalendarSubscription,
 } from '../types/calendar';
 import { isSupportedTimeZone, systemTimeZone, useUiStore } from './uiStore';
 import { writeThroughKanbanCalendarTask } from '../lib/kanbanCalendarProjection';
@@ -44,6 +47,12 @@ const DEVICE_ID_KEY = 'collab-calendar-device-id';
 const profileInitializations = new Map<string, Promise<void>>();
 const hostedSyncs = new Map<string, Promise<CalendarOriginSyncResult[]>>();
 const activeHostedSyncs = new Map<string, number>();
+
+interface HostedSubscriptionResult {
+  calendar: CalendarDefinition;
+  subscription: CalendarSubscription;
+  warnings: string[];
+}
 
 function deviceId(): string {
   const existing = localStorage.getItem(DEVICE_ID_KEY);
@@ -61,6 +70,7 @@ function defaultCalendarTimeZone(): string {
 interface CalendarStoreState {
   profileId: string | null;
   calendars: CalendarDefinition[];
+  subscriptions: CalendarSubscription[];
   sourceItems: CalendarItem[];
   items: CalendarItem[];
   visibleCalendarIds: string[];
@@ -83,6 +93,17 @@ interface CalendarStoreState {
   discardConflict: (clientOperationId: string) => Promise<void>;
   removeHostedCache: (origin: HostedCalendarOrigin) => Promise<void>;
   searchItems: (query: string, limit?: number) => Promise<CalendarItem[]>;
+  createSubscription: (
+    name: string,
+    color: string,
+    feedUrl: string,
+    location?: CalendarLocation,
+  ) => Promise<CalendarSubscription>;
+  refreshSubscription: (subscriptionId: string) => Promise<void>;
+  refreshSubscriptions: (staleAfterMs?: number) => Promise<void>;
+  deleteSubscription: (subscriptionId: string) => Promise<void>;
+  listCalendarItems: (calendarId: string) => Promise<CalendarItem[]>;
+  importItems: (calendarId: string, items: CalendarItem[]) => Promise<void>;
   setCalendarVisible: (calendarId: string, visible: boolean) => void;
   createCalendar: (name: string, color: string, location?: CalendarLocation) => Promise<CalendarDefinition>;
   updateCalendar: (
@@ -136,6 +157,35 @@ function replaceSourceItems(sourceItems: CalendarItem[], replacements: CalendarI
   return [...sourceItems.filter((item) => !replacementIds.has(item.id)), ...replacements];
 }
 
+function subscriptionItems(
+  preview: ReturnType<typeof previewCalendarIcsImport>,
+  subscriptionId: string,
+): CalendarItem[] {
+  return preview.entries.flatMap((entry) => {
+    if (entry.action === 'conflict') return [];
+    const item = entry.action === 'unchanged' && entry.existing ? entry.existing : entry.item;
+    return [normalizeCalendarItem({
+      ...item,
+      sourceBinding: {
+        kind: 'external',
+        subscriptionId,
+        externalUid: item.uid,
+      },
+    })];
+  });
+}
+
+function assertValidSubscriptionPreview(
+  preview: ReturnType<typeof previewCalendarIcsImport>,
+): void {
+  if (preview.conflicts > 0) {
+    throw new Error('The calendar feed contains conflicting duplicate item identities.');
+  }
+  if (preview.warnings.length > 0) {
+    throw new Error(`The calendar feed contains invalid or unsupported items: ${preview.warnings[0]}`);
+  }
+}
+
 function recurrenceInstant(item: CalendarItem): number {
   if (!item.recurrenceId) return Number.NaN;
   return item.recurrenceId.kind === 'date'
@@ -173,9 +223,44 @@ async function pushHostedOperation(
   }
 }
 
+async function pushHostedOperations(
+  profileId: string,
+  calendar: CalendarDefinition,
+  operations: CalendarOperation[],
+): Promise<void> {
+  if (operations.length === 0) return;
+  if (calendar.location.kind !== 'hosted') {
+    await tauriCommands.calendarAcknowledgeOperations(
+      profileId,
+      operations.map((operation) => operation.clientOperationId),
+    );
+    return;
+  }
+  for (let offset = 0; offset < operations.length; offset += 500) {
+    const batch = operations.slice(offset, offset + 500);
+    try {
+      await tauriCommands.hostedCalendarRequest(
+        calendar.location.serverUrl,
+        'POST',
+        '/api/v1/calendars/operations',
+        { operations: batch },
+      );
+      await tauriCommands.calendarAcknowledgeOperations(
+        profileId,
+        batch.map((operation) => operation.clientOperationId),
+      );
+    } catch {
+      // Every edit is already durable in the local operation queue. Leave this
+      // batch and any remaining batches pending for normal calendar sync.
+      return;
+    }
+  }
+}
+
 export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
   profileId: null,
   calendars: [],
+  subscriptions: [],
   sourceItems: [],
   items: [],
   visibleCalendarIds: [],
@@ -204,6 +289,7 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
         syncResults: [],
         syncProgress: {},
         conflicts: [],
+        subscriptions: [],
         mirrorGroups: [],
         mirrorConflicts: [],
         mirrorStatuses: [],
@@ -211,8 +297,9 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
         error: null,
       });
       try {
-        let [calendars, conflicts, mirrorGroups, mirrorConflicts] = await Promise.all([
+        let [calendars, subscriptions, conflicts, mirrorGroups, mirrorConflicts] = await Promise.all([
           tauriCommands.calendarList(profileId),
+          tauriCommands.calendarListSubscriptions(profileId),
           tauriCommands.calendarListFailedOperations(profileId),
           tauriCommands.calendarListMirrorGroups(profileId),
           tauriCommands.calendarListMirrorConflicts(profileId, undefined, false),
@@ -232,6 +319,7 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
           const survivingIds = state.visibleCalendarIds.filter((id) => activeIds.includes(id));
           return {
             calendars,
+            subscriptions,
             conflicts,
             mirrorGroups,
             mirrorConflicts,
@@ -295,8 +383,33 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
       });
       if (get().profileId !== profileId) return results;
       try {
-        const [calendars, conflicts] = await Promise.all([
+        const existingSubscriptions = await tauriCommands.calendarListSubscriptions(profileId);
+        for (const origin of origins) {
+          const normalizedServerUrl = origin.serverUrl.replace(/\/$/, '');
+          const remoteSubscriptions = await tauriCommands.hostedCalendarRequest<CalendarSubscription[]>(
+            normalizedServerUrl,
+            'GET',
+            '/api/v1/calendars/subscriptions',
+          );
+          const remoteIds = new Set(remoteSubscriptions.map((entry) => entry.id));
+          for (const subscription of remoteSubscriptions) {
+            await tauriCommands.calendarSaveSubscription(profileId, {
+              ...subscription,
+              serverUrl: normalizedServerUrl,
+              userId: origin.userId,
+            });
+          }
+          for (const stale of existingSubscriptions.filter((entry) => (
+            entry.serverUrl?.replace(/\/$/, '') === normalizedServerUrl
+            && entry.userId === origin.userId
+            && !remoteIds.has(entry.id)
+          ))) {
+            await tauriCommands.calendarDeleteSubscription(profileId, stale.id);
+          }
+        }
+        const [calendars, subscriptions, conflicts] = await Promise.all([
           tauriCommands.calendarList(profileId),
+          tauriCommands.calendarListSubscriptions(profileId),
           tauriCommands.calendarListFailedOperations(profileId),
         ]);
         const mirror = await bridgeCalendarMirrors({
@@ -340,6 +453,7 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
         }
         set((state) => ({
           calendars,
+          subscriptions,
           sourceItems,
           items,
           syncResults: results,
@@ -436,6 +550,288 @@ export const useCalendarStore = create<CalendarStoreState>()((set, get) => ({
     } catch (error) {
       set({ error: error instanceof Error ? error.message : String(error) });
       throw error;
+    }
+  },
+
+  createSubscription: async (name, color, rawFeedUrl, location) => {
+    const profileId = get().profileId;
+    if (!profileId) throw new Error('Calendar profile is not initialized.');
+    let feedUrl: string;
+    try {
+      const parsed = new URL(rawFeedUrl.trim());
+      if (parsed.protocol !== 'https:') throw new Error();
+      feedUrl = parsed.toString();
+    } catch {
+      throw new Error('Calendar subscriptions require a valid HTTPS URL.');
+    }
+    if (location?.kind === 'hosted') {
+      const origin = {
+        serverUrl: location.serverUrl.replace(/\/$/, ''),
+        userId: location.userId,
+      };
+      set({ saving: true, error: null });
+      try {
+        const response = await tauriCommands.hostedCalendarRequest<HostedSubscriptionResult>(
+          origin.serverUrl,
+          'POST',
+          '/api/v1/calendars/subscriptions',
+          {
+            name,
+            color,
+            defaultTimeZone: defaultCalendarTimeZone(),
+            feedUrl,
+          },
+        );
+        const calendar = normalizeRemoteCalendar(response.calendar, origin);
+        const subscription = {
+          ...response.subscription,
+          serverUrl: origin.serverUrl,
+          userId: origin.userId,
+        };
+        await Promise.all([
+          tauriCommands.calendarSave(profileId, calendar),
+          tauriCommands.calendarSaveSubscription(profileId, subscription),
+        ]);
+        await get().syncHosted([origin]);
+        return subscription;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        set({ error: message });
+        throw error;
+      } finally {
+        set({ saving: false });
+      }
+    }
+    const now = new Date().toISOString();
+    const subscriptionId = crypto.randomUUID();
+    const calendar = createCalendarDefinition({
+      location: { kind: 'subscription', subscriptionId },
+      name,
+      color,
+      defaultTimeZone: defaultCalendarTimeZone(),
+      now,
+    });
+    calendar.readOnly = true;
+    set({ saving: true, error: null });
+    try {
+      const response = await tauriCommands.fetchCalendarFeed(feedUrl);
+      if (!response.content) throw new Error('The calendar feed returned no content.');
+      const preview = previewCalendarIcsImport(response.content, calendar, [], now);
+      assertValidSubscriptionPreview(preview);
+      const items = subscriptionItems(preview, subscriptionId);
+      const subscription: CalendarSubscription = {
+        id: subscriptionId,
+        calendarId: calendar.id,
+        feedUrl: response.resolvedUrl,
+        etag: response.etag,
+        lastModified: response.lastModified,
+        lastRefreshedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await tauriCommands.calendarReplaceSubscription(profileId, calendar, items, subscription);
+      set((state) => {
+        const sourceItems = [...state.sourceItems, ...items];
+        return {
+          calendars: [...state.calendars, calendar],
+          subscriptions: [...state.subscriptions, subscription],
+          visibleCalendarIds: [...state.visibleCalendarIds, calendar.id],
+          sourceItems,
+          items: projectedItems(sourceItems, state.range),
+        };
+      });
+      return subscription;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set({ error: message });
+      throw error;
+    } finally {
+      set({ saving: false });
+    }
+  },
+
+  refreshSubscription: async (subscriptionId) => {
+    const profileId = get().profileId;
+    const subscription = get().subscriptions.find((entry) => entry.id === subscriptionId);
+    const calendar = subscription
+      ? get().calendars.find((entry) => entry.id === subscription.calendarId)
+      : undefined;
+    if (!profileId || !subscription || !calendar) throw new Error('Calendar subscription is not available.');
+    set({ saving: true, error: null });
+    const attemptedAt = new Date().toISOString();
+    try {
+      if (subscription.serverUrl && subscription.userId) {
+        const origin = {
+          serverUrl: subscription.serverUrl.replace(/\/$/, ''),
+          userId: subscription.userId,
+        };
+        const response = await tauriCommands.hostedCalendarRequest<HostedSubscriptionResult>(
+          origin.serverUrl,
+          'POST',
+          `/api/v1/calendars/subscriptions/${subscriptionId}/refresh`,
+        );
+        const updated = {
+          ...response.subscription,
+          serverUrl: origin.serverUrl,
+          userId: origin.userId,
+        };
+        await tauriCommands.calendarSaveSubscription(profileId, updated);
+        await get().syncHosted([origin]);
+        return;
+      }
+      const response = await tauriCommands.fetchCalendarFeed(
+        subscription.feedUrl,
+        subscription.etag,
+        subscription.lastModified,
+      );
+      let nextCalendar = calendar;
+      let nextItems: CalendarItem[] | null = null;
+      if (!response.notModified) {
+        if (!response.content) throw new Error('The calendar feed returned no content.');
+        const existing = await tauriCommands.calendarListCalendarItems(profileId, calendar.id, 5_000);
+        const preview = previewCalendarIcsImport(response.content, calendar, existing, attemptedAt);
+        assertValidSubscriptionPreview(preview);
+        nextCalendar = normalizeCalendarDefinition({
+          ...calendar,
+          revision: calendar.revision + 1,
+          updatedAt: attemptedAt,
+        });
+        nextItems = subscriptionItems(preview, subscriptionId);
+      }
+      const updated: CalendarSubscription = {
+        ...subscription,
+        feedUrl: response.resolvedUrl,
+        etag: response.etag,
+        lastModified: response.lastModified,
+        lastRefreshedAt: attemptedAt,
+        lastError: undefined,
+        updatedAt: attemptedAt,
+      };
+      if (nextItems) {
+        await tauriCommands.calendarReplaceSubscription(
+          profileId,
+          nextCalendar,
+          nextItems,
+          updated,
+        );
+      } else {
+        await tauriCommands.calendarSaveSubscription(profileId, updated);
+      }
+      set((state) => {
+        const sourceItems = nextItems
+          ? [
+              ...state.sourceItems.filter((item) => item.calendarId !== calendar.id),
+              ...nextItems,
+            ]
+          : state.sourceItems;
+        return {
+          calendars: state.calendars.map((entry) => entry.id === calendar.id ? nextCalendar : entry),
+          subscriptions: state.subscriptions.map((entry) => entry.id === subscriptionId ? updated : entry),
+          sourceItems,
+          items: projectedItems(sourceItems, state.range),
+        };
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const failed = { ...subscription, lastError: message, updatedAt: attemptedAt };
+      try {
+        await tauriCommands.calendarSaveSubscription(profileId, failed);
+      } catch {
+        // Keep the original error as the actionable failure.
+      }
+      set((state) => ({
+        subscriptions: state.subscriptions.map((entry) => entry.id === subscriptionId ? failed : entry),
+        error: message,
+      }));
+      throw error;
+    } finally {
+      set({ saving: false });
+    }
+  },
+
+  refreshSubscriptions: async (staleAfterMs = 15 * 60_000) => {
+    const cutoff = Date.now() - staleAfterMs;
+    for (const subscription of get().subscriptions) {
+      const lastRefresh = subscription.lastRefreshedAt ? Date.parse(subscription.lastRefreshedAt) : 0;
+      if (lastRefresh > cutoff) continue;
+      try {
+        await get().refreshSubscription(subscription.id);
+      } catch {
+        // One stale feed must not prevent unrelated subscriptions from refreshing.
+      }
+    }
+  },
+
+  deleteSubscription: async (subscriptionId) => {
+    const profileId = get().profileId;
+    const subscription = get().subscriptions.find((entry) => entry.id === subscriptionId);
+    if (!profileId || !subscription) throw new Error('Calendar subscription is not available.');
+    set({ saving: true, error: null });
+    try {
+      if (subscription.serverUrl) {
+        await tauriCommands.hostedCalendarRequest(
+          subscription.serverUrl,
+          'DELETE',
+          `/api/v1/calendars/subscriptions/${subscriptionId}`,
+        );
+      }
+      await tauriCommands.calendarDeleteSubscription(profileId, subscriptionId);
+      set((state) => {
+        const calendars = state.calendars.filter((entry) => entry.id !== subscription.calendarId);
+        const sourceItems = state.sourceItems.filter((item) => item.calendarId !== subscription.calendarId);
+        return {
+          calendars,
+          subscriptions: state.subscriptions.filter((entry) => entry.id !== subscriptionId),
+          visibleCalendarIds: state.visibleCalendarIds.filter((id) => id !== subscription.calendarId),
+          sourceItems,
+          items: projectedItems(sourceItems, state.range),
+        };
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set({ error: message });
+      throw error;
+    } finally {
+      set({ saving: false });
+    }
+  },
+
+  listCalendarItems: async (calendarId) => {
+    const profileId = get().profileId;
+    if (!profileId) throw new Error('Calendar profile is not initialized.');
+    return tauriCommands.calendarListCalendarItems(profileId, calendarId, 5_000);
+  },
+
+  importItems: async (calendarId, inputs) => {
+    const profileId = get().profileId;
+    const calendar = get().calendars.find((entry) => entry.id === calendarId);
+    if (!profileId || !calendar) throw new Error('Calendar is not available.');
+    if (calendar.readOnly) throw new Error('Calendar is read-only.');
+    if (inputs.length === 0) return;
+    if (inputs.length > 5_000) throw new Error('Calendar imports cannot apply more than 5,000 items.');
+
+    const items = inputs.map((input) => {
+      if (input.calendarId !== calendarId) throw new Error('An imported item targets a different calendar.');
+      return normalizeCalendarItem(input);
+    });
+    const operations = items.map((item) => operationFor(item, Math.max(0, item.revision - 1)));
+    set({ saving: true, error: null });
+    try {
+      await tauriCommands.calendarUpsertItems(
+        profileId,
+        items.map((item, index) => [item, operations[index]]),
+      );
+      await pushHostedOperations(profileId, calendar, operations);
+      set((state) => {
+        const sourceItems = replaceSourceItems(state.sourceItems, items);
+        return { sourceItems, items: projectedItems(sourceItems, state.range) };
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      set({ error: message });
+      throw error;
+    } finally {
+      set({ saving: false });
     }
   },
 

@@ -1,6 +1,6 @@
 # Open Development Work
 
-Last reviewed: 2026-07-24
+Last reviewed: 2026-07-26
 
 This is the entry point for unfinished Collab projects. Detailed requirements,
 implementation notes, and acceptance criteria remain in their canonical plan
@@ -25,7 +25,7 @@ work from being mistaken for an active roadmap item.
 | Android companion app | In progress / deferred expansion | Finish Phase 7 device lifecycle QA, signing, release packaging, and operational documentation. Phase 8 remains a deferred expansion bucket; background execution and notifications now have dedicated plans. | [Android Companion App Plan](./android-companion-app-plan.md) |
 | Electronic circuit simulation | In progress / planned | Finish remaining schema/runtime details and AC integration, then mixed-signal simulation, derived-result caching/collaboration policy, numerical hardening, and release validation. | [Electronic Circuit Simulation Plan](./electronic-circuit-simulation-plan.md) |
 | Logic and circuit diagram editor | In progress umbrella | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream. | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md) |
-| User calendar | Testing / not started | Complete physical-device validation for cross-location mirroring, then iCalendar import/export/subscriptions, CalDAV, admin privacy/hardening, and native reminder delivery. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
+| User calendar | Testing / planned | Complete physical-device validation for cross-location mirroring, then continue with CalDAV, admin privacy/hardening, and native reminder delivery. Phase 8 iCalendar interoperability is complete. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
 | Background running | Not started | Add a shared headless coordinator, desktop tray/autostart lifecycle, Android WorkManager scheduling, persisted progress, power controls, and platform QA. | [Background Running Plan](./background-running-plan.md) |
 | Notification system | Not started | Add a shared inbox/scheduler, native desktop and Android delivery, hosted activity invalidations, preferences, privacy controls, and release hardening. | [Notification System Plan](./notification-system-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
@@ -85,8 +85,11 @@ Open tracker entries:
 
 - Phase 6, **Testing**: physical-device end-to-end validation for
   cross-location mirroring.
-- Phase 8, **Not started**: `.ics` import/export, subscriptions, publishing,
-  deduplication, and bounded refresh.
+- Phase 8, **Complete**: desktop range/item export, desktop and Android bounded
+  import/export, local and hosted read-only HTTPS subscriptions, scheduled
+  conditional refresh with last-good-copy preservation, safe unknown-property
+  round trips, provider/time-zone fixtures, SSRF/parser hardening, and bounded,
+  ETag-aware feeds through hashed revocable publication tokens are implemented.
 - Phase 9, **Not started**: CalDAV and external two-way synchronization.
 - Phase 10, **Not started**: aggregate-only administration, privacy
   verification, migrations, load, security, and recovery coverage.

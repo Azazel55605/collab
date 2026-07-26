@@ -24,7 +24,7 @@ import type { NoteSnippet, NoteSnippetDraft, NoteSnippetScope } from '../types/n
 import type { PdfSidecarState } from '../types/pdf';
 import type { UpdateInfo } from '../store/updateStore';
 import type { LogicDiagramDocument } from '../types/logicDiagram';
-import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarMirrorAnchor, CalendarMirrorConflict, CalendarMirrorGroup, CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSyncState } from '../types/calendar';
+import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarMirrorAnchor, CalendarMirrorConflict, CalendarMirrorGroup, CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSubscription, CalendarSyncState } from '../types/calendar';
 import type {
   CircuitDcResult,
   CircuitJobOutcome,
@@ -83,6 +83,14 @@ export interface LinkPreviewData {
   embedBlockReason?: string | null;
 }
 
+export interface CalendarFeedResponse {
+  resolvedUrl: string;
+  notModified: boolean;
+  content?: string;
+  etag?: string;
+  lastModified?: string;
+}
+
 export interface ServerConnectionStatus {
   connected: boolean;
   serverUrl: string | null;
@@ -137,6 +145,18 @@ export const tauriCommands = {
     calendar: CalendarDefinition,
     items: CalendarItem[],
   ) => invoke<void>('calendar_replace_generated_kanban', { profileId, calendar, items }),
+  calendarReplaceSubscription: (
+    profileId: string,
+    calendar: CalendarDefinition,
+    items: CalendarItem[],
+    subscription: CalendarSubscription,
+  ) => invoke<void>('calendar_replace_subscription', { profileId, calendar, items, subscription }),
+  calendarListSubscriptions: (profileId: string) =>
+    invoke<CalendarSubscription[]>('calendar_list_subscriptions', { profileId }),
+  calendarSaveSubscription: (profileId: string, subscription: CalendarSubscription) =>
+    invoke<void>('calendar_save_subscription', { profileId, subscription }),
+  calendarDeleteSubscription: (profileId: string, subscriptionId: string) =>
+    invoke<void>('calendar_delete_subscription', { profileId, subscriptionId }),
   calendarSaveWithOperation: (profileId: string, calendar: CalendarDefinition, operation: CalendarOperation) =>
     invoke<void>('calendar_save_with_operation', { profileId, calendar, operation }),
   calendarDelete: (profileId: string, calendarId: string, deletedAt: string, operation: CalendarOperation) =>
@@ -152,6 +172,12 @@ export const tauriCommands = {
   ) => invoke<CalendarItem[]>('calendar_list_items', { profileId, from, to, limit, includeDeleted }),
   calendarUpsertItem: (profileId: string, item: CalendarItem, operation: CalendarOperation) =>
     invoke<void>('calendar_upsert_item', { profileId, item, operation }),
+  calendarUpsertItems: (
+    profileId: string,
+    entries: Array<[CalendarItem, CalendarOperation]>,
+  ) => invoke<void>('calendar_upsert_items', { profileId, entries }),
+  calendarListCalendarItems: (profileId: string, calendarId: string, limit = 5_000) =>
+    invoke<CalendarItem[]>('calendar_list_calendar_items', { profileId, calendarId, limit }),
   calendarDeleteItem: (profileId: string, calendarId: string, itemId: string, deletedAt: string, operation: CalendarOperation) =>
     invoke<void>('calendar_delete_item', { profileId, calendarId, itemId, deletedAt, operation }),
   calendarSearchItems: (profileId: string, query: string, limit = 100) =>
@@ -282,6 +308,14 @@ export const tauriCommands = {
     if (Array.isArray(result)) return result;
     return typeof result === 'string' ? [result] : null;
   },
+  showCalendarImportDialog: async () => {
+    const result = await open({
+      multiple: false,
+      title: 'Import iCalendar file',
+      filters: [{ name: 'iCalendar', extensions: ['ics'] }],
+    });
+    return typeof result === 'string' ? result : null;
+  },
   writeNote: (vaultPath: string, relativePath: string, content: string, expectedHash?: string, baseContent?: string) =>
     invoke<WriteResult>('write_note', {
       vaultPath,
@@ -321,6 +355,12 @@ export const tauriCommands = {
     invoke<void>('rename_note', { vaultPath, oldPath, newPath, updateReferences: updateReferences ?? null }),
   createFolder: (vaultPath: string, relativePath: string) => invoke<void>('create_folder', { vaultPath, relativePath }),
   fetchLinkPreview: (url: string) => invoke<LinkPreviewData>('fetch_link_preview', { url }),
+  fetchCalendarFeed: (url: string, etag?: string, lastModified?: string) =>
+    invoke<CalendarFeedResponse>('fetch_calendar_feed', {
+      url,
+      etag: etag ?? null,
+      lastModified: lastModified ?? null,
+    }),
   listOcrLanguagePacks: () => invoke<OcrLanguagePack[]>('list_ocr_language_packs'),
   installOcrLanguagePack: (code: string) => invoke<OcrLanguagePack>('install_ocr_language_pack', { code }),
   removeOcrLanguagePack: (code: string) => invoke<OcrLanguagePack>('remove_ocr_language_pack', { code }),

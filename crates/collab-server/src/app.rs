@@ -106,10 +106,36 @@ pub fn build_router(state: AppState) -> Router {
             post(crate::calendar_api::apply_operations),
         )
         .route(
+            "/api/v1/calendars/subscriptions",
+            get(crate::calendar_api::list_subscriptions)
+                .post(crate::calendar_api::create_subscription),
+        )
+        .route(
+            "/api/v1/calendars/subscriptions/{subscription_id}",
+            delete(crate::calendar_api::delete_subscription),
+        )
+        .route(
+            "/api/v1/calendars/subscriptions/{subscription_id}/refresh",
+            post(crate::calendar_api::refresh_subscription),
+        )
+        .route(
             "/api/v1/calendars/{calendar_id}",
             get(crate::calendar_api::get_calendar)
                 .patch(crate::calendar_api::update_calendar)
                 .delete(crate::calendar_api::delete_calendar),
+        )
+        .route(
+            "/api/v1/calendars/{calendar_id}/published-feeds",
+            get(crate::calendar_api::list_published_feeds)
+                .post(crate::calendar_api::create_published_feed),
+        )
+        .route(
+            "/api/v1/calendars/{calendar_id}/published-feeds/{feed_id}",
+            delete(crate::calendar_api::revoke_published_feed),
+        )
+        .route(
+            "/api/v1/calendar-feeds/{token}",
+            get(crate::calendar_api::read_published_feed),
         )
         .route(
             "/api/v1/calendars/{calendar_id}/attachments",
@@ -478,6 +504,18 @@ pub fn spawn_maintenance_worker(state: AppState) {
                 "maintenance pass complete"
             );
             sleep(interval).await;
+        }
+    });
+}
+
+/// Refreshes a bounded page of stale external calendar feeds once per minute.
+/// The per-subscription timestamp keeps normal refreshes on a 15-minute cadence.
+pub fn spawn_calendar_subscription_worker(state: AppState) {
+    tokio::spawn(async move {
+        sleep(Duration::from_secs(45)).await;
+        loop {
+            crate::calendar_api::refresh_due_subscriptions(&state).await;
+            sleep(Duration::from_secs(60)).await;
         }
     });
 }
