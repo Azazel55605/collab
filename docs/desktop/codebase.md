@@ -649,7 +649,7 @@ The repository root is a Cargo workspace:
 | `crates/collab-protocol/` | Shared server response DTOs, error envelope, and protocol versions |
 | `crates/collab-replica/` | Encrypted native hosted-vault offline replica, pending mutation queue, and document/asset/CRDT/logic-component caches |
 | `crates/collab-calendar/` | Shared user-calendar wire model and profile-scoped SQLite store with indexed range queries, pending operations, optimistic item revisions, cross-location mirror groups/anchors/conflicts, and atomic local generated-Kanban projection replacement |
-| `crates/collab-server/` | Standalone Axum server, PostgreSQL migrations, hosted-vault authorization/storage APIs, health checks, and blob storage |
+| `crates/collab-server/` | Standalone Axum server, PostgreSQL migrations, hosted-vault authorization/storage APIs, owner-scoped calendar/CalDAV APIs, health checks, and blob storage |
 | `src-tauri/` | Native Tauri application adapter and local-vault commands |
 | `compose.yaml` | Local PostgreSQL, server, and Caddy gateway stack |
 | `Dockerfile.server` | Cached multi-stage server image build |

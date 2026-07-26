@@ -208,6 +208,19 @@ export interface CreatedCalendarPublishedFeed extends CalendarPublishedFeed {
   feedPath: string;
 }
 
+export interface CalendarCalDavCredential {
+  id: string;
+  label: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
+export interface CreatedCalendarCalDavCredential extends CalendarCalDavCredential {
+  username: string;
+  password: string;
+  caldavPath: string;
+}
+
 export type CalendarMutation =
   | { type: 'createCalendar'; calendar: CalendarDefinition }
   | { type: 'updateCalendar'; calendar: CalendarDefinition }

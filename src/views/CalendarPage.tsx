@@ -12,6 +12,7 @@ import {
   FileDown,
   FileUp,
   Gift,
+  KeyRound,
   Bell,
   CheckCircle2,
   CloudOff,
@@ -97,9 +98,10 @@ import { tauriCommands } from '../lib/tauri';
 import {
   calendarItemRange,
   normalizeCalendarItem,
-  type CalendarDefinition,
   type CalendarAttachment,
   type CalendarAttendee,
+  type CalendarCalDavCredential,
+  type CalendarDefinition,
   type CalendarItem,
   type CalendarItemKind,
   type CalendarLocation,
@@ -107,6 +109,7 @@ import {
   type CalendarMirrorGroup,
   type CalendarMirrorGroupStatus,
   type CalendarPublishedFeed,
+  type CreatedCalendarCalDavCredential,
   type CreatedCalendarPublishedFeed,
   type CalendarSubscription,
   type CalendarTask,
@@ -290,6 +293,7 @@ export default function CalendarPage() {
   const [subscriptionDialogOpen, setSubscriptionDialogOpen] = useState(false);
   const [subscriptionDeleteRequest, setSubscriptionDeleteRequest] = useState<CalendarSubscription | null>(null);
   const [publishCalendar, setPublishCalendar] = useState<CalendarDefinition | null>(null);
+  const [caldavDialogOpen, setCaldavDialogOpen] = useState(false);
   const [mirrorDialogOpen, setMirrorDialogOpen] = useState(false);
   const [calendarEditor, setCalendarEditor] = useState<CalendarDefinition | null>(null);
   const [importRequest, setImportRequest] = useState<{
@@ -326,7 +330,7 @@ export default function CalendarPage() {
   const hostedOrigins = useMemo(() => Object.values(serverConnections).flatMap((connection) => {
     const { status } = connection;
     return status.connected && status.serverUrl && status.user
-      ? [{ serverUrl: status.serverUrl, userId: status.user.id }]
+      ? [{ serverUrl: status.serverUrl, userId: status.user.id, username: status.user.username }]
       : [];
   }), [serverConnections]);
 
@@ -532,6 +536,7 @@ export default function CalendarPage() {
         </div>
         {store.loading && <LoaderCircle className="size-4 animate-spin text-muted-foreground" />}
         {hostedOrigins.length > 0 && <CalendarInvitations origins={hostedOrigins} onChanged={() => void store.syncHosted(hostedOrigins)} />}
+        {hostedOrigins.length > 0 && <Button variant="ghost" size="icon-sm" aria-label="Manage CalDAV access" title="Manage CalDAV access" onClick={() => setCaldavDialogOpen(true)}><KeyRound /></Button>}
         {hostedOrigins.length > 0 && <Button variant="ghost" size="icon-sm" aria-label="Sync hosted calendars" title="Sync hosted calendars" disabled={store.syncing} onClick={() => void store.syncHosted(hostedOrigins)}><RefreshCw className={cn(store.syncing && 'animate-spin')} /></Button>}
         <Button size="sm" onClick={() => openEditor({ date: selectedDate, kind: 'event' })} disabled={store.calendars.length === 0}><Plus /> New</Button>
       </header>
@@ -587,6 +592,7 @@ export default function CalendarPage() {
         onCreate={store.createSubscription}
       />
       <CalendarPublishDialog calendar={publishCalendar} onOpenChange={(open) => !open && setPublishCalendar(null)} />
+      <CalendarCalDavDialog open={caldavDialogOpen} onOpenChange={setCaldavDialogOpen} origins={hostedOrigins} />
       <Dialog open={subscriptionDeleteRequest != null} onOpenChange={(open) => !open && setSubscriptionDeleteRequest(null)}><DialogContent className="sm:max-w-sm"><DialogHeader><DialogTitle>Remove calendar subscription?</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">The cached read-only calendar and its entries will be removed from this profile. The external feed is not changed.</p><DialogFooter><Button type="button" variant="outline" onClick={() => setSubscriptionDeleteRequest(null)}>Cancel</Button><Button type="button" variant="destructive" disabled={store.saving} onClick={() => { if (!subscriptionDeleteRequest) return; void store.deleteSubscription(subscriptionDeleteRequest.id).then(() => setSubscriptionDeleteRequest(null)).catch(() => {}); }}>{store.saving ? 'Removing...' : 'Remove'}</Button></DialogFooter></DialogContent></Dialog>
       <CalendarMirrorDialog
         open={mirrorDialogOpen}
@@ -1906,6 +1912,154 @@ function CalendarPublishDialog({ calendar, onOpenChange }: {
             <div className="truncate text-[10px] text-muted-foreground">{feed.lastAccessedAt ? `Last fetched ${new Date(feed.lastAccessedAt).toLocaleString()}` : 'Not fetched yet'}</div>
           </div>
           <Button type="button" variant="ghost" size="icon-sm" disabled={busy} aria-label="Revoke published calendar link" title="Revoke link" onClick={() => void revokeFeed(feed.id)}><Trash2 /></Button>
+        </div>)}
+      </div>
+    </div>
+    <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Close</Button></DialogFooter>
+  </DialogContent></Dialog>;
+}
+
+export function CalendarCalDavDialog({ open, onOpenChange, origins }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  origins: Array<{ serverUrl: string; userId: string; username: string }>;
+}) {
+  const [serverUrl, setServerUrl] = useState('');
+  const [credentials, setCredentials] = useState<CalendarCalDavCredential[]>([]);
+  const [created, setCreated] = useState<CreatedCalendarCalDavCredential | null>(null);
+  const [label, setLabel] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState('');
+  const selectedOrigin = origins.find((origin) => origin.serverUrl === serverUrl) ?? origins[0];
+
+  useEffect(() => {
+    if (!open) return;
+    setServerUrl((current) => origins.some((origin) => origin.serverUrl === current)
+      ? current
+      : (origins[0]?.serverUrl ?? ''));
+    setCreated(null);
+    setCopied('');
+    setError(null);
+  }, [open, origins]);
+
+  useEffect(() => {
+    if (!open || !selectedOrigin) {
+      setCredentials([]);
+      return;
+    }
+    let active = true;
+    setBusy(true);
+    setError(null);
+    void tauriCommands.hostedCalendarRequest<CalendarCalDavCredential[]>(
+      selectedOrigin.serverUrl,
+      'GET',
+      '/api/v1/calendars/caldav-credentials',
+    ).then((values) => {
+      if (active) setCredentials(values);
+    }).catch((reason) => {
+      if (active) setError(reason instanceof Error ? reason.message : String(reason));
+    }).finally(() => {
+      if (active) setBusy(false);
+    });
+    return () => { active = false; };
+  }, [open, selectedOrigin?.serverUrl]);
+
+  const createCredential = async () => {
+    if (!selectedOrigin || !label.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const value = await tauriCommands.hostedCalendarRequest<CreatedCalendarCalDavCredential>(
+        selectedOrigin.serverUrl,
+        'POST',
+        '/api/v1/calendars/caldav-credentials',
+        { label: label.trim() },
+      );
+      setCredentials((current) => [value, ...current]);
+      setCreated(value);
+      setLabel('');
+      setCopied('');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revokeCredential = async (credentialId: string) => {
+    if (!selectedOrigin) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await tauriCommands.hostedCalendarRequest(
+        selectedOrigin.serverUrl,
+        'DELETE',
+        `/api/v1/calendars/caldav-credentials/${credentialId}`,
+      );
+      setCredentials((current) => current.filter((credential) => credential.id !== credentialId));
+      if (created?.id === credentialId) setCreated(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyValue = (name: string, value: string) => {
+    void navigator.clipboard.writeText(value)
+      .then(() => setCopied(name))
+      .catch(() => setError('Could not copy the CalDAV value.'));
+  };
+  const caldavUrl = selectedOrigin
+    ? `${selectedOrigin.serverUrl.replace(/\/$/, '')}${created?.caldavPath ?? '/caldav/'}`
+    : '';
+
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="sm:max-w-lg">
+    <DialogHeader><DialogTitle>CalDAV access</DialogTitle></DialogHeader>
+    <p className="text-xs text-muted-foreground">Connect an external calendar application with a separate revocable password. Your normal Collab password and session are never shared with CalDAV clients.</p>
+    {origins.length > 1 && <div className="space-y-1.5">
+      <span className="text-xs font-medium">Server</span>
+      <Select value={selectedOrigin?.serverUrl ?? ''} onValueChange={(value) => { setServerUrl(value); setCreated(null); setCopied(''); }}>
+        <SelectTrigger aria-label="CalDAV server"><SelectValue /></SelectTrigger>
+        <SelectContent>{origins.map((origin) => <SelectItem key={origin.serverUrl} value={origin.serverUrl}>{origin.serverUrl}</SelectItem>)}</SelectContent>
+      </Select>
+    </div>}
+    {error && <div className="rounded border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">{error}</div>}
+    {created && <div className="space-y-2 rounded-md border border-primary/35 bg-primary/5 p-3">
+      <div>
+        <p className="text-xs font-medium">Save this password now</p>
+        <p className="text-[10px] text-muted-foreground">It cannot be displayed again after this dialog closes.</p>
+      </div>
+      {([
+        ['url', 'Server URL', caldavUrl],
+        ['username', 'Username', created.username],
+        ['password', 'App password', created.password],
+      ] as const).map(([key, title, value]) => <div key={key} className="space-y-1">
+        <span className="text-[10px] font-medium text-muted-foreground">{title}</span>
+        <div className="flex gap-2">
+          <Input readOnly value={value} className="min-w-0 font-mono text-xs" aria-label={`CalDAV ${title}`} />
+          <Button type="button" variant="outline" size="icon" aria-label={`Copy CalDAV ${title}`} onClick={() => copyValue(key, value)}><Copy /></Button>
+        </div>
+        {copied === key && <p className="text-[10px] text-muted-foreground">Copied</p>}
+      </div>)}
+    </div>}
+    <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); void createCredential(); }}>
+      <Input value={label} onChange={(event) => setLabel(event.target.value)} maxLength={80} placeholder="Device or application name" aria-label="CalDAV credential name" />
+      <Button type="submit" disabled={busy || !selectedOrigin || !label.trim()}><Plus />Create</Button>
+    </form>
+    <div className="space-y-2">
+      <span className="text-xs font-medium">Active app passwords</span>
+      <div className="max-h-52 space-y-1 overflow-y-auto">
+        {busy && credentials.length === 0 && <div className="flex items-center justify-center gap-2 py-5 text-xs text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading access</div>}
+        {!busy && credentials.length === 0 && <div className="rounded border border-dashed border-border px-3 py-5 text-center text-xs text-muted-foreground">No CalDAV app passwords</div>}
+        {credentials.map((credential) => <div key={credential.id} className="flex items-center gap-2 rounded border border-border/70 px-2.5 py-2 text-xs">
+          <KeyRound className="size-3.5 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-medium">{credential.label}</div>
+            <div className="truncate text-[10px] text-muted-foreground">{credential.lastUsedAt ? `Last used ${new Date(credential.lastUsedAt).toLocaleString()}` : `Created ${new Date(credential.createdAt).toLocaleString()}`}</div>
+          </div>
+          <Button type="button" variant="ghost" size="icon-sm" disabled={busy} aria-label={`Revoke ${credential.label}`} title="Revoke access" onClick={() => void revokeCredential(credential.id)}><Trash2 /></Button>
         </div>)}
       </div>
     </div>

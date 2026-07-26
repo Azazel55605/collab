@@ -53,7 +53,7 @@ impl CalendarApiError {
         }
     }
 
-    fn authentication(request_id: &str) -> Self {
+    pub(crate) fn authentication(request_id: &str) -> Self {
         Self::new(
             StatusCode::UNAUTHORIZED,
             ErrorCode::AuthenticationRequired,
@@ -62,7 +62,7 @@ impl CalendarApiError {
         )
     }
 
-    fn validation(message: impl Into<String>, request_id: &str) -> Self {
+    pub(crate) fn validation(message: impl Into<String>, request_id: &str) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,
             ErrorCode::ValidationFailed,
@@ -71,7 +71,7 @@ impl CalendarApiError {
         )
     }
 
-    fn not_found(request_id: &str) -> Self {
+    pub(crate) fn not_found(request_id: &str) -> Self {
         Self::new(
             StatusCode::NOT_FOUND,
             ErrorCode::ResourceNotFound,
@@ -89,7 +89,7 @@ impl CalendarApiError {
         )
     }
 
-    fn server(request_id: &str) -> Self {
+    pub(crate) fn server(request_id: &str) -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorCode::ServerUnavailable,
@@ -454,7 +454,7 @@ pub struct CreatedCalendarSubscription {
     warnings: Vec<String>,
 }
 
-async fn require_native_user(
+pub(crate) async fn require_native_user(
     state: &AppState,
     headers: &HeaderMap,
     request_id: &str,
@@ -470,7 +470,10 @@ async fn require_native_user(
         .ok_or_else(|| CalendarApiError::authentication(request_id))
 }
 
-fn owner_id(user: &AuthenticatedUser, request_id: &str) -> Result<Uuid, CalendarApiError> {
+pub(crate) fn owner_id(
+    user: &AuthenticatedUser,
+    request_id: &str,
+) -> Result<Uuid, CalendarApiError> {
     Uuid::parse_str(&user.user.id).map_err(|_| CalendarApiError::server(request_id))
 }
 
@@ -2731,7 +2734,7 @@ fn next_item_revision(
     Ok(next)
 }
 
-async fn apply_operation(
+pub(crate) async fn apply_operation(
     tx: &mut Transaction<'_, Postgres>,
     owner: Uuid,
     operation: &CalendarOperation,

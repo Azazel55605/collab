@@ -52,6 +52,10 @@ Each backup directory is named `collab-backup-<UTC timestamp>` and contains:
 - `config.env`: sanitized non-secret server configuration values.
 - `checksums.sha256`: SHA-256 checksums for the backup artifacts.
 
+The PostgreSQL dump includes CalDAV resource mappings and app-password hashes.
+Raw CalDAV app passwords are intentionally unrecoverable and must be replaced
+if lost; restoring their hashes preserves credentials that clients still hold.
+
 ## Manual Backup
 
 Run one backup immediately:

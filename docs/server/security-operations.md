@@ -78,6 +78,10 @@ The first version does not defend against a malicious server operator. Hosted va
 - Browser session and CSRF secrets are generated from operating-system
   randomness and stored in PostgreSQL only as SHA-256 digests.
 - Passwords are stored only as Argon2id hashes with per-password salts.
+- CalDAV uses separately revocable app passwords instead of normal Collab
+  bearer/session credentials. Only password digests are stored, raw credentials
+  are returned once, Basic-auth traffic is rate-limited by a credential-safe
+  hash, and revocation does not affect ordinary native sessions.
 
 ## Database Migrations
 

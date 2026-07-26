@@ -59,7 +59,7 @@ models.
 | 6. Cross-location calendar mirroring | Testing | Mirror groups, deterministic client bridging, tombstones, isolated retryable failures, global progress visibility, and desktop/Android conflict resolution are implemented; physical-device end-to-end validation remains. |
 | 7. Kanban assigned-task integration | Complete | Local and hosted assignment projection, generated read-only calendars, REST/live materialization, narrow date/completion/recurrence write-through, source lifecycle handling, and access-loss privacy cleanup are implemented and covered. |
 | 8. iCalendar import, export, and subscriptions | Complete | Desktop range/item export, desktop and Android bounded import/export, local and hosted read-only HTTPS subscriptions, scheduled conditional refresh, revocable publication links, safe extension preservation, provider/time-zone fixtures, and SSRF/parser hardening are implemented. |
-| 9. CalDAV and external two-way sync | Not started | Add standards-based two-way synchronization for capable external calendar applications. |
+| 9. CalDAV and external two-way sync | Testing | Hosted discovery, collections, reports, sync tokens, ETags, writes/deletes, recurrence resources, revocable app passwords, and shared change-log convergence are implemented; maintained external-client interoperability testing remains. |
 | 10. Admin overview, privacy verification, and hardening | Not started | Ship aggregate-only administration, migration, load, security, and recovery coverage. |
 | 11. Reminder delivery and notifications | Not started | Activate desktop and Android notification scheduling through the calendar reminder connectors after the core calendar implementation. |
 
@@ -446,6 +446,29 @@ Landed in the first implementation slice:
   and length limits. Reserved Collab properties, malformed lines, and content
   line injection are rejected. Google-, Outlook-, and Apple-style fixtures
   cover unknown extensions, all-day values, recurrence, alarms, and DST zones.
+- Started Phase 9 with a hosted CalDAV surface at `/.well-known/caldav` and
+  `/caldav/`. It exposes principal and calendar-home discovery, owner-scoped
+  collections, `calendar-query`, bounded `calendar-multiget`, incremental
+  `sync-collection`, collection sync tokens, and per-resource ETags.
+- CalDAV `GET`, `PUT`, and `DELETE` map iCalendar resources onto the existing
+  owner-scoped operation core. External writes therefore share validation,
+  quotas, idempotency, revisions, tombstones, relations, and the same change
+  stream already consumed by desktop and Android replicas. Recurrence masters
+  and exceptions remain one stable CalDAV resource and stale write
+  preconditions return `412 Precondition Failed`.
+- Added revocable CalDAV app passwords. Only a SHA-256 digest is stored; the raw
+  password is returned once at creation. CalDAV Basic authentication accepts
+  only these credentials and never normal Collab bearer/session credentials.
+  The desktop Calendar can create, list, copy, and revoke credentials for any
+  connected server without exposing native bearer tokens to the webview.
+- Added CalDAV-specific request limits, credential-scoped rate limiting,
+  maintenance-mode write blocking, parser/property tests, and a live PostgreSQL
+  lifecycle test covering discovery, create/read/delete convergence, sync
+  tombstones, stale ETags, and immediate credential revocation.
+- The hosted server is the standards-based two-way endpoint for this phase.
+  A local-only outbound CalDAV connector is deferred until the background
+  execution and secure external-credential lifecycle can support provider
+  secrets without storing them in the calendar profile database.
 
 ## Current System Constraints
 
@@ -1314,11 +1337,15 @@ Estimated effort: 4-7 weeks.
 
 Tasks:
 
-- Implement hosted CalDAV discovery, collections, reports, sync tokens, ETags,
+- [x] Implement hosted CalDAV discovery, collections, reports, sync tokens, ETags,
   writes, deletes, and app-password lifecycle.
-- Connect CalDAV mutations to the same operation/change-log core.
-- Add an outbound local-calendar CalDAV connector where needed.
-- Test against a maintained interoperability matrix of external clients.
+- [x] Connect CalDAV mutations to the same operation/change-log core.
+- [x] Establish the outbound-connector boundary: hosted Collab CalDAV is the
+  two-way endpoint; local-only remote-account connectors wait for secure
+  background credential management.
+- [ ] Test against a maintained interoperability matrix including DAVx5,
+  Thunderbird, Apple Calendar, and at least one additional actively maintained
+  CalDAV client.
 
 Acceptance criteria:
 

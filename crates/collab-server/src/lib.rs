@@ -1,6 +1,7 @@
 pub mod api;
 pub mod app;
 pub mod auth;
+pub mod caldav;
 pub mod calendar_api;
 pub mod calendar_feeds;
 pub mod config;

@@ -266,6 +266,9 @@ integrity/deduplication, structural operation ordering/authorization, native
 login and refresh rotation/reuse detection, expired and forged tokens,
 disabled-user behavior, and session revocation. Use a disposable test database
 because the lifecycle test truncates the Phase 2 identity tables before running.
+The CalDAV integration test additionally covers discovery, external resource
+create/read/delete, stale ETag rejection, sync tombstones, shared calendar
+change-log materialization, and immediate app-password revocation.
 
 ## Health Endpoints
 

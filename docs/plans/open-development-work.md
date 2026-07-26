@@ -25,7 +25,7 @@ work from being mistaken for an active roadmap item.
 | Android companion app | In progress / deferred expansion | Finish Phase 7 device lifecycle QA, signing, release packaging, and operational documentation. Phase 8 remains a deferred expansion bucket; background execution and notifications now have dedicated plans. | [Android Companion App Plan](./android-companion-app-plan.md) |
 | Electronic circuit simulation | In progress / planned | Finish remaining schema/runtime details and AC integration, then mixed-signal simulation, derived-result caching/collaboration policy, numerical hardening, and release validation. | [Electronic Circuit Simulation Plan](./electronic-circuit-simulation-plan.md) |
 | Logic and circuit diagram editor | In progress umbrella | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream. | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md) |
-| User calendar | Testing / planned | Complete physical-device validation for cross-location mirroring, then continue with CalDAV, admin privacy/hardening, and native reminder delivery. Phase 8 iCalendar interoperability is complete. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
+| User calendar | Testing / planned | Complete physical-device validation for cross-location mirroring and the Phase 9 external-client CalDAV matrix, then continue with admin privacy/hardening and native reminder delivery. Phase 8 iCalendar interoperability is complete and the hosted Phase 9 CalDAV implementation is in testing. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
 | Background running | Not started | Add a shared headless coordinator, desktop tray/autostart lifecycle, Android WorkManager scheduling, persisted progress, power controls, and platform QA. | [Background Running Plan](./background-running-plan.md) |
 | Notification system | Not started | Add a shared inbox/scheduler, native desktop and Android delivery, hosted activity invalidations, preferences, privacy controls, and release hardening. | [Notification System Plan](./notification-system-plan.md) |
 | Rust crate boundary refactor | Not started | Characterize and modularize oversized adapters, then extract shared network-policy, document, vault, archive-planning, and live-document domains with enforced dependency direction. | [Rust Crate Boundary Refactor Plan](./rust-crate-boundary-refactor-plan.md) |
@@ -96,7 +96,10 @@ Open tracker entries:
   conditional refresh with last-good-copy preservation, safe unknown-property
   round trips, provider/time-zone fixtures, SSRF/parser hardening, and bounded,
   ETag-aware feeds through hashed revocable publication tokens are implemented.
-- Phase 9, **Not started**: CalDAV and external two-way synchronization.
+- Phase 9, **Testing**: hosted discovery, collection/report/sync-token support,
+  ETag-guarded resources, shared operation-log writes, recurrence resources, and
+  revocable app passwords are implemented. DAVx5, Thunderbird, Apple Calendar,
+  and one additional maintained client still require interoperability testing.
 - Phase 10, **Not started**: aggregate-only administration, privacy
   verification, migrations, load, security, and recovery coverage.
 - Phase 11, **Not started**: native desktop/Android reminder delivery, now

@@ -21,6 +21,10 @@ separate mobile React shell under `apps/mobile-android`.
 - Mobile supports hosted server login/session restore, hosted vault browsing,
   offline copies, notes, Kanban, queued offline edits, reconnect sync replay, and
   mobile live-session plumbing for supported text documents.
+- Hosted CalDAV clients write through the server's normal calendar operation
+  log, so external changes reach Android through the existing hosted-calendar
+  delta sync. Android does not store CalDAV app passwords; credential setup and
+  revocation currently live in the desktop Calendar view.
 - Mobile does not support local filesystem vaults, desktop-style workspaces,
   native file drag/drop, full rich-file editing, or admin-web workflows.
 - Android-native behavior that must survive project regeneration is documented

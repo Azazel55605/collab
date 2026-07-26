@@ -34,6 +34,7 @@ Container Registry and run with a single production Compose file.
 - Hosted vaults on a self-hosted server with server-backed roles, fine-grained permissions, and authenticated native/browser sessions
 - Live co-editing of hosted notes, Kanban boards, canvases, and logic diagrams over a server-held CRDT, with live presence and safe REST fallback when no live session is available
 - Offline synchronization for hosted vaults through a native replica with reconnect convergence and a status-bar sync/conflict indicator
+- User calendars with desktop and Android offline sync, iCalendar import/export and subscriptions, plus hosted CalDAV access through revocable app passwords
 - Self-hosted Docker Compose server with PostgreSQL, persistent blob storage, Caddy gateway, health checks, automatic migrations, backups, quotas, and rate limiting
 - Published multi-architecture (AMD64/ARM64) server images on GitHub Container Registry for one-command production deployment
 - Server administration web interface with first-admin bootstrap, invitations, dashboard, user/password/session lifecycle management, activity inspection, and audit views

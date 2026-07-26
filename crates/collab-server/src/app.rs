@@ -4,7 +4,7 @@ use axum::{
     http::{header, HeaderName, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
-    routing::{delete, get, patch, post, put},
+    routing::{any, delete, get, patch, post, put},
     Json, Router,
 };
 use collab_protocol::{
@@ -89,6 +89,10 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/v1/users/{user_id}/avatar", get(api::get_user_avatar))
         .route("/api/v1/users/directory", get(api::user_directory))
+        .route("/.well-known/caldav", get(crate::caldav::well_known_caldav))
+        .route("/caldav", any(crate::caldav::handle_caldav))
+        .route("/caldav/", any(crate::caldav::handle_caldav))
+        .route("/caldav/{*path}", any(crate::caldav::handle_caldav))
         .route(
             "/api/v1/calendars",
             get(crate::calendar_api::list_calendars).post(crate::calendar_api::create_calendar),
@@ -104,6 +108,14 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/calendars/operations",
             post(crate::calendar_api::apply_operations),
+        )
+        .route(
+            "/api/v1/calendars/caldav-credentials",
+            get(crate::caldav::list_credentials).post(crate::caldav::create_credential),
+        )
+        .route(
+            "/api/v1/calendars/caldav-credentials/{credential_id}",
+            delete(crate::caldav::revoke_credential),
         )
         .route(
             "/api/v1/calendars/subscriptions",
@@ -591,13 +603,13 @@ impl RateLimiter {
     }
 }
 
-/// Coarse per-session or per-client-IP rate limiting for `/api/v1/*` (REST) and
-/// `/ws/v1/*` (WebSocket upgrade) traffic. Other paths (health checks, the admin
-/// SPA, the root redirect) are never limited. Limits are operator-controlled
-/// and a value of `0` disables the corresponding limiter.
+/// Coarse per-session or per-client-IP rate limiting for `/api/v1/*` and
+/// `/caldav/*` (REST) plus `/ws/v1/*` (WebSocket upgrade) traffic. Other paths
+/// (health checks, the admin SPA, and redirects) are never limited. Limits are
+/// operator-controlled and a value of `0` disables the corresponding limiter.
 async fn rate_limit(State(state): State<AppState>, request: Request, next: Next) -> Response {
     let path = request.uri().path();
-    let (scope, limit) = if path.starts_with("/api/v1/") {
+    let (scope, limit) = if path.starts_with("/api/v1/") || path.starts_with("/caldav") {
         ("rest", state.config.rest_rate_limit_per_minute)
     } else if path.starts_with("/ws/v1/") {
         ("ws", state.config.ws_rate_limit_per_minute)
@@ -640,15 +652,20 @@ fn rate_limit_buckets(scope: &str, request: &Request, limit: u32) -> Vec<(String
 /// retaining bearer tokens in the limiter map or exposing them in diagnostics.
 fn rate_limit_identity(scope: &str, request: &Request) -> String {
     if scope == "rest" {
-        if let Some(token) = request
+        if let Some(authorization) = request
             .headers()
             .get(header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "))
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            let digest = Sha256::digest(token.as_bytes());
+            let credential = authorization
+                .strip_prefix("Bearer ")
+                .or_else(|| authorization.strip_prefix("Basic "));
+            let Some(credential) = credential else {
+                return format!("ip:{}", client_key(request));
+            };
+            let digest = Sha256::digest(credential.as_bytes());
             return format!("session:{digest:x}");
         }
     }
@@ -742,6 +759,12 @@ fn maintenance_allowed(request: &Request) -> bool {
     }
     if path.starts_with("/ws/v1/") {
         return false;
+    }
+    if path.starts_with("/caldav") {
+        return matches!(
+            method.as_str(),
+            "GET" | "HEAD" | "OPTIONS" | "PROPFIND" | "REPORT"
+        );
     }
     matches!(method, &Method::GET | &Method::HEAD | &Method::OPTIONS)
 }
@@ -1022,6 +1045,14 @@ mod tests {
         assert!(first_key.starts_with("session:"));
         assert!(!first_key.contains("session-a"));
         assert_eq!(rate_limit_identity("ws", &first), "ip:203.0.113.7");
+        let dav = Request::builder()
+            .header("authorization", "Basic Y2FsZGF2OnNlY3JldA==")
+            .header("x-forwarded-for", "203.0.113.7")
+            .body(Body::empty())
+            .unwrap();
+        let dav_key = rate_limit_identity("rest", &dav);
+        assert!(dav_key.starts_with("session:"));
+        assert!(!dav_key.contains("Y2FsZGF2"));
 
         let buckets = rate_limit_buckets("rest", &first, 1_200);
         assert_eq!(buckets.len(), 2);
@@ -1160,6 +1191,30 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(ticket.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        let dav_read = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("PROPFIND")
+                    .uri("/caldav/")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(dav_read.status(), StatusCode::UNAUTHORIZED);
+
+        let dav_write = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/caldav/calendars/user/019eb16e-2a85-7070-bbe7-8cf09911c2c1/item.ics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(dav_write.status(), StatusCode::SERVICE_UNAVAILABLE);
 
         let ws = build_router(state)
             .oneshot(

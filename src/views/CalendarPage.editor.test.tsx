@@ -1,7 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { createCalendarDefinition, normalizeCalendarItem } from '../types/calendar';
-import { CalendarRail, CalendarSearch, CalendarSettingsDialog, ItemEditorDialog } from './CalendarPage';
+import { tauriCommands } from '../lib/tauri';
+import {
+  CalendarCalDavDialog,
+  CalendarRail,
+  CalendarSearch,
+  CalendarSettingsDialog,
+  ItemEditorDialog,
+} from './CalendarPage';
 
 describe('calendar item editor', () => {
   it('keeps draft fields when calendar store updates preserve the same default calendar', () => {
@@ -169,5 +176,49 @@ describe('calendar management', () => {
     fireEvent.click(screen.getByRole('button', { name: /Planning/ }));
     expect(onOpenItem).toHaveBeenCalledWith(result);
     expect(screen.getByText(/Personal · Local/)).toBeTruthy();
+  });
+
+  it('creates and revokes one-time CalDAV app passwords', async () => {
+    const request = vi.spyOn(tauriCommands, 'hostedCalendarRequest')
+      .mockImplementation(async (_serverUrl, method, path) => {
+        if (method === 'GET') return [] as never;
+        if (method === 'POST') {
+          return {
+            id: 'credential-1',
+            label: 'DAVx5',
+            createdAt: '2026-07-26T08:00:00Z',
+            username: 'alice',
+            password: 'credential-1.secret',
+            caldavPath: '/caldav/',
+          } as never;
+        }
+        if (method === 'DELETE' && path.endsWith('/credential-1')) return undefined as never;
+        throw new Error(`Unexpected request ${method} ${path}`);
+      });
+    render(<CalendarCalDavDialog
+      open
+      onOpenChange={vi.fn()}
+      origins={[{ serverUrl: 'https://calendar.example', userId: 'user-1', username: 'alice' }]}
+    />);
+
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      'https://calendar.example',
+      'GET',
+      '/api/v1/calendars/caldav-credentials',
+    ));
+    fireEvent.change(screen.getByRole('textbox', { name: 'CalDAV credential name' }), {
+      target: { value: 'DAVx5' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(await screen.findByDisplayValue('credential-1.secret')).toBeTruthy();
+    expect(screen.getByDisplayValue('https://calendar.example/caldav/')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke DAVx5' }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith(
+      'https://calendar.example',
+      'DELETE',
+      '/api/v1/calendars/caldav-credentials/credential-1',
+    ));
+    request.mockRestore();
   });
 });

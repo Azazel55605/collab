@@ -371,6 +371,37 @@ active vault. Planned for later Phase 6/7 units: `manifest.updated` /
 `operation.conflict` notifications and separate rate limits for awareness and
 chat versus durable document updates.
 
+## Calendars And CalDAV
+
+Native Collab clients use the owner-scoped JSON calendar API below
+`/api/v1/calendars`. Those requests keep normal bearer credentials behind the
+dedicated native `hosted_calendar_request` boundary.
+
+External calendar clients use the separate CalDAV surface:
+
+- `GET /.well-known/caldav` redirects to `/caldav/`.
+- `/caldav/principals/{userId}/` is the authenticated principal.
+- `/caldav/calendars/{userId}/` is the calendar home.
+- `/caldav/calendars/{userId}/{calendarId}/` is an owner-scoped collection.
+- `.ics` children support `GET`, ETag-guarded `PUT`, and ETag-guarded `DELETE`.
+- Collections support `PROPFIND`, `calendar-query`, bounded
+  `calendar-multiget`, and incremental `sync-collection` reports.
+
+CalDAV authenticates with revocable app passwords over HTTP Basic
+authentication. These credentials are distinct from normal Collab sessions:
+only a SHA-256 digest is stored, the raw password is returned once, revocation
+does not invalidate native clients, and normal bearer/session credentials are
+not accepted as CalDAV passwords. Owners manage credentials through:
+
+- `GET|POST /api/v1/calendars/caldav-credentials`
+- `DELETE /api/v1/calendars/caldav-credentials/{credentialId}`
+
+CalDAV mutations use the same calendar operation/change-log transaction as
+native writes. Desktop and Android therefore receive external changes through
+their existing delta synchronization path. Resource ETags are derived from the
+canonical iCalendar payload; failed `If-Match` or `If-None-Match` preconditions
+return `412` and never overwrite newer data.
+
 ## Idempotency and Concurrency
 
 - The server records accepted `clientOperationId` values and returns the original result for safe retries.
