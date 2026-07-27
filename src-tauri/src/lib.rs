@@ -1,4 +1,5 @@
 mod android_jni;
+mod background;
 #[cfg(not(mobile))]
 mod background_lifecycle;
 mod commands;
@@ -153,6 +154,15 @@ pub fn run() {
             commands::calendar::calendar_save_mirror_conflict,
             commands::calendar::calendar_list_mirror_items,
             commands::background::background_runtime_probe,
+            commands::background::background_server_list,
+            commands::background::background_server_replace,
+            commands::background::background_server_upsert,
+            commands::background::background_server_remove,
+            commands::background::background_job_run,
+            commands::background::background_job_get,
+            commands::background::background_job_list,
+            commands::background::background_job_cancel,
+            commands::background::background_job_aggregate,
             // vault
             commands::vault::open_vault,
             commands::vault::create_vault,

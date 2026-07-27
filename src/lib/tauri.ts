@@ -143,9 +143,96 @@ export interface BackgroundRuntimeProbe {
   filePath: string;
 }
 
+export type BackgroundJobKind = 'replica_sync' | 'calendar_sync' | 'maintenance';
+export type BackgroundJobTrigger =
+  | 'foreground'
+  | 'periodic'
+  | 'push_invalidation'
+  | 'retry'
+  | 'user_initiated';
+export type BackgroundJobStatus =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'partial'
+  | 'deferred'
+  | 'authentication_required'
+  | 'permission_denied'
+  | 'conflict'
+  | 'cancelled'
+  | 'failed';
+
+export interface BackgroundServerRegistration {
+  serverUrl: string;
+  allowInvalidCertificates: boolean;
+  persistAcrossReboots: boolean;
+  backgroundSyncEnabled: boolean;
+  updatedAt: string;
+}
+
+export interface BackgroundJobRequest {
+  idempotencyKey: string;
+  kind: BackgroundJobKind;
+  serverUrl?: string | null;
+  profileId?: string | null;
+  vaultId?: string | null;
+  trigger: BackgroundJobTrigger;
+  runtimeBudgetSeconds?: number | null;
+}
+
+export interface BackgroundJobRecord {
+  id: string;
+  idempotencyKey: string;
+  kind: BackgroundJobKind;
+  serverUrl: string | null;
+  profileId: string | null;
+  vaultId: string | null;
+  trigger: BackgroundJobTrigger;
+  status: BackgroundJobStatus;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  nextRetryAt: string | null;
+  progress: {
+    completed: number;
+    total: number | null;
+    detail: string | null;
+  };
+  summary: string | null;
+  errorCategory: string | null;
+  errorMessage: string | null;
+  retryable: boolean;
+}
+
+export interface BackgroundJobAggregate {
+  queued: number;
+  running: number;
+  succeeded: number;
+  attentionRequired: number;
+  latestFinishedAt: string | null;
+}
+
 export const tauriCommands = {
   backgroundRuntimeProbe: (trigger: string) =>
     invoke<BackgroundRuntimeProbe>('background_runtime_probe', { trigger }),
+  backgroundServerList: () =>
+    invoke<BackgroundServerRegistration[]>('background_server_list'),
+  backgroundServerReplace: (servers: BackgroundServerRegistration[]) =>
+    invoke<BackgroundServerRegistration[]>('background_server_replace', { servers }),
+  backgroundServerUpsert: (server: BackgroundServerRegistration) =>
+    invoke<BackgroundServerRegistration>('background_server_upsert', { server }),
+  backgroundServerRemove: (serverUrl: string) =>
+    invoke<void>('background_server_remove', { serverUrl }),
+  backgroundJobRun: (request: BackgroundJobRequest) =>
+    invoke<BackgroundJobRecord>('background_job_run', { request }),
+  backgroundJobGet: (jobId: string) =>
+    invoke<BackgroundJobRecord | null>('background_job_get', { jobId }),
+  backgroundJobList: (limit = 50) =>
+    invoke<BackgroundJobRecord[]>('background_job_list', { limit }),
+  backgroundJobCancel: (jobId: string) =>
+    invoke<BackgroundJobRecord>('background_job_cancel', { jobId }),
+  backgroundJobAggregate: () =>
+    invoke<BackgroundJobAggregate>('background_job_aggregate'),
 
   // User calendar profile store
   calendarList: (profileId: string) => invoke<CalendarDefinition[]>('calendar_list', { profileId }),

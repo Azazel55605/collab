@@ -10,7 +10,7 @@
 
 use crate::hosted_client::{decode_session, server_client, server_request_error};
 use crate::server_token_store::{read_refresh_token, store_refresh_token};
-use crate::state::{AppState, ServerSessionState};
+use crate::state::{HostedSessionRuntime, ServerSessionState};
 use chrono::{DateTime, Duration, Utc};
 
 const ACCESS_REFRESH_SKEW_SECONDS: i64 = 120;
@@ -19,7 +19,7 @@ const ACCESS_REFRESH_SKEW_SECONDS: i64 = 120;
 /// once per launch: prefers the in-memory session, then the per-launch cache,
 /// and only then reads the keyring (priming the cache with what it read).
 fn resolve_refresh_token(
-    state: &AppState,
+    state: &HostedSessionRuntime,
     base: &str,
     persist_across_reboots: bool,
 ) -> Result<String, String> {
@@ -61,7 +61,7 @@ fn access_token_needs_refresh(session: &ServerSessionState) -> bool {
 /// refreshes. When `only_if_needed` is set, an already-fresh session is returned
 /// without contacting the server.
 pub(crate) async fn refresh_session_locked(
-    state: &AppState,
+    state: &HostedSessionRuntime,
     base: &str,
     allow_invalid_certificates: bool,
     persist_across_reboots: bool,
@@ -119,7 +119,7 @@ pub(crate) async fn refresh_session_locked(
 /// `isLikelyConnectivityError` treats an unconnected server's vault as offline
 /// (replica fallback + queued writes) rather than a hard failure.
 pub(crate) fn session_for(
-    state: &AppState,
+    state: &HostedSessionRuntime,
     server_url: &str,
     not_connected_message: &str,
 ) -> Result<ServerSessionState, String> {
@@ -135,7 +135,7 @@ pub(crate) fn session_for(
 /// Like [`session_for`], but transparently refreshes the access token first when
 /// it is at or near expiry, so callers always build requests with a valid bearer.
 pub(crate) async fn fresh_session_for(
-    state: &AppState,
+    state: &HostedSessionRuntime,
     server_url: &str,
     not_connected_message: &str,
 ) -> Result<ServerSessionState, String> {
@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn multiple_server_sessions_resolve_independently_by_url() {
-        use crate::state::{AppState, ServerSessionState};
+        use crate::state::{HostedSessionRuntime, ServerSessionState};
         use collab_protocol::{ServerUser, ServerUserRole, ServerUserStatus};
 
         fn session(url: &str, user: &str) -> ServerSessionState {
@@ -187,7 +187,7 @@ mod tests {
             }
         }
 
-        let state = AppState::new();
+        let state = HostedSessionRuntime::new();
         state.server_sessions.write().insert(
             "https://a.example.com".to_string(),
             session("https://a.example.com", "alice"),

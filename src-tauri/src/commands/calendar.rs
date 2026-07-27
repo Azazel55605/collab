@@ -13,7 +13,7 @@ fn calendar_stores() -> &'static Mutex<HashMap<String, CalendarStore>> {
     CALENDAR_STORES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-async fn store(profile_id: &str) -> Result<CalendarStore, String> {
+pub(crate) async fn store(profile_id: &str) -> Result<CalendarStore, String> {
     let mut stores = calendar_stores().lock().await;
     if let Some(store) = stores.get(profile_id) {
         return Ok(store.clone());

@@ -790,6 +790,57 @@ export async function syncReplicaManifestDelta(
   vault: HostedVaultMeta,
   onProgress?: (progress: ReplicaSyncProgress) => void,
 ): Promise<ReplicaManifest> {
+  if (
+    typeof tauriCommands.backgroundJobRun !== 'function'
+    || typeof tauriCommands.backgroundJobGet !== 'function'
+  ) {
+    return syncReplicaManifestDeltaWithAdapter(vault, onProgress);
+  }
+  onProgress?.({ direction: 'sync', completed: 0, total: null, detail: 'Checking pending changes' });
+  const job = await tauriCommands.backgroundJobRun({
+    idempotencyKey: `foreground:${vault.hostedVaultId}:${crypto.randomUUID()}`,
+    kind: 'replica_sync',
+    serverUrl: vault.serverUrl,
+    vaultId: vault.hostedVaultId,
+    trigger: 'foreground',
+    runtimeBudgetSeconds: 120,
+  });
+  let current = job;
+  while (current.status === 'queued' || current.status === 'running') {
+    onProgress?.({
+      direction: 'sync',
+      completed: current.progress.completed,
+      total: current.progress.total,
+      detail: current.progress.detail,
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 150));
+    const next = await tauriCommands.backgroundJobGet(current.id);
+    if (!next) throw new Error('The native background sync job was lost.');
+    current = next;
+  }
+  if (current.status !== 'succeeded') {
+    throw new Error(
+      current.errorMessage
+      ?? current.summary
+      ?? `Background synchronization ended with status ${current.status}.`,
+    );
+  }
+  const manifest = await tauriCommands.replicaReadManifest(vault.serverUrl, vault.hostedVaultId);
+  if (!manifest) throw new Error('Replica manifest was not available after synchronization.');
+  emitReplicaMutated({
+    kind: 'sync',
+    fileIds: manifest.files.map((file) => file.id),
+    relativePaths: manifest.files
+      .map((file) => typeof file.relativePath === 'string' ? file.relativePath : null)
+      .filter((path): path is string => path !== null),
+  });
+  return manifest;
+}
+
+async function syncReplicaManifestDeltaWithAdapter(
+  vault: HostedVaultMeta,
+  onProgress?: (progress: ReplicaSyncProgress) => void,
+): Promise<ReplicaManifest> {
   onProgress?.({ direction: 'sync', completed: 0, total: null, detail: 'Checking pending changes' });
   await replayPendingOperations(vault, onProgress).catch((error) => {
     if (!isLikelyConnectivityError(error)) throw error;
@@ -838,9 +889,7 @@ export async function syncReplicaManifestDelta(
   }
 
   const filesById = new Map(cachedManifest.files.map((file) => [file.id, file]));
-  for (const file of delta.changedFiles) {
-    filesById.set(file.id, file);
-  }
+  for (const file of delta.changedFiles) filesById.set(file.id, file);
   const nextManifest: ReplicaManifest = {
     ...cachedManifest,
     vaultId: delta.vaultId,

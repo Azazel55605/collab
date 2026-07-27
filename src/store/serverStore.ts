@@ -148,6 +148,18 @@ export const useServerStore = create<ServerState>()((set, get) => {
       const attempt = (async (): Promise<RestoreSessionResult> => {
         const servers = listKnownServers();
         if (servers.length === 0) return 'skipped';
+        await tauriCommands.backgroundServerReplace(
+          servers.map((server) => ({
+            serverUrl: server.serverUrl,
+            allowInvalidCertificates: server.allowInvalidCertificates,
+            persistAcrossReboots: server.persistAcrossReboots,
+            backgroundSyncEnabled: true,
+            updatedAt: new Date().toISOString(),
+          })),
+        ).catch(() => {
+          // Phase 1 migration is best-effort. Foreground session restoration
+          // must remain available if the native registry cannot be persisted.
+        });
         // Adopt any still-live in-memory sessions first (e.g. after a soft reload).
         try {
           const statuses = await tauriCommands.serverConnectionStatuses();

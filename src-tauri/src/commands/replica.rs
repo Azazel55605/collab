@@ -16,13 +16,20 @@ use serde_json::Value;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 const REPLICA_KEYRING_SERVICE: &str = "collab-replica";
 
-fn existing(server_url: &str, vault_id: &str) -> Result<ReplicaStore, String> {
-    let config_root = app_config_dir()?;
+pub(crate) fn existing_at(
+    config_root: &std::path::Path,
+    server_url: &str,
+    vault_id: &str,
+) -> Result<ReplicaStore, String> {
     let store = ReplicaStore::open_existing(&config_root, server_url, vault_id)
         .ok_or_else(|| format!("No local replica for vault {vault_id}"))?;
     let key = replica_key(server_url, vault_id, true)?
         .ok_or_else(|| "Could not create an offline replica key.".to_string())?;
     Ok(store.with_encryption_key(key))
+}
+
+fn existing(server_url: &str, vault_id: &str) -> Result<ReplicaStore, String> {
+    existing_at(&app_config_dir()?, server_url, vault_id)
 }
 
 fn existing_read(server_url: &str, vault_id: &str) -> Result<Option<ReplicaStore>, String> {

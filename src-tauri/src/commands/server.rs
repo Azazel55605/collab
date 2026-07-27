@@ -1,3 +1,4 @@
+use crate::background::BackgroundServerRegistration;
 use crate::state::{AppState, ServerSessionState};
 use base64::Engine as _;
 use collab_protocol::{NativeSession, ServerUser};
@@ -64,14 +65,15 @@ pub async fn connect_server(
     // Cache the refresh token in memory so later reconnects never re-read the
     // keyring (which can prompt to unlock the Secret Service on Linux).
     state
+        .hosted_sessions()
         .refresh_token_cache
         .write()
         .insert(base.clone(), session.refresh_token.clone());
     let status = status_from_session(&base, allow_invalid_certificates, &session);
-    state.server_sessions.write().insert(
+    state.hosted_sessions().server_sessions.write().insert(
         base.clone(),
         ServerSessionState {
-            server_url: base,
+            server_url: base.clone(),
             allow_invalid_certificates,
             persist_across_reboots,
             access_token: session.access_token,
@@ -80,6 +82,15 @@ pub async fn connect_server(
             user: session.user,
         },
     );
+    let _ = state
+        .background
+        .upsert_server(BackgroundServerRegistration {
+            server_url: base,
+            allow_invalid_certificates,
+            persist_across_reboots,
+            background_sync_enabled: true,
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        });
     Ok(status)
 }
 
@@ -92,7 +103,7 @@ pub async fn reconnect_server(
 ) -> Result<ServerConnectionStatus, String> {
     let base = validate_server_url(&server_url)?;
     let session = refresh_session_locked(
-        &state,
+        state.hosted_sessions(),
         &base,
         allow_invalid_certificates,
         persist_across_reboots,
@@ -106,6 +117,15 @@ pub async fn reconnect_server(
         user: Some(session.user),
         access_expires_at: Some(session.access_expires_at),
     };
+    let _ = state
+        .background
+        .upsert_server(BackgroundServerRegistration {
+            server_url: base,
+            allow_invalid_certificates,
+            persist_across_reboots,
+            background_sync_enabled: true,
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        });
     Ok(status)
 }
 
@@ -117,7 +137,11 @@ pub async fn disconnect_server(
     let base = validate_server_url(&server_url)?;
     // Remove only this server's session, leaving any other connected servers
     // intact (the app can be signed in to several servers at once).
-    let session = state.server_sessions.write().remove(&base);
+    let session = state
+        .hosted_sessions()
+        .server_sessions
+        .write()
+        .remove(&base);
     if let Some(session) = session {
         if let Ok(client) = server_client(session.allow_invalid_certificates) {
             let _ = client
@@ -128,7 +152,12 @@ pub async fn disconnect_server(
         }
     }
     delete_refresh_token(&base);
-    state.refresh_token_cache.write().remove(&base);
+    state
+        .hosted_sessions()
+        .refresh_token_cache
+        .write()
+        .remove(&base);
+    let _ = state.background.remove_server(&base);
     Ok(())
 }
 
@@ -147,6 +176,7 @@ pub fn server_has_saved_session(server_url: String) -> Result<bool, String> {
 #[tauri::command]
 pub fn server_connection_statuses(state: State<'_, AppState>) -> Vec<ServerConnectionStatus> {
     state
+        .hosted_sessions()
         .server_sessions
         .read()
         .values()
@@ -192,7 +222,7 @@ pub async fn hosted_vault_request(
     body: Option<Value>,
 ) -> Result<Value, String> {
     let session = fresh_session_for(
-        &state,
+        state.hosted_sessions(),
         &server_url,
         "Connect to the Collab server before opening hosted vaults.",
     )
@@ -217,7 +247,7 @@ pub async fn hosted_calendar_request(
     body: Option<Value>,
 ) -> Result<Value, String> {
     let session = fresh_session_for(
-        &state,
+        state.hosted_sessions(),
         &server_url,
         "Connect to the Collab server before synchronizing calendars.",
     )
@@ -245,7 +275,7 @@ pub async fn hosted_ws_ticket(
 ) -> Result<Value, String> {
     validate_identifier(&vault_id)?;
     let session = fresh_session_for(
-        &state,
+        state.hosted_sessions(),
         &server_url,
         "Connect to the Collab server before starting live collaboration.",
     )
@@ -291,7 +321,7 @@ pub async fn hosted_vault_asset_data_url(
     validate_identifier(&vault_id)?;
     validate_identifier(&file_id)?;
     let session = fresh_session_for(
-        &state,
+        state.hosted_sessions(),
         &server_url,
         "Connect to the Collab server before downloading hosted assets.",
     )
@@ -338,7 +368,7 @@ pub async fn hosted_vault_upload_file(
         validate_identifier(parent_id)?;
     }
     let session = fresh_session_for(
-        &state,
+        state.hosted_sessions(),
         &server_url,
         "Connect to the Collab server before uploading hosted assets.",
     )
@@ -376,7 +406,7 @@ pub async fn hosted_vault_download_entry(
     validate_identifier(&vault_id)?;
     validate_identifier(&file_id)?;
     let session = fresh_session_for(
-        &state,
+        state.hosted_sessions(),
         &server_url,
         "Connect to the Collab server before downloading hosted files.",
     )
@@ -427,7 +457,7 @@ pub async fn hosted_user_directory(
     query: String,
 ) -> Result<Value, String> {
     let session = fresh_session_for(
-        &state,
+        state.hosted_sessions(),
         &server_url,
         "Connect to the Collab server before browsing users.",
     )
@@ -452,7 +482,7 @@ pub async fn hosted_vault_export_zip(
 ) -> Result<(), String> {
     validate_identifier(&vault_id)?;
     let session = fresh_session_for(
-        &state,
+        state.hosted_sessions(),
         &server_url,
         "Connect to the Collab server before exporting hosted vaults.",
     )

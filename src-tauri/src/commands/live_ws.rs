@@ -78,7 +78,7 @@ pub async fn live_ws_connect(
     on_event: Channel<LiveWsEvent>,
 ) -> Result<u64, String> {
     let session = session_for(
-        &state,
+        state.hosted_sessions(),
         &server_url,
         "Connect to the Collab server before starting live collaboration.",
     )?;

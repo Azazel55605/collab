@@ -31,7 +31,7 @@ not become separate sync implementations.
 | Phase | Status | Goal |
 | --- | --- | --- |
 | 0. Lifecycle contract and feasibility | Testing | Define platform behavior, OS limits, settings, job ownership, and a small desktop/Android proof. |
-| 1. Shared headless background coordinator | Not started | Run bounded sync and maintenance jobs without depending on a mounted webview. |
+| 1. Shared headless background coordinator | Testing | Run bounded sync and maintenance jobs without depending on a mounted webview. |
 | 2. Desktop tray and background lifecycle | Not started | Keep the desktop process available in the tray, support hide/restore/quit, and run scheduled work. |
 | 3. Android scheduled background work | Not started | Use WorkManager for durable, constrained sync and catch-up work. |
 | 4. Reliability, progress, and power controls | Not started | Add locking, backoff, persisted outcomes, network/battery policy, and transparent status. |
@@ -151,16 +151,30 @@ coordinator boundary is agreed before production behavior changes.
 
 ### Phase 1: Shared Headless Background Coordinator
 
-- Extract foreground-only orchestration out of React stores where necessary.
-- Add typed job request/result models in a shared Rust crate or a platform-free
+- [x] Extract foreground-only vault and calendar synchronization orchestration
+  out of React stores so foreground and background requests join the same
+  process-owned resource lock.
+- [x] Add typed job request/result models in a platform-free
   Tauri module.
-- Reuse vault replica and calendar sync implementations directly.
-- Add the persistent job ledger and per-resource locking.
-- Expose typed commands for run now, cancel, list recent outcomes, and read
+- [x] Reuse the native vault replica and calendar stores directly, including
+  pending-operation replay, bounded change pages, manifest deltas, and
+  offline-body maintenance.
+- [x] Add the persistent job ledger, startup recovery, idempotency, bounded
+  runtime, cancellation, global concurrency cap, and per-server locking.
+- [x] Add a native saved-server registry and restore refresh-token sessions
+  without localStorage or a webview.
+- [x] Expose typed commands for run now, cancel, list recent outcomes, and read
   aggregate progress.
+- [x] Add a native integration test that restores a refresh-token session and
+  completes a replica delta sync against a mock server without a Tauri window.
 
 Exit gate: a native test can restore a session and complete a bounded sync
 without opening a Collab webview.
+
+Phase 1 implementation is complete and remains in testing while foreground
+vault/calendar synchronization and the Android Phase 0 probe are exercised
+against real hosted servers. Phase 2 can consume the same ledger and
+coordinator from the desktop tray without mounting React.
 
 ### Phase 2: Desktop Tray And Background Lifecycle
 

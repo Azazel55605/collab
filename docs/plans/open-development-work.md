@@ -26,7 +26,7 @@ work from being mistaken for an active roadmap item.
 | Electronic circuit simulation | In progress / planned | Finish remaining schema/runtime details and AC integration, then mixed-signal simulation, derived-result caching/collaboration policy, numerical hardening, and release validation. | [Electronic Circuit Simulation Plan](./electronic-circuit-simulation-plan.md) |
 | Logic and circuit diagram editor | In progress umbrella | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream. | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md) |
 | User calendar | Testing / planned | Complete physical-device validation for cross-location mirroring, the Phase 9 external-client CalDAV matrix, and Phase 10 restore/multi-day lifecycle drills before native reminder delivery. Phase 8 is complete; Phases 9 and 10 are in testing. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
-| Background running | Testing / in progress | Validate the Phase 0 tray and WorkManager proofs on real platforms, then add the shared headless coordinator, production tray/autostart lifecycle, scheduled sync, persisted progress, power controls, and platform QA. | [Background Running Plan](./background-running-plan.md) |
+| Background running | Testing / in progress | Validate the Phase 0 tray and WorkManager proofs and the Phase 1 headless vault/calendar coordinator on real platforms, then add the production tray/autostart lifecycle, scheduled sync, persisted progress UI, power controls, and platform QA. | [Background Running Plan](./background-running-plan.md) |
 | Notification system | Not started | Add a shared inbox/scheduler, native desktop and Android delivery, hosted activity invalidations, preferences, privacy controls, and release hardening. | [Notification System Plan](./notification-system-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
 | Mobile widgets | Ideas only | Evaluate a calendar agenda widget first after background snapshots are available; no implementation commitment or phased schedule exists yet. | [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) |
@@ -39,7 +39,8 @@ work from being mistaken for an active roadmap item.
    target platforms.
 3. Route future server/native feed, map, webhook, or preview integrations
    through the completed shared outbound-network policy.
-4. Build the shared headless coordinator from the background-running plan.
+4. Validate the shared headless coordinator, then build the desktop tray
+   lifecycle from the background-running plan.
 5. Add production desktop tray lifecycle and Android WorkManager scheduling.
 6. Activate local calendar reminders through the notification system.
 7. Complete calendar Phase 6 physical-device validation, then calendar

@@ -2,6 +2,12 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
+use tauri::State;
+
+use crate::background::{
+    BackgroundJobAggregate, BackgroundJobRecord, BackgroundJobRequest, BackgroundServerRegistration,
+};
+use crate::state::AppState;
 
 const PROBE_FILE_NAME: &str = "background-phase0-probe.json";
 const MAX_TRIGGER_LENGTH: usize = 64;
@@ -88,6 +94,76 @@ pub(crate) fn run_background_runtime_probe(
 pub fn background_runtime_probe(trigger: String) -> Result<BackgroundRuntimeProbe, String> {
     let root = super::app_config_dir()?;
     run_background_runtime_probe(&root, &trigger)
+}
+
+#[tauri::command]
+pub fn background_server_list(
+    state: State<'_, AppState>,
+) -> Result<Vec<BackgroundServerRegistration>, String> {
+    state.background.list_servers()
+}
+
+#[tauri::command]
+pub fn background_server_replace(
+    state: State<'_, AppState>,
+    servers: Vec<BackgroundServerRegistration>,
+) -> Result<Vec<BackgroundServerRegistration>, String> {
+    state.background.replace_servers(servers)
+}
+
+#[tauri::command]
+pub fn background_server_upsert(
+    state: State<'_, AppState>,
+    server: BackgroundServerRegistration,
+) -> Result<BackgroundServerRegistration, String> {
+    state.background.upsert_server(server)
+}
+
+#[tauri::command]
+pub fn background_server_remove(
+    state: State<'_, AppState>,
+    server_url: String,
+) -> Result<(), String> {
+    state.background.remove_server(&server_url)
+}
+
+#[tauri::command]
+pub fn background_job_run(
+    state: State<'_, AppState>,
+    request: BackgroundJobRequest,
+) -> Result<BackgroundJobRecord, String> {
+    state.background.clone().enqueue(request)
+}
+
+#[tauri::command]
+pub fn background_job_get(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<Option<BackgroundJobRecord>, String> {
+    state.background.job(&job_id)
+}
+
+#[tauri::command]
+pub fn background_job_list(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<Vec<BackgroundJobRecord>, String> {
+    state.background.list_jobs(limit.unwrap_or(50))
+}
+
+#[tauri::command]
+pub fn background_job_cancel(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<BackgroundJobRecord, String> {
+    state.background.cancel(&job_id)
+}
+
+#[tauri::command]
+pub fn background_job_aggregate(
+    state: State<'_, AppState>,
+) -> Result<BackgroundJobAggregate, String> {
+    state.background.aggregate()
 }
 
 #[cfg(test)]

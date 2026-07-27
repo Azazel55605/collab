@@ -1,4 +1,5 @@
 import { tauriCommands } from './tauri';
+import type { BackgroundJobRecord, BackgroundJobRequest } from './tauri';
 import { isLikelyConnectivityError } from './vaultReplica';
 import {
   normalizeCalendarDefinition,
@@ -41,6 +42,8 @@ export interface CalendarSyncAdapter {
   calendarAcknowledgeOperations(profileId: string, clientOperationIds: string[]): Promise<void>;
   calendarMarkOperationFailed(profileId: string, clientOperationId: string, error: string, attemptedAt: string): Promise<void>;
   calendarApplyRemoteChanges(profileId: string, changes: CalendarRemoteChange[], state: CalendarSyncState): Promise<void>;
+  backgroundJobRun?(request: BackgroundJobRequest): Promise<BackgroundJobRecord>;
+  backgroundJobGet?(jobId: string): Promise<BackgroundJobRecord | null>;
 }
 
 export interface CalendarOriginSyncResult {
@@ -349,6 +352,62 @@ export async function syncHostedCalendars(
   adapter: CalendarSyncAdapter = tauriCommands,
 ): Promise<CalendarOriginSyncResult[]> {
   const uniqueOrigins = normalizeHostedCalendarOrigins(origins);
+  if (adapter.backgroundJobRun && adapter.backgroundJobGet) {
+    return Promise.all(uniqueOrigins.map(async (origin) => {
+      const originKey = hostedCalendarOriginKey(origin);
+      onProgress?.({
+        originKey,
+        serverUrl: origin.serverUrl,
+        phase: 'discovering',
+        processedItems: 0,
+      });
+      const job = await adapter.backgroundJobRun!({
+        idempotencyKey: `calendar:${origin.userId}:${crypto.randomUUID()}`,
+        kind: 'calendar_sync',
+        serverUrl: origin.serverUrl,
+        profileId,
+        trigger: 'foreground',
+        runtimeBudgetSeconds: 120,
+      });
+      let current = job;
+      while (current.status === 'queued' || current.status === 'running') {
+        onProgress?.({
+          originKey,
+          serverUrl: origin.serverUrl,
+          phase: current.progress.detail?.toLowerCase().includes('upload')
+            ? 'uploading'
+            : current.progress.detail?.toLowerCase().includes('download')
+              ? 'downloading'
+              : 'discovering',
+          processedItems: current.progress.completed,
+          totalItems: current.progress.total ?? undefined,
+        });
+        await new Promise((resolve) => globalThis.setTimeout(resolve, 150));
+        const next = await adapter.backgroundJobGet!(current.id);
+        if (!next) throw new Error('The native calendar sync job was lost.');
+        current = next;
+      }
+      const error = current.status === 'succeeded'
+        ? undefined
+        : current.errorMessage ?? current.summary ?? `Calendar sync ended with status ${current.status}.`;
+      onProgress?.({
+        originKey,
+        serverUrl: origin.serverUrl,
+        phase: error ? 'error' : 'complete',
+        processedItems: current.progress.completed,
+        totalItems: current.progress.total ?? undefined,
+      });
+      return {
+        originKey,
+        serverUrl: origin.serverUrl,
+        appliedChanges: 0,
+        replayedOperations: 0,
+        failedOperations: current.status === 'partial' ? 1 : 0,
+        completedAt: current.finishedAt ?? new Date().toISOString(),
+        error,
+      };
+    }));
+  }
   return Promise.all(uniqueOrigins.map((origin) => (
     syncHostedCalendarOrigin(profileId, origin, cachedCalendars, onProgress, adapter)
   )));
