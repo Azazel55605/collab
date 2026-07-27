@@ -17,9 +17,15 @@ import type {
   BackgroundJobRecord,
   BackgroundJobRequest,
   BackgroundSettings,
+  BackgroundStatusSnapshot,
 } from '../../../src/lib/tauri';
 
-export type { BackgroundJobRecord, BackgroundJobRequest, BackgroundSettings };
+export type {
+  BackgroundJobRecord,
+  BackgroundJobRequest,
+  BackgroundSettings,
+  BackgroundStatusSnapshot,
+};
 
 export function backgroundSettingsGet(): Promise<BackgroundSettings> {
   return invoke('background_settings_get');
@@ -39,6 +45,10 @@ export function backgroundJobGet(jobId: string): Promise<BackgroundJobRecord | n
 
 export function backgroundJobList(limit = 50): Promise<BackgroundJobRecord[]> {
   return invoke('background_job_list', { limit });
+}
+
+export function backgroundStatusSnapshot(): Promise<BackgroundStatusSnapshot> {
+  return invoke('background_status_snapshot');
 }
 
 export function reconcileAndroidBackground(profileId: string): Promise<void> {

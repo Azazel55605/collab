@@ -188,11 +188,31 @@ pub fn configure_background_scheduler(
     profile_id: &str,
     enabled: bool,
     interval: &str,
+    only_unmetered_networks: bool,
+    require_charging: bool,
+    pause_on_low_battery: bool,
+    allow_roaming: bool,
 ) -> Result<(), String> {
     match call_static_string(
         BACKGROUND_SCHEDULER_CLASS,
         "configure",
-        &[profile_id, if enabled { "true" } else { "false" }, interval],
+        &[
+            profile_id,
+            if enabled { "true" } else { "false" },
+            interval,
+            if only_unmetered_networks {
+                "true"
+            } else {
+                "false"
+            },
+            if require_charging { "true" } else { "false" },
+            if pause_on_low_battery {
+                "true"
+            } else {
+                "false"
+            },
+            if allow_roaming { "true" } else { "false" },
+        ],
     )? {
         Some(error) => Err(format!(
             "Could not configure Android background work: {error}"
@@ -204,11 +224,30 @@ pub fn configure_background_scheduler(
 pub fn request_immediate_background_work(
     profile_id: &str,
     user_initiated: bool,
+    only_unmetered_networks: bool,
+    require_charging: bool,
+    pause_on_low_battery: bool,
+    allow_roaming: bool,
 ) -> Result<(), String> {
     match call_static_string(
         BACKGROUND_SCHEDULER_CLASS,
         "requestImmediate",
-        &[profile_id, if user_initiated { "true" } else { "false" }],
+        &[
+            profile_id,
+            if user_initiated { "true" } else { "false" },
+            if only_unmetered_networks {
+                "true"
+            } else {
+                "false"
+            },
+            if require_charging { "true" } else { "false" },
+            if pause_on_low_battery {
+                "true"
+            } else {
+                "false"
+            },
+            if allow_roaming { "true" } else { "false" },
+        ],
     )? {
         Some(error) => Err(format!(
             "Could not request Android background work: {error}"

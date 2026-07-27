@@ -12,6 +12,10 @@ const settings: BackgroundSettings = {
   startAtLogin: false,
   closeBehavior: 'hide_to_tray',
   paused: false,
+  onlyUnmeteredNetworks: false,
+  requireCharging: false,
+  pauseOnLowBattery: true,
+  allowRoaming: true,
 };
 
 vi.mock('../../lib/tauri', () => ({

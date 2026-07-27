@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const invoke = vi.fn();
@@ -24,6 +24,7 @@ const AUTH_REQUIRED_JOB: BackgroundJobRecord = {
   profileId: 'mobile-profile',
   vaultId: null,
   trigger: 'periodic',
+  attempt: 1,
   status: 'authentication_required',
   createdAt: '2026-07-27T08:00:00Z',
   startedAt: '2026-07-27T08:00:00Z',
@@ -150,7 +151,9 @@ describe('MobileApp shell', () => {
     render(<MobileApp />);
     await waitFor(() => expect(useMobileStore.getState().restored).toBe(true));
 
-    screen.getByRole('button', { name: /Settings/ }).click();
+    fireEvent.click(screen.getByRole('button', { name: /Settings/ }));
+    const settingsCategories = await screen.findByRole('navigation', { name: 'Settings categories' });
+    fireEvent.click(within(settingsCategories).getByRole('button', { name: /Logic & circuits/ }));
     (await screen.findByRole('button', { name: 'IEC / DIN' })).click();
 
     const stored = JSON.parse(localStorage.getItem('collab-mobile-theme') ?? '{}') as Record<string, unknown>;
@@ -162,7 +165,9 @@ describe('MobileApp shell', () => {
     render(<MobileApp />);
     await waitFor(() => expect(useMobileStore.getState().restored).toBe(true));
 
-    screen.getByRole('button', { name: /Settings/ }).click();
+    fireEvent.click(screen.getByRole('button', { name: /Settings/ }));
+    const settingsCategories = await screen.findByRole('navigation', { name: 'Settings categories' });
+    fireEvent.click(within(settingsCategories).getByRole('button', { name: /Calendar/ }));
     expect(await screen.findByText('Default time zone')).toBeTruthy();
     screen.getByRole('button', { name: '2026-07-23' }).click();
     await waitFor(() => expect(screen.getByRole('button', { name: '2026-07-23' }).className).toContain('selected'));

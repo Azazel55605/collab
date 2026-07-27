@@ -7,7 +7,7 @@ use tauri::State;
 
 use crate::background::{
     BackgroundJobAggregate, BackgroundJobRecord, BackgroundJobRequest, BackgroundJobTrigger,
-    BackgroundServerRegistration, BackgroundSettings,
+    BackgroundServerRegistration, BackgroundSettings, BackgroundStatusSnapshot,
 };
 use crate::state::AppState;
 
@@ -169,6 +169,13 @@ pub fn background_job_aggregate(
 }
 
 #[tauri::command]
+pub fn background_status_snapshot(
+    state: State<'_, AppState>,
+) -> Result<BackgroundStatusSnapshot, String> {
+    state.background.status_snapshot()
+}
+
+#[tauri::command]
 pub fn background_settings_get(state: State<'_, AppState>) -> Result<BackgroundSettings, String> {
     state.background.settings()
 }
@@ -228,7 +235,15 @@ pub fn background_android_reconcile(
             crate::background::BackgroundSyncInterval::Hourly => "hourly",
             crate::background::BackgroundSyncInterval::Manual => "manual",
         };
-        crate::android_jni::configure_background_scheduler(&profile_id, enabled, interval)
+        crate::android_jni::configure_background_scheduler(
+            &profile_id,
+            enabled,
+            interval,
+            settings.only_unmetered_networks,
+            settings.require_charging,
+            settings.pause_on_low_battery,
+            settings.allow_roaming,
+        )
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -254,7 +269,15 @@ pub fn background_android_request_immediate(
                 return Ok(());
             }
         }
-        crate::android_jni::request_immediate_background_work(&profile_id, user_initiated)
+        let settings = state.background.settings()?;
+        crate::android_jni::request_immediate_background_work(
+            &profile_id,
+            user_initiated,
+            settings.only_unmetered_networks,
+            settings.require_charging,
+            settings.pause_on_low_battery,
+            settings.allow_roaming,
+        )
     }
     #[cfg(not(target_os = "android"))]
     {

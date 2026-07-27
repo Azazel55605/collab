@@ -88,9 +88,25 @@ object CollabBackgroundScheduler {
       byte.toUByte().toString(16).padStart(2, '0')
     }
 
-  private fun constraints(): Constraints =
+  internal fun requiredNetworkType(
+    onlyUnmetered: Boolean,
+    allowRoaming: Boolean,
+  ): NetworkType = when {
+    onlyUnmetered -> NetworkType.UNMETERED
+    !allowRoaming -> NetworkType.NOT_ROAMING
+    else -> NetworkType.CONNECTED
+  }
+
+  private fun constraints(
+    onlyUnmetered: Boolean,
+    requireCharging: Boolean,
+    pauseOnLowBattery: Boolean,
+    allowRoaming: Boolean,
+  ): Constraints =
     Constraints.Builder()
-      .setRequiredNetworkType(NetworkType.CONNECTED)
+      .setRequiredNetworkType(requiredNetworkType(onlyUnmetered, allowRoaming))
+      .setRequiresCharging(requireCharging)
+      .setRequiresBatteryNotLow(pauseOnLowBattery)
       .build()
 
   private fun periodicName(profileId: String) = PERIODIC_PREFIX + profileWorkSuffix(profileId)
@@ -103,6 +119,10 @@ object CollabBackgroundScheduler {
     profileId: String,
     enabled: String,
     interval: String,
+    onlyUnmetered: String,
+    requireCharging: String,
+    pauseOnLowBattery: String,
+    allowRoaming: String,
   ): String? = try {
     val workManager = WorkManager.getInstance(context.applicationContext)
     val minutes = intervalMinutes(interval)
@@ -116,7 +136,14 @@ object CollabBackgroundScheduler {
         minOf(5, minutes),
         TimeUnit.MINUTES,
       )
-        .setConstraints(constraints())
+        .setConstraints(
+          constraints(
+            onlyUnmetered == "true",
+            requireCharging == "true",
+            pauseOnLowBattery == "true",
+            allowRoaming == "true",
+          ),
+        )
         .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
         .setInputData(
           workDataOf(
@@ -142,10 +169,21 @@ object CollabBackgroundScheduler {
     context: Context,
     profileId: String,
     userInitiated: String,
+    onlyUnmetered: String,
+    requireCharging: String,
+    pauseOnLowBattery: String,
+    allowRoaming: String,
   ): String? = try {
     val isUserInitiated = userInitiated == "true"
     val requestBuilder = OneTimeWorkRequestBuilder<CollabBackgroundWorker>()
-      .setConstraints(constraints())
+      .setConstraints(
+        constraints(
+          onlyUnmetered == "true",
+          requireCharging == "true",
+          pauseOnLowBattery == "true",
+          allowRoaming == "true",
+        ),
+      )
       .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
       .setInputData(
         workDataOf(

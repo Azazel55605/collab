@@ -1,4 +1,19 @@
-import { CalendarDays, CircuitBoard, CloudCog, Code2, Palette, RefreshCw, Server, Type } from 'lucide-react';
+import {
+  ArrowLeft,
+  CalendarDays,
+  ChevronRight,
+  CircuitBoard,
+  CloudCog,
+  Code2,
+  Palette,
+  RefreshCw,
+  Search,
+  Server,
+  SlidersHorizontal,
+  Type,
+  UserRound,
+  type LucideIcon,
+} from 'lucide-react';
 
 import {
   ACCENTS,
@@ -29,6 +44,10 @@ const DEFAULT_BACKGROUND_SETTINGS: BackgroundSettings = {
   startAtLogin: false,
   closeBehavior: 'hide_to_tray',
   paused: false,
+  onlyUnmeteredNetworks: false,
+  requireCharging: false,
+  pauseOnLowBattery: true,
+  allowRoaming: true,
 };
 
 const FONT_SCALES: { value: number; label: string }[] = [
@@ -36,6 +55,66 @@ const FONT_SCALES: { value: number; label: string }[] = [
   { value: 1, label: 'M' },
   { value: 1.12, label: 'L' },
   { value: 1.25, label: 'XL' },
+];
+
+type SettingsCategory = 'general' | 'background' | 'appearance' | 'editor' | 'calendar' | 'logic' | 'account';
+
+const SETTINGS_CATEGORIES: Array<{
+  id: SettingsCategory;
+  label: string;
+  description: string;
+  keywords: string;
+  Icon: LucideIcon;
+}> = [
+  {
+    id: 'general',
+    label: 'General',
+    description: 'Hosted vault and offline-copy defaults',
+    keywords: 'vault server offline storage download',
+    Icon: SlidersHorizontal,
+  },
+  {
+    id: 'background',
+    label: 'Background',
+    description: 'Sync schedule, network, and battery policy',
+    keywords: 'sync schedule interval wifi metered roaming charging battery',
+    Icon: CloudCog,
+  },
+  {
+    id: 'appearance',
+    label: 'Appearance',
+    description: 'Theme, accent color, and interface size',
+    keywords: 'theme color accent font text size display',
+    Icon: Palette,
+  },
+  {
+    id: 'editor',
+    label: 'Editor',
+    description: 'Indentation and inline color previews',
+    keywords: 'note editor tab spaces swatch preview hex rgb hsl',
+    Icon: Code2,
+  },
+  {
+    id: 'calendar',
+    label: 'Calendar',
+    description: 'Dates, time, reminders, and working hours',
+    keywords: 'date time week reminder duration timezone weekend',
+    Icon: CalendarDays,
+  },
+  {
+    id: 'logic',
+    label: 'Logic & circuits',
+    description: 'Schematic notation and symbols',
+    keywords: 'logic circuit ansi iec din schematic',
+    Icon: CircuitBoard,
+  },
+  {
+    id: 'account',
+    label: 'Account',
+    description: 'Server connections and session information',
+    keywords: 'account profile server login connection session',
+    Icon: UserRound,
+  },
 ];
 
 export function SettingsScreen({
@@ -52,12 +131,21 @@ export function SettingsScreen({
   const [background, setBackground] = useState(DEFAULT_BACKGROUND_SETTINGS);
   const [backgroundBusy, setBackgroundBusy] = useState(true);
   const [backgroundError, setBackgroundError] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory | null>(null);
+  const [settingsQuery, setSettingsQuery] = useState('');
   const backgroundJobs = useMobileStore((s) => s.backgroundJobs);
   const refreshBackgroundJobs = useMobileStore((s) => s.refreshBackgroundJobs);
   const colorFormats = Object.entries(COLOR_PREVIEW_FORMAT_OPTIONS) as [
     ColorPreviewFormat,
     typeof COLOR_PREVIEW_FORMAT_OPTIONS[ColorPreviewFormat],
   ][];
+  const selectedCategory = SETTINGS_CATEGORIES.find((category) => category.id === activeCategory);
+  const normalizedQuery = settingsQuery.trim().toLowerCase();
+  const visibleCategories = normalizedQuery
+    ? SETTINGS_CATEGORIES.filter((category) =>
+        `${category.label} ${category.description} ${category.keywords}`.toLowerCase().includes(normalizedQuery),
+      )
+    : SETTINGS_CATEGORIES;
 
   const updateColorFormat = (format: ColorPreviewFormat, enabled: boolean) => {
     onChange({
@@ -78,6 +166,15 @@ export function SettingsScreen({
       })
       .catch((error) => setBackgroundError(String(error)))
       .finally(() => setBackgroundBusy(false));
+  }, [refreshBackgroundJobs]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'hidden') {
+        void refreshBackgroundJobs().catch(() => {});
+      }
+    }, 3_000);
+    return () => window.clearInterval(timer);
   }, [refreshBackgroundJobs]);
 
   const saveBackground = async (next: BackgroundSettings) => {
@@ -112,13 +209,60 @@ export function SettingsScreen({
 
   return (
     <div className="screen">
-      <header className="screen-header">
+      <header className={`screen-header ${activeCategory ? 'settings-detail-header' : ''}`}>
+        {activeCategory ? (
+          <button
+            type="button"
+            className="icon-button settings-back-button"
+            aria-label="Back to settings"
+            onClick={() => setActiveCategory(null)}
+          >
+            <ArrowLeft size={20} aria-hidden />
+          </button>
+        ) : null}
         <div>
-          <h1>Settings</h1>
-          <p>Appearance & account</p>
+          <h1>{selectedCategory?.label ?? 'Settings'}</h1>
+          <p>{selectedCategory?.description ?? 'Choose what you want to configure'}</p>
         </div>
       </header>
 
+      {!activeCategory ? (
+        <>
+          <label className="settings-search">
+            <Search size={17} aria-hidden />
+            <input
+              type="search"
+              value={settingsQuery}
+              placeholder="Search settings"
+              aria-label="Search settings"
+              onChange={(event) => setSettingsQuery(event.target.value)}
+            />
+          </label>
+          <nav className="settings-category-list" aria-label="Settings categories">
+            {visibleCategories.map(({ id, label, description, Icon }) => (
+              <button
+                key={id}
+                type="button"
+                className="settings-category-row"
+                onClick={() => setActiveCategory(id)}
+              >
+                <span className="settings-category-icon"><Icon size={19} aria-hidden /></span>
+                <span className="settings-category-copy">
+                  <strong>{label}</strong>
+                  <small>{description}</small>
+                </span>
+                <ChevronRight size={18} aria-hidden />
+              </button>
+            ))}
+            {visibleCategories.length === 0 ? (
+              <div className="settings-search-empty">No settings match “{settingsQuery.trim()}”.</div>
+            ) : null}
+          </nav>
+          <p className="app-version">Collab companion</p>
+        </>
+      ) : null}
+
+      {activeCategory === 'general' ? (
       <section className="card">
         <div className="card-title">
           <Server size={18} aria-hidden />
@@ -140,7 +284,9 @@ export function SettingsScreen({
           />
         </label>
       </section>
+      ) : null}
 
+      {activeCategory === 'background' ? (
       <section className="card">
         <div className="card-title">
           <CloudCog size={18} aria-hidden />
@@ -173,6 +319,66 @@ export function SettingsScreen({
             onChange={(event) => void saveBackground({
               ...background,
               backgroundSync: event.currentTarget.checked,
+            })}
+          />
+        </label>
+        <label className="toggle-row disabled-when-off">
+          <span>
+            <strong>Only use unmetered networks</strong>
+            <small>Wait for Wi-Fi or another unmetered connection before scheduled sync.</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={background.onlyUnmeteredNetworks}
+            disabled={!background.runInBackground || !background.backgroundSync || backgroundBusy}
+            onChange={(event) => void saveBackground({
+              ...background,
+              onlyUnmeteredNetworks: event.currentTarget.checked,
+            })}
+          />
+        </label>
+        <label className="toggle-row disabled-when-off">
+          <span>
+            <strong>Allow while roaming</strong>
+            <small>When disabled, scheduled sync waits for a non-roaming network.</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={background.allowRoaming}
+            disabled={!background.runInBackground || !background.backgroundSync || backgroundBusy}
+            onChange={(event) => void saveBackground({
+              ...background,
+              allowRoaming: event.currentTarget.checked,
+            })}
+          />
+        </label>
+        <label className="toggle-row disabled-when-off">
+          <span>
+            <strong>Only while charging</strong>
+            <small>Useful when offline vaults contain large files.</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={background.requireCharging}
+            disabled={!background.runInBackground || !background.backgroundSync || backgroundBusy}
+            onChange={(event) => void saveBackground({
+              ...background,
+              requireCharging: event.currentTarget.checked,
+            })}
+          />
+        </label>
+        <label className="toggle-row disabled-when-off">
+          <span>
+            <strong>Pause on low battery</strong>
+            <small>Let Android defer scheduled work when battery capacity is low.</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={background.pauseOnLowBattery}
+            disabled={!background.runInBackground || !background.backgroundSync || backgroundBusy}
+            onChange={(event) => void saveBackground({
+              ...background,
+              pauseOnLowBattery: event.currentTarget.checked,
             })}
           />
         </label>
@@ -233,13 +439,20 @@ export function SettingsScreen({
                 <span>
                   {job.kind === 'calendar_sync' ? 'Calendar' : job.kind === 'replica_sync' ? 'Vault' : 'Maintenance'}
                 </span>
-                <strong>{job.status.replace(/_/g, ' ')}</strong>
+                <strong>
+                  {job.status.replace(/_/g, ' ')}
+                  {job.progress.total !== null
+                    ? ` · ${Math.min(job.progress.completed, job.progress.total)}/${job.progress.total}`
+                    : ''}
+                </strong>
               </div>
             ))}
           </div>
         ) : null}
       </section>
+      ) : null}
 
+      {activeCategory === 'calendar' ? (
       <section className="card">
         <div className="card-title">
           <CalendarDays size={18} aria-hidden />
@@ -305,7 +518,10 @@ export function SettingsScreen({
           <input type="checkbox" checked={prefs.calendarShowDeclined} onChange={event => onChange({ ...prefs, calendarShowDeclined: event.currentTarget.checked })} />
         </label>
       </section>
+      ) : null}
 
+      {activeCategory === 'appearance' ? (
+      <>
       <section className="card">
         <div className="card-title">
           <Palette size={18} aria-hidden />
@@ -362,7 +578,11 @@ export function SettingsScreen({
           ))}
         </div>
       </section>
+      </>
+      ) : null}
 
+      {activeCategory === 'editor' ? (
+      <>
       <section className="card">
         <div className="card-title">
           <Code2 size={18} aria-hidden />
@@ -461,7 +681,10 @@ export function SettingsScreen({
           ))}
         </div>
       </section>
+      </>
+      ) : null}
 
+      {activeCategory === 'logic' ? (
       <section className="card">
         <div className="card-title">
           <CircuitBoard size={18} aria-hidden />
@@ -490,7 +713,9 @@ export function SettingsScreen({
           </div>
         </div>
       </section>
+      ) : null}
 
+      {activeCategory === 'account' ? (
       <section className="card">
         <div className="card-title">
           <Server size={18} aria-hidden />
@@ -511,8 +736,7 @@ export function SettingsScreen({
           storage and never enter the web view.
         </p>
       </section>
-
-      <p className="app-version">Collab companion · Phase 2</p>
+      ) : null}
     </div>
   );
 }

@@ -19,6 +19,10 @@ const DEFAULT_SETTINGS: BackgroundSettings = {
   startAtLogin: false,
   closeBehavior: 'hide_to_tray',
   paused: false,
+  onlyUnmeteredNetworks: false,
+  requireCharging: false,
+  pauseOnLowBattery: true,
+  allowRoaming: true,
 };
 
 const INTERVAL_LABELS: Record<BackgroundSyncInterval, string> = {

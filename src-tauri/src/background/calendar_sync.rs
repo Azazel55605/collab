@@ -163,6 +163,7 @@ pub(crate) async fn run_calendar_sync(
             completed: replayed + failed,
             total: replayed + failed,
             failed,
+            changed: replayed,
             message: format!("{failed} calendar change(s) require attention"),
         });
     }
@@ -220,7 +221,12 @@ pub(crate) async fn run_calendar_sync(
         completed: replayed + failed + applied,
         total: replayed + failed + applied,
         failed,
-        message: format!("Replayed {replayed} and applied {applied} calendar change(s)"),
+        changed: replayed + applied,
+        message: if replayed + applied == 0 {
+            "Calendars are already up to date".to_string()
+        } else {
+            format!("Replayed {replayed} and applied {applied} calendar change(s)")
+        },
     })
 }
 

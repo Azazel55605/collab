@@ -398,6 +398,47 @@ describe('vaultReplica', () => {
     );
   });
 
+  it('does not emit a replica mutation after a zero-change native sync', async () => {
+    const commands = tauriCommands as typeof tauriCommands & Record<string, unknown>;
+    const originalRun = commands.backgroundJobRun;
+    const originalGet = commands.backgroundJobGet;
+    commands.backgroundJobRun = vi.fn().mockResolvedValue({
+      id: 'job-1',
+      idempotencyKey: 'foreground:hosted-vault:test',
+      kind: 'replica_sync',
+      serverUrl: hostedVault.serverUrl,
+      profileId: null,
+      vaultId: hostedVault.hostedVaultId,
+      trigger: 'foreground',
+      attempt: 1,
+      status: 'succeeded',
+      createdAt: '2026-07-27T12:00:00Z',
+      startedAt: '2026-07-27T12:00:00Z',
+      finishedAt: '2026-07-27T12:00:01Z',
+      nextRetryAt: null,
+      progress: { completed: 1, total: 1, detail: null },
+      changed: 0,
+      summary: 'Offline replicas are already up to date',
+      errorCategory: null,
+      errorMessage: null,
+      retryable: false,
+    });
+    commands.backgroundJobGet = vi.fn();
+    const manifest = { vaultId: 'hosted-vault', sequence: 9, files: [] };
+    vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(manifest);
+    const listener = vi.fn();
+    const unsubscribe = onReplicaMutated(listener);
+
+    try {
+      await expect(syncReplicaManifestDelta(hostedVault)).resolves.toEqual(manifest);
+      expect(listener).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+      commands.backgroundJobRun = originalRun;
+      commands.backgroundJobGet = originalGet;
+    }
+  });
+
   it('enqueues pending operations with stable replay metadata', async () => {
     vi.spyOn(crypto, 'randomUUID').mockReturnValue('11111111-1111-4111-8111-111111111111');
 

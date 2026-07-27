@@ -175,6 +175,7 @@ pub fn run() {
             commands::background::background_job_list,
             commands::background::background_job_cancel,
             commands::background::background_job_aggregate,
+            commands::background::background_status_snapshot,
             commands::background::background_settings_get,
             commands::background::background_settings_save,
             commands::background::background_sync_registered,

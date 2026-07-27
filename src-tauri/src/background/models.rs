@@ -83,16 +83,24 @@ pub struct BackgroundJobRecord {
     pub profile_id: Option<String>,
     pub vault_id: Option<String>,
     pub trigger: BackgroundJobTrigger,
+    #[serde(default = "default_attempt")]
+    pub attempt: u32,
     pub status: BackgroundJobStatus,
     pub created_at: String,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
     pub next_retry_at: Option<String>,
     pub progress: BackgroundJobProgress,
+    #[serde(default)]
+    pub changed: Option<u64>,
     pub summary: Option<String>,
     pub error_category: Option<String>,
     pub error_message: Option<String>,
     pub retryable: bool,
+}
+
+fn default_attempt() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -103,6 +111,17 @@ pub struct BackgroundJobAggregate {
     pub succeeded: u64,
     pub attention_required: u64,
     pub latest_finished_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundStatusSnapshot {
+    pub generated_at: String,
+    pub active_jobs: u64,
+    pub attention_required: u64,
+    pub last_successful_at: Option<String>,
+    pub next_eligible_retry_at: Option<String>,
+    pub progress: BackgroundJobProgress,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -161,6 +180,14 @@ pub struct BackgroundSettings {
     pub start_at_login: bool,
     pub close_behavior: BackgroundCloseBehavior,
     pub paused: bool,
+    #[serde(default)]
+    pub only_unmetered_networks: bool,
+    #[serde(default)]
+    pub require_charging: bool,
+    #[serde(default = "default_enabled")]
+    pub pause_on_low_battery: bool,
+    #[serde(default = "default_enabled")]
+    pub allow_roaming: bool,
 }
 
 impl Default for BackgroundSettings {
@@ -173,6 +200,10 @@ impl Default for BackgroundSettings {
             start_at_login: false,
             close_behavior: BackgroundCloseBehavior::HideToTray,
             paused: false,
+            only_unmetered_networks: false,
+            require_charging: false,
+            pause_on_low_battery: true,
+            allow_roaming: true,
         }
     }
 }

@@ -26,6 +26,7 @@ pub(super) struct JobExecutionSummary {
     pub completed: u64,
     pub total: u64,
     pub failed: u64,
+    pub changed: u64,
     pub message: String,
 }
 
@@ -130,6 +131,7 @@ pub(crate) async fn run_replica_sync(
     let total = targets.len() as u64;
     let mut completed = 0;
     let mut failed = 0;
+    let mut changed = 0;
     for target in targets {
         ensure_running(cancel, started, budget)?;
         let Some(vault) = hosted_vaults
@@ -178,7 +180,7 @@ pub(crate) async fn run_replica_sync(
         )
         .await
         {
-            Ok(()) => {}
+            Ok(target_changed) => changed += target_changed,
             Err(error)
                 if matches!(
                     error.status,
@@ -210,8 +212,13 @@ pub(crate) async fn run_replica_sync(
         completed,
         total,
         failed,
+        changed,
         message: if failed == 0 {
-            format!("Synchronized {completed} offline replica(s)")
+            if changed == 0 {
+                "Offline replicas are already up to date".to_string()
+            } else {
+                format!("Synchronized {completed} offline replica(s)")
+            }
         } else {
             format!(
                 "Synchronized {} replica(s); {failed} require attention",
@@ -279,6 +286,7 @@ pub(crate) async fn run_maintenance(
         completed,
         total,
         failed,
+        changed: completed.saturating_sub(failed),
         message: format!("Maintained {completed} offline replica(s)"),
     })
 }
@@ -292,8 +300,8 @@ async fn sync_replica(
     cancel: &AtomicBool,
     started: Instant,
     budget: Duration,
-) -> Result<(), JobExecutionError> {
-    replay_pending_operations(
+) -> Result<u64, JobExecutionError> {
+    let replayed = replay_pending_operations(
         coordinator,
         job_id,
         session,
@@ -380,7 +388,8 @@ async fn sync_replica(
                 .or(old_state.offline_available_at),
             status: SyncStatus::Idle,
         })
-        .map_err(JobExecutionError::persistence)
+        .map_err(JobExecutionError::persistence)?;
+    Ok(replayed.saturating_add(changed_files.len() as u64))
 }
 
 async fn fetch_manifest(
@@ -403,7 +412,7 @@ async fn replay_pending_operations(
     cancel: &AtomicBool,
     started: Instant,
     budget: Duration,
-) -> Result<(), JobExecutionError> {
+) -> Result<u64, JobExecutionError> {
     let operations = store
         .list_pending_operations()
         .map_err(JobExecutionError::persistence)?;
@@ -457,7 +466,7 @@ async fn replay_pending_operations(
             }
         }
     }
-    Ok(())
+    Ok(replayable.len() as u64)
 }
 
 async fn replay_operation(

@@ -3,7 +3,7 @@ use super::models::{
     BackgroundServerRegistration, BackgroundSettings, BACKGROUND_LEDGER_SCHEMA_VERSION,
     BACKGROUND_REGISTRY_SCHEMA_VERSION, BACKGROUND_SETTINGS_SCHEMA_VERSION,
 };
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -13,6 +13,7 @@ const LEDGER_FILE: &str = "background-jobs.json";
 const REGISTRY_FILE: &str = "background-servers.json";
 const SETTINGS_FILE: &str = "background-settings.json";
 const MAX_LEDGER_JOBS: usize = 200;
+const COMPLETED_JOB_RETENTION_DAYS: i64 = 30;
 
 pub(crate) struct BackgroundPersistence {
     root_override: Option<PathBuf>,
@@ -246,6 +247,15 @@ fn recover_abandoned_jobs(jobs: &mut [BackgroundJobRecord]) -> bool {
 }
 
 fn trim_jobs(jobs: &mut Vec<BackgroundJobRecord>) {
+    let cutoff = Utc::now() - Duration::days(COMPLETED_JOB_RETENTION_DAYS);
+    jobs.retain(|job| {
+        !job.status.is_terminal()
+            || job
+                .finished_at
+                .as_deref()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                .is_none_or(|finished| finished >= cutoff)
+    });
     if jobs.len() > MAX_LEDGER_JOBS {
         jobs.drain(0..jobs.len() - MAX_LEDGER_JOBS);
     }
@@ -254,4 +264,54 @@ fn trim_jobs(jobs: &mut Vec<BackgroundJobRecord>) {
 fn normalize_servers(servers: &mut Vec<BackgroundServerRegistration>) {
     servers.sort_by(|left, right| left.server_url.cmp(&right.server_url));
     servers.dedup_by(|left, right| left.server_url == right.server_url);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::background::{BackgroundJobKind, BackgroundJobProgress, BackgroundJobTrigger};
+
+    fn completed_job(id: &str, finished_at: String) -> BackgroundJobRecord {
+        BackgroundJobRecord {
+            id: id.to_string(),
+            idempotency_key: id.to_string(),
+            kind: BackgroundJobKind::Maintenance,
+            server_url: None,
+            profile_id: None,
+            vault_id: None,
+            trigger: BackgroundJobTrigger::Periodic,
+            attempt: 1,
+            status: BackgroundJobStatus::Succeeded,
+            created_at: finished_at.clone(),
+            started_at: Some(finished_at.clone()),
+            finished_at: Some(finished_at),
+            next_retry_at: None,
+            progress: BackgroundJobProgress::default(),
+            changed: None,
+            summary: None,
+            error_category: None,
+            error_message: None,
+            retryable: false,
+        }
+    }
+
+    #[test]
+    fn retention_removes_old_terminal_jobs_but_keeps_active_work() {
+        let old = (Utc::now() - Duration::days(COMPLETED_JOB_RETENTION_DAYS + 1)).to_rfc3339();
+        let recent = Utc::now().to_rfc3339();
+        let mut active = completed_job("active", old.clone());
+        active.status = BackgroundJobStatus::Running;
+        active.finished_at = None;
+        let mut jobs = vec![
+            completed_job("old", old),
+            completed_job("recent", recent),
+            active,
+        ];
+
+        trim_jobs(&mut jobs);
+
+        assert!(!jobs.iter().any(|job| job.id == "old"));
+        assert!(jobs.iter().any(|job| job.id == "recent"));
+        assert!(jobs.iter().any(|job| job.id == "active"));
+    }
 }

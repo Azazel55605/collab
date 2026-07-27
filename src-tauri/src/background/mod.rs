@@ -8,7 +8,8 @@ pub use models::BackgroundCloseBehavior;
 pub use models::{
     BackgroundJobAggregate, BackgroundJobKind, BackgroundJobProgress, BackgroundJobRecord,
     BackgroundJobRequest, BackgroundJobStatus, BackgroundJobTrigger, BackgroundRunOutcome,
-    BackgroundServerRegistration, BackgroundSettings, BackgroundSyncInterval,
+    BackgroundServerRegistration, BackgroundSettings, BackgroundStatusSnapshot,
+    BackgroundSyncInterval,
 };
 
 use crate::hosted_client::validate_server_url;
@@ -159,6 +160,63 @@ impl BackgroundCoordinator {
         Ok(aggregate)
     }
 
+    pub fn status_snapshot(&self) -> Result<BackgroundStatusSnapshot, String> {
+        let jobs = self.persistence.list_jobs(200)?;
+        let mut snapshot = BackgroundStatusSnapshot {
+            generated_at: Utc::now().to_rfc3339(),
+            ..BackgroundStatusSnapshot::default()
+        };
+        for job in jobs {
+            if matches!(
+                job.status,
+                BackgroundJobStatus::Queued | BackgroundJobStatus::Running
+            ) {
+                snapshot.active_jobs += 1;
+                snapshot.progress.completed = snapshot
+                    .progress
+                    .completed
+                    .saturating_add(job.progress.completed);
+                snapshot.progress.total = match (
+                    snapshot.active_jobs,
+                    snapshot.progress.total,
+                    job.progress.total,
+                ) {
+                    (1, _, Some(total)) => Some(total),
+                    (_, Some(current), Some(total)) => Some(current.saturating_add(total)),
+                    _ => None,
+                };
+                if snapshot.progress.detail.is_none() {
+                    snapshot.progress.detail = job.progress.detail;
+                }
+            }
+            if job.status == BackgroundJobStatus::Succeeded
+                && job.finished_at > snapshot.last_successful_at
+            {
+                snapshot.last_successful_at = job.finished_at.clone();
+            }
+            if matches!(
+                job.status,
+                BackgroundJobStatus::Partial
+                    | BackgroundJobStatus::AuthenticationRequired
+                    | BackgroundJobStatus::PermissionDenied
+                    | BackgroundJobStatus::Conflict
+                    | BackgroundJobStatus::Failed
+            ) {
+                snapshot.attention_required += 1;
+            }
+            if let Some(next_retry_at) = job.next_retry_at {
+                if snapshot
+                    .next_eligible_retry_at
+                    .as_ref()
+                    .is_none_or(|current| next_retry_at < *current)
+                {
+                    snapshot.next_eligible_retry_at = Some(next_retry_at);
+                }
+            }
+        }
+        Ok(snapshot)
+    }
+
     pub fn enqueue(
         self: &Arc<Self>,
         request: BackgroundJobRequest,
@@ -169,15 +227,21 @@ impl BackgroundCoordinator {
         let request = self.validate_request(request)?;
         self.remember_calendar_profile(&request)?;
         let resource = resource_key(&request)?;
-        if let Some(existing) = self.persistence.list_jobs(200)?.into_iter().find(|job| {
+        let recent_jobs = self.persistence.list_jobs(200)?;
+        if let Some(existing) = recent_jobs.iter().find(|job| {
             job.idempotency_key == request.idempotency_key
                 && job.server_url == request.server_url
                 && job.profile_id == request.profile_id
                 && job.vault_id == request.vault_id
                 && job.kind == request.kind
         }) {
-            return Ok(existing);
+            return Ok(existing.clone());
         }
+        let attempt = recent_jobs
+            .iter()
+            .find(|job| same_resource(job, &request))
+            .filter(|job| job.retryable)
+            .map_or(1, |job| job.attempt.saturating_add(1).min(16));
         let mut active_jobs = self.active.lock();
         if let Some(active) = active_jobs.get(&resource) {
             return self
@@ -195,12 +259,14 @@ impl BackgroundCoordinator {
             profile_id: request.profile_id.clone(),
             vault_id: request.vault_id.clone(),
             trigger: request.trigger,
+            attempt,
             status: BackgroundJobStatus::Queued,
             created_at: Utc::now().to_rfc3339(),
             started_at: None,
             finished_at: None,
             next_retry_at: None,
             progress: BackgroundJobProgress::default(),
+            changed: None,
             summary: None,
             error_category: None,
             error_message: None,
@@ -496,8 +562,11 @@ impl BackgroundCoordinator {
                     job.finished_at = Some(Utc::now().to_rfc3339());
                     job.progress.completed = summary.completed;
                     job.progress.total = Some(summary.total);
+                    job.changed = Some(summary.changed);
                     job.summary = Some(summary.message);
                     job.retryable = summary.failed > 0;
+                    job.next_retry_at =
+                        (summary.failed > 0).then(|| retry_at(job.attempt, &job.id));
                 });
             }
             Err(_) if cancel.load(Ordering::Acquire) => {
@@ -534,15 +603,15 @@ impl BackgroundCoordinator {
         message: &str,
         retryable: bool,
     ) -> Result<(), String> {
+        let safe_message = redact_sensitive_text(message);
         self.persistence.update_job(id, |job| {
             job.status = status;
             job.finished_at = Some(Utc::now().to_rfc3339());
             job.error_category = Some(category.to_string());
-            job.error_message = Some(message.to_string());
+            job.error_message = Some(safe_message);
             job.summary = Some("Background job did not complete".to_string());
             job.retryable = retryable;
-            job.next_retry_at =
-                retryable.then(|| (Utc::now() + ChronoDuration::minutes(1)).to_rfc3339());
+            job.next_retry_at = retryable.then(|| retry_at(job.attempt, &job.id));
         })?;
         Ok(())
     }
@@ -595,6 +664,34 @@ impl BackgroundCoordinator {
         }
         panic!("background job did not finish");
     }
+}
+
+fn same_resource(job: &BackgroundJobRecord, request: &BackgroundJobRequest) -> bool {
+    job.kind == request.kind
+        && job.server_url == request.server_url
+        && job.profile_id == request.profile_id
+        && job.vault_id == request.vault_id
+}
+
+fn retry_at(attempt: u32, job_id: &str) -> String {
+    let exponent = attempt.saturating_sub(1).min(6);
+    let base_seconds = 60_i64.saturating_mul(1_i64 << exponent);
+    let jitter_ceiling = (base_seconds / 4).max(1);
+    let jitter = job_id.bytes().fold(0_u64, |hash, byte| {
+        hash.wrapping_mul(31).wrapping_add(byte as u64)
+    }) % jitter_ceiling as u64;
+    (Utc::now() + ChronoDuration::seconds(base_seconds + jitter as i64)).to_rfc3339()
+}
+
+fn redact_sensitive_text(message: &str) -> String {
+    const SENSITIVE_MARKERS: [&str; 4] = ["Bearer ", "accessToken", "refreshToken", "password"];
+    if SENSITIVE_MARKERS
+        .iter()
+        .any(|marker| message.contains(marker))
+    {
+        return "The background operation failed with a redacted sensitive response.".to_string();
+    }
+    message.chars().take(1024).collect()
 }
 
 fn normalize_registration(
@@ -798,6 +895,7 @@ mod tests {
         let duplicate = coordinator.enqueue(request).expect("idempotent enqueue");
 
         assert_eq!(finished.status, BackgroundJobStatus::Succeeded);
+        assert_eq!(finished.changed, Some(1));
         assert_eq!(duplicate.id, finished.id);
         let synced = store
             .read_manifest()
@@ -808,6 +906,47 @@ mod tests {
         refresh.assert_hits_async(1).await;
         inventory.assert_hits_async(1).await;
         delta.assert_hits_async(1).await;
+
+        let no_op_delta = server
+            .mock_async(|when, then| {
+                when.method(GET)
+                    .path("/api/v1/vaults/vault-1/manifest/delta")
+                    .query_param("since", "2");
+                then.status(200)
+                    .json_body_obj(&DataResponse::new(HostedVaultManifestDelta {
+                        vault_id: "vault-1".to_string(),
+                        base_sequence: 2,
+                        sequence: 2,
+                        changed_files: Vec::new(),
+                    }));
+            })
+            .await;
+        let mut invalidation = BackgroundJobRequest {
+            idempotency_key: "push-invalidation-1".to_string(),
+            kind: BackgroundJobKind::ReplicaSync,
+            server_url: Some(server.base_url()),
+            profile_id: None,
+            vault_id: Some("vault-1".to_string()),
+            trigger: BackgroundJobTrigger::PushInvalidation,
+            runtime_budget_seconds: Some(30),
+        };
+        let first_invalidation = coordinator
+            .enqueue(invalidation.clone())
+            .expect("first invalidation");
+        invalidation.idempotency_key = "push-invalidation-2".to_string();
+        let coalesced_invalidation = coordinator
+            .enqueue(invalidation)
+            .expect("coalesced invalidation");
+        let no_op = coordinator.wait_for_terminal(&first_invalidation.id).await;
+
+        assert_eq!(coalesced_invalidation.id, first_invalidation.id);
+        assert_eq!(no_op.status, BackgroundJobStatus::Succeeded);
+        assert_eq!(no_op.changed, Some(0));
+        assert_eq!(
+            no_op.summary.as_deref(),
+            Some("Offline replicas are already up to date")
+        );
+        no_op_delta.assert_hits_async(1).await;
     }
 
     #[test]
@@ -822,12 +961,14 @@ mod tests {
             profile_id: None,
             vault_id: None,
             trigger: BackgroundJobTrigger::Periodic,
+            attempt: 1,
             status: BackgroundJobStatus::Running,
             created_at: Utc::now().to_rfc3339(),
             started_at: Some(Utc::now().to_rfc3339()),
             finished_at: None,
             next_retry_at: None,
             progress: BackgroundJobProgress::default(),
+            changed: None,
             summary: None,
             error_category: None,
             error_message: None,
@@ -871,6 +1012,29 @@ mod tests {
             .replace_servers(vec![refreshed])
             .expect("replace registry");
         assert_eq!(registrations[0].profile_ids, vec!["user-1"]);
+    }
+
+    #[test]
+    fn retry_schedule_is_capped_and_sensitive_errors_are_redacted() {
+        let first =
+            chrono::DateTime::parse_from_rfc3339(&retry_at(1, "job-a")).expect("first retry");
+        let later =
+            chrono::DateTime::parse_from_rfc3339(&retry_at(5, "job-a")).expect("later retry");
+        let capped =
+            chrono::DateTime::parse_from_rfc3339(&retry_at(99, "job-a")).expect("capped retry");
+        let now = Utc::now();
+
+        assert!(first > now);
+        assert!(later > first);
+        assert!(capped.with_timezone(&Utc) - now < ChronoDuration::minutes(81));
+        assert_eq!(
+            redact_sensitive_text("request failed: Bearer secret-token"),
+            "The background operation failed with a redacted sensitive response."
+        );
+        assert_eq!(
+            redact_sensitive_text("network unavailable"),
+            "network unavailable"
+        );
     }
 
     #[tokio::test]

@@ -3,6 +3,7 @@ package com.azazel.collab.companion
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import androidx.work.NetworkType
 
 class CollabBackgroundSchedulerTest {
   @Test
@@ -29,6 +30,22 @@ class CollabBackgroundSchedulerTest {
     assert(
       CollabBackgroundScheduler.profileWorkSuffix("Aa") !=
         CollabBackgroundScheduler.profileWorkSuffix("BB"),
+    )
+  }
+
+  @Test
+  fun networkPolicyPrefersUnmeteredThenNonRoaming() {
+    assertEquals(
+      NetworkType.UNMETERED,
+      CollabBackgroundScheduler.requiredNetworkType(true, false),
+    )
+    assertEquals(
+      NetworkType.NOT_ROAMING,
+      CollabBackgroundScheduler.requiredNetworkType(false, false),
+    )
+    assertEquals(
+      NetworkType.CONNECTED,
+      CollabBackgroundScheduler.requiredNetworkType(false, true),
     )
   }
 }

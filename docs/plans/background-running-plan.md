@@ -35,7 +35,7 @@ not become separate sync implementations.
 | 1. Shared headless background coordinator | Testing | Run bounded sync and maintenance jobs without depending on a mounted webview. |
 | 2. Desktop tray and background lifecycle | Testing | Keep the desktop process available in the tray, support hide/restore/quit, and run scheduled work. |
 | 3. Android scheduled background work | Testing | Use WorkManager for durable, constrained sync and catch-up work. |
-| 4. Reliability, progress, and power controls | Not started | Add locking, backoff, persisted outcomes, network/battery policy, and transparent status. |
+| 4. Reliability, progress, and power controls | Testing | Add locking, backoff, persisted outcomes, network/battery policy, and transparent status. |
 | 5. Platform hardening and release | Not started | Validate lifecycle, packaging, upgrades, and device/desktop behavior before enabling by default. |
 
 ## Product Behavior
@@ -224,12 +224,29 @@ foreground-service path above.
 
 ### Phase 4: Reliability, Progress, And Power Controls
 
-- Add metered-network, charging, battery-saver, and roaming policy.
-- Coalesce repeated server invalidations and avoid no-op sync loops.
-- Persist last successful run, next eligible retry, and partial failures.
-- Integrate background progress with the desktop and mobile sync surfaces.
-- Publish notification and widget snapshots through narrow adapters.
-- Add retention for completed job records and redact secrets from logs.
+- [x] Add metered-network, charging, low-battery, and roaming policy to Android
+  WorkManager constraints.
+- [x] Coalesce repeated server invalidations and avoid no-op sync loops.
+- [x] Persist attempts, capped exponential retry eligibility, successful runs,
+  and partial failures.
+- [x] Integrate background progress with the desktop and mobile sync surfaces.
+- [x] Publish a compact, credential-free status snapshot through a narrow native
+  adapter for later notification and widget consumers.
+- [x] Add age/count retention for completed job records and redact sensitive
+  failure payloads before they reach the ledger or Android worker logs.
+
+Phase 4 implementation is complete and is now in testing. Android scheduled and
+immediate work share explicit
+unmetered-network, roaming, charging, and low-battery constraints. The durable
+ledger records retry attempts and bounded exponential retry times, removes
+terminal records after 30 days (with a 200-record hard cap), and exposes a
+redacted aggregate snapshot. Desktop continues to poll detailed ledger progress
+in the sync popover; mobile Settings now refreshes recent outcomes while
+visible. Resource locking coalesces concurrent server invalidations, and native
+vault/calendar jobs persist a structured changed count so zero-change runs do
+not emit another foreground replica mutation and start a reconciliation loop.
+Power and network behavior still requires the physical-device lifecycle matrix
+covered by Phase 5.
 
 ### Phase 5: Platform Hardening And Release
 

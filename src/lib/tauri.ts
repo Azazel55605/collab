@@ -187,6 +187,10 @@ export interface BackgroundSettings {
   startAtLogin: boolean;
   closeBehavior: BackgroundCloseBehavior;
   paused: boolean;
+  onlyUnmeteredNetworks: boolean;
+  requireCharging: boolean;
+  pauseOnLowBattery: boolean;
+  allowRoaming: boolean;
 }
 
 export interface BackgroundJobRequest {
@@ -207,6 +211,7 @@ export interface BackgroundJobRecord {
   profileId: string | null;
   vaultId: string | null;
   trigger: BackgroundJobTrigger;
+  attempt: number;
   status: BackgroundJobStatus;
   createdAt: string;
   startedAt: string | null;
@@ -217,6 +222,7 @@ export interface BackgroundJobRecord {
     total: number | null;
     detail: string | null;
   };
+  changed?: number | null;
   summary: string | null;
   errorCategory: string | null;
   errorMessage: string | null;
@@ -229,6 +235,19 @@ export interface BackgroundJobAggregate {
   succeeded: number;
   attentionRequired: number;
   latestFinishedAt: string | null;
+}
+
+export interface BackgroundStatusSnapshot {
+  generatedAt: string;
+  activeJobs: number;
+  attentionRequired: number;
+  lastSuccessfulAt: string | null;
+  nextEligibleRetryAt: string | null;
+  progress: {
+    completed: number;
+    total: number | null;
+    detail: string | null;
+  };
 }
 
 export const tauriCommands = {
@@ -252,6 +271,8 @@ export const tauriCommands = {
     invoke<BackgroundJobRecord>('background_job_cancel', { jobId }),
   backgroundJobAggregate: () =>
     invoke<BackgroundJobAggregate>('background_job_aggregate'),
+  backgroundStatusSnapshot: () =>
+    invoke<BackgroundStatusSnapshot>('background_status_snapshot'),
   backgroundSettingsGet: () =>
     invoke<BackgroundSettings>('background_settings_get'),
   backgroundSettingsSave: (settings: BackgroundSettings) =>

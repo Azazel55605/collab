@@ -827,13 +827,15 @@ export async function syncReplicaManifestDelta(
   }
   const manifest = await tauriCommands.replicaReadManifest(vault.serverUrl, vault.hostedVaultId);
   if (!manifest) throw new Error('Replica manifest was not available after synchronization.');
-  emitReplicaMutated({
-    kind: 'sync',
-    fileIds: manifest.files.map((file) => file.id),
-    relativePaths: manifest.files
-      .map((file) => typeof file.relativePath === 'string' ? file.relativePath : null)
-      .filter((path): path is string => path !== null),
-  });
+  if (current.changed !== 0) {
+    emitReplicaMutated({
+      kind: 'sync',
+      fileIds: manifest.files.map((file) => file.id),
+      relativePaths: manifest.files
+        .map((file) => typeof file.relativePath === 'string' ? file.relativePath : null)
+        .filter((path): path is string => path !== null),
+    });
+  }
   return manifest;
 }
 
