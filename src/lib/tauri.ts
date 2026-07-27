@@ -135,7 +135,18 @@ export interface NativeOcrResult {
   words: NativeOcrWord[];
 }
 
+export interface BackgroundRuntimeProbe {
+  runCount: number;
+  lastTrigger: string;
+  lastRunAt: string;
+  processId: number;
+  filePath: string;
+}
+
 export const tauriCommands = {
+  backgroundRuntimeProbe: (trigger: string) =>
+    invoke<BackgroundRuntimeProbe>('background_runtime_probe', { trigger }),
+
   // User calendar profile store
   calendarList: (profileId: string) => invoke<CalendarDefinition[]>('calendar_list', { profileId }),
   calendarSave: (profileId: string, calendar: CalendarDefinition) =>

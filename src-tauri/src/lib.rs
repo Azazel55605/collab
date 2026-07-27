@@ -1,4 +1,6 @@
 mod android_jni;
+#[cfg(not(mobile))]
+mod background_lifecycle;
 mod commands;
 mod crypto;
 mod hosted_client;
@@ -50,7 +52,12 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_drag::init());
 
     builder
-        .setup(|_app| {
+        .setup(|app| {
+            #[cfg(not(mobile))]
+            background_lifecycle::setup_background_lifecycle_probe(app)?;
+            #[cfg(mobile)]
+            let _ = app;
+
             // On Linux, WebKitGTK's touchpad pinch-to-zoom bypasses the `zoom-level` property
             // entirely — it calls WebPageProxy::scalePage() internally, firing no GObject signals.
             // The only way to block it is to intercept the GtkGestureZoom that WebKitWebViewBase
@@ -62,7 +69,7 @@ pub fn run() {
                 use tauri::Manager;
                 use webkit2gtk::{SettingsExt, WebViewExt};
 
-                if let Some(webview_window) = _app.get_webview_window("main") {
+                if let Some(webview_window) = app.get_webview_window("main") {
                     webview_window
                         .with_webview(|wv| {
                             let webview = wv.inner();
@@ -145,6 +152,7 @@ pub fn run() {
             commands::calendar::calendar_list_mirror_conflicts,
             commands::calendar::calendar_save_mirror_conflict,
             commands::calendar::calendar_list_mirror_items,
+            commands::background::background_runtime_probe,
             // vault
             commands::vault::open_vault,
             commands::vault::create_vault,

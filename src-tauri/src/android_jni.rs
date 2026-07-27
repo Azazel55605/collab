@@ -8,6 +8,7 @@
 #![cfg(target_os = "android")]
 
 use jni::objects::{JClass, JObject, JString, JValue};
+use jni::sys::jstring;
 use jni::{JNIEnv, JavaVM};
 use std::mem::ManuallyDrop;
 
@@ -125,4 +126,47 @@ pub fn call_static_string(
             })?;
         Ok(read_string(env, result))
     })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_azazel_collab_companion_CollabBackgroundProbe_runNativeProbe(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    files_dir: JString<'_>,
+    trigger: JString<'_>,
+) -> jstring {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let files_dir = env
+            .get_string(&files_dir)
+            .map_err(|_| "Could not decode the Android files directory.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let trigger = env
+            .get_string(&trigger)
+            .map_err(|_| "Could not decode the background probe trigger.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let root = std::path::PathBuf::from(files_dir).join("collab");
+        let probe = crate::commands::background::run_background_runtime_probe(&root, &trigger)?;
+        serde_json::to_string(&probe)
+            .map_err(|error| format!("Could not encode the background probe result: {error}"))
+    }));
+
+    match result {
+        Ok(Ok(payload)) => env
+            .new_string(payload)
+            .map(JString::into_raw)
+            .unwrap_or(std::ptr::null_mut()),
+        Ok(Err(error)) => {
+            let _ = env.throw_new("java/lang/IllegalStateException", error);
+            std::ptr::null_mut()
+        }
+        Err(_) => {
+            let _ = env.throw_new(
+                "java/lang/IllegalStateException",
+                "The native background probe panicked.",
+            );
+            std::ptr::null_mut()
+        }
+    }
 }

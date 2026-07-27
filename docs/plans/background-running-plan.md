@@ -21,8 +21,8 @@ not become separate sync implementations.
 - Hosted vault and calendar synchronization already expose reusable native
   operations, durable cursors, pending operations, and visible foreground
   progress.
-- Android currently has no WorkManager dependency, background worker, service,
-  or boot receiver.
+- Phase 0 now includes a debug-only WorkManager probe that invokes Rust without
+  a Tauri activity or webview. Production sync scheduling is not enabled.
 - Notification delivery is not implemented. Calendar reminder scheduling
   already has a typed frontend connector and a no-op implementation.
 
@@ -30,7 +30,7 @@ not become separate sync implementations.
 
 | Phase | Status | Goal |
 | --- | --- | --- |
-| 0. Lifecycle contract and feasibility | Not started | Define platform behavior, OS limits, settings, job ownership, and a small desktop/Android proof. |
+| 0. Lifecycle contract and feasibility | Testing | Define platform behavior, OS limits, settings, job ownership, and a small desktop/Android proof. |
 | 1. Shared headless background coordinator | Not started | Run bounded sync and maintenance jobs without depending on a mounted webview. |
 | 2. Desktop tray and background lifecycle | Not started | Keep the desktop process available in the tray, support hide/restore/quit, and run scheduled work. |
 | 3. Android scheduled background work | Not started | Use WorkManager for durable, constrained sync and catch-up work. |
@@ -135,12 +135,16 @@ instead of racing it.
 
 ### Phase 0: Lifecycle Contract And Feasibility
 
-- Document close, quit, suspend, resume, reboot, update, and force-stop behavior.
-- Prototype a native desktop tray without changing current quit behavior.
-- Prototype one Android WorkManager worker that calls a narrow native probe.
-- Confirm whether session restoration can succeed without the webview.
-- Record packaging implications for AppImage, Flatpak, Windows, macOS, APK, and
-  AAB builds.
+- [x] Document close, quit, suspend, resume, reboot, update, and force-stop
+  behavior in [the Phase 0 lifecycle contract](./background-running-phase0-contract.md).
+- [x] Prototype a native desktop tray without changing current quit behavior.
+- [x] Prototype one Android WorkManager worker that calls a narrow native probe.
+- [x] Confirm the remaining work required for session restoration without the
+  webview.
+- [x] Record packaging implications for AppImage, Flatpak, Windows, macOS, APK,
+  and AAB builds.
+- [ ] Validate the tray proof on Linux, Windows, and macOS and the WorkManager
+  proof on a physical Android device.
 
 Exit gate: both prototypes run on real target platforms and the native
 coordinator boundary is agreed before production behavior changes.
