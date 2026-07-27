@@ -77,6 +77,10 @@ tauri-plugin-drag = "2.1.1"
 keyring = { version = "3", features = ["apple-native"] }
 tauri-plugin-drag = "2.1.1"
 
+[target.'cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))'.dependencies]
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
 ndk-context = "0.1"

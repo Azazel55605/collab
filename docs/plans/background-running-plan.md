@@ -15,8 +15,8 @@ not become separate sync implementations.
 
 ## Current State
 
-- Desktop exits with the main Tauri process and has no tray or autostart
-  integration.
+- Desktop Phase 2 provides an opt-in production tray, close-to-tray behavior,
+  login startup, scheduled native synchronization, and explicit graceful quit.
 - Android sync is driven primarily while the foreground application is active.
 - Hosted vault and calendar synchronization already expose reusable native
   operations, durable cursors, pending operations, and visible foreground
@@ -32,7 +32,7 @@ not become separate sync implementations.
 | --- | --- | --- |
 | 0. Lifecycle contract and feasibility | Testing | Define platform behavior, OS limits, settings, job ownership, and a small desktop/Android proof. |
 | 1. Shared headless background coordinator | Testing | Run bounded sync and maintenance jobs without depending on a mounted webview. |
-| 2. Desktop tray and background lifecycle | Not started | Keep the desktop process available in the tray, support hide/restore/quit, and run scheduled work. |
+| 2. Desktop tray and background lifecycle | Testing | Keep the desktop process available in the tray, support hide/restore/quit, and run scheduled work. |
 | 3. Android scheduled background work | Not started | Use WorkManager for durable, constrained sync and catch-up work. |
 | 4. Reliability, progress, and power controls | Not started | Add locking, backoff, persisted outcomes, network/battery policy, and transparent status. |
 | 5. Platform hardening and release | Not started | Validate lifecycle, packaging, upgrades, and device/desktop behavior before enabling by default. |
@@ -173,20 +173,29 @@ without opening a Collab webview.
 
 Phase 1 implementation is complete and remains in testing while foreground
 vault/calendar synchronization and the Android Phase 0 probe are exercised
-against real hosted servers. Phase 2 can consume the same ledger and
+against real hosted servers. Phase 2 now consumes the same ledger and
 coordinator from the desktop tray without mounting React.
 
 ### Phase 2: Desktop Tray And Background Lifecycle
 
-- Add tray icon/menu creation and main-window show/focus behavior.
-- Intercept close requests only when background running is enabled.
-- Add explicit application quit handling and graceful worker shutdown.
-- Add autostart integration and settings.
-- Feed the existing sync menu from the persistent job ledger so hidden-window
+- [x] Add tray icon/menu creation and main-window show/focus behavior.
+- [x] Intercept close requests only when background running is enabled.
+- [x] Add explicit application quit handling and graceful worker shutdown.
+- [x] Add autostart integration and settings.
+- [x] Feed the existing sync menu from the persistent job ledger so hidden-window
   jobs remain visible when the app is restored.
+- [x] Prevent duplicate desktop instances and restore the existing window when a
+  second launch is attempted.
+- [ ] Validate close-to-tray, restore, autostart, scheduled/manual sync, pause,
+  and quit on Linux, Windows, and macOS packages.
 
 Exit gate: close-to-tray, restore, login startup, manual sync, pause, and quit
 work on Linux, Windows, and macOS without duplicate app instances.
+
+Phase 2 implementation is complete and remains in testing until the packaged
+desktop behavior is exercised on Linux, Windows, and macOS. Background mode is
+opt-in; existing installations retain close-means-quit until the setting is
+enabled.
 
 ### Phase 3: Android Scheduled Background Work
 

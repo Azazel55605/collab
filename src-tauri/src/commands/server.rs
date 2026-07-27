@@ -89,6 +89,7 @@ pub async fn connect_server(
             allow_invalid_certificates,
             persist_across_reboots,
             background_sync_enabled: true,
+            profile_ids: Vec::new(),
             updated_at: chrono::Utc::now().to_rfc3339(),
         });
     Ok(status)
@@ -124,6 +125,7 @@ pub async fn reconnect_server(
             allow_invalid_certificates,
             persist_across_reboots,
             background_sync_enabled: true,
+            profile_ids: Vec::new(),
             updated_at: chrono::Utc::now().to_rfc3339(),
         });
     Ok(status)

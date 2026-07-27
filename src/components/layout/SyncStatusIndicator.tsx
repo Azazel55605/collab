@@ -31,6 +31,7 @@ import {
 import { Button } from '../ui/button';
 import { Progress } from '../ui/progress';
 import { transferPercent, useSyncTransferStore, type SyncTransfer } from '../../store/syncTransferStore';
+import { tauriCommands, type BackgroundJobRecord } from '../../lib/tauri';
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -125,6 +126,54 @@ function TransferRow({ transfer }: { transfer: SyncTransfer }) {
   );
 }
 
+function BackgroundJobRow({ job }: { job: BackgroundJobRecord }) {
+  const total = job.progress.total;
+  const percent = total && total > 0
+    ? Math.min(100, Math.round((job.progress.completed / total) * 100))
+    : null;
+  const active = job.status === 'queued' || job.status === 'running';
+  const failed = ['partial', 'authentication_required', 'permission_denied', 'conflict', 'failed']
+    .includes(job.status);
+  const label = job.kind === 'replica_sync'
+    ? 'Vault sync'
+    : job.kind === 'calendar_sync'
+      ? 'Calendar sync'
+      : 'Maintenance';
+  return (
+    <li className="rounded-md border border-border/50 bg-muted/20 px-2 py-1.5">
+      <div className="flex items-center gap-2">
+        <RefreshCw
+          size={12}
+          className={cn(
+            'shrink-0 text-sky-500',
+            active && 'app-spin-soft',
+            failed && 'text-destructive',
+          )}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-[11px] font-medium text-foreground">{label}</span>
+            <span className="ml-auto shrink-0 text-[10px] capitalize text-muted-foreground">
+              {job.status.replace(/_/g, ' ')}
+            </span>
+          </div>
+          <p
+            className={cn('mt-0.5 truncate text-[10px] text-muted-foreground', failed && 'text-destructive')}
+            title={job.errorMessage ?? job.progress.detail ?? job.summary ?? undefined}
+          >
+            {job.errorMessage ?? job.progress.detail ?? job.summary ?? `Started ${timeAgo(job.createdAt)}`}
+          </p>
+        </div>
+      </div>
+      {active && (
+        percent !== null
+          ? <Progress value={percent} className="mt-1.5 h-1" />
+          : <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-primary/20"><div className="h-full w-1/3 animate-pulse rounded-full bg-primary" /></div>
+      )}
+    </li>
+  );
+}
+
 /**
  * Live sync-status indicator for the open hosted vault. The compact status-bar
  * chip rolls up the replica's offline-sync state (synced / syncing / pending /
@@ -147,6 +196,7 @@ export default function SyncStatusIndicator() {
   const clearFinishedTransfers = useSyncTransferStore((state) => state.clearFinished);
   const [open, setOpen] = useState(false);
   const [busyOp, setBusyOp] = useState<string | null>(null);
+  const [backgroundJobs, setBackgroundJobs] = useState<BackgroundJobRecord[]>([]);
   const lastConflictCount = useRef(0);
   const wasOnlineRef = useRef<boolean | null>(null);
 
@@ -156,6 +206,23 @@ export default function SyncStatusIndicator() {
     if (hostedVault) void refresh(hostedVault);
   }, [hostedVault, refresh]);
 
+  const refreshBackgroundJobs = useCallback(() => {
+    if (!hostedVault || typeof tauriCommands.backgroundJobList !== 'function') {
+      setBackgroundJobs([]);
+      return;
+    }
+    void tauriCommands.backgroundJobList(30)
+      .then((jobs) => setBackgroundJobs(
+        jobs
+          .filter((job) =>
+            job.serverUrl === hostedVault.serverUrl
+            && (job.vaultId === null || job.vaultId === hostedVault.hostedVaultId),
+          )
+          .slice(0, 8),
+      ))
+      .catch(() => {});
+  }, [hostedVault]);
+
   // Refresh on vault change + clear when leaving a hosted vault.
   useEffect(() => {
     if (!hostedVault) {
@@ -164,6 +231,13 @@ export default function SyncStatusIndicator() {
     }
     doRefresh();
   }, [hostedVault, doRefresh, clear]);
+
+  useEffect(() => {
+    refreshBackgroundJobs();
+    if (!hostedVault) return;
+    const timer = window.setInterval(refreshBackgroundJobs, POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [hostedVault, refreshBackgroundJobs]);
 
   // Refresh immediately on any replica mutation (edit queued, replay, sync).
   useEffect(() => {
@@ -237,11 +311,19 @@ export default function SyncStatusIndicator() {
   }, [failed.length]);
 
   const rollup = useMemo(
-    () => syncRollup({ isSyncing: isSyncing || transfers.some((transfer) => transfer.status === 'active'), status, pending, failed }),
-    [isSyncing, status, pending, failed, transfers],
+    () => syncRollup({
+      isSyncing: isSyncing
+        || transfers.some((transfer) => transfer.status === 'active')
+        || backgroundJobs.some((job) => job.status === 'queued' || job.status === 'running'),
+      status,
+      pending,
+      failed,
+    }),
+    [isSyncing, status, pending, failed, transfers, backgroundJobs],
   );
   const activeTransfers = transfers.filter((transfer) => transfer.status === 'active');
   const recentTransfers = transfers.filter((transfer) => transfer.status !== 'active').slice(0, 5);
+  const activeBackgroundJobs = backgroundJobs.filter((job) => job.status === 'queued' || job.status === 'running');
 
   if (!hostedVault) return null;
 
@@ -290,6 +372,7 @@ export default function SyncStatusIndicator() {
   const handleSyncNow = async () => {
     try {
       await syncNow(hostedVault);
+      refreshBackgroundJobs();
     } catch (error) {
       toast.error(`Sync failed: ${error}`);
     }
@@ -348,7 +431,9 @@ export default function SyncStatusIndicator() {
                   : rollup === 'syncing'
                     ? activeTransfers.length > 0
                       ? `${activeTransfers.length} active transfer${activeTransfers.length === 1 ? '' : 's'}`
-                      : 'Syncing…'
+                      : activeBackgroundJobs.length > 0
+                        ? `${activeBackgroundJobs.length} background job${activeBackgroundJobs.length === 1 ? '' : 's'}`
+                        : 'Syncing…'
                     : rollup === 'pending'
                       ? `${pending.length} change${pending.length === 1 ? '' : 's'} pending`
                       : 'Up to date'}
@@ -393,6 +478,17 @@ export default function SyncStatusIndicator() {
               </p>
               <ul className="flex flex-col gap-1">
                 {activeTransfers.map((transfer) => <TransferRow key={transfer.id} transfer={transfer} />)}
+              </ul>
+            </div>
+          )}
+
+          {backgroundJobs.length > 0 && (
+            <div className="mb-2">
+              <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Background activity
+              </p>
+              <ul className="flex flex-col gap-1">
+                {backgroundJobs.map((job) => <BackgroundJobRow key={job.id} job={job} />)}
               </ul>
             </div>
           )}
@@ -451,7 +547,7 @@ export default function SyncStatusIndicator() {
             </>
           ) : (
             failed.length === 0 &&
-            !accessLost && activeTransfers.length === 0 && recentTransfers.length === 0 && (
+            !accessLost && activeTransfers.length === 0 && recentTransfers.length === 0 && backgroundJobs.length === 0 && (
               <p className="px-1 py-3 text-center text-[11px] text-muted-foreground">
                 All changes are synced.
               </p>

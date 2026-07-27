@@ -1,7 +1,7 @@
 use super::models::{
     BackgroundJobRecord, BackgroundJobStatus, BackgroundLedger, BackgroundRegistry,
-    BackgroundServerRegistration, BACKGROUND_LEDGER_SCHEMA_VERSION,
-    BACKGROUND_REGISTRY_SCHEMA_VERSION,
+    BackgroundServerRegistration, BackgroundSettings, BACKGROUND_LEDGER_SCHEMA_VERSION,
+    BACKGROUND_REGISTRY_SCHEMA_VERSION, BACKGROUND_SETTINGS_SCHEMA_VERSION,
 };
 use chrono::Utc;
 use parking_lot::Mutex;
@@ -11,6 +11,7 @@ use std::path::PathBuf;
 
 const LEDGER_FILE: &str = "background-jobs.json";
 const REGISTRY_FILE: &str = "background-servers.json";
+const SETTINGS_FILE: &str = "background-settings.json";
 const MAX_LEDGER_JOBS: usize = 200;
 
 pub(crate) struct BackgroundPersistence {
@@ -130,6 +131,19 @@ impl BackgroundPersistence {
         mut servers: Vec<BackgroundServerRegistration>,
     ) -> Result<Vec<BackgroundServerRegistration>, String> {
         let _guard = self.io_lock.lock();
+        let existing = self.load_registry()?.servers;
+        for server in &mut servers {
+            if let Some(previous) = existing
+                .iter()
+                .find(|entry| entry.server_url == server.server_url)
+            {
+                server
+                    .profile_ids
+                    .extend(previous.profile_ids.iter().cloned());
+                server.profile_ids.sort();
+                server.profile_ids.dedup();
+            }
+        }
         normalize_servers(&mut servers);
         let registry = BackgroundRegistry {
             schema_version: BACKGROUND_REGISTRY_SCHEMA_VERSION,
@@ -141,10 +155,21 @@ impl BackgroundPersistence {
 
     pub fn upsert_server(
         &self,
-        server: BackgroundServerRegistration,
+        mut server: BackgroundServerRegistration,
     ) -> Result<BackgroundServerRegistration, String> {
         let _guard = self.io_lock.lock();
         let mut registry = self.load_registry()?;
+        if let Some(existing) = registry
+            .servers
+            .iter()
+            .find(|entry| entry.server_url == server.server_url)
+        {
+            server
+                .profile_ids
+                .extend(existing.profile_ids.iter().cloned());
+            server.profile_ids.sort();
+            server.profile_ids.dedup();
+        }
         registry
             .servers
             .retain(|entry| entry.server_url != server.server_url);
@@ -161,6 +186,27 @@ impl BackgroundPersistence {
             .servers
             .retain(|entry| entry.server_url != server_url);
         self.write_json(REGISTRY_FILE, &registry)
+    }
+
+    pub fn settings(&self) -> Result<BackgroundSettings, String> {
+        let _guard = self.io_lock.lock();
+        let settings: BackgroundSettings = self.read_json(SETTINGS_FILE)?;
+        if settings.schema_version != BACKGROUND_SETTINGS_SCHEMA_VERSION {
+            return Err("The background settings use an unsupported schema.".to_string());
+        }
+        Ok(settings)
+    }
+
+    pub fn save_settings(
+        &self,
+        settings: BackgroundSettings,
+    ) -> Result<BackgroundSettings, String> {
+        if settings.schema_version != BACKGROUND_SETTINGS_SCHEMA_VERSION {
+            return Err("The background settings use an unsupported schema.".to_string());
+        }
+        let _guard = self.io_lock.lock();
+        self.write_json(SETTINGS_FILE, &settings)?;
+        Ok(settings)
     }
 
     fn load_ledger(&self) -> Result<BackgroundLedger, String> {

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub const BACKGROUND_LEDGER_SCHEMA_VERSION: u32 = 1;
 pub const BACKGROUND_REGISTRY_SCHEMA_VERSION: u32 = 1;
+pub const BACKGROUND_SETTINGS_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -112,11 +113,56 @@ pub struct BackgroundServerRegistration {
     pub persist_across_reboots: bool,
     #[serde(default = "default_enabled")]
     pub background_sync_enabled: bool,
+    #[serde(default)]
+    pub profile_ids: Vec<String>,
     pub updated_at: String,
 }
 
 fn default_enabled() -> bool {
     true
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundCloseBehavior {
+    HideToTray,
+    Quit,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundSyncInterval {
+    SystemManaged,
+    FifteenMinutes,
+    ThirtyMinutes,
+    Hourly,
+    Manual,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackgroundSettings {
+    pub schema_version: u32,
+    pub run_in_background: bool,
+    pub background_sync: bool,
+    pub sync_interval: BackgroundSyncInterval,
+    pub start_at_login: bool,
+    pub close_behavior: BackgroundCloseBehavior,
+    pub paused: bool,
+}
+
+impl Default for BackgroundSettings {
+    fn default() -> Self {
+        Self {
+            schema_version: BACKGROUND_SETTINGS_SCHEMA_VERSION,
+            run_in_background: false,
+            background_sync: true,
+            sync_interval: BackgroundSyncInterval::SystemManaged,
+            start_at_login: false,
+            close_behavior: BackgroundCloseBehavior::HideToTray,
+            paused: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

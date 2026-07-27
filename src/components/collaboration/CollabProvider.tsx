@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, createContext, useContext, ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, createContext, useContext, ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 import { getAppVersion } from '../../lib/tauri';
@@ -32,6 +32,8 @@ export function CollabProvider({ children }: { children: ReactNode }) {
   const knownMessageIdsRef = useRef<Set<string>>(new Set());
   const isChatVisible = isSidebarOpen && sidebarPanel === 'collab' && collabTab === 'chat';
   const isChatVisibleRef = useRef(isChatVisible);
+  const [windowVisible, setWindowVisible] = useState(true);
+  const windowVisibleRef = useRef(true);
   useEffect(() => {
     isChatVisibleRef.current = isChatVisible;
   }, [isChatVisible]);
@@ -46,8 +48,29 @@ export function CollabProvider({ children }: { children: ReactNode }) {
   const transportRef = useRef<CollabTransport | null>(null);
   transportRef.current = transport;
 
+  useEffect(() => {
+    let unlistenHidden: (() => void) | undefined;
+    let unlistenShown: (() => void) | undefined;
+    listen('background:window-hidden', () => {
+      windowVisibleRef.current = false;
+      setWindowVisible(false);
+      setPeers([]);
+      if (transportRef.current) {
+        void transportRef.current.clearPresence(identity.userId).catch(() => {});
+      }
+    }).then((unlisten) => { unlistenHidden = unlisten; });
+    listen('background:window-shown', () => {
+      windowVisibleRef.current = true;
+      setWindowVisible(true);
+    }).then((unlisten) => { unlistenShown = unlisten; });
+    return () => {
+      unlistenHidden?.();
+      unlistenShown?.();
+    };
+  }, [identity.userId, setPeers]);
+
   const broadcastPresence = async (activeFile: string | null) => {
-    if (!vault || !transportRef.current) return;
+    if (!windowVisibleRef.current || !vault || !transportRef.current) return;
     try {
       const version = await getAppVersion().catch(() => '0.0.0');
       await transportRef.current.broadcastPresence({
@@ -117,7 +140,7 @@ export function CollabProvider({ children }: { children: ReactNode }) {
 
   // Interval broadcast + presence listener + chat listener
   useEffect(() => {
-    if (!vault || !transport) return;
+    if (!windowVisible || !vault || !transport) return;
 
     const interval = setInterval(() => broadcastPresence(activeTabPathRef.current), 10000);
     refreshPeers();
@@ -151,7 +174,7 @@ export function CollabProvider({ children }: { children: ReactNode }) {
       unsubChat();
       unsubChatMessage?.();
     };
-  }, [transport, vault?.path, identity.userId]);
+  }, [transport, vault?.path, identity.userId, windowVisible]);
 
   useEffect(() => {
     if (!vault || !transportRef.current) return;

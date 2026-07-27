@@ -18,6 +18,13 @@ use state::AppState;
 pub fn run() {
     let builder = tauri::Builder::default().manage(AppState::new());
 
+    // This must be the first plugin so a second launch hands focus back before
+    // any other plugin setup performs process-local work.
+    #[cfg(not(mobile))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        background_lifecycle::show_main_window(app);
+    }));
+
     #[cfg(all(not(mobile), target_os = "linux"))]
     let builder = if std::env::var_os("FLATPAK_ID").is_some() {
         builder
@@ -50,12 +57,17 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init());
 
     #[cfg(not(mobile))]
-    let builder = builder.plugin(tauri_plugin_drag::init());
+    let builder = builder
+        .plugin(tauri_plugin_drag::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--background"]),
+        ));
 
     builder
         .setup(|app| {
             #[cfg(not(mobile))]
-            background_lifecycle::setup_background_lifecycle_probe(app)?;
+            background_lifecycle::setup_background_lifecycle(app)?;
             #[cfg(mobile)]
             let _ = app;
 
@@ -163,6 +175,9 @@ pub fn run() {
             commands::background::background_job_list,
             commands::background::background_job_cancel,
             commands::background::background_job_aggregate,
+            commands::background::background_settings_get,
+            commands::background::background_settings_save,
+            commands::background::background_sync_registered,
             // vault
             commands::vault::open_vault,
             commands::vault::create_vault,

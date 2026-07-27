@@ -167,7 +167,26 @@ export interface BackgroundServerRegistration {
   allowInvalidCertificates: boolean;
   persistAcrossReboots: boolean;
   backgroundSyncEnabled: boolean;
+  profileIds: string[];
   updatedAt: string;
+}
+
+export type BackgroundCloseBehavior = 'hide_to_tray' | 'quit';
+export type BackgroundSyncInterval =
+  | 'system_managed'
+  | 'fifteen_minutes'
+  | 'thirty_minutes'
+  | 'hourly'
+  | 'manual';
+
+export interface BackgroundSettings {
+  schemaVersion: number;
+  runInBackground: boolean;
+  backgroundSync: boolean;
+  syncInterval: BackgroundSyncInterval;
+  startAtLogin: boolean;
+  closeBehavior: BackgroundCloseBehavior;
+  paused: boolean;
 }
 
 export interface BackgroundJobRequest {
@@ -233,6 +252,12 @@ export const tauriCommands = {
     invoke<BackgroundJobRecord>('background_job_cancel', { jobId }),
   backgroundJobAggregate: () =>
     invoke<BackgroundJobAggregate>('background_job_aggregate'),
+  backgroundSettingsGet: () =>
+    invoke<BackgroundSettings>('background_settings_get'),
+  backgroundSettingsSave: (settings: BackgroundSettings) =>
+    invoke<BackgroundSettings>('background_settings_save', { settings }),
+  backgroundSyncRegistered: () =>
+    invoke<BackgroundJobRecord[]>('background_sync_registered'),
 
   // User calendar profile store
   calendarList: (profileId: string) => invoke<CalendarDefinition[]>('calendar_list', { profileId }),

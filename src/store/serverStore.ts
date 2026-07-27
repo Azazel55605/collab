@@ -154,6 +154,7 @@ export const useServerStore = create<ServerState>()((set, get) => {
             allowInvalidCertificates: server.allowInvalidCertificates,
             persistAcrossReboots: server.persistAcrossReboots,
             backgroundSyncEnabled: true,
+            profileIds: [],
             updatedAt: new Date().toISOString(),
           })),
         ).catch(() => {

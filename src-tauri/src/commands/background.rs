@@ -2,10 +2,12 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
+use tauri::AppHandle;
 use tauri::State;
 
 use crate::background::{
-    BackgroundJobAggregate, BackgroundJobRecord, BackgroundJobRequest, BackgroundServerRegistration,
+    BackgroundJobAggregate, BackgroundJobRecord, BackgroundJobRequest, BackgroundJobTrigger,
+    BackgroundServerRegistration, BackgroundSettings,
 };
 use crate::state::AppState;
 
@@ -164,6 +166,44 @@ pub fn background_job_aggregate(
     state: State<'_, AppState>,
 ) -> Result<BackgroundJobAggregate, String> {
     state.background.aggregate()
+}
+
+#[tauri::command]
+pub fn background_settings_get(state: State<'_, AppState>) -> Result<BackgroundSettings, String> {
+    state.background.settings()
+}
+
+#[tauri::command]
+pub fn background_settings_save(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    mut settings: BackgroundSettings,
+) -> Result<BackgroundSettings, String> {
+    if !settings.run_in_background {
+        settings.start_at_login = false;
+        settings.paused = false;
+    }
+    #[cfg(not(mobile))]
+    crate::background_lifecycle::set_autostart(&app, settings.start_at_login)?;
+    #[cfg(mobile)]
+    {
+        let _ = app;
+        settings.start_at_login = false;
+    }
+    let settings = state.background.save_settings(settings)?;
+    #[cfg(not(mobile))]
+    crate::background_lifecycle::apply_settings(&app, &settings);
+    Ok(settings)
+}
+
+#[tauri::command]
+pub fn background_sync_registered(
+    state: State<'_, AppState>,
+) -> Result<Vec<BackgroundJobRecord>, String> {
+    state
+        .background
+        .clone()
+        .enqueue_registered(BackgroundJobTrigger::UserInitiated)
 }
 
 #[cfg(test)]

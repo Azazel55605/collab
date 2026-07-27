@@ -57,6 +57,17 @@ pub struct LiveWsRegistry {
     conns: Mutex<HashMap<u64, LiveConn>>,
 }
 
+impl LiveWsRegistry {
+    pub fn abort_all(&self) {
+        if let Ok(mut conns) = self.conns.try_lock() {
+            for (_, conn) in conns.drain() {
+                conn.reader.abort();
+                conn.writer.abort();
+            }
+        }
+    }
+}
+
 fn to_http_url(websocket_url: &str) -> Result<String, String> {
     if let Some(rest) = websocket_url.strip_prefix("wss://") {
         Ok(format!("https://{rest}"))

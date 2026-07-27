@@ -4,13 +4,15 @@ mod persistence;
 mod sync;
 
 pub use models::{
-    BackgroundJobAggregate, BackgroundJobKind, BackgroundJobProgress, BackgroundJobRecord,
-    BackgroundJobRequest, BackgroundJobStatus, BackgroundServerRegistration,
+    BackgroundCloseBehavior, BackgroundJobAggregate, BackgroundJobKind, BackgroundJobProgress,
+    BackgroundJobRecord, BackgroundJobRequest, BackgroundJobStatus, BackgroundJobTrigger,
+    BackgroundServerRegistration, BackgroundSettings, BackgroundSyncInterval,
 };
 
 use crate::hosted_client::validate_server_url;
 use crate::state::HostedSessionRuntime;
 use chrono::{Duration as ChronoDuration, Utc};
+use collab_replica::ReplicaStore;
 use parking_lot::Mutex;
 use persistence::BackgroundPersistence;
 use std::collections::HashMap;
@@ -34,6 +36,7 @@ pub struct BackgroundCoordinator {
     persistence: BackgroundPersistence,
     active: Mutex<HashMap<String, ActiveJob>>,
     concurrency: Arc<Semaphore>,
+    shutting_down: AtomicBool,
     #[cfg(test)]
     allow_unencrypted_replicas: bool,
 }
@@ -45,6 +48,7 @@ impl BackgroundCoordinator {
             persistence: BackgroundPersistence::new(),
             active: Mutex::new(HashMap::new()),
             concurrency: Arc::new(Semaphore::new(2)),
+            shutting_down: AtomicBool::new(false),
             #[cfg(test)]
             allow_unencrypted_replicas: false,
         };
@@ -59,6 +63,7 @@ impl BackgroundCoordinator {
             persistence: BackgroundPersistence::at(root),
             active: Mutex::new(HashMap::new()),
             concurrency: Arc::new(Semaphore::new(2)),
+            shutting_down: AtomicBool::new(false),
             allow_unencrypted_replicas: true,
         };
         coordinator
@@ -70,6 +75,17 @@ impl BackgroundCoordinator {
 
     pub fn list_servers(&self) -> Result<Vec<BackgroundServerRegistration>, String> {
         self.persistence.list_servers()
+    }
+
+    pub fn settings(&self) -> Result<BackgroundSettings, String> {
+        self.persistence.settings()
+    }
+
+    pub fn save_settings(
+        &self,
+        settings: BackgroundSettings,
+    ) -> Result<BackgroundSettings, String> {
+        self.persistence.save_settings(settings)
     }
 
     pub fn replace_servers(
@@ -131,7 +147,11 @@ impl BackgroundCoordinator {
         self: &Arc<Self>,
         request: BackgroundJobRequest,
     ) -> Result<BackgroundJobRecord, String> {
+        if self.shutting_down.load(Ordering::Acquire) {
+            return Err("The background coordinator is shutting down.".to_string());
+        }
         let request = self.validate_request(request)?;
+        self.remember_calendar_profile(&request)?;
         let resource = resource_key(&request)?;
         if let Some(existing) = self.persistence.list_jobs(200)?.into_iter().find(|job| {
             job.idempotency_key == request.idempotency_key
@@ -186,6 +206,102 @@ impl BackgroundCoordinator {
             coordinator.execute(id, resource, request, cancel).await;
         });
         Ok(record)
+    }
+
+    pub fn enqueue_registered(
+        self: &Arc<Self>,
+        trigger: BackgroundJobTrigger,
+    ) -> Result<Vec<BackgroundJobRecord>, String> {
+        let settings = self.settings()?;
+        if trigger != BackgroundJobTrigger::UserInitiated
+            && (!settings.run_in_background || !settings.background_sync || settings.paused)
+        {
+            return Ok(Vec::new());
+        }
+
+        let registrations = self.list_servers()?;
+        let replicas = ReplicaStore::list(&self.config_root()?)?;
+        let run_id = Uuid::new_v4();
+        let mut jobs = Vec::new();
+        for server in registrations
+            .into_iter()
+            .filter(|server| server.background_sync_enabled)
+        {
+            for replica in replicas
+                .iter()
+                .filter(|replica| replica.server_url == server.server_url)
+            {
+                jobs.push(self.enqueue(BackgroundJobRequest {
+                    idempotency_key: format!("desktop-{run_id}-vault-{}", replica.vault_id),
+                    kind: BackgroundJobKind::ReplicaSync,
+                    server_url: Some(server.server_url.clone()),
+                    profile_id: None,
+                    vault_id: Some(replica.vault_id.clone()),
+                    trigger,
+                    runtime_budget_seconds: None,
+                })?);
+            }
+            for profile_id in &server.profile_ids {
+                jobs.push(self.enqueue(BackgroundJobRequest {
+                    idempotency_key: format!("desktop-{run_id}-calendar-{profile_id}"),
+                    kind: BackgroundJobKind::CalendarSync,
+                    server_url: Some(server.server_url.clone()),
+                    profile_id: Some(profile_id.clone()),
+                    vault_id: None,
+                    trigger,
+                    runtime_budget_seconds: None,
+                })?);
+            }
+        }
+        Ok(jobs)
+    }
+
+    pub fn shutdown(&self) {
+        if self.shutting_down.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let active_ids = self
+            .active
+            .lock()
+            .values()
+            .map(|active| {
+                active.cancel.store(true, Ordering::Release);
+                active.id.clone()
+            })
+            .collect::<Vec<_>>();
+        for id in active_ids {
+            let _ = self.persistence.update_job(&id, |job| {
+                job.status = BackgroundJobStatus::Cancelled;
+                job.finished_at = Some(Utc::now().to_rfc3339());
+                job.summary = Some("Application quit requested".to_string());
+                job.retryable = false;
+            });
+        }
+    }
+
+    fn remember_calendar_profile(&self, request: &BackgroundJobRequest) -> Result<(), String> {
+        if request.kind != BackgroundJobKind::CalendarSync {
+            return Ok(());
+        }
+        let (Some(server_url), Some(profile_id)) =
+            (request.server_url.as_deref(), request.profile_id.as_deref())
+        else {
+            return Ok(());
+        };
+        let Some(mut server) = self
+            .list_servers()?
+            .into_iter()
+            .find(|server| server.server_url == server_url)
+        else {
+            return Ok(());
+        };
+        if !server.profile_ids.iter().any(|known| known == profile_id) {
+            server.profile_ids.push(profile_id.to_string());
+            server.profile_ids.sort();
+            server.profile_ids.dedup();
+            self.persistence.upsert_server(server)?;
+        }
+        Ok(())
     }
 
     pub fn cancel(&self, id: &str) -> Result<BackgroundJobRecord, String> {
@@ -398,6 +514,11 @@ fn normalize_registration(
     mut server: BackgroundServerRegistration,
 ) -> Result<BackgroundServerRegistration, String> {
     server.server_url = validate_server_url(&server.server_url)?;
+    server
+        .profile_ids
+        .retain(|profile_id| !profile_id.trim().is_empty());
+    server.profile_ids.sort();
+    server.profile_ids.dedup();
     server.updated_at = Utc::now().to_rfc3339();
     Ok(server)
 }
@@ -572,6 +693,7 @@ mod tests {
                 allow_invalid_certificates: false,
                 persist_across_reboots: false,
                 background_sync_enabled: true,
+                profile_ids: Vec::new(),
                 updated_at: String::new(),
             })
             .expect("server registration");
@@ -630,5 +752,37 @@ mod tests {
         assert_eq!(record.status, BackgroundJobStatus::Deferred);
         assert_eq!(record.error_category.as_deref(), Some("interrupted"));
         assert!(record.retryable);
+    }
+
+    #[test]
+    fn settings_and_learned_calendar_profiles_survive_registry_refresh() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let persistence = persistence::BackgroundPersistence::at(directory.path().to_path_buf());
+        let mut settings = BackgroundSettings::default();
+        settings.run_in_background = true;
+        settings.start_at_login = true;
+        settings.sync_interval = BackgroundSyncInterval::ThirtyMinutes;
+        persistence
+            .save_settings(settings.clone())
+            .expect("save settings");
+        assert_eq!(persistence.settings().expect("read settings"), settings);
+
+        let registration = BackgroundServerRegistration {
+            server_url: "https://collab.example.test".to_string(),
+            allow_invalid_certificates: false,
+            persist_across_reboots: true,
+            background_sync_enabled: true,
+            profile_ids: vec!["user-1".to_string()],
+            updated_at: Utc::now().to_rfc3339(),
+        };
+        persistence
+            .upsert_server(registration.clone())
+            .expect("initial registration");
+        let mut refreshed = registration;
+        refreshed.profile_ids.clear();
+        let registrations = persistence
+            .replace_servers(vec![refreshed])
+            .expect("replace registry");
+        assert_eq!(registrations[0].profile_ids, vec!["user-1"]);
     }
 }
