@@ -1,3 +1,4 @@
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 const KEYRING_SERVICE: &str = "collab-server";
 
 // Refresh-token storage is per-platform.

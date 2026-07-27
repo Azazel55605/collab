@@ -236,9 +236,10 @@ Current implementation notes:
   unchanged.
 - Promoted the native hosted-vault replica store into the shared
   `crates/collab-replica` workspace crate (moved `models.rs` and `store.rs` out
-  of `src-tauri/src/replica/`). `src-tauri/src/replica.rs` is now a thin
-  re-export so the `replica_*` Tauri command wrappers in `commands/replica.rs`
-  are unchanged and remain the desktop/Android boundary. To avoid forking the
+  of `src-tauri/src/replica/`). The temporary `src-tauri/src/replica.rs`
+  re-export was removed in the Rust crate refactor cleanup; the `replica_*`
+  Tauri command wrappers now import the crate directly and remain the
+  desktop/Android boundary. To avoid forking the
   `CENC` at-rest container format between desktop vault encryption and the
   replica store, the byte-level AES-256-GCM primitives (`encrypt_bytes`,
   `decrypt_bytes`, `is_encrypted_data`) moved into `collab_core::crypto`;

@@ -793,8 +793,6 @@ dependencies = [
 name = "collab"
 version = "0.6.6"
 dependencies = [
- "aes-gcm",
- "anyhow",
  "argon2",
  "base64 0.22.1",
  "chrono",
@@ -822,7 +820,6 @@ dependencies = [
  "notify-debouncer-mini",
  "parking_lot",
  "rand 0.8.6",
- "regex",
  "reqwest 0.12.28",
  "reqwest-websocket",
  "scraper",

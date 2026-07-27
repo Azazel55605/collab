@@ -75,7 +75,7 @@ pub struct PathChangePreview {
     pub blocked_reason: Option<String>,
 }
 
-pub use collab_documents::references::FileReference;
+use collab_documents::references::FileReference;
 
 fn is_ignored_dir_name(name: &str) -> bool {
     matches!(

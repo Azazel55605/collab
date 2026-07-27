@@ -1,6 +1,6 @@
 # Open Development Work
 
-Last reviewed: 2026-07-26
+Last reviewed: 2026-07-27
 
 This is the entry point for unfinished Collab projects. Detailed requirements,
 implementation notes, and acceptance criteria remain in their canonical plan
@@ -28,7 +28,6 @@ work from being mistaken for an active roadmap item.
 | User calendar | Testing / planned | Complete physical-device validation for cross-location mirroring, the Phase 9 external-client CalDAV matrix, and Phase 10 restore/multi-day lifecycle drills before native reminder delivery. Phase 8 is complete; Phases 9 and 10 are in testing. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
 | Background running | Not started | Add a shared headless coordinator, desktop tray/autostart lifecycle, Android WorkManager scheduling, persisted progress, power controls, and platform QA. | [Background Running Plan](./background-running-plan.md) |
 | Notification system | Not started | Add a shared inbox/scheduler, native desktop and Android delivery, hosted activity invalidations, preferences, privacy controls, and release hardening. | [Notification System Plan](./notification-system-plan.md) |
-| Rust crate boundary refactor | In progress | Phases 0-2 are complete, including shared outbound policy and the portable document domain. Next extract vault mutation planning in Phase 3. | [Rust Crate Boundary Refactor Plan](./rust-crate-boundary-refactor-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
 | Mobile widgets | Ideas only | Evaluate a calendar agenda widget first after background snapshots are available; no implementation commitment or phased schedule exists yet. | [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) |
 
@@ -115,34 +114,6 @@ background scheduling and synchronized data but own delivery, preferences,
 privacy, and actions. Keeping those responsibilities separate prevents tray,
 WorkManager, calendar, and push behavior from becoming one coupled subsystem.
 
-### Rust Crate Boundary Refactor
-
-Open tracker entries:
-
-- Phase 0, **Complete**: compile/module/dependency baselines, consumer maps,
-  draft APIs, cargo-metadata enforcement, characterization tests, and private
-  archive/live/sidecar adapter modules are implemented.
-- Phase 1, **Complete**: shared URL, address, redirect, sensitive-header,
-  response-budget, and timeout policy is implemented in `collab-net-policy`;
-  native link/calendar fetching and hosted calendar feeds use it while retaining
-  adapter-owned DNS and HTTP execution.
-- Phase 2, **Complete**: bounded document classification/validation, references,
-  Kanban/PDF semantics, and canvas inspection live in `collab-documents`; native
-  and server consumers use direct imports and `collab-core` has no document
-  modules.
-- Phase 3, **Complete**: `collab-vault-domain` owns portable vault mutation,
-  revision, manifest, trash, quota, and conflict planning.
-- Phase 4, **Complete**: `collab-archive` owns shared bounded archive validation
-  and import/export materialization plans.
-- Phase 5, **Complete**: `collab-live` owns transport-independent bounded Yrs
-  state, conversion, recovery, merge, and materialization behavior.
-- Phase 6, **Not started**: remove compatibility re-exports and enforce the
-  final dependency graph.
-
-This is a behavior-preserving architecture program. It must not change REST,
-WebSocket, Tauri IPC, database, replica, or document-schema contracts merely to
-make an extraction easier.
-
 ### Flatpak Distribution
 
 The local Flatpak build is a working packaging baseline. Public distribution is
@@ -156,6 +127,7 @@ have no open tracked phases:
 
 - [Document Session And Collaboration Stability Plan](../archive/document-session-collaboration-plan.md)
 - [OCR Implementation Plan](../archive/ocr-implementation-plan.md)
+- [Rust Crate Boundary Refactor Plan](./rust-crate-boundary-refactor-plan.md)
 
 The logic editor's completed phases remain documented in its plan, while its
 only open phase is represented by the circuit-simulation workstream above.

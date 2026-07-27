@@ -660,18 +660,19 @@ The repository root is a Cargo workspace:
 | `Dockerfile.server` | Cached multi-stage server image build |
 | `apps/admin-web/` | Focused Collab-style server administration React app served below `/admin/` |
 
-### Planned Crate Boundaries
+### Shared Crate Boundaries
 
 The table above is the current source of truth. The
 [Rust Crate Boundary Refactor Plan](../plans/rust-crate-boundary-refactor-plan.md)
-has delivered `collab-net-policy`, `collab-documents`,
+records the completed extraction of `collab-net-policy`, `collab-documents`,
 `collab-vault-domain`, `collab-archive`, and `collab-live`.
 
-Phases 0-5 are complete. `pnpm rust:boundaries` enforces the allowed workspace graph
+Phases 0-6 are complete. `pnpm rust:boundaries` enforces the allowed workspace graph
 through `cargo metadata`; every new workspace crate must be added to that
-policy and domain crates cannot depend on HTTP execution frameworks. Portable behavior is first isolated and characterized in private
-adapter modules: server archive planning currently lives in `api/archive.rs`,
-and native sidecars live in `commands/files/sidecars.rs`. Shared crates must remain free of Tauri,
+policy and domain crates cannot depend on adapter, platform, or persistence
+frameworks. Portable behavior is first isolated and characterized in private
+adapter modules; native sidecars remain in `commands/files/sidecars.rs` because
+they have one filesystem-owning consumer. Shared crates must remain free of Tauri,
 Axum, SQLx, PostgreSQL, concrete filesystem/storage backends, and operating
 system integration. `collab-calendar` retains its explicit SQLite-store
 exception. `collab-core` should converge on low-level path, name, hashing, and

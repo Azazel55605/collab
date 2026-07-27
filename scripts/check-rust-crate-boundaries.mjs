@@ -72,16 +72,32 @@ const domainCrates = new Set([
   'collab-circuit',
 ]);
 const adapterFrameworks = new Set([
+  'actix-web',
   'axum',
+  'gtk',
   'hyper',
+  'jni',
+  'keyring',
+  'notify',
   'reqwest',
+  'rocket',
   'tauri',
   'tokio-tungstenite',
   'tower-http',
+  'warp',
   'webkit2gtk',
   'wry',
 ]);
-const persistenceFrameworks = new Set(['sqlx', 'postgres', 'rusqlite']);
+const persistenceFrameworks = new Set([
+  'diesel',
+  'postgres',
+  'redb',
+  'rocksdb',
+  'rusqlite',
+  'sea-orm',
+  'sled',
+  'sqlx',
+]);
 const persistenceExceptions = new Set([
   // Calendar intentionally owns its profile-scoped SQLite store.
   'collab-calendar',

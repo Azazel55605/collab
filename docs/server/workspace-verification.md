@@ -9,14 +9,17 @@ Cargo.toml
 apps/
   admin-web/         Focused browser administration interface; no Tauri dependencies
 crates/
+  collab-archive/    Portable archive validation and materialization planning
   collab-calendar/   Shared calendar model, recurrence, iCalendar, and native store
   collab-circuit/    Shared circuit model, compiler, and simulation numerics
   collab-core/       Shared paths, names, hashing, and encryption primitives
   collab-documents/  Bounded document parsing, references, and semantic classifiers
+  collab-live/       Bounded transport-independent Yrs state and conversion
   collab-net-policy/ Shared outbound URL, address, redirect, and response policy
   collab-protocol/   Shared API/WebSocket DTOs, error codes, and protocol versions
   collab-replica/    Shared native hosted-vault offline replica store
   collab-server/     HTTP/WebSocket server, database, storage, auth, and migrations
+  collab-vault-domain/ Portable vault mutation and conflict planning
 src-tauri/           Tauri application adapter and native-only commands
 ```
 
@@ -25,22 +28,29 @@ Dependency direction:
 ```text
 collab-core      -> no application crates
 collab-protocol  -> no application crates
-collab-documents -> collab-core
 collab-net-policy -> no application crates
+collab-documents -> collab-core
+collab-vault-domain -> collab-core + collab-documents
+collab-archive   -> collab-core + collab-vault-domain
+collab-live      -> collab-documents + collab-protocol
 collab-calendar  -> standalone shared domain/store
 collab-circuit   -> standalone shared domain
-collab-replica   -> collab-core + collab-protocol
-collab-server    -> collab-calendar + collab-core + collab-protocol
-src-tauri        -> collab-calendar + collab-circuit + collab-core
-                    + collab-protocol + collab-replica
+collab-replica   -> collab-core + collab-protocol + collab-vault-domain
+collab-server    -> collab-archive + collab-calendar + collab-core
+                    + collab-documents + collab-live + collab-net-policy
+                    + collab-protocol + collab-vault-domain
+src-tauri        -> collab-archive + collab-calendar + collab-circuit
+                    + collab-core + collab-documents + collab-live
+                    + collab-net-policy + collab-protocol + collab-replica
+                    + collab-vault-domain
 ```
 
 `collab-core` must not depend on Tauri, Axum, SQLx, PostgreSQL, or a concrete blob backend. Server authorization and persistence remain in `collab-server`.
 
-The phased target dependency graph is documented in the
+The completed dependency graph and extraction history are documented in the
 [Rust Crate Boundary Refactor Plan](../plans/rust-crate-boundary-refactor-plan.md).
-The inventory above remains authoritative until each extraction phase lands;
-planned crate names must not be imported or described as implemented early.
+The inventory above is authoritative and enforced by `pnpm rust:boundaries`.
+Every workspace crate and workspace dependency edge must be declared there.
 
 The Phase 2 admin web application may reuse extracted design tokens and browser-safe
 UI primitives from the desktop frontend, but it must not import Tauri APIs or
@@ -57,8 +67,8 @@ become a general-purpose hosted-vault editor.
 - Add characterization tests and define domain inputs/outputs before moving
   security-sensitive or persistence-sensitive behavior.
 - Do not move local-only dialogs, recent-vault persistence, watchers, updater logic, or encryption-session state into shared crates.
-- Follow the extraction order and compatibility-re-export limits in the crate
-  refactor plan.
+- Do not add compatibility re-exports for new extractions. Migrate consumers
+  directly and remove the old implementation in the same phase.
 
 ## Required Verification
 

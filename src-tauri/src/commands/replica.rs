@@ -4,15 +4,16 @@
 //! replica (the replica is seeded when a hosted vault is opened).
 
 use super::app_config_dir;
-use crate::replica::{
+use base64::Engine as _;
+use collab_protocol::HostedVaultManifest;
+use collab_replica::{
     server_key, CacheCleanupReport, CachedContentStatus, PendingOpStatus, PendingOperation,
     ReplicaIntegrityReport, ReplicaStore, ReplicaSummary, ReplicaSyncState, Tombstone,
 };
-use base64::Engine as _;
-use collab_protocol::HostedVaultManifest;
 use rand::RngCore;
 use serde_json::Value;
 
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 const REPLICA_KEYRING_SERVICE: &str = "collab-replica";
 
 fn existing(server_url: &str, vault_id: &str) -> Result<ReplicaStore, String> {

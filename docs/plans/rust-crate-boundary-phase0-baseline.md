@@ -235,3 +235,57 @@ The purpose of this split is ownership, characterization, and a stable
 extraction point, not maximum line-count reduction. Larger route and command
 families remain adapter code and can be subdivided mechanically as their domain
 phases land.
+
+## Phase 6 Comparison
+
+Captured on 2026-07-27 on the same development machine with:
+
+```bash
+CARGO_TARGET_DIR=/tmp/collab-phase6-target cargo check --workspace
+cargo check --workspace
+```
+
+| Check | Phase 0 elapsed | Phase 6 elapsed | Change |
+| --- | ---: | ---: | ---: |
+| Isolated clean target | 64.526 s | 51.166 s | -20.7% |
+| Existing incremental target | 0.312 s | 0.439 s | +0.127 s |
+
+The clean check used 374.453 seconds of user CPU and 70.598 seconds of system
+CPU, down from 528.877 and 92.669 seconds respectively. The existing-target
+incremental check remains sub-second. An immediate rerun against the isolated
+Phase 6 target took 1.394 seconds because the Tauri package's build check ran
+again. These remain directional workstation measurements rather than CI
+budgets.
+
+| Adapter parent | Phase 0 bytes | Phase 6 bytes | Change |
+| --- | ---: | ---: | ---: |
+| Server `api.rs` | 550,963 | 552,818 | +0.34% |
+| Server `ws.rs` | 104,585 | 95,225 | -8.95% |
+| Tauri `commands/files.rs` | 102,146 | 94,611 | -7.38% |
+| Tauri `commands/web.rs` | 35,823 | 36,367 | +1.52% |
+| Server `calendar_feeds.rs` | 9,010 | 8,335 | -7.49% |
+
+`api.rs` and `web.rs` received product work during the refactor program, so
+their small growth is not extraction overhead alone. The extracted final shared
+domains contain:
+
+| Crate | Rust lines | Rust bytes |
+| --- | ---: | ---: |
+| `collab-core` | 320 | 9,930 |
+| `collab-documents` | 2,103 | 69,674 |
+| `collab-vault-domain` | 758 | 24,569 |
+| `collab-archive` | 701 | 22,609 |
+| `collab-live` | 634 | 20,368 |
+| `collab-net-policy` | 472 | 14,631 |
+
+The final dependency graph is enforced by `pnpm rust:boundaries`. The Tauri
+adapter imports `collab-replica` directly; its temporary blanket re-export was
+removed. A direct-dependency review also removed unused Tauri dependencies on
+`anyhow`, `aes-gcm`, and `regex`.
+
+`cargo tree --workspace --duplicates --depth 1` found only transitive ecosystem
+version splits, chiefly Tauri/build tooling, HTML parsing, the WebSocket HTTP
+client, development HTTP mocks, and platform keyring stacks. None were
+introduced as duplicate direct dependencies by the extracted domain crates;
+forcing them to one version would require upstream adapter changes and is
+therefore outside this behavior-preserving refactor.

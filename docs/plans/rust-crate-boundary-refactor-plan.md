@@ -316,7 +316,7 @@ remaining in one API file or being prematurely made public.
 | 3. Vault mutation domain | Complete | `collab-vault-domain` owns portable file/revision/manifest/trash mutation planning behind stable inputs and is consumed by hosted, local, and replica adapters. |
 | 4. Archive boundary | Complete | `collab-archive` owns portable entry validation, budgets, import-tree construction, export materialization, and manifest checks for server and native adapters. |
 | 5. Live document domain | Complete | `collab-live` owns bounded Yrs updates/replay, state exchange, compaction, document conversion, recovery, merge, and materialization decisions. |
-| 6. Enforcement and cleanup | Not started | Remove compatibility re-exports, enforce dependency rules, update docs, and complete cross-platform regression validation. |
+| 6. Enforcement and cleanup | Complete | Compatibility cleanup, final dependency enforcement, documentation, measurements, and the cross-platform regression matrix are complete. |
 
 ## Phase 0: Baseline And Dependency Design
 
@@ -599,12 +599,12 @@ Estimated effort: 1 week.
 
 Tasks:
 
-- Remove temporary compatibility modules and obsolete helpers.
-- Add CI checks for prohibited crate dependencies.
-- Run unused-dependency and duplicate-dependency reviews.
-- Document every final crate in the codebase and server workspace references.
-- Update `AGENTS.md` and `CLAUDE.md` with final ownership rules.
-- Record compile-time and module-size changes against the Phase 0 baseline.
+- [x] Remove temporary compatibility modules and obsolete helpers.
+- [x] Add CI checks for prohibited crate dependencies.
+- [x] Run unused-dependency and duplicate-dependency reviews.
+- [x] Document every final crate in the codebase and server workspace references.
+- [x] Update `AGENTS.md` and `CLAUDE.md` with final ownership rules.
+- [x] Record compile-time and module-size changes against the Phase 0 baseline.
 
 Acceptance criteria:
 
@@ -614,6 +614,26 @@ Acceptance criteria:
   conversion implementation remains in server and Tauri adapters.
 - Full desktop, Android, server, Compose, migration, and live-collaboration
   verification passes.
+
+Implementation:
+
+- Removed the Tauri replica blanket re-export and switched the command adapter
+  to direct `collab-replica` imports. Removed the obsolete public
+  `FileReference` re-export from the file-command adapter.
+- Removed unused direct Tauri dependencies on `anyhow`, `aes-gcm`, and `regex`.
+  The remaining duplicate versions reported by `cargo tree` belong to upstream
+  adapter/build ecosystems and are not duplicated by the extracted domains.
+- Extended the existing cargo-metadata CI policy to reject common HTTP, GUI,
+  operating-system service, and persistence frameworks in domain crates.
+  `collab-calendar` remains the sole declared SQLite persistence exception.
+- Updated the codebase, server workspace, contributor, and project-tracker
+  documentation to the final graph. Phase 0 and Phase 6 measurements are
+  compared in the
+  [Phase 0 Baseline](./rust-crate-boundary-phase0-baseline.md).
+- Passed the architecture policy, full Rust workspace tests, TypeScript,
+  desktop/mobile/admin frontend tests and production builds, a four-ABI Android
+  debug APK build, Compose image build and health checks, server smoke tests,
+  migration/live-collaboration coverage, and the backup/restore round trip.
 
 ## Migration Rules
 
