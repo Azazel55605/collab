@@ -28,12 +28,19 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::{api, app::AppState, auth::hash_secret, storage::BlobStorage};
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         Path, State,
     },
     response::Response,
+};
+use collab_live::{
+    apply_update, compact_state, diff as live_diff, materialization_decision, materialized_content,
+    recovery_decision, replace_document, replay_updates, seed_document,
+    state_vector as live_state_vector, try_auto_merge_text, validate_update, Doc, LiveDocumentKind,
+    LiveLimits, MaterializationDecision, RecoveryDecision,
 };
 use collab_protocol::{
     ws_message, Capability, ErrorCode, HostedVaultRole, HostedVaultStatus, WsClientControl,
@@ -43,62 +50,33 @@ use futures_util::{sink::SinkExt, stream::StreamExt};
 use sqlx::{PgPool, Row};
 use tokio::sync::{broadcast, mpsc, Mutex, Notify};
 use uuid::Uuid;
+
+#[cfg(test)]
 use yrs::{
+    types::ToJson,
     updates::{decoder::Decode, encoder::Encode},
-    Doc, GetString, ReadTxn, StateVector, Text, Transact, Update,
-};
-
-use crate::{api, app::AppState, auth::hash_secret, storage::BlobStorage};
-
-#[path = "ws/domain.rs"]
-mod domain;
-use collab_documents::canvas_node_count;
-use domain::{
-    apply_update_bytes, doc_json_content, replace_structured_doc, seed_structured_doc,
-    try_auto_merge_text,
+    Any, ArrayPrelim, GetString, In, Map, ReadTxn, StateVector, Text, Transact,
 };
 
 #[cfg(test)]
-use yrs::{types::ToJson, Any, ArrayPrelim, In, Map};
-
-/// The Yjs text type name shared between the server and the browser for note
-/// documents. Both sides bind their CodeMirror/`yrs` text to this name.
-const NOTE_TEXT_NAME: &str = "content";
-
+use collab_documents::canvas_node_count;
 /// The Yjs root map name shared between the server and the browser for
 /// structured (Kanban / canvas) documents.
 #[cfg(test)]
-const JSON_ROOT_NAME: &str = "doc";
+use collab_live::{JSON_ROOT_NAME, NOTE_TEXT_NAME};
+
+#[cfg(test)]
+fn apply_update_bytes(doc: &Doc, bytes: &[u8]) {
+    let _ = apply_update(doc, bytes, LiveLimits::default());
+}
+
+#[cfg(test)]
+fn seed_structured_doc(doc: &Doc, content: &str) {
+    let _ = seed_document(doc, MaterializeKind::Json, content);
+}
 
 /// What kind of materialization a room performs into REST revisions.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum MaterializeKind {
-    /// Not materialized (unknown document type).
-    None,
-    /// Note: the `content` Yjs text is written verbatim.
-    NoteText,
-    /// Kanban: the `doc` Yjs map is serialized to JSON.
-    Json,
-    /// Canvas: the `doc` Yjs map is serialized to JSON, with extra integrity
-    /// guards because a degenerate live state can wipe a node graph.
-    Canvas,
-}
-
-impl MaterializeKind {
-    /// Whether this document materializes through the structured `doc` map.
-    fn is_structured(self) -> bool {
-        matches!(self, MaterializeKind::Json | MaterializeKind::Canvas)
-    }
-
-    fn document_kind(self) -> Option<collab_documents::DocumentKind> {
-        match self {
-            Self::None => None,
-            Self::NoteText => Some(collab_documents::DocumentKind::Note),
-            Self::Json => Some(collab_documents::DocumentKind::Kanban),
-            Self::Canvas => Some(collab_documents::DocumentKind::Canvas),
-        }
-    }
-}
+type MaterializeKind = LiveDocumentKind;
 
 /// How long a document must be quiet (no new updates) before its live CRDT state
 /// is materialized into a normal text revision.
@@ -174,21 +152,35 @@ impl Room {
             had_state = true;
             let state: Vec<u8> = row.get("doc_state");
             last_seq = row.get("update_seq");
-            apply_update_bytes(&doc, &state);
+            let _ = apply_update(&doc, &state, LiveLimits::default());
         }
 
-        let updates = sqlx::query(
+        let update_rows = sqlx::query(
             "SELECT seq, update_bytes FROM crdt_updates WHERE file_id = $1 AND seq > $2 ORDER BY seq ASC",
         )
         .bind(file_id)
         .bind(last_seq)
         .fetch_all(db)
         .await?;
-        let had_updates = !updates.is_empty();
-        for row in updates {
-            let bytes: Vec<u8> = row.get("update_bytes");
-            apply_update_bytes(&doc, &bytes);
-            last_seq = row.get("seq");
+        let had_updates = !update_rows.is_empty();
+        let updates = update_rows
+            .into_iter()
+            .map(|row| {
+                (
+                    row.get::<i64, _>("seq"),
+                    row.get::<Vec<u8>, _>("update_bytes"),
+                )
+            })
+            .collect::<Vec<_>>();
+        replay_updates(
+            &doc,
+            updates.iter().map(|(_, bytes)| bytes.as_slice()),
+            LiveLimits::default(),
+            || false,
+        )
+        .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        if let Some((seq, _)) = updates.last() {
+            last_seq = *seq;
         }
 
         let document_type: Option<String> = sqlx::query_scalar(
@@ -199,12 +191,7 @@ impl Room {
         .fetch_optional(db)
         .await?
         .flatten();
-        let materialize = match document_type.as_deref() {
-            Some("note") => MaterializeKind::NoteText,
-            Some("kanban") => MaterializeKind::Json,
-            Some("canvas") => MaterializeKind::Canvas,
-            _ => MaterializeKind::None,
-        };
+        let materialize = MaterializeKind::from_document_type(document_type.as_deref());
 
         let current_snapshot =
             api::load_current_document_snapshot(db, &**blobs, vault_id, file_id).await;
@@ -216,32 +203,23 @@ impl Room {
         // sees the existing document, not a blank one.
         if !had_state && !had_updates {
             if let Some(content) = current_content.as_deref() {
-                match materialize {
-                    MaterializeKind::NoteText if !content.is_empty() => {
-                        let text = doc.get_or_insert_text(NOTE_TEXT_NAME);
-                        let mut txn = doc.transact_mut();
-                        text.insert(&mut txn, 0, &content);
-                    }
-                    MaterializeKind::Json | MaterializeKind::Canvas => {
-                        seed_structured_doc(&doc, content);
-                    }
-                    _ => {}
-                }
+                let _ = seed_document(&doc, materialize, content);
             }
         } else if materialize == MaterializeKind::NoteText {
             // Defensive recovery for early Phase 5 rooms that could record an
             // empty CRDT before the initial server seed reached the client.
             // Prefer a non-empty current revision over an empty live document;
             // a genuinely cleared note already has an empty REST revision.
-            let text = doc.get_or_insert_text(NOTE_TEXT_NAME);
-            let is_empty = text.get_string(&doc.transact()).is_empty();
-            if is_empty {
-                if let Some(content) = current_content
-                    .as_deref()
-                    .filter(|content| !content.is_empty())
-                {
-                    let mut txn = doc.transact_mut();
-                    text.insert(&mut txn, 0, content);
+            let live_content = materialized_content(&doc, materialize);
+            if recovery_decision(
+                materialize,
+                had_state || had_updates,
+                current_content,
+                live_content.as_deref(),
+            ) == RecoveryDecision::ReseedFromCanonical
+            {
+                if let Some(content) = current_content {
+                    let _ = seed_document(&doc, materialize, content);
                 }
             }
         } else if materialize.is_structured() && (had_state || had_updates) {
@@ -255,21 +233,17 @@ impl Room {
                 .as_deref()
                 .filter(|content| !content.trim().is_empty())
             {
-                let live_json = doc_json_content(&doc);
-                let root_empty = live_json.is_none();
-                let lost_canvas_nodes = materialize == MaterializeKind::Canvas
-                    && canvas_node_count(content).unwrap_or(0) > 0
-                    && live_json
-                        .as_deref()
-                        .and_then(canvas_node_count)
-                        .unwrap_or(0)
-                        == 0;
-                if root_empty || lost_canvas_nodes {
+                let live_json = materialized_content(&doc, materialize);
+                if recovery_decision(
+                    materialize,
+                    had_state || had_updates,
+                    Some(content),
+                    live_json.as_deref(),
+                ) == RecoveryDecision::ReseedFromCanonical
+                {
                     let fresh = Doc::new();
-                    seed_structured_doc(&fresh, content);
-                    let state = fresh
-                        .transact()
-                        .encode_state_as_update_v1(&StateVector::default());
+                    let _ = seed_document(&fresh, materialize, content);
+                    let state = compact_state(&fresh);
                     sqlx::query("DELETE FROM crdt_updates WHERE file_id = $1")
                         .bind(file_id)
                         .execute(db)
@@ -311,9 +285,7 @@ impl Room {
     /// Reads the current note text from the live document.
     fn note_text(&self) -> String {
         let doc = self.doc.lock().expect("room doc lock poisoned");
-        let text = doc.get_or_insert_text(NOTE_TEXT_NAME);
-        let value = text.get_string(&doc.transact());
-        value
+        materialized_content(&doc, MaterializeKind::NoteText).unwrap_or_default()
     }
 
     /// Serializes the structured (Kanban / canvas) live document to JSON, or
@@ -321,23 +293,20 @@ impl Room {
     /// never materialized over real content.
     fn json_content(&self) -> Option<String> {
         let doc = self.doc.lock().expect("room doc lock poisoned");
-        doc_json_content(&doc)
+        materialized_content(&doc, self.materialize)
     }
 
     /// The room's current Yjs v1 state vector.
     fn state_vector(&self) -> Vec<u8> {
         let doc = self.doc.lock().expect("room doc lock poisoned");
-        let bytes = doc.transact().state_vector().encode_v1();
-        bytes
+        live_state_vector(&doc)
     }
 
     /// A Yjs v1 update carrying everything the room knows that the peer (described
     /// by `remote_sv`) is missing. Returns `None` if the state vector is invalid.
     fn diff(&self, remote_sv: &[u8]) -> Option<Vec<u8>> {
-        let sv = StateVector::decode_v1(remote_sv).ok()?;
         let doc = self.doc.lock().expect("room doc lock poisoned");
-        let update = doc.transact().encode_state_as_update_v1(&sv);
-        Some(update)
+        live_diff(&doc, remote_sv, LiveLimits::default()).ok()
     }
 
     /// Applies a remote update: validates it, persists it to the append-only log,
@@ -352,7 +321,7 @@ impl Room {
         debug: bool,
     ) -> Result<(), sqlx::Error> {
         // Validate the update before allocating a sequence or touching the doc.
-        if Update::decode_v1(update_bytes).is_err() {
+        if validate_update(update_bytes, LiveLimits::default()).is_err() {
             return Ok(());
         }
         let mut seq_guard = self.seq.lock().await;
@@ -370,9 +339,10 @@ impl Room {
         .execute(db)
         .await?;
         *seq_guard = next;
-        apply_update_bytes(
+        let _ = apply_update(
             &self.doc.lock().expect("room doc lock poisoned"),
             update_bytes,
+            LiveLimits::default(),
         );
         drop(seq_guard);
         let content_changed = self.materialized_content() != content_before;
@@ -428,28 +398,10 @@ impl Room {
         let mut seq_guard = self.seq.lock().await;
         let update = {
             let doc = self.doc.lock().expect("room doc lock poisoned");
-            let before = doc.transact().state_vector();
-            match self.materialize {
-                MaterializeKind::NoteText => {
-                    let text = doc.get_or_insert_text(NOTE_TEXT_NAME);
-                    let mut txn = doc.transact_mut();
-                    let len = text.len(&txn);
-                    if len > 0 {
-                        text.remove_range(&mut txn, 0, len);
-                    }
-                    if !content.is_empty() {
-                        text.insert(&mut txn, 0, content);
-                    }
-                }
-                MaterializeKind::Json | MaterializeKind::Canvas => {
-                    if !replace_structured_doc(&doc, content) {
-                        return Ok(false);
-                    }
-                }
-                MaterializeKind::None => return Ok(false),
+            match replace_document(&doc, self.materialize, content) {
+                Ok(update) if self.materialize != MaterializeKind::None => update,
+                _ => return Ok(false),
             }
-            let update = doc.transact().encode_state_as_update_v1(&before);
-            update
         };
         if update.is_empty() {
             *self
@@ -549,37 +501,18 @@ fn spawn_materializer(room: Arc<Room>, db: PgPool, blobs: Arc<dyn BlobStorage>) 
                 MaterializeKind::None => None,
             };
             let Some(content) = content else { continue };
-            let Some(document_kind) = room.materialize.document_kind() else {
-                continue;
+            let canonical_content = if room.materialize == MaterializeKind::Canvas {
+                api::load_current_document_text(&db, &*blobs, room.vault_id, room.file_id).await
+            } else {
+                None
             };
-            if collab_documents::validate(
-                collab_documents::DocumentInput {
-                    kind: document_kind,
-                    path: "",
-                    content: content.as_bytes(),
-                },
-                collab_documents::DEFAULT_PARSER_LIMITS,
-            )
-            .is_err()
+            if materialization_decision(
+                room.materialize,
+                canonical_content.as_deref(),
+                Some(&content),
+            ) != MaterializationDecision::Ready
             {
                 continue;
-            }
-            // Canvas integrity guard: never overwrite a canonical revision that
-            // has nodes with a live state that has lost all of them. Such a state
-            // is the signature of the startup/hydration race that previously
-            // damaged hosted canvases, so refuse the destructive materialization
-            // and leave the good revision in place (the room self-heals on its
-            // next load via the structured recovery in `Room::load`).
-            if room.materialize == MaterializeKind::Canvas {
-                if let Some(current) =
-                    api::load_current_document_text(&db, &*blobs, room.vault_id, room.file_id).await
-                {
-                    let current_nodes = canvas_node_count(&current).unwrap_or(0);
-                    let new_nodes = canvas_node_count(&content).unwrap_or(0);
-                    if current_nodes > 0 && new_nodes == 0 {
-                        continue;
-                    }
-                }
             }
             let author = *room.last_author.lock().expect("author lock poisoned");
             let expected = room
@@ -653,10 +586,7 @@ async fn compact_room_log(room: &Room, db: &PgPool) -> Result<(), sqlx::Error> {
     }
     let state = {
         let doc = room.doc.lock().expect("room doc lock poisoned");
-        let state = doc
-            .transact()
-            .encode_state_as_update_v1(&StateVector::default());
-        state
+        compact_state(&doc)
     };
     let mut transaction = db.begin().await?;
     sqlx::query(

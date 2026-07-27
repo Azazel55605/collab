@@ -803,6 +803,7 @@ dependencies = [
  "collab-circuit",
  "collab-core",
  "collab-documents",
+ "collab-live",
  "collab-net-policy",
  "collab-protocol",
  "collab-replica",
@@ -906,6 +907,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "collab-live"
+version = "0.6.6"
+dependencies = [
+ "collab-documents",
+ "collab-protocol",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "yrs",
+]
+
+[[package]]
 name = "collab-net-policy"
 version = "0.6.6"
 dependencies = [
@@ -951,6 +964,7 @@ dependencies = [
  "collab-calendar",
  "collab-core",
  "collab-documents",
+ "collab-live",
  "collab-net-policy",
  "collab-protocol",
  "collab-vault-domain",

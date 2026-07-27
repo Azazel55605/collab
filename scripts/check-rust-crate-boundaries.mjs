@@ -31,7 +31,7 @@ const allowedWorkspaceEdges = new Map([
   ['collab-documents', new Set(['collab-core'])],
   ['collab-vault-domain', new Set(['collab-core', 'collab-documents'])],
   ['collab-archive', new Set(['collab-core', 'collab-vault-domain'])],
-  ['collab-live', new Set(['collab-core', 'collab-documents', 'collab-protocol'])],
+  ['collab-live', new Set(['collab-documents', 'collab-protocol'])],
   ['collab-replica', new Set(['collab-core', 'collab-protocol', 'collab-vault-domain'])],
   ['collab-calendar', new Set()],
   ['collab-circuit', new Set()],

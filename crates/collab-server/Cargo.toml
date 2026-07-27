@@ -16,6 +16,7 @@ chrono-tz.workspace = true
 collab-calendar = { path = "../collab-calendar" }
 collab-core = { path = "../collab-core" }
 collab-documents = { path = "../collab-documents" }
+collab-live = { path = "../collab-live" }
 collab-net-policy = { path = "../collab-net-policy" }
 collab-protocol = { path = "../collab-protocol" }
 collab-vault-domain = { path = "../collab-vault-domain" }
@@ -36,10 +37,10 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 url = "2.5"
-yrs.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
 http-body-util.workspace = true
 tokio-tungstenite.workspace = true
 tower.workspace = true
+yrs.workspace = true

@@ -6,6 +6,7 @@ members = [
   "crates/collab-calendar",
   "crates/collab-documents",
   "crates/collab-archive",
+  "crates/collab-live",
   "crates/collab-net-policy",
   "crates/collab-protocol",
   "crates/collab-replica",

@@ -131,7 +131,7 @@ collab-net-policy   -> low-level third-party libraries only
 collab-documents    -> collab-core
 collab-vault-domain -> collab-core + collab-documents
 collab-archive      -> collab-core + collab-vault-domain
-collab-live         -> collab-core + collab-documents + collab-protocol
+collab-live         -> collab-documents + collab-protocol
 collab-replica      -> collab-core + collab-protocol
                        + collab-vault-domain when its mutation rules migrate
 collab-calendar     -> independent domain sibling
@@ -315,7 +315,7 @@ remaining in one API file or being prematurely made public.
 | 2. Document domain | Complete | `collab-documents` owns bounded document classification/validation, references, Kanban semantics, PDF semantics, and shared canvas inspection across native and server adapters. |
 | 3. Vault mutation domain | Complete | `collab-vault-domain` owns portable file/revision/manifest/trash mutation planning behind stable inputs and is consumed by hosted, local, and replica adapters. |
 | 4. Archive boundary | Complete | `collab-archive` owns portable entry validation, budgets, import-tree construction, export materialization, and manifest checks for server and native adapters. |
-| 5. Live document domain | Not started | Add `collab-live` for Yrs conversion, updates, compaction, recovery, and materialization guards. |
+| 5. Live document domain | Complete | `collab-live` owns bounded Yrs updates/replay, state exchange, compaction, document conversion, recovery, merge, and materialization decisions. |
 | 6. Enforcement and cleanup | Not started | Remove compatibility re-exports, enforce dependency rules, update docs, and complete cross-platform regression validation. |
 
 ## Phase 0: Baseline And Dependency Design
@@ -549,13 +549,13 @@ Estimated effort: 3-4 weeks.
 
 Tasks:
 
-- Stabilize live message DTOs in `collab-protocol`.
-- Create `crates/collab-live`.
-- Extract Yrs seed/update/state-vector/compaction and structured JSON conversion.
-- Extract recovery and materialization-decision logic behind persistence-neutral
+- [x] Stabilize live message DTOs in `collab-protocol`.
+- [x] Create `crates/collab-live`.
+- [x] Extract Yrs seed/update/state-vector/compaction and structured JSON conversion.
+- [x] Extract recovery and materialization-decision logic behind persistence-neutral
   inputs.
-- Keep server room registries and native WebSocket transport in their adapters.
-- Add convergence, duplicate update, compaction, stale materialization,
+- [x] Keep server room registries and native WebSocket transport in their adapters.
+- [x] Add convergence, duplicate update, compaction, stale materialization,
   structured-document, cancellation, and bounded-message fixtures.
 
 Acceptance criteria:
@@ -566,6 +566,32 @@ Acceptance criteria:
 - Existing live REST/WS integration, offline replay, viewer authorization, and
   recovery tests remain green.
 - No transport credential enters the shared live crate.
+
+Completion notes:
+
+- Added framework-free `collab-live`, depending only on `collab-documents`,
+  `collab-protocol`, serialization libraries, and `yrs`. It owns the stable
+  `content`/`doc` root names, document-kind mapping, bounded update validation
+  and replay, state vectors and diffs, compact state encoding, note and
+  structured JSON seeding/replacement/materialization, text merge, revision
+  comparison, and recovery/materialization decisions.
+- The server room adapter now uses `collab-live` for all production Yrs
+  manipulation. Axum sockets, authorization, room locks, awareness lifecycle,
+  SQL sequence allocation, update-log transactions, blob persistence,
+  debouncing, and broadcasts remain in `collab-server`.
+- The native replica IPC validates encoded CRDT states through the same bounded
+  update contract before encrypted cache persistence. The TypeScript Yjs
+  provider still owns browser document bindings and network orchestration; the
+  native WebSocket command remains an opaque authenticated transport proxy.
+- Existing `collab-protocol` control DTOs, protocol version, binary tags, and
+  serialization tests remain the wire source of truth; no REST, WebSocket,
+  Tauri IPC, database, replica, or document format changed.
+- Shared fixtures cover convergence, duplicate idempotency, nested structured
+  JSON, invalid and oversized updates, replay count/byte bounds, cancellation,
+  note/canvas recovery, node-loss prevention, stale markers, deterministic text
+  merge, and compaction. The server live integration suite continues to cover
+  offline replay, authorization, awareness, materialization, compaction,
+  recovery, protocol mismatch, and REST/live concurrency.
 
 ## Phase 6: Enforcement And Cleanup
 

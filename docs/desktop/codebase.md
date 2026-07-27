@@ -648,6 +648,7 @@ The repository root is a Cargo workspace:
 | `crates/collab-archive/` | IO-free portable archive path validation, import-tree planning, export materialization, size/entry budgets, and backup root/manifest checks shared by server and native adapters |
 | `crates/collab-core/` | Low-level shared path/name normalization, hashing, and byte-encryption primitives |
 | `crates/collab-documents/` | Framework-free bounded document classification/validation, note/Kanban/canvas references, Kanban/PDF capability semantics, and canvas inspection |
+| `crates/collab-live/` | Framework-free bounded Yrs update/replay, state-vector/diff, compaction, text/structured conversion, merge, recovery, and materialization policy shared by server and native replica boundaries |
 | `crates/collab-net-policy/` | IO-free outbound URL, resolved-address, redirect-origin, response-budget, and timeout policy shared by native previews/subscriptions and hosted calendar feeds |
 | `crates/collab-protocol/` | Shared server response DTOs, error envelope, and protocol versions |
 | `crates/collab-vault-domain/` | IO-free vault metadata snapshots and deterministic mutation, path, state-transition, optimistic-sequence, reference-impact, quota, idempotency, and conflict decisions |
@@ -664,15 +665,13 @@ The repository root is a Cargo workspace:
 The table above is the current source of truth. The
 [Rust Crate Boundary Refactor Plan](../plans/rust-crate-boundary-refactor-plan.md)
 has delivered `collab-net-policy`, `collab-documents`,
-`collab-vault-domain`, and `collab-archive`, and proposes `collab-live`. The
-remaining crates do not exist until their plan phases land.
+`collab-vault-domain`, `collab-archive`, and `collab-live`.
 
-Phases 0-4 are complete. `pnpm rust:boundaries` enforces the allowed workspace graph
+Phases 0-5 are complete. `pnpm rust:boundaries` enforces the allowed workspace graph
 through `cargo metadata`; every new workspace crate must be added to that
 policy and domain crates cannot depend on HTTP execution frameworks. Portable behavior is first isolated and characterized in private
 adapter modules: server archive planning currently lives in `api/archive.rs`,
-live merge/Yrs semantics in `ws/domain.rs`, and native sidecars in
-`commands/files/sidecars.rs`. Planned shared crates must remain free of Tauri,
+and native sidecars live in `commands/files/sidecars.rs`. Shared crates must remain free of Tauri,
 Axum, SQLx, PostgreSQL, concrete filesystem/storage backends, and operating
 system integration. `collab-calendar` retains its explicit SQLite-store
 exception. `collab-core` should converge on low-level path, name, hashing, and
@@ -689,6 +688,9 @@ authorization lookup, and watcher suppression remain adapter responsibilities.
 `collab-archive` owns metadata-only archive validation and deterministic
 import/export plans; ZIP/TAR decoding, streaming, decompression, filesystem and
 blob IO, and persistence transactions remain adapter responsibilities.
+`collab-live` owns Yrs document conversion and bounded state/update decisions;
+WebSockets, room lifecycle, authorization, awareness, persistence, and
+materialization scheduling remain adapter responsibilities.
 
 `src-tauri/src/`
 

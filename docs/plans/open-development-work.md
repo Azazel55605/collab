@@ -130,12 +130,12 @@ Open tracker entries:
   Kanban/PDF semantics, and canvas inspection live in `collab-documents`; native
   and server consumers use direct imports and `collab-core` has no document
   modules.
-- Phase 3, **Not started**: extract portable vault mutation and revision
-  planning.
-- Phase 4, **Not started**: decide whether archive planning warrants its own
-  crate after the vault boundary is measurable.
-- Phase 5, **Not started**: extract transport-independent live-document and Yrs
-  behavior.
+- Phase 3, **Complete**: `collab-vault-domain` owns portable vault mutation,
+  revision, manifest, trash, quota, and conflict planning.
+- Phase 4, **Complete**: `collab-archive` owns shared bounded archive validation
+  and import/export materialization plans.
+- Phase 5, **Complete**: `collab-live` owns transport-independent bounded Yrs
+  state, conversion, recovery, merge, and materialization behavior.
 - Phase 6, **Not started**: remove compatibility re-exports and enforce the
   final dependency graph.
 

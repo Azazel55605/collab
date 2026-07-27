@@ -3080,11 +3080,9 @@ pub(crate) async fn persist_materialized_document(
                 content_hash,
             },
         );
-    if let Some(expected) = expected_current {
-        if current_marker.as_ref() != Some(expected) {
-            return Ok(MaterializeDocumentOutcome::Stale(current_marker));
-        }
-    } else if current_marker.is_some() {
+    if collab_live::revision_decision(expected_current, current_marker.as_ref())
+        == collab_live::RevisionDecision::Stale
+    {
         return Ok(MaterializeDocumentOutcome::Stale(current_marker));
     }
     // Skip when the live content already matches the current revision.

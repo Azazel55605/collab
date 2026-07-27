@@ -487,7 +487,13 @@ pub fn replica_cache_crdt_state(
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(base64_content.as_bytes())
         .map_err(|e| e.to_string())?;
+    validate_crdt_cache_state(&bytes)?;
     existing(&server_url, &vault_id)?.cache_crdt_state(&file_id, &bytes)
+}
+
+fn validate_crdt_cache_state(bytes: &[u8]) -> Result<(), String> {
+    collab_live::validate_update(bytes, collab_live::LiveLimits::default())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -566,4 +572,22 @@ pub fn replica_delete(server_url: String, vault_id: String) -> Result<(), String
     }
     delete_replica_key(&server_url, &vault_id);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_crdt_cache_state;
+    use collab_live::{compact_state, seed_document, Doc, LiveDocumentKind, LiveError, LiveLimits};
+
+    #[test]
+    fn native_replica_boundary_accepts_yjs_state_and_rejects_invalid_bytes() {
+        let doc = Doc::new();
+        seed_document(&doc, LiveDocumentKind::NoteText, "offline edit").unwrap();
+        assert!(validate_crdt_cache_state(&compact_state(&doc)).is_ok());
+        assert_eq!(
+            collab_live::validate_update(b"not-yjs", LiveLimits::default()),
+            Err(LiveError::InvalidUpdate)
+        );
+        assert!(validate_crdt_cache_state(b"not-yjs").is_err());
+    }
 }
