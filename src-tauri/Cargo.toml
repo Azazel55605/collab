@@ -28,6 +28,7 @@ tauri-plugin-drag = "2.1.1"
 keyring = { version = "3", features = ["sync-secret-service", "linux-native"] }
 
 [dependencies]
+collab-archive = { path = "../crates/collab-archive" }
 collab-circuit = { path = "../crates/collab-circuit" }
 collab-calendar = { path = "../crates/collab-calendar" }
 collab-core = { path = "../crates/collab-core" }

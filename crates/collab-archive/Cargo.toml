@@ -1,0 +1,11 @@
+[package]
+name = "collab-archive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+collab-core = { path = "../collab-core" }
+collab-vault-domain = { path = "../collab-vault-domain" }
+serde.workspace = true
+thiserror.workspace = true

@@ -365,32 +365,64 @@ pub fn rename_vault(
 
 #[tauri::command]
 pub async fn export_vault(vault_path: String, dest_path: String) -> Result<(), String> {
+    use collab_archive::{plan_export, ArchiveLimits, ArchivePathPolicy, ExportSource};
+    use collab_vault_domain::EntryKind;
     use walkdir::WalkDir;
 
     let vault = std::path::Path::new(&vault_path);
+    let mut sources = Vec::new();
+    for entry in WalkDir::new(vault).min_depth(1) {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let relative = entry
+            .path()
+            .strip_prefix(vault)
+            .map_err(|e| e.to_string())?;
+        let relative_str = relative.to_string_lossy().replace('\\', "/");
+        if relative_str.starts_with(".collab/presence") {
+            continue;
+        }
+        if entry.file_type().is_symlink() {
+            return Err("Vault exports do not support symbolic links".into());
+        }
+        let kind = if entry.file_type().is_dir() {
+            EntryKind::Folder
+        } else if entry.file_type().is_file() {
+            EntryKind::File
+        } else {
+            return Err("Vault export contains an unsupported filesystem entry".into());
+        };
+        sources.push(ExportSource {
+            source_id: relative_str.clone(),
+            relative_path: relative_str,
+            kind,
+            size_bytes: entry.metadata().map_err(|e| e.to_string())?.len(),
+        });
+    }
+    let plan = plan_export(
+        &sources,
+        None,
+        ArchiveLimits::default(),
+        &ArchivePathPolicy {
+            allowed_reserved_roots: vec![".collab".into()],
+            ..ArchivePathPolicy::default()
+        },
+    )
+    .map_err(|error| error.to_string())?;
+
     let file = std::fs::File::create(&dest_path).map_err(|e| e.to_string())?;
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
-    for entry in WalkDir::new(vault).min_depth(1) {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-        let relative = path.strip_prefix(vault).map_err(|e| e.to_string())?;
-        let relative_str = relative.to_string_lossy();
-
-        // Skip presence files (runtime artifacts, not meaningful in exports)
-        if relative_str.starts_with(".collab/presence") {
-            continue;
-        }
-
-        if path.is_file() {
-            zip.start_file(relative_str.as_ref(), options)
+    for entry in plan.entries {
+        let path = vault.join(&entry.source_id);
+        if entry.kind == EntryKind::File {
+            zip.start_file(&entry.archive_path, options)
                 .map_err(|e| e.to_string())?;
-            let data = std::fs::read(path).map_err(|e| e.to_string())?;
+            let data = std::fs::read(&path).map_err(|e| e.to_string())?;
             zip.write_all(&data).map_err(|e| e.to_string())?;
-        } else if !relative_str.is_empty() {
-            zip.add_directory(relative_str.as_ref(), options)
+        } else {
+            zip.add_directory(format!("{}/", entry.archive_path), options)
                 .map_err(|e| e.to_string())?;
         }
     }
@@ -464,7 +496,7 @@ pub async fn show_open_vault_dialog(app: AppHandle) -> Result<Option<String>, St
 mod tests {
     use super::{
         build_created_vault_config, create_vault_on_disk_with_recents,
-        ensure_open_vault_meta_with_recents, filter_existing_recents_with_options,
+        ensure_open_vault_meta_with_recents, export_vault, filter_existing_recents_with_options,
         read_recents_from_path, read_vault_config_pub, rename_vault_on_disk_with_recents,
         upsert_recent_in_list, write_recents_to_path, write_vault_config_pub,
     };
@@ -472,6 +504,7 @@ mod tests {
         models::vault::{KnownUser, MemberRole, VaultConfig, VaultMember, VaultMeta},
         test_support::TempVault,
     };
+    use std::io::Read;
 
     fn sample_meta(path: String, index: u64) -> VaultMeta {
         VaultMeta {
@@ -517,6 +550,38 @@ mod tests {
         assert_eq!(roundtrip.owner.as_deref(), Some("owner-1"));
         assert_eq!(roundtrip.members.len(), 1);
         assert!(vault.exists(".collab/vault.json"));
+    }
+
+    #[tokio::test]
+    async fn vault_export_uses_portable_paths_and_skips_presence_runtime_files() {
+        let vault = TempVault::new().expect("temp vault should exist");
+        vault
+            .write_text("Notes/example.md", "# Example")
+            .expect("note should write");
+        vault
+            .write_text(".collab/vault.json", "{}")
+            .expect("vault metadata should write");
+        vault
+            .write_text(".collab/presence/runtime.json", "{}")
+            .expect("presence runtime should write");
+        let output_dir = tempfile::tempdir().unwrap();
+        let output = output_dir.path().join("vault.zip");
+
+        export_vault(vault.path_string(), output.to_string_lossy().into_owned())
+            .await
+            .expect("vault should export");
+
+        let mut archive =
+            zip::ZipArchive::new(std::fs::File::open(output).unwrap()).expect("zip should open");
+        let mut note = String::new();
+        archive
+            .by_name("Notes/example.md")
+            .unwrap()
+            .read_to_string(&mut note)
+            .unwrap();
+        assert_eq!(note, "# Example");
+        assert!(archive.by_name(".collab/vault.json").is_ok());
+        assert!(archive.by_name(".collab/presence/runtime.json").is_err());
     }
 
     #[test]

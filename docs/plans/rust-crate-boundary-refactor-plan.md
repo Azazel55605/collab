@@ -20,8 +20,8 @@ This plan adds four primary shared boundaries:
 - `collab-live`: transport-independent Yrs document state, update, compaction,
   and materialization rules.
 
-It also evaluates `collab-archive` as a focused archive-planning boundary after
-the vault domain has stabilized.
+It also adds `collab-archive` as a focused archive-planning boundary shared by
+hosted ZIP/backup workflows and native vault exports.
 
 ## Motivation
 
@@ -101,7 +101,7 @@ collab-vault-domain
   file tree, revision, manifest, tombstone, and mutation planning
 
 collab-archive
-  optional bounded archive validation and materialization planning
+  bounded archive validation and materialization planning
 
 collab-live
   transport-independent Yrs state, updates, compaction, and materialization
@@ -130,7 +130,7 @@ collab-protocol     -> no application crates
 collab-net-policy   -> low-level third-party libraries only
 collab-documents    -> collab-core
 collab-vault-domain -> collab-core + collab-documents
-collab-archive      -> collab-core + collab-vault-domain, if extracted
+collab-archive      -> collab-core + collab-vault-domain
 collab-live         -> collab-core + collab-documents + collab-protocol
 collab-replica      -> collab-core + collab-protocol
                        + collab-vault-domain when its mutation rules migrate
@@ -234,9 +234,7 @@ rows into domain inputs.
 
 ### `collab-archive`
 
-Evaluate as a separate crate after `collab-vault-domain` exists.
-
-Own when extraction proves useful:
+Own:
 
 - Safe archive-entry path normalization.
 - Duplicate/path-conflict detection.
@@ -247,9 +245,6 @@ Own when extraction proves useful:
 
 Keep concrete ZIP streaming and storage IO in adapters unless both server and
 Tauri genuinely share it.
-
-If the resulting API is small or used only by vault code, retain it as a
-`collab-vault-domain::archive` module instead of creating another crate.
 
 ### `collab-live`
 
@@ -319,7 +314,7 @@ remaining in one API file or being prematurely made public.
 | 1. Outbound network policy | Complete | `collab-net-policy` now owns shared URL, resolved-target, redirect, sensitive-header, response-budget, and timeout policy used by native and server adapters. |
 | 2. Document domain | Complete | `collab-documents` owns bounded document classification/validation, references, Kanban semantics, PDF semantics, and shared canvas inspection across native and server adapters. |
 | 3. Vault mutation domain | Complete | `collab-vault-domain` owns portable file/revision/manifest/trash mutation planning behind stable inputs and is consumed by hosted, local, and replica adapters. |
-| 4. Archive boundary | Not started | Consolidate bounded import/export planning in `collab-archive` or a vault-domain module based on measured reuse. |
+| 4. Archive boundary | Complete | `collab-archive` owns portable entry validation, budgets, import-tree construction, export materialization, and manifest checks for server and native adapters. |
 | 5. Live document domain | Not started | Add `collab-live` for Yrs conversion, updates, compaction, recovery, and materialization guards. |
 | 6. Enforcement and cleanup | Not started | Remove compatibility re-exports, enforce dependency rules, update docs, and complete cross-platform regression validation. |
 
@@ -508,13 +503,13 @@ Estimated effort: 1-2 weeks.
 
 Tasks:
 
-- Compare server ZIP import/export, backup archives, local vault exports, folder
+- [x] Compare server ZIP import/export, backup archives, local vault exports, folder
   downloads, and drag/download materialization.
-- Extract only common validation and planning behavior.
-- Preserve streaming and backend-specific storage behavior.
-- Decide, with recorded evidence, between a dedicated `collab-archive` crate and
+- [x] Extract only common validation and planning behavior.
+- [x] Preserve streaming and backend-specific storage behavior.
+- [x] Decide, with recorded evidence, between a dedicated `collab-archive` crate and
   a `collab-vault-domain::archive` module.
-- Add traversal, separator, duplicate, zip-bomb, entry-count, total-size,
+- [x] Add traversal, separator, duplicate, zip-bomb, entry-count, total-size,
   symlink, and malformed-manifest fixtures.
 
 Acceptance criteria:
@@ -523,6 +518,30 @@ Acceptance criteria:
 - Expanded-size and entry-count budgets are applied before commit.
 - Server and native archive workflows retain their existing limits and output.
 - No new crate is created if the resulting boundary has only one real consumer.
+
+Completion notes:
+
+- A dedicated `collab-archive` crate is justified by four independent adapter
+  paths: hosted vault ZIP import, hosted vault/folder ZIP export, server backup
+  TAR validation, and native local-vault ZIP export. Drag/download
+  materialization does not construct archives and remains outside this boundary.
+- The crate consumes entry metadata and returns deterministic import/export
+  plans. It owns portable path and separator rules, case-insensitive duplicate
+  and file/folder conflict detection, implicit import folders, symlink and
+  unsupported-entry rejection, entry/per-file/expanded-size budgets,
+  single-root backup validation, and manifest-version checks.
+- ZIP/TAR decoding, decompression, streaming, blob reads, filesystem traversal,
+  PostgreSQL transactions, and output writing remain in server and Tauri
+  adapters. Hosted ZIP imports additionally verify actual decompressed byte
+  counts before committing.
+- Hosted ZIP imports retain the 1,000-entry, per-file, and expanded-size limits;
+  backup imports now apply the configured expanded-size limit before extraction.
+  Native exports retain `.collab` metadata while excluding runtime presence
+  files.
+- Fixtures cover traversal and absolute paths, Windows separator policy,
+  normalized duplicates, file/folder conflicts, symlinks, unsupported entry
+  kinds, per-entry/entry-count/expanded-size bounds, deterministic folder
+  rebasing, single backup roots, and missing/unsupported manifest versions.
 
 ## Phase 5: Live Document Domain
 

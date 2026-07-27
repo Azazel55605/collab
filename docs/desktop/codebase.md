@@ -645,6 +645,7 @@ The repository root is a Cargo workspace:
 | Path | Responsibility |
 |------|---------------|
 | `crates/collab-circuit/` | First-party MIT circuit model, endpoint/junction net compiler, source maps, validation, DC/sweep/transient numerics, and the bounded linear complex AC sweep core shared by desktop and Android |
+| `crates/collab-archive/` | IO-free portable archive path validation, import-tree planning, export materialization, size/entry budgets, and backup root/manifest checks shared by server and native adapters |
 | `crates/collab-core/` | Low-level shared path/name normalization, hashing, and byte-encryption primitives |
 | `crates/collab-documents/` | Framework-free bounded document classification/validation, note/Kanban/canvas references, Kanban/PDF capability semantics, and canvas inspection |
 | `crates/collab-net-policy/` | IO-free outbound URL, resolved-address, redirect-origin, response-budget, and timeout policy shared by native previews/subscriptions and hosted calendar feeds |
@@ -662,12 +663,11 @@ The repository root is a Cargo workspace:
 
 The table above is the current source of truth. The
 [Rust Crate Boundary Refactor Plan](../plans/rust-crate-boundary-refactor-plan.md)
-has delivered `collab-net-policy`, `collab-documents`, and
-`collab-vault-domain`, and proposes `collab-live`, with `collab-archive` subject to a
-measured reuse decision. The remaining crates do not exist until their plan
-phases land.
+has delivered `collab-net-policy`, `collab-documents`,
+`collab-vault-domain`, and `collab-archive`, and proposes `collab-live`. The
+remaining crates do not exist until their plan phases land.
 
-Phases 0-3 are complete. `pnpm rust:boundaries` enforces the allowed workspace graph
+Phases 0-4 are complete. `pnpm rust:boundaries` enforces the allowed workspace graph
 through `cargo metadata`; every new workspace crate must be added to that
 policy and domain crates cannot depend on HTTP execution frameworks. Portable behavior is first isolated and characterized in private
 adapter modules: server archive planning currently lives in `api/archive.rs`,
@@ -686,6 +686,9 @@ native and server adapters.
 `collab-vault-domain` owns portable metadata mutation plans and conflict
 classification; PostgreSQL transactions, filesystem changes, blob persistence,
 authorization lookup, and watcher suppression remain adapter responsibilities.
+`collab-archive` owns metadata-only archive validation and deterministic
+import/export plans; ZIP/TAR decoding, streaming, decompression, filesystem and
+blob IO, and persistence transactions remain adapter responsibilities.
 
 `src-tauri/src/`
 

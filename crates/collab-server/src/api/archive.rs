@@ -1,10 +1,11 @@
 use super::ApiFailure;
+use collab_archive::{
+    plan_import, ArchiveEntryKind, ArchiveEntryMetadata, ArchiveLimits, ArchivePathPolicy,
+    ArchivePlanError,
+};
 use collab_documents::{classify_path, DocumentKind};
 use collab_protocol::{HostedDocumentType, HostedFileKind};
-use std::{
-    collections::HashSet,
-    io::{Cursor, Read},
-};
+use std::io::{Cursor, Read};
 
 pub(super) struct VaultImportEntry {
     pub(super) relative_path: String,
@@ -28,57 +29,50 @@ pub(super) fn parse_vault_zip(
             request_id.to_owned(),
         )
     })?;
-    if archive.len() > 1000 {
-        return Err(ApiFailure::quota_exceeded(request_id.to_owned()));
-    }
-
-    let mut files = Vec::<(String, Vec<u8>)>::new();
-    let mut explicit_folders = HashSet::<String>::new();
-    let mut comparison_paths = HashSet::<String>::new();
-    let mut expanded_bytes = 0usize;
+    let mut metadata = Vec::with_capacity(archive.len());
     for index in 0..archive.len() {
-        let mut entry = archive.by_index(index).map_err(|_| {
+        let entry = archive.by_index(index).map_err(|_| {
             ApiFailure::validation("Vault ZIP entry could not be read.", request_id.to_owned())
         })?;
-        if entry
-            .unix_mode()
-            .is_some_and(|mode| mode & 0o170000 == 0o120000)
-        {
-            return Err(ApiFailure::validation(
-                "Vault ZIP symlinks are not supported.",
-                request_id.to_owned(),
-            ));
-        }
+        metadata.push(ArchiveEntryMetadata {
+            source_index: index,
+            raw_path: entry.name().to_owned(),
+            kind: zip_entry_kind(&entry),
+            declared_size: entry.size(),
+        });
+    }
+    let plan = plan_import(
+        &metadata,
+        ArchiveLimits {
+            max_entries: Some(1000),
+            max_entry_bytes: Some(max_file_bytes as u64),
+            max_expanded_bytes: Some(max_expanded_bytes as u64),
+        },
+        &ArchivePathPolicy {
+            ignored_roots: vec![".collab".into()],
+            ..ArchivePathPolicy::default()
+        },
+    )
+    .map_err(|error| map_archive_error(error, request_id))?;
 
-        // Windows ZIP writers sometimes use backslashes despite the ZIP spec.
-        let normalized_separators = entry.name().replace('\\', "/");
-        let raw_name = normalized_separators.trim_end_matches('/');
-        if raw_name.is_empty() {
-            continue;
-        }
-        if raw_name
-            .split('/')
-            .next()
-            .is_some_and(|name| name.eq_ignore_ascii_case(".collab"))
-        {
-            continue;
-        }
-        let path = collab_core::normalize_hosted_path(raw_name)
-            .map_err(|error| ApiFailure::path_invalid(error.to_string(), request_id.to_owned()))?;
-        if !comparison_paths.insert(path.to_lowercase()) {
-            return Err(ApiFailure::validation(
-                "Vault ZIP contains duplicate normalized paths.",
-                request_id.to_owned(),
+    let mut entries = Vec::with_capacity(plan.entries.len());
+    let mut actual_expanded_bytes = 0usize;
+    for planned in plan.entries {
+        if planned.kind == collab_vault_domain::EntryKind::Folder {
+            entries.push(import_entry(
+                planned.relative_path,
+                HostedFileKind::Folder,
+                None,
+                None,
             ));
-        }
-        if entry.is_dir() {
-            explicit_folders.insert(path);
             continue;
         }
-        if entry.size() > max_file_bytes as u64 {
-            return Err(ApiFailure::quota_exceeded(request_id.to_owned()));
-        }
-
+        let source_index = planned
+            .source_index
+            .ok_or_else(|| ApiFailure::server(request_id.to_owned()))?;
+        let mut entry = archive
+            .by_index(source_index)
+            .map_err(|_| ApiFailure::server(request_id.to_owned()))?;
         let mut content = Vec::with_capacity(entry.size() as usize);
         entry.read_to_end(&mut content).map_err(|_| {
             ApiFailure::validation(
@@ -86,41 +80,14 @@ pub(super) fn parse_vault_zip(
                 request_id.to_owned(),
             )
         })?;
-        expanded_bytes = expanded_bytes.saturating_add(content.len());
-        if expanded_bytes > max_expanded_bytes {
+        if content.len() > max_file_bytes {
             return Err(ApiFailure::quota_exceeded(request_id.to_owned()));
         }
-        files.push((path, content));
-    }
-
-    let mut folders = explicit_folders;
-    for (path, _) in &files {
-        let mut parts = path.split('/').collect::<Vec<_>>();
-        parts.pop();
-        while !parts.is_empty() {
-            folders.insert(parts.join("/"));
-            parts.pop();
+        actual_expanded_bytes = actual_expanded_bytes.saturating_add(content.len());
+        if actual_expanded_bytes > max_expanded_bytes {
+            return Err(ApiFailure::quota_exceeded(request_id.to_owned()));
         }
-    }
-    let file_paths = files
-        .iter()
-        .map(|(path, _)| path.to_lowercase())
-        .collect::<HashSet<_>>();
-    if folders
-        .iter()
-        .any(|folder| file_paths.contains(&folder.to_lowercase()))
-    {
-        return Err(ApiFailure::validation(
-            "Vault ZIP contains a path used as both a file and folder.",
-            request_id.to_owned(),
-        ));
-    }
-
-    let mut entries = folders
-        .into_iter()
-        .map(|path| import_entry(path, HostedFileKind::Folder, None, None))
-        .collect::<Vec<_>>();
-    for (path, content) in files {
+        let path = planned.relative_path;
         let (kind, document_type) = imported_file_kind(&path);
         if kind == HostedFileKind::Document && String::from_utf8(content.clone()).is_err() {
             return Err(ApiFailure::validation(
@@ -130,14 +97,34 @@ pub(super) fn parse_vault_zip(
         }
         entries.push(import_entry(path, kind, document_type, Some(content)));
     }
-    entries.sort_by_key(|entry| {
-        (
-            entry.relative_path.matches('/').count(),
-            entry.kind != HostedFileKind::Folder,
-            entry.relative_path.to_lowercase(),
-        )
-    });
     Ok(entries)
+}
+
+fn zip_entry_kind(entry: &zip::read::ZipFile<'_>) -> ArchiveEntryKind {
+    let unix_kind = entry.unix_mode().map(|mode| mode & 0o170000);
+    if unix_kind == Some(0o120000) {
+        ArchiveEntryKind::Symlink
+    } else if entry.is_dir() {
+        ArchiveEntryKind::Directory
+    } else if unix_kind.is_some_and(|kind| kind != 0 && kind != 0o100000) {
+        ArchiveEntryKind::Other
+    } else {
+        ArchiveEntryKind::File
+    }
+}
+
+fn map_archive_error(error: ArchivePlanError, request_id: &str) -> ApiFailure {
+    match error {
+        ArchivePlanError::EntryCountExceeded
+        | ArchivePlanError::EntrySizeExceeded
+        | ArchivePlanError::ExpandedSizeExceeded => {
+            ApiFailure::quota_exceeded(request_id.to_owned())
+        }
+        ArchivePlanError::InvalidPath | ArchivePlanError::InvalidSeparator => {
+            ApiFailure::path_invalid(error.to_string(), request_id.to_owned())
+        }
+        _ => ApiFailure::validation(error.to_string(), request_id.to_owned()),
+    }
 }
 
 fn import_entry(

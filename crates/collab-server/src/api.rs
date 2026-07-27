@@ -15,6 +15,11 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::Utc;
+use collab_archive::{
+    plan_export, validate_manifest_version as validate_archive_manifest_version,
+    validate_single_root, ArchiveEntryKind, ArchiveEntryMetadata, ArchiveLimits, ArchivePathPolicy,
+    ExportSource, SeparatorPolicy,
+};
 use collab_protocol::GrantSubjectType;
 use collab_protocol::{
     capabilities_for_role, AdminBackupArtifactVerification, AdminBackupCommandResult,
@@ -4847,17 +4852,19 @@ pub async fn export_vault_zip(
     )
     .await?;
     let manifest = load_vault_manifest(&state.database, vault_id, &request_id).await?;
+    let plan = plan_hosted_archive(&manifest, None, &request_id)?;
     let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
-    for file in manifest
-        .files
-        .iter()
-        .filter(|file| file.state == HostedFileState::Active)
-    {
+    for planned in plan.entries {
+        let file = manifest
+            .files
+            .iter()
+            .find(|file| file.id == planned.source_id)
+            .ok_or_else(|| ApiFailure::server(request_id.clone()))?;
         if file.kind == HostedFileKind::Folder {
             archive
-                .add_directory(format!("{}/", file.relative_path), options)
+                .add_directory(format!("{}/", planned.archive_path), options)
                 .map_err(|_| ApiFailure::server(request_id.clone()))?;
             continue;
         }
@@ -4873,7 +4880,7 @@ pub async fn export_vault_zip(
             .map_err(|_| ApiFailure::server(request_id.clone()))?
             .ok_or_else(|| ApiFailure::server(request_id.clone()))?;
         archive
-            .start_file(&file.relative_path, options)
+            .start_file(&planned.archive_path, options)
             .map_err(|_| ApiFailure::server(request_id.clone()))?;
         archive
             .write_all(&bytes)
@@ -4925,31 +4932,19 @@ pub async fn download_vault_folder_archive(
         })
         .ok_or_else(|| ApiFailure::not_found(request_id.clone()))?;
     let folder_path = folder.relative_path.clone();
-    let descendant_prefix = format!("{folder_path}/");
-    // Keep the folder name (but not its ancestors) as the archive root.
-    let parent_prefix = match folder_path.rfind('/') {
-        Some(index) => folder_path[..=index].to_owned(),
-        None => String::new(),
-    };
+    let plan = plan_hosted_archive(&manifest, Some(&folder_path), &request_id)?;
     let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
-    for file in manifest
-        .files
-        .iter()
-        .filter(|file| file.state == HostedFileState::Active)
-    {
-        if file.relative_path != folder_path && !file.relative_path.starts_with(&descendant_prefix)
-        {
-            continue;
-        }
-        let entry_path = file
-            .relative_path
-            .strip_prefix(&parent_prefix)
-            .unwrap_or(&file.relative_path);
+    for planned in plan.entries {
+        let file = manifest
+            .files
+            .iter()
+            .find(|file| file.id == planned.source_id)
+            .ok_or_else(|| ApiFailure::server(request_id.clone()))?;
         if file.kind == HostedFileKind::Folder {
             archive
-                .add_directory(format!("{entry_path}/"), options)
+                .add_directory(format!("{}/", planned.archive_path), options)
                 .map_err(|_| ApiFailure::server(request_id.clone()))?;
             continue;
         }
@@ -4965,7 +4960,7 @@ pub async fn download_vault_folder_archive(
             .map_err(|_| ApiFailure::server(request_id.clone()))?
             .ok_or_else(|| ApiFailure::server(request_id.clone()))?;
         archive
-            .start_file(entry_path, options)
+            .start_file(&planned.archive_path, options)
             .map_err(|_| ApiFailure::server(request_id.clone()))?;
         archive
             .write_all(&bytes)
@@ -5002,6 +4997,38 @@ pub async fn download_vault_folder_archive(
             .unwrap_or_else(|_| HeaderValue::from_static("attachment; filename=\"folder.zip\"")),
     );
     Ok(response)
+}
+
+fn plan_hosted_archive(
+    manifest: &HostedVaultManifest,
+    root_path: Option<&str>,
+    request_id: &str,
+) -> Result<collab_archive::ExportPlan, ApiFailure> {
+    let sources = manifest
+        .files
+        .iter()
+        .filter(|file| file.state == HostedFileState::Active)
+        .map(|file| ExportSource {
+            source_id: file.id.clone(),
+            relative_path: file.relative_path.clone(),
+            kind: if file.kind == HostedFileKind::Folder {
+                collab_vault_domain::EntryKind::Folder
+            } else {
+                collab_vault_domain::EntryKind::File
+            },
+            size_bytes: file
+                .current_revision
+                .as_ref()
+                .map_or(0, |revision| revision.size_bytes),
+        })
+        .collect::<Vec<_>>();
+    plan_export(
+        &sources,
+        root_path,
+        ArchiveLimits::default(),
+        &collab_archive::ArchivePathPolicy::default(),
+    )
+    .map_err(|_| ApiFailure::server(request_id.to_owned()))
 }
 
 struct ReferenceRewrite {
@@ -5800,7 +5827,11 @@ pub async fn admin_import_backup_archive(
     let archive_path = import_root.path().join("backup.tar.gz");
     fs::write(&archive_path, archive).map_err(|_| ApiFailure::server(request_id.clone()))?;
     let listed = list_backup_archive_entries(&archive_path, &request_id)?;
-    let archive_root = validate_backup_archive_entries(&listed, &request_id)?;
+    let archive_root = validate_backup_archive_entries(
+        &listed,
+        state.config.max_import_expanded_bytes as u64,
+        &request_id,
+    )?;
     extract_backup_archive(&archive_path, import_root.path(), &request_id)?;
     let extracted_dir = import_root.path().join(&archive_root);
     validate_imported_backup_dir(&archive_root, &extracted_dir, &request_id)?;
@@ -8490,9 +8521,9 @@ fn delete_or_quarantine_backup_dir(
 fn list_backup_archive_entries(
     archive_path: &FsPath,
     request_id: &str,
-) -> Result<Vec<String>, ApiFailure> {
+) -> Result<Vec<ArchiveEntryMetadata>, ApiFailure> {
     let output = std::process::Command::new("tar")
-        .arg("-tzf")
+        .arg("-tzvf")
         .arg(archive_path)
         .output()
         .map_err(|_| ApiFailure::server(request_id.to_owned()))?;
@@ -8508,63 +8539,73 @@ fn list_backup_archive_entries(
             request_id.to_owned(),
         ));
     }
-    Ok(String::from_utf8_lossy(&output.stdout)
+    String::from_utf8_lossy(&output.stdout)
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
-        .map(str::to_owned)
-        .collect())
+        .enumerate()
+        .map(|(index, line)| parse_tar_listing_entry(index, line, request_id))
+        .collect()
 }
 
 fn validate_backup_archive_entries(
-    entries: &[String],
+    entries: &[ArchiveEntryMetadata],
+    max_expanded_bytes: u64,
     request_id: &str,
 ) -> Result<String, ApiFailure> {
-    if entries.is_empty() {
+    validate_single_root(
+        entries,
+        ArchiveLimits {
+            max_entries: Some(1000),
+            max_entry_bytes: None,
+            max_expanded_bytes: Some(max_expanded_bytes),
+        },
+        &ArchivePathPolicy {
+            separators: SeparatorPolicy::RejectBackslashes,
+            ..ArchivePathPolicy::default()
+        },
+        is_safe_backup_name,
+    )
+    .map_err(|error| ApiFailure::validation(error.to_string(), request_id.to_owned()))
+}
+
+fn parse_tar_listing_entry(
+    source_index: usize,
+    line: &str,
+    request_id: &str,
+) -> Result<ArchiveEntryMetadata, ApiFailure> {
+    let columns = line.split_whitespace().collect::<Vec<_>>();
+    if columns.len() < 6 {
         return Err(ApiFailure::validation(
-            "Backup archive is empty.",
+            "Backup archive contains malformed entry metadata.",
             request_id.to_owned(),
         ));
     }
-    let mut root: Option<String> = None;
-    for entry in entries {
-        if entry.starts_with('/') || entry.contains('\\') {
-            return Err(ApiFailure::validation(
-                "Backup archive contains an unsafe path.",
-                request_id.to_owned(),
-            ));
-        }
-        let mut parts = entry.split('/').filter(|part| !part.is_empty());
-        let Some(first) = parts.next() else {
-            return Err(ApiFailure::validation(
-                "Backup archive contains an empty path.",
-                request_id.to_owned(),
-            ));
-        };
-        if first == "." || first == ".." || entry.split('/').any(|part| part == "..") {
-            return Err(ApiFailure::validation(
-                "Backup archive contains a path traversal entry.",
-                request_id.to_owned(),
-            ));
-        }
-        if !is_safe_backup_name(first) {
-            return Err(ApiFailure::validation(
-                "Backup archive root is not a valid Collab backup name.",
-                request_id.to_owned(),
-            ));
-        }
-        match root.as_deref() {
-            Some(existing) if existing != first => {
-                return Err(ApiFailure::validation(
-                    "Backup archive must contain exactly one backup directory.",
-                    request_id.to_owned(),
-                ));
+    let mode = columns[0];
+    let declared_size = columns[2].parse::<u64>().map_err(|_| {
+        ApiFailure::validation(
+            "Backup archive contains an invalid entry size.",
+            request_id.to_owned(),
+        )
+    })?;
+    let mut raw_path = columns[5..].join(" ");
+    let kind = match mode.as_bytes().first().copied() {
+        Some(b'-') => ArchiveEntryKind::File,
+        Some(b'd') => ArchiveEntryKind::Directory,
+        Some(b'l') => {
+            if let Some((path, _)) = raw_path.split_once(" -> ") {
+                raw_path = path.to_owned();
             }
-            None => root = Some(first.to_owned()),
-            _ => {}
+            ArchiveEntryKind::Symlink
         }
-    }
-    root.ok_or_else(|| ApiFailure::validation("Backup archive is empty.", request_id.to_owned()))
+        _ => ArchiveEntryKind::Other,
+    };
+    Ok(ArchiveEntryMetadata {
+        source_index,
+        raw_path,
+        kind,
+        declared_size,
+    })
 }
 
 fn extract_backup_archive(
@@ -8598,23 +8639,8 @@ fn validate_backup_manifest_version(dir: &FsPath, request_id: &str) -> Result<()
     let manifest = fs::read_to_string(dir.join("manifest.txt")).map_err(|_| {
         ApiFailure::validation("Backup manifest is missing.", request_id.to_owned())
     })?;
-    let version = manifest
-        .lines()
-        .find_map(|line| line.strip_prefix("collab_backup_version="))
-        .map(str::trim)
-        .ok_or_else(|| {
-            ApiFailure::validation(
-                "Backup manifest does not declare a version.",
-                request_id.to_owned(),
-            )
-        })?;
-    if version != "1" {
-        return Err(ApiFailure::validation(
-            format!("Backup version {version} is not compatible with this server."),
-            request_id.to_owned(),
-        ));
-    }
-    Ok(())
+    validate_archive_manifest_version(&manifest, "collab_backup_version=", "1")
+        .map_err(|error| ApiFailure::validation(error.to_string(), request_id.to_owned()))
 }
 
 fn validate_imported_backup_dir(
@@ -11822,8 +11848,8 @@ impl IntoResponse for ApiFailure {
 mod tests {
     use super::{
         cookie, delete_or_quarantine_backup_dir, indexed_note_tags, indexed_note_title,
-        is_safe_backup_name, parse_backup_created_at, parse_vault_zip, run_operator_command,
-        search_excerpt, sha256_file, validate_backup_archive_entries,
+        is_safe_backup_name, parse_backup_created_at, parse_tar_listing_entry, parse_vault_zip,
+        run_operator_command, search_excerpt, sha256_file, validate_backup_archive_entries,
         validate_backup_manifest_version, validate_file_kind, verify_backup, BackupRuntimeSettings,
         Capability, STANDARD,
     };
@@ -11840,6 +11866,7 @@ mod tests {
         Router,
     };
     use base64::Engine;
+    use collab_archive::{ArchiveEntryKind, ArchiveEntryMetadata};
     use collab_protocol::{HostedDocumentType, HostedFileKind};
     use http_body_util::BodyExt;
     use serde_json::{json, Value};
@@ -12037,28 +12064,53 @@ mod tests {
     fn backup_import_validation_rejects_unsafe_archives_and_versions() {
         let root = validate_backup_archive_entries(
             &[
-                "collab-backup-20260618T111501Z/".into(),
-                "collab-backup-20260618T111501Z/postgres.dump".into(),
-                "collab-backup-20260618T111501Z/blobs.tar.gz".into(),
+                backup_archive_entry(0, "collab-backup-20260618T111501Z/", 0),
+                backup_archive_entry(1, "collab-backup-20260618T111501Z/postgres.dump", 10),
+                backup_archive_entry(2, "collab-backup-20260618T111501Z/blobs.tar.gz", 20),
             ],
+            100,
             "request",
         )
         .unwrap();
         assert_eq!(root, "collab-backup-20260618T111501Z");
 
         assert!(validate_backup_archive_entries(
-            &["collab-backup-20260618T111501Z/../evil".into()],
+            &[backup_archive_entry(
+                0,
+                "collab-backup-20260618T111501Z/../evil",
+                1,
+            )],
+            100,
             "request",
         )
         .is_err());
         assert!(validate_backup_archive_entries(
             &[
-                "collab-backup-20260618T111501Z/postgres.dump".into(),
-                "collab-backup-20260618T111502Z/postgres.dump".into(),
+                backup_archive_entry(0, "collab-backup-20260618T111501Z/postgres.dump", 1,),
+                backup_archive_entry(1, "collab-backup-20260618T111502Z/postgres.dump", 1,),
             ],
+            100,
             "request",
         )
         .is_err());
+        assert!(validate_backup_archive_entries(
+            &[backup_archive_entry(
+                0,
+                "collab-backup-20260618T111501Z/postgres.dump",
+                101,
+            )],
+            100,
+            "request",
+        )
+        .is_err());
+        let symlink = parse_tar_listing_entry(
+            0,
+            "lrwxrwxrwx root/root 0 2026-06-18 11:15 collab-backup-20260618T111501Z/link -> /etc/passwd",
+            "request",
+        )
+        .unwrap();
+        assert_eq!(symlink.kind, ArchiveEntryKind::Symlink);
+        assert!(validate_backup_archive_entries(&[symlink], 100, "request").is_err());
 
         let temp = tempfile::tempdir().unwrap();
         let backup_dir = temp.path().join("collab-backup-20260618T111501Z");
@@ -12075,6 +12127,19 @@ mod tests {
         )
         .unwrap();
         assert!(validate_backup_manifest_version(&backup_dir, "request").is_err());
+    }
+
+    fn backup_archive_entry(index: usize, path: &str, size: u64) -> ArchiveEntryMetadata {
+        ArchiveEntryMetadata {
+            source_index: index,
+            raw_path: path.into(),
+            kind: if path.ends_with('/') {
+                ArchiveEntryKind::Directory
+            } else {
+                ArchiveEntryKind::File
+            },
+            declared_size: size,
+        }
     }
 
     #[test]

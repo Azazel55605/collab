@@ -798,6 +798,7 @@ dependencies = [
  "argon2",
  "base64 0.22.1",
  "chrono",
+ "collab-archive",
  "collab-calendar",
  "collab-circuit",
  "collab-core",
@@ -842,6 +843,16 @@ dependencies = [
  "walkdir",
  "webkit2gtk",
  "zip 2.4.2",
+]
+
+[[package]]
+name = "collab-archive"
+version = "0.6.6"
+dependencies = [
+ "collab-core",
+ "collab-vault-domain",
+ "serde",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -936,6 +947,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "chrono-tz",
+ "collab-archive",
  "collab-calendar",
  "collab-core",
  "collab-documents",
