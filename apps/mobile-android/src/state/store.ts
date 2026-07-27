@@ -2,18 +2,25 @@ import { create } from 'zustand';
 
 import {
   connectServer,
+  backgroundJobGet,
+  backgroundJobList,
+  backgroundJobRun,
+  cancelAndroidBackgroundProfile,
   disconnectServer,
   HostedFileEntry,
   HostedVault,
   listHostedVaults,
   listVaultFiles,
   loadConnectionStatuses,
+  reauthenticateServer,
   reconnectServer,
+  reconcileAndroidBackground,
   replicaList,
   ReplicaSummary,
   serverHasSavedSession,
   ServerConnectionStatus,
 } from '../mobileTauri';
+import type { BackgroundJobRecord } from '../mobileTauri';
 import {
   KnownServer,
   listKnownServers,
@@ -31,10 +38,10 @@ import {
   replicaKey,
   refreshVaultOfflineContents,
 } from '../lib/replica';
-import { replayPendingOperations } from '../lib/sync';
 import { shouldAlwaysCreateOfflineCopy } from '../lib/preferences';
 import {
   listMobileCalendarCacheOrigins,
+  mobileCalendarProfileId,
   removeMobileCalendarCache,
   syncMobileCalendars,
 } from '../lib/calendarSync';
@@ -74,10 +81,13 @@ const EAGER_ASSET_CACHE_STATUS_LIMIT = 2 * 1024 * 1024;
 const AUTO_OFFLINE_REFRESH_COOLDOWN_MS = 60_000;
 const offlineRefreshInFlight = new Set<string>();
 const offlineRefreshLastStartedAt = new Map<string, number>();
+const initiallyKnownServers = listKnownServers();
 
 interface MobileState {
   restored: boolean;
   servers: KnownServer[];
+  /** Saved servers whose startup session restoration is still in progress. */
+  restoringServers: Record<string, boolean>;
 
   // ── Navigation ────────────────────────────────────────────────────────────
   tab: Tab;
@@ -119,9 +129,11 @@ interface MobileState {
   calendarMirrorStatuses: CalendarMirrorGroupStatus[];
   calendarMirrorProgress: Record<string, CalendarMirrorProgress>;
   calendarCacheOrigins: Array<{ serverUrl: string; userId: string }>;
+  backgroundJobs: BackgroundJobRecord[];
 
   restore: () => Promise<void>;
   refreshStatuses: () => Promise<void>;
+  refreshBackgroundJobs: () => Promise<void>;
   loadReplicas: () => Promise<void>;
   /** Replay every offline-queued write for a connected server's replicas. */
   syncServer: (serverUrl: string) => Promise<void>;
@@ -139,6 +151,7 @@ interface MobileState {
       offlineCopyMode?: 'inherit' | 'always' | 'never';
     },
   ) => Promise<void>;
+  reauthenticate: (serverUrl: string, password: string) => Promise<void>;
   reconnect: (serverUrl: string) => Promise<void>;
   disconnect: (serverUrl: string) => Promise<void>;
   loadVaults: (serverUrl: string) => Promise<void>;
@@ -157,7 +170,10 @@ function isConnected(status: ServerConnectionStatus | undefined): boolean {
 
 export const useMobileStore = create<MobileState>((set, get) => ({
   restored: false,
-  servers: listKnownServers(),
+  servers: initiallyKnownServers,
+  restoringServers: Object.fromEntries(
+    initiallyKnownServers.map((server) => [normalizeServerUrl(server.serverUrl), true]),
+  ),
   statuses: {},
   vaults: {},
   vaultsBusy: {},
@@ -179,6 +195,7 @@ export const useMobileStore = create<MobileState>((set, get) => ({
   calendarMirrorStatuses: [],
   calendarMirrorProgress: {},
   calendarCacheOrigins: [],
+  backgroundJobs: [],
 
   tab: 'servers',
   folderTrail: [ROOT_CRUMB],
@@ -227,25 +244,58 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     set({ statuses: map });
   },
 
+  refreshBackgroundJobs: async () => {
+    set({ backgroundJobs: await backgroundJobList(30) });
+  },
+
   restore: async () => {
-    await get().refreshStatuses();
     const servers = listKnownServers();
-    set({ servers });
+    set({
+      servers,
+      restoringServers: Object.fromEntries(
+        servers.map((server) => [normalizeServerUrl(server.serverUrl), true]),
+      ),
+    });
+    const finishRestoringServer = (serverUrl: string) => {
+      set((state) => {
+        if (!state.restoringServers[serverUrl]) return {};
+        const restoringServers = { ...state.restoringServers };
+        delete restoringServers[serverUrl];
+        return { restoringServers };
+      });
+    };
+    try {
+      await get().refreshStatuses();
+    } catch (reason) {
+      set({ restoringServers: {} });
+      throw reason;
+    }
     // Quietly reconnect each saved server that has a stored refresh token and is
     // not already connected. Failures are non-fatal — the user can reconnect
     // manually from the Servers screen.
     await Promise.all(
       servers.map(async (server) => {
         const key = normalizeServerUrl(server.serverUrl);
-        if (isConnected(get().statuses[key])) return;
+        if (isConnected(get().statuses[key])) {
+          finishRestoringServer(key);
+          return;
+        }
         try {
           if (!(await serverHasSavedSession(server.serverUrl))) return;
-          await reconnectServer(server.serverUrl, {
+          const status = await reconnectServer(server.serverUrl, {
             allowInvalidCertificates: server.allowInvalidCertificates,
             persistAcrossReboots: server.persistAcrossReboots,
           });
+          if (status.connected && status.serverUrl) {
+            const statusKey = normalizeServerUrl(status.serverUrl);
+            set((state) => ({
+              statuses: { ...state.statuses, [statusKey]: status },
+            }));
+          }
         } catch {
           // Leave disconnected; surfaced as "Reconnect" on the Servers screen.
+        } finally {
+          finishRestoringServer(key);
         }
       }),
     );
@@ -263,7 +313,9 @@ export const useMobileStore = create<MobileState>((set, get) => ({
         get().syncServer(serverUrl).catch(() => {}),
       ),
       get().syncCalendars().catch(() => {}),
+      get().refreshBackgroundJobs().catch(() => {}),
     ]);
+    await reconcileAndroidBackground(mobileCalendarProfileId()).catch(() => {});
     set({ restored: true });
   },
 
@@ -282,19 +334,30 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     const replicas = Object.values(get().replicas).filter(
       (replica) => normalizeServerUrl(replica.serverUrl) === normalized,
     );
-    let synced = false;
     for (const replica of replicas) {
       try {
-        const result = await replayPendingOperations(normalized, replica.vaultId);
-        if (result.replayed > 0 || result.stoppedForFailure) synced = true;
+        let job = await backgroundJobRun({
+          idempotencyKey: `mobile:${replica.vaultId}:${crypto.randomUUID()}`,
+          kind: 'replica_sync',
+          serverUrl: normalized,
+          vaultId: replica.vaultId,
+          trigger: 'foreground',
+          runtimeBudgetSeconds: 120,
+        });
+        while (job.status === 'queued' || job.status === 'running') {
+          await new Promise((resolve) => globalThis.setTimeout(resolve, 150));
+          const next = await backgroundJobGet(job.id);
+          if (!next) throw new Error('The native background sync job was lost.');
+          job = next;
+        }
       } catch {
         // Still offline for this vault; leave its queue for the next attempt.
       }
     }
-    if (!synced) return;
     // Refresh pending counts, and re-read the open vault so replayed edits and
     // any resulting server state are reflected.
     await get().loadReplicas().catch(() => {});
+    await get().refreshBackgroundJobs().catch(() => {});
     const selected = get().selected;
     if (selected && normalizeServerUrl(selected.serverUrl) === normalized) {
       await get().loadFiles().catch(() => {});
@@ -412,6 +475,23 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     await get().loadVaults(normalized);
     await get().syncServer(normalized).catch(() => {});
     await get().syncCalendars().catch(() => {});
+    await reconcileAndroidBackground(mobileCalendarProfileId()).catch(() => {});
+  },
+
+  reauthenticate: async (serverUrl, password) => {
+    const normalized = normalizeServerUrl(serverUrl);
+    const server = get().servers.find((entry) => normalizeServerUrl(entry.serverUrl) === normalized);
+    if (!server) throw new Error('This server is not saved. Add it again to sign in.');
+    await reauthenticateServer(normalized, server.username, password, {
+      allowInvalidCertificates: server.allowInvalidCertificates,
+      persistAcrossReboots: server.persistAcrossReboots,
+    });
+    await get().refreshStatuses();
+    await get().loadReplicas().catch(() => {});
+    await get().loadVaults(normalized);
+    await get().syncServer(normalized).catch(() => {});
+    await get().syncCalendars().catch(() => {});
+    await reconcileAndroidBackground(mobileCalendarProfileId()).catch(() => {});
   },
 
   reconnect: async (serverUrl) => {
@@ -426,6 +506,7 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     await get().loadVaults(normalized);
     await get().syncServer(normalized).catch(() => {});
     await get().syncCalendars().catch(() => {});
+    await reconcileAndroidBackground(mobileCalendarProfileId()).catch(() => {});
   },
 
   disconnect: async (serverUrl) => {
@@ -442,6 +523,11 @@ export const useMobileStore = create<MobileState>((set, get) => ({
       files: selected && selected.serverUrl === normalized ? [] : get().files,
     });
     await get().refreshStatuses();
+    if (get().servers.length === 0) {
+      await cancelAndroidBackgroundProfile(mobileCalendarProfileId()).catch(() => {});
+    } else {
+      await reconcileAndroidBackground(mobileCalendarProfileId()).catch(() => {});
+    }
   },
 
   loadVaults: async (serverUrl) => {

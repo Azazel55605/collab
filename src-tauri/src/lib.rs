@@ -178,6 +178,9 @@ pub fn run() {
             commands::background::background_settings_get,
             commands::background::background_settings_save,
             commands::background::background_sync_registered,
+            commands::background::background_android_reconcile,
+            commands::background::background_android_request_immediate,
+            commands::background::background_android_cancel_profile,
             // vault
             commands::vault::open_vault,
             commands::vault::create_vault,
@@ -228,6 +231,7 @@ pub fn run() {
             commands::ocr::recognize_image_data_url_words,
             // hosted server connection
             commands::server::connect_server,
+            commands::server::reauthenticate_server,
             commands::server::reconnect_server,
             commands::server::disconnect_server,
             commands::server::server_connection_statuses,

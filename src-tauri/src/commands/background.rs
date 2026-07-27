@@ -206,6 +206,76 @@ pub fn background_sync_registered(
         .enqueue_registered(BackgroundJobTrigger::UserInitiated)
 }
 
+#[tauri::command]
+pub fn background_android_reconcile(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<(), String> {
+    state
+        .background
+        .register_profile_for_all_servers(&profile_id)?;
+    #[cfg(target_os = "android")]
+    {
+        let settings = state.background.settings()?;
+        let enabled = !state.background.list_servers()?.is_empty()
+            && settings.run_in_background
+            && settings.background_sync
+            && !settings.paused;
+        let interval = match settings.sync_interval {
+            crate::background::BackgroundSyncInterval::SystemManaged => "system_managed",
+            crate::background::BackgroundSyncInterval::FifteenMinutes => "fifteen_minutes",
+            crate::background::BackgroundSyncInterval::ThirtyMinutes => "thirty_minutes",
+            crate::background::BackgroundSyncInterval::Hourly => "hourly",
+            crate::background::BackgroundSyncInterval::Manual => "manual",
+        };
+        crate::android_jni::configure_background_scheduler(&profile_id, enabled, interval)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = state;
+        Err("Android background scheduling is only available on Android.".to_string())
+    }
+}
+
+#[tauri::command]
+pub fn background_android_request_immediate(
+    state: State<'_, AppState>,
+    profile_id: String,
+    user_initiated: bool,
+) -> Result<(), String> {
+    state
+        .background
+        .register_profile_for_all_servers(&profile_id)?;
+    #[cfg(target_os = "android")]
+    {
+        if !user_initiated {
+            let settings = state.background.settings()?;
+            if !settings.run_in_background || !settings.background_sync || settings.paused {
+                return Ok(());
+            }
+        }
+        crate::android_jni::request_immediate_background_work(&profile_id, user_initiated)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (state, user_initiated);
+        Err("Android background scheduling is only available on Android.".to_string())
+    }
+}
+
+#[tauri::command]
+pub fn background_android_cancel_profile(profile_id: String) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        crate::android_jni::cancel_background_profile(&profile_id)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = profile_id;
+        Err("Android background scheduling is only available on Android.".to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

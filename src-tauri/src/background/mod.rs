@@ -3,9 +3,11 @@ mod models;
 mod persistence;
 mod sync;
 
+#[cfg(not(mobile))]
+pub use models::BackgroundCloseBehavior;
 pub use models::{
-    BackgroundCloseBehavior, BackgroundJobAggregate, BackgroundJobKind, BackgroundJobProgress,
-    BackgroundJobRecord, BackgroundJobRequest, BackgroundJobStatus, BackgroundJobTrigger,
+    BackgroundJobAggregate, BackgroundJobKind, BackgroundJobProgress, BackgroundJobRecord,
+    BackgroundJobRequest, BackgroundJobStatus, BackgroundJobTrigger, BackgroundRunOutcome,
     BackgroundServerRegistration, BackgroundSettings, BackgroundSyncInterval,
 };
 
@@ -113,6 +115,20 @@ impl BackgroundCoordinator {
         self.persistence.remove_server(&server_url)
     }
 
+    pub fn register_profile_for_all_servers(&self, profile_id: &str) -> Result<(), String> {
+        let profile_id = profile_id.trim();
+        if profile_id.is_empty() || profile_id.len() > 128 {
+            return Err("Background profile IDs must be between 1 and 128 characters.".to_string());
+        }
+        for mut server in self.list_servers()? {
+            if !server.profile_ids.iter().any(|known| known == profile_id) {
+                server.profile_ids.push(profile_id.to_string());
+                self.persistence.upsert_server(server)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn list_jobs(&self, limit: usize) -> Result<Vec<BackgroundJobRecord>, String> {
         self.persistence.list_jobs(limit)
     }
@@ -212,6 +228,14 @@ impl BackgroundCoordinator {
         self: &Arc<Self>,
         trigger: BackgroundJobTrigger,
     ) -> Result<Vec<BackgroundJobRecord>, String> {
+        self.enqueue_registered_for_profile(trigger, None)
+    }
+
+    pub fn enqueue_registered_for_profile(
+        self: &Arc<Self>,
+        trigger: BackgroundJobTrigger,
+        profile_filter: Option<&str>,
+    ) -> Result<Vec<BackgroundJobRecord>, String> {
         let settings = self.settings()?;
         if trigger != BackgroundJobTrigger::UserInitiated
             && (!settings.run_in_background || !settings.background_sync || settings.paused)
@@ -232,7 +256,7 @@ impl BackgroundCoordinator {
                 .filter(|replica| replica.server_url == server.server_url)
             {
                 jobs.push(self.enqueue(BackgroundJobRequest {
-                    idempotency_key: format!("desktop-{run_id}-vault-{}", replica.vault_id),
+                    idempotency_key: format!("scheduled-{run_id}-vault-{}", replica.vault_id),
                     kind: BackgroundJobKind::ReplicaSync,
                     server_url: Some(server.server_url.clone()),
                     profile_id: None,
@@ -241,9 +265,13 @@ impl BackgroundCoordinator {
                     runtime_budget_seconds: None,
                 })?);
             }
-            for profile_id in &server.profile_ids {
+            for profile_id in server
+                .profile_ids
+                .iter()
+                .filter(|profile_id| profile_filter.is_none_or(|filter| *profile_id == filter))
+            {
                 jobs.push(self.enqueue(BackgroundJobRequest {
-                    idempotency_key: format!("desktop-{run_id}-calendar-{profile_id}"),
+                    idempotency_key: format!("scheduled-{run_id}-calendar-{profile_id}"),
                     kind: BackgroundJobKind::CalendarSync,
                     server_url: Some(server.server_url.clone()),
                     profile_id: Some(profile_id.clone()),
@@ -256,6 +284,65 @@ impl BackgroundCoordinator {
         Ok(jobs)
     }
 
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub async fn run_registered_to_completion(
+        self: &Arc<Self>,
+        trigger: BackgroundJobTrigger,
+        profile_filter: Option<&str>,
+        runtime_budget: Duration,
+    ) -> Result<BackgroundRunOutcome, String> {
+        let jobs = self.enqueue_registered_for_profile(trigger, profile_filter)?;
+        let job_ids = jobs.iter().map(|job| job.id.clone()).collect::<Vec<_>>();
+        let started = std::time::Instant::now();
+        loop {
+            let records = job_ids
+                .iter()
+                .map(|id| self.job(id))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            if records.len() == job_ids.len()
+                && records.iter().all(|record| record.status.is_terminal())
+            {
+                let mut outcome = BackgroundRunOutcome {
+                    job_ids,
+                    ..BackgroundRunOutcome::default()
+                };
+                for record in records {
+                    match record.status {
+                        BackgroundJobStatus::Succeeded => outcome.succeeded += 1,
+                        BackgroundJobStatus::AuthenticationRequired => {
+                            outcome.attention_required += 1;
+                            outcome.authentication_required = true;
+                        }
+                        BackgroundJobStatus::PermissionDenied => {
+                            outcome.attention_required += 1;
+                            outcome.permission_denied = true;
+                        }
+                        BackgroundJobStatus::Partial
+                        | BackgroundJobStatus::Conflict
+                        | BackgroundJobStatus::Failed => outcome.attention_required += 1,
+                        BackgroundJobStatus::Deferred
+                        | BackgroundJobStatus::Cancelled
+                        | BackgroundJobStatus::Queued
+                        | BackgroundJobStatus::Running => {}
+                    }
+                    outcome.retry_recommended |= record.retryable;
+                }
+                return Ok(outcome);
+            }
+            if started.elapsed() >= runtime_budget {
+                for id in &job_ids {
+                    let _ = self.cancel(id);
+                }
+                return Err("The Android background execution window expired.".to_string());
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    #[cfg_attr(mobile, allow(dead_code))]
     pub fn shutdown(&self) {
         if self.shutting_down.swap(true, Ordering::AcqRel) {
             return;
@@ -784,5 +871,41 @@ mod tests {
             .replace_servers(vec![refreshed])
             .expect("replace registry");
         assert_eq!(registrations[0].profile_ids, vec!["user-1"]);
+    }
+
+    #[tokio::test]
+    async fn android_run_filters_calendar_work_to_the_requested_profile() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let coordinator = Arc::new(BackgroundCoordinator::for_test(
+            Arc::new(HostedSessionRuntime::new()),
+            directory.path().to_path_buf(),
+        ));
+        coordinator
+            .upsert_server(BackgroundServerRegistration {
+                server_url: "https://collab.example.test".to_string(),
+                allow_invalid_certificates: false,
+                persist_across_reboots: true,
+                background_sync_enabled: true,
+                profile_ids: vec!["profile-a".to_string(), "profile-b".to_string()],
+                updated_at: Utc::now().to_rfc3339(),
+            })
+            .expect("server registration");
+
+        let outcome = coordinator
+            .run_registered_to_completion(
+                BackgroundJobTrigger::UserInitiated,
+                Some("profile-b"),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("bounded run");
+
+        assert_eq!(outcome.job_ids.len(), 1);
+        assert!(outcome.authentication_required);
+        let record = coordinator
+            .job(&outcome.job_ids[0])
+            .expect("job lookup")
+            .expect("job record");
+        assert_eq!(record.profile_id.as_deref(), Some("profile-b"));
     }
 }

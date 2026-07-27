@@ -4,7 +4,7 @@ use notify::RecommendedWatcher;
 use notify_debouncer_mini::Debouncer;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 #[derive(Debug, Clone)]
 pub struct ServerSessionState {
@@ -42,6 +42,30 @@ impl HostedSessionRuntime {
     }
 }
 
+static HOSTED_SESSION_RUNTIME: OnceLock<Arc<HostedSessionRuntime>> = OnceLock::new();
+
+/// Returns the one hosted-session registry for this native process. Android
+/// WorkManager can load the Rust library before or while the Tauri activity is
+/// alive, so both entry points must share refresh-token rotation state.
+pub(crate) fn shared_hosted_session_runtime() -> Arc<HostedSessionRuntime> {
+    HOSTED_SESSION_RUNTIME
+        .get_or_init(|| Arc::new(HostedSessionRuntime::new()))
+        .clone()
+}
+
+static BACKGROUND_COORDINATOR: OnceLock<Arc<crate::background::BackgroundCoordinator>> =
+    OnceLock::new();
+
+pub(crate) fn shared_background_coordinator() -> Arc<crate::background::BackgroundCoordinator> {
+    BACKGROUND_COORDINATOR
+        .get_or_init(|| {
+            Arc::new(crate::background::BackgroundCoordinator::new(
+                shared_hosted_session_runtime(),
+            ))
+        })
+        .clone()
+}
+
 pub struct AppState {
     pub active_vault: RwLock<Option<VaultMeta>>,
     pub watcher: parking_lot::Mutex<Option<Debouncer<RecommendedWatcher>>>,
@@ -64,10 +88,8 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
-        let hosted_sessions = Arc::new(HostedSessionRuntime::new());
-        let background = Arc::new(crate::background::BackgroundCoordinator::new(
-            hosted_sessions.clone(),
-        ));
+        let hosted_sessions = shared_hosted_session_runtime();
+        let background = shared_background_coordinator();
         Self {
             active_vault: RwLock::new(None),
             watcher: parking_lot::Mutex::new(None),
@@ -82,5 +104,26 @@ impl AppState {
 
     pub fn hosted_sessions(&self) -> &HostedSessionRuntime {
         &self.hosted_sessions
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{shared_background_coordinator, shared_hosted_session_runtime};
+    use std::sync::Arc;
+
+    #[test]
+    fn app_and_headless_entries_share_one_runtime_and_coordinator() {
+        let foreground = shared_hosted_session_runtime();
+        let background = shared_hosted_session_runtime();
+        let foreground_coordinator = shared_background_coordinator();
+        let background_coordinator = shared_background_coordinator();
+
+        assert!(Arc::ptr_eq(&foreground, &background));
+        assert!(Arc::ptr_eq(
+            &foreground_coordinator,
+            &background_coordinator
+        ));
+        assert!(Arc::ptr_eq(&foreground, &foreground_coordinator.sessions));
     }
 }

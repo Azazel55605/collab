@@ -105,6 +105,18 @@ pub struct BackgroundJobAggregate {
     pub latest_finished_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub struct BackgroundRunOutcome {
+    pub job_ids: Vec<String>,
+    pub succeeded: u64,
+    pub attention_required: u64,
+    pub authentication_required: bool,
+    pub permission_denied: bool,
+    pub retry_recommended: bool,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct BackgroundServerRegistration {

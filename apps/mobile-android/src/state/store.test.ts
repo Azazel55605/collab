@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const invoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 
-import type { HostedVault } from '../mobileTauri';
+import type { HostedVault, ReplicaSummary } from '../mobileTauri';
 import { useMobileStore } from './store';
 
 const SERVER = 'https://collab.example.com';
@@ -64,6 +64,7 @@ function resetStore() {
   useMobileStore.setState({
     restored: false,
     servers: [],
+    restoringServers: {},
     statuses: {},
     vaults: {},
     vaultsBusy: {},
@@ -74,6 +75,7 @@ function resetStore() {
     filesOffline: false,
     fileCache: {},
     replicas: {},
+    backgroundJobs: [],
     offlineBusy: {},
     offlineProgress: {},
       offlineError: null,
@@ -182,6 +184,77 @@ describe('offline replica store actions', () => {
     expect(state.files.map((f) => f.id).sort()).toEqual(['asset-1', 'doc-1', 'folder-1']);
     // Live file listing was never attempted while disconnected.
     expect(invoke).not.toHaveBeenCalledWith('hosted_vault_request', expect.anything());
+  });
+
+  it('syncServer joins the native background coordinator for foreground replay', async () => {
+    const replica: ReplicaSummary = {
+      serverUrl: SERVER,
+      vaultId: 'v1',
+      vaultName: 'Research',
+      manifestSequence: 5,
+      lastSyncedAt: null,
+      status: 'idle',
+      pendingCount: 1,
+      updatedAt: '',
+      role: 'editor',
+      capabilities: ['vault.offlineCopy'],
+    };
+    useMobileStore.setState({
+      statuses: {
+        [SERVER]: {
+          connected: true,
+          serverUrl: SERVER,
+          allowInvalidCertificates: false,
+          user: null,
+          accessExpiresAt: null,
+        },
+      },
+      replicas: { [SERVER + '::v1']: replica },
+    });
+    const job = {
+      id: 'job-1',
+      idempotencyKey: 'mobile-vault-sync',
+      kind: 'replica_sync',
+      serverUrl: SERVER,
+      profileId: null,
+      vaultId: 'v1',
+      trigger: 'foreground',
+      status: 'queued',
+      createdAt: '2026-07-27T00:00:00Z',
+      startedAt: null,
+      finishedAt: null,
+      nextRetryAt: null,
+      progress: { completed: 0, total: null, unit: 'operations', message: null },
+      summary: null,
+      errorCategory: null,
+      errorMessage: null,
+      retryable: false,
+    };
+
+    invoke.mockImplementation((command: string) => {
+      if (command === 'background_job_run') return Promise.resolve(job);
+      if (command === 'background_job_get') {
+        return Promise.resolve({ ...job, status: 'succeeded', finishedAt: '2026-07-27T00:00:01Z' });
+      }
+      if (command === 'replica_list') return Promise.resolve([{ ...replica, pendingCount: 0 }]);
+      if (command === 'background_job_list') return Promise.resolve([]);
+      return Promise.reject(new Error(`unhandled ${command}`));
+    });
+
+    await useMobileStore.getState().syncServer(SERVER);
+
+    expect(invoke).toHaveBeenCalledWith(
+      'background_job_run',
+      expect.objectContaining({
+        request: expect.objectContaining({
+          kind: 'replica_sync',
+          serverUrl: SERVER,
+          vaultId: 'v1',
+          trigger: 'foreground',
+        }),
+      }),
+    );
+    expect(invoke).toHaveBeenCalledWith('background_job_get', { jobId: 'job-1' });
   });
 
   it('refreshOfflineCopies updates stale offline replicas for connected vaults', async () => {

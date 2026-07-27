@@ -5,6 +5,7 @@ import { useVaultStore } from '../../store/vaultStore';
 import { useServerStore, isServerSessionExpired } from '../../store/serverStore';
 import { knownServerFor } from '../../lib/hostedServers';
 import { cn } from '../../lib/utils';
+import { ReauthenticateServerDialog } from '../server/ReauthenticateServerDialog';
 
 type ConnectionState = 'online' | 'expired' | 'offline';
 
@@ -19,6 +20,7 @@ export default function HostedConnectionStatus() {
   const status = useServerStore((state) => (serverUrl ? state.connections[serverUrl]?.status ?? null : null));
   const reconnect = useServerStore((state) => state.reconnect);
   const [busy, setBusy] = useState(false);
+  const [showReauthentication, setShowReauthentication] = useState(false);
   // Re-evaluate time-based expiry periodically since it does not emit a store change.
   const [, setTick] = useState(0);
 
@@ -47,7 +49,12 @@ export default function HostedConnectionStatus() {
       await reconnect(vault.serverUrl, allowInvalidCertificates);
       toast.success('Server session restored');
     } catch (reason) {
-      toast.error(`Reconnect failed: ${reason}`);
+      if (knownServerFor(vault.serverUrl)) {
+        setShowReauthentication(true);
+        toast.error('The saved session could not be restored. Enter your password to sign in again.');
+      } else {
+        toast.error(`Reconnect failed: ${reason}`);
+      }
     } finally {
       setBusy(false);
     }
@@ -63,22 +70,29 @@ export default function HostedConnectionStatus() {
   }
 
   const label = state === 'expired' ? 'Session expired' : 'Offline';
+  const knownServer = knownServerFor(vault.serverUrl) ?? null;
   return (
-    <button
-      onClick={handleReconnect}
-      disabled={busy}
-      title={`${label} — reconnect to ${vault.serverUrl}`}
-      className="flex items-center gap-1 text-amber-500/90 hover:text-amber-400 transition-colors app-motion-fast disabled:opacity-60"
-    >
-      <span key={`${state}:${busy ? 'busy' : 'idle'}`} className="flex items-center gap-1 app-chip-change">
-        {busy ? (
-          <RefreshCw size={11} className="app-spin-soft" />
-        ) : (
-          <CloudOff size={11} />
-        )}
-        <span className="text-[10px]">{busy ? 'Reconnecting…' : label}</span>
-        {!busy && <RefreshCw size={9} className={cn('opacity-70')} />}
-      </span>
-    </button>
+    <>
+      <button
+        onClick={handleReconnect}
+        disabled={busy}
+        title={`${label} — reconnect to ${vault.serverUrl}`}
+        className="flex items-center gap-1 text-amber-500/90 hover:text-amber-400 transition-colors app-motion-fast disabled:opacity-60"
+      >
+        <span key={`${state}:${busy ? 'busy' : 'idle'}`} className="flex items-center gap-1 app-chip-change">
+          {busy ? (
+            <RefreshCw size={11} className="app-spin-soft" />
+          ) : (
+            <CloudOff size={11} />
+          )}
+          <span className="text-[10px]">{busy ? 'Reconnecting…' : label}</span>
+          {!busy && <RefreshCw size={9} className={cn('opacity-70')} />}
+        </span>
+      </button>
+      <ReauthenticateServerDialog
+        server={showReauthentication ? knownServer : null}
+        onOpenChange={setShowReauthentication}
+      />
+    </>
   );
 }

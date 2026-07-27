@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const invoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 
-import { MobileApp } from './MobileApp';
+import { findBackgroundAttention, MobileApp } from './MobileApp';
+import type { BackgroundJobRecord } from './mobileTauri';
 import { useMobileStore } from './state/store';
 
 function mockInvoke(handlers: Record<string, (args: unknown) => unknown>) {
@@ -15,6 +16,26 @@ function mockInvoke(handlers: Record<string, (args: unknown) => unknown>) {
   });
 }
 
+const AUTH_REQUIRED_JOB: BackgroundJobRecord = {
+  id: 'auth-job',
+  idempotencyKey: 'auth-job',
+  kind: 'calendar_sync',
+  serverUrl: 'https://collab.example.com',
+  profileId: 'mobile-profile',
+  vaultId: null,
+  trigger: 'periodic',
+  status: 'authentication_required',
+  createdAt: '2026-07-27T08:00:00Z',
+  startedAt: '2026-07-27T08:00:00Z',
+  finishedAt: '2026-07-27T08:00:01Z',
+  nextRetryAt: null,
+  progress: { completed: 0, total: null, detail: null },
+  summary: null,
+  errorCategory: 'authentication',
+  errorMessage: 'Sign in again.',
+  retryable: false,
+};
+
 describe('MobileApp shell', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -22,6 +43,7 @@ describe('MobileApp shell', () => {
     useMobileStore.setState({
       restored: false,
       servers: [],
+      restoringServers: {},
       statuses: {},
       vaults: {},
       vaultsBusy: {},
@@ -32,6 +54,7 @@ describe('MobileApp shell', () => {
       filesOffline: false,
       fileCache: {},
       replicas: {},
+      backgroundJobs: [],
       offlineBusy: {},
       offlineProgress: {},
       offlineError: null,
@@ -60,6 +83,29 @@ describe('MobileApp shell', () => {
     expect(screen.getByText('Connect to a hosted server')).toBeTruthy();
     // Bottom navigation is present and phone-first (no desktop sidebar).
     expect(screen.getByRole('navigation', { name: 'Primary' })).toBeTruthy();
+  });
+
+  it('hides a stale background authentication warning after reconnecting', () => {
+    const server = {
+      serverUrl: 'https://collab.example.com/',
+      username: 'ada',
+      allowInvalidCertificates: false,
+      persistAcrossReboots: true,
+    };
+    expect(findBackgroundAttention(
+      [AUTH_REQUIRED_JOB],
+      [server],
+      {
+        'https://collab.example.com': {
+          connected: true,
+          serverUrl: 'https://collab.example.com',
+          allowInvalidCertificates: false,
+          user: null,
+          accessExpiresAt: null,
+        },
+      },
+    )).toBeUndefined();
+    expect(findBackgroundAttention([AUTH_REQUIRED_JOB], [server], {})).toEqual(AUTH_REQUIRED_JOB);
   });
 
   it('opens the profile calendar without selecting a vault', async () => {

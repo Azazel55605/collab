@@ -1,4 +1,4 @@
-import { CalendarX2, ChevronRight, Cloud, LogOut, Pencil, Plus, RefreshCw, ShieldAlert } from 'lucide-react';
+import { CalendarX2, ChevronRight, Cloud, KeyRound, LogOut, Pencil, Plus, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 
 import { Banner, EmptyState, Spinner, StatusDot } from '../components/ui';
@@ -12,7 +12,9 @@ function errorMessage(reason: unknown): string {
 export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: string) => void }) {
   const servers = useMobileStore((s) => s.servers);
   const statuses = useMobileStore((s) => s.statuses);
+  const restoringServers = useMobileStore((s) => s.restoringServers);
   const connect = useMobileStore((s) => s.connect);
+  const reauthenticate = useMobileStore((s) => s.reauthenticate);
   const reconnect = useMobileStore((s) => s.reconnect);
   const disconnect = useMobileStore((s) => s.disconnect);
   const calendarCacheOrigins = useMobileStore((s) => s.calendarCacheOrigins);
@@ -28,6 +30,10 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [editingServer, setEditingServer] = useState<string | null>(null);
+  const [reauthServer, setReauthServer] = useState<KnownServer | null>(null);
+  const [reauthPassword, setReauthPassword] = useState('');
+  const [reauthBusy, setReauthBusy] = useState(false);
+  const [reauthError, setReauthError] = useState<string | null>(null);
 
   function beginEdit(server: (typeof servers)[number]) {
     const normalized = normalizeServerUrl(server.serverUrl);
@@ -54,6 +60,7 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
     () => Object.values(statuses).filter((status) => status.connected).length,
     [statuses],
   );
+  const restoringCount = Object.keys(restoringServers).length;
 
   async function handleConnect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -89,12 +96,47 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
     }
   }
 
+  function beginReauthentication(server: KnownServer) {
+    setReauthServer(server);
+    setReauthPassword('');
+    setReauthError(null);
+  }
+
+  function closeReauthentication() {
+    if (reauthBusy) return;
+    setReauthServer(null);
+    setReauthPassword('');
+    setReauthError(null);
+  }
+
+  async function handleReauthentication(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!reauthServer || !reauthPassword) return;
+    setReauthBusy(true);
+    setReauthError(null);
+    try {
+      await reauthenticate(reauthServer.serverUrl, reauthPassword);
+      setReauthServer(null);
+      setReauthPassword('');
+    } catch (reason) {
+      setReauthError(errorMessage(reason));
+    } finally {
+      setReauthBusy(false);
+    }
+  }
+
   return (
     <div className="screen">
       <header className="screen-header">
         <div>
           <h1>Servers</h1>
-          <p>{connectedCount > 0 ? `${connectedCount} connected` : 'Not connected'}</p>
+          <p>
+            {restoringCount > 0
+              ? `Connecting to ${restoringCount} server${restoringCount === 1 ? '' : 's'}…`
+              : connectedCount > 0
+                ? `${connectedCount} connected`
+                : 'Not connected'}
+          </p>
         </div>
         {!showForm && !editingServer ? (
           <button className="header-action" type="button" onClick={beginAdd}>
@@ -189,6 +231,7 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
           const key = normalizeServerUrl(server.serverUrl);
           const status = statuses[key];
           const online = !!status?.connected;
+          const restoring = restoringServers[key] === true;
           const isPending = pending === key;
           const editing = editingServer === key;
           const hasCalendarCache = calendarCacheOrigins.some(
@@ -203,11 +246,13 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
                   disabled={!online || editing}
                   onClick={() => onOpenServer(key)}
                 >
-                  <StatusDot online={online} />
+                  {restoring ? <Spinner size={16} /> : <StatusDot online={online} />}
                   <div className="row-text">
                     <strong>{key.replace(/^https?:\/\//, '')}</strong>
                     <span>
-                      {online
+                      {restoring
+                        ? 'Connecting…'
+                        : online
                         ? status?.user?.displayName || status?.user?.username || server.username
                         : 'Disconnected'}
                       {server.allowInvalidCertificates ? ' · untrusted TLS' : ''}
@@ -232,11 +277,23 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
                       {isPending ? <Spinner size={16} /> : <CalendarX2 size={16} aria-hidden />}
                     </button>
                   ) : null}
+                  {!online && !restoring ? (
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`Sign in again to ${key}`}
+                      title="Sign in again"
+                      disabled={isPending || editing}
+                      onClick={() => beginReauthentication(server)}
+                    >
+                      <KeyRound size={16} aria-hidden />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className={`icon-button ${editing ? 'active' : ''}`}
                     aria-label={`Edit ${key}`}
-                    disabled={isPending}
+                    disabled={isPending || restoring}
                     onClick={() => editing ? setEditingServer(null) : beginEdit(server)}
                   >
                     <Pencil size={16} aria-hidden />
@@ -251,7 +308,7 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
                     >
                       {isPending ? <Spinner size={16} /> : <LogOut size={16} aria-hidden />}
                     </button>
-                  ) : (
+                  ) : !restoring ? (
                     <button
                       type="button"
                       className="icon-button"
@@ -261,7 +318,7 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
                     >
                       {isPending ? <Spinner size={16} /> : <RefreshCw size={16} aria-hidden />}
                     </button>
-                  )}
+                  ) : null}
                 </div>
               </div>
               {editing ? (
@@ -310,6 +367,64 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
           <ShieldAlert size={14} aria-hidden /> Untrusted-certificate servers verify TLS loosely.
           Use only for private deployments you trust.
         </p>
+      ) : null}
+
+      {reauthServer ? (
+        <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) closeReauthentication();
+        }}>
+          <form
+            className="sheet reauthentication-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Sign in again to ${normalizeServerUrl(reauthServer.serverUrl)}`}
+            onSubmit={handleReauthentication}
+          >
+            <div className="sheet-handle" />
+            <div className="sheet-head">
+              <KeyRound size={20} aria-hidden />
+              <div className="row-text">
+                <strong>Sign in again</strong>
+                <span>{reauthServer.username} on {normalizeServerUrl(reauthServer.serverUrl)}</span>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close sign in"
+                disabled={reauthBusy}
+                onClick={closeReauthentication}
+              >
+                <X size={18} aria-hidden />
+              </button>
+            </div>
+            <p className="sheet-note">
+              Your server settings, offline copies, and cached calendars will be kept.
+            </p>
+            <label className="field">
+              <span>Password</span>
+              <input
+                autoFocus
+                value={reauthPassword}
+                type="password"
+                autoComplete="current-password"
+                autoCapitalize="none"
+                autoCorrect="off"
+                disabled={reauthBusy}
+                onChange={(event) => setReauthPassword(event.target.value)}
+              />
+            </label>
+            {reauthError ? <Banner tone="error">{reauthError}</Banner> : null}
+            <div className="form-actions">
+              <button type="button" className="ghost-button" disabled={reauthBusy} onClick={closeReauthentication}>
+                Cancel
+              </button>
+              <button type="submit" className="primary-button" disabled={reauthBusy || !reauthPassword}>
+                {reauthBusy ? <Spinner /> : <KeyRound size={18} aria-hidden />}
+                Sign in
+              </button>
+            </div>
+          </form>
+        </div>
       ) : null}
     </div>
   );

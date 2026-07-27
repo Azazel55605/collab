@@ -1,4 +1,4 @@
-import { CalendarDays, CircuitBoard, Code2, Palette, Server, Type } from 'lucide-react';
+import { CalendarDays, CircuitBoard, CloudCog, Code2, Palette, RefreshCw, Server, Type } from 'lucide-react';
 
 import {
   ACCENTS,
@@ -10,8 +10,26 @@ import {
 } from '../lib/theme';
 import { useMobileStore } from '../state/store';
 import { alwaysCreateOfflineCopy, setAlwaysCreateOfflineCopy } from '../lib/preferences';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { TimeField } from '../components/TimeField';
+import {
+  backgroundSettingsGet,
+  backgroundSettingsSave,
+  reconcileAndroidBackground,
+  requestAndroidBackgroundSync,
+  type BackgroundSettings,
+} from '../mobileTauri';
+import { mobileCalendarProfileId } from '../lib/calendarSync';
+
+const DEFAULT_BACKGROUND_SETTINGS: BackgroundSettings = {
+  schemaVersion: 1,
+  runInBackground: false,
+  backgroundSync: true,
+  syncInterval: 'system_managed',
+  startAtLogin: false,
+  closeBehavior: 'hide_to_tray',
+  paused: false,
+};
 
 const FONT_SCALES: { value: number; label: string }[] = [
   { value: 0.9, label: 'S' },
@@ -31,6 +49,11 @@ export function SettingsScreen({
   const statuses = useMobileStore((s) => s.statuses);
   const connectedCount = Object.values(statuses).filter((s) => s.connected).length;
   const [alwaysOffline, setAlwaysOffline] = useState(alwaysCreateOfflineCopy);
+  const [background, setBackground] = useState(DEFAULT_BACKGROUND_SETTINGS);
+  const [backgroundBusy, setBackgroundBusy] = useState(true);
+  const [backgroundError, setBackgroundError] = useState<string | null>(null);
+  const backgroundJobs = useMobileStore((s) => s.backgroundJobs);
+  const refreshBackgroundJobs = useMobileStore((s) => s.refreshBackgroundJobs);
   const colorFormats = Object.entries(COLOR_PREVIEW_FORMAT_OPTIONS) as [
     ColorPreviewFormat,
     typeof COLOR_PREVIEW_FORMAT_OPTIONS[ColorPreviewFormat],
@@ -44,6 +67,47 @@ export function SettingsScreen({
         [format]: enabled,
       },
     });
+  };
+
+  useEffect(() => {
+    backgroundSettingsGet()
+      .then(async (settings) => {
+        setBackground(settings);
+        await reconcileAndroidBackground(mobileCalendarProfileId());
+        await refreshBackgroundJobs().catch(() => {});
+      })
+      .catch((error) => setBackgroundError(String(error)))
+      .finally(() => setBackgroundBusy(false));
+  }, [refreshBackgroundJobs]);
+
+  const saveBackground = async (next: BackgroundSettings) => {
+    const previous = background;
+    setBackground(next);
+    setBackgroundBusy(true);
+    setBackgroundError(null);
+    try {
+      const saved = await backgroundSettingsSave(next);
+      setBackground(saved);
+      await reconcileAndroidBackground(mobileCalendarProfileId());
+    } catch (error) {
+      setBackground(previous);
+      setBackgroundError(String(error));
+    } finally {
+      setBackgroundBusy(false);
+    }
+  };
+
+  const syncInBackground = async () => {
+    setBackgroundBusy(true);
+    setBackgroundError(null);
+    try {
+      await requestAndroidBackgroundSync(mobileCalendarProfileId(), true);
+      await refreshBackgroundJobs().catch(() => {});
+    } catch (error) {
+      setBackgroundError(String(error));
+    } finally {
+      setBackgroundBusy(false);
+    }
   };
 
   return (
@@ -75,6 +139,105 @@ export function SettingsScreen({
             }}
           />
         </label>
+      </section>
+
+      <section className="card">
+        <div className="card-title">
+          <CloudCog size={18} aria-hidden />
+          <span>Background sync</span>
+        </div>
+        <label className="toggle-row">
+          <span>
+            <strong>Allow background work</strong>
+            <small>Let Android keep offline vaults and hosted calendars current.</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={background.runInBackground}
+            disabled={backgroundBusy}
+            onChange={(event) => void saveBackground({
+              ...background,
+              runInBackground: event.currentTarget.checked,
+            })}
+          />
+        </label>
+        <label className="toggle-row disabled-when-off">
+          <span>
+            <strong>Sync while the app is closed</strong>
+            <small>Android chooses the exact execution time based on device conditions.</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={background.backgroundSync}
+            disabled={!background.runInBackground || backgroundBusy}
+            onChange={(event) => void saveBackground({
+              ...background,
+              backgroundSync: event.currentTarget.checked,
+            })}
+          />
+        </label>
+        <div className="setting-row stacked">
+          <div>
+            <strong>Requested interval</strong>
+            <span>Background execution can be deferred by Android.</span>
+          </div>
+          <div className="segmented-control calendar-duration-options">
+            {([
+              ['system_managed', 'System'],
+              ['fifteen_minutes', '15m'],
+              ['thirty_minutes', '30m'],
+              ['hourly', '1h'],
+              ['manual', 'Manual'],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={background.syncInterval === value ? 'selected' : ''}
+                disabled={!background.runInBackground || !background.backgroundSync || backgroundBusy}
+                onClick={() => void saveBackground({ ...background, syncInterval: value })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="toggle-row disabled-when-off">
+          <span>
+            <strong>Pause scheduled sync</strong>
+            <small>Manual sync remains available.</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={background.paused}
+            disabled={!background.runInBackground || !background.backgroundSync || backgroundBusy}
+            onChange={(event) => void saveBackground({
+              ...background,
+              paused: event.currentTarget.checked,
+            })}
+          />
+        </label>
+        <button
+          type="button"
+          className="primary-button"
+          disabled={backgroundBusy}
+          onClick={() => void syncInBackground()}
+        >
+          <RefreshCw size={16} aria-hidden />
+          Sync now
+        </button>
+        {backgroundError ? <p className="footnote error-text">{backgroundError}</p> : null}
+        {backgroundJobs.length > 0 ? (
+          <div className="info-rows">
+            {backgroundJobs.slice(0, 3).map((job) => (
+              <div className="info-row" key={job.id}>
+                <span>
+                  {job.kind === 'calendar_sync' ? 'Calendar' : job.kind === 'replica_sync' ? 'Vault' : 'Maintenance'}
+                </span>
+                <strong>{job.status.replace(/_/g, ' ')}</strong>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       <section className="card">

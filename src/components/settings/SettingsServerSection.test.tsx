@@ -8,6 +8,7 @@ vi.mock('../../lib/tauri', () => ({
   tauriCommands: {
     serverConnectionStatuses: vi.fn(),
     connectServer: vi.fn(),
+    reauthenticateServer: vi.fn(),
     reconnectServer: vi.fn(),
     disconnectServer: vi.fn(),
     hostedVaultRequest: vi.fn(),
@@ -122,5 +123,36 @@ describe('SettingsServerSection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Always create offline copy: On' }));
     expect(localStorage.getItem('collab-hosted-always-create-offline-copy')).toBe('false');
+  });
+
+  it('reauthenticates a saved server by asking only for its password', async () => {
+    localStorage.setItem('collab-hosted-servers', JSON.stringify([{
+      serverUrl: 'https://collab.example.com',
+      username: 'alice',
+      allowInvalidCertificates: true,
+      persistAcrossReboots: true,
+    }]));
+    vi.mocked(tauriCommands.reauthenticateServer).mockResolvedValue({
+      connected: true,
+      serverUrl: 'https://collab.example.com',
+      allowInvalidCertificates: true,
+      user: { id: '1', username: 'alice', displayName: 'Alice', role: 'member', status: 'active' },
+      accessExpiresAt: '2026-06-09T12:00:00Z',
+    });
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([]);
+
+    render(<SettingsServerSection />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in again' }));
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'replacement-password' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => expect(tauriCommands.reauthenticateServer).toHaveBeenCalledWith(
+      'https://collab.example.com',
+      'alice',
+      'replacement-password',
+      true,
+      true,
+    ));
+    expect(screen.queryByText('Sign in again', { selector: '[data-slot="dialog-title"]' })).toBeNull();
   });
 });

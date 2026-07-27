@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FolderOpen, Plus, Clock, ArrowRight, Server, RefreshCw, Check, LogIn, LogOut, ChevronDown, WifiOff, Trash2 } from 'lucide-react';
+import { FolderOpen, Plus, Clock, ArrowRight, Server, RefreshCw, Check, KeyRound, LogIn, LogOut, ChevronDown, WifiOff, Trash2 } from 'lucide-react';
 import { AppLogo } from '../ui/AppLogo';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -10,6 +10,8 @@ import { tauriCommands } from '../../lib/tauri';
 import { hostedVaultMeta, vaultKind, type HostedVaultMeta, type HostedVaultSummary, type MemberRole } from '../../types/vault';
 import { deleteHostedVaultReplica, listHostedVaultReplicas, type ReplicaSummary } from '../../lib/vaultReplica';
 import { HostedLoginForm } from '../server/HostedLoginForm';
+import { ReauthenticateServerDialog } from '../server/ReauthenticateServerDialog';
+import { listKnownServers, type KnownServer } from '../../lib/hostedServers';
 import { toast } from 'sonner';
 
 export default function VaultPicker() {
@@ -26,11 +28,16 @@ export default function VaultPicker() {
   const [hostedName, setHostedName] = useState('');
   const [hostedBusy, setHostedBusy] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
+  const [reauthServer, setReauthServer] = useState<KnownServer | null>(null);
   const [offlineReplicas, setOfflineReplicas] = useState<ReplicaSummary[]>([]);
   const connectedServers = useMemo(
     () => Object.values(connections).filter((c) => c.status.connected && c.status.serverUrl),
     [connections],
   );
+  const disconnectedServers = useMemo(() => {
+    const connectedUrls = new Set(connectedServers.map(({ status }) => status.serverUrl));
+    return listKnownServers().filter((server) => !connectedUrls.has(server.serverUrl));
+  }, [connectedServers]);
   const localRecentVaults = recentVaults.filter((vault) => vaultKind(vault) === 'local').slice(0, 5);
 
   const refreshOfflineReplicas = () => {
@@ -198,6 +205,26 @@ export default function VaultPicker() {
             </div>
 
             <div className="space-y-3">
+            {disconnectedServers.map((server) => (
+              <div
+                key={server.serverUrl}
+                className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-card/30 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-medium">{server.username || 'Saved server'}</p>
+                  <p className="truncate text-[10px] text-muted-foreground">{server.serverUrl} · disconnected</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 shrink-0 gap-1.5 text-xs"
+                  onClick={() => setReauthServer(server)}
+                >
+                  <KeyRound size={12} />
+                  Sign in again
+                </Button>
+              </div>
+            ))}
             {connectedServers.map(({ status, hostedVaults }) => {
               const serverUrl = status.serverUrl!;
               const activeHostedVaults = hostedVaults.filter((vault) => vault.status === 'active');
@@ -355,6 +382,10 @@ export default function VaultPicker() {
               ))}
               </div>
             )}
+            <ReauthenticateServerDialog
+              server={reauthServer}
+              onOpenChange={(open) => { if (!open) setReauthServer(null); }}
+            />
 
             {localRecentVaults.length > 0 && (
               <>

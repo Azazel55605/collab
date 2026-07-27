@@ -13,6 +13,48 @@ import type {
   CircuitTransientChunk,
   CircuitTransientResult,
 } from '../../../src/types/circuitRuntime';
+import type {
+  BackgroundJobRecord,
+  BackgroundJobRequest,
+  BackgroundSettings,
+} from '../../../src/lib/tauri';
+
+export type { BackgroundJobRecord, BackgroundJobRequest, BackgroundSettings };
+
+export function backgroundSettingsGet(): Promise<BackgroundSettings> {
+  return invoke('background_settings_get');
+}
+
+export function backgroundSettingsSave(settings: BackgroundSettings): Promise<BackgroundSettings> {
+  return invoke('background_settings_save', { settings });
+}
+
+export function backgroundJobRun(request: BackgroundJobRequest): Promise<BackgroundJobRecord> {
+  return invoke('background_job_run', { request });
+}
+
+export function backgroundJobGet(jobId: string): Promise<BackgroundJobRecord | null> {
+  return invoke('background_job_get', { jobId });
+}
+
+export function backgroundJobList(limit = 50): Promise<BackgroundJobRecord[]> {
+  return invoke('background_job_list', { limit });
+}
+
+export function reconcileAndroidBackground(profileId: string): Promise<void> {
+  return invoke('background_android_reconcile', { profileId });
+}
+
+export function requestAndroidBackgroundSync(
+  profileId: string,
+  userInitiated: boolean,
+): Promise<void> {
+  return invoke('background_android_request_immediate', { profileId, userInitiated });
+}
+
+export function cancelAndroidBackgroundProfile(profileId: string): Promise<void> {
+  return invoke('background_android_cancel_profile', { profileId });
+}
 
 export interface ServerHealthStatus {
   ok: boolean;
@@ -354,6 +396,21 @@ export function reconnectServer(
 ): Promise<ServerConnectionStatus> {
   return invoke('reconnect_server', {
     serverUrl,
+    allowInvalidCertificates: options.allowInvalidCertificates ?? false,
+    persistAcrossReboots: options.persistAcrossReboots ?? true,
+  });
+}
+
+export function reauthenticateServer(
+  serverUrl: string,
+  username: string,
+  password: string,
+  options: ConnectOptions = {},
+): Promise<ServerConnectionStatus> {
+  return invoke('reauthenticate_server', {
+    serverUrl,
+    username,
+    password,
     allowInvalidCertificates: options.allowInvalidCertificates ?? false,
     persistAcrossReboots: options.persistAcrossReboots ?? true,
   });

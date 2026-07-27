@@ -21,6 +21,8 @@ import type {
 import {
   acknowledgeProfileCalendarOperations,
   applyProfileCalendarRemoteChanges,
+  backgroundJobGet,
+  backgroundJobRun,
   hostedCalendarRequest,
   listProfileCalendarFailedOperations,
   listProfileCalendarMirrorAnchors,
@@ -59,6 +61,8 @@ const adapter: CalendarSyncAdapter = {
   calendarAcknowledgeOperations: acknowledgeProfileCalendarOperations,
   calendarMarkOperationFailed: markProfileCalendarOperationFailed,
   calendarApplyRemoteChanges: applyProfileCalendarRemoteChanges,
+  backgroundJobRun,
+  backgroundJobGet,
 };
 
 const mirrorAdapter: CalendarMirrorAdapter = {

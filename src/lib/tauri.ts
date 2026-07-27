@@ -649,6 +649,8 @@ export const tauriCommands = {
   // Secret Service) — Windows/macOS always use their native durable keystore.
   connectServer: (serverUrl: string, username: string, password: string, allowInvalidCertificates = false, persistAcrossReboots = false) =>
     invoke<ServerConnectionStatus>('connect_server', { serverUrl, username, password, allowInvalidCertificates, persistAcrossReboots }),
+  reauthenticateServer: (serverUrl: string, username: string, password: string, allowInvalidCertificates = false, persistAcrossReboots = false) =>
+    invoke<ServerConnectionStatus>('reauthenticate_server', { serverUrl, username, password, allowInvalidCertificates, persistAcrossReboots }),
   reconnectServer: (serverUrl: string, allowInvalidCertificates = false, persistAcrossReboots = false) =>
     invoke<ServerConnectionStatus>('reconnect_server', { serverUrl, allowInvalidCertificates, persistAcrossReboots }),
   disconnectServer: (serverUrl: string) => invoke<void>('disconnect_server', { serverUrl }),

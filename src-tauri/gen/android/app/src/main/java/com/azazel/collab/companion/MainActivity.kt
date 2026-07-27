@@ -9,9 +9,6 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
-    if (BuildConfig.DEBUG) {
-      CollabBackgroundProbeWorker.schedule(this)
-    }
   }
 
   override fun onWebViewCreate(webView: WebView) {

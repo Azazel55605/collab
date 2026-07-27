@@ -40,16 +40,14 @@ pub struct ServerHealthStatus {
     pub message: String,
 }
 
-#[tauri::command]
-pub async fn connect_server(
-    state: State<'_, AppState>,
-    server_url: String,
-    username: String,
-    password: String,
+async fn authenticate_and_install_session(
+    state: &AppState,
+    base: &str,
+    username: &str,
+    password: &str,
     allow_invalid_certificates: bool,
     persist_across_reboots: bool,
 ) -> Result<ServerConnectionStatus, String> {
-    let base = validate_server_url(&server_url)?;
     let response = server_client(allow_invalid_certificates)?
         .post(format!("{base}/api/v1/auth/native/login"))
         .json(&serde_json::json!({
@@ -61,19 +59,17 @@ pub async fn connect_server(
         .await
         .map_err(server_request_error)?;
     let session = decode_session(response).await?;
-    store_refresh_token(&base, &session.refresh_token, persist_across_reboots)?;
-    // Cache the refresh token in memory so later reconnects never re-read the
-    // keyring (which can prompt to unlock the Secret Service on Linux).
+    store_refresh_token(base, &session.refresh_token, persist_across_reboots)?;
     state
         .hosted_sessions()
         .refresh_token_cache
         .write()
-        .insert(base.clone(), session.refresh_token.clone());
-    let status = status_from_session(&base, allow_invalid_certificates, &session);
+        .insert(base.to_string(), session.refresh_token.clone());
+    let status = status_from_session(base, allow_invalid_certificates, &session);
     state.hosted_sessions().server_sessions.write().insert(
-        base.clone(),
+        base.to_string(),
         ServerSessionState {
-            server_url: base.clone(),
+            server_url: base.to_string(),
             allow_invalid_certificates,
             persist_across_reboots,
             access_token: session.access_token,
@@ -85,13 +81,74 @@ pub async fn connect_server(
     let _ = state
         .background
         .upsert_server(BackgroundServerRegistration {
-            server_url: base,
+            server_url: base.to_string(),
             allow_invalid_certificates,
             persist_across_reboots,
             background_sync_enabled: true,
             profile_ids: Vec::new(),
             updated_at: chrono::Utc::now().to_rfc3339(),
         });
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn connect_server(
+    state: State<'_, AppState>,
+    server_url: String,
+    username: String,
+    password: String,
+    allow_invalid_certificates: bool,
+    persist_across_reboots: bool,
+) -> Result<ServerConnectionStatus, String> {
+    let base = validate_server_url(&server_url)?;
+    authenticate_and_install_session(
+        &state,
+        &base,
+        &username,
+        &password,
+        allow_invalid_certificates,
+        persist_across_reboots,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn reauthenticate_server(
+    state: State<'_, AppState>,
+    server_url: String,
+    username: String,
+    password: String,
+    allow_invalid_certificates: bool,
+    persist_across_reboots: bool,
+) -> Result<ServerConnectionStatus, String> {
+    let base = validate_server_url(&server_url)?;
+    let previous = state
+        .hosted_sessions()
+        .server_sessions
+        .read()
+        .get(&base)
+        .cloned();
+    let status = authenticate_and_install_session(
+        &state,
+        &base,
+        &username,
+        &password,
+        allow_invalid_certificates,
+        persist_across_reboots,
+    )
+    .await?;
+
+    // Authentication succeeded and the replacement token is durable. Revoke a
+    // still-valid previous native session without risking loss of the new one.
+    if let Some(previous) = previous {
+        if let Ok(client) = server_client(previous.allow_invalid_certificates) {
+            let _ = client
+                .post(format!("{}/api/v1/auth/native/logout", previous.server_url))
+                .bearer_auth(&previous.access_token)
+                .send()
+                .await;
+        }
+    }
     Ok(status)
 }
 

@@ -945,6 +945,13 @@ p {
   align-items: center;
   gap: 12px;
 }
+.reauthentication-sheet .sheet-head .row-text {
+  min-width: 0;
+  flex: 1;
+}
+.reauthentication-sheet .sheet-head > .icon-button {
+  flex: 0 0 auto;
+}
 .detail-grid {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -4177,6 +4184,9 @@ p {
   color: var(--muted-foreground);
   font-size: 0.76rem;
   opacity: 0.7;
+}
+.error-text {
+  color: var(--destructive);
 }
 
 /* ── Offline availability ──────────────────────────────────────────────────── */

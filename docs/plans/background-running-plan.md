@@ -17,12 +17,13 @@ not become separate sync implementations.
 
 - Desktop Phase 2 provides an opt-in production tray, close-to-tray behavior,
   login startup, scheduled native synchronization, and explicit graceful quit.
-- Android sync is driven primarily while the foreground application is active.
+- Android foreground and scheduled synchronization enter the shared native
+  coordinator and persistent job ledger.
 - Hosted vault and calendar synchronization already expose reusable native
   operations, durable cursors, pending operations, and visible foreground
   progress.
-- Phase 0 now includes a debug-only WorkManager probe that invokes Rust without
-  a Tauri activity or webview. Production sync scheduling is not enabled.
+- Phase 3 replaces the debug-only WorkManager probe with a production worker
+  that invokes Rust without a Tauri activity or webview.
 - Notification delivery is not implemented. Calendar reminder scheduling
   already has a typed frontend connector and a no-op implementation.
 
@@ -33,7 +34,7 @@ not become separate sync implementations.
 | 0. Lifecycle contract and feasibility | Testing | Define platform behavior, OS limits, settings, job ownership, and a small desktop/Android proof. |
 | 1. Shared headless background coordinator | Testing | Run bounded sync and maintenance jobs without depending on a mounted webview. |
 | 2. Desktop tray and background lifecycle | Testing | Keep the desktop process available in the tray, support hide/restore/quit, and run scheduled work. |
-| 3. Android scheduled background work | Not started | Use WorkManager for durable, constrained sync and catch-up work. |
+| 3. Android scheduled background work | Testing | Use WorkManager for durable, constrained sync and catch-up work. |
 | 4. Reliability, progress, and power controls | Not started | Add locking, backoff, persisted outcomes, network/battery policy, and transparent status. |
 | 5. Platform hardening and release | Not started | Validate lifecycle, packaging, upgrades, and device/desktop behavior before enabling by default. |
 
@@ -199,15 +200,27 @@ enabled.
 
 ### Phase 3: Android Scheduled Background Work
 
-- Add WorkManager and a narrow Kotlin worker/native bridge.
-- Schedule unique periodic work per signed-in profile, not per file.
-- Add immediate catch-up and user-initiated sync requests.
-- Reconcile jobs after boot/app update through WorkManager persistence.
-- Surface authentication-required and permission failures on next foreground.
-- Add foreground transfer handling for large explicit uploads/downloads.
+- [x] Add WorkManager and a narrow Kotlin worker/native bridge.
+- [x] Schedule unique periodic work per signed-in profile, not per file.
+- [x] Add immediate catch-up and user-initiated sync requests.
+- [x] Reconcile jobs after boot/app update through WorkManager persistence.
+- [x] Surface authentication-required and permission failures on next foreground.
+- [ ] Add foreground transfer handling for large explicit uploads/downloads.
+- [ ] Validate process-death, reboot, update, retry, and sign-out behavior on a
+  physical Android device.
 
 Exit gate: a physical device syncs eligible cached content after the activity
 has left the foreground and recovers cleanly after process death.
+
+Phase 3 is in testing. `CollabBackgroundWorker` enters the Rust coordinator
+directly through `CollabBackgroundBridge`, without constructing an activity or
+webview. WorkManager owns one persisted periodic request per local profile plus
+coalesced catch-up and expedited user requests. The mobile foreground sync path
+now uses the same native job ledger, Settings exposes the opt-in interval and
+recent outcomes, and authentication/permission terminal states are shown when
+the app returns to the foreground. Removing the final connected server cancels
+that profile's scheduled work. Large explicit transfers still need the separate
+foreground-service path above.
 
 ### Phase 4: Reliability, Progress, And Power Controls
 

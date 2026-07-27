@@ -81,6 +81,7 @@ interface ServerState {
   /** Restore every saved server on launch (reuse live sessions, else reconnect). */
   restoreAllSessions: () => Promise<RestoreSessionResult>;
   connect: (serverUrl: string, username: string, password: string, allowInvalidCertificates?: boolean, persistAcrossReboots?: boolean) => Promise<void>;
+  reauthenticate: (serverUrl: string, password: string) => Promise<void>;
   reconnect: (serverUrl: string, allowInvalidCertificates?: boolean, persistAcrossReboots?: boolean) => Promise<void>;
   /**
    * Quiet, best-effort reconnect for one server from its stored refresh token.
@@ -189,9 +190,10 @@ export const useServerStore = create<ServerState>()((set, get) => {
         return 'skipped';
       })();
       restoreInFlight = attempt;
-      void attempt.finally(() => {
+      const clearAttempt = () => {
         if (restoreInFlight === attempt) restoreInFlight = null;
-      });
+      };
+      void attempt.then(clearAttempt, clearAttempt);
       return attempt;
     },
 
@@ -203,6 +205,30 @@ export const useServerStore = create<ServerState>()((set, get) => {
         setConnection(status, []);
         set({ isLoading: false });
         await get().loadHostedVaults(status.serverUrl ?? serverUrl);
+      } catch (error) {
+        set({ isLoading: false, error: String(error) });
+        throw error;
+      }
+    },
+
+    reauthenticate: async (serverUrl, password) => {
+      const known = knownServerFor(serverUrl);
+      if (!known) throw new Error('This server is not saved. Add it again to sign in.');
+      set({ isLoading: true, error: null });
+      try {
+        const status = await tauriCommands.reauthenticateServer(
+          known.serverUrl,
+          known.username,
+          password,
+          known.allowInvalidCertificates,
+          known.persistAcrossReboots,
+        );
+        setConnection(
+          status,
+          get().connections[status.serverUrl ?? known.serverUrl]?.hostedVaults ?? [],
+        );
+        set({ isLoading: false });
+        await get().loadHostedVaults(status.serverUrl ?? known.serverUrl);
       } catch (error) {
         set({ isLoading: false, error: String(error) });
         throw error;

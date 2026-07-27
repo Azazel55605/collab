@@ -3,13 +3,21 @@ import type { ReactNode, TouchEvent as ReactTouchEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Banner, ConfirmSheet } from './components/ui';
-import { mobileExitApp } from './mobileTauri';
+import {
+  mobileExitApp,
+  reconcileAndroidBackground,
+  requestAndroidBackgroundSync,
+  type BackgroundJobRecord,
+  type ServerConnectionStatus,
+} from './mobileTauri';
+import { normalizeServerUrl, type KnownServer } from './lib/servers';
 import { applyTheme, loadPrefs, savePrefs, type ThemePrefs } from './lib/theme';
 import { FilesScreen } from './screens/FilesScreen';
 import { ServersScreen } from './screens/ServersScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { VaultsScreen } from './screens/VaultsScreen';
 import { CalendarScreen } from './screens/CalendarScreen';
+import { mobileCalendarProfileId } from './lib/calendarSync';
 import { TAB_ORDER, type Tab, useMobileStore } from './state/store';
 
 const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
@@ -33,6 +41,36 @@ function isInteractiveSwipeTarget(target: EventTarget | null): boolean {
   );
 }
 
+export function findBackgroundAttention(
+  jobs: BackgroundJobRecord[],
+  servers: KnownServer[],
+  statuses: Record<string, ServerConnectionStatus>,
+): BackgroundJobRecord | undefined {
+  const knownServerUrls = new Set(servers.map((server) => normalizeServerUrl(server.serverUrl)));
+  const connectedServerUrls = new Set(
+    Object.values(statuses)
+      .filter((status) => status.connected && status.serverUrl)
+      .map((status) => normalizeServerUrl(status.serverUrl as string)),
+  );
+  return jobs.find((job, index) => {
+    if (job.status !== 'authentication_required' && job.status !== 'permission_denied') {
+      return false;
+    }
+    const serverUrl = job.serverUrl ? normalizeServerUrl(job.serverUrl) : null;
+    if (serverUrl && !knownServerUrls.has(serverUrl)) return false;
+    if (job.status === 'authentication_required' && serverUrl && connectedServerUrls.has(serverUrl)) {
+      return false;
+    }
+    return !jobs.slice(0, index).some((newer) =>
+      newer.status === 'succeeded'
+      && newer.kind === job.kind
+      && newer.serverUrl === job.serverUrl
+      && newer.profileId === job.profileId
+      && newer.vaultId === job.vaultId,
+    );
+  });
+}
+
 export function MobileApp() {
   const [prefs, setPrefs] = useState<ThemePrefs>(() => {
     const initial = loadPrefs();
@@ -45,8 +83,8 @@ export function MobileApp() {
 
   const restore = useMobileStore((s) => s.restore);
   const refreshStatuses = useMobileStore((s) => s.refreshStatuses);
-  const syncServer = useMobileStore((s) => s.syncServer);
-  const syncCalendars = useMobileStore((s) => s.syncCalendars);
+  const backgroundJobs = useMobileStore((s) => s.backgroundJobs);
+  const servers = useMobileStore((s) => s.servers);
   const tab = useMobileStore((s) => s.tab);
   const setTab = useMobileStore((s) => s.setTab);
   const swipeTab = useMobileStore((s) => s.swipeTab);
@@ -57,6 +95,7 @@ export function MobileApp() {
     () => Object.values(statuses).filter((status) => status.connected).length,
     [statuses],
   );
+  const backgroundAttention = findBackgroundAttention(backgroundJobs, servers, statuses);
 
   useEffect(() => {
     restore().catch((reason: unknown) => {
@@ -72,13 +111,10 @@ export function MobileApp() {
       if (document.visibilityState === 'hidden') return;
       void (async () => {
         await refreshStatuses().catch(() => {});
-        const { statuses: current, syncServer: sync } = useMobileStore.getState();
-        await Promise.all(
-          Object.values(current)
-            .filter((status) => status.connected && status.serverUrl)
-            .map((status) => sync(status.serverUrl as string).catch(() => {})),
-        );
-        await useMobileStore.getState().syncCalendars().catch(() => {});
+        const profileId = mobileCalendarProfileId();
+        await reconcileAndroidBackground(profileId).catch(() => {});
+        await requestAndroidBackgroundSync(profileId, false).catch(() => {});
+        await useMobileStore.getState().refreshBackgroundJobs().catch(() => {});
       })();
     };
     window.addEventListener('focus', onFocus);
@@ -89,7 +125,7 @@ export function MobileApp() {
       window.removeEventListener('online', onFocus);
       document.removeEventListener('visibilitychange', onFocus);
     };
-  }, [refreshStatuses, syncCalendars, syncServer]);
+  }, [refreshStatuses]);
 
   // Android hardware back / back-gesture handling. Native Android dispatches a
   // DOM event for every back press so the WebView history stack can never
@@ -163,6 +199,15 @@ export function MobileApp() {
         {restoreError ? (
           <div className="screen-top-banner">
             <Banner tone="error">{restoreError}</Banner>
+          </div>
+        ) : null}
+        {!restoreError && backgroundAttention ? (
+          <div className="screen-top-banner">
+            <Banner tone="error">
+              {backgroundAttention.status === 'authentication_required'
+                ? 'Background sync needs you to sign in again.'
+                : 'Background sync no longer has permission to update some content.'}
+            </Banner>
           </div>
         ) : null}
 

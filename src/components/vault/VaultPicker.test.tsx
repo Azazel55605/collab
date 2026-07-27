@@ -7,6 +7,7 @@ import VaultPicker from './VaultPicker';
 vi.mock('../../lib/tauri', () => ({
   tauriCommands: {
     showOpenVaultDialog: vi.fn(),
+    reauthenticateServer: vi.fn(),
   },
 }));
 
@@ -43,6 +44,7 @@ describe('VaultPicker hosted vaults', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     replicaMock.listHostedVaultReplicas.mockResolvedValue([]);
     replicaMock.deleteHostedVaultReplica.mockResolvedValue(undefined);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -124,6 +126,23 @@ describe('VaultPicker hosted vaults', () => {
     await waitFor(() => expect(screen.getByLabelText('Server URL')).toBeTruthy());
     expect(screen.getByLabelText('Username')).toBeTruthy();
     expect(screen.getByLabelText('Password')).toBeTruthy();
+  });
+
+  it('offers password-only sign in for a saved disconnected server', () => {
+    localStorage.setItem('collab-hosted-servers', JSON.stringify([{
+      serverUrl: 'https://saved.example.test',
+      username: 'alice',
+      allowInvalidCertificates: false,
+      persistAcrossReboots: true,
+    }]));
+    useServerStore.setState({ connections: {} });
+
+    render(<VaultPicker />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in again' }));
+
+    expect(screen.getByText(/alice on https:\/\/saved\.example\.test/)).toBeTruthy();
+    expect(screen.getByLabelText('Password')).toBeTruthy();
+    expect(screen.queryByLabelText('Server URL')).toBeNull();
   });
 
   it('lists offline hosted vault copies when disconnected and opens the cached replica', async () => {

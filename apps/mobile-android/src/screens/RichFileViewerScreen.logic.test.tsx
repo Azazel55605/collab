@@ -16,6 +16,8 @@ const circuitMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../mobileTauri', () => ({
+  backgroundJobRun: vi.fn(),
+  backgroundJobGet: vi.fn(),
   hostedCalendarRequest: vi.fn(),
   saveProfileCalendar: vi.fn(),
   readProfileCalendarSyncState: vi.fn(),

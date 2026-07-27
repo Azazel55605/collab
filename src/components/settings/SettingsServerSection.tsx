@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { KeyRound, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { useServerStore } from '../../store/serverStore';
 import { tauriCommands } from '../../lib/tauri';
-import { knownServerFor } from '../../lib/hostedServers';
+import { knownServerFor, listKnownServers, type KnownServer } from '../../lib/hostedServers';
 import { Button } from '../ui/button';
 import { HostedLoginForm } from '../server/HostedLoginForm';
+import { ReauthenticateServerDialog } from '../server/ReauthenticateServerDialog';
 import { SectionLabel } from './settingsControls';
 
 const ALWAYS_CREATE_OFFLINE_COPY_KEY = 'collab-hosted-always-create-offline-copy';
@@ -22,6 +23,7 @@ export default function SettingsServerSection() {
   // discoverable without reopening the login form.
   const [isLinux, setIsLinux] = useState(false);
   const [addingServer, setAddingServer] = useState(false);
+  const [reauthServer, setReauthServer] = useState<KnownServer | null>(null);
 
   useEffect(() => {
     refreshAll().catch(() => {});
@@ -43,7 +45,24 @@ export default function SettingsServerSection() {
     toast.success(next ? 'Hosted vaults will be cached for offline use when opened.' : 'Automatic offline-copy creation disabled.');
   }
 
-  const servers = Object.values(connections).filter((c) => c.status.connected);
+  const servers = useMemo(() => {
+    const saved = listKnownServers();
+    const savedUrls = new Set(saved.map((server) => server.serverUrl));
+    return [
+      ...saved.map((server) => ({ server, connection: connections[server.serverUrl] })),
+      ...Object.values(connections)
+        .filter(({ status }) => status.serverUrl && !savedUrls.has(status.serverUrl))
+        .map((connection) => ({
+          server: {
+            serverUrl: connection.status.serverUrl!,
+            username: connection.status.user?.username ?? '',
+            allowInvalidCertificates: connection.status.allowInvalidCertificates,
+            persistAcrossReboots: false,
+          },
+          connection,
+        })),
+    ];
+  }, [connections]);
 
   return (
     <div className="space-y-5">
@@ -54,12 +73,19 @@ export default function SettingsServerSection() {
         </p>
       </div>
 
-      {servers.map(({ status }) => {
-        const persistAcrossReboots = knownServerFor(status.serverUrl ?? '')?.persistAcrossReboots === true;
+      {servers.map(({ server, connection }) => {
+        const status = connection?.status;
+        const connected = status?.connected === true;
+        const persistAcrossReboots = knownServerFor(server.serverUrl)?.persistAcrossReboots === true;
         return (
-          <div key={status.serverUrl} className="space-y-3 rounded-lg border border-border/50 bg-card/40 p-4">
-            <div><p className="text-sm font-medium">{status.user?.displayName}</p><p className="text-xs text-muted-foreground">{status.user?.username} on {status.serverUrl}</p></div>
-            {status.allowInvalidCertificates && <p className="text-xs text-destructive">TLS certificate verification is disabled for this connection.</p>}
+          <div key={server.serverUrl} className="space-y-3 rounded-lg border border-border/50 bg-card/40 p-4">
+            <div>
+              <p className="text-sm font-medium">{status?.user?.displayName ?? server.username}</p>
+              <p className="text-xs text-muted-foreground">
+                {connected ? status?.user?.username : 'Disconnected'} on {server.serverUrl}
+              </p>
+            </div>
+            {server.allowInvalidCertificates && <p className="text-xs text-destructive">TLS certificate verification is disabled for this connection.</p>}
             {isLinux && (
               <p className="text-xs text-muted-foreground">
                 {persistAcrossReboots
@@ -68,7 +94,13 @@ export default function SettingsServerSection() {
               </p>
             )}
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" onClick={() => disconnect(status.serverUrl!)}>Disconnect</Button>
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setReauthServer(server)}>
+                <KeyRound size={14} />
+                Sign in again
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => disconnect(server.serverUrl)}>
+                {connected ? 'Disconnect' : 'Remove server'}
+              </Button>
             </div>
           </div>
         );
@@ -95,6 +127,10 @@ export default function SettingsServerSection() {
           When enabled, opening any hosted vault downloads its active documents and assets into the local replica automatically.
         </p>
       </div>
+      <ReauthenticateServerDialog
+        server={reauthServer}
+        onOpenChange={(open) => { if (!open) setReauthServer(null); }}
+      />
     </div>
   );
 }

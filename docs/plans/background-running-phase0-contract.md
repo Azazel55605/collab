@@ -7,12 +7,11 @@ probe passes its unit tests. Real tray behavior still needs validation on Linux,
 Windows, and macOS, and the WorkManager bridge still needs a physical Android
 device run before Phase 0 can be marked complete.
 
-The proofs do not enable production background behavior:
-
-- desktop tray creation requires `COLLAB_BACKGROUND_PROBE=1`
-- closing the desktop window still exits the application
-- Android schedules one unique probe only in debug builds
-- the Android worker writes a probe ledger; it does not restore sessions or sync
+The original proofs no longer define production behavior. Phase 2 replaced the
+desktop probe with the opt-in tray lifecycle, and Phase 3 replaced the debug
+Android probe scheduling with the production WorkManager coordinator bridge.
+The Phase 0 probe code remains only as a narrow diagnostic and historical
+feasibility check.
 
 ## Lifecycle Contract
 
@@ -70,10 +69,13 @@ the normal window close still terminates the process.
 
 ### Android WorkManager
 
-Debug builds enqueue one uniquely named `OneTimeWorkRequest` with a ten-second
-delay. `CollabBackgroundProbeWorker` loads `collab_lib` directly and calls the
-JNI probe using only the app-private files path. It does not start
-`MainActivity`, construct a webview, or use `ndk_context`.
+The original debug build enqueued one uniquely named probe request.
+`CollabBackgroundWorker` now supersedes it: Kotlin passes the application
+context, trigger, and profile ID to `CollabBackgroundBridge`, which loads
+`collab_lib` and runs the production native coordinator without starting
+`MainActivity` or constructing a webview. The retained probe JNI entry can still
+write the Phase 0 ledger when invoked directly, but app startup no longer
+schedules it.
 
 Physical-device check:
 
@@ -83,10 +85,11 @@ adb shell run-as com.collab.companion \
   cat files/collab/background-phase0-probe.json
 ```
 
-Launch a debug build, press Home within ten seconds, then confirm the worker log
-and ledger. Repeat after process death and reboot, without force-stopping the
-application. A force-stopped Android application is intentionally not expected
-to run scheduled work until it is launched again.
+Enable background work in mobile Settings, cache a hosted vault, press Home,
+and confirm a `CollabBackground` worker plus a terminal native-ledger row.
+Repeat after process death and reboot, without force-stopping the application.
+A force-stopped Android application is intentionally not expected to run
+scheduled work until it is launched again.
 
 ## Headless Session Feasibility
 
@@ -143,6 +146,7 @@ snapshots through later adapters.
   compiler configured
 - `pnpm exec tsc --noEmit`
 - `:app:compileUniversalDebugKotlin` with JDK 21 and the installed Android SDK
+- `:app:testUniversalDebugUnitTest` with JDK 21 and the installed Android SDK
 
 The remaining Phase 0 validation is deliberately manual because a successful
 compile cannot prove shell tray integration, Android process death behavior,

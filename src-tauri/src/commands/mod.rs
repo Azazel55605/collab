@@ -50,48 +50,5 @@ pub fn app_config_dir() -> Result<PathBuf, String> {
 
 #[cfg(target_os = "android")]
 fn android_files_dir() -> Result<PathBuf, String> {
-    use jni::objects::{JObject, JString};
-    use jni::{JNIEnv, JavaVM};
-    use std::mem::ManuallyDrop;
-
-    fn clear_exception(env: &mut JNIEnv<'_>) {
-        if env.exception_check().unwrap_or(false) {
-            let _ = env.exception_describe();
-            let _ = env.exception_clear();
-        }
-    }
-
-    let context = ndk_context::android_context();
-    let java_vm = unsafe { JavaVM::from_raw(context.vm().cast()) }
-        .map_err(|_| "Could not access the Android Java VM.".to_string())?;
-    let java_vm = ManuallyDrop::new(java_vm);
-    let mut env = java_vm
-        .attach_current_thread()
-        .map_err(|_| "Could not attach to the Android Java VM.".to_string())?;
-    // `ndk_context` owns this global context reference. Borrow it for this
-    // lookup without dropping/deleting a reference we did not create.
-    let context = ManuallyDrop::new(unsafe { JObject::from_raw(context.context().cast()) });
-    let files_dir = env
-        .call_method(&*context, "getFilesDir", "()Ljava/io/File;", &[])
-        .map_err(|_| {
-            clear_exception(&mut env);
-            "Could not access the Android app files directory.".to_string()
-        })?
-        .l()
-        .map_err(|_| "Android returned an invalid app files directory.".to_string())?;
-    let path = env
-        .call_method(&files_dir, "getAbsolutePath", "()Ljava/lang/String;", &[])
-        .map_err(|_| {
-            clear_exception(&mut env);
-            "Could not read the Android app files directory path.".to_string()
-        })?
-        .l()
-        .map_err(|_| "Android returned an invalid app files directory path.".to_string())?;
-    let path = JString::from(path);
-    let path = env
-        .get_string(&path)
-        .map_err(|_| "Could not decode the Android app files directory path.".to_string())?
-        .to_string_lossy()
-        .into_owned();
-    Ok(PathBuf::from(path))
+    crate::android_jni::files_dir()
 }

@@ -15,9 +15,11 @@ vi.mock('../lib/tauri', () => ({
     serverConnectionStatuses: vi.fn(),
     serverHasSavedSession: vi.fn(),
     connectServer: vi.fn(),
+    reauthenticateServer: vi.fn(),
     reconnectServer: vi.fn(),
     disconnectServer: vi.fn(),
     hostedVaultRequest: vi.fn(),
+    backgroundServerReplace: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -155,6 +157,28 @@ describe('serverStore', () => {
     expect(known).toEqual([{ serverUrl: SERVER_URL, username: 'alice', allowInvalidCertificates: true, persistAcrossReboots: false }]);
   });
 
+  it('reauthenticates with the saved server settings and reloads its vaults', async () => {
+    localStorage.setItem('collab-hosted-servers', JSON.stringify([{
+      serverUrl: SERVER_URL,
+      username: 'alice',
+      allowInvalidCertificates: true,
+      persistAcrossReboots: true,
+    }]));
+    vi.mocked(tauriCommands.reauthenticateServer).mockResolvedValue(connected);
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([hostedVault]);
+
+    await useServerStore.getState().reauthenticate(SERVER_URL, 'new-password');
+
+    expect(tauriCommands.reauthenticateServer).toHaveBeenCalledWith(
+      SERVER_URL,
+      'alice',
+      'new-password',
+      true,
+      true,
+    );
+    expect(useServerStore.getState().hostedVaultsFor(SERVER_URL)).toEqual([hostedVault]);
+  });
+
   describe('autoReconnect', () => {
     it('skips when the server is not a known server', async () => {
       expect(await useServerStore.getState().autoReconnect(SERVER_URL)).toBe('skipped');
@@ -259,6 +283,12 @@ describe('serverStore.restoreAllSessions', () => {
     vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([hostedVault]);
 
     expect(await useServerStore.getState().restoreAllSessions()).toBe('connected');
+    expect(tauriCommands.backgroundServerReplace).toHaveBeenCalledWith([
+      expect.objectContaining({
+        serverUrl: SERVER_URL,
+        backgroundSyncEnabled: true,
+      }),
+    ]);
     expect(tauriCommands.reconnectServer).not.toHaveBeenCalled();
     expect(useServerStore.getState().hostedVaultsFor(SERVER_URL)).toEqual([hostedVault]);
   });
