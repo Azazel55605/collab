@@ -791,7 +791,7 @@ dependencies = [
 
 [[package]]
 name = "collab"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -845,7 +845,7 @@ dependencies = [
 
 [[package]]
 name = "collab-archive"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "collab-core",
  "collab-vault-domain",
@@ -855,7 +855,7 @@ dependencies = [
 
 [[package]]
 name = "collab-calendar"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -871,7 +871,7 @@ dependencies = [
 
 [[package]]
 name = "collab-circuit"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -880,7 +880,7 @@ dependencies = [
 
 [[package]]
 name = "collab-core"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "aes-gcm",
  "hex",
@@ -893,7 +893,7 @@ dependencies = [
 
 [[package]]
 name = "collab-documents"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "collab-core",
  "quick-xml",
@@ -905,7 +905,7 @@ dependencies = [
 
 [[package]]
 name = "collab-live"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "collab-documents",
  "collab-protocol",
@@ -917,7 +917,7 @@ dependencies = [
 
 [[package]]
 name = "collab-net-policy"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "thiserror 1.0.69",
  "url",
@@ -925,7 +925,7 @@ dependencies = [
 
 [[package]]
 name = "collab-protocol"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -933,7 +933,7 @@ dependencies = [
 
 [[package]]
 name = "collab-replica"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "chrono",
  "collab-core",
@@ -948,7 +948,7 @@ dependencies = [
 
 [[package]]
 name = "collab-server"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "anyhow",
  "argon2",
@@ -991,7 +991,7 @@ dependencies = [
 
 [[package]]
 name = "collab-vault-domain"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "collab-core",
  "collab-documents",
