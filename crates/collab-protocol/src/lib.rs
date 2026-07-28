@@ -925,9 +925,22 @@ pub struct AdminOverview {
     pub hosted_vaults: i64,
     pub storage: StorageSummary,
     pub calendar_usage: CalendarUsageMetrics,
+    pub notification_delivery: NotificationDeliveryMetrics,
     pub live_collaboration: LiveCollaborationMetrics,
     pub operational_warnings: Vec<OperationalWarning>,
     pub recent_audit_events: Vec<AuditEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationDeliveryMetrics {
+    pub active_devices: i64,
+    pub events_last_24_hours: i64,
+    pub pending_deliveries: i64,
+    pub leased_deliveries: i64,
+    pub delivered_last_24_hours: i64,
+    pub failed_deliveries: i64,
+    pub cancelled_last_24_hours: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

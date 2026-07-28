@@ -639,6 +639,41 @@ impl NotificationStore {
         Ok(())
     }
 
+    pub async fn remove_server_scope(
+        &self,
+        profile_id: &str,
+        server_url: &str,
+    ) -> Result<u64, NotificationStoreError> {
+        validate_segment(profile_id, "profile ID")?;
+        if server_url.trim().is_empty() || server_url.len() > 2_048 {
+            return Err(NotificationStoreError::Validation(
+                "notification server URL is invalid".into(),
+            ));
+        }
+        let now = Utc::now().to_rfc3339();
+        let mut tx = self.pool.begin().await?;
+        let cancelled = sqlx::query(
+            r#"UPDATE notifications
+               SET state='cancelled', updated_at=?, failure_message=NULL, next_retry_at=NULL
+               WHERE profile_id=?
+                 AND state IN ('scheduled','ready','failed')
+                 AND json_extract(envelope_json, '$.serverUrl')=?"#,
+        )
+        .bind(&now)
+        .bind(profile_id)
+        .bind(server_url)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        sqlx::query("DELETE FROM notification_remote_cursors WHERE profile_id=? AND server_url=?")
+            .bind(profile_id)
+            .bind(server_url)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(cancelled)
+    }
+
     pub async fn request_reconciliation(
         &self,
         profile_id: &str,
@@ -1609,6 +1644,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn concurrent_action_consumption_has_one_winner() {
+        let root = tempfile::tempdir().unwrap();
+        let store = NotificationStore::open(root.path(), "profile-1")
+            .await
+            .unwrap();
+        let notice = envelope("notification-1", "2026-01-01T09:00:00Z");
+        let notification_id = notice.id.clone();
+        store
+            .reconcile("profile-1", "calendar.reminder", &[notice])
+            .await
+            .unwrap();
+        let token = store
+            .create_action_token(&notification_id, &json!({"kind":"dismiss"}))
+            .await
+            .unwrap();
+
+        let left = store.clone();
+        let right = store.clone();
+        let left_token = token.token.clone();
+        let right_token = token.token;
+        let (left_result, right_result) = tokio::join!(
+            left.consume_action_token(&left_token),
+            right.consume_action_token(&right_token)
+        );
+        assert_eq!(
+            usize::from(left_result.is_ok()) + usize::from(right_result.is_ok()),
+            1
+        );
+    }
+
+    #[tokio::test]
     async fn inbox_lifecycle_and_reconciliation_requests_are_durable() {
         let root = tempfile::tempdir().unwrap();
         let store = NotificationStore::open(root.path(), "profile-1")
@@ -1804,6 +1870,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn removing_server_scope_cancels_only_pending_remote_records() {
+        let root = tempfile::tempdir().unwrap();
+        let store = NotificationStore::open(root.path(), "profile-1")
+            .await
+            .unwrap();
+        let mut remote = envelope("remote", "2099-01-01T09:00:00Z");
+        remote.server_url = Some("https://one.example".into());
+        remote.delivery_key = "remote".into();
+        remote.id = notification_id_for(&remote);
+        let remote_id = remote.id.clone();
+        let mut local = envelope("local", "2099-01-01T10:00:00Z");
+        local.delivery_key = "local".into();
+        local.id = notification_id_for(&local);
+        let local_id = local.id.clone();
+        store.ingest("profile-1", &[remote, local]).await.unwrap();
+        store
+            .save_remote_cursor("profile-1", "https://one.example", "42")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store
+                .remove_server_scope("profile-1", "https://one.example")
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            store.record(&remote_id).await.unwrap().state,
+            NotificationState::Cancelled
+        );
+        assert_eq!(
+            store.record(&local_id).await.unwrap().state,
+            NotificationState::Scheduled
+        );
+        assert!(store
+            .remote_cursor("profile-1", "https://one.example")
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
     async fn notification_preferences_round_trip_and_filter_categories() {
         let root = tempfile::tempdir().unwrap();
         let store = NotificationStore::open(root.path(), "profile-1")
@@ -1868,6 +1977,32 @@ mod tests {
                     .with_timezone(&Utc)
             )
         );
+    }
+
+    #[test]
+    fn timezone_and_dst_overlap_changes_recompute_the_delivery_boundary() {
+        let mut preferences = NotificationPreferences::default();
+        preferences.allow_time_sensitive_during_quiet_hours = false;
+        preferences.quiet_hours = Some(NotificationQuietHours {
+            start_minute: 60,
+            end_minute: 2 * 60 + 30,
+            time_zone: "Europe/Berlin".into(),
+        });
+        let notice = envelope("notification-1", "2026-10-25T00:15:00Z");
+        let instant = DateTime::parse_from_rfc3339("2026-10-25T00:15:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(
+            delivery_time(&notice, &preferences, instant),
+            Some(
+                DateTime::parse_from_rfc3339("2026-10-25T00:30:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc)
+            )
+        );
+
+        preferences.quiet_hours.as_mut().unwrap().time_zone = "UTC".into();
+        assert_eq!(delivery_time(&notice, &preferences, instant), Some(instant));
     }
 
     #[test]

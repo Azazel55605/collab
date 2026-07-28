@@ -123,9 +123,11 @@ Open tracker entries:
   assertions, recurrence bounds, retention coverage, and deterministic
   multi-server soak tests are implemented. A full backup/restore drill and
   multi-day physical desktop/Android run across two servers remain.
-- Phase 11, **Testing**: the shared notification contract, native
-  inbox/scheduling ledger, desktop delivery, and Android native delivery are
-  implemented. Packaged desktop and physical Android validation remain.
+- Phase 11, **Testing**: notification Phases 0-6 are implemented, including the
+  shared contract, native inbox/scheduling ledger, desktop and Android
+  delivery, hosted activity catch-up, preferences, lifecycle cleanup,
+  concurrency hardening, and privacy-safe aggregate delivery metrics. Packaged
+  desktop and physical Android validation remain.
 
 ### Background Running And Notifications
 
@@ -135,7 +137,7 @@ background scheduling and synchronized data but own delivery, preferences,
 privacy, and actions. Keeping those responsibilities separate prevents tray,
 WorkManager, calendar, and push behavior from becoming one coupled subsystem.
 
-Notification Phases 0-5 are in **Testing**. The typed envelope, stable identity,
+Notification Phases 0-6 are in **Testing**. The typed envelope, stable identity,
 channels, destinations, bounded actions, privacy redaction, foreground
 suppression, content-free push invalidation, native inbox/scheduler, desktop
 permission and delivery adapter, tray-hidden dispatch, settings, and status-bar
@@ -147,7 +149,11 @@ mentions now use a transactional owner-scoped event feed plus a leased opaque
 push outbox. Profile-local category/source controls, lock-screen privacy,
 timezone-aware quiet hours, urgent bypass, native burst summaries, and
 distinct item-kind icons, and per-server, per-vault, and per-calendar controls
-are now implemented. Phase 6 platform and lifecycle hardening is next.
+are now implemented. Server/account cleanup cancels pending deliveries,
+concurrent actions are single-use, DST/timezone boundaries have regression
+coverage, and the admin overview exposes content-free aggregate delivery
+health. Packaged desktop permission behavior and the physical Android lifecycle
+matrix remain release-validation gates.
 
 ### Flatpak Distribution
 

@@ -200,6 +200,29 @@ pub async fn disconnect_server(
     server_url: String,
 ) -> Result<(), String> {
     let base = validate_server_url(&server_url)?;
+    let notification_root = crate::commands::app_config_dir()?;
+    for profile_id in
+        crate::notifications::profile_ids(&notification_root).map_err(|error| error.to_string())?
+    {
+        let store = crate::notifications::NotificationStore::open(&notification_root, &profile_id)
+            .await
+            .map_err(|error| error.to_string())?;
+        store
+            .remove_server_scope(&profile_id, &base)
+            .await
+            .map_err(|error| error.to_string())?;
+        #[cfg(target_os = "android")]
+        crate::android_jni::schedule_notification_profile(
+            &profile_id,
+            store
+                .next_delivery_at(&profile_id)
+                .await
+                .map_err(|error| error.to_string())?
+                .as_ref()
+                .map(chrono::DateTime::to_rfc3339)
+                .as_deref(),
+        )?;
+    }
     // Remove only this server's session, leaving any other connected servers
     // intact (the app can be signed in to several servers at once).
     let session = state

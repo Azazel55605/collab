@@ -5306,6 +5306,31 @@ pub async fn overview(
     .fetch_one(&state.database)
     .await
     .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let notification_delivery = sqlx::query(
+        r#"SELECT
+             (SELECT COUNT(*) FROM notification_devices WHERE active=TRUE)::bigint
+               AS active_devices,
+             (SELECT COUNT(*) FROM notification_events
+               WHERE created_at >= NOW() - INTERVAL '24 hours')::bigint
+               AS events_last_24_hours,
+             (SELECT COUNT(*) FROM notification_push_deliveries
+               WHERE state='pending')::bigint AS pending_deliveries,
+             (SELECT COUNT(*) FROM notification_push_deliveries
+               WHERE state='sending')::bigint AS leased_deliveries,
+             (SELECT COUNT(*) FROM notification_push_deliveries
+               WHERE state='delivered'
+                 AND delivered_at >= NOW() - INTERVAL '24 hours')::bigint
+               AS delivered_last_24_hours,
+             (SELECT COUNT(*) FROM notification_push_deliveries
+               WHERE state='failed')::bigint AS failed_deliveries,
+             (SELECT COUNT(*) FROM notification_push_deliveries
+               WHERE state='cancelled'
+                 AND updated_at >= NOW() - INTERVAL '24 hours')::bigint
+               AS cancelled_last_24_hours"#,
+    )
+    .fetch_one(&state.database)
+    .await
+    .map_err(|_| ApiFailure::server(request_id.clone()))?;
     let blob_health_ok = state.blobs.health_check().await.is_ok();
     let maintenance = load_maintenance_mode(&state.config);
     let pending_update_count: i64 = persisted_live_metrics.get("pending_update_count");
@@ -5480,6 +5505,16 @@ pub async fn overview(
             severity: "warning".into(),
         });
     }
+    let failed_notification_deliveries: i64 = notification_delivery.get("failed_deliveries");
+    if failed_notification_deliveries > 0 {
+        warnings.push(OperationalWarning {
+            code: "notification_delivery_retries".into(),
+            message: format!(
+                "{failed_notification_deliveries} notification delivery attempt(s) are waiting for retry."
+            ),
+            severity: "warning".into(),
+        });
+    }
     Ok(Json(DataResponse::new(AdminOverview {
         health: if blob_health_ok {
             HealthState::Ok
@@ -5527,6 +5562,15 @@ pub async fn overview(
                     users: row.get("users"),
                 })
                 .collect(),
+        },
+        notification_delivery: collab_protocol::NotificationDeliveryMetrics {
+            active_devices: notification_delivery.get("active_devices"),
+            events_last_24_hours: notification_delivery.get("events_last_24_hours"),
+            pending_deliveries: notification_delivery.get("pending_deliveries"),
+            leased_deliveries: notification_delivery.get("leased_deliveries"),
+            delivered_last_24_hours: notification_delivery.get("delivered_last_24_hours"),
+            failed_deliveries: failed_notification_deliveries,
+            cancelled_last_24_hours: notification_delivery.get("cancelled_last_24_hours"),
         },
         live_collaboration: LiveCollaborationMetrics {
             active_connections: runtime_live_metrics.active_connections,
@@ -6269,6 +6313,9 @@ pub async fn update_user(
         sqlx::query("UPDATE native_sessions SET revoked_at = NOW() WHERE user_id = $1")
             .bind(user_id)
             .execute(&state.database)
+            .await
+            .map_err(|_| ApiFailure::server(request_id.clone()))?;
+        crate::notification_api::deactivate_user_devices(&state.database, user_id)
             .await
             .map_err(|_| ApiFailure::server(request_id.clone()))?;
     }
@@ -14904,6 +14951,35 @@ mod tests {
             "pending_delete"
         );
 
+        let notification_device_id = Uuid::now_v7();
+        let notification_event_id = Uuid::now_v7();
+        sqlx::query(
+            r#"INSERT INTO notification_devices
+               (id,user_id,installation_id,platform,provider,token,token_hash,account_key)
+               VALUES ($1,$2,'disable-test','android','fcm','private-token','private-token-hash','private-account-key')"#,
+        )
+        .bind(notification_device_id)
+        .bind(Uuid::parse_str(&member_id).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"INSERT INTO notification_events(id,user_id,category,dedupe_key,envelope)
+               VALUES ($1,$2,'collaboration.mention','disable-test',
+                       '{"title":"private title","body":"private description"}'::jsonb)"#,
+        )
+        .bind(notification_event_id)
+        .bind(Uuid::parse_str(&member_id).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO notification_push_deliveries(event_id,device_id) VALUES ($1,$2)")
+            .bind(notification_event_id)
+            .bind(notification_device_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
         let disabled = request(
             &app,
             "PATCH",
@@ -14914,6 +14990,25 @@ mod tests {
         )
         .await;
         assert_eq!(disabled.status(), StatusCode::OK);
+        let disabled_device =
+            sqlx::query("SELECT active,token FROM notification_devices WHERE id=$1")
+                .bind(notification_device_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(!disabled_device.get::<bool, _>("active"));
+        assert_eq!(disabled_device.get::<String, _>("token"), "");
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT state::text FROM notification_push_deliveries WHERE event_id=$1 AND device_id=$2",
+            )
+            .bind(notification_event_id)
+            .bind(notification_device_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            "cancelled"
+        );
         let revoked_me = request(
             &app,
             "GET",
@@ -15049,6 +15144,29 @@ mod tests {
                 .as_i64()
                 .is_some()
         );
+        let notification_metrics = overview_body["data"]["notificationDelivery"]
+            .as_object()
+            .unwrap();
+        assert_eq!(
+            notification_metrics
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>(),
+            [
+                "activeDevices",
+                "cancelledLast24Hours",
+                "deliveredLast24Hours",
+                "eventsLast24Hours",
+                "failedDeliveries",
+                "leasedDeliveries",
+                "pendingDeliveries",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+        );
+        assert!(!overview_body.to_string().contains("private title"));
+        assert!(!overview_body.to_string().contains("private description"));
         assert!(
             overview_body["data"]["recentAuditEvents"]
                 .as_array()

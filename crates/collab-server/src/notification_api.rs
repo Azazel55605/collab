@@ -175,6 +175,33 @@ pub async fn delete_device(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn deactivate_user_devices(
+    database: &sqlx::PgPool,
+    user_id: Uuid,
+) -> Result<u64, sqlx::Error> {
+    let mut tx = database.begin().await?;
+    let cancelled = sqlx::query(
+        r#"UPDATE notification_push_deliveries delivery
+           SET state='cancelled',lease_until=NULL,last_error='account disabled',updated_at=now()
+           WHERE delivery.device_id IN (
+             SELECT id FROM notification_devices WHERE user_id=$1
+           )
+           AND delivery.state IN ('pending','sending','failed')"#,
+    )
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    sqlx::query(
+        "UPDATE notification_devices SET active=FALSE,token='',updated_at=now() WHERE user_id=$1",
+    )
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(cancelled)
+}
+
 pub async fn list_changes(
     State(state): State<AppState>,
     Extension(request_id): Extension<String>,

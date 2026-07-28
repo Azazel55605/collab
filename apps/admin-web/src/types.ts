@@ -74,6 +74,15 @@ export interface AdminOverview {
     };
     usersByCalendarCount: Array<{ calendarCount: number; users: number }>;
   };
+  notificationDelivery?: {
+    activeDevices: number;
+    eventsLast24Hours: number;
+    pendingDeliveries: number;
+    leasedDeliveries: number;
+    deliveredLast24Hours: number;
+    failedDeliveries: number;
+    cancelledLast24Hours: number;
+  };
   liveCollaboration: {
     activeConnections: number;
     loadedRooms: number;

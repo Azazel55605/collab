@@ -38,6 +38,9 @@ React toasts remain foreground UI and are not the durable notification system.
 - Server administrators can send a privacy-bounded self-test through the real
   authenticated notification feed; the admin API never exposes device tokens
   or permits targeting another user.
+- Server removal and account disabling now cancel matching pending deliveries,
+  concurrent notification actions have a single winner, and the administration
+  overview exposes aggregate-only delivery health without private content.
 - Local calendar reminders do not require a server or push provider.
 
 ## Progress Tracker
@@ -50,7 +53,7 @@ React toasts remain foreground UI and are not the durable notification system.
 | 3. Android native delivery | Testing | Add channels, runtime permission, scheduled reminders, actions, and deep links. |
 | 4. Server-originated activity delivery | Testing | Add privacy-minimal invalidation delivery for hosted invitations, mentions, and selected activity. |
 | 5. Preferences, quiet hours, and inbox UX | Testing | Give users per-account, per-calendar, per-vault, and per-type control. |
-| 6. Hardening and release | Not started | Validate time changes, recurrence, duplicates, permissions, upgrades, and multi-device behavior. |
+| 6. Hardening and release | Testing | Lifecycle cleanup, concurrency, DST/timezone coverage, and privacy-safe aggregate delivery metrics are implemented; packaged desktop and physical Android validation remain. |
 
 ## Notification Types
 
@@ -385,12 +388,23 @@ platform scheduler ignores them or wakes at the quiet-hours boundary.
 
 ### Phase 6: Hardening And Release
 
-- Validate recurrence edits, daylight-saving transitions, timezone changes,
+- [x] Validate recurrence edits, daylight-saving transitions, timezone changes,
   clock changes, stale schedules, duplicate push, and multi-device actions.
-- Test denied/revoked permissions and OS notification-channel changes.
-- Verify server removal, logout, cache removal, and account disabling cancel or
+- [x] Cover concurrent action consumption and deterministic duplicate
+  reconciliation in the native ledger.
+- [x] Verify server removal, logout, cache removal, and account disabling cancel or
   redact pending notifications.
-- Add delivery metrics that contain no private titles or descriptions.
+- [x] Add delivery metrics that contain no private titles or descriptions.
+- [ ] Complete packaged-desktop permission revocation and restoration checks.
+- [ ] Complete physical-Android permission denial/revocation, channel changes,
+  reboot, app-upgrade, timezone/clock changes, alarm fallback, and multi-device
+  action checks.
+
+Phase 6 is implemented and in **Testing**. Automated coverage now exercises
+timezone and DST boundary recomputation, one-time concurrent actions,
+server-scoped cancellation, account-disable delivery cleanup, and aggregate
+metrics privacy. The remaining work is the packaged and physical-device matrix,
+not application implementation.
 
 ## Security And Privacy
 

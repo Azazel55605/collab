@@ -170,6 +170,15 @@ describe('admin application', () => {
         },
         usersByCalendarCount: [{ calendarCount: 2, users: 1 }],
       },
+      notificationDelivery: {
+        activeDevices: 2,
+        eventsLast24Hours: 8,
+        pendingDeliveries: 1,
+        leasedDeliveries: 1,
+        deliveredLast24Hours: 5,
+        failedDeliveries: 1,
+        cancelledLast24Hours: 1,
+      },
       operationalWarnings: [],
       recentAuditEvents: [],
     });
@@ -293,6 +302,9 @@ describe('admin application', () => {
     expect(screen.getByText('2 calendars')).toBeTruthy();
     expect(screen.getByText('Largest calendar account')).toBeTruthy();
     expect(screen.getByText('Subscription worker')).toBeTruthy();
+    expect(screen.getByText('Notification delivery')).toBeTruthy();
+    expect(screen.getByText('Active devices')).toBeTruthy();
+    expect(screen.getByText('Waiting for retry')).toBeTruthy();
     expect(screen.getByText('Live connections')).toBeTruthy();
     expect(screen.getByText('Active presence')).toBeTruthy();
     expect(screen.getByText('CRDT update log')).toBeTruthy();

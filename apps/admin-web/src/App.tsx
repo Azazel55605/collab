@@ -2,9 +2,11 @@ import {
   Activity,
   Archive,
   Ban,
+  Bell,
   Boxes,
   CalendarDays,
   CircleAlert,
+  Clock3,
   ChevronDown,
   ChevronRight,
   Database,
@@ -32,6 +34,7 @@ import {
   UserCog,
   UserX,
   Users,
+  X,
 } from 'lucide-react';
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -657,6 +660,18 @@ function Dashboard() {
               <Metric icon={<Gauge />} label="Largest calendar account" value={formatBytes(overview.calendarUsage.maxUserLogicalBytes)} detail={overview.calendarUsage.quotaBytesPerUser > 0 ? `${overview.calendarUsage.usersAtQuota} at quota · ${overview.calendarUsage.usersNearQuota} near quota` : 'Anonymous aggregate'} />
               <Metric icon={<Activity />} label="Subscription worker" value={overview.calendarUsage.subscriptionWorker.subscriptions} detail={`${overview.calendarUsage.subscriptionWorker.subscriptionsWithErrors} failed · ${overview.calendarUsage.subscriptionWorker.overdueSubscriptions} overdue · ${overview.calendarUsage.subscriptionWorker.activeRefreshLeases} active`} />
               <Metric icon={<Gauge />} label="Calendar distribution" value={overview.calendarUsage.usersByCalendarCount.length} detail={overview.calendarUsage.usersByCalendarCount.map((bucket) => `${bucket.users} user${bucket.users === 1 ? '' : 's'} × ${bucket.calendarCount}`).join(' · ') || 'No hosted calendars'} />
+            </div>
+          </Panel>
+        )}
+        {overview.notificationDelivery && (
+          <Panel title="Notification delivery" icon={<Bell size={17} />}>
+            <div className="storage-grid">
+              <Metric icon={<Bell />} label="Active devices" value={overview.notificationDelivery.activeDevices} detail="Anonymous registered-device count" />
+              <Metric icon={<Activity />} label="Event volume" value={overview.notificationDelivery.eventsLast24Hours} detail="Events created in the last 24 hours" />
+              <Metric icon={<Clock3 />} label="Queue" value={overview.notificationDelivery.pendingDeliveries} detail={`${overview.notificationDelivery.leasedDeliveries} actively leased`} />
+              <Metric icon={<ShieldCheck />} label="Delivered" value={overview.notificationDelivery.deliveredLast24Hours} detail="Successful pushes in the last 24 hours" />
+              <Metric icon={<RefreshCw />} label="Waiting for retry" value={overview.notificationDelivery.failedDeliveries} detail="Content-free aggregate" />
+              <Metric icon={<X />} label="Cancelled" value={overview.notificationDelivery.cancelledLast24Hours} detail="Cancelled in the last 24 hours" />
             </div>
           </Panel>
         )}
