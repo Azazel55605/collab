@@ -4367,9 +4367,98 @@ p {
   display: grid;
   gap: 0;
 }
+
+.mobile-notification-quiet-times {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.mobile-notification-quiet-times > label > span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.mobile-notification-kind-icon {
+  display: grid;
+  place-items: center;
+  align-self: start;
+  width: 30px;
+  height: 30px;
+  color: var(--accent);
+}
+
+.mobile-notification-sources {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.mobile-notification-source-group {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+}
+
+.mobile-notification-source-trigger {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+}
+
+.mobile-notification-source-trigger > span:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.mobile-notification-source-trigger small {
+  color: var(--muted-foreground);
+  font-size: 0.74rem;
+}
+
+.mobile-notification-source-trigger > svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  color: var(--muted-foreground);
+  transition: transform 160ms ease;
+}
+
+.mobile-notification-source-trigger > svg.expanded {
+  transform: rotate(180deg);
+}
+
+.mobile-notification-source-content {
+  padding: 0 12px 4px;
+  border-top: 1px solid var(--border);
+}
+
+.mobile-notification-source-group .toggle-row strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.mobile-notification-source-group .toggle-row i {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 50%;
+}
 .mobile-notification-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
   gap: 10px;
   padding: 12px 0;
   border-bottom: 1px solid var(--border);

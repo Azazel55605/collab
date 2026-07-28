@@ -86,13 +86,17 @@ pub(super) async fn run_notification_sync(
             )
             .map_err(JobExecutionError::persistence)?;
         let path = format!("/api/v1/notifications/changes?cursor={cursor}&limit={PAGE_SIZE}");
-        let page: NotificationChangePage = request_json(&session, Method::GET, &path, None).await?;
+        let mut page: NotificationChangePage =
+            request_json(&session, Method::GET, &path, None).await?;
         if page.cursor < cursor
             || (page.has_more && (page.changes.is_empty() || page.cursor == cursor))
         {
             return Err(JobExecutionError::persistence(
                 "The server returned a non-advancing notification page.",
             ));
+        }
+        for change in &mut page.changes {
+            change.server_url = Some(server_url.to_string());
         }
         store
             .ingest(profile_id, &page.changes)

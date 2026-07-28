@@ -5595,6 +5595,106 @@ pub async fn admin_run_maintenance(
     Ok(Json(DataResponse::new(report)))
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminNotificationTestResult {
+    event_id: String,
+    queued_devices: i64,
+    push_gateway_configured: bool,
+}
+
+/// Enqueues a real notification for the signed-in administrator only. This
+/// exercises the authenticated feed and any registered push devices without
+/// granting administrators access to another user's notification data.
+pub async fn admin_send_notification_test(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+) -> Result<Json<DataResponse<AdminNotificationTestResult>>, ApiFailure> {
+    let actor = require_admin_csrf(&state, &headers, &request_id).await?;
+    let user_id =
+        Uuid::parse_str(&actor.user.id).map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let event_source = Uuid::now_v7().to_string();
+    let account_key = crate::notification_api::account_key(user_id);
+    let event_id = crate::notification_api::envelope_id(
+        "collaboration.message",
+        &account_key,
+        &event_source,
+        "admin-self-test",
+    );
+    let now = Utc::now().to_rfc3339();
+    let envelope = json!({
+        "schemaVersion": 1,
+        "id": event_id,
+        "category": "collaboration.message",
+        "kind": "collaboration.message",
+        "channel": "collaboration",
+        "accountKey": account_key,
+        "sourceId": event_source,
+        "occurrenceKey": null,
+        "deliveryKey": "admin-self-test",
+        "createdAt": now,
+        "scheduledAt": null,
+        "expiresAt": crate::notification_api::expires_at(7),
+        "title": "Collab server notification test",
+        "body": "Server notification delivery is working.",
+        "privacy": "title-only",
+        "priority": "normal",
+        "destination": { "kind": "notification-center" },
+        "actions": [
+            { "kind": "open" },
+            { "kind": "dismiss" }
+        ],
+        "requiresInbox": true
+    });
+    let queued_devices = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM notification_devices WHERE user_id=$1 AND active=TRUE",
+    )
+    .bind(user_id)
+    .fetch_one(&state.database)
+    .await
+    .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let push_gateway_configured = state.config.push_gateway_url.is_some();
+    let mut transaction = state
+        .database
+        .begin()
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let inserted = crate::notification_api::insert_event(
+        &mut transaction,
+        user_id,
+        "collaboration.message",
+        &format!("admin-notification-test:{event_source}"),
+        &envelope,
+    )
+    .await
+    .map_err(|_| ApiFailure::server(request_id.clone()))?
+    .ok_or_else(|| ApiFailure::server(request_id.clone()))?;
+    audit(
+        &mut transaction,
+        Some(&actor.user.id),
+        "admin.notification.test",
+        Some("user"),
+        Some(&actor.user.id),
+        "success",
+        &request_id,
+        json!({
+            "queuedDevices": queued_devices,
+            "pushGatewayConfigured": push_gateway_configured,
+        }),
+    )
+    .await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    Ok(Json(DataResponse::new(AdminNotificationTestResult {
+        event_id: inserted.to_string(),
+        queued_devices,
+        push_gateway_configured,
+    })))
+}
+
 /// Current state of the runtime live-collaboration debug tracing toggle.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]

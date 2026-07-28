@@ -21,6 +21,7 @@ import type {
 } from '../../../src/lib/tauri';
 import type {
   NotificationPermissionStatus,
+  NotificationPreferences,
   NotificationRecord,
 } from '../../../src/types/notification';
 
@@ -85,6 +86,17 @@ export function notificationRequestPermission(): Promise<NotificationPermissionS
 
 export function notificationSendTest(): Promise<void> {
   return invoke('notification_send_test');
+}
+
+export function notificationPreferencesGet(profileId: string): Promise<NotificationPreferences> {
+  return invoke('notification_preferences_get', { profileId });
+}
+
+export function notificationPreferencesSave(
+  profileId: string,
+  preferences: NotificationPreferences,
+): Promise<NotificationPreferences> {
+  return invoke('notification_preferences_save', { profileId, preferences });
 }
 
 export function notificationAndroidExactAlarmStatus(): Promise<AndroidExactAlarmStatus> {

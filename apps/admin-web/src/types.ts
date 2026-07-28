@@ -155,6 +155,12 @@ export interface LiveDebugState {
   enabled: boolean;
 }
 
+export interface AdminNotificationTestResult {
+  eventId: string;
+  queuedDevices: number;
+  pushGatewayConfigured: boolean;
+}
+
 export interface AdminServerSettings {
   runtime: {
     browserSecureCookies: AdminRuntimeSetting<boolean>;

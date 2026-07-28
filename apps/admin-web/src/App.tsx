@@ -349,6 +349,7 @@ function ServerConfigurationPanel() {
   const [busy, setBusy] = useState(false);
   const [maintenance, setMaintenance] = useState<MaintenanceReport | null>(null);
   const [maintenanceBusy, setMaintenanceBusy] = useState(false);
+  const [notificationTestBusy, setNotificationTestBusy] = useState(false);
   const [liveDebug, setLiveDebug] = useState<boolean | null>(null);
   const [liveDebugBusy, setLiveDebugBusy] = useState(false);
   const applySettings = useCallback((next: AdminServerSettings) => {
@@ -454,6 +455,23 @@ function ServerConfigurationPanel() {
     }
   }
 
+  async function sendNotificationTest() {
+    setNotificationTestBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const result = await serverApi.sendNotificationTest();
+      const delivery = result.queuedDevices > 0 && result.pushGatewayConfigured
+        ? `Queued for ${result.queuedDevices} registered device${result.queuedDevices === 1 ? '' : 's'}.`
+        : 'Added to your notification feed; connected clients will retrieve it during catch-up.';
+      setMessage(`Test notification created. ${delivery}`);
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setNotificationTestBusy(false);
+    }
+  }
+
   if (!settings) {
     return <Panel title="Server configuration" icon={<Server size={17} />}><Loading /></Panel>;
   }
@@ -498,6 +516,24 @@ function ServerConfigurationPanel() {
         </div>
         <div className="actions"><Button type="submit" size="sm" disabled={busy}>Save server settings</Button></div>
       </form>
+      <Separator />
+      <div className="settings-stack">
+        <div className="settings-row">
+          <div>
+            <strong>Notification delivery</strong>
+            <small>Send a real test notification to your administrator account. This does not expose or target other users.</small>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={notificationTestBusy}
+            onClick={() => void sendNotificationTest()}
+          >
+            Send test notification
+          </Button>
+        </div>
+      </div>
       <Separator />
       <div className="settings-stack">
         <div className="settings-row">

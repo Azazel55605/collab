@@ -174,6 +174,8 @@ pub fn run() {
             commands::notifications::notification_reconcile,
             commands::notifications::notification_cancel_category,
             commands::notifications::notification_list_inbox,
+            commands::notifications::notification_preferences_get,
+            commands::notifications::notification_preferences_save,
             commands::notifications::notification_mark_read,
             commands::notifications::notification_dismiss,
             commands::notifications::notification_snooze,

@@ -78,11 +78,13 @@ export function ToggleSwitch({
   onToggle,
   disabled = false,
   animated = false,
+  ariaLabel,
 }: {
   checked: boolean;
   onToggle: () => void;
   disabled?: boolean;
   animated?: boolean;
+  ariaLabel?: string;
 }) {
   return (
     <button
@@ -94,6 +96,7 @@ export function ToggleSwitch({
         disabled ? 'cursor-not-allowed opacity-45 saturate-50' : 'cursor-pointer',
       )}
       role="switch"
+      aria-label={ariaLabel}
       aria-checked={checked}
       disabled={disabled}
     >

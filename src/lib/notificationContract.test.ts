@@ -57,6 +57,14 @@ describe('notification contract', () => {
 
   it('validates a bounded typed notification envelope', () => {
     expect(validateNotificationEnvelope(reminder())).toEqual(reminder());
+    expect(validateNotificationEnvelope({
+      ...reminder(),
+      serverUrl: 'https://collab.example.test',
+    }).serverUrl).toBe('https://collab.example.test');
+    expect(() => validateNotificationEnvelope({
+      ...reminder(),
+      serverUrl: 'https://collab.example.test/private',
+    })).toThrow(/HTTP origin/);
   });
 
   it('rejects category mismatches and actions not allowed for the kind', () => {

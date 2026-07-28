@@ -307,6 +307,10 @@ pub fn build_router(state: AppState) -> Router {
             post(api::admin_run_maintenance),
         )
         .route(
+            "/api/v1/admin/notifications/test",
+            post(api::admin_send_notification_test),
+        )
+        .route(
             "/api/v1/admin/live-debug",
             get(api::admin_get_live_debug).put(api::admin_set_live_debug),
         )

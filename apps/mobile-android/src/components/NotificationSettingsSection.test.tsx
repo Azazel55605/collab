@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => ({
   dismiss: vi.fn(),
   snooze: vi.fn(),
   retry: vi.fn(),
+  preferencesGet: vi.fn(),
+  preferencesSave: vi.fn(),
+  listCalendars: vi.fn(),
 }));
 
 vi.mock('../mobileTauri', () => ({
@@ -27,6 +30,9 @@ vi.mock('../mobileTauri', () => ({
   notificationDismiss: mocks.dismiss,
   notificationSnooze: mocks.snooze,
   notificationRetry: mocks.retry,
+  notificationPreferencesGet: mocks.preferencesGet,
+  notificationPreferencesSave: mocks.preferencesSave,
+  listProfileCalendars: mocks.listCalendars,
 }));
 
 vi.mock('../lib/calendarSync', () => ({
@@ -43,6 +49,24 @@ describe('NotificationSettingsSection', () => {
     mocks.listInbox.mockResolvedValue([]);
     mocks.requestPermission.mockResolvedValue({ status: 'prompt', supported: true });
     mocks.openExactSettings.mockResolvedValue(undefined);
+    mocks.preferencesGet.mockResolvedValue({
+      enabled: true,
+      lockScreenPrivacy: 'title-only',
+      categoryEnabled: {
+        'calendar.reminder': true,
+        'calendar.invitation': true,
+        'collaboration.message': true,
+        'collaboration.mention': true,
+        'sync.action-required': true,
+        'transfer.complete': true,
+      },
+      scopeEnabled: {},
+      quietHours: null,
+      allowTimeSensitiveDuringQuietHours: true,
+      batchNotifications: true,
+    });
+    mocks.preferencesSave.mockImplementation(async (_profileId, preferences) => preferences);
+    mocks.listCalendars.mockResolvedValue([]);
   });
 
   it('recovers Android permission and exact-alarm settings', async () => {
@@ -78,5 +102,33 @@ describe('NotificationSettingsSection', () => {
       expect(mocks.snooze).toHaveBeenCalledWith('profile-1', 'notice-1', 10);
     });
     expect(mocks.reconcile).toHaveBeenCalledWith('profile-1');
+  });
+
+  it('persists a calendar source override', async () => {
+    mocks.listCalendars.mockResolvedValue([{
+      schemaVersion: 1,
+      id: 'calendar-1',
+      globalId: 'calendar-global-1',
+      location: { kind: 'local', profileId: 'profile-1' },
+      name: 'Personal',
+      color: '#a855f7',
+      defaultTimeZone: 'Europe/Berlin',
+      archived: false,
+      readOnly: false,
+      revision: 1,
+      createdAt: '2026-07-28T00:00:00Z',
+      updatedAt: '2026-07-28T00:00:00Z',
+    }]);
+    render(<NotificationSettingsSection />);
+    fireEvent.click(await screen.findByRole('button', { name: /Calendars/ }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Personal notifications' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save notification preferences' }));
+
+    await waitFor(() => expect(mocks.preferencesSave).toHaveBeenCalledWith(
+      'profile-1',
+      expect.objectContaining({
+        scopeEnabled: { 'calendar:calendar-1': false },
+      }),
+    ));
   });
 });

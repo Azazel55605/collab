@@ -218,19 +218,29 @@ object CollabNotificationBridge {
     for (index in 0 until payloads.length()) {
       val payload = payloads.getJSONObject(index)
       val notificationId = payload.getString("notificationId")
+      val notificationIds = payload.optJSONArray("notificationIds") ?: JSONArray().put(notificationId)
       try {
         NotificationManagerCompat.from(context).notify(
           stableId(notificationId),
           buildNotification(context, payload),
         )
-        nativeCompleteDelivery(context.applicationContext, profileId, notificationId, "")
+        for (deliveryIndex in 0 until notificationIds.length()) {
+          nativeCompleteDelivery(
+            context.applicationContext,
+            profileId,
+            notificationIds.getString(deliveryIndex),
+            "",
+          )
+        }
       } catch (error: Throwable) {
-        nativeCompleteDelivery(
-          context.applicationContext,
-          profileId,
-          notificationId,
-          (error.message ?: error.javaClass.simpleName).take(1000),
-        )
+        for (deliveryIndex in 0 until notificationIds.length()) {
+          nativeCompleteDelivery(
+            context.applicationContext,
+            profileId,
+            notificationIds.getString(deliveryIndex),
+            (error.message ?: error.javaClass.simpleName).take(1000),
+          )
+        }
       }
     }
     CollabNotificationScheduler.reconcileProfile(context, profileId)

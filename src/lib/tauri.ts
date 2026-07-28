@@ -32,6 +32,7 @@ import type {
   NotificationCategory,
   NotificationEnvelope,
   NotificationPermissionStatus,
+  NotificationPreferences,
   NotificationRecord,
   NotificationReconcileResult,
   NotificationReconciliationRequest,
@@ -392,6 +393,10 @@ export const tauriCommands = {
     invoke<number>('notification_cancel_category', { profileId, category }),
   notificationListInbox: (profileId: string, includeDismissed = false, limit = 200) =>
     invoke<NotificationRecord[]>('notification_list_inbox', { profileId, includeDismissed, limit }),
+  notificationPreferencesGet: (profileId: string) =>
+    invoke<NotificationPreferences>('notification_preferences_get', { profileId }),
+  notificationPreferencesSave: (profileId: string, preferences: NotificationPreferences) =>
+    invoke<NotificationPreferences>('notification_preferences_save', { profileId, preferences }),
   notificationMarkRead: (profileId: string, notificationId: string, read = true) =>
     invoke<void>('notification_mark_read', { profileId, notificationId, read }),
   notificationDismiss: (profileId: string, notificationId: string) =>

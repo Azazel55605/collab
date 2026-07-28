@@ -1,9 +1,11 @@
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, LocalResult, TimeZone, Timelike, Utc};
+use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration as StdDuration;
 use uuid::Uuid;
@@ -11,6 +13,70 @@ use uuid::Uuid;
 const MAX_RECONCILE_ENTRIES: usize = 20_000;
 const MAX_INBOX_LIMIT: u32 = 500;
 const ACTION_TOKEN_TTL_MINUTES: i64 = 15;
+const NOTIFICATION_CATEGORIES: [&str; 6] = [
+    "calendar.reminder",
+    "calendar.invitation",
+    "collaboration.message",
+    "collaboration.mention",
+    "sync.action-required",
+    "transfer.complete",
+];
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_category_preferences() -> BTreeMap<String, bool> {
+    NOTIFICATION_CATEGORIES
+        .into_iter()
+        .map(|category| (category.to_string(), true))
+        .collect()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationQuietHours {
+    pub start_minute: u16,
+    pub end_minute: u16,
+    pub time_zone: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationPreferences {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_lock_screen_privacy")]
+    pub lock_screen_privacy: String,
+    #[serde(default = "default_category_preferences")]
+    pub category_enabled: BTreeMap<String, bool>,
+    #[serde(default)]
+    pub scope_enabled: BTreeMap<String, bool>,
+    #[serde(default)]
+    pub quiet_hours: Option<NotificationQuietHours>,
+    #[serde(default = "default_true")]
+    pub allow_time_sensitive_during_quiet_hours: bool,
+    #[serde(default = "default_true")]
+    pub batch_notifications: bool,
+}
+
+fn default_lock_screen_privacy() -> String {
+    "title-only".to_string()
+}
+
+impl Default for NotificationPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            lock_screen_privacy: default_lock_screen_privacy(),
+            category_enabled: default_category_preferences(),
+            scope_enabled: BTreeMap::new(),
+            quiet_hours: None,
+            allow_time_sensitive_during_quiet_hours: true,
+            batch_notifications: true,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,6 +87,8 @@ pub struct NotificationEnvelope {
     pub kind: String,
     pub channel: String,
     pub account_key: String,
+    #[serde(default)]
+    pub server_url: Option<String>,
     pub source_id: String,
     pub occurrence_key: Option<String>,
     pub delivery_key: String,
@@ -206,6 +274,11 @@ impl NotificationStore {
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY(profile_id, server_url)
             )"#,
+            r#"CREATE TABLE IF NOT EXISTS notification_preferences (
+                profile_id TEXT PRIMARY KEY NOT NULL,
+                preferences_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )"#,
         ] {
             sqlx::query(statement).execute(&self.pool).await?;
         }
@@ -231,6 +304,58 @@ impl NotificationStore {
                 .await?;
         }
         Ok(())
+    }
+
+    pub async fn preferences(
+        &self,
+        profile_id: &str,
+    ) -> Result<NotificationPreferences, NotificationStoreError> {
+        validate_segment(profile_id, "profile ID")?;
+        let row =
+            sqlx::query("SELECT preferences_json FROM notification_preferences WHERE profile_id=?")
+                .bind(profile_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        let mut preferences = match row {
+            Some(row) => serde_json::from_str(row.get::<&str, _>("preferences_json"))?,
+            None => NotificationPreferences::default(),
+        };
+        for category in NOTIFICATION_CATEGORIES {
+            preferences
+                .category_enabled
+                .entry(category.to_string())
+                .or_insert(true);
+        }
+        validate_preferences(&preferences)?;
+        Ok(preferences)
+    }
+
+    pub async fn save_preferences(
+        &self,
+        profile_id: &str,
+        mut preferences: NotificationPreferences,
+    ) -> Result<NotificationPreferences, NotificationStoreError> {
+        validate_segment(profile_id, "profile ID")?;
+        for category in NOTIFICATION_CATEGORIES {
+            preferences
+                .category_enabled
+                .entry(category.to_string())
+                .or_insert(true);
+        }
+        validate_preferences(&preferences)?;
+        sqlx::query(
+            r#"INSERT INTO notification_preferences(profile_id,preferences_json,updated_at)
+               VALUES (?,?,?)
+               ON CONFLICT(profile_id) DO UPDATE SET
+                 preferences_json=excluded.preferences_json,
+                 updated_at=excluded.updated_at"#,
+        )
+        .bind(profile_id)
+        .bind(serde_json::to_string(&preferences)?)
+        .bind(Utc::now().to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(preferences)
     }
 
     pub async fn reconcile(
@@ -653,14 +778,26 @@ impl NotificationStore {
                WHERE profile_id=? AND state='ready'
                  AND (expires_at IS NULL OR expires_at>?)
                ORDER BY COALESCE(scheduled_at, created_at), id
-               LIMIT ?"#,
+               LIMIT 20000"#,
         )
         .bind(profile_id)
         .bind(&now)
-        .bind(limit)
         .fetch_all(&self.pool)
         .await?;
-        rows.iter().map(record_from_row).collect()
+        let preferences = self.preferences(profile_id).await?;
+        let now = Utc::now();
+        let mut due = Vec::new();
+        for row in &rows {
+            let record = record_from_row(row)?;
+            if delivery_time(&record.envelope, &preferences, now).is_some_and(|value| value <= now)
+            {
+                due.push(record);
+                if due.len() == limit as usize {
+                    break;
+                }
+            }
+        }
+        Ok(due)
     }
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
@@ -669,7 +806,7 @@ impl NotificationStore {
         profile_id: &str,
     ) -> Result<Option<DateTime<Utc>>, NotificationStoreError> {
         let rows = sqlx::query(
-            r#"SELECT state, scheduled_at, next_retry_at FROM notifications
+            r#"SELECT state, scheduled_at, next_retry_at, envelope_json FROM notifications
                WHERE profile_id=?
                  AND state IN ('scheduled','ready','failed')
                  AND (expires_at IS NULL OR expires_at>?)
@@ -680,6 +817,7 @@ impl NotificationStore {
         .fetch_all(&self.pool)
         .await?;
         let now = Utc::now();
+        let preferences = self.preferences(profile_id).await?;
         let mut next: Option<DateTime<Utc>> = None;
         for row in rows {
             let state: &str = row.get("state");
@@ -696,7 +834,11 @@ impl NotificationStore {
                 _ => None,
             };
             if let Some(value) = value {
-                next = Some(next.map_or(value, |current| current.min(value)));
+                let envelope: NotificationEnvelope =
+                    serde_json::from_str(row.get::<&str, _>("envelope_json"))?;
+                if let Some(value) = delivery_time(&envelope, &preferences, value.max(now)) {
+                    next = Some(next.map_or(value, |current| current.min(value)));
+                }
             }
         }
         Ok(next)
@@ -997,6 +1139,162 @@ fn record_from_row(
     })
 }
 
+fn validate_preferences(
+    preferences: &NotificationPreferences,
+) -> Result<(), NotificationStoreError> {
+    if !matches!(
+        preferences.lock_screen_privacy.as_str(),
+        "full" | "title-only" | "hidden"
+    ) {
+        return Err(NotificationStoreError::Validation(
+            "notification lock-screen privacy is invalid".into(),
+        ));
+    }
+    if preferences
+        .category_enabled
+        .keys()
+        .any(|category| !NOTIFICATION_CATEGORIES.contains(&category.as_str()))
+    {
+        return Err(NotificationStoreError::Validation(
+            "notification category preference is invalid".into(),
+        ));
+    }
+    if preferences.scope_enabled.len() > 2_000
+        || preferences.scope_enabled.keys().any(|scope| {
+            let has_value = scope
+                .split_once(':')
+                .is_some_and(|(_, value)| !value.trim().is_empty());
+            scope.len() > 320
+                || !has_value
+                || !(scope.starts_with("server:")
+                    || scope.starts_with("vault:")
+                    || scope.starts_with("calendar:"))
+        })
+    {
+        return Err(NotificationStoreError::Validation(
+            "notification scope preference is invalid".into(),
+        ));
+    }
+    if let Some(quiet_hours) = &preferences.quiet_hours {
+        if quiet_hours.start_minute >= 1_440
+            || quiet_hours.end_minute >= 1_440
+            || quiet_hours.start_minute == quiet_hours.end_minute
+            || quiet_hours.time_zone.len() > 80
+            || quiet_hours.time_zone.parse::<Tz>().is_err()
+        {
+            return Err(NotificationStoreError::Validation(
+                "notification quiet hours are invalid".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn scope_is_enabled(
+    envelope: &NotificationEnvelope,
+    preferences: &NotificationPreferences,
+) -> bool {
+    [("vault", "vaultId"), ("calendar", "calendarId")]
+        .into_iter()
+        .filter_map(|(prefix, field)| {
+            envelope
+                .destination
+                .get(field)
+                .and_then(Value::as_str)
+                .map(|value| format!("{prefix}:{value}"))
+        })
+        .all(|scope| {
+            preferences
+                .scope_enabled
+                .get(&scope)
+                .copied()
+                .unwrap_or(true)
+        })
+        && envelope.server_url.as_ref().is_none_or(|server_url| {
+            preferences
+                .scope_enabled
+                .get(&format!("server:{server_url}"))
+                .copied()
+                .unwrap_or(true)
+        })
+}
+
+fn quiet_hours_end(
+    quiet_hours: &NotificationQuietHours,
+    instant: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    let time_zone = quiet_hours.time_zone.parse::<Tz>().ok()?;
+    let local = instant.with_timezone(&time_zone);
+    let minute = (local.hour() * 60 + local.minute()) as u16;
+    let inside = if quiet_hours.start_minute < quiet_hours.end_minute {
+        minute >= quiet_hours.start_minute && minute < quiet_hours.end_minute
+    } else {
+        minute >= quiet_hours.start_minute || minute < quiet_hours.end_minute
+    };
+    if !inside {
+        return None;
+    }
+    let end_date = if quiet_hours.start_minute > quiet_hours.end_minute
+        && minute >= quiet_hours.start_minute
+    {
+        local.date_naive().succ_opt()?
+    } else {
+        local.date_naive()
+    };
+    let hour = u32::from(quiet_hours.end_minute / 60);
+    let minute = u32::from(quiet_hours.end_minute % 60);
+    let mut candidate = end_date.and_hms_opt(hour, minute, 0)?;
+    for _ in 0..=180 {
+        match time_zone.from_local_datetime(&candidate) {
+            LocalResult::Single(value) => return Some(value.with_timezone(&Utc)),
+            LocalResult::Ambiguous(first, second) => {
+                return Some(first.min(second).with_timezone(&Utc))
+            }
+            LocalResult::None => candidate += Duration::minutes(1),
+        }
+    }
+    None
+}
+
+fn delivery_time(
+    envelope: &NotificationEnvelope,
+    preferences: &NotificationPreferences,
+    instant: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    if !preferences.enabled
+        || !preferences
+            .category_enabled
+            .get(&envelope.category)
+            .copied()
+            .unwrap_or(true)
+        || !scope_is_enabled(envelope, preferences)
+    {
+        return None;
+    }
+    if envelope.priority == "time-sensitive" && preferences.allow_time_sensitive_during_quiet_hours
+    {
+        return Some(instant);
+    }
+    preferences
+        .quiet_hours
+        .as_ref()
+        .and_then(|quiet_hours| quiet_hours_end(quiet_hours, instant))
+        .or(Some(instant))
+}
+
+pub fn effective_privacy(envelope_privacy: &str, preference_privacy: &str) -> &'static str {
+    let rank = |value: &str| match value {
+        "hidden" => 2,
+        "title-only" => 1,
+        _ => 0,
+    };
+    match rank(envelope_privacy).max(rank(preference_privacy)) {
+        2 => "hidden",
+        1 => "title-only",
+        _ => "full",
+    }
+}
+
 fn validate_envelope(
     envelope: &NotificationEnvelope,
     category: &str,
@@ -1099,6 +1397,18 @@ fn validate_envelope(
         || envelope.channel != expected_channel
         || envelope.account_key.trim().is_empty()
         || envelope.account_key.len() > 160
+        || envelope.server_url.as_ref().is_some_and(|server_url| {
+            let Ok(url) = url::Url::parse(server_url) else {
+                return true;
+            };
+            !matches!(url.scheme(), "http" | "https")
+                || url.host_str().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.path() != "/"
+                || url.query().is_some()
+                || url.fragment().is_some()
+        })
         || envelope.source_id.trim().is_empty()
         || envelope.source_id.len() > 512
         || envelope.delivery_key.trim().is_empty()
@@ -1229,6 +1539,7 @@ mod tests {
             kind: "calendar.event-reminder".into(),
             channel: "calendar".into(),
             account_key: "profile-1".into(),
+            server_url: None,
             source_id: "item-1".into(),
             occurrence_key: None,
             delivery_key: "reminder-1".into(),
@@ -1490,5 +1801,103 @@ mod tests {
             .await
             .unwrap()
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn notification_preferences_round_trip_and_filter_categories() {
+        let root = tempfile::tempdir().unwrap();
+        let store = NotificationStore::open(root.path(), "profile-1")
+            .await
+            .unwrap();
+        let mut preferences = NotificationPreferences::default();
+        preferences
+            .category_enabled
+            .insert("calendar.reminder".into(), false);
+        preferences.lock_screen_privacy = "hidden".into();
+        let saved = store
+            .save_preferences("profile-1", preferences.clone())
+            .await
+            .unwrap();
+        assert_eq!(saved, preferences);
+        assert_eq!(store.preferences("profile-1").await.unwrap(), preferences);
+
+        let notice = envelope("notification-1", "2026-01-01T09:00:00Z");
+        store
+            .reconcile("profile-1", "calendar.reminder", &[notice])
+            .await
+            .unwrap();
+        assert!(store.list_due("profile-1", 20).await.unwrap().is_empty());
+        assert!(store.next_delivery_at("profile-1").await.unwrap().is_none());
+    }
+
+    #[test]
+    fn quiet_hours_defer_across_midnight_and_dst_gaps() {
+        let mut preferences = NotificationPreferences::default();
+        preferences.allow_time_sensitive_during_quiet_hours = false;
+        preferences.quiet_hours = Some(NotificationQuietHours {
+            start_minute: 22 * 60,
+            end_minute: 7 * 60,
+            time_zone: "Europe/Berlin".into(),
+        });
+        let notice = envelope("notification-1", "2026-01-01T09:00:00Z");
+        let instant = DateTime::parse_from_rfc3339("2026-07-28T21:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(
+            delivery_time(&notice, &preferences, instant),
+            Some(
+                DateTime::parse_from_rfc3339("2026-07-29T05:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc)
+            )
+        );
+
+        preferences.quiet_hours = Some(NotificationQuietHours {
+            start_minute: 60,
+            end_minute: 2 * 60 + 30,
+            time_zone: "Europe/Berlin".into(),
+        });
+        let spring_forward = DateTime::parse_from_rfc3339("2026-03-29T00:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(
+            delivery_time(&notice, &preferences, spring_forward),
+            Some(
+                DateTime::parse_from_rfc3339("2026-03-29T01:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc)
+            )
+        );
+    }
+
+    #[test]
+    fn privacy_preference_can_only_redact_more_content() {
+        assert_eq!(effective_privacy("full", "title-only"), "title-only");
+        assert_eq!(effective_privacy("title-only", "full"), "title-only");
+        assert_eq!(effective_privacy("hidden", "full"), "hidden");
+    }
+
+    #[test]
+    fn source_scope_overrides_filter_server_vault_and_calendar_destinations() {
+        let instant = Utc::now();
+        let mut notice = envelope("notification-1", &instant.to_rfc3339());
+        notice.priority = "normal".into();
+        notice.server_url = Some("https://collab.example.test".into());
+        notice
+            .destination
+            .as_object_mut()
+            .unwrap()
+            .insert("vaultId".into(), Value::String("vault-1".into()));
+        for scope in [
+            "server:https://collab.example.test",
+            "vault:vault-1",
+            "calendar:calendar-1",
+        ] {
+            let mut preferences = NotificationPreferences::default();
+            preferences.scope_enabled.insert(scope.into(), false);
+            assert_eq!(delivery_time(&notice, &preferences, instant), None);
+        }
+        let preferences = NotificationPreferences::default();
+        assert_eq!(delivery_time(&notice, &preferences, instant), Some(instant));
     }
 }

@@ -1,6 +1,8 @@
 #![cfg(target_os = "android")]
 
-use crate::notifications::{profile_ids, NotificationRecord, NotificationStore};
+use crate::notifications::{
+    effective_privacy, profile_ids, NotificationPreferences, NotificationRecord, NotificationStore,
+};
 use jni::objects::{JClass, JObject, JString};
 use jni::sys::jstring;
 use jni::JNIEnv;
@@ -21,6 +23,7 @@ struct AndroidNotificationAction {
 #[serde(rename_all = "camelCase")]
 struct AndroidNotificationDelivery {
     notification_id: String,
+    notification_ids: Vec<String>,
     profile_id: String,
     channel: String,
     kind: String,
@@ -64,8 +67,11 @@ fn hidden_title(kind: &str) -> &'static str {
     }
 }
 
-fn presentation(record: &NotificationRecord) -> (String, Option<String>) {
-    match record.envelope.privacy.as_str() {
+fn presentation(
+    record: &NotificationRecord,
+    preferences: &NotificationPreferences,
+) -> (String, Option<String>) {
+    match effective_privacy(&record.envelope.privacy, &preferences.lock_screen_privacy) {
         "hidden" => (hidden_title(&record.envelope.kind).to_string(), None),
         "title-only" => (record.envelope.title.clone(), None),
         _ => (record.envelope.title.clone(), record.envelope.body.clone()),
@@ -103,6 +109,40 @@ async fn due_payload(profile_id: &str) -> Result<String, String> {
         .list_due(profile_id, DELIVERY_BATCH_SIZE)
         .await
         .map_err(|error| error.to_string())?;
+    let preferences = store
+        .preferences(profile_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let summary_channel = records
+        .first()
+        .map(|record| record.envelope.channel.clone());
+    if preferences.batch_notifications
+        && records.len() >= 3
+        && summary_channel.as_ref().is_some_and(|channel| {
+            records
+                .iter()
+                .all(|record| record.envelope.channel == *channel)
+        })
+    {
+        let notification_ids = records
+            .iter()
+            .map(|record| record.envelope.id.clone())
+            .collect::<Vec<_>>();
+        let delivery = AndroidNotificationDelivery {
+            notification_id: notification_ids[0].clone(),
+            notification_ids,
+            channel: summary_channel.expect("summary channel exists"),
+            kind: "summary".to_string(),
+            title: format!("{} new Collab notifications", records.len()),
+            body: Some("Open Collab to review them.".to_string()),
+            time_sensitive: records
+                .iter()
+                .any(|record| record.envelope.priority == "time-sensitive"),
+            actions: Vec::new(),
+        };
+        return serde_json::to_string(&vec![delivery])
+            .map_err(|error| format!("Could not encode Android notifications: {error}"));
+    }
     let mut deliveries = Vec::with_capacity(records.len());
     for record in records {
         let mut actions = Vec::new();
@@ -123,9 +163,10 @@ async fn due_payload(profile_id: &str) -> Result<String, String> {
                 minutes: action.get("minutes").and_then(Value::as_u64),
             });
         }
-        let (title, body) = presentation(&record);
+        let (title, body) = presentation(&record, &preferences);
         deliveries.push(AndroidNotificationDelivery {
-            notification_id: record.envelope.id,
+            notification_id: record.envelope.id.clone(),
+            notification_ids: vec![record.envelope.id],
             profile_id: profile_id.to_string(),
             channel: record.envelope.channel,
             kind: record.envelope.kind,

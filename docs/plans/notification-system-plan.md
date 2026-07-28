@@ -31,6 +31,13 @@ React toasts remain foreground UI and are not the durable notification system.
 - Hosted calendar invitations and chat mentions now enter an owner-scoped
   server event feed. Android may receive a content-free FCM invalidation, while
   authenticated foreground and WorkManager catch-up remain authoritative.
+- Desktop and Android now persist profile-local delivery preferences for the
+  master switch, categories, source-scope overrides, lock-screen privacy,
+  quiet hours, urgent bypass, and burst summaries. The native scheduler
+  enforces those preferences without removing durable inbox records.
+- Server administrators can send a privacy-bounded self-test through the real
+  authenticated notification feed; the admin API never exposes device tokens
+  or permits targeting another user.
 - Local calendar reminders do not require a server or push provider.
 
 ## Progress Tracker
@@ -42,7 +49,7 @@ React toasts remain foreground UI and are not the durable notification system.
 | 2. Desktop native delivery | Testing | Deliver native notifications while Collab is open, hidden, or running in the tray. |
 | 3. Android native delivery | Testing | Add channels, runtime permission, scheduled reminders, actions, and deep links. |
 | 4. Server-originated activity delivery | Testing | Add privacy-minimal invalidation delivery for hosted invitations, mentions, and selected activity. |
-| 5. Preferences, quiet hours, and inbox UX | Not started | Give users per-account, per-calendar, per-vault, and per-type control. |
+| 5. Preferences, quiet hours, and inbox UX | Testing | Give users per-account, per-calendar, per-vault, and per-type control. |
 | 6. Hardening and release | Not started | Validate time changes, recurrence, duplicates, permissions, upgrades, and multi-device behavior. |
 
 ## Notification Types
@@ -339,9 +346,42 @@ authenticated notification polling.
 
 ### Phase 5: Preferences And Quiet Hours
 
-- Add category/scoped controls and lock-screen privacy.
-- Add quiet hours, batching, and summary behavior.
-- Ensure birthdays and other item kinds retain distinct icons and semantics.
+- [x] Persist profile-local master, category, and source-scope overrides.
+- [x] Add lock-screen privacy that may only redact more content than the
+  notification envelope permits.
+- [x] Add timezone-aware quiet hours with an explicit time-sensitive bypass.
+- [x] Defer native scheduling through quiet hours without removing inbox
+  records, including deterministic daylight-saving gap handling.
+- [x] Add bounded desktop and Android burst summaries.
+- [x] Retain distinct birthday, calendar, collaboration, and sync icons and
+  semantics in the desktop and mobile inboxes.
+- [x] Add desktop and Android settings surfaces backed by typed Tauri commands.
+- [x] Add per-server, per-vault, and per-calendar controls to desktop and
+  Android notification settings using the persisted source-scope contract.
+- [ ] Validate quiet-hour boundaries, DST transitions, lock-screen redaction,
+  Android summaries, and source overrides on packaged desktop and physical
+  Android targets.
+
+Phase 5 is implemented and in testing. Preferences live in the native
+profile-scoped notification database rather than webview storage. Desktop and
+Android settings inventory saved servers, known vaults, and active calendars,
+then store only explicit muted overrides. Per-server, per-vault, and
+per-calendar controls use stable scope keys and are enforced whenever the
+validated envelope contains that scope.
+Source inventories use compact single-open accordion groups instead of nested
+scroll regions. Linux native notifications explicitly request the packaged
+`com.azazel.collab` icon rather than relying on executable-name discovery.
+
+Authenticated hosted catch-up stamps each fetched envelope with its already
+validated native server origin before local ingestion. This provenance never
+enters third-party push payloads and cannot be supplied by an untrusted server
+to redirect a scope. Vault and calendar controls continue to use their stable
+domain IDs.
+
+Quiet hours are evaluated in their saved IANA timezone. Time-sensitive items
+may bypass them only when the user explicitly leaves that option enabled.
+Disabled or deferred records remain available in the durable inbox, while the
+platform scheduler ignores them or wakes at the quiet-hours boundary.
 
 ### Phase 6: Hardening And Release
 

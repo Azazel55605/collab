@@ -68,6 +68,8 @@ export interface NotificationEnvelope {
   channel: NotificationChannel;
   /** Stable opaque account/profile identifier. Never an access credential. */
   accountKey: string;
+  /** Native catch-up provenance used for device-local per-server preferences. */
+  serverUrl?: string;
   sourceId: string;
   occurrenceKey?: string;
   /** Distinguishes multiple notices for one source/occurrence, such as reminders. */
@@ -177,6 +179,8 @@ export interface NotificationPreferences {
   enabled: boolean;
   lockScreenPrivacy: NotificationPrivacyLevel;
   categoryEnabled: Record<NotificationCategory, boolean>;
+  scopeEnabled: Record<string, boolean>;
   quietHours: NotificationQuietHours | null;
   allowTimeSensitiveDuringQuietHours: boolean;
+  batchNotifications: boolean;
 }

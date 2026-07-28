@@ -28,7 +28,7 @@ work from being mistaken for an active roadmap item.
 | Logic and circuit diagram editor | In progress umbrella | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream. | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md) |
 | User calendar | Testing | Complete physical-device validation for cross-location mirroring and notifications, the Phase 9 external-client CalDAV matrix, and Phase 10 restore/multi-day lifecycle drills. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
 | Background running | Testing | Phase 5 automated hardening is implemented. Complete the packaged desktop/physical Android matrix, then add notification-backed Android foreground transfers. | [Background Running Plan](./background-running-plan.md) |
-| Notification system | In progress | Phases 0-4 are in testing with the native ledger, desktop/Android delivery, and hosted invitation/mention invalidations. Add scoped preferences, quiet hours, and release hardening. | [Notification System Plan](./notification-system-plan.md) |
+| Notification system | Testing | Phases 0-5 are implemented with native delivery, hosted activity, profile/category/server/vault/calendar controls, quiet hours, privacy, and summaries. Complete the packaged desktop/physical Android matrix and Phase 6 release hardening. | [Notification System Plan](./notification-system-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
 | Mobile widgets | Ideas only | Evaluate a calendar agenda widget first after background snapshots are available; no implementation commitment or phased schedule exists yet. | [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) |
 
@@ -135,7 +135,7 @@ background scheduling and synchronized data but own delivery, preferences,
 privacy, and actions. Keeping those responsibilities separate prevents tray,
 WorkManager, calendar, and push behavior from becoming one coupled subsystem.
 
-Notification Phases 0-4 are in **Testing**. The typed envelope, stable identity,
+Notification Phases 0-5 are in **Testing**. The typed envelope, stable identity,
 channels, destinations, bounded actions, privacy redaction, foreground
 suppression, content-free push invalidation, native inbox/scheduler, desktop
 permission and delivery adapter, tray-hidden dispatch, settings, and status-bar
@@ -144,7 +144,10 @@ exact-alarm recovery, per-profile native alarms, safe tokenized actions,
 cold-start deep links, lifecycle restoration, its settings inbox, native FCM
 registration, and authenticated catch-up. Hosted calendar invitations and chat
 mentions now use a transactional owner-scoped event feed plus a leased opaque
-push outbox. Phase 5 scoped preferences and quiet hours are next.
+push outbox. Profile-local category/source controls, lock-screen privacy,
+timezone-aware quiet hours, urgent bypass, native burst summaries, and
+distinct item-kind icons, and per-server, per-vault, and per-calendar controls
+are now implemented. Phase 6 platform and lifecycle hardening is next.
 
 ### Flatpak Distribution
 

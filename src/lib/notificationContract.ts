@@ -135,8 +135,10 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
     'sync.action-required': true,
     'transfer.complete': true,
   },
+  scopeEnabled: {},
   quietHours: null,
   allowTimeSensitiveDuringQuietHours: true,
+  batchNotifications: true,
 };
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
@@ -176,6 +178,27 @@ function requireIsoInstant(value: unknown, label: string): string {
 
 function optionalIsoInstant(value: unknown, label: string): string | undefined {
   return value === undefined ? undefined : requireIsoInstant(value, label);
+}
+
+function optionalServerUrl(value: unknown): string | undefined {
+  const serverUrl = optionalString(value, 'Notification server URL', 2_048);
+  if (!serverUrl) return undefined;
+  try {
+    const parsed = new URL(serverUrl);
+    if (
+      !['http:', 'https:'].includes(parsed.protocol)
+      || parsed.username
+      || parsed.password
+      || parsed.pathname !== '/'
+      || parsed.search
+      || parsed.hash
+    ) {
+      throw new Error();
+    }
+    return parsed.origin;
+  } catch {
+    throw new Error('Notification server URL must be an HTTP origin.');
+  }
 }
 
 function kindPolicy(kind: unknown): [NotificationKind, NotificationKindPolicy] {
@@ -292,6 +315,7 @@ export function validateNotificationEnvelope(value: unknown): NotificationEnvelo
     throw new Error('Notification category/channel does not match its kind.');
   }
   const accountKey = requireString(input.accountKey, 'Notification account key', MAX_ACCOUNT_KEY_LENGTH);
+  const serverUrl = optionalServerUrl(input.serverUrl);
   const sourceId = requireString(input.sourceId, 'Notification source ID', MAX_SOURCE_ID_LENGTH);
   const occurrenceKey = optionalString(
     input.occurrenceKey,
@@ -338,6 +362,7 @@ export function validateNotificationEnvelope(value: unknown): NotificationEnvelo
     kind,
     channel: policy.channel,
     accountKey,
+    ...(serverUrl ? { serverUrl } : {}),
     sourceId,
     ...(occurrenceKey ? { occurrenceKey } : {}),
     deliveryKey,

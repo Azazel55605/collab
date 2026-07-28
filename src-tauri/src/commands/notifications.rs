@@ -1,8 +1,8 @@
 use super::app_config_dir;
 use crate::notifications::{
     ConsumedNotificationAction, NotificationActionToken, NotificationEnvelope,
-    NotificationReconcileResult, NotificationReconciliationRequest, NotificationRecord,
-    NotificationStore,
+    NotificationPreferences, NotificationReconcileResult, NotificationReconciliationRequest,
+    NotificationRecord, NotificationStore,
 };
 use serde_json::Value;
 use std::{collections::HashMap, sync::OnceLock};
@@ -87,6 +87,31 @@ pub async fn notification_list_inbox(
         .list_inbox(&profile_id, include_dismissed, limit)
         .await
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn notification_preferences_get(
+    profile_id: String,
+) -> Result<NotificationPreferences, String> {
+    store(&profile_id)
+        .await?
+        .preferences(&profile_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn notification_preferences_save(
+    profile_id: String,
+    preferences: NotificationPreferences,
+) -> Result<NotificationPreferences, String> {
+    let store = store(&profile_id).await?;
+    let preferences = store
+        .save_preferences(&profile_id, preferences)
+        .await
+        .map_err(|error| error.to_string())?;
+    reconcile_platform_schedule(&profile_id, &store).await?;
+    Ok(preferences)
 }
 
 #[tauri::command]

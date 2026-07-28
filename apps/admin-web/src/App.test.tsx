@@ -20,6 +20,7 @@ vi.mock('./api', () => ({
     settings: vi.fn(),
     updateSettings: vi.fn(),
     runMaintenance: vi.fn(),
+    sendNotificationTest: vi.fn(),
     liveDebug: vi.fn(),
     setLiveDebug: vi.fn(),
     backups: vi.fn(),
@@ -1259,6 +1260,15 @@ describe('admin application', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Run maintenance now' }));
     expect(await screen.findByText(/Reclaimed 5 revision\(s\)/)).toBeTruthy();
     expect(serverApi.runMaintenance).toHaveBeenCalled();
+
+    vi.mocked(serverApi.sendNotificationTest).mockResolvedValue({
+      eventId: 'event-1',
+      queuedDevices: 1,
+      pushGatewayConfigured: true,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send test notification' }));
+    expect(await screen.findByText(/Test notification created. Queued for 1 registered device/)).toBeTruthy();
+    expect(serverApi.sendNotificationTest).toHaveBeenCalled();
   });
 
   it('renders the permissions overview tree and filters by search', async () => {

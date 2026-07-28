@@ -1402,7 +1402,7 @@ matrix remain manual release gates, so this phase stays in **Testing**.
 
 Estimated effort: 2-4 weeks after core desktop/Android calendar workflows.
 
-The shared notification system's Phases 0-4 are implemented and in testing.
+The shared notification system's Phases 0-5 are implemented and in testing.
 Calendar reminders now reconcile a bounded one-year horizon with typed item
 routing, stable replacement, stale cancellation, snooze/action tokens, retry,
 and retention. Desktop delivery includes native permission handling,
@@ -1413,6 +1413,9 @@ safe action receivers, cold-start deep links, lifecycle restoration, and a
 mobile inbox. Hosted invitations now enter the attendee's owner-scoped
 notification feed transactionally and use opaque FCM invalidations with
 authenticated native catch-up.
+Profile-local calendar-reminder controls, lock-screen privacy,
+timezone-aware quiet hours, urgent bypass, and burst summaries are now enforced
+by the native scheduler without removing deferred reminders from the inbox.
 
 Tasks:
 
@@ -1423,8 +1426,8 @@ Tasks:
   actions on the physical-device matrix.
 - Reconcile schedules after CRUD, recurrence exceptions, hosted sync, conflict
   resolution, sign-out, and cache removal.
-- Add privacy controls for lock-screen title/description visibility and bounded
-  diagnostics for failed schedules.
+- Validate privacy controls, quiet-hour boundaries, and bounded diagnostics for
+  failed schedules on packaged desktop and physical Android targets.
 
 Acceptance criteria:
 

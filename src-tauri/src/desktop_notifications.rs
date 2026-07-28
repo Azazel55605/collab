@@ -1,12 +1,14 @@
 #![cfg(not(mobile))]
 
 use crate::commands;
-use crate::notifications::{profile_ids, NotificationEnvelope};
+use crate::notifications::{effective_privacy, profile_ids, NotificationEnvelope};
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 
 const DELIVERY_BATCH_SIZE: u32 = 20;
+#[cfg(target_os = "linux")]
+const LINUX_NOTIFICATION_ICON: &str = "com.azazel.collab";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +24,18 @@ fn permission_name(state: tauri::plugin::PermissionState) -> &'static str {
         tauri::plugin::PermissionState::Prompt => "prompt",
         tauri::plugin::PermissionState::PromptWithRationale => "prompt-with-rationale",
     }
+}
+
+fn notification_builder(
+    app: &tauri::AppHandle,
+) -> tauri_plugin_notification::NotificationBuilder<tauri::Wry> {
+    let builder = app.notification().builder();
+    #[cfg(target_os = "linux")]
+    {
+        return builder.icon(LINUX_NOTIFICATION_ICON);
+    }
+    #[cfg(not(target_os = "linux"))]
+    builder
 }
 
 pub fn permission_status(app: &tauri::AppHandle) -> Result<DesktopNotificationPermission, String> {
@@ -50,8 +64,7 @@ pub fn send_test(app: &tauri::AppHandle) -> Result<(), String> {
     if permission_status(app)?.status != "granted" {
         return Err("Desktop notification permission is not granted.".into());
     }
-    app.notification()
-        .builder()
+    notification_builder(app)
         .title("Collab notifications")
         .body("Desktop notifications are working.")
         .show()
@@ -74,8 +87,11 @@ fn hidden_title(kind: &str) -> &'static str {
     }
 }
 
-fn presentation(envelope: &NotificationEnvelope) -> (String, Option<String>) {
-    match envelope.privacy.as_str() {
+fn presentation(
+    envelope: &NotificationEnvelope,
+    preference_privacy: &str,
+) -> (String, Option<String>) {
+    match effective_privacy(&envelope.privacy, preference_privacy) {
         "hidden" => (hidden_title(&envelope.kind).to_string(), None),
         "title-only" => (envelope.title.clone(), None),
         _ => (envelope.title.clone(), envelope.body.clone()),
@@ -90,9 +106,13 @@ fn app_is_focused(app: &tauri::AppHandle) -> bool {
     })
 }
 
-fn show_native(app: &tauri::AppHandle, envelope: &NotificationEnvelope) -> Result<(), String> {
-    let (title, body) = presentation(envelope);
-    let mut builder = app.notification().builder().title(title);
+fn show_native(
+    app: &tauri::AppHandle,
+    envelope: &NotificationEnvelope,
+    preference_privacy: &str,
+) -> Result<(), String> {
+    let (title, body) = presentation(envelope, preference_privacy);
+    let mut builder = notification_builder(app).title(title);
     if let Some(body) = body {
         builder = builder.body(body);
     }
@@ -114,15 +134,40 @@ pub async fn dispatch_due(app: &tauri::AppHandle) -> Result<u64, String> {
     let mut delivered = 0;
     for profile_id in profile_ids(&root).map_err(|error| error.to_string())? {
         let store = commands::notifications::store(&profile_id).await?;
+        let preferences = store
+            .preferences(&profile_id)
+            .await
+            .map_err(|error| error.to_string())?;
         let due = store
             .list_due(&profile_id, DELIVERY_BATCH_SIZE)
             .await
             .map_err(|error| error.to_string())?;
+        if !focused && permission_granted && preferences.batch_notifications && due.len() >= 3 {
+            notification_builder(app)
+                .title(format!("{} new Collab notifications", due.len()))
+                .body("Open Collab to review them.")
+                .show()
+                .map_err(|error| format!("Could not show desktop notification summary: {error}"))?;
+            for record in due {
+                store
+                    .mark_delivered(&record.envelope.id, "native")
+                    .await
+                    .map_err(|error| error.to_string())?;
+                delivered += 1;
+            }
+            let _ = app.emit(
+                "notifications:inbox-changed",
+                serde_json::json!({ "profileId": profile_id, "surface": "native" }),
+            );
+            continue;
+        }
         for record in due {
             let surface = if focused {
                 "in-app"
             } else if permission_granted {
-                if let Err(error) = show_native(app, &record.envelope) {
+                if let Err(error) =
+                    show_native(app, &record.envelope, &preferences.lock_screen_privacy)
+                {
                     store
                         .mark_failed(&record.envelope.id, &error)
                         .await
