@@ -131,6 +131,7 @@ async fn due_payload(profile_id: &str) -> Result<String, String> {
         let delivery = AndroidNotificationDelivery {
             notification_id: notification_ids[0].clone(),
             notification_ids,
+            profile_id: profile_id.to_string(),
             channel: summary_channel.expect("summary channel exists"),
             kind: "summary".to_string(),
             title: format!("{} new Collab notifications", records.len()),
