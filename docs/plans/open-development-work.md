@@ -1,6 +1,6 @@
 # Open Development Work
 
-Last reviewed: 2026-07-27
+Last reviewed: 2026-07-28
 
 This is the entry point for unfinished Collab projects. Detailed requirements,
 implementation notes, and acceptance criteria remain in their canonical plan
@@ -22,6 +22,7 @@ work from being mistaken for an active roadmap item.
 
 | Project | Current status | Remaining work | Canonical document |
 | --- | --- | --- | --- |
+| Advanced Tables | Not started | Build the native `.sheet` domain, desktop editor, formulas, data tools, hosted collaboration, mobile experience, and final bounded XLSX/CSV conversion phase. | [Advanced Tables Plan](./advanced-tables-plan.md) |
 | Android companion app | In progress / deferred expansion | Finish Phase 7 device lifecycle QA, signing, release packaging, and operational documentation. Phase 8 remains a deferred expansion bucket; background execution and notifications now have dedicated plans. | [Android Companion App Plan](./android-companion-app-plan.md) |
 | Electronic circuit simulation | In progress / planned | Finish remaining schema/runtime details and AC integration, then mixed-signal simulation, derived-result caching/collaboration policy, numerical hardening, and release validation. | [Electronic Circuit Simulation Plan](./electronic-circuit-simulation-plan.md) |
 | Logic and circuit diagram editor | In progress umbrella | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream. | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md) |
@@ -52,6 +53,10 @@ work from being mistaken for an active roadmap item.
 Circuit simulation and Flatpak distribution can proceed independently, subject
 to normal release and platform capacity.
 
+Advanced Tables is also an independent product stream. Its Phase 0 technical
+proof should precede any editor implementation because formula-engine,
+virtualization, and licensing choices determine the feasible workbook limits.
+
 ## Project Details
 
 ### Android Companion App
@@ -65,6 +70,19 @@ Open tracker entries:
 
 Background sync and push notifications should be delivered through their new
 cross-platform plans rather than implemented as Android-only forks.
+
+### Advanced Tables
+
+Open tracker entries:
+
+- Phase 0, **Not started**: finalize the native `.sheet` schema, formula/rendering
+  engine choices, licenses, limits, and large-grid proof.
+- Phases 1-9, **Not started**: implement the document domain, desktop editor,
+  formulas, spreadsheet interactions, data tools, collaboration, analysis,
+  mobile experience, and release hardening.
+- Phase 10, **Not started**: add bounded `.xlsx`/`.csv` import into `.sheet` and
+  export from `.sheet`. External formats remain conversion targets rather than
+  live or losslessly compatible document models.
 
 ### Electronic Circuit Simulation
 

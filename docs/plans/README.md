@@ -5,6 +5,7 @@ implementation status. Start with
 [Open Development Work](./open-development-work.md) for the consolidated view.
 
 - [Android Companion App](./android-companion-app-plan.md)
+- [Advanced Tables](./advanced-tables-plan.md)
 - [Background Running](./background-running-plan.md)
 - [Electronic Circuit Simulation](./electronic-circuit-simulation-plan.md)
 - [Flatpak Distribution](./flatpak-distribution-plan.md)
