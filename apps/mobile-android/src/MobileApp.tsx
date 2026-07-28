@@ -5,6 +5,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Banner, ConfirmSheet } from './components/ui';
 import {
   mobileExitApp,
+  notificationAndroidTakePendingOpen,
+  notificationListInbox,
+  notificationMarkRead,
   reconcileAndroidBackground,
   requestAndroidBackgroundSync,
   type BackgroundJobRecord,
@@ -151,6 +154,65 @@ export function MobileApp() {
     window.addEventListener('collab-android-back', onBack);
     return () => window.removeEventListener('collab-android-back', onBack);
   }, []);
+
+  useEffect(() => {
+    const openNotification = async (profileId: string, notificationId: string) => {
+      const records = await notificationListInbox(profileId, true, 200);
+      const record = records.find((candidate) => candidate.envelope.id === notificationId);
+      if (!record) {
+        setTab('settings');
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('collab-settings-open-category', {
+            detail: { category: 'notifications' },
+          }));
+        }, 0);
+        return;
+      }
+      await notificationMarkRead(profileId, notificationId).catch(() => {});
+      const destination = record.envelope.destination;
+      if (destination.kind === 'calendar-item' || destination.kind === 'calendar-invitations') {
+        setTab('calendar');
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('collab-calendar-open-notification', {
+            detail: destination,
+          }));
+        }, 0);
+      } else {
+        setTab('settings');
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('collab-settings-open-category', {
+            detail: {
+              category: destination.kind === 'settings'
+                ? destination.section === 'background'
+                  ? 'background'
+                  : destination.section === 'servers'
+                    ? 'account'
+                    : 'notifications'
+                : 'notifications',
+            },
+          }));
+        }, 0);
+      }
+    };
+
+    const onNotificationOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        profileId?: string;
+        notificationId?: string;
+      }>).detail;
+      if (!detail?.profileId || !detail.notificationId) return;
+      void notificationAndroidTakePendingOpen().catch(() => null);
+      void openNotification(detail.profileId, detail.notificationId);
+    };
+
+    window.addEventListener('collab-notification-open', onNotificationOpen);
+    void notificationAndroidTakePendingOpen()
+      .then((pending) => {
+        if (pending) void openNotification(pending.profileId, pending.notificationId);
+      })
+      .catch(() => {});
+    return () => window.removeEventListener('collab-notification-open', onNotificationOpen);
+  }, [setTab]);
 
   const updatePrefs = useCallback((next: ThemePrefs) => {
     setPrefs(next);

@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Bell,
   CalendarDays,
   ChevronRight,
   CircuitBoard,
@@ -35,6 +36,7 @@ import {
   type BackgroundSettings,
 } from '../mobileTauri';
 import { mobileCalendarProfileId } from '../lib/calendarSync';
+import { NotificationSettingsSection } from '../components/NotificationSettingsSection';
 
 const DEFAULT_BACKGROUND_SETTINGS: BackgroundSettings = {
   schemaVersion: 1,
@@ -57,7 +59,15 @@ const FONT_SCALES: { value: number; label: string }[] = [
   { value: 1.25, label: 'XL' },
 ];
 
-type SettingsCategory = 'general' | 'background' | 'appearance' | 'editor' | 'calendar' | 'logic' | 'account';
+type SettingsCategory =
+  | 'general'
+  | 'background'
+  | 'notifications'
+  | 'appearance'
+  | 'editor'
+  | 'calendar'
+  | 'logic'
+  | 'account';
 
 const SETTINGS_CATEGORIES: Array<{
   id: SettingsCategory;
@@ -79,6 +89,13 @@ const SETTINGS_CATEGORIES: Array<{
     description: 'Sync schedule, network, and battery policy',
     keywords: 'sync schedule interval wifi metered roaming charging battery',
     Icon: CloudCog,
+  },
+  {
+    id: 'notifications',
+    label: 'Notifications',
+    description: 'Permission, reminder timing, and notification inbox',
+    keywords: 'notification alert reminder permission alarm inbox snooze',
+    Icon: Bell,
   },
   {
     id: 'appearance',
@@ -167,6 +184,17 @@ export function SettingsScreen({
       .catch((error) => setBackgroundError(String(error)))
       .finally(() => setBackgroundBusy(false));
   }, [refreshBackgroundJobs]);
+
+  useEffect(() => {
+    const openCategory = (event: Event) => {
+      const category = (event as CustomEvent<{ category?: SettingsCategory }>).detail?.category;
+      if (category && SETTINGS_CATEGORIES.some((entry) => entry.id === category)) {
+        setActiveCategory(category);
+      }
+    };
+    window.addEventListener('collab-settings-open-category', openCategory);
+    return () => window.removeEventListener('collab-settings-open-category', openCategory);
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -451,6 +479,8 @@ export function SettingsScreen({
         ) : null}
       </section>
       ) : null}
+
+      {activeCategory === 'notifications' ? <NotificationSettingsSection /> : null}
 
       {activeCategory === 'calendar' ? (
       <section className="card">

@@ -1,4 +1,5 @@
 mod android_jni;
+mod android_notifications;
 mod background;
 #[cfg(not(mobile))]
 mod background_lifecycle;
@@ -182,9 +183,13 @@ pub fn run() {
             commands::notifications::notification_consume_action_token,
             commands::notifications::notification_cleanup,
             commands::notifications::notification_list_reconciliation_requests,
+            commands::notifications::notification_reconcile_platform_schedule,
             commands::notifications::notification_permission_status,
             commands::notifications::notification_request_permission,
             commands::notifications::notification_send_test,
+            commands::notifications::notification_android_exact_alarm_status,
+            commands::notifications::notification_android_open_exact_alarm_settings,
+            commands::notifications::notification_android_take_pending_open,
             commands::background::background_runtime_probe,
             commands::background::background_server_list,
             commands::background::background_server_replace,

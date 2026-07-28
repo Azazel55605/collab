@@ -32,6 +32,7 @@ class CollabBackgroundWorker(
       )
       val outcome = JSONObject(payload)
       val retryRecommended = outcome.optBoolean("retryRecommended", false)
+      CollabNotificationScheduler.reconcileProfile(applicationContext, profileId)
       Log.i(TAG, "Native background work completed")
       if (retryRecommended && runAttemptCount < MAX_RETRY_ATTEMPTS) {
         Result.retry()
@@ -46,6 +47,9 @@ class CollabBackgroundWorker(
         )
       }
     } catch (error: Throwable) {
+      runCatching {
+        CollabNotificationScheduler.reconcileProfile(applicationContext, profileId)
+      }
       val message = sanitizeWorkerError(error.message ?: error.javaClass.simpleName)
       Log.e(TAG, "Native background work failed: $message")
       if (runAttemptCount < MAX_RETRY_ATTEMPTS) {

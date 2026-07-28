@@ -485,6 +485,16 @@ impl NotificationStore {
         .bind(&now)
         .execute(&self.pool)
         .await?;
+        sqlx::query(
+            r#"UPDATE notifications
+               SET state='ready', failure_message=NULL, next_retry_at=NULL, updated_at=?
+               WHERE profile_id=? AND state='failed' AND next_retry_at<=?"#,
+        )
+        .bind(&now)
+        .bind(profile_id)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
         let rows = sqlx::query(
             r#"SELECT * FROM notifications
                WHERE profile_id=? AND state='ready'
@@ -498,6 +508,45 @@ impl NotificationStore {
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(record_from_row).collect()
+    }
+
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub async fn next_delivery_at(
+        &self,
+        profile_id: &str,
+    ) -> Result<Option<DateTime<Utc>>, NotificationStoreError> {
+        let rows = sqlx::query(
+            r#"SELECT state, scheduled_at, next_retry_at FROM notifications
+               WHERE profile_id=?
+                 AND state IN ('scheduled','ready','failed')
+                 AND (expires_at IS NULL OR expires_at>?)
+               LIMIT 20000"#,
+        )
+        .bind(profile_id)
+        .bind(Utc::now().to_rfc3339())
+        .fetch_all(&self.pool)
+        .await?;
+        let now = Utc::now();
+        let mut next: Option<DateTime<Utc>> = None;
+        for row in rows {
+            let state: &str = row.get("state");
+            let value = match state {
+                "ready" => Some(now),
+                "scheduled" => row
+                    .get::<Option<String>, _>("scheduled_at")
+                    .map(|value| parse_instant(&value, "schedule time"))
+                    .transpose()?,
+                "failed" => row
+                    .get::<Option<String>, _>("next_retry_at")
+                    .map(|value| parse_instant(&value, "retry time"))
+                    .transpose()?,
+                _ => None,
+            };
+            if let Some(value) = value {
+                next = Some(next.map_or(value, |current| current.min(value)));
+            }
+        }
+        Ok(next)
     }
 
     pub async fn mark_delivered(
@@ -763,7 +812,7 @@ impl NotificationStore {
         Ok(removed)
     }
 
-    async fn record(
+    pub async fn record(
         &self,
         notification_id: &str,
     ) -> Result<NotificationRecord, NotificationStoreError> {
@@ -1181,5 +1230,60 @@ mod tests {
         let inbox = store.list_inbox("profile-1", false, 20).await.unwrap();
         assert_eq!(inbox[0].state, NotificationState::Delivered);
         assert_eq!(inbox[0].delivery_surface.as_deref(), Some("native"));
+    }
+
+    #[tokio::test]
+    async fn next_delivery_uses_the_earliest_active_schedule() {
+        let root = tempfile::tempdir().unwrap();
+        let store = NotificationStore::open(root.path(), "profile-1")
+            .await
+            .unwrap();
+        let later = envelope("notification-later", "2099-01-01T10:00:00Z");
+        let earlier = envelope("notification-earlier", "2099-01-01T09:00:00Z");
+        store
+            .reconcile("profile-1", "calendar.reminder", &[later, earlier])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store.next_delivery_at("profile-1").await.unwrap(),
+            Some(
+                DateTime::parse_from_rfc3339("2099-01-01T09:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc)
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn due_listing_retries_failed_delivery_after_backoff() {
+        let root = tempfile::tempdir().unwrap();
+        let store = NotificationStore::open(root.path(), "profile-1")
+            .await
+            .unwrap();
+        let notice = envelope("notification-1", "2026-01-01T09:00:00Z");
+        let notification_id = notice.id.clone();
+        store
+            .reconcile("profile-1", "calendar.reminder", &[notice])
+            .await
+            .unwrap();
+        store
+            .mark_failed(&notification_id, "native delivery failed")
+            .await
+            .unwrap();
+        sqlx::query("UPDATE notifications SET next_retry_at=? WHERE id=?")
+            .bind("2026-01-01T09:01:00Z")
+            .bind(&notification_id)
+            .execute(&store.pool)
+            .await
+            .unwrap();
+
+        let due = store.list_due("profile-1", 20).await.unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].envelope.id, notification_id);
+        assert_eq!(due[0].state, NotificationState::Ready);
+        assert_eq!(due[0].attempt_count, 1);
+        assert!(due[0].failure_message.is_none());
+        assert!(due[0].next_retry_at.is_none());
     }
 }

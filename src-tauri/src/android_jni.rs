@@ -21,7 +21,10 @@ struct AndroidWorkerContext {
 
 static WORKER_CONTEXT: OnceLock<AndroidWorkerContext> = OnceLock::new();
 
-fn register_worker_context(env: &mut JNIEnv<'_>, context: &JObject<'_>) -> Result<(), String> {
+pub(crate) fn register_worker_context(
+    env: &mut JNIEnv<'_>,
+    context: &JObject<'_>,
+) -> Result<(), String> {
     if WORKER_CONTEXT.get().is_some() {
         return Ok(());
     }
@@ -183,6 +186,58 @@ pub fn call_static_string(
 }
 
 const BACKGROUND_SCHEDULER_CLASS: &str = "com.azazel.collab.companion.CollabBackgroundScheduler";
+const NOTIFICATION_BRIDGE_CLASS: &str = "com.azazel.collab.companion.CollabNotificationBridge";
+const NOTIFICATION_SCHEDULER_CLASS: &str =
+    "com.azazel.collab.companion.CollabNotificationScheduler";
+
+pub fn notification_permission_status() -> Result<String, String> {
+    call_static_string(NOTIFICATION_BRIDGE_CLASS, "permissionStatus", &[])?
+        .ok_or_else(|| "Android returned no notification permission state.".to_string())
+}
+
+pub fn request_notification_permission() -> Result<String, String> {
+    call_static_string(NOTIFICATION_BRIDGE_CLASS, "requestPermission", &[])?
+        .ok_or_else(|| "Android returned no notification permission state.".to_string())
+}
+
+pub fn send_test_notification() -> Result<(), String> {
+    match call_static_string(NOTIFICATION_BRIDGE_CLASS, "sendTest", &[])? {
+        Some(error) => Err(format!(
+            "Could not show the Android test notification: {error}"
+        )),
+        None => Ok(()),
+    }
+}
+
+pub fn take_pending_notification_open() -> Result<Option<String>, String> {
+    call_static_string(NOTIFICATION_BRIDGE_CLASS, "takePendingOpen", &[])
+}
+
+pub fn exact_alarm_status() -> Result<String, String> {
+    call_static_string(NOTIFICATION_SCHEDULER_CLASS, "exactAlarmStatus", &[])?
+        .ok_or_else(|| "Android returned no exact-alarm status.".to_string())
+}
+
+pub fn open_exact_alarm_settings() -> Result<(), String> {
+    match call_static_string(NOTIFICATION_SCHEDULER_CLASS, "openExactAlarmSettings", &[])? {
+        Some(error) => Err(format!("Could not open Android alarm settings: {error}")),
+        None => Ok(()),
+    }
+}
+
+pub fn schedule_notification_profile(
+    profile_id: &str,
+    scheduled_at: Option<&str>,
+) -> Result<(), String> {
+    match call_static_string(
+        NOTIFICATION_SCHEDULER_CLASS,
+        "scheduleProfile",
+        &[profile_id, scheduled_at.unwrap_or("")],
+    )? {
+        Some(error) => Err(format!("Could not schedule Android notifications: {error}")),
+        None => Ok(()),
+    }
+}
 
 pub fn configure_background_scheduler(
     profile_id: &str,

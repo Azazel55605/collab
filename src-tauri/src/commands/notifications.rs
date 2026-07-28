@@ -27,17 +27,39 @@ pub(crate) async fn store(profile_id: &str) -> Result<NotificationStore, String>
     Ok(store)
 }
 
+async fn reconcile_platform_schedule(
+    profile_id: &str,
+    store: &NotificationStore,
+) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let scheduled_at = store
+            .next_delivery_at(profile_id)
+            .await
+            .map_err(|error| error.to_string())?
+            .map(|value| value.to_rfc3339());
+        crate::android_jni::schedule_notification_profile(profile_id, scheduled_at.as_deref())?;
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (profile_id, store);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn notification_reconcile(
     profile_id: String,
     category: String,
     entries: Vec<NotificationEnvelope>,
 ) -> Result<NotificationReconcileResult, String> {
-    store(&profile_id)
-        .await?
+    let store = store(&profile_id).await?;
+    let result = store
         .reconcile(&profile_id, &category, &entries)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    reconcile_platform_schedule(&profile_id, &store).await?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -45,11 +67,13 @@ pub async fn notification_cancel_category(
     profile_id: String,
     category: String,
 ) -> Result<u64, String> {
-    store(&profile_id)
-        .await?
+    let store = store(&profile_id).await?;
+    let cancelled = store
         .cancel_category(&profile_id, &category)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    reconcile_platform_schedule(&profile_id, &store).await?;
+    Ok(cancelled)
 }
 
 #[tauri::command]
@@ -96,11 +120,13 @@ pub async fn notification_snooze(
     notification_id: String,
     minutes: u32,
 ) -> Result<NotificationRecord, String> {
-    store(&profile_id)
-        .await?
+    let store = store(&profile_id).await?;
+    let record = store
         .snooze(&notification_id, minutes)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    reconcile_platform_schedule(&profile_id, &store).await?;
+    Ok(record)
 }
 
 #[tauri::command]
@@ -118,11 +144,18 @@ pub async fn notification_mark_failed(
 
 #[tauri::command]
 pub async fn notification_retry(profile_id: String, notification_id: String) -> Result<(), String> {
-    store(&profile_id)
-        .await?
+    let store = store(&profile_id).await?;
+    store
         .retry(&notification_id)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    reconcile_platform_schedule(&profile_id, &store).await
+}
+
+#[tauri::command]
+pub async fn notification_reconcile_platform_schedule(profile_id: String) -> Result<(), String> {
+    let store = store(&profile_id).await?;
+    reconcile_platform_schedule(&profile_id, &store).await
 }
 
 #[tauri::command]
@@ -192,10 +225,20 @@ pub fn notification_permission_status(
     #[cfg(mobile)]
     {
         let _ = app;
-        Ok(NotificationPermissionStatus {
-            status: "unsupported".into(),
-            supported: false,
-        })
+        #[cfg(target_os = "android")]
+        {
+            return Ok(NotificationPermissionStatus {
+                status: crate::android_jni::notification_permission_status()?,
+                supported: true,
+            });
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            Ok(NotificationPermissionStatus {
+                status: "unsupported".into(),
+                supported: false,
+            })
+        }
     }
 }
 
@@ -214,10 +257,20 @@ pub fn notification_request_permission(
     #[cfg(mobile)]
     {
         let _ = app;
-        Ok(NotificationPermissionStatus {
-            status: "unsupported".into(),
-            supported: false,
-        })
+        #[cfg(target_os = "android")]
+        {
+            return Ok(NotificationPermissionStatus {
+                status: crate::android_jni::request_notification_permission()?,
+                supported: true,
+            });
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            Ok(NotificationPermissionStatus {
+                status: "unsupported".into(),
+                supported: false,
+            })
+        }
     }
 }
 
@@ -230,6 +283,67 @@ pub fn notification_send_test(app: AppHandle) -> Result<(), String> {
     #[cfg(mobile)]
     {
         let _ = app;
-        Err("Desktop notifications are unavailable on this platform.".into())
+        #[cfg(target_os = "android")]
+        {
+            return crate::android_jni::send_test_notification();
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            Err("Notifications are unavailable on this platform.".into())
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AndroidExactAlarmStatus {
+    pub status: String,
+    pub supported: bool,
+}
+
+#[tauri::command]
+pub fn notification_android_exact_alarm_status() -> Result<AndroidExactAlarmStatus, String> {
+    #[cfg(target_os = "android")]
+    {
+        return Ok(AndroidExactAlarmStatus {
+            status: crate::android_jni::exact_alarm_status()?,
+            supported: true,
+        });
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(AndroidExactAlarmStatus {
+            status: "unsupported".into(),
+            supported: false,
+        })
+    }
+}
+
+#[tauri::command]
+pub fn notification_android_open_exact_alarm_settings() -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        return crate::android_jni::open_exact_alarm_settings();
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Err("Exact alarm settings are available only on Android.".into())
+    }
+}
+
+#[tauri::command]
+pub fn notification_android_take_pending_open() -> Result<Option<Value>, String> {
+    #[cfg(target_os = "android")]
+    {
+        return crate::android_jni::take_pending_notification_open()?
+            .map(|payload| {
+                serde_json::from_str(&payload)
+                    .map_err(|error| format!("Android notification route is invalid: {error}"))
+            })
+            .transpose();
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(None)
     }
 }

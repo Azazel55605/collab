@@ -4363,6 +4363,50 @@ p {
   color: var(--destructive);
 }
 
+.mobile-notification-list {
+  display: grid;
+  gap: 0;
+}
+.mobile-notification-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.mobile-notification-row:last-child {
+  border-bottom: 0;
+}
+.mobile-notification-row.unread {
+  box-shadow: inset 3px 0 0 var(--primary);
+  padding-left: 10px;
+}
+.mobile-notification-row strong,
+.mobile-notification-row p,
+.mobile-notification-row small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.mobile-notification-row strong {
+  font-size: 0.86rem;
+}
+.mobile-notification-row p,
+.mobile-notification-row small {
+  margin: 3px 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+.mobile-notification-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.mobile-notification-actions .icon-button {
+  width: 34px;
+  height: 34px;
+}
+
 /* ── Offline availability ──────────────────────────────────────────────────── */
 
 .vault-list-row {

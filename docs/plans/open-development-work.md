@@ -26,9 +26,9 @@ work from being mistaken for an active roadmap item.
 | Android companion app | In progress / deferred expansion | Finish Phase 7 device lifecycle QA, signing, release packaging, and operational documentation. Phase 8 remains a deferred expansion bucket; background execution and notifications now have dedicated plans. | [Android Companion App Plan](./android-companion-app-plan.md) |
 | Electronic circuit simulation | In progress / planned | Finish remaining schema/runtime details and AC integration, then mixed-signal simulation, derived-result caching/collaboration policy, numerical hardening, and release validation. | [Electronic Circuit Simulation Plan](./electronic-circuit-simulation-plan.md) |
 | Logic and circuit diagram editor | In progress umbrella | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream. | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md) |
-| User calendar | Testing / in progress | Complete physical-device validation for cross-location mirroring, the Phase 9 external-client CalDAV matrix, and Phase 10 restore/multi-day lifecycle drills. Phase 11 notification contract work has started through the shared notification plan. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
+| User calendar | Testing | Complete physical-device validation for cross-location mirroring and notifications, the Phase 9 external-client CalDAV matrix, and Phase 10 restore/multi-day lifecycle drills. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
 | Background running | Testing | Phase 5 automated hardening is implemented. Complete the packaged desktop/physical Android matrix, then add notification-backed Android foreground transfers. | [Background Running Plan](./background-running-plan.md) |
-| Notification system | In progress | Phases 0-2 are in testing with the native inbox/schedule ledger, active calendar connector, and desktop delivery. Add Android delivery, hosted activity invalidations, preferences, and release hardening. | [Notification System Plan](./notification-system-plan.md) |
+| Notification system | In progress | Phases 0-3 are in testing with the native ledger plus desktop and Android delivery. Add hosted activity invalidations, preferences, and release hardening. | [Notification System Plan](./notification-system-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
 | Mobile widgets | Ideas only | Evaluate a calendar agenda widget first after background snapshots are available; no implementation commitment or phased schedule exists yet. | [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) |
 
@@ -123,9 +123,9 @@ Open tracker entries:
   assertions, recurrence bounds, retention coverage, and deterministic
   multi-server soak tests are implemented. A full backup/restore drill and
   multi-day physical desktop/Android run across two servers remain.
-- Phase 11, **In progress**: the shared notification contract, native
-  inbox/scheduling ledger, and desktop delivery are in testing. Android OS
-  delivery remains.
+- Phase 11, **Testing**: the shared notification contract, native
+  inbox/scheduling ledger, desktop delivery, and Android native delivery are
+  implemented. Packaged desktop and physical Android validation remain.
 
 ### Background Running And Notifications
 
@@ -135,11 +135,14 @@ background scheduling and synchronized data but own delivery, preferences,
 privacy, and actions. Keeping those responsibilities separate prevents tray,
 WorkManager, calendar, and push behavior from becoming one coupled subsystem.
 
-Notification Phases 0-2 are in **Testing**. The typed envelope, stable identity,
+Notification Phases 0-3 are in **Testing**. The typed envelope, stable identity,
 channels, destinations, bounded actions, privacy redaction, foreground
 suppression, content-free push invalidation, native inbox/scheduler, desktop
 permission and delivery adapter, tray-hidden dispatch, settings, and status-bar
-inbox are implemented. Phase 3 Android native delivery is next.
+inbox are implemented. Android adds channel separation, permission and
+exact-alarm recovery, per-profile native alarms, safe tokenized actions,
+cold-start deep links, lifecycle restoration, and its settings inbox. Phase 4
+server-originated activity delivery is next.
 
 ### Flatpak Distribution
 

@@ -25,7 +25,9 @@ React toasts remain foreground UI and are not the durable notification system.
   inbox/schedule ledger.
 - Desktop permission handling, native delivery, tray-hidden dispatch, the
   status-bar inbox, and notification settings are implemented and in testing.
-  Android operating-system delivery remains Phase 3 work.
+- Android channels, permission recovery, per-profile alarms, native delivery,
+  safe actions, deep links, lifecycle restoration, settings, and the durable
+  mobile inbox are implemented and in testing.
 - The server has no general push-delivery service and should not be required for
   local calendar reminders.
 
@@ -36,7 +38,7 @@ React toasts remain foreground UI and are not the durable notification system.
 | 0. Notification contract and privacy model | Testing | Define notification types, channels, IDs, preferences, redaction, and deep-link behavior. |
 | 1. Shared notification inbox and scheduler | Testing | Persist deduplicated delivery state and activate the calendar reminder connector. |
 | 2. Desktop native delivery | Testing | Deliver native notifications while Collab is open, hidden, or running in the tray. |
-| 3. Android native delivery | Not started | Add channels, runtime permission, scheduled reminders, actions, and deep links. |
+| 3. Android native delivery | Testing | Add channels, runtime permission, scheduled reminders, actions, and deep links. |
 | 4. Server-originated activity delivery | Not started | Add privacy-minimal invalidation delivery for hosted invitations, mentions, and selected activity. |
 | 5. Preferences, quiet hours, and inbox UX | Not started | Give users per-account, per-calendar, per-vault, and per-type control. |
 | 6. Hardening and release | Not started | Validate time changes, recurrence, duplicates, permissions, upgrades, and multi-device behavior. |
@@ -260,10 +262,39 @@ rather than emulated differently on each desktop platform.
 
 ### Phase 3: Android Native Delivery
 
-- Add manifest permissions, channels, and native scheduling.
-- Implement deep links and action receivers.
-- Reconcile schedules after reboot, app update, timezone change, and data sync.
-- Add Android settings and permission recovery UI.
+- [x] Add manifest permissions and separate calendar, collaboration, sync, and
+  transfer channels.
+- [x] Schedule one bounded AlarmManager alarm per profile, using exact alarms
+  when Android permits them and `setAndAllowWhileIdle` as the explicit fallback.
+- [x] Deliver from the native profile ledger without requiring the activity or
+  webview to be alive.
+- [x] Deep-link notification taps through the single-task activity into the
+  validated ledger destination, including cold-start persistence.
+- [x] Add non-exported dismiss and snooze receivers backed by hashed, one-time,
+  allowlisted action tokens.
+- [x] Reconcile alarms after reboot, app replacement, manual clock changes,
+  timezone changes, foreground data reconciliation, and WorkManager sync.
+- [x] Add Android permission recovery, exact-alarm recovery, test delivery, and
+  the durable notification inbox to mobile Settings.
+- [ ] Validate permission denial/recovery, doze delivery, reboot/app-upgrade
+  restoration, clock/timezone changes, and native tap/actions on physical
+  Android 8, 12, 13, and current target-SDK devices.
+
+Android reminders are not tied to the 15-minute WorkManager cadence. The native
+ledger exposes only the next due instant for each profile; AlarmManager wakes a
+bounded receiver, which obtains privacy-reduced due payloads from Rust, posts
+them to the appropriate channel, marks delivery, and schedules the next alarm.
+Exact-alarm access is optional: the settings screen explains and links to the
+system control, while the scheduler remains functional with Android's inexact
+idle-aware fallback.
+
+Native intents contain only a profile ID, notification ID, or one-time action
+token. Notification destinations are reloaded from the validated ledger before
+mobile navigation. Swipe dismissal and explicit snooze/dismiss actions are
+handled without exposing the receiver or embedding credentials. Source-specific
+mutations such as invitation responses and task completion remain in-app until
+their authenticated processors are added with the server-originated activity
+work.
 
 ### Phase 4: Server-Originated Activity
 

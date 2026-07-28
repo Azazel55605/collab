@@ -19,6 +19,10 @@ import type {
   BackgroundSettings,
   BackgroundStatusSnapshot,
 } from '../../../src/lib/tauri';
+import type {
+  NotificationPermissionStatus,
+  NotificationRecord,
+} from '../../../src/types/notification';
 
 export type {
   BackgroundJobRecord,
@@ -64,6 +68,74 @@ export function requestAndroidBackgroundSync(
 
 export function cancelAndroidBackgroundProfile(profileId: string): Promise<void> {
   return invoke('background_android_cancel_profile', { profileId });
+}
+
+export interface AndroidExactAlarmStatus {
+  status: 'granted' | 'fallback' | 'unsupported';
+  supported: boolean;
+}
+
+export function notificationPermissionStatus(): Promise<NotificationPermissionStatus> {
+  return invoke('notification_permission_status');
+}
+
+export function notificationRequestPermission(): Promise<NotificationPermissionStatus> {
+  return invoke('notification_request_permission');
+}
+
+export function notificationSendTest(): Promise<void> {
+  return invoke('notification_send_test');
+}
+
+export function notificationAndroidExactAlarmStatus(): Promise<AndroidExactAlarmStatus> {
+  return invoke('notification_android_exact_alarm_status');
+}
+
+export function notificationAndroidOpenExactAlarmSettings(): Promise<void> {
+  return invoke('notification_android_open_exact_alarm_settings');
+}
+
+export function notificationAndroidTakePendingOpen(): Promise<{
+  profileId: string;
+  notificationId: string;
+} | null> {
+  return invoke('notification_android_take_pending_open');
+}
+
+export function notificationReconcilePlatformSchedule(profileId: string): Promise<void> {
+  return invoke('notification_reconcile_platform_schedule', { profileId });
+}
+
+export function notificationListInbox(
+  profileId: string,
+  includeDismissed = false,
+  limit = 100,
+): Promise<NotificationRecord[]> {
+  return invoke('notification_list_inbox', { profileId, includeDismissed, limit });
+}
+
+export function notificationMarkRead(
+  profileId: string,
+  notificationId: string,
+  read = true,
+): Promise<void> {
+  return invoke('notification_mark_read', { profileId, notificationId, read });
+}
+
+export function notificationDismiss(profileId: string, notificationId: string): Promise<void> {
+  return invoke('notification_dismiss', { profileId, notificationId });
+}
+
+export function notificationSnooze(
+  profileId: string,
+  notificationId: string,
+  minutes: number,
+): Promise<NotificationRecord> {
+  return invoke('notification_snooze', { profileId, notificationId, minutes });
+}
+
+export function notificationRetry(profileId: string, notificationId: string): Promise<void> {
+  return invoke('notification_retry', { profileId, notificationId });
 }
 
 export interface ServerHealthStatus {

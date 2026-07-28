@@ -277,6 +277,7 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
   const [conflictsOpen, setConflictsOpen] = useState(false);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
+  const [pendingNotificationItemId, setPendingNotificationItemId] = useState<string | null>(null);
   const [transition, setTransition] = useState<{ direction: -1 | 1; sequence: number }>({ direction: 1, sequence: 0 });
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
   const loadedOnce = useRef(false);
@@ -421,6 +422,39 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
     animate(1);
     setView('day');
   };
+  useEffect(() => {
+    const openNotification = (event: Event) => {
+      const destination = (event as CustomEvent<{
+        kind?: string;
+        itemId?: string;
+        occurrenceKey?: string;
+      }>).detail;
+      if (destination?.kind === 'calendar-invitations') {
+        setInvitationsOpen(true);
+        return;
+      }
+      if (destination?.kind !== 'calendar-item' || !destination.itemId) return;
+      const occurrence = destination.occurrenceKey;
+      const date = occurrence?.startsWith('date:')
+        ? occurrence.slice(5, 15)
+        : occurrence?.startsWith('dateTime:')
+          ? occurrence.slice(9, 19)
+          : null;
+      if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) openDay(date);
+      setPendingNotificationItemId(destination.itemId);
+    };
+    window.addEventListener('collab-calendar-open-notification', openNotification);
+    return () => window.removeEventListener('collab-calendar-open-notification', openNotification);
+  }, []);
+  useEffect(() => {
+    if (!pendingNotificationItemId) return;
+    const item = sourceItems.find((candidate) => candidate.id === pendingNotificationItemId);
+    if (!item) return;
+    const date = itemDate(item);
+    openDay(date);
+    setEditor({ kind: item.kind, item });
+    setPendingNotificationItemId(null);
+  }, [pendingNotificationItemId, sourceItems]);
   const handleInternalTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
     if (view !== 'month' && view !== 'three-day' && view !== 'day') return;
     event.stopPropagation();

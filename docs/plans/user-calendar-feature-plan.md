@@ -61,7 +61,7 @@ models.
 | 8. iCalendar import, export, and subscriptions | Complete | Desktop range/item export, desktop and Android bounded import/export, local and hosted read-only HTTPS subscriptions, scheduled conditional refresh, revocable publication links, safe extension preservation, provider/time-zone fixtures, and SSRF/parser hardening are implemented. |
 | 9. CalDAV and external two-way sync | Testing | Hosted discovery, collections, reports, sync tokens, ETags, writes/deletes, recurrence resources, revocable app passwords, and shared change-log convergence are implemented; maintained external-client interoperability testing remains. |
 | 10. Admin overview, privacy verification, and hardening | Testing | Aggregate-only administration, runtime quota/rate controls, usage warnings, subscription health, bounded recurrence, retention coverage, and deterministic multi-server soak tests are implemented; physical-device and full restore drills remain. |
-| 11. Reminder delivery and notifications | In progress | Shared native inbox/schedule persistence, bounded reminder reconciliation, and desktop delivery are in testing; Android OS delivery remains. |
+| 11. Reminder delivery and notifications | Testing | Shared native inbox/schedule persistence, bounded reminder reconciliation, desktop delivery, and Android native delivery are implemented; packaged desktop and physical Android validation remain. |
 
 Phase 11 is detailed in the cross-platform
 [Notification System Plan](./notification-system-plan.md), with lifecycle and
@@ -1402,20 +1402,23 @@ matrix remain manual release gates, so this phase stays in **Testing**.
 
 Estimated effort: 2-4 weeks after core desktop/Android calendar workflows.
 
-The shared notification system's Phase 0 contract, Phase 1 native
-inbox/schedule ledger, and Phase 2 desktop delivery are implemented and in
-testing. Calendar reminders now reconcile a bounded one-year horizon with typed
-item routing, stable replacement, stale cancellation, snooze/action tokens,
-retry, and retention. Desktop delivery includes native permission handling,
+The shared notification system's Phases 0-3 are implemented and in testing.
+Calendar reminders now reconcile a bounded one-year horizon with typed item
+routing, stable replacement, stale cancellation, snooze/action tokens, retry,
+and retention. Desktop delivery includes native permission handling,
 tray-hidden dispatch, focused in-app suppression, settings, and a status-bar
-inbox. Android delivery begins in notification Phase 3.
+inbox. Android delivery includes separate channels, runtime permission and
+exact-alarm recovery, per-profile native scheduling with an inexact fallback,
+safe action receivers, cold-start deep links, lifecycle restoration, and a
+mobile inbox.
 
 Tasks:
 
 - Validate the desktop native notification scheduler, permission-state API,
   tray-hidden delivery, and inbox deep links on packaged target systems.
-- Implement Android alarm/work scheduling, exact-alarm fallback behavior,
-  reboot/app-upgrade/time-zone restoration, and notification deep links.
+- Validate Android alarm scheduling, exact-alarm fallback behavior,
+  reboot/app-upgrade/time-zone restoration, notification deep links, and native
+  actions on the physical-device matrix.
 - Reconcile schedules after CRUD, recurrence exceptions, hosted sync, conflict
   resolution, sign-out, and cache removal.
 - Add privacy controls for lock-screen title/description visibility and bounded
