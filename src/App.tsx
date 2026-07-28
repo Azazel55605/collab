@@ -292,13 +292,21 @@ export default function App() {
   }, [liveCollabDebug]);
 
   useEffect(() => {
-    useServerStore.getState().restoreAllSessions().then((result) => {
-      if (result === 'failed') {
-        toast.error('Could not restore one of your hosted server sessions. Reconnect from Settings → Hosted server.', {
+    useServerStore
+      .getState()
+      .restoreAllSessions()
+      .then((result) => {
+        if (result === 'failed') {
+          toast.error('Could not restore one of your hosted server sessions. Reconnect from Settings → Hosted server.', {
+            duration: 6000,
+          });
+        }
+      })
+      .catch(() => {
+        toast.error('Could not inspect your hosted server sessions. Try reconnecting from Settings → Hosted server.', {
           duration: 6000,
         });
-      }
-    });
+      });
   }, []);
 
   useEffect(() => {

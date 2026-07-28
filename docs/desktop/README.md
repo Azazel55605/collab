@@ -9,6 +9,7 @@ Implementation references:
 - [Codebase Reference](./codebase.md)
 - [UI Guide](./ui-guide.md)
 - [Circuit Simulation Engine](./circuit-engine.md)
+- [Background Running Release Validation](../build/background-running-release-validation.md)
 
 Relevant active plans:
 

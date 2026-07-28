@@ -4,6 +4,7 @@ import { useVaultStore } from './vaultStore';
 import {
   knownServerFor,
   listKnownServers,
+  normalizeHostedServerUrl,
   removeKnownServer,
   upsertKnownServer,
 } from '../lib/hostedServers';
@@ -97,16 +98,19 @@ interface ServerState {
 export const useServerStore = create<ServerState>()((set, get) => {
   const setConnection = (status: ServerConnectionStatus, hostedVaults: HostedVaultSummary[]) => {
     if (!status.serverUrl) return;
+    const serverUrl = normalizeHostedServerUrl(status.serverUrl);
+    const normalizedStatus = status.serverUrl === serverUrl ? status : { ...status, serverUrl };
     set((state) => ({
-      connections: { ...state.connections, [status.serverUrl!]: { status, hostedVaults } },
+      connections: { ...state.connections, [serverUrl]: { status: normalizedStatus, hostedVaults } },
     }));
   };
 
   const removeConnection = (serverUrl: string) => {
+    const normalized = normalizeHostedServerUrl(serverUrl);
     set((state) => {
-      if (!(serverUrl in state.connections)) return {};
+      if (!(normalized in state.connections)) return {};
       const next = { ...state.connections };
-      delete next[serverUrl];
+      delete next[normalized];
       return { connections: next };
     });
   };
@@ -116,9 +120,9 @@ export const useServerStore = create<ServerState>()((set, get) => {
     isLoading: false,
     error: null,
 
-    connectionFor: (serverUrl) => get().connections[serverUrl],
-    statusFor: (serverUrl) => get().connections[serverUrl]?.status ?? null,
-    hostedVaultsFor: (serverUrl) => get().connections[serverUrl]?.hostedVaults ?? [],
+    connectionFor: (serverUrl) => get().connections[normalizeHostedServerUrl(serverUrl)],
+    statusFor: (serverUrl) => get().connections[normalizeHostedServerUrl(serverUrl)]?.status ?? null,
+    hostedVaultsFor: (serverUrl) => get().connections[normalizeHostedServerUrl(serverUrl)]?.hostedVaults ?? [],
     connectedStatuses: () => Object.values(get().connections).map((c) => c.status),
 
     refreshAll: async () => {
@@ -204,7 +208,10 @@ export const useServerStore = create<ServerState>()((set, get) => {
         upsertKnownServer({ serverUrl: status.serverUrl ?? serverUrl, username, allowInvalidCertificates, persistAcrossReboots });
         setConnection(status, []);
         set({ isLoading: false });
-        await get().loadHostedVaults(status.serverUrl ?? serverUrl);
+        await get().loadHostedVaults(status.serverUrl ?? serverUrl).catch(() => {
+          // Authentication succeeded. Keep the live session and let inventory
+          // refresh retry independently instead of forcing another login.
+        });
       } catch (error) {
         set({ isLoading: false, error: String(error) });
         throw error;
@@ -228,7 +235,10 @@ export const useServerStore = create<ServerState>()((set, get) => {
           get().connections[status.serverUrl ?? known.serverUrl]?.hostedVaults ?? [],
         );
         set({ isLoading: false });
-        await get().loadHostedVaults(status.serverUrl ?? known.serverUrl);
+        await get().loadHostedVaults(status.serverUrl ?? known.serverUrl).catch(() => {
+          // The replacement session is valid even if vault inventory is
+          // temporarily unavailable.
+        });
       } catch (error) {
         set({ isLoading: false, error: String(error) });
         throw error;
@@ -241,7 +251,9 @@ export const useServerStore = create<ServerState>()((set, get) => {
         const status = await tauriCommands.reconnectServer(serverUrl, allowInvalidCertificates, persistAcrossReboots);
         setConnection(status, get().connections[status.serverUrl ?? serverUrl]?.hostedVaults ?? []);
         set({ isLoading: false });
-        await get().loadHostedVaults(status.serverUrl ?? serverUrl);
+        await get().loadHostedVaults(status.serverUrl ?? serverUrl).catch(() => {
+          // Session restoration and inventory availability are separate states.
+        });
       } catch (error) {
         set({ isLoading: false, error: String(error) });
         throw error;
@@ -259,7 +271,9 @@ export const useServerStore = create<ServerState>()((set, get) => {
         // no state churn and no re-trigger of the reconnect loop.
         setConnection(status, get().connections[status.serverUrl ?? serverUrl]?.hostedVaults ?? []);
         set({ error: null });
-        await get().loadHostedVaults(status.serverUrl ?? serverUrl);
+        await get().loadHostedVaults(status.serverUrl ?? serverUrl, { quiet: true }).catch(() => {
+          // The heartbeat retries inventory without invalidating the session.
+        });
         return 'connected';
       } catch (error) {
         return String(error).includes(NO_SAVED_SESSION_MESSAGE) ? 'skipped' : 'failed';
@@ -284,13 +298,25 @@ export const useServerStore = create<ServerState>()((set, get) => {
           'GET',
           '/api/v1/vaults',
         );
-        useVaultStore.getState().refreshHostedVaultMetadata(status.serverUrl, hostedVaults);
-        setConnection(status, hostedVaults);
+        const currentStatus = get().statusFor(serverUrl);
+        // A reconnect or password login may replace the session while this
+        // inventory request is in flight. Never restore the older status.
+        if (currentStatus !== status || !isEffectivelyConnected(currentStatus)) {
+          if (!quiet) set({ isLoading: false });
+          return;
+        }
+        useVaultStore.getState().refreshHostedVaultMetadata(currentStatus.serverUrl!, hostedVaults);
+        setConnection(currentStatus, hostedVaults);
         if (!quiet) set({ isLoading: false });
-        void useSyncStore.getState().refreshOfflineCopiesForServer(status.serverUrl, hostedVaults);
+        void useSyncStore
+          .getState()
+          .refreshOfflineCopiesForServer(currentStatus.serverUrl!, hostedVaults)
+          .catch(() => {
+            // Background replica refresh failures are represented by sync state
+            // and retried by the next inventory heartbeat.
+          });
       } catch (error) {
-        if (!quiet) {
-          setConnection(status, []);
+        if (!quiet && get().statusFor(serverUrl) === status) {
           set({ isLoading: false, error: String(error) });
         }
         throw error;

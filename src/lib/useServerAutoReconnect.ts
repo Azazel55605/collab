@@ -44,7 +44,10 @@ export function useServerAutoReconnect(): void {
           // Rising edge: a connection to this server just came back (from any
           // source). Push all of that server's queued offline edits.
           if (connected && !wasConnected.get(serverUrl)) {
-            void useSyncStore.getState().syncAllForServer(serverUrl);
+            void useSyncStore.getState().syncAllForServer(serverUrl).catch(() => {
+              // Background sync failures are surfaced through the sync store.
+              // They must not become a global unhandled-rejection overlay.
+            });
           }
           wasConnected.set(serverUrl, connected);
 

@@ -18,7 +18,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 use collab_replica::ReplicaStore;
 use parking_lot::Mutex;
 use persistence::BackgroundPersistence;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -95,11 +95,23 @@ impl BackgroundCoordinator {
         &self,
         servers: Vec<BackgroundServerRegistration>,
     ) -> Result<Vec<BackgroundServerRegistration>, String> {
+        let previous = self.list_servers()?;
         let normalized = servers
             .into_iter()
             .map(normalize_registration)
             .collect::<Result<Vec<_>, _>>()?;
-        self.persistence.replace_servers(normalized)
+        let saved = self.persistence.replace_servers(normalized)?;
+        let retained = saved
+            .iter()
+            .map(|server| server.server_url.as_str())
+            .collect::<HashSet<_>>();
+        for removed in previous
+            .iter()
+            .filter(|server| !retained.contains(server.server_url.as_str()))
+        {
+            self.cancel_for_server(&removed.server_url);
+        }
+        Ok(saved)
     }
 
     pub fn upsert_server(
@@ -114,6 +126,15 @@ impl BackgroundCoordinator {
         let server_url = validate_server_url(server_url)?;
         self.cancel_for_server(&server_url);
         self.persistence.remove_server(&server_url)
+    }
+
+    pub fn cancel_for_replica(&self, server_url: &str, vault_id: &str) -> Result<(), String> {
+        let server_url = validate_server_url(server_url)?;
+        let resource = format!("server:{server_url}|profile:*|vault:{vault_id}");
+        if let Some(active) = self.active.lock().get(&resource) {
+            active.cancel.store(true, Ordering::Release);
+        }
+        Ok(())
     }
 
     pub fn register_profile_for_all_servers(&self, profile_id: &str) -> Result<(), String> {
@@ -980,6 +1001,7 @@ mod tests {
         assert_eq!(record.status, BackgroundJobStatus::Deferred);
         assert_eq!(record.error_category.as_deref(), Some("interrupted"));
         assert!(record.retryable);
+        assert!(record.next_retry_at.is_some());
     }
 
     #[test]
@@ -1035,6 +1057,64 @@ mod tests {
             redact_sensitive_text("network unavailable"),
             "network unavailable"
         );
+    }
+
+    #[test]
+    fn server_and_replica_removal_cancel_only_matching_resources() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let coordinator = BackgroundCoordinator::for_test(
+            Arc::new(HostedSessionRuntime::new()),
+            directory.path().to_path_buf(),
+        );
+        let server_a = "https://a.example.test";
+        let server_b = "https://b.example.test";
+        for server_url in [server_a, server_b] {
+            coordinator
+                .upsert_server(BackgroundServerRegistration {
+                    server_url: server_url.to_string(),
+                    allow_invalid_certificates: false,
+                    persist_across_reboots: true,
+                    background_sync_enabled: true,
+                    profile_ids: Vec::new(),
+                    updated_at: String::new(),
+                })
+                .expect("server registration");
+        }
+
+        let cancel_a = Arc::new(AtomicBool::new(false));
+        let cancel_b = Arc::new(AtomicBool::new(false));
+        coordinator.active.lock().insert(
+            format!("server:{server_a}|profile:*|vault:vault-a"),
+            ActiveJob {
+                id: "job-a".to_string(),
+                cancel: cancel_a.clone(),
+            },
+        );
+        coordinator.active.lock().insert(
+            format!("server:{server_b}|profile:*|vault:vault-b"),
+            ActiveJob {
+                id: "job-b".to_string(),
+                cancel: cancel_b.clone(),
+            },
+        );
+
+        coordinator
+            .replace_servers(vec![BackgroundServerRegistration {
+                server_url: server_b.to_string(),
+                allow_invalid_certificates: false,
+                persist_across_reboots: true,
+                background_sync_enabled: true,
+                profile_ids: Vec::new(),
+                updated_at: String::new(),
+            }])
+            .expect("replace server registry");
+        assert!(cancel_a.load(Ordering::Acquire));
+        assert!(!cancel_b.load(Ordering::Acquire));
+
+        coordinator
+            .cancel_for_replica(server_b, "vault-b")
+            .expect("cancel replica");
+        assert!(cancel_b.load(Ordering::Acquire));
     }
 
     #[tokio::test]

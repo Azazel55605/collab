@@ -240,6 +240,7 @@ fn recover_abandoned_jobs(jobs: &mut [BackgroundJobRecord]) -> bool {
             job.error_message =
                 Some("The application stopped before this background job completed.".to_string());
             job.retryable = true;
+            job.next_retry_at = Some((Utc::now() + Duration::minutes(1)).to_rfc3339());
             changed = true;
         }
     }
@@ -313,5 +314,60 @@ mod tests {
         assert!(!jobs.iter().any(|job| job.id == "old"));
         assert!(jobs.iter().any(|job| job.id == "recent"));
         assert!(jobs.iter().any(|job| job.id == "active"));
+    }
+
+    #[test]
+    fn older_settings_and_ledgers_receive_backward_compatible_defaults() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let persistence = BackgroundPersistence::at(directory.path().to_path_buf());
+        std::fs::write(
+            directory.path().join(SETTINGS_FILE),
+            br#"{
+              "schemaVersion": 1,
+              "runInBackground": true,
+              "backgroundSync": true,
+              "syncInterval": "system_managed",
+              "startAtLogin": false,
+              "closeBehavior": "hide_to_tray",
+              "paused": false
+            }"#,
+        )
+        .expect("write legacy settings");
+        std::fs::write(
+            directory.path().join(LEDGER_FILE),
+            br#"{
+              "schemaVersion": 1,
+              "jobs": [{
+                "id": "legacy-job",
+                "idempotencyKey": "legacy-job",
+                "kind": "maintenance",
+                "serverUrl": null,
+                "profileId": "profile-a",
+                "vaultId": null,
+                "trigger": "periodic",
+                "status": "succeeded",
+                "createdAt": "2026-07-01T00:00:00Z",
+                "startedAt": "2026-07-01T00:00:00Z",
+                "finishedAt": "2026-07-01T00:00:01Z",
+                "nextRetryAt": null,
+                "progress": {"completed": 0, "total": 0, "detail": null},
+                "summary": "complete",
+                "errorCategory": null,
+                "errorMessage": null,
+                "retryable": false
+              }]
+            }"#,
+        )
+        .expect("write legacy ledger");
+
+        let settings = persistence.settings().expect("legacy settings");
+        assert!(!settings.only_unmetered_networks);
+        assert!(!settings.require_charging);
+        assert!(settings.pause_on_low_battery);
+        assert!(settings.allow_roaming);
+
+        let legacy_job = persistence.list_jobs(10).expect("legacy ledger").remove(0);
+        assert_eq!(legacy_job.attempt, 1);
+        assert_eq!(legacy_job.changed, None);
     }
 }

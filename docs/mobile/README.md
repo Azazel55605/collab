@@ -12,6 +12,8 @@ separate mobile React shell under `apps/mobile-android`.
   setup, debug builds, APK builds, and troubleshooting.
 - [Android Play release](./android-play-release.md) — upload keystore, AAB
   signing, Play Console rollout, and policy checklist.
+- [Background running release validation](../build/background-running-release-validation.md)
+  — WorkManager limitations, device matrix, diagnostics, and troubleshooting.
 - [Versioning and releases](../build/versioning-and-releases.md) — how the mobile
   `versionName` and Play `versionCode` are decoupled from desktop, server, and
   admin-web versions.

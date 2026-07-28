@@ -141,6 +141,26 @@ describe('serverStore', () => {
     refreshOfflineCopies.mockRestore();
   });
 
+  it('does not let an older inventory request restore pre-reauthentication status', async () => {
+    const oldStatus = { ...connected, accessExpiresAt: '2026-06-11T10:00:00Z' };
+    const newStatus = { ...connected, accessExpiresAt: '2026-06-11T12:00:00Z' };
+    useServerStore.setState({ connections: seed(oldStatus, [hostedVault]) });
+    let resolveInventory!: (vaults: typeof hostedVault[]) => void;
+    vi.mocked(tauriCommands.hostedVaultRequest).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveInventory = resolve;
+      }),
+    );
+
+    const staleLoad = useServerStore.getState().loadHostedVaults(SERVER_URL, { quiet: true });
+    useServerStore.setState({ connections: seed(newStatus, [hostedVault]) });
+    resolveInventory([{ ...hostedVault, manifestSequence: 2 }]);
+    await staleLoad;
+
+    expect(useServerStore.getState().statusFor(SERVER_URL)).toBe(newStatus);
+    expect(useServerStore.getState().hostedVaultsFor(SERVER_URL)).toEqual([hostedVault]);
+  });
+
   it('refuses to create a hosted vault when not connected to that server', async () => {
     useServerStore.setState({ connections: {} });
     await expect(useServerStore.getState().createHostedVault(SERVER_URL, 'X')).rejects.toThrow(/Connect to a Collab server/);
@@ -179,6 +199,39 @@ describe('serverStore', () => {
     expect(useServerStore.getState().hostedVaultsFor(SERVER_URL)).toEqual([hostedVault]);
   });
 
+  it('keeps a successful reauthentication when inventory refresh is unavailable', async () => {
+    localStorage.setItem('collab-hosted-server-url', SERVER_URL);
+    vi.mocked(tauriCommands.reauthenticateServer).mockResolvedValue(connected);
+    vi.mocked(tauriCommands.hostedVaultRequest).mockRejectedValue(new Error('temporary outage'));
+
+    await expect(
+      useServerStore.getState().reauthenticate(SERVER_URL, 'new-password'),
+    ).resolves.toBeUndefined();
+    expect(useServerStore.getState().statusFor(SERVER_URL)).toEqual(connected);
+  });
+
+  it('uses the canonical server origin for saved reconnect state', async () => {
+    localStorage.setItem('collab-hosted-servers', JSON.stringify([{
+      serverUrl: `${SERVER_URL}/admin/`,
+      username: 'alice',
+      allowInvalidCertificates: false,
+      persistAcrossReboots: false,
+    }]));
+    vi.mocked(tauriCommands.reauthenticateServer).mockResolvedValue(connected);
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([hostedVault]);
+
+    await useServerStore.getState().reauthenticate(`${SERVER_URL}/admin/`, 'new-password');
+
+    expect(tauriCommands.reauthenticateServer).toHaveBeenCalledWith(
+      SERVER_URL,
+      'alice',
+      'new-password',
+      false,
+      false,
+    );
+    expect(useServerStore.getState().statusFor(`${SERVER_URL}/anything`)).toEqual(connected);
+  });
+
   describe('autoReconnect', () => {
     it('skips when the server is not a known server', async () => {
       expect(await useServerStore.getState().autoReconnect(SERVER_URL)).toBe('skipped');
@@ -213,6 +266,16 @@ describe('serverStore', () => {
       expect(tauriCommands.reconnectServer).toHaveBeenCalledWith(SERVER_URL, false, false);
       expect(useServerStore.getState().statusFor(SERVER_URL)).toEqual(connected);
       expect(useServerStore.getState().hostedVaultsFor(SERVER_URL)).toEqual([hostedVault]);
+    });
+
+    it('stays connected when only the post-reconnect inventory refresh fails', async () => {
+      localStorage.setItem('collab-hosted-server-url', SERVER_URL);
+      vi.mocked(tauriCommands.reconnectServer).mockResolvedValue(connected);
+      vi.mocked(tauriCommands.hostedVaultRequest).mockRejectedValue(new Error('temporary outage'));
+
+      expect(await useServerStore.getState().autoReconnect(SERVER_URL)).toBe('connected');
+      expect(useServerStore.getState().statusFor(SERVER_URL)).toEqual(connected);
+      expect(useServerStore.getState().error).toBeNull();
     });
 
     it('does not churn store state on a failed attempt', async () => {

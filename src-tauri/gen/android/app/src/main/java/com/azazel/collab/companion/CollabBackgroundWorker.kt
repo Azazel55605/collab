@@ -32,7 +32,7 @@ class CollabBackgroundWorker(
       )
       val outcome = JSONObject(payload)
       val retryRecommended = outcome.optBoolean("retryRecommended", false)
-      Log.i(TAG, "Native background work completed: $payload")
+      Log.i(TAG, "Native background work completed")
       if (retryRecommended && runAttemptCount < MAX_RETRY_ATTEMPTS) {
         Result.retry()
       } else {
@@ -46,8 +46,8 @@ class CollabBackgroundWorker(
         )
       }
     } catch (error: Throwable) {
-      val message = error.message ?: error.javaClass.simpleName
-      Log.e(TAG, "Native background work failed", error)
+      val message = sanitizeWorkerError(error.message ?: error.javaClass.simpleName)
+      Log.e(TAG, "Native background work failed: $message")
       if (runAttemptCount < MAX_RETRY_ATTEMPTS) {
         Result.retry()
       } else {
@@ -67,6 +67,19 @@ class CollabBackgroundWorker(
     const val OUTPUT_ATTENTION_REQUIRED = "attentionRequired"
     const val OUTPUT_AUTH_REQUIRED = "authenticationRequired"
     const val OUTPUT_PERMISSION_DENIED = "permissionDenied"
+
+    internal fun sanitizeWorkerError(message: String): String {
+      val lower = message.lowercase()
+      if (
+        lower.contains("bearer ") ||
+        lower.contains("accesstoken") ||
+        lower.contains("refreshtoken") ||
+        lower.contains("password")
+      ) {
+        return "Native background work failed with a redacted sensitive response."
+      }
+      return message.take(MAX_OUTPUT_LENGTH)
+    }
   }
 }
 
@@ -97,7 +110,7 @@ object CollabBackgroundScheduler {
     else -> NetworkType.CONNECTED
   }
 
-  private fun constraints(
+  internal fun constraints(
     onlyUnmetered: Boolean,
     requireCharging: Boolean,
     pauseOnLowBattery: Boolean,
@@ -107,6 +120,7 @@ object CollabBackgroundScheduler {
       .setRequiredNetworkType(requiredNetworkType(onlyUnmetered, allowRoaming))
       .setRequiresCharging(requireCharging)
       .setRequiresBatteryNotLow(pauseOnLowBattery)
+      .setRequiresStorageNotLow(true)
       .build()
 
   private fun periodicName(profileId: String) = PERIODIC_PREFIX + profileWorkSuffix(profileId)

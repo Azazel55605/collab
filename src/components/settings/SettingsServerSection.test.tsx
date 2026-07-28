@@ -125,6 +125,29 @@ describe('SettingsServerSection', () => {
     expect(localStorage.getItem('collab-hosted-always-create-offline-copy')).toBe('false');
   });
 
+  it('hides password sign-in while the saved server session is healthy', async () => {
+    localStorage.setItem('collab-hosted-servers', JSON.stringify([{
+      serverUrl: 'https://collab.example.com/',
+      username: 'alice',
+      allowInvalidCertificates: false,
+      persistAcrossReboots: false,
+    }]));
+    vi.mocked(tauriCommands.serverConnectionStatuses).mockResolvedValue([{
+      connected: true,
+      serverUrl: 'https://collab.example.com',
+      allowInvalidCertificates: false,
+      user: { id: '1', username: 'alice', displayName: 'Alice', role: 'member', status: 'active' },
+      accessExpiresAt: '2999-01-01T00:00:00Z',
+    }]);
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([]);
+
+    render(<SettingsServerSection />);
+
+    await screen.findByText('Alice');
+    expect(screen.queryByRole('button', { name: 'Sign in again' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Disconnect' })).toBeTruthy();
+  });
+
   it('reauthenticates a saved server by asking only for its password', async () => {
     localStorage.setItem('collab-hosted-servers', JSON.stringify([{
       serverUrl: 'https://collab.example.com',

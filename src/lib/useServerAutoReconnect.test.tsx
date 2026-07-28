@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   subscribers: new Set<() => void>(),
   autoReconnect: vi.fn().mockResolvedValue('failed'),
   loadHostedVaults: vi.fn().mockResolvedValue(undefined),
-  syncAllForServer: vi.fn(),
+  syncAllForServer: vi.fn().mockResolvedValue(undefined),
 }));
 const { subscribers, autoReconnect, loadHostedVaults, syncAllForServer } = mocks;
 
@@ -68,6 +68,7 @@ describe('useServerAutoReconnect', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     autoReconnect.mockResolvedValue('failed');
+    syncAllForServer.mockResolvedValue(undefined);
     subscribers.clear();
     mocks.statuses = {};
     localStorage.clear();
@@ -131,6 +132,22 @@ describe('useServerAutoReconnect', () => {
       await Promise.resolve();
     });
     expect(syncAllForServer).toHaveBeenCalledTimes(1);
+  });
+
+  it('contains a rejected background sync after reconnect', async () => {
+    localStorage.setItem(SAVED_KEY, CONNECTED.serverUrl);
+    syncAllForServer.mockRejectedValueOnce(new Error('replica refresh failed'));
+    render(<Harness />);
+    await flush();
+
+    setConnected();
+    await act(async () => {
+      emitStoreChange();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(syncAllForServer).toHaveBeenCalledWith(CONNECTED.serverUrl);
   });
 
   it('keeps retrying on the interval while disconnected', async () => {

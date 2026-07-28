@@ -33,6 +33,12 @@ pub fn show_main_window(app: &tauri::AppHandle) {
         let _ = window.set_focus();
         let _ = app.emit("background:window-shown", ());
     }
+    if let Some(state) = app.try_state::<AppState>() {
+        let coordinator = state.background.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = coordinator.enqueue_registered(BackgroundJobTrigger::Foreground);
+        });
+    }
 }
 
 pub fn set_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {

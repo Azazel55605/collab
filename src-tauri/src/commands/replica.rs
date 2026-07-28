@@ -4,6 +4,7 @@
 //! replica (the replica is seeded when a hosted vault is opened).
 
 use super::app_config_dir;
+use crate::state::AppState;
 use base64::Engine as _;
 use collab_protocol::HostedVaultManifest;
 use collab_replica::{
@@ -12,6 +13,7 @@ use collab_replica::{
 };
 use rand::RngCore;
 use serde_json::Value;
+use tauri::State;
 
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 const REPLICA_KEYRING_SERVICE: &str = "collab-replica";
@@ -574,7 +576,14 @@ pub fn replica_cleanup(
 }
 
 #[tauri::command]
-pub fn replica_delete(server_url: String, vault_id: String) -> Result<(), String> {
+pub fn replica_delete(
+    state: State<'_, AppState>,
+    server_url: String,
+    vault_id: String,
+) -> Result<(), String> {
+    state
+        .background
+        .cancel_for_replica(&server_url, &vault_id)?;
     if let Some(store) = ReplicaStore::open_existing(&app_config_dir()?, &server_url, &vault_id) {
         store.delete()?;
     }

@@ -670,6 +670,16 @@ Acceptance criteria:
 - Known limitations are documented.
 - The app is safe to distribute to a small internal/beta group.
 
+Current background-lifecycle hardening is in testing. Shared coordinator
+recovery now survives old settings/ledger records, server and replica removal
+cancel only matching work, WorkManager defers routine sync for low storage, and
+worker errors are bounded and redacted. The packaged/physical matrix and
+troubleshooting steps live in
+[Background Running Release Validation](../build/background-running-release-validation.md).
+Notification-backed foreground transfers remain a release dependency for large
+explicit uploads/downloads and are not implemented as unrestricted routine
+WorkManager jobs.
+
 ### Phase 8: Later Expansion
 
 Deferred until the Android MVP proves useful.

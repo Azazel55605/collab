@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { KeyRound, Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { useServerStore } from '../../store/serverStore';
+import { isEffectivelyConnected, useServerStore } from '../../store/serverStore';
 import { tauriCommands } from '../../lib/tauri';
 import { knownServerFor, listKnownServers, type KnownServer } from '../../lib/hostedServers';
 import { Button } from '../ui/button';
@@ -34,8 +34,12 @@ export default function SettingsServerSection() {
   }, [refreshAll]);
 
   async function disconnect(serverUrl: string) {
-    await disconnectServer(serverUrl);
-    toast.success('Disconnected from server');
+    try {
+      await disconnectServer(serverUrl);
+      toast.success('Disconnected from server');
+    } catch (error) {
+      toast.error(`Could not disconnect: ${String(error)}`);
+    }
   }
 
   function toggleAlwaysCreateOfflineCopy() {
@@ -75,7 +79,7 @@ export default function SettingsServerSection() {
 
       {servers.map(({ server, connection }) => {
         const status = connection?.status;
-        const connected = status?.connected === true;
+        const connected = isEffectivelyConnected(status ?? null);
         const persistAcrossReboots = knownServerFor(server.serverUrl)?.persistAcrossReboots === true;
         return (
           <div key={server.serverUrl} className="space-y-3 rounded-lg border border-border/50 bg-card/40 p-4">
@@ -94,10 +98,12 @@ export default function SettingsServerSection() {
               </p>
             )}
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setReauthServer(server)}>
-                <KeyRound size={14} />
-                Sign in again
-              </Button>
+              {!connected && (
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setReauthServer(server)}>
+                  <KeyRound size={14} />
+                  Sign in again
+                </Button>
+              )}
               <Button size="sm" variant="outline" onClick={() => disconnect(server.serverUrl)}>
                 {connected ? 'Disconnect' : 'Remove server'}
               </Button>

@@ -2,6 +2,7 @@ package com.azazel.collab.companion
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import androidx.work.NetworkType
 
@@ -46,6 +47,32 @@ class CollabBackgroundSchedulerTest {
     assertEquals(
       NetworkType.CONNECTED,
       CollabBackgroundScheduler.requiredNetworkType(false, true),
+    )
+  }
+
+  @Test
+  fun routineBackgroundWorkWaitsForStorageAndBatteryPolicy() {
+    val constraints = CollabBackgroundScheduler.constraints(
+      onlyUnmetered = false,
+      requireCharging = true,
+      pauseOnLowBattery = true,
+      allowRoaming = true,
+    )
+
+    assertTrue(constraints.requiresCharging())
+    assertTrue(constraints.requiresBatteryNotLow())
+    assertTrue(constraints.requiresStorageNotLow())
+  }
+
+  @Test
+  fun workerErrorsAreBoundedAndSensitiveValuesAreRedacted() {
+    assertEquals(
+      "Native background work failed with a redacted sensitive response.",
+      CollabBackgroundWorker.sanitizeWorkerError("request used Bearer secret"),
+    )
+    assertEquals(
+      "network unavailable",
+      CollabBackgroundWorker.sanitizeWorkerError("network unavailable"),
     )
   }
 }

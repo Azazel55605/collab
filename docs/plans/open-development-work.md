@@ -26,7 +26,7 @@ work from being mistaken for an active roadmap item.
 | Electronic circuit simulation | In progress / planned | Finish remaining schema/runtime details and AC integration, then mixed-signal simulation, derived-result caching/collaboration policy, numerical hardening, and release validation. | [Electronic Circuit Simulation Plan](./electronic-circuit-simulation-plan.md) |
 | Logic and circuit diagram editor | In progress umbrella | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream. | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md) |
 | User calendar | Testing / planned | Complete physical-device validation for cross-location mirroring, the Phase 9 external-client CalDAV matrix, and Phase 10 restore/multi-day lifecycle drills before native reminder delivery. Phase 8 is complete; Phases 9 and 10 are in testing. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
-| Background running | Testing | Validate Phases 0-4 on real platforms, add Android foreground handling for large transfers, and complete platform hardening. | [Background Running Plan](./background-running-plan.md) |
+| Background running | Testing | Phase 5 automated hardening is implemented. Complete the packaged desktop/physical Android matrix, then add notification-backed Android foreground transfers. | [Background Running Plan](./background-running-plan.md) |
 | Notification system | Not started | Add a shared inbox/scheduler, native desktop and Android delivery, hosted activity invalidations, preferences, privacy controls, and release hardening. | [Notification System Plan](./notification-system-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
 | Mobile widgets | Ideas only | Evaluate a calendar agenda widget first after background snapshots are available; no implementation commitment or phased schedule exists yet. | [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) |
@@ -39,10 +39,10 @@ work from being mistaken for an active roadmap item.
    real target platforms.
 3. Route future server/native feed, map, webhook, or preview integrations
    through the completed shared outbound-network policy.
-4. Validate the shared headless coordinator, desktop tray lifecycle, and
-   Android scheduled sync from the background-running plan.
-5. Add Android foreground transfer handling and validate the completed Phase 4
-   power/network controls on physical devices.
+4. Run the packaged desktop and physical Android matrix from the background
+   running release-validation guide.
+5. Add Android foreground transfer handling after the notification system owns
+   the required persistent channel and permission flow.
 6. Activate local calendar reminders through the notification system.
 7. Complete calendar Phase 6 physical-device validation, then calendar
    interoperability and hardening phases in product-priority order.

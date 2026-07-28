@@ -36,7 +36,7 @@ not become separate sync implementations.
 | 2. Desktop tray and background lifecycle | Testing | Keep the desktop process available in the tray, support hide/restore/quit, and run scheduled work. |
 | 3. Android scheduled background work | Testing | Use WorkManager for durable, constrained sync and catch-up work. |
 | 4. Reliability, progress, and power controls | Testing | Add locking, backoff, persisted outcomes, network/battery policy, and transparent status. |
-| 5. Platform hardening and release | Not started | Validate lifecycle, packaging, upgrades, and device/desktop behavior before enabling by default. |
+| 5. Platform hardening and release | Testing | Validate lifecycle, packaging, upgrades, and device/desktop behavior before enabling by default. |
 
 ## Product Behavior
 
@@ -250,13 +250,33 @@ covered by Phase 5.
 
 ### Phase 5: Platform Hardening And Release
 
-- Test suspend/resume, sleep, network transitions, credential expiry, server
-  removal, replica removal, and app upgrades.
-- Validate Android Doze, force-stop, reboot, low-storage, and battery
+- [x] Add automated recovery coverage for interrupted jobs, credential refresh,
+  server removal, replica removal, old settings/ledger reads, and no-op
+  coalescing across app upgrades.
+- [x] Request a bounded coalesced catch-up when the desktop window is restored;
+  keep sleep/resume handling on the monotonic native scheduler.
+- [x] Defer routine Android synchronization under low-storage conditions and
+  redact bounded worker errors before logging or returning output data.
+- [ ] Validate Android Doze, force-stop, reboot, low-storage, and battery
   restrictions on a physical-device matrix.
-- Verify tray behavior under GNOME/KDE/Hyprland, Windows, and macOS.
-- Document platform limitations and troubleshooting.
-- Roll out behind an opt-in setting before considering background sync defaults.
+- [ ] Verify tray behavior under GNOME/KDE/Hyprland, Windows, and macOS.
+- [x] Document platform limitations, release checks, physical test matrices, and
+  troubleshooting in
+  [Background Running Release Validation](../build/background-running-release-validation.md).
+- [x] Keep desktop and Android background running behind explicit opt-in
+  settings; do not migrate existing users to enabled defaults.
+- [ ] Add notification-backed Android foreground transfer handling for large
+  explicit uploads/downloads after the notification system provides its
+  persistent channel and permission flow.
+
+Phase 5 implementation is complete and is now in testing. Automated coverage
+exercises interrupted-job recovery, schema-compatible upgrades, session refresh,
+server/replica removal isolation, resource coalescing, Android constraints, and
+worker redaction. Desktop restore requests one coordinator catch-up, while sleep
+and network recovery remain bounded by the existing monotonic scheduler and
+resource locks. The remaining release gates are the packaged desktop/physical
+Android matrix and the notification-dependent foreground-transfer path; neither
+can be represented accurately by an in-process test.
 
 ## Security And Privacy
 
@@ -291,3 +311,5 @@ covered by Phase 5.
   produced by the background coordinator.
 - [Android Companion App Plan](./android-companion-app-plan.md) Phase 7 must
   validate the lifecycle and release behavior delivered here.
+- [Background Running Release Validation](../build/background-running-release-validation.md)
+  is the executable package/device matrix for Phase 5.
