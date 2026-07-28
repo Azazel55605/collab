@@ -14,6 +14,7 @@ import mark from 'markdown-it-mark';
 import hljs from 'highlight.js';
 
 import { parseMathPlots, type ParsedMathPlots } from '../../../../src/components/editor/mathPlotSpec';
+import { isMermaidLanguage } from '../../../../src/lib/mermaidRenderer';
 import type { ColorPreviewFormat, ThemePrefs } from './theme';
 import {
   HostedFileEntry,
@@ -36,6 +37,13 @@ function buildMarkdown(): MarkdownIt {
     linkify: true,
     typographer: true,
     highlight(str: string, lang: string): string {
+      if (isMermaidLanguage(lang)) {
+        return (
+          '<pre class="md-mermaid-source"><code class="language-mermaid">' +
+          instance.utils.escapeHtml(str) +
+          '</code></pre>'
+        );
+      }
       if (lang && hljs.getLanguage(lang)) {
         try {
           return (

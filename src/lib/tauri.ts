@@ -26,6 +26,16 @@ import type { UpdateInfo } from '../store/updateStore';
 import type { LogicDiagramDocument } from '../types/logicDiagram';
 import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarMirrorAnchor, CalendarMirrorConflict, CalendarMirrorGroup, CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSubscription, CalendarSyncState } from '../types/calendar';
 import type {
+  ConsumedNotificationAction,
+  NotificationAction,
+  NotificationActionToken,
+  NotificationCategory,
+  NotificationEnvelope,
+  NotificationRecord,
+  NotificationReconcileResult,
+  NotificationReconciliationRequest,
+} from '../types/notification';
+import type {
   CircuitDcResult,
   CircuitJobOutcome,
   CircuitJobPhase,
@@ -362,6 +372,49 @@ export const tauriCommands = {
     invoke<void>('calendar_save_mirror_conflict', { profileId, conflict }),
   calendarListMirrorItems: (profileId: string, calendarIds: string[], limit = 5_000) =>
     invoke<CalendarItem[]>('calendar_list_mirror_items', { profileId, calendarIds, limit }),
+
+  // Native notification inbox and schedule ledger
+  notificationReconcile: (
+    profileId: string,
+    category: NotificationCategory,
+    entries: NotificationEnvelope[],
+  ) => invoke<NotificationReconcileResult>('notification_reconcile', {
+    profileId,
+    category,
+    entries,
+  }),
+  notificationCancelCategory: (profileId: string, category: NotificationCategory) =>
+    invoke<number>('notification_cancel_category', { profileId, category }),
+  notificationListInbox: (profileId: string, includeDismissed = false, limit = 200) =>
+    invoke<NotificationRecord[]>('notification_list_inbox', { profileId, includeDismissed, limit }),
+  notificationMarkRead: (profileId: string, notificationId: string, read = true) =>
+    invoke<void>('notification_mark_read', { profileId, notificationId, read }),
+  notificationDismiss: (profileId: string, notificationId: string) =>
+    invoke<void>('notification_dismiss', { profileId, notificationId }),
+  notificationSnooze: (profileId: string, notificationId: string, minutes: number) =>
+    invoke<NotificationRecord>('notification_snooze', { profileId, notificationId, minutes }),
+  notificationMarkFailed: (profileId: string, notificationId: string, message: string) =>
+    invoke<void>('notification_mark_failed', { profileId, notificationId, message }),
+  notificationRetry: (profileId: string, notificationId: string) =>
+    invoke<void>('notification_retry', { profileId, notificationId }),
+  notificationCreateActionToken: (
+    profileId: string,
+    notificationId: string,
+    action: NotificationAction,
+  ) => invoke<NotificationActionToken>('notification_create_action_token', {
+    profileId,
+    notificationId,
+    action,
+  }),
+  notificationConsumeActionToken: (profileId: string, token: string) =>
+    invoke<ConsumedNotificationAction>('notification_consume_action_token', { profileId, token }),
+  notificationCleanup: (profileId: string, retentionDays = 90) =>
+    invoke<number>('notification_cleanup', { profileId, retentionDays }),
+  notificationListReconciliationRequests: (profileId: string) =>
+    invoke<NotificationReconciliationRequest[]>(
+      'notification_list_reconciliation_requests',
+      { profileId },
+    ),
 
   // Vault
   openVault: (path: string) => invoke<VaultMeta>('open_vault', { path }),

@@ -1,12 +1,30 @@
-import { describe, expect, it } from 'vitest';
+import { EditorState } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   buildTaskCheckboxToggleChange,
   collectInlinePreviewDebugItems,
+  createLivePreviewPlugin,
   renderInlineTableCellHtml,
 } from './livePreview';
 
+const mermaidMocks = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  render: vi.fn(async () => ({
+    svg: '<svg viewBox="0 0 320 120"><text>Sync flow</text></svg>',
+  })),
+}));
+
 describe('livePreview task checkbox toggles', () => {
+  beforeEach(() => {
+    Object.assign(globalThis, { mermaid: mermaidMocks });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, 'mermaid');
+  });
+
   it('toggles unchecked tasks without forcing a new selection', () => {
     expect(buildTaskCheckboxToggleChange(10, 13, false)).toEqual({
       changes: {
@@ -108,5 +126,33 @@ describe('livePreview task checkbox toggles', () => {
 
     expect(marks.filter((className) => className === 'cm-lp-em')).toHaveLength(1);
     expect(marks).toContain('cm-lp-icode');
+  });
+
+  it('renders an unfocused Mermaid fence as an inline diagram widget', async () => {
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const state = EditorState.create({
+      doc: [
+        'Cursor stays here.',
+        '',
+        '```mermaid',
+        'flowchart LR',
+        'A --> B',
+        '```',
+      ].join('\n'),
+      selection: { anchor: 0 },
+      extensions: [createLivePreviewPlugin('Note.md')],
+    });
+    const view = new EditorView({ state, parent });
+
+    await vi.waitFor(() => {
+      expect(parent.querySelector('[role="img"][aria-label="Mermaid diagram"]')).toBeTruthy();
+    });
+    expect(mermaidMocks.render).toHaveBeenCalledWith(
+      expect.stringMatching(/^collab-mermaid-/),
+      'flowchart LR\nA --> B',
+    );
+
+    view.destroy();
   });
 });

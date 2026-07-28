@@ -2560,6 +2560,73 @@ p {
   padding: 0;
   background: transparent;
 }
+
+.markdown-preview .md-mermaid-block {
+  margin: 16px 0;
+  min-height: 180px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--card) 88%, var(--background));
+}
+
+.markdown-preview .md-mermaid-canvas {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 180px;
+  padding: 14px;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+}
+
+.markdown-preview .md-mermaid-canvas svg {
+  display: block;
+  width: 100%;
+  min-width: 560px;
+  height: auto;
+  max-height: 68dvh;
+}
+
+.markdown-preview .md-mermaid-canvas.is-loading {
+  background:
+    linear-gradient(
+      100deg,
+      transparent 20%,
+      color-mix(in oklch, var(--surface) 75%, transparent) 45%,
+      transparent 70%
+    );
+  background-size: 220% 100%;
+  animation: md-mermaid-loading 1.25s linear infinite;
+}
+
+.markdown-preview .md-mermaid-canvas.is-error {
+  display: block;
+  color: var(--danger);
+}
+
+.markdown-preview .md-mermaid-error {
+  padding: 12px 12px 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.markdown-preview .md-mermaid-fallback {
+  margin: 10px 0 0;
+  max-height: 220px;
+  overflow: auto;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+}
+
+@keyframes md-mermaid-loading {
+  to { background-position: -220% 0; }
+}
 .markdown-preview a {
   color: var(--primary);
 }

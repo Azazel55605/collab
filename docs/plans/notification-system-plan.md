@@ -16,9 +16,13 @@ React toasts remain foreground UI and are not the durable notification system.
 - Calendar items already store relative and absolute reminders.
 - `CalendarReminderScheduler` and `CalendarReminderScheduleEntry` define a
   platform-neutral scheduling connector.
-- The connector currently resolves to a no-op scheduler.
-- Desktop and mobile expose foreground sync/error UI but do not schedule native
-  notifications.
+- Desktop and Android now use the native ledger connector; the no-op
+  implementation remains available only for isolated consumers and tests.
+- Phase 0 now defines and validates the shared notification envelope, stable
+  identity, typed destinations/actions, privacy presentation, foreground
+  suppression, preferences, and content-free push invalidations.
+- Desktop and mobile now reconcile calendar reminders into the shared native
+  inbox/schedule ledger. OS notification presentation remains Phase 2/3 work.
 - The server has no general push-delivery service and should not be required for
   local calendar reminders.
 
@@ -26,8 +30,8 @@ React toasts remain foreground UI and are not the durable notification system.
 
 | Phase | Status | Goal |
 | --- | --- | --- |
-| 0. Notification contract and privacy model | Not started | Define notification types, channels, IDs, preferences, redaction, and deep-link behavior. |
-| 1. Shared notification inbox and scheduler | Not started | Persist deduplicated delivery state and activate the calendar reminder connector. |
+| 0. Notification contract and privacy model | Testing | Define notification types, channels, IDs, preferences, redaction, and deep-link behavior. |
+| 1. Shared notification inbox and scheduler | Testing | Persist deduplicated delivery state and activate the calendar reminder connector. |
 | 2. Desktop native delivery | Not started | Deliver native notifications while Collab is open, hidden, or running in the tray. |
 | 3. Android native delivery | Not started | Add channels, runtime permission, scheduled reminders, actions, and deep links. |
 | 4. Server-originated activity delivery | Not started | Add privacy-minimal invalidation delivery for hosted invitations, mentions, and selected activity. |
@@ -189,18 +193,41 @@ device-specific delivery permission and channel state remain local.
 
 ### Phase 0: Contract And Privacy Model
 
-- Inventory all current toast, sync error, invitation, and reminder sources.
-- Finalize categories, stable IDs, deep links, actions, and privacy defaults.
-- Define which content may cross a third-party push service.
-- Specify foreground suppression and multi-device deduplication behavior.
+- [x] Inventory all current toast, sync error, invitation, and reminder sources
+  in the [Phase 0 contract](./notification-system-phase0-contract.md).
+- [x] Finalize categories, stable IDs, typed destinations, bounded actions, and
+  privacy defaults.
+- [x] Define the strict content-free payload that may cross a third-party push
+  service.
+- [x] Specify foreground suppression and multi-device deduplication behavior.
+- [x] Add executable TypeScript validation, redaction, destination, push, and
+  reminder-routing contract tests.
+
+Phase 0 implementation is complete and is now in testing. No native delivery,
+permission prompt, inbox storage, or OS scheduling is enabled by this phase.
+Phase 1 consumes this contract and activates the existing reminder connector.
 
 ### Phase 1: Shared Inbox And Scheduler
 
-- Add a native notification store and delivery ledger.
-- Implement the calendar reminder connector against it.
-- Add bounded recurrence expansion and reconciliation.
-- Add read, dismiss, snooze, action, retry, and retention operations.
-- Feed scheduler reconciliation from foreground and background calendar sync.
+- [x] Add a native notification store and delivery ledger.
+- [x] Implement the calendar reminder connector against it.
+- [x] Add bounded recurrence expansion and reconciliation.
+- [x] Add read, dismiss, snooze, action-token, retry, and retention operations.
+- [x] Feed scheduler reconciliation from foreground and background calendar
+  sync.
+
+Phase 1 is implemented and in testing. The profile-scoped SQLite ledger
+atomically replaces stable reminder identities and cancels stale schedules.
+Desktop and Android reconcile a bounded one-year occurrence horizon using the
+shared calendar recurrence implementation. Headless calendar sync persists a
+coalesced reconciliation request; foreground reconciliation consumes it.
+Native action tokens are hashed, short-lived, allowlisted, and one-time.
+
+Phase 1 does not display an inbox surface or issue OS notifications. Those
+presentation and permission boundaries remain in desktop Phase 2 and Android
+Phase 3. Until the recurrence engine has a shared Rust implementation, a
+headless sync records durable reconciliation work instead of approximating
+timezone-aware recurrence in the background worker.
 
 ### Phase 2: Desktop Native Delivery
 

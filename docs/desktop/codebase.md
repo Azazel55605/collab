@@ -150,8 +150,8 @@ manual save (Ctrl+S) → immediate write + createSnapshot
 |------|---------|-----------|-----------------|
 | `components/editor/MarkdownEditor.tsx` | CodeMirror 6 wrapper | content, onChange, onSave, relativePath | — (CodeMirror only) |
 | `components/editor/EditorToolbar.tsx` | Format buttons, footnote/callout insertion, and note snippet management entry points | editorRef (MarkdownEditorHandle) | Tooltip, Button, Dialog |
-| `components/editor/MarkdownPreview.tsx` | Rendered markdown panel | content, relativePath | — (markdown-it + hljs) |
-| `components/editor/livePreview.ts` | CodeMirror ViewPlugin for inline markdown decorations | — | — |
+| `components/editor/MarkdownPreview.tsx` | Rendered markdown panel, including async Mermaid diagrams | content, relativePath | — (markdown-it + hljs) |
+| `components/editor/livePreview.ts` | CodeMirror ViewPlugin for inline markdown decorations and Mermaid code-block widgets | — | — |
 | `components/editor/colorPreview.ts` | Inline editor color preview plugin helpers for swatches, tinting, and match parsing | CodeMirror decorations, uiStore color formats | — |
 | `components/editor/indentationPlugins.ts` | Editor indent visualization, ASCII ligature plugins, and Tab-key indentation helpers | CodeMirror decorations, indentation facets | — |
 | `components/editor/noteAuthoring.ts` | Shared note-authoring helpers for callout snippets, footnotes, references sections, and slash-trigger context detection | CodeMirror view/state helpers |
@@ -804,7 +804,7 @@ How features map to source files:
 | Vault file linking in notes | `lib/vaultLinks.ts`, `components/editor/slashCommands.ts`, `components/editor/useMarkdownEditorIntegrations.ts`, `components/previews/PdfLinkPreviewPopover.tsx` |
 | PDF workspace tooling | `views/PdfView.tsx`, `components/pdf/PdfSendTargetDialog.tsx`, `lib/pdfWorkspace.ts`, `types/pdf.ts`, `commands/files.rs` |
 | Code block syntax highlighting | `MarkdownEditor.tsx` (codeLanguages: languages from @codemirror/language-data) |
-| Markdown preview | `components/editor/MarkdownPreview.tsx` (markdown-it + highlight.js + KaTeX) |
+| Markdown preview | `components/editor/MarkdownPreview.tsx` (markdown-it + highlight.js + KaTeX), `lib/mermaidRenderer.ts` (shared lazy Mermaid SVG rendering for desktop and mobile) |
 | File tree | `components/vault/FileTree.tsx`, `commands/files.rs` |
 | Vault trash / restore | `components/vault/FileTree.tsx`, `components/vault/TrashPanel.tsx`, `components/vault/VaultDialogs.tsx`, `commands/files.rs` |
 | File reference details | `components/vault/FileTree.tsx`, `components/vault/FileReferencesPanel.tsx`, `commands/files.rs` |

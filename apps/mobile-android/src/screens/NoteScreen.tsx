@@ -33,6 +33,7 @@ import { openMobileLiveNoteSession, type LiveStatus, type MobileLiveNoteSession 
 import { useMobileStore } from '../state/store';
 import { MathPlot2D } from '../../../../src/components/editor/MathPlot2D';
 import { MathPlot3D } from '../../../../src/components/editor/MathPlot3D';
+import { renderMermaidBlocks } from '../../../../src/lib/mermaidRenderer';
 
 export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: ThemePrefs }) {
   const selected = useMobileStore((s) => s.selected);
@@ -203,6 +204,7 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
     const root = previewRef.current;
     if (!root || mode !== 'preview') return;
     let cancelled = false;
+    const mermaidJob = renderMermaidBlocks(root);
     const images = Array.from(root.querySelectorAll<HTMLImageElement>('img[src]'));
     for (const image of images) {
       const rawSrc = image.getAttribute('src') ?? '';
@@ -222,11 +224,21 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
     }
     return () => {
       cancelled = true;
+      mermaidJob.cancel();
     };
     // `busy` is a dependency because the preview `<article>` (and thus
     // `previewRef`) only mounts once loading finishes; without it this effect
     // would run while the ref is still null and never re-run to resolve images.
-  }, [busy, currentFile.relativePath, files, loadImageSource, mode, rendered.html]);
+  }, [
+    busy,
+    currentFile.relativePath,
+    files,
+    loadImageSource,
+    mode,
+    prefs.accent,
+    prefs.theme,
+    rendered.html,
+  ]);
 
   function handlePreviewClick(event: MouseEvent<HTMLElement>) {
     const target = event.target instanceof Element ? event.target : null;

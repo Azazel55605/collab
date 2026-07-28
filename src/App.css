@@ -1219,6 +1219,98 @@
   background: oklch(0.12 0.01 264) !important;
 }
 
+.md-mermaid-block {
+  margin: 1.25rem 0;
+  min-height: 12rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: color-mix(in oklch, var(--card) 88%, var(--background));
+}
+
+.md-mermaid-canvas {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 12rem;
+  padding: 1rem;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+}
+
+.md-mermaid-canvas svg {
+  display: block;
+  width: 100%;
+  min-width: 20rem;
+  height: auto;
+  max-height: min(72vh, 56rem);
+}
+
+.md-mermaid-canvas.is-loading {
+  background:
+    linear-gradient(
+      100deg,
+      transparent 20%,
+      color-mix(in oklch, var(--muted) 75%, transparent) 45%,
+      transparent 70%
+    );
+  background-size: 220% 100%;
+  animation: md-mermaid-loading 1.25s linear infinite;
+}
+
+.md-mermaid-canvas.is-error {
+  display: block;
+  color: var(--destructive);
+}
+
+.md-mermaid-error {
+  padding: 0.8rem 0.9rem 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.md-mermaid-fallback {
+  margin: 0.75rem 0 0;
+  max-height: 18rem;
+  overflow: auto;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+}
+
+@keyframes md-mermaid-loading {
+  to { background-position: -220% 0; }
+}
+
+.cm-editor .cm-lp-mermaid-block-wrap .md-mermaid-canvas {
+  flex: 1 1 auto;
+  min-height: 10rem;
+}
+
+.cm-editor .cm-lp-mermaid-block-wrap .md-mermaid-canvas svg {
+  min-width: 16rem;
+}
+
+@media print {
+  .md-mermaid-block {
+    break-inside: avoid;
+    overflow: visible;
+  }
+
+  .md-mermaid-canvas {
+    min-height: 0;
+    padding: 0.5rem;
+  }
+
+  .md-mermaid-canvas svg {
+    min-width: 0;
+    max-height: none;
+  }
+}
+
 /* Blockquotes */
 .markdown-preview blockquote {
   margin: 1em 0;

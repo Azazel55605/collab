@@ -1,0 +1,170 @@
+use super::app_config_dir;
+use crate::notifications::{
+    ConsumedNotificationAction, NotificationActionToken, NotificationEnvelope,
+    NotificationReconcileResult, NotificationReconciliationRequest, NotificationRecord,
+    NotificationStore,
+};
+use serde_json::Value;
+use std::{collections::HashMap, sync::OnceLock};
+use tokio::sync::Mutex;
+
+static NOTIFICATION_STORES: OnceLock<Mutex<HashMap<String, NotificationStore>>> = OnceLock::new();
+
+fn notification_stores() -> &'static Mutex<HashMap<String, NotificationStore>> {
+    NOTIFICATION_STORES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub(crate) async fn store(profile_id: &str) -> Result<NotificationStore, String> {
+    let mut stores = notification_stores().lock().await;
+    if let Some(store) = stores.get(profile_id) {
+        return Ok(store.clone());
+    }
+    let store = NotificationStore::open(&app_config_dir()?, profile_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    stores.insert(profile_id.to_owned(), store.clone());
+    Ok(store)
+}
+
+#[tauri::command]
+pub async fn notification_reconcile(
+    profile_id: String,
+    category: String,
+    entries: Vec<NotificationEnvelope>,
+) -> Result<NotificationReconcileResult, String> {
+    store(&profile_id)
+        .await?
+        .reconcile(&profile_id, &category, &entries)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn notification_cancel_category(
+    profile_id: String,
+    category: String,
+) -> Result<u64, String> {
+    store(&profile_id)
+        .await?
+        .cancel_category(&profile_id, &category)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn notification_list_inbox(
+    profile_id: String,
+    include_dismissed: bool,
+    limit: u32,
+) -> Result<Vec<NotificationRecord>, String> {
+    store(&profile_id)
+        .await?
+        .list_inbox(&profile_id, include_dismissed, limit)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn notification_mark_read(
+    profile_id: String,
+    notification_id: String,
+    read: bool,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .mark_read(&notification_id, read)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn notification_dismiss(
+    profile_id: String,
+    notification_id: String,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .dismiss(&notification_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn notification_snooze(
+    profile_id: String,
+    notification_id: String,
+    minutes: u32,
+) -> Result<NotificationRecord, String> {
+    store(&profile_id)
+        .await?
+        .snooze(&notification_id, minutes)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn notification_mark_failed(
+    profile_id: String,
+    notification_id: String,
+    message: String,
+) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .mark_failed(&notification_id, &message)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn notification_retry(profile_id: String, notification_id: String) -> Result<(), String> {
+    store(&profile_id)
+        .await?
+        .retry(&notification_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn notification_create_action_token(
+    profile_id: String,
+    notification_id: String,
+    action: Value,
+) -> Result<NotificationActionToken, String> {
+    store(&profile_id)
+        .await?
+        .create_action_token(&notification_id, &action)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn notification_consume_action_token(
+    profile_id: String,
+    token: String,
+) -> Result<ConsumedNotificationAction, String> {
+    store(&profile_id)
+        .await?
+        .consume_action_token(&token)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn notification_cleanup(profile_id: String, retention_days: u32) -> Result<u64, String> {
+    store(&profile_id)
+        .await?
+        .cleanup(retention_days)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn notification_list_reconciliation_requests(
+    profile_id: String,
+) -> Result<Vec<NotificationReconciliationRequest>, String> {
+    store(&profile_id)
+        .await?
+        .list_reconciliation_requests(&profile_id)
+        .await
+        .map_err(|error| error.to_string())
+}

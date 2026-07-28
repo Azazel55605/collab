@@ -7,6 +7,7 @@ mod crypto;
 mod hosted_client;
 mod hosted_session;
 mod models;
+mod notifications;
 mod server_token_store;
 mod state;
 #[cfg(test)]
@@ -165,6 +166,19 @@ pub fn run() {
             commands::calendar::calendar_list_mirror_conflicts,
             commands::calendar::calendar_save_mirror_conflict,
             commands::calendar::calendar_list_mirror_items,
+            // native notification inbox and schedule ledger
+            commands::notifications::notification_reconcile,
+            commands::notifications::notification_cancel_category,
+            commands::notifications::notification_list_inbox,
+            commands::notifications::notification_mark_read,
+            commands::notifications::notification_dismiss,
+            commands::notifications::notification_snooze,
+            commands::notifications::notification_mark_failed,
+            commands::notifications::notification_retry,
+            commands::notifications::notification_create_action_token,
+            commands::notifications::notification_consume_action_token,
+            commands::notifications::notification_cleanup,
+            commands::notifications::notification_list_reconciliation_requests,
             commands::background::background_runtime_probe,
             commands::background::background_server_list,
             commands::background::background_server_replace,

@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useUiStore } from '../../store/uiStore';
 import { useEditorStore } from '../../store/editorStore';
@@ -11,6 +11,13 @@ const vaultClientMocks = vi.hoisted(() => ({
   readAssetDataUrl: vi.fn(),
 }));
 
+const mermaidMocks = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  render: vi.fn(async () => ({
+    svg: '<svg viewBox="0 0 320 120"><text>Foreground or background sync</text></svg>',
+  })),
+}));
+
 vi.mock('../../lib/vaultClient', () => ({
   createVaultClient: () => ({
     readAssetDataUrl: vaultClientMocks.readAssetDataUrl,
@@ -18,7 +25,12 @@ vi.mock('../../lib/vaultClient', () => ({
 }));
 
 describe('MarkdownPreview', () => {
+  beforeEach(() => {
+    Object.assign(globalThis, { mermaid: mermaidMocks });
+  });
+
   afterEach(() => {
+    Reflect.deleteProperty(globalThis, 'mermaid');
     cleanup();
     vi.clearAllMocks();
   });
@@ -38,6 +50,20 @@ describe('MarkdownPreview', () => {
 
     expect(await screen.findByText('2D plot')).toBeTruthy();
     expect(screen.getByText('y = \\sin(x)')).toBeTruthy();
+  });
+
+  it('renders Mermaid code fences and waits for the diagram', async () => {
+    const onReady = vi.fn();
+    render(
+      <MarkdownPreview
+        content={'```mermaid\nflowchart LR\nS["Foreground or background sync"] --> P["Snapshot"]\n```'}
+        onReady={onReady}
+      />,
+    );
+
+    expect(await screen.findByRole('img', { name: 'Mermaid diagram' })).toBeTruthy();
+    expect(screen.getByText('Foreground or background sync')).toBeTruthy();
+    await waitFor(() => expect(onReady).toHaveBeenCalled());
   });
 
   it('opens exported logic diagram images at their editable source when metadata is available', async () => {

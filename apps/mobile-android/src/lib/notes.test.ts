@@ -143,6 +143,20 @@ describe('mobile note helpers', () => {
     expect(rendered.plotBlocks[0].plots[0]).toMatchObject({ kind: '2d' });
   });
 
+  it('preserves Mermaid fences for the shared asynchronous renderer', () => {
+    const rendered = renderMarkdownDocument([
+      '```mermaid title="Widget sync"',
+      'flowchart LR',
+      'S["Foreground sync"] --> P["Snapshot"]',
+      '```',
+    ].join('\n'));
+
+    expect(rendered.html).toContain('class="md-mermaid-source"');
+    expect(rendered.html).toContain('class="language-mermaid"');
+    expect(rendered.html).toContain('flowchart LR');
+    expect(rendered.html).toContain('S["Foreground sync"] --&gt; P["Snapshot"]');
+  });
+
   it('resolves vault-relative links from the current note path', () => {
     const files: HostedFileEntry[] = [
       NOTE,

@@ -33,6 +33,7 @@ import { parseMathPlots, type ParsedMathPlots } from './mathPlotSpec';
 import { MathPlot2D } from './MathPlot2D';
 import { MathPlot3D } from './MathPlot3D';
 import { openMathPlotModal } from './MathPlotModal';
+import { isMermaidLanguage, renderMermaidBlocks } from '../../lib/mermaidRenderer';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/atom-one-dark.css';
 
@@ -64,6 +65,13 @@ function buildMd(): MarkdownIt {
     linkify: true,
     typographer: true,
     highlight(str: string, lang: string): string {
+      if (isMermaidLanguage(lang)) {
+        return (
+          '<pre class="md-mermaid-source"><code class="language-mermaid">' +
+          instance.utils.escapeHtml(str) +
+          '</code></pre>'
+        );
+      }
       if (lang && hljs.getLanguage(lang)) {
         try {
           return (
@@ -257,7 +265,13 @@ function MathPlotPreviewStack({ parsed }: { parsed: ParsedMathPlots }) {
 }
 
 function PreviewInner({ content, className = '', onWikilinkClick, currentDocumentRelativePath, onReady }: MarkdownPreviewProps) {
-  const { webPreviewsEnabled, hoverWebLinkPreviewsEnabled, backgroundWebPreviewPrefetchEnabled } = useUiStore();
+  const {
+    webPreviewsEnabled,
+    hoverWebLinkPreviewsEnabled,
+    backgroundWebPreviewPrefetchEnabled,
+    theme,
+    accentColor,
+  } = useUiStore();
   const vault = useVaultStore((state) => state.vault);
   const client = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
   const fileTree = useVaultStore((state) => state.fileTree);
@@ -300,6 +314,7 @@ function PreviewInner({ content, className = '', onWikilinkClick, currentDocumen
 
     let cancelled = false;
     const imagePromises: Promise<void>[] = [];
+    const mermaidJob = renderMermaidBlocks(root);
 
     const images = Array.from(root.querySelectorAll<HTMLImageElement>('img[src]'));
 
@@ -339,6 +354,7 @@ function PreviewInner({ content, className = '', onWikilinkClick, currentDocumen
     ), 0);
     const ready = Promise.all([
       ...imagePromises,
+      mermaidJob.ready,
       waitForPlotCanvases(root, expected3dCanvases),
       new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
     ]);
@@ -349,8 +365,9 @@ function PreviewInner({ content, className = '', onWikilinkClick, currentDocumen
 
     return () => {
       cancelled = true;
+      mermaidJob.cancel();
     };
-  }, [client, currentDocumentRelativePath, fileTree, html, onReady, plotBlocks]);
+  }, [accentColor, client, currentDocumentRelativePath, fileTree, html, onReady, plotBlocks, theme]);
 
   function handleClick(e: React.MouseEvent<HTMLDivElement>) {
     const image = (e.target as HTMLElement).closest<HTMLImageElement>('img[data-asset-kind="vault"]');

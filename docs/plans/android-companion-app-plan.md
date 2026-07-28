@@ -449,6 +449,11 @@ Current implementation notes:
   highlighting, task lists, code highlighting, wikilinks, vault-relative links,
   cached/hosted image assets, document-backed SVG images, bundled Nerd Font
   glyphs, and tighter heading/list/table spacing.
+- Added lazy, sanitized Mermaid fence rendering through the shared
+  `src/lib/mermaidRenderer.ts` pipeline. Desktop rendered preview, desktop
+  CodeMirror live preview, and the mobile note viewer now render `mermaid`
+  fenced blocks with current theme/accent colors and retain the source as a
+  readable fallback when a diagram is invalid.
 - Replaced the textarea MVP with a mobile-focused CodeMirror editor. The editor
   applies desktop-aligned indentation controls (`spaces`/`tabs` and tab width),
   inline color previews, Markdown syntax highlighting, search/history basics,

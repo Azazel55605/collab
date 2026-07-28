@@ -61,7 +61,7 @@ models.
 | 8. iCalendar import, export, and subscriptions | Complete | Desktop range/item export, desktop and Android bounded import/export, local and hosted read-only HTTPS subscriptions, scheduled conditional refresh, revocable publication links, safe extension preservation, provider/time-zone fixtures, and SSRF/parser hardening are implemented. |
 | 9. CalDAV and external two-way sync | Testing | Hosted discovery, collections, reports, sync tokens, ETags, writes/deletes, recurrence resources, revocable app passwords, and shared change-log convergence are implemented; maintained external-client interoperability testing remains. |
 | 10. Admin overview, privacy verification, and hardening | Testing | Aggregate-only administration, runtime quota/rate controls, usage warnings, subscription health, bounded recurrence, retention coverage, and deterministic multi-server soak tests are implemented; physical-device and full restore drills remain. |
-| 11. Reminder delivery and notifications | Not started | Activate desktop and Android notification scheduling through the calendar reminder connectors after the core calendar implementation. |
+| 11. Reminder delivery and notifications | In progress | Shared native inbox/schedule persistence and bounded reminder reconciliation are in testing; desktop and Android OS delivery remain. |
 
 Phase 11 is detailed in the cross-platform
 [Notification System Plan](./notification-system-plan.md), with lifecycle and
@@ -1401,6 +1401,13 @@ matrix remain manual release gates, so this phase stays in **Testing**.
 ### Phase 11: Reminder Delivery And Notifications
 
 Estimated effort: 2-4 weeks after core desktop/Android calendar workflows.
+
+The shared notification system's Phase 0 contract and Phase 1 native
+inbox/schedule ledger are implemented and in testing. Calendar reminders now
+reconcile a bounded one-year horizon with typed item routing, stable
+replacement, stale cancellation, snooze/action tokens, retry, and retention.
+Desktop permission state and OS delivery begin in notification Phase 2; Android
+delivery begins in notification Phase 3.
 
 Tasks:
 

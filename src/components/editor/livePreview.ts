@@ -26,6 +26,11 @@ import {
 import { StateField, RangeSetBuilder, EditorState } from '@codemirror/state';
 import { LanguageDescription } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
+import {
+  isMermaidLanguage,
+  renderMermaidInto,
+  type MermaidRenderJob,
+} from '../../lib/mermaidRenderer';
 import { classHighlighter, highlightCode } from '@lezer/highlight';
 import MarkdownIt from 'markdown-it';
 // @ts-ignore – no bundled types
@@ -242,6 +247,8 @@ function createCodeLanguageIconElement(language: string) {
   return icon;
 }
 
+const mermaidWidgetJobs = new WeakMap<HTMLElement, MermaidRenderJob>();
+
 class CodeBlockWidget extends WidgetType {
   constructor(
     readonly code: string,
@@ -328,6 +335,17 @@ class CodeBlockWidget extends WidgetType {
       wrap.appendChild(label);
     }
 
+    if (isMermaidLanguage(this.language)) {
+      wrap.classList.add('cm-lp-mermaid-block-wrap');
+      wrap.style.minHeight = '12rem';
+      const diagram = document.createElement('div');
+      const job = renderMermaidInto(diagram, this.code);
+      mermaidWidgetJobs.set(wrap, job);
+      wrap.appendChild(diagram);
+      void job.ready.then(() => view?.requestMeasure());
+      return wrap;
+    }
+
     const pre = document.createElement('pre');
     pre.className = 'cm-lp-code-block';
     const code = document.createElement('code');
@@ -342,6 +360,11 @@ class CodeBlockWidget extends WidgetType {
     });
 
     return wrap;
+  }
+
+  destroy(dom: HTMLElement) {
+    mermaidWidgetJobs.get(dom)?.cancel();
+    mermaidWidgetJobs.delete(dom);
   }
 
   ignoreEvent() { return false; }

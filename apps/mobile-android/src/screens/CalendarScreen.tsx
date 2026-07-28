@@ -89,8 +89,7 @@ import {
   type CalendarRecurrenceEditScope,
 } from '../../../../src/lib/calendarRecurringEdit';
 import {
-  noOpCalendarReminderScheduler,
-  reconcileCalendarReminders,
+  reconcileProfileCalendarReminders,
 } from '../../../../src/lib/calendarReminderScheduler';
 import { normalizeKanbanBoard } from '../../../../src/types/kanban';
 import { calendarTaskToKanbanPatch } from '../../../../src/lib/kanbanCalendarProjection';
@@ -311,7 +310,9 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
         return new Set([...current].filter(id => activeIds.has(id)));
       });
       setSourceItems(loadedItems);
-      await reconcileCalendarReminders(noOpCalendarReminderScheduler, profileId, loadedItems);
+      await reconcileProfileCalendarReminders(profileId).catch(() => {
+        // Calendar data remains usable if the native scheduler is unavailable.
+      });
       loadedOnce.current = true;
     } catch (reason) {
       setError(String(reason));

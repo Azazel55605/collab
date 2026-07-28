@@ -73,6 +73,7 @@ import {
 } from '../components/ui/popover';
 import { cn } from '../lib/utils';
 import { calendarMirrorLocationKey } from '../lib/calendarMirroring';
+import { reconcileProfileCalendarReminders } from '../lib/calendarReminderScheduler';
 import {
   base64ToUtf8,
   exportCalendarIcs,
@@ -340,6 +341,12 @@ export default function CalendarPage() {
       void store.loadRange(range.from, range.to, viewMode === 'tasks');
     }
   }, [profileId, range.from, range.to, store.calendars.length, store.loadRange, store.profileId, viewMode]);
+  useEffect(() => {
+    if (store.profileId !== profileId || store.calendars.length === 0 || store.loading) return;
+    void reconcileProfileCalendarReminders(profileId).catch(() => {
+      // A scheduler failure must not make the calendar itself unusable.
+    });
+  }, [profileId, store.calendars, store.loading, store.profileId, store.sourceItems]);
   useEffect(() => {
     if (store.profileId === profileId && store.subscriptions.length > 0) {
       void store.refreshSubscriptions();

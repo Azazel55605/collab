@@ -93,7 +93,9 @@ export interface CalendarEventLocation {
 export interface CalendarReminderScheduleEntry {
   scheduleId: string;
   profileId: string;
+  calendarId: string;
   itemId: string;
+  itemKind: CalendarItemKind;
   recurrenceId?: CalendarTimeValue;
   fireAt: string;
   title: string;

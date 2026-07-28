@@ -7,6 +7,7 @@ pub mod files;
 pub mod index;
 pub mod live_ws;
 pub mod mobile;
+pub mod notifications;
 pub mod ocr;
 pub mod replica;
 pub mod server;

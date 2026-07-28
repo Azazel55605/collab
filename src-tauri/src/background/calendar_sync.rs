@@ -217,6 +217,13 @@ pub(crate) async fn run_calendar_sync(
         }
     }
 
+    crate::commands::notifications::store(profile_id)
+        .await
+        .map_err(JobExecutionError::persistence)?
+        .request_reconciliation(profile_id, "calendar.reminder")
+        .await
+        .map_err(|error| JobExecutionError::persistence(error.to_string()))?;
+
     Ok(JobExecutionSummary {
         completed: replayed + failed + applied,
         total: replayed + failed + applied,
