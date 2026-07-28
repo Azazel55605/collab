@@ -4,6 +4,8 @@ mod background;
 mod background_lifecycle;
 mod commands;
 mod crypto;
+#[cfg(not(mobile))]
+mod desktop_notifications;
 mod hosted_client;
 mod hosted_session;
 mod models;
@@ -59,6 +61,7 @@ pub fn run() {
 
     #[cfg(not(mobile))]
     let builder = builder
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_drag::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -179,6 +182,9 @@ pub fn run() {
             commands::notifications::notification_consume_action_token,
             commands::notifications::notification_cleanup,
             commands::notifications::notification_list_reconciliation_requests,
+            commands::notifications::notification_permission_status,
+            commands::notifications::notification_request_permission,
+            commands::notifications::notification_send_test,
             commands::background::background_runtime_probe,
             commands::background::background_server_list,
             commands::background::background_server_replace,

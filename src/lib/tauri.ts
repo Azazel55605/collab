@@ -31,6 +31,7 @@ import type {
   NotificationActionToken,
   NotificationCategory,
   NotificationEnvelope,
+  NotificationPermissionStatus,
   NotificationRecord,
   NotificationReconcileResult,
   NotificationReconciliationRequest,
@@ -415,6 +416,12 @@ export const tauriCommands = {
       'notification_list_reconciliation_requests',
       { profileId },
     ),
+  notificationPermissionStatus: () =>
+    invoke<NotificationPermissionStatus>('notification_permission_status'),
+  notificationRequestPermission: () =>
+    invoke<NotificationPermissionStatus>('notification_request_permission'),
+  notificationSendTest: () =>
+    invoke<void>('notification_send_test'),
 
   // Vault
   openVault: (path: string) => invoke<VaultMeta>('open_vault', { path }),

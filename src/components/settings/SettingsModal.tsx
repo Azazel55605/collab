@@ -9,7 +9,7 @@ import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { cn } from '../../lib/utils';
-import { Palette, Type, User, Monitor, Info, CalendarDays, Keyboard, Search, SlidersHorizontal, Layout, Server, Languages, CircuitBoard, RefreshCw } from 'lucide-react';
+import { Palette, Type, User, Monitor, Info, CalendarDays, Keyboard, Search, SlidersHorizontal, Layout, Server, Languages, CircuitBoard, RefreshCw, Bell } from 'lucide-react';
 import { toast } from 'sonner';
 import AboutTab from './AboutTab';
 import ShortcutsTab from './ShortcutsTab';
@@ -24,6 +24,7 @@ import SettingsOcrSection from './SettingsOcrSection';
 import SettingsServerSection from './SettingsServerSection';
 import SettingsLogicSection from './SettingsLogicSection';
 import SettingsBackgroundSection from './SettingsBackgroundSection';
+import SettingsNotificationsSection from './SettingsNotificationsSection';
 import { useUpdateStore } from '../../store/updateStore';
 
 // ─── Tabs sidebar ─────────────────────────────────────────────────────────────
@@ -31,6 +32,7 @@ import { useUpdateStore } from '../../store/updateStore';
 const TABS = [
   { id: 'general',    label: 'General',    icon: <SlidersHorizontal size={15} />, keywords: ['startup', 'session', 'files', 'delete', 'behavior'] },
   { id: 'background', label: 'Background', icon: <RefreshCw size={15} />, keywords: ['tray', 'startup', 'autostart', 'sync', 'close', 'login'] },
+  { id: 'notifications', label: 'Notifications', icon: <Bell size={15} />, keywords: ['alerts', 'reminders', 'permission', 'inbox', 'desktop'] },
   { id: 'appearance', label: 'Appearance', icon: <Palette size={15} />, keywords: ['theme', 'accent', 'color', 'look'] },
   { id: 'editor',     label: 'Editor',     icon: <Type size={15} />, keywords: ['font', 'typing', 'notes', 'indent', 'color preview'] },
   { id: 'display',    label: 'Display',    icon: <Monitor size={15} />, keywords: ['scale', 'motion', 'animation', 'ui'] },
@@ -197,6 +199,7 @@ export default function SettingsModal() {
             )}
 
             {activeTab === 'background' && <SettingsBackgroundSection />}
+            {activeTab === 'notifications' && <SettingsNotificationsSection />}
 
             {/* ── Appearance ── */}
             {activeTab === 'appearance' && (

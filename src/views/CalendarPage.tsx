@@ -353,6 +353,27 @@ export default function CalendarPage() {
     }
   }, [profileId, store.profileId, store.refreshSubscriptions, store.subscriptions.length]);
   useEffect(() => {
+    const openNotification = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        kind?: string;
+        occurrenceKey?: string;
+      }>).detail;
+      if (detail?.kind !== 'calendar-item') return;
+      const occurrence = detail.occurrenceKey;
+      const date = occurrence?.startsWith('date:')
+        ? occurrence.slice('date:'.length)
+        : occurrence?.startsWith('dateTime:')
+          ? calendarDateKey(new Date(occurrence.slice('dateTime:'.length)))
+          : calendarDateKey(new Date());
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+      setAnchor(dateFromKey(date));
+      setSelectedDate(date);
+      setViewMode('day');
+    };
+    window.addEventListener('calendar:open-notification', openNotification);
+    return () => window.removeEventListener('calendar:open-notification', openNotification);
+  }, []);
+  useEffect(() => {
     if (!searchOpen || searchQuery.trim().length < 2) {
       setSearchResults([]);
       setSearching(false);

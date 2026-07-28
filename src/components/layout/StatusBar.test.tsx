@@ -23,6 +23,10 @@ vi.mock('./CalendarSyncStatusIndicator', () => ({
   default: () => <span data-testid="calendar-sync-indicator" />,
 }));
 
+vi.mock('../notifications/NotificationCenter', () => ({
+  default: () => <span data-testid="notification-center" />,
+}));
+
 describe('StatusBar', () => {
   beforeEach(() => {
     useVaultStore.setState({

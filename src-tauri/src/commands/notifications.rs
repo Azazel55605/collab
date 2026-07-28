@@ -6,6 +6,7 @@ use crate::notifications::{
 };
 use serde_json::Value;
 use std::{collections::HashMap, sync::OnceLock};
+use tauri::AppHandle;
 use tokio::sync::Mutex;
 
 static NOTIFICATION_STORES: OnceLock<Mutex<HashMap<String, NotificationStore>>> = OnceLock::new();
@@ -167,4 +168,68 @@ pub async fn notification_list_reconciliation_requests(
         .list_reconciliation_requests(&profile_id)
         .await
         .map_err(|error| error.to_string())
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationPermissionStatus {
+    pub status: String,
+    pub supported: bool,
+}
+
+#[tauri::command]
+pub fn notification_permission_status(
+    app: AppHandle,
+) -> Result<NotificationPermissionStatus, String> {
+    #[cfg(not(mobile))]
+    {
+        let status = crate::desktop_notifications::permission_status(&app)?;
+        return Ok(NotificationPermissionStatus {
+            status: status.status,
+            supported: status.supported,
+        });
+    }
+    #[cfg(mobile)]
+    {
+        let _ = app;
+        Ok(NotificationPermissionStatus {
+            status: "unsupported".into(),
+            supported: false,
+        })
+    }
+}
+
+#[tauri::command]
+pub fn notification_request_permission(
+    app: AppHandle,
+) -> Result<NotificationPermissionStatus, String> {
+    #[cfg(not(mobile))]
+    {
+        let status = crate::desktop_notifications::request_permission(&app)?;
+        return Ok(NotificationPermissionStatus {
+            status: status.status,
+            supported: status.supported,
+        });
+    }
+    #[cfg(mobile)]
+    {
+        let _ = app;
+        Ok(NotificationPermissionStatus {
+            status: "unsupported".into(),
+            supported: false,
+        })
+    }
+}
+
+#[tauri::command]
+pub fn notification_send_test(app: AppHandle) -> Result<(), String> {
+    #[cfg(not(mobile))]
+    {
+        return crate::desktop_notifications::send_test(&app);
+    }
+    #[cfg(mobile)]
+    {
+        let _ = app;
+        Err("Desktop notifications are unavailable on this platform.".into())
+    }
 }

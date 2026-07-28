@@ -54,6 +54,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'editor', label: 'Editor', keywords: ['font', 'typing', 'delete', 'notes'] },
   { id: 'display', label: 'Display', keywords: ['scale', 'motion', 'animation', 'ui'] },
   { id: 'calendar', label: 'Calendar', keywords: ['date', 'week', 'format'] },
+  { id: 'notifications', label: 'Notifications', keywords: ['alerts', 'reminders', 'permission', 'inbox'] },
   { id: 'profile', label: 'Profile', keywords: ['name', 'identity', 'presence', 'user'] },
   { id: 'about', label: 'About', keywords: ['version', 'update', 'app'] },
   { id: 'shortcuts', label: 'Shortcuts', keywords: ['keyboard', 'hotkeys', 'bindings'] },

@@ -22,7 +22,10 @@ React toasts remain foreground UI and are not the durable notification system.
   identity, typed destinations/actions, privacy presentation, foreground
   suppression, preferences, and content-free push invalidations.
 - Desktop and mobile now reconcile calendar reminders into the shared native
-  inbox/schedule ledger. OS notification presentation remains Phase 2/3 work.
+  inbox/schedule ledger.
+- Desktop permission handling, native delivery, tray-hidden dispatch, the
+  status-bar inbox, and notification settings are implemented and in testing.
+  Android operating-system delivery remains Phase 3 work.
 - The server has no general push-delivery service and should not be required for
   local calendar reminders.
 
@@ -32,7 +35,7 @@ React toasts remain foreground UI and are not the durable notification system.
 | --- | --- | --- |
 | 0. Notification contract and privacy model | Testing | Define notification types, channels, IDs, preferences, redaction, and deep-link behavior. |
 | 1. Shared notification inbox and scheduler | Testing | Persist deduplicated delivery state and activate the calendar reminder connector. |
-| 2. Desktop native delivery | Not started | Deliver native notifications while Collab is open, hidden, or running in the tray. |
+| 2. Desktop native delivery | Testing | Deliver native notifications while Collab is open, hidden, or running in the tray. |
 | 3. Android native delivery | Not started | Add channels, runtime permission, scheduled reminders, actions, and deep links. |
 | 4. Server-originated activity delivery | Not started | Add privacy-minimal invalidation delivery for hosted invitations, mentions, and selected activity. |
 | 5. Preferences, quiet hours, and inbox UX | Not started | Give users per-account, per-calendar, per-vault, and per-type control. |
@@ -231,10 +234,29 @@ timezone-aware recurrence in the background worker.
 
 ### Phase 2: Desktop Native Delivery
 
-- Add permission/status handling and native notification delivery.
-- Integrate notification clicks with single-instance window restore.
-- Deliver while the window is hidden in the tray.
-- Add settings and in-app inbox surfaces.
+- [x] Add permission/status handling and native notification delivery.
+- [x] Route notification-center opens through the existing single-instance
+  main-window restore path.
+- [x] Deliver due records while the window is hidden in the tray.
+- [x] Add settings and in-app inbox surfaces.
+- [x] Apply notification privacy before handing content to the operating
+  system and record whether delivery used the native or in-app surface.
+- [ ] Validate permission request/revocation, focused suppression, tray-hidden
+  delivery, and window restoration on packaged Linux, Windows, and macOS
+  builds.
+
+The desktop adapter uses the Tauri notification plugin for permission state and
+native presentation. Due records are dispatched by the existing native
+background lifecycle, so hiding the webview does not stop delivery. Focused
+windows retain reminders in the in-app inbox; hidden or unfocused windows use
+the operating-system notification center when permission is granted.
+
+The current desktop plugin surface does not expose portable per-notification
+action callbacks. The tray **Notifications** command restores the single
+instance and opens the inbox, where calendar destinations deep-link into the
+appropriate day. Native action receivers, one-time action-token consumption,
+and direct notification-tap routing are therefore owned by Android Phase 3
+rather than emulated differently on each desktop platform.
 
 ### Phase 3: Android Native Delivery
 

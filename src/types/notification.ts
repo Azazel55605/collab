@@ -98,6 +98,7 @@ export interface NotificationRecord {
   state: NotificationState;
   updatedAt: string;
   deliveredAt?: string;
+  deliverySurface?: 'native' | 'in-app';
   readAt?: string;
   dismissedAt?: string;
   snoozedFromId?: string;
@@ -126,6 +127,11 @@ export interface NotificationActionToken {
 export interface ConsumedNotificationAction {
   notificationId: string;
   action: NotificationAction;
+}
+
+export interface NotificationPermissionStatus {
+  status: 'granted' | 'denied' | 'prompt' | 'prompt-with-rationale' | 'unsupported';
+  supported: boolean;
 }
 
 export interface NotificationPresentation {

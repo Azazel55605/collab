@@ -72,6 +72,7 @@ pub struct NotificationRecord {
     pub state: NotificationState,
     pub updated_at: String,
     pub delivered_at: Option<String>,
+    pub delivery_surface: Option<String>,
     pub read_at: Option<String>,
     pub dismissed_at: Option<String>,
     pub snoozed_from_id: Option<String>,
@@ -171,6 +172,7 @@ impl NotificationStore {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 delivered_at TEXT,
+                delivery_surface TEXT,
                 read_at TEXT,
                 dismissed_at TEXT,
                 snoozed_from_id TEXT,
@@ -212,6 +214,14 @@ impl NotificationStore {
             )
             .execute(&self.pool)
             .await?;
+        }
+        if !columns
+            .iter()
+            .any(|row| row.get::<String, _>("name") == "delivery_surface")
+        {
+            sqlx::query("ALTER TABLE notifications ADD COLUMN delivery_surface TEXT")
+                .execute(&self.pool)
+                .await?;
         }
         Ok(())
     }
@@ -453,6 +463,67 @@ impl NotificationStore {
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(record_from_row).collect()
+    }
+
+    pub async fn list_due(
+        &self,
+        profile_id: &str,
+        limit: u32,
+    ) -> Result<Vec<NotificationRecord>, NotificationStoreError> {
+        if limit == 0 || limit > 100 {
+            return Err(NotificationStoreError::Validation(
+                "due notification limit must be between 1 and 100".into(),
+            ));
+        }
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            r#"UPDATE notifications SET state='ready', updated_at=?
+               WHERE profile_id=? AND state='scheduled' AND scheduled_at<=?"#,
+        )
+        .bind(&now)
+        .bind(profile_id)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+        let rows = sqlx::query(
+            r#"SELECT * FROM notifications
+               WHERE profile_id=? AND state='ready'
+                 AND (expires_at IS NULL OR expires_at>?)
+               ORDER BY COALESCE(scheduled_at, created_at), id
+               LIMIT ?"#,
+        )
+        .bind(profile_id)
+        .bind(&now)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(record_from_row).collect()
+    }
+
+    pub async fn mark_delivered(
+        &self,
+        notification_id: &str,
+        surface: &str,
+    ) -> Result<(), NotificationStoreError> {
+        if !matches!(surface, "native" | "in-app") {
+            return Err(NotificationStoreError::Validation(
+                "notification delivery surface is invalid".into(),
+            ));
+        }
+        let now = Utc::now().to_rfc3339();
+        let result = sqlx::query(
+            r#"UPDATE notifications
+               SET state='delivered', delivered_at=?, delivery_surface=?,
+                   failure_message=NULL, next_retry_at=NULL, updated_at=?
+               WHERE id=? AND state='ready'"#,
+        )
+        .bind(&now)
+        .bind(surface)
+        .bind(&now)
+        .bind(notification_id)
+        .execute(&self.pool)
+        .await?;
+        ensure_changed(result.rows_affected())
     }
 
     pub async fn mark_read(
@@ -714,6 +785,7 @@ fn record_from_row(
         state: NotificationState::parse(row.get::<&str, _>("state"))?,
         updated_at: row.get("updated_at"),
         delivered_at: row.get("delivered_at"),
+        delivery_surface: row.get("delivery_surface"),
         read_at: row.get("read_at"),
         dismissed_at: row.get("dismissed_at"),
         snoozed_from_id: row.get("snoozed_from_id"),
@@ -917,6 +989,31 @@ fn ensure_changed(rows: u64) -> Result<(), NotificationStoreError> {
     }
 }
 
+pub fn profile_ids(config_root: &Path) -> Result<Vec<String>, NotificationStoreError> {
+    let profiles = config_root.join("profiles");
+    let entries = match std::fs::read_dir(profiles) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    let mut ids = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let Some(id) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if validate_segment(&id, "profile ID").is_ok() {
+            ids.push(id);
+        }
+    }
+    ids.sort();
+    ids.truncate(100);
+    Ok(ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1061,5 +1158,28 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn due_records_transition_to_delivered_once() {
+        let root = tempfile::tempdir().unwrap();
+        let store = NotificationStore::open(root.path(), "profile-1")
+            .await
+            .unwrap();
+        let notice = envelope("notification-1", "2026-01-01T09:00:00Z");
+        let notification_id = notice.id.clone();
+        store
+            .reconcile("profile-1", "calendar.reminder", &[notice])
+            .await
+            .unwrap();
+        assert_eq!(store.list_due("profile-1", 20).await.unwrap().len(), 1);
+        store
+            .mark_delivered(&notification_id, "native")
+            .await
+            .unwrap();
+        assert!(store.list_due("profile-1", 20).await.unwrap().is_empty());
+        let inbox = store.list_inbox("profile-1", false, 20).await.unwrap();
+        assert_eq!(inbox[0].state, NotificationState::Delivered);
+        assert_eq!(inbox[0].delivery_surface.as_deref(), Some("native"));
     }
 }

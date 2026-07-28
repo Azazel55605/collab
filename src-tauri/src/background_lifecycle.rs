@@ -15,6 +15,7 @@ use tauri_plugin_autostart::ManagerExt;
 const TRAY_ID: &str = "collab-background";
 const TRAY_OPEN_ID: &str = "background-open";
 const TRAY_SYNC_ID: &str = "background-sync";
+const TRAY_NOTIFICATIONS_ID: &str = "background-notifications";
 const TRAY_PAUSE_ID: &str = "background-pause";
 const TRAY_STATUS_ID: &str = "background-status";
 const TRAY_QUIT_ID: &str = "background-quit";
@@ -95,6 +96,11 @@ fn sync_now(app: &tauri::AppHandle) {
     });
 }
 
+fn open_notifications(app: &tauri::AppHandle) {
+    show_main_window(app);
+    let _ = app.emit("notifications:open-center", ());
+}
+
 fn sync_interval(settings: &BackgroundSettings) -> Option<Duration> {
     if !settings.run_in_background || !settings.background_sync || settings.paused {
         return None;
@@ -141,6 +147,7 @@ fn start_scheduler(app: tauri::AppHandle) {
         loop {
             tokio::time::sleep(Duration::from_secs(2)).await;
             update_tray_status(&app);
+            let _ = crate::desktop_notifications::dispatch_due(&app).await;
 
             let state = app.state::<AppState>();
             let Ok(settings) = state.background.settings() else {
@@ -171,6 +178,13 @@ fn start_scheduler(app: tauri::AppHandle) {
 pub fn setup_background_lifecycle(app: &mut tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, TRAY_OPEN_ID, "Open Collab", true, None::<&str>)?;
     let sync = MenuItem::with_id(app, TRAY_SYNC_ID, "Sync now", true, None::<&str>)?;
+    let notifications = MenuItem::with_id(
+        app,
+        TRAY_NOTIFICATIONS_ID,
+        "Notifications",
+        true,
+        None::<&str>,
+    )?;
     let pause = MenuItem::with_id(
         app,
         TRAY_PAUSE_ID,
@@ -187,13 +201,25 @@ pub fn setup_background_lifecycle(app: &mut tauri::App) -> tauri::Result<()> {
     )?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, TRAY_QUIT_ID, "Quit Collab", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &sync, &pause, &status, &separator, &quit])?;
+    let menu = Menu::with_items(
+        app,
+        &[
+            &open,
+            &notifications,
+            &sync,
+            &pause,
+            &status,
+            &separator,
+            &quit,
+        ],
+    )?;
 
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .tooltip("Collab")
         .on_menu_event(|app, event| match event.id().as_ref() {
             TRAY_OPEN_ID => show_main_window(app),
+            TRAY_NOTIFICATIONS_ID => open_notifications(app),
             TRAY_SYNC_ID => sync_now(app),
             TRAY_PAUSE_ID => toggle_pause(app),
             TRAY_QUIT_ID => request_quit(app),

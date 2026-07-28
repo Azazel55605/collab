@@ -8,6 +8,7 @@ import PresenceBar from '../collaboration/PresenceBar';
 import HostedConnectionStatus from './HostedConnectionStatus';
 import SyncStatusIndicator from './SyncStatusIndicator';
 import CalendarSyncStatusIndicator from './CalendarSyncStatusIndicator';
+import NotificationCenter from '../notifications/NotificationCenter';
 import { DocumentStatusPill } from './DocumentStatusPill';
 import { DocumentReconciler } from './DocumentReconciler';
 import { Progress } from '../ui/progress';
@@ -96,6 +97,7 @@ export default function StatusBar() {
         )}
         <SyncStatusIndicator />
         <CalendarSyncStatusIndicator />
+        <NotificationCenter />
         {activeDocumentStatus && activeDocumentStatus.controller && activeDocumentStatus.snapshot ? (
           <DocumentReconciler
             controller={activeDocumentStatus.controller}
