@@ -26,6 +26,7 @@ async fn main() -> anyhow::Result<()> {
     spawn_backup_scheduler(state.clone());
     spawn_maintenance_worker(state.clone());
     spawn_calendar_subscription_worker(state.clone());
+    collab_server::notification_push::spawn_worker(state.clone());
     let listener = TcpListener::bind(config.bind_address())
         .await
         .with_context(|| format!("failed to bind {}", config.bind_address()))?;

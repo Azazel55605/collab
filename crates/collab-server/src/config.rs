@@ -34,6 +34,9 @@ pub struct ServerConfig {
     pub calendar_rate_limit_per_minute: u32,
     pub rest_rate_limit_per_minute: u32,
     pub ws_rate_limit_per_minute: u32,
+    pub push_gateway_url: Option<String>,
+    pub push_gateway_token: Option<String>,
+    pub push_dispatch_interval_seconds: u64,
     pub maintenance_interval_seconds: u64,
     pub audit_retention_days: u64,
     pub revision_history_limit: u32,
@@ -71,6 +74,9 @@ impl Default for ServerConfig {
             calendar_rate_limit_per_minute: 600,
             rest_rate_limit_per_minute: 1200,
             ws_rate_limit_per_minute: 120,
+            push_gateway_url: None,
+            push_gateway_token: None,
+            push_dispatch_interval_seconds: 15,
             maintenance_interval_seconds: 3600,
             audit_retention_days: 0,
             revision_history_limit: 0,
@@ -241,6 +247,17 @@ impl ServerConfig {
                 .parse()
                 .map_err(|_| ConfigError::Invalid("COLLAB_WS_RATE_LIMIT_PER_MINUTE"))?;
         }
+        if let Ok(value) = env::var("COLLAB_PUSH_GATEWAY_URL") {
+            self.push_gateway_url = (!value.trim().is_empty()).then(|| value.trim().to_string());
+        }
+        if let Ok(value) = env::var("COLLAB_PUSH_GATEWAY_TOKEN") {
+            self.push_gateway_token = (!value.trim().is_empty()).then(|| value.trim().to_string());
+        }
+        if let Ok(value) = env::var("COLLAB_PUSH_DISPATCH_INTERVAL_SECONDS") {
+            self.push_dispatch_interval_seconds = value
+                .parse()
+                .map_err(|_| ConfigError::Invalid("COLLAB_PUSH_DISPATCH_INTERVAL_SECONDS"))?;
+        }
         if let Ok(value) = env::var("COLLAB_MAINTENANCE_INTERVAL_SECONDS") {
             self.maintenance_interval_seconds = value
                 .parse()
@@ -369,6 +386,24 @@ impl ServerConfig {
         if self.ws_rate_limit_per_minute > 1_000_000 {
             return Err(ConfigError::Invalid("COLLAB_WS_RATE_LIMIT_PER_MINUTE"));
         }
+        if let Some(value) = self.push_gateway_url.as_deref() {
+            let url = collab_net_policy::normalize_http_input(value, false)
+                .map_err(|_| ConfigError::Invalid("COLLAB_PUSH_GATEWAY_URL"))?;
+            collab_net_policy::validate_target(&url, collab_net_policy::PUSH_GATEWAY_POLICY)
+                .map_err(|_| ConfigError::Invalid("COLLAB_PUSH_GATEWAY_URL"))?;
+        }
+        if self
+            .push_gateway_token
+            .as_ref()
+            .is_some_and(|value| value.len() > 4_096)
+        {
+            return Err(ConfigError::Invalid("COLLAB_PUSH_GATEWAY_TOKEN"));
+        }
+        if !(5..=3_600).contains(&self.push_dispatch_interval_seconds) {
+            return Err(ConfigError::Invalid(
+                "COLLAB_PUSH_DISPATCH_INTERVAL_SECONDS",
+            ));
+        }
         if self.maintenance_interval_seconds == 0 {
             return Err(ConfigError::Invalid("COLLAB_MAINTENANCE_INTERVAL_SECONDS"));
         }
@@ -452,6 +487,9 @@ mod tests {
         assert_eq!(config.maintenance_interval_seconds, 3600);
         assert_eq!(config.audit_retention_days, 0);
         assert_eq!(config.revision_history_limit, 0);
+        assert_eq!(config.push_gateway_url, None);
+        assert_eq!(config.push_gateway_token, None);
+        assert_eq!(config.push_dispatch_interval_seconds, 15);
         assert_eq!(config.backup_dir, PathBuf::from("server-data/backups"));
         assert_eq!(config.backup_command, None);
         assert_eq!(config.restore_command, None);
@@ -509,6 +547,27 @@ mod tests {
 
         let config = ServerConfig {
             max_import_expanded_bytes: 128 * 1024 * 1024,
+            ..ServerConfig::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn validation_rejects_unsafe_push_gateway_configuration() {
+        let config = ServerConfig {
+            push_gateway_url: Some("file:///tmp/push".to_string()),
+            ..ServerConfig::default()
+        };
+        assert!(config.validate().is_err());
+
+        let config = ServerConfig {
+            push_gateway_url: Some("https://user@example.com/push".to_string()),
+            ..ServerConfig::default()
+        };
+        assert!(config.validate().is_err());
+
+        let config = ServerConfig {
+            push_dispatch_interval_seconds: 4,
             ..ServerConfig::default()
         };
         assert!(config.validate().is_err());

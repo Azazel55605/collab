@@ -16,6 +16,7 @@ public/ocr-assets/
 /target/
 /server-data/
 /.env
+/src-tauri/gen/android/app/google-services.json
 
 # Editor directories and files
 .vscode/*

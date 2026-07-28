@@ -4,7 +4,7 @@ use crate::notifications::{profile_ids, NotificationRecord, NotificationStore};
 use jni::objects::{JClass, JObject, JString};
 use jni::sys::jstring;
 use jni::JNIEnv;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 const DELIVERY_BATCH_SIZE: u32 = 40;
@@ -35,6 +35,17 @@ struct AndroidNotificationDelivery {
 struct AndroidProfileSchedule {
     profile_id: String,
     scheduled_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PushInvalidation {
+    schema_version: u32,
+    invalidation_id: String,
+    account_key: String,
+    category: String,
+    cursor: Option<String>,
+    created_at: String,
 }
 
 fn hidden_title(kind: &str) -> &'static str {
@@ -229,6 +240,74 @@ async fn request_reconciliation(reason: &str) -> Result<String, String> {
     Ok("{}".to_string())
 }
 
+fn validate_push_invalidation(payload: &str) -> Result<PushInvalidation, String> {
+    let invalidation: PushInvalidation = serde_json::from_str(payload)
+        .map_err(|_| "Push invalidation payload is invalid.".to_string())?;
+    let opaque = |value: &str, min: usize, max: usize| {
+        (min..=max).contains(&value.len())
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    };
+    if invalidation.schema_version != 1
+        || !opaque(&invalidation.invalidation_id, 16, 256)
+        || !opaque(&invalidation.account_key, 16, 160)
+        || !matches!(
+            invalidation.category.as_str(),
+            "calendar.invitation"
+                | "collaboration.message"
+                | "collaboration.mention"
+                | "sync.action-required"
+        )
+        || invalidation
+            .cursor
+            .as_ref()
+            .is_some_and(|cursor| !opaque(cursor, 1, 256))
+        || chrono::DateTime::parse_from_rfc3339(&invalidation.created_at).is_err()
+    {
+        return Err("Push invalidation payload is invalid.".to_string());
+    }
+    Ok(invalidation)
+}
+
+async fn register_push_token(
+    installation_id: &str,
+    token: &str,
+    app_version: &str,
+) -> Result<String, String> {
+    if installation_id.is_empty()
+        || installation_id.len() > 160
+        || token.is_empty()
+        || token.len() > 4_096
+        || app_version.len() > 80
+    {
+        return Err("Android push registration is invalid.".to_string());
+    }
+    crate::background::notification_sync::register_push_token(
+        &crate::state::app_state::shared_background_coordinator(),
+        installation_id,
+        token,
+        (!app_version.is_empty()).then_some(app_version),
+    )
+    .await?;
+    Ok("{}".to_string())
+}
+
+async fn handle_push_invalidation(payload: &str) -> Result<String, String> {
+    let invalidation = validate_push_invalidation(payload)?;
+    let _ = (
+        invalidation.invalidation_id,
+        invalidation.account_key,
+        invalidation.category,
+        invalidation.cursor,
+    );
+    let outcome = crate::state::app_state::shared_background_coordinator()
+        .run_push_invalidation_to_completion(std::time::Duration::from_secs(60))
+        .await?;
+    serde_json::to_string(&outcome)
+        .map_err(|error| format!("Could not encode push catch-up outcome: {error}"))
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_azazel_collab_companion_CollabNotificationBridge_nativeListDue(
     mut env: JNIEnv<'_>,
@@ -304,6 +383,40 @@ pub extern "system" fn Java_com_azazel_collab_companion_CollabNotificationBridge
         crate::android_jni::register_worker_context(&mut env, &context)?;
         let reason = decode_string(&mut env, &reason, "notification lifecycle reason")?;
         tauri::async_runtime::block_on(request_reconciliation(&reason))
+    })();
+    encode_result(&mut env, result)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_azazel_collab_companion_CollabNotificationBridge_nativeRegisterPushToken(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    context: JObject<'_>,
+    installation_id: JString<'_>,
+    token: JString<'_>,
+    app_version: JString<'_>,
+) -> jstring {
+    let result = (|| {
+        crate::android_jni::register_worker_context(&mut env, &context)?;
+        let installation_id = decode_string(&mut env, &installation_id, "push installation ID")?;
+        let token = decode_string(&mut env, &token, "push token")?;
+        let app_version = decode_string(&mut env, &app_version, "app version")?;
+        tauri::async_runtime::block_on(register_push_token(&installation_id, &token, &app_version))
+    })();
+    encode_result(&mut env, result)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_azazel_collab_companion_CollabNotificationBridge_nativeHandlePushInvalidation(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    context: JObject<'_>,
+    payload: JString<'_>,
+) -> jstring {
+    let result = (|| {
+        crate::android_jni::register_worker_context(&mut env, &context)?;
+        let payload = decode_string(&mut env, &payload, "push invalidation")?;
+        tauri::async_runtime::block_on(handle_push_invalidation(&payload))
     })();
     encode_result(&mut env, result)
 }

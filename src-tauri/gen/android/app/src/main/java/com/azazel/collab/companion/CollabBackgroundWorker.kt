@@ -33,6 +33,7 @@ class CollabBackgroundWorker(
       val outcome = JSONObject(payload)
       val retryRecommended = outcome.optBoolean("retryRecommended", false)
       CollabNotificationScheduler.reconcileProfile(applicationContext, profileId)
+      CollabNotificationBridge.refreshPushRegistration(applicationContext)
       Log.i(TAG, "Native background work completed")
       if (retryRecommended && runAttemptCount < MAX_RETRY_ATTEMPTS) {
         Result.retry()
@@ -84,6 +85,101 @@ class CollabBackgroundWorker(
       }
       return message.take(MAX_OUTPUT_LENGTH)
     }
+  }
+}
+
+class CollabPushWorker(
+  appContext: Context,
+  workerParams: WorkerParameters,
+) : Worker(appContext, workerParams) {
+  override fun doWork(): Result {
+    return try {
+      when (inputData.getString(INPUT_ACTION)) {
+        ACTION_REGISTER -> CollabNotificationBridge.nativeRegisterPushToken(
+          applicationContext,
+          inputData.getString(INPUT_INSTALLATION_ID) ?: return Result.failure(),
+          inputData.getString(INPUT_TOKEN) ?: return Result.failure(),
+          inputData.getString(INPUT_APP_VERSION).orEmpty(),
+        )
+        ACTION_CATCH_UP -> CollabNotificationBridge.nativeHandlePushInvalidation(
+          applicationContext,
+          inputData.getString(INPUT_INVALIDATION) ?: return Result.failure(),
+        )
+        else -> return Result.failure()
+      }
+      Result.success()
+    } catch (error: Throwable) {
+      Log.w(TAG, "Push wake-up work did not complete")
+      if (runAttemptCount < MAX_RETRY_ATTEMPTS) Result.retry() else Result.failure()
+    }
+  }
+
+  companion object {
+    private const val TAG = "CollabPush"
+    private const val MAX_RETRY_ATTEMPTS = 5
+    const val INPUT_ACTION = "action"
+    const val INPUT_INSTALLATION_ID = "installationId"
+    const val INPUT_TOKEN = "token"
+    const val INPUT_APP_VERSION = "appVersion"
+    const val INPUT_INVALIDATION = "invalidation"
+    const val ACTION_REGISTER = "register"
+    const val ACTION_CATCH_UP = "catchUp"
+  }
+}
+
+object CollabPushScheduler {
+  private const val REGISTER_WORK = "collab-push-registration"
+  private const val CATCH_UP_WORK = "collab-push-catch-up"
+
+  fun register(
+    context: Context,
+    installationId: String,
+    token: String,
+    appVersion: String,
+  ) {
+    val request = OneTimeWorkRequestBuilder<CollabPushWorker>()
+      .setConstraints(
+        Constraints.Builder()
+          .setRequiredNetworkType(NetworkType.CONNECTED)
+          .build(),
+      )
+      .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+      .setInputData(
+        workDataOf(
+          CollabPushWorker.INPUT_ACTION to CollabPushWorker.ACTION_REGISTER,
+          CollabPushWorker.INPUT_INSTALLATION_ID to installationId,
+          CollabPushWorker.INPUT_TOKEN to token,
+          CollabPushWorker.INPUT_APP_VERSION to appVersion,
+        ),
+      )
+      .build()
+    WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+      REGISTER_WORK,
+      ExistingWorkPolicy.REPLACE,
+      request,
+    )
+  }
+
+  fun catchUp(context: Context, invalidation: String) {
+    val request = OneTimeWorkRequestBuilder<CollabPushWorker>()
+      .setConstraints(
+        Constraints.Builder()
+          .setRequiredNetworkType(NetworkType.CONNECTED)
+          .build(),
+      )
+      .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+      .setInputData(
+        workDataOf(
+          CollabPushWorker.INPUT_ACTION to CollabPushWorker.ACTION_CATCH_UP,
+          CollabPushWorker.INPUT_INVALIDATION to invalidation,
+        ),
+      )
+      .build()
+    WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+      CATCH_UP_WORK,
+      ExistingWorkPolicy.KEEP,
+      request,
+    )
   }
 }
 

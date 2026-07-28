@@ -54,6 +54,19 @@ pub const CALENDAR_FEED_POLICY: OutboundPolicy = OutboundPolicy {
     },
 };
 
+pub const PUSH_GATEWAY_POLICY: OutboundPolicy = OutboundPolicy {
+    schemes: SchemePolicy::HttpAndHttps,
+    allow_credentials: false,
+    allow_localhost: true,
+    allow_private_networks: true,
+    limits: RequestLimits {
+        max_redirects: 0,
+        max_response_bytes: 64 * 1024,
+        connect_timeout: Duration::from_secs(10),
+        request_timeout: Duration::from_secs(20),
+    },
+};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidatedTarget {
     pub url: Url,
@@ -287,6 +300,15 @@ mod tests {
             validate_target(&credentialed, CALENDAR_FEED_POLICY),
             Err(PolicyError::CredentialsNotAllowed)
         );
+        assert!(validate_target(
+            &Url::parse("http://push-gateway:8080/send").unwrap(),
+            PUSH_GATEWAY_POLICY,
+        )
+        .is_ok());
+        assert_eq!(
+            validate_target(&credentialed, PUSH_GATEWAY_POLICY),
+            Err(PolicyError::CredentialsNotAllowed)
+        );
     }
 
     #[test]
@@ -341,6 +363,12 @@ mod tests {
         assert_eq!(
             CALENDAR_FEED_POLICY.limits.request_timeout,
             Duration::from_secs(15)
+        );
+
+        assert_eq!(PUSH_GATEWAY_POLICY.limits.max_redirects, 0);
+        assert_eq!(
+            PUSH_GATEWAY_POLICY.limits.request_timeout,
+            Duration::from_secs(20)
         );
     }
 

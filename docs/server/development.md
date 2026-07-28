@@ -162,6 +162,14 @@ Supported environment variables:
 - `COLLAB_NATIVE_ACCESS_TTL_MINUTES`
 - `COLLAB_NATIVE_REFRESH_TTL_DAYS`
 - `COLLAB_WS_TICKET_TTL_SECONDS`
+- `COLLAB_PUSH_GATEWAY_URL`: optional HTTPS endpoint for Android push
+  invalidations. When absent, authenticated foreground and WorkManager polling
+  remain active and no push dispatch worker starts.
+- `COLLAB_PUSH_GATEWAY_TOKEN`: optional bearer secret sent only to the
+  configured gateway. Keep provider service-account credentials in the gateway,
+  not in the Collab server image or client.
+- `COLLAB_PUSH_DISPATCH_INTERVAL_SECONDS`: bounded outbox dispatch interval
+  (default `15`, allowed range `5` to `3600`).
 All `*_BYTES` settings below accept either a plain integer or a human-readable
 binary size with a unit suffix (`256MiB`, `12 GiB`, `1.5GiB`, `512k`); suffixes
 are 1024-based and case-insensitive. The same string forms are accepted by the
@@ -242,6 +250,16 @@ Runtime security, session, upload/import, storage-warning, and backup schedule
 settings are configurable from `/admin/settings`. If one of the matching
 `COLLAB_*` variables is present in `.env` or the container environment, it is
 treated as a global override and the admin UI shows that field as locked.
+
+The optional push gateway receives a JSON request containing `provider`,
+`token`, and an `invalidation` object. `token` is a legacy-neutral field name
+whose value is the opaque provider target (an FCM installation ID for current
+Android clients). The invalidation contains only
+`schemaVersion`, `invalidationId`, `accountKey`, `category`, `cursor`, and
+`createdAt`; it never contains a calendar title, chat text, vault ID, user ID,
+or bearer token. The gateway must map these values to FCM string data and return
+`2xx` when accepted, `410` when the device token is permanently invalid, or
+another status for a retryable failure.
 
 ## Verification
 

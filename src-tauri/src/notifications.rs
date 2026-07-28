@@ -199,6 +199,13 @@ impl NotificationStore {
                 requested_at TEXT NOT NULL,
                 PRIMARY KEY(profile_id, category)
             )"#,
+            r#"CREATE TABLE IF NOT EXISTS notification_remote_cursors (
+                profile_id TEXT NOT NULL,
+                server_url TEXT NOT NULL,
+                cursor TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(profile_id, server_url)
+            )"#,
         ] {
             sqlx::query(statement).execute(&self.pool).await?;
         }
@@ -359,6 +366,152 @@ impl NotificationStore {
             updated,
             cancelled,
         })
+    }
+
+    pub async fn ingest(
+        &self,
+        profile_id: &str,
+        entries: &[NotificationEnvelope],
+    ) -> Result<NotificationReconcileResult, NotificationStoreError> {
+        validate_segment(profile_id, "profile ID")?;
+        if entries.len() > MAX_RECONCILE_ENTRIES {
+            return Err(NotificationStoreError::Validation(format!(
+                "notification ingestion is limited to {MAX_RECONCILE_ENTRIES} entries"
+            )));
+        }
+        let now = Utc::now();
+        let now_text = now.to_rfc3339();
+        let mut inserted = 0;
+        let mut updated = 0;
+        let mut tx = self.pool.begin().await?;
+        for entry in entries {
+            validate_envelope(entry, &entry.category)?;
+            let scheduled_at = entry.scheduled_at.as_deref().unwrap_or(&entry.created_at);
+            let state = if parse_instant(scheduled_at, "schedule time")? <= now {
+                "ready"
+            } else {
+                "scheduled"
+            };
+            let envelope_json = serde_json::to_string(entry)?;
+            let existing = sqlx::query("SELECT state,scheduled_at FROM notifications WHERE id=?")
+                .bind(&entry.id)
+                .fetch_optional(&mut *tx)
+                .await?;
+            match existing {
+                None => {
+                    sqlx::query(
+                        r#"INSERT INTO notifications
+                           (id,profile_id,category,source_id,scheduled_at,expires_at,envelope_json,
+                            requires_inbox,state,created_at,updated_at)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?)"#,
+                    )
+                    .bind(&entry.id)
+                    .bind(profile_id)
+                    .bind(&entry.category)
+                    .bind(&entry.source_id)
+                    .bind(scheduled_at)
+                    .bind(entry.expires_at.as_deref())
+                    .bind(envelope_json)
+                    .bind(entry.requires_inbox)
+                    .bind(state)
+                    .bind(&entry.created_at)
+                    .bind(&now_text)
+                    .execute(&mut *tx)
+                    .await?;
+                    inserted += 1;
+                }
+                Some(row) => {
+                    let old_state: String = row.get("state");
+                    let old_schedule: Option<String> = row.get("scheduled_at");
+                    let next_state =
+                        if matches!(old_state.as_str(), "delivered" | "read" | "dismissed")
+                            && old_schedule.as_deref() == Some(scheduled_at)
+                        {
+                            old_state.as_str()
+                        } else {
+                            state
+                        };
+                    sqlx::query(
+                        r#"UPDATE notifications
+                           SET profile_id=?,category=?,source_id=?,scheduled_at=?,expires_at=?,
+                               envelope_json=?,requires_inbox=?,state=?,updated_at=?,
+                               failure_message=NULL,next_retry_at=NULL
+                           WHERE id=?"#,
+                    )
+                    .bind(profile_id)
+                    .bind(&entry.category)
+                    .bind(&entry.source_id)
+                    .bind(scheduled_at)
+                    .bind(entry.expires_at.as_deref())
+                    .bind(envelope_json)
+                    .bind(entry.requires_inbox)
+                    .bind(next_state)
+                    .bind(&now_text)
+                    .bind(&entry.id)
+                    .execute(&mut *tx)
+                    .await?;
+                    updated += 1;
+                }
+            }
+        }
+        tx.commit().await?;
+        Ok(NotificationReconcileResult {
+            inserted,
+            updated,
+            cancelled: 0,
+        })
+    }
+
+    pub async fn remote_cursor(
+        &self,
+        profile_id: &str,
+        server_url: &str,
+    ) -> Result<Option<String>, NotificationStoreError> {
+        validate_segment(profile_id, "profile ID")?;
+        if server_url.trim().is_empty() || server_url.len() > 2_048 {
+            return Err(NotificationStoreError::Validation(
+                "notification server URL is invalid".into(),
+            ));
+        }
+        sqlx::query_scalar(
+            "SELECT cursor FROM notification_remote_cursors WHERE profile_id=? AND server_url=?",
+        )
+        .bind(profile_id)
+        .bind(server_url)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(NotificationStoreError::from)
+    }
+
+    pub async fn save_remote_cursor(
+        &self,
+        profile_id: &str,
+        server_url: &str,
+        cursor: &str,
+    ) -> Result<(), NotificationStoreError> {
+        validate_segment(profile_id, "profile ID")?;
+        if server_url.trim().is_empty()
+            || server_url.len() > 2_048
+            || cursor.trim().is_empty()
+            || cursor.len() > 256
+        {
+            return Err(NotificationStoreError::Validation(
+                "notification remote cursor is invalid".into(),
+            ));
+        }
+        sqlx::query(
+            r#"INSERT INTO notification_remote_cursors(profile_id,server_url,cursor,updated_at)
+               VALUES (?,?,?,?)
+               ON CONFLICT(profile_id,server_url) DO UPDATE SET
+                 cursor=excluded.cursor,updated_at=excluded.updated_at"#,
+        )
+        .bind(profile_id)
+        .bind(server_url)
+        .bind(cursor)
+        .bind(Utc::now().to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn request_reconciliation(
@@ -1285,5 +1438,57 @@ mod tests {
         assert_eq!(due[0].attempt_count, 1);
         assert!(due[0].failure_message.is_none());
         assert!(due[0].next_retry_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn remote_ingestion_is_idempotent_and_preserves_unseen_records() {
+        let root = tempfile::tempdir().unwrap();
+        let store = NotificationStore::open(root.path(), "profile-1")
+            .await
+            .unwrap();
+        let first = envelope("notification-1", "2026-01-01T09:00:00Z");
+        let mut second = envelope("notification-2", "2026-01-01T10:00:00Z");
+        second.delivery_key = "reminder-2".to_string();
+        second.id = notification_id_for(&second);
+        let result = store
+            .ingest("profile-1", &[first.clone(), second.clone()])
+            .await
+            .unwrap();
+        assert_eq!(result.inserted, 2);
+        assert_eq!(result.cancelled, 0);
+        let result = store.ingest("profile-1", &[second]).await.unwrap();
+        assert_eq!(result.updated, 1);
+        assert_eq!(result.cancelled, 0);
+        assert_eq!(store.list_due("profile-1", 20).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn remote_cursors_are_scoped_by_profile_and_server() {
+        let root = tempfile::tempdir().unwrap();
+        let store = NotificationStore::open(root.path(), "profile-1")
+            .await
+            .unwrap();
+        assert!(store
+            .remote_cursor("profile-1", "https://one.example")
+            .await
+            .unwrap()
+            .is_none());
+        store
+            .save_remote_cursor("profile-1", "https://one.example", "42")
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .remote_cursor("profile-1", "https://one.example")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("42")
+        );
+        assert!(store
+            .remote_cursor("profile-1", "https://two.example")
+            .await
+            .unwrap()
+            .is_none());
     }
 }

@@ -74,6 +74,12 @@ pub async fn run_maintenance(
             "native_sessions",
         )
         .await;
+    let _ = delete_count(
+        db,
+        "DELETE FROM notification_events WHERE expires_at <= NOW()",
+        "notification_events",
+    )
+    .await;
     report.stale_presence = delete_count(
         db,
         &format!("DELETE FROM hosted_presence WHERE updated_at < NOW() - INTERVAL '{PRESENCE_STALE_AFTER}'"),

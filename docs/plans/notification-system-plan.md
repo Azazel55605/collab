@@ -28,8 +28,10 @@ React toasts remain foreground UI and are not the durable notification system.
 - Android channels, permission recovery, per-profile alarms, native delivery,
   safe actions, deep links, lifecycle restoration, settings, and the durable
   mobile inbox are implemented and in testing.
-- The server has no general push-delivery service and should not be required for
-  local calendar reminders.
+- Hosted calendar invitations and chat mentions now enter an owner-scoped
+  server event feed. Android may receive a content-free FCM invalidation, while
+  authenticated foreground and WorkManager catch-up remain authoritative.
+- Local calendar reminders do not require a server or push provider.
 
 ## Progress Tracker
 
@@ -39,7 +41,7 @@ React toasts remain foreground UI and are not the durable notification system.
 | 1. Shared notification inbox and scheduler | Testing | Persist deduplicated delivery state and activate the calendar reminder connector. |
 | 2. Desktop native delivery | Testing | Deliver native notifications while Collab is open, hidden, or running in the tray. |
 | 3. Android native delivery | Testing | Add channels, runtime permission, scheduled reminders, actions, and deep links. |
-| 4. Server-originated activity delivery | Not started | Add privacy-minimal invalidation delivery for hosted invitations, mentions, and selected activity. |
+| 4. Server-originated activity delivery | Testing | Add privacy-minimal invalidation delivery for hosted invitations, mentions, and selected activity. |
 | 5. Preferences, quiet hours, and inbox UX | Not started | Give users per-account, per-calendar, per-vault, and per-type control. |
 | 6. Hardening and release | Not started | Validate time changes, recurrence, duplicates, permissions, upgrades, and multi-device behavior. |
 
@@ -298,11 +300,42 @@ work.
 
 ### Phase 4: Server-Originated Activity
 
-- Add device registration and token rotation without exposing tokens to the
+- [x] Add device registration and token rotation without exposing tokens to the
   webview.
-- Add opaque push invalidations and authenticated payload fetch.
-- Start with calendar invitations and mentions.
-- Keep polling/catch-up as a correctness path.
+- [x] Add opaque push invalidations and authenticated payload fetch.
+- [x] Start with calendar invitations and mentions.
+- [x] Keep polling/catch-up as a correctness path.
+- [x] Add bounded, leased server delivery attempts and deactivate provider-
+  rejected tokens.
+- [x] Deep-link fetched invitations and mentions into the desktop and mobile
+  application surfaces.
+- [ ] Validate FCM token rotation, delayed/duplicate push, logout cleanup,
+  process-dead delivery, and catch-up on the physical Android matrix.
+
+Phase 4 is implemented and in testing. Each hosted account has an append-only,
+owner-scoped notification cursor. Server writes create the notification event
+and its per-device outbox rows in the same PostgreSQL transaction as the
+calendar invitation or chat mention. Delivery workers claim bounded leases and
+retry failures without placing calendar, vault, user, title, description, or
+credential data in the push payload.
+
+Android owns its FCM installation identifier and Collab installation ID in the
+native layer. Native
+login/reconnect rotates registration, logout deactivates it, and the Firebase
+service passes only a strictly validated invalidation into the Rust background
+coordinator. The coordinator restores the native session, fetches bounded
+authenticated pages, validates them through the shared notification ledger,
+and reschedules local delivery. Periodic and foreground catch-up use the same
+path, so push remains a latency optimization rather than a correctness
+dependency.
+
+The Collab server intentionally targets a small operator-configured HTTPS push
+gateway instead of embedding provider service-account credentials or OAuth
+logic. The gateway receives one opaque provider target plus one opaque
+invalidation, maps the
+invalidation fields to FCM string data, returns `2xx` when accepted and `410`
+for a permanently invalid token. Deployments without a gateway retain
+authenticated notification polling.
 
 ### Phase 5: Preferences And Quiet Hours
 

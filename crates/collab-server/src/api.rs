@@ -1781,6 +1781,11 @@ pub async fn send_chat_message(
         ));
     }
     let actor_id = user_uuid(&actor.user);
+    let mut transaction = state
+        .database
+        .begin()
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
     sqlx::query(
         r#"
         INSERT INTO hosted_chat_messages (id, vault_id, sender_user_id, content)
@@ -1792,15 +1797,105 @@ pub async fn send_chat_message(
     .bind(vault_id)
     .bind(actor_id)
     .bind(content)
-    .execute(&state.database)
+    .execute(&mut *transaction)
     .await
     .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let mentions = mentioned_usernames(content);
+    if !mentions.is_empty() {
+        let rows = sqlx::query(
+            r#"SELECT user_account.id
+               FROM hosted_vault_memberships membership
+               JOIN users user_account ON user_account.id=membership.user_id
+               WHERE membership.vault_id=$1 AND user_account.status='active'
+                 AND user_account.normalized_username=ANY($2) AND user_account.id<>$3"#,
+        )
+        .bind(vault_id)
+        .bind(&mentions)
+        .bind(actor_id)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+        for row in rows {
+            let mentioned_user_id: Uuid = row.get("id");
+            let account_key = crate::notification_api::account_key(mentioned_user_id);
+            let source_id = payload.id.to_string();
+            let delivery_key = format!("mention-{mentioned_user_id}");
+            let envelope = serde_json::json!({
+                "schemaVersion": 1,
+                "id": crate::notification_api::envelope_id(
+                    "collaboration.mention",
+                    &account_key,
+                    &source_id,
+                    &delivery_key,
+                ),
+                "category": "collaboration.mention",
+                "kind": "collaboration.mention",
+                "channel": "collaboration",
+                "accountKey": account_key,
+                "sourceId": source_id,
+                "deliveryKey": delivery_key,
+                "createdAt": Utc::now().to_rfc3339(),
+                "expiresAt": crate::notification_api::expires_at(30),
+                "title": format!("Mention from {}", actor.user.display_name),
+                "body": content,
+                "privacy": "title-only",
+                "priority": "normal",
+                "destination": {"kind":"vault-chat","vaultId":vault_id},
+                "actions": [{"kind":"open"},{"kind":"dismiss"}],
+                "requiresInbox": true
+            });
+            crate::notification_api::insert_event(
+                &mut transaction,
+                mentioned_user_id,
+                "collaboration.mention",
+                &format!("chat-mention:{}:{mentioned_user_id}", payload.id),
+                &envelope,
+            )
+            .await
+            .map_err(|_| ApiFailure::server(request_id.clone()))?;
+        }
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
     Ok((
         StatusCode::CREATED,
         Json(DataResponse::new(
             load_chat_message(&state.database, vault_id, payload.id, &request_id).await?,
         )),
     ))
+}
+
+fn mentioned_usernames(content: &str) -> Vec<String> {
+    fn username_character(character: char) -> bool {
+        character.is_alphanumeric() || matches!(character, '_' | '-' | '.')
+    }
+
+    let characters = content.char_indices().collect::<Vec<_>>();
+    let mut mentions = Vec::new();
+    for (index, (_, character)) in characters.iter().enumerate() {
+        if *character != '@'
+            || index
+                .checked_sub(1)
+                .and_then(|previous| characters.get(previous))
+                .is_some_and(|(_, previous)| username_character(*previous))
+        {
+            continue;
+        }
+        let username = characters[index + 1..]
+            .iter()
+            .map(|(_, character)| *character)
+            .take_while(|character| username_character(*character))
+            .collect::<String>()
+            .to_lowercase();
+        if !username.is_empty() && username.len() <= 64 {
+            mentions.push(username);
+        }
+    }
+    mentions.sort();
+    mentions.dedup();
+    mentions
 }
 
 pub async fn add_vault_member(
@@ -11846,10 +11941,10 @@ impl IntoResponse for ApiFailure {
 mod tests {
     use super::{
         cookie, delete_or_quarantine_backup_dir, indexed_note_tags, indexed_note_title,
-        is_safe_backup_name, parse_backup_created_at, parse_tar_listing_entry, parse_vault_zip,
-        run_operator_command, search_excerpt, sha256_file, validate_backup_archive_entries,
-        validate_backup_manifest_version, validate_file_kind, verify_backup, BackupRuntimeSettings,
-        Capability, STANDARD,
+        is_safe_backup_name, mentioned_usernames, parse_backup_created_at, parse_tar_listing_entry,
+        parse_vault_zip, run_operator_command, search_excerpt, sha256_file,
+        validate_backup_archive_entries, validate_backup_manifest_version, validate_file_kind,
+        verify_backup, BackupRuntimeSettings, Capability, STANDARD,
     };
     use crate::auth::hash_secret;
     use crate::{
@@ -11877,6 +11972,14 @@ mod tests {
     };
     use tower::ServiceExt;
     use uuid::Uuid;
+
+    #[test]
+    fn chat_mentions_are_bounded_deduplicated_and_not_parsed_from_email_addresses() {
+        assert_eq!(
+            mentioned_usernames("Hi @Alice, @alice and (@bob-team); not me@example.com"),
+            vec!["alice".to_string(), "bob-team".to_string()]
+        );
+    }
 
     #[test]
     fn hosted_document_validation_uses_path_kind_with_protocol_fallback() {

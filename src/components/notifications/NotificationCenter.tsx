@@ -15,8 +15,11 @@ import {
 import { tauriCommands } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
 import { useCollabStore } from '../../store/collabStore';
+import { useServerStore } from '../../store/serverStore';
 import { useUiStore } from '../../store/uiStore';
+import { useVaultStore } from '../../store/vaultStore';
 import type { NotificationRecord } from '../../types/notification';
+import { hostedVaultMeta } from '../../types/vault';
 import { Button } from '../ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 
@@ -112,6 +115,28 @@ export default function NotificationCenter() {
       window.setTimeout(() => {
         window.dispatchEvent(new CustomEvent('calendar:open-notification', { detail: destination }));
       }, 0);
+    } else if (destination.kind === 'vault-chat') {
+      const current = useVaultStore.getState().vault;
+      let targetAvailable = current?.kind === 'hosted'
+        && current.hostedVaultId === destination.vaultId;
+      if (current?.kind !== 'hosted' || current.hostedVaultId !== destination.vaultId) {
+        const match = Object.entries(useServerStore.getState().connections)
+          .flatMap(([serverUrl, connection]) =>
+            connection.hostedVaults.map((vault) => ({ serverUrl, vault })))
+          .find(({ vault }) => vault.id === destination.vaultId);
+        if (match) {
+          await useVaultStore.getState().openHostedVault(
+            hostedVaultMeta(match.serverUrl, match.vault),
+          );
+          targetAvailable = true;
+        }
+      }
+      if (targetAvailable) {
+        const ui = useUiStore.getState();
+        ui.setSidebarPanel('collab');
+        ui.setCollabTab('chat');
+        if (!ui.isSidebarOpen) ui.toggleSidebar();
+      }
     } else if (destination.kind === 'settings') {
       openSettings();
       window.setTimeout(() => {

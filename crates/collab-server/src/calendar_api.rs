@@ -268,15 +268,15 @@ async fn replace_item_relations(
         if attendee_user_id == owner {
             continue;
         }
-        let invitation_id = sqlx::query_scalar::<_, Uuid>(
+        let existing_invitation_id = sqlx::query_scalar::<_, Uuid>(
             "SELECT id FROM calendar_invitations WHERE item_id=$1 AND attendee_user_id=$2",
         )
         .bind(item_id)
         .bind(attendee_user_id)
         .fetch_optional(&mut **tx)
         .await
-        .map_err(|_| CalendarApiError::server(request_id))?
-        .unwrap_or_else(Uuid::now_v7);
+        .map_err(|_| CalendarApiError::server(request_id))?;
+        let invitation_id = existing_invitation_id.unwrap_or_else(Uuid::now_v7);
         let invitation_payload = serde_json::json!({
             "id": invitation_id,
             "organizerUserId": owner,
@@ -301,6 +301,45 @@ async fn replace_item_relations(
         .bind(response)
         .bind(invitation_payload)
         .execute(&mut **tx)
+        .await
+        .map_err(|_| CalendarApiError::server(request_id))?;
+        let account_key = crate::notification_api::account_key(attendee_user_id);
+        let delivery_key = format!("revision-{}", item.revision);
+        let kind = if existing_invitation_id.is_some() {
+            "calendar.invitation-update"
+        } else {
+            "calendar.invitation"
+        };
+        let envelope = serde_json::json!({
+            "schemaVersion": 1,
+            "id": crate::notification_api::envelope_id(
+                "calendar.invitation",
+                &account_key,
+                &invitation_id.to_string(),
+                &delivery_key,
+            ),
+            "category": "calendar.invitation",
+            "kind": kind,
+            "channel": "calendar",
+            "accountKey": account_key,
+            "sourceId": invitation_id,
+            "deliveryKey": delivery_key,
+            "createdAt": item.updated_at,
+            "expiresAt": crate::notification_api::expires_at(90),
+            "title": item.title,
+            "privacy": "title-only",
+            "priority": "time-sensitive",
+            "destination": {"kind":"calendar-invitations"},
+            "actions": [{"kind":"open"},{"kind":"dismiss"}],
+            "requiresInbox": true
+        });
+        crate::notification_api::insert_event(
+            tx,
+            attendee_user_id,
+            "calendar.invitation",
+            &format!("calendar-invitation:{invitation_id}:{}", item.revision),
+            &envelope,
+        )
         .await
         .map_err(|_| CalendarApiError::server(request_id))?;
     }

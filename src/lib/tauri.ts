@@ -154,7 +154,11 @@ export interface BackgroundRuntimeProbe {
   filePath: string;
 }
 
-export type BackgroundJobKind = 'replica_sync' | 'calendar_sync' | 'maintenance';
+export type BackgroundJobKind =
+  | 'replica_sync'
+  | 'calendar_sync'
+  | 'notification_sync'
+  | 'maintenance';
 export type BackgroundJobTrigger =
   | 'foreground'
   | 'periodic'

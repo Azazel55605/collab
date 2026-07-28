@@ -177,6 +177,23 @@ export function MobileApp() {
             detail: destination,
           }));
         }, 0);
+      } else if (destination.kind === 'vault-chat') {
+        const state = useMobileStore.getState();
+        const match = Object.entries(state.vaults)
+          .flatMap(([serverUrl, vaults]) =>
+            vaults.map((vault) => ({ serverUrl, vault })))
+          .find(({ vault }) => vault.id === destination.vaultId);
+        if (match) {
+          await state.selectVault(match.serverUrl, match.vault);
+          setTab('files');
+        } else {
+          setTab('settings');
+          window.setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('collab-settings-open-category', {
+              detail: { category: 'notifications' },
+            }));
+          }, 0);
+        }
       } else {
         setTab('settings');
         window.setTimeout(() => {

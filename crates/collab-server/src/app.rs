@@ -89,6 +89,15 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/v1/users/{user_id}/avatar", get(api::get_user_avatar))
         .route("/api/v1/users/directory", get(api::user_directory))
+        .route(
+            "/api/v1/notifications/devices",
+            post(crate::notification_api::register_device)
+                .delete(crate::notification_api::delete_device),
+        )
+        .route(
+            "/api/v1/notifications/changes",
+            get(crate::notification_api::list_changes),
+        )
         .route("/.well-known/caldav", get(crate::caldav::well_known_caldav))
         .route("/caldav", any(crate::caldav::handle_caldav))
         .route("/caldav/", any(crate::caldav::handle_caldav))

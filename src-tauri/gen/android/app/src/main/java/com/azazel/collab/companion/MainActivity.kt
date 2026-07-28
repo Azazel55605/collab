@@ -29,6 +29,7 @@ class MainActivity : TauriActivity() {
   override fun onResume() {
     super.onResume()
     activeActivity = WeakReference(this)
+    CollabNotificationBridge.refreshPushRegistration(applicationContext)
   }
 
   override fun onPause() {

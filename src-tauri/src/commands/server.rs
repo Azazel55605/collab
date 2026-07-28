@@ -65,6 +65,7 @@ async fn authenticate_and_install_session(
         .refresh_token_cache
         .write()
         .insert(base.to_string(), session.refresh_token.clone());
+    let profile_id = session.user.id.clone();
     let status = status_from_session(base, allow_invalid_certificates, &session);
     state.hosted_sessions().server_sessions.write().insert(
         base.to_string(),
@@ -85,9 +86,11 @@ async fn authenticate_and_install_session(
             allow_invalid_certificates,
             persist_across_reboots,
             background_sync_enabled: true,
-            profile_ids: Vec::new(),
+            profile_ids: vec![profile_id],
             updated_at: chrono::Utc::now().to_rfc3339(),
         });
+    #[cfg(target_os = "android")]
+    let _ = crate::android_jni::refresh_push_registration();
     Ok(status)
 }
 
@@ -168,6 +171,7 @@ pub async fn reconnect_server(
         false,
     )
     .await?;
+    let profile_id = session.user.id.clone();
     let status = ServerConnectionStatus {
         connected: true,
         server_url: Some(session.server_url),
@@ -182,9 +186,11 @@ pub async fn reconnect_server(
             allow_invalid_certificates,
             persist_across_reboots,
             background_sync_enabled: true,
-            profile_ids: Vec::new(),
+            profile_ids: vec![profile_id],
             updated_at: chrono::Utc::now().to_rfc3339(),
         });
+    #[cfg(target_os = "android")]
+    let _ = crate::android_jni::refresh_push_registration();
     Ok(status)
 }
 
@@ -203,6 +209,21 @@ pub async fn disconnect_server(
         .remove(&base);
     if let Some(session) = session {
         if let Ok(client) = server_client(session.allow_invalid_certificates) {
+            #[cfg(target_os = "android")]
+            if let Ok(Some(installation_id)) = crate::android_jni::push_installation_id() {
+                let _ = client
+                    .delete(format!(
+                        "{}/api/v1/notifications/devices",
+                        session.server_url
+                    ))
+                    .bearer_auth(&session.access_token)
+                    .json(&serde_json::json!({
+                        "installationId": installation_id,
+                        "provider": "fcm"
+                    }))
+                    .send()
+                    .await;
+            }
             let _ = client
                 .post(format!("{}/api/v1/auth/native/logout", session.server_url))
                 .bearer_auth(&session.access_token)

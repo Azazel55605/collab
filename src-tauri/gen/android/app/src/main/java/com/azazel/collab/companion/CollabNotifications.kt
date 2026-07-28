@@ -17,10 +17,15 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import com.google.firebase.FirebaseApp
+import com.google.firebase.messaging.FirebaseMessaging
+import com.google.firebase.messaging.FirebaseMessagingService
+import com.google.firebase.messaging.RemoteMessage
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.time.Instant
+import java.util.UUID
 import java.util.concurrent.Executors
 
 object CollabNotificationBridge {
@@ -53,6 +58,13 @@ object CollabNotificationBridge {
   ): String
   @JvmStatic external fun nativeProfileSchedules(context: Context): String
   @JvmStatic external fun nativeRequestReconciliation(context: Context, reason: String): String
+  @JvmStatic external fun nativeRegisterPushToken(
+    context: Context,
+    installationId: String,
+    token: String,
+    appVersion: String,
+  ): String
+  @JvmStatic external fun nativeHandlePushInvalidation(context: Context, payload: String): String
 
   fun persistPendingOpen(context: Context, profileId: String, notificationId: String) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -167,6 +179,33 @@ object CollabNotificationBridge {
       },
     )
     manager.createNotificationChannels(channels)
+  }
+
+  fun refreshPushRegistration(context: Context) {
+    if (FirebaseApp.getApps(context).isEmpty()) return
+    FirebaseMessaging.getInstance().register()
+  }
+
+  @JvmStatic
+  fun requestPushRegistration(context: Context): String? = try {
+    refreshPushRegistration(context)
+    null
+  } catch (error: Throwable) {
+    error.message ?: error.javaClass.simpleName
+  }
+
+  @JvmStatic
+  fun existingPushInstallationId(context: Context): String? =
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      .getString("pushInstallationId", null)
+
+  private fun installationId(context: Context): String {
+    val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val existing = preferences.getString("pushInstallationId", null)
+    if (!existing.isNullOrBlank()) return existing
+    return UUID.randomUUID().toString().also {
+      preferences.edit().putString("pushInstallationId", it).apply()
+    }
   }
 
   fun deliverDue(context: Context, profileId: String) {
@@ -286,6 +325,42 @@ object CollabNotificationBridge {
   private const val CHANNEL_COLLABORATION = "collab_collaboration"
   private const val CHANNEL_SYNC = "collab_sync"
   private const val CHANNEL_TRANSFERS = "collab_transfers"
+}
+
+class CollabFirebaseMessagingService : FirebaseMessagingService() {
+  override fun onRegistered(installationId: String) {
+    if (installationId.isBlank()) return
+    CollabPushScheduler.register(
+      applicationContext,
+      localInstallationId(),
+      installationId,
+      BuildConfig.VERSION_NAME,
+    )
+  }
+
+  override fun onMessageReceived(message: RemoteMessage) {
+    val data = message.data
+    val payload = JSONObject()
+      .put("schemaVersion", data["schemaVersion"]?.toIntOrNull() ?: 0)
+      .put("invalidationId", data["invalidationId"] ?: "")
+      .put("accountKey", data["accountKey"] ?: "")
+      .put("category", data["category"] ?: "")
+      .put("createdAt", data["createdAt"] ?: "")
+    data["cursor"]?.takeIf { it.isNotBlank() }?.let { payload.put("cursor", it) }
+    CollabPushScheduler.catchUp(applicationContext, payload.toString())
+  }
+
+  private fun localInstallationId(): String {
+    val preferences = getSharedPreferences(
+      "collab-notification-permission",
+      Context.MODE_PRIVATE,
+    )
+    val existing = preferences.getString("pushInstallationId", null)
+    if (!existing.isNullOrBlank()) return existing
+    return UUID.randomUUID().toString().also {
+      preferences.edit().putString("pushInstallationId", it).apply()
+    }
+  }
 }
 
 object CollabNotificationScheduler {

@@ -138,6 +138,8 @@ function BackgroundJobRow({ job }: { job: BackgroundJobRecord }) {
     ? 'Vault sync'
     : job.kind === 'calendar_sync'
       ? 'Calendar sync'
+      : job.kind === 'notification_sync'
+        ? 'Notification sync'
       : 'Maintenance';
   return (
     <li className="rounded-md border border-border/50 bg-muted/20 px-2 py-1.5">

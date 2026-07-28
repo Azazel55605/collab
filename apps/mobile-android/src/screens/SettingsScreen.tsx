@@ -465,7 +465,13 @@ export function SettingsScreen({
             {backgroundJobs.slice(0, 3).map((job) => (
               <div className="info-row" key={job.id}>
                 <span>
-                  {job.kind === 'calendar_sync' ? 'Calendar' : job.kind === 'replica_sync' ? 'Vault' : 'Maintenance'}
+                  {job.kind === 'calendar_sync'
+                    ? 'Calendar'
+                    : job.kind === 'replica_sync'
+                      ? 'Vault'
+                      : job.kind === 'notification_sync'
+                        ? 'Notifications'
+                        : 'Maintenance'}
                 </span>
                 <strong>
                   {job.status.replace(/_/g, ' ')}

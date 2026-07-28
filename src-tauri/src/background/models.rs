@@ -9,6 +9,7 @@ pub const BACKGROUND_SETTINGS_SCHEMA_VERSION: u32 = 1;
 pub enum BackgroundJobKind {
     ReplicaSync,
     CalendarSync,
+    NotificationSync,
     Maintenance,
 }
 

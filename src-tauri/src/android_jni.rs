@@ -239,6 +239,19 @@ pub fn schedule_notification_profile(
     }
 }
 
+pub fn refresh_push_registration() -> Result<(), String> {
+    match call_static_string(NOTIFICATION_BRIDGE_CLASS, "requestPushRegistration", &[])? {
+        Some(error) => Err(format!(
+            "Could not refresh Android push registration: {error}"
+        )),
+        None => Ok(()),
+    }
+}
+
+pub fn push_installation_id() -> Result<Option<String>, String> {
+    call_static_string(NOTIFICATION_BRIDGE_CLASS, "existingPushInstallationId", &[])
+}
+
 pub fn configure_background_scheduler(
     profile_id: &str,
     enabled: bool,

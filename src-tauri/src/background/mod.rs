@@ -1,5 +1,6 @@
 mod calendar_sync;
 mod models;
+pub(crate) mod notification_sync;
 mod persistence;
 mod sync;
 
@@ -130,9 +131,11 @@ impl BackgroundCoordinator {
 
     pub fn cancel_for_replica(&self, server_url: &str, vault_id: &str) -> Result<(), String> {
         let server_url = validate_server_url(server_url)?;
-        let resource = format!("server:{server_url}|profile:*|vault:{vault_id}");
-        if let Some(active) = self.active.lock().get(&resource) {
-            active.cancel.store(true, Ordering::Release);
+        let resource_prefix = format!("server:{server_url}|profile:*|vault:{vault_id}");
+        for (resource, active) in self.active.lock().iter() {
+            if resource.starts_with(&resource_prefix) {
+                active.cancel.store(true, Ordering::Release);
+            }
         }
         Ok(())
     }
@@ -334,9 +337,10 @@ impl BackgroundCoordinator {
         let replicas = ReplicaStore::list(&self.config_root()?)?;
         let run_id = Uuid::new_v4();
         let mut jobs = Vec::new();
-        for server in registrations
+        for (server_index, server) in registrations
             .into_iter()
             .filter(|server| server.background_sync_enabled)
+            .enumerate()
         {
             for replica in replicas
                 .iter()
@@ -358,8 +362,21 @@ impl BackgroundCoordinator {
                 .filter(|profile_id| profile_filter.is_none_or(|filter| *profile_id == filter))
             {
                 jobs.push(self.enqueue(BackgroundJobRequest {
-                    idempotency_key: format!("scheduled-{run_id}-calendar-{profile_id}"),
+                    idempotency_key: format!(
+                        "scheduled-{run_id}-{server_index}-calendar-{profile_id}"
+                    ),
                     kind: BackgroundJobKind::CalendarSync,
+                    server_url: Some(server.server_url.clone()),
+                    profile_id: Some(profile_id.clone()),
+                    vault_id: None,
+                    trigger,
+                    runtime_budget_seconds: None,
+                })?);
+                jobs.push(self.enqueue(BackgroundJobRequest {
+                    idempotency_key: format!(
+                        "scheduled-{run_id}-{server_index}-notifications-{profile_id}"
+                    ),
+                    kind: BackgroundJobKind::NotificationSync,
                     server_url: Some(server.server_url.clone()),
                     profile_id: Some(profile_id.clone()),
                     vault_id: None,
@@ -369,6 +386,85 @@ impl BackgroundCoordinator {
             }
         }
         Ok(jobs)
+    }
+
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub fn enqueue_push_invalidation(self: &Arc<Self>) -> Result<Vec<BackgroundJobRecord>, String> {
+        let run_id = Uuid::new_v4();
+        let mut jobs = Vec::new();
+        for (server_index, server) in self.list_servers()?.into_iter().enumerate() {
+            for profile_id in server.profile_ids {
+                jobs.push(self.enqueue(BackgroundJobRequest {
+                    idempotency_key: format!(
+                        "push-{run_id}-{server_index}-{}",
+                        profile_id.chars().take(48).collect::<String>()
+                    ),
+                    kind: BackgroundJobKind::NotificationSync,
+                    server_url: Some(server.server_url.clone()),
+                    profile_id: Some(profile_id),
+                    vault_id: None,
+                    trigger: BackgroundJobTrigger::PushInvalidation,
+                    runtime_budget_seconds: Some(60),
+                })?);
+            }
+        }
+        Ok(jobs)
+    }
+
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    pub async fn run_push_invalidation_to_completion(
+        self: &Arc<Self>,
+        runtime_budget: Duration,
+    ) -> Result<BackgroundRunOutcome, String> {
+        let jobs = self.enqueue_push_invalidation()?;
+        let job_ids = jobs.iter().map(|job| job.id.clone()).collect::<Vec<_>>();
+        let started = std::time::Instant::now();
+        loop {
+            let records = job_ids
+                .iter()
+                .map(|id| self.job(id))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            if records.len() == job_ids.len()
+                && records.iter().all(|record| record.status.is_terminal())
+            {
+                let mut outcome = BackgroundRunOutcome {
+                    job_ids,
+                    ..BackgroundRunOutcome::default()
+                };
+                for record in records {
+                    match record.status {
+                        BackgroundJobStatus::Succeeded => outcome.succeeded += 1,
+                        BackgroundJobStatus::AuthenticationRequired => {
+                            outcome.attention_required += 1;
+                            outcome.authentication_required = true;
+                        }
+                        BackgroundJobStatus::PermissionDenied => {
+                            outcome.attention_required += 1;
+                            outcome.permission_denied = true;
+                        }
+                        BackgroundJobStatus::Partial
+                        | BackgroundJobStatus::Conflict
+                        | BackgroundJobStatus::Failed => outcome.attention_required += 1,
+                        BackgroundJobStatus::Deferred
+                        | BackgroundJobStatus::Cancelled
+                        | BackgroundJobStatus::Queued
+                        | BackgroundJobStatus::Running => {}
+                    }
+                    outcome.retry_recommended |= record.retryable;
+                }
+                return Ok(outcome);
+            }
+            if started.elapsed() >= runtime_budget {
+                for id in &job_ids {
+                    let _ = self.cancel(id);
+                }
+                return Err("The push invalidation execution window expired.".to_string());
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     }
 
     #[cfg_attr(not(target_os = "android"), allow(dead_code))]
@@ -564,6 +660,10 @@ impl BackgroundCoordinator {
             BackgroundJobKind::CalendarSync => {
                 calendar_sync::run_calendar_sync(&self, &id, &request, &cancel, budget).await
             }
+            BackgroundJobKind::NotificationSync => {
+                notification_sync::run_notification_sync(&self, &id, &request, &cancel, budget)
+                    .await
+            }
             BackgroundJobKind::Maintenance => {
                 sync::run_maintenance(&self, &id, &request, &cancel, budget).await
             }
@@ -652,13 +752,18 @@ impl BackgroundCoordinator {
         }
         if matches!(
             request.kind,
-            BackgroundJobKind::ReplicaSync | BackgroundJobKind::CalendarSync
+            BackgroundJobKind::ReplicaSync
+                | BackgroundJobKind::CalendarSync
+                | BackgroundJobKind::NotificationSync
         ) && request.server_url.is_none()
         {
             return Err("Synchronization jobs require a server URL.".to_string());
         }
         if request.kind == BackgroundJobKind::CalendarSync && request.profile_id.is_none() {
             return Err("Calendar sync jobs require a profile ID.".to_string());
+        }
+        if request.kind == BackgroundJobKind::NotificationSync && request.profile_id.is_none() {
+            return Err("Notification sync jobs require a profile ID.".to_string());
         }
         if request.runtime_budget_seconds.unwrap_or(1) == 0
             || request
@@ -731,15 +836,16 @@ fn normalize_registration(
 fn resource_key(request: &BackgroundJobRequest) -> Result<String, String> {
     if let Some(server_url) = request.server_url.as_deref() {
         return Ok(format!(
-            "server:{server_url}|profile:{}|vault:{}",
+            "server:{server_url}|profile:{}|vault:{}|kind:{:?}",
             request.profile_id.as_deref().unwrap_or("*"),
             request.vault_id.as_deref().unwrap_or("*"),
+            request.kind,
         ));
     }
     request
         .profile_id
         .as_deref()
-        .map(|profile_id| format!("profile:{profile_id}"))
+        .map(|profile_id| format!("profile:{profile_id}|kind:{:?}", request.kind))
         .ok_or_else(|| "Background jobs require a server or profile resource.".to_string())
 }
 
@@ -1144,12 +1250,26 @@ mod tests {
             .await
             .expect("bounded run");
 
-        assert_eq!(outcome.job_ids.len(), 1);
+        assert_eq!(outcome.job_ids.len(), 2);
         assert!(outcome.authentication_required);
-        let record = coordinator
-            .job(&outcome.job_ids[0])
-            .expect("job lookup")
-            .expect("job record");
-        assert_eq!(record.profile_id.as_deref(), Some("profile-b"));
+        let records = outcome
+            .job_ids
+            .iter()
+            .map(|job_id| {
+                coordinator
+                    .job(job_id)
+                    .expect("job lookup")
+                    .expect("job record")
+            })
+            .collect::<Vec<_>>();
+        assert!(records
+            .iter()
+            .all(|record| record.profile_id.as_deref() == Some("profile-b")));
+        assert!(records
+            .iter()
+            .any(|record| record.kind == BackgroundJobKind::CalendarSync));
+        assert!(records
+            .iter()
+            .any(|record| record.kind == BackgroundJobKind::NotificationSync));
     }
 }

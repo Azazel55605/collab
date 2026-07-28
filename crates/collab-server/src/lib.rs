@@ -6,6 +6,8 @@ pub mod calendar_api;
 pub mod calendar_feeds;
 pub mod config;
 pub mod database;
+pub mod notification_api;
+pub mod notification_push;
 pub mod retention;
 pub mod storage;
 pub mod ws;

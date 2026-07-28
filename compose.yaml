@@ -40,6 +40,9 @@ services:
       COLLAB_RESTORE_COMMAND: ${COLLAB_RESTORE_COMMAND-/usr/local/bin/collab-admin-restore}
       COLLAB_LOG_FORMAT: ${COLLAB_LOG_FORMAT:-json}
       COLLAB_LOG: ${COLLAB_LOG:-collab_server=info,tower_http=info}
+      COLLAB_PUSH_GATEWAY_URL: ${COLLAB_PUSH_GATEWAY_URL:-}
+      COLLAB_PUSH_GATEWAY_TOKEN: ${COLLAB_PUSH_GATEWAY_TOKEN:-}
+      COLLAB_PUSH_DISPATCH_INTERVAL_SECONDS: ${COLLAB_PUSH_DISPATCH_INTERVAL_SECONDS:-15}
     depends_on:
       postgres:
         condition: service_healthy

@@ -71,6 +71,31 @@ native Android behavior that Tauri's generated defaults do not provide:
   replica encryption keys through Android Keystore-backed storage.
 - `app/build.gradle.kts` contains the Play `applicationId`, version/signing
   wiring, and app-specific ProGuard configuration.
+- `CollabNotifications.kt` owns Android channels, alarms, native actions, and
+  optional Firebase Messaging token/invalidation handling.
+
+## Firebase Push Setup
+
+Push is optional and only reduces hosted invitation/mention latency. The native
+foreground and WorkManager notification catch-up remains the correctness path.
+Without Firebase configuration, Android builds continue to compile and use
+polling.
+
+To enable push for a build:
+
+1. Register the Android application ID in a Firebase project.
+2. Place the downloaded configuration at
+   `src-tauri/gen/android/app/google-services.json`. This file is ignored by
+   Git and must be supplied by the release environment.
+3. Configure the Collab server's push gateway as documented in
+   [Server Development and Compose](../server/development.md).
+
+The app uses Firebase only in the native Android layer. The FCM installation
+identifier, Collab installation ID, and server bearer credentials never enter
+the React webview.
+FCM data messages contain only the strict opaque invalidation contract; the
+native Rust coordinator authenticates to each registered Collab server to fetch
+and validate actual notification envelopes.
 
 ## Debug On An Emulator Or Device
 
