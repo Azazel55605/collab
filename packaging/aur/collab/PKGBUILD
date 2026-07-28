@@ -1,7 +1,7 @@
 # Maintainer: Azazel <TODO: aur-email>
 
 pkgname=collab
-pkgver=0.6.7
+pkgver=0.6.8
 pkgrel=1
 pkgdesc="Local-first Markdown workspace with notes, canvases, Kanban, PDFs, and sync"
 arch=('x86_64')
