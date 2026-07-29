@@ -1,0 +1,15 @@
+[package]
+name = "collab-sheet"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+formualizer-common = "2"
+formualizer-workbook = { version = "0.7.1", default-features = false, features = ["system-clock"] }
+
+[dev-dependencies]
+serde_json.workspace = true

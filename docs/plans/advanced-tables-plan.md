@@ -276,7 +276,7 @@ It must remain ephemeral and must not be written into the workbook.
 
 | Phase | Status | Goal |
 | --- | --- | --- |
-| 0. Product contract and technical proof | Not started | Finalize schema, select the formula/grid engines, and prove large-grid editing plus recalculation. |
+| 0. Product contract and technical proof | Complete | Finalize schema, select the formula/grid engines, and prove large-grid editing plus recalculation. |
 | 1. `.sheet` domain and vault integration | Not started | Add parsing, validation, migrations, creation, routing, revisions, and local/hosted document support. |
 | 2. Desktop spreadsheet editor | Not started | Deliver the virtualized grid, worksheet controls, selection, editing, navigation, and structural operations. |
 | 3. Formulas and recalculation | Not started | Add the supported formula set, dependency updates, formula UX, errors, and deterministic recalculation. |
@@ -292,25 +292,34 @@ It must remain ephemeral and must not be written into the workbook.
 
 ### Phase 0: Product Contract And Technical Proof
 
-- [ ] Finalize the `.sheet` extension, media type, schema ownership, and limits.
-- [ ] Evaluate maintained formula engines for function coverage, licensing,
-  deterministic behavior, bundle size, and React/native independence.
-- [ ] Evaluate virtualized spreadsheet/grid renderers for performance,
-  accessibility, frozen panes, selection overlays, and licensing.
-- [ ] Prototype a sparse workbook with at least 100,000 populated cells and a
-  substantially larger logical empty range.
-- [ ] Prove keyboard navigation, range selection, direct editing, scrolling,
-  resizing, and frozen panes without unstable frame times.
-- [ ] Prove formula dependency updates, cross-sheet references, cycles, and
-  bounded recalculation.
-- [ ] Define formula compatibility and unsupported-function behavior.
-- [ ] Decide whether the shared domain remains under `src/lib/sheet/` or becomes
-  a frontend workspace package used by desktop and mobile.
-- [ ] Record baseline CPU, memory, first-open, scroll, paste, and recalc budgets.
+Outcome recorded in `docs/plans/advanced-tables-phase0-contract.md`.
 
-Exit gate: the selected engines satisfy licensing and performance requirements,
-and the schema can represent structural edits without depending on renderer
-internals.
+- [x] Finalize the `.sheet` extension, media type, schema ownership, and limits.
+  Frozen in `src/types/sheet.ts`.
+- [x] Evaluate maintained formula engines for function coverage, licensing,
+  deterministic behavior, bundle size, and React/native independence.
+  Selected `formualizer` (MIT OR Apache-2.0, Rust); HyperFormula rejected
+  because GPLv3 is incompatible with Collab's MIT distribution.
+- [x] Evaluate virtualized spreadsheet/grid renderers for performance,
+  accessibility, frozen panes, selection overlays, and licensing. Selected a
+  first-party canvas grid with a DOM overlay; no third-party grid dependency.
+- [x] Prototype a sparse workbook with at least 100,000 populated cells and a
+  substantially larger logical empty range. `src/lib/sheet/fixture.ts`.
+- [x] Prove keyboard navigation, range selection, direct editing, scrolling,
+  resizing, and frozen panes without unstable frame times. Proven at the
+  viewport-model level (`src/lib/sheet/viewport.ts`, 0.12 ms/frame);
+  rendered-interaction frame times remain a Phase 2 measurement.
+- [x] Prove formula dependency updates, cross-sheet references, cycles, and
+  bounded recalculation. `crates/collab-sheet/tests/formula_proof.rs`.
+- [x] Define formula compatibility and unsupported-function behavior.
+- [x] Decide whether the shared domain remains under `src/lib/sheet/` or becomes
+  a frontend workspace package used by desktop and mobile. Stays under
+  `src/lib/sheet/`; mobile already imports desktop modules directly.
+- [x] Record baseline CPU, memory, first-open, scroll, paste, and recalc budgets.
+
+Exit gate: met. The selected engines satisfy licensing and performance
+requirements, and the schema represents structural edits through stable
+row/column identity without depending on renderer internals.
 
 ### Phase 1: `.sheet` Domain And Vault Integration
 
@@ -575,6 +584,9 @@ editing, or lossless compatibility.
 - semantic import/export comparison without binary equality claims
 
 ## Dependencies And Decisions
+
+These were resolved in `docs/plans/advanced-tables-phase0-contract.md`; the list
+below is kept as the checklist that phase answered.
 
 Phase 0 must resolve:
 

@@ -35,6 +35,7 @@ const allowedWorkspaceEdges = new Map([
   ['collab-replica', new Set(['collab-core', 'collab-protocol', 'collab-vault-domain'])],
   ['collab-calendar', new Set()],
   ['collab-circuit', new Set()],
+  ['collab-sheet', new Set()],
   ['collab-server', new Set([
     'collab-calendar',
     'collab-core',
@@ -70,6 +71,7 @@ const domainCrates = new Set([
   'collab-replica',
   'collab-calendar',
   'collab-circuit',
+  'collab-sheet',
 ]);
 const adapterFrameworks = new Set([
   'actix-web',

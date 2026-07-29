@@ -22,7 +22,7 @@ work from being mistaken for an active roadmap item.
 
 | Project | Current status | Remaining work | Canonical document |
 | --- | --- | --- | --- |
-| Advanced Tables | Not started | Build the native `.sheet` domain, desktop editor, formulas, data tools, hosted collaboration, mobile experience, and final bounded XLSX/CSV conversion phase. | [Advanced Tables Plan](./advanced-tables-plan.md) |
+| Advanced Tables | In Progress | Build the native `.sheet` domain, desktop editor, formulas, data tools, hosted collaboration, mobile experience, and final bounded XLSX/CSV conversion phase. | [Advanced Tables Plan](./advanced-tables-plan.md) |
 | Android companion app | In progress / deferred expansion | Finish Phase 7 device lifecycle QA, signing, release packaging, and operational documentation. Phase 8 remains a deferred expansion bucket; background execution and notifications now have dedicated plans. | [Android Companion App Plan](./android-companion-app-plan.md) |
 | Electronic circuit simulation | In progress / planned | Finish remaining schema/runtime details and AC integration, then mixed-signal simulation, derived-result caching/collaboration policy, numerical hardening, and release validation. | [Electronic Circuit Simulation Plan](./electronic-circuit-simulation-plan.md) |
 | Logic and circuit diagram editor | In progress umbrella | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream. | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md) |
