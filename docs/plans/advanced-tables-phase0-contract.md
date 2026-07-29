@@ -183,8 +183,10 @@ references; `SUM`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `COUNTA`, `IF`, `IFS`,
 `SUMIFS`, `COUNTIF`, `COUNTIFS`, `AVERAGEIF`, `AVERAGEIFS`, `INDEX`, `MATCH`,
 `VLOOKUP`, `HLOOKUP`, and `XLOOKUP`.
 
-Phase 3 publishes the exact support table. It must be generated from tests, not
-written by hand.
+Phase 3 publishes the exact support table in
+`advanced-tables-formula-support.md`. The executable source of truth remains
+`crates/collab-sheet/tests/formula_proof.rs`; the UI autocomplete list mirrors
+that tested baseline.
 
 ### Unsupported-function behavior
 
@@ -201,10 +203,10 @@ them in sync.
 
 ### Volatile functions and time
 
-`TODAY` and `NOW` read the host clock through the engine's `system-clock`
-feature and return spreadsheet serials. Phase 3 must route their display through
-the app's existing date/week/time-format settings and define a single
-recalculation point per session rather than recomputing them per frame.
+`TODAY` and `NOW` are bound at the Collab adapter boundary once per batched
+recalculation request. The request carries one timestamp and the app's
+configured calendar timezone, so every formula in the workbook observes the
+same local date/instant and volatile values are never recomputed per frame.
 
 ### Formula source is authoritative
 

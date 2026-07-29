@@ -37,6 +37,7 @@ collab-live = { path = "../crates/collab-live" }
 collab-net-policy = { path = "../crates/collab-net-policy" }
 collab-protocol = { path = "../crates/collab-protocol" }
 collab-replica = { path = "../crates/collab-replica" }
+collab-sheet = { path = "../crates/collab-sheet" }
 collab-vault-domain = { path = "../crates/collab-vault-domain" }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"

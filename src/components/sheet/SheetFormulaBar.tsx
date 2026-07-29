@@ -1,10 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, X } from 'lucide-react';
 
 import { Input } from '../ui/input';
 import { formatA1 } from '../../lib/sheet/address';
 import type { SheetPosition } from '../../lib/sheet/address';
 import { normalizeRange, selectedCellCount, type SheetSelection } from '../../lib/sheet/selection';
+import {
+  formulaAutocompleteContext,
+  SHEET_FUNCTIONS,
+} from '../../lib/sheet/formulaFunctions';
+import SheetFormulaIntellisense from './SheetFormulaIntellisense';
 
 interface Props {
   selection: SheetSelection;
@@ -14,6 +19,8 @@ interface Props {
   onChange: (text: string) => void;
   onCommit: () => void;
   onCancel: () => void;
+  cursor: number;
+  onCursorChange: (cursor: number) => void;
   /** Jump to a typed reference from the name box (`B12`). */
   onNavigate: (position: SheetPosition) => void;
   readOnly?: boolean;
@@ -41,15 +48,56 @@ export default function SheetFormulaBar({
   onChange,
   onCommit,
   onCancel,
+  cursor,
+  onCursorChange,
   onNavigate,
   readOnly = false,
 }: Props) {
   const [nameDraft, setNameDraft] = useState('');
   const [nameFocused, setNameFocused] = useState(false);
+  const [formulaFocused, setFormulaFocused] = useState(false);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(true);
+  const [selectedSuggestion, setSelectedSuggestion] = useState(0);
+  const formulaInputRef = useRef<HTMLInputElement>(null);
+  const pendingProgrammaticCursorRef = useRef<number | null>(null);
+  const autocomplete = useMemo(
+    () => formulaAutocompleteContext(value, cursor),
+    [cursor, value],
+  );
+  const suggestions = useMemo(() => {
+    if (!formulaFocused || !suggestionsOpen || !autocomplete) return [];
+    return SHEET_FUNCTIONS
+      .filter((definition) => definition.name.startsWith(autocomplete.query))
+      .slice(0, 8);
+  }, [autocomplete, formulaFocused, suggestionsOpen]);
 
   useEffect(() => {
     if (!nameFocused) setNameDraft(selectionLabel(selection));
   }, [nameFocused, selection]);
+
+  useEffect(() => {
+    setSelectedSuggestion(0);
+  }, [autocomplete?.query]);
+
+  const placeCursor = (nextCursor: number) => {
+    pendingProgrammaticCursorRef.current = nextCursor;
+    onCursorChange(nextCursor);
+    window.requestAnimationFrame(() => {
+      formulaInputRef.current?.setSelectionRange(nextCursor, nextCursor);
+      pendingProgrammaticCursorRef.current = null;
+    });
+  };
+
+  const chooseSuggestion = (index: number) => {
+    const definition = suggestions[index];
+    if (!definition || !autocomplete) return;
+    const next = `${value.slice(0, autocomplete.start)}${definition.name}(${value.slice(autocomplete.end)}`;
+    const nextCursor = autocomplete.start + definition.name.length + 1;
+    onChange(next);
+    setSuggestionsOpen(false);
+    placeCursor(nextCursor);
+    formulaInputRef.current?.focus();
+  };
 
   const submitName = () => {
     const reference = nameDraft.trim();
@@ -65,7 +113,7 @@ export default function SheetFormulaBar({
   };
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-border/50 bg-background/60 px-2 py-1">
+    <div className="relative flex shrink-0 items-center gap-2 border-b border-border/50 bg-background/60 px-2 py-1">
       <Input
         aria-label="Name box"
         value={nameDraft}
@@ -90,23 +138,77 @@ export default function SheetFormulaBar({
         fx
       </span>
 
-      <Input
-        aria-label="Formula bar"
-        value={value}
-        readOnly={readOnly}
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            onCommit();
-          }
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            onCancel();
-          }
-        }}
-        className="h-6 flex-1 text-[12.5px]"
-      />
+      <div className="relative min-w-0 flex-1">
+        <Input
+          ref={formulaInputRef}
+          aria-label="Formula bar"
+          value={value}
+          readOnly={readOnly}
+          onFocus={(event) => {
+            setFormulaFocused(true);
+            setSuggestionsOpen(true);
+            onCursorChange(event.currentTarget.selectionStart ?? value.length);
+          }}
+          onBlur={() => window.setTimeout(() => setFormulaFocused(false), 100)}
+          onClick={(event) => {
+            pendingProgrammaticCursorRef.current = null;
+            onCursorChange(event.currentTarget.selectionStart ?? value.length);
+          }}
+          onSelect={(event) => {
+            const pendingCursor = pendingProgrammaticCursorRef.current;
+            onCursorChange(pendingCursor ?? event.currentTarget.selectionStart ?? value.length);
+          }}
+          onChange={(event) => {
+            pendingProgrammaticCursorRef.current = null;
+            onChange(event.target.value);
+            onCursorChange(event.currentTarget.selectionStart ?? event.target.value.length);
+            setSuggestionsOpen(true);
+          }}
+          onKeyDown={(event) => {
+            if (suggestions.length > 0 && event.key === 'ArrowDown') {
+              event.preventDefault();
+              setSelectedSuggestion((current) => (current + 1) % suggestions.length);
+              return;
+            }
+            if (suggestions.length > 0 && event.key === 'ArrowUp') {
+              event.preventDefault();
+              setSelectedSuggestion(
+                (current) => (current - 1 + suggestions.length) % suggestions.length,
+              );
+              return;
+            }
+            if (suggestions.length > 0 && (event.key === 'Tab' || event.key === 'Enter')) {
+              event.preventDefault();
+              chooseSuggestion(selectedSuggestion);
+              return;
+            }
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              onCommit();
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              if (suggestionsOpen && suggestions.length > 0) {
+                setSuggestionsOpen(false);
+                return;
+              }
+              onCancel();
+            }
+          }}
+          className="h-6 w-full font-mono text-[12.5px]"
+        />
+        {formulaFocused && value.startsWith('=') && (
+          <SheetFormulaIntellisense
+            value={value}
+            cursor={cursor}
+            suggestions={suggestions}
+            selectedSuggestion={selectedSuggestion}
+            onSelectSuggestion={setSelectedSuggestion}
+            onChooseSuggestion={chooseSuggestion}
+            className="absolute left-0 top-full z-40 mt-1 w-[min(28rem,100%)]"
+          />
+        )}
+      </div>
 
       {editing && !readOnly && (
         <div className="flex shrink-0 items-center gap-1">

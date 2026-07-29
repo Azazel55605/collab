@@ -56,6 +56,10 @@ import type {
   ReplicaSyncState,
   Tombstone,
 } from './vaultReplica';
+import type {
+  SheetFormulaEvaluationRequest,
+  SheetFormulaEvaluationResponse,
+} from '../types/sheetFormula';
 
 export { Channel };
 export type {
@@ -728,6 +732,12 @@ export const tauriCommands = {
     invoke<CircuitTransientChunk>('circuit_read_transient_chunk', { jobId, offset, limit }),
   circuitDiscardJob: (jobId: string) =>
     invoke<void>('circuit_discard_job', { jobId }),
+
+  // Bounded incremental `.sheet` formula evaluation
+  sheetFormulaEvaluate: (request: SheetFormulaEvaluationRequest) =>
+    invoke<SheetFormulaEvaluationResponse>('sheet_formula_evaluate', { request }),
+  sheetFormulaRelease: (runtimeId: string) =>
+    invoke<void>('sheet_formula_release', { runtimeId }),
 
   // UI
   setUiZoom: (zoom: number) => invoke<void>('set_ui_zoom', { zoom }),

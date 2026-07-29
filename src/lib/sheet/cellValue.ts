@@ -14,6 +14,7 @@
  */
 
 import type { SheetCell, SheetValueType } from '../../types/sheet';
+import type { SheetFormulaComputedValue } from '../../types/sheetFormula';
 
 const BOOLEAN_TRUE = /^true$/i;
 const BOOLEAN_FALSE = /^false$/i;
@@ -104,13 +105,19 @@ export function parseCellInput(input: string): SheetCell | null {
 }
 
 /** The text shown in a cell when it is not being edited. */
-export function formatCellDisplay(cell: SheetCell | undefined): string {
+export function formatComputedValue(value: SheetFormulaComputedValue | undefined): string {
+  if (!value || value.type === 'blank') return '';
+  if (value.type === 'number') return formatNumber(value.value);
+  if (value.type === 'boolean') return value.value ? 'TRUE' : 'FALSE';
+  return value.value;
+}
+
+export function formatCellDisplay(
+  cell: SheetCell | undefined,
+  computed?: SheetFormulaComputedValue,
+): string {
   if (!cell) return '';
-  if (cell.formula) {
-    // Phase 3 replaces this with the computed value. Until an engine result
-    // exists, showing the source beats showing a blank cell.
-    return cell.formula;
-  }
+  if (cell.formula) return computed ? formatComputedValue(computed) : '…';
   if (cell.value === undefined || cell.value === null) return '';
   if (typeof cell.value === 'boolean') return cell.value ? 'TRUE' : 'FALSE';
   if (typeof cell.value === 'number') return formatNumber(cell.value);
@@ -139,9 +146,16 @@ export function formatNumber(value: number): string {
 }
 
 /** Alignment convention: numbers and dates right, booleans centered, text left. */
-export function cellAlignment(cell: SheetCell | undefined): 'left' | 'center' | 'right' {
+export function cellAlignment(
+  cell: SheetCell | undefined,
+  computed?: SheetFormulaComputedValue,
+): 'left' | 'center' | 'right' {
   if (!cell) return 'left';
-  if (cell.formula) return 'right';
+  if (cell.formula) {
+    if (computed?.type === 'boolean') return 'center';
+    if (computed?.type === 'text') return 'left';
+    return 'right';
+  }
   if (typeof cell.value === 'boolean') return 'center';
   if (typeof cell.value === 'number') return 'right';
   const numericTypes: SheetValueType[] = ['number', 'date', 'time', 'datetime'];
@@ -150,8 +164,16 @@ export function cellAlignment(cell: SheetCell | undefined): 'left' | 'center' | 
 }
 
 /** The numeric value of a cell for status-bar summaries, if it has one. */
-export function numericValueOf(cell: SheetCell | undefined): number | null {
-  if (!cell || cell.formula) return null;
+export function numericValueOf(
+  cell: SheetCell | undefined,
+  computed?: SheetFormulaComputedValue,
+): number | null {
+  if (!cell) return null;
+  if (cell.formula) {
+    return computed?.type === 'number' && Number.isFinite(computed.value)
+      ? computed.value
+      : null;
+  }
   if (typeof cell.value === 'number' && Number.isFinite(cell.value)) return cell.value;
   return null;
 }

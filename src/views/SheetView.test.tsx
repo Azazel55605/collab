@@ -153,6 +153,53 @@ describe('SheetView editor', () => {
       .toEqual({ formula: '=SUM(A1:A2)' });
   });
 
+  it('offers keyboard formula IntelliSense and inserts a dragged cell range', async () => {
+    await openWorkbook();
+    const formulaBar = screen.getByRole('textbox', { name: 'Formula bar' });
+
+    fireEvent.focus(formulaBar);
+    fireEvent.change(formulaBar, { target: { value: '=SU', selectionStart: 3 } });
+    expect(screen.getByRole('listbox', { name: 'Formula suggestions' })).toBeTruthy();
+    fireEvent.keyDown(formulaBar, { key: 'Tab' });
+    expect((formulaBar as HTMLInputElement).value).toBe('=SUM(');
+    await waitFor(() => expect((formulaBar as HTMLInputElement).selectionStart).toBe(5));
+
+    const surface = screen.getByTestId('sheet-cell-surface');
+    fireEvent.pointerDown(surface, { button: 0, ...pointFor(0, 0) });
+    fireEvent.pointerMove(surface, pointFor(1, 0));
+    fireEvent.pointerUp(surface, pointFor(1, 0));
+    expect((formulaBar as HTMLInputElement).value).toBe('=SUM(A1:A2');
+
+    fireEvent.change(formulaBar, {
+      target: { value: '=SUM(A1:A2)', selectionStart: 11 },
+    });
+    fireEvent.keyDown(formulaBar, { key: 'Enter' });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    const written = await writtenDocument();
+    expect(Object.values(written.worksheets[0].cells)).toContainEqual({
+      formula: '=SUM(A1:A2)',
+    });
+  });
+
+  it('supports IntelliSense and range insertion while editing directly in a cell', async () => {
+    await openWorkbook();
+    const sheetGrid = screen.getByTestId('sheet-grid');
+
+    fireEvent.keyDown(sheetGrid, { key: '=' });
+    const editor = screen.getByRole('textbox', { name: 'Cell editor' }) as HTMLInputElement;
+    fireEvent.change(editor, { target: { value: '=SU', selectionStart: 3 } });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    await waitFor(() => expect(editor.selectionStart).toBe(5));
+
+    const surface = screen.getByTestId('sheet-cell-surface');
+    fireEvent.pointerDown(surface, { button: 0, ...pointFor(0, 0) });
+    fireEvent.pointerMove(surface, pointFor(1, 0));
+    fireEvent.pointerUp(surface, pointFor(1, 0));
+
+    expect((screen.getByLabelText('Formula bar') as HTMLInputElement).value)
+      .toBe('=SUM(A1:A2');
+  });
+
   it('navigates to a reference typed into the name box', async () => {
     await openWorkbook();
 

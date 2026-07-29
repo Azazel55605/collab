@@ -34,6 +34,7 @@ import type {
   SheetValueType,
   SheetWorksheet,
 } from '../../types/sheet';
+import { rewriteDocumentFormulaReferences } from './formulaReferences';
 
 export type SheetDocumentErrorCode =
   | 'invalid-json'
@@ -685,12 +686,13 @@ export function renameWorksheet(
       `This workbook already has a worksheet named "${name}".`,
     );
   }
-  return {
+  const next = {
     ...document,
     worksheets: document.worksheets.map(
       (worksheet) => (worksheet.id === worksheetId ? { ...worksheet, name } : worksheet),
     ),
   };
+  return rewriteDocumentFormulaReferences(document, next);
 }
 
 /**
@@ -719,5 +721,5 @@ export function removeWorksheet(document: SheetDocument, worksheetId: string): S
     if (kept.length > 0) next.namedRanges = kept;
     else delete next.namedRanges;
   }
-  return next;
+  return rewriteDocumentFormulaReferences(document, next);
 }

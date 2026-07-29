@@ -5,8 +5,15 @@ import { useState } from 'react';
 import { SHEET_DEFAULTS } from '../../types/sheet';
 import type { SheetWorksheet } from '../../types/sheet';
 import { createEmptySheetDocument } from '../../lib/sheet/document';
-import { setCell } from '../../lib/sheet/operations';
-import { createSelection, normalizeRange, selectedCellCount, type SheetSelection } from '../../lib/sheet/selection';
+import { mergeSelection, setCell } from '../../lib/sheet/operations';
+import {
+  createSelection,
+  extendSelection,
+  normalizeRange,
+  selectedCellCount,
+  type SheetSelection,
+  type SheetSelectionRange,
+} from '../../lib/sheet/selection';
 import SheetGrid, { type SheetGridEditing } from './SheetGrid';
 
 const { rowHeight, columnWidth, headerHeight, headerWidth } = SHEET_DEFAULTS;
@@ -31,6 +38,8 @@ interface HarnessProps {
   onResizeTrack?: (axis: 'row' | 'column', index: number, size: number) => void;
   onAutoSizeColumn?: (index: number) => void;
   onSelectionChange?: (selection: SheetSelection) => void;
+  formulaReferenceMode?: boolean;
+  onFormulaReferenceCommit?: (range: SheetSelectionRange) => void;
 }
 
 /** Drives the grid the way SheetView does, so tests exercise real state flow. */
@@ -42,6 +51,8 @@ function Harness({
   onResizeTrack = () => {},
   onAutoSizeColumn = () => {},
   onSelectionChange,
+  formulaReferenceMode,
+  onFormulaReferenceCommit,
 }: HarnessProps) {
   const [selection, setSelection] = useState<SheetSelection>(() => createSelection({ row: 0, column: 0 }));
   const [editing, setEditing] = useState<SheetGridEditing | null>(null);
@@ -65,6 +76,8 @@ function Harness({
         onResizeTrack={onResizeTrack}
         onAutoSizeColumn={onAutoSizeColumn}
         readOnly={readOnly}
+        formulaReferenceMode={formulaReferenceMode}
+        onFormulaReferenceCommit={onFormulaReferenceCommit}
       />
     </>
   );
@@ -118,6 +131,56 @@ describe('SheetGrid rendering', () => {
     expect(element.getAttribute('aria-rowcount')).toBe('50');
     expect(element.getAttribute('aria-colcount')).toBe('20');
   });
+
+  it('paints a merged range as one outer cell without internal grid lines', () => {
+    let document = createEmptySheetDocument('Book', {
+      worksheet: { name: 'Sheet1', rows: 4, columns: 4 },
+    });
+    const worksheetId = document.worksheets[0].id;
+    document = setCell(document, worksheetId, { row: 0, column: 0 }, {
+      value: 'Merged',
+      valueType: 'text',
+    });
+    document = mergeSelection(
+      document,
+      worksheetId,
+      extendSelection(createSelection({ row: 0, column: 0 }), { row: 1, column: 1 }),
+    );
+
+    const strokeRect = vi.fn();
+    const context = {
+      clearRect: vi.fn(),
+      fillRect: vi.fn(),
+      strokeRect,
+      setTransform: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      rect: vi.fn(),
+      clip: vi.fn(),
+      fillText: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+      set fillStyle(_value: string) {},
+      set strokeStyle(_value: string) {},
+      set lineWidth(_value: number) {},
+      set font(_value: string) {},
+      set textBaseline(_value: string) {},
+      set textAlign(_value: string) {},
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as never);
+
+    render(<Harness worksheet={document.worksheets[0]} />);
+
+    expect(strokeRect).toHaveBeenCalledWith(
+      0.5,
+      0.5,
+      columnWidth * 2,
+      rowHeight * 2,
+    );
+    expect(strokeRect).not.toHaveBeenCalledWith(0.5, 0.5, columnWidth, rowHeight);
+  });
 });
 
 describe('pointer selection', () => {
@@ -135,6 +198,44 @@ describe('pointer selection', () => {
     fireEvent.pointerUp(surface, pointFor(3, 2));
     // 3 rows x 2 columns
     expect(selectionState()).toBe('1,1,6,cells');
+  });
+
+  it('returns one completed range while formula reference mode is active', () => {
+    const onFormulaReferenceCommit = vi.fn();
+    render(
+      <Harness
+        formulaReferenceMode
+        onFormulaReferenceCommit={onFormulaReferenceCommit}
+      />,
+    );
+    const surface = screen.getByTestId('sheet-cell-surface');
+    fireEvent.pointerDown(surface, { button: 0, ...pointFor(1, 1) });
+    fireEvent.pointerMove(surface, pointFor(3, 2));
+    fireEvent.pointerUp(surface, pointFor(3, 2));
+
+    expect(onFormulaReferenceCommit).toHaveBeenCalledWith({
+      anchor: { row: 1, column: 1 },
+      focus: { row: 3, column: 2 },
+    });
+    expect(selectionState()).toBe('0,0,1,cells');
+  });
+
+  it('maps pointer hits inside a merge to its top-left cell', () => {
+    let document = createEmptySheetDocument('Book', {
+      worksheet: { name: 'Sheet1', rows: 4, columns: 4 },
+    });
+    const worksheetId = document.worksheets[0].id;
+    document = mergeSelection(
+      document,
+      worksheetId,
+      extendSelection(createSelection({ row: 0, column: 0 }), { row: 1, column: 1 }),
+    );
+    render(<Harness worksheet={document.worksheets[0]} />);
+    fireEvent.pointerDown(
+      screen.getByTestId('sheet-cell-surface'),
+      { button: 0, ...pointFor(1, 1) },
+    );
+    expect(selectionState()).toBe('0,0,1,cells');
   });
 
   it('extends with shift-click and adds a disjoint range with ctrl-click', () => {
@@ -261,6 +362,37 @@ describe('cell editing', () => {
     fireEvent.keyDown(editor, { key: 'Tab' });
     expect(onCommit).toHaveBeenCalledWith({ row: 1, column: 0 }, '9');
     expect(selectionState()).toBe('1,1,1,cells');
+  });
+
+  it('offers formula IntelliSense inside the cell editor', () => {
+    const onCommit = vi.fn();
+    render(<Harness onCommit={onCommit} />);
+
+    fireEvent.keyDown(grid(), { key: '=' });
+    const editor = screen.getByRole('textbox', { name: 'Cell editor' }) as HTMLInputElement;
+    fireEvent.change(editor, { target: { value: '=SU', selectionStart: 3 } });
+
+    expect(screen.getByLabelText('Cell formula IntelliSense')).toBeTruthy();
+    expect(screen.getByRole('listbox', { name: 'Formula suggestions' })).toBeTruthy();
+
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    expect(editor.value).toBe('=SUM(');
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(screen.getByText('SUM(value, ...)')).toBeTruthy();
+
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith({ row: 0, column: 0 }, '=SUM(');
+  });
+
+  it('supports mouse selection from in-cell formula suggestions', () => {
+    render(<Harness />);
+
+    fireEvent.keyDown(grid(), { key: '=' });
+    const editor = screen.getByRole('textbox', { name: 'Cell editor' }) as HTMLInputElement;
+    fireEvent.change(editor, { target: { value: '=AV', selectionStart: 3 } });
+    fireEvent.mouseDown(screen.getAllByRole('option')[0]);
+
+    expect(editor.value).toBe('=AVERAGE(');
   });
 });
 

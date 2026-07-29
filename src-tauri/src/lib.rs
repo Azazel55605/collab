@@ -338,6 +338,9 @@ pub fn run() {
             commands::circuit::circuit_read_sweep_chunk,
             commands::circuit::circuit_read_transient_chunk,
             commands::circuit::circuit_discard_job,
+            // bounded incremental `.sheet` formula evaluation
+            commands::sheet::sheet_formula_evaluate,
+            commands::sheet::sheet_formula_release,
             // ui
             commands::ui::set_ui_zoom,
             commands::ui::host_os,

@@ -55,6 +55,7 @@ const allowedWorkspaceEdges = new Map([
     'collab-net-policy',
     'collab-protocol',
     'collab-replica',
+    'collab-sheet',
     'collab-vault-domain',
     'collab-archive',
   ])],

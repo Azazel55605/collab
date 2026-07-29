@@ -12,9 +12,14 @@ import {
 
 import { SHEET_DEFAULTS } from '../../types/sheet';
 import type { SheetWorksheet } from '../../types/sheet';
+import { sheetFormulaResultKey, type SheetFormulaValueMap } from '../../types/sheetFormula';
 import { columnLabel } from '../../lib/sheet/address';
 import type { SheetPosition } from '../../lib/sheet/address';
 import { cellAlignment, formatCellDisplay } from '../../lib/sheet/cellValue';
+import {
+  formulaAutocompleteContext,
+  SHEET_FUNCTIONS,
+} from '../../lib/sheet/formulaFunctions';
 import { getCell, mergedRangeAt } from '../../lib/sheet/operations';
 import {
   addSelectionRange,
@@ -35,11 +40,13 @@ import {
   buildRowMetrics,
   computeViewport,
   trackAtPaneOffset,
+  trackOffset,
   trackPaneOffset,
   trackSize,
   type SheetAxisMetrics,
 } from '../../lib/sheet/viewport';
 import { cn } from '../../lib/utils';
+import SheetFormulaIntellisense from './SheetFormulaIntellisense';
 
 /**
  * Virtualized spreadsheet grid: a canvas cell layer under a DOM overlay.
@@ -57,6 +64,7 @@ import { cn } from '../../lib/utils';
 export interface SheetGridEditing {
   position: SheetPosition;
   text: string;
+  source?: 'grid' | 'formula-bar';
 }
 
 export interface SheetGridProps {
@@ -73,6 +81,10 @@ export interface SheetGridProps {
   scrollPosition?: { top: number; left: number };
   onScrollPositionChange?: (position: { top: number; left: number }) => void;
   readOnly?: boolean;
+  computedValues?: SheetFormulaValueMap;
+  formulaHighlights?: ReadonlyMap<string, 'precedent' | 'dependent'>;
+  formulaReferenceMode?: boolean;
+  onFormulaReferenceCommit?: (range: { anchor: SheetPosition; focus: SheetPosition }) => void;
   className?: string;
 }
 
@@ -114,6 +126,8 @@ interface PaintOptions {
   height: number;
   frozenRows: number;
   frozenColumns: number;
+  computedValues?: SheetFormulaValueMap;
+  formulaHighlights?: ReadonlyMap<string, 'precedent' | 'dependent'>;
   theme: {
     text: string;
     mutedText: string;
@@ -122,6 +136,51 @@ interface PaintOptions {
     background: string;
     font: string;
   };
+}
+
+interface MergeRectangle {
+  top: number;
+  left: number;
+  bottom: number;
+  right: number;
+}
+
+function mergeRectangles(worksheet: SheetWorksheet): MergeRectangle[] {
+  return (worksheet.mergedRanges ?? []).flatMap((range) => {
+    const startRow = worksheet.rowOrder.indexOf(range.startRowId);
+    const endRow = worksheet.rowOrder.indexOf(range.endRowId);
+    const startColumn = worksheet.columnOrder.indexOf(range.startColumnId);
+    const endColumn = worksheet.columnOrder.indexOf(range.endColumnId);
+    if (startRow < 0 || endRow < 0 || startColumn < 0 || endColumn < 0) return [];
+    return [{
+      top: Math.min(startRow, endRow),
+      bottom: Math.max(startRow, endRow),
+      left: Math.min(startColumn, endColumn),
+      right: Math.max(startColumn, endColumn),
+    }];
+  });
+}
+
+function rectangleContainsPosition(rectangle: MergeRectangle, row: number, column: number): boolean {
+  return row >= rectangle.top
+    && row <= rectangle.bottom
+    && column >= rectangle.left
+    && column <= rectangle.right;
+}
+
+function paneTrackOffset(
+  metrics: SheetAxisMetrics,
+  index: number,
+  scroll: number,
+  frozen: number,
+): number {
+  return index < frozen ? trackOffset(metrics, index) : trackOffset(metrics, index) - scroll;
+}
+
+function rectangleTrackSize(metrics: SheetAxisMetrics, from: number, to: number): number {
+  let size = 0;
+  for (let index = from; index <= to; index += 1) size += trackSize(metrics, index);
+  return size;
 }
 
 /**
@@ -153,6 +212,7 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
   const columnIndices: number[] = [];
   for (let index = 0; index < viewport.columns.frozen; index += 1) columnIndices.push(index);
   for (let index = viewport.columns.start; index < viewport.columns.end; index += 1) columnIndices.push(index);
+  const merges = mergeRectangles(worksheet);
 
   let painted = 0;
   for (const row of rowIndices) {
@@ -162,6 +222,7 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
     if (rowHeight === 0 || y > options.height) continue;
 
     for (const column of columnIndices) {
+      if (merges.some((merge) => rectangleContainsPosition(merge, row, column))) continue;
       const x = trackPaneOffset(columns, column, options.scrollLeft, options.frozenColumns);
       if (x === null) continue;
       const columnWidth = trackSize(columns, column);
@@ -173,12 +234,27 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
       context.strokeRect(Math.floor(x) + 0.5, Math.floor(y) + 0.5, columnWidth, rowHeight);
 
       const cell = getCell(worksheet, { row, column });
+      const rowId = worksheet.rowOrder[row];
+      const columnId = worksheet.columnOrder[column];
+      const cellKey = `${rowId}:${columnId}`;
+      const highlight = options.formulaHighlights?.get(cellKey);
+      if (highlight) {
+        context.fillStyle = highlight === 'precedent'
+          ? 'rgba(34, 211, 238, 0.14)'
+          : 'rgba(249, 115, 22, 0.13)';
+        context.fillRect(x + 1, y + 1, columnWidth - 1, rowHeight - 1);
+      }
       painted += 1;
-      const text = formatCellDisplay(cell);
+      const computed = rowId && columnId
+        ? options.computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
+        : undefined;
+      const text = formatCellDisplay(cell, computed);
       if (!text) continue;
 
-      const align = cellAlignment(cell);
-      context.fillStyle = cell?.formula ? theme.mutedText : theme.text;
+      const align = cellAlignment(cell, computed);
+      context.fillStyle = computed?.type === 'error'
+        ? '#ef4444'
+        : cell?.formula ? theme.mutedText : theme.text;
       context.save();
       context.beginPath();
       context.rect(x + 1, y + 1, columnWidth - 2, rowHeight - 2);
@@ -196,6 +272,64 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
       }
       context.restore();
     }
+  }
+
+  // Merged ranges are painted after ordinary cells so one outer rectangle
+  // replaces all internal cell lines. Only the top-left cell owns content.
+  for (const merge of merges) {
+    const intersectsViewport = rowIndices.some(
+      (row) => row >= merge.top && row <= merge.bottom,
+    ) && columnIndices.some(
+      (column) => column >= merge.left && column <= merge.right,
+    );
+    if (!intersectsViewport) continue;
+
+    const x = paneTrackOffset(columns, merge.left, options.scrollLeft, options.frozenColumns);
+    const y = paneTrackOffset(rows, merge.top, options.scrollTop, options.frozenRows);
+    const width = rectangleTrackSize(columns, merge.left, merge.right);
+    const height = rectangleTrackSize(rows, merge.top, merge.bottom);
+    if (width <= 0 || height <= 0 || x >= options.width || y >= options.height
+      || x + width <= 0 || y + height <= 0) {
+      continue;
+    }
+
+    const rowId = worksheet.rowOrder[merge.top];
+    const columnId = worksheet.columnOrder[merge.left];
+    const cell = getCell(worksheet, { row: merge.top, column: merge.left });
+    const computed = rowId && columnId
+      ? options.computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
+      : undefined;
+    const highlight = rowId && columnId
+      ? options.formulaHighlights?.get(`${rowId}:${columnId}`)
+      : undefined;
+
+    context.fillStyle = theme.background;
+    context.fillRect(x, y, width, height);
+    if (highlight) {
+      context.fillStyle = highlight === 'precedent'
+        ? 'rgba(34, 211, 238, 0.14)'
+        : 'rgba(249, 115, 22, 0.13)';
+      context.fillRect(x + 1, y + 1, width - 1, height - 1);
+    }
+    context.strokeStyle = theme.gridLine;
+    context.lineWidth = 1;
+    context.strokeRect(Math.floor(x) + 0.5, Math.floor(y) + 0.5, width, height);
+    painted += 1;
+
+    const text = formatCellDisplay(cell, computed);
+    if (!text) continue;
+    const align = cellAlignment(cell, computed);
+    context.fillStyle = computed?.type === 'error'
+      ? '#ef4444'
+      : cell?.formula ? theme.mutedText : theme.text;
+    context.save();
+    context.beginPath();
+    context.rect(x + 1, y + 1, width - 2, height - 2);
+    context.clip();
+    context.textAlign = align;
+    const textX = align === 'right' ? x + width - 6 : align === 'center' ? x + width / 2 : x + 6;
+    context.fillText(text, textX, y + height / 2);
+    context.restore();
   }
 
   // Frozen pane dividers, so a pinned region reads as pinned.
@@ -232,13 +366,25 @@ export default function SheetGrid({
   scrollPosition,
   onScrollPositionChange,
   readOnly = false,
+  computedValues,
+  formulaHighlights,
+  formulaReferenceMode = false,
+  onFormulaReferenceCommit,
   className,
 }: SheetGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const editorRef = useRef<HTMLInputElement>(null);
-  const dragRef = useRef<'select' | null>(null);
+  const pendingEditorCursorRef = useRef<number | null>(null);
+  const dragRef = useRef<'select' | 'formula-reference' | null>(null);
+  const formulaReferenceRef = useRef<{ anchor: SheetPosition; focus: SheetPosition } | null>(null);
+  const [formulaReferenceRange, setFormulaReferenceRange] = useState<
+    { anchor: SheetPosition; focus: SheetPosition } | null
+  >(null);
+  const [editorCursor, setEditorCursor] = useState(0);
+  const [editorSuggestionsOpen, setEditorSuggestionsOpen] = useState(true);
+  const [selectedEditorSuggestion, setSelectedEditorSuggestion] = useState(0);
   const resizeRef = useRef<
     { axis: 'row' | 'column'; index: number; origin: number; size: number } | null
   >(null);
@@ -307,6 +453,8 @@ export default function SheetGrid({
       height: paneHeight,
       frozenRows,
       frozenColumns,
+      computedValues,
+      formulaHighlights,
       theme: {
         text: styles.getPropertyValue('color') || '#e5e7eb',
         mutedText: styles.getPropertyValue('color') || '#9ca3af',
@@ -316,7 +464,18 @@ export default function SheetGrid({
         font: `13px ${styles.getPropertyValue('font-family') || 'sans-serif'}`,
       },
     });
-  }, [worksheet, rows, columns, scroll, paneWidth, paneHeight, frozenRows, frozenColumns]);
+  }, [
+    worksheet,
+    rows,
+    columns,
+    scroll,
+    paneWidth,
+    paneHeight,
+    frozenRows,
+    frozenColumns,
+    computedValues,
+    formulaHighlights,
+  ]);
 
   // ── Scrolling ──────────────────────────────────────────────────────────────
   const handleScroll = useCallback(() => {
@@ -345,11 +504,32 @@ export default function SheetGrid({
     const x = clientX - rect.left - headerWidth;
     const y = clientY - rect.top - headerHeight;
     if (x < 0 || y < 0) return null;
-    return {
+    const position = {
       row: trackAtPaneOffset(rows, y, scroll.top, frozenRows),
       column: trackAtPaneOffset(columns, x, scroll.left, frozenColumns),
     };
-  }, [columns, frozenColumns, frozenRows, headerHeight, headerWidth, rows, scroll.left, scroll.top]);
+    const merge = mergedRangeAt(worksheet, position);
+    if (!merge) return position;
+    const row = Math.min(
+      worksheet.rowOrder.indexOf(merge.startRowId),
+      worksheet.rowOrder.indexOf(merge.endRowId),
+    );
+    const column = Math.min(
+      worksheet.columnOrder.indexOf(merge.startColumnId),
+      worksheet.columnOrder.indexOf(merge.endColumnId),
+    );
+    return row >= 0 && column >= 0 ? { row, column } : position;
+  }, [
+    columns,
+    frozenColumns,
+    frozenRows,
+    headerHeight,
+    headerWidth,
+    rows,
+    scroll.left,
+    scroll.top,
+    worksheet,
+  ]);
 
   const commitEditing = useCallback((advance: 'down' | 'right' | null) => {
     if (!editing) return;
@@ -360,12 +540,60 @@ export default function SheetGrid({
 
   const beginEditing = useCallback((position: SheetPosition, text: string) => {
     if (readOnly) return;
-    onEditingChange({ position, text });
+    onEditingChange({ position, text, source: 'grid' });
   }, [onEditingChange, readOnly]);
 
   useEffect(() => {
-    if (editing) editorRef.current?.focus();
-  }, [editing]);
+    if (!editing || editing.source === 'formula-bar') return;
+    const cursor = editing.text.length;
+    setEditorCursor(cursor);
+    setEditorSuggestionsOpen(true);
+    editorRef.current?.focus();
+    editorRef.current?.setSelectionRange(cursor, cursor);
+  }, [editing?.position.column, editing?.position.row, editing?.source]);
+
+  const editorAutocomplete = useMemo(
+    () => editing?.source === 'grid'
+      ? formulaAutocompleteContext(editing.text, editorCursor)
+      : null,
+    [editing, editorCursor],
+  );
+  const editorSuggestions = useMemo(() => {
+    if (!editorSuggestionsOpen || !editorAutocomplete) return [];
+    return SHEET_FUNCTIONS
+      .filter((definition) => definition.name.startsWith(editorAutocomplete.query))
+      .slice(0, 8);
+  }, [editorAutocomplete, editorSuggestionsOpen]);
+
+  useEffect(() => {
+    setSelectedEditorSuggestion(0);
+  }, [editorAutocomplete?.query]);
+
+  const placeEditorCursor = useCallback((cursor: number) => {
+    pendingEditorCursorRef.current = cursor;
+    setEditorCursor(cursor);
+    window.requestAnimationFrame(() => {
+      editorRef.current?.setSelectionRange(cursor, cursor);
+      pendingEditorCursorRef.current = null;
+    });
+  }, []);
+
+  const chooseEditorSuggestion = useCallback((index: number) => {
+    const definition = editorSuggestions[index];
+    if (!definition || !editing || !editorAutocomplete) return;
+    const next = `${editing.text.slice(0, editorAutocomplete.start)}${definition.name}(${editing.text.slice(editorAutocomplete.end)}`;
+    const cursor = editorAutocomplete.start + definition.name.length + 1;
+    onEditingChange({ ...editing, text: next, source: 'grid' });
+    setEditorSuggestionsOpen(false);
+    placeEditorCursor(cursor);
+    editorRef.current?.focus();
+  }, [
+    editing,
+    editorAutocomplete,
+    editorSuggestions,
+    onEditingChange,
+    placeEditorCursor,
+  ]);
 
   // ── Pointer interaction ────────────────────────────────────────────────────
   const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -373,23 +601,61 @@ export default function SheetGrid({
     const position = positionFromEvent(event.clientX, event.clientY);
     if (!position) return;
 
-    if (editing) commitEditing(null);
     event.currentTarget.setPointerCapture?.(event.pointerId);
+    if (formulaReferenceMode) {
+      const range = { anchor: position, focus: position };
+      formulaReferenceRef.current = range;
+      setFormulaReferenceRange(range);
+      dragRef.current = 'formula-reference';
+      event.preventDefault();
+      return;
+    }
+    if (editing) commitEditing(null);
     dragRef.current = 'select';
 
     if (event.shiftKey) onSelectionChange(extendSelection(selection, position));
     else if (event.ctrlKey || event.metaKey) onSelectionChange(addSelectionRange(selection, position));
     else onSelectionChange(createSelection(position));
-  }, [commitEditing, editing, onSelectionChange, positionFromEvent, selection]);
+  }, [
+    commitEditing,
+    editing,
+    formulaReferenceMode,
+    onSelectionChange,
+    positionFromEvent,
+    selection,
+  ]);
 
   const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (dragRef.current !== 'select') return;
+    if (!dragRef.current) return;
     const position = positionFromEvent(event.clientX, event.clientY);
     if (!position) return;
+    if (dragRef.current === 'formula-reference') {
+      const current = formulaReferenceRef.current;
+      if (!current) return;
+      const range = { anchor: current.anchor, focus: position };
+      formulaReferenceRef.current = range;
+      setFormulaReferenceRange(range);
+      return;
+    }
     onSelectionChange(extendSelection(selection, position));
   }, [onSelectionChange, positionFromEvent, selection]);
 
-  const endDrag = useCallback(() => {
+  const endDrag = useCallback((event?: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragRef.current === 'formula-reference' && formulaReferenceRef.current) {
+      const focus = event ? positionFromEvent(event.clientX, event.clientY) : null;
+      const completed = focus
+        ? { anchor: formulaReferenceRef.current.anchor, focus }
+        : formulaReferenceRef.current;
+      onFormulaReferenceCommit?.(completed);
+      formulaReferenceRef.current = null;
+      setFormulaReferenceRange(null);
+    }
+    dragRef.current = null;
+  }, [onFormulaReferenceCommit, positionFromEvent]);
+
+  const cancelDrag = useCallback(() => {
+    formulaReferenceRef.current = null;
+    setFormulaReferenceRange(null);
     dragRef.current = null;
   }, []);
 
@@ -588,9 +854,48 @@ export default function SheetGrid({
 
   const editorStyle = useMemo(() => (
     editing
-      ? rectangleStyle(editing.position.row, editing.position.column, editing.position.row, editing.position.column)
+      ? (() => {
+        const merge = mergedRangeAt(worksheet, editing.position);
+        if (!merge) {
+          return rectangleStyle(
+            editing.position.row,
+            editing.position.column,
+            editing.position.row,
+            editing.position.column,
+          );
+        }
+        const top = worksheet.rowOrder.indexOf(merge.startRowId);
+        const bottom = worksheet.rowOrder.indexOf(merge.endRowId);
+        const left = worksheet.columnOrder.indexOf(merge.startColumnId);
+        const right = worksheet.columnOrder.indexOf(merge.endColumnId);
+        return rectangleStyle(
+          Math.min(top, bottom),
+          Math.min(left, right),
+          Math.max(top, bottom),
+          Math.max(left, right),
+        );
+      })()
       : null
-  ), [editing, rectangleStyle]);
+  ), [editing, rectangleStyle, worksheet]);
+  const editorIntellisenseStyle = useMemo<CSSProperties | undefined>(() => {
+    if (!editorStyle || editing?.source !== 'grid' || !editing.text.startsWith('=')) {
+      return undefined;
+    }
+    const editorTop = Number(editorStyle.top ?? 0);
+    const editorLeft = Number(editorStyle.left ?? headerWidth);
+    const editorHeight = Number(editorStyle.height ?? 0);
+    const availableWidth = Math.max(0, size.width - headerWidth);
+    const width = Math.min(360, Math.max(240, availableWidth));
+    const left = Math.min(
+      Math.max(headerWidth, editorLeft),
+      Math.max(headerWidth, size.width - width),
+    );
+    const belowTop = editorTop + editorHeight + 2;
+    const top = size.height - belowTop >= 150
+      ? belowTop
+      : Math.max(headerHeight, editorTop - 220);
+    return { top, left, width };
+  }, [editing, editorStyle, headerHeight, headerWidth, size.height, size.width]);
 
   return (
     <div
@@ -731,7 +1036,7 @@ export default function SheetGrid({
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={endDrag}
-            onPointerCancel={endDrag}
+            onPointerCancel={cancelDrag}
             onDoubleClick={handleDoubleClick}
             data-testid="sheet-cell-surface"
           />
@@ -750,6 +1055,23 @@ export default function SheetGrid({
             );
           })}
 
+          {formulaReferenceRange && (() => {
+            const rectangle = normalizeRange(formulaReferenceRange);
+            const style = rectangleStyle(
+              rectangle.top,
+              rectangle.left,
+              rectangle.bottom,
+              rectangle.right,
+            );
+            return style ? (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute border-2 border-cyan-400 bg-cyan-400/10"
+                style={style}
+              />
+            ) : null;
+          })()}
+
           {activeStyle && !editing && (
             <div
               aria-hidden
@@ -759,28 +1081,81 @@ export default function SheetGrid({
           )}
 
           {editing && editorStyle && (
-            <input
-              ref={editorRef}
-              value={editing.text}
-              aria-label="Cell editor"
-              onChange={(event) => onEditingChange({ ...editing, text: event.target.value })}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  commitEditing('down');
-                } else if (event.key === 'Tab') {
-                  event.preventDefault();
-                  commitEditing('right');
-                } else if (event.key === 'Escape') {
-                  event.preventDefault();
-                  onEditingChange(null);
-                }
-                event.stopPropagation();
-              }}
-              onBlur={() => commitEditing(null)}
-              className="absolute z-10 border-2 border-primary bg-background px-1 text-[13px] outline-none"
-              style={editorStyle}
-            />
+            <>
+              <input
+                ref={editorRef}
+                value={editing.text}
+                aria-label="Cell editor"
+                onClick={(event) => {
+                  pendingEditorCursorRef.current = null;
+                  setEditorCursor(event.currentTarget.selectionStart ?? editing.text.length);
+                }}
+                onSelect={(event) => {
+                  setEditorCursor(
+                    pendingEditorCursorRef.current
+                      ?? event.currentTarget.selectionStart
+                      ?? editing.text.length,
+                  );
+                }}
+                onChange={(event) => {
+                  pendingEditorCursorRef.current = null;
+                  onEditingChange({ ...editing, text: event.target.value, source: 'grid' });
+                  setEditorCursor(event.currentTarget.selectionStart ?? event.target.value.length);
+                  setEditorSuggestionsOpen(true);
+                }}
+                onKeyDown={(event) => {
+                  if (editorSuggestions.length > 0 && event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    setSelectedEditorSuggestion(
+                      (current) => (current + 1) % editorSuggestions.length,
+                    );
+                  } else if (editorSuggestions.length > 0 && event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    setSelectedEditorSuggestion(
+                      (current) => (
+                        current - 1 + editorSuggestions.length
+                      ) % editorSuggestions.length,
+                    );
+                  } else if (
+                    editorSuggestions.length > 0
+                    && (event.key === 'Enter' || event.key === 'Tab')
+                  ) {
+                    event.preventDefault();
+                    chooseEditorSuggestion(selectedEditorSuggestion);
+                  } else if (event.key === 'Enter') {
+                    event.preventDefault();
+                    commitEditing('down');
+                  } else if (event.key === 'Tab') {
+                    event.preventDefault();
+                    commitEditing('right');
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    if (editorSuggestionsOpen && editorSuggestions.length > 0) {
+                      setEditorSuggestionsOpen(false);
+                    } else {
+                      onEditingChange(null);
+                    }
+                  }
+                  event.stopPropagation();
+                }}
+                onBlur={() => commitEditing(null)}
+                className="absolute z-10 border-2 border-primary bg-background px-1 font-mono text-[13px] outline-none"
+                style={editorStyle}
+              />
+              {editorIntellisenseStyle && (
+                <SheetFormulaIntellisense
+                  value={editing.text}
+                  cursor={editorCursor}
+                  suggestions={editorSuggestions}
+                  selectedSuggestion={selectedEditorSuggestion}
+                  onSelectSuggestion={setSelectedEditorSuggestion}
+                  onChooseSuggestion={chooseEditorSuggestion}
+                  className="absolute z-30"
+                  style={editorIntellisenseStyle}
+                  label="Cell formula IntelliSense"
+                />
+              )}
+            </>
           )}
         </div>
       </div>

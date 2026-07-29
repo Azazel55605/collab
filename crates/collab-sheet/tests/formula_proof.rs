@@ -173,7 +173,10 @@ fn baseline_function_set_is_covered() {
         ("=COUNT(A1:A3)", SheetFormulaValue::number(3.0)),
         ("=COUNTA(A1:A3)", SheetFormulaValue::number(3.0)),
         ("=IF(A1>1,\"yes\",\"no\")", SheetFormulaValue::text("yes")),
-        ("=IFS(A1>5,\"big\",TRUE,\"small\")", SheetFormulaValue::text("small")),
+        (
+            "=IFS(A1>5,\"big\",TRUE,\"small\")",
+            SheetFormulaValue::text("small"),
+        ),
         ("=AND(A1>1,A2>1)", SheetFormulaValue::boolean(true)),
         ("=OR(A1>100,A2>1)", SheetFormulaValue::boolean(true)),
         ("=NOT(A1>100)", SheetFormulaValue::boolean(true)),
@@ -193,14 +196,21 @@ fn baseline_function_set_is_covered() {
         ("=MONTH(DATE(2026,7,29))", SheetFormulaValue::number(7.0)),
         ("=DAY(DATE(2026,7,29))", SheetFormulaValue::number(29.0)),
         ("=SUMIF(A1:A3,\">5\")", SheetFormulaValue::number(16.0)),
-        ("=SUMIFS(A1:A3,A1:A3,\">5\")", SheetFormulaValue::number(16.0)),
+        (
+            "=SUMIFS(A1:A3,A1:A3,\">5\")",
+            SheetFormulaValue::number(16.0),
+        ),
         ("=COUNTIF(A1:A3,\">5\")", SheetFormulaValue::number(2.0)),
         ("=COUNTIFS(A1:A3,\">5\")", SheetFormulaValue::number(2.0)),
         ("=AVERAGEIF(A1:A3,\">5\")", SheetFormulaValue::number(8.0)),
-        ("=AVERAGEIFS(A1:A3,A1:A3,\">5\")", SheetFormulaValue::number(8.0)),
+        (
+            "=AVERAGEIFS(A1:A3,A1:A3,\">5\")",
+            SheetFormulaValue::number(8.0),
+        ),
         ("=INDEX(A1:A3,2,1)", SheetFormulaValue::number(6.0)),
         ("=MATCH(6,A1:A3,0)", SheetFormulaValue::number(2.0)),
         ("=VLOOKUP(6,A1:A3,1,FALSE)", SheetFormulaValue::number(6.0)),
+        ("=HLOOKUP(4,A1:A3,1,FALSE)", SheetFormulaValue::number(4.0)),
         ("=XLOOKUP(6,A1:A3,A1:A3)", SheetFormulaValue::number(6.0)),
         ("=1+2*3", SheetFormulaValue::number(7.0)),
         ("=(1+2)*3", SheetFormulaValue::number(9.0)),
@@ -224,6 +234,46 @@ fn baseline_function_set_is_covered() {
             _ => assert_eq!(&actual, expected, "{formula}"),
         }
     }
+}
+
+#[test]
+fn deep_dependencies_wide_fanout_and_error_propagation_are_bounded() {
+    let mut engine = engine();
+    engine
+        .set_value(&cell("Sheet1", 1, 1), SheetFormulaValue::number(1.0))
+        .unwrap();
+
+    // A 500-cell dependency chain catches accidental recursive evaluation and
+    // stack growth while remaining small enough for every CI target.
+    for row in 2..=500 {
+        engine
+            .set_formula(&cell("Sheet1", row, 1), &format!("=A{}+1", row - 1))
+            .unwrap();
+    }
+    // A wide fan-out catches invalid dirty propagation and stale cached values.
+    for column in 2..=201 {
+        engine
+            .set_formula(&cell("Sheet1", 1, column), "=A500*2")
+            .unwrap();
+    }
+    engine.set_formula(&cell("Sheet1", 501, 1), "=1/0").unwrap();
+    engine
+        .set_formula(&cell("Sheet1", 502, 1), "=A501+1")
+        .unwrap();
+
+    engine.evaluate_all().unwrap();
+    assert_eq!(
+        engine.cached_value(&cell("Sheet1", 500, 1)),
+        SheetFormulaValue::number(500.0)
+    );
+    assert_eq!(
+        engine.cached_value(&cell("Sheet1", 1, 201)),
+        SheetFormulaValue::number(1_000.0)
+    );
+    assert_eq!(
+        engine.cached_value(&cell("Sheet1", 502, 1)).as_error(),
+        Some(SheetFormulaError::DivideByZero)
+    );
 }
 
 /// `TEXTJOIN`/`CONCAT` over a *range* collapse to the first cell in
@@ -287,8 +337,7 @@ fn evaluation_is_bounded_by_the_time_budget() {
 
 #[test]
 fn formula_cell_budget_is_enforced() {
-    let mut engine =
-        SheetFormulaEngine::new(SheetFormulaBudget::new(2, Duration::from_secs(1)));
+    let mut engine = SheetFormulaEngine::new(SheetFormulaBudget::new(2, Duration::from_secs(1)));
     engine.add_worksheet("Sheet1").unwrap();
     engine.set_formula(&cell("Sheet1", 1, 1), "=1").unwrap();
     engine.set_formula(&cell("Sheet1", 2, 1), "=2").unwrap();

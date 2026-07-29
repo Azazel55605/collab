@@ -84,6 +84,8 @@ pub struct AppState {
     pub live_ws: crate::commands::live_ws::LiveWsRegistry,
     /// Bounded native circuit workers and their unconsumed terminal results.
     pub circuit_jobs: crate::commands::circuit::CircuitJobRegistry,
+    /// Bounded incremental formula runtimes for open `.sheet` tabs.
+    pub sheet_formulas: Arc<crate::commands::sheet::SheetFormulaRegistry>,
 }
 
 impl AppState {
@@ -99,6 +101,7 @@ impl AppState {
             background,
             live_ws: crate::commands::live_ws::LiveWsRegistry::default(),
             circuit_jobs: crate::commands::circuit::CircuitJobRegistry::default(),
+            sheet_formulas: Arc::new(crate::commands::sheet::SheetFormulaRegistry::default()),
         }
     }
 

@@ -279,7 +279,7 @@ It must remain ephemeral and must not be written into the workbook.
 | 0. Product contract and technical proof | Complete | Finalize schema, select the formula/grid engines, and prove large-grid editing plus recalculation. |
 | 1. `.sheet` domain and vault integration | Complete | Add parsing, validation, migrations, creation, routing, revisions, and local/hosted document support. |
 | 2. Desktop spreadsheet editor | Complete | Deliver the virtualized grid, worksheet controls, selection, editing, navigation, and structural operations. |
-| 3. Formulas and recalculation | Not started | Add the supported formula set, dependency updates, formula UX, errors, and deterministic recalculation. |
+| 3. Formulas and recalculation | Testing | Native incremental evaluation, formula UX, reference rewrites, stable errors, inspection, volatile-time policy, and fixtures are implemented. |
 | 4. Formatting and spreadsheet interactions | Not started | Add styles, number formats, clipboard, fill, undo/redo, resize, freeze, merge, and search. |
 | 5. Tables and data tools | Not started | Add sorting, filtering, validation, conditional formatting, named ranges, and protected ranges. |
 | 6. Hosted collaboration and offline behavior | Not started | Add semantic live mutations, presence, conflict handling, offline queues, and revision-safe recovery. |
@@ -395,32 +395,47 @@ with the virtualized canvas grid.
 Exit gate: met. A multi-worksheet workbook can be created and edited without
 formulas; rendering stays bounded by the viewport rather than the logical grid.
 
-Known limitation carried into Phase 3: structural edits do **not** rewrite
-formula references yet, because reference rewriting needs the parser that
-arrives with the engine. Until then, inserting or deleting rows can leave a
-formula pointing at the wrong cell. Formula cells also display their source
-rather than a computed value, and are excluded from status-bar numeric
-summaries so nothing reports a fabricated total.
+Phase 3 replaced the formula-source placeholder with derived native evaluation
+results. Structural changes now rewrite formulas from stable row/column
+identities, and numeric formula results participate in selection summaries.
 
 ### Phase 3: Formulas And Recalculation
 
-- [ ] Integrate the selected engine behind a Collab-owned adapter.
-- [ ] Add formula entry, syntax highlighting, reference selection, and formula
+- [x] Integrate the selected engine behind a Collab-owned adapter.
+- [x] Add formula entry, syntax highlighting, reference selection, and formula
   autocomplete.
-- [ ] Implement the baseline function set and document the exact support table.
-- [ ] Support relative, absolute, mixed, range, and cross-sheet references.
-- [ ] Rewrite references for insert, delete, move, fill, copy, and paste.
-- [ ] Add dependency-aware incremental recalculation.
-- [ ] Display stable errors for parse, reference, type, division, name, cycle,
+- [x] Implement the baseline function set and document the exact support table
+  in `advanced-tables-formula-support.md`.
+- [x] Support relative, absolute, mixed, range, and cross-sheet references.
+- [x] Rewrite references for insert, delete, move, fill, copy, and paste.
+- [x] Add dependency-aware incremental recalculation.
+- [x] Display stable errors for parse, reference, type, division, name, cycle,
   bounds, and unsupported-function failures.
-- [ ] Bound volatile functions and define `TODAY`/`NOW` timezone behavior using
+- [x] Bound volatile functions and define `TODAY`/`NOW` timezone behavior using
   the app's time/date settings.
-- [ ] Add formula inspection and dependent/precedent highlighting.
-- [ ] Add fixtures for deep dependencies, wide fan-out, cycles, error
+- [x] Add formula inspection and dependent/precedent highlighting.
+- [x] Add fixtures for deep dependencies, wide fan-out, cycles, error
   propagation, and structural rewrites.
 
 Exit gate: supported formulas recalculate deterministically after value and
 structural changes, and malformed/cyclic workbooks remain responsive.
+
+Phase 3 is in testing. Each open workbook owns a bounded native runtime reached
+through one batched IPC request per committed document change. The runtime
+diffs literal/formula inputs, lets the engine recalculate only dirty
+dependencies, and returns derived values keyed by stable worksheet/row/column
+IDs. Results are never serialized. `TODAY` and `NOW` are bound once per request
+using the app's configured calendar timezone. The formula bar provides
+caret-aware autocomplete with keyboard selection and signature help in both the
+formula bar and direct in-cell editing, while the grid supports click-and-drag
+insertion of single-cell and range references. The grid paints precedents and
+dependents for inspection, and merged ranges render as one visual cell while
+keeping the top-left cell as their canonical value.
+
+The known formualizer 0.7.1 range-text aggregation defect remains explicitly
+outside the compatibility claim: scalar `CONCAT` is supported, while
+`CONCAT`/`TEXTJOIN` range arguments are not advertised until the pinned
+upstream-gap test can be removed.
 
 ### Phase 4: Formatting And Spreadsheet Interactions
 
@@ -646,4 +661,3 @@ Phase 0 must resolve:
 No selected third-party engine may define Collab's persisted schema. Replacing a
 renderer, formula engine, or converter must remain possible through adapters and
 migrations rather than a workbook rewrite.
-

@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono::{Duration as ChronoDuration, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
-use formualizer_common::{ExcelErrorKind, LiteralValue};
+use formualizer_common::{ExcelError, ExcelErrorKind, LiteralValue};
 use formualizer_workbook::{Workbook, WorkbookConfig};
 use serde::{Deserialize, Serialize};
 
@@ -128,6 +128,24 @@ impl SheetFormulaError {
             ExcelErrorKind::Error => Self::Malformed,
         }
     }
+
+    fn into_engine(self) -> ExcelErrorKind {
+        match self {
+            Self::Null => ExcelErrorKind::Null,
+            Self::Reference => ExcelErrorKind::Ref,
+            Self::Name => ExcelErrorKind::Name,
+            Self::Value => ExcelErrorKind::Value,
+            Self::DivideByZero => ExcelErrorKind::Div,
+            Self::NotAvailable => ExcelErrorKind::Na,
+            Self::Number => ExcelErrorKind::Num,
+            Self::Spill => ExcelErrorKind::Spill,
+            Self::Calculation => ExcelErrorKind::Calc,
+            Self::Circular => ExcelErrorKind::Circ,
+            Self::Unsupported => ExcelErrorKind::NImpl,
+            Self::Malformed => ExcelErrorKind::Error,
+            Self::BudgetExceeded => ExcelErrorKind::Cancelled,
+        }
+    }
 }
 
 /// A cell value crossing the Collab formula boundary.
@@ -164,6 +182,18 @@ impl SheetFormulaValue {
         Self::Error { value }
     }
 
+    pub fn date(value: NaiveDate) -> Self {
+        Self::number(date_to_serial(value))
+    }
+
+    pub fn time(value: NaiveTime) -> Self {
+        Self::number(time_to_serial(value))
+    }
+
+    pub fn datetime(value: NaiveDateTime) -> Self {
+        Self::number(datetime_to_serial(value))
+    }
+
     pub fn as_number(&self) -> Option<f64> {
         match self {
             Self::Number { value } => Some(*value),
@@ -184,7 +214,7 @@ impl SheetFormulaValue {
             Self::Number { value } => LiteralValue::Number(value),
             Self::Text { value } => LiteralValue::Text(value),
             Self::Boolean { value } => LiteralValue::Boolean(value),
-            Self::Error { value } => LiteralValue::Text(value.code().to_string()),
+            Self::Error { value } => LiteralValue::Error(ExcelError::from(value.into_engine())),
         }
     }
 
@@ -203,9 +233,7 @@ impl SheetFormulaValue {
             // schema models spill ranges, surfacing a stable error beats
             // silently collapsing an array to its top-left cell.
             LiteralValue::Array(_) => Self::error(SheetFormulaError::Spill),
-            LiteralValue::Error(error) => {
-                Self::error(SheetFormulaError::from_engine(error.kind))
-            }
+            LiteralValue::Error(error) => Self::error(SheetFormulaError::from_engine(error.kind)),
         }
     }
 }
@@ -345,9 +373,17 @@ impl SheetFormulaEngine {
         value: SheetFormulaValue,
     ) -> Result<(), SheetEngineError> {
         self.require_worksheet(&cell.sheet)?;
+        let replacing_formula = self
+            .workbook
+            .get_formula(&cell.sheet, cell.row, cell.column)
+            .is_some();
         self.workbook
             .set_value(&cell.sheet, cell.row, cell.column, value.into_engine())
-            .map_err(|error| SheetEngineError::Engine(error.to_string()))
+            .map_err(|error| SheetEngineError::Engine(error.to_string()))?;
+        if replacing_formula {
+            self.formula_cells = self.formula_cells.saturating_sub(1);
+        }
+        Ok(())
     }
 
     /// Sets a rectangular block of values in one dependency-propagation pass.
@@ -362,7 +398,11 @@ impl SheetFormulaEngine {
         self.require_worksheet(sheet)?;
         let rows: Vec<Vec<LiteralValue>> = rows
             .into_iter()
-            .map(|row| row.into_iter().map(SheetFormulaValue::into_engine).collect())
+            .map(|row| {
+                row.into_iter()
+                    .map(SheetFormulaValue::into_engine)
+                    .collect()
+            })
             .collect();
         self.workbook
             .set_values(sheet, start_row, start_column, &rows)
@@ -430,7 +470,10 @@ impl SheetFormulaEngine {
             workbook.evaluate_cells_cancellable(&targets, cancel)
         })?
         .map_err(|error| SheetEngineError::Engine(error.to_string()))?;
-        Ok(values.into_iter().map(SheetFormulaValue::from_engine).collect())
+        Ok(values
+            .into_iter()
+            .map(SheetFormulaValue::from_engine)
+            .collect())
     }
 
     /// Recomputes every dirty formula in the workbook and reports how many
@@ -506,5 +549,20 @@ mod tests {
         assert_eq!(date_to_serial(date), 2.0);
         let noon = NaiveTime::from_hms_opt(12, 0, 0).unwrap();
         assert_eq!(time_to_serial(noon), 0.5);
+    }
+
+    #[test]
+    fn replacing_a_formula_with_a_literal_releases_the_budget_slot() {
+        let mut engine =
+            SheetFormulaEngine::new(SheetFormulaBudget::new(1, Duration::from_secs(1)));
+        engine.add_worksheet("Sheet1").unwrap();
+        let first = SheetCellRef::new("Sheet1", 1, 1);
+        let second = SheetCellRef::new("Sheet1", 2, 1);
+        engine.set_formula(&first, "=1").unwrap();
+        engine
+            .set_value(&first, SheetFormulaValue::number(2.0))
+            .unwrap();
+        engine.set_formula(&second, "=3").unwrap();
+        assert_eq!(engine.formula_cell_count(), 1);
     }
 }

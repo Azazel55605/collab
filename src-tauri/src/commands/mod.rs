@@ -11,6 +11,7 @@ pub mod notifications;
 pub mod ocr;
 pub mod replica;
 pub mod server;
+pub mod sheet;
 pub mod templates;
 pub mod ui;
 pub mod update;

@@ -5,10 +5,8 @@
  * mutating the input. That keeps the session controller's dirty tracking honest
  * and makes each operation testable without a renderer.
  *
- * Formula references are *not* rewritten here. Reference rewriting on insert,
- * delete, and move is Phase 3 work, alongside the engine that can parse them.
- * Until then a structural edit can leave a formula pointing at a moved cell —
- * a real limitation, tracked in the plan rather than papered over.
+ * Structural operations rewrite formula references from the stable row/column
+ * identities before and after the mutation.
  */
 
 import { SHEET_LIMITS, sheetCellKey } from '../../types/sheet';
@@ -20,6 +18,8 @@ import type {
   SheetRow,
   SheetWorksheet,
 } from '../../types/sheet';
+import type { SheetFormulaValueMap } from '../../types/sheetFormula';
+import { sheetFormulaResultKey } from '../../types/sheetFormula';
 import {
   SheetDocumentError,
   createSheetColumnId,
@@ -29,6 +29,7 @@ import {
 import type { SheetPosition } from './address';
 import { normalizeRange, selectedPositions, type SheetSelection } from './selection';
 import { numericValueOf } from './cellValue';
+import { rewriteDocumentFormulaReferences } from './formulaReferences';
 
 function mapWorksheet(
   document: SheetDocument,
@@ -205,7 +206,7 @@ export function insertTracks(
   count = 1,
 ): SheetDocument {
   if (count <= 0) return document;
-  return mapWorksheet(document, worksheetId, (worksheet) => {
+  const next = mapWorksheet(document, worksheetId, (worksheet) => {
     const order = axisOrder(worksheet, axis);
     if (order.length + count > axisLimit(axis)) {
       throw new SheetDocumentError(
@@ -221,6 +222,7 @@ export function insertTracks(
       ...order.slice(index),
     ]);
   });
+  return rewriteDocumentFormulaReferences(document, next);
 }
 
 export function deleteTracks(
@@ -231,7 +233,7 @@ export function deleteTracks(
   count = 1,
 ): SheetDocument {
   if (count <= 0) return document;
-  return mapWorksheet(document, worksheetId, (worksheet) => {
+  const next = mapWorksheet(document, worksheetId, (worksheet) => {
     const order = axisOrder(worksheet, axis);
     const index = Math.max(0, Math.min(fromIndex, order.length - 1));
     const removedIds = order.slice(index, index + count);
@@ -246,6 +248,7 @@ export function deleteTracks(
     const pruned = pruneReferences(worksheet, new Set(removedIds), axis);
     return withAxisOrder(pruned, axis, remaining);
   });
+  return rewriteDocumentFormulaReferences(document, next);
 }
 
 /** Moves a contiguous block of rows/columns so it starts at `toIndex`. */
@@ -258,7 +261,7 @@ export function moveTracks(
   toIndex: number,
 ): SheetDocument {
   if (count <= 0) return document;
-  return mapWorksheet(document, worksheetId, (worksheet) => {
+  const nextDocument = mapWorksheet(document, worksheetId, (worksheet) => {
     const order = axisOrder(worksheet, axis);
     const moving = order.slice(fromIndex, fromIndex + count);
     if (moving.length === 0) return worksheet;
@@ -268,6 +271,7 @@ export function moveTracks(
     if (next.every((id, index) => id === order[index])) return worksheet;
     return withAxisOrder(worksheet, axis, next);
   });
+  return rewriteDocumentFormulaReferences(document, nextDocument);
 }
 
 function updateTrack(
@@ -637,6 +641,7 @@ export interface SheetSelectionSummary {
 export function summarizeSelection(
   worksheet: SheetWorksheet,
   selection: SheetSelection,
+  computedValues?: SheetFormulaValueMap,
 ): SheetSelectionSummary {
   let filled = 0;
   let numeric = 0;
@@ -648,7 +653,12 @@ export function summarizeSelection(
     const cell = getCell(worksheet, position);
     if (!cell) continue;
     filled += 1;
-    const value = numericValueOf(cell);
+    const rowId = worksheet.rowOrder[position.row];
+    const columnId = worksheet.columnOrder[position.column];
+    const computed = rowId && columnId
+      ? computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
+      : undefined;
+    const value = numericValueOf(cell, computed);
     if (value === null) continue;
     numeric += 1;
     sum += value;

@@ -1047,6 +1047,7 @@ dependencies = [
  "collab-net-policy",
  "collab-protocol",
  "collab-replica",
+ "collab-sheet",
  "collab-vault-domain",
  "futures-util",
  "fuzzy-matcher",

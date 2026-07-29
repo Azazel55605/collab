@@ -58,8 +58,12 @@ import {
   createSelection,
   normalizeRange,
   type SheetSelection,
+  type SheetSelectionRange,
 } from '../lib/sheet/selection';
 import { useSheetSession } from '../lib/sheet/useSheetSession';
+import { useSheetFormulaEngine } from '../lib/sheet/useSheetFormulaEngine';
+import { formulaDependsOn, formulaPrecedents } from '../lib/sheet/formulaReferences';
+import { insertFormulaReference } from '../lib/sheet/formulaFunctions';
 
 interface Props {
   relativePath: string;
@@ -85,8 +89,11 @@ export default function SheetView({ relativePath }: Props) {
   });
 
   const { document } = session;
+  const formulaState = useSheetFormulaEngine(document);
   const [selection, setSelection] = useState<SheetSelection>(() => createSelection({ row: 0, column: 0 }));
   const [editing, setEditing] = useState<SheetGridEditing | null>(null);
+  const [formulaCursor, setFormulaCursor] = useState(0);
+  const formulaCursorRef = useRef(0);
   const restoredRef = useRef(false);
 
   const worksheet = useMemo(
@@ -183,13 +190,24 @@ export default function SheetView({ relativePath }: Props) {
     return formatCellEditText(getCell(worksheet, selection.active));
   }, [editing, selection.active, worksheet]);
 
+  useEffect(() => {
+    if (editing?.source !== 'grid') return;
+    formulaCursorRef.current = editing.text.length;
+    setFormulaCursor(editing.text.length);
+  }, [editing?.source, editing?.text]);
+
+  const setFormulaCaret = useCallback((cursor: number) => {
+    formulaCursorRef.current = cursor;
+    setFormulaCursor(cursor);
+  }, []);
+
   const commitCell = useCallback((position: SheetPosition, text: string) => {
     mutate((current, worksheetId) => setCell(current, worksheetId, position, parseCellInput(text)));
   }, [mutate]);
 
   const handleFormulaBarChange = useCallback((text: string) => {
     if (session.readOnly) return;
-    setEditing({ position: selection.active, text });
+    setEditing({ position: selection.active, text, source: 'formula-bar' });
   }, [selection.active, session.readOnly]);
 
   const commitFormulaBar = useCallback(() => {
@@ -197,6 +215,21 @@ export default function SheetView({ relativePath }: Props) {
     commitCell(editing.position, editing.text);
     setEditing(null);
   }, [commitCell, editing]);
+
+  const handleGridSelectionChange = useCallback((next: SheetSelection) => {
+    setSelection(next);
+  }, []);
+
+  const handleFormulaReferenceCommit = useCallback((range: SheetSelectionRange) => {
+    if (!editing?.text.startsWith('=')) return;
+    const rectangle = normalizeRange(range);
+    const start = formatA1({ row: rectangle.top, column: rectangle.left });
+    const end = formatA1({ row: rectangle.bottom, column: rectangle.right });
+    const reference = start === end ? start : `${start}:${end}`;
+    const inserted = insertFormulaReference(editing.text, reference, formulaCursorRef.current);
+    setEditing({ ...editing, text: inserted.value, source: 'formula-bar' });
+    setFormulaCaret(inserted.cursor);
+  }, [editing, setFormulaCaret]);
 
   // ── Structural commands ────────────────────────────────────────────────────
   const selectionRectangle = useMemo(
@@ -231,9 +264,42 @@ export default function SheetView({ relativePath }: Props) {
   });
 
   const summary = useMemo(
-    () => (worksheet ? summarizeSelection(worksheet, selection) : null),
-    [selection, worksheet],
+    () => (worksheet ? summarizeSelection(worksheet, selection, formulaState.values) : null),
+    [formulaState.values, selection, worksheet],
   );
+
+  const formulaHighlights = useMemo(() => {
+    if (!document || !worksheet) return new Map<string, 'precedent' | 'dependent'>();
+    const highlights = new Map<string, 'precedent' | 'dependent'>();
+    const active = getCell(worksheet, selection.active);
+    if (active?.formula) {
+      for (const dependency of formulaPrecedents(document, worksheet.id, active.formula)) {
+        if (dependency.worksheetId === worksheet.id) {
+          highlights.set(`${dependency.rowId}:${dependency.columnId}`, 'precedent');
+        }
+      }
+    }
+    const activeRowId = worksheet.rowOrder[selection.active.row];
+    const activeColumnId = worksheet.columnOrder[selection.active.column];
+    if (activeRowId && activeColumnId) {
+      let inspected = 0;
+      for (const candidate of document.worksheets) {
+        for (const [key, cell] of Object.entries(candidate.cells)) {
+          if (!cell.formula) continue;
+          inspected += 1;
+          if (inspected > 5_000) break;
+          const dependsOnActive = formulaDependsOn(document, candidate.id, cell.formula, {
+            worksheetId: worksheet.id,
+            rowId: activeRowId,
+            columnId: activeColumnId,
+          });
+          if (dependsOnActive && candidate.id === worksheet.id) highlights.set(key, 'dependent');
+        }
+        if (inspected > 5_000) break;
+      }
+    }
+    return highlights;
+  }, [document, selection.active, worksheet]);
 
   const meta = document
     ? `${document.worksheets.length} worksheet${document.worksheets.length === 1 ? '' : 's'}`
@@ -366,6 +432,8 @@ export default function SheetView({ relativePath }: Props) {
             onChange={handleFormulaBarChange}
             onCommit={commitFormulaBar}
             onCancel={() => setEditing(null)}
+            cursor={formulaCursor}
+            onCursorChange={setFormulaCaret}
             onNavigate={(position) => setSelection(createSelection(clampPosition(position, bounds)))}
             readOnly={session.readOnly}
           />
@@ -373,7 +441,7 @@ export default function SheetView({ relativePath }: Props) {
           <SheetGrid
             worksheet={worksheet}
             selection={selection}
-            onSelectionChange={setSelection}
+            onSelectionChange={handleGridSelectionChange}
             onCommit={commitCell}
             editing={editing}
             onEditingChange={setEditing}
@@ -394,6 +462,10 @@ export default function SheetView({ relativePath }: Props) {
               : undefined}
             onScrollPositionChange={(scroll) => persistViewState(scroll)}
             readOnly={session.readOnly}
+            computedValues={formulaState.values}
+            formulaHighlights={formulaHighlights}
+            formulaReferenceMode={Boolean(editing?.text.startsWith('='))}
+            onFormulaReferenceCommit={handleFormulaReferenceCommit}
           />
 
           <SheetWorksheetBar
@@ -437,6 +509,13 @@ export default function SheetView({ relativePath }: Props) {
               </>
             )}
             {isFrozen && <span>Frozen: {frozen.rows}R × {frozen.columns}C</span>}
+            {formulaState.calculating && <span>Calculating…</span>}
+            {!formulaState.calculating && formulaState.recalculated > 0 && (
+              <span>Recalculated: {formulaState.recalculated.toLocaleString()}</span>
+            )}
+            {formulaState.error && (
+              <span className="text-destructive">Formula engine: {formulaState.error}</span>
+            )}
           </div>
         </>
       )}
