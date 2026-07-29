@@ -174,7 +174,9 @@ export function NotificationSettingsSection() {
             onClick={() => void run(notificationRequestPermission)}
           >
             <Bell size={16} aria-hidden />
-            Enable notifications
+            {permission?.status === 'denied'
+              ? 'Open notification settings'
+              : 'Enable notifications'}
           </button>
         ) : (
           <button

@@ -4,6 +4,7 @@ import type { NotificationRecord } from '../../types/notification';
 
 const mocks = vi.hoisted(() => ({
   listInbox: vi.fn(),
+  syncRemote: vi.fn(),
   markRead: vi.fn(),
   dismiss: vi.fn(),
   snooze: vi.fn(),
@@ -15,6 +16,7 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }));
 vi.mock('../../lib/tauri', () => ({
   tauriCommands: {
     notificationListInbox: mocks.listInbox,
+    notificationSyncRemote: mocks.syncRemote,
     notificationMarkRead: mocks.markRead,
     notificationDismiss: mocks.dismiss,
     notificationSnooze: mocks.snooze,
@@ -61,6 +63,7 @@ describe('NotificationCenter', () => {
     vi.clearAllMocks();
     mocks.listen.mockResolvedValue(() => {});
     mocks.listInbox.mockResolvedValue([record]);
+    mocks.syncRemote.mockResolvedValue([]);
     mocks.markRead.mockResolvedValue(undefined);
     mocks.dismiss.mockResolvedValue(undefined);
     useCollabStore.setState({ myUserId: 'profile-1' });
@@ -68,6 +71,7 @@ describe('NotificationCenter', () => {
 
   it('shows unread native inbox records and dismisses them', async () => {
     render(<NotificationCenter />);
+    await waitFor(() => expect(mocks.syncRemote).toHaveBeenCalledWith('profile-1'));
     const trigger = await screen.findByRole('button', { name: 'Notifications, 1 unread' });
     fireEvent.click(trigger);
     expect(await screen.findByText('Planning')).not.toBeNull();

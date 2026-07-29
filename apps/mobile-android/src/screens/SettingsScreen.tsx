@@ -33,6 +33,7 @@ import {
   backgroundSettingsSave,
   reconcileAndroidBackground,
   requestAndroidBackgroundSync,
+  verifyAndroidBackgroundSync,
   type BackgroundSettings,
 } from '../mobileTauri';
 import { mobileCalendarProfileId } from '../lib/calendarSync';
@@ -228,6 +229,18 @@ export function SettingsScreen({
     try {
       await requestAndroidBackgroundSync(mobileCalendarProfileId(), true);
       await refreshBackgroundJobs().catch(() => {});
+    } catch (error) {
+      setBackgroundError(String(error));
+    } finally {
+      setBackgroundBusy(false);
+    }
+  };
+
+  const verifyBackground = async () => {
+    setBackgroundBusy(true);
+    setBackgroundError(null);
+    try {
+      await verifyAndroidBackgroundSync(mobileCalendarProfileId());
     } catch (error) {
       setBackgroundError(String(error));
     } finally {
@@ -459,6 +472,18 @@ export function SettingsScreen({
           <RefreshCw size={16} aria-hidden />
           Sync now
         </button>
+        <button
+          type="button"
+          className="ghost-button"
+          disabled={backgroundBusy}
+          onClick={() => void verifyBackground()}
+        >
+          <Bell size={16} aria-hidden />
+          Verify background sync
+        </button>
+        <p className="footnote">
+          Schedules a real WorkManager run and posts a notification when it finishes.
+        </p>
         {backgroundError ? <p className="footnote error-text">{backgroundError}</p> : null}
         {backgroundJobs.length > 0 ? (
           <div className="info-rows">

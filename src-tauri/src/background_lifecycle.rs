@@ -25,6 +25,7 @@ pub struct DesktopBackgroundLifecycle {
     pause_item: MenuItem<tauri::Wry>,
     status_item: MenuItem<tauri::Wry>,
     last_dispatch: Mutex<Option<Instant>>,
+    last_notification_dispatch: Mutex<Option<Instant>>,
 }
 
 pub fn show_main_window(app: &tauri::AppHandle) {
@@ -44,6 +45,12 @@ pub fn show_main_window(app: &tauri::AppHandle) {
 
 pub fn set_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let autostart = app.autolaunch();
+    let current = autostart
+        .is_enabled()
+        .map_err(|error| format!("Could not read start-at-login state: {error}"))?;
+    if current == enabled {
+        return Ok(());
+    }
     if enabled {
         autostart.enable()
     } else {
@@ -150,6 +157,20 @@ fn start_scheduler(app: tauri::AppHandle) {
             let _ = crate::desktop_notifications::dispatch_due(&app).await;
 
             let state = app.state::<AppState>();
+            let should_poll_notifications = app
+                .state::<DesktopBackgroundLifecycle>()
+                .last_notification_dispatch
+                .lock()
+                .is_none_or(|last| last.elapsed() >= Duration::from_secs(60));
+            if should_poll_notifications {
+                *app.state::<DesktopBackgroundLifecycle>()
+                    .last_notification_dispatch
+                    .lock() = Some(Instant::now());
+                let _ = state
+                    .background
+                    .clone()
+                    .enqueue_registered_notifications(BackgroundJobTrigger::Foreground, None);
+            }
             let Ok(settings) = state.background.settings() else {
                 continue;
             };
@@ -235,6 +256,7 @@ pub fn setup_background_lifecycle(app: &mut tauri::App) -> tauri::Result<()> {
         pause_item: pause,
         status_item: status,
         last_dispatch: Mutex::new(None),
+        last_notification_dispatch: Mutex::new(None),
     });
 
     let settings = app

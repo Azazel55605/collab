@@ -1,8 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.reject(new Error('unavailable'))) }));
 
+import { invoke } from '@tauri-apps/api/core';
 import { DEFAULT_PREFS } from '../lib/theme';
 import { SettingsScreen } from './SettingsScreen';
 
@@ -34,5 +35,21 @@ describe('mobile settings navigation', () => {
 
     expect(screen.getByRole('navigation', { name: 'Settings categories' })).not.toBeNull();
     expect(screen.queryByText('Accent color')).toBeNull();
+  });
+
+  it('schedules the native background verification worker', async () => {
+    render(<SettingsScreen prefs={DEFAULT_PREFS} onChange={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Background/ }));
+    const verifyButton = screen.getByRole('button', { name: 'Verify background sync' });
+    await waitFor(() => expect((verifyButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(verifyButton);
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        'background_android_verify',
+        expect.objectContaining({ profileId: expect.any(String) }),
+      );
+    });
   });
 });

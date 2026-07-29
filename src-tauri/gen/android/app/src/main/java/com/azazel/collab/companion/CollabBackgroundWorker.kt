@@ -35,7 +35,24 @@ class CollabBackgroundWorker(
       CollabNotificationScheduler.reconcileProfile(applicationContext, profileId)
       CollabNotificationBridge.refreshPushRegistration(applicationContext)
       Log.i(TAG, "Native background work completed")
-      if (retryRecommended && runAttemptCount < MAX_RETRY_ATTEMPTS) {
+      if (trigger == TRIGGER_DIAGNOSTIC) {
+        val succeeded = outcome.optInt("attentionRequired", 0) == 0
+        val completed = outcome.optInt("succeeded", 0)
+        CollabNotificationBridge.sendBackgroundSyncDiagnostic(
+          applicationContext,
+          succeeded,
+          if (succeeded) {
+            "$completed background operation(s) completed."
+          } else {
+            "Background work ran, but one or more operations need attention."
+          },
+        )
+      }
+      if (
+        trigger != TRIGGER_DIAGNOSTIC &&
+        retryRecommended &&
+        runAttemptCount < MAX_RETRY_ATTEMPTS
+      ) {
         Result.retry()
       } else {
         Result.success(
@@ -53,7 +70,16 @@ class CollabBackgroundWorker(
       }
       val message = sanitizeWorkerError(error.message ?: error.javaClass.simpleName)
       Log.e(TAG, "Native background work failed: $message")
-      if (runAttemptCount < MAX_RETRY_ATTEMPTS) {
+      if (trigger == TRIGGER_DIAGNOSTIC) {
+        runCatching {
+          CollabNotificationBridge.sendBackgroundSyncDiagnostic(
+            applicationContext,
+            false,
+            message,
+          )
+        }
+        Result.failure(workDataOf(OUTPUT_ERROR to message.take(MAX_OUTPUT_LENGTH)))
+      } else if (runAttemptCount < MAX_RETRY_ATTEMPTS) {
         Result.retry()
       } else {
         Result.failure(workDataOf(OUTPUT_ERROR to message.take(MAX_OUTPUT_LENGTH)))
@@ -65,6 +91,7 @@ class CollabBackgroundWorker(
     private const val TAG = "CollabBackground"
     private const val MAX_RETRY_ATTEMPTS = 5
     private const val MAX_OUTPUT_LENGTH = 4096
+    const val TRIGGER_DIAGNOSTIC = "diagnostic"
     const val INPUT_TRIGGER = "trigger"
     const val INPUT_PROFILE_ID = "profileId"
     const val OUTPUT_PAYLOAD = "backgroundPayload"
@@ -187,6 +214,7 @@ object CollabBackgroundScheduler {
   private const val PERIODIC_PREFIX = "collab-background-periodic-"
   private const val CATCH_UP_PREFIX = "collab-background-catch-up-"
   private const val USER_PREFIX = "collab-background-user-"
+  private const val DIAGNOSTIC_PREFIX = "collab-background-diagnostic-"
 
   internal fun intervalMinutes(interval: String): Long? = when (interval) {
     "system_managed", "fifteen_minutes" -> 15
@@ -226,6 +254,7 @@ object CollabBackgroundScheduler {
   private fun periodicName(profileId: String) = PERIODIC_PREFIX + profileWorkSuffix(profileId)
   private fun catchUpName(profileId: String) = CATCH_UP_PREFIX + profileWorkSuffix(profileId)
   private fun userName(profileId: String) = USER_PREFIX + profileWorkSuffix(profileId)
+  private fun diagnosticName(profileId: String) = DIAGNOSTIC_PREFIX + profileWorkSuffix(profileId)
 
   @JvmStatic
   fun configure(
@@ -324,11 +353,44 @@ object CollabBackgroundScheduler {
   }
 
   @JvmStatic
+  fun requestDiagnostic(context: Context, profileId: String): String? = try {
+    if (CollabNotificationBridge.permissionStatus(context) != "granted") {
+      "Notification permission is not granted."
+    } else {
+      val name = diagnosticName(profileId)
+      val request = OneTimeWorkRequestBuilder<CollabBackgroundWorker>()
+        .setConstraints(
+          Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build(),
+        )
+        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+        .setInputData(
+          workDataOf(
+            CollabBackgroundWorker.INPUT_TRIGGER to CollabBackgroundWorker.TRIGGER_DIAGNOSTIC,
+            CollabBackgroundWorker.INPUT_PROFILE_ID to profileId,
+          ),
+        )
+        .addTag(name)
+        .build()
+      WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+        name,
+        ExistingWorkPolicy.REPLACE,
+        request,
+      )
+      null
+    }
+  } catch (error: Throwable) {
+    error.message ?: error.javaClass.simpleName
+  }
+
+  @JvmStatic
   fun cancelProfile(context: Context, profileId: String): String? = try {
     val workManager = WorkManager.getInstance(context.applicationContext)
     workManager.cancelUniqueWork(periodicName(profileId))
     workManager.cancelUniqueWork(catchUpName(profileId))
     workManager.cancelUniqueWork(userName(profileId))
+    workManager.cancelUniqueWork(diagnosticName(profileId))
     null
   } catch (error: Throwable) {
     error.message ?: error.javaClass.simpleName

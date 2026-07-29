@@ -4,9 +4,13 @@ use crate::notifications::{
     NotificationPreferences, NotificationReconcileResult, NotificationReconciliationRequest,
     NotificationRecord, NotificationStore,
 };
+use crate::{
+    background::{BackgroundJobRecord, BackgroundJobTrigger},
+    state::AppState,
+};
 use serde_json::Value;
 use std::{collections::HashMap, sync::OnceLock};
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
 use tokio::sync::Mutex;
 
 static NOTIFICATION_STORES: OnceLock<Mutex<HashMap<String, NotificationStore>>> = OnceLock::new();
@@ -87,6 +91,20 @@ pub async fn notification_list_inbox(
         .list_inbox(&profile_id, include_dismissed, limit)
         .await
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn notification_sync_remote(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<Vec<BackgroundJobRecord>, String> {
+    state
+        .background
+        .register_profile_for_all_servers(&profile_id)?;
+    state
+        .background
+        .clone()
+        .enqueue_registered_notifications(BackgroundJobTrigger::Foreground, Some(&profile_id))
 }
 
 #[tauri::command]

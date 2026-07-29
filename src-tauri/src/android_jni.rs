@@ -196,8 +196,14 @@ pub fn notification_permission_status() -> Result<String, String> {
 }
 
 pub fn request_notification_permission() -> Result<String, String> {
-    call_static_string(NOTIFICATION_BRIDGE_CLASS, "requestPermission", &[])?
-        .ok_or_else(|| "Android returned no notification permission state.".to_string())
+    let status = call_static_string(NOTIFICATION_BRIDGE_CLASS, "requestPermission", &[])?
+        .ok_or_else(|| "Android returned no notification permission state.".to_string())?;
+    if status == "activity-unavailable" {
+        return Err(
+            "Bring Collab to the foreground before requesting notification permission.".to_string(),
+        );
+    }
+    Ok(status)
 }
 
 pub fn send_test_notification() -> Result<(), String> {
@@ -324,6 +330,19 @@ pub fn request_immediate_background_work(
     }
 }
 
+pub fn request_background_diagnostic(profile_id: &str) -> Result<(), String> {
+    match call_static_string(
+        BACKGROUND_SCHEDULER_CLASS,
+        "requestDiagnostic",
+        &[profile_id],
+    )? {
+        Some(error) => Err(format!(
+            "Could not schedule the background sync check: {error}"
+        )),
+        None => Ok(()),
+    }
+}
+
 pub fn cancel_background_profile(profile_id: &str) -> Result<(), String> {
     match call_static_string(BACKGROUND_SCHEDULER_CLASS, "cancelProfile", &[profile_id])? {
         Some(error) => Err(format!("Could not cancel Android background work: {error}")),
@@ -391,7 +410,9 @@ pub extern "system" fn Java_com_azazel_collab_companion_CollabBackgroundBridge_r
             .into_owned();
         let trigger = match trigger.as_str() {
             "periodic" => crate::background::BackgroundJobTrigger::Periodic,
-            "catch-up" | "user-initiated" => crate::background::BackgroundJobTrigger::UserInitiated,
+            "catch-up" | "user-initiated" | "diagnostic" => {
+                crate::background::BackgroundJobTrigger::UserInitiated
+            }
             _ => return Err("The Android background trigger is invalid.".to_string()),
         };
         let profile_id = env

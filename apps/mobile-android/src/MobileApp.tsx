@@ -8,6 +8,7 @@ import {
   notificationAndroidTakePendingOpen,
   notificationListInbox,
   notificationMarkRead,
+  notificationSyncRemote,
   reconcileAndroidBackground,
   requestAndroidBackgroundSync,
   type BackgroundJobRecord,
@@ -101,9 +102,13 @@ export function MobileApp() {
   const backgroundAttention = findBackgroundAttention(backgroundJobs, servers, statuses);
 
   useEffect(() => {
-    restore().catch((reason: unknown) => {
-      setRestoreError(reason instanceof Error ? reason.message : String(reason));
-    });
+    restore()
+      .then(() => {
+        void notificationSyncRemote(mobileCalendarProfileId()).catch(() => {});
+      })
+      .catch((reason: unknown) => {
+        setRestoreError(reason instanceof Error ? reason.message : String(reason));
+      });
   }, [restore]);
 
   // Keep connection status fresh when the app returns to the foreground, and
@@ -115,6 +120,7 @@ export function MobileApp() {
       void (async () => {
         await refreshStatuses().catch(() => {});
         const profileId = mobileCalendarProfileId();
+        await notificationSyncRemote(profileId).catch(() => {});
         await reconcileAndroidBackground(profileId).catch(() => {});
         await requestAndroidBackgroundSync(profileId, false).catch(() => {});
         await useMobileStore.getState().refreshBackgroundJobs().catch(() => {});

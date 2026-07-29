@@ -345,7 +345,12 @@ logic. The gateway receives one opaque provider target plus one opaque
 invalidation, maps the
 invalidation fields to FCM string data, returns `2xx` when accepted and `410`
 for a permanently invalid token. Deployments without a gateway retain
-authenticated notification polling.
+authenticated notification polling. Foreground desktop and mobile clients now
+register the visible application profile with every restored server session,
+request an immediate authenticated catch-up, and repeat that catch-up at a
+bounded interval. This keeps server-originated notifications correct when FCM
+or a push gateway is not configured and prevents records from being ingested
+into a server-user profile database that the visible inbox does not read.
 
 ### Phase 5: Preferences And Quiet Hours
 
@@ -404,7 +409,23 @@ Phase 6 is implemented and in **Testing**. Automated coverage now exercises
 timezone and DST boundary recomputation, one-time concurrent actions,
 server-scoped cancellation, account-disable delivery cleanup, and aggregate
 metrics privacy. The remaining work is the packaged and physical-device matrix,
-not application implementation.
+not planned application implementation.
+
+Physical testing on 2026-07-29 found and corrected three release blockers:
+
+- hosted catch-up used the authenticated server user ID instead of the visible
+  application profile, leaving valid records outside the active inbox;
+- Android permission recovery could return a denied state without opening the
+  operating-system notification settings, and permission requests were not
+  explicitly dispatched on the foreground activity UI thread;
+- saving unrelated Windows background settings could call autostart disable
+  when its registry value was already absent, surfacing the platform's
+  "system cannot find" error.
+
+Android Settings now also exposes a one-shot **Verify background sync** action.
+It schedules the real WorkManager/Rust coordinator path and emits a
+privacy-safe completion notification. Routine successful background sync stays
+silent.
 
 ## Security And Privacy
 

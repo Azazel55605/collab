@@ -191,7 +191,12 @@ pub fn background_settings_save(
         settings.paused = false;
     }
     #[cfg(not(mobile))]
-    crate::background_lifecycle::set_autostart(&app, settings.start_at_login)?;
+    {
+        let previous = state.background.settings()?;
+        if previous.start_at_login != settings.start_at_login {
+            crate::background_lifecycle::set_autostart(&app, settings.start_at_login)?;
+        }
+    }
     #[cfg(mobile)]
     {
         let _ = app;
@@ -296,6 +301,25 @@ pub fn background_android_cancel_profile(profile_id: String) -> Result<(), Strin
     {
         let _ = profile_id;
         Err("Android background scheduling is only available on Android.".to_string())
+    }
+}
+
+#[tauri::command]
+pub fn background_android_verify(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<(), String> {
+    state
+        .background
+        .register_profile_for_all_servers(&profile_id)?;
+    #[cfg(target_os = "android")]
+    {
+        crate::android_jni::request_background_diagnostic(&profile_id)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = state;
+        Err("Android background verification is only available on Android.".to_string())
     }
 }
 

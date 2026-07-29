@@ -321,6 +321,35 @@ impl BackgroundCoordinator {
         self.enqueue_registered_for_profile(trigger, None)
     }
 
+    pub fn enqueue_registered_notifications(
+        self: &Arc<Self>,
+        trigger: BackgroundJobTrigger,
+        profile_filter: Option<&str>,
+    ) -> Result<Vec<BackgroundJobRecord>, String> {
+        let run_id = Uuid::new_v4();
+        let mut jobs = Vec::new();
+        for (server_index, server) in self.list_servers()?.into_iter().enumerate() {
+            for profile_id in server
+                .profile_ids
+                .iter()
+                .filter(|profile_id| profile_filter.is_none_or(|filter| *profile_id == filter))
+            {
+                jobs.push(self.enqueue(BackgroundJobRequest {
+                    idempotency_key: format!(
+                        "notification-catch-up-{run_id}-{server_index}-{profile_id}"
+                    ),
+                    kind: BackgroundJobKind::NotificationSync,
+                    server_url: Some(server.server_url.clone()),
+                    profile_id: Some(profile_id.clone()),
+                    vault_id: None,
+                    trigger,
+                    runtime_budget_seconds: Some(60),
+                })?);
+            }
+        }
+        Ok(jobs)
+    }
+
     pub fn enqueue_registered_for_profile(
         self: &Arc<Self>,
         trigger: BackgroundJobTrigger,
@@ -1271,5 +1300,40 @@ mod tests {
         assert!(records
             .iter()
             .any(|record| record.kind == BackgroundJobKind::NotificationSync));
+    }
+
+    #[tokio::test]
+    async fn notification_catch_up_targets_only_the_visible_profile() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let coordinator = Arc::new(BackgroundCoordinator::for_test(
+            Arc::new(HostedSessionRuntime::new()),
+            directory.path().to_path_buf(),
+        ));
+        coordinator
+            .upsert_server(BackgroundServerRegistration {
+                server_url: "https://collab.example.test".to_string(),
+                allow_invalid_certificates: false,
+                persist_across_reboots: true,
+                background_sync_enabled: false,
+                profile_ids: vec!["server-user".to_string(), "visible-profile".to_string()],
+                updated_at: Utc::now().to_rfc3339(),
+            })
+            .expect("server registration");
+
+        let jobs = coordinator
+            .enqueue_registered_notifications(
+                BackgroundJobTrigger::Foreground,
+                Some("visible-profile"),
+            )
+            .expect("notification catch-up");
+
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].kind, BackgroundJobKind::NotificationSync);
+        assert_eq!(jobs[0].profile_id.as_deref(), Some("visible-profile"));
+        assert_eq!(
+            jobs[0].server_url.as_deref(),
+            Some("https://collab.example.test")
+        );
+        coordinator.shutdown();
     }
 }

@@ -75,7 +75,15 @@ export default function NotificationCenter() {
   }, [profileId]);
 
   useEffect(() => {
+    if (!profileId) return;
+    const catchUp = async () => {
+      await tauriCommands.notificationSyncRemote(profileId).catch(() => []);
+      window.setTimeout(() => void refresh(), 1_000);
+      window.setTimeout(() => void refresh(), 5_000);
+    };
     void refresh();
+    void catchUp();
+    const interval = window.setInterval(() => void catchUp(), 60_000);
     const unlisteners: Array<() => void> = [];
     void listen<{ profileId?: string }>('notifications:inbox-changed', ({ payload }) => {
       if (!payload.profileId || payload.profileId === profileId) void refresh();
@@ -84,7 +92,10 @@ export default function NotificationCenter() {
       setOpen(true);
       void refresh();
     }).then((unlisten) => unlisteners.push(unlisten));
-    return () => unlisteners.forEach((unlisten) => unlisten());
+    return () => {
+      window.clearInterval(interval);
+      unlisteners.forEach((unlisten) => unlisten());
+    };
   }, [profileId, refresh]);
 
   const unread = useMemo(

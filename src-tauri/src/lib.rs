@@ -174,6 +174,7 @@ pub fn run() {
             commands::notifications::notification_reconcile,
             commands::notifications::notification_cancel_category,
             commands::notifications::notification_list_inbox,
+            commands::notifications::notification_sync_remote,
             commands::notifications::notification_preferences_get,
             commands::notifications::notification_preferences_save,
             commands::notifications::notification_mark_read,
@@ -209,6 +210,7 @@ pub fn run() {
             commands::background::background_android_reconcile,
             commands::background::background_android_request_immediate,
             commands::background::background_android_cancel_profile,
+            commands::background::background_android_verify,
             // vault
             commands::vault::open_vault,
             commands::vault::create_vault,

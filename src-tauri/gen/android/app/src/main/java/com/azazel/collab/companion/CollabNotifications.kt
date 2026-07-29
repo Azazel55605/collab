@@ -91,13 +91,22 @@ object CollabNotificationBridge {
 
   @JvmStatic
   fun permissionStatus(context: Context): String {
-    if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return "denied"
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return "granted"
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+      return if (NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+        "granted"
+      } else {
+        "denied"
+      }
+    }
     if (
       ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
       PackageManager.PERMISSION_GRANTED
     ) {
-      return "granted"
+      return if (NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+        "granted"
+      } else {
+        "denied"
+      }
     }
     val activity = (context as? Activity) ?: MainActivity.currentActivity()
     if (
@@ -114,20 +123,53 @@ object CollabNotificationBridge {
   @JvmStatic
   fun requestPermission(context: Context): String {
     ensureChannels(context)
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return permissionStatus(context)
-    if (permissionStatus(context) == "granted") return "granted"
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+      val status = permissionStatus(context)
+      if (status != "granted") openNotificationSettings(context)
+      return status
+    }
+    val runtimeGranted =
+      ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+        PackageManager.PERMISSION_GRANTED
+    if (runtimeGranted) {
+      if (NotificationManagerCompat.from(context).areNotificationsEnabled()) return "granted"
+      openNotificationSettings(context)
+      return "denied"
+    }
     val activity = (context as? Activity) ?: MainActivity.currentActivity()
-      ?: return permissionStatus(context)
-    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      ?: return "activity-unavailable"
+    val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val requested = preferences.getBoolean(REQUESTED_KEY, false)
+    if (
+      requested &&
+      !ActivityCompat.shouldShowRequestPermissionRationale(
+        activity,
+        Manifest.permission.POST_NOTIFICATIONS,
+      )
+    ) {
+      openNotificationSettings(context)
+      return "denied"
+    }
+    preferences
       .edit()
       .putBoolean(REQUESTED_KEY, true)
       .apply()
-    ActivityCompat.requestPermissions(
-      activity,
-      arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-      PERMISSION_REQUEST_CODE,
-    )
+    activity.runOnUiThread {
+      ActivityCompat.requestPermissions(
+        activity,
+        arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+        PERMISSION_REQUEST_CODE,
+      )
+    }
     return "prompt"
+  }
+
+  private fun openNotificationSettings(context: Context) {
+    context.startActivity(
+      Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+    )
   }
 
   @JvmStatic
@@ -159,6 +201,39 @@ object CollabNotificationBridge {
     }
   } catch (error: Throwable) {
     error.message ?: error.javaClass.simpleName
+  }
+
+  fun sendBackgroundSyncDiagnostic(
+    context: Context,
+    succeeded: Boolean,
+    detail: String,
+  ) {
+    ensureChannels(context)
+    if (permissionStatus(context) != "granted") return
+    val intent = Intent(context, MainActivity::class.java)
+      .setAction(ACTION_OPEN)
+      .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    val pendingIntent = PendingIntent.getActivity(
+      context,
+      stableId("background-sync-diagnostic-open"),
+      intent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+    NotificationManagerCompat.from(context).notify(
+      stableId("background-sync-diagnostic"),
+      NotificationCompat.Builder(context, CHANNEL_SYNC)
+        .setSmallIcon(R.drawable.ic_notification)
+        .setContentTitle(
+          if (succeeded) "Background sync completed" else "Background sync check failed",
+        )
+        .setContentText(detail.take(180))
+        .setContentIntent(pendingIntent)
+        .setAutoCancel(true)
+        .setCategory(
+          if (succeeded) NotificationCompat.CATEGORY_STATUS else NotificationCompat.CATEGORY_ERROR,
+        )
+        .build(),
+    )
   }
 
   fun ensureChannels(context: Context) {

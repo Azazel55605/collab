@@ -393,6 +393,8 @@ export const tauriCommands = {
     invoke<number>('notification_cancel_category', { profileId, category }),
   notificationListInbox: (profileId: string, includeDismissed = false, limit = 200) =>
     invoke<NotificationRecord[]>('notification_list_inbox', { profileId, includeDismissed, limit }),
+  notificationSyncRemote: (profileId: string) =>
+    invoke<BackgroundJobRecord[]>('notification_sync_remote', { profileId }),
   notificationPreferencesGet: (profileId: string) =>
     invoke<NotificationPreferences>('notification_preferences_get', { profileId }),
   notificationPreferencesSave: (profileId: string, preferences: NotificationPreferences) =>

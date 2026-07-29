@@ -97,6 +97,7 @@ Run every row against a packaged build, not only `tauri dev`.
 | Reauthentication recovers without removing the server | [ ] | [ ] | [ ] | [ ] | [ ] |
 | Removing a server or replica cancels only matching work | [ ] | [ ] | [ ] | [ ] | [ ] |
 | Start-at-login and explicit Quit behave correctly | [ ] | [ ] | [ ] | [ ] | [ ] |
+| Saving background settings with autostart already disabled succeeds | [ ] | [ ] | [ ] | [ ] | [ ] |
 | Upgrade preserves settings and readable job history | [ ] | [ ] | [ ] | [ ] | [ ] |
 
 For Flatpak, repeat tray visibility, restore, and autostart checks inside the
@@ -120,6 +121,8 @@ aggressive battery management where available.
 | Expired credentials show reauthentication without logging out other servers | [ ] | [ ] |
 | Removing one server/replica leaves unrelated work intact | [ ] | [ ] |
 | Force-stop blocks work until Collab is launched again | [ ] | [ ] |
+| Verify background sync runs WorkManager and shows one completion notification | [ ] | [ ] |
+| Denied notification permission opens Android app notification settings | [ ] | [ ] |
 
 Useful commands:
 
@@ -160,6 +163,9 @@ must not attempt to bypass them.
 3. Inspect WorkManager with `dumpsys jobscheduler`.
 4. Check whether the app was force-stopped or restricted by OEM battery policy.
 5. Launch Collab once to request a unique catch-up job.
+6. Use **Settings > Background activity > Verify background sync** for a
+   one-shot end-to-end check. This diagnostic requires notification permission
+   and does not enable notifications for routine successful syncs.
 
 ### Upgrade Or Crash Leaves A Job Deferred
 
@@ -167,4 +173,3 @@ This is expected for work interrupted mid-run. The startup recovery path marks
 the record deferred, preserves it for diagnostics, and assigns a retry time.
 The next eligible periodic, foreground, or user-initiated request joins the same
 resource lock and resumes from durable replica/calendar state.
-

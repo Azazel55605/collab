@@ -1419,7 +1419,9 @@ by the native scheduler without removing deferred reminders from the inbox.
 Notification lifecycle hardening now cancels pending server-scoped deliveries
 on disconnect/account disable, enforces single-winner actions, covers DST and
 timezone boundary recomputation, and exposes aggregate-only delivery health to
-server administrators.
+server administrators. Foreground clients also request profile-correct hosted
+notification catch-up when push delivery is unavailable, so calendar
+invitations converge into the same visible inbox on desktop and Android.
 
 Tasks:
 

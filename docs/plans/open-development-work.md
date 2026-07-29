@@ -28,7 +28,7 @@ work from being mistaken for an active roadmap item.
 | Logic and circuit diagram editor | In progress umbrella | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream. | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md) |
 | User calendar | Testing | Complete physical-device validation for cross-location mirroring and notifications, the Phase 9 external-client CalDAV matrix, and Phase 10 restore/multi-day lifecycle drills. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
 | Background running | Testing | Phase 5 automated hardening is implemented. Complete the packaged desktop/physical Android matrix, then add notification-backed Android foreground transfers. | [Background Running Plan](./background-running-plan.md) |
-| Notification system | Testing | Phases 0-5 are implemented with native delivery, hosted activity, profile/category/server/vault/calendar controls, quiet hours, privacy, and summaries. Complete the packaged desktop/physical Android matrix and Phase 6 release hardening. | [Notification System Plan](./notification-system-plan.md) |
+| Notification system | Testing | Phases 0-6 are implemented with native delivery, hosted activity, profile/category/server/vault/calendar controls, quiet hours, privacy, summaries, and release hardening. Retest hosted catch-up, Android permission recovery/background diagnostics, and Windows autostart before completing the packaged desktop/physical Android matrix. | [Notification System Plan](./notification-system-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
 | Mobile widgets | Ideas only | Evaluate a calendar agenda widget first after background snapshots are available; no implementation commitment or phased schedule exists yet. | [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) |
 
@@ -152,7 +152,10 @@ distinct item-kind icons, and per-server, per-vault, and per-calendar controls
 are now implemented. Server/account cleanup cancels pending deliveries,
 concurrent actions are single-use, DST/timezone boundaries have regression
 coverage, and the admin overview exposes content-free aggregate delivery
-health. Packaged desktop permission behavior and the physical Android lifecycle
+health. Foreground clients now perform profile-correct authenticated polling
+when push is unavailable; Android has a one-shot WorkManager diagnostic, and
+Windows autostart changes are idempotent. Packaged desktop permission behavior
+and the physical Android lifecycle
 matrix remain release-validation gates.
 
 ### Flatpak Distribution

@@ -71,6 +71,10 @@ export function cancelAndroidBackgroundProfile(profileId: string): Promise<void>
   return invoke('background_android_cancel_profile', { profileId });
 }
 
+export function verifyAndroidBackgroundSync(profileId: string): Promise<void> {
+  return invoke('background_android_verify', { profileId });
+}
+
 export interface AndroidExactAlarmStatus {
   status: 'granted' | 'fallback' | 'unsupported';
   supported: boolean;
@@ -124,6 +128,10 @@ export function notificationListInbox(
   limit = 100,
 ): Promise<NotificationRecord[]> {
   return invoke('notification_list_inbox', { profileId, includeDismissed, limit });
+}
+
+export function notificationSyncRemote(profileId: string): Promise<BackgroundJobRecord[]> {
+  return invoke('notification_sync_remote', { profileId });
 }
 
 export function notificationMarkRead(
