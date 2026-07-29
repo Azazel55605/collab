@@ -1,6 +1,7 @@
 pub mod kanban;
 pub mod pdf;
 pub mod references;
+pub mod sheet;
 
 use quick_xml::{events::Event, Reader};
 use serde_json::Value;
@@ -11,6 +12,7 @@ pub enum DocumentKind {
     Kanban,
     Canvas,
     Logic,
+    Sheet,
     Svg,
     PdfSidecar,
 }
@@ -22,6 +24,7 @@ impl DocumentKind {
             Self::Kanban => "kanban",
             Self::Canvas => "canvas",
             Self::Logic => "logic",
+            Self::Sheet => "sheet",
             Self::Svg => "svg",
             Self::PdfSidecar => "pdf-sidecar",
         }
@@ -33,6 +36,7 @@ impl DocumentKind {
             "kanban" => Some(Self::Kanban),
             "canvas" => Some(Self::Canvas),
             "logic" => Some(Self::Logic),
+            "sheet" => Some(Self::Sheet),
             "svg" => Some(Self::Svg),
             "pdf-sidecar" => Some(Self::PdfSidecar),
             _ => None,
@@ -99,6 +103,8 @@ pub enum DocumentError {
     InvalidSvg(String),
     #[error("SVG document must have an svg root element")]
     InvalidSvgRoot,
+    #[error("sheet document is invalid: {0}")]
+    InvalidSheet(#[from] sheet::SheetValidationError),
     #[error(transparent)]
     Reference(#[from] references::ReferenceError),
 }
@@ -113,6 +119,8 @@ pub fn classify_path(path: &str) -> Option<DocumentKind> {
         Some(DocumentKind::Canvas)
     } else if path.ends_with(".logic") {
         Some(DocumentKind::Logic)
+    } else if path.ends_with(".sheet") {
+        Some(DocumentKind::Sheet)
     } else if path.ends_with(".svg") {
         Some(DocumentKind::Svg)
     } else if path.ends_with(".pdf.json") || path.ends_with(".pdf-sidecar.json") {
@@ -147,6 +155,7 @@ pub fn validate(
         DocumentKind::Kanban
         | DocumentKind::Canvas
         | DocumentKind::Logic
+        | DocumentKind::Sheet
         | DocumentKind::PdfSidecar => validate_json(input, limits)?,
         DocumentKind::Svg => validate_svg(input, limits)?,
     }
@@ -175,6 +184,9 @@ fn validate_json(input: DocumentInput<'_>, limits: ParserLimits) -> Result<(), D
             kind: input.kind.as_str(),
             message: error.to_string(),
         })?;
+    }
+    if input.kind == DocumentKind::Sheet {
+        sheet::validate_document(&value, sheet::DEFAULT_SHEET_LIMITS)?;
     }
     Ok(())
 }

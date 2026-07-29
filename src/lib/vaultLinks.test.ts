@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildVaultLinkInsertText,
+  getVaultDocumentTabType,
+  getVaultDocumentView,
   getVaultWikilinkAutocompleteItems,
   resolveVaultRelativeLinkTarget,
   resolveVaultWikilinkTarget,
@@ -55,6 +57,14 @@ const FILES: NoteFile[] = [
         relativePath: 'Docs/board.kanban',
         name: 'board.kanban',
         extension: 'kanban',
+        modifiedAt: 0,
+        size: 1,
+        isFolder: false,
+      },
+      {
+        relativePath: 'Docs/budget.sheet',
+        name: 'budget.sheet',
+        extension: 'sheet',
         modifiedAt: 0,
         size: 1,
         isFolder: false,
@@ -150,6 +160,29 @@ describe('vaultLinks', () => {
         expect.objectContaining({ label: 'alpha', detail: 'Notes', insertText: 'Notes/alpha.md' }),
         expect.objectContaining({ label: 'alpha', detail: 'Docs', insertText: 'Docs/alpha.md' }),
       ]),
+    );
+  });
+});
+
+describe('spreadsheet documents', () => {
+  it('routes .sheet paths to the sheet tab type', () => {
+    expect(getVaultDocumentTabType('Docs/budget.sheet')).toBe('sheet');
+    expect(getVaultDocumentTabType('Docs/BUDGET.SHEET')).toBe('sheet');
+    expect(getVaultDocumentView('sheet')).toBe('editor');
+  });
+
+  it('resolves markdown links to spreadsheets', () => {
+    expect(resolveVaultRelativeLinkTarget('../Docs/budget.sheet', 'Notes/alpha.md', FILES)).toEqual({
+      relativePath: 'Docs/budget.sheet',
+      title: 'budget',
+      type: 'sheet',
+    });
+  });
+
+  it('labels spreadsheets in wikilink autocomplete', () => {
+    const items = getVaultWikilinkAutocompleteItems(FILES);
+    expect(items).toContainEqual(
+      expect.objectContaining({ label: 'budget.sheet', insertText: 'Docs/budget.sheet', detail: 'Docs · Spreadsheet' }),
     );
   });
 });

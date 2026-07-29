@@ -277,8 +277,8 @@ It must remain ephemeral and must not be written into the workbook.
 | Phase | Status | Goal |
 | --- | --- | --- |
 | 0. Product contract and technical proof | Complete | Finalize schema, select the formula/grid engines, and prove large-grid editing plus recalculation. |
-| 1. `.sheet` domain and vault integration | Not started | Add parsing, validation, migrations, creation, routing, revisions, and local/hosted document support. |
-| 2. Desktop spreadsheet editor | Not started | Deliver the virtualized grid, worksheet controls, selection, editing, navigation, and structural operations. |
+| 1. `.sheet` domain and vault integration | Complete | Add parsing, validation, migrations, creation, routing, revisions, and local/hosted document support. |
+| 2. Desktop spreadsheet editor | Complete | Deliver the virtualized grid, worksheet controls, selection, editing, navigation, and structural operations. |
 | 3. Formulas and recalculation | Not started | Add the supported formula set, dependency updates, formula UX, errors, and deterministic recalculation. |
 | 4. Formatting and spreadsheet interactions | Not started | Add styles, number formats, clipboard, fill, undo/redo, resize, freeze, merge, and search. |
 | 5. Tables and data tools | Not started | Add sorting, filtering, validation, conditional formatting, named ranges, and protected ranges. |
@@ -323,41 +323,84 @@ row/column identity without depending on renderer internals.
 
 ### Phase 1: `.sheet` Domain And Vault Integration
 
-- [ ] Add schema types, parser, validator, normalizer, serializer, and fixtures.
-- [ ] Add stable workbook, worksheet, row, column, cell, range, style, and chart
-  identities.
-- [ ] Add migration and unknown-field policy.
-- [ ] Extend `collab-documents` classification and bounded validation.
-- [ ] Add `.sheet` creation, file-tree icon, tab routing, duplicate, rename,
-  move, trash, restore, download, and revision-history behavior.
-- [ ] Add `VaultClient` local and hosted read/write sessions with optimistic
-  revisions.
-- [ ] Include `.sheet` in archive import/export, hosted offline replicas,
-  search metadata, and reference analysis where applicable.
-- [ ] Add a read-only fallback for newer unsupported schema versions.
-- [ ] Add round-trip, malformed-input, limits, migration, and local/hosted
+- [x] Add schema types, parser, validator, normalizer, serializer, and fixtures.
+  `src/types/sheet.ts`, `src/lib/sheet/document.ts`, `src/lib/sheet/fixture.ts`.
+- [x] Add stable workbook, worksheet, row, column, cell, range, style, and chart
+  identities. Identities may never contain `:` (the cell-key separator); this is
+  enforced on both sides of the IPC boundary.
+- [x] Add migration and unknown-field policy. Unknown fields are preserved
+  verbatim at document, worksheet, and cell level; every future schema version
+  must add an explicit `migrateSheetDocument` step.
+- [x] Extend `collab-documents` classification and bounded validation.
+  `crates/collab-documents/src/sheet.rs` rejects dangling row/column/style/
+  worksheet references and limit violations for known versions, and applies only
+  generic JSON bounds to newer ones.
+- [x] Add `.sheet` creation, file-tree icon, tab routing, duplicate, rename,
+  move, trash, restore, download, and revision-history behavior. Duplicate is a
+  new generic Files action (`src/lib/vaultDuplicate.ts`) covering every
+  text-backed document type; rename/move/trash/restore/download were already
+  extension-agnostic and now include `.sheet`.
+- [x] Add `VaultClient` local and hosted read/write sessions with optimistic
+  revisions. `src/lib/sheet/useSheetSession.ts` over the shared document-session
+  controller.
+- [x] Include `.sheet` in archive import/export, hosted offline replicas,
+  search metadata, and reference analysis where applicable. Archive import maps
+  `.sheet` to a hosted text document; the offline replica caches it through the
+  existing content-agnostic document cache. Note indexing stays markdown-only on
+  both local and hosted paths, matching `.canvas`/`.kanban`/`.logic`. Reference
+  analysis is not applicable yet — cell-level vault links arrive in Phase 7.
+- [x] Add a read-only fallback for newer unsupported schema versions. A newer
+  workbook opens read-only and is never normalized or rewritten.
+- [x] Add round-trip, malformed-input, limits, migration, and local/hosted
   capability tests.
 
-Exit gate: an empty or fixture workbook can be created, opened, saved, revised,
-cached offline, moved, restored, and round-tripped in local and hosted vaults.
+Exit gate: met. A workbook can be created (Files sidebar, context menu, or
+command bar), opened, edited, saved with optimistic revisions, duplicated,
+renamed, moved, trashed, restored, downloaded, and inspected in version history,
+in both local and hosted vaults.
+
+Deliberately deferred to Phase 2: the workbook surface is a worksheet manager,
+not a grid. `SheetView` proves the document lifecycle — open, edit, save,
+conflict, read-only, malformed, newer-schema — and Phase 2 replaces its body
+with the virtualized canvas grid.
 
 ### Phase 2: Desktop Spreadsheet Editor
 
-- [ ] Add the dedicated `SheetView` and route `.sheet` tabs to it.
-- [ ] Add virtualized row/column rendering with stable dimensions and overscan.
-- [ ] Add headers, formula bar, name box, worksheet bar, status summary, and
-  compact toolbar.
-- [ ] Add active-cell, range, row, column, and all-cells selection.
-- [ ] Add mouse, touchpad, and keyboard navigation with shift/control modifiers.
-- [ ] Add direct cell editing and type-aware commit/cancel behavior.
-- [ ] Add worksheet creation, rename, duplicate, reorder, hide, and delete.
-- [ ] Add row/column insert, delete, move, hide, resize, and auto-size.
-- [ ] Add bounded merge/unmerge and frozen panes.
-- [ ] Preserve viewport, selection, active worksheet, and editor state per tab.
-- [ ] Add loading, empty, malformed, read-only, and unsupported-version states.
+- [x] Add the dedicated `SheetView` and route `.sheet` tabs to it.
+- [x] Add virtualized row/column rendering with stable dimensions and overscan.
+  `SheetGrid` paints a canvas cell layer from `viewport.ts`; only the visible
+  headers exist as DOM.
+- [x] Add headers, formula bar, name box, worksheet bar, status summary, and
+  compact toolbar. The name box doubles as go-to-cell and reports `3R x 2C` for
+  multi-cell selections.
+- [x] Add active-cell, range, row, column, and all-cells selection, including
+  disjoint ranges via Ctrl-click.
+- [x] Add mouse, touchpad, and keyboard navigation with shift/control modifiers.
+  Arrows, Shift-extend, Ctrl-jump across populated blocks, Home/End, Ctrl+Home/
+  End, PageUp/PageDown, Tab, and Ctrl+A — all bound to `KeyboardEvent.key`, so
+  they stay layout-independent.
+- [x] Add direct cell editing and type-aware commit/cancel behavior. Typing a
+  printable character opens the editor; Enter/Tab commit and advance; Escape
+  cancels; F2 and double-click open the existing value. `cellValue.ts` parses
+  numbers, percentages, booleans, ISO dates/times, and formulas, and leaves
+  anything ambiguous as text.
+- [x] Add worksheet creation, rename, duplicate, reorder, hide, and delete.
+- [x] Add row/column insert, delete, move, hide, resize, and auto-size.
+- [x] Add bounded merge/unmerge and frozen panes.
+- [x] Preserve viewport, selection, active worksheet, and editor state per tab
+  (`editorStore.sheetViewStates`, persisted and remapped on rename).
+- [x] Add loading, empty, malformed, read-only, and unsupported-version states.
+  A newer-schema workbook renders read-only rather than blank.
 
-Exit gate: users can efficiently create and edit a multi-worksheet workbook
-without formulas, with stable scrolling and no full-grid DOM rendering.
+Exit gate: met. A multi-worksheet workbook can be created and edited without
+formulas; rendering stays bounded by the viewport rather than the logical grid.
+
+Known limitation carried into Phase 3: structural edits do **not** rewrite
+formula references yet, because reference rewriting needs the parser that
+arrives with the engine. Until then, inserting or deleting rows can leave a
+formula pointing at the wrong cell. Formula cells also display their source
+rather than a computed value, and are excluded from status-bar numeric
+summaries so nothing reports a fabricated total.
 
 ### Phase 3: Formulas And Recalculation
 

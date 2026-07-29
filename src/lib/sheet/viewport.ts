@@ -179,3 +179,38 @@ export function computeViewport(request: SheetViewportRequest): SheetViewport {
     cellCount: (rows.end - rows.start) * (columns.end - columns.start),
   };
 }
+
+/**
+ * Converts a pixel offset inside a pane (measured from the pane origin, after
+ * the header) into a track index, accounting for frozen tracks pinned at the
+ * origin. Frozen tracks occupy the first `frozenSize` pixels and do not scroll.
+ */
+export function trackAtPaneOffset(
+  metrics: SheetAxisMetrics,
+  paneOffset: number,
+  scroll: number,
+  frozen: number,
+): number {
+  const frozenCount = Math.max(0, Math.min(frozen, metrics.count));
+  const frozenSize = trackOffset(metrics, frozenCount);
+  if (paneOffset < frozenSize) return trackAtOffset(metrics, paneOffset);
+  const index = trackAtOffset(metrics, paneOffset + Math.max(0, scroll));
+  return Math.max(frozenCount, index);
+}
+
+/**
+ * Pixel offset of a track inside a pane, or `null` when it is hidden behind the
+ * frozen region and therefore must not be drawn.
+ */
+export function trackPaneOffset(
+  metrics: SheetAxisMetrics,
+  index: number,
+  scroll: number,
+  frozen: number,
+): number | null {
+  const frozenCount = Math.max(0, Math.min(frozen, metrics.count));
+  if (index < frozenCount) return trackOffset(metrics, index);
+  const frozenSize = trackOffset(metrics, frozenCount);
+  const offset = trackOffset(metrics, index) - Math.max(0, scroll);
+  return offset < frozenSize ? null : offset;
+}

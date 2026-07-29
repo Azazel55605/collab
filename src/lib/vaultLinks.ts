@@ -4,7 +4,7 @@ import type { NoteFile } from '../types/vault';
 const ABSOLUTE_URL_RE = /^(?:[a-z][a-z\d+.-]*:|\/\/)/i;
 const IMAGE_EXT_RE = /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i;
 
-export type VaultDocumentTabType = 'note' | 'canvas' | 'kanban' | 'logic' | 'image' | 'pdf';
+export type VaultDocumentTabType = 'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'image' | 'pdf';
 
 export interface VaultLinkTarget {
   relativePath: string;
@@ -88,6 +88,7 @@ export function getVaultDocumentTabType(relativePath: string): VaultDocumentTabT
   if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|avif)$/i.test(relativePath)) return 'image';
   if (/\.pdf$/i.test(relativePath)) return 'pdf';
   if (/\.logic$/i.test(relativePath)) return 'logic';
+  if (/\.sheet$/i.test(relativePath)) return 'sheet';
   if (/\.kanban$/i.test(relativePath)) return 'kanban';
   if (/\.canvas$/i.test(relativePath)) return 'canvas';
   return 'note';
@@ -220,7 +221,7 @@ export function getVaultWikilinkAutocompleteItems(fileTree: NoteFile[]) {
         label: type === 'note'
           ? getVaultDocumentTitle(file.relativePath)
           : file.name,
-        detail: [folder, type === 'pdf' ? 'PDF' : type === 'canvas' ? 'Canvas' : type === 'kanban' ? 'Kanban' : undefined]
+        detail: [folder, type === 'pdf' ? 'PDF' : type === 'canvas' ? 'Canvas' : type === 'kanban' ? 'Kanban' : type === 'sheet' ? 'Spreadsheet' : undefined]
           .filter(Boolean)
           .join(' · ') || undefined,
         type: 'text' as const,

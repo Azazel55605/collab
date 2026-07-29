@@ -24,6 +24,7 @@ import type { PendingSearchJump } from '../../store/editorStore';
 import type { NoteMetadata, SearchResult } from '../../types/note';
 import type { NoteFile, VaultMeta } from '../../types/vault';
 import { createEmptyLogicDiagram } from '../../types/logicDiagram';
+import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
 
 export interface RenderCtx {
   notes: NoteMetadata[];
@@ -32,7 +33,7 @@ export interface RenderCtx {
   activeView: ActiveView;
   vault: VaultMeta | null;
   dateFormat: DateFormat;
-  openTab: (relativePath: string, title: string, type?: 'note' | 'canvas' | 'kanban' | 'logic' | 'graph' | 'settings' | 'image' | 'pdf') => void;
+  openTab: (relativePath: string, title: string, type?: 'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'graph' | 'settings' | 'image' | 'pdf') => void;
   setActiveView: (v: ActiveView) => void;
   openSettings: () => void;
   refreshFileTree: () => Promise<void>;
@@ -171,6 +172,30 @@ export const ACTIONS: Action[] = [
         ctx.setActiveView('editor');
       } catch (e) {
         toast.error('Failed to create logic diagram: ' + e);
+      }
+      ctx.close();
+    },
+  },
+  {
+    id: 'new-sheet',
+    keywords: ['new spreadsheet', 'create spreadsheet', 'new sheet', 'workbook', 'table'],
+    label: 'New Spreadsheet',
+    icon: <Table2 className="size-4 shrink-0" />,
+    onSelect: async (ctx, query) => {
+      const rawName = query.replace(/^new\s+(?:spreadsheet|sheet)\s*/i, '').trim() || 'Spreadsheet';
+      const name = rawName.replace(/\.sheet$/i, '');
+      if (!ctx.vault) return;
+      try {
+        const client = createVaultClient(ctx.vault);
+        const file = await client.createDocument(`${name}.sheet`);
+        const created = await client.readDocument(file.relativePath);
+        const content = serializeSheetDocument(createEmptySheetDocument(name));
+        await client.writeDocument(file.relativePath, content, created.version, created.content);
+        await ctx.refreshFileTree();
+        ctx.openTab(file.relativePath, name, 'sheet');
+        ctx.setActiveView('editor');
+      } catch (e) {
+        toast.error('Failed to create spreadsheet: ' + e);
       }
       ctx.close();
     },

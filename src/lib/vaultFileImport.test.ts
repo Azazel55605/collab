@@ -38,6 +38,7 @@ describe('vaultFileImport categorization', () => {
     expect(importCategoryForName('diagram.canvas')).toBe('canvas');
     expect(importCategoryForName('tasks.kanban')).toBe('kanban');
     expect(importCategoryForName('adder.logic')).toBe('logic');
+    expect(importCategoryForName('budget.sheet')).toBe('sheet');
     expect(importCategoryForName('archive.zip')).toBeNull();
     expect(importCategoryForName('noext')).toBeNull();
   });
@@ -99,6 +100,7 @@ describe('importExternalFilesIntoVault', () => {
     ['canvas', 'diagram.canvas', '{"nodes":[],"edges":[],"viewport":{"x":0,"y":0,"zoom":1}}'],
     ['kanban', 'tasks.kanban', '{"columns":[]}'],
     ['logic', 'adder.logic', '{"kind":"logic-diagram","nodes":[],"wires":[]}'],
+    ['sheet', 'budget.sheet', '{"kind":"collab-sheet","schemaVersion":1,"id":"wb1","name":"Budget","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","worksheets":[{"id":"ws1","name":"Sheet1","rowOrder":["r1"],"columnOrder":["c1"],"cells":{}}],"styles":{}}'],
   ])('imports valid %s files as text documents', async (_category, name, content) => {
     const { client } = makeClient();
     vi.mocked(tauriCommands.readFileForUpload).mockResolvedValue({
@@ -137,6 +139,7 @@ describe('importExternalFilesIntoVault', () => {
     ['broken.canvas', '{"nodes":[]}'],
     ['broken.kanban', '{"cards":[]}'],
     ['broken.logic', '{"kind":"logic-diagram","nodes":[]}'],
+    ['broken.sheet', '{"kind":"collab-sheet"}'],
   ])('rejects structurally invalid Collab documents before creating them', async (name, content) => {
     const { client } = makeClient();
     vi.mocked(tauriCommands.readFileForUpload).mockResolvedValue({

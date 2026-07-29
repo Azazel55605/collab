@@ -7,11 +7,11 @@ export function relativeTime(ts: number): string {
 }
 
 export function supportsVersionHistoryTabType(type: string | null | undefined): boolean {
-  return type === 'note' || type === 'kanban' || type === 'canvas';
+  return type === 'note' || type === 'kanban' || type === 'canvas' || type === 'sheet';
 }
 
 export function supportsVersionHistoryRelativePath(relativePath: string, isFolder = false): boolean {
   if (isFolder) return false;
   const extension = relativePath.split('.').pop()?.toLowerCase() ?? '';
-  return extension === 'md' || extension === 'kanban' || extension === 'canvas';
+  return extension === 'md' || extension === 'kanban' || extension === 'canvas' || extension === 'sheet';
 }

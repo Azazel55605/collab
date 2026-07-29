@@ -2018,6 +2018,7 @@ mod tests {
     fn allowed_extensions_and_walk_skip_rules_match_vault_policy() {
         assert!(is_allowed_extension("md"));
         assert!(is_allowed_extension("logic"));
+        assert!(is_allowed_extension("sheet"));
         assert!(is_allowed_extension("pdf"));
         assert!(!is_allowed_extension("exe"));
 
@@ -2305,6 +2306,56 @@ mod tests {
 
         assert!(result.conflict.is_some());
         assert!(result.merged_content.is_none());
+    }
+
+    #[test]
+    fn sheet_writes_are_validated_against_the_shared_document_rules() {
+        let vault = TempVault::new().expect("temp vault should exist");
+        let target = vault.resolve("Books/Budget.sheet");
+        create_note_at_path(&target, "Books/Budget.sheet", None).expect("sheet should be created");
+        let created = read_note_from_path(&target, "Books/Budget.sheet", None)
+            .expect("created sheet should be readable");
+
+        let workbook = r#"{"kind":"collab-sheet","schemaVersion":1,"id":"wb1","name":"Budget","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","activeWorksheetId":"ws1","worksheets":[{"id":"ws1","name":"Sheet1","rowOrder":["r1"],"columnOrder":["c1"],"cells":{"r1:c1":{"value":1}}}],"styles":{}}"#;
+        write_note_to_path(
+            &target,
+            "Books/Budget.sheet",
+            workbook.into(),
+            Some(created.hash.clone()),
+            Some(created.content.clone()),
+            None,
+        )
+        .expect("a valid workbook should be written");
+
+        let stored = read_note_from_path(&target, "Books/Budget.sheet", None)
+            .expect("stored workbook should be readable");
+
+        // A cell pointing at a row the worksheet does not have is rejected at
+        // the vault boundary rather than persisted.
+        let dangling = r#"{"kind":"collab-sheet","schemaVersion":1,"id":"wb1","name":"Budget","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","activeWorksheetId":"ws1","worksheets":[{"id":"ws1","name":"Sheet1","rowOrder":["r1"],"columnOrder":["c1"],"cells":{"r9:c1":{"value":1}}}],"styles":{}}"#;
+        let error = write_note_to_path(
+            &target,
+            "Books/Budget.sheet",
+            dangling.into(),
+            Some(stored.hash.clone()),
+            Some(stored.content.clone()),
+            None,
+        )
+        .expect_err("a dangling row reference should be rejected");
+        assert!(error.contains("row"), "unexpected error: {error}");
+
+        // A workbook from a newer schema version stays writable: this build
+        // must not reject data it simply does not understand yet.
+        let newer = r#"{"kind":"collab-sheet","schemaVersion":99,"worksheetsRenamedInTheFuture":[]}"#;
+        write_note_to_path(
+            &target,
+            "Books/Budget.sheet",
+            newer.into(),
+            Some(stored.hash.clone()),
+            Some(stored.content.clone()),
+            None,
+        )
+        .expect("a newer-schema workbook should still be storable");
     }
 
     #[test]

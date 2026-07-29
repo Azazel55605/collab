@@ -13,6 +13,7 @@ import ImageView from '../../views/ImageView';
 import SvgVectorView from '../../views/SvgVectorView';
 import PdfView from '../../views/PdfView';
 import LogicDiagramView from '../../views/LogicDiagramView';
+import SheetView from '../../views/SheetView';
 
 // ── Editor error boundary ─────────────────────────────────────────────────────
 class EditorErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -49,7 +50,7 @@ import { CollabProvider } from '../collaboration/CollabProvider';
 import { CommandBar } from '../command-bar/CommandBar';
 import { DragProvider } from '../../contexts/DragContext';
 import SplitDropZones from '../grid/SplitDropZones';
-import { CircuitBoard, GitFork, Layout, LayoutDashboard, FileText, Settings as SettingsIcon, Image as ImageIcon } from 'lucide-react';
+import { CircuitBoard, GitFork, Layout, LayoutDashboard, FileText, Settings as SettingsIcon, Image as ImageIcon, Table2 } from 'lucide-react';
 
 export default function AppShell() {
   const { vault, refreshFileTree } = useVaultStore();
@@ -66,6 +67,7 @@ export default function AppShell() {
     if (type === 'canvas')   return <Layout size={size} className="shrink-0" />;
     if (type === 'kanban')   return <LayoutDashboard size={size} className="shrink-0" />;
     if (type === 'logic')    return <CircuitBoard size={size} className="shrink-0" />;
+    if (type === 'sheet')    return <Table2 size={size} className="shrink-0" />;
     if (type === 'graph')    return <GitFork size={size} className="shrink-0" />;
     if (type === 'settings') return <SettingsIcon size={size} className="shrink-0" />;
     if (type === 'image')    return <ImageIcon size={size} className="shrink-0" />;
@@ -261,6 +263,7 @@ export default function AppShell() {
         : <ImageView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
       if (activeTab.type === 'pdf')      return <PdfView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
       if (activeTab.type === 'logic')    return <LogicDiagramView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
+      if (activeTab.type === 'sheet')    return <SheetView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
       if (activeTab.type === 'canvas')   return <CanvasPage key={activeDocumentKey} relativePath={activeTab.relativePath === '__canvas__' ? null : activeTab.relativePath} />;
       if (activeTab.type === 'kanban')   return <KanbanPage key={activeDocumentKey} relativePath={activeTab.relativePath === '__kanban__' ? null : activeTab.relativePath} />;
       // Note tab: only show the note when activeView is editor — if the user

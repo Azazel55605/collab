@@ -79,3 +79,15 @@ if (!('scrollIntoView' in HTMLElement.prototype)) {
     value: vi.fn(),
   });
 }
+
+// jsdom ships no canvas implementation, so `getContext` throws a noisy
+// "Not implemented" error. Canvas-backed components (the spreadsheet grid,
+// plots, PDF pages) already treat a missing context as "render the DOM overlay
+// only", so returning null keeps that path exercised without the noise.
+if (typeof HTMLCanvasElement !== 'undefined') {
+  Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+    writable: true,
+    configurable: true,
+    value: vi.fn(() => null),
+  });
+}

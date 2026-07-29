@@ -153,7 +153,7 @@ fn imported_file_kind(path: &str) -> (HostedFileKind, Option<HostedDocumentType>
         Some(DocumentKind::Note) => (HostedFileKind::Document, Some(HostedDocumentType::Note)),
         Some(DocumentKind::Kanban) => (HostedFileKind::Document, Some(HostedDocumentType::Kanban)),
         Some(DocumentKind::Canvas) => (HostedFileKind::Document, Some(HostedDocumentType::Canvas)),
-        Some(DocumentKind::Logic | DocumentKind::Svg) => {
+        Some(DocumentKind::Logic | DocumentKind::Sheet | DocumentKind::Svg) => {
             (HostedFileKind::Document, Some(HostedDocumentType::Note))
         }
         _ => (HostedFileKind::Asset, None),

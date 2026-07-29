@@ -1,11 +1,12 @@
 import type { VaultClient } from './vaultClient';
 import { tauriCommands } from './tauri';
 import { parseLogicDiagramDocument } from '../types/logicDiagram';
+import { inspectSheetDocumentText } from './sheet/document';
 import { useSyncTransferStore } from '../store/syncTransferStore';
 
 /**
  * External-file import for vaults. Adding documents/images/notes to a vault is
- * limited to images, SVG, PDFs, markdown, canvas, Kanban, and logic diagrams so an import never
+ * limited to images, SVG, PDFs, markdown, canvas, Kanban, logic diagrams, and spreadsheets so an import never
  * injects an arbitrary or unsupported binary. Raster images and PDFs are stored
  * as binary assets through the mode-agnostic `externalAssetImport` capability;
  * markdown, Collab structured files, and SVG become real text documents on both
@@ -19,6 +20,7 @@ export const IMPORT_MARKDOWN_EXTENSIONS = ['md', 'markdown'];
 export const IMPORT_CANVAS_EXTENSIONS = ['canvas'];
 export const IMPORT_KANBAN_EXTENSIONS = ['kanban'];
 export const IMPORT_LOGIC_EXTENSIONS = ['logic'];
+export const IMPORT_SHEET_EXTENSIONS = ['sheet'];
 
 export const IMPORTABLE_EXTENSIONS = [
   ...IMPORT_IMAGE_EXTENSIONS,
@@ -28,9 +30,10 @@ export const IMPORTABLE_EXTENSIONS = [
   ...IMPORT_CANVAS_EXTENSIONS,
   ...IMPORT_KANBAN_EXTENSIONS,
   ...IMPORT_LOGIC_EXTENSIONS,
+  ...IMPORT_SHEET_EXTENSIONS,
 ];
 
-export type ImportableCategory = 'image' | 'svg' | 'pdf' | 'markdown' | 'canvas' | 'kanban' | 'logic';
+export type ImportableCategory = 'image' | 'svg' | 'pdf' | 'markdown' | 'canvas' | 'kanban' | 'logic' | 'sheet';
 
 export function fileBaseName(sourcePath: string): string {
   const segments = sourcePath.split(/[/\\]/);
@@ -51,6 +54,7 @@ export function importCategoryForName(name: string): ImportableCategory | null {
   if (IMPORT_CANVAS_EXTENSIONS.includes(ext)) return 'canvas';
   if (IMPORT_KANBAN_EXTENSIONS.includes(ext)) return 'kanban';
   if (IMPORT_LOGIC_EXTENSIONS.includes(ext)) return 'logic';
+  if (IMPORT_SHEET_EXTENSIONS.includes(ext)) return 'sheet';
   return null;
 }
 
@@ -78,9 +82,15 @@ function joinVaultPath(folder: string | undefined, name: string): string {
  * written through the mode-agnostic `VaultClient` so the same path works for both
  * local and hosted vaults.
  */
-function validateStructuredDocument(text: string, category: 'canvas' | 'kanban' | 'logic') {
+function validateStructuredDocument(text: string, category: 'canvas' | 'kanban' | 'logic' | 'sheet') {
   if (category === 'logic') {
     parseLogicDiagramDocument(text);
+    return;
+  }
+  if (category === 'sheet') {
+    // Structural validation only — a newer-schema workbook still imports and
+    // opens read-only rather than being rejected at the vault boundary.
+    inspectSheetDocumentText(text);
     return;
   }
   let parsed: unknown;
@@ -105,11 +115,11 @@ async function importTextDocument(
   client: VaultClient,
   sourcePath: string,
   targetFolder: string | undefined,
-  category: 'markdown' | 'canvas' | 'kanban' | 'logic' | 'svg',
+  category: 'markdown' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'svg',
 ): Promise<string> {
   const payload = await tauriCommands.readFileForUpload(sourcePath);
   const text = decodeUtf8Base64(payload.contentBase64);
-  if (category === 'canvas' || category === 'kanban' || category === 'logic') {
+  if (category === 'canvas' || category === 'kanban' || category === 'logic' || category === 'sheet') {
     validateStructuredDocument(text, category);
   }
   const targetPath = joinVaultPath(targetFolder, payload.name);
@@ -157,10 +167,10 @@ export async function importExternalFilesIntoVault(
     }
     try {
       if (!category) {
-        result.failed.push({ name, error: 'Unsupported file type. Only images, PDFs, markdown, canvas, Kanban, and logic files can be imported.' });
+        result.failed.push({ name, error: 'Unsupported file type. Only images, PDFs, markdown, canvas, Kanban, logic, and sheet files can be imported.' });
         continue;
       }
-      if (category === 'markdown' || category === 'canvas' || category === 'kanban' || category === 'logic') {
+      if (category === 'markdown' || category === 'canvas' || category === 'kanban' || category === 'logic' || category === 'sheet') {
         result.imported.push(await importTextDocument(client, sourcePath, options.targetFolder, category));
         continue;
       }

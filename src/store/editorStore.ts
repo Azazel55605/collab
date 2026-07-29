@@ -6,13 +6,22 @@ export interface OpenTab {
   title: string;
   isDirty: boolean;
   savedHash: string | null;
-  type: 'note' | 'canvas' | 'kanban' | 'logic' | 'graph' | 'settings' | 'image' | 'pdf';
+  type: 'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'graph' | 'settings' | 'image' | 'pdf';
 }
 
 export interface NoteEditorViewState {
   scrollTop: number;
   selectionAnchor: number;
   selectionHead: number;
+}
+
+/** Per-tab spreadsheet view state, restored when a `.sheet` tab is reopened. */
+export interface SheetViewState {
+  activeWorksheetId: string | null;
+  scrollTop: number;
+  scrollLeft: number;
+  activeRow: number;
+  activeColumn: number;
 }
 
 export interface PendingSearchJump {
@@ -28,6 +37,7 @@ interface EditorState {
   revealEditorPath: string | null;
   pendingSearchJump: PendingSearchJump | null;
   noteViewStates: Record<string, NoteEditorViewState>;
+  sheetViewStates: Record<string, SheetViewState>;
   setSessionVaultPath: (vaultPath: string | null) => void;
   resetSession: (vaultPath?: string | null) => void;
   openTab: (relativePath: string, title: string, type?: OpenTab['type']) => void;
@@ -43,10 +53,11 @@ interface EditorState {
   setRevealEditorPath: (path: string | null) => void;
   setPendingSearchJump: (target: PendingSearchJump | null) => void;
   setNoteViewState: (relativePath: string, viewState: NoteEditorViewState) => void;
+  setSheetViewState: (relativePath: string, viewState: SheetViewState) => void;
 }
 
-function remapNoteViewStates(
-  viewStates: Record<string, NoteEditorViewState>,
+function remapViewStates<T>(
+  viewStates: Record<string, T>,
   oldPath: string,
   newPath: string,
 ) {
@@ -72,6 +83,7 @@ export const useEditorStore = create<EditorState>()(
   revealEditorPath: null,
   pendingSearchJump: null,
   noteViewStates: {},
+  sheetViewStates: {},
 
   setSessionVaultPath: (sessionVaultPath) => set({ sessionVaultPath }),
 
@@ -83,6 +95,7 @@ export const useEditorStore = create<EditorState>()(
     revealEditorPath: null,
     pendingSearchJump: null,
     noteViewStates: {},
+    sheetViewStates: {},
   }),
 
   openTab: (relativePath, title, type = 'note') => {
@@ -169,7 +182,8 @@ export const useEditorStore = create<EditorState>()(
           : state.activeTabPath?.startsWith(`${oldPath}/`)
           ? `${newPath}${state.activeTabPath.slice(oldPath.length)}`
           : state.activeTabPath,
-      noteViewStates: remapNoteViewStates(state.noteViewStates, oldPath, newPath),
+      noteViewStates: remapViewStates(state.noteViewStates, oldPath, newPath),
+      sheetViewStates: remapViewStates(state.sheetViewStates, oldPath, newPath),
     }));
   },
 
@@ -196,6 +210,13 @@ export const useEditorStore = create<EditorState>()(
       [relativePath]: viewState,
     },
   })),
+
+  setSheetViewState: (relativePath, viewState) => set((state) => ({
+    sheetViewStates: {
+      ...state.sheetViewStates,
+      [relativePath]: viewState,
+    },
+  })),
 }),
     {
       name: 'editor-storage',
@@ -204,6 +225,7 @@ export const useEditorStore = create<EditorState>()(
         openTabs: state.openTabs,
         activeTabPath: state.activeTabPath,
         noteViewStates: state.noteViewStates,
+        sheetViewStates: state.sheetViewStates,
       }),
     }
   )

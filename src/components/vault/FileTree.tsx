@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   ChevronRight, ChevronDown, CircuitBoard, FileText, Folder, FolderOpen,
   Plus, FolderPlus, FileUp, Layout, LayoutDashboard, Paperclip, Image as ImageIcon, Trash2,
-  Download, FolderSearch,
+  Download, FolderSearch, Table2,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useVaultStore } from '../../store/vaultStore';
@@ -34,6 +34,9 @@ import { FileTreeHoverPreviewPopover } from '../previews/FileTreeHoverPreviewPop
 import { VersionHistoryModal } from '../collaboration/history/VersionHistoryModal';
 import { supportsVersionHistoryRelativePath } from '../collaboration/history/historyUtils';
 import { createEmptyLogicDiagram } from '../../types/logicDiagram';
+import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
+import { isTextDocumentPath, nextAvailableCopyPath } from '../../lib/vaultDuplicate';
+import { flattenVaultFiles } from '../../lib/vaultLinks';
 
 type DialogState =
   | { type: 'none' }
@@ -41,6 +44,7 @@ type DialogState =
   | { type: 'rename'; file: NoteFile }
   | { type: 'create-note'; parentPath?: string }
   | { type: 'create-logic'; parentPath?: string }
+  | { type: 'create-sheet'; parentPath?: string }
   | { type: 'create-folder'; parentPath?: string };
 
 interface TaskAttachmentRef {
@@ -254,6 +258,10 @@ export default function FileTree() {
     setDialog({ type: 'create-logic', parentPath });
   };
 
+  const handleCreateSheet = (parentPath?: string) => {
+    setDialog({ type: 'create-sheet', parentPath });
+  };
+
   const handleCreateFolder = (parentPath?: string) => {
     setDialog({ type: 'create-folder', parentPath });
   };
@@ -333,6 +341,22 @@ export default function FileTree() {
       toast.success(`Downloaded ${file.name}`);
     } catch (e) {
       toast.error(`Could not download ${file.name}: ${e}`);
+    }
+  };
+
+  const handleDuplicate = async (file: NoteFile) => {
+    if (!vault || file.isFolder) return;
+    try {
+      const client = createVaultClient(vault);
+      const source = await client.readDocument(file.relativePath);
+      const target = nextAvailableCopyPath(file.relativePath, flattenVaultFiles(fileTree));
+      await client.createDocument(target);
+      const created = await client.readDocument(target);
+      await client.writeDocument(target, source.content, created.version, created.content);
+      await refreshFileTree();
+      toast.success(`Duplicated to ${target}`);
+    } catch (e) {
+      toast.error(`Could not duplicate ${file.name}: ${e}`);
     }
   };
 
@@ -426,6 +450,25 @@ export default function FileTree() {
         openTab(relativePath, stem, 'logic');
         setActiveView('editor');
       } catch (e) { toast.error('Failed to create logic diagram: ' + e); }
+    } else if (dialog.type === 'create-sheet') {
+      const { parentPath } = dialog;
+      setDialog({ type: 'none' });
+      const stem = name.replace(/\.sheet$/i, '');
+      const relativePath = parentPath ? `${parentPath}/${stem}.sheet` : `${stem}.sheet`;
+      try {
+        const client = createVaultClient(vault);
+        await client.createDocument(relativePath);
+        const created = await client.readDocument(relativePath);
+        await client.writeDocument(
+          relativePath,
+          serializeSheetDocument(createEmptySheetDocument(stem)),
+          created.version,
+          created.content,
+        );
+        await refreshFileTree();
+        openTab(relativePath, stem, 'sheet');
+        setActiveView('editor');
+      } catch (e) { toast.error('Failed to create spreadsheet: ' + e); }
     } else if (dialog.type === 'create-folder') {
       const { parentPath } = dialog;
       setDialog({ type: 'none' });
@@ -665,10 +708,11 @@ export default function FileTree() {
         }}
       />
       <InputDialog
-        open={dialog.type === 'create-note' || dialog.type === 'create-logic' || dialog.type === 'create-folder' || dialog.type === 'rename'}
+        open={dialog.type === 'create-note' || dialog.type === 'create-logic' || dialog.type === 'create-sheet' || dialog.type === 'create-folder' || dialog.type === 'rename'}
         variant={
           dialog.type === 'create-note' ? 'create-note'
           : dialog.type === 'create-logic' ? 'create-logic'
+          : dialog.type === 'create-sheet' ? 'create-sheet'
           : dialog.type === 'create-folder' ? 'create-folder'
           : 'rename'
         }
@@ -753,6 +797,17 @@ export default function FileTree() {
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="text-xs text-foreground">New logic diagram</TooltipContent>
                 </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => handleCreateSheet()}
+                      className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
+                    >
+                      <Table2 size={13} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs text-foreground">New spreadsheet</TooltipContent>
+                </Tooltip>
               </>
             )}
             {!readOnly && (
@@ -766,7 +821,7 @@ export default function FileTree() {
                     <FileUp size={13} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs text-foreground">Add files (images, PDFs, markdown, canvas, Kanban, logic)</TooltipContent>
+                <TooltipContent side="bottom" className="text-xs text-foreground">Add files (images, PDFs, markdown, canvas, Kanban, logic, spreadsheets)</TooltipContent>
               </Tooltip>
             )}
           </div>
@@ -821,11 +876,14 @@ export default function FileTree() {
               onOpenFile={handleOpenFile}
               onCreateNote={handleCreateNote}
               onCreateLogic={handleCreateLogic}
+              onCreateSheet={handleCreateSheet}
               onCreateFolder={handleCreateFolder}
               onDelete={handleDelete}
               onRename={handleRename}
               onReveal={handleReveal}
               onDownload={handleDownload}
+              onDuplicate={handleDuplicate}
+              canDuplicate={!readOnly}
               onDragOut={handleDragOut}
               canReveal={isLocalVault}
               onViewHistory={setHistoryModalPath}
@@ -872,11 +930,14 @@ interface FileTreeNodeProps {
   onOpenFile: (file: NoteFile) => void;
   onCreateNote: (parentPath?: string) => void;
   onCreateLogic: (parentPath?: string) => void;
+  onCreateSheet: (parentPath?: string) => void;
   onCreateFolder: (parentPath?: string) => void;
   onDelete: (file: NoteFile) => void;
   onRename: (file: NoteFile) => void;
   onReveal: (file: NoteFile) => void;
   onDownload: (file: NoteFile) => void;
+  onDuplicate: (file: NoteFile) => void;
+  canDuplicate: boolean;
   onDragOut: (file: NoteFile) => void;
   canReveal: boolean;
   onViewHistory: (relativePath: string) => void;
@@ -894,7 +955,7 @@ interface FileTreeNodeProps {
 
 function FileTreeNode({
   node, depth, collapsed, setCollapsed,
-  onOpenFile, onCreateNote, onCreateLogic, onCreateFolder, onDelete, onRename, onReveal, onDownload, onDragOut, canReveal, onViewHistory,
+  onOpenFile, onCreateNote, onCreateLogic, onCreateSheet, onCreateFolder, onDelete, onRename, onReveal, onDownload, onDuplicate, canDuplicate, onDragOut, canReveal, onViewHistory,
   onNodeClick, selectedPaths, onHover,
   draggingPath, dropTargetPath, taskAttachmentsByPath, setDraggingPath, setDropTargetPath, onMove,
   fileTreeHoverPreviewsEnabled,
@@ -920,6 +981,7 @@ function FileTreeNode({
   const isPdfAsset = isPdfFile(node);
   const isManagedFolder = isManagedPicturesFolder(node);
   const supportsVersionHistory = supportsVersionHistoryRelativePath(node.relativePath, node.isFolder);
+  const isDuplicableDocument = !node.isFolder && canDuplicate && isTextDocumentPath(node.relativePath);
 
   const getFileIcon = () => {
     if (node.isFolder) {
@@ -931,6 +993,7 @@ function FileTreeNode({
     if (node.extension === 'canvas')  return <Layout size={13} className="text-blue-400/70" />;
     if (node.extension === 'kanban')  return <LayoutDashboard size={13} className="text-emerald-400/70" />;
     if (node.extension === 'logic')   return <CircuitBoard size={13} className="text-cyan-400/75" />;
+    if (node.extension === 'sheet')   return <Table2 size={13} className="text-violet-400/75" />;
     return <FileText size={13} className="text-muted-foreground/70" />;
   };
 
@@ -1180,11 +1243,14 @@ function FileTreeNode({
                   onOpenFile={onOpenFile}
                   onCreateNote={onCreateNote}
                   onCreateLogic={onCreateLogic}
+                  onCreateSheet={onCreateSheet}
                   onCreateFolder={onCreateFolder}
                   onDelete={onDelete}
                   onRename={onRename}
                   onReveal={onReveal}
                   onDownload={onDownload}
+                  onDuplicate={onDuplicate}
+                  canDuplicate={canDuplicate}
                   onDragOut={onDragOut}
                   canReveal={canReveal}
                   onViewHistory={onViewHistory}
@@ -1210,11 +1276,13 @@ function FileTreeNode({
           <>
             <ContextMenuItem onClick={() => onCreateNote(node.relativePath)}>New Note</ContextMenuItem>
             <ContextMenuItem onClick={() => onCreateLogic(node.relativePath)}>New Logic Diagram</ContextMenuItem>
+            <ContextMenuItem onClick={() => onCreateSheet(node.relativePath)}>New Spreadsheet</ContextMenuItem>
             <ContextMenuItem onClick={() => onCreateFolder(node.relativePath)}>New Folder</ContextMenuItem>
             <ContextMenuSeparator />
           </>
         )}
         {!isManagedFolder && <ContextMenuItem onClick={() => onRename(node)}>Rename</ContextMenuItem>}
+        {isDuplicableDocument && <ContextMenuItem onClick={() => void onDuplicate(node)}>Duplicate</ContextMenuItem>}
         {supportsVersionHistory && <ContextMenuItem onClick={() => onViewHistory(node.relativePath)}>View version history</ContextMenuItem>}
         {!node.isFolder && (
           <ContextMenuItem onClick={() => void onDownload(node)}>
