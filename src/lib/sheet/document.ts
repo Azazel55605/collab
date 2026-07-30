@@ -29,8 +29,13 @@ import {
 import type {
   SheetCell,
   SheetColumn,
+  SheetColumnFilter,
   SheetDocument,
+  SheetFilterState,
+  SheetNamedRange,
+  SheetRange,
   SheetRow,
+  SheetTable,
   SheetValueType,
   SheetWorksheet,
 } from '../../types/sheet';
@@ -108,8 +113,10 @@ const KNOWN_WORKSHEET_KEYS = new Set([
   'mergedRanges',
   'frozen',
   'filters',
+  'tables',
   'validations',
   'conditionalFormats',
+  'protectedRanges',
   'charts',
 ]);
 
@@ -160,6 +167,30 @@ export function createSheetRowId() {
 
 export function createSheetColumnId() {
   return newId('c');
+}
+
+export function createSheetTableId() {
+  return newId('tbl');
+}
+
+export function createSheetTableColumnId() {
+  return newId('tc');
+}
+
+export function createSheetValidationId() {
+  return newId('val');
+}
+
+export function createSheetConditionalFormatId() {
+  return newId('cf');
+}
+
+export function createSheetProtectedRangeId() {
+  return newId('pr');
+}
+
+export function createSheetNamedRangeId() {
+  return newId('nr');
 }
 
 export function createSheetWorksheetId() {
@@ -304,10 +335,32 @@ function normalizeTrackProperties<T extends SheetRow | SheetColumn>(
     const size = positiveNumber(properties[sizeKey]);
     if (size !== undefined) (track as unknown as Record<string, unknown>)[sizeKey] = size;
     if (properties.hidden === true) track.hidden = true;
+    if (sizeKey === 'height' && properties.filterHidden === true) {
+      (track as SheetRow).filterHidden = true;
+    }
     if (isValidSheetId(properties.styleId)) track.styleId = properties.styleId;
     out[id] = track;
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function normalizeStableRange(
+  value: unknown,
+  rowIds: Set<string>,
+  columnIds: Set<string>,
+): SheetRange | null {
+  const range = asRecord(value);
+  if (!range) return null;
+  const startRowId = String(range.startRowId);
+  const endRowId = String(range.endRowId);
+  const startColumnId = String(range.startColumnId);
+  const endColumnId = String(range.endColumnId);
+  return rowIds.has(startRowId)
+    && rowIds.has(endRowId)
+    && columnIds.has(startColumnId)
+    && columnIds.has(endColumnId)
+    ? { startRowId, endRowId, startColumnId, endColumnId }
+    : null;
 }
 
 function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWorksheet {
@@ -405,12 +458,225 @@ function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWor
     }
     if (merged.length > 0) worksheet.mergedRanges = merged as SheetWorksheet['mergedRanges'];
   }
-  if (asRecord(record.filters)) worksheet.filters = record.filters as SheetWorksheet['filters'];
+  if (Array.isArray(record.tables)) {
+    const tableIds = new Set<string>();
+    const tables = record.tables.flatMap((table): SheetTable[] => {
+      const item = asRecord(table);
+      const range = normalizeStableRange(item?.range, rowIds, columnIds);
+      if (!item || !range || !Array.isArray(item.columns)) return [];
+      const left = columnOrder.indexOf(range.startColumnId);
+      const right = columnOrder.indexOf(range.endColumnId);
+      const rangeColumnIds = new Set(
+        columnOrder.slice(Math.min(left, right), Math.max(left, right) + 1),
+      );
+      const columnIdentity = new Set<string>();
+      const columns = item.columns.flatMap((rawColumn) => {
+        const column = asRecord(rawColumn);
+        if (!column || !rangeColumnIds.has(String(column.columnId))) return [];
+        const id = isValidSheetId(column.id) && !columnIdentity.has(column.id)
+          ? column.id
+          : createSheetTableColumnId();
+        columnIdentity.add(id);
+        return [{
+          ...column,
+          id,
+          name: typeof column.name === 'string' && column.name.trim()
+            ? column.name.trim()
+            : `Column ${columnIdentity.size}`,
+          columnId: String(column.columnId),
+        }];
+      });
+      if (columns.length !== rangeColumnIds.size) return [];
+      const id = isValidSheetId(item.id) && !tableIds.has(item.id)
+        ? item.id
+        : createSheetTableId();
+      tableIds.add(id);
+      return [{
+        ...item,
+        id,
+        name: typeof item.name === 'string' && item.name.trim()
+          ? item.name.trim()
+          : `Table${tableIds.size}`,
+        range,
+        hasHeaderRow: item.hasHeaderRow !== false,
+        columns,
+      }];
+    });
+    if (tables.length !== record.tables.length) {
+      context.warnings.push('Dropped table(s) with invalid or missing row/column references.');
+    }
+    if (tables.length > SHEET_LIMITS.tablesPerWorksheet) {
+      throw new SheetDocumentError(
+        'limit-exceeded',
+        `A worksheet may not have more than ${SHEET_LIMITS.tablesPerWorksheet} tables.`,
+      );
+    }
+    if (tables.length > 0) worksheet.tables = tables as SheetWorksheet['tables'];
+  }
+  const rawFilters = asRecord(record.filters);
+  if (rawFilters) {
+    const range = normalizeStableRange(rawFilters.range, rowIds, columnIds);
+    if (range) {
+      const filters: SheetFilterState = { range };
+      if (Array.isArray(rawFilters.sortRules)) {
+        filters.sortRules = rawFilters.sortRules.flatMap((rawRule) => {
+          const rule = asRecord(rawRule);
+          return rule
+            && columnIds.has(String(rule.columnId))
+            && (rule.direction === 'ascending' || rule.direction === 'descending')
+            ? [{ columnId: String(rule.columnId), direction: rule.direction }]
+            : [];
+        });
+      }
+      if (Array.isArray(rawFilters.columnFilters)) {
+        filters.columnFilters = rawFilters.columnFilters.flatMap((rawFilter) => {
+          const filter = asRecord(rawFilter);
+          return filter && columnIds.has(String(filter.columnId))
+            ? [{ ...filter, columnId: String(filter.columnId) } as SheetColumnFilter]
+            : [];
+        });
+      }
+      worksheet.filters = filters;
+    } else {
+      context.warnings.push('Dropped filters with invalid or missing row/column references.');
+    }
+  }
   if (Array.isArray(record.validations)) {
-    worksheet.validations = record.validations as SheetWorksheet['validations'];
+    if (record.validations.length > SHEET_LIMITS.validationsPerWorksheet) {
+      throw new SheetDocumentError(
+        'limit-exceeded',
+        `A worksheet may not have more than ${SHEET_LIMITS.validationsPerWorksheet} validation rules.`,
+      );
+    }
+    const validationIds = new Set<string>();
+    const kinds = new Set(['list', 'range', 'number', 'date', 'text', 'custom']);
+    const validations = record.validations.flatMap((rawValidation) => {
+      const validation = asRecord(rawValidation);
+      if (!validation || !kinds.has(String(validation.kind))) return [];
+      const id = isValidSheetId(validation.id) && !validationIds.has(validation.id)
+        ? validation.id
+        : createSheetValidationId();
+      validationIds.add(id);
+      const sourceRange = validation.sourceRange === undefined
+        ? undefined
+        : normalizeStableRange(validation.sourceRange, rowIds, columnIds);
+      if (validation.kind === 'range' && !sourceRange) return [];
+      const anchorRecord = asRecord(validation.anchor);
+      let anchor = anchorRecord
+        && rowIds.has(String(anchorRecord.rowId))
+        && columnIds.has(String(anchorRecord.columnId))
+        ? { rowId: String(anchorRecord.rowId), columnId: String(anchorRecord.columnId) }
+        : undefined;
+      if (validation.kind === 'custom') {
+        if (typeof validation.formula !== 'string' || !validation.formula.startsWith('=')) return [];
+        if (!anchor) {
+          const firstCell = Object.entries(worksheet.cells).find(
+            ([, cell]) => cell.validationId === id,
+          );
+          const parsed = firstCell ? parseSheetCellKey(firstCell[0]) : null;
+          if (parsed) anchor = { rowId: parsed.rowId, columnId: parsed.columnId };
+        }
+        if (!anchor) return [];
+      }
+      return [{
+        ...validation,
+        id,
+        kind: String(validation.kind),
+        sourceRange: sourceRange ?? undefined,
+        anchor,
+      }];
+    }) as NonNullable<SheetWorksheet['validations']>;
+    if (validations.length !== record.validations.length) {
+      context.warnings.push('Dropped invalid data validation rule(s).');
+    }
+    if (validations.length > 0) worksheet.validations = validations;
+    const validIds = new Set(validations.map((validation) => validation.id));
+    for (const [key, cell] of Object.entries(worksheet.cells)) {
+      if (!cell.validationId || validIds.has(cell.validationId)) continue;
+      const next = { ...cell };
+      delete next.validationId;
+      if (Object.keys(next).length > 0) worksheet.cells[key] = next;
+      else delete worksheet.cells[key];
+      context.warnings.push('Cleared a cell reference to a missing validation rule.');
+    }
+  } else {
+    let cleared = 0;
+    for (const [key, cell] of Object.entries(worksheet.cells)) {
+      if (!cell.validationId) continue;
+      const next = { ...cell };
+      delete next.validationId;
+      if (Object.keys(next).length > 0) worksheet.cells[key] = next;
+      else delete worksheet.cells[key];
+      cleared += 1;
+    }
+    if (cleared > 0) {
+      context.warnings.push(`Cleared ${cleared} cell reference(s) to missing validation rules.`);
+    }
   }
   if (Array.isArray(record.conditionalFormats)) {
-    worksheet.conditionalFormats = record.conditionalFormats as SheetWorksheet['conditionalFormats'];
+    if (record.conditionalFormats.length > SHEET_LIMITS.conditionalFormatsPerWorksheet) {
+      throw new SheetDocumentError(
+        'limit-exceeded',
+        `A worksheet may not have more than ${SHEET_LIMITS.conditionalFormatsPerWorksheet} conditional formats.`,
+      );
+    }
+    const formatIds = new Set<string>();
+    const kinds = new Set(['comparison', 'formula', 'colorScale', 'duplicateValues', 'uniqueValues']);
+    const conditionalFormats = record.conditionalFormats.flatMap((rawFormat) => {
+      const format = asRecord(rawFormat);
+      if (!format || !kinds.has(String(format.kind)) || !Array.isArray(format.ranges)) return [];
+      const ranges = format.ranges.flatMap((range) => {
+        const normalized = normalizeStableRange(range, rowIds, columnIds);
+        return normalized ? [normalized] : [];
+      });
+      if (ranges.length === 0 || ranges.length !== format.ranges.length) return [];
+      if (
+        format.kind === 'formula'
+        && (typeof format.formula !== 'string' || !format.formula.startsWith('='))
+      ) return [];
+      const id = isValidSheetId(format.id) && !formatIds.has(format.id)
+        ? format.id
+        : createSheetConditionalFormatId();
+      formatIds.add(id);
+      return [{
+        ...format,
+        id,
+        kind: String(format.kind),
+        ranges,
+      }];
+    }) as NonNullable<SheetWorksheet['conditionalFormats']>;
+    if (conditionalFormats.length !== record.conditionalFormats.length) {
+      context.warnings.push('Dropped invalid conditional formatting rule(s).');
+    }
+    if (conditionalFormats.length > 0) worksheet.conditionalFormats = conditionalFormats;
+  }
+  if (Array.isArray(record.protectedRanges)) {
+    if (record.protectedRanges.length > SHEET_LIMITS.protectedRangesPerWorksheet) {
+      throw new SheetDocumentError(
+        'limit-exceeded',
+        `A worksheet may not have more than ${SHEET_LIMITS.protectedRangesPerWorksheet} protected ranges.`,
+      );
+    }
+    const ids = new Set<string>();
+    const protectedRanges = record.protectedRanges.flatMap((rawRange) => {
+      const item = asRecord(rawRange);
+      const range = item ? normalizeStableRange(item.range, rowIds, columnIds) : null;
+      if (!item || !range) return [];
+      const id = isValidSheetId(item.id) && !ids.has(item.id)
+        ? item.id
+        : createSheetProtectedRangeId();
+      ids.add(id);
+      return [{
+        ...item,
+        id,
+        range,
+        name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : undefined,
+      }];
+    }) as NonNullable<SheetWorksheet['protectedRanges']>;
+    if (protectedRanges.length !== record.protectedRanges.length) {
+      context.warnings.push('Dropped invalid protected range(s).');
+    }
+    if (protectedRanges.length > 0) worksheet.protectedRanges = protectedRanges;
   }
   if (Array.isArray(record.charts)) {
     worksheet.charts = record.charts as SheetWorksheet['charts'];
@@ -540,6 +806,12 @@ export function normalizeSheetDocument(input: unknown, name = 'Workbook'): Sheet
         danglingStyles += 1;
       }
     }
+    for (const format of worksheet.conditionalFormats ?? []) {
+      if (format.styleId && !styles[format.styleId]) {
+        delete format.styleId;
+        danglingStyles += 1;
+      }
+    }
   }
   if (danglingStyles > 0) {
     context.warnings.push(`Cleared ${danglingStyles} reference(s) to a missing style.`);
@@ -547,14 +819,70 @@ export function normalizeSheetDocument(input: unknown, name = 'Workbook'): Sheet
 
   const activeWorksheetId = optionalString(migrated.activeWorksheetId);
   const timestamp = new Date().toISOString();
+  if (Array.isArray(migrated.namedRanges)
+    && migrated.namedRanges.length > SHEET_LIMITS.namedRangesPerWorkbook) {
+    throw new SheetDocumentError(
+      'limit-exceeded',
+      `A workbook may not have more than ${SHEET_LIMITS.namedRangesPerWorkbook} named ranges.`,
+    );
+  }
+  const namedRangeIds = new Set<string>();
+  const acceptedNames: Array<{ name: string; scopeWorksheetId?: string }> = [];
   const namedRanges = Array.isArray(migrated.namedRanges)
-    ? (migrated.namedRanges as SheetDocument['namedRanges'])!.filter(
-      (range) => worksheetIds.has(range.worksheetId),
-    )
+    ? migrated.namedRanges.flatMap((rawRange): SheetNamedRange[] => {
+      const item = asRecord(rawRange);
+      if (!item || typeof item.name !== 'string' || !item.name.trim()) return [];
+      const worksheet = worksheets.find((candidate) => candidate.id === item.worksheetId);
+      if (!worksheet) return [];
+      const hasScope = Object.prototype.hasOwnProperty.call(item, 'scopeWorksheetId')
+        && item.scopeWorksheetId !== undefined;
+      if (
+        hasScope
+        && (
+          typeof item.scopeWorksheetId !== 'string'
+          || !worksheetIds.has(item.scopeWorksheetId)
+        )
+      ) return [];
+      const scopeWorksheetId = hasScope ? item.scopeWorksheetId as string : undefined;
+      const range = normalizeStableRange(
+        item.range,
+        new Set(worksheet.rowOrder),
+        new Set(worksheet.columnOrder),
+      );
+      if (!range) return [];
+      const name = item.name.trim();
+      if (
+        !/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name)
+        || /^[A-Za-z]{1,3}[1-9]\d*$/.test(name)
+      ) return [];
+      const normalizedName = name.toLocaleLowerCase();
+      const conflicts = acceptedNames.some((accepted) => (
+        accepted.name === normalizedName
+        && (
+          accepted.scopeWorksheetId === undefined
+          || scopeWorksheetId === undefined
+          || accepted.scopeWorksheetId === scopeWorksheetId
+        )
+      ));
+      if (conflicts) return [];
+      acceptedNames.push({ name: normalizedName, scopeWorksheetId });
+      const id = isValidSheetId(item.id) && !namedRangeIds.has(item.id)
+        ? item.id
+        : createSheetNamedRangeId();
+      namedRangeIds.add(id);
+      return [{
+        ...item,
+        id,
+        name,
+        worksheetId: worksheet.id,
+        range,
+        scopeWorksheetId,
+      }];
+    })
     : undefined;
   if (namedRanges && Array.isArray(migrated.namedRanges)
     && namedRanges.length !== migrated.namedRanges.length) {
-    context.warnings.push('Dropped named range(s) pointing at a missing worksheet.');
+    context.warnings.push('Dropped invalid or conflicting named range(s).');
   }
 
   const document: SheetDocument = {
@@ -729,7 +1057,9 @@ export function removeWorksheet(document: SheetDocument, worksheetId: string): S
       : document.activeWorksheetId,
   };
   if (next.namedRanges) {
-    const kept = next.namedRanges.filter((range) => range.worksheetId !== worksheetId);
+    const kept = next.namedRanges.filter((range) => (
+      range.worksheetId !== worksheetId && range.scopeWorksheetId !== worksheetId
+    ));
     if (kept.length > 0) next.namedRanges = kept;
     else delete next.namedRanges;
   }

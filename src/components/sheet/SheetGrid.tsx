@@ -12,7 +12,12 @@ import {
 } from 'react';
 
 import { SHEET_DEFAULTS } from '../../types/sheet';
-import type { SheetDocument, SheetStyle, SheetWorksheet } from '../../types/sheet';
+import type {
+  SheetDocument,
+  SheetNamedRange,
+  SheetStyle,
+  SheetWorksheet,
+} from '../../types/sheet';
 import {
   sheetFormulaResultKey,
   type SheetFormulaComputedValue,
@@ -31,6 +36,8 @@ import {
 } from '../../lib/sheet/formulaFunctions';
 import { getCell, mergedRangeAt } from '../../lib/sheet/operations';
 import { resolveCellStyle } from '../../lib/sheet/styles';
+import { tableRectangle } from '../../lib/sheet/dataTools';
+import { createConditionalFormatEvaluator } from '../../lib/sheet/conditionalFormatting';
 import {
   addSelectionRange,
   createSelection,
@@ -56,7 +63,9 @@ import {
   type SheetAxisMetrics,
 } from '../../lib/sheet/viewport';
 import { cn } from '../../lib/utils';
-import SheetFormulaIntellisense from './SheetFormulaIntellisense';
+import SheetFormulaIntellisense, {
+  type SheetFormulaSuggestion,
+} from './SheetFormulaIntellisense';
 
 /**
  * Virtualized spreadsheet grid: a canvas cell layer under a DOM overlay.
@@ -104,6 +113,7 @@ export interface SheetGridProps {
   displayFormat?: SheetDisplayFormatOptions;
   formulaReferenceMode?: boolean;
   onFormulaReferenceCommit?: (range: { anchor: SheetPosition; focus: SheetPosition }) => void;
+  namedRanges?: readonly SheetNamedRange[];
   className?: string;
 }
 
@@ -373,6 +383,35 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
   for (let index = 0; index < viewport.columns.frozen; index += 1) columnIndices.push(index);
   for (let index = viewport.columns.start; index < viewport.columns.end; index += 1) columnIndices.push(index);
   const merges = mergeRectangles(worksheet);
+  const tables = (worksheet.tables ?? []).flatMap((table) => {
+    const rectangle = tableRectangle(worksheet, table);
+    return rectangle ? [{ table, rectangle }] : [];
+  });
+  const conditionalStyleAt = createConditionalFormatEvaluator(
+    options.styles,
+    worksheet,
+    options.computedValues,
+  );
+  const styleAt = (row: number, column: number): SheetStyle => {
+    const explicit = resolveCellStyle(options.styles, worksheet, { row, column });
+    const conditional = conditionalStyleAt({ row, column });
+    const table = tables.find(({ rectangle }) => (
+      row >= rectangle.top && row <= rectangle.bottom
+      && column >= rectangle.left && column <= rectangle.right
+    ));
+    if (!table) return { ...explicit, ...conditional };
+    const header = table.table.hasHeaderRow && row === table.rectangle.top;
+    return {
+      backgroundColor: header
+        ? 'rgba(139, 92, 246, 0.18)'
+        : (row - table.rectangle.top) % 2 === 0
+          ? 'rgba(127, 127, 127, 0.045)'
+          : undefined,
+      bold: header || undefined,
+      ...explicit,
+      ...conditional,
+    };
+  };
 
   let painted = 0;
   for (const row of rowIndices) {
@@ -388,7 +427,7 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
       const columnWidth = trackSize(columns, column);
       if (columnWidth === 0 || x > options.width) continue;
 
-      const style = resolveCellStyle(options.styles, worksheet, { row, column });
+      const style = styleAt(row, column);
       if (style.backgroundColor) {
         context.fillStyle = style.backgroundColor;
         context.fillRect(x + 1, y + 1, columnWidth - 1, rowHeight - 1);
@@ -462,10 +501,7 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
     const highlight = rowId && columnId
       ? options.formulaHighlights?.get(`${rowId}:${columnId}`)
       : undefined;
-    const style = resolveCellStyle(options.styles, worksheet, {
-      row: merge.top,
-      column: merge.left,
-    });
+    const style = styleAt(merge.top, merge.left);
 
     context.fillStyle = style.backgroundColor ?? theme.background;
     context.fillRect(x, y, width, height);
@@ -535,6 +571,7 @@ export default function SheetGrid({
   displayFormat,
   formulaReferenceMode = false,
   onFormulaReferenceCommit,
+  namedRanges = [],
   className,
 }: SheetGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -731,10 +768,20 @@ export default function SheetGrid({
   );
   const editorSuggestions = useMemo(() => {
     if (!editorSuggestionsOpen || !editorAutocomplete) return [];
-    return SHEET_FUNCTIONS
-      .filter((definition) => definition.name.startsWith(editorAutocomplete.query))
+    const query = editorAutocomplete.query.toLocaleUpperCase();
+    const functions: SheetFormulaSuggestion[] = SHEET_FUNCTIONS
+      .filter((definition) => definition.name.startsWith(query))
+      .map((definition) => ({ ...definition, kind: 'function' }));
+    const names: SheetFormulaSuggestion[] = namedRanges
+      .filter((namedRange) => namedRange.name.toLocaleUpperCase().startsWith(query))
+      .map((namedRange) => ({
+        name: namedRange.name,
+        signature: namedRange.scopeWorksheetId ? 'Worksheet named range' : 'Workbook named range',
+        kind: 'named-range',
+      }));
+    return [...functions, ...names]
       .slice(0, 8);
-  }, [editorAutocomplete, editorSuggestionsOpen]);
+  }, [editorAutocomplete, editorSuggestionsOpen, namedRanges]);
 
   useEffect(() => {
     setSelectedEditorSuggestion(0);
@@ -752,8 +799,9 @@ export default function SheetGrid({
   const chooseEditorSuggestion = useCallback((index: number) => {
     const definition = editorSuggestions[index];
     if (!definition || !editing || !editorAutocomplete) return;
-    const next = `${editing.text.slice(0, editorAutocomplete.start)}${definition.name}(${editing.text.slice(editorAutocomplete.end)}`;
-    const cursor = editorAutocomplete.start + definition.name.length + 1;
+    const suffix = definition.kind === 'function' ? '(' : '';
+    const next = `${editing.text.slice(0, editorAutocomplete.start)}${definition.name}${suffix}${editing.text.slice(editorAutocomplete.end)}`;
+    const cursor = editorAutocomplete.start + definition.name.length + suffix.length;
     onEditingChange({ ...editing, text: next, source: 'grid' });
     setEditorSuggestionsOpen(false);
     placeEditorCursor(cursor);

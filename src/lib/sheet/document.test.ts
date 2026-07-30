@@ -89,6 +89,44 @@ describe('round trips', () => {
     expect((document.worksheets[0] as unknown as Record<string, unknown>).futureWorksheet).toBe(42);
     expect((document.worksheets[0].cells['r1:c1'] as unknown as Record<string, unknown>).futureCell).toBe('x');
   });
+
+  it('round-trips structured tables, filters, and derived row visibility', () => {
+    const raw = baseWorkbook();
+    const worksheet = raw.worksheets[0] as typeof raw.worksheets[0] & Record<string, unknown>;
+    worksheet.rows = { r2: { id: 'r2', hidden: true, filterHidden: true } };
+    worksheet.columns = { c1: { id: 'c1', filterHidden: true } };
+    const tableRange = {
+      startRowId: 'r1',
+      endRowId: 'r2',
+      startColumnId: 'c1',
+      endColumnId: 'c2',
+    };
+    worksheet.tables = [{
+      id: 'table1',
+      name: 'Records',
+      hasHeaderRow: true,
+      range: tableRange,
+      columns: [
+        { id: 'tableColumn1', name: 'Name', columnId: 'c1' },
+        { id: 'tableColumn2', name: 'Score', columnId: 'c2' },
+      ],
+    }];
+    worksheet.filters = {
+      range: tableRange,
+      columnFilters: [{ columnId: 'c2', numberMin: 10 }],
+    };
+
+    const document = parseSheetDocument(JSON.stringify(raw));
+    const reparsed = parseSheetDocument(serializeSheetDocument(document));
+    expect(reparsed.worksheets[0].tables).toEqual(document.worksheets[0].tables);
+    expect(reparsed.worksheets[0].filters).toEqual(document.worksheets[0].filters);
+    expect(reparsed.worksheets[0].rows?.r2).toMatchObject({
+      hidden: true,
+      filterHidden: true,
+    });
+    expect((reparsed.worksheets[0].columns?.c1 as Record<string, unknown> | undefined)?.filterHidden)
+      .toBeUndefined();
+  });
 });
 
 describe('malformed input', () => {
@@ -179,6 +217,91 @@ describe('malformed input', () => {
     const { document } = normalizeSheetDocument({ ...baseWorkbook(), activeWorksheetId: 'missing' });
     expect(document.activeWorksheetId).toBe(document.worksheets[0].id);
   });
+
+  it('repairs invalid, dangling, and visibility-conflicting named ranges', () => {
+    const raw = baseWorkbook() as Record<string, unknown>;
+    raw.namedRanges = [
+      {
+        id: 'name1',
+        name: 'Revenue',
+        worksheetId: 'ws1',
+        range: {
+          startRowId: 'r1',
+          endRowId: 'r2',
+          startColumnId: 'c1',
+          endColumnId: 'c1',
+        },
+      },
+      {
+        id: 'name2',
+        name: 'revenue',
+        worksheetId: 'ws1',
+        scopeWorksheetId: 'ws1',
+        range: {
+          startRowId: 'r1',
+          endRowId: 'r1',
+          startColumnId: 'c1',
+          endColumnId: 'c1',
+        },
+      },
+      {
+        id: 'name3',
+        name: 'A1',
+        worksheetId: 'ws1',
+        range: {
+          startRowId: 'r1',
+          endRowId: 'r1',
+          startColumnId: 'c1',
+          endColumnId: 'c1',
+        },
+      },
+      {
+        id: 'name4',
+        name: 'Other',
+        worksheetId: 'ws1',
+        scopeWorksheetId: 'missing',
+        range: {
+          startRowId: 'r1',
+          endRowId: 'r1',
+          startColumnId: 'c1',
+          endColumnId: 'c1',
+        },
+      },
+    ];
+
+    const { document, warnings } = normalizeSheetDocument(raw);
+    expect(document.namedRanges).toHaveLength(1);
+    expect(document.namedRanges?.[0].name).toBe('Revenue');
+    expect(warnings.join(' ')).toMatch(/named range/);
+  });
+
+  it('normalizes protected ranges and custom validation anchors', () => {
+    const raw = baseWorkbook() as Record<string, unknown>;
+    const worksheet = (raw.worksheets as Record<string, unknown>[])[0];
+    worksheet.validations = [{
+      id: 'validation1',
+      kind: 'custom',
+      formula: '=A1>0',
+      anchor: { rowId: 'r1', columnId: 'c1' },
+    }];
+    (worksheet.cells as Record<string, Record<string, unknown>>)['r1:c1'].validationId = 'validation1';
+    worksheet.protectedRanges = [{
+      id: 'protected1',
+      name: 'Totals',
+      range: {
+        startRowId: 'r1',
+        endRowId: 'r2',
+        startColumnId: 'c1',
+        endColumnId: 'c2',
+      },
+    }];
+    const { document } = normalizeSheetDocument(raw);
+    expect(document.worksheets[0].validations?.[0].anchor).toEqual({
+      rowId: 'r1',
+      columnId: 'c1',
+    });
+    expect(document.worksheets[0].protectedRanges?.[0].name).toBe('Totals');
+  });
 });
 
 describe('limits', () => {
@@ -260,6 +383,26 @@ describe('worksheet operations', () => {
       },
     }];
     document = removeWorksheet(document, target.id);
+    expect(document.namedRanges).toBeUndefined();
+  });
+
+  it('drops worksheet-local names whose scope worksheet is removed', () => {
+    let document = addWorksheet(createEmptySheetDocument('Book'), 'Data');
+    const source = document.worksheets[0];
+    const scopedTo = document.worksheets[1];
+    document.namedRanges = [{
+      id: 'n1',
+      name: 'LocalInput',
+      worksheetId: source.id,
+      scopeWorksheetId: scopedTo.id,
+      range: {
+        startRowId: source.rowOrder[0],
+        startColumnId: source.columnOrder[0],
+        endRowId: source.rowOrder[0],
+        endColumnId: source.columnOrder[0],
+      },
+    }];
+    document = removeWorksheet(document, scopedTo.id);
     expect(document.namedRanges).toBeUndefined();
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createEmptySheetDocument, renameWorksheet } from './document';
+import { createSheetNamedRange } from './namedRanges';
 import {
   deleteTracks,
   getCell,
@@ -92,5 +93,28 @@ describe('structural formula rewriting', () => {
     expect(formulaDependsOn(document, worksheet.id, '=SUM(A1:B2)', dependencies[3]))
       .toBe(true);
     expect(formulaPrecedents(document, worksheet.id, '=A1:H8', 5)).toHaveLength(5);
+  });
+
+  it('resolves named ranges for precedent and dependency inspection', () => {
+    let document = workbook();
+    const worksheet = document.worksheets[0];
+    document = createSheetNamedRange(
+      document,
+      worksheet.id,
+      {
+        ranges: [{
+          anchor: { row: 1, column: 1 },
+          focus: { row: 2, column: 2 },
+        }],
+        active: { row: 1, column: 1 },
+        kind: 'cells',
+      },
+      'Inputs',
+      'workbook',
+    );
+    const precedents = formulaPrecedents(document, worksheet.id, '=SUM(Inputs)');
+    expect(precedents).toHaveLength(4);
+    expect(formulaDependsOn(document, worksheet.id, '=SUM(Inputs)', precedents[3]))
+      .toBe(true);
   });
 });

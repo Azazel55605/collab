@@ -1,13 +1,19 @@
 import { useMemo, type CSSProperties } from 'react';
 
 import { cn } from '../../lib/utils';
-import { activeFormulaFunction, type SheetFunctionDefinition } from '../../lib/sheet/formulaFunctions';
+import { activeFormulaFunction } from '../../lib/sheet/formulaFunctions';
 import { parseFormulaReferences } from '../../lib/sheet/formulaReferences';
+
+export interface SheetFormulaSuggestion {
+  name: string;
+  signature: string;
+  kind: 'function' | 'named-range';
+}
 
 interface Props {
   value: string;
   cursor: number;
-  suggestions: readonly SheetFunctionDefinition[];
+  suggestions: readonly SheetFormulaSuggestion[];
   selectedSuggestion: number;
   onSelectSuggestion: (index: number) => void;
   onChooseSuggestion: (index: number) => void;
@@ -68,7 +74,7 @@ export default function SheetFormulaIntellisense({
         >
           {suggestions.map((definition, index) => (
             <button
-              key={definition.name}
+              key={`${definition.kind}:${definition.name}`}
               type="button"
               role="option"
               aria-selected={index === selectedSuggestion}

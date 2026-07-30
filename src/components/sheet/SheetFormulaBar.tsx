@@ -2,14 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, X } from 'lucide-react';
 
 import { Input } from '../ui/input';
+import type { SheetNamedRange } from '../../types/sheet';
 import { formatA1 } from '../../lib/sheet/address';
-import type { SheetPosition } from '../../lib/sheet/address';
 import { normalizeRange, selectedCellCount, type SheetSelection } from '../../lib/sheet/selection';
 import {
   formulaAutocompleteContext,
   SHEET_FUNCTIONS,
 } from '../../lib/sheet/formulaFunctions';
-import SheetFormulaIntellisense from './SheetFormulaIntellisense';
+import SheetFormulaIntellisense, {
+  type SheetFormulaSuggestion,
+} from './SheetFormulaIntellisense';
 
 interface Props {
   selection: SheetSelection;
@@ -21,8 +23,9 @@ interface Props {
   onCancel: () => void;
   cursor: number;
   onCursorChange: (cursor: number) => void;
-  /** Jump to a typed reference from the name box (`B12`). */
-  onNavigate: (position: SheetPosition) => void;
+  /** Jump to a typed cell, range, or visible named range. */
+  onNavigate: (reference: string) => void;
+  namedRanges?: readonly SheetNamedRange[];
   readOnly?: boolean;
 }
 
@@ -51,6 +54,7 @@ export default function SheetFormulaBar({
   cursor,
   onCursorChange,
   onNavigate,
+  namedRanges = [],
   readOnly = false,
 }: Props) {
   const [nameDraft, setNameDraft] = useState('');
@@ -66,10 +70,20 @@ export default function SheetFormulaBar({
   );
   const suggestions = useMemo(() => {
     if (!formulaFocused || !suggestionsOpen || !autocomplete) return [];
-    return SHEET_FUNCTIONS
-      .filter((definition) => definition.name.startsWith(autocomplete.query))
+    const query = autocomplete.query.toLocaleUpperCase();
+    const functions: SheetFormulaSuggestion[] = SHEET_FUNCTIONS
+      .filter((definition) => definition.name.startsWith(query))
+      .map((definition) => ({ ...definition, kind: 'function' }));
+    const names: SheetFormulaSuggestion[] = namedRanges
+      .filter((namedRange) => namedRange.name.toLocaleUpperCase().startsWith(query))
+      .map((namedRange) => ({
+        name: namedRange.name,
+        signature: namedRange.scopeWorksheetId ? 'Worksheet named range' : 'Workbook named range',
+        kind: 'named-range',
+      }));
+    return [...functions, ...names]
       .slice(0, 8);
-  }, [autocomplete, formulaFocused, suggestionsOpen]);
+  }, [autocomplete, formulaFocused, namedRanges, suggestionsOpen]);
 
   useEffect(() => {
     if (!nameFocused) setNameDraft(selectionLabel(selection));
@@ -91,8 +105,9 @@ export default function SheetFormulaBar({
   const chooseSuggestion = (index: number) => {
     const definition = suggestions[index];
     if (!definition || !autocomplete) return;
-    const next = `${value.slice(0, autocomplete.start)}${definition.name}(${value.slice(autocomplete.end)}`;
-    const nextCursor = autocomplete.start + definition.name.length + 1;
+    const suffix = definition.kind === 'function' ? '(' : '';
+    const next = `${value.slice(0, autocomplete.start)}${definition.name}${suffix}${value.slice(autocomplete.end)}`;
+    const nextCursor = autocomplete.start + definition.name.length + suffix.length;
     onChange(next);
     setSuggestionsOpen(false);
     placeCursor(nextCursor);
@@ -101,14 +116,7 @@ export default function SheetFormulaBar({
 
   const submitName = () => {
     const reference = nameDraft.trim();
-    const match = /^\$?([A-Za-z]+)\$?(\d+)$/.exec(reference);
-    if (match) {
-      let column = 0;
-      for (const character of match[1].toUpperCase()) {
-        column = column * 26 + (character.charCodeAt(0) - 64);
-      }
-      onNavigate({ row: Number.parseInt(match[2], 10) - 1, column: column - 1 });
-    }
+    if (reference) onNavigate(reference);
     setNameFocused(false);
   };
 

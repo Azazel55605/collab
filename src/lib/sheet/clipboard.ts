@@ -64,7 +64,8 @@ export function createSheetClipboardPayload(
         : undefined;
       if (!cell && Object.keys(style).length === 0) return null;
       return {
-        cell: cell ? { ...cell, styleId: undefined } : undefined,
+        // Validation belongs to the destination cell, not copied content.
+        cell: cell ? { ...cell, styleId: undefined, validationId: undefined } : undefined,
         style: Object.keys(style).length > 0 ? style : undefined,
         computed,
       };

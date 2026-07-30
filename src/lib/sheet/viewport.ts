@@ -45,7 +45,7 @@ export function buildRowMetrics(worksheet: SheetWorksheet): SheetAxisMetrics {
     (id) => {
       const row = rows?.[id];
       if (!row) return undefined;
-      return row.hidden ? 0 : row.height;
+      return row.hidden || row.filterHidden ? 0 : row.height;
     },
     defaultSize,
   );

@@ -84,8 +84,22 @@ function referencedStyleIds(document: SheetDocument): Set<string> {
     for (const column of Object.values(worksheet.columns ?? {})) {
       if (column.styleId) ids.add(column.styleId);
     }
+    for (const format of worksheet.conditionalFormats ?? []) {
+      if (format.styleId) ids.add(format.styleId);
+    }
   }
   return ids;
+}
+
+export function registerSheetStyle(
+  document: SheetDocument,
+  style: SheetStyle,
+): { document: SheetDocument; styleId: SheetStyleId | undefined } {
+  const result = styleIdFor(document.styles, style);
+  return {
+    document: result.styles === document.styles ? document : { ...document, styles: result.styles },
+    styleId: result.styleId,
+  };
 }
 
 export function pruneUnusedSheetStyles(document: SheetDocument): SheetDocument {

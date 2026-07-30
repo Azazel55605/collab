@@ -1,6 +1,7 @@
 import type { SheetCell, SheetDocument, SheetWorksheet } from '../../types/sheet';
 import { sheetCellKey } from '../../types/sheet';
 import { columnIndex, columnLabel } from './address';
+import { expandNamedRangesInFormula } from './namedRanges';
 
 export interface ParsedFormulaEndpoint {
   column: number;
@@ -240,7 +241,9 @@ export function formulaPrecedents(
   const source = document.worksheets.find((worksheet) => worksheet.id === sourceWorksheetId);
   if (!source) return [];
   const found = new Map<string, SheetFormulaDependency>();
-  for (const reference of parseFormulaReferences(formula)) {
+  for (const reference of parseFormulaReferences(
+    expandNamedRangesInFormula(document, sourceWorksheetId, formula),
+  )) {
     const target = reference.sheetName ? worksheetByName(document, reference.sheetName) : source;
     if (!target) continue;
     const last = reference.last ?? reference.first;
@@ -280,7 +283,9 @@ export function formulaDependsOn(
   const targetRow = targetWorksheet.rowOrder.indexOf(target.rowId);
   const targetColumn = targetWorksheet.columnOrder.indexOf(target.columnId);
   if (targetRow < 0 || targetColumn < 0) return false;
-  return parseFormulaReferences(formula).some((reference) => {
+  return parseFormulaReferences(
+    expandNamedRangesInFormula(document, sourceWorksheetId, formula),
+  ).some((reference) => {
     const referencedWorksheet = reference.sheetName
       ? worksheetByName(document, reference.sheetName)
       : source;

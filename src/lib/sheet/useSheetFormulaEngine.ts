@@ -8,6 +8,8 @@ import {
   type SheetFormulaValueMap,
 } from '../../types/sheetFormula';
 import { tauriCommands } from '../tauri';
+import { expandNamedRangesInFormula } from './namedRanges';
+import { buildSheetRuleFormulaInputs } from './formulaRules';
 
 export interface SheetFormulaState {
   values: SheetFormulaValueMap;
@@ -29,11 +31,12 @@ export function buildSheetFormulaRequest(
   timeZone: string,
   evaluationTime = new Date().toISOString(),
 ): SheetFormulaEvaluationRequest {
-  const worksheets = document.worksheets.map((worksheet) => ({
+  const ruleInputs = buildSheetRuleFormulaInputs(document);
+  const worksheets = [...document.worksheets.map((worksheet) => ({
     id: worksheet.id,
     name: worksheet.name,
-  }));
-  const cells = document.worksheets.flatMap((worksheet) => {
+  })), ...ruleInputs.worksheets];
+  const cells = [...document.worksheets.flatMap((worksheet) => {
     const rowPositions = new Map(worksheet.rowOrder.map((rowId, index) => [rowId, index + 1]));
     const columnPositions = new Map(
       worksheet.columnOrder.map((columnId, index) => [columnId, index + 1]),
@@ -51,18 +54,25 @@ export function buildSheetFormulaRequest(
         columnId,
         row,
         column,
-        ...(cell.formula ? { formula: cell.formula } : {}),
+        ...(cell.formula
+          ? { formula: expandNamedRangesInFormula(document, worksheet.id, cell.formula) }
+          : {}),
         ...(cell.valueType ? { valueType: cell.valueType } : {}),
         ...(cell.value !== undefined ? { value: cell.value } : {}),
       }];
     });
-  });
-  const structureSignature = JSON.stringify(document.worksheets.map((worksheet) => [
-    worksheet.id,
-    worksheet.name,
-    worksheet.rowOrder,
-    worksheet.columnOrder,
-  ]));
+  }), ...ruleInputs.cells];
+  const structureSignature = JSON.stringify([
+    document.worksheets.map((worksheet) => [
+      worksheet.id,
+      worksheet.name,
+      worksheet.rowOrder,
+      worksheet.columnOrder,
+      worksheet.validations ?? [],
+      worksheet.conditionalFormats ?? [],
+    ]),
+    document.namedRanges ?? [],
+  ]);
   return {
     runtimeId: id,
     structureSignature,
@@ -88,6 +98,8 @@ export function useSheetFormulaEngine(document: SheetDocument | null): SheetForm
       if (!document) return null;
       const hasFormula = document.worksheets.some((worksheet) => (
         Object.values(worksheet.cells).some((cell) => Boolean(cell.formula))
+        || worksheet.conditionalFormats?.some((rule) => rule.kind === 'formula')
+        || worksheet.validations?.some((rule) => rule.kind === 'custom')
       ));
       return hasFormula
         ? buildSheetFormulaRequest(document, idRef.current, timeZone)

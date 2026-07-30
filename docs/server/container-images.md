@@ -32,6 +32,22 @@ For a quick image that runs on the current machine, continue using Compose:
 docker compose build collab-server
 ```
 
+The server Dockerfile uses the Docker/BuildKit bundled frontend, so a cached
+local build does not first need to pull a separate `docker/dockerfile` image.
+Fresh builds still need working registry DNS to pull the Rust, Node.js, and
+PostgreSQL base images. A `Temporary failure in name resolution` for
+`registry-1.docker.io` is a host or Docker-daemon DNS problem rather than a
+Dockerfile failure; verify it with `docker pull rust:1.96-bookworm` before
+retrying the Compose build.
+
+Cargo downloads inside the image use the sparse registry over non-multiplexed
+HTTP, extended network retries, and persistent BuildKit registry caches. This
+avoids restarting every crate download after a transient VPN/proxy TLS failure.
+TLS certificate verification remains enabled. If repeated builds still report
+`SSL_read`, `bad record mac`, or connection resets, test once without the VPN or
+correct the VPN MTU/proxy path; those errors occur below Cargo and cannot be
+fully repaired by the Dockerfile.
+
 Buildx requires QEMU/binfmt support when the host is not native to every target
 architecture. Docker Desktop normally configures this automatically. On Linux,
 install the Buildx plugin and register the required binfmt handlers before a

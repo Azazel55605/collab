@@ -4,6 +4,10 @@ import { sheetCellKey } from '../../types/sheet';
 import type { SheetDocument } from '../../types/sheet';
 import { createEmptySheetDocument } from './document';
 import {
+  createSheetTable,
+  setSheetTableColumnFilter,
+} from './dataTools';
+import {
   activeWorksheet,
   autoSizeColumn,
   clearCells,
@@ -22,6 +26,7 @@ import {
   setFrozen,
   setTrackHidden,
   setWorksheetHidden,
+  summarizeSelection,
   unmergeSelection,
   worksheetById,
 } from './operations';
@@ -155,6 +160,39 @@ describe('rows and columns', () => {
     expect(Object.keys(next.cells)).toHaveLength(2);
   });
 
+  it('shrinks table ranges and clears filters when their filtered column is deleted', () => {
+    let document = workbook();
+    let worksheet = activeWorksheet(document);
+    document = createSheetTable(
+      document,
+      worksheet.id,
+      extendSelection(createSelection({ row: 0, column: 0 }), { row: 4, column: 2 }),
+      'Records',
+    );
+    worksheet = activeWorksheet(document);
+    const table = worksheet.tables![0];
+    const filteredColumn = table.columns[1].columnId;
+    document = setSheetTableColumnFilter(
+      document,
+      worksheet.id,
+      table.id,
+      filteredColumn,
+      { columnId: filteredColumn, includeValues: ['keep'] },
+    );
+
+    const deletedRow = deleteTracks(document, worksheet.id, 'row', 0, 1);
+    const rowResult = activeWorksheet(deletedRow);
+    expect(rowResult.tables?.[0].range.startRowId).toBe(worksheet.rowOrder[1]);
+    expect(rowResult.filters?.range?.startRowId).toBe(worksheet.rowOrder[1]);
+
+    const deletedColumn = deleteTracks(deletedRow, worksheet.id, 'column', 1, 1);
+    const columnResult = activeWorksheet(deletedColumn);
+    expect(columnResult.tables?.[0].columns.map((column) => column.columnId))
+      .toEqual([worksheet.columnOrder[0], worksheet.columnOrder[2]]);
+    expect(columnResult.filters).toBeUndefined();
+    expect(Object.values(columnResult.rows ?? {}).some((row) => row.filterHidden)).toBe(false);
+  });
+
   it('refuses to delete the last row or column', () => {
     const document = createEmptySheetDocument('Book', { worksheet: { rows: 1, columns: 1 } });
     const worksheet = activeWorksheet(document);
@@ -261,10 +299,65 @@ describe('frozen panes', () => {
   });
 });
 
+describe('selection summaries', () => {
+  it('reports a filter-aware subtotal without changing the full sum', () => {
+    let document = workbook();
+    const worksheet = activeWorksheet(document);
+    document = setCell(document, worksheet.id, { row: 0, column: 0 }, {
+      value: 2,
+      valueType: 'number',
+    });
+    document = setCell(document, worksheet.id, { row: 1, column: 0 }, {
+      value: 3,
+      valueType: 'number',
+    });
+    document = {
+      ...document,
+      worksheets: document.worksheets.map((candidate) => (
+        candidate.id === worksheet.id
+          ? {
+            ...candidate,
+            rows: {
+              ...candidate.rows,
+              [candidate.rowOrder[1]]: {
+                id: candidate.rowOrder[1],
+                filterHidden: true,
+              },
+            },
+          }
+          : candidate
+      )),
+    };
+    const summary = summarizeSelection(
+      activeWorksheet(document),
+      extendSelection(createSelection({ row: 0, column: 0 }), { row: 1, column: 0 }),
+    );
+    expect(summary.sum).toBe(5);
+    expect(summary.subtotal).toBe(2);
+    expect(summary.visibleNumeric).toBe(1);
+  });
+});
+
 describe('worksheets', () => {
   it('duplicates a worksheet with fresh identities and copied content', () => {
-    const document = withCells(workbook());
-    const source = activeWorksheet(document);
+    let document = withCells(workbook());
+    let source = activeWorksheet(document);
+    document = createSheetTable(
+      document,
+      source.id,
+      extendSelection(createSelection({ row: 0, column: 0 }), { row: 3, column: 2 }),
+      'Records',
+    );
+    source = activeWorksheet(document);
+    const table = source.tables![0];
+    document = setSheetTableColumnFilter(
+      document,
+      source.id,
+      table.id,
+      table.columns[0].columnId,
+      { columnId: table.columns[0].columnId, includeValues: ['A1'] },
+    );
+    source = activeWorksheet(document);
 
     const duplicated = duplicateWorksheet(document, source.id);
     const copy = worksheetById(duplicated, duplicated.activeWorksheetId)!;
@@ -276,6 +369,12 @@ describe('worksheets', () => {
     expect(copy.columnOrder.some((id) => source.columnOrder.includes(id))).toBe(false);
     expect(Object.keys(copy.cells)).toHaveLength(Object.keys(source.cells).length);
     expect(getCell(copy, { row: 0, column: 0 })?.value).toBe('A1');
+    expect(copy.tables?.[0].id).not.toBe(source.tables?.[0].id);
+    expect(copy.tables?.[0].columns[0].id).not.toBe(source.tables?.[0].columns[0].id);
+    expect(copy.tables?.[0].range.startRowId).toBe(copy.rowOrder[0]);
+    expect(copy.tables?.[0].columns[0].columnId).toBe(copy.columnOrder[0]);
+    expect(copy.filters?.range?.startRowId).toBe(copy.rowOrder[0]);
+    expect(copy.filters?.columnFilters?.[0].columnId).toBe(copy.columnOrder[0]);
   });
 
   it('reorders worksheets', () => {

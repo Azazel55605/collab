@@ -8,11 +8,17 @@ import {
 } from 'react';
 import {
   ArrowDownToLine,
+  ArrowDownAZ,
   ArrowRightToLine,
+  ArrowUpZA,
+  BadgeCheck,
+  Bookmark,
+  LockKeyhole,
   Columns3,
   Combine,
   Download,
   Loader2,
+  Palette,
   Redo2,
   Rows3,
   Save,
@@ -21,8 +27,10 @@ import {
   Snowflake,
   Split,
   Table2,
+  TableProperties,
   Trash2,
   Undo2,
+  WandSparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -42,9 +50,15 @@ import {
 } from '../components/ui/dropdown-menu';
 import SheetFormulaBar from '../components/sheet/SheetFormulaBar';
 import SheetFindDialog from '../components/sheet/SheetFindDialog';
+import SheetFilterPopover from '../components/sheet/SheetFilterPopover';
 import SheetFormattingToolbar from '../components/sheet/SheetFormattingToolbar';
 import SheetGrid, { type SheetGridEditing } from '../components/sheet/SheetGrid';
 import SheetWorksheetBar from '../components/sheet/SheetWorksheetBar';
+import SheetTableDialog from '../components/sheet/SheetTableDialog';
+import SheetValidationDialog from '../components/sheet/SheetValidationDialog';
+import SheetConditionalFormatDialog from '../components/sheet/SheetConditionalFormatDialog';
+import SheetNamedRangeDialog from '../components/sheet/SheetNamedRangeDialog';
+import SheetProtectionDialog from '../components/sheet/SheetProtectionDialog';
 import { useEditorStore } from '../store/editorStore';
 import { useVaultStore } from '../store/vaultStore';
 import { useUiStore } from '../store/uiStore';
@@ -67,7 +81,6 @@ import {
   reorderWorksheet,
   resizeTrack,
   setActiveWorksheet,
-  setCell,
   setCellNote,
   setFrozen,
   setWorksheetHidden,
@@ -119,6 +132,41 @@ import {
 } from '../lib/sheet/export';
 import { utf8ToBase64 } from '../lib/circuitSweepExport';
 import { tauriCommands } from '../lib/tauri';
+import {
+  createSheetTable,
+  removeSheetTable,
+  setSheetTableColumnFilter,
+  sortSheetTable,
+  tableAtPosition,
+  uniqueTableColumnColors,
+  uniqueTableColumnValues,
+  removeDuplicateSheetRows,
+  splitSheetTextToColumns,
+  trimSheetText,
+} from '../lib/sheet/dataTools';
+import {
+  applySheetValidation,
+  clearSheetValidation,
+  setValidatedCell,
+  countSheetValidationIssues,
+  validationAt,
+} from '../lib/sheet/validation';
+import {
+  applySheetConditionalFormat,
+  removeSheetConditionalFormat,
+} from '../lib/sheet/conditionalFormatting';
+import { enforceSheetMutationPolicies } from '../lib/sheet/mutationPolicy';
+import {
+  protectSheetSelection,
+  removeSheetProtection,
+} from '../lib/sheet/protectedRanges';
+import {
+  createSheetNamedRange,
+  namedRangeSelection,
+  removeSheetNamedRange,
+  resolveNamedRange,
+  visibleNamedRanges,
+} from '../lib/sheet/namedRanges';
 
 interface Props {
   relativePath: string;
@@ -160,10 +208,19 @@ export default function SheetView({ relativePath }: Props) {
   const [historyCounts, setHistoryCounts] = useState({ past: 0, future: 0 });
   const [findOpen, setFindOpen] = useState(false);
   const [findResultLabel, setFindResultLabel] = useState('');
+  const [tableDialogOpen, setTableDialogOpen] = useState(false);
+  const [validationDialogOpen, setValidationDialogOpen] = useState(false);
+  const [conditionalFormatDialogOpen, setConditionalFormatDialogOpen] = useState(false);
+  const [namedRangeDialogOpen, setNamedRangeDialogOpen] = useState(false);
+  const [protectionDialogOpen, setProtectionDialogOpen] = useState(false);
 
   const worksheet = useMemo(
     () => (document ? activeWorksheetOf(document) : null),
     [document],
+  );
+  const formulaNamedRanges = useMemo(
+    () => document && worksheet ? visibleNamedRanges(document, worksheet.id) : [],
+    [document, worksheet],
   );
 
   const bounds = useMemo(() => ({
@@ -252,11 +309,23 @@ export default function SheetView({ relativePath }: Props) {
     syncHistoryCounts();
   }, [relativePath, syncHistoryCounts]);
 
-  const mutate = useCallback((updater: (document: SheetDocument, worksheetId: string) => SheetDocument) => {
+  const mutate = useCallback((
+    updater: (document: SheetDocument, worksheetId: string) => SheetDocument,
+    options: { allowProtectionChange?: boolean } = {},
+  ) => {
     if (!document || !worksheet) return;
+    let warnings: string[] = [];
     guard(() => session.updateDocument((current) => {
       const target = activeWorksheetOf(current);
-      const next = updater(current, target.id);
+      const candidate = updater(current, target.id);
+      const enforced = enforceSheetMutationPolicies(
+        current,
+        candidate,
+        formulaState.values,
+        options,
+      );
+      warnings = enforced.warnings;
+      const next = enforced.document;
       if (next === current) return current;
       historyRef.current.past.push(current);
       if (historyRef.current.past.length > SHEET_HISTORY_LIMIT) {
@@ -266,7 +335,8 @@ export default function SheetView({ relativePath }: Props) {
       syncHistoryCounts();
       return next;
     }));
-  }, [document, guard, session, syncHistoryCounts, worksheet]);
+    for (const warning of warnings) toast.info(warning);
+  }, [document, formulaState.values, guard, session, syncHistoryCounts, worksheet]);
 
   const undo = useCallback(() => {
     if (session.readOnly || historyRef.current.past.length === 0) return;
@@ -309,7 +379,18 @@ export default function SheetView({ relativePath }: Props) {
   }, []);
 
   const commitCell = useCallback((position: SheetPosition, text: string) => {
-    mutate((current, worksheetId) => setCell(current, worksheetId, position, parseCellInput(text)));
+    let warning: string | undefined;
+    mutate((current, worksheetId) => {
+      const result = setValidatedCell(
+        current,
+        worksheetId,
+        position,
+        parseCellInput(text),
+      );
+      warning = result.warning;
+      return result.document;
+    });
+    if (warning) toast.info(warning);
   }, [mutate]);
 
   const handleFormulaBarChange = useCallback((text: string) => {
@@ -379,6 +460,46 @@ export default function SheetView({ relativePath }: Props) {
       ? resolveCellStyle(document.styles, worksheet, selection.active)
       : {}),
     [document, selection.active, worksheet],
+  );
+  const activeTable = useMemo(
+    () => (worksheet ? tableAtPosition(worksheet, selection.active) : null),
+    [selection.active, worksheet],
+  );
+  const activeTableColumn = useMemo(() => {
+    if (!activeTable || !worksheet) return null;
+    const columnId = worksheet.columnOrder[selection.active.column];
+    return activeTable.columns.find((column) => column.columnId === columnId) ?? null;
+  }, [activeTable, selection.active.column, worksheet]);
+  const activeTableFilter = useMemo(() => (
+    activeTableColumn
+      ? worksheet?.filters?.columnFilters?.find(
+        (filter) => filter.columnId === activeTableColumn.columnId,
+      )
+      : undefined
+  ), [activeTableColumn, worksheet?.filters?.columnFilters]);
+  const activeTableValues = useMemo(() => (
+    worksheet && activeTable && activeTableColumn
+      ? uniqueTableColumnValues(
+        worksheet,
+        activeTable,
+        activeTableColumn.columnId,
+        formulaState.values,
+      )
+      : []
+  ), [activeTable, activeTableColumn, formulaState.values, worksheet]);
+  const activeTableColors = useMemo(() => (
+    document && worksheet && activeTable && activeTableColumn
+      ? uniqueTableColumnColors(
+        document,
+        worksheet,
+        activeTable,
+        activeTableColumn.columnId,
+      )
+      : { backgroundColors: [], textColors: [] }
+  ), [activeTable, activeTableColumn, document, worksheet]);
+  const activeValidation = useMemo(
+    () => (worksheet ? validationAt(worksheet, selection.active) : null),
+    [selection.active, worksheet],
   );
 
   const currentClipboardPayload = useCallback(() => {
@@ -510,16 +631,25 @@ export default function SheetView({ relativePath }: Props) {
 
   const goToRange = useCallback((reference: string) => {
     const range = parseA1Range(reference);
-    if (!range || range.end.row >= bounds.rowCount || range.end.column >= bounds.columnCount) {
-      toast.error('Enter a cell or range inside this worksheet, such as A1 or A1:C8.');
+    if (range && range.end.row < bounds.rowCount && range.end.column < bounds.columnCount) {
+      setSelection({
+        ranges: [{ anchor: range.start, focus: range.end }],
+        active: range.start,
+        kind: 'cells',
+      });
       return;
     }
-    setSelection({
-      ranges: [{ anchor: range.start, focus: range.end }],
-      active: range.start,
-      kind: 'cells',
-    });
-  }, [bounds.columnCount, bounds.rowCount]);
+    const named = document && worksheet
+      ? resolveNamedRange(document, worksheet.id, reference)
+      : null;
+    const namedSelection = named ? namedRangeSelection(named) : null;
+    if (!named || !namedSelection) {
+      toast.error('Enter a cell, range, or visible named range.');
+      return;
+    }
+    session.updateDocument((current) => setActiveWorksheet(current, named.worksheet.id));
+    setSelection(namedSelection);
+  }, [bounds.columnCount, bounds.rowCount, document, session, worksheet]);
 
   const exportSelection = useCallback(async (format: 'svg' | 'png') => {
     if (!document || !worksheet) return;
@@ -602,6 +732,10 @@ export default function SheetView({ relativePath }: Props) {
 
   const frozen = worksheet?.frozen ?? { rows: 0, columns: 0 };
   const isFrozen = frozen.rows > 0 || frozen.columns > 0;
+  const validationIssues = useMemo(
+    () => worksheet ? countSheetValidationIssues(worksheet, formulaState.values) : 0,
+    [formulaState.values, worksheet],
+  );
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
@@ -631,6 +765,125 @@ export default function SheetView({ relativePath }: Props) {
                 <Trash2 size={13} />
                 Delete columns
               </DocumentTopBarButton>
+            </div>
+
+            <div className={documentTopBarGroupClass}>
+              <DocumentTopBarButton
+                onClick={() => setTableDialogOpen(true)}
+                disabled={!document}
+                aria-label={activeTable ? `Manage table ${activeTable.name}` : 'Create table'}
+              >
+                <TableProperties size={13} />
+                {activeTable?.name ?? 'Table'}
+              </DocumentTopBarButton>
+              <DocumentTopBarButton
+                onClick={() => activeTableColumn && activeTable && mutate(
+                  (current, id) => sortSheetTable(
+                    current,
+                    id,
+                    activeTable.id,
+                    [{ columnId: activeTableColumn.columnId, direction: 'ascending' }],
+                    formulaState.values,
+                  ),
+                )}
+                disabled={session.readOnly || !activeTableColumn}
+                aria-label="Sort active table column ascending"
+                title="Sort ascending"
+              >
+                <ArrowDownAZ size={13} />
+              </DocumentTopBarButton>
+              <DocumentTopBarButton
+                onClick={() => activeTableColumn && activeTable && mutate(
+                  (current, id) => sortSheetTable(
+                    current,
+                    id,
+                    activeTable.id,
+                    [{ columnId: activeTableColumn.columnId, direction: 'descending' }],
+                    formulaState.values,
+                  ),
+                )}
+                disabled={session.readOnly || !activeTableColumn}
+                aria-label="Sort active table column descending"
+                title="Sort descending"
+              >
+                <ArrowUpZA size={13} />
+              </DocumentTopBarButton>
+              {activeTable && activeTableColumn && (
+                <SheetFilterPopover
+                  disabled={session.readOnly}
+                  column={activeTableColumn}
+                  values={activeTableValues}
+                  colors={activeTableColors}
+                  filter={activeTableFilter}
+                  onApply={(filter) => mutate(
+                    (current, id) => setSheetTableColumnFilter(
+                      current,
+                      id,
+                      activeTable.id,
+                      activeTableColumn.columnId,
+                      filter,
+                      formulaState.values,
+                    ),
+                  )}
+                />
+              )}
+              <DocumentTopBarButton
+                onClick={() => setValidationDialogOpen(true)}
+                disabled={!document}
+                aria-label={activeValidation ? 'Edit data validation' : 'Add data validation'}
+              >
+                <BadgeCheck size={13} />
+                Validate
+              </DocumentTopBarButton>
+              <DocumentTopBarButton
+                onClick={() => setConditionalFormatDialogOpen(true)}
+                disabled={!document}
+                aria-label="Conditional formatting"
+              >
+                <Palette size={13} />
+                Conditions
+              </DocumentTopBarButton>
+              <DocumentTopBarButton
+                onClick={() => setNamedRangeDialogOpen(true)}
+                disabled={!document}
+                aria-label="Named ranges"
+              >
+                <Bookmark size={13} />
+                Names
+              </DocumentTopBarButton>
+              <DocumentTopBarButton
+                onClick={() => setProtectionDialogOpen(true)}
+                disabled={!document}
+                aria-label="Protected ranges"
+              >
+                <LockKeyhole size={13} />
+                Protect
+              </DocumentTopBarButton>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <DocumentTopBarButton aria-label="Data cleanup">
+                    <WandSparkles size={13} />
+                    Cleanup
+                  </DocumentTopBarButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onSelect={() => mutate(
+                    (current, id) => trimSheetText(current, id, selection),
+                  )}>
+                    Trim whitespace
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => mutate(
+                    (current, id) => splitSheetTextToColumns(current, id, selection),
+                  )}>
+                    Split text by comma
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => mutate(
+                    (current, id) => removeDuplicateSheetRows(current, id, selection),
+                  )}>
+                    Remove duplicate rows
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             <div className={documentTopBarGroupClass}>
@@ -793,7 +1046,8 @@ export default function SheetView({ relativePath }: Props) {
             onCancel={() => setEditing(null)}
             cursor={formulaCursor}
             onCursorChange={setFormulaCaret}
-            onNavigate={(position) => setSelection(createSelection(clampPosition(position, bounds)))}
+            onNavigate={goToRange}
+            namedRanges={formulaNamedRanges}
             readOnly={session.readOnly}
           />
 
@@ -837,6 +1091,7 @@ export default function SheetView({ relativePath }: Props) {
             displayFormat={{ dateFormat, timeFormat }}
             formulaReferenceMode={Boolean(editing?.text.startsWith('='))}
             onFormulaReferenceCommit={handleFormulaReferenceCommit}
+            namedRanges={formulaNamedRanges}
           />
 
           <SheetWorksheetBar
@@ -870,6 +1125,7 @@ export default function SheetView({ relativePath }: Props) {
             aria-label="Selection summary"
           >
             <span>{formatA1(selection.active)}</span>
+            {summary && <span>Selected: {summary.selected.toLocaleString()}</span>}
             {summary && summary.filled > 0 && <span>Filled: {summary.filled.toLocaleString()}</span>}
             {summary && summary.numeric > 0 && (
               <>
@@ -877,10 +1133,18 @@ export default function SheetView({ relativePath }: Props) {
                 <span>Average: {formatNumber(summary.average ?? 0)}</span>
                 <span>Min: {formatNumber(summary.min ?? 0)}</span>
                 <span>Max: {formatNumber(summary.max ?? 0)}</span>
+                {summary.visibleNumeric !== summary.numeric && (
+                  <span>Subtotal: {formatNumber(summary.subtotal)}</span>
+                )}
               </>
             )}
             {isFrozen && <span>Frozen: {frozen.rows}R × {frozen.columns}C</span>}
             {formulaState.calculating && <span>Calculating…</span>}
+            {validationIssues > 0 && (
+              <span className="text-amber-500">
+                Invalid: {validationIssues.toLocaleString()}
+              </span>
+            )}
             {!formulaState.calculating && formulaState.recalculated > 0 && (
               <span>Recalculated: {formulaState.recalculated.toLocaleString()}</span>
             )}
@@ -901,6 +1165,97 @@ export default function SheetView({ relativePath }: Props) {
         onReplaceAll={replaceAllMatches}
         onGoTo={goToRange}
       />
+      <SheetTableDialog
+        open={tableDialogOpen}
+        readOnly={session.readOnly}
+        activeTable={activeTable}
+        suggestedName={`Table${(worksheet?.tables?.length ?? 0) + 1}`}
+        selectionLabel={sheetRangeLabel(selection)}
+        onOpenChange={setTableDialogOpen}
+        onCreate={(name, hasHeaderRow) => mutate(
+          (current, id) => createSheetTable(current, id, selection, name, hasHeaderRow),
+        )}
+        onRemove={(tableId) => mutate(
+          (current, id) => removeSheetTable(current, id, tableId),
+        )}
+      />
+      {worksheet && (
+        <SheetValidationDialog
+          open={validationDialogOpen}
+          readOnly={session.readOnly}
+          worksheet={worksheet}
+          selectionLabel={sheetRangeLabel(selection)}
+          activeValidation={activeValidation}
+          onOpenChange={setValidationDialogOpen}
+          onApply={(validation) => mutate(
+            (current, id) => applySheetValidation(current, id, selection, validation),
+          )}
+          onClear={() => mutate(
+            (current, id) => clearSheetValidation(current, id, selection),
+          )}
+        />
+      )}
+      {document && worksheet && (
+        <SheetNamedRangeDialog
+          open={namedRangeDialogOpen}
+          readOnly={session.readOnly}
+          document={document}
+          activeWorksheetId={worksheet.id}
+          selectionLabel={sheetRangeLabel(selection)}
+          onOpenChange={setNamedRangeDialogOpen}
+          onCreate={(name, scope) => mutate(
+            (current, id) => createSheetNamedRange(current, id, selection, name, scope),
+          )}
+          onRemove={(namedRangeId) => mutate(
+            (current) => removeSheetNamedRange(current, namedRangeId),
+          )}
+          onNavigate={(namedRange) => {
+            const targetWorksheet = document.worksheets.find(
+              (candidate) => candidate.id === namedRange.worksheetId,
+            );
+            const resolved = targetWorksheet
+              ? { namedRange, worksheet: targetWorksheet, range: namedRange.range }
+              : null;
+            const target = resolved ? namedRangeSelection(resolved) : null;
+            if (!resolved || !target) return;
+            session.updateDocument((current) => setActiveWorksheet(current, resolved.worksheet.id));
+            setSelection(target);
+            setNamedRangeDialogOpen(false);
+          }}
+        />
+      )}
+      {worksheet && (
+        <SheetProtectionDialog
+          open={protectionDialogOpen}
+          readOnly={session.readOnly}
+          worksheet={worksheet}
+          selectionLabel={sheetRangeLabel(selection)}
+          onOpenChange={setProtectionDialogOpen}
+          onProtect={(name) => mutate(
+            (current, id) => protectSheetSelection(current, id, selection, name),
+            { allowProtectionChange: true },
+          )}
+          onRemove={(id) => mutate(
+            (current, worksheetId) => removeSheetProtection(current, worksheetId, id),
+            { allowProtectionChange: true },
+          )}
+        />
+      )}
+      {worksheet && (
+        <SheetConditionalFormatDialog
+          open={conditionalFormatDialogOpen}
+          readOnly={session.readOnly}
+          selectionLabel={sheetRangeLabel(selection)}
+          rules={worksheet.conditionalFormats ?? []}
+          onOpenChange={setConditionalFormatDialogOpen}
+          onApply={(draft) => mutate(
+            (current, id) => applySheetConditionalFormat(current, id, selection, draft),
+          )}
+          onRemove={(formatId) => mutate(
+            (current, id) => removeSheetConditionalFormat(current, id, formatId),
+          )}
+        />
+      )}
     </div>
   );
 }

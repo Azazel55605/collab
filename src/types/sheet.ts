@@ -38,7 +38,10 @@ export const SHEET_LIMITS = {
   stylesPerWorkbook: 10_000,
   namedRangesPerWorkbook: 1_000,
   mergedRangesPerWorksheet: 10_000,
+  tablesPerWorksheet: 1_000,
+  validationsPerWorksheet: 1_000,
   conditionalFormatsPerWorksheet: 500,
+  protectedRangesPerWorksheet: 1_000,
   chartsPerWorksheet: 50,
   documentBytes: 64 * 1024 * 1024,
 } as const;
@@ -77,6 +80,8 @@ export interface SheetRow {
   /** Height in CSS pixels. Omitted means the worksheet default. */
   height?: number;
   hidden?: boolean;
+  /** Derived from the active worksheet filter; independent of manual hiding. */
+  filterHidden?: boolean;
   styleId?: SheetStyleId;
 }
 
@@ -184,6 +189,8 @@ export interface SheetValidation {
   max?: number | string;
   /** Formula source for `kind: 'custom'`, evaluated by the formula engine. */
   formula?: string;
+  /** Stable origin used to translate relative custom-formula references. */
+  anchor?: { rowId: SheetRowId; columnId: SheetColumnId };
   /** Reject invalid input outright, or accept it with a warning. */
   strict?: boolean;
   message?: string;
@@ -206,6 +213,12 @@ export interface SheetConditionalFormat {
   styleId?: SheetStyleId;
   /** Ordered stops for `kind: 'colorScale'`. */
   colorScale?: { position: number; color: string }[];
+}
+
+export interface SheetProtectedRange {
+  id: string;
+  name?: string;
+  range: SheetRange;
 }
 
 export type SheetChartKind = 'column' | 'bar' | 'line' | 'area' | 'pie' | 'scatter' | 'sparkline';
@@ -246,12 +259,30 @@ export interface SheetColumnFilter {
   numberMax?: number;
   dateFrom?: string;
   dateTo?: string;
+  /** Resolved document colors kept visible by this filter. */
+  backgroundColors?: string[];
+  textColors?: string[];
 }
 
 export interface SheetFilterState {
   range?: SheetRange;
   sortRules?: SheetSortRule[];
   columnFilters?: SheetColumnFilter[];
+}
+
+export interface SheetTableColumn {
+  /** Stable within the table even when the backing worksheet column moves. */
+  id: string;
+  name: string;
+  columnId: SheetColumnId;
+}
+
+export interface SheetTable {
+  id: string;
+  name: string;
+  range: SheetRange;
+  hasHeaderRow: boolean;
+  columns: SheetTableColumn[];
 }
 
 export interface SheetNamedRange {
@@ -279,8 +310,14 @@ export interface SheetWorksheet {
   mergedRanges?: SheetRange[];
   frozen?: { rows: number; columns: number };
   filters?: SheetFilterState;
+  tables?: SheetTable[];
   validations?: SheetValidation[];
   conditionalFormats?: SheetConditionalFormat[];
+  /**
+   * Editor policy only. It prevents accidental edits but is not encryption or
+   * an authorization boundary; document editors may remove it.
+   */
+  protectedRanges?: SheetProtectedRange[];
   charts?: SheetChart[];
 }
 

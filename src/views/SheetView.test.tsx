@@ -359,6 +359,150 @@ describe('SheetView editor', () => {
     expect(summary).toContain('Max: 20');
   });
 
+  it('creates and sorts a structured table through the toolbar', async () => {
+    await openWorkbook();
+
+    const surface = screen.getByTestId('sheet-cell-surface');
+    fireEvent.pointerDown(surface, { button: 0, ...pointFor(0, 0) });
+    fireEvent.pointerMove(surface, pointFor(1, 0));
+    fireEvent.pointerUp(surface, pointFor(1, 0));
+    fireEvent.click(screen.getByRole('button', { name: 'Create table' }));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Table name'), {
+      target: { value: 'Values' },
+    });
+    fireEvent.click(within(dialog).getByRole('checkbox'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create table' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Manage table Values' })).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Sort active table column descending' }));
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    const written = await writtenDocument();
+    const worksheet = written.worksheets[0];
+    expect(worksheet.tables).toHaveLength(1);
+    expect(worksheet.tables[0]).toMatchObject({
+      name: 'Values',
+      hasHeaderRow: false,
+    });
+    expect(worksheet.tables[0].columns).toHaveLength(1);
+    expect(worksheet.filters.sortRules).toEqual([{
+      columnId: worksheet.columnOrder[0],
+      direction: 'descending',
+    }]);
+    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`].value).toBe(20);
+    expect(worksheet.cells[`${worksheet.rowOrder[1]}:${worksheet.columnOrder[0]}`].value).toBe(10);
+  });
+
+  it('applies validation rules and rejects invalid cell edits', async () => {
+    await openWorkbook();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add data validation' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Allowed values'), {
+      target: { value: '10, 20' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
+
+    fireEvent.keyDown(screen.getByTestId('sheet-grid'), { key: '3' });
+    const editor = screen.getByRole('textbox', { name: 'Cell editor' });
+    fireEvent.change(editor, { target: { value: '30' } });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    expect(toastMocks.error).toHaveBeenCalledWith(expect.stringMatching(/validation list/i));
+
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    const written = await writtenDocument();
+    const worksheet = written.worksheets[0];
+    expect(worksheet.validations).toHaveLength(1);
+    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`].value).toBe(10);
+    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`].validationId)
+      .toBe(worksheet.validations[0].id);
+  });
+
+  it('adds a conditional formatting rule for the selected range', async () => {
+    await openWorkbook();
+    const surface = screen.getByTestId('sheet-cell-surface');
+    fireEvent.pointerDown(surface, { button: 0, ...pointFor(0, 0) });
+    fireEvent.pointerMove(surface, pointFor(1, 0));
+    fireEvent.pointerUp(surface, pointFor(1, 0));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Conditional formatting' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Comparison value'), {
+      target: { value: '15' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add rule' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    const written = await writtenDocument();
+    const worksheet = written.worksheets[0];
+    expect(worksheet.conditionalFormats).toHaveLength(1);
+    expect(worksheet.conditionalFormats[0]).toMatchObject({
+      kind: 'comparison',
+      operator: 'greater',
+      values: [15],
+    });
+    expect(worksheet.conditionalFormats[0].ranges[0]).toEqual({
+      startRowId: worksheet.rowOrder[0],
+      endRowId: worksheet.rowOrder[1],
+      startColumnId: worksheet.columnOrder[0],
+      endColumnId: worksheet.columnOrder[0],
+    });
+    expect(written.styles[worksheet.conditionalFormats[0].styleId].backgroundColor).toBe('#fee2e2');
+  });
+
+  it('creates a named range and navigates to it through the name box', async () => {
+    await openWorkbook();
+    const surface = screen.getByTestId('sheet-cell-surface');
+    fireEvent.pointerDown(surface, { button: 0, ...pointFor(0, 0) });
+    fireEvent.pointerMove(surface, pointFor(1, 0));
+    fireEvent.pointerUp(surface, pointFor(1, 0));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Named ranges' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Named range name'), {
+      target: { value: 'Revenue' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add' }));
+    fireEvent.click(within(dialog).getAllByRole('button', { name: 'Close' })[0]);
+
+    const formulaBar = screen.getByLabelText('Formula bar');
+    fireEvent.focus(formulaBar);
+    fireEvent.change(formulaBar, {
+      target: { value: '=Rev', selectionStart: 4 },
+    });
+    fireEvent.mouseDown(await screen.findByRole('option', { name: /Revenue/ }));
+    expect((formulaBar as HTMLInputElement).value).toBe('=Revenue');
+    fireEvent.keyDown(formulaBar, { key: 'Escape' });
+
+    fireEvent.pointerDown(surface, { button: 0, ...pointFor(4, 2) });
+    const nameBox = screen.getByLabelText('Name box');
+    fireEvent.focus(nameBox);
+    fireEvent.change(nameBox, { target: { value: 'Revenue' } });
+    fireEvent.keyDown(nameBox, { key: 'Enter' });
+    expect(screen.getByRole('status', { name: 'Selection summary' }).textContent)
+      .toContain('Sum: 30');
+
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    const written = await writtenDocument();
+    const worksheet = written.worksheets[0];
+    expect(written.namedRanges).toHaveLength(1);
+    expect(written.namedRanges[0]).toMatchObject({
+      name: 'Revenue',
+      worksheetId: worksheet.id,
+      range: {
+        startRowId: worksheet.rowOrder[0],
+        endRowId: worksheet.rowOrder[1],
+        startColumnId: worksheet.columnOrder[0],
+        endColumnId: worksheet.columnOrder[0],
+      },
+    });
+  });
+
   it('inserts and deletes rows through the toolbar', async () => {
     await openWorkbook();
 

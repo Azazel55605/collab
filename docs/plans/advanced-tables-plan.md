@@ -281,7 +281,7 @@ It must remain ephemeral and must not be written into the workbook.
 | 2. Desktop spreadsheet editor | Complete | Deliver the virtualized grid, worksheet controls, selection, editing, navigation, and structural operations. |
 | 3. Formulas and recalculation | Testing | Native incremental evaluation, formula UX, reference rewrites, stable errors, inspection, volatile-time policy, and fixtures are implemented. |
 | 4. Formatting and spreadsheet interactions | Testing | Formatting, clipboard variants, fill/series behavior, bounded undo/redo, search/replace, notes, and range print/export are implemented. |
-| 5. Tables and data tools | Not started | Add sorting, filtering, validation, conditional formatting, named ranges, and protected ranges. |
+| 5. Tables and data tools | Testing | Tables, filtering, validation, conditional formatting, named ranges, editor protection, summaries, cleanup tools, and combined interaction matrices are implemented. |
 | 6. Hosted collaboration and offline behavior | Not started | Add semantic live mutations, presence, conflict handling, offline queues, and revision-safe recovery. |
 | 7. Charts, analysis, and Collab integration | Not started | Add charts, summaries, links/attachments, note embeds, and task/calendar data connections. |
 | 8. Mobile sheet experience | Not started | Add a responsive viewer and bounded editing for values, formulas, filters, and worksheet navigation. |
@@ -474,19 +474,72 @@ without corrupting formulas, types, or merged ranges.
 
 ### Phase 5: Tables And Data Tools
 
-- [ ] Add explicit structured table ranges with headers and stable column IDs.
-- [ ] Add single and multi-column sorting with type-aware comparisons.
-- [ ] Add filters for values, text, numbers, dates, blanks, and colors.
-- [ ] Add data validation for lists, ranges, numbers, dates, and custom formulas.
-- [ ] Add conditional formatting for comparisons, formulas, color scales, and
+- [x] Add explicit structured table ranges with headers and stable column IDs.
+- [x] Add single and multi-column sorting with type-aware comparisons.
+- [x] Add filters for values, text, numbers, dates, blanks, and colors.
+- [x] Add data validation for lists, ranges, numbers, dates, and custom formulas.
+- [x] Add conditional formatting for comparisons, formulas, color scales, and
   duplicate/unique values.
-- [ ] Add named cells/ranges and formula integration.
-- [ ] Add protected cells/ranges as an editor policy with clear hosted
+- [x] Add named cells/ranges and formula integration.
+- [x] Add protected cells/ranges as an editor policy with clear hosted
   capability semantics; do not present it as encryption.
-- [ ] Add subtotal/status-bar summaries for selected numeric ranges.
-- [ ] Add bounded duplicate removal, split text, and basic cleanup operations.
-- [ ] Add test matrices combining sort/filter with formulas, merged cells,
+- [x] Add subtotal/status-bar summaries for selected numeric ranges.
+- [x] Add bounded duplicate removal, split text, and basic cleanup operations.
+- [x] Add test matrices combining sort/filter with formulas, merged cells,
   hidden rows, validation, and collaboration operations.
+
+Implementation note: structured tables are explicit worksheet metadata rather
+than inferred formatting. They have stable table and column identities, unique
+headers, non-overlapping ranges, distinct header/banded rendering, and
+create/manage controls in the desktop editor. Table and filter ranges repair
+themselves across row/column deletion, while worksheet duplication remaps every
+backing row/column identity and generates fresh semantic IDs. Sorting supports
+ordered multi-column rules, typed comparisons, stable ties, computed formula
+values, and relative-formula translation when rows move. Filters use derived
+row visibility so clearing a filter never unhides rows hidden manually. The
+desktop popover supports value selection, text matching, numeric/date bounds,
+blank exclusion, and resolved fill/text colors.
+
+Data validation uses reusable worksheet rules for literal
+lists, source ranges, numeric/date bounds, and text lengths, with strict
+rejection or warning-only behavior. Rules apply to bounded selections, survive
+normal cell clearing, are excluded from copied payload content, repair source
+ranges after structural deletion, and receive fresh identities when a
+worksheet is duplicated. Custom formulas are evaluated as bounded synthetic
+expressions through the native formula engine and surface invalid cells in the
+status bar. The shared mutation policy preserves destination validation and
+enforces strict literal, range, and type rules across typing, paste, fill, sort,
+and cleanup operations instead of relying on the individual UI entry point.
+
+Conditional formatting includes bounded comparison, formula,
+duplicate/unique-value, and two-color numeric-scale rules. Rules layer resolved
+styles during canvas painting without mutating base cell formatting, reuse the
+deduplicated style table, repair ranges after structural deletion, and receive
+fresh identities when worksheets are duplicated. Formula conditions use the
+same native synthetic-expression boundary as custom validation, with relative
+references translated from the rule's first cell and a bounded expression
+budget.
+
+Named ranges use stable row and column identities and support workbook-wide or
+worksheet-local visibility. The desktop name manager creates, navigates, and
+removes ranges; the name box accepts visible names; and both formula entry
+surfaces include them in IntelliSense. Formula source keeps the symbolic name
+authoritative. Names expand to absolute A1 references only in native evaluation
+and reference-inspection requests, while row/column deletion repairs or removes
+the underlying range. Worksheet duplication gives local names fresh identities,
+and both frontend normalization and the shared Rust trust boundary reject
+malformed names, ambiguous visibility, dangling scopes, and dangling ranges.
+
+Protected ranges are explicit worksheet metadata enforced by the editor's
+central mutation policy. They prevent accidental cell and intersecting
+structural edits across desktop operations, but are deliberately removable by
+any user who already has document edit capability. They are not passwords,
+encryption, or a hosted authorization boundary. The status bar reports selected
+and filled counts, full numeric aggregates, and a filter-aware subtotal.
+Cleanup commands provide bounded whitespace normalization, comma-delimited text
+splitting, and duplicate-row compaction while preserving destination validation.
+The Phase 5 matrix covers formulas, filters, merged cells, stable identities,
+validation, and sorting in one workflow.
 
 Exit gate: a user can manage a real tabular dataset with predictable sorting,
 filtering, validation, and formatting behavior.

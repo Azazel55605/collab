@@ -36,7 +36,10 @@ pub struct SheetLimits {
     pub styles_per_workbook: usize,
     pub named_ranges_per_workbook: usize,
     pub merged_ranges_per_worksheet: usize,
+    pub tables_per_worksheet: usize,
+    pub validations_per_worksheet: usize,
     pub conditional_formats_per_worksheet: usize,
+    pub protected_ranges_per_worksheet: usize,
     pub charts_per_worksheet: usize,
 }
 
@@ -53,7 +56,10 @@ pub const DEFAULT_SHEET_LIMITS: SheetLimits = SheetLimits {
     styles_per_workbook: 10_000,
     named_ranges_per_workbook: 1_000,
     merged_ranges_per_worksheet: 10_000,
+    tables_per_worksheet: 1_000,
+    validations_per_worksheet: 1_000,
     conditional_formats_per_worksheet: 500,
+    protected_ranges_per_worksheet: 1_000,
     charts_per_worksheet: 50,
 };
 
@@ -94,10 +100,7 @@ pub fn is_known_version(value: &Value) -> bool {
 ///
 /// Callers pass documents that already cleared the generic JSON size, entry, and
 /// depth bounds. Documents from a newer schema version return `Ok` untouched.
-pub fn validate_document(
-    value: &Value,
-    limits: SheetLimits,
-) -> Result<(), SheetValidationError> {
+pub fn validate_document(value: &Value, limits: SheetLimits) -> Result<(), SheetValidationError> {
     let object = value.as_object().ok_or(SheetValidationError::NotAnObject)?;
 
     match schema_version(value) {
@@ -121,12 +124,17 @@ pub fn validate_document(
     if let Some(styles) = styles {
         check_limit(styles.len(), limits.styles_per_workbook, "style")?;
     }
-    let style_exists = |id: &str| styles.map(|styles| styles.contains_key(id)).unwrap_or(false);
+    let style_exists = |id: &str| {
+        styles
+            .map(|styles| styles.contains_key(id))
+            .unwrap_or(false)
+    };
 
-    let worksheets = object
-        .get("worksheets")
-        .and_then(Value::as_array)
-        .ok_or(SheetValidationError::WrongType { field: "worksheets" })?;
+    let worksheets = object.get("worksheets").and_then(Value::as_array).ok_or(
+        SheetValidationError::WrongType {
+            field: "worksheets",
+        },
+    )?;
     check_limit(
         worksheets.len(),
         limits.worksheets_per_workbook,
@@ -134,6 +142,8 @@ pub fn validate_document(
     )?;
 
     let mut worksheet_ids: Vec<String> = Vec::with_capacity(worksheets.len());
+    let mut worksheet_tracks: Vec<(String, Vec<String>, Vec<String>)> =
+        Vec::with_capacity(worksheets.len());
     let mut workbook_cells = 0usize;
     let mut workbook_formulas = 0usize;
 
@@ -148,12 +158,12 @@ pub fn validate_document(
                 id,
             });
         }
-        worksheet_ids.push(id);
+        worksheet_ids.push(id.clone());
 
         if let Some(name) = worksheet.get("name") {
-            let name = name
-                .as_str()
-                .ok_or(SheetValidationError::WrongType { field: "worksheet.name" })?;
+            let name = name.as_str().ok_or(SheetValidationError::WrongType {
+                field: "worksheet.name",
+            })?;
             if name.chars().count() > limits.worksheet_name_length {
                 return Err(SheetValidationError::LimitExceeded {
                     limit: limits.worksheet_name_length,
@@ -168,6 +178,7 @@ pub fn validate_document(
             "column",
             limits.columns_per_worksheet,
         )?;
+        worksheet_tracks.push((id, row_ids.clone(), column_ids.clone()));
 
         let cells = match worksheet.get("cells") {
             None | Some(Value::Null) => None,
@@ -208,9 +219,9 @@ pub fn validate_document(
                     .ok_or(SheetValidationError::WrongType { field: "cell" })?;
 
                 if let Some(formula) = cell.get("formula") {
-                    let formula = formula
-                        .as_str()
-                        .ok_or(SheetValidationError::WrongType { field: "cell.formula" })?;
+                    let formula = formula.as_str().ok_or(SheetValidationError::WrongType {
+                        field: "cell.formula",
+                    })?;
                     if formula.chars().count() > limits.formula_source_length {
                         return Err(SheetValidationError::LimitExceeded {
                             limit: limits.formula_source_length,
@@ -235,9 +246,9 @@ pub fn validate_document(
                 }
 
                 if let Some(style_id) = cell.get("styleId") {
-                    let style_id = style_id
-                        .as_str()
-                        .ok_or(SheetValidationError::WrongType { field: "cell.styleId" })?;
+                    let style_id = style_id.as_str().ok_or(SheetValidationError::WrongType {
+                        field: "cell.styleId",
+                    })?;
                     if !style_exists(style_id) {
                         return Err(SheetValidationError::DanglingReference {
                             kind: "style",
@@ -254,9 +265,24 @@ pub fn validate_document(
             "merged range",
         )?;
         check_optional_array_limit(
+            worksheet.get("tables"),
+            limits.tables_per_worksheet,
+            "table",
+        )?;
+        check_optional_array_limit(
+            worksheet.get("validations"),
+            limits.validations_per_worksheet,
+            "validation",
+        )?;
+        check_optional_array_limit(
             worksheet.get("conditionalFormats"),
             limits.conditional_formats_per_worksheet,
             "conditional format",
+        )?;
+        check_optional_array_limit(
+            worksheet.get("protectedRanges"),
+            limits.protected_ranges_per_worksheet,
+            "protected range",
         )?;
         check_optional_array_limit(
             worksheet.get("charts"),
@@ -267,12 +293,92 @@ pub fn validate_document(
         for range in optional_array(worksheet.get("mergedRanges"), "mergedRanges")? {
             check_range(range, &row_ids, &column_ids)?;
         }
+        for table in optional_array(worksheet.get("tables"), "tables")? {
+            let table = table
+                .as_object()
+                .ok_or(SheetValidationError::WrongType { field: "table" })?;
+            let range = table.get("range").ok_or(SheetValidationError::WrongType {
+                field: "table.range",
+            })?;
+            check_range(range, &row_ids, &column_ids)?;
+        }
+        for validation in optional_array(worksheet.get("validations"), "validations")? {
+            let validation = validation
+                .as_object()
+                .ok_or(SheetValidationError::WrongType {
+                    field: "validation",
+                })?;
+            if let Some(range) = validation.get("sourceRange") {
+                check_range(range, &row_ids, &column_ids)?;
+            }
+            if let Some(anchor) = validation.get("anchor") {
+                let anchor = anchor.as_object().ok_or(SheetValidationError::WrongType {
+                    field: "validation.anchor",
+                })?;
+                let row_id = anchor.get("rowId").and_then(Value::as_str).ok_or(
+                    SheetValidationError::WrongType {
+                        field: "validation.anchor.rowId",
+                    },
+                )?;
+                let column_id = anchor.get("columnId").and_then(Value::as_str).ok_or(
+                    SheetValidationError::WrongType {
+                        field: "validation.anchor.columnId",
+                    },
+                )?;
+                if !row_ids.iter().any(|id| id == row_id) {
+                    return Err(SheetValidationError::DanglingReference {
+                        kind: "row",
+                        id: row_id.to_string(),
+                    });
+                }
+                if !column_ids.iter().any(|id| id == column_id) {
+                    return Err(SheetValidationError::DanglingReference {
+                        kind: "column",
+                        id: column_id.to_string(),
+                    });
+                }
+            }
+        }
+        for format in optional_array(worksheet.get("conditionalFormats"), "conditionalFormats")? {
+            let format = format.as_object().ok_or(SheetValidationError::WrongType {
+                field: "conditionalFormat",
+            })?;
+            for range in optional_array(format.get("ranges"), "conditionalFormat.ranges")? {
+                check_range(range, &row_ids, &column_ids)?;
+            }
+            if let Some(style_id) = format.get("styleId") {
+                let style_id = style_id.as_str().ok_or(SheetValidationError::WrongType {
+                    field: "conditionalFormat.styleId",
+                })?;
+                if !style_exists(style_id) {
+                    return Err(SheetValidationError::DanglingReference {
+                        kind: "style",
+                        id: style_id.to_string(),
+                    });
+                }
+            }
+        }
+        for protected_range in optional_array(worksheet.get("protectedRanges"), "protectedRanges")?
+        {
+            let protected_range =
+                protected_range
+                    .as_object()
+                    .ok_or(SheetValidationError::WrongType {
+                        field: "protectedRange",
+                    })?;
+            let range = protected_range
+                .get("range")
+                .ok_or(SheetValidationError::WrongType {
+                    field: "protectedRange.range",
+                })?;
+            check_range(range, &row_ids, &column_ids)?;
+        }
     }
 
     if let Some(active) = object.get("activeWorksheetId") {
-        let active = active
-            .as_str()
-            .ok_or(SheetValidationError::WrongType { field: "activeWorksheetId" })?;
+        let active = active.as_str().ok_or(SheetValidationError::WrongType {
+            field: "activeWorksheetId",
+        })?;
         if !worksheet_ids.iter().any(|id| id == active) {
             return Err(SheetValidationError::DanglingReference {
                 kind: "worksheet",
@@ -287,10 +393,32 @@ pub fn validate_document(
         limits.named_ranges_per_workbook,
         "named range",
     )?;
+    let mut named_range_ids: Vec<String> = Vec::with_capacity(named_ranges.len());
+    let mut accepted_names: Vec<(String, Option<String>)> = Vec::with_capacity(named_ranges.len());
     for named_range in named_ranges {
         let named_range = named_range
             .as_object()
-            .ok_or(SheetValidationError::WrongType { field: "namedRange" })?;
+            .ok_or(SheetValidationError::WrongType {
+                field: "namedRange",
+            })?;
+        let id = identifier(named_range.get("id"), "named range")?;
+        if named_range_ids.iter().any(|existing| existing == &id) {
+            return Err(SheetValidationError::DuplicateId {
+                kind: "named range",
+                id,
+            });
+        }
+        named_range_ids.push(id);
+        let name = named_range.get("name").and_then(Value::as_str).ok_or(
+            SheetValidationError::WrongType {
+                field: "namedRange.name",
+            },
+        )?;
+        if !valid_named_range_name(name) {
+            return Err(SheetValidationError::InvalidId {
+                kind: "named range name",
+            });
+        }
         let worksheet_id = named_range
             .get("worksheetId")
             .and_then(Value::as_str)
@@ -303,12 +431,57 @@ pub fn validate_document(
                 id: worksheet_id.to_string(),
             });
         }
+        let scope_worksheet_id = match named_range.get("scopeWorksheetId") {
+            None => None,
+            Some(value) => {
+                let scope = value.as_str().ok_or(SheetValidationError::WrongType {
+                    field: "namedRange.scopeWorksheetId",
+                })?;
+                if !worksheet_ids.iter().any(|id| id == scope) {
+                    return Err(SheetValidationError::DanglingReference {
+                        kind: "worksheet",
+                        id: scope.to_string(),
+                    });
+                }
+                Some(scope.to_string())
+            }
+        };
+        let normalized_name = name.to_ascii_lowercase();
+        if accepted_names
+            .iter()
+            .any(|(accepted_name, accepted_scope)| {
+                accepted_name == &normalized_name
+                    && (accepted_scope.is_none()
+                        || scope_worksheet_id.is_none()
+                        || accepted_scope == &scope_worksheet_id)
+            })
+        {
+            return Err(SheetValidationError::DuplicateId {
+                kind: "visible named range",
+                id: name.to_string(),
+            });
+        }
+        accepted_names.push((normalized_name, scope_worksheet_id));
+        let (_, row_ids, column_ids) = worksheet_tracks
+            .iter()
+            .find(|(id, _, _)| id == worksheet_id)
+            .expect("validated worksheet has track metadata");
+        let range = named_range
+            .get("range")
+            .ok_or(SheetValidationError::WrongType {
+                field: "namedRange.range",
+            })?;
+        check_range(range, row_ids, column_ids)?;
     }
 
     Ok(())
 }
 
-fn check_limit(actual: usize, limit: usize, unit: &'static str) -> Result<(), SheetValidationError> {
+fn check_limit(
+    actual: usize,
+    limit: usize,
+    unit: &'static str,
+) -> Result<(), SheetValidationError> {
     if actual > limit {
         return Err(SheetValidationError::LimitExceeded { limit, unit });
     }
@@ -358,7 +531,11 @@ fn ordered_ids(
         Some(Value::Array(values)) => values,
         _ => {
             return Err(SheetValidationError::WrongType {
-                field: if kind == "row" { "rowOrder" } else { "columnOrder" },
+                field: if kind == "row" {
+                    "rowOrder"
+                } else {
+                    "columnOrder"
+                },
             })
         }
     };
@@ -384,6 +561,31 @@ fn split_cell_key(key: &str) -> Result<(&str, &str), SheetValidationError> {
     }
 }
 
+fn valid_named_range_name(name: &str) -> bool {
+    let mut characters = name.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    if !(first.is_ascii_alphabetic() || first == '_')
+        || !characters.all(|character| {
+            character.is_ascii_alphanumeric() || character == '_' || character == '.'
+        })
+    {
+        return false;
+    }
+
+    let letter_count = name
+        .chars()
+        .take_while(|character| character.is_ascii_alphabetic())
+        .count();
+    let suffix = &name[letter_count..];
+    !(letter_count > 0
+        && letter_count <= 3
+        && !suffix.is_empty()
+        && !suffix.starts_with('0')
+        && suffix.chars().all(|character| character.is_ascii_digit()))
+}
+
 fn check_range(
     range: &Value,
     row_ids: &[String],
@@ -405,10 +607,13 @@ fn check_range(
         }
     }
     for field in ["startColumnId", "endColumnId"] {
-        let id = range
-            .get(field)
-            .and_then(Value::as_str)
-            .ok_or(SheetValidationError::WrongType { field: "range.column" })?;
+        let id =
+            range
+                .get(field)
+                .and_then(Value::as_str)
+                .ok_or(SheetValidationError::WrongType {
+                    field: "range.column",
+                })?;
         if !column_ids.iter().any(|existing| existing == id) {
             return Err(SheetValidationError::DanglingReference {
                 kind: "column",
@@ -552,6 +757,90 @@ mod tests {
     }
 
     #[test]
+    fn validates_named_range_identity_scope_and_range() {
+        let valid = json!({
+            "id": "n1",
+            "name": "Revenue",
+            "worksheetId": "ws1",
+            "scopeWorksheetId": "ws1",
+            "range": {
+                "startRowId": "r1",
+                "endRowId": "r2",
+                "startColumnId": "c1",
+                "endColumnId": "c1"
+            }
+        });
+        let mut document = workbook();
+        document["namedRanges"] = json!([valid.clone()]);
+        assert_eq!(validate_document(&document, DEFAULT_SHEET_LIMITS), Ok(()));
+
+        let mut document = workbook();
+        document["namedRanges"] = json!([valid.clone(), {
+            "id": "n2",
+            "name": "revenue",
+            "worksheetId": "ws1",
+            "range": valid["range"].clone()
+        }]);
+        assert!(matches!(
+            validate_document(&document, DEFAULT_SHEET_LIMITS),
+            Err(SheetValidationError::DuplicateId {
+                kind: "visible named range",
+                ..
+            })
+        ));
+
+        let mut document = workbook();
+        document["namedRanges"] = json!([{
+            "id": "n1",
+            "name": "A1",
+            "worksheetId": "ws1",
+            "range": valid["range"].clone()
+        }]);
+        assert_eq!(
+            validate_document(&document, DEFAULT_SHEET_LIMITS),
+            Err(SheetValidationError::InvalidId {
+                kind: "named range name"
+            })
+        );
+
+        let mut document = workbook();
+        document["namedRanges"] = json!([{
+            "id": "n1",
+            "name": "Revenue",
+            "worksheetId": "ws1",
+            "scopeWorksheetId": "missing",
+            "range": valid["range"].clone()
+        }]);
+        assert_eq!(
+            validate_document(&document, DEFAULT_SHEET_LIMITS),
+            Err(SheetValidationError::DanglingReference {
+                kind: "worksheet",
+                id: "missing".into()
+            })
+        );
+
+        let mut document = workbook();
+        document["namedRanges"] = json!([{
+            "id": "n1",
+            "name": "Revenue",
+            "worksheetId": "ws1",
+            "range": {
+                "startRowId": "r9",
+                "endRowId": "r9",
+                "startColumnId": "c1",
+                "endColumnId": "c1"
+            }
+        }]);
+        assert_eq!(
+            validate_document(&document, DEFAULT_SHEET_LIMITS),
+            Err(SheetValidationError::DanglingReference {
+                kind: "row",
+                id: "r9".into()
+            })
+        );
+    }
+
+    #[test]
     fn rejects_malformed_identifiers_and_cell_keys() {
         let mut document = workbook();
         document["worksheets"][0]["rowOrder"] = json!(["r1", "r1"]);
@@ -572,9 +861,7 @@ mod tests {
         document["worksheets"][0]["cells"] = json!({ "r1c1": { "value": 1 } });
         assert_eq!(
             validate_document(&document, DEFAULT_SHEET_LIMITS),
-            Err(SheetValidationError::InvalidCellKey {
-                key: "r1c1".into()
-            })
+            Err(SheetValidationError::InvalidCellKey { key: "r1c1".into() })
         );
     }
 
@@ -636,6 +923,30 @@ mod tests {
             Err(SheetValidationError::DanglingReference {
                 kind: "row",
                 id: "r9".into()
+            })
+        );
+    }
+
+    #[test]
+    fn validates_protected_ranges() {
+        let mut document = workbook();
+        document["worksheets"][0]["protectedRanges"] = json!([{
+            "id": "protected1",
+            "range": {
+                "startRowId": "r1",
+                "endRowId": "r2",
+                "startColumnId": "c1",
+                "endColumnId": "c2"
+            }
+        }]);
+        assert_eq!(validate_document(&document, DEFAULT_SHEET_LIMITS), Ok(()));
+
+        document["worksheets"][0]["protectedRanges"][0]["range"]["endRowId"] = json!("missing");
+        assert_eq!(
+            validate_document(&document, DEFAULT_SHEET_LIMITS),
+            Err(SheetValidationError::DanglingReference {
+                kind: "row",
+                id: "missing".into()
             })
         );
     }
