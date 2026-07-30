@@ -12,6 +12,7 @@ implementation status. Start with
 - [Logic And Circuit Diagram Editor](./logic-circuit-diagram-plan.md)
 - [Notification System](./notification-system-plan.md)
 - [Notification System Phase 0 Contract](./notification-system-phase0-contract.md)
+- [Collab Presentations](./presentation-tool-plan.md)
 - [Rust Crate Boundary Refactor](./rust-crate-boundary-refactor-plan.md)
 - [User Calendar](./user-calendar-feature-plan.md)
 

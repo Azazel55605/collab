@@ -284,7 +284,7 @@ It must remain ephemeral and must not be written into the workbook.
 | 5. Tables and data tools | Testing | Tables, filtering, validation, conditional formatting, named ranges, editor protection, summaries, cleanup tools, and combined interaction matrices are implemented. |
 | 6. Hosted collaboration and offline behavior | Testing | Structured live sessions, stable-ID presence and merging, offline queues, conflict handling, and revision-safe recovery are implemented; physical two-client validation remains. |
 | 7. Charts, analysis, and Collab integration | Testing | Stable-range charts, bounded summaries, vault references, source-linked note embeds, and explicit Kanban/calendar snapshots are implemented. |
-| 8. Mobile sheet experience | Not started | Add a responsive viewer and bounded editing for values, formulas, filters, and worksheet navigation. |
+| 8. Mobile sheet experience | Testing | Windowed touch grid, pinch zoom, frozen panes, sparse search, and bounded value/formula/formatting/filter editing are implemented; physical Android memory and process-recreation validation remains. |
 | 9. Performance, accessibility, and release hardening | Not started | Validate scale, keyboard/accessibility behavior, recovery, packaging, and multi-platform correctness. |
 | 10. XLSX and CSV conversion | Not started | Import external files into `.sheet` and export `.sheet` copies without making external formats authoritative. |
 
@@ -631,21 +631,62 @@ release gate while the phase is in Testing.
 
 ### Phase 8: Mobile Sheet Experience
 
-- [ ] Add `.sheet` routing and a responsive mobile viewer.
-- [ ] Add worksheet navigation, pinch zoom, selection, search, and frozen-pane
-  behavior.
-- [ ] Add bounded editing for values, formulas, formatting, filters, and
+- [x] Add `.sheet` routing and a responsive mobile viewer.
+  `apps/mobile-android/src/screens/SheetScreen.tsx`, routed from `FilesScreen`
+  through the `workbook` active-sheet kind.
+- [x] Add worksheet navigation, pinch zoom, selection, search, and frozen-pane
+  behavior. `apps/mobile-android/src/components/SheetTouchGrid.tsx`.
+- [x] Add bounded editing for values, formulas, formatting, filters, and
   validation-backed cells.
-- [ ] Add formula/result inspection without exposing desktop-only controls.
-- [ ] Reuse the shared schema, formula adapter, session controller, and offline
+- [x] Add formula/result inspection without exposing desktop-only controls.
+- [x] Reuse the shared schema, formula adapter, session controller, and offline
   replica behavior.
-- [ ] Add touch selection handles, keyboard/IME behavior, and bottom-sheet
+- [x] Add touch selection handles, keyboard/IME behavior, and bottom-sheet
   editors that stay above system navigation.
 - [ ] Add large-sheet memory and process-recreation tests on physical Android
-  devices.
+  devices. Release gate; not reproducible in the frontend harness.
 
 Exit gate: mobile can reliably inspect and make common edits to local/cached
 workbooks without loading the whole logical grid into the view hierarchy.
+
+Phase 8 is implemented and in **Testing**. `.sheet` files are recognized by
+document type and extension, get their own file-tree glyph, and open in the
+mobile workbook screen rather than the generic file-detail sheet.
+
+The grid is a windowed DOM renderer over the same
+`src/lib/sheet/viewport.ts` model desktop uses: only the rows and columns inside
+the current viewport window (plus overscan) become DOM nodes, so a
+1,000,000 x 16,384 logical worksheet renders under 400 cells. Pinch zoom is a
+bounded scale factor applied to the shared metrics rather than a second geometry
+model, frozen rows and columns are pinned with the live scroll offset, and range
+selection uses two draggable touch handles instead of shift-click. Search scans
+the sparse cell map through the shared `findPopulatedSheetMatches`, so cost is
+bounded by populated cells rather than by `rows * columns`.
+
+Editing is deliberately bounded to what a phone should do: cell values and
+formulas, a small formatting set, table column filters, and validation-backed
+list cells. Every mutation passes through the shared
+`enforceSheetMutationPolicies`, so protected ranges and strict validations behave
+exactly as on desktop. Structural operations, charts, named ranges, data
+connections, and protection editing remain desktop-only. Formula source stays
+authoritative and is shown alongside its computed result in the cell inspector;
+evaluation uses the shared `buildSheetFormulaRequest` adapter against the same
+bounded native runtime, released when the screen closes.
+
+Document lifecycle follows the note/Kanban/logic path: live structured session
+when connected, REST optimistic writes otherwise, and offline edits queued in
+the native replica for normal reconnect replay. A workbook whose
+`schemaVersion` is newer than the build opens read-only and is never rewritten,
+repairs applied while opening are surfaced, and a hosted viewer gets a genuine
+read-only surface with no editing affordances. Ephemeral active
+worksheet/cell/range state is published through awareness using the same payload
+shape as desktop.
+
+Automated coverage lives in `apps/mobile-android/src/lib/sheet.test.ts`,
+`src/components/SheetTouchGrid.test.tsx`, and
+`src/screens/SheetScreen.test.tsx`. Physical-device memory and
+process-recreation validation remains the release gate while the phase is in
+Testing.
 
 ### Phase 9: Performance, Accessibility, And Release Hardening
 

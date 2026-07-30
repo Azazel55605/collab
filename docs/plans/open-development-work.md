@@ -1,6 +1,6 @@
 # Open Development Work
 
-Last reviewed: 2026-07-28
+Last reviewed: 2026-07-30
 
 This is the entry point for unfinished Collab projects. Detailed requirements,
 implementation notes, and acceptance criteria remain in their canonical plan
@@ -29,6 +29,7 @@ work from being mistaken for an active roadmap item.
 | User calendar | Testing | Complete physical-device validation for cross-location mirroring and notifications, the Phase 9 external-client CalDAV matrix, and Phase 10 restore/multi-day lifecycle drills. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
 | Background running | Testing | Phase 5 automated hardening is implemented. Complete the packaged desktop/physical Android matrix, then add notification-backed Android foreground transfers. | [Background Running Plan](./background-running-plan.md) |
 | Notification system | Testing | Phases 0-6 are implemented with native delivery, hosted activity, profile/category/server/vault/calendar controls, quiet hours, privacy, summaries, and release hardening. Retest hosted catch-up, Android permission recovery/background diagnostics, and Windows autostart before completing the packaged desktop/physical Android matrix. | [Notification System Plan](./notification-system-plan.md) |
+| Collab Presentations | Planned | Complete the `.deck` Phase 0 proofs for scene/text fidelity, deck-specific live text collaboration, and compatible PPTX export before beginning the editor. | [Collab Presentations Plan](./presentation-tool-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
 | Mobile widgets | Ideas only | Evaluate a calendar agenda widget first after background snapshots are available; no implementation commitment or phased schedule exists yet. | [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) |
 
@@ -57,6 +58,10 @@ Advanced Tables is also an independent product stream. Its Phase 0 technical
 proof should precede any editor implementation because formula-engine,
 virtualization, and licensing choices determine the feasible workbook limits.
 
+Collab Presentations is a planned follow-on product stream. Its Phase 0 must
+prove cross-platform text layout, a deck-specific rich-text CRDT representation,
+and compatible PPTX export before `.deck` routing or editor implementation.
+
 ## Project Details
 
 ### Android Companion App
@@ -78,14 +83,31 @@ Open tracker entries:
 - Phases 0-2, **Complete**: the `.sheet` schema, bounded formula boundary,
   document domain, virtualized desktop editor, and normal vault lifecycle are
   implemented.
-- Phases 3-7, **Testing**: formulas, spreadsheet interactions, data tools,
+- Phases 3-8, **Testing**: formulas, spreadsheet interactions, data tools,
   hosted/offline collaboration, charts/analysis, Collab references, note
-  embeds, and snapshot data connections are implemented and remain under
-  integration and physical multi-client testing.
-- Phases 8-9, **Planned**: the mobile sheet experience and release hardening.
+  embeds, snapshot data connections, and the mobile workbook experience are
+  implemented and remain under integration and physical multi-client testing.
+  Phase 8's remaining gate is large-sheet memory and process-recreation
+  validation on physical Android devices.
+- Phase 9, **Planned**: release hardening.
 - Phase 10, **Not started**: add bounded `.xlsx`/`.csv` import into `.sheet` and
   export from `.sheet`. External formats remain conversion targets rather than
   live or losslessly compatible document models.
+
+### Collab Presentations
+
+Open tracker entries:
+
+- Phase 0, **Not started**: freeze the native `.deck` schema and resource
+  limits; prove shared scene rendering, rich-text editing, same-text-box live
+  collaboration, and PowerPoint-compatible export.
+- Phases 1-7, **Planned**: native vault integration, desktop editing, themes and
+  layouts, visual objects, presentation mode, hosted/offline collaboration, and
+  compatible PPTX export.
+- Phases 8-10, **Planned**: mobile viewing/presentation, bounded animation, and
+  release hardening.
+- Phase 11, **Deferred**: bounded PPTX import into a new `.deck`; import is not
+  required for the first production release.
 
 ### Electronic Circuit Simulation
 

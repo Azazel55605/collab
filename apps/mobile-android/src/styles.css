@@ -5347,6 +5347,246 @@ p {
   color: var(--muted-foreground);
 }
 
+/* ── Workbooks (.sheet) ───────────────────────────────────────────────────── */
+/* Namespaced `workbook-` rather than `sheet-`, because `.sheet` is already the
+ * bottom-sheet overlay in this app. */
+
+.file-icon.glyph-sheet {
+  color: oklch(0.74 0.16 145);
+}
+
+.workbook-screen {
+  display: flex;
+  min-height: calc(100vh - 72px - var(--safe-bottom));
+  flex-direction: column;
+  gap: 8px;
+}
+
+.workbook-inspector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.workbook-address {
+  flex: 0 0 auto;
+  padding-right: 8px;
+  border-right: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.workbook-inspector-value {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--foreground);
+  font-size: 0.82rem;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workbook-inspector-value:disabled {
+  color: var(--muted-foreground);
+}
+.workbook-formula {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'Fira Code', 'JetBrains Mono', ui-monospace, monospace;
+}
+.workbook-result {
+  flex: 0 0 auto;
+  max-width: 40%;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workbook-result.error {
+  color: oklch(0.66 0.2 20);
+}
+
+/* The grid is the one scrollable surface on the screen; only the cells inside
+ * the current viewport window exist as DOM nodes. */
+.workbook-grid {
+  position: relative;
+  flex: 1;
+  min-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
+.workbook-content {
+  position: relative;
+}
+.workbook-cell,
+.workbook-column-header,
+.workbook-row-header,
+.workbook-corner {
+  position: absolute;
+  box-sizing: border-box;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.workbook-cell {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  padding: 0 4px;
+  color: var(--foreground);
+  font-size: 0.78rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.workbook-cell-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workbook-cell.formula {
+  color: var(--muted-foreground);
+}
+.workbook-cell.error {
+  color: oklch(0.66 0.2 20);
+}
+.workbook-cell.selected {
+  background: color-mix(in oklch, var(--primary) 14%, transparent);
+}
+.workbook-cell.active {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.workbook-cell.validated::after {
+  content: '';
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--primary);
+}
+.workbook-cell-note {
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  border-top: 5px solid oklch(0.75 0.16 85);
+  border-left: 5px solid transparent;
+}
+.workbook-column-header,
+.workbook-row-header,
+.workbook-corner {
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.workbook-corner {
+  z-index: 5;
+}
+.workbook-column-header.selected,
+.workbook-row-header.selected {
+  background: color-mix(in oklch, var(--primary) 26%, var(--muted));
+  color: var(--foreground);
+}
+
+/* Range handles: the touch equivalent of shift-clicking a range. */
+.workbook-handle {
+  position: absolute;
+  z-index: 6;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  padding: 0;
+  border: 2px solid var(--card);
+  border-radius: 999px;
+  background: var(--primary);
+  touch-action: none;
+}
+
+.workbook-toolbar,
+.workbook-worksheets,
+.workbook-format-actions,
+.workbook-validation-options,
+.workbook-filter-values,
+.workbook-pending-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+.workbook-worksheets,
+.workbook-filter-values {
+  max-height: 30vh;
+  overflow-y: auto;
+}
+.workbook-summary {
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.workbook-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.workbook-chip.active {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 20%, var(--surface));
+}
+.workbook-chip:disabled {
+  color: var(--muted-foreground);
+  opacity: 0.6;
+}
+
+.workbook-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+}
+
+/* Keep the editor sheet above the Android navigation bar. */
+.workbook-editor-sheet {
+  padding-bottom: calc(24px + var(--safe-bottom));
+}
+
 @media (orientation: landscape) and (min-width: 700px) {
   .app-root {
     width: 100%;

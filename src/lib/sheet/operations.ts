@@ -679,7 +679,9 @@ function rangeFromSelection(
   return { startRowId, startColumnId, endRowId, endColumnId };
 }
 
-function rangeRectangle(worksheet: SheetWorksheet, range: SheetRange) {
+/** Resolves a stable-ID range into current row/column indexes, or null if any
+ * endpoint no longer exists on the worksheet. */
+export function rangeRectangle(worksheet: SheetWorksheet, range: SheetRange) {
   const top = worksheet.rowOrder.indexOf(range.startRowId);
   const bottom = worksheet.rowOrder.indexOf(range.endRowId);
   const left = worksheet.columnOrder.indexOf(range.startColumnId);

@@ -72,6 +72,8 @@ export type ActiveSheet =
   | { kind: 'fileDetail'; fileId: string }
   | { kind: 'note'; fileId: string }
   | { kind: 'kanban'; fileId: string; cardId?: string }
+  /** A `.sheet` workbook opened in the mobile spreadsheet screen. */
+  | { kind: 'workbook'; fileId: string }
   | { kind: 'viewer'; fileId: string }
   | { kind: 'removeOffline'; serverUrl: string; vault: HostedVault }
   | null;

@@ -24,6 +24,10 @@ import type {
   NotificationPreferences,
   NotificationRecord,
 } from '../../../src/types/notification';
+import type {
+  SheetFormulaEvaluationRequest,
+  SheetFormulaEvaluationResponse,
+} from '../../../src/types/sheetFormula';
 
 export type {
   BackgroundJobRecord,
@@ -572,6 +576,20 @@ export function circuitReadTransientChunk(
 
 export function circuitDiscardJob(jobId: string): Promise<void> {
   return invoke('circuit_discard_job', { jobId });
+}
+
+// ── Bounded incremental `.sheet` formula evaluation ──────────────────────────
+// Mobile shares the desktop native runtime: one bounded runtime per open
+// workbook tab, addressed by `runtimeId`, released when the screen closes.
+
+export function sheetFormulaEvaluate(
+  request: SheetFormulaEvaluationRequest,
+): Promise<SheetFormulaEvaluationResponse> {
+  return invoke('sheet_formula_evaluate', { request });
+}
+
+export function sheetFormulaRelease(runtimeId: string): Promise<void> {
+  return invoke('sheet_formula_release', { runtimeId });
 }
 
 export type {

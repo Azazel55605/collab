@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createEmptySheetDocument } from './document';
 import { activeWorksheet, getCell, setCell } from './operations';
 import {
+  findPopulatedSheetMatches,
   findSheetMatches,
   nextSheetMatch,
   replaceAllSheetMatches,
@@ -38,6 +39,38 @@ describe('sheet search', () => {
     const worksheet = activeWorksheet(fixture());
     expect(findSheetMatches(worksheet, 'BETA', { matchCase: true })).toHaveLength(2);
     expect(findSheetMatches(worksheet, 'beta', { wholeCell: true })).toHaveLength(1);
+  });
+
+  it('finds the same matches by scanning only populated cells', () => {
+    const worksheet = activeWorksheet(fixture());
+    expect(findPopulatedSheetMatches(worksheet, 'beta')).toEqual(
+      findSheetMatches(worksheet, 'beta'),
+    );
+    expect(findPopulatedSheetMatches(worksheet, 'BETA', { matchCase: true })).toEqual(
+      findSheetMatches(worksheet, 'BETA', { matchCase: true }),
+    );
+    expect(findPopulatedSheetMatches(worksheet, 'beta', { wholeCell: true })).toEqual(
+      findSheetMatches(worksheet, 'beta', { wholeCell: true }),
+    );
+    expect(findPopulatedSheetMatches(worksheet, '')).toEqual([]);
+  });
+
+  it('scans a tall worksheet without touching every logical position', () => {
+    // A worksheet far larger than its populated cells: the sparse scan must be
+    // bounded by the cell map, which is what makes phone search viable.
+    let document = createEmptySheetDocument('Tall', {
+      timestamp: '2026-07-30T00:00:00.000Z',
+      worksheet: { rows: 20_000, columns: 200 },
+    });
+    const sheetId = activeWorksheet(document).id;
+    document = setCell(document, sheetId, { row: 19_999, column: 199 }, {
+      value: 'needle',
+      valueType: 'text',
+    });
+    const worksheet = activeWorksheet(document);
+    expect(findPopulatedSheetMatches(worksheet, 'needle')).toEqual([
+      { row: 19_999, column: 199 },
+    ]);
   });
 
   it('replaces one or all matches while preserving formulas and typed values', () => {

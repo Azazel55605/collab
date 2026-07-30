@@ -12,6 +12,7 @@ import { isCanvasFile } from '../lib/canvas';
 import { isKanbanFile } from '../lib/kanban';
 import { isLogicFile } from '../lib/logic';
 import { isNoteFile } from '../lib/notes';
+import { isSheetFile } from '../lib/sheet';
 import { isRichViewableFile } from '../lib/assets';
 import type { FileCacheState } from '../lib/replica';
 import type { ThemePrefs } from '../lib/theme';
@@ -19,6 +20,7 @@ import type { HostedFileEntry } from '../mobileTauri';
 import { KanbanScreen } from './KanbanScreen';
 import { NoteScreen } from './NoteScreen';
 import { RichFileViewerScreen } from './RichFileViewerScreen';
+import { SheetScreen } from './SheetScreen';
 import { useMobileStore } from '../state/store';
 import { createHostedDocument } from '../mobileTauri';
 import { downloadEntireVault, downloadEntry, normalizedNoteName, pickAndUploadFiles } from '../lib/fileTransfer';
@@ -239,6 +241,7 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   const detailFile = activeSheet?.kind === 'fileDetail' ? activeFile : null;
   const noteFile = activeSheet?.kind === 'note' ? activeFile : null;
   const kanbanFile = activeSheet?.kind === 'kanban' ? activeFile : null;
+  const workbookFile = activeSheet?.kind === 'workbook' ? activeFile : null;
   const viewerFile = activeSheet?.kind === 'viewer' ? activeFile : null;
 
   if (!selected) {
@@ -265,6 +268,10 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
 
   if (kanbanFile) {
     return <KanbanScreen file={kanbanFile} initialCardId={activeSheet?.kind === 'kanban' ? activeSheet.cardId : undefined} />;
+  }
+
+  if (workbookFile) {
+    return <SheetScreen file={workbookFile} />;
   }
 
   if (viewerFile) {
@@ -403,6 +410,8 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
                       openSheet({ kind: 'note', fileId: entry.id });
                     } else if (isKanbanFile(entry)) {
                       openSheet({ kind: 'kanban', fileId: entry.id });
+                    } else if (isSheetFile(entry)) {
+                      openSheet({ kind: 'workbook', fileId: entry.id });
                     } else if (isRichViewableFile(entry) || isCanvasFile(entry)) {
                       openSheet({ kind: 'viewer', fileId: entry.id });
                     } else {

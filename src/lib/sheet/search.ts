@@ -1,3 +1,4 @@
+import { parseSheetCellKey } from '../../types/sheet';
 import type { SheetDocument, SheetWorksheet } from '../../types/sheet';
 import type { SheetPosition } from './address';
 import { formatCellEditText, parseCellInput } from './cellValue';
@@ -31,6 +32,35 @@ export function findSheetMatches(
       if (text && matchesText(text, query, options)) matches.push({ row, column });
     }
   }
+  return matches;
+}
+
+/**
+ * The same matches as {@link findSheetMatches}, found by scanning the sparse
+ * cell map instead of every logical position. Cost is bounded by the number of
+ * populated cells rather than `rows * columns`, which is what makes search
+ * viable on a phone against a tall worksheet. Results keep row-major order so
+ * both scans navigate identically.
+ */
+export function findPopulatedSheetMatches(
+  worksheet: SheetWorksheet,
+  query: string,
+  options: SheetSearchOptions = {},
+): SheetPosition[] {
+  if (!query) return [];
+  const rows = new Map(worksheet.rowOrder.map((id, index) => [id, index]));
+  const columns = new Map(worksheet.columnOrder.map((id, index) => [id, index]));
+  const matches: SheetPosition[] = [];
+  for (const [key, cell] of Object.entries(worksheet.cells)) {
+    const parsed = parseSheetCellKey(key);
+    if (!parsed) continue;
+    const row = rows.get(parsed.rowId);
+    const column = columns.get(parsed.columnId);
+    if (row === undefined || column === undefined) continue;
+    const text = formatCellEditText(cell);
+    if (text && matchesText(text, query, options)) matches.push({ row, column });
+  }
+  matches.sort((a, b) => (a.row - b.row) || (a.column - b.column));
   return matches;
 }
 

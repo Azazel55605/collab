@@ -7,6 +7,7 @@ import {
   Loader2,
   CircuitBoard,
   Shapes,
+  Table2,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -122,6 +123,8 @@ export function GlyphIcon({ glyph, size = 20 }: { glyph: FileGlyph; size?: numbe
       return <Shapes size={size} aria-hidden />;
     case 'logic':
       return <CircuitBoard size={size} aria-hidden />;
+    case 'sheet':
+      return <Table2 size={size} aria-hidden />;
     case 'image':
       return <ImageIcon size={size} aria-hidden />;
     case 'pdf':

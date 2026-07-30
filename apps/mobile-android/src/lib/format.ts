@@ -47,7 +47,16 @@ export function fileEntryExtension(entry: HostedFileEntry): string {
   return fileExtension(entry.relativePath) || fileExtension(entry.name);
 }
 
-export type FileGlyph = 'folder' | 'note' | 'kanban' | 'canvas' | 'logic' | 'image' | 'pdf' | 'file';
+export type FileGlyph =
+  | 'folder'
+  | 'note'
+  | 'kanban'
+  | 'canvas'
+  | 'logic'
+  | 'sheet'
+  | 'image'
+  | 'pdf'
+  | 'file';
 
 export function fileGlyph(entry: HostedFileEntry): FileGlyph {
   if (entry.kind === 'folder') return 'folder';
@@ -56,6 +65,7 @@ export function fileGlyph(entry: HostedFileEntry): FileGlyph {
   if (ext === 'kanban') return 'kanban';
   if (ext === 'canvas') return 'canvas';
   if (ext === 'logic') return 'logic';
+  if (ext === 'sheet') return 'sheet';
   if (ext === 'pdf') return 'pdf';
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'apng', 'avif', 'ico'].includes(ext)) {
     return 'image';
