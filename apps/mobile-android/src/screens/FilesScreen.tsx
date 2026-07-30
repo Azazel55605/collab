@@ -8,6 +8,7 @@ import {
   formatRelativeTime,
   isReadOnlyRole,
 } from '../lib/format';
+import { useBackDismiss } from '../lib/backStack';
 import { isCanvasFile } from '../lib/canvas';
 import { isKanbanFile } from '../lib/kanban';
 import { isLogicFile } from '../lib/logic';
@@ -74,6 +75,9 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   } | null>(null);
   const readOnly = selected ? isReadOnlyRole(selected.vault.role) : false;
   const connected = selected ? !!statuses[selected.serverUrl]?.connected : false;
+
+  // Back closes the create sheet before navigating out of the folder.
+  useBackDismiss(showCreateNote, () => setShowCreateNote(false));
 
   async function runTransfer(action: () => Promise<void>) {
     setTransferBusy(true);

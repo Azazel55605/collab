@@ -62,6 +62,7 @@ import {
   type ServerConnectionStatus,
   type UserDirectoryEntry,
 } from '../mobileTauri';
+import { useBackDismiss } from '../lib/backStack';
 import { DateField } from '../components/DateField';
 import { TimeField } from '../components/TimeField';
 import { Banner, EmptyState, Spinner } from '../components/ui';
@@ -589,6 +590,8 @@ function MobileInvitations({ origins, onClose, onChanged }: {
   onClose: () => void;
   onChanged: () => Promise<void>;
 }) {
+  // Back closes this sheet instead of prompting to quit the app.
+  useBackDismiss(true, onClose);
   const [invitations, setInvitations] = useState<Array<HostedInvitation & { serverUrl: string }>>([]);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
@@ -645,6 +648,8 @@ function CalendarConflictRecovery({ conflicts, profileId, onClose, onChanged }: 
   onClose: () => void;
   onChanged: () => Promise<void>;
 }) {
+  // Back closes this sheet instead of prompting to quit the app.
+  useBackDismiss(true, onClose);
   const syncCalendars = useMobileStore(state => state.syncCalendars);
   const [busyId, setBusyId] = useState('');
   const [error, setError] = useState('');
@@ -694,6 +699,8 @@ function CalendarManager({ calendars, statuses, mirrorStatuses, mirrorConflicts,
   onClose: () => void;
   onChanged: (calendarId?: string, visible?: boolean) => Promise<void>;
 }) {
+  // Back closes this sheet instead of prompting to quit the app.
+  useBackDismiss(true, onClose);
   const syncCalendars = useMobileStore((state) => state.syncCalendars);
   const [draft, setDraft] = useState<CalendarDraft | null>(null);
   const [mirrorGroups, setMirrorGroups] = useState<CalendarMirrorGroup[]>([]);
@@ -1345,6 +1352,8 @@ function MobileItemEditor({ request, date, calendars, sourceItems, profileId, pr
   prefs: ThemePrefs;
   onClose: () => void; onSaved: () => Promise<void>; onOpenAttachment: (attachment: CalendarAttachment) => void;
 }) {
+  // Back closes this sheet instead of prompting to quit the app.
+  useBackDismiss(true, onClose);
   const [kind, setKind] = useState<CalendarItemKind>(request.kind);
   const [title, setTitle] = useState(request.item?.title ?? '');
   const [calendarId, setCalendarId] = useState(request.item?.calendarId ?? calendars[0]?.id ?? '');

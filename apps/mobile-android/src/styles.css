@@ -43,6 +43,7 @@
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--background);
   overscroll-behavior-y: none;
 }
@@ -119,6 +120,10 @@ p {
   overflow: hidden;
 }
 .app-main:has(.mobile-calendar-screen) {
+  overflow: hidden;
+}
+.app-main:has(.workbook-screen) {
+  padding-bottom: 0;
   overflow: hidden;
 }
 
@@ -2422,7 +2427,13 @@ p {
 /* ── Notes ────────────────────────────────────────────────────────────────── */
 
 .note-screen {
+  /* `dvh`, not `vh`: on Android the soft keyboard shrinks the visual viewport
+     but leaves `vh` at its full-screen value. A `vh`-sized screen therefore
+     stays taller than `.app-main`, so focusing the editor scrolls that
+     ancestor to reveal the caret — and the offset survives the keyboard
+     closing, leaving the header out of reach. */
   min-height: calc(100vh - 72px - var(--safe-bottom));
+  min-height: calc(100dvh - 72px - var(--safe-bottom));
 }
 .note-header {
   display: flex;
@@ -2446,6 +2457,7 @@ p {
 .note-editor {
   width: 100%;
   min-height: calc(100vh - 240px - var(--safe-bottom));
+  min-height: calc(100dvh - 240px - var(--safe-bottom));
   resize: vertical;
   padding: 14px;
   border: 1px solid var(--border);
@@ -2466,9 +2478,11 @@ p {
 }
 .mobile-codemirror-editor {
   min-height: calc(100vh - 240px - var(--safe-bottom));
+  min-height: calc(100dvh - 240px - var(--safe-bottom));
 }
 .markdown-preview {
   min-height: calc(100vh - 240px - var(--safe-bottom));
+  min-height: calc(100dvh - 240px - var(--safe-bottom));
   padding: 4px 0 24px;
   color: var(--foreground);
   font-family: Inter, 'Pure Nerd Font', PureNerdFont, ui-sans-serif, system-ui, sans-serif;
@@ -5356,10 +5370,18 @@ p {
 }
 
 .workbook-screen {
+  /* Fill the visible area (above the fixed tab bar) and own an internal scroll
+     region, like the Kanban and rich-viewer screens. If the screen were taller
+     than `.app-main` instead, focusing the cell editor would make the WebView
+     scroll that ancestor to reveal the input — and the offset would persist
+     after the soft keyboard closed, hiding the header. */
+  height: calc(100dvh - 72px - var(--safe-top) - var(--safe-bottom));
+  min-height: 0;
   display: flex;
-  min-height: calc(100vh - 72px - var(--safe-bottom));
   flex-direction: column;
   gap: 8px;
+  padding-bottom: 10px;
+  overflow: hidden;
 }
 
 .workbook-inspector {
@@ -5422,7 +5444,9 @@ p {
 .workbook-grid {
   position: relative;
   flex: 1;
-  min-height: 240px;
+  /* The grid absorbs the leftover height, so banners and the pending-sync strip
+     can grow without pushing the toolbar off-screen. */
+  min-height: 0;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);

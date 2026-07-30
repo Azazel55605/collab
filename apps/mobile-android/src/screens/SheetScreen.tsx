@@ -34,9 +34,11 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 
 import { Banner, ReadOnlyBadge, Spinner } from '../components/ui';
 import { SheetTouchGrid } from '../components/SheetTouchGrid';
+import { useBackDismiss } from '../lib/backStack';
 import { isReadOnlyRole } from '../lib/format';
 import {
   clampSheetScale,
@@ -103,6 +105,8 @@ import { sheetFormulaResultKey } from '../../../../src/types/sheetFormula';
 import type { SheetColumnFilter } from '../../../../src/types/sheet';
 
 const SAVE_DEBOUNCE_MS = 600;
+/** How long a just-opened panel ignores the tap's synthesized ghost click. */
+const GHOST_CLICK_WINDOW_MS = 400;
 
 type ActivePanel = 'none' | 'editor' | 'format' | 'filter' | 'search';
 
@@ -160,6 +164,9 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
   const saveTimerRef = useRef<number | null>(null);
   const liveSessionRef = useRef<MobileLiveJsonSession | null>(null);
   liveSessionRef.current = liveSession;
+  const editorInputRef = useRef<HTMLInputElement | null>(null);
+  const panelOpenedAtRef = useRef(0);
+  const screenRef = useRef<HTMLDivElement | null>(null);
 
   const formula = useMobileSheetFormula(document);
 
@@ -179,6 +186,16 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
     () => (document && document.worksheets.length > 0 ? activeWorksheetOf(document) : null),
     [document],
   );
+
+  // The layout keeps `.app-main` unscrollable for this screen, but a WebView can
+  // still scroll an `overflow: hidden` ancestor when it reveals a focused input.
+  // That offset would survive the soft keyboard closing and hide the header, so
+  // it is reset whenever the cell editor closes.
+  useEffect(() => {
+    if (panel === 'editor') return;
+    const main = screenRef.current?.closest<HTMLElement>('.app-main');
+    if (main && main.scrollTop !== 0) main.scrollTop = 0;
+  }, [panel]);
 
   // ── Load ───────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -442,10 +459,44 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
     [worksheet, query],
   );
 
+  /**
+   * A tap on the grid is handled on `touchend`, and the WebView then synthesizes
+   * a compatibility click at the same point — which now lands on the freshly
+   * mounted backdrop. Without this window that ghost click would dismiss the
+   * panel the tap just opened.
+   */
+  const dismissPanel = useCallback(() => {
+    if (Date.now() - panelOpenedAtRef.current < GHOST_CLICK_WINDOW_MS) return;
+    setPanel('none');
+  }, []);
+
+  const openPanel = useCallback((next: Exclude<ActivePanel, 'none'>) => {
+    panelOpenedAtRef.current = Date.now();
+    setPanel(next);
+  }, []);
+
+  // Back closes the open panel or the worksheet list before leaving the
+  // workbook, so it never jumps straight to the quit prompt mid-edit.
+  useBackDismiss(panel !== 'none', () => setPanel('none'));
+  useBackDismiss(showWorksheets, () => setShowWorksheets(false));
+
+  /**
+   * Open the cell editor and focus its input *inside the same user gesture*.
+   *
+   * The Android WebView only raises the soft keyboard for a focus that happens
+   * synchronously within a touch/click handler. A React state update alone
+   * mounts the input on a later commit — outside the gesture — so `autoFocus`
+   * silently leaves the keyboard closed. `flushSync` commits the panel first so
+   * the input exists and is visible, then focus still counts as user-initiated.
+   */
   const openEditor = useCallback((position: SheetPosition) => {
     if (readOnly || !worksheet) return;
-    setEditorText(formatCellEditText(getCell(worksheet, position)));
-    setPanel('editor');
+    flushSync(() => {
+      setEditorText(formatCellEditText(getCell(worksheet, position)));
+      panelOpenedAtRef.current = Date.now();
+      setPanel('editor');
+    });
+    editorInputRef.current?.focus();
   }, [readOnly, worksheet]);
 
   const commitEditor = useCallback(() => {
@@ -530,7 +581,7 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
   if (!selected || !isSheetFile(currentFile)) return null;
 
   return (
-    <div className="screen workbook-screen">
+    <div className="screen workbook-screen" ref={screenRef}>
       <header className="note-header">
         <button type="button" className="icon-button" aria-label="Back" onClick={closeSheet}>
           <ArrowLeft size={18} aria-hidden />
@@ -564,7 +615,7 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
             type="button"
             className="icon-button"
             aria-label="Find in workbook"
-            onClick={() => setPanel(panel === 'search' ? 'none' : 'search')}
+            onClick={() => (panel === 'search' ? setPanel('none') : openPanel('search'))}
           >
             <Search size={16} aria-hidden />
           </button>
@@ -651,7 +702,7 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
             selection={selection}
             onSelectionChange={setSelection}
             onActivateCell={openEditor}
-            onLongPressCell={() => setPanel('format')}
+            onLongPressCell={() => openPanel('format')}
             computedValues={formula.values}
             displayFormat={displayFormatFor()}
             scale={scale}
@@ -675,12 +726,12 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
               </span>
             ) : null}
             {!readOnly ? (
-              <button type="button" className="workbook-chip" onClick={() => setPanel('format')}>
+              <button type="button" className="workbook-chip" onClick={() => openPanel('format')}>
                 <Bold size={14} aria-hidden /> Format
               </button>
             ) : null}
             {!readOnly && activeTable ? (
-              <button type="button" className="workbook-chip" onClick={() => setPanel('filter')}>
+              <button type="button" className="workbook-chip" onClick={() => openPanel('filter')}>
                 <Filter size={14} aria-hidden /> Filter
               </button>
             ) : null}
@@ -711,7 +762,7 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
       ) : null}
 
       {panel === 'search' && worksheet ? (
-        <div className="sheet-backdrop" onClick={() => setPanel('none')}>
+        <div className="sheet-backdrop" onClick={dismissPanel}>
           <div className="sheet" role="dialog" aria-label="Find in workbook" onClick={(event) => event.stopPropagation()}>
             <div className="sheet-handle" />
             <div className="sheet-head">
@@ -761,7 +812,7 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
       ) : null}
 
       {panel === 'editor' && worksheet ? (
-        <div className="sheet-backdrop" onClick={() => setPanel('none')}>
+        <div className="sheet-backdrop" onClick={dismissPanel}>
           <form
             className="sheet workbook-editor-sheet"
             aria-label={`Edit ${formatA1(selection.active)}`}
@@ -800,12 +851,15 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
             <label className="field">
               <span>Content</span>
               <input
+                ref={editorInputRef}
                 autoFocus
-                // A formula must reach the document exactly as typed, so the
-                // soft keyboard's autocapitalize/autocorrect/spellcheck are off
-                // while one is being edited. Plain values get the numeric
-                // keypad, which is what most cell entry actually is.
-                inputMode={editorText.startsWith('=') ? 'text' : 'decimal'}
+                // Always the full text keyboard. A cell takes text, numbers, or
+                // a formula, and the numeric keypad has no letters and no `=`,
+                // so it cannot type most of what a cell accepts. Autocapitalize,
+                // autocorrect, and spellcheck stay off so what reaches the
+                // document is exactly what was typed.
+                type="text"
+                inputMode="text"
                 enterKeyHint="done"
                 autoCapitalize="off"
                 autoCorrect="off"
@@ -836,7 +890,7 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
       ) : null}
 
       {panel === 'format' && worksheet ? (
-        <div className="sheet-backdrop" onClick={() => setPanel('none')}>
+        <div className="sheet-backdrop" onClick={dismissPanel}>
           <div className="sheet" role="dialog" aria-label="Cell formatting" onClick={(event) => event.stopPropagation()}>
             <div className="sheet-handle" />
             <div className="sheet-head">
@@ -905,7 +959,7 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
       ) : null}
 
       {panel === 'filter' && worksheet && activeTable ? (
-        <div className="sheet-backdrop" onClick={() => setPanel('none')}>
+        <div className="sheet-backdrop" onClick={dismissPanel}>
           <div className="sheet" role="dialog" aria-label="Filter column" onClick={(event) => event.stopPropagation()}>
             <div className="sheet-handle" />
             <div className="sheet-head">

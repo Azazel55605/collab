@@ -26,6 +26,7 @@ import {
 } from '../lib/theme';
 import { useMobileStore } from '../state/store';
 import { alwaysCreateOfflineCopy, setAlwaysCreateOfflineCopy } from '../lib/preferences';
+import { useBackDismiss } from '../lib/backStack';
 import { useEffect, useState } from 'react';
 import { TimeField } from '../components/TimeField';
 import {
@@ -196,6 +197,10 @@ export function SettingsScreen({
     window.addEventListener('collab-settings-open-category', openCategory);
     return () => window.removeEventListener('collab-settings-open-category', openCategory);
   }, []);
+
+  // Back inside a category returns to the category list rather than prompting
+  // to quit the app.
+  useBackDismiss(activeCategory !== null, () => setActiveCategory(null));
 
   useEffect(() => {
     const timer = window.setInterval(() => {

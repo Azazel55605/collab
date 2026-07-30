@@ -38,6 +38,7 @@ import {
   replicaKey,
   refreshVaultOfflineContents,
 } from '../lib/replica';
+import { runTopBackDismiss } from '../lib/backStack';
 import { shouldAlwaysCreateOfflineCopy } from '../lib/preferences';
 import {
   listMobileCalendarCacheOrigins,
@@ -212,6 +213,9 @@ export const useMobileStore = create<MobileState>((set, get) => ({
 
   goBack: () => {
     const { activeSheet, tab, folderTrail } = get();
+    // Screen-local surfaces (a Settings category, a bottom sheet, a popover)
+    // unwind first, most recently opened first.
+    if (runTopBackDismiss()) return true;
     if (activeSheet) {
       set({ activeSheet: null });
       return true;

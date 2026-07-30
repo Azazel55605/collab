@@ -1,5 +1,6 @@
 import { CalendarX2, ChevronRight, Cloud, KeyRound, LogOut, Pencil, Plus, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
+import { useBackDismiss } from '../lib/backStack';
 
 import { Banner, EmptyState, Spinner, StatusDot } from '../components/ui';
 import { normalizeServerUrl, type KnownServer } from '../lib/servers';
@@ -34,6 +35,9 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
   const [reauthPassword, setReauthPassword] = useState('');
   const [reauthBusy, setReauthBusy] = useState(false);
   const [reauthError, setReauthError] = useState<string | null>(null);
+
+  // Back closes the sign-in sheet before leaving the Servers tab.
+  useBackDismiss(reauthServer !== null, () => setReauthServer(null));
 
   function beginEdit(server: (typeof servers)[number]) {
     const normalized = normalizeServerUrl(server.serverUrl);

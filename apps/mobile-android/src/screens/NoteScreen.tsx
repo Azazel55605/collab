@@ -51,6 +51,16 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
   const [currentFile, setCurrentFile] = useState(file);
   const [source, setSource] = useState<'network' | 'cache'>('network');
   const [mode, setMode] = useState<'preview' | 'edit'>('preview');
+  const screenRef = useRef<HTMLDivElement | null>(null);
+
+  // Leaving edit mode closes the soft keyboard. A WebView may have scrolled
+  // `.app-main` to reveal the caret, and that offset would otherwise persist and
+  // hide the note header.
+  useEffect(() => {
+    if (mode === 'edit') return;
+    const main = screenRef.current?.closest<HTMLElement>('.app-main');
+    if (main && main.scrollTop !== 0) main.scrollTop = 0;
+  }, [mode]);
   const [busy, setBusy] = useState(true);
   const [saving, setSaving] = useState(false);
   const [recovering, setRecovering] = useState(false);
@@ -379,7 +389,7 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
   if (!selected) return null;
 
   return (
-    <div className="screen note-screen">
+    <div className="screen note-screen" ref={screenRef}>
       <header className="note-header">
         <button type="button" className="icon-button" aria-label="Back" onClick={closeSheet}>
           <ArrowLeft size={18} aria-hidden />

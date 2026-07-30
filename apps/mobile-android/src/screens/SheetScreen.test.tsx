@@ -166,6 +166,66 @@ describe('mobile workbook screen', () => {
     await waitFor(() => expect(screen.getByText(/=B1\*2/)).not.toBeNull());
   });
 
+  it('focuses the editor input so the soft keyboard opens with a text keypad', async () => {
+    mockServer({ revisions: [], queued: [] });
+    selectVault(true);
+    render(<SheetScreen file={file} />);
+
+    await waitForGrid();
+    // Tapping the already-active cell opens the editor. The input must be
+    // focused within that gesture, or the Android WebView leaves the keyboard
+    // closed, and it must offer a text keypad — a numeric one cannot type
+    // letters or the leading `=` of a formula.
+    const grid = screen.getByRole('grid');
+    fireEvent.touchStart(grid, { touches: [{ clientX: 60, clientY: 30 }] });
+    fireEvent.touchEnd(grid, { changedTouches: [{ clientX: 60, clientY: 30 }] });
+
+    const input = await screen.findByPlaceholderText('Value or =FORMULA()');
+    expect(document.activeElement).toBe(input);
+    expect(input.getAttribute('inputmode')).toBe('text');
+    expect(input.getAttribute('type')).toBe('text');
+  });
+
+  it('keeps the editor open when the tap synthesizes a click on the backdrop', async () => {
+    mockServer({ revisions: [], queued: [] });
+    selectVault(true);
+    render(<SheetScreen file={file} />);
+
+    await waitForGrid();
+    const grid = screen.getByRole('grid');
+    fireEvent.touchStart(grid, { touches: [{ clientX: 60, clientY: 30 }] });
+    fireEvent.touchEnd(grid, { changedTouches: [{ clientX: 60, clientY: 30 }] });
+    await screen.findByPlaceholderText('Value or =FORMULA()');
+
+    // The WebView's compatibility click lands on the backdrop that the tap just
+    // mounted; it must not dismiss the editor.
+    const backdrop = document.querySelector('.sheet-backdrop') as HTMLElement;
+    fireEvent.click(backdrop);
+    expect(screen.queryByPlaceholderText('Value or =FORMULA()')).not.toBeNull();
+  });
+
+  it('restores the scroll offset the keyboard left behind when the editor closes', async () => {
+    mockServer({ revisions: [], queued: [] });
+    selectVault(true);
+    const main = document.createElement('div');
+    main.className = 'app-main';
+    document.body.appendChild(main);
+    render(<SheetScreen file={file} />, { container: main });
+
+    await waitForGrid();
+    const grid = screen.getByRole('grid');
+    fireEvent.touchStart(grid, { touches: [{ clientX: 60, clientY: 30 }] });
+    fireEvent.touchEnd(grid, { changedTouches: [{ clientX: 60, clientY: 30 }] });
+    await screen.findByPlaceholderText('Value or =FORMULA()');
+
+    // Stand in for the WebView scrolling the ancestor to reveal the input.
+    main.scrollTop = 180;
+    fireEvent.click(screen.getByLabelText('Close'));
+
+    await waitFor(() => expect(main.scrollTop).toBe(0));
+    main.remove();
+  });
+
   it('commits a cell edit as a new revision with the formula preserved', async () => {
     const revisions: string[] = [];
     mockServer({ revisions, queued: [] });

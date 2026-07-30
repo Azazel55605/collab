@@ -32,6 +32,7 @@ import {
 
 import { Banner, ReadOnlyBadge, Spinner } from '../components/ui';
 import { DateField } from '../components/DateField';
+import { useBackDismiss } from '../lib/backStack';
 import { isReadOnlyRole } from '../lib/format';
 import {
   addCardToColumn,
@@ -173,6 +174,14 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
   const [newColumnTitle, setNewColumnTitle] = useState('');
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const columnStripRef = useRef<HTMLElement | null>(null);
+
+  // Back unwinds the board's own surfaces — card sheet, column editor, add-column
+  // sheet, and the view/tools menus — before leaving the board.
+  useBackDismiss(openCardId !== null, () => setOpenCardId(null));
+  useBackDismiss(editingColumnId !== null, () => setEditingColumnId(null));
+  useBackDismiss(showAddColumn, () => setShowAddColumn(false));
+  useBackDismiss(showViewMenu, () => setShowViewMenu(false));
+  useBackDismiss(showTools, () => setShowTools(false));
 
   // Refs that the debounced save reads so it always persists the freshest board
   // against the freshest file revision, independent of render timing.

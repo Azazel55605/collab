@@ -1,10 +1,12 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.reject(new Error('unavailable'))) }));
 
 import { invoke } from '@tauri-apps/api/core';
+import { clearBackDismissStack } from '../lib/backStack';
 import { DEFAULT_PREFS } from '../lib/theme';
+import { useMobileStore } from '../state/store';
 import { SettingsScreen } from './SettingsScreen';
 
 describe('mobile settings navigation', () => {
@@ -35,6 +37,26 @@ describe('mobile settings navigation', () => {
 
     expect(screen.getByRole('navigation', { name: 'Settings categories' })).not.toBeNull();
     expect(screen.queryByText('Accent color')).toBeNull();
+  });
+
+  it('returns to the category index on a back press instead of prompting to quit', () => {
+    clearBackDismissStack();
+    render(<SettingsScreen prefs={DEFAULT_PREFS} onChange={vi.fn()} />);
+    useMobileStore.setState({ tab: 'settings', activeSheet: null });
+
+    fireEvent.click(screen.getByRole('button', { name: /Appearance/ }));
+    expect(screen.getByText('Accent color')).not.toBeNull();
+
+    // The Android back press routes through the store. Inside a category it
+    // must step back to the index and report that it handled the press, so
+    // `MobileApp` does not raise the quit dialog.
+    act(() => {
+      expect(useMobileStore.getState().goBack()).toBe(true);
+    });
+    expect(screen.getByRole('navigation', { name: 'Settings categories' })).not.toBeNull();
+
+    // Back from the index itself is not handled here, so the app may quit.
+    expect(useMobileStore.getState().goBack()).toBe(false);
   });
 
   it('schedules the native background verification worker', async () => {

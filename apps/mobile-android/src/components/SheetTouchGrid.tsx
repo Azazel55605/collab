@@ -273,6 +273,10 @@ export function SheetTouchGrid({
     if (pending.consumed) return;
     const position = positionAt(pending.x, pending.y);
     if (!position) return;
+    // The tap is handled here, so suppress the compatibility click the WebView
+    // would otherwise synthesize at the same point — it would land on whatever
+    // this tap just opened (the cell editor's backdrop) and dismiss it.
+    if (event.cancelable) event.preventDefault();
     const active = selection.active;
     if (active.row === position.row && active.column === position.column) {
       onActivateCell(position);
