@@ -4,6 +4,7 @@ import {
   cellAlignment,
   formatCellDisplay,
   formatCellEditText,
+  formatNumberWithStyle,
   formatNumber,
   numericValueOf,
   parseCellInput,
@@ -65,8 +66,21 @@ describe('formatting', () => {
     expect(formatCellDisplay({ value: true, valueType: 'boolean' })).toBe('TRUE');
     expect(formatCellDisplay({ value: 'text', valueType: 'text' })).toBe('text');
     expect(formatCellDisplay({ value: '2026-07-29', valueType: 'date' })).toBe('2026-07-29');
-    // Until Phase 3 computes values, the source is shown rather than a blank.
-    expect(formatCellDisplay({ formula: '=A1' })).toBe('=A1');
+    expect(formatCellDisplay({ formula: '=A1' })).toBe('…');
+  });
+
+  it('applies number formats without changing the numeric value', () => {
+    expect(formatNumberWithStyle(0.125, { kind: 'percent', decimals: 1 }, { locale: 'en-US' }))
+      .toBe('12.5%');
+    expect(formatNumberWithStyle(1234.5, {
+      kind: 'currency',
+      currencyCode: 'EUR',
+      decimals: 2,
+    }, { locale: 'en-US' })).toBe('€1,234.50');
+    expect(formatNumberWithStyle(1234.5, {
+      kind: 'custom',
+      pattern: 'Value: #,##0.00',
+    }, { locale: 'en-US' })).toBe('Value: 1,234.50');
   });
 
   it('renders edit text that round-trips through parseCellInput', () => {

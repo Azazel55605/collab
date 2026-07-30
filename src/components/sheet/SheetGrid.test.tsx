@@ -40,6 +40,9 @@ interface HarnessProps {
   onSelectionChange?: (selection: SheetSelection) => void;
   formulaReferenceMode?: boolean;
   onFormulaReferenceCommit?: (range: SheetSelectionRange) => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  onFillSelection?: (target: { row: number; column: number }) => void;
 }
 
 /** Drives the grid the way SheetView does, so tests exercise real state flow. */
@@ -53,6 +56,9 @@ function Harness({
   onSelectionChange,
   formulaReferenceMode,
   onFormulaReferenceCommit,
+  onUndo,
+  onRedo,
+  onFillSelection,
 }: HarnessProps) {
   const [selection, setSelection] = useState<SheetSelection>(() => createSelection({ row: 0, column: 0 }));
   const [editing, setEditing] = useState<SheetGridEditing | null>(null);
@@ -78,6 +84,9 @@ function Harness({
         readOnly={readOnly}
         formulaReferenceMode={formulaReferenceMode}
         onFormulaReferenceCommit={onFormulaReferenceCommit}
+        onUndo={onUndo}
+        onRedo={onRedo}
+        onFillSelection={onFillSelection}
       />
     </>
   );
@@ -316,6 +325,19 @@ describe('keyboard navigation', () => {
     fireEvent.keyDown(grid(), { key: 'Delete' });
     expect(onClearSelection).toHaveBeenCalled();
   });
+
+  it('routes undo and redo shortcuts to the workbook history', () => {
+    const onUndo = vi.fn();
+    const onRedo = vi.fn();
+    render(<Harness onUndo={onUndo} onRedo={onRedo} />);
+
+    fireEvent.keyDown(grid(), { key: 'z', ctrlKey: true });
+    fireEvent.keyDown(grid(), { key: 'z', ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(grid(), { key: 'y', ctrlKey: true });
+
+    expect(onUndo).toHaveBeenCalledTimes(1);
+    expect(onRedo).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('cell editing', () => {
@@ -474,6 +496,18 @@ describe('hidden and frozen tracks', () => {
 });
 
 describe('selection geometry', () => {
+  it('reports the fill-handle drag target', () => {
+    const onFillSelection = vi.fn();
+    render(<Harness onFillSelection={onFillSelection} />);
+
+    const handle = screen.getByRole('button', { name: 'Fill selection' });
+    fireEvent.pointerDown(handle, pointFor(0, 0));
+    fireEvent.pointerMove(window, pointFor(3, 0));
+    fireEvent.pointerUp(window, pointFor(3, 0));
+
+    expect(onFillSelection).toHaveBeenCalledWith({ row: 3, column: 0 });
+  });
+
   it('normalizes a backwards drag', () => {
     let captured: SheetSelection | null = null;
     render(<Harness onSelectionChange={(selection) => { captured = selection; }} />);

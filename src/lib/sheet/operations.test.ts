@@ -18,6 +18,7 @@ import {
   resizeTrack,
   setActiveWorksheet,
   setCell,
+  setCellNote,
   setFrozen,
   setTrackHidden,
   setWorksheetHidden,
@@ -70,6 +71,42 @@ describe('cells', () => {
       value: 2,
       valueType: 'number',
       styleId: 's1',
+    });
+  });
+
+  it('preserves formatting and notes when cell content is cleared', () => {
+    const document = workbook();
+    const worksheet = activeWorksheet(document);
+    const written = setCell(document, worksheet.id, { row: 0, column: 0 }, {
+      value: 7,
+      valueType: 'number',
+      styleId: 's1',
+      note: 'Keep this',
+    });
+    const cleared = setCell(written, worksheet.id, { row: 0, column: 0 }, null);
+    expect(getCell(activeWorksheet(cleared), { row: 0, column: 0 })).toEqual({
+      styleId: 's1',
+      note: 'Keep this',
+    });
+  });
+
+  it('updates note metadata without changing cell content', () => {
+    const document = workbook();
+    const worksheet = activeWorksheet(document);
+    const written = setCell(document, worksheet.id, { row: 0, column: 0 }, {
+      value: 7,
+      valueType: 'number',
+    });
+    const noted = setCellNote(written, worksheet.id, { row: 0, column: 0 }, 'Review this');
+    expect(getCell(activeWorksheet(noted), { row: 0, column: 0 })).toEqual({
+      value: 7,
+      valueType: 'number',
+      note: 'Review this',
+    });
+    const removed = setCellNote(noted, worksheet.id, { row: 0, column: 0 }, null);
+    expect(getCell(activeWorksheet(removed), { row: 0, column: 0 })).toEqual({
+      value: 7,
+      valueType: 'number',
     });
   });
 

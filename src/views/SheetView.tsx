@@ -1,16 +1,28 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent as ReactClipboardEvent,
+} from 'react';
 import {
   ArrowDownToLine,
   ArrowRightToLine,
   Columns3,
   Combine,
+  Download,
   Loader2,
+  Redo2,
   Rows3,
   Save,
+  Search,
+  Printer,
   Snowflake,
   Split,
   Table2,
   Trash2,
+  Undo2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -22,16 +34,25 @@ import {
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
 import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
 import SheetFormulaBar from '../components/sheet/SheetFormulaBar';
+import SheetFindDialog from '../components/sheet/SheetFindDialog';
+import SheetFormattingToolbar from '../components/sheet/SheetFormattingToolbar';
 import SheetGrid, { type SheetGridEditing } from '../components/sheet/SheetGrid';
 import SheetWorksheetBar from '../components/sheet/SheetWorksheetBar';
 import { useEditorStore } from '../store/editorStore';
 import { useVaultStore } from '../store/vaultStore';
+import { useUiStore } from '../store/uiStore';
 import { isVaultReadOnly } from '../types/vault';
 import { SHEET_SCHEMA_VERSION } from '../types/sheet';
 import type { SheetDocument } from '../types/sheet';
 import type { SheetPosition } from '../lib/sheet/address';
-import { formatA1 } from '../lib/sheet/address';
+import { formatA1, parseA1Range } from '../lib/sheet/address';
 import { SheetDocumentError, addWorksheet, removeWorksheet, renameWorksheet } from '../lib/sheet/document';
 import { formatCellEditText, formatNumber, parseCellInput } from '../lib/sheet/cellValue';
 import {
@@ -47,6 +68,7 @@ import {
   resizeTrack,
   setActiveWorksheet,
   setCell,
+  setCellNote,
   setFrozen,
   setWorksheetHidden,
   summarizeSelection,
@@ -64,10 +86,45 @@ import { useSheetSession } from '../lib/sheet/useSheetSession';
 import { useSheetFormulaEngine } from '../lib/sheet/useSheetFormulaEngine';
 import { formulaDependsOn, formulaPrecedents } from '../lib/sheet/formulaReferences';
 import { insertFormulaReference } from '../lib/sheet/formulaFunctions';
+import { fillSheetSelection } from '../lib/sheet/fill';
+import {
+  findSheetMatches,
+  nextSheetMatch,
+  replaceAllSheetMatches,
+  replaceSheetMatch,
+  type SheetSearchOptions,
+} from '../lib/sheet/search';
+import {
+  createSheetClipboardPayload,
+  parseSheetClipboardPayload,
+  pasteSheetClipboardPayload,
+  SHEET_CLIPBOARD_MIME,
+  sheetClipboardToHtml,
+  sheetClipboardToTsv,
+  tsvToSheetClipboard,
+  type SheetClipboardPayload,
+  type SheetPasteMode,
+} from '../lib/sheet/clipboard';
+import {
+  applyStyleToSelection,
+  clearStylesFromSelection,
+  resolveCellStyle,
+} from '../lib/sheet/styles';
+import {
+  buildSheetRangePrintHtml,
+  buildSheetRangeSvg,
+  printSheetRange,
+  sheetRangeLabel,
+  sheetSvgToPngBase64,
+} from '../lib/sheet/export';
+import { utf8ToBase64 } from '../lib/circuitSweepExport';
+import { tauriCommands } from '../lib/tauri';
 
 interface Props {
   relativePath: string;
 }
+
+const SHEET_HISTORY_LIMIT = 100;
 
 /**
  * `.sheet` workbook editor.
@@ -79,6 +136,7 @@ interface Props {
  */
 export default function SheetView({ relativePath }: Props) {
   const { vault } = useVaultStore();
+  const { dateFormat, timeFormat } = useUiStore();
   const { markDirty, setSavedHash, sheetViewStates, setSheetViewState } = useEditorStore();
 
   const session = useSheetSession({
@@ -95,6 +153,13 @@ export default function SheetView({ relativePath }: Props) {
   const [formulaCursor, setFormulaCursor] = useState(0);
   const formulaCursorRef = useRef(0);
   const restoredRef = useRef(false);
+  const historyRef = useRef<{ past: SheetDocument[]; future: SheetDocument[] }>({
+    past: [],
+    future: [],
+  });
+  const [historyCounts, setHistoryCounts] = useState({ past: 0, future: 0 });
+  const [findOpen, setFindOpen] = useState(false);
+  const [findResultLabel, setFindResultLabel] = useState('');
 
   const worksheet = useMemo(
     () => (document ? activeWorksheetOf(document) : null),
@@ -175,13 +240,55 @@ export default function SheetView({ relativePath }: Props) {
     }
   }, []);
 
+  const syncHistoryCounts = useCallback(() => {
+    setHistoryCounts({
+      past: historyRef.current.past.length,
+      future: historyRef.current.future.length,
+    });
+  }, []);
+
+  useEffect(() => {
+    historyRef.current = { past: [], future: [] };
+    syncHistoryCounts();
+  }, [relativePath, syncHistoryCounts]);
+
   const mutate = useCallback((updater: (document: SheetDocument, worksheetId: string) => SheetDocument) => {
     if (!document || !worksheet) return;
     guard(() => session.updateDocument((current) => {
       const target = activeWorksheetOf(current);
-      return updater(current, target.id);
+      const next = updater(current, target.id);
+      if (next === current) return current;
+      historyRef.current.past.push(current);
+      if (historyRef.current.past.length > SHEET_HISTORY_LIMIT) {
+        historyRef.current.past.splice(0, historyRef.current.past.length - SHEET_HISTORY_LIMIT);
+      }
+      historyRef.current.future = [];
+      syncHistoryCounts();
+      return next;
     }));
-  }, [document, guard, session, worksheet]);
+  }, [document, guard, session, syncHistoryCounts, worksheet]);
+
+  const undo = useCallback(() => {
+    if (session.readOnly || historyRef.current.past.length === 0) return;
+    session.updateDocument((current) => {
+      const previous = historyRef.current.past.pop();
+      if (!previous) return current;
+      historyRef.current.future.push(current);
+      syncHistoryCounts();
+      return previous;
+    });
+  }, [session, syncHistoryCounts]);
+
+  const redo = useCallback(() => {
+    if (session.readOnly || historyRef.current.future.length === 0) return;
+    session.updateDocument((current) => {
+      const next = historyRef.current.future.pop();
+      if (!next) return current;
+      historyRef.current.past.push(current);
+      syncHistoryCounts();
+      return next;
+    });
+  }, [session, syncHistoryCounts]);
 
   // ── Editing ────────────────────────────────────────────────────────────────
   const activeCellText = useMemo(() => {
@@ -267,6 +374,194 @@ export default function SheetView({ relativePath }: Props) {
     () => (worksheet ? summarizeSelection(worksheet, selection, formulaState.values) : null),
     [formulaState.values, selection, worksheet],
   );
+  const activeStyle = useMemo(
+    () => (document && worksheet
+      ? resolveCellStyle(document.styles, worksheet, selection.active)
+      : {}),
+    [document, selection.active, worksheet],
+  );
+
+  const currentClipboardPayload = useCallback(() => {
+    if (!document || !worksheet) return null;
+    return createSheetClipboardPayload(document, worksheet, selection, formulaState.values);
+  }, [document, formulaState.values, selection, worksheet]);
+
+  const writeClipboardEvent = useCallback((event: ReactClipboardEvent<HTMLDivElement>) => {
+    const payload = currentClipboardPayload();
+    if (!payload) return false;
+    event.preventDefault();
+    event.clipboardData.setData(SHEET_CLIPBOARD_MIME, JSON.stringify(payload));
+    event.clipboardData.setData('text/plain', sheetClipboardToTsv(payload));
+    event.clipboardData.setData('text/html', sheetClipboardToHtml(payload));
+    return true;
+  }, [currentClipboardPayload]);
+
+  const writeSystemClipboard = useCallback(async () => {
+    const payload = currentClipboardPayload();
+    if (!payload) return false;
+    const text = sheetClipboardToTsv(payload);
+    try {
+      if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+        await navigator.clipboard.write([new ClipboardItem({
+          [SHEET_CLIPBOARD_MIME]: new Blob([JSON.stringify(payload)], { type: SHEET_CLIPBOARD_MIME }),
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+          'text/html': new Blob([sheetClipboardToHtml(payload)], { type: 'text/html' }),
+        })]);
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
+      return true;
+    } catch (structuredError) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (textError) {
+        toast.error(`Could not copy cells: ${textError || structuredError}`);
+        return false;
+      }
+    }
+  }, [currentClipboardPayload]);
+
+  const applyClipboardPayload = useCallback((payload: SheetClipboardPayload, mode: SheetPasteMode) => {
+    mutate((current, id) => pasteSheetClipboardPayload(current, id, selection.active, payload, mode));
+  }, [mutate, selection.active]);
+
+  const pasteFromSystemClipboard = useCallback(async (mode: SheetPasteMode) => {
+    try {
+      let payload: SheetClipboardPayload | null = null;
+      if (navigator.clipboard?.read) {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          if (item.types.includes(SHEET_CLIPBOARD_MIME)) {
+            payload = parseSheetClipboardPayload(await (await item.getType(SHEET_CLIPBOARD_MIME)).text());
+            if (payload) break;
+          }
+        }
+      }
+      if (!payload) payload = tsvToSheetClipboard(await navigator.clipboard.readText());
+      applyClipboardPayload(payload, mode);
+    } catch (error) {
+      toast.error(`Could not paste cells: ${error}`);
+    }
+  }, [applyClipboardPayload]);
+
+  const handlePasteEvent = useCallback((event: ReactClipboardEvent<HTMLDivElement>) => {
+    if (session.readOnly) return;
+    const structured = parseSheetClipboardPayload(event.clipboardData.getData(SHEET_CLIPBOARD_MIME));
+    const text = event.clipboardData.getData('text/plain');
+    if (!structured && !text) return;
+    event.preventDefault();
+    applyClipboardPayload(structured ?? tsvToSheetClipboard(text), 'all');
+  }, [applyClipboardPayload, session.readOnly]);
+
+  const handleFillSelection = useCallback((target: SheetPosition) => {
+    let filledSelection: SheetSelection | null = null;
+    mutate((current, id) => {
+      const result = fillSheetSelection(current, id, selection, target);
+      filledSelection = result.selection;
+      return result.document;
+    });
+    if (filledSelection) setSelection(filledSelection);
+  }, [mutate, selection]);
+
+  const findMatch = useCallback((
+    query: string,
+    options: SheetSearchOptions,
+    direction: 'next' | 'previous',
+  ) => {
+    if (!worksheet || !query) {
+      setFindResultLabel(query ? 'No matches' : '');
+      return;
+    }
+    const matches = findSheetMatches(worksheet, query, options);
+    const match = nextSheetMatch(matches, selection.active, direction);
+    setFindResultLabel(matches.length === 0 ? 'No matches' : `${matches.length} match${matches.length === 1 ? '' : 'es'}`);
+    if (match) setSelection(createSelection(match));
+  }, [selection.active, worksheet]);
+
+  const replaceMatch = useCallback((
+    query: string,
+    replacement: string,
+    options: SheetSearchOptions,
+  ) => {
+    mutate((current, id) => replaceSheetMatch(
+      current,
+      id,
+      selection.active,
+      query,
+      replacement,
+      options,
+    ));
+  }, [mutate, selection.active]);
+
+  const replaceAllMatches = useCallback((
+    query: string,
+    replacement: string,
+    options: SheetSearchOptions,
+  ) => {
+    let count = 0;
+    mutate((current, id) => {
+      const result = replaceAllSheetMatches(current, id, query, replacement, options);
+      count = result.count;
+      return result.document;
+    });
+    setFindResultLabel(`${count} replaced`);
+  }, [mutate]);
+
+  const goToRange = useCallback((reference: string) => {
+    const range = parseA1Range(reference);
+    if (!range || range.end.row >= bounds.rowCount || range.end.column >= bounds.columnCount) {
+      toast.error('Enter a cell or range inside this worksheet, such as A1 or A1:C8.');
+      return;
+    }
+    setSelection({
+      ranges: [{ anchor: range.start, focus: range.end }],
+      active: range.start,
+      kind: 'cells',
+    });
+  }, [bounds.columnCount, bounds.rowCount]);
+
+  const exportSelection = useCallback(async (format: 'svg' | 'png') => {
+    if (!document || !worksheet) return;
+    const baseName = getDocumentBaseName(relativePath, 'Workbook').replace(/\.sheet$/i, '');
+    const rangeName = sheetRangeLabel(selection);
+    const svg = buildSheetRangeSvg(document, worksheet, selection, {
+      computedValues: formulaState.values,
+      displayFormat: { dateFormat, timeFormat },
+      title: `${baseName} · ${rangeName}`,
+    });
+    const destination = await tauriCommands.showDownloadDialog(`${baseName}-${rangeName}.${format}`);
+    if (!destination) return;
+    const content = format === 'svg' ? utf8ToBase64(svg) : await sheetSvgToPngBase64(svg);
+    await tauriCommands.writeDownloadedFile(destination, content);
+    toast.success(`Exported ${rangeName} as ${format.toUpperCase()}.`);
+  }, [
+    dateFormat,
+    document,
+    formulaState.values,
+    relativePath,
+    selection,
+    timeFormat,
+    worksheet,
+  ]);
+
+  const printSelection = useCallback(() => {
+    if (!document || !worksheet) return;
+    const baseName = getDocumentBaseName(relativePath, 'Workbook').replace(/\.sheet$/i, '');
+    printSheetRange(buildSheetRangePrintHtml(document, worksheet, selection, {
+      computedValues: formulaState.values,
+      displayFormat: { dateFormat, timeFormat },
+      title: `${baseName} · ${sheetRangeLabel(selection)}`,
+    }));
+  }, [
+    dateFormat,
+    document,
+    formulaState.values,
+    relativePath,
+    selection,
+    timeFormat,
+    worksheet,
+  ]);
 
   const formulaHighlights = useMemo(() => {
     if (!document || !worksheet) return new Map<string, 'precedent' | 'dependent'>();
@@ -339,6 +634,49 @@ export default function SheetView({ relativePath }: Props) {
             </div>
 
             <div className={documentTopBarGroupClass}>
+              <DocumentTopBarButton
+                onClick={undo}
+                disabled={session.readOnly || historyCounts.past === 0}
+                aria-label="Undo"
+                title="Undo"
+              >
+                <Undo2 size={13} />
+              </DocumentTopBarButton>
+              <DocumentTopBarButton
+                onClick={redo}
+                disabled={session.readOnly || historyCounts.future === 0}
+                aria-label="Redo"
+                title="Redo"
+              >
+                <Redo2 size={13} />
+              </DocumentTopBarButton>
+              <DocumentTopBarButton
+                onClick={() => setFindOpen(true)}
+                aria-label="Find and replace"
+                title="Find and replace"
+              >
+                <Search size={13} />
+              </DocumentTopBarButton>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <DocumentTopBarButton aria-label="Export selection" title="Export selection">
+                    <Download size={13} />
+                    Export
+                  </DocumentTopBarButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onSelect={() => { void exportSelection('svg'); }}>
+                    Export selection as SVG
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => { void exportSelection('png'); }}>
+                    Export selection as PNG
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={printSelection}>
+                    <Printer />
+                    Print selection
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <DocumentTopBarButton
                 onClick={() => mutate((current, id) => mergeSelection(current, id, selection))}
                 disabled={session.readOnly || !document}
@@ -425,6 +763,27 @@ export default function SheetView({ relativePath }: Props) {
 
       {!session.loading && !session.error && document && worksheet && (
         <>
+          <SheetFormattingToolbar
+            style={activeStyle}
+            note={getCell(worksheet, selection.active)?.note}
+            disabled={session.readOnly}
+            onPatch={(patch) => mutate(
+              (current, id) => applyStyleToSelection(current, id, selection, patch),
+            )}
+            onClear={() => mutate(
+              (current, id) => clearStylesFromSelection(current, id, selection),
+            )}
+            onCopy={() => { void writeSystemClipboard(); }}
+            onCut={() => {
+              void writeSystemClipboard().then((copied) => {
+                if (copied) mutate((current, id) => clearCells(current, id, selection));
+              });
+            }}
+            onPaste={(mode) => { void pasteFromSystemClipboard(mode); }}
+            onNoteChange={(note) => mutate(
+              (current, id) => setCellNote(current, id, selection.active, note),
+            )}
+          />
           <SheetFormulaBar
             selection={selection}
             value={activeCellText}
@@ -457,6 +816,16 @@ export default function SheetView({ relativePath }: Props) {
               // every environment, and column width only needs to be close.
               (text) => text.length * 7.2,
             ))}
+            onUndo={undo}
+            onRedo={redo}
+            onFind={() => setFindOpen(true)}
+            onCopySelection={writeClipboardEvent}
+            onCutSelection={(event) => {
+              if (session.readOnly || !writeClipboardEvent(event)) return;
+              mutate((current, id) => clearCells(current, id, selection));
+            }}
+            onPasteSelection={handlePasteEvent}
+            onFillSelection={handleFillSelection}
             scrollPosition={initialViewStateRef.current
               ? { top: initialViewStateRef.current.scrollTop, left: initialViewStateRef.current.scrollLeft }
               : undefined}
@@ -464,6 +833,8 @@ export default function SheetView({ relativePath }: Props) {
             readOnly={session.readOnly}
             computedValues={formulaState.values}
             formulaHighlights={formulaHighlights}
+            styles={document.styles}
+            displayFormat={{ dateFormat, timeFormat }}
             formulaReferenceMode={Boolean(editing?.text.startsWith('='))}
             onFormulaReferenceCommit={handleFormulaReferenceCommit}
           />
@@ -475,21 +846,21 @@ export default function SheetView({ relativePath }: Props) {
               session.updateDocument((current) => setActiveWorksheet(current, worksheetId));
               setSelection(createSelection({ row: 0, column: 0 }));
             }}
-            onAdd={() => guard(() => session.updateDocument((current) => addWorksheet(current)))}
-            onRename={(worksheetId, name) => guard(
-              () => session.updateDocument((current) => renameWorksheet(current, worksheetId, name)),
+            onAdd={() => mutate((current) => addWorksheet(current))}
+            onRename={(worksheetId, name) => mutate(
+              (current) => renameWorksheet(current, worksheetId, name),
             )}
-            onDuplicate={(worksheetId) => guard(
-              () => session.updateDocument((current) => duplicateWorksheet(current, worksheetId)),
+            onDuplicate={(worksheetId) => mutate(
+              (current) => duplicateWorksheet(current, worksheetId),
             )}
-            onDelete={(worksheetId) => guard(
-              () => session.updateDocument((current) => removeWorksheet(current, worksheetId)),
+            onDelete={(worksheetId) => mutate(
+              (current) => removeWorksheet(current, worksheetId),
             )}
-            onReorder={(worksheetId, toIndex) => guard(
-              () => session.updateDocument((current) => reorderWorksheet(current, worksheetId, toIndex)),
+            onReorder={(worksheetId, toIndex) => mutate(
+              (current) => reorderWorksheet(current, worksheetId, toIndex),
             )}
-            onToggleHidden={(worksheetId, hidden) => guard(
-              () => session.updateDocument((current) => setWorksheetHidden(current, worksheetId, hidden)),
+            onToggleHidden={(worksheetId, hidden) => mutate(
+              (current) => setWorksheetHidden(current, worksheetId, hidden),
             )}
           />
 
@@ -519,6 +890,17 @@ export default function SheetView({ relativePath }: Props) {
           </div>
         </>
       )}
+
+      <SheetFindDialog
+        open={findOpen}
+        readOnly={session.readOnly}
+        resultLabel={findResultLabel}
+        onOpenChange={setFindOpen}
+        onFind={findMatch}
+        onReplace={replaceMatch}
+        onReplaceAll={replaceAllMatches}
+        onGoTo={goToRange}
+      />
     </div>
   );
 }

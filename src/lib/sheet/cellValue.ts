@@ -13,7 +13,12 @@
  * date/time settings are already in play.
  */
 
-import type { SheetCell, SheetValueType } from '../../types/sheet';
+import type {
+  SheetCell,
+  SheetNumberFormat,
+  SheetStyle,
+  SheetValueType,
+} from '../../types/sheet';
 import type { SheetFormulaComputedValue } from '../../types/sheetFormula';
 
 const BOOLEAN_TRUE = /^true$/i;
@@ -105,9 +110,92 @@ export function parseCellInput(input: string): SheetCell | null {
 }
 
 /** The text shown in a cell when it is not being edited. */
-export function formatComputedValue(value: SheetFormulaComputedValue | undefined): string {
+export interface SheetDisplayFormatOptions {
+  locale?: string;
+  dateFormat?: 'MMM_D_YYYY' | 'D_MMM_YYYY' | 'YYYY_MM_DD' | 'MM_DD_YYYY' | 'DD_MM_YYYY';
+  timeFormat?: 'system' | '12-hour' | '24-hour';
+}
+
+function formatDateValue(value: string, format: SheetDisplayFormatOptions['dateFormat']): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match || !format) return value;
+  const [, year, month, day] = match;
+  const monthName = new Intl.DateTimeFormat(undefined, { month: 'short', timeZone: 'UTC' })
+    .format(new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))));
+  if (format === 'MMM_D_YYYY') return `${monthName} ${Number(day)}, ${year}`;
+  if (format === 'D_MMM_YYYY') return `${Number(day)} ${monthName} ${year}`;
+  if (format === 'MM_DD_YYYY') return `${month}/${day}/${year}`;
+  if (format === 'DD_MM_YYYY') return `${day}/${month}/${year}`;
+  return `${year}-${month}-${day}`;
+}
+
+function formatTimeValue(value: string, options: SheetDisplayFormatOptions): string {
+  const time = /(?:T|^)(\d{2}):(\d{2})(?::(\d{2}))?/.exec(value);
+  if (!time) return value;
+  const date = new Date(2026, 0, 1, Number(time[1]), Number(time[2]), Number(time[3] ?? 0));
+  return new Intl.DateTimeFormat(options.locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: options.timeFormat === 'system' || !options.timeFormat
+      ? undefined
+      : options.timeFormat === '12-hour',
+  }).format(date);
+}
+
+function formatCustomNumber(value: number, pattern: string, locale?: string): string {
+  const numeric = /[#0][#0,]*(?:\.([#0]+))?/.exec(pattern);
+  if (!numeric) return formatNumber(value);
+  const decimals = numeric[1]?.length ?? 0;
+  const rendered = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: numeric[1]?.replace(/#/g, '').length ?? 0,
+    maximumFractionDigits: decimals,
+    useGrouping: numeric[0].includes(','),
+  }).format(value);
+  return `${pattern.slice(0, numeric.index)}${rendered}${pattern.slice(numeric.index + numeric[0].length)}`;
+}
+
+export function formatNumberWithStyle(
+  value: number,
+  numberFormat: SheetNumberFormat | undefined,
+  options: SheetDisplayFormatOptions = {},
+): string {
+  if (!numberFormat || numberFormat.kind === 'general') return formatNumber(value);
+  const decimals = Math.max(0, Math.min(12, numberFormat.decimals ?? 2));
+  if (numberFormat.kind === 'percent') {
+    return new Intl.NumberFormat(options.locale, {
+      style: 'percent',
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(value);
+  }
+  if (numberFormat.kind === 'currency') {
+    return new Intl.NumberFormat(options.locale, {
+      style: 'currency',
+      currency: numberFormat.currencyCode ?? 'EUR',
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(value);
+  }
+  if (numberFormat.kind === 'custom' && numberFormat.pattern) {
+    return formatCustomNumber(value, numberFormat.pattern, options.locale);
+  }
+  if (numberFormat.kind === 'number') {
+    return new Intl.NumberFormat(options.locale, {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+      useGrouping: numberFormat.useThousandsSeparator ?? false,
+    }).format(value);
+  }
+  return formatNumber(value);
+}
+
+export function formatComputedValue(
+  value: SheetFormulaComputedValue | undefined,
+  style?: SheetStyle,
+  options: SheetDisplayFormatOptions = {},
+): string {
   if (!value || value.type === 'blank') return '';
-  if (value.type === 'number') return formatNumber(value.value);
+  if (value.type === 'number') return formatNumberWithStyle(value.value, style?.numberFormat, options);
   if (value.type === 'boolean') return value.value ? 'TRUE' : 'FALSE';
   return value.value;
 }
@@ -115,12 +203,31 @@ export function formatComputedValue(value: SheetFormulaComputedValue | undefined
 export function formatCellDisplay(
   cell: SheetCell | undefined,
   computed?: SheetFormulaComputedValue,
+  style?: SheetStyle,
+  options: SheetDisplayFormatOptions = {},
 ): string {
   if (!cell) return '';
-  if (cell.formula) return computed ? formatComputedValue(computed) : '…';
+  if (cell.formula) return computed ? formatComputedValue(computed, style, options) : '…';
   if (cell.value === undefined || cell.value === null) return '';
   if (typeof cell.value === 'boolean') return cell.value ? 'TRUE' : 'FALSE';
-  if (typeof cell.value === 'number') return formatNumber(cell.value);
+  if (typeof cell.value === 'number') {
+    return formatNumberWithStyle(cell.value, style?.numberFormat, options);
+  }
+  if (typeof cell.value === 'string') {
+    if (style?.numberFormat?.kind === 'date' || cell.valueType === 'date') {
+      return formatDateValue(cell.value, options.dateFormat);
+    }
+    if (style?.numberFormat?.kind === 'time' || cell.valueType === 'time') {
+      return formatTimeValue(cell.value, options);
+    }
+    if (style?.numberFormat?.kind === 'datetime' || cell.valueType === 'datetime') {
+      if (!options.dateFormat && !options.timeFormat && style?.numberFormat?.kind !== 'datetime') {
+        return cell.value;
+      }
+      const date = formatDateValue(cell.value, options.dateFormat);
+      return `${date} ${formatTimeValue(cell.value, options)}`;
+    }
+  }
   return String(cell.value);
 }
 

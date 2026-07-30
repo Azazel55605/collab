@@ -56,6 +56,28 @@ export function parseA1(reference: string): SheetPosition | null {
   return { row: row - 1, column };
 }
 
+/** Parses `A1` or `A1:C4` into an inclusive normalized positional range. */
+export function parseA1Range(reference: string): {
+  start: SheetPosition;
+  end: SheetPosition;
+} | null {
+  const parts = reference.trim().split(':');
+  if (parts.length < 1 || parts.length > 2) return null;
+  const first = parseA1(parts[0]);
+  const second = parts.length === 2 ? parseA1(parts[1]) : first;
+  if (!first || !second) return null;
+  return {
+    start: {
+      row: Math.min(first.row, second.row),
+      column: Math.min(first.column, second.column),
+    },
+    end: {
+      row: Math.max(first.row, second.row),
+      column: Math.max(first.column, second.column),
+    },
+  };
+}
+
 export function formatA1(position: SheetPosition): string {
   return `${columnLabel(position.column)}${position.row + 1}`;
 }

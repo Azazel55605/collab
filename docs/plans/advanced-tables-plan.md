@@ -280,7 +280,7 @@ It must remain ephemeral and must not be written into the workbook.
 | 1. `.sheet` domain and vault integration | Complete | Add parsing, validation, migrations, creation, routing, revisions, and local/hosted document support. |
 | 2. Desktop spreadsheet editor | Complete | Deliver the virtualized grid, worksheet controls, selection, editing, navigation, and structural operations. |
 | 3. Formulas and recalculation | Testing | Native incremental evaluation, formula UX, reference rewrites, stable errors, inspection, volatile-time policy, and fixtures are implemented. |
-| 4. Formatting and spreadsheet interactions | Not started | Add styles, number formats, clipboard, fill, undo/redo, resize, freeze, merge, and search. |
+| 4. Formatting and spreadsheet interactions | Testing | Formatting, clipboard variants, fill/series behavior, bounded undo/redo, search/replace, notes, and range print/export are implemented. |
 | 5. Tables and data tools | Not started | Add sorting, filtering, validation, conditional formatting, named ranges, and protected ranges. |
 | 6. Hosted collaboration and offline behavior | Not started | Add semantic live mutations, presence, conflict handling, offline queues, and revision-safe recovery. |
 | 7. Charts, analysis, and Collab integration | Not started | Add charts, summaries, links/attachments, note embeds, and task/calendar data connections. |
@@ -439,18 +439,35 @@ upstream-gap test can be removed.
 
 ### Phase 4: Formatting And Spreadsheet Interactions
 
-- [ ] Add font, fill, border, alignment, wrapping, and indentation controls.
-- [ ] Add number, percent, currency, date, time, and custom format controls that
+- [x] Add font, fill, border, alignment, wrapping, and indentation controls.
+- [x] Add number, percent, currency, date, time, and custom format controls that
   respect app locale/time settings without changing stored values.
-- [ ] Add style deduplication and range-based style application.
-- [ ] Add copy, cut, paste, paste-values, paste-formulas, and paste-formatting.
-- [ ] Add a private structured clipboard format plus plain-text and sanitized
+- [x] Add style deduplication and range-based style application.
+- [x] Add copy, cut, paste, paste-values, paste-formulas, and paste-formatting.
+- [x] Add a private structured clipboard format plus plain-text and sanitized
   HTML fallbacks.
-- [ ] Add fill handle, series recognition, and formula-relative fill.
-- [ ] Add operation-based undo/redo with bounded history.
-- [ ] Add find/replace and go-to-cell/range.
-- [ ] Add comments/notes that do not interfere with formula values.
-- [ ] Add print/PDF layout basics and SVG/bitmap range export where practical.
+- [x] Add fill handle, series recognition, and formula-relative fill.
+- [x] Add operation-based undo/redo with bounded history.
+- [x] Add find/replace and go-to-cell/range.
+- [x] Add comments/notes that do not interfere with formula values.
+- [x] Add print/PDF layout basics and SVG/bitmap range export where practical.
+
+Implementation note: cell, row, and column styles resolve through a shared
+deduplicated workbook style table. Canvas rendering and clipboard payloads use
+the resolved style, while clearing cell contents preserves formatting and
+notes. Clipboard operations are bounded, formulas translate relative
+references, external text uses the normal typed-input parser, and malformed
+private payloads are rejected before mutation. Undo/redo retains at most 100
+document operations and covers cell, structural, formatting, clipboard, and
+worksheet mutations. The fill handle repeats rectangular patterns, continues
+numeric and ISO-date series, translates relative formula references, preserves
+destination notes, and rejects merged destinations instead of corrupting their
+shape. Find/replace searches literal and formula source text with case and
+whole-cell controls, wraps through matches, and accepts A1 cells or ranges for
+navigation. Notes remain cell metadata and render with a corner indicator.
+Selection export produces self-contained styled SVG or PNG files; printing uses
+an isolated table document with merged-cell spans, track sizes, and automatic
+portrait/landscape orientation so app chrome is excluded from PDF output.
 
 Exit gate: common spreadsheet formatting and keyboard/clipboard workflows work
 without corrupting formulas, types, or merged ranges.

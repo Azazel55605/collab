@@ -528,6 +528,18 @@ export function normalizeSheetDocument(input: unknown, name = 'Workbook'): Sheet
         danglingStyles += 1;
       }
     }
+    for (const track of Object.values(worksheet.rows ?? {})) {
+      if (track.styleId && !styles[track.styleId]) {
+        delete track.styleId;
+        danglingStyles += 1;
+      }
+    }
+    for (const track of Object.values(worksheet.columns ?? {})) {
+      if (track.styleId && !styles[track.styleId]) {
+        delete track.styleId;
+        danglingStyles += 1;
+      }
+    }
   }
   if (danglingStyles > 0) {
     context.warnings.push(`Cleared ${danglingStyles} reference(s) to a missing style.`);

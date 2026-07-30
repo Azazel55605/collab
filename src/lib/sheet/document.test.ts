@@ -121,6 +121,22 @@ describe('malformed input', () => {
     expect(warnings.join(' ')).toMatch(/row identifier/);
   });
 
+  it('clears dangling style references from cells, rows, and columns', () => {
+    const raw = baseWorkbook() as Record<string, unknown>;
+    const worksheet = (raw.worksheets as Record<string, unknown>[])[0];
+    const cells = worksheet.cells as Record<string, Record<string, unknown>>;
+    cells['r1:c1'].styleId = 'missing-cell-style';
+    worksheet.rows = { r1: { id: 'r1', styleId: 'missing-row-style' } };
+    worksheet.columns = { c1: { id: 'c1', styleId: 'missing-column-style' } };
+
+    const { document, warnings } = normalizeSheetDocument(raw);
+    const normalized = document.worksheets[0];
+    expect(normalized.cells['r1:c1'].styleId).toBeUndefined();
+    expect(normalized.rows?.r1?.styleId).toBeUndefined();
+    expect(normalized.columns?.c1?.styleId).toBeUndefined();
+    expect(warnings).toContain('Cleared 3 reference(s) to a missing style.');
+  });
+
   it('drops cells whose row or column no longer exists', () => {
     const raw = baseWorkbook() as Record<string, unknown>;
     const worksheet = (raw.worksheets as Record<string, unknown>[])[0];

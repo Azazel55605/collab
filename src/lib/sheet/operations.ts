@@ -88,18 +88,57 @@ export function setCell(
     const cells = { ...worksheet.cells };
     if (cell) {
       // Preserve per-cell presentation the caller did not touch.
-      cells[key] = existing?.styleId && !cell.styleId
-        ? { ...cell, styleId: existing.styleId }
-        : cell;
+      const preserved: SheetCell = {};
+      if (existing?.styleId && !cell.styleId) preserved.styleId = existing.styleId;
+      if (existing?.note && cell.note === undefined) preserved.note = existing.note;
+      if (existing?.validationId && cell.validationId === undefined) {
+        preserved.validationId = existing.validationId;
+      }
+      cells[key] = { ...cell, ...preserved };
       if (Object.keys(cells).length > SHEET_LIMITS.populatedCellsPerWorksheet) {
         throw new SheetDocumentError(
           'limit-exceeded',
           `A worksheet may not have more than ${SHEET_LIMITS.populatedCellsPerWorksheet} populated cells.`,
         );
       }
-    } else {
-      delete cells[key];
+    } else if (existing) {
+      const preserved: SheetCell = {};
+      if (existing.styleId) preserved.styleId = existing.styleId;
+      if (existing.note) preserved.note = existing.note;
+      if (existing.validationId) preserved.validationId = existing.validationId;
+      if (Object.keys(preserved).length > 0) cells[key] = preserved;
+      else delete cells[key];
     }
+    return { ...worksheet, cells };
+  });
+}
+
+/** Updates only cell note metadata, leaving value, formula, style, and validation intact. */
+export function setCellNote(
+  document: SheetDocument,
+  worksheetId: string,
+  position: SheetPosition,
+  note: string | null,
+): SheetDocument {
+  if (note && note.length > SHEET_LIMITS.cellTextLength) {
+    throw new SheetDocumentError(
+      'limit-exceeded',
+      `Cell notes may not exceed ${SHEET_LIMITS.cellTextLength.toLocaleString()} characters.`,
+    );
+  }
+  return mapWorksheet(document, worksheetId, (worksheet) => {
+    const rowId = worksheet.rowOrder[position.row];
+    const columnId = worksheet.columnOrder[position.column];
+    if (!rowId || !columnId) return worksheet;
+    const key = sheetCellKey(rowId, columnId);
+    const existing = worksheet.cells[key];
+    if (!existing && !note) return worksheet;
+    const nextCell: SheetCell = { ...(existing ?? {}) };
+    if (note) nextCell.note = note;
+    else delete nextCell.note;
+    const cells = { ...worksheet.cells };
+    if (Object.keys(nextCell).length > 0) cells[key] = nextCell;
+    else delete cells[key];
     return { ...worksheet, cells };
   });
 }
@@ -128,10 +167,15 @@ export function clearCells(
       const columnId = worksheet.columnOrder[position.column];
       if (!rowId || !columnId) continue;
       const key = sheetCellKey(rowId, columnId);
-      if (key in cells) {
-        delete cells[key];
-        removed += 1;
-      }
+      const existing = cells[key];
+      if (!existing) continue;
+      const preserved: SheetCell = {};
+      if (existing.styleId) preserved.styleId = existing.styleId;
+      if (existing.note) preserved.note = existing.note;
+      if (existing.validationId) preserved.validationId = existing.validationId;
+      if (Object.keys(preserved).length > 0) cells[key] = preserved;
+      else delete cells[key];
+      removed += 1;
     }
     return removed > 0 ? { ...worksheet, cells } : worksheet;
   });

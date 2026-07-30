@@ -12,6 +12,10 @@ const clientMocks = vi.hoisted(() => ({
   readDocument: vi.fn(),
   writeDocument: vi.fn(),
 }));
+const tauriMocks = vi.hoisted(() => ({
+  showDownloadDialog: vi.fn(),
+  writeDownloadedFile: vi.fn(),
+}));
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
@@ -30,6 +34,18 @@ vi.mock('../lib/vaultReplica', () => ({
   onReplicaMutated: vi.fn(() => () => {}),
   replicaMutationAffectsPath: vi.fn(() => false),
 }));
+
+vi.mock('../lib/tauri', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/tauri')>();
+  return {
+    ...actual,
+    tauriCommands: {
+      ...actual.tauriCommands,
+      showDownloadDialog: tauriMocks.showDownloadDialog,
+      writeDownloadedFile: tauriMocks.writeDownloadedFile,
+    },
+  };
+});
 
 const toastMocks = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn(), info: vi.fn() }));
 vi.mock('sonner', () => ({ toast: toastMocks }));
@@ -97,6 +113,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   clientMocks.readDocument.mockResolvedValue({ content: workbookContent(), version: '1' });
   clientMocks.writeDocument.mockResolvedValue({ version: '2' });
+  tauriMocks.showDownloadDialog.mockResolvedValue('/tmp/Budget-A1-A1.svg');
+  tauriMocks.writeDownloadedFile.mockResolvedValue(undefined);
   setVault(LOCAL_VAULT);
   useEditorStore.setState({
     openTabs: [{ relativePath: PATH, title: 'Budget', isDirty: false, savedHash: null, type: 'sheet' }],
@@ -136,6 +154,121 @@ describe('SheetView editor', () => {
     const worksheet = written.worksheets[0];
     const key = `${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`;
     expect(worksheet.cells[key]).toEqual({ value: 123, valueType: 'number' });
+  });
+
+  it('applies deduplicated formatting from the toolbar', async () => {
+    await openWorkbook();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Bold' }));
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    const written = await writtenDocument();
+    const worksheet = written.worksheets[0];
+    const cell = worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`];
+
+    expect(written.styles[cell.styleId]).toMatchObject({ bold: true });
+    expect(cell.value).toBe(10);
+  });
+
+  it('copies and pastes through the grid clipboard events', async () => {
+    await openWorkbook();
+    const clipboard = new Map<string, string>();
+    const clipboardData = {
+      setData: vi.fn((type: string, value: string) => { clipboard.set(type, value); }),
+      getData: vi.fn((type: string) => clipboard.get(type) ?? ''),
+    };
+
+    fireEvent.copy(screen.getByTestId('sheet-grid'), { clipboardData });
+    expect(clipboard.get('text/plain')).toBe('10');
+    expect(clipboard.get('application/vnd.collab.sheet-selection+json')).toContain('collab-sheet-selection');
+
+    fireEvent.pointerDown(screen.getByTestId('sheet-cell-surface'), {
+      button: 0,
+      ...pointFor(0, 1),
+    });
+    fireEvent.paste(screen.getByTestId('sheet-grid'), { clipboardData });
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    const written = await writtenDocument();
+    const worksheet = written.worksheets[0];
+    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[1]}`])
+      .toMatchObject({ value: 10, valueType: 'number' });
+  });
+
+  it('finds, replaces, and navigates to A1 ranges', async () => {
+    await openWorkbook();
+    fireEvent.click(screen.getByRole('button', { name: 'Find and replace' }));
+
+    const find = screen.getByRole('textbox', { name: 'Find' });
+    fireEvent.change(find, { target: { value: '20' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next match' }));
+    expect(screen.getByText('1 match')).toBeTruthy();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Replace with' }), {
+      target: { value: '42' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace match' }));
+
+    const goTo = screen.getByRole('textbox', { name: 'Go to cell or range' });
+    fireEvent.change(goTo, { target: { value: 'B2:C3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Go to range' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[0]);
+    expect(screen.getByRole('status', { name: 'Selection summary' }).textContent).toContain('B2');
+
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    const written = await writtenDocument();
+    const worksheet = written.worksheets[0];
+    expect(worksheet.cells[`${worksheet.rowOrder[1]}:${worksheet.columnOrder[0]}`].value).toBe(42);
+  });
+
+  it('adds a note without changing the active cell value', async () => {
+    await openWorkbook();
+    fireEvent.click(screen.getByRole('button', { name: 'Add cell note' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Cell note' }), {
+      target: { value: 'Verify this total' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save cell note' }));
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    const written = await writtenDocument();
+    const worksheet = written.worksheets[0];
+    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`])
+      .toMatchObject({ value: 10, note: 'Verify this total' });
+  });
+
+  it('exports the active range as a self-contained SVG', async () => {
+    await openWorkbook();
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Export selection' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(await screen.findByText('Export selection as SVG'));
+
+    await waitFor(() => expect(tauriMocks.writeDownloadedFile).toHaveBeenCalled());
+    expect(tauriMocks.showDownloadDialog).toHaveBeenCalledWith('Budget-A1-A1.svg');
+    const svg = new TextDecoder().decode(Uint8Array.from(
+      atob(tauriMocks.writeDownloadedFile.mock.calls[0][1]),
+      (character) => character.charCodeAt(0),
+    ));
+    expect(svg).toContain('<svg');
+    expect(svg).toContain('>10</text>');
+  });
+
+  it('undoes and redoes workbook operations', async () => {
+    await openWorkbook();
+
+    fireEvent.keyDown(screen.getByTestId('sheet-grid'), { key: '5' });
+    const editor = screen.getByRole('textbox', { name: 'Cell editor' });
+    fireEvent.change(editor, { target: { value: '99' } });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getByRole('button', { name: 'Redo' }).hasAttribute('disabled')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    const written = await writtenDocument();
+    const worksheet = written.worksheets[0];
+    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`].value).toBe(99);
   });
 
   it('shows the active cell in the formula bar and commits edits from it', async () => {

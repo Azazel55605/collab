@@ -6,21 +6,31 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ClipboardEvent as ReactClipboardEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 
 import { SHEET_DEFAULTS } from '../../types/sheet';
-import type { SheetWorksheet } from '../../types/sheet';
-import { sheetFormulaResultKey, type SheetFormulaValueMap } from '../../types/sheetFormula';
+import type { SheetDocument, SheetStyle, SheetWorksheet } from '../../types/sheet';
+import {
+  sheetFormulaResultKey,
+  type SheetFormulaComputedValue,
+  type SheetFormulaValueMap,
+} from '../../types/sheetFormula';
 import { columnLabel } from '../../lib/sheet/address';
 import type { SheetPosition } from '../../lib/sheet/address';
-import { cellAlignment, formatCellDisplay } from '../../lib/sheet/cellValue';
+import {
+  cellAlignment,
+  formatCellDisplay,
+  type SheetDisplayFormatOptions,
+} from '../../lib/sheet/cellValue';
 import {
   formulaAutocompleteContext,
   SHEET_FUNCTIONS,
 } from '../../lib/sheet/formulaFunctions';
 import { getCell, mergedRangeAt } from '../../lib/sheet/operations';
+import { resolveCellStyle } from '../../lib/sheet/styles';
 import {
   addSelectionRange,
   createSelection,
@@ -78,11 +88,20 @@ export interface SheetGridProps {
   onClearSelection: () => void;
   onResizeTrack: (axis: 'row' | 'column', index: number, size: number) => void;
   onAutoSizeColumn: (index: number) => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  onFind?: () => void;
+  onCopySelection?: (event: ReactClipboardEvent<HTMLDivElement>) => void;
+  onCutSelection?: (event: ReactClipboardEvent<HTMLDivElement>) => void;
+  onPasteSelection?: (event: ReactClipboardEvent<HTMLDivElement>) => void;
+  onFillSelection?: (target: SheetPosition) => void;
   scrollPosition?: { top: number; left: number };
   onScrollPositionChange?: (position: { top: number; left: number }) => void;
   readOnly?: boolean;
   computedValues?: SheetFormulaValueMap;
   formulaHighlights?: ReadonlyMap<string, 'precedent' | 'dependent'>;
+  styles?: SheetDocument['styles'];
+  displayFormat?: SheetDisplayFormatOptions;
   formulaReferenceMode?: boolean;
   onFormulaReferenceCommit?: (range: { anchor: SheetPosition; focus: SheetPosition }) => void;
   className?: string;
@@ -118,6 +137,8 @@ function useElementSize(ref: React.RefObject<HTMLElement | null>) {
 
 interface PaintOptions {
   worksheet: SheetWorksheet;
+  styles: SheetDocument['styles'];
+  displayFormat?: SheetDisplayFormatOptions;
   rows: SheetAxisMetrics;
   columns: SheetAxisMetrics;
   scrollTop: number;
@@ -136,6 +157,145 @@ interface PaintOptions {
     background: string;
     font: string;
   };
+}
+
+function drawStyledCellText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  cell: ReturnType<typeof getCell>,
+  computed: SheetFormulaComputedValue | undefined,
+  style: SheetStyle,
+  theme: PaintOptions['theme'],
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const fontSize = Math.max(8, Math.min(72, style.fontSize ?? 13));
+  const fontFamily = style.fontFamily || theme.font.replace(/^.*?px\s+/, '');
+  context.font = `${style.italic ? 'italic ' : ''}${style.bold ? '700 ' : ''}${fontSize}px ${fontFamily}`;
+  context.fillStyle = computed?.type === 'error'
+    ? '#ef4444'
+    : style.color ?? (cell?.formula ? theme.mutedText : theme.text);
+  context.save();
+  context.beginPath();
+  context.rect(x + 1, y + 1, width - 2, height - 2);
+  context.clip();
+
+  const align = style.horizontalAlign ?? cellAlignment(cell, computed);
+  context.textAlign = align;
+  const indent = Math.max(0, Math.min(20, style.indent ?? 0)) * 8;
+  const textX = align === 'right'
+    ? x + width - 6 - indent
+    : align === 'center'
+      ? x + width / 2
+      : x + 6 + indent;
+  const lines: string[] = [];
+  if (style.wrap && text.length > 0) {
+    const available = Math.max(8, width - 12 - indent);
+    const words = text.split(/\s+/);
+    let line = '';
+    const measure = (candidate: string) => (
+      typeof context.measureText === 'function'
+        ? context.measureText(candidate).width
+        : candidate.length * fontSize * 0.55
+    );
+    for (const word of words) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (line && measure(candidate) > available) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = candidate;
+      }
+    }
+    if (line) lines.push(line);
+  } else {
+    lines.push(text);
+  }
+
+  const lineHeight = fontSize + 2;
+  const visibleLines = lines.slice(0, Math.max(1, Math.floor((height - 4) / lineHeight)));
+  const blockHeight = visibleLines.length * lineHeight;
+  const firstY = style.verticalAlign === 'top'
+    ? y + 3 + lineHeight / 2
+    : style.verticalAlign === 'bottom'
+      ? y + height - 3 - blockHeight + lineHeight / 2
+      : y + (height - blockHeight) / 2 + lineHeight / 2;
+  visibleLines.forEach((line, index) => {
+    const lineY = firstY + index * lineHeight;
+    context.fillText(line, textX, lineY);
+    if (style.underline || style.strikethrough) {
+      const textWidth = typeof context.measureText === 'function'
+        ? context.measureText(line).width
+        : line.length * fontSize * 0.55;
+      const left = align === 'right' ? textX - textWidth : align === 'center' ? textX - textWidth / 2 : textX;
+      context.strokeStyle = context.fillStyle as string;
+      context.lineWidth = 1;
+      if (style.underline) {
+        context.beginPath();
+        context.moveTo(left, lineY + fontSize / 2 + 1);
+        context.lineTo(left + textWidth, lineY + fontSize / 2 + 1);
+        context.stroke();
+      }
+      if (style.strikethrough) {
+        context.beginPath();
+        context.moveTo(left, lineY);
+        context.lineTo(left + textWidth, lineY);
+        context.stroke();
+      }
+    }
+  });
+  context.restore();
+}
+
+function drawNoteIndicator(
+  context: CanvasRenderingContext2D,
+  cell: ReturnType<typeof getCell>,
+  x: number,
+  y: number,
+  width: number,
+) {
+  if (!cell?.note) return;
+  context.save();
+  context.fillStyle = '#f59e0b';
+  context.beginPath();
+  context.moveTo(x + width - 8, y + 1);
+  context.lineTo(x + width - 1, y + 1);
+  context.lineTo(x + width - 1, y + 8);
+  context.closePath();
+  context.fill();
+  context.restore();
+}
+
+function drawStyledBorders(
+  context: CanvasRenderingContext2D,
+  style: SheetStyle,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const segments = [
+    ['top', x, y, x + width, y],
+    ['right', x + width, y, x + width, y + height],
+    ['bottom', x, y + height, x + width, y + height],
+    ['left', x, y, x, y + height],
+  ] as const;
+  for (const [side, fromX, fromY, toX, toY] of segments) {
+    const border = style.borders?.[side];
+    if (!border || border.style === 'none') continue;
+    context.strokeStyle = border.color ?? '#6b7280';
+    context.lineWidth = border.style === 'thick' ? 3 : border.style === 'medium' ? 2 : 1;
+    if (typeof context.setLineDash === 'function') {
+      context.setLineDash(border.style === 'dashed' ? [5, 3] : border.style === 'dotted' ? [1, 2] : []);
+    }
+    context.beginPath();
+    context.moveTo(fromX, fromY);
+    context.lineTo(toX, toY);
+    context.stroke();
+  }
+  if (typeof context.setLineDash === 'function') context.setLineDash([]);
 }
 
 interface MergeRectangle {
@@ -228,6 +388,12 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
       const columnWidth = trackSize(columns, column);
       if (columnWidth === 0 || x > options.width) continue;
 
+      const style = resolveCellStyle(options.styles, worksheet, { row, column });
+      if (style.backgroundColor) {
+        context.fillStyle = style.backgroundColor;
+        context.fillRect(x + 1, y + 1, columnWidth - 1, rowHeight - 1);
+      }
+
       // Grid lines are drawn per cell so hidden tracks collapse cleanly.
       context.strokeStyle = theme.gridLine;
       context.lineWidth = 1;
@@ -248,29 +414,23 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
       const computed = rowId && columnId
         ? options.computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
         : undefined;
-      const text = formatCellDisplay(cell, computed);
-      if (!text) continue;
-
-      const align = cellAlignment(cell, computed);
-      context.fillStyle = computed?.type === 'error'
-        ? '#ef4444'
-        : cell?.formula ? theme.mutedText : theme.text;
-      context.save();
-      context.beginPath();
-      context.rect(x + 1, y + 1, columnWidth - 2, rowHeight - 2);
-      context.clip();
-      const centerY = y + rowHeight / 2;
-      if (align === 'right') {
-        context.textAlign = 'right';
-        context.fillText(text, x + columnWidth - 6, centerY);
-      } else if (align === 'center') {
-        context.textAlign = 'center';
-        context.fillText(text, x + columnWidth / 2, centerY);
-      } else {
-        context.textAlign = 'left';
-        context.fillText(text, x + 6, centerY);
+      drawStyledBorders(context, style, x, y, columnWidth, rowHeight);
+      const text = formatCellDisplay(cell, computed, style, options.displayFormat);
+      if (text) {
+        drawStyledCellText(
+          context,
+          text,
+          cell,
+          computed,
+          style,
+          theme,
+          x,
+          y,
+          columnWidth,
+          rowHeight,
+        );
       }
-      context.restore();
+      drawNoteIndicator(context, cell, x, y, columnWidth);
     }
   }
 
@@ -302,8 +462,12 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
     const highlight = rowId && columnId
       ? options.formulaHighlights?.get(`${rowId}:${columnId}`)
       : undefined;
+    const style = resolveCellStyle(options.styles, worksheet, {
+      row: merge.top,
+      column: merge.left,
+    });
 
-    context.fillStyle = theme.background;
+    context.fillStyle = style.backgroundColor ?? theme.background;
     context.fillRect(x, y, width, height);
     if (highlight) {
       context.fillStyle = highlight === 'precedent'
@@ -316,20 +480,12 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
     context.strokeRect(Math.floor(x) + 0.5, Math.floor(y) + 0.5, width, height);
     painted += 1;
 
-    const text = formatCellDisplay(cell, computed);
-    if (!text) continue;
-    const align = cellAlignment(cell, computed);
-    context.fillStyle = computed?.type === 'error'
-      ? '#ef4444'
-      : cell?.formula ? theme.mutedText : theme.text;
-    context.save();
-    context.beginPath();
-    context.rect(x + 1, y + 1, width - 2, height - 2);
-    context.clip();
-    context.textAlign = align;
-    const textX = align === 'right' ? x + width - 6 : align === 'center' ? x + width / 2 : x + 6;
-    context.fillText(text, textX, y + height / 2);
-    context.restore();
+    drawStyledBorders(context, style, x, y, width, height);
+    const text = formatCellDisplay(cell, computed, style, options.displayFormat);
+    if (text) {
+      drawStyledCellText(context, text, cell, computed, style, theme, x, y, width, height);
+    }
+    drawNoteIndicator(context, cell, x, y, width);
   }
 
   // Frozen pane dividers, so a pinned region reads as pinned.
@@ -363,11 +519,20 @@ export default function SheetGrid({
   onClearSelection,
   onResizeTrack,
   onAutoSizeColumn,
+  onUndo,
+  onRedo,
+  onFind,
+  onCopySelection,
+  onCutSelection,
+  onPasteSelection,
+  onFillSelection,
   scrollPosition,
   onScrollPositionChange,
   readOnly = false,
   computedValues,
   formulaHighlights,
+  styles = {},
+  displayFormat,
   formulaReferenceMode = false,
   onFormulaReferenceCommit,
   className,
@@ -388,6 +553,8 @@ export default function SheetGrid({
   const resizeRef = useRef<
     { axis: 'row' | 'column'; index: number; origin: number; size: number } | null
   >(null);
+  const fillTargetRef = useRef<SheetPosition | null>(null);
+  const [fillTarget, setFillTarget] = useState<SheetPosition | null>(null);
 
   const [scroll, setScroll] = useState(() => ({
     top: scrollPosition?.top ?? 0,
@@ -442,9 +609,11 @@ export default function SheetGrid({
     canvas.height = Math.floor(paneHeight * ratio);
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
 
-    const styles = getComputedStyle(canvas);
+    const canvasStyles = getComputedStyle(canvas);
     paintCells(context, {
       worksheet,
+      styles,
+      displayFormat,
       rows,
       columns,
       scrollTop: scroll.top,
@@ -456,12 +625,12 @@ export default function SheetGrid({
       computedValues,
       formulaHighlights,
       theme: {
-        text: styles.getPropertyValue('color') || '#e5e7eb',
-        mutedText: styles.getPropertyValue('color') || '#9ca3af',
+        text: canvasStyles.getPropertyValue('color') || '#e5e7eb',
+        mutedText: canvasStyles.getPropertyValue('color') || '#9ca3af',
         gridLine: 'rgba(127,127,127,0.22)',
         frozenLine: 'rgba(127,127,127,0.65)',
         background: 'transparent',
-        font: `13px ${styles.getPropertyValue('font-family') || 'sans-serif'}`,
+        font: `13px ${canvasStyles.getPropertyValue('font-family') || 'sans-serif'}`,
       },
     });
   }, [
@@ -475,6 +644,8 @@ export default function SheetGrid({
     frozenColumns,
     computedValues,
     formulaHighlights,
+    styles,
+    displayFormat,
   ]);
 
   // ── Scrolling ──────────────────────────────────────────────────────────────
@@ -680,6 +851,23 @@ export default function SheetGrid({
     const extend = event.shiftKey;
     const jump = event.ctrlKey || event.metaKey;
 
+    if (jump && event.key.toLowerCase() === 'z') {
+      event.preventDefault();
+      if (event.shiftKey) onRedo?.();
+      else onUndo?.();
+      return;
+    }
+    if (jump && event.key.toLowerCase() === 'y') {
+      event.preventDefault();
+      onRedo?.();
+      return;
+    }
+    if (jump && event.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      onFind?.();
+      return;
+    }
+
     switch (event.key) {
       case 'ArrowUp':
       case 'ArrowDown':
@@ -766,8 +954,8 @@ export default function SheetGrid({
       beginEditing(selection.active, event.key);
     }
   }, [
-    beginEditing, bounds, editing, isPopulated, onClearSelection, onSelectionChange,
-    pageDistance, readOnly, selection, worksheet,
+    beginEditing, bounds, editing, isPopulated, onClearSelection, onFind, onRedo,
+    onSelectionChange, onUndo, pageDistance, readOnly, selection, worksheet,
   ]);
 
   // ── Header resize ──────────────────────────────────────────────────────────
@@ -801,6 +989,31 @@ export default function SheetGrid({
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   }, [columns, onResizeTrack, rows]);
+
+  const startFill = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (readOnly || !onFillSelection) return;
+    event.preventDefault();
+    event.stopPropagation();
+    fillTargetRef.current = null;
+    setFillTarget(null);
+
+    const move = (moveEvent: PointerEvent) => {
+      const target = positionFromEvent(moveEvent.clientX, moveEvent.clientY);
+      if (!target) return;
+      fillTargetRef.current = target;
+      setFillTarget(target);
+    };
+    const up = (upEvent: PointerEvent) => {
+      const target = positionFromEvent(upEvent.clientX, upEvent.clientY) ?? fillTargetRef.current;
+      fillTargetRef.current = null;
+      setFillTarget(null);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      if (target) onFillSelection(target);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }, [onFillSelection, positionFromEvent, readOnly]);
 
   // ── Overlay geometry ───────────────────────────────────────────────────────
   const visibleRows = useMemo(() => {
@@ -839,6 +1052,25 @@ export default function SheetGrid({
   }, [columns, frozenColumns, frozenRows, headerHeight, headerWidth, rows, scroll.left, scroll.top]);
 
   const activeMerge = mergedRangeAt(worksheet, selection.active);
+  const fillSourceRectangle = selection.kind === 'cells' && selection.ranges.length > 0
+    ? normalizeRange(selection.ranges[selection.ranges.length - 1])
+    : null;
+  const fillSourceStyle = fillSourceRectangle
+    ? rectangleStyle(
+      fillSourceRectangle.top,
+      fillSourceRectangle.left,
+      fillSourceRectangle.bottom,
+      fillSourceRectangle.right,
+    )
+    : null;
+  const fillPreviewStyle = fillTarget && fillSourceRectangle
+    ? rectangleStyle(
+      Math.min(fillSourceRectangle.top, fillTarget.row),
+      Math.min(fillSourceRectangle.left, fillTarget.column),
+      Math.max(fillSourceRectangle.bottom, fillTarget.row),
+      Math.max(fillSourceRectangle.right, fillTarget.column),
+    )
+    : null;
   const activeStyle = useMemo(() => {
     if (activeMerge) {
       const top = worksheet.rowOrder.indexOf(activeMerge.startRowId);
@@ -903,6 +1135,9 @@ export default function SheetGrid({
       className={cn('relative flex-1 overflow-auto outline-none', className)}
       onScroll={handleScroll}
       onKeyDown={handleKeyDown}
+      onCopy={onCopySelection}
+      onCut={onCutSelection}
+      onPaste={onPasteSelection}
       tabIndex={0}
       role="grid"
       aria-rowcount={rows.count}
@@ -1077,6 +1312,28 @@ export default function SheetGrid({
               aria-hidden
               className="pointer-events-none absolute border-2 border-primary"
               style={activeStyle}
+            />
+          )}
+
+          {fillPreviewStyle && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute border-2 border-dashed border-primary/80 bg-primary/5"
+              style={fillPreviewStyle}
+            />
+          )}
+
+          {!readOnly && !editing && onFillSelection && fillSourceStyle && (
+            <button
+              type="button"
+              aria-label="Fill selection"
+              title="Drag to fill cells"
+              onPointerDown={startFill}
+              className="absolute z-20 size-2 cursor-crosshair border border-background bg-primary p-0"
+              style={{
+                left: Number(fillSourceStyle.left) + Number(fillSourceStyle.width) - 4,
+                top: Number(fillSourceStyle.top) + Number(fillSourceStyle.height) - 4,
+              }}
             />
           )}
 
