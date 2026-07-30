@@ -25,6 +25,7 @@ pub enum LiveDocumentKind {
     NoteText,
     Json,
     Canvas,
+    Sheet,
 }
 
 impl LiveDocumentKind {
@@ -33,12 +34,13 @@ impl LiveDocumentKind {
             Some("note") => Self::NoteText,
             Some("kanban") => Self::Json,
             Some("canvas") => Self::Canvas,
+            Some("sheet") => Self::Sheet,
             _ => Self::None,
         }
     }
 
     pub fn is_structured(self) -> bool {
-        matches!(self, Self::Json | Self::Canvas)
+        matches!(self, Self::Json | Self::Canvas | Self::Sheet)
     }
 
     pub fn document_kind(self) -> Option<DocumentKind> {
@@ -47,6 +49,7 @@ impl LiveDocumentKind {
             Self::NoteText => Some(DocumentKind::Note),
             Self::Json => Some(DocumentKind::Kanban),
             Self::Canvas => Some(DocumentKind::Canvas),
+            Self::Sheet => Some(DocumentKind::Sheet),
         }
     }
 }
@@ -201,7 +204,7 @@ pub fn seed_document(doc: &Doc, kind: LiveDocumentKind, content: &str) -> Result
             }
             Ok(())
         }
-        LiveDocumentKind::Json | LiveDocumentKind::Canvas => {
+        LiveDocumentKind::Json | LiveDocumentKind::Canvas | LiveDocumentKind::Sheet => {
             let map = structured_object(content)?;
             let root = doc.get_or_insert_map(JSON_ROOT_NAME);
             let mut txn = doc.transact_mut();
@@ -232,7 +235,7 @@ pub fn replace_document(
                 text.insert(&mut txn, 0, content);
             }
         }
-        LiveDocumentKind::Json | LiveDocumentKind::Canvas => {
+        LiveDocumentKind::Json | LiveDocumentKind::Canvas | LiveDocumentKind::Sheet => {
             let map = structured_object(content)?;
             let root = doc.get_or_insert_map(JSON_ROOT_NAME);
             let mut txn = doc.transact_mut();
@@ -252,7 +255,7 @@ pub fn materialized_content(doc: &Doc, kind: LiveDocumentKind) -> Option<String>
             let text = doc.get_or_insert_text(NOTE_TEXT_NAME);
             Some(text.get_string(&doc.transact()))
         }
-        LiveDocumentKind::Json | LiveDocumentKind::Canvas => {
+        LiveDocumentKind::Json | LiveDocumentKind::Canvas | LiveDocumentKind::Sheet => {
             let root = doc.get_or_insert_map(JSON_ROOT_NAME);
             let txn = doc.transact();
             if root.len(&txn) == 0 {
@@ -283,7 +286,7 @@ pub fn recovery_decision(
                 RecoveryDecision::Keep
             }
         }
-        LiveDocumentKind::Json => {
+        LiveDocumentKind::Json | LiveDocumentKind::Sheet => {
             if live_content.is_none() {
                 RecoveryDecision::ReseedFromCanonical
             } else {
@@ -546,6 +549,46 @@ mod tests {
         assert_eq!(value["count"], 2.0);
         assert_eq!(value["nested"]["enabled"], true);
         assert_eq!(value["items"][1], 3.0);
+    }
+
+    #[test]
+    fn sheet_documents_use_the_structured_live_boundary() {
+        let content = r#"{
+          "kind":"collab-sheet",
+          "schemaVersion":1,
+          "id":"wb1",
+          "name":"Budget",
+          "createdAt":"2026-01-01T00:00:00Z",
+          "updatedAt":"2026-01-01T00:00:00Z",
+          "activeWorksheetId":"ws1",
+          "worksheets":[{
+            "id":"ws1",
+            "name":"Sheet1",
+            "rowOrder":["r1"],
+            "columnOrder":["c1"],
+            "cells":{"r1:c1":{"formula":"=1+1"}}
+          }],
+          "styles":{}
+        }"#;
+        let doc = Doc::new();
+        seed_document(&doc, LiveDocumentKind::Sheet, content).unwrap();
+        let materialized = materialized_content(&doc, LiveDocumentKind::Sheet).unwrap();
+
+        assert_eq!(
+            LiveDocumentKind::from_document_type(Some("sheet")),
+            LiveDocumentKind::Sheet
+        );
+        assert_eq!(
+            materialization_decision(
+                LiveDocumentKind::Sheet,
+                Some(content),
+                Some(&materialized)
+            ),
+            MaterializationDecision::Ready
+        );
+        let value: serde_json::Value = serde_json::from_str(&materialized).unwrap();
+        assert_eq!(value["worksheets"][0]["cells"]["r1:c1"]["formula"], "=1+1");
+        assert!(value.get("computedValues").is_none());
     }
 
     #[test]

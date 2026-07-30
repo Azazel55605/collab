@@ -42,6 +42,7 @@ import {
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
 import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
+import LivePeers from '../components/collaboration/LivePeers';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,6 +61,7 @@ import SheetConditionalFormatDialog from '../components/sheet/SheetConditionalFo
 import SheetNamedRangeDialog from '../components/sheet/SheetNamedRangeDialog';
 import SheetProtectionDialog from '../components/sheet/SheetProtectionDialog';
 import { useEditorStore } from '../store/editorStore';
+import { useDocumentStatusRegistration } from '../store/documentStatusStore';
 import { useVaultStore } from '../store/vaultStore';
 import { useUiStore } from '../store/uiStore';
 import { isVaultReadOnly } from '../types/vault';
@@ -96,6 +98,11 @@ import {
   type SheetSelectionRange,
 } from '../lib/sheet/selection';
 import { useSheetSession } from '../lib/sheet/useSheetSession';
+import type {
+  DocumentSessionController,
+  DocumentSessionSnapshot,
+} from '../lib/documentSessionController';
+import { useLivePeers } from '../lib/liveAwareness';
 import { useSheetFormulaEngine } from '../lib/sheet/useSheetFormulaEngine';
 import { formulaDependsOn, formulaPrecedents } from '../lib/sheet/formulaReferences';
 import { insertFormulaReference } from '../lib/sheet/formulaFunctions';
@@ -195,6 +202,21 @@ export default function SheetView({ relativePath }: Props) {
   });
 
   const { document } = session;
+  const livePeers = useLivePeers(session.liveSession);
+  const documentStatus = useMemo(() => ({
+    status: session.status,
+    controller: session.controller as DocumentSessionController<unknown>,
+    snapshot: session.snapshot as DocumentSessionSnapshot<unknown>,
+    onSaveAsNew: session.saveMineAsNew,
+    readOnly: session.readOnly,
+  }), [
+    session.controller,
+    session.readOnly,
+    session.saveMineAsNew,
+    session.snapshot,
+    session.status,
+  ]);
+  useDocumentStatusRegistration(relativePath, documentStatus);
   const formulaState = useSheetFormulaEngine(document);
   const [selection, setSelection] = useState<SheetSelection>(() => createSelection({ row: 0, column: 0 }));
   const [editing, setEditing] = useState<SheetGridEditing | null>(null);
@@ -218,10 +240,59 @@ export default function SheetView({ relativePath }: Props) {
     () => (document ? activeWorksheetOf(document) : null),
     [document],
   );
+
+  useEffect(() => {
+    if (!session.liveSession || !worksheet) return;
+    const rowId = worksheet.rowOrder[selection.active.row];
+    const columnId = worksheet.columnOrder[selection.active.column];
+    const ranges = selection.ranges.flatMap((range) => {
+      const rectangle = normalizeRange(range);
+      const startRowId = worksheet.rowOrder[rectangle.top];
+      const startColumnId = worksheet.columnOrder[rectangle.left];
+      const endRowId = worksheet.rowOrder[rectangle.bottom];
+      const endColumnId = worksheet.columnOrder[rectangle.right];
+      return startRowId && startColumnId && endRowId && endColumnId
+        ? [{ startRowId, startColumnId, endRowId, endColumnId }]
+        : [];
+    });
+    session.liveSession.awareness.setLocalStateField('sheet', {
+      worksheetId: worksheet.id,
+      ...(rowId && columnId ? { activeCell: { rowId, columnId } } : {}),
+      ranges,
+    });
+  }, [selection, session.liveSession, worksheet]);
   const formulaNamedRanges = useMemo(
     () => document && worksheet ? visibleNamedRanges(document, worksheet.id) : [],
     [document, worksheet],
   );
+  const remoteSelections = useMemo(() => {
+    if (!worksheet) return [];
+    return livePeers.flatMap((peer) => {
+      if (!peer.user || peer.sheet?.worksheetId !== worksheet.id) return [];
+      const position = (rowId: string, columnId: string) => {
+        const row = worksheet.rowOrder.indexOf(rowId);
+        const column = worksheet.columnOrder.indexOf(columnId);
+        return row >= 0 && column >= 0 ? { row, column } : null;
+      };
+      const ranges = (peer.sheet.ranges ?? []).flatMap((range) => {
+        const anchor = position(range.startRowId, range.startColumnId);
+        const focus = position(range.endRowId, range.endColumnId);
+        return anchor && focus ? [{ anchor, focus }] : [];
+      });
+      const active = peer.sheet.activeCell
+        ? position(peer.sheet.activeCell.rowId, peer.sheet.activeCell.columnId) ?? undefined
+        : undefined;
+      return [{
+        clientId: peer.clientId,
+        name: peer.user.name,
+        color: peer.user.color,
+        active,
+        ranges: ranges.length > 0
+          ? ranges
+          : active ? [{ anchor: active, focus: active }] : [],
+      }];
+    });
+  }, [livePeers, worksheet]);
 
   const bounds = useMemo(() => ({
     rowCount: worksheet?.rowOrder.length ?? 0,
@@ -308,6 +379,15 @@ export default function SheetView({ relativePath }: Props) {
     historyRef.current = { past: [], future: [] };
     syncHistoryCounts();
   }, [relativePath, syncHistoryCounts]);
+
+  // Snapshot undo cannot safely replay across a peer update because it would
+  // restore the peer's old cells too. Start a fresh local history boundary
+  // whenever live state advances; Yjs still retains the authoritative change.
+  useEffect(() => {
+    if (session.remoteRevision === 0) return;
+    historyRef.current = { past: [], future: [] };
+    syncHistoryCounts();
+  }, [session.remoteRevision, syncHistoryCounts]);
 
   const mutate = useCallback((
     updater: (document: SheetDocument, worksheetId: string) => SheetDocument,
@@ -726,9 +806,14 @@ export default function SheetView({ relativePath }: Props) {
     return highlights;
   }, [document, selection.active, worksheet]);
 
-  const meta = document
-    ? `${document.worksheets.length} worksheet${document.worksheets.length === 1 ? '' : 's'}`
-    : undefined;
+  const meta = document ? (
+    <>
+      <span>
+        {document.worksheets.length} worksheet{document.worksheets.length === 1 ? '' : 's'}
+      </span>
+      <LivePeers peers={livePeers} />
+    </>
+  ) : undefined;
 
   const frozen = worksheet?.frozen ?? { rows: 0, columns: 0 };
   const isFrozen = frozen.rows > 0 || frozen.columns > 0;
@@ -1092,6 +1177,7 @@ export default function SheetView({ relativePath }: Props) {
             formulaReferenceMode={Boolean(editing?.text.startsWith('='))}
             onFormulaReferenceCommit={handleFormulaReferenceCommit}
             namedRanges={formulaNamedRanges}
+            remoteSelections={remoteSelections}
           />
 
           <SheetWorksheetBar

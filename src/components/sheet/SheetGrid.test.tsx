@@ -14,7 +14,7 @@ import {
   type SheetSelection,
   type SheetSelectionRange,
 } from '../../lib/sheet/selection';
-import SheetGrid, { type SheetGridEditing } from './SheetGrid';
+import SheetGrid, { type SheetGridEditing, type SheetRemoteSelection } from './SheetGrid';
 
 const { rowHeight, columnWidth, headerHeight, headerWidth } = SHEET_DEFAULTS;
 
@@ -43,6 +43,7 @@ interface HarnessProps {
   onUndo?: () => void;
   onRedo?: () => void;
   onFillSelection?: (target: { row: number; column: number }) => void;
+  remoteSelections?: SheetRemoteSelection[];
 }
 
 /** Drives the grid the way SheetView does, so tests exercise real state flow. */
@@ -59,6 +60,7 @@ function Harness({
   onUndo,
   onRedo,
   onFillSelection,
+  remoteSelections,
 }: HarnessProps) {
   const [selection, setSelection] = useState<SheetSelection>(() => createSelection({ row: 0, column: 0 }));
   const [editing, setEditing] = useState<SheetGridEditing | null>(null);
@@ -87,6 +89,7 @@ function Harness({
         onUndo={onUndo}
         onRedo={onRedo}
         onFillSelection={onFillSelection}
+        remoteSelections={remoteSelections}
       />
     </>
   );
@@ -139,6 +142,19 @@ describe('SheetGrid rendering', () => {
     expect(element.getAttribute('role')).toBe('grid');
     expect(element.getAttribute('aria-rowcount')).toBe('50');
     expect(element.getAttribute('aria-colcount')).toBe('20');
+  });
+
+  it('renders remote collaborator selections without changing local selection', () => {
+    render(<Harness remoteSelections={[{
+      clientId: 7,
+      name: 'Alice',
+      color: '#3b82f6',
+      active: { row: 2, column: 2 },
+      ranges: [{ anchor: { row: 1, column: 1 }, focus: { row: 2, column: 2 } }],
+    }]} />);
+
+    expect(screen.getByText('Alice')).toBeTruthy();
+    expect(selectionState()).toBe('0,0,1,cells');
   });
 
   it('paints a merged range as one outer cell without internal grid lines', () => {

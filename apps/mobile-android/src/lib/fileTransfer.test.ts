@@ -72,6 +72,58 @@ describe('mobile file transfer', () => {
     expect(invoke).not.toHaveBeenCalledWith('hosted_vault_upload_file', expect.anything());
   });
 
+  it('uploads valid sheet documents with the hosted sheet type', async () => {
+    const content = JSON.stringify({
+      kind: 'collab-sheet',
+      schemaVersion: 1,
+      id: 'wb1',
+      name: 'Budget',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+      worksheets: [{
+        id: 'ws1',
+        name: 'Sheet1',
+        rowOrder: ['r1'],
+        columnOrder: ['c1'],
+        cells: {},
+      }],
+      styles: {},
+    });
+    open.mockResolvedValue('/picked/Budget.sheet');
+    invoke.mockImplementation((command: string) => {
+      if (command === 'read_file_for_upload') {
+        return Promise.resolve({
+          name: 'Budget.sheet',
+          mediaType: 'application/json',
+          contentBase64: btoa(content),
+          expectedHash: 'hash',
+        });
+      }
+      if (command === 'hosted_vault_request') {
+        return Promise.resolve({
+          ...rawFile('sheet-1', 'Budget.sheet', 'document'),
+          documentType: 'sheet',
+        });
+      }
+      return Promise.reject(new Error(`Unexpected ${command}`));
+    });
+
+    const result = await pickAndUploadFiles(
+      'https://server.test',
+      vault(['file.create']),
+      null,
+    );
+
+    expect(result.failed).toEqual([]);
+    expect(invoke).toHaveBeenCalledWith('hosted_vault_request', expect.objectContaining({
+      body: expect.objectContaining({
+        name: 'Budget.sheet',
+        documentType: 'sheet',
+        content,
+      }),
+    }));
+  });
+
   it('downloads files, folders, and full vault exports through separate native commands', async () => {
     save.mockResolvedValueOnce('/downloads/note.md').mockResolvedValueOnce('/downloads/Folder.zip').mockResolvedValueOnce('/downloads/Vault.zip');
     invoke.mockResolvedValue(undefined);

@@ -22,7 +22,7 @@ export interface LiveAwarenessUser {
 
 /** Document context so a peer state can be matched to the right document. */
 export interface LiveAwarenessDocument {
-  kind: 'note' | 'kanban' | 'canvas' | 'logic';
+  kind: 'note' | 'kanban' | 'canvas' | 'logic' | 'sheet';
   relativePath: string;
 }
 
@@ -37,12 +37,25 @@ export interface CanvasInteraction {
   selectedNodeIds?: string[];
 }
 
+/** Rich sheet interaction fields, expressed with stable document identities. */
+export interface SheetInteraction {
+  worksheetId: string;
+  activeCell?: { rowId: string; columnId: string };
+  ranges?: Array<{
+    startRowId: string;
+    startColumnId: string;
+    endRowId: string;
+    endColumnId: string;
+  }>;
+}
+
 /** The full ephemeral state a peer publishes for one document. */
 export interface LiveAwarenessState {
   user?: LiveAwarenessUser;
   document?: LiveAwarenessDocument;
   kanban?: KanbanInteraction;
   canvas?: CanvasInteraction;
+  sheet?: SheetInteraction;
 }
 
 /** A remote peer's awareness state keyed by its Yjs client id. */

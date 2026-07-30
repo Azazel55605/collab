@@ -4650,6 +4650,7 @@ pub async fn list_file_references(
                 &target_path,
             )
             .unwrap_or_default(),
+            HostedDocumentType::Sheet => Vec::new(),
         };
         for reference in collected {
             let referenced_file_id = path_ids
@@ -5169,6 +5170,7 @@ async fn compute_reference_rewrites(
                 &content, old_path, new_path,
             )
             .ok(),
+            HostedDocumentType::Sheet => None,
         };
         let Some(rewritten) = rewritten else {
             continue;
@@ -10335,6 +10337,7 @@ fn document_type_name(document_type: HostedDocumentType) -> &'static str {
         HostedDocumentType::Note => "note",
         HostedDocumentType::Kanban => "kanban",
         HostedDocumentType::Canvas => "canvas",
+        HostedDocumentType::Sheet => "sheet",
     }
 }
 
@@ -10342,6 +10345,7 @@ fn parse_document_type(document_type: Option<String>) -> Option<HostedDocumentTy
     document_type.map(|value| match value.as_str() {
         "kanban" => HostedDocumentType::Kanban,
         "canvas" => HostedDocumentType::Canvas,
+        "sheet" => HostedDocumentType::Sheet,
         _ => HostedDocumentType::Note,
     })
 }
@@ -10689,6 +10693,7 @@ fn validate_file_kind(
                 HostedDocumentType::Note => collab_documents::DocumentKind::Note,
                 HostedDocumentType::Kanban => collab_documents::DocumentKind::Kanban,
                 HostedDocumentType::Canvas => collab_documents::DocumentKind::Canvas,
+                HostedDocumentType::Sheet => collab_documents::DocumentKind::Sheet,
             };
             let kind = collab_documents::classify_path(name).unwrap_or(fallback_kind);
             collab_documents::validate(

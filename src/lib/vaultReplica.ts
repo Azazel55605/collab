@@ -10,6 +10,8 @@
 import { tauriCommands } from './tauri';
 import { vaultCan, type HostedVaultMeta } from '../types/vault';
 import type { LogicComponentDefinition } from '../types/logicDiagram';
+import { parseSheetDocument, serializeSheetDocument } from './sheet/document';
+import { mergeSheetDocuments } from './sheet/collaboration';
 
 /**
  * Lightweight change notification for the replica's local state. The sync UI
@@ -202,7 +204,7 @@ interface PendingCreatePayload {
   parentId: string | null;
   name: string;
   kind: 'document' | 'folder';
-  documentType: 'note' | 'kanban' | 'canvas' | null;
+  documentType: 'note' | 'kanban' | 'canvas' | 'sheet' | null;
   content: string;
   tempFileId?: string;
 }
@@ -211,6 +213,57 @@ interface PendingEditPayload {
   targetFileId: string;
   expectedRevisionSequence: number;
   content: string;
+  baseContent?: string;
+}
+
+interface HostedPendingDocument {
+  file: {
+    currentRevision: { sequence: number } | null;
+  };
+  content: string;
+}
+
+function isRevisionConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  return normalized.includes('revision_conflict') || normalized.includes('revision has changed');
+}
+
+async function replaySheetEditAfterConflict(
+  vault: HostedVaultMeta,
+  operation: PendingOperation,
+  payload: PendingEditPayload,
+): Promise<boolean> {
+  if (!operation.relativePath?.toLowerCase().endsWith('.sheet') || payload.baseContent === undefined) {
+    return false;
+  }
+  const current = await tauriCommands.hostedVaultRequest<HostedPendingDocument>(
+    vault.serverUrl,
+    'GET',
+    `/api/v1/vaults/${vault.hostedVaultId}/files/${payload.targetFileId}`,
+  );
+  if (current.content === payload.content) return true;
+
+  const workbookName = operation.relativePath.split('/').pop()?.replace(/\.sheet$/i, '') ?? 'Workbook';
+  const base = parseSheetDocument(payload.baseContent, workbookName);
+  const local = parseSheetDocument(payload.content, workbookName);
+  const remote = parseSheetDocument(current.content, workbookName);
+  const merged = mergeSheetDocuments(base, local, remote);
+  if (merged.conflicts.length > 0) {
+    const targets = merged.conflicts.slice(0, 3).map((conflict) => conflict.path).join(', ');
+    throw new Error(`REVISION_CONFLICT: overlapping sheet edits require recovery (${targets}).`);
+  }
+
+  await tauriCommands.hostedVaultRequest(
+    vault.serverUrl,
+    'POST',
+    `/api/v1/vaults/${vault.hostedVaultId}/files/${payload.targetFileId}/revisions`,
+    {
+      expectedRevisionSequence: current.file.currentRevision?.sequence ?? 0,
+      content: serializeSheetDocument(merged.document),
+    },
+  );
+  return true;
 }
 
 interface PendingAssetUploadPayload {
@@ -539,12 +592,18 @@ export async function replayPendingOperations(
         if (payload.tempFileId) idMap.set(payload.tempFileId, created.id);
       } else if (operation.kind === 'edit') {
         const payload = replaceMappedIds(operation.payload as PendingEditPayload, idMap);
-        await tauriCommands.hostedVaultRequest(
-          vault.serverUrl,
-          'POST',
-          `/api/v1/vaults/${vault.hostedVaultId}/files/${payload.targetFileId}/revisions`,
-          { expectedRevisionSequence: payload.expectedRevisionSequence, content: payload.content },
-        );
+        try {
+          await tauriCommands.hostedVaultRequest(
+            vault.serverUrl,
+            'POST',
+            `/api/v1/vaults/${vault.hostedVaultId}/files/${payload.targetFileId}/revisions`,
+            { expectedRevisionSequence: payload.expectedRevisionSequence, content: payload.content },
+          );
+        } catch (error) {
+          if (!isRevisionConflict(error) || !await replaySheetEditAfterConflict(vault, operation, payload)) {
+            throw error;
+          }
+        }
       } else if (operation.kind === 'assetUpload') {
         const payload = replaceMappedIds(operation.payload as PendingAssetUploadPayload, idMap);
         const contentBase64 = await tauriCommands.replicaReadCachedAsset(

@@ -86,6 +86,14 @@ export interface SheetGridEditing {
   source?: 'grid' | 'formula-bar';
 }
 
+export interface SheetRemoteSelection {
+  clientId: number;
+  name: string;
+  color: string;
+  active?: SheetPosition;
+  ranges: Array<{ anchor: SheetPosition; focus: SheetPosition }>;
+}
+
 export interface SheetGridProps {
   worksheet: SheetWorksheet;
   selection: SheetSelection;
@@ -114,6 +122,7 @@ export interface SheetGridProps {
   formulaReferenceMode?: boolean;
   onFormulaReferenceCommit?: (range: { anchor: SheetPosition; focus: SheetPosition }) => void;
   namedRanges?: readonly SheetNamedRange[];
+  remoteSelections?: readonly SheetRemoteSelection[];
   className?: string;
 }
 
@@ -572,6 +581,7 @@ export default function SheetGrid({
   formulaReferenceMode = false,
   onFormulaReferenceCommit,
   namedRanges = [],
+  remoteSelections = [],
   className,
 }: SheetGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1337,6 +1347,33 @@ export default function SheetGrid({
               />
             );
           })}
+
+          {remoteSelections.flatMap((peer) => peer.ranges.map((range, index) => {
+            const rectangle = normalizeRange(range);
+            const style = rectangleStyle(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right);
+            if (!style) return null;
+            return (
+              <div
+                key={`${peer.clientId}:${index}`}
+                aria-hidden
+                className="pointer-events-none absolute border-2"
+                style={{
+                  ...style,
+                  borderColor: peer.color,
+                  backgroundColor: `${peer.color}18`,
+                }}
+              >
+                {index === 0 && (
+                  <span
+                    className="absolute left-[-2px] top-[-19px] max-w-32 truncate px-1 py-0.5 text-[9px] font-medium text-white"
+                    style={{ backgroundColor: peer.color }}
+                  >
+                    {peer.name}
+                  </span>
+                )}
+              </div>
+            );
+          }))}
 
           {formulaReferenceRange && (() => {
             const rectangle = normalizeRange(formulaReferenceRange);

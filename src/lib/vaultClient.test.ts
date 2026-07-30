@@ -697,6 +697,35 @@ describe('HostedVaultClient', () => {
     );
   });
 
+  it('creates hosted sheets with the structured sheet document type', async () => {
+    const hostedSheet = {
+      ...hostedDocument,
+      id: 'sheet-1',
+      name: 'Budget.sheet',
+      relativePath: 'Notes/Budget.sheet',
+      documentType: 'sheet' as const,
+    };
+    vi.mocked(tauriCommands.hostedVaultRequest)
+      .mockResolvedValueOnce(mockHostedManifest())
+      .mockResolvedValueOnce(hostedSheet);
+    const client = new HostedVaultClient(hostedVault);
+
+    await client.createDocument('Notes/Budget.sheet');
+
+    expect(tauriCommands.hostedVaultRequest).toHaveBeenLastCalledWith(
+      'https://collab.example.test',
+      'POST',
+      '/api/v1/vaults/hosted-vault/files',
+      {
+        parentId: 'folder-1',
+        name: 'Budget.sheet',
+        kind: 'document',
+        documentType: 'sheet',
+        content: '',
+      },
+    );
+  });
+
   it('applies move-and-rename as sequential manifest-locked operations', async () => {
     const destination = { ...rootFolder, id: 'folder-2', name: 'Archive', relativePath: 'Archive' };
     vi.mocked(tauriCommands.hostedVaultRequest)

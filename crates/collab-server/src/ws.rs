@@ -61,7 +61,7 @@ use yrs::{
 #[cfg(test)]
 use collab_documents::canvas_node_count;
 /// The Yjs root map name shared between the server and the browser for
-/// structured (Kanban / canvas) documents.
+/// structured (Kanban / canvas / sheet) documents.
 #[cfg(test)]
 use collab_live::{JSON_ROOT_NAME, NOTE_TEXT_NAME};
 
@@ -288,7 +288,7 @@ impl Room {
         materialized_content(&doc, MaterializeKind::NoteText).unwrap_or_default()
     }
 
-    /// Serializes the structured (Kanban / canvas) live document to JSON, or
+    /// Serializes the structured (Kanban / canvas / sheet) live document to JSON, or
     /// `None` when the root map is empty (not yet seeded) so an empty document is
     /// never materialized over real content.
     fn json_content(&self) -> Option<String> {
@@ -380,7 +380,9 @@ impl Room {
     fn materialized_content(&self) -> Option<String> {
         match self.materialize {
             MaterializeKind::NoteText => Some(self.note_text()),
-            MaterializeKind::Json | MaterializeKind::Canvas => self.json_content(),
+            MaterializeKind::Json | MaterializeKind::Canvas | MaterializeKind::Sheet => {
+                self.json_content()
+            }
             MaterializeKind::None => None,
         }
     }
@@ -497,7 +499,9 @@ fn spawn_materializer(room: Arc<Room>, db: PgPool, blobs: Arc<dyn BlobStorage>) 
             tokio::time::sleep(MATERIALIZE_DEBOUNCE).await;
             let content = match room.materialize {
                 MaterializeKind::NoteText => Some(room.note_text()),
-                MaterializeKind::Json | MaterializeKind::Canvas => room.json_content(),
+                MaterializeKind::Json | MaterializeKind::Canvas | MaterializeKind::Sheet => {
+                    room.json_content()
+                }
                 MaterializeKind::None => None,
             };
             let Some(content) = content else { continue };
@@ -769,7 +773,9 @@ impl Hub {
                     None => ExternalRevisionMerge::Conflict,
                 }
             }
-            MaterializeKind::Json | MaterializeKind::Canvas => ExternalRevisionMerge::Conflict,
+            MaterializeKind::Json | MaterializeKind::Canvas | MaterializeKind::Sheet => {
+                ExternalRevisionMerge::Conflict
+            }
             MaterializeKind::None => ExternalRevisionMerge::Merged(incoming_content),
         }
     }

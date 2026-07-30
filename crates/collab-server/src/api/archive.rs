@@ -153,7 +153,8 @@ fn imported_file_kind(path: &str) -> (HostedFileKind, Option<HostedDocumentType>
         Some(DocumentKind::Note) => (HostedFileKind::Document, Some(HostedDocumentType::Note)),
         Some(DocumentKind::Kanban) => (HostedFileKind::Document, Some(HostedDocumentType::Kanban)),
         Some(DocumentKind::Canvas) => (HostedFileKind::Document, Some(HostedDocumentType::Canvas)),
-        Some(DocumentKind::Logic | DocumentKind::Sheet | DocumentKind::Svg) => {
+        Some(DocumentKind::Sheet) => (HostedFileKind::Document, Some(HostedDocumentType::Sheet)),
+        Some(DocumentKind::Logic | DocumentKind::Svg) => {
             (HostedFileKind::Document, Some(HostedDocumentType::Note))
         }
         _ => (HostedFileKind::Asset, None),
@@ -216,6 +217,10 @@ mod tests {
         assert_eq!(
             imported_file_kind("Drawing.svg"),
             (HostedFileKind::Document, Some(HostedDocumentType::Note))
+        );
+        assert_eq!(
+            imported_file_kind("Budget.sheet"),
+            (HostedFileKind::Document, Some(HostedDocumentType::Sheet))
         );
         assert_eq!(
             imported_file_kind("Manual.pdf"),

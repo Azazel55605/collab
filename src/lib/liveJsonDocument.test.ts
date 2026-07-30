@@ -128,7 +128,31 @@ describe('liveJsonDocument reconciler', () => {
     });
   });
 
-  it('replaces non-id arrays wholesale', () => {
+  it('converges concurrent inserts into stable string identity arrays', () => {
+    const base: JsonObject = { rowOrder: ['r1', 'r2'] };
+    const a = new Y.Doc();
+    const b = new Y.Doc();
+    const ra = a.getMap<unknown>('doc');
+    a.transact(() => reconcileMap(ra, base));
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    const rb = b.getMap<unknown>('doc');
+
+    a.transact(() => reconcileMap(ra, { rowOrder: ['r1', 'row-a', 'r2'] }));
+    b.transact(() => reconcileMap(rb, { rowOrder: ['r1', 'row-b', 'r2'] }));
+
+    const fromA = Y.encodeStateAsUpdate(a, Y.encodeStateVector(b));
+    const fromB = Y.encodeStateAsUpdate(b, Y.encodeStateVector(a));
+    Y.applyUpdate(b, fromA);
+    Y.applyUpdate(a, fromB);
+
+    const order = (yToJson(ra) as JsonObject).rowOrder as string[];
+    expect(yToJson(ra)).toEqual(yToJson(rb));
+    expect(order[0]).toBe('r1');
+    expect(order[order.length - 1]).toBe('r2');
+    expect(new Set(order)).toEqual(new Set(['r1', 'row-a', 'row-b', 'r2']));
+  });
+
+  it('reconciles unique string arrays by identity', () => {
     const { doc, root } = withMap({ tags: ['a', 'b', 'c'] });
     doc.transact(() => reconcileMap(root, { tags: ['x', 'y'] }));
     expect(yToJson(root)).toEqual({ tags: ['x', 'y'] });

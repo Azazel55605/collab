@@ -1,4 +1,5 @@
 import { parseLogicDiagramDocument } from '../../../../src/types/logicDiagram';
+import { parseSheetDocument } from '../../../../src/lib/sheet/document';
 import type { HostedFileEntry, HostedVault } from '../mobileTauri';
 import {
   createHostedDocument,
@@ -12,7 +13,7 @@ import {
 
 export const MOBILE_UPLOAD_EXTENSIONS = [
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'avif',
-  'svg', 'pdf', 'md', 'markdown', 'canvas', 'kanban', 'logic',
+  'svg', 'pdf', 'md', 'markdown', 'canvas', 'kanban', 'logic', 'sheet',
 ];
 
 function extension(name: string): string {
@@ -25,15 +26,20 @@ function decodeUtf8Base64(value: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-function documentTypeForExtension(ext: string): 'note' | 'kanban' | 'canvas' {
+function documentTypeForExtension(ext: string): 'note' | 'kanban' | 'canvas' | 'sheet' {
   if (ext === 'kanban') return 'kanban';
   if (ext === 'canvas') return 'canvas';
+  if (ext === 'sheet') return 'sheet';
   return 'note';
 }
 
 function validateTextDocument(content: string, ext: string): void {
   if (ext === 'logic') {
     parseLogicDiagramDocument(content);
+    return;
+  }
+  if (ext === 'sheet') {
+    parseSheetDocument(content);
     return;
   }
   if (ext !== 'canvas' && ext !== 'kanban') return;

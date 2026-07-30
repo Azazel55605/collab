@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 
+import { useCollabIdentity } from '../collabIdentity';
 import { createVaultClient } from '../vaultClient';
 import {
   compareDocumentVersions,
   useDocumentSessionController,
+  type DocumentSessionController,
+  type DocumentSessionSnapshot,
   type DocumentStatus,
   type RemoteCandidate,
 } from '../documentSessionController';
+import { saveConflictedCopy } from '../conflictedCopy';
+import { openLiveJsonSession, type JsonObject, type LiveJsonSession } from '../liveJsonDocument';
 import { onReplicaMutated, replicaMutationAffectsPath } from '../vaultReplica';
+import { useLiveDocumentStatus } from '../useLiveDocumentStatus';
 import { isVaultReadOnly } from '../../types/vault';
 import type { VaultMeta } from '../../types/vault';
 import type { SheetDocument } from '../../types/sheet';
@@ -19,6 +25,7 @@ import {
   serializeSheetDocument,
   type SheetSchemaSupport,
 } from './document';
+import { mergeSheetDocuments } from './collaboration';
 
 interface UseSheetSessionOptions {
   vault: VaultMeta | null;
@@ -45,6 +52,17 @@ export interface SheetSession {
   save: () => Promise<void>;
   loadRemote: () => void;
   keepLocal: () => void;
+  /** Hosted structured collaboration session; null for local/REST fallback. */
+  liveSession: LiveJsonSession | null;
+  controller: DocumentSessionController<SheetDocument>;
+  snapshot: DocumentSessionSnapshot<SheetDocument>;
+  saveMineAsNew: (localContent: string) => Promise<void>;
+  /** Increments only when a live seed/remote update is adopted. */
+  remoteRevision: number;
+}
+
+function sheetToJson(document: SheetDocument): JsonObject {
+  return JSON.parse(JSON.stringify(document)) as JsonObject;
 }
 
 /**
@@ -74,6 +92,12 @@ export function useSheetSession({
   const [schemaSupport, setSchemaSupport] = useState<SheetSchemaSupport>('supported');
   const [schemaVersion, setSchemaVersion] = useState<number | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [liveSession, setLiveSession] = useState<LiveJsonSession | null>(null);
+  const liveSessionRef = useRef<LiveJsonSession | null>(null);
+  const restDocumentRef = useRef<SheetDocument | null>(null);
+  const [restLoadedPath, setRestLoadedPath] = useState<string | null>(null);
+  const [remoteRevision, setRemoteRevision] = useState(0);
+  const { userId, userName, userColor } = useCollabIdentity();
 
   const vaultReadOnly = isVaultReadOnly(vault);
   const readOnly = vaultReadOnly || schemaSupport === 'newer';
@@ -85,6 +109,7 @@ export function useSheetSession({
 
   const applyDocument = useCallback((candidate: RemoteCandidate<SheetDocument>) => {
     documentRef.current = candidate.document;
+    if (candidate.source !== 'live') restDocumentRef.current = candidate.document;
     setDocument(candidate.document);
   }, []);
 
@@ -128,8 +153,25 @@ export function useSheetSession({
       if (result.offlineQueued) return { version: result.version, offlineQueued: true };
       return { version: result.version, mergedContent: result.mergedContent };
     },
+    mergeRemote: ({ base, local, remote }) => {
+      if (!base) return null;
+      let baseDocument: SheetDocument;
+      try {
+        baseDocument = parseSheetDocument(base, workbookName);
+      } catch {
+        return null;
+      }
+      const merged = mergeSheetDocuments(baseDocument, local, remote);
+      if (merged.conflicts.length > 0) return null;
+      return {
+        document: merged.document,
+        content: serializeSheetDocument(merged.document),
+      };
+    },
+    isLive: () => liveSessionRef.current !== null,
     compareVersions: compareDocumentVersions,
   });
+  useLiveDocumentStatus(controller, liveSession);
 
   useEffect(() => {
     if (!client || !relativePath) {
@@ -145,6 +187,7 @@ export function useSheetSession({
     setWarnings([]);
     setSchemaSupport('supported');
     setSchemaVersion(null);
+    setRestLoadedPath(null);
 
     client.readDocument(relativePath)
       .then((doc) => {
@@ -157,10 +200,12 @@ export function useSheetSession({
           // Never hand a newer workbook to the session: the controller would
           // serialize it back through this build's normalizer on the next save.
           documentRef.current = inspection.document;
+          restDocumentRef.current = inspection.document;
           setDocument(inspection.document);
           return;
         }
         controller.load(doc.content, doc.version, 'rest');
+        setRestLoadedPath(relativePath);
       })
       .catch((reason) => {
         if (cancelled) return;
@@ -178,9 +223,10 @@ export function useSheetSession({
 
   useEffect(() => {
     if (!relativePath) return;
+    if (liveSession) return;
     if (snapshot.dirty) markDirty(relativePath);
     else if (snapshot.loadedVersion) markSaved(relativePath, `sheet:${snapshot.loadedVersion}`);
-  }, [markDirty, markSaved, relativePath, snapshot.dirty, snapshot.loadedVersion]);
+  }, [liveSession, markDirty, markSaved, relativePath, snapshot.dirty, snapshot.loadedVersion]);
 
   const updateDocument = useCallback((updater: (current: SheetDocument) => SheetDocument) => {
     if (readOnly) return;
@@ -193,8 +239,136 @@ export function useSheetSession({
     const stamped: SheetDocument = { ...next, updatedAt: new Date().toISOString() };
     documentRef.current = stamped;
     setDocument(stamped);
-    controller.markLocalChange(stamped);
+    if (liveSessionRef.current) {
+      liveSessionRef.current.writeJson(sheetToJson(stamped));
+    } else {
+      controller.markLocalChange(stamped);
+    }
   }, [controller, readOnly]);
+
+  // Hosted sheets use the same structured Yjs room and offline replica as
+  // Kanban/canvas. REST remains the fallback and initial integrity baseline.
+  useEffect(() => {
+    if (
+      !client
+      || !relativePath
+      || !client.resolveLiveSession
+      || restLoadedPath !== relativePath
+      || schemaSupport !== 'supported'
+    ) {
+      liveSessionRef.current = null;
+      setLiveSession(null);
+      return;
+    }
+
+    let cancelled = false;
+    let opened: LiveJsonSession | null = null;
+    let off: (() => void) | undefined;
+
+    const adoptLive = (json: JsonObject): boolean => {
+      try {
+        const next = parseSheetDocument(JSON.stringify(json), workbookName);
+        controller.handleRemoteCandidate({
+          document: next,
+          content: serializeSheetDocument(next),
+          version: controller.version,
+          source: 'live',
+        });
+        setRemoteRevision((revision) => revision + 1);
+        return true;
+      } catch {
+        setError('Live workbook state is invalid. The REST revision remains available for recovery.');
+        return false;
+      }
+    };
+
+    openLiveJsonSession(client, relativePath)
+      .then((session) => {
+        if (cancelled || !session) {
+          session?.destroy();
+          return;
+        }
+        opened = session;
+        const initialJson = session.readJson();
+        if (Object.keys(initialJson).length === 0) {
+          session.discardOfflineState();
+          session.destroy();
+          opened = null;
+          return;
+        }
+
+        let initial: SheetDocument;
+        try {
+          initial = parseSheetDocument(JSON.stringify(initialJson), workbookName);
+        } catch {
+          session.discardOfflineState();
+          session.destroy();
+          opened = null;
+          return;
+        }
+
+        const rest = restDocumentRef.current;
+        const liveWorksheetIds = new Set(initial.worksheets.map((worksheet) => worksheet.id));
+        const lostWorksheet = rest?.worksheets.some(
+          (worksheet) => !liveWorksheetIds.has(worksheet.id),
+        ) ?? false;
+        if (initial.id !== rest?.id || initial.worksheets.length === 0 || lostWorksheet) {
+          session.discardOfflineState();
+          session.destroy();
+          opened = null;
+          return;
+        }
+
+        liveSessionRef.current = session;
+        setLiveSession(session);
+        if (!adoptLive(initialJson)) {
+          session.discardOfflineState();
+          session.destroy();
+          liveSessionRef.current = null;
+          setLiveSession(null);
+          opened = null;
+          return;
+        }
+        off = session.onChange((json) => {
+          if (!cancelled && !adoptLive(json)) {
+            session.destroy();
+            liveSessionRef.current = null;
+            setLiveSession(null);
+          }
+        });
+      })
+      .catch(() => {
+        // Best-effort: optimistic REST saves remain available.
+      });
+
+    return () => {
+      cancelled = true;
+      off?.();
+      opened?.destroy();
+      liveSessionRef.current = null;
+      setLiveSession(null);
+    };
+  }, [
+    client,
+    controller,
+    relativePath,
+    restLoadedPath,
+    schemaSupport,
+    workbookName,
+  ]);
+
+  useEffect(() => {
+    if (!liveSession) return;
+    liveSession.awareness.setLocalStateField('user', {
+      id: userId,
+      name: userName,
+      color: userColor,
+    });
+    liveSession.awareness.setLocalStateField('document', {
+      kind: 'sheet',
+      relativePath,
+    });
+  }, [liveSession, relativePath, userColor, userId, userName]);
 
   // Local filesystem watcher: a clean workbook reloads automatically, a dirty
   // one queues the remote version instead of discarding local edits.
@@ -225,6 +399,11 @@ export function useSheetSession({
     await controller.requestSave('manual');
   }, [controller, readOnly]);
 
+  const saveMineAsNew = useCallback(async (localContent: string) => {
+    if (!client || !relativePath) return;
+    await saveConflictedCopy(client, relativePath, localContent);
+  }, [client, relativePath]);
+
   return {
     document,
     updateDocument,
@@ -240,5 +419,10 @@ export function useSheetSession({
     save,
     loadRemote: () => controller.loadRemote(),
     keepLocal: () => controller.keepMine(),
+    liveSession,
+    controller,
+    snapshot,
+    saveMineAsNew,
+    remoteRevision,
   };
 }

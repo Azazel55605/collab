@@ -753,7 +753,7 @@ export async function createHostedDocument(
   vaultId: string,
   parentId: string | null,
   name: string,
-  documentType: 'note' | 'kanban' | 'canvas',
+  documentType: 'note' | 'kanban' | 'canvas' | 'sheet',
   content = '',
 ): Promise<HostedFileEntry> {
   const value = await hostedRequest<unknown>(serverUrl, 'POST', `/api/v1/vaults/${vaultId}/files`, {

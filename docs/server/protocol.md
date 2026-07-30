@@ -344,10 +344,14 @@ applied, preventing an empty local CRDT from briefly becoming authoritative.
 Handshake/no-op updates remain in the CRDT log for convergence but do not wake
 the materializer or create normal document revisions.
 
-Structured `.kanban` and `.canvas` JSON numbers are encoded as Yjs numbers, not
+Structured `.kanban`, `.canvas`, and `.sheet` JSON numbers are encoded as Yjs numbers, not
 Yjs BigInt. Native clients normalize legacy BigInt values to ordinary JSON
 numbers at the live-transport boundary so numeric validation and serialization
 remain compatible with normal JSON.
+
+Sheets use stable worksheet, row, column, and cell identities in the structured
+root. Active worksheet/cell/range presence travels through awareness only;
+computed formula values are derived by each client and are never materialized.
 
 Canvas live subscriptions are enabled with destructive-write guards: the server
 reseeds degenerate rooms from the canonical REST revision and refuses to

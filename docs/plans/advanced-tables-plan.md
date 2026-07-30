@@ -282,7 +282,7 @@ It must remain ephemeral and must not be written into the workbook.
 | 3. Formulas and recalculation | Testing | Native incremental evaluation, formula UX, reference rewrites, stable errors, inspection, volatile-time policy, and fixtures are implemented. |
 | 4. Formatting and spreadsheet interactions | Testing | Formatting, clipboard variants, fill/series behavior, bounded undo/redo, search/replace, notes, and range print/export are implemented. |
 | 5. Tables and data tools | Testing | Tables, filtering, validation, conditional formatting, named ranges, editor protection, summaries, cleanup tools, and combined interaction matrices are implemented. |
-| 6. Hosted collaboration and offline behavior | Not started | Add semantic live mutations, presence, conflict handling, offline queues, and revision-safe recovery. |
+| 6. Hosted collaboration and offline behavior | Testing | Structured live sessions, stable-ID presence and merging, offline queues, conflict handling, and revision-safe recovery are implemented; physical two-client validation remains. |
 | 7. Charts, analysis, and Collab integration | Not started | Add charts, summaries, links/attachments, note embeds, and task/calendar data connections. |
 | 8. Mobile sheet experience | Not started | Add a responsive viewer and bounded editing for values, formulas, filters, and worksheet navigation. |
 | 9. Performance, accessibility, and release hardening | Not started | Validate scale, keyboard/accessibility behavior, recovery, packaging, and multi-platform correctness. |
@@ -546,25 +546,51 @@ filtering, validation, and formatting behavior.
 
 ### Phase 6: Hosted Collaboration And Offline Behavior
 
-- [ ] Define semantic workbook operations and their idempotency keys.
-- [ ] Add structured live-session conversion through the shared collaboration
+- [x] Define semantic workbook operations and their idempotency keys.
+- [x] Add structured live-session conversion through the shared collaboration
   boundary.
-- [ ] Merge unrelated cell/range changes without whole-document conflicts.
-- [ ] Define deterministic ordering for concurrent row, column, and worksheet
+- [x] Merge unrelated cell/range changes without whole-document conflicts.
+- [x] Define deterministic ordering for concurrent row, column, and worksheet
   structural changes.
-- [ ] Add ephemeral collaborator selections, active cells, and worksheet
+- [x] Add ephemeral collaborator selections, active cells, and worksheet
   presence.
-- [ ] Queue offline workbook operations and replay them through the existing
+- [x] Queue offline workbook operations and replay them through the existing
   replica/sync coordinator.
-- [ ] Surface overlapping edits, deleted targets, unsupported schema changes,
+- [x] Surface overlapping edits, deleted targets, unsupported schema changes,
   and lost access through existing recovery UI.
-- [ ] Keep computed values derived locally and out of authoritative live state.
-- [ ] Add multi-client, reconnect, offline, revision restore, and access-loss
+- [x] Keep computed values derived locally and out of authoritative live state.
+- [x] Add multi-client, reconnect, offline, revision restore, and access-loss
   tests.
 
 Exit gate: two clients can edit unrelated and overlapping ranges, reconnect
 after offline work, and restore revisions without replacing the workbook with a
 stale whole-file snapshot.
+
+Phase 6 is implemented and in **Testing**. Hosted `.sheet` files now have a
+first-class protocol/database document type and use the shared structured Yjs
+room rather than being treated as note text. Existing hosted `.sheet` rows are
+reclassified through consecutive enum/data migrations. Live updates retain the
+sparse workbook's stable worksheet, row, column, and cell identities; formula
+results remain local derived state and are never serialized into the room.
+
+The desktop editor publishes the active worksheet, active cell, and selected
+ranges through ephemeral awareness and paints remote ranges with each
+collaborator's identity color. Snapshot undo history starts a new boundary after
+a remote update so undo cannot restore an obsolete whole-workbook snapshot over
+a peer's changes. The normal document status/reconciliation surface now owns
+sheet overlap, deleted-target, unsupported-schema, and access-loss recovery.
+
+REST/offline fallback preserves the queued edit's base workbook. Replay detects
+a newer hosted revision, performs a stable-ID three-way merge, retries
+non-overlapping edits, treats an already-applied payload as idempotent, and
+leaves overlapping changes in the existing failed-operation recovery flow.
+Concurrent structural identity arrays use deterministic ordering; live clients
+also retain Yjs update idempotency and convergence. Automated coverage includes
+structured live classification/materialization, duplicate update idempotency,
+reconnect/offline CRDT behavior, hosted viewer restrictions, stable-ID
+cell/structure merges, queued sheet replay, recovery conflicts, hosted creation,
+and collaborator range rendering. Physical two-client testing against a
+migrated hosted server remains the release gate while this phase is in Testing.
 
 ### Phase 7: Charts, Analysis, And Collab Integration
 

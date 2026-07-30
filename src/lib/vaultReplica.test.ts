@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HostedVaultMeta } from '../types/vault';
 import { tauriCommands } from './tauri';
+import { createWorkbookFixture } from './sheet/fixture';
+import { serializeSheetDocument } from './sheet/document';
+import { sheetCellKey } from '../types/sheet';
 import {
   classifyPendingOperationFailure,
   cleanupReplicaCache,
@@ -585,6 +588,63 @@ describe('vaultReplica', () => {
       expect.objectContaining({ manifestSequence: 12, status: 'idle' }),
       'editor',
       ['vault.read', 'vault.offlineCopy'],
+    );
+  });
+
+  it('three-way merges a queued sheet edit against a newer hosted revision', async () => {
+    const base = createWorkbookFixture({
+      rows: 2,
+      columns: 2,
+      populatedRows: 0,
+      populatedColumns: 0,
+    });
+    const local = structuredClone(base);
+    const remote = structuredClone(base);
+    local.worksheets[0].cells[sheetCellKey('r1', 'c1')] = { value: 'offline', valueType: 'text' };
+    remote.worksheets[0].cells[sheetCellKey('r2', 'c2')] = { value: 'server', valueType: 'text' };
+    const operations = [{
+      id: 'op-sheet-edit',
+      kind: 'edit' as const,
+      fileId: 'sheet-1',
+      relativePath: 'Budget.sheet',
+      payload: {
+        targetFileId: 'sheet-1',
+        expectedRevisionSequence: 2,
+        content: serializeSheetDocument(local),
+        baseContent: serializeSheetDocument(base),
+      },
+      baseManifestSequence: 8,
+      createdAt: '2026-06-18T08:00:00Z',
+      status: 'pending' as const,
+    }];
+    const seededManifest = { vaultId: 'hosted-vault', sequence: 10, files: [] };
+    vi.mocked(tauriCommands.replicaListPendingOperations).mockResolvedValue(operations);
+    vi.mocked(tauriCommands.hostedVaultRequest)
+      .mockRejectedValueOnce(new Error('REVISION_CONFLICT: revision has changed'))
+      .mockResolvedValueOnce({
+        file: { currentRevision: { sequence: 3 } },
+        content: serializeSheetDocument(remote),
+      })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce(seededManifest);
+
+    await replayPendingOperations(hostedVault);
+
+    const retry = vi.mocked(tauriCommands.hostedVaultRequest).mock.calls[2];
+    expect(retry?.slice(0, 3)).toEqual([
+      'https://collab.example.test',
+      'POST',
+      '/api/v1/vaults/hosted-vault/files/sheet-1/revisions',
+    ]);
+    const retryPayload = retry?.[3] as { expectedRevisionSequence: number; content: string };
+    expect(retryPayload.expectedRevisionSequence).toBe(3);
+    const merged = JSON.parse(retryPayload.content);
+    expect(merged.worksheets[0].cells['r1:c1'].value).toBe('offline');
+    expect(merged.worksheets[0].cells['r2:c2'].value).toBe('server');
+    expect(tauriCommands.replicaRemoveOperation).toHaveBeenCalledWith(
+      'https://collab.example.test',
+      'hosted-vault',
+      'op-sheet-edit',
     );
   });
 

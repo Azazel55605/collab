@@ -119,6 +119,7 @@ function stableEqual(a: unknown, b: unknown): boolean {
 }
 
 function entryId(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
   if (value instanceof Y.Map) {
     const id = value.get('id');
     return typeof id === 'string' ? id : undefined;
@@ -165,15 +166,16 @@ export function reconcileArray(yarr: Y.Array<unknown>, arr: JsonValue[]) {
   }
   // Reconcile / order by id, position by position.
   for (let index = 0; index < arr.length; index += 1) {
-    const item = arr[index] as JsonObject;
+    const item = arr[index];
+    const desiredId = entryId(item);
     const current = index < yarr.length ? yarr.get(index) : undefined;
-    if (current instanceof Y.Map && entryId(current) === item.id) {
-      reconcileMap(current, item);
+    if (entryId(current) === desiredId) {
+      if (current instanceof Y.Map && isPlainObject(item)) reconcileMap(current, item);
       continue;
     }
     let existingIndex = -1;
     for (let j = 0; j < yarr.length; j += 1) {
-      if (entryId(yarr.get(j)) === item.id) {
+      if (entryId(yarr.get(j)) === desiredId) {
         existingIndex = j;
         break;
       }

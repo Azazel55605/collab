@@ -48,6 +48,7 @@ that the current hosted revision or file state has changed.
 - `note`
 - `kanban`
 - `canvas`
+- `sheet`
 
 PDFs and images are assets. Hidden application metadata is represented by server tables or typed sidecar records rather than user-visible `.collab` file entries. Export materializes compatible `.collab` files where appropriate.
 

@@ -244,7 +244,7 @@ export const HOSTED_VAULT_CAPABILITIES: VaultClientCapabilities = {
 
 type HostedFileKind = 'folder' | 'document' | 'asset';
 type HostedFileState = 'active' | 'trashed' | 'tombstoned';
-type HostedDocumentType = 'note' | 'kanban' | 'canvas';
+type HostedDocumentType = 'note' | 'kanban' | 'canvas' | 'sheet';
 
 interface HostedRevision {
   id: string;
@@ -387,6 +387,7 @@ function documentTypeForPath(path: string): HostedDocumentType {
   const ext = extension(path);
   if (ext === 'kanban') return 'kanban';
   if (ext === 'canvas') return 'canvas';
+  if (ext === 'sheet') return 'sheet';
   return 'note';
 }
 
@@ -875,7 +876,7 @@ export class HostedVaultClient implements VaultClient {
     relativePath: string,
     content: string,
     expectedVersion?: string,
-    _baseContent?: string,
+    baseContent?: string,
   ): Promise<VaultWriteResult> {
     const manifest = await this.cachedOrOnlineManifest();
     const file = this.findByPath(manifest, relativePath);
@@ -884,7 +885,12 @@ export class HostedVaultClient implements VaultClient {
     if (!Number.isInteger(expectedSequence) || expectedSequence < 0) {
       throw new Error('Hosted document versions must be revision sequence numbers.');
     }
-    const payload = { targetFileId: file.id, expectedRevisionSequence: expectedSequence, content };
+    const payload = {
+      targetFileId: file.id,
+      expectedRevisionSequence: expectedSequence,
+      content,
+      ...(baseContent !== undefined ? { baseContent } : {}),
+    };
     const document = await this.request<HostedTextDocument>('POST', `/files/${file.id}/revisions`, {
       expectedRevisionSequence: expectedSequence,
       content,

@@ -75,11 +75,14 @@ cross-platform plans rather than implemented as Android-only forks.
 
 Open tracker entries:
 
-- Phase 0, **Not started**: finalize the native `.sheet` schema, formula/rendering
-  engine choices, licenses, limits, and large-grid proof.
-- Phases 1-9, **Not started**: implement the document domain, desktop editor,
-  formulas, spreadsheet interactions, data tools, collaboration, analysis,
-  mobile experience, and release hardening.
+- Phases 0-2, **Complete**: the `.sheet` schema, bounded formula boundary,
+  document domain, virtualized desktop editor, and normal vault lifecycle are
+  implemented.
+- Phases 3-6, **Testing**: formulas, spreadsheet interactions, data tools, and
+  hosted/offline collaboration are implemented and remain under integration
+  and physical multi-client testing.
+- Phases 7-9, **Planned**: charts/analysis and Collab embeds, the mobile sheet
+  experience, and release hardening.
 - Phase 10, **Not started**: add bounded `.xlsx`/`.csv` import into `.sheet` and
   export from `.sheet`. External formats remain conversion targets rather than
   live or losslessly compatible document models.
