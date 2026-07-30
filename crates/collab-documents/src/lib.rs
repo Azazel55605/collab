@@ -320,6 +320,11 @@ pub fn references(
             query.source_path,
             query.target_path,
         )?),
+        DocumentKind::Sheet => Ok(references::collect_sheet_references(
+            content,
+            query.source_path,
+            query.target_path,
+        )?),
         _ => Ok(Vec::new()),
     }
 }
@@ -344,6 +349,9 @@ pub fn rewrite_references(
         }
         DocumentKind::Canvas => {
             references::rewrite_canvas_references(content, rewrite.old_path, rewrite.new_path)?
+        }
+        DocumentKind::Sheet => {
+            references::rewrite_sheet_references(content, rewrite.old_path, rewrite.new_path)?
         }
         _ => content.to_owned(),
     };

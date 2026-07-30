@@ -28,9 +28,13 @@ import {
 } from '../../types/sheet';
 import type {
   SheetCell,
+  SheetCellAttachment,
+  SheetChart,
+  SheetChartKind,
   SheetColumn,
   SheetColumnFilter,
   SheetDocument,
+  SheetDataConnection,
   SheetFilterState,
   SheetNamedRange,
   SheetRange,
@@ -96,6 +100,7 @@ const KNOWN_DOCUMENT_KEYS = new Set([
   'worksheets',
   'styles',
   'namedRanges',
+  'dataConnections',
   'metadata',
 ]);
 
@@ -128,6 +133,7 @@ const KNOWN_CELL_KEYS = new Set([
   'note',
   'validationId',
   'link',
+  'attachments',
 ]);
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -191,6 +197,22 @@ export function createSheetProtectedRangeId() {
 
 export function createSheetNamedRangeId() {
   return newId('nr');
+}
+
+export function createSheetChartId() {
+  return newId('chart');
+}
+
+export function createSheetChartSeriesId() {
+  return newId('series');
+}
+
+export function createSheetAttachmentId() {
+  return newId('att');
+}
+
+export function createSheetDataConnectionId() {
+  return newId('conn');
 }
 
 export function createSheetWorksheetId() {
@@ -308,12 +330,34 @@ function normalizeCell(value: unknown): SheetCell | null {
   if (typeof record.note === 'string') cell.note = record.note;
   if (typeof record.validationId === 'string') cell.validationId = record.validationId;
   if (typeof record.link === 'string') cell.link = record.link;
+  if (Array.isArray(record.attachments)) {
+    const ids = new Set<string>();
+    const attachments = record.attachments.flatMap((raw): SheetCellAttachment[] => {
+      const attachment = asRecord(raw);
+      if (!attachment || typeof attachment.relativePath !== 'string' || !attachment.relativePath.trim()) {
+        return [];
+      }
+      const id = isValidSheetId(attachment.id) && !ids.has(attachment.id)
+        ? attachment.id
+        : createSheetAttachmentId();
+      ids.add(id);
+      return [{
+        id,
+        relativePath: attachment.relativePath.trim(),
+        ...(typeof attachment.label === 'string' && attachment.label.trim()
+          ? { label: attachment.label.trim() }
+          : {}),
+      }];
+    });
+    if (attachments.length > 0) cell.attachments = attachments;
+  }
 
   const meaningful = cell.value !== undefined
     || cell.formula !== undefined
     || cell.styleId !== undefined
     || cell.note !== undefined
     || cell.link !== undefined
+    || cell.attachments !== undefined
     || cell.validationId !== undefined;
   return meaningful ? cell : null;
 }
@@ -679,7 +723,76 @@ function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWor
     if (protectedRanges.length > 0) worksheet.protectedRanges = protectedRanges;
   }
   if (Array.isArray(record.charts)) {
-    worksheet.charts = record.charts as SheetWorksheet['charts'];
+    if (record.charts.length > SHEET_LIMITS.chartsPerWorksheet) {
+      throw new SheetDocumentError(
+        'limit-exceeded',
+        `A worksheet may not have more than ${SHEET_LIMITS.chartsPerWorksheet} charts.`,
+      );
+    }
+    const chartIds = new Set<string>();
+    const chartKinds = new Set<SheetChartKind>([
+      'column', 'bar', 'line', 'area', 'pie', 'scatter', 'sparkline',
+    ]);
+    const charts = record.charts.flatMap((rawChart): SheetChart[] => {
+      const chart = asRecord(rawChart);
+      const anchor = asRecord(chart?.anchor);
+      if (
+        !chart
+        || !chartKinds.has(chart.kind as SheetChartKind)
+        || !anchor
+        || !rowIds.has(String(anchor.rowId))
+        || !columnIds.has(String(anchor.columnId))
+        || !Array.isArray(chart.series)
+      ) {
+        return [];
+      }
+      const seriesIds = new Set<string>();
+      const series = chart.series.flatMap((rawSeries) => {
+        const item = asRecord(rawSeries);
+        const valuesRange = item ? normalizeStableRange(item.valuesRange, rowIds, columnIds) : null;
+        const categoriesRange = item?.categoriesRange === undefined
+          ? undefined
+          : normalizeStableRange(item.categoriesRange, rowIds, columnIds);
+        if (!item || !valuesRange || (item.categoriesRange !== undefined && !categoriesRange)) {
+          return [];
+        }
+        const id = isValidSheetId(item.id) && !seriesIds.has(item.id)
+          ? item.id
+          : createSheetChartSeriesId();
+        seriesIds.add(id);
+        return [{
+          id,
+          valuesRange,
+          ...(categoriesRange ? { categoriesRange } : {}),
+          ...(typeof item.name === 'string' && item.name.trim() ? { name: item.name.trim() } : {}),
+          ...(typeof item.color === 'string' && item.color.trim() ? { color: item.color.trim() } : {}),
+        }];
+      });
+      if (series.length === 0 || series.length !== chart.series.length) return [];
+      const id = isValidSheetId(chart.id) && !chartIds.has(chart.id)
+        ? chart.id
+        : createSheetChartId();
+      chartIds.add(id);
+      return [{
+        id,
+        kind: chart.kind as SheetChartKind,
+        ...(typeof chart.title === 'string' && chart.title.trim() ? { title: chart.title.trim() } : {}),
+        series,
+        anchor: {
+          rowId: String(anchor.rowId),
+          columnId: String(anchor.columnId),
+          width: Math.max(120, Math.min(1_600, positiveNumber(anchor.width) ?? 480)),
+          height: Math.max(80, Math.min(1_200, positiveNumber(anchor.height) ?? 280)),
+        },
+        ...(typeof chart.description === 'string' && chart.description.trim()
+          ? { description: chart.description.trim() }
+          : {}),
+      }];
+    });
+    if (charts.length !== record.charts.length) {
+      context.warnings.push('Dropped chart(s) with invalid or missing row/column references.');
+    }
+    if (charts.length > 0) worksheet.charts = charts;
   }
 
   return worksheet;
@@ -885,6 +998,71 @@ export function normalizeSheetDocument(input: unknown, name = 'Workbook'): Sheet
     context.warnings.push('Dropped invalid or conflicting named range(s).');
   }
 
+  if (Array.isArray(migrated.dataConnections)
+    && migrated.dataConnections.length > SHEET_LIMITS.dataConnectionsPerWorkbook) {
+    throw new SheetDocumentError(
+      'limit-exceeded',
+      `A workbook may not have more than ${SHEET_LIMITS.dataConnectionsPerWorkbook} data connections.`,
+    );
+  }
+  const connectionIds = new Set<string>();
+  const dataConnections = Array.isArray(migrated.dataConnections)
+    ? migrated.dataConnections.flatMap((rawConnection): SheetDataConnection[] => {
+      const connection = asRecord(rawConnection);
+      if (
+        !connection
+        || (connection.kind !== 'kanbanTasks' && connection.kind !== 'calendarItems')
+        || typeof connection.targetWorksheetId !== 'string'
+      ) return [];
+      const worksheet = worksheets.find((candidate) => candidate.id === connection.targetWorksheetId);
+      if (!worksheet) return [];
+      const targetRange = normalizeStableRange(
+        connection.targetRange,
+        new Set(worksheet.rowOrder),
+        new Set(worksheet.columnOrder),
+      );
+      if (!targetRange || !Array.isArray(connection.columns)) return [];
+      const columns = connection.columns.flatMap((rawColumn) => {
+        const column = asRecord(rawColumn);
+        return column
+          && typeof column.key === 'string'
+          && typeof column.label === 'string'
+          && typeof column.columnId === 'string'
+          && worksheet.columnOrder.includes(column.columnId)
+          ? [{
+            key: column.key,
+            label: column.label,
+            columnId: column.columnId,
+          }]
+          : [];
+      });
+      if (columns.length === 0 || columns.length !== connection.columns.length) return [];
+      const id = isValidSheetId(connection.id) && !connectionIds.has(connection.id)
+        ? connection.id
+        : createSheetDataConnectionId();
+      connectionIds.add(id);
+      return [{
+        id,
+        kind: connection.kind,
+        ...(typeof connection.sourcePath === 'string' && connection.sourcePath.trim()
+          ? { sourcePath: connection.sourcePath.trim() }
+          : {}),
+        ...(typeof connection.calendarId === 'string' && connection.calendarId.trim()
+          ? { calendarId: connection.calendarId.trim() }
+          : {}),
+        targetWorksheetId: worksheet.id,
+        targetRange,
+        columns,
+        refreshedAt: optionalString(connection.refreshedAt) ?? new Date(0).toISOString(),
+        itemCount: Math.max(0, Math.floor(positiveNumber(connection.itemCount) ?? 0)),
+      }];
+    })
+    : undefined;
+  if (dataConnections && Array.isArray(migrated.dataConnections)
+    && dataConnections.length !== migrated.dataConnections.length) {
+    context.warnings.push('Dropped invalid data connection(s).');
+  }
+
   const document: SheetDocument = {
     ...unknownKeys(migrated, KNOWN_DOCUMENT_KEYS),
     kind: SHEET_DOCUMENT_KIND,
@@ -900,6 +1078,9 @@ export function normalizeSheetDocument(input: unknown, name = 'Workbook'): Sheet
     styles,
   };
   if (namedRanges && namedRanges.length > 0) document.namedRanges = namedRanges;
+  if (dataConnections && dataConnections.length > 0) {
+    document.dataConnections = dataConnections;
+  }
   const metadata = asRecord(migrated.metadata);
   if (metadata) document.metadata = metadata;
 

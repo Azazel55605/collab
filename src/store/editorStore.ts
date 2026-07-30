@@ -29,6 +29,11 @@ export interface PendingSearchJump {
   query: string;
 }
 
+export interface PendingSheetJump {
+  relativePath: string;
+  range: string;
+}
+
 interface EditorState {
   sessionVaultPath: string | null;
   openTabs: OpenTab[];
@@ -36,6 +41,7 @@ interface EditorState {
   forceReloadPath: string | null;
   revealEditorPath: string | null;
   pendingSearchJump: PendingSearchJump | null;
+  pendingSheetJump: PendingSheetJump | null;
   noteViewStates: Record<string, NoteEditorViewState>;
   sheetViewStates: Record<string, SheetViewState>;
   setSessionVaultPath: (vaultPath: string | null) => void;
@@ -52,6 +58,7 @@ interface EditorState {
   setForceReloadPath: (path: string | null) => void;
   setRevealEditorPath: (path: string | null) => void;
   setPendingSearchJump: (target: PendingSearchJump | null) => void;
+  setPendingSheetJump: (target: PendingSheetJump | null) => void;
   setNoteViewState: (relativePath: string, viewState: NoteEditorViewState) => void;
   setSheetViewState: (relativePath: string, viewState: SheetViewState) => void;
 }
@@ -82,6 +89,7 @@ export const useEditorStore = create<EditorState>()(
   forceReloadPath: null,
   revealEditorPath: null,
   pendingSearchJump: null,
+  pendingSheetJump: null,
   noteViewStates: {},
   sheetViewStates: {},
 
@@ -94,6 +102,7 @@ export const useEditorStore = create<EditorState>()(
     forceReloadPath: null,
     revealEditorPath: null,
     pendingSearchJump: null,
+    pendingSheetJump: null,
     noteViewStates: {},
     sheetViewStates: {},
   }),
@@ -204,6 +213,7 @@ export const useEditorStore = create<EditorState>()(
   setForceReloadPath: (forceReloadPath) => set({ forceReloadPath }),
   setRevealEditorPath: (revealEditorPath) => set({ revealEditorPath }),
   setPendingSearchJump: (pendingSearchJump) => set({ pendingSearchJump }),
+  setPendingSheetJump: (pendingSheetJump) => set({ pendingSheetJump }),
   setNoteViewState: (relativePath, viewState) => set((state) => ({
     noteViewStates: {
       ...state.noteViewStates,

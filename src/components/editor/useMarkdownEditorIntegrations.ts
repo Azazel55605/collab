@@ -389,6 +389,19 @@ export function handleEditorDocumentLinkMouseDown(event: MouseEvent, currentDocu
 
   if (!linkTarget) return false;
 
+  if (linkTarget.type === 'sheet' && linkEl?.dataset.url) {
+    const match = linkEl.dataset.url.match(/#range=([^&]+)/i);
+    if (match) {
+      try {
+        useEditorStore.getState().setPendingSheetJump({
+          relativePath: linkTarget.relativePath,
+          range: decodeURIComponent(match[1]),
+        });
+      } catch {
+        // Malformed fragments still open the workbook without a range jump.
+      }
+    }
+  }
   useEditorStore.getState().openTab(linkTarget.relativePath, linkTarget.title, linkTarget.type);
   useUiStore.getState().setActiveView(getVaultDocumentView(linkTarget.type));
   event.preventDefault();

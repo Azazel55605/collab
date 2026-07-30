@@ -12,6 +12,8 @@
 import { SHEET_LIMITS, sheetCellKey } from '../../types/sheet';
 import type {
   SheetCell,
+  SheetCellAttachment,
+  SheetChart,
   SheetColumn,
   SheetConditionalFormat,
   SheetDocument,
@@ -104,6 +106,10 @@ export function setCell(
       if (existing?.validationId && cell.validationId === undefined) {
         preserved.validationId = existing.validationId;
       }
+      if (existing?.link && cell.link === undefined) preserved.link = existing.link;
+      if (existing?.attachments && cell.attachments === undefined) {
+        preserved.attachments = existing.attachments;
+      }
       cells[key] = { ...cell, ...preserved };
       if (Object.keys(cells).length > SHEET_LIMITS.populatedCellsPerWorksheet) {
         throw new SheetDocumentError(
@@ -116,6 +122,8 @@ export function setCell(
       if (existing.styleId) preserved.styleId = existing.styleId;
       if (existing.note) preserved.note = existing.note;
       if (existing.validationId) preserved.validationId = existing.validationId;
+      if (existing.link) preserved.link = existing.link;
+      if (existing.attachments) preserved.attachments = existing.attachments;
       if (Object.keys(preserved).length > 0) cells[key] = preserved;
       else delete cells[key];
     }
@@ -153,6 +161,70 @@ export function setCellNote(
   });
 }
 
+/** Updates Collab link/attachment metadata without touching cell contents. */
+export function setCellLinks(
+  document: SheetDocument,
+  worksheetId: string,
+  position: SheetPosition,
+  link: string | null,
+  attachments: SheetCellAttachment[],
+): SheetDocument {
+  return mapWorksheet(document, worksheetId, (worksheet) => {
+    const rowId = worksheet.rowOrder[position.row];
+    const columnId = worksheet.columnOrder[position.column];
+    if (!rowId || !columnId) return worksheet;
+    const key = sheetCellKey(rowId, columnId);
+    const existing = worksheet.cells[key];
+    const nextCell: SheetCell = { ...(existing ?? {}) };
+    if (link?.trim()) nextCell.link = link.trim();
+    else delete nextCell.link;
+    if (attachments.length > 0) nextCell.attachments = attachments;
+    else delete nextCell.attachments;
+    const cells = { ...worksheet.cells };
+    if (Object.keys(nextCell).length > 0) cells[key] = nextCell;
+    else delete cells[key];
+    return { ...worksheet, cells };
+  });
+}
+
+export function upsertSheetChart(
+  document: SheetDocument,
+  worksheetId: string,
+  chart: SheetChart,
+): SheetDocument {
+  return mapWorksheet(document, worksheetId, (worksheet) => {
+    const charts = worksheet.charts ?? [];
+    const index = charts.findIndex((candidate) => candidate.id === chart.id);
+    if (index < 0 && charts.length >= SHEET_LIMITS.chartsPerWorksheet) {
+      throw new SheetDocumentError(
+        'limit-exceeded',
+        `A worksheet may not have more than ${SHEET_LIMITS.chartsPerWorksheet} charts.`,
+      );
+    }
+    return {
+      ...worksheet,
+      charts: index < 0
+        ? [...charts, chart]
+        : charts.map((candidate) => candidate.id === chart.id ? chart : candidate),
+    };
+  });
+}
+
+export function removeSheetChart(
+  document: SheetDocument,
+  worksheetId: string,
+  chartId: string,
+): SheetDocument {
+  return mapWorksheet(document, worksheetId, (worksheet) => {
+    const charts = worksheet.charts?.filter((chart) => chart.id !== chartId);
+    if (charts?.length === worksheet.charts?.length) return worksheet;
+    const next = { ...worksheet };
+    if (charts && charts.length > 0) next.charts = charts;
+    else delete next.charts;
+    return next;
+  });
+}
+
 export function getCell(
   worksheet: SheetWorksheet,
   position: SheetPosition,
@@ -183,6 +255,8 @@ export function clearCells(
       if (existing.styleId) preserved.styleId = existing.styleId;
       if (existing.note) preserved.note = existing.note;
       if (existing.validationId) preserved.validationId = existing.validationId;
+      if (existing.link) preserved.link = existing.link;
+      if (existing.attachments) preserved.attachments = existing.attachments;
       if (Object.keys(preserved).length > 0) cells[key] = preserved;
       else delete cells[key];
       removed += 1;
@@ -378,6 +452,27 @@ function pruneReferences(worksheet: SheetWorksheet, removed: Set<string>, axis: 
     else delete next.protectedRanges;
   }
 
+  if (worksheet.charts) {
+    const charts = worksheet.charts.flatMap((chart): SheetChart[] => {
+      if (removed.has(axis === 'row' ? chart.anchor.rowId : chart.anchor.columnId)) return [];
+      const series = chart.series.flatMap((item) => {
+        const valuesRange = shrinkRange(worksheet, item.valuesRange, removed, axis);
+        const categoriesRange = item.categoriesRange
+          ? shrinkRange(worksheet, item.categoriesRange, removed, axis)
+          : undefined;
+        if (!valuesRange || (item.categoriesRange && !categoriesRange)) return [];
+        return [{
+          ...item,
+          valuesRange,
+          ...(categoriesRange ? { categoriesRange } : {}),
+        }];
+      });
+      return series.length > 0 ? [{ ...chart, series }] : [];
+    });
+    if (charts.length > 0) next.charts = charts;
+    else delete next.charts;
+  }
+
   return next;
 }
 
@@ -441,11 +536,20 @@ export function deleteTracks(
     const range = shrinkRange(source, namedRange.range, removed, axis);
     return range ? [{ ...namedRange, range }] : [];
   });
-  const repaired = namedRanges.length > 0
-    ? { ...next, namedRanges }
-    : Object.fromEntries(
-      Object.entries(next).filter(([key]) => key !== 'namedRanges'),
-    ) as SheetDocument;
+  const dataConnections = (document.dataConnections ?? []).flatMap((connection) => {
+    if (connection.targetWorksheetId !== worksheetId) return [connection];
+    if (
+      axis === 'column'
+      && connection.columns.some((column) => removed.has(column.columnId))
+    ) return [];
+    const targetRange = shrinkRange(source, connection.targetRange, removed, axis);
+    return targetRange ? [{ ...connection, targetRange }] : [];
+  });
+  const repaired: SheetDocument = { ...next };
+  if (namedRanges.length > 0) repaired.namedRanges = namedRanges;
+  else delete repaired.namedRanges;
+  if (dataConnections.length > 0) repaired.dataConnections = dataConnections;
+  else delete repaired.dataConnections;
   return rewriteDocumentFormulaReferences(document, repaired);
 }
 

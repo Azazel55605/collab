@@ -283,7 +283,7 @@ It must remain ephemeral and must not be written into the workbook.
 | 4. Formatting and spreadsheet interactions | Testing | Formatting, clipboard variants, fill/series behavior, bounded undo/redo, search/replace, notes, and range print/export are implemented. |
 | 5. Tables and data tools | Testing | Tables, filtering, validation, conditional formatting, named ranges, editor protection, summaries, cleanup tools, and combined interaction matrices are implemented. |
 | 6. Hosted collaboration and offline behavior | Testing | Structured live sessions, stable-ID presence and merging, offline queues, conflict handling, and revision-safe recovery are implemented; physical two-client validation remains. |
-| 7. Charts, analysis, and Collab integration | Not started | Add charts, summaries, links/attachments, note embeds, and task/calendar data connections. |
+| 7. Charts, analysis, and Collab integration | Testing | Stable-range charts, bounded summaries, vault references, source-linked note embeds, and explicit Kanban/calendar snapshots are implemented. |
 | 8. Mobile sheet experience | Not started | Add a responsive viewer and bounded editing for values, formulas, filters, and worksheet navigation. |
 | 9. Performance, accessibility, and release hardening | Not started | Validate scale, keyboard/accessibility behavior, recovery, packaging, and multi-platform correctness. |
 | 10. XLSX and CSV conversion | Not started | Import external files into `.sheet` and export `.sheet` copies without making external formats authoritative. |
@@ -594,20 +594,40 @@ migrated hosted server remains the release gate while this phase is in Testing.
 
 ### Phase 7: Charts, Analysis, And Collab Integration
 
-- [ ] Add column, bar, line, area, pie, scatter, and compact sparkline charts.
-- [ ] Store chart definitions against stable ranges and update them after
+- [x] Add column, bar, line, area, pie, scatter, and compact sparkline charts.
+- [x] Store chart definitions against stable ranges and update them after
   structural edits.
-- [ ] Add grouped summaries and a bounded pivot-style summary view without
+- [x] Add grouped summaries and a bounded pivot-style summary view without
   promising Excel pivot compatibility.
-- [ ] Add vault-file links and attachments in cell metadata.
-- [ ] Add source-linked sheet/range embeds for notes that reopen the workbook.
-- [ ] Add optional read-only data connections to Kanban tasks and calendar
+- [x] Add vault-file links and attachments in cell metadata.
+- [x] Add source-linked sheet/range embeds for notes that reopen the workbook.
+- [x] Add optional read-only data connections to Kanban tasks and calendar
   items through explicit refreshable snapshots.
-- [ ] Keep live external/network data functions out of formulas.
-- [ ] Add chart accessibility summaries and export rendering.
+- [x] Keep live external/network data functions out of formulas.
+- [x] Add chart accessibility summaries and export rendering.
 
 Exit gate: users can visualize workbook data and create source-linked Collab
 embeds without introducing hidden external execution or stale dead snapshots.
+
+Phase 7 is implemented and in **Testing**. Chart definitions and snapshot
+targets use stable row and column IDs, and structural deletion shrinks or
+removes definitions that lose their targets. The desktop analysis dialog
+supports all seven planned chart kinds, SVG export with an accessibility
+summary, grouped aggregates, and a bounded pivot-style sum view.
+
+Cells can carry a vault-relative link plus stable attachment records. The
+shared `collab-documents` reference layer now collects and rewrites those
+references for local and hosted rename, move, trash, and backlink workflows.
+Selected ranges can be exported into an open note as source-linked SVG embeds;
+activating the embed reopens the workbook and restores the encoded range.
+
+Kanban and calendar connections are explicit refresh descriptors. Refresh
+materializes up to 5,000 source records into ordinary inert cell values and
+replaces only the managed range. They do not run in formulas, fetch arbitrary
+URLs, or silently update in the background. Automated rendering, stable-range,
+refresh replacement, reference rewrite, editor flow, and collaboration tests
+cover the implementation; desktop interaction and export inspection remain the
+release gate while the phase is in Testing.
 
 ### Phase 8: Mobile Sheet Experience
 

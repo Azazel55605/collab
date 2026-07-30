@@ -37,6 +37,7 @@ export const SHEET_LIMITS = {
   worksheetNameLength: 64,
   stylesPerWorkbook: 10_000,
   namedRangesPerWorkbook: 1_000,
+  dataConnectionsPerWorkbook: 100,
   mergedRangesPerWorksheet: 10_000,
   tablesPerWorksheet: 1_000,
   validationsPerWorksheet: 1_000,
@@ -107,6 +108,14 @@ export interface SheetCell {
   validationId?: string;
   /** Vault-relative path or wikilink target, for cell-level Collab links. */
   link?: string;
+  /** Vault-relative files associated with this cell. */
+  attachments?: SheetCellAttachment[];
+}
+
+export interface SheetCellAttachment {
+  id: string;
+  relativePath: string;
+  label?: string;
 }
 
 /** A rectangular range expressed in stable row/column IDs. */
@@ -242,6 +251,31 @@ export interface SheetChart {
   description?: string;
 }
 
+export type SheetDataConnectionKind = 'kanbanTasks' | 'calendarItems';
+
+export interface SheetDataConnectionColumn {
+  key: string;
+  label: string;
+  columnId: SheetColumnId;
+}
+
+/**
+ * A refresh descriptor for values already materialized into normal cells.
+ * Connections never execute from formulas and never fetch arbitrary URLs.
+ */
+export interface SheetDataConnection {
+  id: string;
+  kind: SheetDataConnectionKind;
+  /** Vault-relative `.kanban` path. Calendar connections use `calendarId`. */
+  sourcePath?: string;
+  calendarId?: string;
+  targetWorksheetId: SheetWorksheetId;
+  targetRange: SheetRange;
+  columns: SheetDataConnectionColumn[];
+  refreshedAt: string;
+  itemCount: number;
+}
+
 export type SheetSortDirection = 'ascending' | 'descending';
 
 export interface SheetSortRule {
@@ -332,6 +366,7 @@ export interface SheetDocument {
   worksheets: SheetWorksheet[];
   styles: Record<SheetStyleId, SheetStyle>;
   namedRanges?: SheetNamedRange[];
+  dataConnections?: SheetDataConnection[];
   /** Forward-compatible bag for unknown-but-preserved fields. */
   metadata?: Record<string, unknown>;
 }

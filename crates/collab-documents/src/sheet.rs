@@ -35,6 +35,7 @@ pub struct SheetLimits {
     pub worksheet_name_length: usize,
     pub styles_per_workbook: usize,
     pub named_ranges_per_workbook: usize,
+    pub data_connections_per_workbook: usize,
     pub merged_ranges_per_worksheet: usize,
     pub tables_per_worksheet: usize,
     pub validations_per_worksheet: usize,
@@ -55,6 +56,7 @@ pub const DEFAULT_SHEET_LIMITS: SheetLimits = SheetLimits {
     worksheet_name_length: 64,
     styles_per_workbook: 10_000,
     named_ranges_per_workbook: 1_000,
+    data_connections_per_workbook: 100,
     merged_ranges_per_worksheet: 10_000,
     tables_per_worksheet: 1_000,
     validations_per_worksheet: 1_000,
@@ -373,6 +375,88 @@ pub fn validate_document(value: &Value, limits: SheetLimits) -> Result<(), Sheet
                 })?;
             check_range(range, &row_ids, &column_ids)?;
         }
+        let mut chart_ids = Vec::new();
+        for chart in optional_array(worksheet.get("charts"), "charts")? {
+            let chart = chart
+                .as_object()
+                .ok_or(SheetValidationError::WrongType { field: "chart" })?;
+            let id = identifier(chart.get("id"), "chart")?;
+            if chart_ids.iter().any(|existing| existing == &id) {
+                return Err(SheetValidationError::DuplicateId { kind: "chart", id });
+            }
+            chart_ids.push(id);
+            let kind = chart.get("kind").and_then(Value::as_str).ok_or(
+                SheetValidationError::WrongType {
+                    field: "chart.kind",
+                },
+            )?;
+            if !matches!(
+                kind,
+                "column" | "bar" | "line" | "area" | "pie" | "scatter" | "sparkline"
+            ) {
+                return Err(SheetValidationError::WrongType {
+                    field: "chart.kind",
+                });
+            }
+            let anchor = chart.get("anchor").and_then(Value::as_object).ok_or(
+                SheetValidationError::WrongType {
+                    field: "chart.anchor",
+                },
+            )?;
+            let anchor_row = anchor.get("rowId").and_then(Value::as_str).ok_or(
+                SheetValidationError::WrongType {
+                    field: "chart.anchor.rowId",
+                },
+            )?;
+            let anchor_column = anchor.get("columnId").and_then(Value::as_str).ok_or(
+                SheetValidationError::WrongType {
+                    field: "chart.anchor.columnId",
+                },
+            )?;
+            if !row_ids.iter().any(|row| row == anchor_row) {
+                return Err(SheetValidationError::DanglingReference {
+                    kind: "row",
+                    id: anchor_row.to_string(),
+                });
+            }
+            if !column_ids.iter().any(|column| column == anchor_column) {
+                return Err(SheetValidationError::DanglingReference {
+                    kind: "column",
+                    id: anchor_column.to_string(),
+                });
+            }
+            let series = optional_array(chart.get("series"), "chart.series")?;
+            if series.is_empty() {
+                return Err(SheetValidationError::WrongType {
+                    field: "chart.series",
+                });
+            }
+            let mut series_ids = Vec::new();
+            for item in series {
+                let item = item.as_object().ok_or(SheetValidationError::WrongType {
+                    field: "chart.series",
+                })?;
+                let series_id = identifier(item.get("id"), "chart series")?;
+                if series_ids.iter().any(|existing| existing == &series_id) {
+                    return Err(SheetValidationError::DuplicateId {
+                        kind: "chart series",
+                        id: series_id,
+                    });
+                }
+                series_ids.push(series_id);
+                check_range(
+                    item.get("valuesRange")
+                        .ok_or(SheetValidationError::WrongType {
+                            field: "chart.series.valuesRange",
+                        })?,
+                    &row_ids,
+                    &column_ids,
+                )?;
+                if let Some(categories) = item.get("categoriesRange") {
+                    check_range(categories, &row_ids, &column_ids)?;
+                }
+            }
+        }
     }
 
     if let Some(active) = object.get("activeWorksheetId") {
@@ -472,6 +556,61 @@ pub fn validate_document(value: &Value, limits: SheetLimits) -> Result<(), Sheet
                 field: "namedRange.range",
             })?;
         check_range(range, row_ids, column_ids)?;
+    }
+
+    let data_connections = optional_array(object.get("dataConnections"), "dataConnections")?;
+    check_limit(
+        data_connections.len(),
+        limits.data_connections_per_workbook,
+        "data connection",
+    )?;
+    let mut connection_ids = Vec::new();
+    for connection in data_connections {
+        let connection = connection
+            .as_object()
+            .ok_or(SheetValidationError::WrongType {
+                field: "dataConnection",
+            })?;
+        let id = identifier(connection.get("id"), "data connection")?;
+        if connection_ids.iter().any(|existing| existing == &id) {
+            return Err(SheetValidationError::DuplicateId {
+                kind: "data connection",
+                id,
+            });
+        }
+        connection_ids.push(id);
+        let kind = connection.get("kind").and_then(Value::as_str).ok_or(
+            SheetValidationError::WrongType {
+                field: "dataConnection.kind",
+            },
+        )?;
+        if !matches!(kind, "kanbanTasks" | "calendarItems") {
+            return Err(SheetValidationError::WrongType {
+                field: "dataConnection.kind",
+            });
+        }
+        let worksheet_id = connection
+            .get("targetWorksheetId")
+            .and_then(Value::as_str)
+            .ok_or(SheetValidationError::WrongType {
+                field: "dataConnection.targetWorksheetId",
+            })?;
+        let (_, rows, columns) = worksheet_tracks
+            .iter()
+            .find(|(candidate, _, _)| candidate == worksheet_id)
+            .ok_or_else(|| SheetValidationError::DanglingReference {
+                kind: "worksheet",
+                id: worksheet_id.to_string(),
+            })?;
+        check_range(
+            connection
+                .get("targetRange")
+                .ok_or(SheetValidationError::WrongType {
+                    field: "dataConnection.targetRange",
+                })?,
+            rows,
+            columns,
+        )?;
     }
 
     Ok(())
@@ -836,6 +975,53 @@ mod tests {
             Err(SheetValidationError::DanglingReference {
                 kind: "row",
                 id: "r9".into()
+            })
+        );
+    }
+
+    #[test]
+    fn validates_chart_and_data_connection_stable_references() {
+        let mut document = workbook();
+        document["worksheets"][0]["charts"] = json!([{
+            "id": "chart1",
+            "kind": "line",
+            "anchor": {"rowId": "r1", "columnId": "c1", "width": 480, "height": 280},
+            "series": [{
+                "id": "series1",
+                "valuesRange": {
+                    "startRowId": "r1",
+                    "endRowId": "r2",
+                    "startColumnId": "c1",
+                    "endColumnId": "c1"
+                }
+            }]
+        }]);
+        document["dataConnections"] = json!([{
+            "id": "conn1",
+            "kind": "kanbanTasks",
+            "sourcePath": "Project.kanban",
+            "targetWorksheetId": "ws1",
+            "targetRange": {
+                "startRowId": "r1",
+                "endRowId": "r2",
+                "startColumnId": "c1",
+                "endColumnId": "c2"
+            },
+            "columns": [
+                {"key": "title", "label": "Task", "columnId": "c1"}
+            ],
+            "refreshedAt": "2026-01-01T00:00:00Z",
+            "itemCount": 1
+        }]);
+        assert_eq!(validate_document(&document, DEFAULT_SHEET_LIMITS), Ok(()));
+
+        document["worksheets"][0]["charts"][0]["series"][0]["valuesRange"]["endRowId"] =
+            json!("missing");
+        assert_eq!(
+            validate_document(&document, DEFAULT_SHEET_LIMITS),
+            Err(SheetValidationError::DanglingReference {
+                kind: "row",
+                id: "missing".into()
             })
         );
     }

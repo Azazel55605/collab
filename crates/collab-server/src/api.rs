@@ -4650,7 +4650,12 @@ pub async fn list_file_references(
                 &target_path,
             )
             .unwrap_or_default(),
-            HostedDocumentType::Sheet => Vec::new(),
+            HostedDocumentType::Sheet => collab_documents::references::collect_sheet_references(
+                &content,
+                &file.relative_path,
+                &target_path,
+            )
+            .unwrap_or_default(),
         };
         for reference in collected {
             let referenced_file_id = path_ids
@@ -5170,7 +5175,10 @@ async fn compute_reference_rewrites(
                 &content, old_path, new_path,
             )
             .ok(),
-            HostedDocumentType::Sheet => None,
+            HostedDocumentType::Sheet => {
+                collab_documents::references::rewrite_sheet_references(&content, old_path, new_path)
+                    .ok()
+            }
         };
         let Some(rewritten) = rewritten else {
             continue;

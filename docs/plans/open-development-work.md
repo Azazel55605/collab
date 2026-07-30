@@ -78,11 +78,11 @@ Open tracker entries:
 - Phases 0-2, **Complete**: the `.sheet` schema, bounded formula boundary,
   document domain, virtualized desktop editor, and normal vault lifecycle are
   implemented.
-- Phases 3-6, **Testing**: formulas, spreadsheet interactions, data tools, and
-  hosted/offline collaboration are implemented and remain under integration
-  and physical multi-client testing.
-- Phases 7-9, **Planned**: charts/analysis and Collab embeds, the mobile sheet
-  experience, and release hardening.
+- Phases 3-7, **Testing**: formulas, spreadsheet interactions, data tools,
+  hosted/offline collaboration, charts/analysis, Collab references, note
+  embeds, and snapshot data connections are implemented and remain under
+  integration and physical multi-client testing.
+- Phases 8-9, **Planned**: the mobile sheet experience and release hardening.
 - Phase 10, **Not started**: add bounded `.xlsx`/`.csv` import into `.sheet` and
   export from `.sheet`. External formats remain conversion targets rather than
   live or losslessly compatible document models.

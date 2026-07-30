@@ -10,6 +10,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { Paperclip } from 'lucide-react';
 
 import { SHEET_DEFAULTS } from '../../types/sheet';
 import type {
@@ -123,6 +124,7 @@ export interface SheetGridProps {
   onFormulaReferenceCommit?: (range: { anchor: SheetPosition; focus: SheetPosition }) => void;
   namedRanges?: readonly SheetNamedRange[];
   remoteSelections?: readonly SheetRemoteSelection[];
+  onOpenCellLink?: (position: SheetPosition) => void;
   className?: string;
 }
 
@@ -275,15 +277,26 @@ function drawNoteIndicator(
   y: number,
   width: number,
 ) {
-  if (!cell?.note) return;
+  if (!cell?.note && !cell?.link && !cell?.attachments?.length) return;
   context.save();
-  context.fillStyle = '#f59e0b';
-  context.beginPath();
-  context.moveTo(x + width - 8, y + 1);
-  context.lineTo(x + width - 1, y + 1);
-  context.lineTo(x + width - 1, y + 8);
-  context.closePath();
-  context.fill();
+  if (cell.note) {
+    context.fillStyle = '#f59e0b';
+    context.beginPath();
+    context.moveTo(x + width - 8, y + 1);
+    context.lineTo(x + width - 1, y + 1);
+    context.lineTo(x + width - 1, y + 8);
+    context.closePath();
+    context.fill();
+  }
+  if (cell.link || cell.attachments?.length) {
+    context.fillStyle = '#06b6d4';
+    context.beginPath();
+    context.moveTo(x + 1, y + 1);
+    context.lineTo(x + 8, y + 1);
+    context.lineTo(x + 1, y + 8);
+    context.closePath();
+    context.fill();
+  }
   context.restore();
 }
 
@@ -582,6 +595,7 @@ export default function SheetGrid({
   onFormulaReferenceCommit,
   namedRanges = [],
   remoteSelections = [],
+  onOpenCellLink,
   className,
 }: SheetGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1347,6 +1361,33 @@ export default function SheetGrid({
               />
             );
           })}
+
+          {(() => {
+            const cell = getCell(worksheet, selection.active);
+            if (!onOpenCellLink || (!cell?.link && !cell?.attachments?.length)) return null;
+            const style = rectangleStyle(
+              selection.active.row,
+              selection.active.column,
+              selection.active.row,
+              selection.active.column,
+            );
+            if (!style) return null;
+            return (
+              <button
+                type="button"
+                className="absolute z-20 grid size-5 place-items-center rounded-sm border border-primary/50 bg-background text-primary shadow-sm"
+                style={{
+                  left: Number(style.left) + Number(style.width) - 22,
+                  top: Number(style.top) + 2,
+                }}
+                aria-label="Open cell link or attachment"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => onOpenCellLink(selection.active)}
+              >
+                <Paperclip size={11} />
+              </button>
+            );
+          })()}
 
           {remoteSelections.flatMap((peer) => peer.ranges.map((range, index) => {
             const rectangle = normalizeRange(range);

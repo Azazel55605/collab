@@ -169,6 +169,47 @@ describe('SheetView editor', () => {
     expect(cell.value).toBe(10);
   });
 
+  it('creates a stable-range chart from the current selection', async () => {
+    await openWorkbook();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Charts and analysis' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chart title' }), {
+      target: { value: 'Revenue' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add from selection' }));
+    expect(screen.getAllByText('Revenue').length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    const written = await writtenDocument();
+    expect(written.worksheets[0].charts).toEqual([
+      expect.objectContaining({
+        kind: 'column',
+        title: 'Revenue',
+        anchor: expect.objectContaining({
+          rowId: written.worksheets[0].rowOrder[0],
+          columnId: written.worksheets[0].columnOrder[0],
+        }),
+      }),
+    ]);
+  });
+
+  it('stores a vault link without replacing the cell value', async () => {
+    await openWorkbook();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cell links and attachments' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Cell link target' }), {
+      target: { value: 'Notes/Budget.md' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save links' }));
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+
+    const written = await writtenDocument();
+    const worksheet = written.worksheets[0];
+    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`])
+      .toMatchObject({ value: 10, link: 'Notes/Budget.md' });
+  });
+
   it('copies and pastes through the grid clipboard events', async () => {
     await openWorkbook();
     const clipboard = new Map<string, string>();

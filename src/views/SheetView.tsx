@@ -12,11 +12,15 @@ import {
   ArrowRightToLine,
   ArrowUpZA,
   BadgeCheck,
+  BarChart3,
   Bookmark,
   LockKeyhole,
   Columns3,
   Combine,
   Download,
+  Database,
+  FileOutput,
+  Link2,
   Loader2,
   Palette,
   Redo2,
@@ -60,13 +64,17 @@ import SheetValidationDialog from '../components/sheet/SheetValidationDialog';
 import SheetConditionalFormatDialog from '../components/sheet/SheetConditionalFormatDialog';
 import SheetNamedRangeDialog from '../components/sheet/SheetNamedRangeDialog';
 import SheetProtectionDialog from '../components/sheet/SheetProtectionDialog';
+import SheetAnalysisDialog from '../components/sheet/SheetAnalysisDialog';
+import SheetLinksDialog from '../components/sheet/SheetLinksDialog';
+import SheetDataConnectionsDialog from '../components/sheet/SheetDataConnectionsDialog';
 import { useEditorStore } from '../store/editorStore';
 import { useDocumentStatusRegistration } from '../store/documentStatusStore';
 import { useVaultStore } from '../store/vaultStore';
+import { useCalendarStore } from '../store/calendarStore';
 import { useUiStore } from '../store/uiStore';
 import { isVaultReadOnly } from '../types/vault';
 import { SHEET_SCHEMA_VERSION } from '../types/sheet';
-import type { SheetDocument } from '../types/sheet';
+import type { SheetChart, SheetDataConnection, SheetDocument } from '../types/sheet';
 import type { SheetPosition } from '../lib/sheet/address';
 import { formatA1, parseA1Range } from '../lib/sheet/address';
 import { SheetDocumentError, addWorksheet, removeWorksheet, renameWorksheet } from '../lib/sheet/document';
@@ -84,10 +92,13 @@ import {
   resizeTrack,
   setActiveWorksheet,
   setCellNote,
+  setCellLinks,
   setFrozen,
   setWorksheetHidden,
   summarizeSelection,
   unmergeSelection,
+  upsertSheetChart,
+  removeSheetChart,
   worksheetById,
 } from '../lib/sheet/operations';
 import {
@@ -139,6 +150,13 @@ import {
 } from '../lib/sheet/export';
 import { utf8ToBase64 } from '../lib/circuitSweepExport';
 import { tauriCommands } from '../lib/tauri';
+import { createVaultClient } from '../lib/vaultClient';
+import {
+  flattenVaultFiles,
+  getVaultDocumentView,
+  resolveVaultWikilinkTarget,
+} from '../lib/vaultLinks';
+import { getMarkdownImageTarget } from '../lib/noteAssets';
 import {
   createSheetTable,
   removeSheetTable,
@@ -174,12 +192,50 @@ import {
   resolveNamedRange,
   visibleNamedRanges,
 } from '../lib/sheet/namedRanges';
+import { buildSheetChartSvg } from '../lib/sheet/analysis';
+import {
+  applySheetDataSnapshot,
+  calendarItemSnapshot,
+  kanbanTaskSnapshot,
+  refreshSheetDataSnapshot,
+  removeSheetDataConnection,
+} from '../lib/sheet/dataConnections';
 
 interface Props {
   relativePath: string;
 }
 
 const SHEET_HISTORY_LIMIT = 100;
+
+function safeSheetExportStem(relativePath: string) {
+  const base = getDocumentBaseName(relativePath, 'workbook').replace(/\.sheet$/i, '');
+  return base.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '') || 'workbook';
+}
+
+function uniqueSheetEmbedPath(relativePath: string, rangeLabel: string, existingPaths: Set<string>) {
+  const base = `${safeSheetExportStem(relativePath)}-${rangeLabel.replace(/[^a-z0-9-]+/gi, '-')}`;
+  let candidate = `Pictures/${base}.svg`;
+  let index = 2;
+  while (existingPaths.has(candidate.toLowerCase())) {
+    candidate = `Pictures/${base}-${index}.svg`;
+    index += 1;
+  }
+  return candidate;
+}
+
+async function writeSheetSvgExport(
+  client: ReturnType<typeof createVaultClient>,
+  relativePath: string,
+  svg: string,
+) {
+  try {
+    const existing = await client.readDocument(relativePath);
+    return client.writeDocument(relativePath, svg, existing.version, existing.content);
+  } catch {
+    await client.createDocument(relativePath);
+    return client.writeDocument(relativePath, svg);
+  }
+}
 
 /**
  * `.sheet` workbook editor.
@@ -190,9 +246,29 @@ const SHEET_HISTORY_LIMIT = 100;
  * every edit here goes through a pure operation in `src/lib/sheet/operations.ts`.
  */
 export default function SheetView({ relativePath }: Props) {
-  const { vault } = useVaultStore();
-  const { dateFormat, timeFormat } = useUiStore();
-  const { markDirty, setSavedHash, sheetViewStates, setSheetViewState } = useEditorStore();
+  const { vault, fileTree, refreshFileTree } = useVaultStore();
+  const { dateFormat, timeFormat, setActiveView } = useUiStore();
+  const {
+    markDirty,
+    markSaved,
+    setSavedHash,
+    sheetViewStates,
+    setSheetViewState,
+    openTabs,
+    activeTabPath,
+    openTab,
+    setForceReloadPath,
+    pendingSheetJump,
+    setPendingSheetJump,
+  } = useEditorStore();
+  const calendars = useCalendarStore((state) => state.calendars);
+  const listCalendarItems = useCalendarStore((state) => state.listCalendarItems);
+  const client = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
+  const noteTarget = useMemo(() => (
+    openTabs.find((tab) => tab.type === 'note' && tab.relativePath === activeTabPath)
+    ?? openTabs.find((tab) => tab.type === 'note')
+    ?? null
+  ), [activeTabPath, openTabs]);
 
   const session = useSheetSession({
     vault,
@@ -235,6 +311,9 @@ export default function SheetView({ relativePath }: Props) {
   const [conditionalFormatDialogOpen, setConditionalFormatDialogOpen] = useState(false);
   const [namedRangeDialogOpen, setNamedRangeDialogOpen] = useState(false);
   const [protectionDialogOpen, setProtectionDialogOpen] = useState(false);
+  const [analysisDialogOpen, setAnalysisDialogOpen] = useState(false);
+  const [linksDialogOpen, setLinksDialogOpen] = useState(false);
+  const [dataConnectionsDialogOpen, setDataConnectionsDialogOpen] = useState(false);
 
   const worksheet = useMemo(
     () => (document ? activeWorksheetOf(document) : null),
@@ -731,6 +810,12 @@ export default function SheetView({ relativePath }: Props) {
     setSelection(namedSelection);
   }, [bounds.columnCount, bounds.rowCount, document, session, worksheet]);
 
+  useEffect(() => {
+    if (!document || pendingSheetJump?.relativePath !== relativePath) return;
+    goToRange(pendingSheetJump.range);
+    setPendingSheetJump(null);
+  }, [document, goToRange, pendingSheetJump, relativePath, setPendingSheetJump]);
+
   const exportSelection = useCallback(async (format: 'svg' | 'png') => {
     if (!document || !worksheet) return;
     const baseName = getDocumentBaseName(relativePath, 'Workbook').replace(/\.sheet$/i, '');
@@ -772,6 +857,149 @@ export default function SheetView({ relativePath }: Props) {
     timeFormat,
     worksheet,
   ]);
+
+  const exportChart = useCallback(async (chart: SheetChart) => {
+    if (!worksheet) return;
+    const svg = buildSheetChartSvg(worksheet, chart, formulaState.values);
+    const destination = await tauriCommands.showDownloadDialog(
+      `${safeSheetExportStem(relativePath)}-${chart.title || chart.kind}.svg`,
+    );
+    if (!destination) return;
+    await tauriCommands.writeDownloadedFile(destination, utf8ToBase64(svg));
+    toast.success('Chart exported as SVG.');
+  }, [formulaState.values, relativePath, worksheet]);
+
+  const insertSelectionInNote = useCallback(async () => {
+    if (!client || !document || !worksheet) return;
+    if (!noteTarget) {
+      toast.error('Open a note before inserting this sheet range.');
+      return;
+    }
+    try {
+      await session.save();
+      const rangeName = sheetRangeLabel(selection);
+      const baseName = getDocumentBaseName(relativePath, 'Workbook').replace(/\.sheet$/i, '');
+      const svg = buildSheetRangeSvg(document, worksheet, selection, {
+        computedValues: formulaState.values,
+        displayFormat: { dateFormat, timeFormat },
+        title: `${baseName} · ${rangeName}`,
+      });
+      await client.createFolder('Pictures').catch(() => undefined);
+      const paths = new Set(flattenVaultFiles(fileTree).map((file) => file.relativePath.toLowerCase()));
+      const exportedPath = uniqueSheetEmbedPath(relativePath, rangeName, paths);
+      await writeSheetSvgExport(client, exportedPath, svg);
+      await refreshFileTree();
+      const note = await client.readDocument(noteTarget.relativePath);
+      const imageTarget = getMarkdownImageTarget(noteTarget.relativePath, exportedPath);
+      const sourceTarget = getMarkdownImageTarget(noteTarget.relativePath, relativePath);
+      const sourceRange = rangeName.replace('-', ':');
+      const markdown = `[![${baseName} ${rangeName}](${imageTarget})](${sourceTarget}#range=${encodeURIComponent(sourceRange)})`;
+      const separator = note.content.trim() && !note.content.endsWith('\n') ? '\n\n' : '';
+      const result = await client.writeDocument(
+        noteTarget.relativePath,
+        `${note.content}${separator}${markdown}\n`,
+        note.version,
+        note.content,
+      );
+      markSaved(noteTarget.relativePath, result.version);
+      setForceReloadPath(noteTarget.relativePath);
+      openTab(noteTarget.relativePath, noteTarget.title, 'note');
+      setActiveView('editor');
+      toast.success(`Inserted ${rangeName} into ${noteTarget.title}.`);
+    } catch (error) {
+      toast.error(`Could not insert the sheet range: ${error}`);
+    }
+  }, [
+    client,
+    dateFormat,
+    document,
+    fileTree,
+    formulaState.values,
+    markSaved,
+    noteTarget,
+    openTab,
+    refreshFileTree,
+    relativePath,
+    selection,
+    session,
+    setActiveView,
+    setForceReloadPath,
+    timeFormat,
+    worksheet,
+  ]);
+
+  const loadConnectionSnapshot = useCallback(async (connection: SheetDataConnection) => {
+    if (!client) throw new Error('No vault is open.');
+    if (connection.kind === 'kanbanTasks') {
+      if (!connection.sourcePath) throw new Error('The Kanban source is missing.');
+      const source = await client.readDocument(connection.sourcePath);
+      return kanbanTaskSnapshot(source.content, connection.sourcePath);
+    }
+    if (!connection.calendarId) throw new Error('The calendar source is missing.');
+    return calendarItemSnapshot(
+      await listCalendarItems(connection.calendarId),
+      connection.calendarId,
+    );
+  }, [client, listCalendarItems]);
+
+  const addKanbanSnapshot = useCallback(async (sourcePath: string) => {
+    if (!client || !worksheet) return;
+    try {
+      const source = await client.readDocument(sourcePath);
+      const snapshot = kanbanTaskSnapshot(source.content, sourcePath);
+      mutate((current, id) => applySheetDataSnapshot(
+        current,
+        id,
+        selection.active,
+        snapshot,
+      ));
+      toast.success('Kanban task snapshot imported.');
+    } catch (error) {
+      toast.error(`Could not import Kanban tasks: ${error}`);
+    }
+  }, [client, mutate, selection.active, worksheet]);
+
+  const addCalendarSnapshot = useCallback(async (calendarId: string) => {
+    if (!worksheet) return;
+    try {
+      const snapshot = calendarItemSnapshot(
+        await listCalendarItems(calendarId),
+        calendarId,
+      );
+      mutate((current, id) => applySheetDataSnapshot(
+        current,
+        id,
+        selection.active,
+        snapshot,
+      ));
+      toast.success('Calendar snapshot imported.');
+    } catch (error) {
+      toast.error(`Could not import calendar items: ${error}`);
+    }
+  }, [listCalendarItems, mutate, selection.active, worksheet]);
+
+  const refreshDataSnapshot = useCallback(async (connection: SheetDataConnection) => {
+    try {
+      const snapshot = await loadConnectionSnapshot(connection);
+      mutate((current) => refreshSheetDataSnapshot(current, connection.id, snapshot));
+      toast.success('Data snapshot refreshed.');
+    } catch (error) {
+      toast.error(`Could not refresh the snapshot: ${error}`);
+    }
+  }, [loadConnectionSnapshot, mutate]);
+
+  const openCellLink = useCallback((position: SheetPosition) => {
+    if (!worksheet) return;
+    const cell = getCell(worksheet, position);
+    const rawTarget = cell?.link || cell?.attachments?.[0]?.relativePath;
+    const target = rawTarget ? resolveVaultWikilinkTarget(rawTarget, fileTree) : null;
+    if (!target) {
+      toast.error('The linked vault file could not be found.');
+      return;
+    }
+    openTab(target.relativePath, target.title, target.type);
+    setActiveView(getVaultDocumentView(target.type));
+  }, [fileTree, openTab, setActiveView, worksheet]);
 
   const formulaHighlights = useMemo(() => {
     if (!document || !worksheet) return new Map<string, 'precedent' | 'dependent'>();
@@ -944,6 +1172,30 @@ export default function SheetView({ relativePath }: Props) {
                 <LockKeyhole size={13} />
                 Protect
               </DocumentTopBarButton>
+              <DocumentTopBarButton
+                onClick={() => setLinksDialogOpen(true)}
+                disabled={!document}
+                aria-label="Cell links and attachments"
+              >
+                <Link2 size={13} />
+                Links
+              </DocumentTopBarButton>
+              <DocumentTopBarButton
+                onClick={() => setAnalysisDialogOpen(true)}
+                disabled={!document}
+                aria-label="Charts and analysis"
+              >
+                <BarChart3 size={13} />
+                Analyze
+              </DocumentTopBarButton>
+              <DocumentTopBarButton
+                onClick={() => setDataConnectionsDialogOpen(true)}
+                disabled={!document}
+                aria-label="Data snapshots"
+              >
+                <Database size={13} />
+                Data
+              </DocumentTopBarButton>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <DocumentTopBarButton aria-label="Data cleanup">
@@ -1012,6 +1264,10 @@ export default function SheetView({ relativePath }: Props) {
                   <DropdownMenuItem onSelect={printSelection}>
                     <Printer />
                     Print selection
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => { void insertSelectionInNote(); }}>
+                    <FileOutput />
+                    Insert selection in open note
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -1178,6 +1434,7 @@ export default function SheetView({ relativePath }: Props) {
             onFormulaReferenceCommit={handleFormulaReferenceCommit}
             namedRanges={formulaNamedRanges}
             remoteSelections={remoteSelections}
+            onOpenCellLink={openCellLink}
           />
 
           <SheetWorksheetBar
@@ -1339,6 +1596,57 @@ export default function SheetView({ relativePath }: Props) {
           )}
           onRemove={(formatId) => mutate(
             (current, id) => removeSheetConditionalFormat(current, id, formatId),
+          )}
+        />
+      )}
+      {worksheet && (
+        <SheetAnalysisDialog
+          open={analysisDialogOpen}
+          readOnly={session.readOnly}
+          worksheet={worksheet}
+          selection={selection}
+          computedValues={formulaState.values}
+          onOpenChange={setAnalysisDialogOpen}
+          onUpsertChart={(chart) => mutate(
+            (current, id) => upsertSheetChart(current, id, chart),
+          )}
+          onRemoveChart={(chartId) => mutate(
+            (current, id) => removeSheetChart(current, id, chartId),
+          )}
+          onExportChart={(chart) => { void exportChart(chart); }}
+        />
+      )}
+      {worksheet && (
+        <SheetLinksDialog
+          open={linksDialogOpen}
+          readOnly={session.readOnly}
+          cell={getCell(worksheet, selection.active)}
+          fileTree={fileTree}
+          onOpenChange={setLinksDialogOpen}
+          onSave={(link, attachments) => mutate(
+            (current, id) => setCellLinks(
+              current,
+              id,
+              selection.active,
+              link,
+              attachments,
+            ),
+          )}
+        />
+      )}
+      {document && (
+        <SheetDataConnectionsDialog
+          open={dataConnectionsDialogOpen}
+          readOnly={session.readOnly}
+          fileTree={fileTree}
+          calendars={calendars}
+          connections={document.dataConnections ?? []}
+          onOpenChange={setDataConnectionsDialogOpen}
+          onAddKanban={(path) => { void addKanbanSnapshot(path); }}
+          onAddCalendar={(calendarId) => { void addCalendarSnapshot(calendarId); }}
+          onRefresh={(connection) => { void refreshDataSnapshot(connection); }}
+          onRemove={(connectionId) => mutate(
+            (current) => removeSheetDataConnection(current, connectionId),
           )}
         />
       )}

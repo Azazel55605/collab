@@ -352,6 +352,11 @@ remain compatible with normal JSON.
 Sheets use stable worksheet, row, column, and cell identities in the structured
 root. Active worksheet/cell/range presence travels through awareness only;
 computed formula values are derived by each client and are never materialized.
+Cell links and attachments are vault-relative references and participate in
+the shared reference query plus transactional rename/move rewrite paths.
+Kanban/calendar data connections store only explicit refresh descriptors and
+materialized cell values; the server does not execute formulas or fetch their
+sources.
 
 Canvas live subscriptions are enabled with destructive-write guards: the server
 reseeds degenerate rooms from the canonical REST revision and refuses to

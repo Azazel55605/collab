@@ -358,6 +358,214 @@ pub fn resolve_wikilink_reference(
     None
 }
 
+fn collect_sheet_path_reference(
+    references: &mut Vec<FileReference>,
+    raw_target: &str,
+    source_relative_path: &str,
+    target_path: &str,
+    reference_kind: &str,
+    display_label: Option<String>,
+) {
+    let (path, _) = split_path_suffix(raw_target.trim());
+    let Some(normalized) = normalized_path_string(path) else {
+        return;
+    };
+    if !path_matches_or_descends(&normalized, target_path) {
+        return;
+    }
+    references.push(FileReference {
+        referenced_relative_path: normalized,
+        source_relative_path: source_relative_path.to_string(),
+        source_document_type: "sheet".into(),
+        reference_kind: reference_kind.into(),
+        display_label,
+        context: Some(raw_target.to_string()),
+    });
+}
+
+pub fn collect_sheet_references(
+    content: &str,
+    source_relative_path: &str,
+    target_path: &str,
+) -> Result<Vec<FileReference>, ReferenceError> {
+    let document: serde_json::Value = serde_json::from_str(content)
+        .map_err(|error| ReferenceError::InvalidDocument(error.to_string()))?;
+    let mut references = Vec::new();
+    let Some(worksheets) = document
+        .get("worksheets")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return Ok(references);
+    };
+    for worksheet in worksheets {
+        let Some(cells) = worksheet
+            .get("cells")
+            .and_then(serde_json::Value::as_object)
+        else {
+            continue;
+        };
+        for cell in cells.values() {
+            if let Some(link) = cell.get("link").and_then(serde_json::Value::as_str) {
+                collect_sheet_path_reference(
+                    &mut references,
+                    link,
+                    source_relative_path,
+                    target_path,
+                    "sheet-cell-link",
+                    None,
+                );
+            }
+            let Some(attachments) = cell
+                .get("attachments")
+                .and_then(serde_json::Value::as_array)
+            else {
+                continue;
+            };
+            for attachment in attachments {
+                let Some(path) = attachment
+                    .get("relativePath")
+                    .and_then(serde_json::Value::as_str)
+                else {
+                    continue;
+                };
+                collect_sheet_path_reference(
+                    &mut references,
+                    path,
+                    source_relative_path,
+                    target_path,
+                    "sheet-cell-attachment",
+                    attachment
+                        .get("label")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
+                );
+            }
+        }
+    }
+    if let Some(connections) = document
+        .get("dataConnections")
+        .and_then(serde_json::Value::as_array)
+    {
+        for connection in connections {
+            if let Some(path) = connection
+                .get("sourcePath")
+                .and_then(serde_json::Value::as_str)
+            {
+                collect_sheet_path_reference(
+                    &mut references,
+                    path,
+                    source_relative_path,
+                    target_path,
+                    "sheet-data-snapshot-source",
+                    None,
+                );
+            }
+        }
+    }
+    Ok(references)
+}
+
+fn rewrite_sheet_path(raw_target: &str, old_path: &str, new_path: Option<&str>) -> Option<String> {
+    let (path, suffix) = split_path_suffix(raw_target.trim());
+    let normalized = normalized_path_string(path)?;
+    if !path_matches_or_descends(&normalized, old_path) {
+        return Some(raw_target.to_string());
+    }
+    new_path
+        .and_then(|next| remap_path(&normalized, old_path, next))
+        .map(|next| format!("{next}{suffix}"))
+}
+
+pub fn rewrite_sheet_references(
+    content: &str,
+    old_path: &str,
+    new_path: Option<&str>,
+) -> Result<String, ReferenceError> {
+    let mut document: serde_json::Value = serde_json::from_str(content)
+        .map_err(|error| ReferenceError::InvalidDocument(error.to_string()))?;
+    let Some(worksheets) = document
+        .get_mut("worksheets")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return Ok(content.to_string());
+    };
+    for worksheet in worksheets {
+        let Some(cells) = worksheet
+            .get_mut("cells")
+            .and_then(serde_json::Value::as_object_mut)
+        else {
+            continue;
+        };
+        for cell in cells.values_mut() {
+            let Some(cell) = cell.as_object_mut() else {
+                continue;
+            };
+            if let Some(link) = cell.get("link").and_then(serde_json::Value::as_str) {
+                match rewrite_sheet_path(link, old_path, new_path) {
+                    Some(next) => {
+                        cell.insert("link".into(), serde_json::Value::String(next));
+                    }
+                    None => {
+                        cell.remove("link");
+                    }
+                }
+            }
+            let Some(attachments) = cell
+                .get_mut("attachments")
+                .and_then(serde_json::Value::as_array_mut)
+            else {
+                continue;
+            };
+            attachments.retain_mut(|attachment| {
+                let Some(attachment) = attachment.as_object_mut() else {
+                    return false;
+                };
+                let Some(path) = attachment
+                    .get("relativePath")
+                    .and_then(serde_json::Value::as_str)
+                else {
+                    return false;
+                };
+                match rewrite_sheet_path(path, old_path, new_path) {
+                    Some(next) => {
+                        attachment.insert("relativePath".into(), serde_json::Value::String(next));
+                        true
+                    }
+                    None => false,
+                }
+            });
+            if attachments.is_empty() {
+                cell.remove("attachments");
+            }
+        }
+    }
+    if let Some(connections) = document
+        .get_mut("dataConnections")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        connections.retain_mut(|connection| {
+            let Some(connection) = connection.as_object_mut() else {
+                return false;
+            };
+            let Some(path) = connection
+                .get("sourcePath")
+                .and_then(serde_json::Value::as_str)
+            else {
+                return true;
+            };
+            match rewrite_sheet_path(path, old_path, new_path) {
+                Some(next) => {
+                    connection.insert("sourcePath".into(), serde_json::Value::String(next));
+                    true
+                }
+                None => false,
+            }
+        });
+    }
+    serde_json::to_string(&document)
+        .map_err(|error| ReferenceError::InvalidDocument(error.to_string()))
+}
+
 fn snippet_for_reference_context(label: &str, target: &str) -> String {
     if label.trim().is_empty() {
         target.to_string()
@@ -884,6 +1092,52 @@ mod tests {
         let canvas_refs = collect_canvas_references(&canvas, "Board.canvas", "Media").unwrap();
         assert_eq!(canvas_refs.len(), 1);
         assert_eq!(canvas_refs[0].reference_kind, "canvas-file-node");
+    }
+
+    #[test]
+    fn sheet_links_and_attachments_are_collected_and_rewritten() {
+        let sheet = serde_json::json!({
+            "kind": "collab-sheet",
+            "schemaVersion": 1,
+            "worksheets": [{
+                "cells": {
+                    "r1:c1": {
+                        "link": "Docs/Spec.md#section",
+                        "attachments": [
+                            {"id": "att1", "relativePath": "Media/pic.png", "label": "Diagram"}
+                        ]
+                    }
+                }
+            }],
+            "dataConnections": [{
+                "id": "conn1",
+                "kind": "kanbanTasks",
+                "sourcePath": "Boards/Project.kanban"
+            }]
+        })
+        .to_string();
+        let links = collect_sheet_references(&sheet, "Books/Data.sheet", "Docs/Spec.md").unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].reference_kind, "sheet-cell-link");
+        let attachments = collect_sheet_references(&sheet, "Books/Data.sheet", "Media").unwrap();
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0].display_label.as_deref(), Some("Diagram"));
+        let snapshots = collect_sheet_references(&sheet, "Books/Data.sheet", "Boards").unwrap();
+        assert_eq!(snapshots[0].reference_kind, "sheet-data-snapshot-source");
+
+        let renamed =
+            rewrite_sheet_references(&sheet, "Docs/Spec.md", Some("Docs/Final.md")).unwrap();
+        assert!(renamed.contains("Docs/Final.md#section"));
+        let removed = rewrite_sheet_references(&sheet, "Media/pic.png", None).unwrap();
+        assert!(!removed.contains("Media/pic.png"));
+        assert!(!removed.contains("attachments"));
+        let moved = rewrite_sheet_references(
+            &sheet,
+            "Boards/Project.kanban",
+            Some("Archive/Project.kanban"),
+        )
+        .unwrap();
+        assert!(moved.contains("Archive/Project.kanban"));
     }
 
     #[test]

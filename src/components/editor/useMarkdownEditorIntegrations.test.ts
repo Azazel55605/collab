@@ -24,6 +24,7 @@ describe('useMarkdownEditorIntegrations helpers', () => {
       openTabs: [],
       activeTabPath: null,
       forceReloadPath: null,
+      pendingSheetJump: null,
     });
     useUiStore.setState({
       activeView: 'editor',
@@ -62,6 +63,14 @@ describe('useMarkdownEditorIntegrations helpers', () => {
               relativePath: 'Docs/spec.pdf',
               name: 'spec.pdf',
               extension: 'pdf',
+              modifiedAt: 0,
+              size: 1,
+              isFolder: false,
+            },
+            {
+              relativePath: 'Docs/budget.sheet',
+              name: 'budget.sheet',
+              extension: 'sheet',
               modifiedAt: 0,
               size: 1,
               isFolder: false,
@@ -341,5 +350,20 @@ describe('useMarkdownEditorIntegrations helpers', () => {
 
     expect(handleEditorDocumentLinkMouseDown(event, 'Notes/a.md')).toBe(true);
     expect(openTab).toHaveBeenCalledWith('Docs/spec.pdf', 'spec', 'pdf');
+  });
+
+  it('preserves a source-linked range jump when opening a sheet embed', () => {
+    const link = document.createElement('span');
+    link.className = 'cm-lp-link';
+    link.dataset.url = '../Docs/budget.sheet#range=B2%3AD8';
+    document.body.append(link);
+    const event = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'target', { value: link });
+
+    expect(handleEditorDocumentLinkMouseDown(event, 'Notes/a.md')).toBe(true);
+    expect(useEditorStore.getState().pendingSheetJump).toEqual({
+      relativePath: 'Docs/budget.sheet',
+      range: 'B2:D8',
+    });
   });
 });
