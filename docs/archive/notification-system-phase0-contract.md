@@ -2,7 +2,7 @@
 
 ## Status
 
-Phase 0 implementation is complete and in testing.
+Phase 0 implementation is complete.
 
 This document freezes the shared notification identity, privacy, destination,
 action, foreground, and push-invalidation rules used by later desktop, Android,

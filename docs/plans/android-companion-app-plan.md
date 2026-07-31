@@ -693,8 +693,6 @@ Candidates:
 
 - Broader live editing for rich file types if mobile authoring demand justifies
   it.
-- Push notifications for mentions/activity, tracked cross-platform in the
-  [Notification System Plan](./notification-system-plan.md).
 - Android background sync with OS constraints respected, tracked
   cross-platform in the [Background Running Plan](./background-running-plan.md).
 - iOS feasibility and build pipeline.

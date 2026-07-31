@@ -285,7 +285,7 @@ It must remain ephemeral and must not be written into the workbook.
 | 6. Hosted collaboration and offline behavior | Testing | Structured live sessions, stable-ID presence and merging, offline queues, conflict handling, and revision-safe recovery are implemented; physical two-client validation remains. |
 | 7. Charts, analysis, and Collab integration | Testing | Stable-range charts, bounded summaries, vault references, source-linked note embeds, and explicit Kanban/calendar snapshots are implemented. |
 | 8. Mobile sheet experience | Testing | Windowed touch grid, pinch zoom, frozen panes, sparse search, and bounded value/formula/formatting/filter editing are implemented; physical Android memory and process-recreation validation remains. |
-| 9. Performance, accessibility, and release hardening | Not started | Validate scale, keyboard/accessibility behavior, recovery, packaging, and multi-platform correctness. |
+| 9. Performance, accessibility, and release hardening | Testing | Budget enforcement, shape/corruption fixtures, keyboard and screen-reader validation, recovery coverage, the dependency audit, and the reference documentation are implemented; the Windows, macOS, and Android matrix rows remain. |
 | 10. XLSX and CSV conversion | Not started | Import external files into `.sheet` and export `.sheet` copies without making external formats authoritative. |
 
 ## Phase Details
@@ -690,22 +690,50 @@ Testing.
 
 ### Phase 9: Performance, Accessibility, And Release Hardening
 
-- [ ] Enforce the Phase 0 CPU, memory, scroll, paste, save, and recalc budgets.
-- [ ] Add fixtures for sparse, dense, wide, tall, deeply dependent, highly
-  formatted, and corrupted workbooks.
-- [ ] Add keyboard-only operation, focus, screen-reader grid semantics, contrast,
-  zoom, and reduced-motion validation.
-- [ ] Add autosave/reload, crash recovery, schema upgrade, revision conflict,
-  and encryption coverage.
-- [ ] Add Linux, Windows, macOS, and Android rendering/performance matrices.
-- [ ] Audit formula, clipboard, import, renderer, and chart dependencies for
-  licensing and security.
-- [ ] Document supported functions, limits, keyboard behavior, collaboration
-  semantics, and recovery paths.
+- [x] Enforce the Phase 0 CPU, memory, scroll, paste, save, and recalc budgets.
+  The ceilings are `src/lib/sheet/budgets.ts` (mirroring the Phase 0 contract,
+  scalable per environment with `COLLAB_SHEET_BUDGET_SCALE`); open, save,
+  scroll, and paste are asserted in `src/lib/sheet/performance.test.ts` and
+  load/recalculation in `crates/collab-sheet/tests/formula_proof.rs`.
+- [x] Add fixtures for sparse, dense, wide, tall, deeply dependent, highly
+  formatted, and corrupted workbooks. `src/lib/sheet/fixture.ts`
+  (`SHEET_SHAPE_FIXTURES`, `CORRUPT_SHEET_FIXTURES`), asserted in
+  `fixtureShapes.test.ts`.
+- [x] Add keyboard-only operation, focus, screen-reader grid semantics, contrast,
+  zoom, and reduced-motion validation. `src/lib/sheet/accessibility.ts` plus
+  `SheetGridAccessibility.test.tsx` and `SheetGridTheme.test.ts`.
+- [x] Add autosave/reload, crash recovery, schema upgrade, revision conflict,
+  and encryption coverage. `src/lib/sheet/recovery.test.ts`; encryption at rest
+  stays native in the replica store and is covered there.
+- [x] Add Linux, Windows, macOS, and Android rendering/performance matrices.
+  `docs/build/advanced-tables-release-validation.md`. Linux is filled in; the
+  other three rows are release gates that need runs on those platforms.
+- [x] Audit formula, clipboard, import, renderer, and chart dependencies for
+  licensing and security. Recorded in the release-validation document: every
+  crate reachable from `collab-sheet` is permissively licensed, the grid and
+  charts are first-party, and clipboard handling has no third-party dependency.
+- [x] Document supported functions, limits, keyboard behavior, collaboration
+  semantics, and recovery paths. `docs/desktop/sheet-reference.md`.
 
 Exit gate: supported platforms meet documented performance and accessibility
 budgets, malformed input fails safely, and packaging includes every required
 runtime asset.
+
+Phase 9 notes. Enforcing the budgets found two real quadratic paths and both
+were fixed: `normalizeSheetDocument` recomputed `Object.keys(cells).length` for
+every cell, so opening a 150,000-cell worksheet took minutes instead of ~1 s;
+and paste folded single-cell `setCell`/`applyStyleToSelection` calls, each of
+which copies the whole sparse map. Batched `setCells` and `applyCellStyles` now
+own multi-cell writes and single-cell calls delegate to them. Two accessibility
+gaps were also closed: the canvas grid exposed no cell content to assistive
+technology (now an `aria-activedescendant` gridcell plus a polite live region),
+and cancelling a cell edit dropped focus to the document body. The grid's
+hard-coded colors are now named tokens with an enforced tint-alpha ceiling.
+
+Deliberate limitation: the full visible window is not mirrored into the DOM.
+Hundreds of nodes per scroll frame would break the scroll budget, so browse-mode
+screen-reader navigation reads the active cell rather than the surrounding grid,
+and arrow-key focus-mode navigation is the supported path.
 
 ### Phase 10: XLSX And CSV Conversion
 

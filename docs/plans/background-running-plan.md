@@ -305,7 +305,7 @@ can be represented accurately by an in-process test.
 
 ## Dependencies And Follow-On Work
 
-- [Notification System Plan](./notification-system-plan.md) consumes job and
+- [Notification System Plan](../archive/notification-system-plan.md) consumes job and
   reminder outcomes but does not own synchronization.
 - [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) consumes compact snapshots
   produced by the background coordinator.

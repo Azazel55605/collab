@@ -24,10 +24,10 @@ React toasts remain foreground UI and are not the durable notification system.
 - Desktop and mobile now reconcile calendar reminders into the shared native
   inbox/schedule ledger.
 - Desktop permission handling, native delivery, tray-hidden dispatch, the
-  status-bar inbox, and notification settings are implemented and in testing.
+  status-bar inbox, and notification settings are implemented and validated.
 - Android channels, permission recovery, per-profile alarms, native delivery,
   safe actions, deep links, lifecycle restoration, settings, and the durable
-  mobile inbox are implemented and in testing.
+  mobile inbox are implemented and validated.
 - Hosted calendar invitations and chat mentions now enter an owner-scoped
   server event feed. Android may receive a content-free FCM invalidation, while
   authenticated foreground and WorkManager catch-up remain authoritative.
@@ -47,13 +47,13 @@ React toasts remain foreground UI and are not the durable notification system.
 
 | Phase | Status | Goal |
 | --- | --- | --- |
-| 0. Notification contract and privacy model | Testing | Define notification types, channels, IDs, preferences, redaction, and deep-link behavior. |
-| 1. Shared notification inbox and scheduler | Testing | Persist deduplicated delivery state and activate the calendar reminder connector. |
-| 2. Desktop native delivery | Testing | Deliver native notifications while Collab is open, hidden, or running in the tray. |
-| 3. Android native delivery | Testing | Add channels, runtime permission, scheduled reminders, actions, and deep links. |
-| 4. Server-originated activity delivery | Testing | Add privacy-minimal invalidation delivery for hosted invitations, mentions, and selected activity. |
-| 5. Preferences, quiet hours, and inbox UX | Testing | Give users per-account, per-calendar, per-vault, and per-type control. |
-| 6. Hardening and release | Testing | Lifecycle cleanup, concurrency, DST/timezone coverage, and privacy-safe aggregate delivery metrics are implemented; packaged desktop and physical Android validation remain. |
+| 0. Notification contract and privacy model | Complete | Define notification types, channels, IDs, preferences, redaction, and deep-link behavior. |
+| 1. Shared notification inbox and scheduler | Complete | Persist deduplicated delivery state and activate the calendar reminder connector. |
+| 2. Desktop native delivery | Complete | Deliver native notifications while Collab is open, hidden, or running in the tray. |
+| 3. Android native delivery | Complete | Add channels, runtime permission, scheduled reminders, actions, and deep links. |
+| 4. Server-originated activity delivery | Complete | Add privacy-minimal invalidation delivery for hosted invitations, mentions, and selected activity. |
+| 5. Preferences, quiet hours, and inbox UX | Complete | Give users per-account, per-calendar, per-vault, and per-type control. |
+| 6. Hardening and release | Complete | Lifecycle cleanup, concurrency, DST/timezone coverage, privacy-safe aggregate delivery metrics, and packaged desktop/physical Android validation are complete. |
 
 ## Notification Types
 
@@ -220,9 +220,9 @@ device-specific delivery permission and channel state remain local.
 - [x] Add executable TypeScript validation, redaction, destination, push, and
   reminder-routing contract tests.
 
-Phase 0 implementation is complete and is now in testing. No native delivery,
-permission prompt, inbox storage, or OS scheduling is enabled by this phase.
-Phase 1 consumes this contract and activates the existing reminder connector.
+Phase 0 implementation is complete. No native delivery, permission prompt,
+inbox storage, or OS scheduling is enabled by this phase. Phase 1 consumes this
+contract and activates the existing reminder connector.
 
 ### Phase 1: Shared Inbox And Scheduler
 
@@ -233,7 +233,7 @@ Phase 1 consumes this contract and activates the existing reminder connector.
 - [x] Feed scheduler reconciliation from foreground and background calendar
   sync.
 
-Phase 1 is implemented and in testing. The profile-scoped SQLite ledger
+Phase 1 is complete. The profile-scoped SQLite ledger
 atomically replaces stable reminder identities and cancels stale schedules.
 Desktop and Android reconcile a bounded one-year occurrence horizon using the
 shared calendar recurrence implementation. Headless calendar sync persists a
@@ -255,7 +255,7 @@ timezone-aware recurrence in the background worker.
 - [x] Add settings and in-app inbox surfaces.
 - [x] Apply notification privacy before handing content to the operating
   system and record whether delivery used the native or in-app surface.
-- [ ] Validate permission request/revocation, focused suppression, tray-hidden
+- [x] Validate permission request/revocation, focused suppression, tray-hidden
   delivery, and window restoration on packaged Linux, Windows, and macOS
   builds.
 
@@ -288,7 +288,7 @@ rather than emulated differently on each desktop platform.
   timezone changes, foreground data reconciliation, and WorkManager sync.
 - [x] Add Android permission recovery, exact-alarm recovery, test delivery, and
   the durable notification inbox to mobile Settings.
-- [ ] Validate permission denial/recovery, doze delivery, reboot/app-upgrade
+- [x] Validate permission denial/recovery, doze delivery, reboot/app-upgrade
   restoration, clock/timezone changes, and native tap/actions on physical
   Android 8, 12, 13, and current target-SDK devices.
 
@@ -319,10 +319,10 @@ work.
   rejected tokens.
 - [x] Deep-link fetched invitations and mentions into the desktop and mobile
   application surfaces.
-- [ ] Validate FCM token rotation, delayed/duplicate push, logout cleanup,
+- [x] Validate FCM token rotation, delayed/duplicate push, logout cleanup,
   process-dead delivery, and catch-up on the physical Android matrix.
 
-Phase 4 is implemented and in testing. Each hosted account has an append-only,
+Phase 4 is complete. Each hosted account has an append-only,
 owner-scoped notification cursor. Server writes create the notification event
 and its per-device outbox rows in the same PostgreSQL transaction as the
 calendar invitation or chat mention. Delivery workers claim bounded leases and
@@ -366,11 +366,11 @@ into a server-user profile database that the visible inbox does not read.
 - [x] Add desktop and Android settings surfaces backed by typed Tauri commands.
 - [x] Add per-server, per-vault, and per-calendar controls to desktop and
   Android notification settings using the persisted source-scope contract.
-- [ ] Validate quiet-hour boundaries, DST transitions, lock-screen redaction,
+- [x] Validate quiet-hour boundaries, DST transitions, lock-screen redaction,
   Android summaries, and source overrides on packaged desktop and physical
   Android targets.
 
-Phase 5 is implemented and in testing. Preferences live in the native
+Phase 5 is complete. Preferences live in the native
 profile-scoped notification database rather than webview storage. Desktop and
 Android settings inventory saved servers, known vaults, and active calendars,
 then store only explicit muted overrides. Per-server, per-vault, and
@@ -400,16 +400,16 @@ platform scheduler ignores them or wakes at the quiet-hours boundary.
 - [x] Verify server removal, logout, cache removal, and account disabling cancel or
   redact pending notifications.
 - [x] Add delivery metrics that contain no private titles or descriptions.
-- [ ] Complete packaged-desktop permission revocation and restoration checks.
-- [ ] Complete physical-Android permission denial/revocation, channel changes,
+- [x] Complete packaged-desktop permission revocation and restoration checks.
+- [x] Complete physical-Android permission denial/revocation, channel changes,
   reboot, app-upgrade, timezone/clock changes, alarm fallback, and multi-device
   action checks.
 
-Phase 6 is implemented and in **Testing**. Automated coverage now exercises
+Phase 6 is complete. Automated coverage exercises
 timezone and DST boundary recomputation, one-time concurrent actions,
 server-scoped cancellation, account-disable delivery cleanup, and aggregate
-metrics privacy. The remaining work is the packaged and physical-device matrix,
-not planned application implementation.
+metrics privacy. The packaged desktop and physical-device validation matrix is
+also complete.
 
 Physical testing on 2026-07-29 found and corrected three release blockers:
 
@@ -453,9 +453,9 @@ silent.
 
 ## Dependencies
 
-- [Background Running Plan](./background-running-plan.md) supplies durable
+- [Background Running Plan](../plans/background-running-plan.md) supplies durable
   scheduling, session restoration, and background execution.
-- [User Calendar Feature Plan](./user-calendar-feature-plan.md) supplies the
+- [User Calendar Feature Plan](../plans/user-calendar-feature-plan.md) supplies the
   reminder model and calendar synchronization.
 - [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) may reuse the inbox and
   background snapshots but does not require notifications for its first slice.

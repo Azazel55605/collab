@@ -173,6 +173,70 @@ function applyTrackStyle(
 }
 
 /** Applies a style patch without changing any stored values or formulas. */
+/** One entry of a batched per-cell style write. */
+export interface SheetCellStyleWrite {
+  position: SheetPosition;
+  patch: Partial<SheetStyle>;
+}
+
+/**
+ * Applies a different style patch to each of many cells in one pass.
+ *
+ * Paste and import need this: folding `applyStyleToSelection` over single-cell
+ * selections copies the sparse map and prunes the style table once per cell,
+ * which is quadratic in the worksheet size. Repeated patches are also resolved
+ * through a local key cache so a uniformly styled paste registers each distinct
+ * style once instead of rescanning the style table per cell.
+ */
+export function applyCellStyles(
+  document: SheetDocument,
+  worksheetId: string,
+  writes: readonly SheetCellStyleWrite[],
+): SheetDocument {
+  if (writes.length === 0) return document;
+  const worksheet = document.worksheets.find((candidate) => candidate.id === worksheetId);
+  if (!worksheet) return document;
+  if (writes.length > SHEET_LIMITS.populatedCellsPerWorksheet) {
+    throw new SheetDocumentError(
+      'limit-exceeded',
+      `Formatting is limited to ${SHEET_LIMITS.populatedCellsPerWorksheet.toLocaleString()} cells at once.`,
+    );
+  }
+
+  let styles = document.styles;
+  const cells = { ...worksheet.cells };
+  const resolved = new Map<string, SheetStyleId | undefined>();
+
+  for (const { position, patch } of writes) {
+    const rowId = worksheet.rowOrder[position.row];
+    const columnId = worksheet.columnOrder[position.column];
+    if (!rowId || !columnId) continue;
+    const key = sheetCellKey(rowId, columnId);
+    const cell = cells[key] ?? {};
+    const merged = mergeStyle(styles[cell.styleId ?? ''], patch);
+    const mergedKey = sheetStyleKey(merged);
+    let styleId: SheetStyleId | undefined;
+    if (resolved.has(mergedKey)) {
+      styleId = resolved.get(mergedKey);
+    } else {
+      const result = styleIdFor(styles, merged);
+      styles = result.styles;
+      styleId = result.styleId;
+      resolved.set(mergedKey, styleId);
+    }
+    const nextCell: SheetCell = { ...cell };
+    if (styleId) nextCell.styleId = styleId;
+    else delete nextCell.styleId;
+    if (Object.keys(nextCell).length > 0) cells[key] = nextCell;
+    else delete cells[key];
+  }
+
+  const worksheets = document.worksheets.map((candidate) => (
+    candidate.id === worksheetId ? { ...candidate, cells } : candidate
+  ));
+  return pruneUnusedSheetStyles({ ...document, styles, worksheets });
+}
+
 export function applyStyleToSelection(
   document: SheetDocument,
   worksheetId: string,

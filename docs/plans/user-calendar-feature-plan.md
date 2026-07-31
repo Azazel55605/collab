@@ -56,15 +56,15 @@ models.
 | 3. Multi-server offline sync | Complete | Desktop and Android sync independent hosted replicas with durable cursors, queued/conflicted operations, lifecycle triggers, progress, and guarded cache removal. |
 | 4. Desktop calendar experience | Complete | Global Calendar navigation, everyday event/task workflows, hosted collaboration controls, typed attachments, defaults, and accessibility coverage are implemented. |
 | 5. Android calendar experience | Complete | Phone-first multi-server views, profile storage, offline editing/deletion, recurrence scopes, collaboration, attachments, management, and actionable recovery are implemented. |
-| 6. Cross-location calendar mirroring | Testing | Mirror groups, deterministic client bridging, tombstones, isolated retryable failures, global progress visibility, and desktop/Android conflict resolution are implemented; physical-device end-to-end validation remains. |
+| 6. Cross-location calendar mirroring | Complete | Mirror groups, deterministic client bridging, tombstones, isolated retryable failures, global progress visibility, desktop/Android conflict resolution, and physical-device validation are complete. |
 | 7. Kanban assigned-task integration | Complete | Local and hosted assignment projection, generated read-only calendars, REST/live materialization, narrow date/completion/recurrence write-through, source lifecycle handling, and access-loss privacy cleanup are implemented and covered. |
 | 8. iCalendar import, export, and subscriptions | Complete | Desktop range/item export, desktop and Android bounded import/export, local and hosted read-only HTTPS subscriptions, scheduled conditional refresh, revocable publication links, safe extension preservation, provider/time-zone fixtures, and SSRF/parser hardening are implemented. |
 | 9. CalDAV and external two-way sync | Testing | Hosted discovery, collections, reports, sync tokens, ETags, writes/deletes, recurrence resources, revocable app passwords, and shared change-log convergence are implemented; maintained external-client interoperability testing remains. |
-| 10. Admin overview, privacy verification, and hardening | Testing | Aggregate-only administration, runtime quota/rate controls, usage warnings, subscription health, bounded recurrence, retention coverage, and deterministic multi-server soak tests are implemented; physical-device and full restore drills remain. |
-| 11. Reminder delivery and notifications | Testing | Shared native inbox/schedule persistence, bounded reminder reconciliation, desktop delivery, and Android native delivery are implemented; packaged desktop and physical Android validation remain. |
+| 10. Admin overview, privacy verification, and hardening | Complete | Aggregate-only administration, runtime quota/rate controls, usage warnings, subscription health, bounded recurrence, retention coverage, deterministic multi-server soak tests, physical-device validation, and restore drills are complete. |
+| 11. Reminder delivery and notifications | Complete | Shared native inbox/schedule persistence, bounded reminder reconciliation, desktop/Android delivery, hosted catch-up, preference controls, and packaged/physical-device validation are complete. |
 
 Phase 11 is detailed in the cross-platform
-[Notification System Plan](./notification-system-plan.md), with lifecycle and
+[Notification System Plan](../archive/notification-system-plan.md), with lifecycle and
 scheduled execution supplied by the
 [Background Running Plan](./background-running-plan.md).
 
@@ -375,9 +375,8 @@ Landed in the first implementation slice:
   another and that a retry after a partial multi-destination write reuses the
   deterministic operation ID, avoids echoing the already-written destination,
   and commits anchors only after convergence.
-- Moved Phase 6 to testing after completing global progress visibility,
-  isolated retry behavior, and desktop/Android conflict resolution. Physical
-  device validation remains the exit criterion.
+- Completed Phase 6 after global progress visibility, isolated retry behavior,
+  desktop/Android conflict resolution, and physical-device validation passed.
 - Started Phase 7 with a hosted assignment index and generated, read-only
   “Assigned tasks” calendars. Initial document creation, REST revisions, and
   live-CRDT materialization reconcile assigned cards in the same PostgreSQL
@@ -1381,9 +1380,9 @@ Tasks:
   and deterministic repeated two-server offline/reconnect soak coverage.
 - [x] Update `AGENTS.md`, `docs/desktop/codebase.md`, server protocol, backup,
   security, load-testing, and mobile documentation.
-- [ ] Complete a full deployment backup/restore drill and verify calendars,
+- [x] Complete a full deployment backup/restore drill and verify calendars,
   change sequences, CalDAV mappings, and tombstones after restore.
-- [ ] Complete multi-day physical desktop and Android lifecycle testing across
+- [x] Complete multi-day physical desktop and Android lifecycle testing across
   two independently hosted servers.
 
 Acceptance criteria:
@@ -1393,16 +1392,16 @@ Acceptance criteria:
 - Query and recurrence limits remain stable under adversarial inputs.
 - Desktop and Android pass multi-day offline/reconnect tests across two servers.
 
-Current testing note: the API privacy boundary, rate limiting, retention,
-recurrence bounds, and deterministic two-server convergence are covered
-automatically. The destructive restore drill and multi-day physical-device
-matrix remain manual release gates, so this phase stays in **Testing**.
+Completion note: automated coverage verifies the API privacy boundary, rate
+limiting, retention, recurrence bounds, and deterministic two-server
+convergence. The destructive restore drill and multi-day physical-device matrix
+also passed.
 
 ### Phase 11: Reminder Delivery And Notifications
 
 Estimated effort: 2-4 weeks after core desktop/Android calendar workflows.
 
-The shared notification system's Phases 0-6 are implemented and in testing.
+The shared notification system's Phases 0-6 are complete.
 Calendar reminders now reconcile a bounded one-year horizon with typed item
 routing, stable replacement, stale cancellation, snooze/action tokens, retry,
 and retention. Desktop delivery includes native permission handling,
@@ -1444,6 +1443,10 @@ Acceptance criteria:
   Collab server.
 - Reboot, time-zone changes, permission revocation/restoration, and app upgrades
   converge through idempotent reconciliation.
+
+Completion note: packaged desktop and physical Android validation covered the
+listed scheduler, lifecycle, permission, deep-link, action, privacy, and
+reconciliation scenarios.
 
 ## Test Plan
 

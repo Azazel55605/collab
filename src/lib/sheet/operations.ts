@@ -78,6 +78,86 @@ export function setActiveWorksheet(document: SheetDocument, worksheetId: string)
 
 // ── Cells ────────────────────────────────────────────────────────────────────
 
+/** One entry of a batched cell write. A `null` cell clears the position. */
+export interface SheetCellWrite {
+  position: SheetPosition;
+  cell: SheetCell | null;
+}
+
+/**
+ * Writes or clears many cells in a single pass.
+ *
+ * Callers that touch more than one cell — paste, fill, clear, import — must use
+ * this rather than folding `setCell` over a list: each `setCell` copies the
+ * whole sparse map, so a 10,000-cell paste into a large worksheet would be
+ * quadratic and blow the Phase 9 paste budget.
+ */
+export function setCells(
+  document: SheetDocument,
+  worksheetId: string,
+  writes: readonly SheetCellWrite[],
+): SheetDocument {
+  if (writes.length === 0) return document;
+  return mapWorksheet(document, worksheetId, (worksheet) => {
+    let cells: Record<string, SheetCell> | null = null;
+    let populated = -1;
+
+    for (const { position, cell } of writes) {
+      const rowId = worksheet.rowOrder[position.row];
+      const columnId = worksheet.columnOrder[position.column];
+      if (!rowId || !columnId) continue;
+
+      const key = sheetCellKey(rowId, columnId);
+      const existing = (cells ?? worksheet.cells)[key];
+      if (!cell && !existing) continue;
+
+      if (!cells) {
+        cells = { ...worksheet.cells };
+        // Counted once, then maintained; recomputing it per write is the
+        // quadratic trap this function exists to avoid.
+        populated = Object.keys(cells).length;
+      }
+
+      if (cell) {
+        // Preserve per-cell presentation the caller did not touch.
+        const preserved: SheetCell = {};
+        if (existing?.styleId && !cell.styleId) preserved.styleId = existing.styleId;
+        if (existing?.note && cell.note === undefined) preserved.note = existing.note;
+        if (existing?.validationId && cell.validationId === undefined) {
+          preserved.validationId = existing.validationId;
+        }
+        if (existing?.link && cell.link === undefined) preserved.link = existing.link;
+        if (existing?.attachments && cell.attachments === undefined) {
+          preserved.attachments = existing.attachments;
+        }
+        if (!existing) populated += 1;
+        cells[key] = { ...cell, ...preserved };
+        if (populated > SHEET_LIMITS.populatedCellsPerWorksheet) {
+          throw new SheetDocumentError(
+            'limit-exceeded',
+            `A worksheet may not have more than ${SHEET_LIMITS.populatedCellsPerWorksheet} populated cells.`,
+          );
+        }
+      } else if (existing) {
+        const preserved: SheetCell = {};
+        if (existing.styleId) preserved.styleId = existing.styleId;
+        if (existing.note) preserved.note = existing.note;
+        if (existing.validationId) preserved.validationId = existing.validationId;
+        if (existing.link) preserved.link = existing.link;
+        if (existing.attachments) preserved.attachments = existing.attachments;
+        if (Object.keys(preserved).length > 0) {
+          cells[key] = preserved;
+        } else {
+          delete cells[key];
+          populated -= 1;
+        }
+      }
+    }
+
+    return cells ? { ...worksheet, cells } : worksheet;
+  });
+}
+
 /**
  * Writes or clears one cell. Passing `null` removes it from the sparse map,
  * which is what keeps an emptied cell from bloating the document.
@@ -88,47 +168,7 @@ export function setCell(
   position: SheetPosition,
   cell: SheetCell | null,
 ): SheetDocument {
-  return mapWorksheet(document, worksheetId, (worksheet) => {
-    const rowId = worksheet.rowOrder[position.row];
-    const columnId = worksheet.columnOrder[position.column];
-    if (!rowId || !columnId) return worksheet;
-
-    const key = sheetCellKey(rowId, columnId);
-    const existing = worksheet.cells[key];
-    if (!cell && !existing) return worksheet;
-
-    const cells = { ...worksheet.cells };
-    if (cell) {
-      // Preserve per-cell presentation the caller did not touch.
-      const preserved: SheetCell = {};
-      if (existing?.styleId && !cell.styleId) preserved.styleId = existing.styleId;
-      if (existing?.note && cell.note === undefined) preserved.note = existing.note;
-      if (existing?.validationId && cell.validationId === undefined) {
-        preserved.validationId = existing.validationId;
-      }
-      if (existing?.link && cell.link === undefined) preserved.link = existing.link;
-      if (existing?.attachments && cell.attachments === undefined) {
-        preserved.attachments = existing.attachments;
-      }
-      cells[key] = { ...cell, ...preserved };
-      if (Object.keys(cells).length > SHEET_LIMITS.populatedCellsPerWorksheet) {
-        throw new SheetDocumentError(
-          'limit-exceeded',
-          `A worksheet may not have more than ${SHEET_LIMITS.populatedCellsPerWorksheet} populated cells.`,
-        );
-      }
-    } else if (existing) {
-      const preserved: SheetCell = {};
-      if (existing.styleId) preserved.styleId = existing.styleId;
-      if (existing.note) preserved.note = existing.note;
-      if (existing.validationId) preserved.validationId = existing.validationId;
-      if (existing.link) preserved.link = existing.link;
-      if (existing.attachments) preserved.attachments = existing.attachments;
-      if (Object.keys(preserved).length > 0) cells[key] = preserved;
-      else delete cells[key];
-    }
-    return { ...worksheet, cells };
-  });
+  return setCells(document, worksheetId, [{ position, cell }]);
 }
 
 /** Updates only cell note metadata, leaving value, formula, style, and validation intact. */

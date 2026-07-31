@@ -1,6 +1,6 @@
 # Open Development Work
 
-Last reviewed: 2026-07-30
+Last reviewed: 2026-07-31
 
 This is the entry point for unfinished Collab projects. Detailed requirements,
 implementation notes, and acceptance criteria remain in their canonical plan
@@ -23,13 +23,13 @@ work from being mistaken for an active roadmap item.
 | Project | Current status | Remaining work | Canonical document |
 | --- | --- | --- | --- |
 | Advanced Tables | In Progress | Build the native `.sheet` domain, desktop editor, formulas, data tools, hosted collaboration, mobile experience, and final bounded XLSX/CSV conversion phase. | [Advanced Tables Plan](./advanced-tables-plan.md) |
-| Android companion app | In progress / deferred expansion | Finish Phase 7 device lifecycle QA, signing, release packaging, and operational documentation. Phase 8 remains a deferred expansion bucket; background execution and notifications now have dedicated plans. | [Android Companion App Plan](./android-companion-app-plan.md) |
+| Android companion app | In progress / deferred expansion | Finish Phase 7 device lifecycle QA, signing, release packaging, and operational documentation. Phase 8 remains a deferred expansion bucket; background execution has its own active plan and the notification system is complete. | [Android Companion App Plan](./android-companion-app-plan.md) |
 | Electronic circuit simulation | In progress / planned | Finish remaining schema/runtime details and AC integration, then mixed-signal simulation, derived-result caching/collaboration policy, numerical hardening, and release validation. | [Electronic Circuit Simulation Plan](./electronic-circuit-simulation-plan.md) |
 | Logic and circuit diagram editor | In progress umbrella | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream. | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md) |
-| User calendar | Testing | Complete physical-device validation for cross-location mirroring and notifications, the Phase 9 external-client CalDAV matrix, and Phase 10 restore/multi-day lifecycle drills. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
+| User calendar | Testing | Complete the Phase 9 maintained external-client CalDAV interoperability matrix. Cross-location mirroring, hardening/restore drills, and notification delivery are complete. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
 | Background running | Testing | Phase 5 automated hardening is implemented. Complete the packaged desktop/physical Android matrix, then add notification-backed Android foreground transfers. | [Background Running Plan](./background-running-plan.md) |
-| Notification system | Testing | Phases 0-6 are implemented with native delivery, hosted activity, profile/category/server/vault/calendar controls, quiet hours, privacy, summaries, and release hardening. Retest hosted catch-up, Android permission recovery/background diagnostics, and Windows autostart before completing the packaged desktop/physical Android matrix. | [Notification System Plan](./notification-system-plan.md) |
 | Collab Presentations | Planned | Complete the `.deck` Phase 0 proofs for scene/text fidelity, deck-specific live text collaboration, and compatible PPTX export before beginning the editor. | [Collab Presentations Plan](./presentation-tool-plan.md) |
+| Digital ink and annotation | Planned | Complete the `.ink` Phase 0 physical-device proofs, then build one shared pressure-sensitive ink engine for drawings, note exports, and viewer annotations. | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
 | Mobile widgets | Ideas only | Evaluate a calendar agenda widget first after background snapshots are available; no implementation commitment or phased schedule exists yet. | [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) |
 
@@ -43,12 +43,11 @@ work from being mistaken for an active roadmap item.
    through the completed shared outbound-network policy.
 4. Run the packaged desktop and physical Android matrix from the background
    running release-validation guide.
-5. Add Android foreground transfer handling after the notification system owns
-   the required persistent channel and permission flow.
-6. Activate local calendar reminders through the notification system.
-7. Complete calendar Phase 6 physical-device validation, then calendar
-   interoperability and hardening phases in product-priority order.
-8. Prototype the Android calendar agenda widget using the stable background
+5. Add Android foreground transfer handling using the completed notification
+   system's persistent channel and permission flow.
+6. Complete the calendar Phase 9 maintained external-client interoperability
+   matrix.
+7. Prototype the Android calendar agenda widget using the stable background
    snapshot boundary.
 
 Circuit simulation and Flatpak distribution can proceed independently, subject
@@ -62,6 +61,12 @@ Collab Presentations is a planned follow-on product stream. Its Phase 0 must
 prove cross-platform text layout, a deck-specific rich-text CRDT representation,
 and compatible PPTX export before `.deck` routing or editor implementation.
 
+Digital Ink and Annotation is a planned cross-platform product stream. Its
+Phase 0 must prove real pen/tablet input, bounded low-latency stroke rendering,
+and deterministic vector/raster export. The standalone `.ink` editor should be
+implemented before existing PDF and image annotations migrate to its shared
+engine.
+
 ## Project Details
 
 ### Android Companion App
@@ -73,8 +78,9 @@ Open tracker entries:
 - Phase 8, **Deferred**: richer mobile editing, iOS, capture flows, and other
   post-MVP expansion.
 
-Background sync and push notifications should be delivered through their new
-cross-platform plans rather than implemented as Android-only forks.
+Background sync remains tracked by its cross-platform plan. Push notification
+delivery is complete and documented in the archive rather than implemented as
+an Android-only fork.
 
 ### Advanced Tables
 
@@ -83,13 +89,15 @@ Open tracker entries:
 - Phases 0-2, **Complete**: the `.sheet` schema, bounded formula boundary,
   document domain, virtualized desktop editor, and normal vault lifecycle are
   implemented.
-- Phases 3-8, **Testing**: formulas, spreadsheet interactions, data tools,
+- Phases 3-9, **Testing**: formulas, spreadsheet interactions, data tools,
   hosted/offline collaboration, charts/analysis, Collab references, note
-  embeds, snapshot data connections, and the mobile workbook experience are
-  implemented and remain under integration and physical multi-client testing.
-  Phase 8's remaining gate is large-sheet memory and process-recreation
-  validation on physical Android devices.
-- Phase 9, **Planned**: release hardening.
+  embeds, snapshot data connections, the mobile workbook experience, and
+  release hardening are implemented and remain under integration and physical
+  multi-client testing. Phase 8's remaining gate is large-sheet memory and
+  process-recreation validation on physical Android devices. Phase 9's
+  remaining gate is filling in the Windows, macOS, and Android rows of
+  [Advanced Tables Release Validation](../build/advanced-tables-release-validation.md)
+  from real runs on those platforms.
 - Phase 10, **Not started**: add bounded `.xlsx`/`.csv` import into `.sheet` and
   export from `.sheet`. External formats remain conversion targets rather than
   live or losslessly compatible document models.
@@ -108,6 +116,22 @@ Open tracker entries:
   release hardening.
 - Phase 11, **Deferred**: bounded PPTX import into a new `.deck`; import is not
   required for the first production release.
+
+### Digital Ink And Annotation
+
+Open tracker entries:
+
+- Phase 0, **Not started**: freeze the `.ink` schema and prove pen, touch,
+  drawing-tablet, mouse, and touchpad capture plus pressure rendering and
+  deterministic export on real desktop and Android hardware.
+- Phases 1-7, **Planned**: shared ink domain, first-class New Drawing lifecycle,
+  desktop/mobile editors, advanced tools, hosted/offline collaboration, and
+  source-linked PNG/SVG/PDF export.
+- Phases 8-10, **Planned**: migrate PDF/image annotations to the shared engine,
+  extend the anchored annotation contract to other viewers, and complete
+  release hardening.
+- Phase 11, **Deferred**: optional handwriting/math recognition and InkML
+  interchange.
 
 ### Electronic Circuit Simulation
 
@@ -132,56 +156,17 @@ The logic-editor plan's Phase 6 points to this same workstream.
 
 Open tracker entries:
 
-- Phase 6, **Testing**: physical-device end-to-end validation for
-  cross-location mirroring.
-- Phase 8, **Complete**: desktop range/item export, desktop and Android bounded
-  import/export, local and hosted read-only HTTPS subscriptions, scheduled
-  conditional refresh with last-good-copy preservation, safe unknown-property
-  round trips, provider/time-zone fixtures, SSRF/parser hardening, and bounded,
-  ETag-aware feeds through hashed revocable publication tokens are implemented.
 - Phase 9, **Testing**: hosted discovery, collection/report/sync-token support,
   ETag-guarded resources, shared operation-log writes, recurrence resources, and
   revocable app passwords are implemented. DAVx5, Thunderbird, Apple Calendar,
   and one additional maintained client still require interoperability testing.
-- Phase 10, **Testing**: aggregate-only administration, runtime calendar quota
-  and request-budget controls, anonymous quota/worker health, privacy
-  assertions, recurrence bounds, retention coverage, and deterministic
-  multi-server soak tests are implemented. A full backup/restore drill and
-  multi-day physical desktop/Android run across two servers remain.
-- Phase 11, **Testing**: notification Phases 0-6 are implemented, including the
-  shared contract, native inbox/scheduling ledger, desktop and Android
-  delivery, hosted activity catch-up, preferences, lifecycle cleanup,
-  concurrency hardening, and privacy-safe aggregate delivery metrics. Packaged
-  desktop and physical Android validation remain.
 
-### Background Running And Notifications
+### Background Running
 
-These are cross-platform foundations, not mobile-only features. Background
-execution owns bounded scheduling and headless sync. Notifications consume
-background scheduling and synchronized data but own delivery, preferences,
-privacy, and actions. Keeping those responsibilities separate prevents tray,
-WorkManager, calendar, and push behavior from becoming one coupled subsystem.
-
-Notification Phases 0-6 are in **Testing**. The typed envelope, stable identity,
-channels, destinations, bounded actions, privacy redaction, foreground
-suppression, content-free push invalidation, native inbox/scheduler, desktop
-permission and delivery adapter, tray-hidden dispatch, settings, and status-bar
-inbox are implemented. Android adds channel separation, permission and
-exact-alarm recovery, per-profile native alarms, safe tokenized actions,
-cold-start deep links, lifecycle restoration, its settings inbox, native FCM
-registration, and authenticated catch-up. Hosted calendar invitations and chat
-mentions now use a transactional owner-scoped event feed plus a leased opaque
-push outbox. Profile-local category/source controls, lock-screen privacy,
-timezone-aware quiet hours, urgent bypass, native burst summaries, and
-distinct item-kind icons, and per-server, per-vault, and per-calendar controls
-are now implemented. Server/account cleanup cancels pending deliveries,
-concurrent actions are single-use, DST/timezone boundaries have regression
-coverage, and the admin overview exposes content-free aggregate delivery
-health. Foreground clients now perform profile-correct authenticated polling
-when push is unavailable; Android has a one-shot WorkManager diagnostic, and
-Windows autostart changes are idempotent. Packaged desktop permission behavior
-and the physical Android lifecycle
-matrix remain release-validation gates.
+Background execution owns bounded scheduling and headless sync. The completed
+notification system consumes that foundation but remains independently
+documented in the archive. Background running still tracks its own packaged
+desktop/physical Android matrix and notification-backed foreground transfers.
 
 ### Flatpak Distribution
 
@@ -195,6 +180,8 @@ These documents are retained for architecture and implementation history but
 have no open tracked phases:
 
 - [Document Session And Collaboration Stability Plan](../archive/document-session-collaboration-plan.md)
+- [Notification System Plan](../archive/notification-system-plan.md)
+- [Notification System Phase 0 Contract](../archive/notification-system-phase0-contract.md)
 - [OCR Implementation Plan](../archive/ocr-implementation-plan.md)
 - [Rust Crate Boundary Refactor Plan](./rust-crate-boundary-refactor-plan.md)
 

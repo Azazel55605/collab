@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -26,6 +27,11 @@ import {
 } from '../../types/sheetFormula';
 import { columnLabel } from '../../lib/sheet/address';
 import type { SheetPosition } from '../../lib/sheet/address';
+import {
+  describeSheetCell,
+  describeSheetSelection,
+  sheetActiveCellDomId,
+} from '../../lib/sheet/accessibility';
 import {
   cellAlignment,
   formatCellDisplay,
@@ -80,6 +86,41 @@ import SheetFormulaIntellisense, {
  * Nothing here mutates the workbook: every change is reported through a
  * callback so the document stays owned by the session.
  */
+
+/**
+ * The only colors the grid invents rather than taking from the theme.
+ *
+ * Each one is painted *behind* cell text whose color comes from the active
+ * theme, so every tint must stay faint enough that it cannot pull that text
+ * below the contrast the theme guarantees. `SheetGridTheme.test.ts` enforces
+ * the alpha ceiling; the line colors are non-text chrome and are exempt.
+ */
+export const SHEET_SURFACE_TINTS = {
+  tableHeader: 'rgba(139, 92, 246, 0.18)',
+  tableBanding: 'rgba(127, 127, 127, 0.045)',
+  formulaPrecedent: 'rgba(34, 211, 238, 0.14)',
+  formulaDependent: 'rgba(249, 115, 22, 0.13)',
+} as const;
+
+export const SHEET_GRID_LINES = {
+  cell: 'rgba(127, 127, 127, 0.22)',
+  frozen: 'rgba(127, 127, 127, 0.65)',
+} as const;
+
+/**
+ * Deliberately theme-independent marks. Each one means the same thing in every
+ * theme, so it keeps its color instead of following the foreground: an error
+ * result, a note corner, a link corner, and the default cell border. The last
+ * two entries are only fallbacks for when the canvas has no computed color yet.
+ */
+export const SHEET_INDICATOR_COLORS = {
+  error: '#ef4444',
+  note: '#f59e0b',
+  link: '#06b6d4',
+  defaultBorder: '#6b7280',
+  fallbackText: '#e5e7eb',
+  fallbackMutedText: '#9ca3af',
+} as const;
 
 export interface SheetGridEditing {
   position: SheetPosition;
@@ -196,7 +237,7 @@ function drawStyledCellText(
   const fontFamily = style.fontFamily || theme.font.replace(/^.*?px\s+/, '');
   context.font = `${style.italic ? 'italic ' : ''}${style.bold ? '700 ' : ''}${fontSize}px ${fontFamily}`;
   context.fillStyle = computed?.type === 'error'
-    ? '#ef4444'
+    ? SHEET_INDICATOR_COLORS.error
     : style.color ?? (cell?.formula ? theme.mutedText : theme.text);
   context.save();
   context.beginPath();
@@ -280,7 +321,7 @@ function drawNoteIndicator(
   if (!cell?.note && !cell?.link && !cell?.attachments?.length) return;
   context.save();
   if (cell.note) {
-    context.fillStyle = '#f59e0b';
+    context.fillStyle = SHEET_INDICATOR_COLORS.note;
     context.beginPath();
     context.moveTo(x + width - 8, y + 1);
     context.lineTo(x + width - 1, y + 1);
@@ -289,7 +330,7 @@ function drawNoteIndicator(
     context.fill();
   }
   if (cell.link || cell.attachments?.length) {
-    context.fillStyle = '#06b6d4';
+    context.fillStyle = SHEET_INDICATOR_COLORS.link;
     context.beginPath();
     context.moveTo(x + 1, y + 1);
     context.lineTo(x + 8, y + 1);
@@ -317,7 +358,7 @@ function drawStyledBorders(
   for (const [side, fromX, fromY, toX, toY] of segments) {
     const border = style.borders?.[side];
     if (!border || border.style === 'none') continue;
-    context.strokeStyle = border.color ?? '#6b7280';
+    context.strokeStyle = border.color ?? SHEET_INDICATOR_COLORS.defaultBorder;
     context.lineWidth = border.style === 'thick' ? 3 : border.style === 'medium' ? 2 : 1;
     if (typeof context.setLineDash === 'function') {
       context.setLineDash(border.style === 'dashed' ? [5, 3] : border.style === 'dotted' ? [1, 2] : []);
@@ -425,9 +466,9 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
     const header = table.table.hasHeaderRow && row === table.rectangle.top;
     return {
       backgroundColor: header
-        ? 'rgba(139, 92, 246, 0.18)'
+        ? SHEET_SURFACE_TINTS.tableHeader
         : (row - table.rectangle.top) % 2 === 0
-          ? 'rgba(127, 127, 127, 0.045)'
+          ? SHEET_SURFACE_TINTS.tableBanding
           : undefined,
       bold: header || undefined,
       ...explicit,
@@ -467,8 +508,8 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
       const highlight = options.formulaHighlights?.get(cellKey);
       if (highlight) {
         context.fillStyle = highlight === 'precedent'
-          ? 'rgba(34, 211, 238, 0.14)'
-          : 'rgba(249, 115, 22, 0.13)';
+          ? SHEET_SURFACE_TINTS.formulaPrecedent
+          : SHEET_SURFACE_TINTS.formulaDependent;
         context.fillRect(x + 1, y + 1, columnWidth - 1, rowHeight - 1);
       }
       painted += 1;
@@ -529,8 +570,8 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
     context.fillRect(x, y, width, height);
     if (highlight) {
       context.fillStyle = highlight === 'precedent'
-        ? 'rgba(34, 211, 238, 0.14)'
-        : 'rgba(249, 115, 22, 0.13)';
+        ? SHEET_SURFACE_TINTS.formulaPrecedent
+        : SHEET_SURFACE_TINTS.formulaDependent;
       context.fillRect(x + 1, y + 1, width - 1, height - 1);
     }
     context.strokeStyle = theme.gridLine;
@@ -686,10 +727,10 @@ export default function SheetGrid({
       computedValues,
       formulaHighlights,
       theme: {
-        text: canvasStyles.getPropertyValue('color') || '#e5e7eb',
-        mutedText: canvasStyles.getPropertyValue('color') || '#9ca3af',
-        gridLine: 'rgba(127,127,127,0.22)',
-        frozenLine: 'rgba(127,127,127,0.65)',
+        text: canvasStyles.getPropertyValue('color') || SHEET_INDICATOR_COLORS.fallbackText,
+        mutedText: canvasStyles.getPropertyValue('color') || SHEET_INDICATOR_COLORS.fallbackMutedText,
+        gridLine: SHEET_GRID_LINES.cell,
+        frozenLine: SHEET_GRID_LINES.frozen,
         background: 'transparent',
         font: `13px ${canvasStyles.getPropertyValue('font-family') || 'sans-serif'}`,
       },
@@ -783,6 +824,16 @@ export default function SheetGrid({
     editorRef.current?.focus();
     editorRef.current?.setSelectionRange(cursor, cursor);
   }, [editing?.position.column, editing?.position.row, editing?.source]);
+
+  // Closing the editor unmounts the focused input. Without this, focus falls
+  // back to the document body and a keyboard-only user has to tab back into the
+  // grid before they can move the cursor again.
+  const wasEditingRef = useRef(false);
+  useEffect(() => {
+    const editingInGrid = editing?.source === 'grid';
+    if (wasEditingRef.current && !editingInGrid) scrollRef.current?.focus();
+    wasEditingRef.current = editingInGrid;
+  }, [editing?.source]);
 
   const editorAutocomplete = useMemo(
     () => editing?.source === 'grid'
@@ -1156,6 +1207,44 @@ export default function SheetGrid({
     return rectangleStyle(selection.active.row, selection.active.column, selection.active.row, selection.active.column);
   }, [activeMerge, rectangleStyle, selection.active, worksheet.columnOrder, worksheet.rowOrder]);
 
+  // ── Screen-reader semantics ────────────────────────────────────────────────
+  // The canvas carries no text, so the active cell is mirrored into one hidden
+  // `gridcell` (referenced by `aria-activedescendant`) and selection changes are
+  // announced politely. See `lib/sheet/accessibility.ts` for why the whole
+  // visible window is not mirrored.
+  const gridId = useId();
+  const activeCellId = sheetActiveCellDomId(gridId);
+  const activeDescription = useMemo(() => {
+    const rowId = worksheet.rowOrder[selection.active.row];
+    const columnId = worksheet.columnOrder[selection.active.column];
+    return describeSheetCell({
+      worksheet,
+      position: selection.active,
+      computed: rowId && columnId
+        ? computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
+        : undefined,
+      style: resolveCellStyle(styles, worksheet, selection.active),
+      displayFormat,
+    });
+  }, [computedValues, displayFormat, selection.active, styles, worksheet]);
+
+  const [announcement, setAnnouncement] = useState('');
+  useEffect(() => {
+    const rowId = worksheet.rowOrder[selection.active.row];
+    const columnId = worksheet.columnOrder[selection.active.column];
+    setAnnouncement(describeSheetSelection({
+      worksheet,
+      selection,
+      position: selection.active,
+      computed: rowId && columnId
+        ? computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
+        : undefined,
+      style: resolveCellStyle(styles, worksheet, selection.active),
+      displayFormat,
+      readOnly,
+    }));
+  }, [computedValues, displayFormat, readOnly, selection, styles, worksheet]);
+
   const editorStyle = useMemo(() => (
     editing
       ? (() => {
@@ -1216,8 +1305,27 @@ export default function SheetGrid({
       aria-colcount={columns.count}
       aria-readonly={readOnly || undefined}
       aria-label={`${worksheet.name} grid`}
+      aria-activedescendant={activeCellId}
       data-testid="sheet-grid"
     >
+      {/* Accessible mirror of the active cell. Visually hidden — the canvas
+          already paints it — but it gives assistive technology a real
+          `gridcell` to land on and read. */}
+      <div role="row" aria-rowindex={selection.active.row + 1} className="sr-only">
+        <span
+          id={activeCellId}
+          role="gridcell"
+          aria-colindex={selection.active.column + 1}
+          aria-readonly={readOnly || undefined}
+          aria-selected
+        >
+          {activeDescription}
+        </span>
+      </div>
+      <div role="status" aria-live="polite" className="sr-only" data-testid="sheet-grid-announcement">
+        {announcement}
+      </div>
+
       {/* Spacer drives native scrollbars for the full logical grid. */}
       <div
         style={{

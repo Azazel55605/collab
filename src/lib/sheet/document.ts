@@ -433,6 +433,9 @@ function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWor
   const cellsRecord = asRecord(record.cells) ?? {};
   const cells: Record<string, SheetCell> = {};
   let dropped = 0;
+  // Counted rather than derived from `Object.keys(cells).length`: recomputing
+  // the key list per cell makes opening a large worksheet quadratic.
+  let kept = 0;
   for (const [key, raw] of Object.entries(cellsRecord)) {
     const parsed = parseSheetCellKey(key);
     if (!parsed || !rowIds.has(parsed.rowId) || !columnIds.has(parsed.columnId)) {
@@ -444,13 +447,14 @@ function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWor
       dropped += 1;
       continue;
     }
-    if (Object.keys(cells).length >= SHEET_LIMITS.populatedCellsPerWorksheet) {
+    if (kept >= SHEET_LIMITS.populatedCellsPerWorksheet) {
       throw new SheetDocumentError(
         'limit-exceeded',
         `A worksheet may not have more than ${SHEET_LIMITS.populatedCellsPerWorksheet} populated cells.`,
       );
     }
     cells[sheetCellKey(parsed.rowId, parsed.columnId)] = cell;
+    kept += 1;
   }
   if (dropped > 0) {
     context.warnings.push(`Dropped ${dropped} cell(s) with a missing row, column, or value.`);

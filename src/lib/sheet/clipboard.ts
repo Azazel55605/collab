@@ -6,9 +6,9 @@ import type { SheetPosition } from './address';
 import { formatCellEditText, parseCellInput } from './cellValue';
 import { SheetDocumentError } from './document';
 import { translateFormulaReferences } from './formulaReferences';
-import { getCell, setCell } from './operations';
-import { createSelection, normalizeRange, type SheetSelection } from './selection';
-import { applyStyleToSelection, resolveCellStyle } from './styles';
+import { getCell, setCells, type SheetCellWrite } from './operations';
+import { normalizeRange, type SheetSelection } from './selection';
+import { applyCellStyles, resolveCellStyle, type SheetCellStyleWrite } from './styles';
 
 export const SHEET_CLIPBOARD_MIME = 'application/vnd.collab.sheet-selection+json';
 export const SHEET_CLIPBOARD_VERSION = 1;
@@ -104,7 +104,10 @@ export function pasteSheetClipboardPayload(
   }
   const worksheet = document.worksheets.find((candidate) => candidate.id === worksheetId);
   if (!worksheet) return document;
-  let next = document;
+  // Collected and applied in two batched passes. Writing each pasted cell (and
+  // its style) individually would copy the whole sparse map per cell.
+  const cellWrites: SheetCellWrite[] = [];
+  const styleWrites: SheetCellStyleWrite[] = [];
   for (let rowOffset = 0; rowOffset < payload.rows; rowOffset += 1) {
     for (let columnOffset = 0; columnOffset < payload.columns; columnOffset += 1) {
       const destination = { row: target.row + rowOffset, column: target.column + columnOffset };
@@ -137,15 +140,19 @@ export function pasteSheetClipboardPayload(
             );
           }
         }
-        next = setCell(next, worksheetId, destination, pasted);
+        cellWrites.push({ position: destination, cell: pasted });
       }
 
       if ((mode === 'all' || mode === 'formatting') && entry?.style) {
-        next = applyStyleToSelection(next, worksheetId, createSelection(destination), entry.style);
+        styleWrites.push({ position: destination, patch: entry.style });
       }
     }
   }
-  return next;
+  return applyCellStyles(
+    setCells(document, worksheetId, cellWrites),
+    worksheetId,
+    styleWrites,
+  );
 }
 
 function escapeHtml(value: string): string {
