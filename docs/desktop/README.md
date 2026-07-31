@@ -10,6 +10,7 @@ Implementation references:
 - [UI Guide](./ui-guide.md)
 - [Circuit Simulation Engine](./circuit-engine.md)
 - [`.sheet` Workbook Reference](./sheet-reference.md)
+- [`.sheet` Conversion Support Matrix](./sheet-conversion.md)
 - [Background Running Release Validation](../build/background-running-release-validation.md)
 - [Advanced Tables Release Validation](../build/advanced-tables-release-validation.md)
 - [Notification System Architecture](../archive/notification-system-plan.md)

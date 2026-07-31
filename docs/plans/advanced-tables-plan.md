@@ -279,14 +279,14 @@ It must remain ephemeral and must not be written into the workbook.
 | 0. Product contract and technical proof | Complete | Finalize schema, select the formula/grid engines, and prove large-grid editing plus recalculation. |
 | 1. `.sheet` domain and vault integration | Complete | Add parsing, validation, migrations, creation, routing, revisions, and local/hosted document support. |
 | 2. Desktop spreadsheet editor | Complete | Deliver the virtualized grid, worksheet controls, selection, editing, navigation, and structural operations. |
-| 3. Formulas and recalculation | Testing | Native incremental evaluation, formula UX, reference rewrites, stable errors, inspection, volatile-time policy, and fixtures are implemented. |
+| 3. Formulas and recalculation | Complete | Native incremental evaluation, formula UX, reference rewrites, stable errors, inspection, volatile-time policy, and fixtures are implemented. |
 | 4. Formatting and spreadsheet interactions | Testing | Formatting, clipboard variants, fill/series behavior, bounded undo/redo, search/replace, notes, and range print/export are implemented. |
 | 5. Tables and data tools | Testing | Tables, filtering, validation, conditional formatting, named ranges, editor protection, summaries, cleanup tools, and combined interaction matrices are implemented. |
 | 6. Hosted collaboration and offline behavior | Testing | Structured live sessions, stable-ID presence and merging, offline queues, conflict handling, and revision-safe recovery are implemented; physical two-client validation remains. |
 | 7. Charts, analysis, and Collab integration | Testing | Stable-range charts, bounded summaries, vault references, source-linked note embeds, and explicit Kanban/calendar snapshots are implemented. |
 | 8. Mobile sheet experience | Testing | Windowed touch grid, pinch zoom, frozen panes, sparse search, and bounded value/formula/formatting/filter editing are implemented; physical Android memory and process-recreation validation remains. |
 | 9. Performance, accessibility, and release hardening | Testing | Budget enforcement, shape/corruption fixtures, keyboard and screen-reader validation, recovery coverage, the dependency audit, and the reference documentation are implemented; the Windows, macOS, and Android matrix rows remain. |
-| 10. XLSX and CSV conversion | Not started | Import external files into `.sheet` and export `.sheet` copies without making external formats authoritative. |
+| 10. XLSX and CSV conversion | Testing | Bounded native `.xlsx`/`.csv` import into a new `.sheet`, `.xlsx`/`.csv` export, honest conversion reports, injection protection, and the published support matrix are implemented; validation against files from other spreadsheet applications remains. |
 
 ## Phase Details
 
@@ -742,53 +742,96 @@ workbook format.
 
 #### Import
 
-- [ ] Add file import entry points for `.xlsx` and `.csv`.
-- [ ] Parse imports in a bounded native or isolated worker path so large files
-  do not block the UI.
-- [ ] Convert imported content into a new `.sheet` document before opening it.
-- [ ] Import supported worksheet names/order, cell values, supported formulas,
-  common number formats, common styles, merged ranges, widths/heights, frozen
-  panes, and basic charts where conversion is reliable.
-- [ ] Convert unsupported formulas to a clearly reported fallback according to
+- [x] Add file import entry points for `.xlsx` and `.csv`. The Files sidebar
+  "Add files" button and OS drag-and-drop route them through
+  `importCategoryForName` → `workbookConversion` in `src/lib/vaultFileImport.ts`.
+- [x] Parse imports in a bounded native or isolated worker path so large files
+  do not block the UI. `collab_sheet::convert` runs behind the
+  `sheet_convert_import` command; archive bytes never enter the webview.
+- [x] Convert imported content into a new `.sheet` document before opening it.
+  The document is built natively and validated against
+  `collab_documents::sheet` before it is returned.
+- [x] Import supported worksheet names/order, cell values, supported formulas,
+  common number formats, common styles, merged ranges, widths/heights, and
+  frozen panes. Charts are deliberately **not** imported — see the note below.
+- [x] Convert unsupported formulas to a clearly reported fallback according to
   the Phase 0 policy; never silently claim successful formula compatibility.
-- [ ] Reject macros and external execution. Ignore or safely flatten external
+  Each unrecognized function is named in the report and its source is kept, so
+  the cell shows an error rather than a wrong number.
+- [x] Reject macros and external execution. Ignore or safely flatten external
   links, data connections, Power Query, and unsupported embedded objects.
-- [ ] Add conservative CSV delimiter/quote/encoding handling and optional type
+- [x] Add conservative CSV delimiter/quote/encoding handling and optional type
   inference. CSV creates one worksheet because the format has no workbook
   model.
-- [ ] Present a conversion report listing imported, flattened, skipped, and
+- [x] Present a conversion report listing imported, flattened, skipped, and
   unsupported features before the user relies on the result.
-- [ ] Preserve the source file unchanged; the created `.sheet` is a separate
-  Collab document.
+  `SheetConversionReportDialog`.
+- [x] Preserve the source file unchanged; the created `.sheet` is a separate
+  Collab document, named to avoid colliding with an existing workbook.
 
 #### Export
 
-- [ ] Export a `.sheet` workbook as a newly generated `.xlsx` copy.
-- [ ] Export a chosen worksheet or selected range as `.csv`; prompt when a
-  workbook has multiple worksheets because CSV cannot contain them.
-- [ ] Map supported values, formulas, styles, formats, merged ranges,
-  dimensions, frozen panes, and basic charts to the target format.
-- [ ] Flatten or omit unsupported Collab-only metadata with an export report.
-- [ ] Never change the open document's backing format or begin saving future
-  edits into the exported file.
-- [ ] Add formula-injection protection for CSV consumers while preserving an
+- [x] Export a `.sheet` workbook as a newly generated `.xlsx` copy.
+- [x] Export a chosen worksheet or selected range as `.csv`; the report states
+  how many worksheets were left out, because CSV cannot contain them.
+- [x] Map supported values, formulas, styles, formats, merged ranges,
+  dimensions, and frozen panes to the target format. Charts are not written.
+- [x] Flatten or omit unsupported Collab-only metadata with an export report.
+- [x] Never change the open document's backing format or begin saving future
+  edits into the exported file. The exporter receives serialized text and
+  writes to a user-chosen path; it has no handle on the open document.
+- [x] Add formula-injection protection for CSV consumers while preserving an
   explicit opt-in for users who intentionally export formulas.
 
 #### Compatibility Contract
 
-- [ ] Publish a conversion support matrix with exact supported features.
-- [ ] State clearly that round trips may be lossy and are not guaranteed.
-- [ ] Add fixtures produced by maintained spreadsheet applications, including
-  dates, locales, formulas, styles, merged cells, hidden rows/sheets, charts,
-  Unicode, large sparse sheets, and malformed archives.
-- [ ] Add import-to-`.sheet`, `.sheet`-to-export, reopen, and semantic comparison
-  tests. Compare supported values/formulas/styles rather than binary file
-  equality.
+- [x] Publish a conversion support matrix with exact supported features.
+  `docs/desktop/sheet-conversion.md`.
+- [x] State clearly that round trips may be lossy and are not guaranteed.
+- [x] Add fixtures covering dates, formulas, shared formula groups, styles,
+  merged cells, hidden sheets, Unicode and XML-escaped text, error values, and
+  malformed/hostile archives. `crates/collab-sheet/tests/conversion_proof.rs`
+  builds them inline so the XML a test asserts against is visible next to the
+  assertion. Fixtures produced by other spreadsheet applications remain a
+  release-validation gate rather than a checked-in binary.
+- [x] Add import-to-`.sheet`, `.sheet`-to-export, reopen, and semantic
+  comparison tests. Compare supported values/formulas/styles rather than binary
+  file equality.
 
 Exit gate: users can deliberately convert supported `.xlsx`/`.csv` files into
 native `.sheet` documents and export interoperable copies with an honest,
 tested conversion report. Collab does not advertise full Excel readability,
 editing, or lossless compatibility.
+
+Phase 10 notes. The converter is first-party, built on the `zip` and
+`quick-xml` codecs already in the workspace, rather than on a third-party
+spreadsheet reader. Reading `.xlsx` means unpacking an untrusted archive of
+untrusted XML, and the plan requires traversal, entry-count, per-entry, and
+total-expansion bounds — those belong in code we control. It also keeps the
+dependency audit trivially clean: every crate reachable from `collab-sheet`
+stays permissively licensed.
+
+Two deliberate scope decisions, both visible in the support matrix rather than
+implied:
+
+- **Charts are not converted in either direction.** The plan asks for basic
+  charts "where conversion is reliable", and mapping chart XML onto Collab's
+  stable-range chart model is not reliable enough to present as working. Import
+  reports charts as skipped and points the user at Collab's chart tools; export
+  reports them as not written.
+- **Fixtures are built inline, not checked in as binaries.** A test that asserts
+  something about a workbook shows the XML it is asserting against. Running the
+  conversion against files produced by Excel, LibreOffice, and Google Sheets is
+  a release-validation step in
+  `docs/build/advanced-tables-release-validation.md`, not something a unit test
+  can honestly claim.
+
+Reading `.xlsx` also surfaced two bugs worth recording, because both would have
+silently corrupted imported data: XML entity references arrive as their own
+parser events (so `Item &amp; Co` imported as `Item  Co` until they were
+handled), and most workbook records are self-closing (so `<xf/>` style records
+and shared-formula followers were skipped entirely until empty-element
+expansion was enabled).
 
 ## Testing Strategy
 

@@ -341,6 +341,8 @@ pub fn run() {
             // bounded incremental `.sheet` formula evaluation
             commands::sheet::sheet_formula_evaluate,
             commands::sheet::sheet_formula_release,
+            commands::sheet_convert::sheet_convert_import,
+            commands::sheet_convert::sheet_convert_export,
             // ui
             commands::ui::set_ui_zoom,
             commands::ui::host_os,

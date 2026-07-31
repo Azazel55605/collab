@@ -20,6 +20,7 @@ import {
   Download,
   Database,
   FileOutput,
+  FileSpreadsheet,
   Link2,
   Loader2,
   Palette,
@@ -149,6 +150,18 @@ import {
   sheetSvgToPngBase64,
 } from '../lib/sheet/export';
 import { utf8ToBase64 } from '../lib/circuitSweepExport';
+import {
+  computedValuesForExport,
+  exportWorkbookFile,
+} from '../lib/sheet/conversion';
+import type {
+  SheetConversionReport,
+  SheetExportFormat,
+  SheetExportOptions,
+  SheetExportRange,
+} from '../types/sheetConversion';
+import SheetConversionReportDialog from '../components/sheet/SheetConversionReportDialog';
+import SheetCsvExportDialog from '../components/sheet/SheetCsvExportDialog';
 import { tauriCommands } from '../lib/tauri';
 import { createVaultClient } from '../lib/vaultClient';
 import {
@@ -816,6 +829,56 @@ export default function SheetView({ relativePath }: Props) {
     setPendingSheetJump(null);
   }, [document, goToRange, pendingSheetJump, relativePath, setPendingSheetJump]);
 
+  const [conversionReport, setConversionReport] = useState<
+    { title: string; subtitle?: string; report: SheetConversionReport } | null
+  >(null);
+
+  /**
+   * Writes the workbook out as a separate `.xlsx` or `.csv` copy. The open
+   * document keeps its own format and is never re-pointed at the exported file.
+   */
+  const [csvExportOpen, setCsvExportOpen] = useState(false);
+
+  /** The active selection as an export rectangle, or null when it is one cell. */
+  const csvSelectionRange = useMemo((): SheetExportRange | null => {
+    const range = selection.ranges[selection.ranges.length - 1];
+    if (!range) return null;
+    const rectangle = normalizeRange(range);
+    const single = rectangle.top === rectangle.bottom && rectangle.left === rectangle.right;
+    return single
+      ? null
+      : {
+        top: rectangle.top,
+        left: rectangle.left,
+        bottom: rectangle.bottom,
+        right: rectangle.right,
+      };
+  }, [selection]);
+
+  const exportWorkbookAs = useCallback(async (
+    format: SheetExportFormat,
+    exportOptions: SheetExportOptions = {},
+  ) => {
+    if (!document) return;
+    try {
+      const result = await exportWorkbookFile(document, format, {
+        worksheetId: worksheet?.id,
+        ...exportOptions,
+        // CSV shows values, not formula source: a leading `=` in a CSV field is
+        // executed by the application that opens it.
+        computedValues: computedValuesForExport(document, formulaState.values),
+      });
+      if (!result) return;
+      setConversionReport({
+        title: `Exported as ${format.toUpperCase()}`,
+        subtitle: result.path.split(/[/\\]/).pop(),
+        report: result.report,
+      });
+    } catch (error) {
+      toast.error(`Could not export the workbook: ${error}`);
+    }
+  }, [document, formulaState.values, worksheet]);
+
   const exportSelection = useCallback(async (format: 'svg' | 'png') => {
     if (!document || !worksheet) return;
     const baseName = getDocumentBaseName(relativePath, 'Workbook').replace(/\.sheet$/i, '');
@@ -1255,6 +1318,20 @@ export default function SheetView({ relativePath }: Props) {
                   </DocumentTopBarButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
+                  <DropdownMenuItem
+                    disabled={!document}
+                    onSelect={() => { void exportWorkbookAs('xlsx'); }}
+                  >
+                    <FileSpreadsheet />
+                    Export workbook as .xlsx
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={!document}
+                    onSelect={() => setCsvExportOpen(true)}
+                  >
+                    <FileSpreadsheet />
+                    Export as .csv…
+                  </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => { void exportSelection('svg'); }}>
                     Export selection as SVG
                   </DropdownMenuItem>
@@ -1498,6 +1575,22 @@ export default function SheetView({ relativePath }: Props) {
         </>
       )}
 
+      <SheetCsvExportDialog
+        open={csvExportOpen}
+        onOpenChange={setCsvExportOpen}
+        document={document}
+        activeWorksheetId={worksheet?.id}
+        selectionRange={csvSelectionRange}
+        selectionLabel={sheetRangeLabel(selection)}
+        onExport={(exportOptions) => { void exportWorkbookAs('csv', exportOptions); }}
+      />
+      <SheetConversionReportDialog
+        open={conversionReport !== null}
+        onOpenChange={(open) => { if (!open) setConversionReport(null); }}
+        title={conversionReport?.title ?? ''}
+        subtitle={conversionReport?.subtitle}
+        report={conversionReport?.report ?? null}
+      />
       <SheetFindDialog
         open={findOpen}
         readOnly={session.readOnly}

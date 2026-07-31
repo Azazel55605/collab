@@ -9,6 +9,8 @@ import { useVaultStore } from '../../store/vaultStore';
 import { useServerStore } from '../../store/serverStore';
 import { tauriCommands } from '../../lib/tauri';
 import { importExternalFilesIntoVault, IMPORTABLE_EXTENSIONS } from '../../lib/vaultFileImport';
+import type { SheetConversionReport } from '../../types/sheetConversion';
+import SheetConversionReportDialog from '../sheet/SheetConversionReportDialog';
 import { useNativeFileDrop } from './useNativeFileDrop';
 import { useEditorStore } from '../../store/editorStore';
 import { useCollabStore } from '../../store/collabStore';
@@ -168,6 +170,9 @@ export default function FileTree() {
   // ── Drag-and-drop state ────────────────────────────────────────────────────
   const [draggingPath, setDraggingPath] = useState<string | null>(null);
   const [dropTargetPath, setDropTargetPath] = useState<string | null | '__root__'>('__root__');
+  const [conversionReport, setConversionReport] = useState<
+    { title: string; subtitle?: string; report: SheetConversionReport } | null
+  >(null);
   // null = no target, '__root__' = root of vault
   const treeContainerRef = useRef<HTMLDivElement | null>(null);
   const readOnly = isVaultReadOnly(vault);
@@ -176,8 +181,22 @@ export default function FileTree() {
   const importFiles = useCallback(async (sourcePaths: string[], targetFolder?: string) => {
     if (!vault || sourcePaths.length === 0) return;
     try {
-      const result = await importExternalFilesIntoVault(createVaultClient(vault), sourcePaths, { targetFolder });
+      const result = await importExternalFilesIntoVault(createVaultClient(vault), sourcePaths, {
+        targetFolder,
+        // Lets a converted `.xlsx`/`.csv` pick a free name instead of colliding
+        // with a workbook that is already in the vault.
+        existingFiles: flatten(fileTree),
+      });
       await refreshFileTree();
+      // A conversion is never guaranteed lossless, so its report is surfaced
+      // rather than folded into the generic success toast.
+      for (const conversion of result.conversions) {
+        setConversionReport({
+          title: `Converted ${conversion.sourceName}`,
+          subtitle: conversion.relativePath,
+          report: conversion.report,
+        });
+      }
       if (result.imported.length > 0) {
         toast.success(
           result.imported.length === 1
@@ -191,7 +210,7 @@ export default function FileTree() {
     } catch (error) {
       toast.error(`Failed to import files: ${error}`);
     }
-  }, [refreshFileTree, vault]);
+  }, [fileTree, refreshFileTree, vault]);
 
   const handleImportButton = useCallback(async () => {
     const selected = await tauriCommands.showOpenFilesDialog(IMPORTABLE_EXTENSIONS);
@@ -690,6 +709,13 @@ export default function FileTree() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Dialogs */}
+      <SheetConversionReportDialog
+        open={conversionReport !== null}
+        onOpenChange={(open) => { if (!open) setConversionReport(null); }}
+        title={conversionReport?.title ?? ''}
+        subtitle={conversionReport?.subtitle}
+        report={conversionReport?.report ?? null}
+      />
       <ConfirmDeleteDialog
         open={dialog.type === 'delete'}
         name={dialog.type === 'delete' ? dialog.files[0]?.name ?? '' : ''}

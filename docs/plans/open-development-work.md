@@ -22,7 +22,7 @@ work from being mistaken for an active roadmap item.
 
 | Project | Current status | Remaining work | Canonical document |
 | --- | --- | --- | --- |
-| Advanced Tables | In Progress | Build the native `.sheet` domain, desktop editor, formulas, data tools, hosted collaboration, mobile experience, and final bounded XLSX/CSV conversion phase. | [Advanced Tables Plan](./advanced-tables-plan.md) |
+| Advanced Tables | Testing | Build the native `.sheet` domain, desktop editor, formulas, data tools, hosted collaboration, mobile experience, and final bounded XLSX/CSV conversion phase. | [Advanced Tables Plan](./advanced-tables-plan.md) |
 | Android companion app | In progress / deferred expansion | Finish Phase 7 device lifecycle QA, signing, release packaging, and operational documentation. Phase 8 remains a deferred expansion bucket; background execution has its own active plan and the notification system is complete. | [Android Companion App Plan](./android-companion-app-plan.md) |
 | Electronic circuit simulation | In progress / planned | Finish remaining schema/runtime details and AC integration, then mixed-signal simulation, derived-result caching/collaboration policy, numerical hardening, and release validation. | [Electronic Circuit Simulation Plan](./electronic-circuit-simulation-plan.md) |
 | Logic and circuit diagram editor | In progress umbrella | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream. | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md) |
@@ -98,9 +98,14 @@ Open tracker entries:
   remaining gate is filling in the Windows, macOS, and Android rows of
   [Advanced Tables Release Validation](../build/advanced-tables-release-validation.md)
   from real runs on those platforms.
-- Phase 10, **Not started**: add bounded `.xlsx`/`.csv` import into `.sheet` and
-  export from `.sheet`. External formats remain conversion targets rather than
-  live or losslessly compatible document models.
+- Phase 10, **Testing**: bounded native `.xlsx`/`.csv` import into a new
+  `.sheet`, `.xlsx`/`.csv` export, honest conversion reports, and CSV
+  formula-injection protection are implemented, with the support matrix
+  published in
+  [`.sheet` Conversion Support Matrix](../desktop/sheet-conversion.md).
+  External formats remain conversion targets rather than live or losslessly
+  compatible document models. The remaining gate is validating conversion
+  against files produced by Excel, LibreOffice, Google Sheets, and Numbers.
 
 ### Collab Presentations
 

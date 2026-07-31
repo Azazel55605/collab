@@ -2,6 +2,9 @@ import type { VaultClient } from './vaultClient';
 import { tauriCommands } from './tauri';
 import { parseLogicDiagramDocument } from '../types/logicDiagram';
 import { inspectSheetDocumentText } from './sheet/document';
+import { importWorkbookFile } from './sheet/conversion';
+import type { SheetConversionReport } from '../types/sheetConversion';
+import type { NoteFile } from '../types/vault';
 import { useSyncTransferStore } from '../store/syncTransferStore';
 
 /**
@@ -21,6 +24,12 @@ export const IMPORT_CANVAS_EXTENSIONS = ['canvas'];
 export const IMPORT_KANBAN_EXTENSIONS = ['kanban'];
 export const IMPORT_LOGIC_EXTENSIONS = ['logic'];
 export const IMPORT_SHEET_EXTENSIONS = ['sheet'];
+/**
+ * Spreadsheet formats that are *converted* rather than stored. They become a
+ * new `.sheet` document; the source file is left untouched and never becomes
+ * the backing model of the opened workbook.
+ */
+export const IMPORT_WORKBOOK_CONVERSION_EXTENSIONS = ['xlsx', 'xlsm', 'csv', 'tsv'];
 
 export const IMPORTABLE_EXTENSIONS = [
   ...IMPORT_IMAGE_EXTENSIONS,
@@ -31,9 +40,10 @@ export const IMPORTABLE_EXTENSIONS = [
   ...IMPORT_KANBAN_EXTENSIONS,
   ...IMPORT_LOGIC_EXTENSIONS,
   ...IMPORT_SHEET_EXTENSIONS,
+  ...IMPORT_WORKBOOK_CONVERSION_EXTENSIONS,
 ];
 
-export type ImportableCategory = 'image' | 'svg' | 'pdf' | 'markdown' | 'canvas' | 'kanban' | 'logic' | 'sheet';
+export type ImportableCategory = 'image' | 'svg' | 'pdf' | 'markdown' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'workbookConversion';
 
 export function fileBaseName(sourcePath: string): string {
   const segments = sourcePath.split(/[/\\]/);
@@ -55,6 +65,7 @@ export function importCategoryForName(name: string): ImportableCategory | null {
   if (IMPORT_KANBAN_EXTENSIONS.includes(ext)) return 'kanban';
   if (IMPORT_LOGIC_EXTENSIONS.includes(ext)) return 'logic';
   if (IMPORT_SHEET_EXTENSIONS.includes(ext)) return 'sheet';
+  if (IMPORT_WORKBOOK_CONVERSION_EXTENSIONS.includes(ext)) return 'workbookConversion';
   return null;
 }
 
@@ -65,6 +76,12 @@ export function isImportableFile(name: string): boolean {
 export interface VaultImportResult {
   imported: string[];
   failed: { name: string; error: string }[];
+  /**
+   * Conversion reports for `.xlsx`/`.csv` sources, keyed by the created `.sheet`
+   * path. The caller must surface these: a conversion is never guaranteed
+   * lossless, and the user has to see what changed before relying on it.
+   */
+  conversions: { relativePath: string; sourceName: string; report: SheetConversionReport }[];
 }
 
 function decodeUtf8Base64(contentBase64: string): string {
@@ -141,9 +158,9 @@ async function importTextDocument(
 export async function importExternalFilesIntoVault(
   client: VaultClient,
   sourcePaths: string[],
-  options: { targetFolder?: string } = {},
+  options: { targetFolder?: string; existingFiles?: NoteFile[] } = {},
 ): Promise<VaultImportResult> {
-  const result: VaultImportResult = { imported: [], failed: [] };
+  const result: VaultImportResult = { imported: [], failed: [], conversions: [] };
   const assetImporter = client.runtime.externalAssetImport;
   const transferId = client.kind === 'hosted' && sourcePaths.length > 0
     ? useSyncTransferStore.getState().begin({
@@ -167,7 +184,22 @@ export async function importExternalFilesIntoVault(
     }
     try {
       if (!category) {
-        result.failed.push({ name, error: 'Unsupported file type. Only images, PDFs, markdown, canvas, Kanban, logic, and sheet files can be imported.' });
+        result.failed.push({ name, error: 'Unsupported file type. Only images, PDFs, markdown, canvas, Kanban, logic, spreadsheet, and .xlsx/.csv files can be imported.' });
+        continue;
+      }
+      if (category === 'workbookConversion') {
+        // Converted natively into a brand-new `.sheet` document. The source
+        // file stays exactly as it was on disk.
+        const outcome = await importWorkbookFile(client, sourcePath, {
+          targetFolder: options.targetFolder,
+          existingFiles: options.existingFiles,
+        });
+        result.imported.push(outcome.relativePath);
+        result.conversions.push({
+          relativePath: outcome.relativePath,
+          sourceName: name,
+          report: outcome.report,
+        });
         continue;
       }
       if (category === 'markdown' || category === 'canvas' || category === 'kanban' || category === 'logic' || category === 'sheet') {

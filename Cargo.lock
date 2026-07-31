@@ -1243,9 +1243,11 @@ dependencies = [
  "chrono",
  "formualizer-common",
  "formualizer-workbook",
+ "quick-xml",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+ "zip 2.4.2",
 ]
 
 [[package]]

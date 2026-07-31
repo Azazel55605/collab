@@ -24,6 +24,13 @@ import type { NoteSnippet, NoteSnippetDraft, NoteSnippetScope } from '../types/n
 import type { PdfSidecarState } from '../types/pdf';
 import type { UpdateInfo } from '../store/updateStore';
 import type { LogicDiagramDocument } from '../types/logicDiagram';
+import type {
+  SheetExportFormat,
+  SheetExportOptions,
+  SheetExportResult,
+  SheetImportOptions,
+  SheetImportResult,
+} from '../types/sheetConversion';
 import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarMirrorAnchor, CalendarMirrorConflict, CalendarMirrorGroup, CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSubscription, CalendarSyncState } from '../types/calendar';
 import type {
   ConsumedNotificationAction,
@@ -738,6 +745,36 @@ export const tauriCommands = {
     invoke<SheetFormulaEvaluationResponse>('sheet_formula_evaluate', { request }),
   sheetFormulaRelease: (runtimeId: string) =>
     invoke<void>('sheet_formula_release', { runtimeId }),
+  /**
+   * Converts an external `.xlsx`/`.csv` file into a new `.sheet` document.
+   * The bytes are read and parsed natively, so an untrusted archive never
+   * enters the webview; the source file is left untouched.
+   */
+  sheetConvertImport: (
+    sourcePath: string,
+    workbookId: string,
+    timestamp: string,
+    options?: SheetImportOptions,
+  ) =>
+    invoke<SheetImportResult>('sheet_convert_import', {
+      sourcePath,
+      workbookId,
+      timestamp,
+      options,
+    }),
+  /** Writes a `.sheet` document out as a separate `.xlsx` or `.csv` copy. */
+  sheetConvertExport: (
+    documentText: string,
+    targetPath: string,
+    format: SheetExportFormat,
+    options?: SheetExportOptions,
+  ) =>
+    invoke<SheetExportResult>('sheet_convert_export', {
+      documentText,
+      targetPath,
+      format,
+      options,
+    }),
 
   // UI
   setUiZoom: (zoom: number) => invoke<void>('set_ui_zoom', { zoom }),

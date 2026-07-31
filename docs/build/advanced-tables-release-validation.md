@@ -17,6 +17,7 @@ pnpm exec vitest run src/lib/sheet src/components/sheet src/views/SheetView.test
 pnpm exec tsc --noEmit
 cargo test -p collab-sheet --release
 cargo test -p collab-documents sheet
+cargo test -p collab sheet_convert
 pnpm mobile:test
 ```
 
@@ -35,6 +36,9 @@ machine the baselines were recorded on.
 | `src/components/sheet/SheetGridAccessibility.test.tsx` | Screen-reader grid semantics, focus, and keyboard-only operation |
 | `src/components/sheet/SheetGridTheme.test.ts` | Contrast, zoom, and reduced motion |
 | `crates/collab-sheet/tests/formula_proof.rs` | Function baseline, cycles, bounded recalculation, and the 100,000-cell scale proof |
+| `crates/collab-sheet/tests/conversion_proof.rs` | `.xlsx` import fidelity, hostile-archive rejection, and the semantic export/re-import round trip |
+| `src/lib/sheet/conversion.test.ts`, `src/types/sheetConversion.test.ts` | Import routing into the vault, computed-value export, and report presentation |
+| `src/components/sheet/SheetCsvExportDialog.test.tsx` | CSV scope, worksheet loss disclosure, and the formula-injection opt-in |
 
 ### Budget scaling on slow machines
 
@@ -125,12 +129,18 @@ third-party clipboard dependency. The Collab payload is a versioned JSON MIME
 type, TSV and HTML are generated for other applications, and incoming HTML is
 sanitized before conversion. Paste is bounded to 100,000 cells.
 
-### Import
+### Conversion (`.xlsx` / `.csv`)
 
-`.xlsx`/`.csv` conversion is Phase 10 and not yet implemented, so there is no
-archive-parsing dependency in the `.sheet` path today. When it lands, ZIP
-parsing must be protected against traversal and decompression bombs, and it
-inherits `COLLAB_MAX_IMPORT_BYTES` / `COLLAB_MAX_IMPORT_EXPANDED_BYTES`.
+First-party, in `collab-sheet::convert`, built on the workspace `zip` (MIT) and
+`quick-xml` (MIT) codecs. There is no third-party spreadsheet reader or writer,
+so the archive bounds — entry count, per-entry expanded size, total expansion,
+and unsafe entry names — are enforced in code we control. Neither codec reaches
+the network, the filesystem, or a database.
+
+An export never writes a macro, connection, external-link, or query part, so an
+exported file cannot carry a capability the source `.sheet` did not have. CSV
+export prefixes fields a spreadsheet would execute unless the user explicitly
+turns that off.
 
 ### Standing security position
 
@@ -158,3 +168,30 @@ inherits `COLLAB_MAX_IMPORT_BYTES` / `COLLAB_MAX_IMPORT_EXPANDED_BYTES`.
       and recovery paths are documented.
 - [ ] Windows, macOS, and Android rows of the platform matrix are filled in from
       real runs on those platforms.
+- [ ] Conversion is validated against files produced by maintained spreadsheet
+      applications (see below).
+
+## Conversion Validation
+
+`crates/collab-sheet/tests/conversion_proof.rs` builds its fixtures inline, so
+the XML each test asserts against is visible next to the assertion. That proves
+the reader against the shapes those applications *document*; it does not prove
+it against what they actually emit. Before release, run the import against real
+files and record the result:
+
+| Source application | Import opens | Values correct | Formulas correct | Styles reasonable | Report honest |
+| --- | --- | --- | --- | --- | --- |
+| Excel (desktop) | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| Excel (web) | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| LibreOffice Calc | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| Google Sheets export | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| Numbers export | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+
+Each file should include dates, a non-English locale, formulas (including a
+shared formula group), styles, merged cells, hidden rows and sheets, a chart,
+Unicode text, and a large sparse sheet. Then export from Collab and confirm the
+result opens in each application without a repair prompt.
+
+"Report honest" is the column that matters most: a conversion that loses
+something and says so is a pass; one that loses something silently is a
+release blocker.

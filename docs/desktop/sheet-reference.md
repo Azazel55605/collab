@@ -29,8 +29,10 @@ A1 addresses are always derived from position, never stored. Formula source is
 authoritative and computed values are never written to the file, so a workbook
 recovered from any revision recalculates rather than showing stale numbers.
 
-`.xlsx` and `.csv` are conversion formats only (Phase 10). Neither is ever the
-editable backing model.
+`.xlsx` and `.csv` are conversion formats only. Collab converts them into a new
+`.sheet` document and writes separate exported copies; neither is ever the
+editable backing model, and round trips are lossy. The exact supported features
+are in `docs/desktop/sheet-conversion.md`.
 
 ## Limits
 

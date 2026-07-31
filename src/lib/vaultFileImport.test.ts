@@ -13,6 +13,7 @@ import { useSyncTransferStore } from '../store/syncTransferStore';
 vi.mock('./tauri', () => ({
   tauriCommands: {
     readFileForUpload: vi.fn(),
+    sheetConvertImport: vi.fn(),
   },
 }));
 
@@ -39,6 +40,11 @@ describe('vaultFileImport categorization', () => {
     expect(importCategoryForName('tasks.kanban')).toBe('kanban');
     expect(importCategoryForName('adder.logic')).toBe('logic');
     expect(importCategoryForName('budget.sheet')).toBe('sheet');
+    // `.xlsx`/`.csv` are converted into a new `.sheet`, never stored as-is.
+    expect(importCategoryForName('budget.xlsx')).toBe('workbookConversion');
+    expect(importCategoryForName('budget.XLSM')).toBe('workbookConversion');
+    expect(importCategoryForName('data.csv')).toBe('workbookConversion');
+    expect(importCategoryForName('data.tsv')).toBe('workbookConversion');
     expect(importCategoryForName('archive.zip')).toBeNull();
     expect(importCategoryForName('noext')).toBeNull();
   });
@@ -55,6 +61,66 @@ describe('importExternalFilesIntoVault', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useSyncTransferStore.getState().reset();
+  });
+
+  it('converts an .xlsx into a new .sheet document and reports what changed', async () => {
+    const report = {
+      notes: [
+        { severity: 'skipped' as const, feature: 'Charts', detail: 'Not imported.', count: 1 },
+      ],
+      truncated: false,
+    };
+    vi.mocked(tauriCommands.sheetConvertImport).mockResolvedValue({
+      document: '{"kind":"collab-sheet"}',
+      suggestedName: 'Budget',
+      report,
+    });
+    const { client } = makeClient();
+
+    const result = await importExternalFilesIntoVault(client, ['/tmp/Budget.xlsx']);
+
+    expect(result.imported).toEqual(['Budget.sheet']);
+    expect(client.createDocument).toHaveBeenCalledWith('Budget.sheet');
+    // The conversion result is written as the document's first real revision.
+    expect(client.writeDocument).toHaveBeenCalledWith(
+      'Budget.sheet',
+      '{"kind":"collab-sheet"}',
+      'v0',
+      '',
+    );
+    // The caller must be able to surface the report: no conversion is
+    // guaranteed lossless.
+    expect(result.conversions).toEqual([
+      { relativePath: 'Budget.sheet', sourceName: 'Budget.xlsx', report },
+    ]);
+  });
+
+  it('never overwrites a workbook that is already in the vault', async () => {
+    vi.mocked(tauriCommands.sheetConvertImport).mockResolvedValue({
+      document: '{}',
+      suggestedName: 'Budget',
+      report: { notes: [], truncated: false },
+    });
+    const { client } = makeClient();
+
+    const result = await importExternalFilesIntoVault(client, ['/tmp/Budget.csv'], {
+      existingFiles: [
+        { name: 'Budget.sheet', relativePath: 'Budget.sheet', isFolder: false },
+      ] as never,
+    });
+
+    expect(result.imported).toEqual(['Budget 2.sheet']);
+  });
+
+  it('reports a failed conversion without aborting the rest of the import', async () => {
+    vi.mocked(tauriCommands.sheetConvertImport).mockRejectedValue('not a workbook');
+    const { client, importMock } = makeClient();
+
+    const result = await importExternalFilesIntoVault(client, ['/tmp/bad.xlsx', '/tmp/cat.png']);
+
+    expect(result.failed[0].name).toBe('bad.xlsx');
+    expect(importMock).toHaveBeenCalled();
+    expect(result.imported).toEqual(['Pictures/asset.png']);
   });
 
   it('routes images to Pictures and PDFs to the vault root by default', async () => {
