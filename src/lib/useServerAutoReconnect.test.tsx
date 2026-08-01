@@ -44,7 +44,11 @@ vi.mock('../store/syncStore', () => ({
   useSyncStore: { getState: () => ({ syncAllForServer: mocks.syncAllForServer }) },
 }));
 
-import { AUTO_RECONNECT_INTERVAL_MS, useServerAutoReconnect } from './useServerAutoReconnect';
+import {
+  AUTO_RECONNECT_INTERVAL_MS,
+  SERVER_INVENTORY_REFRESH_INTERVAL_MS,
+  useServerAutoReconnect,
+} from './useServerAutoReconnect';
 
 const CONNECTED = { connected: true, serverUrl: 'https://collab.example.test' };
 const NEAR_EXPIRY = { ...CONNECTED, refreshSoon: true };
@@ -164,7 +168,7 @@ describe('useServerAutoReconnect', () => {
     expect(autoReconnect).toHaveBeenCalledTimes(2);
   });
 
-  it('refreshes connected server inventories on the interval', async () => {
+  it('keeps reconnect checks frequent without refreshing connected inventories every tick', async () => {
     vi.useFakeTimers();
     localStorage.setItem(SAVED_KEY, CONNECTED.serverUrl);
     setConnected();
@@ -174,6 +178,53 @@ describe('useServerAutoReconnect', () => {
 
     await act(async () => {
       vi.advanceTimersByTime(AUTO_RECONNECT_INTERVAL_MS);
+      await Promise.resolve();
+    });
+    expect(loadHostedVaults).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(SERVER_INVENTORY_REFRESH_INTERVAL_MS - AUTO_RECONNECT_INTERVAL_MS);
+      await Promise.resolve();
+    });
+    expect(loadHostedVaults).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not multiply inventory requests when connected store events repeat', async () => {
+    localStorage.setItem(SAVED_KEY, CONNECTED.serverUrl);
+    setConnected();
+    render(<Harness />);
+    await flush();
+
+    await act(async () => {
+      emitStoreChange();
+      emitStoreChange();
+      emitStoreChange();
+      await Promise.resolve();
+    });
+
+    expect(loadHostedVaults).toHaveBeenCalledTimes(1);
+  });
+
+  it('backs off connected inventory polling after a rate-limit response', async () => {
+    vi.useFakeTimers();
+    localStorage.setItem(SAVED_KEY, CONNECTED.serverUrl);
+    setConnected();
+    loadHostedVaults.mockRejectedValue(new Error('Too many requests. Slow down and try again shortly.'));
+    render(<Harness />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(loadHostedVaults).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+      await Promise.resolve();
+    });
+    expect(loadHostedVaults).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(SERVER_INVENTORY_REFRESH_INTERVAL_MS - 60_000);
       await Promise.resolve();
     });
     expect(loadHostedVaults).toHaveBeenCalledTimes(2);

@@ -223,6 +223,32 @@ describe('vaultReplica', () => {
     );
   });
 
+  it('stops offline caching after the first rate-limited file request', async () => {
+    const manifest = {
+      vaultId: 'hosted-vault',
+      sequence: 9,
+      files: [
+        { id: 'doc-1', kind: 'document', state: 'active' },
+        { id: 'doc-2', kind: 'document', state: 'active' },
+        { id: 'doc-3', kind: 'document', state: 'active' },
+      ],
+    };
+    vi.mocked(tauriCommands.hostedVaultRequest)
+      .mockResolvedValueOnce(manifest)
+      .mockRejectedValueOnce(new Error('Too many requests. Slow down and try again shortly.'));
+    vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(manifest);
+
+    await expect(makeHostedVaultAvailableOffline(hostedVault)).rejects.toThrow('Too many requests');
+
+    expect(tauriCommands.hostedVaultRequest).toHaveBeenCalledTimes(2);
+    expect(tauriCommands.hostedVaultRequest).not.toHaveBeenCalledWith(
+      hostedVault.serverUrl,
+      'GET',
+      '/api/v1/vaults/hosted-vault/files/doc-2',
+    );
+    expect(tauriCommands.replicaCacheDocument).not.toHaveBeenCalled();
+  });
+
   it('resumes offline availability by skipping valid cached file bodies', async () => {
     const manifest = {
       vaultId: 'hosted-vault',

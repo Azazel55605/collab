@@ -795,7 +795,11 @@ async function cacheActiveFilesForOffline(
         await tauriCommands.replicaCacheAsset(vault.serverUrl, vault.hostedVaultId, file.id, dataUrlBase64(dataUrl));
         assetsCached += 1;
       }
-    } catch {
+    } catch (error) {
+      // Once transport connectivity or the server request budget is exhausted,
+      // every remaining file would fail for the same reason. Stop immediately
+      // instead of turning one 429/offline response into hundreds of requests.
+      if (isLikelyConnectivityError(error)) throw error;
       skipped += 1;
     } finally {
       completed += 1;

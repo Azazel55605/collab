@@ -71,6 +71,26 @@ describe('serverStore', () => {
     expect(tauriCommands.hostedVaultRequest).toHaveBeenCalledWith(SERVER_URL, 'GET', '/api/v1/vaults');
   });
 
+  it('shares concurrent hosted-vault inventory requests for one server', async () => {
+    useServerStore.setState({ connections: seed() });
+    let resolveInventory!: (vaults: typeof hostedVault[]) => void;
+    vi.mocked(tauriCommands.hostedVaultRequest).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveInventory = resolve;
+      }),
+    );
+
+    const quietLoad = useServerStore.getState().loadHostedVaults(SERVER_URL, { quiet: true });
+    const visibleLoad = useServerStore.getState().loadHostedVaults(SERVER_URL);
+
+    expect(tauriCommands.hostedVaultRequest).toHaveBeenCalledTimes(1);
+    resolveInventory([hostedVault]);
+    await Promise.all([quietLoad, visibleLoad]);
+
+    expect(useServerStore.getState().hostedVaultsFor(SERVER_URL)).toEqual([hostedVault]);
+    expect(useServerStore.getState().isLoading).toBe(false);
+  });
+
   it('removes only the disconnected server, leaving others', async () => {
     const other = { ...connected, serverUrl: 'https://other.example.test' };
     useServerStore.setState({ connections: { ...seed(connected, [hostedVault]), ...seed(other) } });

@@ -64,6 +64,11 @@ export interface ServerConnection {
 // double-invoked startup effect) so a single restore pass happens per launch.
 let restoreInFlight: Promise<RestoreSessionResult> | null = null;
 
+// Inventory is requested by several surfaces (startup restore, reconnect,
+// picker/settings mounts, and the connection heartbeat). Share one request per
+// server so those callers cannot multiply the same REST call.
+const inventoryLoadsInFlight = new Map<string, Promise<void>>();
+
 interface ServerState {
   /** Connected servers, keyed by normalized server URL. */
   connections: Record<string, ServerConnection>;
@@ -288,35 +293,48 @@ export const useServerStore = create<ServerState>()((set, get) => {
     },
 
     loadHostedVaults: async (serverUrl, options) => {
-      const status = get().statusFor(serverUrl);
+      const normalizedServerUrl = normalizeHostedServerUrl(serverUrl);
+      const status = get().statusFor(normalizedServerUrl);
       if (!status?.connected || !status.serverUrl) return;
       const quiet = options?.quiet === true;
       if (!quiet) set({ isLoading: true, error: null });
+
+      let load = inventoryLoadsInFlight.get(normalizedServerUrl);
+      if (!load) {
+        load = (async () => {
+          const hostedVaults = await tauriCommands.hostedVaultRequest<HostedVaultSummary[]>(
+            status.serverUrl!,
+            'GET',
+            '/api/v1/vaults',
+          );
+          const currentStatus = get().statusFor(normalizedServerUrl);
+          // A reconnect or password login may replace the session while this
+          // inventory request is in flight. Never restore the older status.
+          if (currentStatus !== status || !isEffectivelyConnected(currentStatus)) return;
+          useVaultStore.getState().refreshHostedVaultMetadata(currentStatus.serverUrl!, hostedVaults);
+          setConnection(currentStatus, hostedVaults);
+          void useSyncStore
+            .getState()
+            .refreshOfflineCopiesForServer(currentStatus.serverUrl!, hostedVaults)
+            .catch(() => {
+              // Background replica refresh failures are represented by sync
+              // state and retried by a later inventory heartbeat.
+            });
+        })();
+        inventoryLoadsInFlight.set(normalizedServerUrl, load);
+        const clearLoad = () => {
+          if (inventoryLoadsInFlight.get(normalizedServerUrl) === load) {
+            inventoryLoadsInFlight.delete(normalizedServerUrl);
+          }
+        };
+        void load.then(clearLoad, clearLoad);
+      }
+
       try {
-        const hostedVaults = await tauriCommands.hostedVaultRequest<HostedVaultSummary[]>(
-          status.serverUrl,
-          'GET',
-          '/api/v1/vaults',
-        );
-        const currentStatus = get().statusFor(serverUrl);
-        // A reconnect or password login may replace the session while this
-        // inventory request is in flight. Never restore the older status.
-        if (currentStatus !== status || !isEffectivelyConnected(currentStatus)) {
-          if (!quiet) set({ isLoading: false });
-          return;
-        }
-        useVaultStore.getState().refreshHostedVaultMetadata(currentStatus.serverUrl!, hostedVaults);
-        setConnection(currentStatus, hostedVaults);
+        await load;
         if (!quiet) set({ isLoading: false });
-        void useSyncStore
-          .getState()
-          .refreshOfflineCopiesForServer(currentStatus.serverUrl!, hostedVaults)
-          .catch(() => {
-            // Background replica refresh failures are represented by sync state
-            // and retried by the next inventory heartbeat.
-          });
       } catch (error) {
-        if (!quiet && get().statusFor(serverUrl) === status) {
+        if (!quiet && get().statusFor(normalizedServerUrl) === status) {
           set({ isLoading: false, error: String(error) });
         }
         throw error;

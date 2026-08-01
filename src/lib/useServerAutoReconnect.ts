@@ -6,6 +6,10 @@ import { useSyncStore } from '../store/syncStore';
 
 /** How often to retry a dropped/expired server session while disconnected. */
 export const AUTO_RECONNECT_INTERVAL_MS = 15_000;
+/** Connected-server inventory and offline-copy reconciliation cadence. */
+export const SERVER_INVENTORY_REFRESH_INTERVAL_MS = 5 * 60_000;
+/** Retry a non-rate-limited inventory failure without returning to 15s churn. */
+export const SERVER_INVENTORY_RETRY_INTERVAL_MS = 60_000;
 
 /** Whether we currently have a live, non-expired session to `serverUrl`. */
 function connectedTo(serverUrl: string): boolean {
@@ -34,32 +38,51 @@ export function useServerAutoReconnect(): void {
     const wasConnected = new Map<string, boolean>();
     const reconnecting = new Set<string>();
     const refreshingInventories = new Set<string>();
+    const nextInventoryAt = new Map<string, number>();
 
     const evaluate = async () => {
       if (cancelled) return;
       await Promise.all(
         listKnownServers().map(async ({ serverUrl }) => {
           const connected = connectedTo(serverUrl);
+          const connectionRestored = connected && wasConnected.get(serverUrl) !== true;
 
           // Rising edge: a connection to this server just came back (from any
           // source). Push all of that server's queued offline edits.
-          if (connected && !wasConnected.get(serverUrl)) {
+          if (connectionRestored) {
             void useSyncStore.getState().syncAllForServer(serverUrl).catch(() => {
               // Background sync failures are surfaced through the sync store.
               // They must not become a global unhandled-rejection overlay.
             });
           }
           wasConnected.set(serverUrl, connected);
+          if (!connected) nextInventoryAt.delete(serverUrl);
 
           // The inventory carries each vault's authoritative manifest sequence.
           // Refreshing it drives stale full offline copies without downloading
-          // anything when the local sequence is already current.
-          if (connected && !refreshingInventories.has(serverUrl)) {
+          // anything when the local sequence is already current. Reconnect stays
+          // on the short heartbeat, but connected inventory polling is deliberately
+          // much slower so focus/store events cannot amplify REST traffic.
+          const now = Date.now();
+          if (
+            connected
+            && !refreshingInventories.has(serverUrl)
+            && (connectionRestored || now >= (nextInventoryAt.get(serverUrl) ?? 0))
+          ) {
             refreshingInventories.add(serverUrl);
+            nextInventoryAt.set(serverUrl, now + SERVER_INVENTORY_REFRESH_INTERVAL_MS);
             try {
               await useServerStore.getState().loadHostedVaults(serverUrl, { quiet: true });
-            } catch {
-              // A transient inventory failure is retried by the next heartbeat.
+            } catch (error) {
+              const rateLimited = String(error).toLowerCase().includes('too many requests')
+                || String(error).toLowerCase().includes('rate_limited')
+                || String(error).toLowerCase().includes('rate limited');
+              nextInventoryAt.set(
+                serverUrl,
+                Date.now() + (rateLimited
+                  ? SERVER_INVENTORY_REFRESH_INTERVAL_MS
+                  : SERVER_INVENTORY_RETRY_INTERVAL_MS),
+              );
             } finally {
               refreshingInventories.delete(serverUrl);
             }
@@ -95,6 +118,7 @@ export function useServerAutoReconnect(): void {
 
     return () => {
       cancelled = true;
+      nextInventoryAt.clear();
       unsubscribe();
       window.clearInterval(interval);
       window.removeEventListener('online', kick);
