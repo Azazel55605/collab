@@ -269,7 +269,7 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
   const [calendars, setCalendars] = useState<CalendarDefinition[]>([]);
   const [sourceItems, setSourceItems] = useState<CalendarItem[]>([]);
   const [visibleIds, setVisibleIds] = useState<Set<string>>(new Set());
-  const [view, setView] = useState<MobileCalendarView>('agenda');
+  const [view, setView] = useState<MobileCalendarView>('month');
   const [selectedDate, setSelectedDate] = useState(() => dateKey(new Date()));
   const [anchor, setAnchor] = useState(() => new Date());
   const [editor, setEditor] = useState<{ kind: CalendarItemKind; item?: CalendarItem; initialTime?: string } | null>(null);
@@ -433,6 +433,9 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
       if (targetDate && /^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
         setSelectedDate(targetDate);
         setAnchor(parseDate(targetDate));
+      }
+      if (destination.kind === 'calendar-date' || destination.kind === 'calendar-today') {
+        setView('day');
       }
       if (destination.kind === 'calendar-create') setEditor({ kind: 'event' });
     };

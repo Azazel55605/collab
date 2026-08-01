@@ -107,10 +107,11 @@ class MainActivity : TauriActivity() {
 
   private fun dispatchPendingAppDestination() {
     val webView = appWebView ?: return
-    val destination = pendingAppDestination ?: CollabAppDestination.takePending(this) ?: return
+    val destination = pendingAppDestination ?: return
     pendingAppDestination = null
-    // Clear the durable copy only after the webview exists so cold starts cannot lose the tap.
-    CollabAppDestination.takePending(this)
+    // The React shell acknowledges the durable copy after its destination
+    // listener is mounted. A WebView can exist before that listener on a cold
+    // start, so dispatching here must not consume the route.
     webView.evaluateJavascript(
       "window.dispatchEvent(new CustomEvent('collab-app-destination',{detail:$destination}))",
       null,

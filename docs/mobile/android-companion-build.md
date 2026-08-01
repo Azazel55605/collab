@@ -70,20 +70,39 @@ native Android behavior that Tauri's generated defaults do not provide:
 - `CollabTokenStore.kt` and `CollabReplicaKeyStore.kt` persist refresh tokens and
   replica encryption keys through Android Keystore-backed storage.
 - `app/build.gradle.kts` contains the Play `applicationId`, version/signing
-  wiring, and app-specific ProGuard configuration.
+  wiring, app-specific ProGuard configuration, and the compact debug-native
+  strip hook. The hook uses injected Gradle `ExecOperations`; do not restore
+  the Gradle-9-incompatible `project.exec` API during regeneration.
+- `buildSrc/.../BuildTask.kt` and `RustPlugin.kt` retain Tauri's Rust build task
+  while injecting its working directory and Gradle `ExecOperations` during
+  configuration. This avoids execution-time `Task.project` access and must be
+  preserved until the generated upstream task provides the same boundary.
 - `CollabNotifications.kt` owns Android channels, alarms, native actions, and
   optional Firebase Messaging token/invalidation handling.
-- `CollabAgendaWidget.kt`, `CollabAppDestination.kt`, the agenda widget manifest
-  entry/resources, and the Glance/Compose Gradle wiring form the native mobile
-  widget boundary. Regeneration must preserve these files and declarations.
+- `CollabAgendaWidget.kt`, `CollabAppDestination.kt`, the agenda/month/birthday/
+  countdown widget manifest entries and `collab_*_widget_info.xml` resources,
+  the kind-specific `collab_*_widget_preview.xml` launcher layouts and drawables,
+  and the Glance/Compose Gradle wiring form the native mobile widget boundary.
+  Regeneration must preserve these files and declarations.
 
-The agenda widget reads a bounded versioned JSON snapshot from the
+The calendar-derived widgets read bounded versioned JSON snapshots from the
 application-private `files/widgets/` directory. The Rust/JNI publisher builds
 profile-scoped snapshots from the cached native calendar store after foreground
 startup, widget configuration, lifecycle events, and WorkManager completion.
-The shared `collab-calendar` recurrence projection remains authoritative;
+The shared `collab-calendar` recurrence projection remains authoritative. Month
+snapshots contain 13 bounded six-week pages (current month plus six months in
+either direction) and up to two privacy-reduced labels per day. The Glance
+provider keeps only a bounded per-widget month offset, so its arrow actions can
+switch these cached pages without starting the app, invoking Rust, or using the
+network. Birthday and explicit countdown views reuse privacy-reduced item rows.
 Glance never interprets recurrence rules. Ordinary widget rendering does not
 start the Tauri webview, invoke Rust, or perform network work.
+
+Every widget app destination includes a distinct Intent data identity because
+Android PendingIntent matching ignores extras. The native activity persists a
+cold-start destination until the mounted React shell retrieves and acknowledges
+it through `mobile_app_destination_take_pending`; WebView creation alone must
+not consume the route.
 
 To compile the native widget and run its unit tests without building Rust native
 libraries, use the documented JDK/SDK environment and run:

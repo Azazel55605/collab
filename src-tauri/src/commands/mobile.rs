@@ -1,4 +1,5 @@
 use serde::Serialize;
+use serde_json::Value;
 use tauri::Manager;
 
 #[derive(Debug, Serialize)]
@@ -39,4 +40,21 @@ pub async fn mobile_app_data_probe(
 #[tauri::command]
 pub fn mobile_exit_app(app: tauri::AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+pub fn mobile_app_destination_take_pending() -> Result<Option<Value>, String> {
+    #[cfg(target_os = "android")]
+    {
+        return crate::android_jni::take_pending_app_destination()?
+            .map(|payload| {
+                serde_json::from_str(&payload)
+                    .map_err(|error| format!("Android app destination is invalid: {error}"))
+            })
+            .transpose();
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(None)
+    }
 }

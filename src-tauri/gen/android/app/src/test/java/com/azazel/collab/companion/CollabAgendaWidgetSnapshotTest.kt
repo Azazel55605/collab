@@ -72,6 +72,40 @@ class CollabAgendaWidgetSnapshotTest {
   }
 
   @Test
+  fun parsesBoundedMonthDensityWithoutTitles() {
+    val days = (1..45).joinToString(",") { index ->
+      val day = ((index - 1) % 28) + 1
+      "{\"dayKey\":\"2026-08-${day.toString().padStart(2, '0')}\",\"count\":$index,\"colors\":[\"#a174ff\",\"invalid\"],\"items\":[{\"title\":\"Planning\",\"color\":\"#a174ff\"},{\"title\":\"Review\"},{\"title\":\"Ignored\"}],\"inMonth\":true,\"isToday\":${index == 1}}"
+    }
+    val snapshot = CollabAgendaWidgetSnapshotStore.parse(
+      "{\"schemaVersion\":1,\"kind\":\"month\",\"monthLabel\":\"August 2026\",\"days\":[$days],\"items\":[]}",
+    )
+    assertEquals("month", snapshot.kind)
+    assertEquals("August 2026", snapshot.monthLabel)
+    assertEquals(42, snapshot.days.size)
+    assertEquals(listOf("#a174ff"), snapshot.days.first().colors)
+    assertEquals(listOf("Planning", "Review"), snapshot.days.first().items.map { it.title })
+    assertEquals("#a174ff", snapshot.days.first().items.first().color)
+    assertTrue(snapshot.days.first().isToday)
+  }
+
+  @Test
+  fun parsesNearbyMonthPagesAndBoundsNavigation() {
+    val days = (1..42).joinToString(",") { index ->
+      val day = ((index - 1) % 28) + 1
+      "{\"dayKey\":\"2026-09-${day.toString().padStart(2, '0')}\",\"count\":0,\"inMonth\":true,\"isToday\":false}"
+    }
+    val snapshot = CollabAgendaWidgetSnapshotStore.parse(
+      "{\"schemaVersion\":1,\"kind\":\"month\",\"items\":[],\"months\":[{\"offset\":1,\"monthLabel\":\"September 2026\",\"days\":[$days]}]}",
+    )
+    assertEquals("September 2026", snapshot.months.single().monthLabel)
+    assertEquals(42, snapshot.months.single().days.size)
+    assertEquals(1, nextMonthOffset(0, 1))
+    assertEquals(6, nextMonthOffset(6, 1))
+    assertEquals(-6, nextMonthOffset(-6, -1))
+  }
+
+  @Test
   fun upcomingTaskDetailIncludesItsDate() {
     val detail = agendaItemDetail(
       AgendaWidgetItem(

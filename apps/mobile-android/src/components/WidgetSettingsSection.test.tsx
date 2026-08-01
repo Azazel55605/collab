@@ -12,6 +12,7 @@ const configuration = {
   configurationId: 'widget-config-1',
   kind: 'agenda',
   selectedSourceIds: [],
+  selectedItemIds: [],
   privacy: 'full',
   display: { horizonDays: 7, maxItems: 6, showCompleted: false },
   actions: { openItem: true, toggleTask: false },
@@ -46,6 +47,7 @@ describe('mobile widget settings', () => {
           { id: 'calendar-b', name: 'Work', archived: false, deletedAt: null },
         ]);
       }
+      if (command === 'calendar_list_items') return Promise.resolve([]);
       if (command === 'widget_configuration_save') {
         return Promise.resolve((args as { configuration: typeof configuration }).configuration);
       }
@@ -87,6 +89,7 @@ describe('mobile widget settings', () => {
       if (command === 'widget_configuration_list') return Promise.resolve([configuration]);
       if (command === 'widget_diagnostics_list') return Promise.resolve([diagnostics]);
       if (command === 'calendar_list') return Promise.resolve([]);
+      if (command === 'calendar_list_items') return Promise.resolve([]);
       if (command === 'widget_configuration_save') {
         const next = (args as { configuration: typeof configuration }).configuration;
         savedPrivacy.push(next.privacy);
@@ -134,5 +137,42 @@ describe('mobile widget settings', () => {
     });
     expect(screen.getByText(/Updated/)).not.toBeNull();
     expect(screen.getByText(/touch and hold it on the home screen/)).not.toBeNull();
+  });
+
+  it('persists explicit countdown event selection', async () => {
+    const countdown = { ...configuration, kind: 'countdown', selectedItemIds: [] } as const;
+    vi.mocked(invoke).mockImplementation((command, args) => {
+      if (command === 'widget_active_profile_set') return Promise.resolve(undefined);
+      if (command === 'widget_configuration_list') return Promise.resolve([countdown]);
+      if (command === 'widget_diagnostics_list') return Promise.resolve([diagnostics]);
+      if (command === 'calendar_list') return Promise.resolve([]);
+      if (command === 'calendar_list_items') {
+        return Promise.resolve([{
+          id: 'event-1',
+          uid: 'event-1',
+          calendarId: 'calendar-a',
+          kind: 'event',
+          title: 'Release day',
+          start: { kind: 'date', date: '2026-08-20' },
+          end: { kind: 'date', date: '2026-08-21' },
+        }]);
+      }
+      if (command === 'widget_configuration_save') {
+        return Promise.resolve((args as { configuration: typeof countdown }).configuration);
+      }
+      return Promise.reject(new Error(`unexpected command: ${command}`));
+    });
+
+    render(<WidgetSettingsSection />);
+    expect(await screen.findByText('Countdowns 1')).not.toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Release day/ }));
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        'widget_configuration_save',
+        expect.objectContaining({
+          configuration: expect.objectContaining({ selectedItemIds: ['event-1'] }),
+        }),
+      );
+    });
   });
 });

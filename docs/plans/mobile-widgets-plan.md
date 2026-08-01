@@ -175,7 +175,7 @@ vault name in a privacy-reduced mode.
 | 1. Shared snapshot and configuration foundation | Complete | The bounded Rust/native store, JNI bridge, Android configuration activity, Settings management, privacy reduction, cleanup/tombstones, idempotence, coalesced publisher hooks, and physical-device lifecycle paths are validated. |
 | 2. Calendar agenda widget | Complete | The cached native calendar projection, responsive agenda rendering, source freshness, privacy-aware rows, exact header/item/add destinations, live reconfiguration, and launcher refresh behavior are validated. |
 | 3. Lifecycle, refresh, and management | Testing | Event-driven refresh, stale-aware launcher updates, per-profile WorkManager fallback, lifecycle cleanup, manual refresh, and privacy-safe diagnostics are implemented; physical-device lifecycle validation remains. |
-| 4. Month, birthday, and countdown widgets | Not started | Reuse calendar snapshots for month density and privacy-safe upcoming-date views. |
+| 4. Month, birthday, and countdown widgets | Testing | Native month, birthday, and explicit countdown providers reuse the calendar snapshot, privacy, configuration, destination, and refresh boundaries; physical launcher validation remains. |
 | 5. Tasks widget and confirmed actions | Not started | Combine calendar/Kanban tasks and route completion through existing idempotent pending-operation paths. |
 | 6. Quick capture and vault shortcuts | Not started | Add validated deep links for creation, pinned content, and recent files without duplicating editors. |
 | 7. Sync status widget | Not started | Expose privacy-safe native ledger rollups and a coalesced manual-sync action. |
@@ -350,8 +350,9 @@ vault name in a privacy-reduced mode.
   lifecycle is dispatched even though Glance accepted an in-process update.
 - Because configuration is mandatory, `onEnabled` no longer publishes the
   Phase 0 preview before the configuration activity has created its binding.
-  Android keeps the static loading layout during setup, then the successful
-  Apply path performs the first Glance composition from the real snapshot.
+  Android keeps the kind-specific static launcher preview during setup, then
+  the successful Apply path performs the first Glance composition from the real
+  snapshot.
 - The agenda composable no longer captures a native file snapshot outside
   `provideContent`. Each bound instance stores its validated snapshot in
   `PreferencesGlanceStateDefinition`, renders it through `currentState`, and
@@ -430,7 +431,7 @@ vault name in a privacy-reduced mode.
 - Diagnostics are native, bounded, profile/configuration scoped, and contain no
   titles, source names, server URLs, or destinations. Failed refreshes retain the
   last-success timestamp and publish only a generic recovery message.
-- Focused Rust widget tests, all 149 mobile tests, Android widget unit tests,
+- Focused Rust widget tests, all 150 mobile tests, Android widget unit tests,
   TypeScript validation, and Rust crate-boundary validation pass.
 - Remaining Phase 3 exit work is physical-device validation across reboot,
   package replacement, manual clock/timezone/locale changes, user unlock,
@@ -451,6 +452,50 @@ vault name in a privacy-reduced mode.
   truncation, update cause, and freshness without logging titles or destinations.
 
 ## Phase 4: Month, Birthday, And Countdown Widgets
+
+### Implementation Status
+
+- Android now registers separate Month, Birthdays, and Countdowns Glance
+  providers. All four calendar-derived providers share the existing opaque
+  launcher binding, native configuration activity, WorkManager fallback, and
+  lifecycle/update coordinator rather than introducing per-widget polling.
+- Rust publishes 13 bounded six-week month projections (the current month plus
+  six months in either direction) with day counts, current-month/today flags,
+  at most three source colors, and at most two short privacy-reduced labels per
+  day. Title-only removes source colors; Private replaces labels with generic
+  item types before persistence.
+- Month day taps use the validated `calendar-date` destination. Previous and
+  next change the displayed month in place through per-widget Glance state,
+  without opening the app or starting the webview. The responsive native layout
+  uses a full calendar header, rounded add/today/event surfaces, weekday
+  headers, thin grid gutters, density markers at compact heights, and colored
+  event chips at larger heights. The grid never embeds descriptions or
+  recurrence rules.
+- Month offsets are stored separately from the larger cached calendar snapshot,
+  and unchanged snapshots are reused in-process, keeping repeated arrow actions
+  lightweight. The arrow controls use larger rounded touch targets.
+- Widget destinations have distinct Android Intent identities (including their
+  date/item target), and cold-start routes remain durable until the mounted
+  mobile shell acknowledges them. Day taps therefore open the selected date in
+  Calendar's day view even while servers are still reconnecting. Month is the
+  mobile Calendar's default view for ordinary navigation.
+- Each provider supplies a distinct launcher-picker preview with representative
+  placeholder content, so Agenda, Month, Birthdays, and Countdowns are visually
+  identifiable before configuration.
+- Birthday snapshots reuse the calendar recurrence/date projection and show
+  day-based labels only. Countdown snapshots include only events explicitly
+  selected in mobile Settings, with recurring occurrences matched through their
+  stable series identity.
+- Countdown text changes only when the shared calendar snapshot is rebuilt;
+  midnight/time/timezone lifecycle refresh and the existing periodic fallback
+  cover date changes without minute-level work.
+- The native setup dialog recognizes each provider and applies the current app
+  theme/accent/privacy setting. Mobile Settings manages source/privacy/item
+  limits for every kind and explicit countdown selections.
+- Focused Rust widget tests, mobile widget-settings tests, TypeScript
+  validation, the app-module Android unit suite, compact arm64 APK packaging,
+  signature verification, and packaged receiver inspection pass. Physical
+  launcher add/resize/tap/reconfigure and date-rollover validation remains.
 
 ### Month Calendar
 

@@ -280,6 +280,7 @@ pub fn run() {
             commands::live_ws::live_ws_send,
             commands::live_ws::live_ws_close,
             commands::mobile::mobile_app_data_probe,
+            commands::mobile::mobile_app_destination_take_pending,
             commands::mobile::mobile_exit_app,
             commands::widgets::widget_configuration_list,
             commands::widgets::widget_active_profile_set,

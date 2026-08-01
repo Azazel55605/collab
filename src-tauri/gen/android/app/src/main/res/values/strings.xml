@@ -3,4 +3,10 @@
     <string name="main_activity_title">Collab Companion</string>
     <string name="agenda_widget_name">Collab agenda</string>
     <string name="agenda_widget_description">Upcoming calendar items from Collab</string>
+    <string name="month_widget_name">Collab month</string>
+    <string name="month_widget_description">Month calendar and day density from Collab</string>
+    <string name="birthday_widget_name">Collab birthdays</string>
+    <string name="birthday_widget_description">Upcoming birthdays from Collab</string>
+    <string name="countdown_widget_name">Collab countdowns</string>
+    <string name="countdown_widget_description">Selected event countdowns from Collab</string>
 </resources>

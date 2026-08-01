@@ -282,6 +282,11 @@ const BACKGROUND_SCHEDULER_CLASS: &str = "com.azazel.collab.companion.CollabBack
 const NOTIFICATION_BRIDGE_CLASS: &str = "com.azazel.collab.companion.CollabNotificationBridge";
 const NOTIFICATION_SCHEDULER_CLASS: &str =
     "com.azazel.collab.companion.CollabNotificationScheduler";
+const APP_DESTINATION_CLASS: &str = "com.azazel.collab.companion.CollabAppDestination";
+
+pub fn take_pending_app_destination() -> Result<Option<String>, String> {
+    call_static_string(APP_DESTINATION_CLASS, "takePendingJson", &[])
+}
 
 pub fn notification_permission_status() -> Result<String, String> {
     call_static_string(NOTIFICATION_BRIDGE_CLASS, "permissionStatus", &[])?

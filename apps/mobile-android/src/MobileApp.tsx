@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Banner, ConfirmSheet } from './components/ui';
 import {
   mobileExitApp,
+  mobileAppDestinationTakePending,
   notificationAndroidTakePendingOpen,
   notificationListInbox,
   notificationMarkRead,
@@ -183,8 +184,7 @@ export function MobileApp() {
   }, []);
 
   useEffect(() => {
-    const openAppDestination = (event: Event) => {
-      const destination = (event as CustomEvent<{ kind?: string; date?: string; itemId?: string }>).detail;
+    const routeAppDestination = (destination: { kind?: string; date?: string; itemId?: string } | null) => {
       if (!destination || !['calendar-today', 'calendar-date', 'calendar-create', 'calendar-item'].includes(destination.kind ?? '')) return;
       setTab('calendar');
       window.setTimeout(() => {
@@ -196,7 +196,18 @@ export function MobileApp() {
         ));
       }, 0);
     };
+    const openAppDestination = (event: Event) => {
+      const destination = (event as CustomEvent<{ kind?: string; date?: string; itemId?: string }>).detail;
+      // Acknowledge the native durable route only after this listener exists.
+      // Cold-start events fired before React mounted remain available to the
+      // take-pending call below.
+      void mobileAppDestinationTakePending().catch(() => null);
+      routeAppDestination(destination);
+    };
     window.addEventListener('collab-app-destination', openAppDestination);
+    void mobileAppDestinationTakePending()
+      .then(routeAppDestination)
+      .catch(() => {});
     return () => window.removeEventListener('collab-app-destination', openAppDestination);
   }, [setTab]);
 

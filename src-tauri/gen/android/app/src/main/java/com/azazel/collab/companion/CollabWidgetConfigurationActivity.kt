@@ -131,6 +131,7 @@ private data class PrivacyChoiceView(
 
 class CollabWidgetConfigurationActivity : Activity() {
   private var appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID
+  private var widgetKind = "agenda"
   private var saving = false
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -152,6 +153,7 @@ class CollabWidgetConfigurationActivity : Activity() {
       finish()
       return
     }
+    widgetKind = widgetKindForId(this, appWidgetId)
 
     val profileId = runCatching {
       CollabWidgetBridge.nativeActiveProfile(applicationContext)
@@ -183,6 +185,12 @@ class CollabWidgetConfigurationActivity : Activity() {
   }
 
   private fun showConfiguration(profileId: String) {
+    val widgetTitle = when (widgetKind) {
+      "month" -> "Month calendar"
+      "birthday" -> "Birthdays"
+      "countdown" -> "Countdowns"
+      else -> "Agenda"
+    }
     val choices = listOf(
       PrivacyChoice(
         "full",
@@ -212,9 +220,15 @@ class CollabWidgetConfigurationActivity : Activity() {
     } ?: choices.first()
     val content = screenContent()
     content.addView(brandHeader())
-    content.addView(title("Set up Agenda"), spaced(top = 30))
+    content.addView(title("Set up $widgetTitle"), spaced(top = 30))
     content.addView(
-      body("Choose what Collab may place in launcher-visible storage. You can change this later in Settings."),
+      body(
+        if (widgetKind == "countdown") {
+          "Choose launcher privacy here, then select countdown events in Collab Settings."
+        } else {
+          "Choose what Collab may place in launcher-visible storage. You can change this later in Settings."
+        },
+      ),
       spaced(top = 9),
     )
 
@@ -290,12 +304,17 @@ class CollabWidgetConfigurationActivity : Activity() {
       ?: org.json.JSONObject()
         .put("schemaVersion", 1)
         .put("configurationId", "widget-${UUID.randomUUID()}")
-        .put("kind", "agenda")
+        .put("kind", widgetKind)
         .put("selectedSourceIds", org.json.JSONArray())
+        .put("selectedItemIds", org.json.JSONArray())
         .put(
           "display",
           org.json.JSONObject()
-            .put("horizonDays", 7)
+            .put("horizonDays", when (widgetKind) {
+              "month" -> 42
+              "birthday", "countdown" -> 366
+              else -> 7
+            })
             .put("maxItems", 6)
             .put("showCompleted", false),
         )

@@ -1,5 +1,12 @@
 import java.io.File
 import java.util.Properties
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+
+abstract class InjectedExecOperations {
+    @get:Inject
+    abstract val execOperations: ExecOperations
+}
 
 plugins {
     id("com.android.application")
@@ -29,6 +36,7 @@ val hasReleaseKey = keyProperties.getProperty("storeFile") != null
 val keepNativeDebugSymbols = providers.gradleProperty("collabKeepNativeDebugSymbols")
     .map(String::toBoolean)
     .getOrElse(false)
+val injectedExecOperations = objects.newInstance<InjectedExecOperations>().execOperations
 
 android {
     compileSdk = 36
@@ -135,7 +143,9 @@ tasks.matching {
             .matching { include("**/libcollab_lib.so") }
             .files
             .forEach { library ->
-                project.exec { commandLine(stripTool, "--strip-unneeded", library) }
+                injectedExecOperations.exec {
+                    commandLine(stripTool, "--strip-unneeded", library)
+                }.assertNormalExitValue()
             }
     }
 }

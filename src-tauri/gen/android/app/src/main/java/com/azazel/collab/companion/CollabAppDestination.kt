@@ -2,6 +2,7 @@ package com.azazel.collab.companion
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import org.json.JSONObject
 
 /** A deliberately small allow-list shared by native entry points into the webview shell. */
@@ -23,6 +24,18 @@ object CollabAppDestination {
     require(kind != "calendar-item" || itemId != null) { "Calendar item destination is incomplete." }
     return Intent(context, MainActivity::class.java)
       .setAction(ACTION_OPEN)
+      // PendingIntent identity deliberately ignores extras. Give every
+      // destination a stable, distinct data URI so day taps cannot collapse
+      // into the add action or another date when Glance builds RemoteViews.
+      .setData(
+        Uri.Builder()
+          .scheme("collab")
+          .authority("destination")
+          .appendPath(kind)
+          .apply { if (date != null) appendQueryParameter("date", date) }
+          .apply { if (itemId != null) appendQueryParameter("item", itemId) }
+          .build(),
+      )
       .putExtra(EXTRA_KIND, kind)
       .apply { if (date != null) putExtra(EXTRA_DATE, date) }
       .apply { if (itemId != null) putExtra(EXTRA_ITEM_ID, itemId) }
@@ -54,4 +67,7 @@ object CollabAppDestination {
     preferences.edit().remove(PENDING_JSON).apply()
     return runCatching { JSONObject(raw) }.getOrNull()
   }
+
+  @JvmStatic
+  fun takePendingJson(context: Context): String? = takePending(context)?.toString()
 }

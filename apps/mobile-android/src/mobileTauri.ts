@@ -116,6 +116,16 @@ export function widgetRefresh(profileId: string): Promise<WidgetDiagnostics[]> {
   return invoke('widget_refresh', { profileId });
 }
 
+export interface MobileAppDestination {
+  kind: 'calendar-today' | 'calendar-date' | 'calendar-create' | 'calendar-item';
+  date?: string;
+  itemId?: string;
+}
+
+export function mobileAppDestinationTakePending(): Promise<MobileAppDestination | null> {
+  return invoke('mobile_app_destination_take_pending');
+}
+
 async function invokeWithWidgetPublication<T>(
   command: string,
   args: Record<string, unknown>,

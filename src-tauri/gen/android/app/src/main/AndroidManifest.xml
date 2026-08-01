@@ -51,6 +51,19 @@
                 android:resource="@xml/collab_agenda_widget_info" />
         </receiver>
 
+        <receiver android:name=".CollabMonthWidgetReceiver" android:exported="false" android:label="@string/month_widget_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/collab_month_widget_info" />
+        </receiver>
+        <receiver android:name=".CollabBirthdayWidgetReceiver" android:exported="false" android:label="@string/birthday_widget_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/collab_birthday_widget_info" />
+        </receiver>
+        <receiver android:name=".CollabCountdownWidgetReceiver" android:exported="false" android:label="@string/countdown_widget_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/collab_countdown_widget_info" />
+        </receiver>
+
         <receiver
             android:name=".CollabWidgetLifecycleReceiver"
             android:directBootAware="false"

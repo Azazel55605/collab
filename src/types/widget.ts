@@ -1,6 +1,6 @@
 export const WIDGET_SCHEMA_VERSION = 1;
 
-export type WidgetKind = 'agenda';
+export type WidgetKind = 'agenda' | 'month' | 'birthday' | 'countdown';
 export type WidgetPrivacy = 'full' | 'titleOnly' | 'private';
 
 export interface WidgetDisplayOptions {
@@ -19,6 +19,7 @@ export interface WidgetConfiguration {
   configurationId: string;
   kind: WidgetKind;
   selectedSourceIds: string[];
+  selectedItemIds: string[];
   privacy: WidgetPrivacy;
   display: WidgetDisplayOptions;
   actions: WidgetActionOptions;

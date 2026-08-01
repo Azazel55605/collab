@@ -22,7 +22,10 @@ import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.AppWidgetId
 import androidx.glance.appwidget.SizeMode
+import androidx.glance.appwidget.action.ActionCallback
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.action.actionStartActivity
+import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.appwidget.updateAll
@@ -41,6 +44,7 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.glance.action.clickable
+import androidx.glance.action.ActionParameters
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -51,6 +55,8 @@ import java.util.concurrent.Executors
 import kotlinx.coroutines.runBlocking
 
 private val AgendaWidgetSnapshotStateKey = stringPreferencesKey("agenda-widget-snapshot-v1")
+private const val MIN_MONTH_OFFSET = -6
+private const val MAX_MONTH_OFFSET = 6
 
 internal enum class AgendaWidgetUpdateOrigin { External, Provider }
 
@@ -66,7 +72,22 @@ internal data class AgendaWidgetItem(
   val dayKey: String?,
   val sourceColor: String?,
 )
+internal data class MonthWidgetDay(
+  val dayKey: String,
+  val count: Int,
+  val colors: List<String>,
+  val items: List<MonthWidgetItem>,
+  val inMonth: Boolean,
+  val isToday: Boolean,
+)
+internal data class MonthWidgetItem(val title: String, val color: String?)
+internal data class MonthWidgetPage(
+  val offset: Int,
+  val monthLabel: String,
+  val days: List<MonthWidgetDay>,
+)
 internal data class AgendaWidgetSnapshot(
+  val kind: String,
   val generatedAt: String?,
   val dateLabel: String,
   val stateLabel: String,
@@ -74,13 +95,18 @@ internal data class AgendaWidgetSnapshot(
   val accent: String,
   val fontScale: Float,
   val items: List<AgendaWidgetItem>,
+  val monthLabel: String?,
+  val selectedDayKey: String?,
+  val days: List<MonthWidgetDay>,
+  val months: List<MonthWidgetPage>,
 )
 
 internal fun agendaWidgetSnapshotFromState(raw: String?): AgendaWidgetSnapshot {
   if (raw != null) {
-    runCatching { CollabAgendaWidgetSnapshotStore.parse(raw) }.getOrNull()?.let { return it }
+    CollabAgendaWidgetSnapshotCache.read(raw)?.let { return it }
   }
   return AgendaWidgetSnapshot(
+    kind = "agenda",
     generatedAt = null,
     dateLabel = LocalDate.now().toString(),
     stateLabel = "Open Collab to refresh",
@@ -88,7 +114,50 @@ internal fun agendaWidgetSnapshotFromState(raw: String?): AgendaWidgetSnapshot {
     accent = "violet",
     fontScale = 1f,
     items = emptyList(),
+    monthLabel = null,
+    selectedDayKey = null,
+    days = emptyList(),
+    months = emptyList(),
   )
+}
+
+private object CollabAgendaWidgetSnapshotCache {
+  private var raw: String? = null
+  private var snapshot: AgendaWidgetSnapshot? = null
+
+  @Synchronized
+  fun read(value: String): AgendaWidgetSnapshot? {
+    if (value == raw) return snapshot
+    return runCatching { CollabAgendaWidgetSnapshotStore.parse(value) }
+      .getOrNull()
+      .also {
+        raw = value
+        snapshot = it
+      }
+  }
+}
+
+internal object CollabMonthOffsets {
+  private const val PREFERENCES = "collab-month-widget-offsets-v1"
+
+  fun read(context: Context, appWidgetId: Int): Int =
+    context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+      .getInt(appWidgetId.toString(), 0)
+      .coerceIn(MIN_MONTH_OFFSET, MAX_MONTH_OFFSET)
+
+  fun write(context: Context, appWidgetId: Int, value: Int) {
+    context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+      .edit()
+      .putInt(appWidgetId.toString(), value.coerceIn(MIN_MONTH_OFFSET, MAX_MONTH_OFFSET))
+      .apply()
+  }
+
+  fun remove(context: Context, appWidgetId: Int) {
+    context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+      .edit()
+      .remove(appWidgetId.toString())
+      .apply()
+  }
 }
 
 internal data class AgendaWidgetPalette(
@@ -96,14 +165,16 @@ internal data class AgendaWidgetPalette(
   val foreground: Color,
   val muted: Color,
   val accent: Color,
+  val surface: Color,
+  val grid: Color,
 )
 
 internal fun agendaWidgetPalette(theme: String, accent: String): AgendaWidgetPalette {
-  val (background, foreground, muted) = when (theme) {
-    "midnight" -> Triple(Color(0xFF010101), Color(0xFFDEDEDE), Color(0xFF6F7278))
-    "warm" -> Triple(Color(0xFF090301), Color(0xFFEFE2D8), Color(0xFF8E7C6F))
-    "light" -> Triple(Color(0xFFF5F5F5), Color(0xFF090909), Color(0xFF52555B))
-    else -> Triple(Color(0xFF0C0F16), Color(0xFFE4E8EF), Color(0xFF808693))
+  val (background, foreground, muted, surface, grid) = when (theme) {
+    "midnight" -> listOf(Color(0xFF010101), Color(0xFFDEDEDE), Color(0xFF6F7278), Color(0xFF171717), Color(0xFF2A2A2A))
+    "warm" -> listOf(Color(0xFF090301), Color(0xFFEFE2D8), Color(0xFF8E7C6F), Color(0xFF1C100A), Color(0xFF362A24))
+    "light" -> listOf(Color(0xFFF5F5F5), Color(0xFF090909), Color(0xFF52555B), Color(0xFFFFFFFF), Color(0xFFDCDCDC))
+    else -> listOf(Color(0xFF0C0F16), Color(0xFFE4E8EF), Color(0xFF808693), Color(0xFF171B22), Color(0xFF2D3037))
   }
   val accentColor = when (accent) {
     "blue" -> Color(0xFF009BF2)
@@ -113,7 +184,7 @@ internal fun agendaWidgetPalette(theme: String, accent: String): AgendaWidgetPal
     "cyan" -> Color(0xFF00C4CD)
     else -> Color(0xFFA174FF)
   }
-  return AgendaWidgetPalette(background, foreground, muted, accentColor)
+  return AgendaWidgetPalette(background, foreground, muted, accentColor, surface, grid)
 }
 
 internal object CollabAgendaWidgetSnapshotStore {
@@ -124,7 +195,7 @@ internal object CollabAgendaWidgetSnapshotStore {
     val file = snapshotFile(context)
     if (!file.isFile) writeBootstrap(context)
     return runCatching { parse(file.readText()) }.getOrElse {
-      AgendaWidgetSnapshot(null, "Today", "Open Collab to refresh", "dark", "violet", 1f, emptyList())
+      AgendaWidgetSnapshot("agenda", null, "Today", "Open Collab to refresh", "dark", "violet", 1f, emptyList(), null, null, emptyList(), emptyList())
     }
   }
 
@@ -143,7 +214,7 @@ internal object CollabAgendaWidgetSnapshotStore {
   }
 
   internal fun parse(raw: String): AgendaWidgetSnapshot {
-    require(raw.toByteArray().size <= 16_384) { "Agenda widget snapshot is too large." }
+    require(raw.toByteArray().size <= 262_144) { "Agenda widget snapshot is too large." }
     val json = JSONObject(raw)
     require(json.optInt("schemaVersion") == 1) { "Unsupported agenda widget snapshot." }
     val itemsJson = json.optJSONArray("items") ?: JSONArray()
@@ -163,7 +234,21 @@ internal object CollabAgendaWidgetSnapshotStore {
         )
       }
     }
+    val days = parseMonthDays(json.optJSONArray("days") ?: JSONArray())
+    val monthsJson = json.optJSONArray("months") ?: JSONArray()
+    val months = buildList {
+      val seenOffsets = mutableSetOf<Int>()
+      for (index in 0 until minOf(monthsJson.length(), 13)) {
+        val month = monthsJson.optJSONObject(index) ?: continue
+        val offset = month.optInt("offset", Int.MIN_VALUE)
+        val label = month.optString("monthLabel").take(MAX_TEXT)
+        val monthDays = parseMonthDays(month.optJSONArray("days") ?: JSONArray())
+        if (offset !in MIN_MONTH_OFFSET..MAX_MONTH_OFFSET || !seenOffsets.add(offset) || label.isBlank() || monthDays.size != 42) continue
+        add(MonthWidgetPage(offset, label, monthDays))
+      }
+    }
     return AgendaWidgetSnapshot(
+      json.optString("kind", "agenda").takeIf { it in setOf("agenda", "month", "birthday", "countdown") } ?: "agenda",
       json.optString("generatedAt").takeIf { it.isNotBlank() },
       json.optString("dateLabel", "Today").take(MAX_TEXT),
       json.optString("stateLabel", "Preview data").take(MAX_TEXT),
@@ -171,8 +256,43 @@ internal object CollabAgendaWidgetSnapshotStore {
       json.optString("accent", "violet").takeIf { it in setOf("violet", "blue", "emerald", "rose", "orange", "cyan") } ?: "violet",
       json.optDouble("fontScale", 1.0).toFloat().takeIf { it in 0.85f..1.3f } ?: 1f,
       items,
+      json.optString("monthLabel").takeIf { it.isNotBlank() }?.take(MAX_TEXT),
+      json.optString("selectedDayKey").takeIf { it.matches(Regex("^\\d{4}-\\d{2}-\\d{2}$")) },
+      days,
+      months,
     )
   }
+
+  private fun parseMonthDays(daysJson: JSONArray): List<MonthWidgetDay> = buildList {
+      for (index in 0 until minOf(daysJson.length(), 42)) {
+        val day = daysJson.optJSONObject(index) ?: continue
+        val dayKey = day.optString("dayKey")
+        if (!dayKey.matches(Regex("^\\d{4}-\\d{2}-\\d{2}$"))) continue
+        val colorsJson = day.optJSONArray("colors") ?: JSONArray()
+        val colors = buildList {
+          for (colorIndex in 0 until minOf(colorsJson.length(), 3)) {
+            colorsJson.optString(colorIndex)
+              .takeIf { it.matches(Regex("^#[0-9A-Fa-f]{6}$")) }
+              ?.let(::add)
+          }
+        }
+        val itemsJson = day.optJSONArray("items") ?: JSONArray()
+        val items = buildList {
+          for (itemIndex in 0 until minOf(itemsJson.length(), 2)) {
+            val item = itemsJson.optJSONObject(itemIndex) ?: continue
+            val title = item.optString("title").take(MAX_TEXT)
+            if (title.isBlank()) continue
+            add(
+              MonthWidgetItem(
+                title,
+                item.optString("color").takeIf { it.matches(Regex("^#[0-9A-Fa-f]{6}$")) },
+              ),
+            )
+          }
+        }
+        add(MonthWidgetDay(dayKey, day.optInt("count").coerceIn(0, 65_535), colors, items, day.optBoolean("inMonth"), day.optBoolean("isToday")))
+      }
+    }
 
   private fun snapshotFile(context: Context): File =
     File(context.filesDir, "widgets/agenda-phase0.json")
@@ -225,10 +345,28 @@ internal object CollabWidgetBindings {
 
   fun active(context: Context): Map<Int, WidgetBinding> {
     val manager = AppWidgetManager.getInstance(context)
-    val component = ComponentName(context, CollabAgendaWidgetReceiver::class.java)
-    return manager.getAppWidgetIds(component).asIterable().mapNotNull { appWidgetId ->
+    return widgetProviderClasses().flatMap { provider ->
+      manager.getAppWidgetIds(ComponentName(context, provider)).asIterable()
+    }.mapNotNull { appWidgetId ->
       read(context, appWidgetId)?.let { appWidgetId to it }
     }.toMap()
+  }
+}
+
+internal fun widgetProviderClasses(): List<Class<out android.content.BroadcastReceiver>> = listOf(
+  CollabAgendaWidgetReceiver::class.java,
+  CollabMonthWidgetReceiver::class.java,
+  CollabBirthdayWidgetReceiver::class.java,
+  CollabCountdownWidgetReceiver::class.java,
+)
+
+internal fun widgetKindForId(context: Context, appWidgetId: Int): String {
+  val provider = AppWidgetManager.getInstance(context).getAppWidgetInfo(appWidgetId)?.provider?.className
+  return when (provider) {
+    CollabMonthWidgetReceiver::class.java.name -> "month"
+    CollabBirthdayWidgetReceiver::class.java.name -> "birthday"
+    CollabCountdownWidgetReceiver::class.java.name -> "countdown"
+    else -> "agenda"
   }
 }
 
@@ -329,13 +467,8 @@ object CollabWidgetBridge {
   }
 
   @JvmStatic fun boundConfigurationIds(context: Context, profileId: String): String {
-    val manager = AppWidgetManager.getInstance(context)
-    val component = ComponentName(context, CollabAgendaWidgetReceiver::class.java)
-    val ids = manager.getAppWidgetIds(component)
-    val configurationIds = ids.map { appWidgetId ->
-      CollabWidgetBindings.read(context, appWidgetId)
-        ?.takeIf { it.profileId == profileId }
-        ?.configurationId
+    val configurationIds = CollabWidgetBindings.active(context).mapNotNull { (_, binding) ->
+      binding.takeIf { it.profileId == profileId }?.configurationId
     }.filterNotNull().distinct()
     return JSONArray(configurationIds).toString()
   }
@@ -392,11 +525,17 @@ object CollabWidgetBridge {
       raw
     }.getOrNull()
 
-  internal fun prepareOpenIntent(context: Context, binding: WidgetBinding): Intent? =
+  internal fun prepareOpenIntent(context: Context, binding: WidgetBinding, kind: String = "agenda"): Intent? =
     runCatching {
+      val action = when (kind) {
+        "month" -> "openMonth"
+        "birthday" -> "openBirthdays"
+        "countdown" -> "openCountdowns"
+        else -> "openAgenda"
+      }
       val request = JSONObject()
         .put("configurationId", binding.configurationId)
-        .put("action", "openAgenda")
+        .put("action", action)
       val prepared = JSONObject(
         nativePrepareAction(context, binding.profileId, request.toString()),
       )
@@ -416,8 +555,9 @@ object CollabWidgetBridge {
   ) {
     val appContext = context.applicationContext
     val manager = AppWidgetManager.getInstance(appContext)
-    val component = ComponentName(appContext, CollabAgendaWidgetReceiver::class.java)
-    val ids = manager.getAppWidgetIds(component)
+    val ids = widgetProviderClasses().flatMap { provider ->
+      manager.getAppWidgetIds(ComponentName(appContext, provider)).asIterable()
+    }.distinct().toIntArray()
     if (ids.isEmpty()) return
     runBlocking {
       ids.forEach { appWidgetId ->
@@ -432,13 +572,22 @@ object CollabWidgetBridge {
         }
       }
       CollabAgendaWidget().updateAll(appContext)
+      CollabMonthWidget().updateAll(appContext)
+      CollabBirthdayWidget().updateAll(appContext)
+      CollabCountdownWidget().updateAll(appContext)
     }
     if (shouldNotifyAgendaWidgetProvider(origin)) {
-      appContext.sendBroadcast(
-        Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE)
-          .setComponent(component)
-          .putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids),
-      )
+      widgetProviderClasses().forEach { provider ->
+        val component = ComponentName(appContext, provider)
+        val providerIds = manager.getAppWidgetIds(component)
+        if (providerIds.isNotEmpty()) {
+          appContext.sendBroadcast(
+            Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE)
+              .setComponent(component)
+              .putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, providerIds),
+          )
+        }
+      }
     }
   }
 }
@@ -460,7 +609,7 @@ class CollabAgendaWidget : GlanceAppWidget() {
     provideContent {
       val snapshot = agendaWidgetSnapshotFromState(currentState(AgendaWidgetSnapshotStateKey))
       val binding = appWidgetId?.let { CollabWidgetBindings.read(context, it) }
-      val openToday = binding?.let { CollabWidgetBridge.prepareOpenIntent(context, it) }
+      val openToday = binding?.let { CollabWidgetBridge.prepareOpenIntent(context, it, snapshot.kind) }
         ?: CollabAppDestination.intent(context, "calendar-today")
       val createToday = CollabAppDestination.intent(context, "calendar-create", snapshot.dateLabel)
       val itemIntents = snapshot.items.map { item ->
@@ -475,12 +624,103 @@ class CollabAgendaWidget : GlanceAppWidget() {
   }
 }
 
+class CollabMonthWidget : GlanceAppWidget() {
+  override val stateDefinition = PreferencesGlanceStateDefinition
+  override val sizeMode: SizeMode = SizeMode.Responsive(
+    setOf(DpSize(250.dp, 180.dp), DpSize(250.dp, 260.dp), DpSize(320.dp, 360.dp)),
+  )
+
+  override suspend fun provideGlance(context: Context, id: GlanceId) {
+    val appWidgetId = (id as? AppWidgetId)?.appWidgetId
+    provideContent {
+      val snapshot = agendaWidgetSnapshotFromState(currentState(AgendaWidgetSnapshotStateKey))
+      val monthOffset = appWidgetId?.let { CollabMonthOffsets.read(context, it) } ?: 0
+      val page = snapshot.months.firstOrNull { it.offset == monthOffset }
+        ?: MonthWidgetPage(0, snapshot.monthLabel ?: "Calendar", snapshot.days)
+      val binding = appWidgetId?.let { CollabWidgetBindings.read(context, it) }
+      val openMonth = binding?.let { CollabWidgetBridge.prepareOpenIntent(context, it, "month") }
+        ?: CollabAppDestination.intent(context, "calendar-today")
+      val dayIntents = page.days.map { day ->
+        CollabAppDestination.intent(context, "calendar-date", day.dayKey)
+      }
+      val monthDate = page.days.firstOrNull { it.inMonth }?.dayKey ?: snapshot.dateLabel
+      MonthWidgetContent(
+        snapshot,
+        page,
+        openMonth,
+        CollabAppDestination.intent(context, "calendar-create", monthDate),
+        dayIntents,
+      )
+    }
+  }
+}
+
+internal fun nextMonthOffset(current: Int, delta: Int): Int =
+  (current + delta).coerceIn(MIN_MONTH_OFFSET, MAX_MONTH_OFFSET)
+
+private suspend fun changeDisplayedMonth(context: Context, glanceId: GlanceId, delta: Int) {
+  val appWidgetId = (glanceId as? AppWidgetId)?.appWidgetId ?: return
+  CollabMonthOffsets.write(
+    context,
+    appWidgetId,
+    nextMonthOffset(CollabMonthOffsets.read(context, appWidgetId), delta),
+  )
+  CollabMonthWidget().update(context, glanceId)
+}
+
+class CollabPreviousMonthAction : ActionCallback {
+  override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+    changeDisplayedMonth(context, glanceId, -1)
+  }
+}
+
+class CollabNextMonthAction : ActionCallback {
+  override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+    changeDisplayedMonth(context, glanceId, 1)
+  }
+}
+
+abstract class CollabUpcomingDateWidget(private val widgetKind: String) : GlanceAppWidget() {
+  override val stateDefinition = PreferencesGlanceStateDefinition
+  override val sizeMode: SizeMode = SizeMode.Responsive(
+    setOf(DpSize(110.dp, 56.dp), DpSize(250.dp, 110.dp), DpSize(250.dp, 220.dp)),
+  )
+
+  override suspend fun provideGlance(context: Context, id: GlanceId) {
+    val appWidgetId = (id as? AppWidgetId)?.appWidgetId
+    provideContent {
+      val snapshot = agendaWidgetSnapshotFromState(currentState(AgendaWidgetSnapshotStateKey))
+      val binding = appWidgetId?.let { CollabWidgetBindings.read(context, it) }
+      val open = binding?.let { CollabWidgetBridge.prepareOpenIntent(context, it, widgetKind) }
+        ?: CollabAppDestination.intent(context, "calendar-today")
+      val itemIntents = snapshot.items.map { item ->
+        if (item.itemId != null) {
+          CollabAppDestination.intent(context, "calendar-item", item.dayKey, item.itemId)
+        } else open
+      }
+      AgendaWidgetContent(
+        snapshot,
+        open,
+        CollabAppDestination.intent(context, "calendar-create", snapshot.dateLabel),
+        itemIntents,
+        title = if (widgetKind == "birthday") "Birthdays" else "Countdowns",
+        showCreate = false,
+      )
+    }
+  }
+}
+
+class CollabBirthdayWidget : CollabUpcomingDateWidget("birthday")
+class CollabCountdownWidget : CollabUpcomingDateWidget("countdown")
+
 @Composable
 private fun AgendaWidgetContent(
   snapshot: AgendaWidgetSnapshot,
   openToday: android.content.Intent,
   createToday: android.content.Intent,
   itemIntents: List<android.content.Intent>,
+  title: String? = null,
+  showCreate: Boolean = true,
 ) {
   val size = LocalSize.current
   val openAction = actionStartActivity(openToday)
@@ -507,7 +747,7 @@ private fun AgendaWidgetContent(
     snapshot.stateLabel == "Up to date" -> "current"
     else -> null
   }
-  val headerLabel = if (size.height < 180.dp && freshnessLabel != null) {
+  val headerLabel = title ?: if (size.height < 180.dp && freshnessLabel != null) {
     "$dateLabel · $freshnessLabel"
   } else {
     dateLabel
@@ -529,16 +769,18 @@ private fun AgendaWidgetContent(
           fontSize = (14f * snapshot.fontScale).sp,
         ),
       )
-      Spacer(GlanceModifier.defaultWeight())
-      Text(
-        text = "＋",
-        modifier = GlanceModifier.padding(horizontal = 10.dp, vertical = 2.dp).clickable(createAction),
-        style = TextStyle(
-          color = ColorProvider(palette.accent),
-          fontWeight = FontWeight.Bold,
-          fontSize = (24f * snapshot.fontScale).sp,
-        ),
-      )
+      if (showCreate) {
+        Spacer(GlanceModifier.defaultWeight())
+        Text(
+          text = "＋",
+          modifier = GlanceModifier.padding(horizontal = 10.dp, vertical = 2.dp).clickable(createAction),
+          style = TextStyle(
+            color = ColorProvider(palette.accent),
+            fontWeight = FontWeight.Bold,
+            fontSize = (24f * snapshot.fontScale).sp,
+          ),
+        )
+      }
     }
     Spacer(GlanceModifier.height(6.dp))
     if (snapshot.items.isEmpty()) {
@@ -605,6 +847,146 @@ private fun AgendaWidgetContent(
   }
 }
 
+@Composable
+private fun MonthWidgetContent(
+  snapshot: AgendaWidgetSnapshot,
+  page: MonthWidgetPage,
+  openMonth: android.content.Intent,
+  createToday: android.content.Intent,
+  dayIntents: List<android.content.Intent>,
+) {
+  val palette = agendaWidgetPalette(snapshot.theme, snapshot.accent)
+  val openAction = actionStartActivity(openMonth)
+  val previousAction = actionRunCallback<CollabPreviousMonthAction>()
+  val nextAction = actionRunCallback<CollabNextMonthAction>()
+  val createAction = actionStartActivity(createToday)
+  val size = LocalSize.current
+  Column(
+    modifier = GlanceModifier.fillMaxSize().background(ColorProvider(palette.background)).padding(12.dp),
+  ) {
+    Row(modifier = GlanceModifier.fillMaxWidth()) {
+      Text(
+        page.monthLabel,
+        modifier = GlanceModifier.defaultWeight().clickable(openAction),
+        style = TextStyle(
+          color = ColorProvider(palette.foreground),
+          fontWeight = FontWeight.Bold,
+          fontSize = (16f * snapshot.fontScale).sp,
+        ),
+      )
+      Text(
+        "‹",
+        modifier = GlanceModifier.background(ColorProvider(palette.surface))
+          .cornerRadius(14.dp)
+          .padding(horizontal = 14.dp, vertical = 7.dp)
+          .clickable(previousAction),
+        style = TextStyle(color = ColorProvider(palette.foreground), fontSize = (25f * snapshot.fontScale).sp),
+      )
+      Text(
+        "›",
+        modifier = GlanceModifier.background(ColorProvider(palette.surface))
+          .cornerRadius(14.dp)
+          .padding(horizontal = 14.dp, vertical = 7.dp)
+          .clickable(nextAction),
+        style = TextStyle(color = ColorProvider(palette.foreground), fontSize = (25f * snapshot.fontScale).sp),
+      )
+      Text(
+        "＋",
+        modifier = GlanceModifier.background(ColorProvider(palette.accent))
+          .cornerRadius(14.dp)
+          .padding(horizontal = 12.dp, vertical = 4.dp)
+          .clickable(createAction),
+        style = TextStyle(
+          color = ColorProvider(palette.background),
+          fontWeight = FontWeight.Bold,
+          fontSize = (20f * snapshot.fontScale).sp,
+        ),
+      )
+    }
+    Spacer(GlanceModifier.height(4.dp))
+    Row(modifier = GlanceModifier.fillMaxWidth()) {
+      listOf("M", "T", "W", "T", "F", "S", "S").forEach { label ->
+        Text(label, modifier = GlanceModifier.defaultWeight(), style = mutedTextStyle(palette, 10f * snapshot.fontScale))
+      }
+    }
+    page.days.chunked(7).take(6).forEach { week ->
+      Row(
+        modifier = GlanceModifier.fillMaxWidth().defaultWeight()
+          .background(ColorProvider(palette.grid)),
+      ) {
+        week.forEach { day ->
+          val index = page.days.indexOf(day)
+          val action = actionStartActivity(dayIntents.getOrElse(index) { openMonth })
+          val number = runCatching { LocalDate.parse(day.dayKey).dayOfMonth.toString() }.getOrDefault("·")
+          val marker = when {
+            day.count == 0 -> ""
+            size.height < 240.dp -> "•"
+            day.count > 9 -> "9+"
+            else -> day.count.toString()
+          }
+          Column(
+            modifier = GlanceModifier.defaultWeight().padding(1.dp),
+          ) {
+            Column(
+              modifier = GlanceModifier.fillMaxSize()
+                .background(ColorProvider(palette.surface))
+                .cornerRadius(7.dp)
+                .clickable(action)
+                .padding(horizontal = 3.dp, vertical = 3.dp),
+            ) {
+              Text(
+                number,
+                modifier = if (day.isToday) {
+                  GlanceModifier.background(ColorProvider(palette.accent))
+                    .cornerRadius(12.dp)
+                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                    .clickable(action)
+                } else {
+                  GlanceModifier.clickable(action)
+                },
+                style = TextStyle(
+                  color = ColorProvider(
+                    if (day.isToday) palette.background
+                    else if (day.inMonth) palette.foreground else palette.muted,
+                  ),
+                  fontWeight = if (day.isToday) FontWeight.Bold else FontWeight.Normal,
+                  fontSize = (11f * snapshot.fontScale).sp,
+                ),
+              )
+              if (size.height >= 300.dp && day.items.isNotEmpty()) {
+                day.items.take(if (size.height >= 420.dp) 2 else 1).forEach { item ->
+                  Text(
+                    item.title,
+                    modifier = GlanceModifier.fillMaxWidth()
+                      .background(ColorProvider(widgetSourceColor(item.color, palette.accent)))
+                      .cornerRadius(4.dp)
+                      .padding(horizontal = 3.dp, vertical = 1.dp)
+                      .clickable(action),
+                    style = TextStyle(
+                      color = ColorProvider(palette.background),
+                      fontWeight = FontWeight.Medium,
+                      fontSize = (8f * snapshot.fontScale).sp,
+                    ),
+                  )
+                }
+              } else if (marker.isNotEmpty()) {
+                Text(
+                  marker,
+                  modifier = GlanceModifier.clickable(action),
+                  style = TextStyle(
+                    color = ColorProvider(widgetSourceColor(day.colors.firstOrNull(), palette.accent)),
+                    fontSize = (8f * snapshot.fontScale).sp,
+                  ),
+                )
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 internal fun agendaItemDetail(item: AgendaWidgetItem): String {
   if (item.section != "upcoming" || item.itemKind != "task" || item.dayKey == null) return item.detail
   val date = runCatching {
@@ -624,9 +1006,7 @@ private fun widgetSourceColor(value: String?, fallback: Color): Color {
   return Color(0xFF000000L or rgb)
 }
 
-class CollabAgendaWidgetReceiver : GlanceAppWidgetReceiver() {
-  override val glanceAppWidget: GlanceAppWidget = CollabAgendaWidget()
-
+abstract class CollabCalendarWidgetReceiver : GlanceAppWidgetReceiver() {
   override fun onUpdate(
     context: Context,
     appWidgetManager: AppWidgetManager,
@@ -641,6 +1021,7 @@ class CollabAgendaWidgetReceiver : GlanceAppWidgetReceiver() {
 
   override fun onDeleted(context: Context, appWidgetIds: IntArray) {
     appWidgetIds.forEach { appWidgetId ->
+      CollabMonthOffsets.remove(context, appWidgetId)
       val binding = CollabWidgetBindings.remove(context, appWidgetId) ?: return@forEach
       runCatching {
         CollabWidgetBridge.nativeDeleteConfiguration(
@@ -653,6 +1034,22 @@ class CollabAgendaWidgetReceiver : GlanceAppWidgetReceiver() {
     runCatching { CollabWidgetRefreshScheduler.reconcile(context) }
     super.onDeleted(context, appWidgetIds)
   }
+}
+
+class CollabAgendaWidgetReceiver : CollabCalendarWidgetReceiver() {
+  override val glanceAppWidget: GlanceAppWidget = CollabAgendaWidget()
+}
+
+class CollabMonthWidgetReceiver : CollabCalendarWidgetReceiver() {
+  override val glanceAppWidget: GlanceAppWidget = CollabMonthWidget()
+}
+
+class CollabBirthdayWidgetReceiver : CollabCalendarWidgetReceiver() {
+  override val glanceAppWidget: GlanceAppWidget = CollabBirthdayWidget()
+}
+
+class CollabCountdownWidgetReceiver : CollabCalendarWidgetReceiver() {
+  override val glanceAppWidget: GlanceAppWidget = CollabCountdownWidget()
 }
 
 class CollabWidgetLifecycleReceiver : android.content.BroadcastReceiver() {

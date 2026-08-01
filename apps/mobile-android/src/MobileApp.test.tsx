@@ -137,13 +137,32 @@ describe('MobileApp shell', () => {
     expect(screen.getByRole('button', { name: /Personal/ })).toBeTruthy();
     expect(useMobileStore.getState().selected).toBeNull();
 
-    screen.getByRole('button', { name: 'Month' }).click();
+    expect(screen.getByRole('button', { name: 'Month' }).getAttribute('aria-pressed')).toBe('true');
     await waitFor(() => expect(document.querySelector('.mobile-calendar-content.view-month')).toBeTruthy());
     const month = document.querySelector('.mobile-calendar-content.view-month');
     expect(month).toBeTruthy();
     fireEvent.touchStart(month!, { touches: [{ clientX: 280, clientY: 240 }] });
     fireEvent.touchEnd(month!, { changedTouches: [{ clientX: 80, clientY: 242 }] });
     expect(useMobileStore.getState().tab).toBe('calendar');
+  });
+
+  it('replays a cold-start widget day after the React shell mounts', async () => {
+    let pendingTaken = false;
+    mockInvoke({
+      mobile_app_destination_take_pending: () => {
+        if (pendingTaken) return null;
+        pendingTaken = true;
+        return { kind: 'calendar-date', date: '2026-09-17' };
+      },
+      server_connection_statuses: () => [],
+      calendar_list: () => [],
+      calendar_list_items: () => [],
+    });
+    render(<MobileApp />);
+
+    await waitFor(() => expect(useMobileStore.getState().tab).toBe('calendar'));
+    await waitFor(() => expect(document.querySelector('.mobile-calendar-content.view-day')).toBeTruthy());
+    expect(screen.getByText('September 2026')).toBeTruthy();
   });
 
   it('routes a native agenda widget destination into Calendar', async () => {

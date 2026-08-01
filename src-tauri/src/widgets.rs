@@ -26,8 +26,13 @@ const MAX_CONFIGURATIONS: usize = 32;
 const MAX_CONFIGURATION_TOMBSTONES: usize = 128;
 const MAX_SOURCE_IDS: usize = 64;
 const MAX_SNAPSHOT_ITEMS: usize = 24;
+const MAX_SNAPSHOT_DAYS: usize = 42;
+const MAX_MONTH_ITEMS_PER_DAY: usize = 2;
+const MAX_MONTH_ITEM_TITLE_BYTES: usize = 40;
 const MAX_STORE_BYTES: u64 = 64 * 1024;
-const MAX_SNAPSHOT_BYTES: usize = 16_384;
+const MAX_SNAPSHOT_BYTES: usize = 262_144;
+const MIN_MONTH_OFFSET: i8 = -6;
+const MAX_MONTH_OFFSET: i8 = 6;
 
 static STORE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -39,6 +44,9 @@ fn store_lock() -> &'static Mutex<()> {
 #[serde(rename_all = "camelCase")]
 pub(crate) enum WidgetKind {
     Agenda,
+    Month,
+    Birthday,
+    Countdown,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -61,14 +69,14 @@ pub(crate) enum WidgetFreshness {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WidgetDisplayOptions {
     #[serde(default = "default_horizon_days")]
-    pub horizon_days: u8,
+    pub horizon_days: u16,
     #[serde(default = "default_max_items")]
     pub max_items: u8,
     #[serde(default)]
     pub show_completed: bool,
 }
 
-fn default_horizon_days() -> u8 {
+fn default_horizon_days() -> u16 {
     7
 }
 
@@ -113,6 +121,8 @@ pub(crate) struct WidgetConfiguration {
     pub kind: WidgetKind,
     #[serde(default)]
     pub selected_source_ids: Vec<String>,
+    #[serde(default)]
+    pub selected_item_ids: Vec<String>,
     pub privacy: WidgetPrivacy,
     #[serde(default)]
     pub display: WidgetDisplayOptions,
@@ -209,6 +219,35 @@ pub(crate) struct WidgetSnapshotItem {
     pub source_color: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetDaySummary {
+    pub day_key: String,
+    pub count: u16,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub colors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<WidgetDayItem>,
+    pub in_month: bool,
+    pub is_today: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetDayItem {
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetMonthPage {
+    pub offset: i8,
+    pub month_label: String,
+    pub days: Vec<WidgetDaySummary>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WidgetSnapshot {
@@ -219,6 +258,10 @@ pub(crate) struct WidgetSnapshot {
     pub generated_at: String,
     pub date_label: String,
     pub state_label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub month_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_day_key: Option<String>,
     #[serde(default = "default_widget_theme")]
     pub theme: String,
     #[serde(default = "default_widget_accent")]
@@ -227,6 +270,10 @@ pub(crate) struct WidgetSnapshot {
     pub font_scale: f32,
     pub freshness: Vec<WidgetSourceFreshness>,
     pub items: Vec<WidgetSnapshotItem>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub days: Vec<WidgetDaySummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub months: Vec<WidgetMonthPage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -274,6 +321,9 @@ pub(crate) struct WidgetDiagnostics {
 #[serde(rename_all = "camelCase")]
 pub(crate) enum WidgetActionKind {
     OpenAgenda,
+    OpenMonth,
+    OpenBirthdays,
+    OpenCountdowns,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -586,6 +636,10 @@ impl WidgetStore {
             .ok_or_else(|| "The widget configuration no longer exists.".to_string())?;
         let destination_kind = match (configuration.kind, request.action) {
             (WidgetKind::Agenda, WidgetActionKind::OpenAgenda) => "calendar-today",
+            (WidgetKind::Month, WidgetActionKind::OpenMonth) => "calendar-today",
+            (WidgetKind::Birthday, WidgetActionKind::OpenBirthdays) => "calendar-today",
+            (WidgetKind::Countdown, WidgetActionKind::OpenCountdowns) => "calendar-today",
+            _ => return Err("The widget action does not match its configuration.".into()),
         };
         Ok(WidgetPreparedAction {
             configuration_id: request.configuration_id,
@@ -839,7 +893,15 @@ pub(crate) fn build_snapshot(
     } else if stale > 0 {
         "Some sources may be stale"
     } else if items.is_empty() {
-        "Nothing upcoming"
+        match request.configuration.kind {
+            WidgetKind::Birthday => "No birthdays upcoming",
+            WidgetKind::Countdown if request.configuration.selected_item_ids.is_empty() => {
+                "Choose events in Collab settings"
+            }
+            WidgetKind::Countdown => "No selected events upcoming",
+            WidgetKind::Month => "No items today",
+            WidgetKind::Agenda => "Nothing upcoming",
+        }
     } else {
         "Up to date"
     };
@@ -851,11 +913,15 @@ pub(crate) fn build_snapshot(
         generated_at: request.generated_at,
         date_label: request.date_label,
         state_label: state_label.into(),
+        month_label: None,
+        selected_day_key: None,
         theme: appearance.theme,
         accent: appearance.accent,
         font_scale: appearance.font_scale,
         freshness,
         items,
+        days: Vec::new(),
+        months: Vec::new(),
     };
     validate_snapshot(&snapshot, &snapshot.profile_id_hash)?;
     encode_bounded(&snapshot, MAX_SNAPSHOT_BYTES)?;
@@ -894,7 +960,13 @@ pub(crate) async fn build_and_publish_agenda_profile(
     let oldest = today - Duration::days(366);
     let max_horizon = configurations
         .iter()
-        .map(|configuration| configuration.display.horizon_days)
+        .map(|configuration| match configuration.kind {
+            WidgetKind::Month => configuration.display.horizon_days.max(220),
+            WidgetKind::Birthday | WidgetKind::Countdown => {
+                configuration.display.horizon_days.max(31)
+            }
+            WidgetKind::Agenda => configuration.display.horizon_days,
+        })
         .max()
         .unwrap_or(default_horizon_days());
     let last_day = today + Duration::days(i64::from(max_horizon));
@@ -977,6 +1049,17 @@ pub(crate) async fn build_and_publish_agenda_profile(
             if !appearance.show_declined && is_declined_for_calendar(item, calendar) {
                 continue;
             }
+            if configuration.kind == WidgetKind::Birthday && item.kind != CalendarItemKind::Birthday
+            {
+                continue;
+            }
+            if configuration.kind == WidgetKind::Countdown {
+                if item.kind != CalendarItemKind::Event
+                    || !countdown_item_is_selected(item, &configuration.selected_item_ids)
+                {
+                    continue;
+                }
+            }
             let Some(mut input) = agenda_item_input(
                 item,
                 calendar,
@@ -989,6 +1072,30 @@ pub(crate) async fn build_and_publish_agenda_profile(
             else {
                 continue;
             };
+            if configuration.kind == WidgetKind::Month
+                && input.day_key.as_deref() != Some(&today.format("%Y-%m-%d").to_string())
+            {
+                continue;
+            }
+            if matches!(
+                configuration.kind,
+                WidgetKind::Birthday | WidgetKind::Countdown
+            ) {
+                let day = input
+                    .day_key
+                    .as_deref()
+                    .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok());
+                if let Some(day) = day {
+                    let days = (day - today).num_days();
+                    let countdown = match days {
+                        0 => "Today".to_string(),
+                        1 => "Tomorrow".to_string(),
+                        value => format!("In {value} days"),
+                    };
+                    input.detail = format!("{countdown} · {}", day.format("%b %-d"));
+                    input.title_only_detail = input.detail.clone();
+                }
+            }
             if !configuration.actions.open_item {
                 input.calendar_id = None;
                 input.item_id = None;
@@ -1002,7 +1109,8 @@ pub(crate) async fn build_and_publish_agenda_profile(
             }
         }
         let candidate_count = items.len();
-        let snapshot = build_snapshot(
+        let snapshot_configuration = configuration.clone();
+        let mut snapshot = build_snapshot(
             profile_id,
             WidgetBuildRequest {
                 configuration,
@@ -1013,6 +1121,33 @@ pub(crate) async fn build_and_publish_agenda_profile(
                 items,
             },
         )?;
+        if snapshot.kind == WidgetKind::Month {
+            let mut months =
+                Vec::with_capacity(usize::from((MAX_MONTH_OFFSET - MIN_MONTH_OFFSET + 1) as u8));
+            for offset in MIN_MONTH_OFFSET..=MAX_MONTH_OFFSET {
+                let anchor = shift_month(today, i32::from(offset))?;
+                let (month_label, days) = month_day_summaries(
+                    &projected,
+                    &snapshot_configuration,
+                    &calendar_by_id,
+                    anchor,
+                    today,
+                    time_zone,
+                    appearance.show_declined,
+                )?;
+                months.push(WidgetMonthPage {
+                    offset,
+                    month_label,
+                    days,
+                });
+            }
+            snapshot.month_label = months
+                .iter()
+                .find(|month| month.offset == 0)
+                .map(|month| month.month_label.clone());
+            snapshot.selected_day_key = Some(today.format("%Y-%m-%d").to_string());
+            snapshot.months = months;
+        }
         let outcome = widget_store.publish(snapshot)?;
         let fresh_sources = outcome
             .snapshot
@@ -1226,6 +1361,161 @@ fn agenda_item_input(
 }
 
 #[cfg(any(target_os = "android", test))]
+fn countdown_item_is_selected(item: &CalendarItem, selected_item_ids: &[String]) -> bool {
+    selected_item_ids.iter().any(|selected| {
+        selected == &item.id
+            || item
+                .recurrence_series_id
+                .as_deref()
+                .is_some_and(|series_id| series_id == selected)
+    })
+}
+
+#[cfg(any(target_os = "android", test))]
+fn month_day_summaries(
+    items: &[CalendarItem],
+    configuration: &WidgetConfiguration,
+    calendar_by_id: &HashMap<&str, &CalendarDefinition>,
+    month_anchor: NaiveDate,
+    actual_today: NaiveDate,
+    time_zone: chrono_tz::Tz,
+    show_declined: bool,
+) -> Result<(String, Vec<WidgetDaySummary>), String> {
+    let month_start = month_anchor
+        .with_day(1)
+        .ok_or_else(|| "The widget month boundary is invalid.".to_string())?;
+    let grid_start =
+        month_start - Duration::days(i64::from(month_start.weekday().num_days_from_monday()));
+    let grid_end = grid_start + Duration::days(MAX_SNAPSHOT_DAYS as i64);
+    let selected_sources = configuration
+        .selected_source_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let mut summaries = (0..MAX_SNAPSHOT_DAYS)
+        .map(|offset| {
+            let day = grid_start + Duration::days(offset as i64);
+            WidgetDaySummary {
+                day_key: day.format("%Y-%m-%d").to_string(),
+                count: 0,
+                colors: Vec::new(),
+                items: Vec::new(),
+                in_month: day.year() == month_start.year() && day.month() == month_start.month(),
+                is_today: day == actual_today,
+            }
+        })
+        .collect::<Vec<_>>();
+    for item in items {
+        if !selected_sources.is_empty() && !selected_sources.contains(item.calendar_id.as_str()) {
+            continue;
+        }
+        let Some(calendar) = calendar_by_id.get(item.calendar_id.as_str()).copied() else {
+            continue;
+        };
+        if !show_declined && is_declined_for_calendar(item, calendar) {
+            continue;
+        }
+        let Some((start, end)) = calendar_item_day_span(item, month_anchor, time_zone)? else {
+            continue;
+        };
+        let mut day = start.max(grid_start);
+        let last = end.min(grid_end - Duration::days(1));
+        while day <= last {
+            if let Some(summary) = summaries.get_mut((day - grid_start).num_days() as usize) {
+                summary.count = summary.count.saturating_add(1);
+                if configuration.privacy == WidgetPrivacy::Full
+                    && summary.colors.len() < 3
+                    && !summary.colors.iter().any(|color| color == &calendar.color)
+                {
+                    summary.colors.push(calendar.color.clone());
+                }
+                if summary.items.len() < MAX_MONTH_ITEMS_PER_DAY {
+                    let title = match configuration.privacy {
+                        WidgetPrivacy::Full | WidgetPrivacy::TitleOnly => &item.title,
+                        WidgetPrivacy::Private => match item.kind {
+                            CalendarItemKind::Event => "Private event",
+                            CalendarItemKind::Task => "Private task",
+                            CalendarItemKind::Birthday => "Private birthday",
+                        },
+                    };
+                    summary.items.push(WidgetDayItem {
+                        title: truncate_utf8(title, MAX_MONTH_ITEM_TITLE_BYTES),
+                        color: (configuration.privacy == WidgetPrivacy::Full)
+                            .then(|| calendar.color.clone()),
+                    });
+                }
+            }
+            day += Duration::days(1);
+        }
+    }
+    Ok((month_start.format("%B %Y").to_string(), summaries))
+}
+
+#[cfg(any(target_os = "android", test))]
+fn shift_month(date: NaiveDate, offset: i32) -> Result<NaiveDate, String> {
+    let total_months = date
+        .year()
+        .checked_mul(12)
+        .and_then(|value| value.checked_add(date.month0() as i32))
+        .and_then(|value| value.checked_add(offset))
+        .ok_or_else(|| "The widget month offset is invalid.".to_string())?;
+    let year = total_months.div_euclid(12);
+    let month = total_months.rem_euclid(12) as u32 + 1;
+    NaiveDate::from_ymd_opt(year, month, 1)
+        .ok_or_else(|| "The widget month offset is invalid.".to_string())
+}
+
+#[cfg(any(target_os = "android", test))]
+fn calendar_item_day_span(
+    item: &CalendarItem,
+    today: NaiveDate,
+    time_zone: chrono_tz::Tz,
+) -> Result<Option<(NaiveDate, NaiveDate)>, String> {
+    if item.kind == CalendarItemKind::Birthday {
+        let Some(value) = item.date.as_deref() else {
+            return Ok(None);
+        };
+        let birthday = NaiveDate::parse_from_str(value, "%Y-%m-%d")
+            .map_err(|_| "A birthday has an invalid date.".to_string())?;
+        let day = NaiveDate::from_ymd_opt(today.year(), birthday.month(), birthday.day())
+            .or_else(|| NaiveDate::from_ymd_opt(today.year(), birthday.month(), 28));
+        return Ok(day.map(|value| (value, value)));
+    }
+    let start_value = match item.kind {
+        CalendarItemKind::Event => item.start.as_ref(),
+        CalendarItemKind::Task => item.due.as_ref().or(item.start.as_ref()),
+        CalendarItemKind::Birthday => None,
+    };
+    let Some(start_value) = start_value else {
+        return Ok(None);
+    };
+    let start = calendar_time_day(start_value, time_zone)?;
+    let end = match item.end.as_ref() {
+        Some(CalendarTimeValue::Date { date }) => NaiveDate::parse_from_str(date, "%Y-%m-%d")
+            .map_err(|_| "A calendar item has an invalid end date.".to_string())?
+            .pred_opt()
+            .unwrap_or(start),
+        Some(value) => calendar_time_day(value, time_zone)?,
+        None => start,
+    };
+    Ok(Some((start, end.max(start))))
+}
+
+#[cfg(any(target_os = "android", test))]
+fn calendar_time_day(
+    value: &CalendarTimeValue,
+    time_zone: chrono_tz::Tz,
+) -> Result<NaiveDate, String> {
+    match value {
+        CalendarTimeValue::Date { date } => NaiveDate::parse_from_str(date, "%Y-%m-%d")
+            .map_err(|_| "A calendar item has an invalid date.".to_string()),
+        CalendarTimeValue::DateTime { date_time, .. } => DateTime::parse_from_rfc3339(date_time)
+            .map(|value| value.with_timezone(&time_zone).date_naive())
+            .map_err(|_| "A calendar item has an invalid date-time.".to_string()),
+    }
+}
+
+#[cfg(any(target_os = "android", test))]
 fn is_declined_for_calendar(item: &CalendarItem, calendar: &CalendarDefinition) -> bool {
     let CalendarLocation::Hosted {
         server_url,
@@ -1322,8 +1612,25 @@ fn validate_configuration(configuration: &WidgetConfiguration) -> Result<(), Str
             return Err("A widget source was selected more than once.".into());
         }
     }
-    if !(1..=31).contains(&configuration.display.horizon_days) {
-        return Err("Widget horizon must be between 1 and 31 days.".into());
+    if configuration.selected_item_ids.len() > MAX_SNAPSHOT_ITEMS {
+        return Err("Too many countdown events were selected.".into());
+    }
+    let mut unique_items = HashSet::new();
+    for item_id in &configuration.selected_item_ids {
+        validate_identifier(item_id, "widget item")?;
+        if !unique_items.insert(item_id) {
+            return Err("A countdown event was selected more than once.".into());
+        }
+    }
+    let max_horizon = match configuration.kind {
+        WidgetKind::Agenda => 31,
+        WidgetKind::Month => 42,
+        WidgetKind::Birthday | WidgetKind::Countdown => 366,
+    };
+    if !(1..=max_horizon).contains(&configuration.display.horizon_days) {
+        return Err(format!(
+            "Widget horizon must be between 1 and {max_horizon} days."
+        ));
     }
     if !(1..=MAX_SNAPSHOT_ITEMS as u8).contains(&configuration.display.max_items) {
         return Err(format!(
@@ -1380,6 +1687,34 @@ fn validate_snapshot(snapshot: &WidgetSnapshot, expected_profile_hash: &str) -> 
     if snapshot.items.len() > MAX_SNAPSHOT_ITEMS || snapshot.freshness.len() > MAX_SOURCE_IDS {
         return Err("The widget snapshot exceeds its item limit.".into());
     }
+    if snapshot.days.len() > MAX_SNAPSHOT_DAYS {
+        return Err("The widget snapshot exceeds its day-summary limit.".into());
+    }
+    if let Some(value) = &snapshot.month_label {
+        validate_text(value, MAX_TEXT_BYTES, "widget month label")?;
+    }
+    if let Some(value) = &snapshot.selected_day_key {
+        validate_text(value, MAX_TEXT_BYTES, "widget selected day")?;
+    }
+    validate_widget_days(&snapshot.days)?;
+    if snapshot.months.len() > usize::from((MAX_MONTH_OFFSET - MIN_MONTH_OFFSET + 1) as u8) {
+        return Err("The widget snapshot contains too many month pages.".into());
+    }
+    let mut offsets = HashSet::new();
+    for month in &snapshot.months {
+        if !(MIN_MONTH_OFFSET..=MAX_MONTH_OFFSET).contains(&month.offset)
+            || !offsets.insert(month.offset)
+            || month.days.len() != MAX_SNAPSHOT_DAYS
+        {
+            return Err("The widget snapshot contains an invalid month page.".into());
+        }
+        validate_text(
+            &month.month_label,
+            MAX_TEXT_BYTES,
+            "widget month page label",
+        )?;
+        validate_widget_days(&month.days)?;
+    }
     for item in &snapshot.items {
         validate_identifier(&item.stable_id, "widget item")?;
         validate_text(&item.title, MAX_TEXT_BYTES, "widget item title")?;
@@ -1405,6 +1740,32 @@ fn validate_snapshot(snapshot: &WidgetSnapshot, expected_profile_hash: &str) -> 
     Ok(())
 }
 
+fn validate_widget_days(days: &[WidgetDaySummary]) -> Result<(), String> {
+    for day in days {
+        validate_text(&day.day_key, MAX_TEXT_BYTES, "widget day")?;
+        if day.colors.len() > 3 {
+            return Err("A widget day contains too many colors.".into());
+        }
+        if day.items.len() > MAX_MONTH_ITEMS_PER_DAY {
+            return Err("A widget day contains too many preview items.".into());
+        }
+        for item in &day.items {
+            validate_text(
+                &item.title,
+                MAX_MONTH_ITEM_TITLE_BYTES,
+                "widget day item title",
+            )?;
+            if let Some(color) = &item.color {
+                validate_text(color, MAX_TEXT_BYTES, "widget day item color")?;
+            }
+        }
+        for color in &day.colors {
+            validate_text(color, MAX_TEXT_BYTES, "widget day color")?;
+        }
+    }
+    Ok(())
+}
+
 fn validate_identifier(value: &str, label: &str) -> Result<(), String> {
     if value.is_empty()
         || value.len() > MAX_ID_BYTES
@@ -1425,6 +1786,17 @@ fn validate_text(value: &str, max_bytes: usize, label: &str) -> Result<(), Strin
     Ok(())
 }
 
+fn truncate_utf8(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.to_string();
+    }
+    let mut end = max_bytes;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value[..end].to_string()
+}
+
 fn profile_hash(profile_id: &str) -> String {
     let digest = Sha256::digest(profile_id.as_bytes());
     hex::encode(&digest[..16])
@@ -1437,11 +1809,15 @@ fn snapshot_content_eq(left: &WidgetSnapshot, right: &WidgetSnapshot) -> bool {
         && left.kind == right.kind
         && left.date_label == right.date_label
         && left.state_label == right.state_label
+        && left.month_label == right.month_label
+        && left.selected_day_key == right.selected_day_key
         && left.theme == right.theme
         && left.accent == right.accent
         && left.font_scale == right.font_scale
         && left.freshness == right.freshness
         && left.items == right.items
+        && left.days == right.days
+        && left.months == right.months
 }
 
 fn encode_bounded<T: Serialize>(value: &T, max_bytes: usize) -> Result<Vec<u8>, String> {
@@ -1529,6 +1905,7 @@ pub(crate) fn build_phase0_agenda_preview(date_label: &str) -> Result<String, St
         configuration_id: "phase0-bootstrap".into(),
         kind: WidgetKind::Agenda,
         selected_source_ids: Vec::new(),
+        selected_item_ids: Vec::new(),
         privacy: WidgetPrivacy::Full,
         display: WidgetDisplayOptions {
             max_items: 6,
@@ -1607,6 +1984,7 @@ mod tests {
             configuration_id: id.into(),
             kind: WidgetKind::Agenda,
             selected_source_ids: vec!["calendar-a".into(), "calendar-b".into()],
+            selected_item_ids: Vec::new(),
             privacy,
             display: WidgetDisplayOptions::default(),
             actions: WidgetActionOptions::default(),
@@ -1979,6 +2357,105 @@ mod tests {
         .unwrap();
         assert_eq!(snapshot.items[0].detail, "10:30");
         assert!(!serde_json::to_string(&snapshot).unwrap().contains("Work"));
+    }
+
+    #[test]
+    fn month_density_is_six_weeks_and_privacy_removes_source_colors() {
+        let calendar = CalendarDefinition {
+            schema_version: 1,
+            id: "calendar-a".into(),
+            global_id: "calendar-a-global".into(),
+            location: CalendarLocation::Local {
+                profile_id: "profile-1".into(),
+            },
+            name: "Work".into(),
+            color: "#a174ff".into(),
+            default_time_zone: "UTC".into(),
+            archived: false,
+            read_only: false,
+            revision: 1,
+            created_at: "2026-08-01T00:00:00Z".into(),
+            updated_at: "2026-08-01T00:00:00Z".into(),
+            deleted_at: None,
+        };
+        let item = CalendarItem {
+            id: "event-1".into(),
+            uid: "event-1".into(),
+            calendar_id: calendar.id.clone(),
+            kind: CalendarItemKind::Event,
+            title: "Private plan".into(),
+            description: None,
+            url: None,
+            reminders: vec![],
+            attendees: vec![],
+            attachments: vec![],
+            recurrence: None,
+            recurrence_id: None,
+            recurrence_series_id: None,
+            source_binding: None,
+            icalendar_properties: vec![],
+            start: Some(CalendarTimeValue::Date {
+                date: "2026-08-01".into(),
+            }),
+            end: Some(CalendarTimeValue::Date {
+                date: "2026-08-03".into(),
+            }),
+            due: None,
+            date: None,
+            birth_year: None,
+            location: None,
+            availability: None,
+            priority: None,
+            status: None,
+            completed_at: None,
+            revision: 1,
+            created_at: "2026-08-01T00:00:00Z".into(),
+            updated_at: "2026-08-01T00:00:00Z".into(),
+            deleted_at: None,
+        };
+        let calendar_by_id = HashMap::from([(calendar.id.as_str(), &calendar)]);
+        let mut config = configuration("month-1", WidgetPrivacy::Full);
+        config.kind = WidgetKind::Month;
+        config.display.horizon_days = 42;
+        config.selected_source_ids = vec![calendar.id.clone()];
+        let (_, full) = month_day_summaries(
+            std::slice::from_ref(&item),
+            &config,
+            &calendar_by_id,
+            NaiveDate::from_ymd_opt(2026, 8, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 8, 1).unwrap(),
+            chrono_tz::UTC,
+            true,
+        )
+        .unwrap();
+        assert_eq!(full.len(), 42);
+        let august_first = full.iter().find(|day| day.day_key == "2026-08-01").unwrap();
+        assert_eq!(august_first.count, 1);
+        assert_eq!(august_first.colors, vec!["#a174ff"]);
+        assert_eq!(august_first.items[0].title, "Private plan");
+        assert_eq!(august_first.items[0].color.as_deref(), Some("#a174ff"));
+
+        config.privacy = WidgetPrivacy::Private;
+        let (_, private) = month_day_summaries(
+            &[item],
+            &config,
+            &calendar_by_id,
+            NaiveDate::from_ymd_opt(2026, 8, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 8, 1).unwrap(),
+            chrono_tz::UTC,
+            true,
+        )
+        .unwrap();
+        assert!(private.iter().all(|day| day.colors.is_empty()));
+        let august_first = private
+            .iter()
+            .find(|day| day.day_key == "2026-08-01")
+            .unwrap();
+        assert_eq!(august_first.items[0].title, "Private event");
+        assert_eq!(august_first.items[0].color, None);
+        assert!(!serde_json::to_string(&private)
+            .unwrap()
+            .contains("Private plan"));
     }
 
     #[test]
