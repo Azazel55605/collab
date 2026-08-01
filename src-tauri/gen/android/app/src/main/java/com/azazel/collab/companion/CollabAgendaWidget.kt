@@ -52,6 +52,11 @@ import kotlinx.coroutines.runBlocking
 
 private val AgendaWidgetSnapshotStateKey = stringPreferencesKey("agenda-widget-snapshot-v1")
 
+internal enum class AgendaWidgetUpdateOrigin { External, Provider }
+
+internal fun shouldNotifyAgendaWidgetProvider(origin: AgendaWidgetUpdateOrigin): Boolean =
+  origin == AgendaWidgetUpdateOrigin.External
+
 internal data class AgendaWidgetItem(
   val title: String,
   val detail: String,
@@ -62,6 +67,7 @@ internal data class AgendaWidgetItem(
   val sourceColor: String?,
 )
 internal data class AgendaWidgetSnapshot(
+  val generatedAt: String?,
   val dateLabel: String,
   val stateLabel: String,
   val theme: String,
@@ -75,6 +81,7 @@ internal fun agendaWidgetSnapshotFromState(raw: String?): AgendaWidgetSnapshot {
     runCatching { CollabAgendaWidgetSnapshotStore.parse(raw) }.getOrNull()?.let { return it }
   }
   return AgendaWidgetSnapshot(
+    generatedAt = null,
     dateLabel = LocalDate.now().toString(),
     stateLabel = "Open Collab to refresh",
     theme = "dark",
@@ -117,7 +124,7 @@ internal object CollabAgendaWidgetSnapshotStore {
     val file = snapshotFile(context)
     if (!file.isFile) writeBootstrap(context)
     return runCatching { parse(file.readText()) }.getOrElse {
-      AgendaWidgetSnapshot("Today", "Open Collab to refresh", "dark", "violet", 1f, emptyList())
+      AgendaWidgetSnapshot(null, "Today", "Open Collab to refresh", "dark", "violet", 1f, emptyList())
     }
   }
 
@@ -157,6 +164,7 @@ internal object CollabAgendaWidgetSnapshotStore {
       }
     }
     return AgendaWidgetSnapshot(
+      json.optString("generatedAt").takeIf { it.isNotBlank() },
       json.optString("dateLabel", "Today").take(MAX_TEXT),
       json.optString("stateLabel", "Preview data").take(MAX_TEXT),
       json.optString("theme", "dark").takeIf { it in setOf("dark", "midnight", "warm", "light") } ?: "dark",
@@ -214,12 +222,20 @@ internal object CollabWidgetBindings {
       .apply()
     return existing
   }
+
+  fun active(context: Context): Map<Int, WidgetBinding> {
+    val manager = AppWidgetManager.getInstance(context)
+    val component = ComponentName(context, CollabAgendaWidgetReceiver::class.java)
+    return manager.getAppWidgetIds(component).asIterable().mapNotNull { appWidgetId ->
+      read(context, appWidgetId)?.let { appWidgetId to it }
+    }.toMap()
+  }
 }
 
 object CollabWidgetBridge {
   private val publisher = Executors.newSingleThreadExecutor()
   private val publishLock = Any()
-  private val requestedProfiles = linkedSetOf<String>()
+  private val requestedProfiles = linkedMapOf<String, String>()
   private var draining = false
   private const val BOOTSTRAP_PROFILE = "__phase0_bootstrap__"
   private const val MAX_DRAIN_RUNTIME_MS = 2_000L
@@ -254,6 +270,7 @@ object CollabWidgetBridge {
   @JvmStatic external fun nativePublishAgendaProfile(
     context: Context,
     profileId: String,
+    updateCause: String,
   ): String
   @JvmStatic external fun nativeReadSnapshot(
     context: Context,
@@ -269,15 +286,23 @@ object CollabWidgetBridge {
   fun requestPhase0Rebuild(context: Context) {
     val appContext = context.applicationContext
     val profileId = runCatching { nativeActiveProfile(appContext) }.getOrNull()
-    enqueue(appContext, profileId ?: BOOTSTRAP_PROFILE)
+    enqueue(appContext, profileId ?: BOOTSTRAP_PROFILE, "foreground")
   }
 
   @JvmStatic fun requestProfileRebuild(context: Context, profileId: String) {
-    enqueue(context.applicationContext, profileId)
+    enqueue(context.applicationContext, profileId, "foreground")
+  }
+
+  fun requestProfileRebuild(context: Context, profileId: String, cause: String) {
+    enqueue(context.applicationContext, profileId, cause)
   }
 
   @JvmStatic fun updateWidgets(context: Context) {
     requestAgendaUpdate(context.applicationContext)
+  }
+
+  @JvmStatic fun cancelProfile(context: Context, profileId: String) {
+    CollabWidgetRefreshScheduler.cancelProfile(context.applicationContext, profileId)
   }
 
   fun publishConfiguration(
@@ -288,7 +313,7 @@ object CollabWidgetBridge {
     val appContext = context.applicationContext
     publisher.execute {
       val failure = runCatching {
-        val outcome = JSONObject(nativePublishAgendaProfile(appContext, profileId))
+        val outcome = JSONObject(nativePublishAgendaProfile(appContext, profileId, "configuration"))
         check(outcome.optBoolean("configured", false)) {
           "The widget configuration was not found."
         }
@@ -315,9 +340,9 @@ object CollabWidgetBridge {
     return JSONArray(configurationIds).toString()
   }
 
-  private fun enqueue(context: Context, profileId: String) {
+  private fun enqueue(context: Context, profileId: String, cause: String) {
     synchronized(publishLock) {
-      requestedProfiles.add(profileId)
+      requestedProfiles[profileId] = cause
       if (draining) return
       draining = true
     }
@@ -327,11 +352,15 @@ object CollabWidgetBridge {
   private fun drain(context: Context) {
     val deadline = SystemClock.elapsedRealtime() + MAX_DRAIN_RUNTIME_MS
     while (SystemClock.elapsedRealtime() < deadline) {
-      val profileId = synchronized(publishLock) {
-        requestedProfiles.firstOrNull()?.also { requestedProfiles.remove(it) }
+      val request = synchronized(publishLock) {
+        requestedProfiles.entries.firstOrNull()?.let { entry ->
+          requestedProfiles.remove(entry.key)
+          entry.key to entry.value
+        }
       } ?: break
+      val (profileId, cause) = request
       runCatching {
-        if (profileId == BOOTSTRAP_PROFILE || !rebuildProfile(context, profileId)) {
+        if (profileId == BOOTSTRAP_PROFILE || !rebuildProfile(context, profileId, cause)) {
           rebuildPhase0(context)
         }
       }
@@ -348,8 +377,8 @@ object CollabWidgetBridge {
     if (continueDraining) publisher.execute { drain(context) }
   }
 
-  fun rebuildProfile(context: Context, profileId: String): Boolean {
-    val outcome = JSONObject(nativePublishAgendaProfile(context, profileId))
+  fun rebuildProfile(context: Context, profileId: String, cause: String = "foreground"): Boolean {
+    val outcome = JSONObject(nativePublishAgendaProfile(context, profileId, cause))
     val configured = outcome.optBoolean("configured", false)
     if (configured) requestAgendaUpdate(context)
     return configured
@@ -381,7 +410,10 @@ object CollabWidgetBridge {
     requestAgendaUpdate(appContext)
   }
 
-  internal fun requestAgendaUpdate(context: Context) {
+  internal fun requestAgendaUpdate(
+    context: Context,
+    origin: AgendaWidgetUpdateOrigin = AgendaWidgetUpdateOrigin.External,
+  ) {
     val appContext = context.applicationContext
     val manager = AppWidgetManager.getInstance(appContext)
     val component = ComponentName(appContext, CollabAgendaWidgetReceiver::class.java)
@@ -401,11 +433,13 @@ object CollabWidgetBridge {
       }
       CollabAgendaWidget().updateAll(appContext)
     }
-    appContext.sendBroadcast(
-      Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE)
-        .setComponent(component)
-        .putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids),
-    )
+    if (shouldNotifyAgendaWidgetProvider(origin)) {
+      appContext.sendBroadcast(
+        Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE)
+          .setComponent(component)
+          .putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids),
+      )
+    }
   }
 }
 
@@ -593,6 +627,18 @@ private fun widgetSourceColor(value: String?, fallback: Color): Color {
 class CollabAgendaWidgetReceiver : GlanceAppWidgetReceiver() {
   override val glanceAppWidget: GlanceAppWidget = CollabAgendaWidget()
 
+  override fun onUpdate(
+    context: Context,
+    appWidgetManager: AppWidgetManager,
+    appWidgetIds: IntArray,
+  ) {
+    // GlanceAppWidgetReceiver owns the broadcast PendingResult internally.
+    // Calling goAsync() again after super can return null and crash the process
+    // when an executor later attempts to finish that second result.
+    super.onUpdate(context, appWidgetManager, appWidgetIds)
+    CollabWidgetUpdateCoordinator.onUpdate(context, appWidgetIds)
+  }
+
   override fun onDeleted(context: Context, appWidgetIds: IntArray) {
     appWidgetIds.forEach { appWidgetId ->
       val binding = CollabWidgetBindings.remove(context, appWidgetId) ?: return@forEach
@@ -604,12 +650,14 @@ class CollabAgendaWidgetReceiver : GlanceAppWidgetReceiver() {
         )
       }
     }
+    runCatching { CollabWidgetRefreshScheduler.reconcile(context) }
     super.onDeleted(context, appWidgetIds)
   }
 }
 
 class CollabWidgetLifecycleReceiver : android.content.BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
-    CollabWidgetBridge.requestPhase0Rebuild(context.applicationContext)
+    val pending = goAsync()
+    CollabWidgetUpdateCoordinator.onLifecycle(context, intent) { pending.finish() }
   }
 }

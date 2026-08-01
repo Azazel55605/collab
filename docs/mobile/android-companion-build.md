@@ -182,7 +182,11 @@ adb install -r path/to/debug.apk
 The default debug command targets modern arm64 phones instead of bundling every
 ABI. Rust keeps line-table debug info in the local `target/` library for
 symbolization while the APK's staged copy is stripped, avoiding hundreds of
-megabytes of embedded DWARF. Use
+megabytes of embedded DWARF. The wrapper removes exact prior APK/idsig outputs
+before packaging, and the staged native strip task always reruns for compact
+debug builds. This prevents Gradle incremental state from retaining an old APK
+or repackaging stale native output; consecutive arm64 builds should remain near
+the same size. Use
 `pnpm android:build:debug:x86_64` for the standard x86_64 emulator, or
 `pnpm android:build:debug:universal` only when one APK truly needs all ABIs.
 For a full native-symbol APK explicitly needed for debugger work, run:

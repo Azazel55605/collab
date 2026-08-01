@@ -358,6 +358,37 @@ p {
   overflow-y: auto;
 }
 
+.widget-refresh-button {
+  margin-left: auto;
+}
+
+.widget-live-label {
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.widget-diagnostics {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.widget-diagnostics span:first-child {
+  color: var(--foreground);
+  font-weight: 550;
+}
+
+.widget-remove-guidance {
+  margin: 12px 0 0;
+}
+
 .field {
   display: grid;
   gap: 7px;

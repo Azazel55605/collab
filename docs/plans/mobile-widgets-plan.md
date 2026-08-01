@@ -174,7 +174,7 @@ vault name in a privacy-reduced mode.
 | 0. Contract and Android feasibility | Complete | Glance packaging, responsive rendering, bounded Rust/JNI snapshot publication, cold/warm destinations, stock-launcher emulator checks, and the physical-device matrix pass. |
 | 1. Shared snapshot and configuration foundation | Complete | The bounded Rust/native store, JNI bridge, Android configuration activity, Settings management, privacy reduction, cleanup/tombstones, idempotence, coalesced publisher hooks, and physical-device lifecycle paths are validated. |
 | 2. Calendar agenda widget | Complete | The cached native calendar projection, responsive agenda rendering, source freshness, privacy-aware rows, exact header/item/add destinations, live reconfiguration, and launcher refresh behavior are validated. |
-| 3. Lifecycle, refresh, and management | Not started | Complete event-driven refresh, WorkManager fallback, setup UI, stale states, cleanup, and diagnostics. |
+| 3. Lifecycle, refresh, and management | Testing | Event-driven refresh, stale-aware launcher updates, per-profile WorkManager fallback, lifecycle cleanup, manual refresh, and privacy-safe diagnostics are implemented; physical-device lifecycle validation remains. |
 | 4. Month, birthday, and countdown widgets | Not started | Reuse calendar snapshots for month density and privacy-safe upcoming-date views. |
 | 5. Tasks widget and confirmed actions | Not started | Combine calendar/Kanban tasks and route completion through existing idempotent pending-operation paths. |
 | 6. Quick capture and vault shortcuts | Not started | Add validated deep links for creation, pinned content, and recent files without duplicating editors. |
@@ -398,6 +398,43 @@ vault name in a privacy-reduced mode.
   once, including after process death.
 
 ## Phase 3: Lifecycle, Refresh, And Management
+
+### Implementation Status
+
+- Android widget updates now enter one coordinator from launcher `onUpdate`,
+  foreground resume, background-job completion/failure, boot, app replacement,
+  time/timezone/locale changes, and user unlock. Broadcast receivers hand work
+  off with `goAsync`; they never perform native publication on the main thread.
+- `onUpdate` first renders the last durable per-widget Glance state, then queues
+  one unique per-profile native refresh only when the bound snapshot is missing,
+  older than 30 minutes, or implausibly future-dated.
+- Provider-originated updates never emit another `APPWIDGET_UPDATE` broadcast.
+  External publications retain the targeted OEM-launcher notification without
+  creating a recursive receiver loop during placement or reconfiguration.
+- The Glance receiver remains the sole owner of its broadcast `PendingResult`;
+  the additional coordinator work is dispatched without a second `goAsync`
+  call, avoiding a null-result crash after widget placement.
+- One unique 30-minute WorkManager chain per bound profile provides a coarse
+  cached-data publication fallback. It performs no network request and never
+  creates per-widget jobs; normal background calendar sync continues to use the
+  existing shared background coordinator and triggers publication on completion.
+- Periodic work is reconciled from launcher bindings at setup, update,
+  foreground resume, and removal. Profile cleanup cancels matching widget work,
+  deletes profile-scoped configurations, snapshots, and diagnostics, and
+  refreshes any remaining launcher instances.
+- The Mobile Settings management surface now shows every bound configuration,
+  source/privacy controls, last successful update, error state, item count,
+  serialized size, generation duration, truncation, and stale/unavailable source
+  counts. It offers a manual refresh and explains launcher-owned removal; inline
+  configuration edits continue to apply live.
+- Diagnostics are native, bounded, profile/configuration scoped, and contain no
+  titles, source names, server URLs, or destinations. Failed refreshes retain the
+  last-success timestamp and publish only a generic recovery message.
+- Focused Rust widget tests, all 149 mobile tests, Android widget unit tests,
+  TypeScript validation, and Rust crate-boundary validation pass.
+- Remaining Phase 3 exit work is physical-device validation across reboot,
+  package replacement, manual clock/timezone/locale changes, user unlock,
+  launcher refresh, periodic fallback, removal, and manual-refresh/error states.
 
 - Add one update coordinator that accepts foreground changes, background-job
   completion, Android `onUpdate`, boot, app replacement, time/timezone/locale

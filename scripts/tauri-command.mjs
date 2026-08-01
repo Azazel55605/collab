@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -49,6 +49,28 @@ export function withAndroidBuildDefaults(args, env = process.env) {
   // debug info keeps native backtraces useful while making installable APKs
   // practical; callers can still override this with CARGO_PROFILE_DEV_DEBUG=2.
   return { ...nextEnv, CARGO_PROFILE_DEV_DEBUG: '1' };
+}
+
+export function androidApkOutputPaths(args, projectRoot = rootDir) {
+  if (args[0] !== 'android' || args[1] !== 'build' || !args.includes('--apk')) return [];
+  const buildType = args.includes('--debug') ? 'debug' : 'release';
+  const flavors = ['universal', 'arm64', 'armv7', 'x86', 'x86_64'];
+  return flavors.flatMap((flavor) => {
+    const apk = join(
+      projectRoot,
+      'src-tauri',
+      'gen',
+      'android',
+      'app',
+      'build',
+      'outputs',
+      'apk',
+      flavor,
+      buildType,
+      `app-${flavor}-${buildType}.apk`,
+    );
+    return [apk, `${apk}.idsig`];
+  });
 }
 
 function run(tool, commandArgs, env = process.env) {
@@ -121,6 +143,11 @@ function main(args) {
     console.log('Building Tauri desktop bundle...');
     run(resolveNodeTool('tauri'), createTauriBuildArgs(args), childEnv);
   } else {
+    const staleApkOutputs = androidApkOutputPaths(args);
+    if (staleApkOutputs.length > 0) {
+      console.log('Removing stale Android APK outputs before packaging...');
+      staleApkOutputs.forEach((output) => rmSync(output, { force: true }));
+    }
     if (
       isAndroidReleaseBuild &&
       !existsSync(join(rootDir, 'src-tauri', 'gen', 'android', 'app', 'google-services.json'))

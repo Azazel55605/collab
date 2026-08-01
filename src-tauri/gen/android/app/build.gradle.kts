@@ -103,6 +103,12 @@ rust {
 tasks.matching {
     it.name.startsWith("strip") && it.name.endsWith("DebugDebugSymbols")
 }.configureEach {
+    if (!keepNativeDebugSymbols) {
+        // The Rust build replaces the jniLibs symlink target without Gradle
+        // always invalidating this task. Re-run it so incremental APKs never
+        // package an old or unstripped staged library.
+        outputs.upToDateWhen { false }
+    }
     doLast {
         if (keepNativeDebugSymbols) return@doLast
         val explicitNdkDirectory = sequenceOf(

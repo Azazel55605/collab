@@ -28,7 +28,7 @@ import type {
   SheetFormulaEvaluationRequest,
   SheetFormulaEvaluationResponse,
 } from '../../../src/types/sheetFormula';
-import type { WidgetAppearanceSnapshot, WidgetConfiguration } from '../../../src/types/widget';
+import type { WidgetAppearanceSnapshot, WidgetConfiguration, WidgetDiagnostics } from '../../../src/types/widget';
 
 export type {
   BackgroundJobRecord,
@@ -106,6 +106,14 @@ export function widgetConfigurationDelete(
   configurationId: string,
 ): Promise<boolean> {
   return invoke('widget_configuration_delete', { profileId, configurationId });
+}
+
+export function widgetDiagnosticsList(profileId: string): Promise<WidgetDiagnostics[]> {
+  return invoke('widget_diagnostics_list', { profileId });
+}
+
+export function widgetRefresh(profileId: string): Promise<WidgetDiagnostics[]> {
+  return invoke('widget_refresh', { profileId });
 }
 
 async function invokeWithWidgetPublication<T>(

@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import java.time.Instant
 
 class CollabAgendaWidgetSnapshotTest {
   @Test
@@ -94,5 +95,20 @@ class CollabAgendaWidgetSnapshotTest {
     val snapshot = agendaWidgetSnapshotFromState(null)
     assertEquals("Open Collab to refresh", snapshot.stateLabel)
     assertTrue(snapshot.items.isEmpty())
+  }
+
+  @Test
+  fun staleRefreshPolicyRejectsMissingOldAndFutureSnapshots() {
+    val now = Instant.parse("2026-08-01T12:00:00Z")
+    assertTrue(widgetSnapshotIsStale(null, now))
+    assertTrue(widgetSnapshotIsStale("2026-08-01T11:29:59Z", now))
+    assertTrue(widgetSnapshotIsStale("2026-08-01T12:06:00Z", now))
+    assertTrue(!widgetSnapshotIsStale("2026-08-01T11:45:00Z", now))
+  }
+
+  @Test
+  fun providerUpdatesNeverRedispatchTheProviderBroadcast() {
+    assertTrue(!shouldNotifyAgendaWidgetProvider(AgendaWidgetUpdateOrigin.Provider))
+    assertTrue(shouldNotifyAgendaWidgetProvider(AgendaWidgetUpdateOrigin.External))
   }
 }

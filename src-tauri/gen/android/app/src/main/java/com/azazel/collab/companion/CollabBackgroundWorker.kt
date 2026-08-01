@@ -34,7 +34,7 @@ class CollabBackgroundWorker(
       val retryRecommended = outcome.optBoolean("retryRecommended", false)
       CollabNotificationScheduler.reconcileProfile(applicationContext, profileId)
       CollabNotificationBridge.refreshPushRegistration(applicationContext)
-      CollabWidgetBridge.requestProfileRebuild(applicationContext, profileId)
+      CollabWidgetBridge.requestProfileRebuild(applicationContext, profileId, "background-completion")
       Log.i(TAG, "Native background work completed")
       if (trigger == TRIGGER_DIAGNOSTIC) {
         val succeeded = outcome.optInt("attentionRequired", 0) == 0
@@ -69,7 +69,7 @@ class CollabBackgroundWorker(
       runCatching {
         CollabNotificationScheduler.reconcileProfile(applicationContext, profileId)
       }
-      CollabWidgetBridge.requestProfileRebuild(applicationContext, profileId)
+      CollabWidgetBridge.requestProfileRebuild(applicationContext, profileId, "background-failure")
       val message = sanitizeWorkerError(error.message ?: error.javaClass.simpleName)
       Log.e(TAG, "Native background work failed: $message")
       if (trigger == TRIGGER_DIAGNOSTIC) {

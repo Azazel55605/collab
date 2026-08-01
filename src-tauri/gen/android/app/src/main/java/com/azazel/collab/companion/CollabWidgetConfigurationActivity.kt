@@ -322,6 +322,7 @@ class CollabWidgetConfigurationActivity : Activity() {
       completed("The launcher binding could not be saved.")
       return
     }
+    runCatching { CollabWidgetRefreshScheduler.reconcile(applicationContext) }
     CollabWidgetBridge.publishConfiguration(
       applicationContext,
       profileId,

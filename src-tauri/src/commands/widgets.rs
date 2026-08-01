@@ -3,8 +3,8 @@ use super::app_config_dir;
 use crate::widgets::active_profile;
 use crate::widgets::{
     build_snapshot, clear_active_profile, save_appearance, set_active_profile, WidgetActionRequest,
-    WidgetAppearanceSnapshot, WidgetBuildRequest, WidgetConfiguration, WidgetPreparedAction,
-    WidgetPublishOutcome, WidgetSnapshot, WidgetStore,
+    WidgetAppearanceSnapshot, WidgetBuildRequest, WidgetConfiguration, WidgetDiagnostics,
+    WidgetPreparedAction, WidgetPublishOutcome, WidgetSnapshot, WidgetStore,
 };
 
 fn store(profile_id: &str) -> Result<WidgetStore, String> {
@@ -58,13 +58,19 @@ pub async fn widget_configuration_save(
     {
         let root = app_config_dir()?;
         let calendar_store = crate::commands::calendar::store(&profile_id).await?;
-        crate::widgets::build_and_publish_agenda_profile(
+        let now = chrono::Utc::now();
+        if let Err(error) = crate::widgets::build_and_publish_agenda_profile(
             &root,
             &profile_id,
             &calendar_store,
-            chrono::Utc::now(),
+            now,
+            "settings",
         )
-        .await?;
+        .await
+        {
+            let _ = store(&profile_id)?.record_refresh_failure(&now.to_rfc3339(), "settings");
+            return Err(error);
+        }
         crate::android_jni::update_widgets()?;
     }
     Ok(saved)
@@ -79,6 +85,41 @@ pub fn widget_configuration_delete(
     #[cfg(target_os = "android")]
     crate::android_jni::request_widget_profile_rebuild(&profile_id)?;
     Ok(removed)
+}
+
+#[tauri::command]
+pub fn widget_diagnostics_list(profile_id: String) -> Result<Vec<WidgetDiagnostics>, String> {
+    store(&profile_id)?.list_diagnostics()
+}
+
+#[tauri::command]
+pub async fn widget_refresh(profile_id: String) -> Result<Vec<WidgetDiagnostics>, String> {
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = profile_id;
+        return Err("Mobile widget refresh is only available on Android.".into());
+    }
+    #[cfg(target_os = "android")]
+    {
+        let root = app_config_dir()?;
+        let calendar_store = crate::commands::calendar::store(&profile_id).await?;
+        let now = chrono::Utc::now();
+        if let Err(error) = crate::widgets::build_and_publish_agenda_profile(
+            &root,
+            &profile_id,
+            &calendar_store,
+            now,
+            "manual",
+        )
+        .await
+        {
+            let _ = store(&profile_id)?.record_refresh_failure(&now.to_rfc3339(), "manual");
+            return Err(error);
+        }
+        #[cfg(target_os = "android")]
+        crate::android_jni::update_widgets()?;
+        store(&profile_id)?.list_diagnostics()
+    }
 }
 
 #[tauri::command]
@@ -111,5 +152,10 @@ pub fn widget_profile_cleanup(profile_id: String) -> Result<(), String> {
     let root = app_config_dir()?;
     WidgetStore::open(&root, &profile_id)?.cleanup_profile()?;
     let _ = clear_active_profile(&root, &profile_id)?;
+    #[cfg(target_os = "android")]
+    {
+        crate::android_jni::cancel_widget_profile(&profile_id)?;
+        crate::android_jni::update_widgets()?;
+    }
     Ok(())
 }

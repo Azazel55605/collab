@@ -157,6 +157,28 @@ pub(crate) fn update_widgets() -> Result<(), String> {
     })
 }
 
+pub(crate) fn cancel_widget_profile(profile_id: &str) -> Result<(), String> {
+    with_env(|env, context| {
+        let class = load_class(
+            env,
+            context,
+            "com.azazel.collab.companion.CollabWidgetBridge",
+        )?;
+        let profile_id = java_string(env, profile_id)?;
+        env.call_static_method(
+            class,
+            "cancelProfile",
+            "(Landroid/content/Context;Ljava/lang/String;)V",
+            &[JValue::Object(context), JValue::Object(&profile_id)],
+        )
+        .map_err(|_| {
+            clear_exception(env);
+            "Could not cancel Android widget work.".to_string()
+        })?;
+        Ok(())
+    })
+}
+
 fn clear_exception(env: &mut JNIEnv<'_>) {
     if env.exception_check().unwrap_or(false) {
         let _ = env.exception_describe();
@@ -745,6 +767,7 @@ pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativ
     _class: JClass<'_>,
     context: JObject<'_>,
     profile_id: JString<'_>,
+    update_cause: JString<'_>,
 ) -> jstring {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         register_worker_context(&mut env, &context)?;
@@ -753,17 +776,33 @@ pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativ
             .map_err(|_| "Could not decode the widget profile identifier.".to_string())?
             .to_string_lossy()
             .into_owned();
+        let update_cause = env
+            .get_string(&update_cause)
+            .map_err(|_| "Could not decode the widget update cause.".to_string())?
+            .to_string_lossy()
+            .into_owned();
         let root = files_dir()?.join("collab");
-        let outcomes = tauri::async_runtime::block_on(async {
+        let now = chrono::Utc::now();
+        let publication = tauri::async_runtime::block_on(async {
             let calendar_store = crate::commands::calendar::store(&profile_id).await?;
             crate::widgets::build_and_publish_agenda_profile(
                 &root,
                 &profile_id,
                 &calendar_store,
-                chrono::Utc::now(),
+                now,
+                &update_cause,
             )
             .await
-        })?;
+        });
+        let outcomes = match publication {
+            Ok(outcomes) => outcomes,
+            Err(error) => {
+                if let Ok(store) = crate::widgets::WidgetStore::open(&root, &profile_id) {
+                    let _ = store.record_refresh_failure(&now.to_rfc3339(), &update_cause);
+                }
+                return Err(error);
+            }
+        };
         serde_json::to_string(&serde_json::json!({
             "configured": !outcomes.is_empty(),
             "changed": outcomes.iter().any(|outcome| outcome.changed),

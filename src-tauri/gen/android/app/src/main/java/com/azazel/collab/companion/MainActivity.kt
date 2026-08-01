@@ -18,7 +18,7 @@ class MainActivity : TauriActivity() {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     CollabNotificationBridge.ensureChannels(this)
-    CollabWidgetBridge.requestPhase0Rebuild(applicationContext)
+    CollabWidgetUpdateCoordinator.onForeground(applicationContext)
     captureNotificationIntent(intent)
     captureAppDestination(intent)
   }
@@ -34,7 +34,7 @@ class MainActivity : TauriActivity() {
     super.onResume()
     activeActivity = WeakReference(this)
     CollabNotificationBridge.refreshPushRegistration(applicationContext)
-    CollabWidgetBridge.requestPhase0Rebuild(applicationContext)
+    CollabWidgetUpdateCoordinator.onForeground(applicationContext)
   }
 
   override fun onPause() {

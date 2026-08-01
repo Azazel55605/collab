@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
-import { LayoutDashboard, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { LayoutDashboard, RefreshCw } from 'lucide-react';
 
 import type { CalendarDefinition } from '../../../../src/types/calendar';
-import type { WidgetConfiguration, WidgetPrivacy } from '../../../../src/types/widget';
+import type { WidgetConfiguration, WidgetDiagnostics, WidgetPrivacy } from '../../../../src/types/widget';
 import { mobileCalendarProfileId } from '../lib/calendarSync';
 import {
   listProfileCalendars,
   widgetActiveProfileSet,
-  widgetConfigurationDelete,
+  widgetDiagnosticsList,
   widgetConfigurationList,
   widgetConfigurationSave,
+  widgetRefresh,
 } from '../mobileTauri';
 
 const PRIVACY_OPTIONS: Array<[WidgetPrivacy, string]> = [
@@ -22,11 +23,17 @@ export function WidgetSettingsSection() {
   const profileId = mobileCalendarProfileId();
   const [configurations, setConfigurations] = useState<WidgetConfiguration[]>([]);
   const [calendars, setCalendars] = useState<CalendarDefinition[]>([]);
+  const [diagnostics, setDiagnostics] = useState<WidgetDiagnostics[]>([]);
   const [busy, setBusy] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const configurationsRef = useRef<WidgetConfiguration[]>([]);
   const saveQueuesRef = useRef(new Map<string, Promise<void>>());
   const saveVersionsRef = useRef(new Map<string, number>());
+  const diagnosticsById = useMemo(
+    () => new Map(diagnostics.map((entry) => [entry.configurationId, entry])),
+    [diagnostics],
+  );
 
   const applyConfigurations = (next: WidgetConfiguration[]) => {
     configurationsRef.current = next;
@@ -40,11 +47,13 @@ export function WidgetSettingsSection() {
       widgetActiveProfileSet(profileId),
       widgetConfigurationList(profileId),
       listProfileCalendars(profileId),
+      widgetDiagnosticsList(profileId),
     ])
-      .then(([, nextConfigurations, nextCalendars]) => {
+      .then(([, nextConfigurations, nextCalendars, nextDiagnostics]) => {
         if (cancelled) return;
         applyConfigurations(nextConfigurations);
         setCalendars(nextCalendars.filter((calendar) => !calendar.deletedAt && !calendar.archived));
+        setDiagnostics(nextDiagnostics);
       })
       .catch((reason) => {
         if (!cancelled) setError(String(reason));
@@ -77,6 +86,7 @@ export function WidgetSettingsSection() {
         if (saveVersionsRef.current.get(configurationId) !== version) return;
         applyConfigurations(configurationsRef.current.map((entry) =>
           entry.configurationId === saved.configurationId ? saved : entry));
+        setDiagnostics(await widgetDiagnosticsList(profileId));
       } catch (reason) {
         if (saveVersionsRef.current.get(configurationId) === version) {
           applyConfigurations(configurationsRef.current.map((entry) =>
@@ -88,15 +98,15 @@ export function WidgetSettingsSection() {
     saveQueuesRef.current.set(configurationId, queued);
   };
 
-  const remove = async (configurationId: string) => {
-    const previous = configurationsRef.current;
-    applyConfigurations(previous.filter((entry) => entry.configurationId !== configurationId));
+  const refresh = async () => {
+    setRefreshing(true);
     setError(null);
     try {
-      await widgetConfigurationDelete(profileId, configurationId);
+      setDiagnostics(await widgetRefresh(profileId));
     } catch (reason) {
-      applyConfigurations(previous);
       setError(String(reason));
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -105,6 +115,15 @@ export function WidgetSettingsSection() {
       <div className="card-title">
         <LayoutDashboard size={18} aria-hidden />
         <span>Mobile widgets</span>
+        <button
+          type="button"
+          className="icon-button widget-refresh-button"
+          aria-label="Refresh widgets"
+          disabled={busy || refreshing || configurations.length === 0}
+          onClick={() => void refresh()}
+        >
+          <RefreshCw size={17} aria-hidden className={refreshing ? 'spin' : ''} />
+        </button>
       </div>
       {busy ? <p className="footnote">Loading widget configurations…</p> : null}
       {!busy && configurations.length === 0 ? (
@@ -112,21 +131,31 @@ export function WidgetSettingsSection() {
           Add the Collab Agenda widget from your Android launcher. Its configuration will appear here.
         </p>
       ) : null}
-      {configurations.map((configuration, index) => (
+      {configurations.map((configuration, index) => {
+        const status = diagnosticsById.get(configuration.configurationId);
+        return (
         <div className="widget-settings-entry" key={configuration.configurationId}>
           <div className="setting-row">
             <div>
               <strong>Agenda {index + 1}</strong>
               <span>{configuration.selectedSourceIds.length === 0 ? 'All calendars' : `${configuration.selectedSourceIds.length} calendars`}</span>
             </div>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={`Delete Agenda ${index + 1} configuration`}
-              onClick={() => void remove(configuration.configurationId)}
-            >
-              <Trash2 size={17} aria-hidden />
-            </button>
+            <span className="widget-live-label">Changes apply live</span>
+          </div>
+          <div className="widget-diagnostics" aria-label={`Agenda ${index + 1} status`}>
+            <span>{status?.lastSuccessAt
+              ? `Updated ${new Date(status.lastSuccessAt).toLocaleString()}`
+              : 'Waiting for first update'}</span>
+            {status ? (
+              <span>
+                {status.itemCount} items · {Math.ceil(status.serializedBytes / 1024)} KB · {status.generationDurationMs} ms
+                {status.truncated ? ' · limited' : ''}
+              </span>
+            ) : null}
+            {status?.lastError ? <span className="error-text">{status.lastError}</span> : null}
+            {status && (status.staleSources > 0 || status.unavailableSources > 0) ? (
+              <span>{status.staleSources} stale · {status.unavailableSources} unavailable sources</span>
+            ) : null}
           </div>
           <div className="setting-row stacked">
             <div><strong>Privacy</strong><span>Controls content persisted for the launcher.</span></div>
@@ -197,8 +226,12 @@ export function WidgetSettingsSection() {
               ))}
             </div>
           </div>
+          <p className="footnote widget-remove-guidance">
+            To remove this widget, touch and hold it on the home screen, then choose Remove.
+          </p>
         </div>
-      ))}
+        );
+      })}
       {error ? <p className="footnote error-text">{error}</p> : null}
     </section>
   );

@@ -14,6 +14,8 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+#[cfg(any(target_os = "android", test))]
+use std::time::Instant;
 
 pub(crate) const WIDGET_SCHEMA_VERSION: u32 = 1;
 #[cfg(any(target_os = "android", test))]
@@ -248,6 +250,26 @@ pub(crate) struct WidgetPublishOutcome {
     pub snapshot: WidgetSnapshot,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetDiagnostics {
+    pub schema_version: u32,
+    pub configuration_id: String,
+    pub last_attempt_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_success_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    pub update_cause: String,
+    pub generation_duration_ms: u64,
+    pub serialized_bytes: u64,
+    pub item_count: u32,
+    pub truncated: bool,
+    pub fresh_sources: u32,
+    pub stale_sources: u32,
+    pub unavailable_sources: u32,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum WidgetActionKind {
@@ -417,6 +439,10 @@ impl WidgetStore {
         if snapshot_path.exists() {
             fs::remove_file(snapshot_path).map_err(|_| store_error())?;
         }
+        let diagnostics_path = self.diagnostics_path(configuration_id);
+        if diagnostics_path.exists() {
+            fs::remove_file(diagnostics_path).map_err(|_| store_error())?;
+        }
         Ok(removed)
     }
 
@@ -464,6 +490,86 @@ impl WidgetStore {
             validate_snapshot(snapshot, &self.profile_id_hash)?;
         }
         Ok(snapshot)
+    }
+
+    pub(crate) fn list_diagnostics(&self) -> Result<Vec<WidgetDiagnostics>, String> {
+        let configurations = self.list_configurations()?;
+        configurations
+            .into_iter()
+            .filter_map(|configuration| {
+                let path = self.diagnostics_path(&configuration.configuration_id);
+                match read_json_optional::<WidgetDiagnostics>(&path, MAX_STORE_BYTES) {
+                    Ok(Some(value)) => Some(Ok(value)),
+                    Ok(None) => None,
+                    Err(error) => Some(Err(error)),
+                }
+            })
+            .collect()
+    }
+
+    #[cfg(any(target_os = "android", test))]
+    pub(crate) fn record_refresh_failure(
+        &self,
+        attempted_at: &str,
+        update_cause: &str,
+    ) -> Result<(), String> {
+        validate_text(attempted_at, MAX_TEXT_BYTES, "widget update time")?;
+        validate_text(update_cause, 64, "widget update cause")?;
+        for configuration in self.list_configurations()? {
+            let existing = read_json_optional::<WidgetDiagnostics>(
+                &self.diagnostics_path(&configuration.configuration_id),
+                MAX_STORE_BYTES,
+            )?;
+            self.write_diagnostics(&WidgetDiagnostics {
+                schema_version: WIDGET_SCHEMA_VERSION,
+                configuration_id: configuration.configuration_id,
+                last_attempt_at: attempted_at.to_string(),
+                last_success_at: existing
+                    .as_ref()
+                    .and_then(|value| value.last_success_at.clone()),
+                last_error: Some("Widget refresh failed. Open Collab and try again.".into()),
+                update_cause: update_cause.to_string(),
+                generation_duration_ms: existing
+                    .as_ref()
+                    .map(|value| value.generation_duration_ms)
+                    .unwrap_or_default(),
+                serialized_bytes: existing
+                    .as_ref()
+                    .map(|value| value.serialized_bytes)
+                    .unwrap_or_default(),
+                item_count: existing
+                    .as_ref()
+                    .map(|value| value.item_count)
+                    .unwrap_or_default(),
+                truncated: existing
+                    .as_ref()
+                    .map(|value| value.truncated)
+                    .unwrap_or(false),
+                fresh_sources: existing
+                    .as_ref()
+                    .map(|value| value.fresh_sources)
+                    .unwrap_or_default(),
+                stale_sources: existing
+                    .as_ref()
+                    .map(|value| value.stale_sources)
+                    .unwrap_or_default(),
+                unavailable_sources: existing
+                    .as_ref()
+                    .map(|value| value.unavailable_sources)
+                    .unwrap_or_default(),
+            })?;
+        }
+        Ok(())
+    }
+
+    #[cfg(any(target_os = "android", test))]
+    fn write_diagnostics(&self, diagnostics: &WidgetDiagnostics) -> Result<(), String> {
+        validate_identifier(&diagnostics.configuration_id, "widget configuration")?;
+        let encoded = encode_bounded(diagnostics, MAX_STORE_BYTES as usize)?;
+        atomic_replace(
+            &self.diagnostics_path(&diagnostics.configuration_id),
+            &encoded,
+        )
     }
 
     pub(crate) fn prepare_action(
@@ -548,6 +654,12 @@ impl WidgetStore {
     fn snapshot_path(&self, configuration_id: &str) -> PathBuf {
         self.profile_dir
             .join("snapshots")
+            .join(format!("{configuration_id}.json"))
+    }
+
+    fn diagnostics_path(&self, configuration_id: &str) -> PathBuf {
+        self.profile_dir
+            .join("diagnostics")
             .join(format!("{configuration_id}.json"))
     }
 }
@@ -756,7 +868,9 @@ pub(crate) async fn build_and_publish_agenda_profile(
     profile_id: &str,
     calendar_store: &CalendarStore,
     now: DateTime<Utc>,
+    update_cause: &str,
 ) -> Result<Vec<WidgetPublishOutcome>, String> {
+    validate_text(update_cause, 64, "widget update cause")?;
     let widget_store = WidgetStore::open(config_root, profile_id)?;
     let configurations = widget_store.list_configurations()?;
     if configurations.is_empty() {
@@ -843,6 +957,9 @@ pub(crate) async fn build_and_publish_agenda_profile(
 
     let mut outcomes = Vec::with_capacity(configurations.len());
     for configuration in configurations {
+        let generation_started = Instant::now();
+        let configuration_id = configuration.configuration_id.clone();
+        let max_items = usize::from(configuration.display.max_items);
         let horizon_end = today + Duration::days(i64::from(configuration.display.horizon_days));
         let mut items = Vec::new();
         for item in &projected {
@@ -884,6 +1001,7 @@ pub(crate) async fn build_and_publish_agenda_profile(
                 break;
             }
         }
+        let candidate_count = items.len();
         let snapshot = build_snapshot(
             profile_id,
             WidgetBuildRequest {
@@ -895,7 +1013,43 @@ pub(crate) async fn build_and_publish_agenda_profile(
                 items,
             },
         )?;
-        outcomes.push(widget_store.publish(snapshot)?);
+        let outcome = widget_store.publish(snapshot)?;
+        let fresh_sources = outcome
+            .snapshot
+            .freshness
+            .iter()
+            .filter(|entry| entry.freshness == WidgetFreshness::Fresh)
+            .count() as u32;
+        let stale_sources = outcome
+            .snapshot
+            .freshness
+            .iter()
+            .filter(|entry| entry.freshness == WidgetFreshness::Stale)
+            .count() as u32;
+        let unavailable_sources = outcome
+            .snapshot
+            .freshness
+            .iter()
+            .filter(|entry| entry.freshness == WidgetFreshness::Unavailable)
+            .count() as u32;
+        widget_store.write_diagnostics(&WidgetDiagnostics {
+            schema_version: WIDGET_SCHEMA_VERSION,
+            configuration_id,
+            last_attempt_at: now.to_rfc3339(),
+            last_success_at: Some(now.to_rfc3339()),
+            last_error: None,
+            update_cause: update_cause.to_string(),
+            generation_duration_ms: generation_started.elapsed().as_millis() as u64,
+            serialized_bytes: serde_json::to_vec(&outcome.snapshot)
+                .map_err(|_| store_error())?
+                .len() as u64,
+            item_count: outcome.snapshot.items.len() as u32,
+            truncated: candidate_count > max_items,
+            fresh_sources,
+            stale_sources,
+            unavailable_sources,
+        })?;
+        outcomes.push(outcome);
     }
     Ok(outcomes)
 }
@@ -1868,13 +2022,28 @@ mod tests {
         let now = DateTime::parse_from_rfc3339("2026-08-01T08:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let outcomes = build_and_publish_agenda_profile(&root, "profile-1", &calendar_store, now)
-            .await
-            .unwrap();
+        let outcomes =
+            build_and_publish_agenda_profile(&root, "profile-1", &calendar_store, now, "test")
+                .await
+                .unwrap();
         assert_eq!(outcomes.len(), 1);
         assert!(outcomes[0].changed);
         assert!(outcomes[0].snapshot.items.is_empty());
         assert_eq!(outcomes[0].snapshot.state_label, "Nothing upcoming");
+        let diagnostics = widget_store.list_diagnostics().unwrap();
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].update_cause, "test");
+        assert!(diagnostics[0].last_error.is_none());
+        widget_store
+            .record_refresh_failure("2026-08-01T09:00:00Z", "periodic-fallback")
+            .unwrap();
+        let failed = widget_store.list_diagnostics().unwrap();
+        assert_eq!(failed[0].last_success_at, diagnostics[0].last_success_at);
+        assert_eq!(failed[0].update_cause, "periodic-fallback");
+        assert_eq!(
+            failed[0].last_error.as_deref(),
+            Some("Widget refresh failed. Open Collab and try again.")
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }

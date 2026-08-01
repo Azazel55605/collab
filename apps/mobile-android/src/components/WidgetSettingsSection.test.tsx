@@ -18,11 +18,28 @@ const configuration = {
   updatedAt: '2026-08-01T10:00:00Z',
 };
 
+const diagnostics = {
+  schemaVersion: 1,
+  configurationId: 'widget-config-1',
+  lastAttemptAt: '2026-08-01T10:01:00Z',
+  lastSuccessAt: '2026-08-01T10:01:00Z',
+  updateCause: 'settings',
+  generationDurationMs: 12,
+  serializedBytes: 2048,
+  itemCount: 4,
+  truncated: false,
+  freshSources: 2,
+  staleSources: 0,
+  unavailableSources: 0,
+};
+
 describe('mobile widget settings', () => {
   beforeEach(() => {
     vi.mocked(invoke).mockImplementation((command, args) => {
       if (command === 'widget_active_profile_set') return Promise.resolve(undefined);
       if (command === 'widget_configuration_list') return Promise.resolve([configuration]);
+      if (command === 'widget_diagnostics_list') return Promise.resolve([diagnostics]);
+      if (command === 'widget_refresh') return Promise.resolve([{ ...diagnostics, updateCause: 'manual' }]);
       if (command === 'calendar_list') {
         return Promise.resolve([
           { id: 'calendar-a', name: 'Personal', archived: false, deletedAt: null },
@@ -68,6 +85,7 @@ describe('mobile widget settings', () => {
     vi.mocked(invoke).mockImplementation((command, args) => {
       if (command === 'widget_active_profile_set') return Promise.resolve(undefined);
       if (command === 'widget_configuration_list') return Promise.resolve([configuration]);
+      if (command === 'widget_diagnostics_list') return Promise.resolve([diagnostics]);
       if (command === 'calendar_list') return Promise.resolve([]);
       if (command === 'widget_configuration_save') {
         const next = (args as { configuration: typeof configuration }).configuration;
@@ -105,5 +123,16 @@ describe('mobile widget settings', () => {
         }),
       );
     });
+  });
+
+  it('shows privacy-safe status and supports manual refresh', async () => {
+    render(<WidgetSettingsSection />);
+    expect(await screen.findByText(/4 items · 2 KB · 12 ms/)).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh widgets' }));
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('widget_refresh', { profileId: expect.any(String) });
+    });
+    expect(screen.getByText(/Updated/)).not.toBeNull();
+    expect(screen.getByText(/touch and hold it on the home screen/)).not.toBeNull();
   });
 });

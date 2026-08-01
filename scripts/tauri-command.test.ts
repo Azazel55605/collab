@@ -1,11 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import {
+  androidApkOutputPaths,
   createTauriBuildArgs,
   resolveNodeTool,
   withAndroidBuildDefaults,
 } from './tauri-command.mjs';
 
 describe('tauri command wrapper', () => {
+  it('invalidates exact generated APK outputs before Android packaging', () => {
+    const outputs = androidApkOutputPaths(
+      ['android', 'build', '--debug', '--apk', '--target', 'aarch64'],
+      '/workspace',
+    );
+    expect(outputs).toContain(
+      '/workspace/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk',
+    );
+    expect(outputs).toContain(
+      '/workspace/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk.idsig',
+    );
+    expect(androidApkOutputPaths(['android', 'dev'], '/workspace')).toEqual([]);
+  });
+
   it('passes a strict JSON config for signed builds', () => {
     const args = createTauriBuildArgs(
       ['build', '--target', 'x86_64-pc-windows-msvc'],

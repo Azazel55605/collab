@@ -34,3 +34,19 @@ export interface WidgetAppearanceSnapshot {
   timeFormat: 'system' | '12-hour' | '24-hour';
   showDeclined: boolean;
 }
+
+export interface WidgetDiagnostics {
+  schemaVersion: number;
+  configurationId: string;
+  lastAttemptAt: string;
+  lastSuccessAt?: string;
+  lastError?: string;
+  updateCause: string;
+  generationDurationMs: number;
+  serializedBytes: number;
+  itemCount: number;
+  truncated: boolean;
+  freshSources: number;
+  staleSources: number;
+  unavailableSources: number;
+}
