@@ -452,3 +452,39 @@ pub extern "system" fn Java_com_azazel_collab_companion_CollabBackgroundBridge_r
         }
     }
 }
+
+#[no_mangle]
+pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativeBuildAgendaPreview(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    context: JObject<'_>,
+    date_label: JString<'_>,
+) -> jstring {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        register_worker_context(&mut env, &context)?;
+        let date_label = env
+            .get_string(&date_label)
+            .map_err(|_| "Could not decode the agenda widget date label.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        crate::widgets::build_phase0_agenda_preview(&date_label)
+    }));
+
+    match result {
+        Ok(Ok(payload)) => env
+            .new_string(payload)
+            .map(JString::into_raw)
+            .unwrap_or(std::ptr::null_mut()),
+        Ok(Err(error)) => {
+            let _ = env.throw_new("java/lang/IllegalArgumentException", error);
+            std::ptr::null_mut()
+        }
+        Err(_) => {
+            let _ = env.throw_new(
+                "java/lang/IllegalStateException",
+                "The native agenda widget preview builder panicked.",
+            );
+            std::ptr::null_mut()
+        }
+    }
+}

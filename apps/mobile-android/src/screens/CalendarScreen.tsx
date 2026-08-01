@@ -424,6 +424,23 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
     setView('day');
   };
   useEffect(() => {
+    const openDestination = (event: Event) => {
+      const destination = (event as CustomEvent<{ kind?: string; date?: string }>).detail;
+      if (!destination) return;
+      const targetDate = destination.kind === 'calendar-today'
+        ? dateKey(new Date())
+        : destination.date;
+      if (targetDate && /^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+        setSelectedDate(targetDate);
+        setAnchor(parseDate(targetDate));
+      }
+      if (destination.kind === 'calendar-create') setEditor({ kind: 'event' });
+    };
+    window.addEventListener('collab-calendar-open-destination', openDestination);
+    return () => window.removeEventListener('collab-calendar-open-destination', openDestination);
+  }, []);
+
+  useEffect(() => {
     const openNotification = (event: Event) => {
       const destination = (event as CustomEvent<{
         kind?: string;

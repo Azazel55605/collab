@@ -73,6 +73,28 @@ native Android behavior that Tauri's generated defaults do not provide:
   wiring, and app-specific ProGuard configuration.
 - `CollabNotifications.kt` owns Android channels, alarms, native actions, and
   optional Firebase Messaging token/invalidation handling.
+- `CollabAgendaWidget.kt`, `CollabAppDestination.kt`, the agenda widget manifest
+  entry/resources, and the Glance/Compose Gradle wiring form the native mobile
+  widget boundary. Regeneration must preserve these files and declarations.
+
+The agenda widget Phase 0 spike reads a bounded versioned JSON snapshot from the
+application-private `files/widgets/` directory. A bounded Rust/JNI builder
+publishes non-private preview rows atomically after foreground startup, initial
+widget enablement, and WorkManager completion. Phase 1 replaces those rows with
+profile-scoped calendar selection; ordinary widget rendering does not start the
+Tauri webview, invoke Rust, or perform network work.
+
+To compile the native widget and run its unit tests without building Rust native
+libraries, use the documented JDK/SDK environment and run:
+
+```bash
+cd src-tauri/gen/android
+./gradlew :app:testX86_64DebugUnitTest
+```
+
+The explicit app flavor is required: the root `testDebugUnitTest` aggregate
+covers the Android library modules but does not execute the companion app's
+flavored tests.
 
 ## Firebase Push Setup
 
@@ -154,6 +176,20 @@ certificate and can be installed directly on a device with sideloading enabled:
 pnpm android:build:debug
 find src-tauri/gen/android/app/build/outputs/apk -name "*debug*.apk" -print
 adb install -r path/to/debug.apk
+```
+
+The default debug command targets modern arm64 phones instead of bundling every
+ABI. Rust keeps line-table debug info in the local `target/` library for
+symbolization while the APK's staged copy is stripped, avoiding hundreds of
+megabytes of embedded DWARF. Use
+`pnpm android:build:debug:x86_64` for the standard x86_64 emulator, or
+`pnpm android:build:debug:universal` only when one APK truly needs all ABIs.
+For a full native-symbol APK explicitly needed for debugger work, run:
+
+```bash
+CARGO_PROFILE_DEV_DEBUG=2 \
+ORG_GRADLE_PROJECT_collabKeepNativeDebugSymbols=true \
+pnpm android:build:debug
 ```
 
 Do not use an `*-unsigned.apk` release artifact for manual installation. Android

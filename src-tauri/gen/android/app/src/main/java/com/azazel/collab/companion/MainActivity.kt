@@ -12,18 +12,22 @@ import java.lang.ref.WeakReference
 class MainActivity : TauriActivity() {
   private var appWebView: WebView? = null
   private var pendingNotificationOpen: Pair<String, String>? = null
+  private var pendingAppDestination: JSONObject? = null
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     CollabNotificationBridge.ensureChannels(this)
+    CollabWidgetBridge.requestPhase0Rebuild(applicationContext)
     captureNotificationIntent(intent)
+    captureAppDestination(intent)
   }
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)
     captureNotificationIntent(intent)
+    captureAppDestination(intent)
   }
 
   override fun onResume() {
@@ -41,6 +45,7 @@ class MainActivity : TauriActivity() {
     super.onWebViewCreate(webView)
     appWebView = webView
     dispatchPendingNotificationOpen()
+    dispatchPendingAppDestination()
     onBackPressedDispatcher.addCallback(
       this,
       object : OnBackPressedCallback(true) {
@@ -90,6 +95,23 @@ class MainActivity : TauriActivity() {
       .toString()
     webView.evaluateJavascript(
       "window.dispatchEvent(new CustomEvent('collab-notification-open',{detail:$detail}))",
+      null,
+    )
+  }
+
+  private fun captureAppDestination(intent: Intent?) {
+    pendingAppDestination = CollabAppDestination.capture(this, intent) ?: pendingAppDestination
+    dispatchPendingAppDestination()
+  }
+
+  private fun dispatchPendingAppDestination() {
+    val webView = appWebView ?: return
+    val destination = pendingAppDestination ?: CollabAppDestination.takePending(this) ?: return
+    pendingAppDestination = null
+    // Clear the durable copy only after the webview exists so cold starts cannot lose the tap.
+    CollabAppDestination.takePending(this)
+    webView.evaluateJavascript(
+      "window.dispatchEvent(new CustomEvent('collab-app-destination',{detail:$destination}))",
       null,
     )
   }

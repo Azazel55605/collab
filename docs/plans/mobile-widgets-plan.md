@@ -169,7 +169,7 @@ vault name in a privacy-reduced mode.
 
 | Phase | Status | Goal |
 | --- | --- | --- |
-| 0. Contract and Android feasibility | Not started | Prove Glance packaging, responsive rendering, atomic storage, JNI snapshot generation, and cold-start destinations. |
+| 0. Contract and Android feasibility | Complete | Glance packaging, responsive rendering, bounded Rust/JNI snapshot publication, cold/warm destinations, stock-launcher emulator checks, and the physical-device matrix pass. |
 | 1. Shared snapshot and configuration foundation | Not started | Add the bounded Rust contract, native store, configuration lifecycle, privacy model, and publisher hooks. |
 | 2. Calendar agenda widget | Not started | Ship the first useful small/medium/large widget over cached local and hosted calendar data. |
 | 3. Lifecycle, refresh, and management | Not started | Complete event-driven refresh, WorkManager fallback, setup UI, stale states, cleanup, and diagnostics. |
@@ -180,6 +180,40 @@ vault name in a privacy-reduced mode.
 | 8. Hardening and release | Not started | Complete automated, launcher, upgrade, privacy, battery, accessibility, and physical-device validation. |
 
 ## Phase 0: Contract And Android Feasibility
+
+### Implementation Status
+
+- Stable AndroidX Glance `1.1.1` and the Kotlin Compose compiler plugin are
+  integrated into the generated Android project.
+- A registered agenda widget renders a bounded versioned app-private JSON
+  snapshot at small, medium, and large responsive breakpoints without webview or
+  network access.
+- A bounded Rust preview builder crosses JNI during foreground startup, initial
+  widget enablement, and WorkManager completion. Kotlin validates the payload,
+  fsyncs and atomically replaces the app-private snapshot, then requests a
+  launcher refresh; ordinary widget composition remains file-only.
+- A generalized allow-listed Android destination handoff routes agenda taps to
+  the mobile Calendar screen across cold and warm activity intents.
+- Kotlin snapshot tests, focused mobile routing/calendar tests, and the mobile
+  TypeScript build pass.
+- The universal debug APK builds with the widget resources and JNI export for
+  arm64-v8a, armeabi-v7a, x86, and x86_64.
+- Pixel Launcher on a Pixel 9 Pro Android 36.1 emulator discovers and binds the
+  provider, renders the native snapshot at 3 x 2, resizes it to four columns
+  without clipping, and retains the last snapshot while the package is force
+  stopped.
+- A visible agenda-row tap after normal process death starts `MainActivity`
+  with the allow-listed `OPEN_DESTINATION` intent and consumes the Calendar
+  route exactly once. Visible Glance text nodes carry the action explicitly
+  because launcher RemoteViews do not inherit the root click consistently.
+- Emulator QA also caught and fixed Glance's ten-child container limit by
+  grouping each agenda item in a bounded child column; a clean refresh now
+  emits no Glance or Android runtime errors.
+- User-reported physical-smartphone validation completed on 2026-08-01: widget
+  add, responsive resize, update, tap/deep-link, removal, process-death snapshot
+  rendering, and the no-network render boundary all pass. Together with the
+  stock Pixel Launcher emulator evidence above, this closes the Phase 0 exit
+  criteria.
 
 ### Goals
 
@@ -400,7 +434,8 @@ vault name in a privacy-reduced mode.
 
 1. Complete the remaining background-running packaged/physical Android matrix
    that validates coordinator lifecycle behavior.
-2. Run Phase 0 without waiting for unrelated mobile feature expansion.
+2. Phase 0 is complete; begin the shared foundation without waiting for
+   unrelated mobile feature expansion.
 3. Build the shared foundation and agenda through Phases 1-3.
 4. Add read-only calendar-derived widgets in Phase 4.
 5. Add mutation only after the task confirmation/idempotency boundary in Phase 5

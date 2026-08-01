@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createTauriBuildArgs, resolveNodeTool } from './tauri-command.mjs';
+import {
+  createTauriBuildArgs,
+  resolveNodeTool,
+  withAndroidBuildDefaults,
+} from './tauri-command.mjs';
 
 describe('tauri command wrapper', () => {
   it('passes a strict JSON config for signed builds', () => {
@@ -36,5 +40,19 @@ describe('tauri command wrapper', () => {
     expect(tool.command).toBe(process.execPath);
     expect(tool.prefixArgs[0]).toMatch(/@tauri-apps[/\\]cli[/\\]tauri\.js$/);
     expect(tool.shell).toBe(false);
+  });
+
+  it('uses compact line-table debug info for Android dev builds', () => {
+    expect(withAndroidBuildDefaults(['android', 'build', '--debug'], {}))
+      .toMatchObject({ CARGO_PROFILE_DEV_DEBUG: '1' });
+    expect(withAndroidBuildDefaults(['android', 'android-studio-script', '--target', 'x86_64'], {}))
+      .toMatchObject({ CARGO_PROFILE_DEV_DEBUG: '1' });
+  });
+
+  it('preserves explicit Rust debug settings and release defaults', () => {
+    expect(withAndroidBuildDefaults(['android', 'dev'], { CARGO_PROFILE_DEV_DEBUG: '2' }))
+      .toMatchObject({ CARGO_PROFILE_DEV_DEBUG: '2' });
+    expect(withAndroidBuildDefaults(['android', 'build'], {})).not
+      .toHaveProperty('CARGO_PROFILE_DEV_DEBUG');
   });
 });

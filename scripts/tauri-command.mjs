@@ -36,6 +36,21 @@ function withAndroidNodeHeap(env = process.env) {
   };
 }
 
+export function withAndroidBuildDefaults(args, env = process.env) {
+  const nextEnv = withAndroidNodeHeap(env);
+  const usesRustDevProfile =
+    args[0] === 'android' &&
+    (args[1] === 'dev' ||
+      args.includes('--debug') ||
+      (args[1] === 'android-studio-script' && !args.includes('--release')));
+  if (!usesRustDevProfile || nextEnv.CARGO_PROFILE_DEV_DEBUG) return nextEnv;
+
+  // Full Rust DWARF makes each Android ABI roughly half a gigabyte. Line-table
+  // debug info keeps native backtraces useful while making installable APKs
+  // practical; callers can still override this with CARGO_PROFILE_DEV_DEBUG=2.
+  return { ...nextEnv, CARGO_PROFILE_DEV_DEBUG: '1' };
+}
+
 function run(tool, commandArgs, env = process.env) {
   console.log(`Running ${tool.command} ${[...tool.prefixArgs, ...commandArgs].join(' ')}`);
   const result = spawnSync(tool.command, [...tool.prefixArgs, ...commandArgs], {
@@ -65,7 +80,9 @@ export function createTauriBuildArgs(args, signingKey = process.env.TAURI_SIGNIN
 }
 
 function main(args) {
-  const childEnv = args[0] === 'android' ? withAndroidNodeHeap() : process.env;
+  const childEnv = args[0] === 'android' ? withAndroidBuildDefaults(args) : process.env;
+  const isAndroidReleaseBuild =
+    args[0] === 'android' && args[1] === 'build' && !args.includes('--debug');
   console.log(`Syncing version manifests before tauri ${args.join(' ')}...`);
   const syncVersions = spawnSync(process.execPath, [join(rootDir, 'scripts', 'sync-versions.mjs')], {
     cwd: rootDir,
@@ -104,8 +121,32 @@ function main(args) {
     console.log('Building Tauri desktop bundle...');
     run(resolveNodeTool('tauri'), createTauriBuildArgs(args), childEnv);
   } else {
+    if (
+      isAndroidReleaseBuild &&
+      !existsSync(join(rootDir, 'src-tauri', 'gen', 'android', 'app', 'google-services.json'))
+    ) {
+      console.warn(
+        'Building Android release without google-services.json: FCM push notifications will be disabled; polling remains available.',
+      );
+    }
     console.log(`Running Tauri command: tauri ${args.join(' ')}`);
-    run(resolveNodeTool('tauri'), args, childEnv);
+    const succeeded = run(resolveNodeTool('tauri'), args, childEnv);
+    if (succeeded && isAndroidReleaseBuild) {
+      const verifyJni = spawnSync(
+        process.execPath,
+        [join(rootDir, 'scripts', 'check-android-release-jni.mjs')],
+        {
+          cwd: rootDir,
+          env: childEnv,
+          shell: false,
+          stdio: 'inherit',
+        },
+      );
+      if (verifyJni.status !== 0 || verifyJni.error) {
+        if (verifyJni.error) console.error(verifyJni.error.message);
+        process.exit(verifyJni.status ?? 1);
+      }
+    }
   }
 }
 

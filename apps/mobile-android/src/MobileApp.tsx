@@ -162,6 +162,19 @@ export function MobileApp() {
   }, []);
 
   useEffect(() => {
+    const openAppDestination = (event: Event) => {
+      const destination = (event as CustomEvent<{ kind?: string; date?: string }>).detail;
+      if (!destination || !['calendar-today', 'calendar-date', 'calendar-create'].includes(destination.kind ?? '')) return;
+      setTab('calendar');
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('collab-calendar-open-destination', { detail: destination }));
+      }, 0);
+    };
+    window.addEventListener('collab-app-destination', openAppDestination);
+    return () => window.removeEventListener('collab-app-destination', openAppDestination);
+  }, [setTab]);
+
+  useEffect(() => {
     const openNotification = async (profileId: string, notificationId: string) => {
       const records = await notificationListInbox(profileId, true, 200);
       const record = records.find((candidate) => candidate.envelope.id === notificationId);

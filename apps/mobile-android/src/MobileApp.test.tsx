@@ -146,6 +146,25 @@ describe('MobileApp shell', () => {
     expect(useMobileStore.getState().tab).toBe('calendar');
   });
 
+  it('routes a native agenda widget destination into Calendar', async () => {
+    mockInvoke({
+      server_connection_statuses: () => [],
+      calendar_list: () => [],
+      calendar_list_items: () => [],
+    });
+    render(<MobileApp />);
+    await waitFor(() => expect(useMobileStore.getState().restored).toBe(true));
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('collab-app-destination', {
+        detail: { kind: 'calendar-today' },
+      }));
+    });
+
+    await waitFor(() => expect(useMobileStore.getState().tab).toBe('calendar'));
+    expect(await screen.findByRole('heading', { name: 'Calendar' })).toBeTruthy();
+  });
+
   it('persists the IEC/DIN schematic notation preference', async () => {
     mockInvoke({ server_connection_statuses: () => [] });
     render(<MobileApp />);

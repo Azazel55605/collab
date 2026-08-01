@@ -93,6 +93,17 @@ Play distributes **App Bundles**, not APKs:
 pnpm android:build:aab
 ```
 
+Release builds run an R8 mapping check after packaging. It verifies that the
+Kotlin notification and WorkManager methods called by Rust retain their exact
+JNI names; the build fails instead of producing an AAB with release-only broken
+notifications or background scheduling.
+
+The command also warns when
+`src-tauri/gen/android/app/google-services.json` is absent. Such a build still
+supports scheduled notification polling, but FCM push invalidations are not
+included. Supply the Firebase file in the release environment when push latency
+is required.
+
 The signed bundle is written to:
 
 ```text

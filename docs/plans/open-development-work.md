@@ -31,7 +31,7 @@ work from being mistaken for an active roadmap item.
 | Collab Presentations | Planned | Complete the `.deck` Phase 0 proofs for scene/text fidelity, deck-specific live text collaboration, and compatible PPTX export before beginning the editor. | [Collab Presentations Plan](./presentation-tool-plan.md) |
 | Digital ink and annotation | Planned | Complete the `.ink` Phase 0 physical-device proofs, then build one shared pressure-sensitive ink engine for drawings, note exports, and viewer annotations. | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
-| Mobile widgets | Planned | Build the shared Android snapshot/configuration foundation and calendar agenda first, then month, birthday/countdown, tasks, quick capture, vault shortcuts, sync status, and release hardening. | [Mobile Widgets Integration Plan](./mobile-widgets-plan.md) |
+| Mobile widgets | Phase 0 complete / planned | Build the Phase 1 shared snapshot/configuration foundation, then deliver the accepted widget set; stock-launcher emulator and physical-smartphone Phase 0 matrices pass. | [Mobile Widgets Integration Plan](./mobile-widgets-plan.md) |
 
 ## Recommended Dependency Order
 

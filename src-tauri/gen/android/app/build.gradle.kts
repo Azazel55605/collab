@@ -1,8 +1,10 @@
+import java.io.File
 import java.util.Properties
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
     id("rust")
 }
 
@@ -24,6 +26,9 @@ val keyProperties = Properties().apply {
     }
 }
 val hasReleaseKey = keyProperties.getProperty("storeFile") != null
+val keepNativeDebugSymbols = providers.gradleProperty("collabKeepNativeDebugSymbols")
+    .map(String::toBoolean)
+    .getOrElse(false)
 
 android {
     compileSdk = 36
@@ -58,10 +63,13 @@ android {
             isDebuggable = true
             isJniDebuggable = true
             isMinifyEnabled = false
-            packaging {                jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
-                jniLibs.keepDebugSymbols.add("*/armeabi-v7a/*.so")
-                jniLibs.keepDebugSymbols.add("*/x86/*.so")
-                jniLibs.keepDebugSymbols.add("*/x86_64/*.so")
+            if (keepNativeDebugSymbols) {
+                packaging {
+                    jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
+                    jniLibs.keepDebugSymbols.add("*/armeabi-v7a/*.so")
+                    jniLibs.keepDebugSymbols.add("*/x86/*.so")
+                    jniLibs.keepDebugSymbols.add("*/x86_64/*.so")
+                }
             }
         }
         getByName("release") {
@@ -81,11 +89,49 @@ android {
     }
     buildFeatures {
         buildConfig = true
+        compose = true
     }
 }
 
 rust {
     rootDirRel = "../../../"
+}
+
+// AGP's strip task currently declines the Rust-built ELF and otherwise embeds
+// hundreds of megabytes of DWARF in every debug APK. Strip only AGP's staged
+// copy; the symbol-bearing library remains under target/ for native debugging.
+tasks.matching {
+    it.name.startsWith("strip") && it.name.endsWith("DebugDebugSymbols")
+}.configureEach {
+    doLast {
+        if (keepNativeDebugSymbols) return@doLast
+        val explicitNdkDirectory = sequenceOf(
+            System.getenv("ANDROID_NDK_HOME"),
+            System.getenv("NDK_HOME"),
+        ).filterNotNull().map(::File).firstOrNull { it.isDirectory }
+        val sdkDirectory = sequenceOf(
+            System.getenv("ANDROID_SDK_ROOT"),
+            System.getenv("ANDROID_HOME"),
+        ).filterNotNull().map(::File).firstOrNull { it.isDirectory }
+        val ndkDirectory = explicitNdkDirectory
+            ?: sdkDirectory?.resolve("ndk")?.listFiles()?.filter { it.isDirectory }?.maxByOrNull { it.name }
+            ?: error("Unable to locate an installed Android NDK for compact debug packaging")
+        val stripTool = ndkDirectory
+            .resolve("toolchains/llvm/prebuilt")
+            .listFiles()
+            .orEmpty()
+            .flatMap { prebuilt ->
+                listOf(prebuilt.resolve("bin/llvm-strip"), prebuilt.resolve("bin/llvm-strip.exe"))
+            }
+            .firstOrNull { it.isFile }
+            ?: error("Unable to locate llvm-strip in Android NDK $ndkDirectory")
+        outputs.files.asFileTree
+            .matching { include("**/libcollab_lib.so") }
+            .files
+            .forEach { library ->
+                project.exec { commandLine(stripTool, "--strip-unneeded", library) }
+            }
+    }
 }
 
 dependencies {
@@ -94,10 +140,12 @@ dependencies {
     implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.10.1")
+    implementation("androidx.glance:glance-appwidget:1.1.1")
     implementation("com.google.android.material:material:1.12.0")
     implementation(platform("com.google.firebase:firebase-bom:34.16.0"))
     implementation("com.google.firebase:firebase-messaging")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")
 }

@@ -15,6 +15,8 @@ mod server_token_store;
 mod state;
 #[cfg(test)]
 pub mod test_support;
+#[cfg(any(target_os = "android", test))]
+mod widgets;
 
 use state::AppState;
 
