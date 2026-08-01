@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LayoutDashboard, Trash2 } from 'lucide-react';
 
 import type { CalendarDefinition } from '../../../../src/types/calendar';
@@ -24,6 +24,14 @@ export function WidgetSettingsSection() {
   const [calendars, setCalendars] = useState<CalendarDefinition[]>([]);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const configurationsRef = useRef<WidgetConfiguration[]>([]);
+  const saveQueuesRef = useRef(new Map<string, Promise<void>>());
+  const saveVersionsRef = useRef(new Map<string, number>());
+
+  const applyConfigurations = (next: WidgetConfiguration[]) => {
+    configurationsRef.current = next;
+    setConfigurations(next);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -35,7 +43,7 @@ export function WidgetSettingsSection() {
     ])
       .then(([, nextConfigurations, nextCalendars]) => {
         if (cancelled) return;
-        setConfigurations(nextConfigurations);
+        applyConfigurations(nextConfigurations);
         setCalendars(nextCalendars.filter((calendar) => !calendar.deletedAt && !calendar.archived));
       })
       .catch((reason) => {
@@ -49,30 +57,45 @@ export function WidgetSettingsSection() {
     };
   }, [profileId]);
 
-  const save = async (configuration: WidgetConfiguration) => {
-    const previous = configurations;
-    const next = { ...configuration, updatedAt: new Date().toISOString() };
-    setConfigurations((current) => current.map((entry) =>
-      entry.configurationId === next.configurationId ? next : entry));
+  const save = (
+    configurationId: string,
+    update: (configuration: WidgetConfiguration) => WidgetConfiguration,
+  ) => {
+    const previous = configurationsRef.current.find((entry) =>
+      entry.configurationId === configurationId);
+    if (!previous) return;
+    const next = { ...update(previous), updatedAt: new Date().toISOString() };
+    applyConfigurations(configurationsRef.current.map((entry) =>
+      entry.configurationId === configurationId ? next : entry));
     setError(null);
-    try {
-      const saved = await widgetConfigurationSave(profileId, next);
-      setConfigurations((current) => current.map((entry) =>
-        entry.configurationId === saved.configurationId ? saved : entry));
-    } catch (reason) {
-      setConfigurations(previous);
-      setError(String(reason));
-    }
+    const version = (saveVersionsRef.current.get(configurationId) ?? 0) + 1;
+    saveVersionsRef.current.set(configurationId, version);
+    const priorQueue = saveQueuesRef.current.get(configurationId) ?? Promise.resolve();
+    const queued = priorQueue.catch(() => {}).then(async () => {
+      try {
+        const saved = await widgetConfigurationSave(profileId, next);
+        if (saveVersionsRef.current.get(configurationId) !== version) return;
+        applyConfigurations(configurationsRef.current.map((entry) =>
+          entry.configurationId === saved.configurationId ? saved : entry));
+      } catch (reason) {
+        if (saveVersionsRef.current.get(configurationId) === version) {
+          applyConfigurations(configurationsRef.current.map((entry) =>
+            entry.configurationId === configurationId ? previous : entry));
+          setError(String(reason));
+        }
+      }
+    });
+    saveQueuesRef.current.set(configurationId, queued);
   };
 
   const remove = async (configurationId: string) => {
-    const previous = configurations;
-    setConfigurations((current) => current.filter((entry) => entry.configurationId !== configurationId));
+    const previous = configurationsRef.current;
+    applyConfigurations(previous.filter((entry) => entry.configurationId !== configurationId));
     setError(null);
     try {
       await widgetConfigurationDelete(profileId, configurationId);
     } catch (reason) {
-      setConfigurations(previous);
+      applyConfigurations(previous);
       setError(String(reason));
     }
   };
@@ -113,7 +136,10 @@ export function WidgetSettingsSection() {
                   key={value}
                   type="button"
                   className={configuration.privacy === value ? 'selected' : ''}
-                  onClick={() => void save({ ...configuration, privacy: value })}
+                  onClick={() => save(configuration.configurationId, (current) => ({
+                    ...current,
+                    privacy: value,
+                  }))}
                 >
                   {label}
                 </button>
@@ -133,11 +159,19 @@ export function WidgetSettingsSection() {
                       type="checkbox"
                       checked={checked}
                       onChange={(event) => {
-                        const baseline = allSelected ? calendars.map((entry) => entry.id) : configuration.selectedSourceIds;
+                        const current = configurationsRef.current.find((entry) =>
+                          entry.configurationId === configuration.configurationId) ?? configuration;
+                        const currentAllSelected = current.selectedSourceIds.length === 0;
+                        const baseline = currentAllSelected
+                          ? calendars.map((entry) => entry.id)
+                          : current.selectedSourceIds;
                         const selectedSourceIds = event.currentTarget.checked
                           ? [...new Set([...baseline, calendar.id])]
                           : baseline.filter((id) => id !== calendar.id);
-                        void save({ ...configuration, selectedSourceIds });
+                        save(configuration.configurationId, (entry) => ({
+                          ...entry,
+                          selectedSourceIds,
+                        }));
                       }}
                     />
                   </label>
@@ -153,10 +187,10 @@ export function WidgetSettingsSection() {
                   key={maxItems}
                   type="button"
                   className={configuration.display.maxItems === maxItems ? 'selected' : ''}
-                  onClick={() => void save({
-                    ...configuration,
-                    display: { ...configuration.display, maxItems },
-                  })}
+                  onClick={() => save(configuration.configurationId, (current) => ({
+                    ...current,
+                    display: { ...current.display, maxItems },
+                  }))}
                 >
                   {maxItems}
                 </button>

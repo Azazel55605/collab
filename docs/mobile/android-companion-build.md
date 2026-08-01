@@ -77,19 +77,20 @@ native Android behavior that Tauri's generated defaults do not provide:
   entry/resources, and the Glance/Compose Gradle wiring form the native mobile
   widget boundary. Regeneration must preserve these files and declarations.
 
-The agenda widget Phase 0 spike reads a bounded versioned JSON snapshot from the
-application-private `files/widgets/` directory. A bounded Rust/JNI builder
-publishes non-private preview rows atomically after foreground startup, initial
-widget enablement, and WorkManager completion. Phase 1 replaces those rows with
-profile-scoped calendar selection; ordinary widget rendering does not start the
-Tauri webview, invoke Rust, or perform network work.
+The agenda widget reads a bounded versioned JSON snapshot from the
+application-private `files/widgets/` directory. The Rust/JNI publisher builds
+profile-scoped snapshots from the cached native calendar store after foreground
+startup, widget configuration, lifecycle events, and WorkManager completion.
+The shared `collab-calendar` recurrence projection remains authoritative;
+Glance never interprets recurrence rules. Ordinary widget rendering does not
+start the Tauri webview, invoke Rust, or perform network work.
 
 To compile the native widget and run its unit tests without building Rust native
 libraries, use the documented JDK/SDK environment and run:
 
 ```bash
 cd src-tauri/gen/android
-./gradlew :app:testX86_64DebugUnitTest
+./gradlew :app:testUniversalDebugUnitTest
 ```
 
 The explicit app flavor is required: the root `testDebugUnitTest` aggregate

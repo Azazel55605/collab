@@ -6,6 +6,7 @@
 mod ics;
 mod ics_parse;
 mod models;
+mod recurrence;
 mod store;
 
 pub use ics::export_ics;
@@ -20,6 +21,9 @@ pub use models::{
     CalendarRecurrence, CalendarReminder, CalendarRemoteChange, CalendarSourceBinding,
     CalendarSubscription, CalendarSyncState, CalendarTimeValue, CALENDAR_SCHEMA_VERSION,
     MAX_ICALENDAR_PROPERTIES, MAX_ICALENDAR_PROPERTY_LENGTH,
+};
+pub use recurrence::{
+    query_calendar_items, CalendarQueryError, CalendarQueryRange, MAX_CALENDAR_EXPANDED_CANDIDATES,
 };
 pub use store::{
     CalendarStore, CalendarStoreError, LOCAL_STORE_SCHEMA_VERSION, MAX_RANGE_QUERY_ITEMS,

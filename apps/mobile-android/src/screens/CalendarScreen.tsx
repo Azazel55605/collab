@@ -446,6 +446,7 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
         kind?: string;
         itemId?: string;
         occurrenceKey?: string;
+        date?: string;
       }>).detail;
       if (destination?.kind === 'calendar-invitations') {
         setInvitationsOpen(true);
@@ -453,11 +454,11 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
       }
       if (destination?.kind !== 'calendar-item' || !destination.itemId) return;
       const occurrence = destination.occurrenceKey;
-      const date = occurrence?.startsWith('date:')
+      const date = destination.date ?? (occurrence?.startsWith('date:')
         ? occurrence.slice(5, 15)
         : occurrence?.startsWith('dateTime:')
           ? occurrence.slice(9, 19)
-          : null;
+          : null);
       if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) openDay(date);
       setPendingNotificationItemId(destination.itemId);
     };
@@ -466,13 +467,14 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
   }, []);
   useEffect(() => {
     if (!pendingNotificationItemId) return;
-    const item = sourceItems.find((candidate) => candidate.id === pendingNotificationItemId);
+    const item = projectedItems.find((candidate) => candidate.id === pendingNotificationItemId)
+      ?? sourceItems.find((candidate) => candidate.id === pendingNotificationItemId);
     if (!item) return;
     const date = itemDate(item);
     openDay(date);
     setEditor({ kind: item.kind, item });
     setPendingNotificationItemId(null);
-  }, [pendingNotificationItemId, sourceItems]);
+  }, [pendingNotificationItemId, projectedItems, sourceItems]);
   const handleInternalTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
     if (view !== 'month' && view !== 'three-day' && view !== 'day') return;
     event.stopPropagation();

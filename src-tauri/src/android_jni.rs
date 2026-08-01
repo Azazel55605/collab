@@ -108,6 +108,55 @@ pub(crate) fn request_widget_profile_rebuild(profile_id: &str) -> Result<(), Str
     })
 }
 
+pub(crate) fn bound_widget_configuration_ids(profile_id: &str) -> Result<Vec<String>, String> {
+    with_env(|env, context| {
+        let class = load_class(
+            env,
+            context,
+            "com.azazel.collab.companion.CollabWidgetBridge",
+        )?;
+        let profile_id = java_string(env, profile_id)?;
+        let result = env
+            .call_static_method(
+                class,
+                "boundConfigurationIds",
+                "(Landroid/content/Context;Ljava/lang/String;)Ljava/lang/String;",
+                &[JValue::Object(context), JValue::Object(&profile_id)],
+            )
+            .map_err(|_| {
+                clear_exception(env);
+                "Could not read the Android widget bindings.".to_string()
+            })?
+            .l()
+            .map_err(|_| "Android returned invalid widget bindings.".to_string())?;
+        let raw = read_string(env, result)
+            .ok_or_else(|| "Android returned empty widget bindings.".to_string())?;
+        serde_json::from_str(&raw)
+            .map_err(|_| "Android returned malformed widget bindings.".to_string())
+    })
+}
+
+pub(crate) fn update_widgets() -> Result<(), String> {
+    with_env(|env, context| {
+        let class = load_class(
+            env,
+            context,
+            "com.azazel.collab.companion.CollabWidgetBridge",
+        )?;
+        env.call_static_method(
+            class,
+            "updateWidgets",
+            "(Landroid/content/Context;)V",
+            &[JValue::Object(context)],
+        )
+        .map_err(|_| {
+            clear_exception(env);
+            "Could not update the Android widgets.".to_string()
+        })?;
+        Ok(())
+    })
+}
+
 fn clear_exception(env: &mut JNIEnv<'_>) {
     if env.exception_check().unwrap_or(false) {
         let _ = env.exception_describe();
@@ -686,6 +735,40 @@ pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativ
         let outcome = crate::widgets::WidgetStore::open(&root, &profile_id)?.publish(snapshot)?;
         serde_json::to_string(&outcome)
             .map_err(|_| "Could not encode the widget publication result.".to_string())
+    }));
+    widget_jni_string_result(&mut env, result)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativePublishAgendaProfile(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    context: JObject<'_>,
+    profile_id: JString<'_>,
+) -> jstring {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        register_worker_context(&mut env, &context)?;
+        let profile_id = env
+            .get_string(&profile_id)
+            .map_err(|_| "Could not decode the widget profile identifier.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let root = files_dir()?.join("collab");
+        let outcomes = tauri::async_runtime::block_on(async {
+            let calendar_store = crate::commands::calendar::store(&profile_id).await?;
+            crate::widgets::build_and_publish_agenda_profile(
+                &root,
+                &profile_id,
+                &calendar_store,
+                chrono::Utc::now(),
+            )
+            .await
+        })?;
+        serde_json::to_string(&serde_json::json!({
+            "configured": !outcomes.is_empty(),
+            "changed": outcomes.iter().any(|outcome| outcome.changed),
+        }))
+        .map_err(|_| "Could not encode the widget publication result.".to_string())
     }));
     widget_jni_string_result(&mut env, result)
 }

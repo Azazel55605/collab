@@ -30,4 +30,7 @@ export interface WidgetAppearanceSnapshot {
   theme: 'dark' | 'midnight' | 'warm' | 'light';
   accent: 'violet' | 'blue' | 'emerald' | 'rose' | 'orange' | 'cyan';
   fontScale: number;
+  timeZone: string;
+  timeFormat: 'system' | '12-hour' | '24-hour';
+  showDeclined: boolean;
 }

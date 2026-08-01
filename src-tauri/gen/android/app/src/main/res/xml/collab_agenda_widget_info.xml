@@ -14,4 +14,4 @@
     android:targetCellHeight="2"
     android:updatePeriodMillis="0"
     android:widgetCategory="home_screen|keyguard"
-    android:widgetFeatures="configuration_optional|reconfigurable" />
+    android:widgetFeatures="reconfigurable" />

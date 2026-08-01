@@ -206,7 +206,10 @@ class CollabWidgetConfigurationActivity : Activity() {
         "09:30",
       ),
     )
-    var selected = choices.first()
+    val existingConfiguration = existingConfiguration(profileId)
+    var selected = choices.firstOrNull {
+      it.value == existingConfiguration?.optString("privacy")
+    } ?: choices.first()
     val content = screenContent()
     content.addView(brandHeader())
     content.addView(title("Set up Agenda"), spaced(top = 30))
@@ -215,8 +218,8 @@ class CollabWidgetConfigurationActivity : Activity() {
       spaced(top = 9),
     )
 
-    val previewTitle = label("Design review", 15f, WidgetSetupPalette.foreground, medium = true)
-    val previewDetail = label("09:30 · Event", 13f, WidgetSetupPalette.muted)
+    val previewTitle = label(selected.previewTitle, 15f, WidgetSetupPalette.foreground, medium = true)
+    val previewDetail = label(selected.previewDetail, 13f, WidgetSetupPalette.muted)
     content.addView(widgetPreview(previewTitle, previewDetail), spaced(top = 24))
 
     content.addView(sectionLabel("PRIVACY"), spaced(top = 28, bottom = 10))
@@ -242,14 +245,14 @@ class CollabWidgetConfigurationActivity : Activity() {
       visibility = View.GONE
       gravity = Gravity.CENTER
     }
-    val addButton = primaryButton("Add widget") {
+    val addButton = primaryButton("Apply") {
       if (saving) return@primaryButton
       saving = true
       errorText.visibility = View.GONE
-      save(profileId, selected.value) { success ->
-        if (!success) {
+      save(profileId, selected.value, existingConfiguration) { error ->
+        if (error != null) {
           saving = false
-          errorText.text = "The widget could not be saved. Open Collab and try again."
+          errorText.text = "Could not apply the widget: $error"
           errorText.visibility = View.VISIBLE
         }
       }
@@ -260,26 +263,50 @@ class CollabWidgetConfigurationActivity : Activity() {
     setContentView(scrollScreen(content))
   }
 
-  private fun save(profileId: String, privacy: String, completed: (Boolean) -> Unit) {
-    val configurationId = "widget-${UUID.randomUUID()}"
-    val configuration = org.json.JSONObject()
-      .put("schemaVersion", 1)
-      .put("configurationId", configurationId)
-      .put("kind", "agenda")
-      .put("selectedSourceIds", org.json.JSONArray())
+  private fun existingConfiguration(profileId: String): org.json.JSONObject? {
+    val binding = CollabWidgetBindings.read(this, appWidgetId)
+      ?.takeIf { it.profileId == profileId }
+      ?: return null
+    val configurations = runCatching {
+      org.json.JSONArray(CollabWidgetBridge.nativeListConfigurations(applicationContext, profileId))
+    }.getOrNull() ?: return null
+    for (index in 0 until configurations.length()) {
+      val configuration = configurations.optJSONObject(index) ?: continue
+      if (configuration.optString("configurationId") == binding.configurationId) {
+        return configuration
+      }
+    }
+    return null
+  }
+
+  private fun save(
+    profileId: String,
+    privacy: String,
+    existingConfiguration: org.json.JSONObject?,
+    completed: (String?) -> Unit,
+  ) {
+    val configuration = existingConfiguration
+      ?.let { org.json.JSONObject(it.toString()) }
+      ?: org.json.JSONObject()
+        .put("schemaVersion", 1)
+        .put("configurationId", "widget-${UUID.randomUUID()}")
+        .put("kind", "agenda")
+        .put("selectedSourceIds", org.json.JSONArray())
+        .put(
+          "display",
+          org.json.JSONObject()
+            .put("horizonDays", 7)
+            .put("maxItems", 6)
+            .put("showCompleted", false),
+        )
+        .put(
+          "actions",
+          org.json.JSONObject().put("openItem", true).put("toggleTask", false),
+        )
+    configuration
       .put("privacy", privacy)
-      .put(
-        "display",
-        org.json.JSONObject()
-          .put("horizonDays", 7)
-          .put("maxItems", 6)
-          .put("showCompleted", false),
-      )
-      .put(
-        "actions",
-        org.json.JSONObject().put("openItem", true).put("toggleTask", false),
-      )
       .put("updatedAt", Instant.now().toString())
+    val configurationId = configuration.getString("configurationId")
     val saved = runCatching {
       CollabWidgetBridge.nativeSaveConfiguration(
         applicationContext,
@@ -288,17 +315,28 @@ class CollabWidgetConfigurationActivity : Activity() {
       )
     }.isSuccess
     if (!saved) {
-      completed(false)
+      completed("The configuration could not be saved.")
       return
     }
-    CollabWidgetBindings.save(this, appWidgetId, WidgetBinding(profileId, configurationId))
-    CollabWidgetBridge.requestProfileRebuild(applicationContext, profileId)
-    setResult(
-      RESULT_OK,
-      Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId),
-    )
-    completed(true)
-    finish()
+    if (!CollabWidgetBindings.save(this, appWidgetId, WidgetBinding(profileId, configurationId))) {
+      completed("The launcher binding could not be saved.")
+      return
+    }
+    CollabWidgetBridge.publishConfiguration(
+      applicationContext,
+      profileId,
+    ) { error ->
+      if (error != null) {
+        completed(error)
+        return@publishConfiguration
+      }
+      setResult(
+        RESULT_OK,
+        Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId),
+      )
+      completed(null)
+      finish()
+    }
   }
 
   private fun screenContent() = LinearLayout(this).apply {
@@ -463,7 +501,7 @@ class CollabWidgetConfigurationActivity : Activity() {
       isAllCaps = false
       typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
       setTextColor(WidgetSetupPalette.primaryForeground)
-      setBackgroundColor(WidgetSetupPalette.primary)
+      backgroundTintList = android.content.res.ColorStateList.valueOf(WidgetSetupPalette.primary)
       cornerRadius = dp(14)
       insetTop = 0
       insetBottom = 0

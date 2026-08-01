@@ -172,8 +172,8 @@ vault name in a privacy-reduced mode.
 | Phase | Status | Goal |
 | --- | --- | --- |
 | 0. Contract and Android feasibility | Complete | Glance packaging, responsive rendering, bounded Rust/JNI snapshot publication, cold/warm destinations, stock-launcher emulator checks, and the physical-device matrix pass. |
-| 1. Shared snapshot and configuration foundation | Testing | The bounded Rust/native store, JNI bridge, Android configuration activity, Settings management, privacy reduction, cleanup/tombstones, idempotence, and coalesced publisher hooks are implemented; physical-device configuration/lifecycle validation remains. |
-| 2. Calendar agenda widget | Not started | Ship the first useful small/medium/large widget over cached local and hosted calendar data. |
+| 1. Shared snapshot and configuration foundation | Complete | The bounded Rust/native store, JNI bridge, Android configuration activity, Settings management, privacy reduction, cleanup/tombstones, idempotence, coalesced publisher hooks, and physical-device lifecycle paths are validated. |
+| 2. Calendar agenda widget | Complete | The cached native calendar projection, responsive agenda rendering, source freshness, privacy-aware rows, exact header/item/add destinations, live reconfiguration, and launcher refresh behavior are validated. |
 | 3. Lifecycle, refresh, and management | Not started | Complete event-driven refresh, WorkManager fallback, setup UI, stale states, cleanup, and diagnostics. |
 | 4. Month, birthday, and countdown widgets | Not started | Reuse calendar snapshots for month density and privacy-safe upcoming-date views. |
 | 5. Tasks widget and confirmed actions | Not started | Combine calendar/Kanban tasks and route completion through existing idempotent pending-operation paths. |
@@ -276,10 +276,9 @@ vault name in a privacy-reduced mode.
   and isolation, action allow-listing, delete-race tombstones, and idempotence.
   Five focused mobile tests, the Android app unit tests, TypeScript validation,
   Kotlin compilation, and an aarch64 compact debug APK build pass.
-- Remaining Phase 1 exit work is physical-device validation of add/configure,
-  later Settings edits, source/privacy changes, time-change refresh, removal,
-  and force-stop snapshot rendering. Phase 2 calendar data population should
-  not begin until those configuration and lifecycle paths are confirmed.
+- Phase 1 physical-device validation is accepted complete. Testing covered the
+  native configuration flow, later Settings edits, appearance integration, and
+  widget lifecycle behavior on the target smartphone.
 
 ### Deliverables
 
@@ -309,6 +308,65 @@ vault name in a privacy-reduced mode.
   the launcher.
 
 ## Phase 2: Calendar Agenda Widget
+
+### Implementation Status
+
+- `collab-calendar` now owns the bounded Rust recurrence projection shared by
+  native widget consumers. It expands RFC 5545 rules and RDATE/EXDATE values,
+  preserves calendar wall time across DST, applies active recurrence
+  exceptions, projects birthdays, filters deleted items, and deterministically
+  bounds and sorts results. Kotlin does not interpret recurrence rules.
+- The Android publisher now reads cached profile calendar definitions, bounded
+  range candidates, hosted/subscription freshness, and each widget's selected
+  sources. It excludes archived/deleted calendars, applies the mobile declined
+  preference, completed-task visibility, app timezone and 12/24-hour setting,
+  and emits explicit overdue/today/upcoming sections.
+- Privacy reduction persists only permitted titles, time labels, source colors,
+  and validated calendar destinations. Title-only/private modes retain a useful
+  time label without persisting source names; one unavailable hosted source does
+  not remove usable local rows.
+- Glance renders one next item at small height, a bounded current-day agenda at
+  medium height, and sectioned multi-day rows at large height. The header opens
+  Today, `+` opens the existing creator on the displayed date, and enabled item
+  rows carry allow-listed exact calendar-item destinations through cold/warm
+  app routing.
+- Launcher snapshots carry the validated app theme, accent, and interface scale,
+  so appearance-only changes republish immediately. The add control has a larger
+  accent-colored touch target, upcoming tasks include their date, configuration
+  saves are serialized per widget, and tall launchers can render up to ten rows.
+- Android now requires configuration before first placement, reconfiguration
+  updates the widget's existing configuration instead of creating an orphan,
+  Settings exposes only launcher-bound configurations, and successful native
+  publication calls Glance's direct update API. The setup action is labelled
+  `Apply`, and the agenda add control is right-aligned.
+- Setup now withholds Android's successful configuration result until the real
+  calendar snapshot has been published and the exact widget instance updated;
+  publication failures remain in the dialog. Later in-app configuration saves
+  likewise await snapshot publication and launcher refresh before reporting
+  success, instead of handing that work to an error-swallowing queue.
+- Launcher refresh now drives both Glance's direct update and an explicit,
+  component-targeted `ACTION_APPWIDGET_UPDATE` after durable publication. This
+  covers OEM launchers that retain the Phase 0 `RemoteViews` until the provider
+  lifecycle is dispatched even though Glance accepted an in-process update.
+- Because configuration is mandatory, `onEnabled` no longer publishes the
+  Phase 0 preview before the configuration activity has created its binding.
+  Android keeps the static loading layout during setup, then the successful
+  Apply path performs the first Glance composition from the real snapshot.
+- The agenda composable no longer captures a native file snapshot outside
+  `provideContent`. Each bound instance stores its validated snapshot in
+  `PreferencesGlanceStateDefinition`, renders it through `currentState`, and
+  updates that state before requesting new `RemoteViews`. Live settings and
+  calendar publications therefore invalidate the existing composition without
+  requiring the Android process to restart.
+- The shared calendar suite, focused Rust widget tests, all 148 mobile tests,
+  Android app unit tests, TypeScript, crate-boundary validation, and an arm64
+  debug APK build pass. The APK contains only `arm64-v8a` and verifies with APK
+  Signature Scheme v2.
+- Phase 2 physical-device validation is accepted complete. Clean installation,
+  server login, initial placement, resizing, live settings changes, app
+  backgrounding/closure, restart behavior, and calendar-driven refresh were
+  exercised on the target smartphone. The final observable Glance-state fix
+  eliminated the process-restart dependency and made later changes visible.
 
 ### Data Selection
 

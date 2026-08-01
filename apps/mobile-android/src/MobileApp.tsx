@@ -120,8 +120,17 @@ export function MobileApp() {
       theme: prefs.theme,
       accent: prefs.accent,
       fontScale: prefs.fontScale,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      timeFormat: prefs.calendarTimeFormat,
+      showDeclined: prefs.calendarShowDeclined,
     }).catch(() => {});
-  }, [prefs.theme, prefs.accent, prefs.fontScale]);
+  }, [
+    prefs.theme,
+    prefs.accent,
+    prefs.fontScale,
+    prefs.calendarTimeFormat,
+    prefs.calendarShowDeclined,
+  ]);
 
   // Keep connection status fresh when the app returns to the foreground, and
   // replay any offline-queued writes for still-connected servers (foreground
@@ -175,11 +184,16 @@ export function MobileApp() {
 
   useEffect(() => {
     const openAppDestination = (event: Event) => {
-      const destination = (event as CustomEvent<{ kind?: string; date?: string }>).detail;
-      if (!destination || !['calendar-today', 'calendar-date', 'calendar-create'].includes(destination.kind ?? '')) return;
+      const destination = (event as CustomEvent<{ kind?: string; date?: string; itemId?: string }>).detail;
+      if (!destination || !['calendar-today', 'calendar-date', 'calendar-create', 'calendar-item'].includes(destination.kind ?? '')) return;
       setTab('calendar');
       window.setTimeout(() => {
-        window.dispatchEvent(new CustomEvent('collab-calendar-open-destination', { detail: destination }));
+        window.dispatchEvent(new CustomEvent(
+          destination.kind === 'calendar-item'
+            ? 'collab-calendar-open-notification'
+            : 'collab-calendar-open-destination',
+          { detail: destination },
+        ));
       }, 0);
     };
     window.addEventListener('collab-app-destination', openAppDestination);
