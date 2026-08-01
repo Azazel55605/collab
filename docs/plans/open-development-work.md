@@ -31,7 +31,7 @@ work from being mistaken for an active roadmap item.
 | Collab Presentations | Planned | Complete the `.deck` Phase 0 proofs for scene/text fidelity, deck-specific live text collaboration, and compatible PPTX export before beginning the editor. | [Collab Presentations Plan](./presentation-tool-plan.md) |
 | Digital ink and annotation | Planned | Complete the `.ink` Phase 0 physical-device proofs, then build one shared pressure-sensitive ink engine for drawings, note exports, and viewer annotations. | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
-| Mobile widgets | Ideas only | Evaluate a calendar agenda widget first after background snapshots are available; no implementation commitment or phased schedule exists yet. | [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) |
+| Mobile widgets | Planned | Build the shared Android snapshot/configuration foundation and calendar agenda first, then month, birthday/countdown, tasks, quick capture, vault shortcuts, sync status, and release hardening. | [Mobile Widgets Integration Plan](./mobile-widgets-plan.md) |
 
 ## Recommended Dependency Order
 
@@ -47,8 +47,9 @@ work from being mistaken for an active roadmap item.
    system's persistent channel and permission flow.
 6. Complete the calendar Phase 9 maintained external-client interoperability
    matrix.
-7. Prototype the Android calendar agenda widget using the stable background
-   snapshot boundary.
+7. Implement the Android mobile-widget contract and calendar agenda foundation,
+   then deliver the remaining accepted widgets through the phased integration
+   plan.
 
 Circuit simulation and Flatpak distribution can proceed independently, subject
 to normal release and platform capacity.

@@ -2,10 +2,12 @@
 
 ## Purpose
 
-This is an idea catalog, not an implementation plan or committed roadmap.
-Android is the first relevant platform because Collab currently has an Android
-companion app. The same product ideas could be revisited for iOS if that client
-is added later.
+This is the original idea catalog. The ideas have been accepted for Android and
+their committed delivery sequence, architecture, and release gates now live in
+the [Mobile Widgets Integration Plan](../plans/mobile-widgets-plan.md). Android
+is the first relevant platform because Collab currently has an Android companion
+app. The same product ideas can be revisited for iOS if that client is added
+later.
 
 Widgets should expose a small useful slice of already cached data. They should
 not start the full Tauri webview, contain credentials, or become a second
@@ -122,6 +124,6 @@ flowchart LR
 - Visuals should follow Android widget conventions while retaining Collab
   accent colors and item-type semantics.
 
-The calendar agenda is the best first experiment after background execution and
-notification foundations are stable.
-
+The calendar agenda remains the first implementation because it proves the
+shared snapshot, privacy, lifecycle, and deep-link foundation used by the other
+accepted widgets.

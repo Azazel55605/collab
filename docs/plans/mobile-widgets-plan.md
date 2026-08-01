@@ -1,0 +1,432 @@
+# Mobile Widgets Integration Plan
+
+## Summary
+
+Add the evaluated mobile widget set to the Android companion app. Widgets must
+remain useful offline, render without starting the Tauri webview, preserve
+Collab's profile and authorization boundaries, and refresh from the same native
+calendar, replica, and background-coordinator state as the app.
+
+The calendar agenda is the first delivery because it proves the shared snapshot,
+privacy, configuration, deep-link, and lifecycle boundaries. Month calendar,
+tasks, quick capture, vault shortcuts, birthday/countdown, and sync status then
+reuse that foundation. iOS remains a later platform adaptation, not part of this
+plan.
+
+## Product Scope
+
+### Committed Widgets
+
+- **Calendar agenda**: next item at small size, today at medium size, and today
+  plus tomorrow or a compact multi-day agenda at large size.
+- **Month calendar**: resizable month grid with today, event-density markers,
+  and day deep links.
+- **Tasks**: overdue and upcoming calendar/Kanban tasks with configurable
+  sources and an optional confirmed completion action.
+- **Quick capture**: shortcuts into the existing new-note, new-task,
+  new-calendar-item, photo, and file-import flows.
+- **Vault shortcuts**: user-pinned and recent notes, boards, PDFs, and folders.
+- **Birthday and countdown**: privacy-aware upcoming birthdays and selected
+  event countdowns.
+- **Sync status**: last successful sync, pending and action-required counts,
+  offline/auth state, and a bounded Sync now action.
+
+Calendar agenda is the default recommendation. Sync status is opt-in and aimed
+at troubleshooting rather than being promoted as a general-purpose default.
+
+### Non-Goals
+
+- Reimplementing calendar, task, note, or file editors in a widget.
+- Starting or retaining a hidden WebView to render or refresh a widget.
+- Direct network requests, bearer tokens, refresh tokens, or server URLs in the
+  launcher process or widget storage.
+- Exact minute-by-minute countdown updates or frequent polling.
+- Exposing unrestricted document bodies, chat content, or vault listings to
+  Android widget hosts.
+- iOS WidgetKit implementation in this delivery sequence.
+
+## Current Integration Points
+
+- `crates/collab-calendar` already owns profile-scoped calendar definitions,
+  items, indexed bounded range queries, recurrence data, and pending operations.
+- The shared background coordinator already runs foreground and Android
+  WorkManager sync without React or a mounted webview.
+- `CollabBackgroundWorker` already reconciles native notification state after a
+  job; the widget publisher should attach at the same post-job boundary.
+- Android notifications already demonstrate JNI access to profile-scoped Rust
+  stores, cold-start-safe native intents, lifecycle restoration, and privacy
+  reduction.
+- `MainActivity` already accepts notification opens and dispatches validated
+  destinations to the mobile shell. Widget destinations should extend one
+  general Android app-open contract rather than create a parallel router.
+- `CalendarScreen` already supports calendar-item destinations and the mobile
+  calendar store already combines local and hosted cached origins.
+- Hosted-vault replicas and the background job ledger already provide the
+  offline document metadata and sync rollups required by later widgets.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    F["Foreground mutation or sync"] --> C["Shared native coordinator"]
+    B["Android WorkManager"] --> C
+    C --> R["Calendar, replica, and job-ledger stores"]
+    R --> P["Rust widget snapshot builder"]
+    P --> S["Versioned profile/config snapshots"]
+    S --> K["Kotlin Glance/AppWidget renderer"]
+    K --> D["Validated app destination"]
+    K --> A["Bounded native action"]
+    A --> C
+    A --> P
+```
+
+### Ownership Boundary
+
+**Shared Rust code owns:**
+
+- bounded source selection, recurrence expansion, filtering, sorting, and
+  snapshot DTO construction
+- authorization-aware visibility and per-profile isolation
+- privacy reduction before data crosses JNI
+- stable destination and action descriptors
+- task-completion validation and creation of existing calendar/Kanban pending
+  operations
+- snapshot schema migration, retention, and invalidation decisions
+
+**Kotlin/Android owns:**
+
+- Glance/AppWidget providers, launcher registration, responsive layouts, and
+  Android 12+ widget styling
+- mapping widget IDs to non-secret configuration IDs
+- atomic snapshot persistence readable by the widget host
+- `PendingIntent` identity, tap/action receivers, update requests, and launcher
+  lifecycle callbacks
+- system theme/dynamic-color adaptation, accessibility labels, and widget
+  preview metadata
+
+**The mobile React shell owns:**
+
+- widget setup and management screens that need the app's full authenticated UI
+- source pickers, privacy preferences, pinned destinations, and action opt-ins
+- handling validated app-open destinations after cold or warm start
+- complex creation, editing, confirmation, conflict, and recovery workflows
+
+No widget code may read the webview's localStorage or depend on a React store
+being hydrated.
+
+## Snapshot Contract
+
+Create a versioned native contract, for example:
+
+```text
+WidgetSnapshotEnvelope
+  schemaVersion
+  snapshotId
+  profileIdHash
+  configurationId
+  kind
+  generatedAt
+  sourceFreshness[]
+  privacy
+  state: ready | empty | stale | signed-out | action-required | unavailable
+  payload
+```
+
+Requirements:
+
+- Store one atomic envelope per widget configuration, not one shared global
+  payload. Android widget IDs map to opaque configuration IDs.
+- Bound item counts, strings, colors, source freshness entries, and total
+  serialized bytes. Truncate deterministically and mark the result.
+- Persist only rendered fields and opaque destination/action descriptors; never
+  persist credentials, server URLs, raw document content, attendee details, or
+  unrestricted metadata.
+- Treat local and hosted sources independently. A stale or signed-out hosted
+  source must not remove current local data.
+- Generate timestamps and date boundaries using the profile/app timezone, with
+  explicit DST tests. Rendering may format them using the current device locale.
+- Unknown schema versions render a safe unavailable state and request a rebuild;
+  they must not crash the launcher.
+- Removing an account, calendar, replica, or widget configuration atomically
+  deletes or rewrites every affected snapshot.
+
+## Privacy Model
+
+Each configuration has a presentation level enforced before snapshot storage:
+
+- **Full**: permitted titles, time, type, and configured source color.
+- **Title only**: title and time, without source/account detail.
+- **Private**: generic item types and time/counts only.
+- **Hidden while locked**: render a generic locked state until Android reports
+  an unlocked user; no sensitive payload should be placed in lock-screen-facing
+  text as a fallback.
+
+Quick capture labels and pinned shortcut labels follow the same rule. Sync
+status uses generic account state and counts and never displays a hostname or
+vault name in a privacy-reduced mode.
+
+## Progress Tracker
+
+| Phase | Status | Goal |
+| --- | --- | --- |
+| 0. Contract and Android feasibility | Not started | Prove Glance packaging, responsive rendering, atomic storage, JNI snapshot generation, and cold-start destinations. |
+| 1. Shared snapshot and configuration foundation | Not started | Add the bounded Rust contract, native store, configuration lifecycle, privacy model, and publisher hooks. |
+| 2. Calendar agenda widget | Not started | Ship the first useful small/medium/large widget over cached local and hosted calendar data. |
+| 3. Lifecycle, refresh, and management | Not started | Complete event-driven refresh, WorkManager fallback, setup UI, stale states, cleanup, and diagnostics. |
+| 4. Month, birthday, and countdown widgets | Not started | Reuse calendar snapshots for month density and privacy-safe upcoming-date views. |
+| 5. Tasks widget and confirmed actions | Not started | Combine calendar/Kanban tasks and route completion through existing idempotent pending-operation paths. |
+| 6. Quick capture and vault shortcuts | Not started | Add validated deep links for creation, pinned content, and recent files without duplicating editors. |
+| 7. Sync status widget | Not started | Expose privacy-safe native ledger rollups and a coalesced manual-sync action. |
+| 8. Hardening and release | Not started | Complete automated, launcher, upgrade, privacy, battery, accessibility, and physical-device validation. |
+
+## Phase 0: Contract And Android Feasibility
+
+### Goals
+
+- Add the required AndroidX Glance/AppWidget dependencies and prove they survive
+  Tauri Android project regeneration and release minification.
+- Render static agenda prototypes at supported launcher sizes in light, dark,
+  and Android dynamic-color environments.
+- Prove an app widget can read an atomic app-private snapshot without loading
+  Rust or the webview during ordinary render.
+- Prove a bounded JNI call can build or rebuild a snapshot from an application
+  context during foreground and WorkManager execution.
+- Generalize the current notification-open handoff into a validated Android
+  destination contract that handles cold start, warm start, and duplicate
+  intents exactly once.
+
+### Exit Criteria
+
+- One debug widget can be added, resized, updated, tapped, and removed on a
+  physical supported Android device and at least one stock launcher emulator.
+- Widget rendering after force-stopping the webview process uses the last
+  snapshot and performs no network request.
+- A malformed snapshot, destination, configuration ID, or intent fails closed.
+- The build documentation records every native file/dependency that must survive
+  `tauri android init` regeneration.
+
+## Phase 1: Shared Snapshot And Configuration Foundation
+
+### Deliverables
+
+- Add Collab-owned Rust widget DTOs and builders. Keep Glance and Android types
+  out of shared crates.
+- Add a profile-scoped native widget store under the app config/files boundary,
+  with atomic replace, schema migration, bounded reads, and cleanup APIs.
+- Add an Android JNI bridge for list/build/read/action preparation that follows
+  the existing notification/background error-redaction pattern.
+- Store widget configuration in native app storage, including widget kind,
+  selected source IDs, privacy, display options, and optional action enablement.
+- Add configuration screens launched from Android's widget configuration
+  activity and reachable later from mobile Settings.
+- Publish snapshots after relevant foreground calendar/replica mutations, after
+  coordinator jobs, after time/timezone/locale change, after configuration
+  changes, and when the app resumes with stale data.
+- Coalesce publish requests by profile/configuration and impose a hard runtime
+  budget; snapshot generation must join or follow conflicting coordinator work.
+
+### Tests And Exit Criteria
+
+- Unit tests cover schema versions, size and item limits, deterministic ordering,
+  privacy reduction, mixed fresh/stale sources, and account removal.
+- Concurrent publish/configure/delete operations cannot resurrect removed data
+  or expose another profile's snapshot.
+- Repeated identical publication is idempotent and does not continually wake
+  the launcher.
+
+## Phase 2: Calendar Agenda Widget
+
+### Data Selection
+
+- Use bounded calendar-store range queries and the existing recurrence rules;
+  do not copy recurrence logic into Kotlin.
+- Respect archived/deleted calendars, declined-invitation preference, completed
+  task visibility, selected local/hosted sources, timezone, and all-day rules.
+- Include source-specific freshness so one offline server degrades only its own
+  rows.
+- Produce explicit sections for overdue, today, and tomorrow/next days rather
+  than making Kotlin infer calendar semantics.
+
+### Rendering And Interaction
+
+- Small: date, next relevant item, freshness indicator.
+- Medium: today's bounded agenda with time/all-day/type/color states.
+- Large: today plus tomorrow or a compact configurable multi-day horizon.
+- Header opens Today; item opens the exact calendar item; add opens the existing
+  calendar-item creator with a preselected date.
+- Empty, stale, signed-out-source, and action-required states remain useful and
+  tappable without presenting cached data as current.
+
+### Exit Criteria
+
+- Local-only, hosted-only, and mixed-source profiles render correctly offline.
+- Recurring, multi-day, all-day, overdue, completed, birthday, and DST-boundary
+  items match the mobile Calendar screen for the same configuration.
+- Cold-start item/header/add destinations arrive at the intended mobile view
+  once, including after process death.
+
+## Phase 3: Lifecycle, Refresh, And Management
+
+- Add one update coordinator that accepts foreground changes, background-job
+  completion, Android `onUpdate`, boot, app replacement, time/timezone/locale
+  change, user unlock, and manual refresh.
+- Use event-driven publication first. Periodic WorkManager is a coarse
+  OS-controlled freshness fallback and must not create per-widget network jobs.
+- `onUpdate` renders the last snapshot immediately and schedules coalesced native
+  work only when stale; it never blocks the broadcast receiver.
+- Add a mobile widget-management surface showing configurations, source/privacy
+  summaries, last update, errors, refresh, reconfigure, and remove guidance.
+- Cancel configuration work and delete data on widget removal, account removal,
+  replica removal, profile reset, or app data reset.
+- Add privacy-safe diagnostics for generation duration, serialized size,
+  truncation, update cause, and freshness without logging titles or destinations.
+
+## Phase 4: Month, Birthday, And Countdown Widgets
+
+### Month Calendar
+
+- Generate day-level density/count/color summaries in Rust; Kotlin renders the
+  responsive grid.
+- Tapping a day opens that day in the existing Calendar screen.
+- Small sizes may show the current month and markers only; larger sizes may show
+  a short selected-day agenda without embedding full item bodies.
+
+### Birthday And Countdown
+
+- Select birthdays and explicitly user-selected countdown-capable events from
+  the same calendar snapshot boundary.
+- Update day-based countdowns when the date changes; do not schedule minute-level
+  work solely for countdown text.
+- Apply the configuration privacy level before persisting names or titles.
+
+## Phase 5: Tasks Widget And Confirmed Actions
+
+- Define one shared task projection across calendar tasks and cached Kanban
+  assignments, with stable source/item identity, due state, completion state,
+  capability, and freshness.
+- Filter by calendar, server/account, vault, board, assignee, and due horizon
+  using opaque native configuration references.
+- A task tap opens its real Calendar or Kanban surface.
+- Completion must require a native confirmation or open the app to confirm; no
+  launcher tap may silently mutate shared data.
+- After confirmation, Rust revalidates current authorization, read-only state,
+  item revision/capability, and source availability, then writes through the
+  existing calendar or replica pending-operation path with a stable idempotency
+  key.
+- Optimistically changing widget state is allowed only after the native queue
+  accepts the operation. Conflicts and authorization failures remain visible in
+  the app and the snapshot returns to authoritative state.
+
+## Phase 6: Quick Capture And Vault Shortcuts
+
+### Quick Capture
+
+- Add destinations for new note, new task, new calendar event, photo capture,
+  and file selection.
+- All actions open the existing mobile flow. The widget never requests storage,
+  camera, or account permissions itself and never writes draft content.
+- If a destination requires a vault/calendar choice, open the app's normal
+  picker with only validated hints.
+
+### Vault Shortcuts
+
+- Allow explicit pins for supported notes, Kanban boards, PDFs, and folders.
+- Offer recent files only from native bounded replica metadata; exclude deleted,
+  trashed, unavailable, and no-longer-authorized entries at publication time.
+- Resolve every tap by stable server/vault/file identity in native/app routing,
+  not by accepting an arbitrary path or URL from an intent.
+- Missing or revoked targets open a safe recovery surface and trigger snapshot
+  cleanup.
+
+## Phase 7: Sync Status Widget
+
+- Build privacy-safe rollups from the persistent background ledger and replica
+  state: last success, running state, pending count, recoverable failures, auth
+  required, and offline state.
+- Aggregate by selected profile or account without storing/displaying server URLs.
+- Sync now enqueues the existing unique/coalesced coordinator work. Repeated taps
+  cannot create parallel work or bypass Android constraints.
+- Running progress is coarse and bounded; do not turn ledger polling into a
+  high-frequency widget refresh loop.
+- Action-required states deep-link to the existing background/account recovery
+  settings.
+
+## Phase 8: Hardening And Release
+
+### Automated Validation
+
+- Rust unit/integration tests for every snapshot builder, privacy mode, source
+  filter, action validator, migration, and cleanup path.
+- Kotlin tests for configuration mapping, atomic reads, receiver/action intent
+  validation, PendingIntent uniqueness, responsive layout selection, and update
+  coalescing.
+- Mobile frontend tests for every destination, setup/management path, and
+  missing-target recovery.
+- Regression tests proving notification alarms, WorkManager, foreground sync,
+  and widgets share coordinator/store access without races.
+- `pnpm exec tsc --noEmit`, focused Vitest suites, `cargo test --workspace`,
+  Android debug/release builds, lint, and `git diff --check`.
+
+### Physical And Launcher Matrix
+
+- Supported minimum Android version plus current Android release.
+- Pixel Launcher and at least one major OEM launcher; record behavior on launchers
+  that do not support every resize or dynamic-color feature.
+- Add, resize, reconfigure, duplicate, remove, restore-from-backup behavior,
+  launcher restart, process death, force-stop, reboot, app update, and profile
+  removal.
+- Offline-to-online, signed-out hosted source plus local source, Doze, battery
+  saver, background restriction, low storage, timezone/DST, locale/12-24-hour
+  changes, and locked/unlocked privacy behavior.
+- TalkBack labels, minimum touch targets, font scaling, contrast, light/dark
+  themes, and truncation at every supported size.
+- Battery and wakeup measurements demonstrating no per-widget polling and no
+  hidden webview startup.
+
+### Release Gates
+
+- The background-running physical-device validation must be complete enough to
+  trust coordinator outcomes used by widgets.
+- No widget snapshot, log, backup, intent, or Android preview contains a token,
+  server URL, unapproved private title, or document body.
+- Widget data is removed on account/profile deletion and does not reappear after
+  boot, app update, retry, or stale WorkManager completion.
+- Every widget remains coherent with stale cached data and gives the user an
+  honest last-updated or action-required state.
+- Play release documentation covers widget declarations, backup/data handling,
+  screenshots, privacy disclosures, and launcher-specific limitations.
+
+## Dependency Order
+
+1. Complete the remaining background-running packaged/physical Android matrix
+   that validates coordinator lifecycle behavior.
+2. Run Phase 0 without waiting for unrelated mobile feature expansion.
+3. Build the shared foundation and agenda through Phases 1-3.
+4. Add read-only calendar-derived widgets in Phase 4.
+5. Add mutation only after the task confirmation/idempotency boundary in Phase 5
+   is proven.
+6. Add deep-link-only capture/shortcut widgets, then the operational sync widget.
+7. Run the combined hardening matrix before promoting widgets in the Play build.
+
+Phases 4 and 6 may proceed in parallel after Phase 3 because both are read-only
+consumers of the stable snapshot/destination contract. Phases 5 and 7 must reuse
+the coordinator and pending-operation paths and must not introduce widget-only
+synchronization.
+
+## Documentation Updates During Implementation
+
+- Keep this phase tracker truthful after automated and physical validation.
+- Update `docs/mobile/android-companion-build.md` for native regeneration and
+  dependencies.
+- Add a widget release-validation matrix under `docs/build/` before Phase 8.
+- Archive the original idea catalog only after every accepted idea is represented
+  here and the integration plan is the canonical reference.
+
+## Related Documents
+
+- [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md)
+- [Background Running Plan](./background-running-plan.md)
+- [Background Running Release Validation](../build/background-running-release-validation.md)
+- [Android Companion App Plan](./android-companion-app-plan.md)
+- [Notification System Plan](../archive/notification-system-plan.md)
+- [User Calendar Feature Plan](./user-calendar-feature-plan.md)

@@ -14,6 +14,11 @@ separate mobile React shell under `apps/mobile-android`.
   signing, Play Console rollout, and policy checklist.
 - [Background running release validation](../build/background-running-release-validation.md)
   — WorkManager limitations, device matrix, diagnostics, and troubleshooting.
+- [Mobile widgets integration plan](../plans/mobile-widgets-plan.md) — committed
+  Android widget scope, native snapshot boundary, delivery phases, and release
+  gates.
+- [Mobile widget ideas](./mobile-widget-ideas.md) — original evaluated product
+  catalog retained as design context.
 - [Versioning and releases](../build/versioning-and-releases.md) — how the mobile
   `versionName` and Play `versionCode` are decoupled from desktop, server, and
   admin-web versions.
