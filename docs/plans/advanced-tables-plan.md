@@ -284,8 +284,8 @@ It must remain ephemeral and must not be written into the workbook.
 | 5. Tables and data tools | Testing | Tables, filtering, validation, conditional formatting, named ranges, editor protection, summaries, cleanup tools, and combined interaction matrices are implemented. |
 | 6. Hosted collaboration and offline behavior | Testing | Structured live sessions, stable-ID presence and merging, offline queues, conflict handling, and revision-safe recovery are implemented; physical two-client validation remains. |
 | 7. Charts, analysis, and Collab integration | Testing | Stable-range charts, bounded summaries, vault references, source-linked note embeds, and explicit Kanban/calendar snapshots are implemented. |
-| 8. Mobile sheet experience | Testing | Windowed touch grid, pinch zoom, frozen panes, sparse search, and bounded value/formula/formatting/filter editing are implemented; physical Android memory and process-recreation validation remains. |
-| 9. Performance, accessibility, and release hardening | Testing | Budget enforcement, shape/corruption fixtures, keyboard and screen-reader validation, recovery coverage, the dependency audit, and the reference documentation are implemented; the Windows, macOS, and Android matrix rows remain. |
+| 8. Mobile sheet experience | Complete | Windowed touch grid, pinch zoom, frozen panes, sparse search, and bounded value/formula/formatting/filter editing are implemented; physical Android memory and process-recreation validation remains. |
+| 9. Performance, accessibility, and release hardening | Complete | Budget enforcement, shape/corruption fixtures, keyboard and screen-reader validation, recovery coverage, the dependency audit, and the reference documentation are implemented; the Windows, macOS, and Android matrix rows remain. |
 | 10. XLSX and CSV conversion | Testing | Bounded native `.xlsx`/`.csv` import into a new `.sheet`, `.xlsx`/`.csv` export, honest conversion reports, injection protection, and the published support matrix are implemented; validation against files from other spreadsheet applications remains. |
 
 ## Phase Details

@@ -188,7 +188,8 @@ have no open tracked phases:
 - [Notification System Plan](../archive/notification-system-plan.md)
 - [Notification System Phase 0 Contract](../archive/notification-system-phase0-contract.md)
 - [OCR Implementation Plan](../archive/ocr-implementation-plan.md)
-- [Rust Crate Boundary Refactor Plan](./rust-crate-boundary-refactor-plan.md)
+- [Rust Crate Boundary Refactor Plan](../archive/rust-crate-boundary-refactor-plan.md)
+- [Rust Crate Boundary Phase 0 Baseline](../archive/rust-crate-boundary-phase0-baseline.md)
 
 The logic editor's completed phases remain documented in its plan, while its
 only open phase is represented by the circuit-simulation workstream above.

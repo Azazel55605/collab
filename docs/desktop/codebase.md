@@ -663,7 +663,7 @@ The repository root is a Cargo workspace:
 ### Shared Crate Boundaries
 
 The table above is the current source of truth. The
-[Rust Crate Boundary Refactor Plan](../plans/rust-crate-boundary-refactor-plan.md)
+[Rust Crate Boundary Refactor Plan](../archive/rust-crate-boundary-refactor-plan.md)
 records the completed extraction of `collab-net-policy`, `collab-documents`,
 `collab-vault-domain`, `collab-archive`, and `collab-live`.
 

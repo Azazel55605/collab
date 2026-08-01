@@ -31,9 +31,9 @@ not become separate sync implementations.
 
 | Phase | Status | Goal |
 | --- | --- | --- |
-| 0. Lifecycle contract and feasibility | Testing | Define platform behavior, OS limits, settings, job ownership, and a small desktop/Android proof. |
-| 1. Shared headless background coordinator | Testing | Run bounded sync and maintenance jobs without depending on a mounted webview. |
-| 2. Desktop tray and background lifecycle | Testing | Keep the desktop process available in the tray, support hide/restore/quit, and run scheduled work. |
+| 0. Lifecycle contract and feasibility | Complete | Define platform behavior, OS limits, settings, job ownership, and a small desktop/Android proof. |
+| 1. Shared headless background coordinator | Complete | Run bounded sync and maintenance jobs without depending on a mounted webview. |
+| 2. Desktop tray and background lifecycle | Complete | Keep the desktop process available in the tray, support hide/restore/quit, and run scheduled work. |
 | 3. Android scheduled background work | Testing | Use WorkManager for durable, constrained sync and catch-up work. |
 | 4. Reliability, progress, and power controls | Testing | Add locking, backoff, persisted outcomes, network/battery policy, and transparent status. |
 | 5. Platform hardening and release | Testing | Validate lifecycle, packaging, upgrades, and device/desktop behavior before enabling by default. |

@@ -12,7 +12,6 @@ implementation status. Start with
 - [Flatpak Distribution](./flatpak-distribution-plan.md)
 - [Logic And Circuit Diagram Editor](./logic-circuit-diagram-plan.md)
 - [Collab Presentations](./presentation-tool-plan.md)
-- [Rust Crate Boundary Refactor](./rust-crate-boundary-refactor-plan.md)
 - [User Calendar](./user-calendar-feature-plan.md)
 
 Completed plans move to [the archive](../archive/README.md) rather than remaining

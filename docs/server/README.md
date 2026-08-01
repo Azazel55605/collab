@@ -11,7 +11,7 @@ The collaboration server is a separate Rust service that becomes authoritative f
 - [REST and WebSocket Protocol](./protocol.md)
 - [Security, Operations, and Compatibility](./security-operations.md)
 - [Workspace and Verification](./workspace-verification.md)
-- [Rust Crate Boundary Refactor Plan](../plans/rust-crate-boundary-refactor-plan.md)
+- [Rust Crate Boundary Refactor Plan](../archive/rust-crate-boundary-refactor-plan.md)
 - [Server Development and Compose](./development.md)
 - [Deployment Topology and Upgrade Compatibility](./deployment-topology.md)
 - [Server Backups](./backups.md)

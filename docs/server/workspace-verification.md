@@ -48,7 +48,7 @@ src-tauri        -> collab-archive + collab-calendar + collab-circuit
 `collab-core` must not depend on Tauri, Axum, SQLx, PostgreSQL, or a concrete blob backend. Server authorization and persistence remain in `collab-server`.
 
 The completed dependency graph and extraction history are documented in the
-[Rust Crate Boundary Refactor Plan](../plans/rust-crate-boundary-refactor-plan.md).
+[Rust Crate Boundary Refactor Plan](../archive/rust-crate-boundary-refactor-plan.md).
 The inventory above is authoritative and enforced by `pnpm rust:boundaries`.
 Every workspace crate and workspace dependency edge must be declared there.
 

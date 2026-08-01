@@ -471,7 +471,7 @@ deliberately kept out of the ignore list. Keep the tracking doc in sync whenever
 
 - [Documentation index](./docs/README.md) - plans, archived work, and platform/build documentation
 - [Open development work](./docs/plans/open-development-work.md) - consolidated status and remaining work across active, testing, planned, and deferred projects
-- [Rust crate boundary refactor](./docs/plans/rust-crate-boundary-refactor-plan.md) - phased extraction of portable Rust domains from server and Tauri adapters
+- [Rust crate boundary refactor](./docs/archive/rust-crate-boundary-refactor-plan.md) - completed extraction of portable Rust domains from server and Tauri adapters
 - [Security advisory tracking](./docs/build/security-advisories.md) - accepted/ignored dependency advisories and why they are unresolved
 
 ### Collaboration Server
