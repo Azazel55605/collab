@@ -30,6 +30,15 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".CollabWidgetConfigurationActivity"
+            android:exported="true"
+            android:theme="@style/Theme.collab">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
         <receiver
             android:name=".CollabAgendaWidgetReceiver"
             android:exported="false"
@@ -40,6 +49,17 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/collab_agenda_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".CollabWidgetLifecycleReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.LOCALE_CHANGED" />
+            </intent-filter>
         </receiver>
 
         <receiver

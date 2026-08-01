@@ -15,7 +15,6 @@ mod server_token_store;
 mod state;
 #[cfg(test)]
 pub mod test_support;
-#[cfg(any(target_os = "android", test))]
 mod widgets;
 
 use state::AppState;
@@ -282,6 +281,15 @@ pub fn run() {
             commands::live_ws::live_ws_close,
             commands::mobile::mobile_app_data_probe,
             commands::mobile::mobile_exit_app,
+            commands::widgets::widget_configuration_list,
+            commands::widgets::widget_active_profile_set,
+            commands::widgets::widget_appearance_save,
+            commands::widgets::widget_configuration_save,
+            commands::widgets::widget_configuration_delete,
+            commands::widgets::widget_snapshot_build_and_publish,
+            commands::widgets::widget_snapshot_read,
+            commands::widgets::widget_action_prepare,
+            commands::widgets::widget_profile_cleanup,
             // templates
             commands::templates::list_kanban_templates,
             commands::templates::save_kanban_template,

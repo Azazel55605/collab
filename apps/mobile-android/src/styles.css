@@ -347,6 +347,17 @@ p {
   color: var(--primary);
 }
 
+.widget-settings-entry + .widget-settings-entry {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
+.widget-calendar-options {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
 .field {
   display: grid;
   gap: 7px;

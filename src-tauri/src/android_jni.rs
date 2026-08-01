@@ -8,7 +8,7 @@
 #![cfg(target_os = "android")]
 
 use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
-use jni::sys::jstring;
+use jni::sys::{jboolean, jstring, JNI_FALSE, JNI_TRUE};
 use jni::{JNIEnv, JavaVM};
 use std::mem::ManuallyDrop;
 use std::path::PathBuf;
@@ -83,6 +83,28 @@ pub fn files_dir() -> Result<PathBuf, String> {
         read_string(env, path)
             .map(PathBuf::from)
             .ok_or_else(|| "Android returned an empty app files directory.".to_string())
+    })
+}
+
+pub(crate) fn request_widget_profile_rebuild(profile_id: &str) -> Result<(), String> {
+    with_env(|env, context| {
+        let class = load_class(
+            env,
+            context,
+            "com.azazel.collab.companion.CollabWidgetBridge",
+        )?;
+        let profile_id = java_string(env, profile_id)?;
+        env.call_static_method(
+            class,
+            "requestProfileRebuild",
+            "(Landroid/content/Context;Ljava/lang/String;)V",
+            &[JValue::Object(context), JValue::Object(&profile_id)],
+        )
+        .map_err(|_| {
+            clear_exception(env);
+            "Could not request an Android widget refresh.".to_string()
+        })?;
+        Ok(())
     })
 }
 
@@ -483,6 +505,271 @@ pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativ
             let _ = env.throw_new(
                 "java/lang/IllegalStateException",
                 "The native agenda widget preview builder panicked.",
+            );
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativeActiveProfile(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    context: JObject<'_>,
+) -> jstring {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        register_worker_context(&mut env, &context)?;
+        let root = files_dir()?.join("collab");
+        crate::widgets::active_profile(&root)
+    }));
+    match result {
+        Ok(Ok(Some(profile_id))) => env
+            .new_string(profile_id)
+            .map(JString::into_raw)
+            .unwrap_or(std::ptr::null_mut()),
+        Ok(Ok(None)) => std::ptr::null_mut(),
+        Ok(Err(error)) => {
+            let _ = env.throw_new("java/lang/IllegalStateException", error);
+            std::ptr::null_mut()
+        }
+        Err(_) => {
+            let _ = env.throw_new(
+                "java/lang/IllegalStateException",
+                "The native widget profile lookup failed.",
+            );
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativeReadAppearance(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    context: JObject<'_>,
+) -> jstring {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        register_worker_context(&mut env, &context)?;
+        let root = files_dir()?.join("collab");
+        let appearance = crate::widgets::read_appearance(&root)?;
+        serde_json::to_string(&appearance)
+            .map_err(|_| "Could not encode the widget appearance settings.".to_string())
+    }));
+    widget_jni_string_result(&mut env, result)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativeListConfigurations(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    context: JObject<'_>,
+    profile_id: JString<'_>,
+) -> jstring {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        register_worker_context(&mut env, &context)?;
+        let profile_id = env
+            .get_string(&profile_id)
+            .map_err(|_| "Could not decode the widget profile identifier.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let root = files_dir()?.join("collab");
+        let configurations =
+            crate::widgets::WidgetStore::open(&root, &profile_id)?.list_configurations()?;
+        serde_json::to_string(&configurations)
+            .map_err(|_| "Could not encode the widget configurations.".to_string())
+    }));
+    widget_jni_string_result(&mut env, result)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativeSaveConfiguration(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    context: JObject<'_>,
+    profile_id: JString<'_>,
+    configuration_json: JString<'_>,
+) -> jstring {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        register_worker_context(&mut env, &context)?;
+        let profile_id = env
+            .get_string(&profile_id)
+            .map_err(|_| "Could not decode the widget profile identifier.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let raw = env
+            .get_string(&configuration_json)
+            .map_err(|_| "Could not decode the widget configuration.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        if raw.len() > 64 * 1024 {
+            return Err("The widget configuration exceeded its size limit.".into());
+        }
+        let configuration: crate::widgets::WidgetConfiguration = serde_json::from_str(&raw)
+            .map_err(|_| "The widget configuration is invalid.".to_string())?;
+        let root = files_dir()?.join("collab");
+        let saved = crate::widgets::WidgetStore::open(&root, &profile_id)?
+            .save_configuration(configuration)?;
+        serde_json::to_string(&saved)
+            .map_err(|_| "Could not encode the widget configuration.".to_string())
+    }));
+    widget_jni_string_result(&mut env, result)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativeDeleteConfiguration(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    context: JObject<'_>,
+    profile_id: JString<'_>,
+    configuration_id: JString<'_>,
+) -> jboolean {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        register_worker_context(&mut env, &context)?;
+        let profile_id = env
+            .get_string(&profile_id)
+            .map_err(|_| "Could not decode the widget profile identifier.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let configuration_id = env
+            .get_string(&configuration_id)
+            .map_err(|_| "Could not decode the widget configuration identifier.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let root = files_dir()?.join("collab");
+        crate::widgets::WidgetStore::open(&root, &profile_id)?
+            .delete_configuration(&configuration_id)
+    }));
+    match result {
+        Ok(Ok(true)) => JNI_TRUE,
+        Ok(Ok(false)) => JNI_FALSE,
+        Ok(Err(error)) => {
+            let _ = env.throw_new("java/lang/IllegalArgumentException", error);
+            JNI_FALSE
+        }
+        Err(_) => {
+            let _ = env.throw_new(
+                "java/lang/IllegalStateException",
+                "The native widget configuration delete failed.",
+            );
+            JNI_FALSE
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativeBuildAndPublish(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    context: JObject<'_>,
+    profile_id: JString<'_>,
+    request_json: JString<'_>,
+) -> jstring {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        register_worker_context(&mut env, &context)?;
+        let profile_id = env
+            .get_string(&profile_id)
+            .map_err(|_| "Could not decode the widget profile identifier.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let raw = env
+            .get_string(&request_json)
+            .map_err(|_| "Could not decode the widget publication request.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        if raw.len() > 64 * 1024 {
+            return Err("The widget publication request exceeded its size limit.".into());
+        }
+        let request: crate::widgets::WidgetBuildRequest = serde_json::from_str(&raw)
+            .map_err(|_| "The widget publication request is invalid.".to_string())?;
+        let snapshot = crate::widgets::build_snapshot(&profile_id, request)?;
+        let root = files_dir()?.join("collab");
+        let outcome = crate::widgets::WidgetStore::open(&root, &profile_id)?.publish(snapshot)?;
+        serde_json::to_string(&outcome)
+            .map_err(|_| "Could not encode the widget publication result.".to_string())
+    }));
+    widget_jni_string_result(&mut env, result)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativeReadSnapshot(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    context: JObject<'_>,
+    profile_id: JString<'_>,
+    configuration_id: JString<'_>,
+) -> jstring {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        register_worker_context(&mut env, &context)?;
+        let profile_id = env
+            .get_string(&profile_id)
+            .map_err(|_| "Could not decode the widget profile identifier.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let configuration_id = env
+            .get_string(&configuration_id)
+            .map_err(|_| "Could not decode the widget configuration identifier.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let root = files_dir()?.join("collab");
+        let snapshot = crate::widgets::WidgetStore::open(&root, &profile_id)?
+            .read_snapshot(&configuration_id)?;
+        serde_json::to_string(&snapshot)
+            .map_err(|_| "Could not encode the widget snapshot.".to_string())
+    }));
+    widget_jni_string_result(&mut env, result)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativePrepareAction(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    context: JObject<'_>,
+    profile_id: JString<'_>,
+    request_json: JString<'_>,
+) -> jstring {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        register_worker_context(&mut env, &context)?;
+        let profile_id = env
+            .get_string(&profile_id)
+            .map_err(|_| "Could not decode the widget profile identifier.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let raw = env
+            .get_string(&request_json)
+            .map_err(|_| "Could not decode the widget action request.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        if raw.len() > 1024 {
+            return Err("The widget action request exceeded its size limit.".into());
+        }
+        let request: crate::widgets::WidgetActionRequest = serde_json::from_str(&raw)
+            .map_err(|_| "The widget action request is invalid.".to_string())?;
+        let root = files_dir()?.join("collab");
+        let action =
+            crate::widgets::WidgetStore::open(&root, &profile_id)?.prepare_action(request)?;
+        serde_json::to_string(&action)
+            .map_err(|_| "Could not encode the widget action.".to_string())
+    }));
+    widget_jni_string_result(&mut env, result)
+}
+
+fn widget_jni_string_result(
+    env: &mut JNIEnv<'_>,
+    result: Result<Result<String, String>, Box<dyn std::any::Any + Send>>,
+) -> jstring {
+    match result {
+        Ok(Ok(payload)) => env
+            .new_string(payload)
+            .map(JString::into_raw)
+            .unwrap_or(std::ptr::null_mut()),
+        Ok(Err(error)) => {
+            let _ = env.throw_new("java/lang/IllegalArgumentException", error);
+            std::ptr::null_mut()
+        }
+        Err(_) => {
+            let _ = env.throw_new(
+                "java/lang/IllegalStateException",
+                "The native widget operation failed.",
             );
             std::ptr::null_mut()
         }

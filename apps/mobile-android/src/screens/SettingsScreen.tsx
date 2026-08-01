@@ -13,6 +13,7 @@ import {
   SlidersHorizontal,
   Type,
   UserRound,
+  LayoutDashboard,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -39,6 +40,7 @@ import {
 } from '../mobileTauri';
 import { mobileCalendarProfileId } from '../lib/calendarSync';
 import { NotificationSettingsSection } from '../components/NotificationSettingsSection';
+import { WidgetSettingsSection } from '../components/WidgetSettingsSection';
 
 const DEFAULT_BACKGROUND_SETTINGS: BackgroundSettings = {
   schemaVersion: 1,
@@ -65,6 +67,7 @@ type SettingsCategory =
   | 'general'
   | 'background'
   | 'notifications'
+  | 'widgets'
   | 'appearance'
   | 'editor'
   | 'calendar'
@@ -98,6 +101,13 @@ const SETTINGS_CATEGORIES: Array<{
     description: 'Permission, reminder timing, and notification inbox',
     keywords: 'notification alert reminder permission alarm inbox snooze',
     Icon: Bell,
+  },
+  {
+    id: 'widgets',
+    label: 'Widgets',
+    description: 'Launcher content, calendars, and privacy',
+    keywords: 'widget launcher agenda calendar privacy glance home screen',
+    Icon: LayoutDashboard,
   },
   {
     id: 'appearance',
@@ -517,6 +527,8 @@ export function SettingsScreen({
       ) : null}
 
       {activeCategory === 'notifications' ? <NotificationSettingsSection /> : null}
+
+      {activeCategory === 'widgets' ? <WidgetSettingsSection /> : null}
 
       {activeCategory === 'calendar' ? (
       <section className="card">

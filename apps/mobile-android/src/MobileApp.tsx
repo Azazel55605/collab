@@ -11,6 +11,8 @@ import {
   notificationSyncRemote,
   reconcileAndroidBackground,
   requestAndroidBackgroundSync,
+  widgetActiveProfileSet,
+  widgetAppearanceSave,
   type BackgroundJobRecord,
   type ServerConnectionStatus,
 } from './mobileTauri';
@@ -102,6 +104,7 @@ export function MobileApp() {
   const backgroundAttention = findBackgroundAttention(backgroundJobs, servers, statuses);
 
   useEffect(() => {
+    void widgetActiveProfileSet(mobileCalendarProfileId()).catch(() => {});
     restore()
       .then(() => {
         void notificationSyncRemote(mobileCalendarProfileId()).catch(() => {});
@@ -110,6 +113,15 @@ export function MobileApp() {
         setRestoreError(reason instanceof Error ? reason.message : String(reason));
       });
   }, [restore]);
+
+  useEffect(() => {
+    void widgetAppearanceSave({
+      schemaVersion: 1,
+      theme: prefs.theme,
+      accent: prefs.accent,
+      fontScale: prefs.fontScale,
+    }).catch(() => {});
+  }, [prefs.theme, prefs.accent, prefs.fontScale]);
 
   // Keep connection status fresh when the app returns to the foreground, and
   // replay any offline-queued writes for still-connected servers (foreground

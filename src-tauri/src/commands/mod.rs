@@ -19,6 +19,7 @@ pub mod update;
 pub mod vault;
 pub mod watcher;
 pub mod web;
+pub mod widgets;
 
 use std::path::PathBuf;
 // `Path` is only used by the non-Android `app_config_dir`; importing it

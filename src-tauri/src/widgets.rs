@@ -1,83 +1,1127 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
-const AGENDA_SCHEMA_VERSION: u32 = 1;
+pub(crate) const WIDGET_SCHEMA_VERSION: u32 = 1;
+#[cfg(any(target_os = "android", test))]
 const MAX_DATE_LABEL_BYTES: usize = 32;
+const MAX_TEXT_BYTES: usize = 160;
+const MAX_ID_BYTES: usize = 128;
+const MAX_CONFIGURATIONS: usize = 32;
+const MAX_CONFIGURATION_TOMBSTONES: usize = 128;
+const MAX_SOURCE_IDS: usize = 64;
+const MAX_SNAPSHOT_ITEMS: usize = 24;
+const MAX_STORE_BYTES: u64 = 64 * 1024;
 const MAX_SNAPSHOT_BYTES: usize = 16_384;
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-struct AgendaPreviewItem<'a> {
-    title: &'a str,
-    detail: &'a str,
+static STORE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn store_lock() -> &'static Mutex<()> {
+    STORE_LOCK.get_or_init(|| Mutex::new(()))
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-struct AgendaPreviewSnapshot<'a> {
+pub(crate) enum WidgetKind {
+    Agenda,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum WidgetPrivacy {
+    Full,
+    TitleOnly,
+    Private,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum WidgetFreshness {
+    Fresh,
+    Stale,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetDisplayOptions {
+    #[serde(default = "default_horizon_days")]
+    pub horizon_days: u8,
+    #[serde(default = "default_max_items")]
+    pub max_items: u8,
+    #[serde(default)]
+    pub show_completed: bool,
+}
+
+fn default_horizon_days() -> u8 {
+    7
+}
+
+fn default_max_items() -> u8 {
+    6
+}
+
+impl Default for WidgetDisplayOptions {
+    fn default() -> Self {
+        Self {
+            horizon_days: default_horizon_days(),
+            max_items: default_max_items(),
+            show_completed: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetActionOptions {
+    #[serde(default)]
+    pub open_item: bool,
+    #[serde(default)]
+    pub toggle_task: bool,
+}
+
+impl Default for WidgetActionOptions {
+    fn default() -> Self {
+        Self {
+            open_item: true,
+            toggle_task: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetConfiguration {
+    #[serde(default = "widget_schema_version")]
+    pub schema_version: u32,
+    pub configuration_id: String,
+    pub kind: WidgetKind,
+    #[serde(default)]
+    pub selected_source_ids: Vec<String>,
+    pub privacy: WidgetPrivacy,
+    #[serde(default)]
+    pub display: WidgetDisplayOptions,
+    #[serde(default)]
+    pub actions: WidgetActionOptions,
+    pub updated_at: String,
+}
+
+fn widget_schema_version() -> u32 {
+    WIDGET_SCHEMA_VERSION
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetSourceFreshness {
+    pub source_id: String,
+    pub freshness: WidgetFreshness,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetItemInput {
+    pub stable_id: String,
+    pub source_id: String,
+    pub sort_key: String,
+    pub title: String,
+    #[serde(default)]
+    pub detail: String,
+    #[serde(default)]
+    pub completed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetSnapshotItem {
+    pub stable_id: String,
+    pub title: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetSnapshot {
+    pub schema_version: u32,
+    pub profile_id_hash: String,
+    pub configuration_id: String,
+    pub kind: WidgetKind,
+    pub generated_at: String,
+    pub date_label: String,
+    pub state_label: String,
+    pub freshness: Vec<WidgetSourceFreshness>,
+    pub items: Vec<WidgetSnapshotItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetBuildRequest {
+    pub configuration: WidgetConfiguration,
+    pub generated_at: String,
+    pub date_label: String,
+    #[serde(default)]
+    pub freshness: Vec<WidgetSourceFreshness>,
+    #[serde(default)]
+    pub items: Vec<WidgetItemInput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetPublishOutcome {
+    pub changed: bool,
+    pub snapshot: WidgetSnapshot,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum WidgetActionKind {
+    OpenAgenda,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetActionRequest {
+    pub configuration_id: String,
+    pub action: WidgetActionKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetPreparedAction {
+    pub configuration_id: String,
+    pub destination_kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetAppearanceSnapshot {
+    pub schema_version: u32,
+    pub theme: String,
+    pub accent: String,
+    pub font_scale: f32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ActiveWidgetProfile {
     schema_version: u32,
-    date_label: &'a str,
-    state_label: &'a str,
-    items: [AgendaPreviewItem<'a>; 3],
+    profile_id: String,
 }
 
-/// Builds the deliberately non-private Phase 0 payload used to prove the
-/// Rust-to-JNI publication path. Phase 1 replaces these preview rows with
-/// profile-scoped calendar selection while preserving this bounded envelope.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WidgetConfigurationDocument {
+    schema_version: u32,
+    revision: u64,
+    configurations: Vec<WidgetConfiguration>,
+    #[serde(default)]
+    deleted_configuration_ids: Vec<String>,
+}
+
+impl Default for WidgetConfigurationDocument {
+    fn default() -> Self {
+        Self {
+            schema_version: WIDGET_SCHEMA_VERSION,
+            revision: 0,
+            configurations: Vec::new(),
+            deleted_configuration_ids: Vec::new(),
+        }
+    }
+}
+
+pub(crate) struct WidgetStore {
+    profile_dir: PathBuf,
+    profile_id_hash: String,
+}
+
+impl WidgetStore {
+    pub(crate) fn open(config_root: &Path, profile_id: &str) -> Result<Self, String> {
+        validate_identifier(profile_id, "profile")?;
+        let profile_id_hash = profile_hash(profile_id);
+        Ok(Self {
+            profile_dir: config_root
+                .join("widgets")
+                .join("profiles")
+                .join(&profile_id_hash),
+            profile_id_hash,
+        })
+    }
+
+    pub(crate) fn list_configurations(&self) -> Result<Vec<WidgetConfiguration>, String> {
+        let _guard = store_lock().lock().map_err(|_| store_error())?;
+        Ok(self.read_configuration_document()?.configurations)
+    }
+
+    pub(crate) fn save_configuration(
+        &self,
+        configuration: WidgetConfiguration,
+    ) -> Result<WidgetConfiguration, String> {
+        validate_configuration(&configuration)?;
+        let _guard = store_lock().lock().map_err(|_| store_error())?;
+        let mut document = self.read_configuration_document()?;
+        if document
+            .deleted_configuration_ids
+            .iter()
+            .any(|id| id == &configuration.configuration_id)
+        {
+            return Err("The widget configuration was removed and cannot be restored.".into());
+        }
+        if let Some(existing) = document
+            .configurations
+            .iter_mut()
+            .find(|entry| entry.configuration_id == configuration.configuration_id)
+        {
+            *existing = configuration.clone();
+        } else {
+            if document.configurations.len() >= MAX_CONFIGURATIONS {
+                return Err("Too many widget configurations are stored for this profile.".into());
+            }
+            document.configurations.push(configuration.clone());
+        }
+        document
+            .configurations
+            .sort_by(|left, right| left.configuration_id.cmp(&right.configuration_id));
+        document.revision = document.revision.saturating_add(1);
+        self.write_configuration_document(&document)?;
+        Ok(configuration)
+    }
+
+    pub(crate) fn delete_configuration(&self, configuration_id: &str) -> Result<bool, String> {
+        validate_identifier(configuration_id, "widget configuration")?;
+        let _guard = store_lock().lock().map_err(|_| store_error())?;
+        let mut document = self.read_configuration_document()?;
+        let before = document.configurations.len();
+        document
+            .configurations
+            .retain(|entry| entry.configuration_id != configuration_id);
+        let removed = document.configurations.len() != before;
+        if removed {
+            if !document
+                .deleted_configuration_ids
+                .iter()
+                .any(|id| id == configuration_id)
+            {
+                document
+                    .deleted_configuration_ids
+                    .push(configuration_id.to_string());
+                if document.deleted_configuration_ids.len() > MAX_CONFIGURATION_TOMBSTONES {
+                    document.deleted_configuration_ids.remove(0);
+                }
+            }
+            document.revision = document.revision.saturating_add(1);
+            self.write_configuration_document(&document)?;
+        }
+        let snapshot_path = self.snapshot_path(configuration_id);
+        if snapshot_path.exists() {
+            fs::remove_file(snapshot_path).map_err(|_| store_error())?;
+        }
+        Ok(removed)
+    }
+
+    pub(crate) fn publish(&self, snapshot: WidgetSnapshot) -> Result<WidgetPublishOutcome, String> {
+        validate_snapshot(&snapshot, &self.profile_id_hash)?;
+        let _guard = store_lock().lock().map_err(|_| store_error())?;
+        let document = self.read_configuration_document()?;
+        if !document
+            .configurations
+            .iter()
+            .any(|entry| entry.configuration_id == snapshot.configuration_id)
+        {
+            return Err("The widget configuration no longer exists.".into());
+        }
+        let path = self.snapshot_path(&snapshot.configuration_id);
+        if let Some(existing) =
+            read_json_optional::<WidgetSnapshot>(&path, MAX_SNAPSHOT_BYTES as u64)?
+        {
+            if snapshot_content_eq(&existing, &snapshot) {
+                return Ok(WidgetPublishOutcome {
+                    changed: false,
+                    snapshot: existing,
+                });
+            }
+        }
+        let encoded = encode_bounded(&snapshot, MAX_SNAPSHOT_BYTES)?;
+        atomic_replace(&path, &encoded)?;
+        Ok(WidgetPublishOutcome {
+            changed: true,
+            snapshot,
+        })
+    }
+
+    pub(crate) fn read_snapshot(
+        &self,
+        configuration_id: &str,
+    ) -> Result<Option<WidgetSnapshot>, String> {
+        validate_identifier(configuration_id, "widget configuration")?;
+        let _guard = store_lock().lock().map_err(|_| store_error())?;
+        let snapshot = read_json_optional(
+            &self.snapshot_path(configuration_id),
+            MAX_SNAPSHOT_BYTES as u64,
+        )?;
+        if let Some(snapshot) = &snapshot {
+            validate_snapshot(snapshot, &self.profile_id_hash)?;
+        }
+        Ok(snapshot)
+    }
+
+    pub(crate) fn prepare_action(
+        &self,
+        request: WidgetActionRequest,
+    ) -> Result<WidgetPreparedAction, String> {
+        validate_identifier(&request.configuration_id, "widget configuration")?;
+        let _guard = store_lock().lock().map_err(|_| store_error())?;
+        let document = self.read_configuration_document()?;
+        let configuration = document
+            .configurations
+            .iter()
+            .find(|entry| entry.configuration_id == request.configuration_id)
+            .ok_or_else(|| "The widget configuration no longer exists.".to_string())?;
+        let destination_kind = match (configuration.kind, request.action) {
+            (WidgetKind::Agenda, WidgetActionKind::OpenAgenda) => "calendar-today",
+        };
+        Ok(WidgetPreparedAction {
+            configuration_id: request.configuration_id,
+            destination_kind: destination_kind.into(),
+        })
+    }
+
+    pub(crate) fn cleanup_profile(self) -> Result<(), String> {
+        let _guard = store_lock().lock().map_err(|_| store_error())?;
+        if self.profile_dir.exists() {
+            fs::remove_dir_all(self.profile_dir).map_err(|_| store_error())?;
+        }
+        Ok(())
+    }
+
+    fn read_configuration_document(&self) -> Result<WidgetConfigurationDocument, String> {
+        let path = self.profile_dir.join("configurations.json");
+        let Some(raw) = read_bounded_optional(&path, MAX_STORE_BYTES)? else {
+            return Ok(WidgetConfigurationDocument::default());
+        };
+        let mut document = match serde_json::from_slice::<WidgetConfigurationDocument>(&raw) {
+            Ok(document) => document,
+            Err(_) => {
+                // Phase 1 migration: early development builds wrote a bare
+                // configuration array before the versioned document landed.
+                let configurations: Vec<WidgetConfiguration> = serde_json::from_slice(&raw)
+                    .map_err(|_| "The widget configuration store is invalid.".to_string())?;
+                WidgetConfigurationDocument {
+                    schema_version: WIDGET_SCHEMA_VERSION,
+                    revision: 0,
+                    configurations,
+                    deleted_configuration_ids: Vec::new(),
+                }
+            }
+        };
+        if document.schema_version != WIDGET_SCHEMA_VERSION {
+            return Err("The widget configuration store uses an unsupported schema.".into());
+        }
+        if document.configurations.len() > MAX_CONFIGURATIONS {
+            return Err("The widget configuration store exceeds its item limit.".into());
+        }
+        if document.deleted_configuration_ids.len() > MAX_CONFIGURATION_TOMBSTONES {
+            return Err("The widget configuration store exceeds its tombstone limit.".into());
+        }
+        for configuration_id in &document.deleted_configuration_ids {
+            validate_identifier(configuration_id, "widget configuration")?;
+        }
+        for configuration in &mut document.configurations {
+            configuration.schema_version = WIDGET_SCHEMA_VERSION;
+            validate_configuration(configuration)?;
+        }
+        document
+            .configurations
+            .sort_by(|left, right| left.configuration_id.cmp(&right.configuration_id));
+        Ok(document)
+    }
+
+    fn write_configuration_document(
+        &self,
+        document: &WidgetConfigurationDocument,
+    ) -> Result<(), String> {
+        let encoded = encode_bounded(document, MAX_STORE_BYTES as usize)?;
+        atomic_replace(&self.profile_dir.join("configurations.json"), &encoded)
+    }
+
+    fn snapshot_path(&self, configuration_id: &str) -> PathBuf {
+        self.profile_dir
+            .join("snapshots")
+            .join(format!("{configuration_id}.json"))
+    }
+}
+
+pub(crate) fn set_active_profile(config_root: &Path, profile_id: &str) -> Result<(), String> {
+    validate_identifier(profile_id, "profile")?;
+    let _guard = store_lock().lock().map_err(|_| store_error())?;
+    let encoded = encode_bounded(
+        &ActiveWidgetProfile {
+            schema_version: WIDGET_SCHEMA_VERSION,
+            profile_id: profile_id.into(),
+        },
+        1024,
+    )?;
+    atomic_replace(
+        &config_root.join("widgets").join("active-profile.json"),
+        &encoded,
+    )
+}
+
+pub(crate) fn save_appearance(
+    config_root: &Path,
+    appearance: WidgetAppearanceSnapshot,
+) -> Result<WidgetAppearanceSnapshot, String> {
+    validate_appearance(&appearance)?;
+    let _guard = store_lock().lock().map_err(|_| store_error())?;
+    let encoded = encode_bounded(&appearance, 1024)?;
+    atomic_replace(
+        &config_root.join("widgets").join("appearance.json"),
+        &encoded,
+    )?;
+    Ok(appearance)
+}
+
+#[allow(dead_code)]
+pub(crate) fn read_appearance(
+    config_root: &Path,
+) -> Result<Option<WidgetAppearanceSnapshot>, String> {
+    let _guard = store_lock().lock().map_err(|_| store_error())?;
+    let appearance = read_json_optional::<WidgetAppearanceSnapshot>(
+        &config_root.join("widgets").join("appearance.json"),
+        1024,
+    )?;
+    if let Some(appearance) = &appearance {
+        validate_appearance(appearance)?;
+    }
+    Ok(appearance)
+}
+
+#[allow(dead_code)]
+pub(crate) fn active_profile(config_root: &Path) -> Result<Option<String>, String> {
+    let _guard = store_lock().lock().map_err(|_| store_error())?;
+    let Some(profile) = read_json_optional::<ActiveWidgetProfile>(
+        &config_root.join("widgets").join("active-profile.json"),
+        1024,
+    )?
+    else {
+        return Ok(None);
+    };
+    if profile.schema_version != WIDGET_SCHEMA_VERSION {
+        return Err("The active widget profile uses an unsupported schema.".into());
+    }
+    validate_identifier(&profile.profile_id, "profile")?;
+    Ok(Some(profile.profile_id))
+}
+
+pub(crate) fn clear_active_profile(
+    config_root: &Path,
+    expected_profile_id: &str,
+) -> Result<bool, String> {
+    validate_identifier(expected_profile_id, "profile")?;
+    let _guard = store_lock().lock().map_err(|_| store_error())?;
+    let path = config_root.join("widgets").join("active-profile.json");
+    let Some(profile) = read_json_optional::<ActiveWidgetProfile>(&path, 1024)? else {
+        return Ok(false);
+    };
+    if profile.profile_id != expected_profile_id {
+        return Ok(false);
+    }
+    fs::remove_file(path).map_err(|_| store_error())?;
+    Ok(true)
+}
+
+pub(crate) fn build_snapshot(
+    profile_id: &str,
+    request: WidgetBuildRequest,
+) -> Result<WidgetSnapshot, String> {
+    validate_identifier(profile_id, "profile")?;
+    validate_configuration(&request.configuration)?;
+    validate_text(&request.generated_at, MAX_TEXT_BYTES, "generation time")?;
+    validate_text(&request.date_label, MAX_TEXT_BYTES, "date label")?;
+    if request.items.len() > MAX_SNAPSHOT_ITEMS * 4 {
+        return Err("Too many candidate widget items were supplied.".into());
+    }
+    if request.freshness.len() > MAX_SOURCE_IDS {
+        return Err("Too many widget freshness records were supplied.".into());
+    }
+
+    let selected: HashSet<&str> = request
+        .configuration
+        .selected_source_ids
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let mut freshness: Vec<_> = request
+        .freshness
+        .into_iter()
+        .filter(|entry| selected.is_empty() || selected.contains(entry.source_id.as_str()))
+        .collect();
+    freshness.sort_by(|left, right| left.source_id.cmp(&right.source_id));
+    freshness.dedup_by(|left, right| left.source_id == right.source_id);
+    for entry in &freshness {
+        validate_identifier(&entry.source_id, "widget source")?;
+    }
+
+    let mut candidates: Vec<_> = request
+        .items
+        .into_iter()
+        .filter(|item| selected.is_empty() || selected.contains(item.source_id.as_str()))
+        .filter(|item| request.configuration.display.show_completed || !item.completed)
+        .collect();
+    for item in &candidates {
+        validate_identifier(&item.stable_id, "widget item")?;
+        validate_identifier(&item.source_id, "widget source")?;
+        validate_text(&item.sort_key, MAX_TEXT_BYTES, "widget item sort key")?;
+        validate_text(&item.title, MAX_TEXT_BYTES, "widget item title")?;
+        if !item.detail.is_empty() {
+            validate_text(&item.detail, MAX_TEXT_BYTES, "widget item detail")?;
+        }
+    }
+    candidates.sort_by(|left, right| {
+        left.sort_key
+            .cmp(&right.sort_key)
+            .then_with(|| left.stable_id.cmp(&right.stable_id))
+    });
+    candidates.truncate(usize::from(request.configuration.display.max_items));
+    let items = candidates
+        .into_iter()
+        .map(|item| reduce_item(item, request.configuration.privacy))
+        .collect::<Vec<_>>();
+
+    let stale = freshness
+        .iter()
+        .filter(|entry| entry.freshness == WidgetFreshness::Stale)
+        .count();
+    let unavailable = freshness
+        .iter()
+        .filter(|entry| entry.freshness == WidgetFreshness::Unavailable)
+        .count();
+    let state_label = if unavailable > 0 {
+        "Some sources unavailable"
+    } else if stale > 0 {
+        "Some sources may be stale"
+    } else if items.is_empty() {
+        "Nothing upcoming"
+    } else {
+        "Up to date"
+    };
+    let snapshot = WidgetSnapshot {
+        schema_version: WIDGET_SCHEMA_VERSION,
+        profile_id_hash: profile_hash(profile_id),
+        configuration_id: request.configuration.configuration_id,
+        kind: request.configuration.kind,
+        generated_at: request.generated_at,
+        date_label: request.date_label,
+        state_label: state_label.into(),
+        freshness,
+        items,
+    };
+    validate_snapshot(&snapshot, &snapshot.profile_id_hash)?;
+    encode_bounded(&snapshot, MAX_SNAPSHOT_BYTES)?;
+    Ok(snapshot)
+}
+
+fn reduce_item(item: WidgetItemInput, privacy: WidgetPrivacy) -> WidgetSnapshotItem {
+    match privacy {
+        WidgetPrivacy::Full => WidgetSnapshotItem {
+            stable_id: item.stable_id,
+            title: item.title,
+            detail: item.detail,
+        },
+        WidgetPrivacy::TitleOnly => WidgetSnapshotItem {
+            stable_id: item.stable_id,
+            title: item.title,
+            detail: String::new(),
+        },
+        WidgetPrivacy::Private => WidgetSnapshotItem {
+            stable_id: item.stable_id,
+            title: "Private item".into(),
+            detail: String::new(),
+        },
+    }
+}
+
+fn validate_configuration(configuration: &WidgetConfiguration) -> Result<(), String> {
+    if configuration.schema_version != WIDGET_SCHEMA_VERSION {
+        return Err("The widget configuration uses an unsupported schema.".into());
+    }
+    validate_identifier(&configuration.configuration_id, "widget configuration")?;
+    validate_text(
+        &configuration.updated_at,
+        MAX_TEXT_BYTES,
+        "widget update time",
+    )?;
+    if configuration.selected_source_ids.len() > MAX_SOURCE_IDS {
+        return Err("Too many widget sources were selected.".into());
+    }
+    let mut unique = HashSet::new();
+    for source_id in &configuration.selected_source_ids {
+        validate_identifier(source_id, "widget source")?;
+        if !unique.insert(source_id) {
+            return Err("A widget source was selected more than once.".into());
+        }
+    }
+    if !(1..=31).contains(&configuration.display.horizon_days) {
+        return Err("Widget horizon must be between 1 and 31 days.".into());
+    }
+    if !(1..=MAX_SNAPSHOT_ITEMS as u8).contains(&configuration.display.max_items) {
+        return Err(format!(
+            "Widget item limit must be between 1 and {MAX_SNAPSHOT_ITEMS}."
+        ));
+    }
+    Ok(())
+}
+
+fn validate_appearance(appearance: &WidgetAppearanceSnapshot) -> Result<(), String> {
+    if appearance.schema_version != WIDGET_SCHEMA_VERSION
+        || !matches!(
+            appearance.theme.as_str(),
+            "dark" | "midnight" | "warm" | "light"
+        )
+        || !matches!(
+            appearance.accent.as_str(),
+            "violet" | "blue" | "emerald" | "rose" | "orange" | "cyan"
+        )
+        || !appearance.font_scale.is_finite()
+        || !(0.85..=1.3).contains(&appearance.font_scale)
+    {
+        return Err("The widget appearance settings are invalid.".into());
+    }
+    Ok(())
+}
+
+fn validate_snapshot(snapshot: &WidgetSnapshot, expected_profile_hash: &str) -> Result<(), String> {
+    if snapshot.schema_version != WIDGET_SCHEMA_VERSION
+        || snapshot.profile_id_hash != expected_profile_hash
+    {
+        return Err("The widget snapshot does not belong to this profile.".into());
+    }
+    validate_identifier(&snapshot.configuration_id, "widget configuration")?;
+    validate_text(&snapshot.generated_at, MAX_TEXT_BYTES, "generation time")?;
+    validate_text(&snapshot.date_label, MAX_TEXT_BYTES, "date label")?;
+    validate_text(&snapshot.state_label, MAX_TEXT_BYTES, "state label")?;
+    if snapshot.items.len() > MAX_SNAPSHOT_ITEMS || snapshot.freshness.len() > MAX_SOURCE_IDS {
+        return Err("The widget snapshot exceeds its item limit.".into());
+    }
+    for item in &snapshot.items {
+        validate_identifier(&item.stable_id, "widget item")?;
+        validate_text(&item.title, MAX_TEXT_BYTES, "widget item title")?;
+        if !item.detail.is_empty() {
+            validate_text(&item.detail, MAX_TEXT_BYTES, "widget item detail")?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_identifier(value: &str, label: &str) -> Result<(), String> {
+    if value.is_empty()
+        || value.len() > MAX_ID_BYTES
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+    {
+        return Err(format!("The {label} identifier is invalid."));
+    }
+    Ok(())
+}
+
+fn validate_text(value: &str, max_bytes: usize, label: &str) -> Result<(), String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || value.len() > max_bytes || value.chars().any(char::is_control) {
+        return Err(format!("The {label} is invalid."));
+    }
+    Ok(())
+}
+
+fn profile_hash(profile_id: &str) -> String {
+    let digest = Sha256::digest(profile_id.as_bytes());
+    hex::encode(&digest[..16])
+}
+
+fn snapshot_content_eq(left: &WidgetSnapshot, right: &WidgetSnapshot) -> bool {
+    left.schema_version == right.schema_version
+        && left.profile_id_hash == right.profile_id_hash
+        && left.configuration_id == right.configuration_id
+        && left.kind == right.kind
+        && left.date_label == right.date_label
+        && left.state_label == right.state_label
+        && left.freshness == right.freshness
+        && left.items == right.items
+}
+
+fn encode_bounded<T: Serialize>(value: &T, max_bytes: usize) -> Result<Vec<u8>, String> {
+    let encoded = serde_json::to_vec(value).map_err(|_| store_error())?;
+    if encoded.len() > max_bytes {
+        return Err("The widget data exceeded its size limit.".into());
+    }
+    Ok(encoded)
+}
+
+fn read_bounded_optional(path: &Path, max_bytes: u64) -> Result<Option<Vec<u8>>, String> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(store_error()),
+    };
+    if file.metadata().map_err(|_| store_error())?.len() > max_bytes {
+        return Err("The widget data exceeded its size limit.".into());
+    }
+    let mut bytes = Vec::new();
+    file.take(max_bytes + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| store_error())?;
+    if bytes.len() as u64 > max_bytes {
+        return Err("The widget data exceeded its size limit.".into());
+    }
+    Ok(Some(bytes))
+}
+
+fn read_json_optional<T: for<'de> Deserialize<'de>>(
+    path: &Path,
+    max_bytes: u64,
+) -> Result<Option<T>, String> {
+    read_bounded_optional(path, max_bytes)?
+        .map(|bytes| serde_json::from_slice(&bytes).map_err(|_| store_error()))
+        .transpose()
+}
+
+fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let parent = path.parent().ok_or_else(store_error)?;
+    fs::create_dir_all(parent).map_err(|_| store_error())?;
+    let temporary = parent.join(format!(
+        ".{}.{}.tmp",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("widget"),
+        uuid::Uuid::new_v4()
+    ));
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|_| store_error())?;
+        file.write_all(bytes).map_err(|_| store_error())?;
+        file.sync_all().map_err(|_| store_error())?;
+        fs::rename(&temporary, path).map_err(|_| store_error())?;
+        if let Ok(directory) = File::open(parent) {
+            let _ = directory.sync_all();
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn store_error() -> String {
+    "The native widget store could not complete the operation.".into()
+}
+
+/// Builds the deliberately non-private Phase 0 payload used only when Android
+/// has no profile/configuration binding yet.
+#[cfg(any(target_os = "android", test))]
 pub(crate) fn build_phase0_agenda_preview(date_label: &str) -> Result<String, String> {
-    let date_label = date_label.trim();
-    if date_label.is_empty()
+    if date_label.trim().is_empty()
         || date_label.len() > MAX_DATE_LABEL_BYTES
         || date_label.chars().any(char::is_control)
     {
-        return Err("The agenda widget date label is invalid.".to_string());
+        return Err("The agenda widget date label is invalid.".into());
     }
-    let snapshot = AgendaPreviewSnapshot {
-        schema_version: AGENDA_SCHEMA_VERSION,
-        date_label,
-        state_label: "Phase 0 native preview",
-        items: [
-            AgendaPreviewItem {
-                title: "Design review",
-                detail: "09:30 · Event",
-            },
-            AgendaPreviewItem {
-                title: "Project follow-up",
-                detail: "Today · Task",
-            },
-            AgendaPreviewItem {
-                title: "Team planning",
-                detail: "Tomorrow · Event",
-            },
-        ],
+    let configuration = WidgetConfiguration {
+        schema_version: WIDGET_SCHEMA_VERSION,
+        configuration_id: "phase0-bootstrap".into(),
+        kind: WidgetKind::Agenda,
+        selected_source_ids: Vec::new(),
+        privacy: WidgetPrivacy::Full,
+        display: WidgetDisplayOptions {
+            max_items: 6,
+            ..WidgetDisplayOptions::default()
+        },
+        actions: WidgetActionOptions::default(),
+        updated_at: date_label.into(),
     };
-    let encoded = serde_json::to_string(&snapshot)
-        .map_err(|error| format!("Could not encode the agenda widget preview: {error}"))?;
-    if encoded.len() > MAX_SNAPSHOT_BYTES {
-        return Err("The agenda widget preview exceeded its size limit.".to_string());
+    let snapshot = build_snapshot(
+        "phase0-bootstrap-profile",
+        WidgetBuildRequest {
+            configuration,
+            generated_at: date_label.into(),
+            date_label: date_label.into(),
+            freshness: Vec::new(),
+            items: vec![
+                preview_item("preview-1", "Design review", "09:30 · Event", "1"),
+                preview_item("preview-2", "Project follow-up", "Today · Task", "2"),
+                preview_item("preview-3", "Team planning", "Tomorrow · Event", "3"),
+            ],
+        },
+    )?;
+    let legacy = serde_json::json!({
+        "schemaVersion": WIDGET_SCHEMA_VERSION,
+        "dateLabel": snapshot.date_label,
+        "stateLabel": "Phase 0 native preview",
+        "items": snapshot.items,
+    });
+    String::from_utf8(encode_bounded(&legacy, MAX_SNAPSHOT_BYTES)?)
+        .map_err(|_| "Could not encode the agenda widget preview.".into())
+}
+
+#[cfg(any(target_os = "android", test))]
+fn preview_item(stable_id: &str, title: &str, detail: &str, sort_key: &str) -> WidgetItemInput {
+    WidgetItemInput {
+        stable_id: stable_id.into(),
+        source_id: "preview".into(),
+        sort_key: sort_key.into(),
+        title: title.into(),
+        detail: detail.into(),
+        completed: false,
     }
-    Ok(encoded)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
-    #[test]
-    fn phase0_preview_is_versioned_bounded_and_content_safe() {
-        let encoded = build_phase0_agenda_preview("2026-08-01").unwrap();
-        assert!(encoded.len() <= MAX_SNAPSHOT_BYTES);
-        assert!(!encoded.contains("http"));
-        assert!(!encoded.to_lowercase().contains("token"));
-        let value: serde_json::Value = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(value["schemaVersion"], AGENDA_SCHEMA_VERSION);
-        assert_eq!(value["dateLabel"], "2026-08-01");
-        assert_eq!(value["items"].as_array().unwrap().len(), 3);
+    static TEST_ID: AtomicU64 = AtomicU64::new(1);
+
+    fn test_root() -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "collab-widget-test-{}-{}",
+            std::process::id(),
+            TEST_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn configuration(id: &str, privacy: WidgetPrivacy) -> WidgetConfiguration {
+        WidgetConfiguration {
+            schema_version: WIDGET_SCHEMA_VERSION,
+            configuration_id: id.into(),
+            kind: WidgetKind::Agenda,
+            selected_source_ids: vec!["calendar-a".into(), "calendar-b".into()],
+            privacy,
+            display: WidgetDisplayOptions::default(),
+            actions: WidgetActionOptions::default(),
+            updated_at: "2026-08-01T10:00:00Z".into(),
+        }
+    }
+
+    fn request(configuration: WidgetConfiguration, generated_at: &str) -> WidgetBuildRequest {
+        WidgetBuildRequest {
+            configuration,
+            generated_at: generated_at.into(),
+            date_label: "Today".into(),
+            freshness: vec![
+                WidgetSourceFreshness {
+                    source_id: "calendar-b".into(),
+                    freshness: WidgetFreshness::Stale,
+                },
+                WidgetSourceFreshness {
+                    source_id: "calendar-a".into(),
+                    freshness: WidgetFreshness::Fresh,
+                },
+            ],
+            items: vec![
+                WidgetItemInput {
+                    stable_id: "later".into(),
+                    source_id: "calendar-a".into(),
+                    sort_key: "2026-08-01T12:00:00Z".into(),
+                    title: "Later".into(),
+                    detail: "Room B".into(),
+                    completed: false,
+                },
+                WidgetItemInput {
+                    stable_id: "earlier".into(),
+                    source_id: "calendar-b".into(),
+                    sort_key: "2026-08-01T08:00:00Z".into(),
+                    title: "Earlier".into(),
+                    detail: "Room A".into(),
+                    completed: false,
+                },
+            ],
+        }
     }
 
     #[test]
-    fn phase0_preview_rejects_unbounded_or_control_text() {
-        assert!(build_phase0_agenda_preview("").is_err());
-        assert!(build_phase0_agenda_preview("today\nprivate").is_err());
+    fn snapshot_is_deterministic_and_reports_mixed_freshness() {
+        let snapshot = build_snapshot(
+            "profile-1",
+            request(
+                configuration("config-1", WidgetPrivacy::Full),
+                "2026-08-01T10:00:00Z",
+            ),
+        )
+        .unwrap();
+        assert_eq!(snapshot.items[0].stable_id, "earlier");
+        assert_eq!(snapshot.freshness[0].source_id, "calendar-a");
+        assert_eq!(snapshot.state_label, "Some sources may be stale");
+        assert!(serde_json::to_vec(&snapshot).unwrap().len() <= MAX_SNAPSHOT_BYTES);
+    }
+
+    #[test]
+    fn privacy_reduction_happens_before_persistence() {
+        let title_only = build_snapshot(
+            "profile-1",
+            request(
+                configuration("config-1", WidgetPrivacy::TitleOnly),
+                "2026-08-01T10:00:00Z",
+            ),
+        )
+        .unwrap();
+        assert_eq!(title_only.items[0].title, "Earlier");
+        assert_eq!(title_only.items[0].detail, "");
+        let private = build_snapshot(
+            "profile-1",
+            request(
+                configuration("config-1", WidgetPrivacy::Private),
+                "2026-08-01T10:00:00Z",
+            ),
+        )
+        .unwrap();
+        assert!(private
+            .items
+            .iter()
+            .all(|item| item.title == "Private item"));
+        assert!(!serde_json::to_string(&private).unwrap().contains("Room A"));
+    }
+
+    #[test]
+    fn store_migrates_bare_configuration_array_and_orders_it() {
+        let root = test_root();
+        let store = WidgetStore::open(&root, "profile-1").unwrap();
+        fs::create_dir_all(&store.profile_dir).unwrap();
+        fs::write(
+            store.profile_dir.join("configurations.json"),
+            serde_json::to_vec(&vec![
+                configuration("config-b", WidgetPrivacy::Full),
+                configuration("config-a", WidgetPrivacy::Full),
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+        let listed = store.list_configurations().unwrap();
+        assert_eq!(listed[0].configuration_id, "config-a");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn identical_publish_is_idempotent_and_delete_prevents_resurrection() {
+        let root = test_root();
+        let store = WidgetStore::open(&root, "profile-1").unwrap();
+        let config = store
+            .save_configuration(configuration("config-1", WidgetPrivacy::Full))
+            .unwrap();
+        let first = build_snapshot("profile-1", request(config.clone(), "first")).unwrap();
+        assert!(store.publish(first).unwrap().changed);
+        let second = build_snapshot("profile-1", request(config, "second")).unwrap();
+        let outcome = store.publish(second.clone()).unwrap();
+        assert!(!outcome.changed);
+        assert_eq!(outcome.snapshot.generated_at, "first");
+        assert!(store.delete_configuration("config-1").unwrap());
+        assert!(store.publish(second).is_err());
+        assert!(store
+            .save_configuration(configuration("config-1", WidgetPrivacy::Full))
+            .is_err());
+        assert!(store.read_snapshot("config-1").unwrap().is_none());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn profiles_are_isolated_and_cleanup_removes_only_one_profile() {
+        let root = test_root();
+        let one = WidgetStore::open(&root, "profile-1").unwrap();
+        let two = WidgetStore::open(&root, "profile-2").unwrap();
+        one.save_configuration(configuration("config-1", WidgetPrivacy::Full))
+            .unwrap();
+        two.save_configuration(configuration("config-2", WidgetPrivacy::Full))
+            .unwrap();
+        one.cleanup_profile().unwrap();
+        assert!(WidgetStore::open(&root, "profile-1")
+            .unwrap()
+            .list_configurations()
+            .unwrap()
+            .is_empty());
+        assert_eq!(two.list_configurations().unwrap().len(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn active_profile_is_bounded_and_round_trips() {
+        let root = test_root();
+        assert_eq!(active_profile(&root).unwrap(), None);
+        set_active_profile(&root, "profile-1").unwrap();
+        assert_eq!(active_profile(&root).unwrap().as_deref(), Some("profile-1"));
+        assert!(set_active_profile(&root, "../other-profile").is_err());
+        assert!(clear_active_profile(&root, "profile-1").unwrap());
+        assert_eq!(active_profile(&root).unwrap(), None);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn item_and_size_limits_are_enforced() {
+        let mut config = configuration("config-1", WidgetPrivacy::Full);
+        config.display.max_items = MAX_SNAPSHOT_ITEMS as u8 + 1;
+        assert!(build_snapshot("profile-1", request(config, "now")).is_err());
+        let encoded = build_phase0_agenda_preview("2026-08-01").unwrap();
+        assert!(encoded.len() <= MAX_SNAPSHOT_BYTES);
         assert!(build_phase0_agenda_preview(&"x".repeat(MAX_DATE_LABEL_BYTES + 1)).is_err());
+    }
+
+    #[test]
+    fn action_preparation_is_configuration_scoped_and_allowlisted() {
+        let root = test_root();
+        let store = WidgetStore::open(&root, "profile-1").unwrap();
+        store
+            .save_configuration(configuration("config-1", WidgetPrivacy::Full))
+            .unwrap();
+        let action = store
+            .prepare_action(WidgetActionRequest {
+                configuration_id: "config-1".into(),
+                action: WidgetActionKind::OpenAgenda,
+            })
+            .unwrap();
+        assert_eq!(action.destination_kind, "calendar-today");
+        assert!(store
+            .prepare_action(WidgetActionRequest {
+                configuration_id: "missing".into(),
+                action: WidgetActionKind::OpenAgenda,
+            })
+            .is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn appearance_snapshot_is_bounded_validated_and_replaced() {
+        let root = test_root();
+        let first = WidgetAppearanceSnapshot {
+            schema_version: WIDGET_SCHEMA_VERSION,
+            theme: "dark".into(),
+            accent: "violet".into(),
+            font_scale: 1.0,
+        };
+        save_appearance(&root, first).unwrap();
+        let second = WidgetAppearanceSnapshot {
+            schema_version: WIDGET_SCHEMA_VERSION,
+            theme: "light".into(),
+            accent: "cyan".into(),
+            font_scale: 1.25,
+        };
+        save_appearance(&root, second.clone()).unwrap();
+        assert_eq!(read_appearance(&root).unwrap(), Some(second));
+        assert!(save_appearance(
+            &root,
+            WidgetAppearanceSnapshot {
+                schema_version: WIDGET_SCHEMA_VERSION,
+                theme: "unknown".into(),
+                accent: "violet".into(),
+                font_scale: 1.0,
+            },
+        )
+        .is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 }

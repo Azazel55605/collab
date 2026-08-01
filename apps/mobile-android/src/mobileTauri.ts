@@ -28,6 +28,7 @@ import type {
   SheetFormulaEvaluationRequest,
   SheetFormulaEvaluationResponse,
 } from '../../../src/types/sheetFormula';
+import type { WidgetAppearanceSnapshot, WidgetConfiguration } from '../../../src/types/widget';
 
 export type {
   BackgroundJobRecord,
@@ -77,6 +78,44 @@ export function cancelAndroidBackgroundProfile(profileId: string): Promise<void>
 
 export function verifyAndroidBackgroundSync(profileId: string): Promise<void> {
   return invoke('background_android_verify', { profileId });
+}
+
+export function widgetActiveProfileSet(profileId: string): Promise<void> {
+  return invoke('widget_active_profile_set', { profileId });
+}
+
+export function widgetAppearanceSave(
+  appearance: WidgetAppearanceSnapshot,
+): Promise<WidgetAppearanceSnapshot> {
+  return invoke('widget_appearance_save', { appearance });
+}
+
+export function widgetConfigurationList(profileId: string): Promise<WidgetConfiguration[]> {
+  return invoke('widget_configuration_list', { profileId });
+}
+
+export function widgetConfigurationSave(
+  profileId: string,
+  configuration: WidgetConfiguration,
+): Promise<WidgetConfiguration> {
+  return invoke('widget_configuration_save', { profileId, configuration });
+}
+
+export function widgetConfigurationDelete(
+  profileId: string,
+  configurationId: string,
+): Promise<boolean> {
+  return invoke('widget_configuration_delete', { profileId, configurationId });
+}
+
+async function invokeWithWidgetPublication<T>(
+  command: string,
+  args: Record<string, unknown>,
+  profileId: string,
+): Promise<T> {
+  const result = await invoke<T>(command, args);
+  await widgetActiveProfileSet(profileId).catch(() => {});
+  return result;
 }
 
 export interface AndroidExactAlarmStatus {
@@ -173,7 +212,7 @@ export function listProfileCalendars(profileId: string): Promise<CalendarDefinit
 }
 
 export function saveProfileCalendar(profileId: string, calendar: CalendarDefinition): Promise<void> {
-  return invoke('calendar_save', { profileId, calendar });
+  return invokeWithWidgetPublication('calendar_save', { profileId, calendar }, profileId);
 }
 
 export function saveProfileCalendarWithOperation(
@@ -181,7 +220,7 @@ export function saveProfileCalendarWithOperation(
   calendar: CalendarDefinition,
   operation: CalendarOperation,
 ): Promise<void> {
-  return invoke('calendar_save_with_operation', { profileId, calendar, operation });
+  return invokeWithWidgetPublication('calendar_save_with_operation', { profileId, calendar, operation }, profileId);
 }
 
 export function deleteProfileCalendar(
@@ -190,7 +229,7 @@ export function deleteProfileCalendar(
   deletedAt: string,
   operation: CalendarOperation,
 ): Promise<void> {
-  return invoke('calendar_delete', { profileId, calendarId, deletedAt, operation });
+  return invokeWithWidgetPublication('calendar_delete', { profileId, calendarId, deletedAt, operation }, profileId);
 }
 
 export function cleanupProfileCalendar(profileId: string, retentionDays = 90): Promise<CalendarCleanupResult> {
@@ -212,14 +251,14 @@ export function upsertProfileCalendarItem(
   item: CalendarItem,
   operation: CalendarOperation,
 ): Promise<void> {
-  return invoke('calendar_upsert_item', { profileId, item, operation });
+  return invokeWithWidgetPublication('calendar_upsert_item', { profileId, item, operation }, profileId);
 }
 
 export function upsertProfileCalendarItems(
   profileId: string,
   entries: Array<[CalendarItem, CalendarOperation]>,
 ): Promise<void> {
-  return invoke('calendar_upsert_items', { profileId, entries });
+  return invokeWithWidgetPublication('calendar_upsert_items', { profileId, entries }, profileId);
 }
 
 export function listProfileCalendarItemsForCalendar(
@@ -237,7 +276,11 @@ export function deleteProfileCalendarItem(
   deletedAt: string,
   operation: CalendarOperation,
 ): Promise<void> {
-  return invoke('calendar_delete_item', { profileId, calendarId, itemId, deletedAt, operation });
+  return invokeWithWidgetPublication(
+    'calendar_delete_item',
+    { profileId, calendarId, itemId, deletedAt, operation },
+    profileId,
+  );
 }
 
 export function searchProfileCalendarItems(profileId: string, query: string, limit = 100): Promise<CalendarItem[]> {
@@ -253,7 +296,7 @@ export function readProfileCalendarSyncState(profileId: string, originKey: strin
 }
 
 export function writeProfileCalendarSyncState(profileId: string, state: CalendarSyncState): Promise<void> {
-  return invoke('calendar_write_sync_state', { profileId, state });
+  return invokeWithWidgetPublication('calendar_write_sync_state', { profileId, state }, profileId);
 }
 
 export function applyProfileCalendarRemoteChanges(
@@ -261,7 +304,7 @@ export function applyProfileCalendarRemoteChanges(
   changes: CalendarRemoteChange[],
   state: CalendarSyncState,
 ): Promise<void> {
-  return invoke('calendar_apply_remote_changes', { profileId, changes, state });
+  return invokeWithWidgetPublication('calendar_apply_remote_changes', { profileId, changes, state }, profileId);
 }
 
 export function listProfileCalendarPendingOperations(profileId: string): Promise<CalendarOperation[]> {
@@ -278,7 +321,11 @@ export function markProfileCalendarOperationFailed(
   error: string,
   attemptedAt: string,
 ): Promise<void> {
-  return invoke('calendar_mark_operation_failed', { profileId, clientOperationId, error, attemptedAt });
+  return invokeWithWidgetPublication(
+    'calendar_mark_operation_failed',
+    { profileId, clientOperationId, error, attemptedAt },
+    profileId,
+  );
 }
 
 export function retryProfileCalendarOperation(profileId: string, clientOperationId: string): Promise<void> {
@@ -294,7 +341,7 @@ export function removeHostedCalendarCache(
   serverUrl: string,
   userId: string,
 ): Promise<CalendarCleanupResult> {
-  return invoke('calendar_remove_hosted_cache', { profileId, serverUrl, userId });
+  return invokeWithWidgetPublication('calendar_remove_hosted_cache', { profileId, serverUrl, userId }, profileId);
 }
 
 export function listProfileCalendarMirrorGroups(profileId: string): Promise<CalendarMirrorGroup[]> {

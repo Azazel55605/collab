@@ -92,13 +92,15 @@ flowchart LR
 - task-completion validation and creation of existing calendar/Kanban pending
   operations
 - snapshot schema migration, retention, and invalidation decisions
+- profile-scoped configuration and snapshot persistence, bounded reads, atomic
+  replacement, delete tombstones, and idempotent publication decisions
 
 **Kotlin/Android owns:**
 
 - Glance/AppWidget providers, launcher registration, responsive layouts, and
   Android 12+ widget styling
 - mapping widget IDs to non-secret configuration IDs
-- atomic snapshot persistence readable by the widget host
+- bounded reads of privacy-reduced native snapshots during widget composition
 - `PendingIntent` identity, tap/action receivers, update requests, and launcher
   lifecycle callbacks
 - system theme/dynamic-color adaptation, accessibility labels, and widget
@@ -170,7 +172,7 @@ vault name in a privacy-reduced mode.
 | Phase | Status | Goal |
 | --- | --- | --- |
 | 0. Contract and Android feasibility | Complete | Glance packaging, responsive rendering, bounded Rust/JNI snapshot publication, cold/warm destinations, stock-launcher emulator checks, and the physical-device matrix pass. |
-| 1. Shared snapshot and configuration foundation | Not started | Add the bounded Rust contract, native store, configuration lifecycle, privacy model, and publisher hooks. |
+| 1. Shared snapshot and configuration foundation | Testing | The bounded Rust/native store, JNI bridge, Android configuration activity, Settings management, privacy reduction, cleanup/tombstones, idempotence, and coalesced publisher hooks are implemented; physical-device configuration/lifecycle validation remains. |
 | 2. Calendar agenda widget | Not started | Ship the first useful small/medium/large widget over cached local and hosted calendar data. |
 | 3. Lifecycle, refresh, and management | Not started | Complete event-driven refresh, WorkManager fallback, setup UI, stale states, cleanup, and diagnostics. |
 | 4. Month, birthday, and countdown widgets | Not started | Reuse calendar snapshots for month density and privacy-safe upcoming-date views. |
@@ -240,6 +242,44 @@ vault name in a privacy-reduced mode.
   `tauri android init` regeneration.
 
 ## Phase 1: Shared Snapshot And Configuration Foundation
+
+### Implementation Status
+
+- Collab-owned Rust DTOs now cover versioned agenda configurations, selected
+  sources, display/action options, privacy levels, mixed source freshness,
+  deterministic bounded items, launcher snapshots, and allow-listed action
+  preparation without importing Android or Glance types.
+- The profile-scoped native widget store hashes profile directory names, bounds
+  every read and serialized payload, migrates the pre-envelope configuration
+  array, atomically replaces files, keeps deletion tombstones so stale writes
+  cannot resurrect removed widgets, cleans up profiles, and suppresses
+  semantically identical publications.
+- JNI exposes active-profile lookup plus configuration list/save/delete,
+  build/publish, snapshot read, and action preparation with bounded input and
+  redacted failures. Android launcher IDs map only to opaque configuration IDs.
+- Android's widget configuration activity creates a native configuration and
+  offers privacy selection. Mobile Settings lists launcher configurations and
+  edits privacy, calendar sources, and item limits; configuration changes
+  request an immediate native rebuild.
+- The mobile shell also writes a bounded, non-sensitive native appearance
+  snapshot whenever theme, accent, or interface scale changes. The standalone
+  configuration activity consumes it without starting the webview and mirrors
+  all four Collab themes, all six accent colors, light/dark system-bar icons,
+  and the selected interface scale.
+- Foreground calendar mutations, successful/failed WorkManager jobs, app
+  startup/resume, widget lifecycle, package replacement, and time/timezone/
+  locale broadcasts enter a per-profile coalescing publisher. Each drain and
+  profile build has a hard wall-clock budget, and launcher broadcasts occur
+  only when publication reports changed content.
+- Eight focused Rust tests cover schema migration, size/item limits,
+  deterministic ordering, privacy reduction, mixed freshness, profile cleanup
+  and isolation, action allow-listing, delete-race tombstones, and idempotence.
+  Five focused mobile tests, the Android app unit tests, TypeScript validation,
+  Kotlin compilation, and an aarch64 compact debug APK build pass.
+- Remaining Phase 1 exit work is physical-device validation of add/configure,
+  later Settings edits, source/privacy changes, time-change refresh, removal,
+  and force-stop snapshot rendering. Phase 2 calendar data population should
+  not begin until those configuration and lifecycle paths are confirmed.
 
 ### Deliverables
 
