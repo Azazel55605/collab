@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
@@ -31,6 +32,8 @@ import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.appwidget.updateAll
 import androidx.glance.background
 import androidx.glance.layout.Column
+import androidx.glance.layout.Box
+import androidx.glance.layout.Alignment
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
@@ -55,6 +58,7 @@ import java.util.concurrent.Executors
 import kotlinx.coroutines.runBlocking
 
 private val AgendaWidgetSnapshotStateKey = stringPreferencesKey("agenda-widget-snapshot-v1")
+private val MonthOffsetStateKey = intPreferencesKey("month-widget-offset-v1")
 private const val MIN_MONTH_OFFSET = -6
 private const val MAX_MONTH_OFFSET = 6
 
@@ -134,29 +138,6 @@ private object CollabAgendaWidgetSnapshotCache {
         raw = value
         snapshot = it
       }
-  }
-}
-
-internal object CollabMonthOffsets {
-  private const val PREFERENCES = "collab-month-widget-offsets-v1"
-
-  fun read(context: Context, appWidgetId: Int): Int =
-    context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-      .getInt(appWidgetId.toString(), 0)
-      .coerceIn(MIN_MONTH_OFFSET, MAX_MONTH_OFFSET)
-
-  fun write(context: Context, appWidgetId: Int, value: Int) {
-    context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-      .edit()
-      .putInt(appWidgetId.toString(), value.coerceIn(MIN_MONTH_OFFSET, MAX_MONTH_OFFSET))
-      .apply()
-  }
-
-  fun remove(context: Context, appWidgetId: Int) {
-    context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-      .edit()
-      .remove(appWidgetId.toString())
-      .apply()
   }
 }
 
@@ -559,12 +540,15 @@ object CollabWidgetBridge {
       manager.getAppWidgetIds(ComponentName(appContext, provider)).asIterable()
     }.distinct().toIntArray()
     if (ids.isEmpty()) return
+    val monthIds = manager
+      .getAppWidgetIds(ComponentName(appContext, CollabMonthWidgetReceiver::class.java))
+      .toSet()
     runBlocking {
       ids.forEach { appWidgetId ->
         val binding = CollabWidgetBindings.read(appContext, appWidgetId)
         val raw = binding?.let { readBoundSnapshotRaw(appContext, it) }
         updateAppWidgetState(appContext, AppWidgetId(appWidgetId)) { preferences ->
-          if (raw == null) {
+          if (appWidgetId in monthIds || raw == null) {
             preferences.remove(AgendaWidgetSnapshotStateKey)
           } else {
             preferences[AgendaWidgetSnapshotStateKey] = raw
@@ -632,12 +616,16 @@ class CollabMonthWidget : GlanceAppWidget() {
 
   override suspend fun provideGlance(context: Context, id: GlanceId) {
     val appWidgetId = (id as? AppWidgetId)?.appWidgetId
+    val binding = appWidgetId?.let { CollabWidgetBindings.read(context, it) }
+    val boundSnapshot = binding?.let { CollabWidgetBridge.readBoundSnapshotRaw(context, it) }
     provideContent {
-      val snapshot = agendaWidgetSnapshotFromState(currentState(AgendaWidgetSnapshotStateKey))
-      val monthOffset = appWidgetId?.let { CollabMonthOffsets.read(context, it) } ?: 0
+      val snapshot = agendaWidgetSnapshotFromState(
+        boundSnapshot ?: currentState(AgendaWidgetSnapshotStateKey),
+      )
+      val monthOffset = (currentState(MonthOffsetStateKey) ?: 0)
+        .coerceIn(MIN_MONTH_OFFSET, MAX_MONTH_OFFSET)
       val page = snapshot.months.firstOrNull { it.offset == monthOffset }
         ?: MonthWidgetPage(0, snapshot.monthLabel ?: "Calendar", snapshot.days)
-      val binding = appWidgetId?.let { CollabWidgetBindings.read(context, it) }
       val openMonth = binding?.let { CollabWidgetBridge.prepareOpenIntent(context, it, "month") }
         ?: CollabAppDestination.intent(context, "calendar-today")
       val dayIntents = page.days.map { day ->
@@ -659,12 +647,15 @@ internal fun nextMonthOffset(current: Int, delta: Int): Int =
   (current + delta).coerceIn(MIN_MONTH_OFFSET, MAX_MONTH_OFFSET)
 
 private suspend fun changeDisplayedMonth(context: Context, glanceId: GlanceId, delta: Int) {
-  val appWidgetId = (glanceId as? AppWidgetId)?.appWidgetId ?: return
-  CollabMonthOffsets.write(
-    context,
-    appWidgetId,
-    nextMonthOffset(CollabMonthOffsets.read(context, appWidgetId), delta),
-  )
+  updateAppWidgetState(context, glanceId) { preferences ->
+    // Month snapshots live in the bounded private file. Keep Glance state tiny
+    // so an arrow tap never serializes the full 13-page snapshot.
+    preferences.remove(AgendaWidgetSnapshotStateKey)
+    preferences[MonthOffsetStateKey] = nextMonthOffset(
+      preferences[MonthOffsetStateKey] ?: 0,
+      delta,
+    )
+  }
   CollabMonthWidget().update(context, glanceId)
 }
 
@@ -864,7 +855,10 @@ private fun MonthWidgetContent(
   Column(
     modifier = GlanceModifier.fillMaxSize().background(ColorProvider(palette.background)).padding(12.dp),
   ) {
-    Row(modifier = GlanceModifier.fillMaxWidth()) {
+    Row(
+      modifier = GlanceModifier.fillMaxWidth(),
+      verticalAlignment = Alignment.Vertical.CenterVertically,
+    ) {
       Text(
         page.monthLabel,
         modifier = GlanceModifier.defaultWeight().clickable(openAction),
@@ -874,34 +868,41 @@ private fun MonthWidgetContent(
           fontSize = (16f * snapshot.fontScale).sp,
         ),
       )
-      Text(
-        "‹",
-        modifier = GlanceModifier.background(ColorProvider(palette.surface))
+      Box(
+        modifier = GlanceModifier.width(40.dp).height(40.dp).clickable(previousAction),
+        contentAlignment = Alignment.Center,
+      ) {
+        Text(
+          "‹",
+          style = TextStyle(color = ColorProvider(palette.foreground), fontSize = (24f * snapshot.fontScale).sp),
+        )
+      }
+      Box(
+        modifier = GlanceModifier.width(40.dp).height(40.dp).clickable(nextAction),
+        contentAlignment = Alignment.Center,
+      ) {
+        Text(
+          "›",
+          style = TextStyle(color = ColorProvider(palette.foreground), fontSize = (24f * snapshot.fontScale).sp),
+        )
+      }
+      Spacer(GlanceModifier.width(4.dp))
+      Box(
+        modifier = GlanceModifier.width(48.dp).height(44.dp)
+          .background(ColorProvider(palette.accent))
           .cornerRadius(14.dp)
-          .padding(horizontal = 14.dp, vertical = 7.dp)
-          .clickable(previousAction),
-        style = TextStyle(color = ColorProvider(palette.foreground), fontSize = (25f * snapshot.fontScale).sp),
-      )
-      Text(
-        "›",
-        modifier = GlanceModifier.background(ColorProvider(palette.surface))
-          .cornerRadius(14.dp)
-          .padding(horizontal = 14.dp, vertical = 7.dp)
-          .clickable(nextAction),
-        style = TextStyle(color = ColorProvider(palette.foreground), fontSize = (25f * snapshot.fontScale).sp),
-      )
-      Text(
-        "＋",
-        modifier = GlanceModifier.background(ColorProvider(palette.accent))
-          .cornerRadius(14.dp)
-          .padding(horizontal = 12.dp, vertical = 4.dp)
           .clickable(createAction),
-        style = TextStyle(
-          color = ColorProvider(palette.background),
-          fontWeight = FontWeight.Bold,
-          fontSize = (20f * snapshot.fontScale).sp,
-        ),
-      )
+        contentAlignment = Alignment.Center,
+      ) {
+        Text(
+          "＋",
+          style = TextStyle(
+            color = ColorProvider(palette.background),
+            fontWeight = FontWeight.Bold,
+            fontSize = (21f * snapshot.fontScale).sp,
+          ),
+        )
+      }
     }
     Spacer(GlanceModifier.height(4.dp))
     Row(modifier = GlanceModifier.fillMaxWidth()) {
@@ -1021,7 +1022,6 @@ abstract class CollabCalendarWidgetReceiver : GlanceAppWidgetReceiver() {
 
   override fun onDeleted(context: Context, appWidgetIds: IntArray) {
     appWidgetIds.forEach { appWidgetId ->
-      CollabMonthOffsets.remove(context, appWidgetId)
       val binding = CollabWidgetBindings.remove(context, appWidgetId) ?: return@forEach
       runCatching {
         CollabWidgetBridge.nativeDeleteConfiguration(

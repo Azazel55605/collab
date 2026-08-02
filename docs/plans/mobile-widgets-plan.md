@@ -175,7 +175,7 @@ vault name in a privacy-reduced mode.
 | 1. Shared snapshot and configuration foundation | Complete | The bounded Rust/native store, JNI bridge, Android configuration activity, Settings management, privacy reduction, cleanup/tombstones, idempotence, coalesced publisher hooks, and physical-device lifecycle paths are validated. |
 | 2. Calendar agenda widget | Complete | The cached native calendar projection, responsive agenda rendering, source freshness, privacy-aware rows, exact header/item/add destinations, live reconfiguration, and launcher refresh behavior are validated. |
 | 3. Lifecycle, refresh, and management | Testing | Event-driven refresh, stale-aware launcher updates, per-profile WorkManager fallback, lifecycle cleanup, manual refresh, and privacy-safe diagnostics are implemented; physical-device lifecycle validation remains. |
-| 4. Month, birthday, and countdown widgets | Testing | Native month, birthday, and explicit countdown providers reuse the calendar snapshot, privacy, configuration, destination, and refresh boundaries; physical launcher validation remains. |
+| 4. Month, birthday, and countdown widgets | Complete | Native month, birthday, and explicit countdown providers reuse the calendar snapshot, privacy, configuration, destination, and refresh boundaries; automated checks and physical launcher validation pass. |
 | 5. Tasks widget and confirmed actions | Not started | Combine calendar/Kanban tasks and route completion through existing idempotent pending-operation paths. |
 | 6. Quick capture and vault shortcuts | Not started | Add validated deep links for creation, pinned content, and recent files without duplicating editors. |
 | 7. Sync status widget | Not started | Expose privacy-safe native ledger rollups and a coalesced manual-sync action. |
@@ -494,8 +494,9 @@ vault name in a privacy-reduced mode.
   limits for every kind and explicit countdown selections.
 - Focused Rust widget tests, mobile widget-settings tests, TypeScript
   validation, the app-module Android unit suite, compact arm64 APK packaging,
-  signature verification, and packaged receiver inspection pass. Physical
-  launcher add/resize/tap/reconfigure and date-rollover validation remains.
+  signature verification, and packaged receiver inspection pass. Physical-device
+  launcher validation is accepted complete after add, resize, styling, month
+  navigation, day destination, cold-start, and reconfiguration testing.
 
 ### Month Calendar
 
