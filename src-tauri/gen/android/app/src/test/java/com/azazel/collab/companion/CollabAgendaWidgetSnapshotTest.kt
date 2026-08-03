@@ -1,5 +1,7 @@
 package com.azazel.collab.companion
 
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -75,7 +77,7 @@ class CollabAgendaWidgetSnapshotTest {
   fun parsesBoundedMonthDensityWithoutTitles() {
     val days = (1..45).joinToString(",") { index ->
       val day = ((index - 1) % 28) + 1
-      "{\"dayKey\":\"2026-08-${day.toString().padStart(2, '0')}\",\"count\":$index,\"colors\":[\"#a174ff\",\"invalid\"],\"items\":[{\"title\":\"Planning\",\"color\":\"#a174ff\"},{\"title\":\"Review\"},{\"title\":\"Ignored\"}],\"inMonth\":true,\"isToday\":${index == 1}}"
+      "{\"dayKey\":\"2026-08-${day.toString().padStart(2, '0')}\",\"count\":$index,\"colors\":[\"#a174ff\",\"invalid\"],\"items\":[{\"title\":\"Planning\",\"color\":\"#a174ff\"},{\"title\":\"Review\"},{\"title\":\"Workshop\"},{\"title\":\"Ignored\"}],\"inMonth\":true,\"isToday\":${index == 1}}"
     }
     val snapshot = CollabAgendaWidgetSnapshotStore.parse(
       "{\"schemaVersion\":1,\"kind\":\"month\",\"monthLabel\":\"August 2026\",\"days\":[$days],\"items\":[]}",
@@ -84,7 +86,11 @@ class CollabAgendaWidgetSnapshotTest {
     assertEquals("August 2026", snapshot.monthLabel)
     assertEquals(42, snapshot.days.size)
     assertEquals(listOf("#a174ff"), snapshot.days.first().colors)
-    assertEquals(listOf("Planning", "Review"), snapshot.days.first().items.map { it.title })
+    // One bar per lane is kept; anything past the last lane has nowhere to draw.
+    assertEquals(
+      listOf("Planning", "Review", "Workshop"),
+      snapshot.days.first().items.map { it.title },
+    )
     assertEquals("#a174ff", snapshot.days.first().items.first().color)
     assertTrue(snapshot.days.first().isToday)
   }
@@ -232,5 +238,129 @@ class CollabAgendaWidgetSnapshotTest {
     assertEquals("Upcoming", taskSectionLabel("upcoming"))
     assertEquals("No due date", taskSectionLabel("unscheduled"))
     assertEquals("Tasks", taskSectionLabel(null))
+  }
+
+  private fun weekOf(vararg items: List<MonthWidgetItem>): List<MonthWidgetDay> =
+    items.mapIndexed { column, dayItems ->
+      MonthWidgetDay(
+        dayKey = "2026-08-%02d".format(column + 1),
+        count = dayItems.size,
+        colors = emptyList(),
+        items = dayItems,
+        inMonth = true,
+        isToday = false,
+      )
+    }
+
+  @Test
+  fun multiDayBarsFillEveryColumnTheySpanAndLabelOnlyTheFirst() {
+    val week = weekOf(
+      listOf(MonthWidgetItem("Team offsite", "#a174ff", span = 3, lane = 0)),
+      emptyList(),
+      emptyList(),
+      emptyList(),
+      emptyList(),
+      emptyList(),
+      emptyList(),
+    )
+    val lane = monthBarLane(week, 0)
+
+    assertEquals("Team offsite", lane[0]?.label)
+    // The bar continues visually but must not repeat its title per day.
+    assertEquals(null, lane[1]?.label)
+    assertEquals(null, lane[2]?.label)
+    assertEquals("#a174ff", lane[2]?.color)
+    assertEquals(null, lane[3])
+    // A bar wider than one column stays square so its pieces meet cleanly.
+    assertEquals(false, lane[0]?.rounded)
+  }
+
+  @Test
+  fun singleDayEntriesStayRoundedChips() {
+    val week = weekOf(
+      listOf(MonthWidgetItem("Standup", "#00c483")),
+      emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(),
+    )
+    val cell = monthBarLane(week, 0)[0]
+    assertEquals(true, cell?.rounded)
+    assertEquals("Standup", cell?.label)
+  }
+
+  @Test
+  fun clippedBarsMarkTheEdgeTheyRunPast() {
+    val continuing = weekOf(
+      emptyList(), emptyList(), emptyList(), emptyList(), emptyList(),
+      listOf(MonthWidgetItem("Conference", "#a174ff", span = 2, continuesAfter = true)),
+      emptyList(),
+    )
+    val lane = monthBarLane(continuing, 0)
+    assertEquals("Conference", lane[5]?.label)
+    assertEquals("\u203a", lane[6]?.label)
+    assertEquals(true, lane[6]?.alignEnd)
+    assertEquals(false, lane[5]?.rounded)
+
+    val resumed = weekOf(
+      listOf(MonthWidgetItem("Conference", "#a174ff", span = 2, continuesBefore = true)),
+      emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(),
+    )
+    assertEquals("\u2039Conference", monthBarLane(resumed, 0)[0]?.label)
+  }
+
+  @Test
+  fun lanesAreIndependentAndOverlapNeverErasesABar() {
+    val week = weekOf(
+      listOf(
+        MonthWidgetItem("Long", "#a174ff", span = 3, lane = 0),
+        MonthWidgetItem("Short", "#fa416b", span = 2, lane = 1),
+      ),
+      emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(),
+    )
+    assertEquals("Long", monthBarLane(week, 0)[0]?.label)
+    assertEquals(null, monthBarLane(week, 0)[0]?.let { if (it.color == "#fa416b") it else null })
+    assertEquals("Short", monthBarLane(week, 1)[0]?.label)
+    assertEquals(null, monthBarLane(week, 1)[2])
+
+    // A payload claiming an already-occupied column must not overwrite it.
+    val conflicting = weekOf(
+      listOf(
+        MonthWidgetItem("First", "#a174ff", span = 3, lane = 0),
+        MonthWidgetItem("Second", "#fa416b", span = 3, lane = 0),
+      ),
+      emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(),
+    )
+    assertEquals("First", monthBarLane(conflicting, 0)[0]?.label)
+    assertEquals("#a174ff", monthBarLane(conflicting, 0)[1]?.color)
+  }
+
+  @Test
+  fun parsedBarsCanNeverReachPastTheirWeekRow() {
+    val days = JSONArray()
+    for (index in 0 until 42) {
+      val item = JSONObject()
+        .put("title", "Spanning")
+        .put("color", "#a174ff")
+        .put("span", 99)
+        .put("lane", 42)
+      days.put(
+        JSONObject()
+          .put("dayKey", "2026-08-%02d".format((index % 28) + 1))
+          .put("count", 1)
+          .put("items", JSONArray().put(item)),
+      )
+    }
+    val raw = JSONObject()
+      .put("schemaVersion", 1)
+      .put("kind", "month")
+      .put("monthLabel", "August 2026")
+      .put("days", days)
+      .toString()
+    val parsed = CollabAgendaWidgetSnapshotStore.parse(raw)
+
+    parsed.days.forEachIndexed { index, day ->
+      day.items.forEach { item ->
+        assertEquals(true, index % 7 + item.span <= 7)
+        assertEquals(true, item.lane < MAX_MONTH_LANES)
+      }
+    }
   }
 }

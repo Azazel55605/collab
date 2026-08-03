@@ -88,6 +88,29 @@
         <item name="android:textColor">#E4E8EF</item>
         <item name="android:textSize">10sp</item>
     </style>
+    <!-- One lane of bars overlaid on a week row, matching MonthBarLanes. -->
+    <style name="CollabWidgetPreviewLane">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">11dp</item>
+        <item name="android:orientation">horizontal</item>
+    </style>
+    <style name="CollabWidgetPreviewLaneGap">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_weight">1</item>
+    </style>
+    <style name="CollabWidgetPreviewBar">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:paddingLeft">2dp</item>
+        <item name="android:paddingRight">2dp</item>
+        <item name="android:textColor">#0C0F16</item>
+        <item name="android:textSize">8sp</item>
+    </style>
     <style name="CollabWidgetPreviewChip">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>

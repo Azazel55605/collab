@@ -27,7 +27,9 @@ const MAX_CONFIGURATION_TOMBSTONES: usize = 128;
 const MAX_SOURCE_IDS: usize = 64;
 const MAX_SNAPSHOT_ITEMS: usize = 24;
 const MAX_SNAPSHOT_DAYS: usize = 42;
-const MAX_MONTH_ITEMS_PER_DAY: usize = 2;
+/// Stacked bar lanes available in one week row of the month grid. A day may
+/// start at most this many segments, so it also bounds `items` per day.
+const MAX_MONTH_LANES: usize = 3;
 const MAX_MONTH_ITEM_TITLE_BYTES: usize = 40;
 const MAX_STORE_BYTES: u64 = 64 * 1024;
 const MAX_SNAPSHOT_BYTES: usize = 262_144;
@@ -497,10 +499,32 @@ pub(crate) struct WidgetDaySummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+/// One bar segment in the month grid, stored on the day it starts.
+///
+/// A multi-day entry is published once per week row it crosses rather than
+/// once per day, so the launcher can draw a continuous bar instead of
+/// repeating the same title in every cell. `span` counts the columns the
+/// segment covers inside its own week row, and the `continues_*` flags say
+/// whether the underlying entry runs past that row's edge — either into the
+/// next week or beyond the rendered grid entirely.
 pub(crate) struct WidgetDayItem {
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// Columns covered within this week row, always `1..=7`.
+    #[serde(default = "default_span")]
+    pub span: u8,
+    /// Stacked lane index within the week row, always `< MAX_MONTH_LANES`.
+    #[serde(default)]
+    pub lane: u8,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub continues_before: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub continues_after: bool,
+}
+
+fn default_span() -> u8 {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -2355,6 +2379,7 @@ fn month_day_summaries(
             }
         })
         .collect::<Vec<_>>();
+    let mut segments: Vec<MonthSegment> = Vec::new();
     for item in items {
         if !selected_sources.is_empty() && !selected_sources.contains(item.calendar_id.as_str()) {
             continue;
@@ -2368,37 +2393,139 @@ fn month_day_summaries(
         let Some((start, end)) = calendar_item_day_span(item, month_anchor, time_zone)? else {
             continue;
         };
-        let mut day = start.max(grid_start);
+        let first = start.max(grid_start);
         let last = end.min(grid_end - Duration::days(1));
-        while day <= last {
-            if let Some(summary) = summaries.get_mut((day - grid_start).num_days() as usize) {
-                summary.count = summary.count.saturating_add(1);
-                if configuration.privacy == WidgetPrivacy::Full
-                    && summary.colors.len() < 3
-                    && !summary.colors.iter().any(|color| color == &calendar.color)
-                {
-                    summary.colors.push(calendar.color.clone());
-                }
-                if summary.items.len() < MAX_MONTH_ITEMS_PER_DAY {
-                    let title = match configuration.privacy {
-                        WidgetPrivacy::Full | WidgetPrivacy::TitleOnly => &item.title,
-                        WidgetPrivacy::Private => match item.kind {
-                            CalendarItemKind::Event => "Private event",
-                            CalendarItemKind::Task => "Private task",
-                            CalendarItemKind::Birthday => "Private birthday",
-                        },
-                    };
-                    summary.items.push(WidgetDayItem {
-                        title: truncate_utf8(title, MAX_MONTH_ITEM_TITLE_BYTES),
-                        color: (configuration.privacy == WidgetPrivacy::Full)
-                            .then(|| calendar.color.clone()),
-                    });
-                }
-            }
-            day += Duration::days(1);
+        if first > last {
+            continue;
         }
+        let first_offset = (first - grid_start).num_days() as usize;
+        let last_offset = (last - grid_start).num_days() as usize;
+        for offset in first_offset..=last_offset {
+            let Some(summary) = summaries.get_mut(offset) else {
+                continue;
+            };
+            summary.count = summary.count.saturating_add(1);
+            if configuration.privacy == WidgetPrivacy::Full
+                && summary.colors.len() < 3
+                && !summary.colors.iter().any(|color| color == &calendar.color)
+            {
+                summary.colors.push(calendar.color.clone());
+            }
+        }
+        let title = match configuration.privacy {
+            WidgetPrivacy::Full | WidgetPrivacy::TitleOnly => &item.title,
+            WidgetPrivacy::Private => match item.kind {
+                CalendarItemKind::Event => "Private event",
+                CalendarItemKind::Task => "Private task",
+                CalendarItemKind::Birthday => "Private birthday",
+            },
+        };
+        segments.extend(week_row_segments(
+            first_offset,
+            last_offset,
+            // The entry itself may reach past the rendered grid, which is a
+            // continuation the launcher should mark even though no further
+            // week row exists to carry it.
+            start < grid_start,
+            end > grid_end - Duration::days(1),
+            truncate_utf8(title, MAX_MONTH_ITEM_TITLE_BYTES),
+            (configuration.privacy == WidgetPrivacy::Full).then(|| calendar.color.clone()),
+        ));
     }
+    assign_month_lanes(segments, &mut summaries);
     Ok((month_start.format("%B %Y").to_string(), summaries))
+}
+
+#[cfg(any(target_os = "android", test))]
+/// One bar segment before a lane has been chosen for it.
+struct MonthSegment {
+    week: usize,
+    column: usize,
+    span: usize,
+    continues_before: bool,
+    continues_after: bool,
+    title: String,
+    color: Option<String>,
+}
+
+#[cfg(any(target_os = "android", test))]
+/// Splits a day range into one segment per week row it crosses, because a bar
+/// can only be drawn across a single row of the grid.
+fn week_row_segments(
+    first_offset: usize,
+    last_offset: usize,
+    clipped_before: bool,
+    clipped_after: bool,
+    title: String,
+    color: Option<String>,
+) -> Vec<MonthSegment> {
+    let mut segments = Vec::new();
+    let mut offset = first_offset;
+    while offset <= last_offset {
+        let week = offset / 7;
+        let row_end = (week * 7 + 6).min(last_offset);
+        segments.push(MonthSegment {
+            week,
+            column: offset % 7,
+            span: row_end - offset + 1,
+            continues_before: offset > first_offset || clipped_before,
+            continues_after: row_end < last_offset || clipped_after,
+            title: title.clone(),
+            color: color.clone(),
+        });
+        offset = row_end + 1;
+    }
+    segments
+}
+
+#[cfg(any(target_os = "android", test))]
+/// Packs each week row's segments into stacked lanes and records them on the
+/// day each segment starts.
+///
+/// Longest-first ordering keeps the bars that carry the most meaning in the
+/// top lanes, so the ones dropped when a widget is too short to show every
+/// lane are always the shortest. Ties fall back to position and title so the
+/// same month renders identically on every refresh.
+fn assign_month_lanes(mut segments: Vec<MonthSegment>, summaries: &mut [WidgetDaySummary]) {
+    segments.sort_by(|left, right| {
+        left.week
+            .cmp(&right.week)
+            .then(right.span.cmp(&left.span))
+            .then(left.column.cmp(&right.column))
+            .then_with(|| left.title.cmp(&right.title))
+    });
+    // Occupied columns per lane, reset at every week row.
+    let mut lanes = [[false; 7]; MAX_MONTH_LANES];
+    let mut current_week = usize::MAX;
+    for segment in segments {
+        if segment.week != current_week {
+            lanes = [[false; 7]; MAX_MONTH_LANES];
+            current_week = segment.week;
+        }
+        let columns = segment.column..segment.column + segment.span;
+        let Some(lane) = lanes
+            .iter()
+            .position(|lane| columns.clone().all(|column| !lane[column]))
+        else {
+            // Every lane is taken for this span; the day's `count` still
+            // reports the entry, so nothing is silently lost.
+            continue;
+        };
+        for column in columns {
+            lanes[lane][column] = true;
+        }
+        let Some(summary) = summaries.get_mut(segment.week * 7 + segment.column) else {
+            continue;
+        };
+        summary.items.push(WidgetDayItem {
+            title: segment.title,
+            color: segment.color,
+            span: segment.span as u8,
+            lane: lane as u8,
+            continues_before: segment.continues_before,
+            continues_after: segment.continues_after,
+        });
+    }
 }
 
 #[cfg(any(target_os = "android", test))]
@@ -2773,14 +2900,18 @@ fn validate_snapshot(snapshot: &WidgetSnapshot, expected_profile_hash: &str) -> 
 }
 
 fn validate_widget_days(days: &[WidgetDaySummary]) -> Result<(), String> {
-    for day in days {
+    // A populated grid is always the full six week rows, so a day's position in
+    // it is its column and no date parsing is needed to bound a bar.
+    let full_grid = days.len() == MAX_SNAPSHOT_DAYS;
+    for (index, day) in days.iter().enumerate() {
         validate_text(&day.day_key, MAX_TEXT_BYTES, "widget day")?;
         if day.colors.len() > 3 {
             return Err("A widget day contains too many colors.".into());
         }
-        if day.items.len() > MAX_MONTH_ITEMS_PER_DAY {
+        if day.items.len() > MAX_MONTH_LANES {
             return Err("A widget day contains too many preview items.".into());
         }
+        let column = index % 7;
         for item in &day.items {
             validate_text(
                 &item.title,
@@ -2789,6 +2920,17 @@ fn validate_widget_days(days: &[WidgetDaySummary]) -> Result<(), String> {
             )?;
             if let Some(color) = &item.color {
                 validate_text(color, MAX_TEXT_BYTES, "widget day item color")?;
+            }
+            // A bar that claims more columns than its week row has would be
+            // drawn past the edge of the grid.
+            if item.span < 1 || usize::from(item.span) > 7 {
+                return Err("A widget day item spans past its week.".into());
+            }
+            if full_grid && column + usize::from(item.span) > 7 {
+                return Err("A widget day item spans past its week.".into());
+            }
+            if usize::from(item.lane) >= MAX_MONTH_LANES {
+                return Err("A widget day item uses an unknown lane.".into());
             }
         }
         for color in &day.colors {
@@ -2818,6 +2960,7 @@ fn validate_text(value: &str, max_bytes: usize, label: &str) -> Result<(), Strin
     Ok(())
 }
 
+#[cfg(any(target_os = "android", test))]
 fn truncate_utf8(value: &str, max_bytes: usize) -> String {
     if value.len() <= max_bytes {
         return value.to_string();
@@ -3500,6 +3643,134 @@ mod tests {
         assert!(!serde_json::to_string(&private)
             .unwrap()
             .contains("Private plan"));
+    }
+
+    #[test]
+    fn multi_day_entries_publish_one_bar_segment_per_week_row() {
+        let calendar = CalendarDefinition {
+            schema_version: 1,
+            id: "calendar-a".into(),
+            global_id: "calendar-a-global".into(),
+            location: CalendarLocation::Local {
+                profile_id: "profile-1".into(),
+            },
+            name: "Work".into(),
+            color: "#a174ff".into(),
+            default_time_zone: "UTC".into(),
+            archived: false,
+            read_only: false,
+            revision: 1,
+            created_at: "2026-08-01T00:00:00Z".into(),
+            updated_at: "2026-08-01T00:00:00Z".into(),
+            deleted_at: None,
+        };
+        let all_day = |id: &str, title: &str, start: &str, end: &str| CalendarItem {
+            id: id.into(),
+            uid: id.into(),
+            calendar_id: calendar.id.clone(),
+            kind: CalendarItemKind::Event,
+            title: title.into(),
+            description: None,
+            url: None,
+            reminders: vec![],
+            attendees: vec![],
+            attachments: vec![],
+            recurrence: None,
+            recurrence_id: None,
+            recurrence_series_id: None,
+            source_binding: None,
+            icalendar_properties: vec![],
+            start: Some(CalendarTimeValue::Date {
+                date: start.into(),
+            }),
+            end: Some(CalendarTimeValue::Date { date: end.into() }),
+            due: None,
+            date: None,
+            birth_year: None,
+            location: None,
+            availability: None,
+            priority: None,
+            status: None,
+            completed_at: None,
+            revision: 1,
+            created_at: "2026-08-01T00:00:00Z".into(),
+            updated_at: "2026-08-01T00:00:00Z".into(),
+            deleted_at: None,
+        };
+        // All-day end dates are exclusive, so these cover Aug 1-5 and Aug 3-4.
+        // August 2026 starts on a Saturday, which puts the Sunday week boundary
+        // inside the longer entry and forces it to break into two bars.
+        let items = vec![
+            all_day("offsite", "Team offsite", "2026-08-01", "2026-08-06"),
+            all_day("review", "Design review", "2026-08-03", "2026-08-05"),
+        ];
+        let calendar_by_id = HashMap::from([(calendar.id.as_str(), &calendar)]);
+        let mut config = configuration("month-1", WidgetPrivacy::Full);
+        config.kind = WidgetKind::Month;
+        config.display.horizon_days = 42;
+        config.selected_source_ids = vec![calendar.id.clone()];
+        let (_, days) = month_day_summaries(
+            &items,
+            &config,
+            &calendar_by_id,
+            NaiveDate::from_ymd_opt(2026, 8, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 8, 1).unwrap(),
+            chrono_tz::UTC,
+            true,
+        )
+        .unwrap();
+        let day = |key: &str| days.iter().find(|day| day.day_key == key).unwrap();
+
+        // The five-day entry is published twice, not five times.
+        let offsite_segments = days
+            .iter()
+            .flat_map(|day| day.items.iter())
+            .filter(|item| item.title == "Team offsite")
+            .count();
+        assert_eq!(offsite_segments, 2);
+
+        let saturday = day("2026-08-01");
+        assert_eq!(saturday.items.len(), 1);
+        assert_eq!(saturday.items[0].span, 2, "Saturday and Sunday only");
+        assert_eq!(saturday.items[0].lane, 0);
+        assert!(!saturday.items[0].continues_before);
+        assert!(saturday.items[0].continues_after);
+
+        // A covered day in the middle of a bar carries no segment of its own,
+        // but still counts the entry for the collapsed density marker.
+        let sunday = day("2026-08-02");
+        assert!(sunday.items.is_empty());
+        assert_eq!(sunday.count, 1);
+
+        let monday = day("2026-08-03");
+        assert_eq!(monday.count, 2);
+        assert_eq!(monday.items.len(), 2);
+        let continued = monday
+            .items
+            .iter()
+            .find(|item| item.title == "Team offsite")
+            .unwrap();
+        assert_eq!(continued.span, 3, "Monday through Wednesday");
+        assert!(continued.continues_before);
+        assert!(!continued.continues_after);
+        // The longer bar keeps the top lane, so a widget too short to draw
+        // every lane drops the shortest entry rather than the longest.
+        assert_eq!(continued.lane, 0);
+        let overlapping = monday
+            .items
+            .iter()
+            .find(|item| item.title == "Design review")
+            .unwrap();
+        assert_eq!(overlapping.span, 2);
+        assert_eq!(overlapping.lane, 1);
+
+        // Every published bar stays inside its own week row.
+        for (index, day) in days.iter().enumerate() {
+            for item in &day.items {
+                assert!(index % 7 + usize::from(item.span) <= 7);
+            }
+        }
+        validate_widget_days(&days).unwrap();
     }
 
     #[test]

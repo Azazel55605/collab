@@ -70,6 +70,8 @@ private val TaskActionMessageStateKey = stringPreferencesKey("tasks-widget-actio
 private val TaskItemIdParameter = ActionParameters.Key<String>("collabTaskItemId")
 private const val MIN_MONTH_OFFSET = -6
 private const val MAX_MONTH_OFFSET = 6
+/** Stacked bar lanes per week row. Mirrors `MAX_MONTH_LANES` in widgets.rs. */
+internal const val MAX_MONTH_LANES = 3
 
 internal enum class AgendaWidgetUpdateOrigin { External, Provider }
 
@@ -129,7 +131,63 @@ internal data class MonthWidgetDay(
   val inMonth: Boolean,
   val isToday: Boolean,
 )
-internal data class MonthWidgetItem(val title: String, val color: String?)
+/**
+ * One bar segment inside a week row, published on the day it starts. Rust owns
+ * the span, the lane, and whether the underlying entry runs past this row, so
+ * Kotlin only paints what it is told.
+ */
+internal data class MonthWidgetItem(
+  val title: String,
+  val color: String?,
+  val span: Int = 1,
+  val lane: Int = 0,
+  val continuesBefore: Boolean = false,
+  val continuesAfter: Boolean = false,
+)
+
+/** What one column of one lane paints. */
+internal data class MonthBarCell(
+  val color: String?,
+  /** Drawn only where the bar can carry it: its first column, or a lone
+   * continuation marker at a clipped trailing edge. */
+  val label: String?,
+  val alignEnd: Boolean,
+  /** Only a bar confined to a single column is rounded; rounding the pieces of
+   * a longer bar would pinch it at every column seam. */
+  val rounded: Boolean,
+)
+
+/**
+ * Resolves one lane of one week row into its seven columns, so a multi-day
+ * entry paints as a continuous run instead of repeating per day.
+ */
+internal fun monthBarLane(week: List<MonthWidgetDay>, lane: Int): List<MonthBarCell?> {
+  val cells = arrayOfNulls<MonthBarCell>(7)
+  week.take(7).forEachIndexed { column, day ->
+    day.items.filter { it.lane == lane }.forEach { item ->
+      val end = (column + item.span - 1).coerceIn(column, 6)
+      // Rust already packs lanes without overlap; a payload that disagrees
+      // must not let one bar erase another.
+      if ((column..end).any { cells[it] != null }) return@forEach
+      for (index in column..end) {
+        val isStart = index == column
+        val isEnd = index == end
+        cells[index] = MonthBarCell(
+          color = item.color,
+          label = when {
+            isStart && item.continuesBefore -> "‹${item.title}"
+            isStart -> item.title
+            isEnd && item.continuesAfter -> "›"
+            else -> null
+          },
+          alignEnd = !isStart && isEnd,
+          rounded = isStart && isEnd && !item.continuesBefore && !item.continuesAfter,
+        )
+      }
+    }
+  }
+  return cells.toList()
+}
 internal data class MonthWidgetPage(
   val offset: Int,
   val monthLabel: String,
@@ -362,8 +420,11 @@ internal object CollabAgendaWidgetSnapshotStore {
           }
         }
         val itemsJson = day.optJSONArray("items") ?: JSONArray()
+        // A day's column decides how far a bar starting on it may reach, so a
+        // payload can never claim space past the end of its week row.
+        val columnsLeft = 7 - (size % 7)
         val items = buildList {
-          for (itemIndex in 0 until minOf(itemsJson.length(), 2)) {
+          for (itemIndex in 0 until minOf(itemsJson.length(), MAX_MONTH_LANES)) {
             val item = itemsJson.optJSONObject(itemIndex) ?: continue
             val title = item.optString("title").take(MAX_TEXT)
             if (title.isBlank()) continue
@@ -371,6 +432,10 @@ internal object CollabAgendaWidgetSnapshotStore {
               MonthWidgetItem(
                 title,
                 item.optString("color").takeIf { it.matches(Regex("^#[0-9A-Fa-f]{6}$")) },
+                span = item.optInt("span", 1).coerceIn(1, columnsLeft),
+                lane = item.optInt("lane", 0).coerceIn(0, MAX_MONTH_LANES - 1),
+                continuesBefore = item.optBoolean("continuesBefore"),
+                continuesAfter = item.optBoolean("continuesAfter"),
               ),
             )
           }
@@ -1632,80 +1697,134 @@ private fun MonthWidgetContent(
       }
     }
     Spacer(GlanceModifier.height(4.dp))
+    val laneCount = when {
+      size.height >= 420.dp -> MAX_MONTH_LANES
+      size.height >= 300.dp -> 2
+      else -> 0
+    }
     page.days.chunked(7).take(6).forEach { week ->
-      Row(
-        modifier = GlanceModifier.fillMaxWidth().defaultWeight()
-          .background(ColorProvider(palette.grid)),
-      ) {
-        week.forEach { day ->
-          val index = page.days.indexOf(day)
-          val action = actionStartActivity(dayIntents.getOrElse(index) { openMonth })
-          val number = runCatching { LocalDate.parse(day.dayKey).dayOfMonth.toString() }.getOrDefault("·")
-          val marker = when {
-            day.count == 0 -> ""
-            size.height < 240.dp -> "•"
-            day.count > 9 -> "9+"
-            else -> day.count.toString()
-          }
-          Column(
-            modifier = GlanceModifier.defaultWeight().padding(1.dp),
-          ) {
+      // The day cells and the bar lanes are separate layers: a bar has to run
+      // across column boundaries, which it could never do from inside a cell.
+      Box(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
+        Row(
+          modifier = GlanceModifier.fillMaxSize().background(ColorProvider(palette.grid)),
+        ) {
+          week.forEach { day ->
+            val index = page.days.indexOf(day)
+            val action = actionStartActivity(dayIntents.getOrElse(index) { openMonth })
+            val number = runCatching { LocalDate.parse(day.dayKey).dayOfMonth.toString() }.getOrDefault("·")
+            val marker = when {
+              day.count == 0 -> ""
+              size.height < 240.dp -> "•"
+              day.count > 9 -> "9+"
+              else -> day.count.toString()
+            }
             Column(
-              modifier = GlanceModifier.fillMaxSize()
-                .background(ColorProvider(palette.surface))
-                .cornerRadius(7.dp)
-                .clickable(action)
-                .padding(horizontal = 3.dp, vertical = 3.dp),
+              modifier = GlanceModifier.defaultWeight().padding(1.dp),
             ) {
-              Text(
-                number,
-                modifier = if (day.isToday) {
-                  GlanceModifier.background(ColorProvider(palette.accent))
-                    .cornerRadius(12.dp)
-                    .padding(horizontal = 5.dp, vertical = 1.dp)
-                    .clickable(action)
-                } else {
-                  GlanceModifier.clickable(action)
-                },
-                style = TextStyle(
-                  color = ColorProvider(
-                    if (day.isToday) palette.background
-                    else if (day.inMonth) palette.foreground else palette.muted,
+              Column(
+                modifier = GlanceModifier.fillMaxSize()
+                  .background(ColorProvider(palette.surface))
+                  .cornerRadius(7.dp)
+                  .clickable(action)
+                  .padding(horizontal = 3.dp, vertical = 3.dp),
+              ) {
+                Text(
+                  number,
+                  modifier = if (day.isToday) {
+                    GlanceModifier.background(ColorProvider(palette.accent))
+                      .cornerRadius(12.dp)
+                      .padding(horizontal = 5.dp, vertical = 1.dp)
+                      .clickable(action)
+                  } else {
+                    GlanceModifier.clickable(action)
+                  },
+                  style = TextStyle(
+                    color = ColorProvider(
+                      if (day.isToday) palette.background
+                      else if (day.inMonth) palette.foreground else palette.muted,
+                    ),
+                    fontWeight = if (day.isToday) FontWeight.Bold else FontWeight.Normal,
+                    fontSize = (11f * snapshot.fontScale).sp,
                   ),
-                  fontWeight = if (day.isToday) FontWeight.Bold else FontWeight.Normal,
-                  fontSize = (11f * snapshot.fontScale).sp,
-                ),
-              )
-              if (size.height >= 300.dp && day.items.isNotEmpty()) {
-                day.items.take(if (size.height >= 420.dp) 2 else 1).forEach { item ->
+                )
+                // Without room for bars the day still reports its density.
+                if (laneCount == 0 && marker.isNotEmpty()) {
                   Text(
-                    item.title,
-                    modifier = GlanceModifier.fillMaxWidth()
-                      .background(ColorProvider(widgetSourceColor(item.color, palette.accent)))
-                      .cornerRadius(4.dp)
-                      .padding(horizontal = 3.dp, vertical = 1.dp)
-                      .clickable(action),
+                    marker,
+                    modifier = GlanceModifier.clickable(action),
                     style = TextStyle(
-                      color = ColorProvider(palette.background),
-                      fontWeight = FontWeight.Medium,
+                      color = ColorProvider(widgetSourceColor(day.colors.firstOrNull(), palette.accent)),
                       fontSize = (8f * snapshot.fontScale).sp,
                     ),
                   )
                 }
-              } else if (marker.isNotEmpty()) {
-                Text(
-                  marker,
-                  modifier = GlanceModifier.clickable(action),
-                  style = TextStyle(
-                    color = ColorProvider(widgetSourceColor(day.colors.firstOrNull(), palette.accent)),
-                    fontSize = (8f * snapshot.fontScale).sp,
-                  ),
-                )
               }
             }
           }
         }
+        if (laneCount > 0) {
+          MonthBarLanes(snapshot, palette, week, laneCount, openMonth, dayIntents, page)
+        }
       }
+    }
+  }
+}
+
+/**
+ * Paints the bar lanes over a week row. Each lane is seven equal columns so it
+ * stays aligned with the day cells beneath, and a bar simply fills every column
+ * it covers — adjacent pieces meet with no gap, so the run reads as one bar.
+ */
+@Composable
+private fun MonthBarLanes(
+  snapshot: AgendaWidgetSnapshot,
+  palette: AgendaWidgetPalette,
+  week: List<MonthWidgetDay>,
+  laneCount: Int,
+  openMonth: Intent,
+  dayIntents: List<Intent>,
+  page: MonthWidgetPage,
+) {
+  val barHeight = (11f * snapshot.fontScale).dp
+  Column(modifier = GlanceModifier.fillMaxWidth()) {
+    // Clears the day number the cells draw above the lanes.
+    Spacer(GlanceModifier.height((20f * snapshot.fontScale).dp))
+    repeat(laneCount) { lane ->
+      Row(modifier = GlanceModifier.fillMaxWidth()) {
+        monthBarLane(week, lane).forEachIndexed { column, cell ->
+          if (cell == null) {
+            Spacer(GlanceModifier.defaultWeight().height(barHeight))
+            return@forEachIndexed
+          }
+          val day = week.getOrNull(column)
+          val action = actionStartActivity(
+            dayIntents.getOrElse(page.days.indexOf(day)) { openMonth },
+          )
+          Box(
+            modifier = GlanceModifier
+              .defaultWeight()
+              .height(barHeight)
+              .background(ColorProvider(widgetSourceColor(cell.color, palette.accent)))
+              .let { if (cell.rounded) it.cornerRadius(4.dp) else it }
+              .clickable(action),
+            contentAlignment = if (cell.alignEnd) Alignment.CenterEnd else Alignment.CenterStart,
+          ) {
+            if (cell.label != null) {
+              Text(
+                cell.label,
+                modifier = GlanceModifier.padding(horizontal = 2.dp),
+                style = TextStyle(
+                  color = ColorProvider(palette.background),
+                  fontWeight = FontWeight.Medium,
+                  fontSize = (8f * snapshot.fontScale).sp,
+                ),
+              )
+            }
+          }
+        }
+      }
+      Spacer(GlanceModifier.height(1.dp))
     }
   }
 }
