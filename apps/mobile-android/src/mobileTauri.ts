@@ -117,9 +117,25 @@ export function widgetRefresh(profileId: string): Promise<WidgetDiagnostics[]> {
 }
 
 export interface MobileAppDestination {
-  kind: 'calendar-today' | 'calendar-date' | 'calendar-create' | 'calendar-item';
+  kind:
+    | 'calendar-today'
+    | 'calendar-date'
+    | 'calendar-create'
+    | 'calendar-item'
+    | 'kanban-card'
+    | 'capture-note'
+    | 'capture-task'
+    | 'capture-files'
+    | 'vault-file'
+    | 'vault-folder'
+    | 'vault-list';
   date?: string;
   itemId?: string;
+  /** Opaque Kanban card target. The owning server is resolved from the vault
+   * the app is already signed in to; native storage never carries a URL. */
+  vaultId?: string;
+  fileId?: string;
+  cardId?: string;
 }
 
 export function mobileAppDestinationTakePending(): Promise<MobileAppDestination | null> {

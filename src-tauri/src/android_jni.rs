@@ -880,6 +880,58 @@ pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativ
     widget_jni_string_result(&mut env, result)
 }
 
+/// Applies a launcher-confirmed task completion and republishes the affected
+/// snapshots, so the widget only ever renders state the native queue accepted.
+#[no_mangle]
+pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativeCompleteTask(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    context: JObject<'_>,
+    profile_id: JString<'_>,
+    request_json: JString<'_>,
+) -> jstring {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        register_worker_context(&mut env, &context)?;
+        let profile_id = env
+            .get_string(&profile_id)
+            .map_err(|_| "Could not decode the widget profile identifier.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let raw = env
+            .get_string(&request_json)
+            .map_err(|_| "Could not decode the task completion request.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        if raw.len() > 1024 {
+            return Err("The task completion request exceeded its size limit.".into());
+        }
+        let request: crate::widgets::WidgetTaskCompletionRequest = serde_json::from_str(&raw)
+            .map_err(|_| "The task completion request is invalid.".to_string())?;
+        let root = files_dir()?.join("collab");
+        let now = chrono::Utc::now();
+        let outcome = tauri::async_runtime::block_on(async {
+            let calendar_store = crate::commands::calendar::store(&profile_id).await?;
+            let result =
+                crate::widgets::complete_task(&root, &profile_id, &calendar_store, request, now)
+                    .await?;
+            // Republish before returning so the confirming tap and the rendered
+            // rows can never disagree about what was actually applied.
+            crate::widgets::build_and_publish_agenda_profile(
+                &root,
+                &profile_id,
+                &calendar_store,
+                now,
+                "task-action",
+            )
+            .await?;
+            Ok::<_, String>(result)
+        })?;
+        serde_json::to_string(&outcome)
+            .map_err(|_| "Could not encode the task completion result.".to_string())
+    }));
+    widget_jni_string_result(&mut env, result)
+}
+
 fn widget_jni_string_result(
     env: &mut JNIEnv<'_>,
     result: Result<Result<String, String>, Box<dyn std::any::Any + Send>>,

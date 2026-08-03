@@ -266,6 +266,32 @@ Reserve destructive color for:
 - Search, preview, inline helpers, and slash-command UI should look like part of the editor, not browser defaults.
 - Markdown rendering helpers should preserve content readability above visual cleverness.
 
+## Android Launcher Widgets
+
+Widgets sit outside the app on someone else's home screen, so they have to earn
+their place by looking like Collab rather than like a generic list.
+
+Rules:
+
+- Build every widget from the shared Glance primitives in
+  `CollabAgendaWidget.kt` (`WidgetSurface`, `WidgetHeader`, `WidgetAccentButton`,
+  `WidgetQuietButton`, `WidgetSectionLabel`, `WidgetRowCard`, `widgetCard`).
+  Do not give one widget a bespoke shell.
+- Carry the app's card language across: list rows are raised `surface` cards at
+  the `--radius` corner radius, not flat text stacked on the background.
+- A row's calendar or source colour belongs in a slim left rail, mirroring
+  `.mobile-calendar-task-color`, rather than in a bullet glyph.
+- The accent is for the widget's single primary action, plus today/selection
+  marks. Secondary controls use the quiet surface treatment.
+- The widget shell rounds itself with the launcher's own widget background
+  radius so it sits in the grid like a system widget.
+- Keep the picker preview layouts (`res/layout/collab_*_widget_preview.xml`,
+  built from the shared `CollabWidgetPreview*` styles) in step with what the
+  composable actually renders. A preview that flatters the widget is a bug —
+  it sells a design the user will not get.
+- Compact sizes drop detail lines and section labels rather than shrinking hit
+  targets or crowding the card.
+
 ## Canvas, Graph, and Spatial Views
 
 - Spatial surfaces should use the same theme tokens as the rest of the app.

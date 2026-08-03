@@ -514,6 +514,74 @@ describe('offline replica store actions', () => {
     expect(useMobileStore.getState().folderTrail).toHaveLength(1);
   });
 
+  describe('widget shortcut targets', () => {
+    const FILES = [
+      {
+        id: 'folder-1',
+        parentId: null,
+        name: 'Boards',
+        relativePath: 'Boards',
+        kind: 'folder',
+        state: 'active',
+        createdAt: '2026-08-01T00:00:00.000Z',
+        updatedAt: '2026-08-01T00:00:00.000Z',
+      },
+      {
+        id: 'board-1',
+        parentId: 'folder-1',
+        name: 'Sprint.kanban',
+        relativePath: 'Boards/Sprint.kanban',
+        kind: 'document',
+        documentType: 'kanban',
+        state: 'active',
+        createdAt: '2026-08-01T00:00:00.000Z',
+        updatedAt: '2026-08-01T00:00:00.000Z',
+      },
+    ];
+
+    beforeEach(() => {
+      useMobileStore.setState({
+        vaults: { [SERVER]: [VAULT] },
+        statuses: { [SERVER]: { connected: true, serverUrl: SERVER } as never },
+        replicas: {},
+      });
+      invoke.mockImplementation((command: string) => {
+        if (command === 'hosted_vault_request') return Promise.resolve(FILES);
+        if (command === 'replica_read_manifest') return Promise.resolve(null);
+        return Promise.reject(new Error(`unhandled ${command}`));
+      });
+    });
+
+    it('opens a shortcut target in its folder context', async () => {
+      const result = await useMobileStore.getState()
+        .openVaultTarget('v1', 'board-1', { cardId: 'card-1' });
+      expect(result).toBe('opened');
+      expect(useMobileStore.getState().tab).toBe('files');
+      expect(useMobileStore.getState().activeSheet)
+        .toEqual({ kind: 'kanban', fileId: 'board-1', cardId: 'card-1' });
+      // The trail is rebuilt by walking parents so the board opens in context.
+      expect(useMobileStore.getState().folderTrail.map((crumb) => crumb.id))
+        .toEqual([null, 'folder-1']);
+    });
+
+    it('enters a pinned folder without opening a document', async () => {
+      const result = await useMobileStore.getState()
+        .openVaultTarget('v1', 'folder-1', { expectFolder: true });
+      expect(result).toBe('opened');
+      expect(useMobileStore.getState().activeSheet).toBeNull();
+      expect(useMobileStore.getState().folderTrail.map((crumb) => crumb.id))
+        .toEqual([null, 'folder-1']);
+    });
+
+    it('reports unavailable vaults and files instead of opening a dead screen', async () => {
+      expect(await useMobileStore.getState().openVaultTarget('missing', 'board-1'))
+        .toBe('vault-unavailable');
+      expect(await useMobileStore.getState().openVaultTarget('v1', 'trashed-file'))
+        .toBe('file-unavailable');
+      expect(useMobileStore.getState().activeSheet).toBeNull();
+    });
+  });
+
   it('removeOffline deletes the replica and drops it from the map', async () => {
     useMobileStore.setState({
       replicas: {

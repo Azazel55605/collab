@@ -14,7 +14,9 @@ import {
   requestAndroidBackgroundSync,
   widgetActiveProfileSet,
   widgetAppearanceSave,
+  widgetRefresh,
   type BackgroundJobRecord,
+  type MobileAppDestination,
   type ServerConnectionStatus,
 } from './mobileTauri';
 import { normalizeServerUrl, type KnownServer } from './lib/servers';
@@ -87,6 +89,10 @@ export function MobileApp() {
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [viewDir, setViewDir] = useState<1 | -1>(1);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  /** Set when a widget shortcut pointed at a target this device can no longer
+   * open, so the user gets an explanation instead of a blank screen. */
+  const [shortcutRecovery, setShortcutRecovery] =
+    useState<'vault-unavailable' | 'file-unavailable' | null>(null);
 
   const restore = useMobileStore((s) => s.restore);
   const refreshStatuses = useMobileStore((s) => s.refreshStatuses);
@@ -168,6 +174,14 @@ export function MobileApp() {
     showExitConfirmRef.current = showExitConfirm;
   }, [showExitConfirm]);
 
+  // The shortcut recovery notice is informational; clear it so it cannot
+  // outlive the navigation that triggered it.
+  useEffect(() => {
+    if (!shortcutRecovery) return;
+    const timer = window.setTimeout(() => setShortcutRecovery(null), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [shortcutRecovery]);
+
   useEffect(() => {
     const onBack = () => {
       if (showExitConfirmRef.current) {
@@ -184,8 +198,60 @@ export function MobileApp() {
   }, []);
 
   useEffect(() => {
-    const routeAppDestination = (destination: { kind?: string; date?: string; itemId?: string } | null) => {
-      if (!destination || !['calendar-today', 'calendar-date', 'calendar-create', 'calendar-item'].includes(destination.kind ?? '')) return;
+    const routeAppDestination = (destination: MobileAppDestination | null) => {
+      if (!destination) return;
+      if (destination.kind === 'vault-list') {
+        setTab('vaults');
+        return;
+      }
+      if (destination.kind === 'capture-note' || destination.kind === 'capture-files') {
+        // Quick capture only opens the existing flow. Without an open vault the
+        // user is sent to the picker rather than guessing a destination.
+        if (!useMobileStore.getState().selected) {
+          setTab('vaults');
+          return;
+        }
+        setTab('files');
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('collab-files-capture', {
+            detail: { kind: destination.kind },
+          }));
+        }, 0);
+        return;
+      }
+      if (
+        destination.kind === 'kanban-card'
+        || destination.kind === 'vault-file'
+        || destination.kind === 'vault-folder'
+      ) {
+        const { vaultId, fileId, cardId } = destination;
+        if (!vaultId || !fileId) return;
+        void useMobileStore.getState()
+          .openVaultTarget(vaultId, fileId, {
+            cardId,
+            expectFolder: destination.kind === 'vault-folder',
+          })
+          .then((result) => {
+            if (result === 'opened') return;
+            // Missing or revoked targets land on a safe surface and ask for a
+            // widget refresh so the stale row is republished away.
+            setShortcutRecovery(result);
+            setTab(result === 'vault-unavailable' ? 'vaults' : 'files');
+            void widgetRefresh(mobileCalendarProfileId()).catch(() => {});
+          })
+          .catch(() => {});
+        return;
+      }
+      if (destination.kind === 'capture-task') {
+        setTab('calendar');
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('collab-calendar-open-destination', {
+            detail: destination,
+          }));
+        }, 0);
+        return;
+      }
+      if (!['calendar-today', 'calendar-date', 'calendar-create', 'calendar-item'].includes(destination.kind ?? '')) return;
       setTab('calendar');
       window.setTimeout(() => {
         window.dispatchEvent(new CustomEvent(
@@ -197,7 +263,7 @@ export function MobileApp() {
       }, 0);
     };
     const openAppDestination = (event: Event) => {
-      const destination = (event as CustomEvent<{ kind?: string; date?: string; itemId?: string }>).detail;
+      const destination = (event as CustomEvent<MobileAppDestination>).detail;
       // Acknowledge the native durable route only after this listener exists.
       // Cold-start events fired before React mounted remain available to the
       // take-pending call below.
@@ -334,6 +400,15 @@ export function MobileApp() {
         {restoreError ? (
           <div className="screen-top-banner">
             <Banner tone="error">{restoreError}</Banner>
+          </div>
+        ) : null}
+        {shortcutRecovery ? (
+          <div className="screen-top-banner">
+            <Banner tone="error">
+              {shortcutRecovery === 'vault-unavailable'
+                ? 'That shortcut points at a vault this device cannot open. The widget will refresh.'
+                : 'That shortcut is no longer available. It may have been moved, trashed, or revoked.'}
+            </Banner>
           </div>
         ) : null}
         {!restoreError && backgroundAttention ? (

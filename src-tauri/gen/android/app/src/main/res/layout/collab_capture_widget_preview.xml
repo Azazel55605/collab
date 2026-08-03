@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    style="@style/CollabWidgetPreviewShell">
+
+    <TextView
+        style="@style/CollabWidgetPreviewHeader"
+        android:layout_width="match_parent"
+        android:layout_weight="0"
+        android:text="Quick capture" />
+
+    <LinearLayout
+        style="@style/CollabWidgetPreviewCard"
+        android:layout_marginTop="9dp">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="9dp"
+            android:text="＋"
+            android:textColor="#A174FF"
+            android:textSize="13sp" />
+        <TextView
+            style="@style/CollabWidgetPreviewCardTitle"
+            android:text="New note" />
+    </LinearLayout>
+
+    <LinearLayout
+        style="@style/CollabWidgetPreviewCard"
+        android:layout_marginTop="6dp">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="9dp"
+            android:text="＋"
+            android:textColor="#A174FF"
+            android:textSize="13sp" />
+        <TextView
+            style="@style/CollabWidgetPreviewCardTitle"
+            android:text="New task" />
+    </LinearLayout>
+
+    <LinearLayout
+        style="@style/CollabWidgetPreviewCard"
+        android:layout_marginTop="6dp">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="9dp"
+            android:text="＋"
+            android:textColor="#A174FF"
+            android:textSize="13sp" />
+        <TextView
+            style="@style/CollabWidgetPreviewCardTitle"
+            android:text="New event" />
+    </LinearLayout>
+</LinearLayout>

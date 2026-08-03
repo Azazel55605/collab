@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -32,10 +33,12 @@ import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.appwidget.updateAll
 import androidx.glance.background
 import androidx.glance.layout.Column
+import androidx.glance.layout.ColumnScope
 import androidx.glance.layout.Box
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
+import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
@@ -46,8 +49,10 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import androidx.glance.state.PreferencesGlanceStateDefinition
+import androidx.glance.action.Action
 import androidx.glance.action.clickable
 import androidx.glance.action.ActionParameters
+import androidx.glance.action.actionParametersOf
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -59,6 +64,10 @@ import kotlinx.coroutines.runBlocking
 
 private val AgendaWidgetSnapshotStateKey = stringPreferencesKey("agenda-widget-snapshot-v1")
 private val MonthOffsetStateKey = intPreferencesKey("month-widget-offset-v1")
+/** The task a launcher tap asked to complete, awaiting in-place confirmation. */
+private val TaskPendingCompleteStateKey = stringPreferencesKey("tasks-widget-pending-complete-v1")
+private val TaskActionMessageStateKey = stringPreferencesKey("tasks-widget-action-message-v1")
+private val TaskItemIdParameter = ActionParameters.Key<String>("collabTaskItemId")
 private const val MIN_MONTH_OFFSET = -6
 private const val MAX_MONTH_OFFSET = 6
 
@@ -75,7 +84,43 @@ internal data class AgendaWidgetItem(
   val itemId: String?,
   val dayKey: String?,
   val sourceColor: String?,
+  val task: AgendaWidgetTask? = null,
+  val shortcut: AgendaWidgetShortcut? = null,
 )
+
+/** A capture tile or vault shortcut target. Every field is an opaque validated
+ * identifier; the launcher never sees a path, URL, or server origin. */
+internal data class AgendaWidgetShortcut(
+  val destination: String,
+  val vaultId: String?,
+  val fileId: String?,
+  val entryKind: String?,
+  val pinned: Boolean,
+)
+
+/** The privacy-independent task projection Rust attached to a task row. Kotlin
+ * only renders it; due state and completion capability are never re-derived. */
+internal data class AgendaWidgetTask(
+  val source: String,
+  val due: String,
+  val completion: String,
+  val revision: Int,
+  val vaultId: String?,
+  val fileId: String?,
+  val cardId: String?,
+) {
+  /** True only for rows Rust decided may be completed natively after an
+   * explicit launcher confirmation. */
+  val completableNatively: Boolean
+    get() = completion == "available" && source == "calendar"
+
+  val kanbanTarget: CollabAppDestination.VaultTarget?
+    get() = if (vaultId != null && fileId != null && cardId != null) {
+      CollabAppDestination.VaultTarget(vaultId, fileId, cardId)
+    } else {
+      null
+    }
+}
 internal data class MonthWidgetDay(
   val dayKey: String,
   val count: Int,
@@ -211,6 +256,8 @@ internal object CollabAgendaWidgetSnapshotStore {
             item.optString("itemId").takeIf { it.matches(Regex("^[A-Za-z0-9_.:-]{1,128}$")) },
             item.optString("dayKey").takeIf { it.matches(Regex("^\\d{4}-\\d{2}-\\d{2}$")) },
             item.optString("sourceColor").takeIf { it.matches(Regex("^#[0-9A-Fa-f]{6}$")) },
+            parseTask(item.optJSONObject("task")),
+            parseShortcut(item.optJSONObject("shortcut")),
           ),
         )
       }
@@ -229,7 +276,10 @@ internal object CollabAgendaWidgetSnapshotStore {
       }
     }
     return AgendaWidgetSnapshot(
-      json.optString("kind", "agenda").takeIf { it in setOf("agenda", "month", "birthday", "countdown") } ?: "agenda",
+      json.optString("kind", "agenda")
+        .takeIf {
+          it in setOf("agenda", "month", "birthday", "countdown", "tasks", "capture", "shortcuts")
+        } ?: "agenda",
       json.optString("generatedAt").takeIf { it.isNotBlank() },
       json.optString("dateLabel", "Today").take(MAX_TEXT),
       json.optString("stateLabel", "Preview data").take(MAX_TEXT),
@@ -241,6 +291,60 @@ internal object CollabAgendaWidgetSnapshotStore {
       json.optString("selectedDayKey").takeIf { it.matches(Regex("^\\d{4}-\\d{2}-\\d{2}$")) },
       days,
       months,
+    )
+  }
+
+  private fun parseTask(task: JSONObject?): AgendaWidgetTask? {
+    if (task == null) return null
+    val identifier = Regex("^[A-Za-z0-9_.:-]{1,128}$")
+    val source = task.optString("source").takeIf { it in setOf("calendar", "kanban") } ?: return null
+    val due = task.optString("due")
+      .takeIf { it in setOf("overdue", "today", "upcoming", "unscheduled") } ?: return null
+    val completion = task.optString("completion")
+      .takeIf { it in setOf("available", "confirmInApp", "unavailable") } ?: return null
+    val revision = task.optInt("revision", -1)
+    if (revision < 0) return null
+    return AgendaWidgetTask(
+      // A Kanban row can never be completed from the launcher, whatever the
+      // stored payload claims.
+      source = source,
+      due = due,
+      completion = if (source == "kanban" && completion == "available") "confirmInApp" else completion,
+      revision = revision,
+      vaultId = task.optString("vaultId").takeIf(identifier::matches),
+      fileId = task.optString("fileId").takeIf(identifier::matches),
+      cardId = task.optString("cardId").takeIf(identifier::matches),
+    )
+  }
+
+  private fun parseShortcut(shortcut: JSONObject?): AgendaWidgetShortcut? {
+    if (shortcut == null) return null
+    val identifier = Regex("^[A-Za-z0-9_.:-]{1,128}$")
+    val destination = shortcut.optString("destination").takeIf {
+      it in setOf(
+        "capture-note",
+        "capture-task",
+        "calendar-create",
+        "capture-files",
+        "vault-file",
+        "vault-folder",
+      )
+    } ?: return null
+    val vaultId = shortcut.optString("vaultId").takeIf(identifier::matches)
+    val fileId = shortcut.optString("fileId").takeIf(identifier::matches)
+    // A vault destination without a usable target would open nothing, so it is
+    // dropped rather than rendered as a dead row.
+    if (destination in setOf("vault-file", "vault-folder") && (vaultId == null || fileId == null)) {
+      return null
+    }
+    return AgendaWidgetShortcut(
+      destination = destination,
+      vaultId = vaultId,
+      fileId = fileId,
+      entryKind = shortcut.optString("entryKind").takeIf {
+        it in setOf("note", "board", "canvas", "sheet", "pdf", "folder", "file")
+      },
+      pinned = shortcut.optBoolean("pinned"),
     )
   }
 
@@ -339,6 +443,9 @@ internal fun widgetProviderClasses(): List<Class<out android.content.BroadcastRe
   CollabMonthWidgetReceiver::class.java,
   CollabBirthdayWidgetReceiver::class.java,
   CollabCountdownWidgetReceiver::class.java,
+  CollabTasksWidgetReceiver::class.java,
+  CollabCaptureWidgetReceiver::class.java,
+  CollabShortcutsWidgetReceiver::class.java,
 )
 
 internal fun widgetKindForId(context: Context, appWidgetId: Int): String {
@@ -347,6 +454,9 @@ internal fun widgetKindForId(context: Context, appWidgetId: Int): String {
     CollabMonthWidgetReceiver::class.java.name -> "month"
     CollabBirthdayWidgetReceiver::class.java.name -> "birthday"
     CollabCountdownWidgetReceiver::class.java.name -> "countdown"
+    CollabTasksWidgetReceiver::class.java.name -> "tasks"
+    CollabCaptureWidgetReceiver::class.java.name -> "capture"
+    CollabShortcutsWidgetReceiver::class.java.name -> "shortcuts"
     else -> "agenda"
   }
 }
@@ -397,6 +507,11 @@ object CollabWidgetBridge {
     configurationId: String,
   ): String
   @JvmStatic external fun nativePrepareAction(
+    context: Context,
+    profileId: String,
+    requestJson: String,
+  ): String
+  @JvmStatic external fun nativeCompleteTask(
     context: Context,
     profileId: String,
     requestJson: String,
@@ -512,6 +627,9 @@ object CollabWidgetBridge {
         "month" -> "openMonth"
         "birthday" -> "openBirthdays"
         "countdown" -> "openCountdowns"
+        "tasks" -> "openTasks"
+        "capture" -> "openCapture"
+        "shortcuts" -> "openShortcuts"
         else -> "openAgenda"
       }
       val request = JSONObject()
@@ -522,6 +640,31 @@ object CollabWidgetBridge {
       )
       CollabAppDestination.intent(context, prepared.getString("destinationKind"))
     }.getOrNull()
+
+  /**
+   * Applies a confirmed completion in Rust. Returns the user-facing result;
+   * `applied` is false whenever the native queue did not accept the change, so
+   * the caller must not optimistically mark the row done.
+   */
+  internal fun completeTask(
+    context: Context,
+    binding: WidgetBinding,
+    itemId: String,
+    revision: Int,
+  ): Pair<Boolean, String> {
+    val request = JSONObject()
+      .put("configurationId", binding.configurationId)
+      .put("itemId", itemId)
+      .put("expectedRevision", revision)
+      .put("confirmed", true)
+    return runCatching {
+      val outcome = JSONObject(nativeCompleteTask(context, binding.profileId, request.toString()))
+      outcome.optBoolean("applied", false) to
+        outcome.optString("message", "Task updated.").take(80)
+    }.getOrElse { failure ->
+      false to (failure.message ?: "The task could not be completed.").take(80)
+    }
+  }
 
   fun rebuildPhase0(context: Context) {
     val appContext = context.applicationContext
@@ -559,6 +702,9 @@ object CollabWidgetBridge {
       CollabMonthWidget().updateAll(appContext)
       CollabBirthdayWidget().updateAll(appContext)
       CollabCountdownWidget().updateAll(appContext)
+      CollabTasksWidget().updateAll(appContext)
+      CollabCaptureWidget().updateAll(appContext)
+      CollabShortcutsWidget().updateAll(appContext)
     }
     if (shouldNotifyAgendaWidgetProvider(origin)) {
       widgetProviderClasses().forEach { provider ->
@@ -704,6 +850,463 @@ abstract class CollabUpcomingDateWidget(private val widgetKind: String) : Glance
 class CollabBirthdayWidget : CollabUpcomingDateWidget("birthday")
 class CollabCountdownWidget : CollabUpcomingDateWidget("countdown")
 
+class CollabTasksWidget : GlanceAppWidget() {
+  override val stateDefinition = PreferencesGlanceStateDefinition
+  override val sizeMode: SizeMode = SizeMode.Responsive(
+    setOf(
+      DpSize(110.dp, 56.dp),
+      DpSize(250.dp, 110.dp),
+      DpSize(250.dp, 220.dp),
+      DpSize(250.dp, 400.dp),
+    ),
+  )
+
+  override suspend fun provideGlance(context: Context, id: GlanceId) {
+    val appWidgetId = (id as? AppWidgetId)?.appWidgetId
+    provideContent {
+      val snapshot = agendaWidgetSnapshotFromState(currentState(AgendaWidgetSnapshotStateKey))
+      val binding = appWidgetId?.let { CollabWidgetBindings.read(context, it) }
+      val openTasks = binding?.let { CollabWidgetBridge.prepareOpenIntent(context, it, "tasks") }
+        ?: CollabAppDestination.intent(context, "calendar-today")
+      val itemIntents = snapshot.items.map { item -> taskDestination(context, item, openTasks) }
+      TasksWidgetContent(
+        snapshot = snapshot,
+        openTasks = openTasks,
+        itemIntents = itemIntents,
+        pendingCompleteId = currentState(TaskPendingCompleteStateKey),
+        actionMessage = currentState(TaskActionMessageStateKey),
+      )
+    }
+  }
+}
+
+/**
+ * Quick capture and vault shortcuts. Both are pure deep-link surfaces: they
+ * render bounded native rows and start an existing mobile flow. Neither writes
+ * draft content, requests a permission, or performs any launcher-process work
+ * beyond composing the rows.
+ */
+abstract class CollabShortcutWidget(private val widgetKind: String) : GlanceAppWidget() {
+  override val stateDefinition = PreferencesGlanceStateDefinition
+  override val sizeMode: SizeMode = SizeMode.Responsive(
+    setOf(
+      DpSize(110.dp, 56.dp),
+      DpSize(250.dp, 110.dp),
+      DpSize(250.dp, 220.dp),
+      DpSize(250.dp, 400.dp),
+    ),
+  )
+
+  override suspend fun provideGlance(context: Context, id: GlanceId) {
+    val appWidgetId = (id as? AppWidgetId)?.appWidgetId
+    provideContent {
+      val snapshot = agendaWidgetSnapshotFromState(currentState(AgendaWidgetSnapshotStateKey))
+      val binding = appWidgetId?.let { CollabWidgetBindings.read(context, it) }
+      val open = binding?.let { CollabWidgetBridge.prepareOpenIntent(context, it, widgetKind) }
+        ?: CollabAppDestination.intent(context, "calendar-today")
+      val intents = snapshot.items.map { item -> shortcutDestination(context, item, open) }
+      ShortcutWidgetContent(
+        snapshot = snapshot,
+        title = if (widgetKind == "capture") "Quick capture" else "Shortcuts",
+        openHeader = open,
+        itemIntents = intents,
+        showIcons = widgetKind == "shortcuts",
+      )
+    }
+  }
+}
+
+class CollabCaptureWidget : CollabShortcutWidget("capture")
+class CollabShortcutsWidget : CollabShortcutWidget("shortcuts")
+
+/**
+ * Resolves a capture tile or shortcut row to its validated destination. A row
+ * whose target no longer resolves falls back to the widget's header
+ * destination, which is a safe recovery surface rather than a dead tap.
+ */
+internal fun shortcutDestination(
+  context: Context,
+  item: AgendaWidgetItem,
+  fallback: Intent,
+): Intent = runCatching {
+  val shortcut = item.shortcut ?: return@runCatching fallback
+  val vaultId = shortcut.vaultId
+  val fileId = shortcut.fileId
+  if (shortcut.destination == "vault-file" || shortcut.destination == "vault-folder") {
+    if (vaultId == null || fileId == null) return@runCatching fallback
+    return@runCatching CollabAppDestination.intent(
+      context,
+      shortcut.destination,
+      vault = CollabAppDestination.VaultTarget(vaultId, fileId),
+    )
+  }
+  CollabAppDestination.intent(context, shortcut.destination)
+}.getOrDefault(fallback)
+
+/** The glyph shown for a shortcut row's entry kind. */
+internal fun shortcutEntryGlyph(entryKind: String?): String = when (entryKind) {
+  "note" -> "📄"
+  "board" -> "🗂"
+  "canvas" -> "🎨"
+  "sheet" -> "▦"
+  "pdf" -> "📕"
+  "folder" -> "📁"
+  else -> "•"
+}
+
+/** Matches `--radius` in the app's stylesheet, so widget cards and in-app
+ * cards share one corner language. */
+private val WidgetCardRadius = 14.dp
+/** Matches `.mobile-calendar-task-color`: the source colour is carried by a
+ * slim rail down the card rather than by a bullet glyph. */
+private val WidgetRailWidth = 3.dp
+
+/**
+ * Rounds the widget shell with the launcher's own widget background radius so a
+ * Collab widget sits in the grid like a system one. Below API 31 the platform
+ * has no widget corner treatment to match and the modifier is skipped.
+ */
+private fun GlanceModifier.appWidgetBackgroundRadius(): GlanceModifier =
+  if (android.os.Build.VERSION.SDK_INT >= 31) {
+    cornerRadius(android.R.dimen.system_app_widget_background_radius)
+  } else {
+    this
+  }
+
+/** The raised card surface shared by every widget list row. */
+private fun GlanceModifier.widgetCard(palette: AgendaWidgetPalette): GlanceModifier =
+  this.fillMaxWidth()
+    .background(ColorProvider(palette.surface))
+    .cornerRadius(WidgetCardRadius)
+
+/**
+ * The shell every Collab widget paints: one rounded surface on the theme
+ * background. Keeping it shared is what makes the family read as a single
+ * product on the launcher, and keeps the rendered widget honest about the
+ * preview shown in the picker.
+ */
+@Composable
+private fun WidgetSurface(
+  palette: AgendaWidgetPalette,
+  modifier: GlanceModifier = GlanceModifier,
+  padding: Dp = 12.dp,
+  content: @Composable ColumnScope.() -> Unit,
+) {
+  Column(
+    modifier = modifier
+      .fillMaxSize()
+      .background(ColorProvider(palette.background))
+      .appWidgetBackgroundRadius()
+      .padding(padding),
+    content = content,
+  )
+}
+
+/**
+ * Title plus at most one filled accent control. The accent stays a signal for
+ * the widget's single primary action instead of decorating the surface.
+ */
+@Composable
+private fun WidgetHeader(
+  palette: AgendaWidgetPalette,
+  fontScale: Float,
+  title: String,
+  titleAction: Action,
+  accentAction: Action? = null,
+  accentGlyph: String = "＋",
+) {
+  Row(
+    modifier = GlanceModifier.fillMaxWidth(),
+    verticalAlignment = Alignment.Vertical.CenterVertically,
+  ) {
+    Text(
+      text = title,
+      modifier = GlanceModifier.defaultWeight().clickable(titleAction),
+      style = TextStyle(
+        color = ColorProvider(palette.foreground),
+        fontWeight = FontWeight.Bold,
+        fontSize = (15f * fontScale).sp,
+      ),
+    )
+    if (accentAction != null) {
+      WidgetAccentButton(palette, fontScale, accentGlyph, accentAction)
+    }
+  }
+}
+
+@Composable
+private fun WidgetAccentButton(
+  palette: AgendaWidgetPalette,
+  fontScale: Float,
+  glyph: String,
+  action: Action,
+) {
+  Box(
+    modifier = GlanceModifier
+      .width(40.dp)
+      .height(34.dp)
+      .background(ColorProvider(palette.accent))
+      .cornerRadius(12.dp)
+      .clickable(action),
+    contentAlignment = Alignment.Center,
+  ) {
+    Text(
+      glyph,
+      style = TextStyle(
+        color = ColorProvider(palette.background),
+        fontWeight = FontWeight.Bold,
+        fontSize = (19f * fontScale).sp,
+      ),
+    )
+  }
+}
+
+/** A secondary control: grouped and tappable, but never competing with the
+ * one accent action for attention. */
+@Composable
+private fun WidgetQuietButton(
+  palette: AgendaWidgetPalette,
+  fontScale: Float,
+  glyph: String,
+  action: Action,
+) {
+  Box(
+    modifier = GlanceModifier
+      .width(34.dp)
+      .height(34.dp)
+      .background(ColorProvider(palette.surface))
+      .cornerRadius(12.dp)
+      .clickable(action),
+    contentAlignment = Alignment.Center,
+  ) {
+    Text(
+      glyph,
+      style = TextStyle(
+        color = ColorProvider(palette.foreground),
+        fontSize = (18f * fontScale).sp,
+      ),
+    )
+  }
+}
+
+@Composable
+private fun WidgetSectionLabel(
+  palette: AgendaWidgetPalette,
+  fontScale: Float,
+  text: String,
+  action: Action,
+) {
+  Text(
+    text,
+    modifier = GlanceModifier.padding(start = 2.dp).clickable(action),
+    style = TextStyle(
+      color = ColorProvider(palette.muted),
+      fontWeight = FontWeight.Medium,
+      fontSize = (10f * fontScale).sp,
+    ),
+  )
+  Spacer(GlanceModifier.height(4.dp))
+}
+
+/**
+ * A list row in the app's card language: a raised surface whose source colour
+ * is carried by a left rail, mirroring the agenda cards in the mobile app.
+ */
+@Composable
+private fun WidgetRowCard(
+  palette: AgendaWidgetPalette,
+  railColor: Color,
+  action: Action,
+  compact: Boolean,
+  content: @Composable ColumnScope.() -> Unit,
+) {
+  Row(
+    modifier = GlanceModifier
+      .widgetCard(palette)
+      .clickable(action)
+      .padding(horizontal = 9.dp, vertical = if (compact) 6.dp else 8.dp),
+    verticalAlignment = Alignment.Vertical.CenterVertically,
+  ) {
+    Box(
+      modifier = GlanceModifier
+        .width(WidgetRailWidth)
+        .fillMaxHeight()
+        .background(ColorProvider(railColor))
+        .cornerRadius(WidgetRailWidth),
+      contentAlignment = Alignment.Center,
+    ) {}
+    Spacer(GlanceModifier.width(9.dp))
+    Column(modifier = GlanceModifier.defaultWeight(), content = content)
+  }
+}
+
+@Composable
+private fun ShortcutWidgetContent(
+  snapshot: AgendaWidgetSnapshot,
+  title: String,
+  openHeader: Intent,
+  itemIntents: List<Intent>,
+  showIcons: Boolean,
+) {
+  val size = LocalSize.current
+  val palette = agendaWidgetPalette(snapshot.theme, snapshot.accent)
+  val openAction = actionStartActivity(openHeader)
+  val itemLimit = when {
+    size.height < 90.dp -> 2
+    size.height < 180.dp -> 4
+    size.height < 260.dp -> 6
+    else -> 10
+  }
+  val visibleItems = snapshot.items.take(itemLimit)
+  val compact = size.height < 90.dp
+  WidgetSurface(palette, padding = if (compact) 10.dp else 12.dp) {
+    if (!compact) {
+      WidgetHeader(palette, snapshot.fontScale, title, openAction)
+      Spacer(GlanceModifier.height(9.dp))
+    }
+    if (visibleItems.isEmpty()) {
+      Text(
+        snapshot.stateLabel,
+        modifier = GlanceModifier.clickable(openAction),
+        style = mutedTextStyle(palette, 11f * snapshot.fontScale),
+      )
+    } else {
+      visibleItems.forEachIndexed { visibleIndex, item ->
+        val originalIndex = snapshot.items.indexOf(item)
+        val action = actionStartActivity(itemIntents.getOrElse(originalIndex) { openHeader })
+        Row(
+          modifier = GlanceModifier
+            .widgetCard(palette)
+            .clickable(action)
+            .padding(horizontal = 9.dp, vertical = if (compact) 6.dp else 8.dp),
+          verticalAlignment = Alignment.Vertical.CenterVertically,
+        ) {
+          Text(
+            if (showIcons) shortcutEntryGlyph(item.shortcut?.entryKind) else "＋",
+            modifier = GlanceModifier.clickable(action),
+            style = TextStyle(
+              color = ColorProvider(palette.accent),
+              fontSize = (13f * snapshot.fontScale).sp,
+            ),
+          )
+          Spacer(GlanceModifier.width(9.dp))
+          Column(modifier = GlanceModifier.defaultWeight()) {
+            Text(
+              item.title,
+              modifier = GlanceModifier.clickable(action),
+              style = TextStyle(
+                color = ColorProvider(palette.foreground),
+                fontWeight = FontWeight.Medium,
+                fontSize = (13f * snapshot.fontScale).sp,
+              ),
+            )
+            if (size.height >= 180.dp && item.detail.isNotBlank()) {
+              Text(
+                item.detail,
+                modifier = GlanceModifier.clickable(action),
+                style = mutedTextStyle(palette, 11f * snapshot.fontScale),
+              )
+            }
+          }
+          if (item.shortcut?.pinned == true && size.height >= 180.dp) {
+            Text(
+              "★",
+              modifier = GlanceModifier.clickable(action),
+              style = mutedTextStyle(palette, 11f * snapshot.fontScale),
+            )
+          }
+        }
+        if (visibleIndex < visibleItems.lastIndex) Spacer(GlanceModifier.height(6.dp))
+      }
+    }
+  }
+}
+
+/**
+ * A task row opens the surface it actually lives on: its Kanban card when the
+ * snapshot carries a complete opaque board reference, otherwise its calendar
+ * item. Rows without any validated destination fall back to the task list.
+ */
+internal fun taskDestination(
+  context: Context,
+  item: AgendaWidgetItem,
+  fallback: Intent,
+): Intent = runCatching {
+  val kanban = item.task?.takeIf { it.source == "kanban" }?.kanbanTarget
+  when {
+    kanban != null -> CollabAppDestination.intent(context, "kanban-card", vault = kanban)
+    item.itemId != null ->
+      CollabAppDestination.intent(context, "calendar-item", item.dayKey, item.itemId)
+    else -> fallback
+  }
+}.getOrDefault(fallback)
+
+private suspend fun updateTaskState(
+  context: Context,
+  glanceId: GlanceId,
+  pendingItemId: String?,
+  message: String?,
+) {
+  updateAppWidgetState(context, glanceId) { preferences ->
+    if (pendingItemId == null) {
+      preferences.remove(TaskPendingCompleteStateKey)
+    } else {
+      preferences[TaskPendingCompleteStateKey] = pendingItemId
+    }
+    if (message == null) {
+      preferences.remove(TaskActionMessageStateKey)
+    } else {
+      preferences[TaskActionMessageStateKey] = message
+    }
+  }
+  CollabTasksWidget().update(context, glanceId)
+}
+
+/** The first tap only arms the row. Nothing is written until the user confirms. */
+class CollabTaskRequestCompleteAction : ActionCallback {
+  override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+    val itemId = parameters[TaskItemIdParameter] ?: return
+    updateTaskState(context, glanceId, itemId, null)
+  }
+}
+
+class CollabTaskCancelCompleteAction : ActionCallback {
+  override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+    updateTaskState(context, glanceId, null, null)
+  }
+}
+
+/**
+ * The confirming tap. Rust re-validates authorization, read-only state, the
+ * item revision, and source availability before queueing anything, and the
+ * widget is only refreshed from the republished snapshot afterwards.
+ */
+class CollabTaskConfirmCompleteAction : ActionCallback {
+  override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+    val appContext = context.applicationContext
+    val appWidgetId = (glanceId as? AppWidgetId)?.appWidgetId
+    val binding = appWidgetId?.let { CollabWidgetBindings.read(appContext, it) }
+    val itemId = parameters[TaskItemIdParameter]
+    if (binding == null || itemId == null) {
+      updateTaskState(context, glanceId, null, "This widget is no longer set up.")
+      return
+    }
+    val snapshot = CollabWidgetBridge.readBoundSnapshotRaw(appContext, binding)
+      ?.let { runCatching { CollabAgendaWidgetSnapshotStore.parse(it) }.getOrNull() }
+    // The durable snapshot, not the rendered state, decides which revision the
+    // confirmation targets.
+    val task = snapshot?.items?.firstOrNull { it.itemId == itemId }?.task
+    if (task == null || !task.completableNatively) {
+      updateTaskState(context, glanceId, null, "Open Collab to complete this task.")
+      return
+    }
+    val (applied, message) =
+      CollabWidgetBridge.completeTask(appContext, binding, itemId, task.revision)
+    updateTaskState(context, glanceId, null, message)
+    if (applied) CollabWidgetBridge.requestAgendaUpdate(appContext)
+  }
+}
+
 @Composable
 private fun AgendaWidgetContent(
   snapshot: AgendaWidgetSnapshot,
@@ -743,37 +1346,20 @@ private fun AgendaWidgetContent(
   } else {
     dateLabel
   }
-  Column(
-    modifier = GlanceModifier
-      .fillMaxSize()
-      .background(ColorProvider(palette.background))
-      .clickable(openAction)
-      .padding(14.dp),
+  val compact = size.height < 90.dp
+  WidgetSurface(
+    palette = palette,
+    modifier = GlanceModifier.clickable(openAction),
+    padding = if (compact) 10.dp else 12.dp,
   ) {
-    Row(modifier = GlanceModifier.fillMaxWidth().clickable(openAction)) {
-      Text(
-        text = headerLabel,
-        modifier = GlanceModifier.clickable(openAction),
-        style = TextStyle(
-          color = ColorProvider(palette.foreground),
-          fontWeight = FontWeight.Bold,
-          fontSize = (14f * snapshot.fontScale).sp,
-        ),
-      )
-      if (showCreate) {
-        Spacer(GlanceModifier.defaultWeight())
-        Text(
-          text = "＋",
-          modifier = GlanceModifier.padding(horizontal = 10.dp, vertical = 2.dp).clickable(createAction),
-          style = TextStyle(
-            color = ColorProvider(palette.accent),
-            fontWeight = FontWeight.Bold,
-            fontSize = (24f * snapshot.fontScale).sp,
-          ),
-        )
-      }
-    }
-    Spacer(GlanceModifier.height(6.dp))
+    WidgetHeader(
+      palette = palette,
+      fontScale = snapshot.fontScale,
+      title = headerLabel,
+      titleAction = openAction,
+      accentAction = if (showCreate) createAction else null,
+    )
+    Spacer(GlanceModifier.height(if (compact) 6.dp else 9.dp))
     if (snapshot.items.isEmpty()) {
       Text(
         snapshot.stateLabel,
@@ -781,60 +1367,227 @@ private fun AgendaWidgetContent(
         style = mutedTextStyle(palette, 11f * snapshot.fontScale),
       )
     } else {
-      Column(modifier = GlanceModifier.fillMaxWidth()) {
-        visibleItems.forEachIndexed { visibleIndex, item ->
-          val originalIndex = snapshot.items.indexOf(item)
-          val itemAction = actionStartActivity(itemIntents.getOrElse(originalIndex) { openToday })
-          Column(modifier = GlanceModifier.fillMaxWidth().clickable(itemAction)) {
-            if (size.height >= 180.dp) {
-              val priorSection = visibleItems.getOrNull(visibleIndex - 1)?.section
-              if (item.section != null && item.section != priorSection) {
-                Text(
-                  item.section.replaceFirstChar { it.uppercase() },
-                  modifier = GlanceModifier.clickable(openAction),
-                  style = mutedTextStyle(palette, 11f * snapshot.fontScale),
-                )
-              }
-            }
-            Row(modifier = GlanceModifier.fillMaxWidth().clickable(itemAction)) {
+      visibleItems.forEachIndexed { visibleIndex, item ->
+        val originalIndex = snapshot.items.indexOf(item)
+        val itemAction = actionStartActivity(itemIntents.getOrElse(originalIndex) { openToday })
+        if (size.height >= 180.dp) {
+          val priorSection = visibleItems.getOrNull(visibleIndex - 1)?.section
+          if (item.section != null && item.section != priorSection) {
+            WidgetSectionLabel(
+              palette,
+              snapshot.fontScale,
+              item.section.replaceFirstChar { it.uppercase() },
+              openAction,
+            )
+          }
+        }
+        WidgetRowCard(
+          palette = palette,
+          railColor = widgetSourceColor(item.sourceColor, palette.accent),
+          action = itemAction,
+          compact = compact,
+        ) {
+          Text(
+            item.title,
+            modifier = GlanceModifier.clickable(itemAction),
+            style = TextStyle(
+              color = ColorProvider(palette.foreground),
+              fontWeight = FontWeight.Medium,
+              fontSize = (13f * snapshot.fontScale).sp,
+            ),
+          )
+          if (!compact) {
+            Text(
+              agendaItemDetail(item),
+              modifier = GlanceModifier.clickable(itemAction),
+              style = mutedTextStyle(palette, 11f * snapshot.fontScale),
+            )
+          }
+        }
+        if (visibleIndex < visibleItems.lastIndex) Spacer(GlanceModifier.height(6.dp))
+      }
+      if (size.height >= 180.dp) {
+        Spacer(GlanceModifier.height(8.dp))
+        Text(
+          snapshot.stateLabel,
+          modifier = GlanceModifier.clickable(openAction),
+          style = mutedTextStyle(palette, 10f * snapshot.fontScale),
+        )
+      }
+    }
+  }
+}
+
+internal fun taskSectionLabel(due: String?): String = when (due) {
+  "overdue" -> "Overdue"
+  "today" -> "Today"
+  "upcoming" -> "Upcoming"
+  "unscheduled" -> "No due date"
+  else -> "Tasks"
+}
+
+@Composable
+private fun TasksWidgetContent(
+  snapshot: AgendaWidgetSnapshot,
+  openTasks: Intent,
+  itemIntents: List<Intent>,
+  pendingCompleteId: String?,
+  actionMessage: String?,
+) {
+  val size = LocalSize.current
+  val palette = agendaWidgetPalette(snapshot.theme, snapshot.accent)
+  val openAction = actionStartActivity(openTasks)
+  val itemLimit = when {
+    size.height < 90.dp -> 1
+    size.height < 180.dp -> 3
+    size.height < 260.dp -> 5
+    else -> 10
+  }
+  val visibleItems = snapshot.items.take(itemLimit)
+  val compact = size.height < 90.dp
+  WidgetSurface(
+    palette = palette,
+    modifier = GlanceModifier.clickable(openAction),
+    padding = if (compact) 10.dp else 12.dp,
+  ) {
+    WidgetHeader(palette, snapshot.fontScale, "Tasks", openAction)
+    Spacer(GlanceModifier.height(if (compact) 6.dp else 9.dp))
+    if (actionMessage != null) {
+      Text(
+        actionMessage,
+        modifier = GlanceModifier.clickable(openAction),
+        style = mutedTextStyle(palette, 11f * snapshot.fontScale),
+      )
+      Spacer(GlanceModifier.height(4.dp))
+    }
+    if (visibleItems.isEmpty()) {
+      Text(
+        snapshot.stateLabel,
+        modifier = GlanceModifier.clickable(openAction),
+        style = mutedTextStyle(palette, 11f * snapshot.fontScale),
+      )
+    } else {
+      visibleItems.forEachIndexed { visibleIndex, item ->
+        val originalIndex = snapshot.items.indexOf(item)
+        val itemAction = actionStartActivity(itemIntents.getOrElse(originalIndex) { openTasks })
+        val awaitingConfirmation = item.itemId != null && item.itemId == pendingCompleteId
+        if (size.height >= 180.dp) {
+          val priorDue = visibleItems.getOrNull(visibleIndex - 1)?.task?.due
+          if (item.task != null && item.task.due != priorDue) {
+            WidgetSectionLabel(
+              palette,
+              snapshot.fontScale,
+              taskSectionLabel(item.task.due),
+              openAction,
+            )
+          }
+        }
+        Row(
+          modifier = GlanceModifier
+            .fillMaxWidth()
+            // An armed row steps up one surface level so the pending
+            // confirmation is unmistakable without borrowing the accent, which
+            // already marks the confirming control itself.
+            .background(ColorProvider(if (awaitingConfirmation) palette.grid else palette.surface))
+            .cornerRadius(WidgetCardRadius)
+            .padding(horizontal = 6.dp, vertical = if (compact) 2.dp else 4.dp),
+          verticalAlignment = Alignment.Vertical.CenterVertically,
+        ) {
+          TaskCompleteControl(snapshot, palette, item, awaitingConfirmation)
+          Spacer(GlanceModifier.width(7.dp))
+          Column(modifier = GlanceModifier.defaultWeight().clickable(itemAction)) {
+            Text(
+              item.title,
+              modifier = GlanceModifier.clickable(itemAction),
+              style = TextStyle(
+                color = ColorProvider(palette.foreground),
+                fontWeight = FontWeight.Medium,
+                fontSize = (13f * snapshot.fontScale).sp,
+              ),
+            )
+            if (!compact) {
               Text(
-                "●",
-                modifier = GlanceModifier.clickable(itemAction),
-                style = TextStyle(
-                  color = ColorProvider(widgetSourceColor(item.sourceColor, palette.accent)),
-                  fontSize = (12f * snapshot.fontScale).sp,
-                ),
-              )
-              Spacer(GlanceModifier.width(5.dp))
-              Text(
-                item.title,
-                modifier = GlanceModifier.clickable(itemAction),
-                style = TextStyle(
-                  color = ColorProvider(palette.foreground),
-                  fontWeight = FontWeight.Medium,
-                  fontSize = (13f * snapshot.fontScale).sp,
-                ),
-              )
-            }
-            if (size.height >= 90.dp) {
-              Text(
-                agendaItemDetail(item),
+                if (awaitingConfirmation) "Tap ✓ to confirm" else item.detail,
                 modifier = GlanceModifier.clickable(itemAction),
                 style = mutedTextStyle(palette, 11f * snapshot.fontScale),
               )
             }
-            Spacer(GlanceModifier.height(5.dp))
+          }
+          if (awaitingConfirmation) {
+            Spacer(GlanceModifier.width(4.dp))
+            Box(
+              modifier = GlanceModifier.width(34.dp).height(34.dp)
+                .clickable(actionRunCallback<CollabTaskCancelCompleteAction>()),
+              contentAlignment = Alignment.Center,
+            ) {
+              Text(
+                "✕",
+                style = mutedTextStyle(palette, 15f * snapshot.fontScale),
+              )
+            }
           }
         }
+        if (visibleIndex < visibleItems.lastIndex) Spacer(GlanceModifier.height(6.dp))
       }
       if (size.height >= 180.dp) {
+        Spacer(GlanceModifier.height(8.dp))
         Text(
           snapshot.stateLabel,
           modifier = GlanceModifier.clickable(openAction),
-          style = mutedTextStyle(palette, 11f * snapshot.fontScale),
+          style = mutedTextStyle(palette, 10f * snapshot.fontScale),
         )
       }
     }
+  }
+}
+
+/**
+ * The completion affordance. Only rows Rust marked natively completable get an
+ * arming tap; everything else stays inert so a launcher tap can never mutate
+ * shared data on its own.
+ */
+@Composable
+private fun TaskCompleteControl(
+  snapshot: AgendaWidgetSnapshot,
+  palette: AgendaWidgetPalette,
+  item: AgendaWidgetItem,
+  awaitingConfirmation: Boolean,
+) {
+  val itemId = item.itemId
+  val completable = item.task?.completableNatively == true && itemId != null
+  val modifier = GlanceModifier.width(34.dp).height(34.dp).cornerRadius(17.dp)
+  Box(
+    modifier = when {
+      !completable -> modifier
+      awaitingConfirmation -> modifier
+        .background(ColorProvider(palette.accent))
+        .clickable(
+          actionRunCallback<CollabTaskConfirmCompleteAction>(
+            actionParametersOf(TaskItemIdParameter to itemId!!),
+          ),
+        )
+      else -> modifier.clickable(
+        actionRunCallback<CollabTaskRequestCompleteAction>(
+          actionParametersOf(TaskItemIdParameter to itemId!!),
+        ),
+      )
+    },
+    contentAlignment = Alignment.Center,
+  ) {
+    Text(
+      if (awaitingConfirmation) "✓" else if (completable) "○" else "•",
+      style = TextStyle(
+        color = ColorProvider(
+          when {
+            awaitingConfirmation -> palette.background
+            completable -> widgetSourceColor(item.sourceColor, palette.accent)
+            else -> palette.muted
+          },
+        ),
+        fontWeight = if (awaitingConfirmation) FontWeight.Bold else FontWeight.Normal,
+        fontSize = ((if (awaitingConfirmation) 15f else 14f) * snapshot.fontScale).sp,
+      ),
+    )
   }
 }
 
@@ -852,9 +1605,7 @@ private fun MonthWidgetContent(
   val nextAction = actionRunCallback<CollabNextMonthAction>()
   val createAction = actionStartActivity(createToday)
   val size = LocalSize.current
-  Column(
-    modifier = GlanceModifier.fillMaxSize().background(ColorProvider(palette.background)).padding(12.dp),
-  ) {
+  WidgetSurface(palette) {
     Row(
       modifier = GlanceModifier.fillMaxWidth(),
       verticalAlignment = Alignment.Vertical.CenterVertically,
@@ -865,51 +1616,22 @@ private fun MonthWidgetContent(
         style = TextStyle(
           color = ColorProvider(palette.foreground),
           fontWeight = FontWeight.Bold,
-          fontSize = (16f * snapshot.fontScale).sp,
+          fontSize = (15f * snapshot.fontScale).sp,
         ),
       )
-      Box(
-        modifier = GlanceModifier.width(40.dp).height(40.dp).clickable(previousAction),
-        contentAlignment = Alignment.Center,
-      ) {
-        Text(
-          "‹",
-          style = TextStyle(color = ColorProvider(palette.foreground), fontSize = (24f * snapshot.fontScale).sp),
-        )
-      }
-      Box(
-        modifier = GlanceModifier.width(40.dp).height(40.dp).clickable(nextAction),
-        contentAlignment = Alignment.Center,
-      ) {
-        Text(
-          "›",
-          style = TextStyle(color = ColorProvider(palette.foreground), fontSize = (24f * snapshot.fontScale).sp),
-        )
-      }
+      WidgetQuietButton(palette, snapshot.fontScale, "‹", previousAction)
       Spacer(GlanceModifier.width(4.dp))
-      Box(
-        modifier = GlanceModifier.width(48.dp).height(44.dp)
-          .background(ColorProvider(palette.accent))
-          .cornerRadius(14.dp)
-          .clickable(createAction),
-        contentAlignment = Alignment.Center,
-      ) {
-        Text(
-          "＋",
-          style = TextStyle(
-            color = ColorProvider(palette.background),
-            fontWeight = FontWeight.Bold,
-            fontSize = (21f * snapshot.fontScale).sp,
-          ),
-        )
-      }
+      WidgetQuietButton(palette, snapshot.fontScale, "›", nextAction)
+      Spacer(GlanceModifier.width(6.dp))
+      WidgetAccentButton(palette, snapshot.fontScale, "＋", createAction)
     }
-    Spacer(GlanceModifier.height(4.dp))
+    Spacer(GlanceModifier.height(7.dp))
     Row(modifier = GlanceModifier.fillMaxWidth()) {
       listOf("M", "T", "W", "T", "F", "S", "S").forEach { label ->
         Text(label, modifier = GlanceModifier.defaultWeight(), style = mutedTextStyle(palette, 10f * snapshot.fontScale))
       }
     }
+    Spacer(GlanceModifier.height(4.dp))
     page.days.chunked(7).take(6).forEach { week ->
       Row(
         modifier = GlanceModifier.fillMaxWidth().defaultWeight()
@@ -1050,6 +1772,18 @@ class CollabBirthdayWidgetReceiver : CollabCalendarWidgetReceiver() {
 
 class CollabCountdownWidgetReceiver : CollabCalendarWidgetReceiver() {
   override val glanceAppWidget: GlanceAppWidget = CollabCountdownWidget()
+}
+
+class CollabTasksWidgetReceiver : CollabCalendarWidgetReceiver() {
+  override val glanceAppWidget: GlanceAppWidget = CollabTasksWidget()
+}
+
+class CollabCaptureWidgetReceiver : CollabCalendarWidgetReceiver() {
+  override val glanceAppWidget: GlanceAppWidget = CollabCaptureWidget()
+}
+
+class CollabShortcutsWidgetReceiver : CollabCalendarWidgetReceiver() {
+  override val glanceAppWidget: GlanceAppWidget = CollabShortcutsWidget()
 }
 
 class CollabWidgetLifecycleReceiver : android.content.BroadcastReceiver() {

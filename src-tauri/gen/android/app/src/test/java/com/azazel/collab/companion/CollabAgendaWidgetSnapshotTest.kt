@@ -145,4 +145,92 @@ class CollabAgendaWidgetSnapshotTest {
     assertTrue(!shouldNotifyAgendaWidgetProvider(AgendaWidgetUpdateOrigin.Provider))
     assertTrue(shouldNotifyAgendaWidgetProvider(AgendaWidgetUpdateOrigin.External))
   }
+
+  @Test
+  fun parsesTaskProjectionAndKeepsOnlyValidatedKanbanReferences() {
+    val snapshot = CollabAgendaWidgetSnapshotStore.parse(
+      """{"schemaVersion":1,"kind":"tasks","dateLabel":"2026-08-01","items":[
+        {"title":"Ship","detail":"Aug 1","itemId":"task-1","task":{"source":"calendar","due":"today","completion":"available","revision":4}},
+        {"title":"Review","detail":"Aug 2","itemId":"task-2","task":{"source":"kanban","due":"upcoming","completion":"confirmInApp","revision":2,"vaultId":"vault-1","fileId":"file-1","cardId":"card-1"}},
+        {"title":"Broken","detail":"","itemId":"task-3","task":{"source":"kanban","due":"today","completion":"confirmInApp","revision":1,"vaultId":"../escape","fileId":"file-1","cardId":"card-1"}},
+        {"title":"Unknown","detail":"","itemId":"task-4","task":{"source":"elsewhere","due":"today","completion":"available","revision":1}}
+      ]}""",
+    )
+    assertEquals("tasks", snapshot.kind)
+    val calendarTask = snapshot.items[0].task!!
+    assertEquals("calendar", calendarTask.source)
+    assertEquals("today", calendarTask.due)
+    assertEquals(4, calendarTask.revision)
+    assertTrue(calendarTask.completableNatively)
+
+    val kanbanTask = snapshot.items[1].task!!
+    assertTrue(!kanbanTask.completableNatively)
+    assertEquals("vault-1", kanbanTask.kanbanTarget?.vaultId)
+    assertEquals("card-1", kanbanTask.kanbanTarget?.cardId)
+
+    // An unusable reference degrades to "no Kanban destination", never to a
+    // path that could escape the validated identifier shape.
+    assertEquals(null, snapshot.items[2].task!!.kanbanTarget)
+    // An unknown source is dropped rather than rendered as a completable task.
+    assertEquals(null, snapshot.items[3].task)
+  }
+
+  @Test
+  fun kanbanRowsCanNeverClaimNativeCompletion() {
+    val snapshot = CollabAgendaWidgetSnapshotStore.parse(
+      """{"schemaVersion":1,"kind":"tasks","items":[
+        {"title":"Ship","detail":"","itemId":"task-1","task":{"source":"kanban","due":"today","completion":"available","revision":1}}
+      ]}""",
+    )
+    val task = snapshot.items.single().task!!
+    assertEquals("confirmInApp", task.completion)
+    assertTrue(!task.completableNatively)
+  }
+
+  @Test
+  fun parsesCaptureAndShortcutRowsAndDropsUnusableTargets() {
+    val snapshot = CollabAgendaWidgetSnapshotStore.parse(
+      """{"schemaVersion":1,"kind":"shortcuts","items":[
+        {"title":"New note","detail":"Opens the note creator","shortcut":{"destination":"capture-note","pinned":false}},
+        {"title":"Roadmap.md","detail":"Note","shortcut":{"destination":"vault-file","vaultId":"vault-1","fileId":"file-1","entryKind":"note","pinned":true}},
+        {"title":"Designs","detail":"Folder","shortcut":{"destination":"vault-folder","vaultId":"vault-1","fileId":"folder-1","entryKind":"folder","pinned":false}},
+        {"title":"Broken","detail":"","shortcut":{"destination":"vault-file","vaultId":"vault-1","entryKind":"note","pinned":false}},
+        {"title":"Hostile","detail":"","shortcut":{"destination":"open-anything","pinned":false}}
+      ]}""",
+    )
+    assertEquals("shortcuts", snapshot.kind)
+    assertEquals("capture-note", snapshot.items[0].shortcut!!.destination)
+    assertEquals(null, snapshot.items[0].shortcut!!.vaultId)
+
+    val pinned = snapshot.items[1].shortcut!!
+    assertEquals("vault-file", pinned.destination)
+    assertEquals("file-1", pinned.fileId)
+    assertTrue(pinned.pinned)
+    assertEquals("vault-folder", snapshot.items[2].shortcut!!.destination)
+
+    // A vault destination missing its file target, and an unknown destination,
+    // are both dropped rather than rendered as dead rows.
+    assertEquals(null, snapshot.items[3].shortcut)
+    assertEquals(null, snapshot.items[4].shortcut)
+  }
+
+  @Test
+  fun shortcutGlyphsCoverEverySupportedEntryKind() {
+    assertEquals("📄", shortcutEntryGlyph("note"))
+    assertEquals("🗂", shortcutEntryGlyph("board"))
+    assertEquals("🎨", shortcutEntryGlyph("canvas"))
+    assertEquals("▦", shortcutEntryGlyph("sheet"))
+    assertEquals("📕", shortcutEntryGlyph("pdf"))
+    assertEquals("📁", shortcutEntryGlyph("folder"))
+    assertEquals("•", shortcutEntryGlyph(null))
+  }
+
+  @Test
+  fun taskSectionsUseTheNativeDueState() {
+    assertEquals("Overdue", taskSectionLabel("overdue"))
+    assertEquals("Today", taskSectionLabel("today"))
+    assertEquals("Upcoming", taskSectionLabel("upcoming"))
+    assertEquals("No due date", taskSectionLabel("unscheduled"))
+    assertEquals("Tasks", taskSectionLabel(null))
+  }
 }

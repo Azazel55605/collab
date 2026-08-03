@@ -33,6 +33,12 @@ const MAX_STORE_BYTES: u64 = 64 * 1024;
 const MAX_SNAPSHOT_BYTES: usize = 262_144;
 const MIN_MONTH_OFFSET: i8 = -6;
 const MAX_MONTH_OFFSET: i8 = 6;
+const MAX_CAPTURE_ACTIONS: usize = 6;
+const MAX_PINNED_SHORTCUTS: usize = 16;
+/// Upper bound on replica entries inspected while building shortcut rows, so a
+/// large vault cannot turn a widget refresh into an unbounded scan.
+#[cfg(any(target_os = "android", test))]
+const MAX_SHORTCUT_CANDIDATES: usize = 400;
 
 static STORE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -47,6 +53,105 @@ pub(crate) enum WidgetKind {
     Month,
     Birthday,
     Countdown,
+    Tasks,
+    Capture,
+    Shortcuts,
+}
+
+/// A quick-capture tile. Each one only opens an existing mobile flow; the
+/// widget itself never captures content or requests a permission.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum WidgetCaptureAction {
+    Note,
+    Task,
+    Event,
+    Files,
+}
+
+#[cfg(any(target_os = "android", test))]
+impl WidgetCaptureAction {
+    fn destination(self) -> &'static str {
+        match self {
+            Self::Note => "capture-note",
+            Self::Task => "capture-task",
+            Self::Event => "calendar-create",
+            Self::Files => "capture-files",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Note => "New note",
+            Self::Task => "New task",
+            Self::Event => "New event",
+            Self::Files => "Add files",
+        }
+    }
+
+    fn detail(self) -> &'static str {
+        match self {
+            Self::Note => "Opens the note creator",
+            Self::Task => "Opens the task creator",
+            Self::Event => "Opens the event creator",
+            Self::Files => "Opens the file picker",
+        }
+    }
+}
+
+/// The coarse type of a pinned or recent vault entry. Kotlin renders an icon
+/// from this rather than parsing names or paths.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum WidgetEntryKind {
+    Note,
+    Board,
+    Canvas,
+    Sheet,
+    Pdf,
+    Folder,
+    File,
+}
+
+#[cfg(any(target_os = "android", test))]
+impl WidgetEntryKind {
+    /// The generic label used when privacy reduction removes the real name.
+    fn private_label(self) -> &'static str {
+        match self {
+            Self::Note => "Note",
+            Self::Board => "Board",
+            Self::Canvas => "Canvas",
+            Self::Sheet => "Sheet",
+            Self::Pdf => "PDF",
+            Self::Folder => "Folder",
+            Self::File => "File",
+        }
+    }
+}
+
+/// Where a projected task came from. Calendar tasks are writable through the
+/// local pending-operation queue; Kanban assignments are read-only projections
+/// of hosted cards and can only be completed in the app.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum WidgetTaskSource {
+    Calendar,
+    Kanban,
+}
+
+/// What a launcher tap may do with a task. Anything other than `available`
+/// keeps the mutation inside the app, where authorization, conflicts, and
+/// recurrence choices are visible.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum WidgetTaskCompletion {
+    /// Completable natively after an explicit launcher confirmation.
+    Available,
+    /// Requires the app: Kanban write-through, recurrence choices, or a source
+    /// whose current state cannot be trusted.
+    ConfirmInApp,
+    /// Not completable at all (read-only calendar, or the action is disabled).
+    Unavailable,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -112,6 +217,92 @@ impl Default for WidgetActionOptions {
     }
 }
 
+/// Task-widget source selection. Account, vault, and assignee filtering are
+/// expressed through `selected_source_ids`, because each hosted account and
+/// each Kanban origin owns its own calendar and the Kanban projection is
+/// already scoped to the signed-in user's assignments.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetTaskOptions {
+    #[serde(default = "default_true")]
+    pub include_calendar_tasks: bool,
+    #[serde(default = "default_true")]
+    pub include_kanban_tasks: bool,
+    #[serde(default = "default_true")]
+    pub include_undated: bool,
+    /// Opaque Kanban board file identifiers. Empty means every board.
+    #[serde(default)]
+    pub selected_board_ids: Vec<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_capture_actions() -> Vec<WidgetCaptureAction> {
+    vec![
+        WidgetCaptureAction::Note,
+        WidgetCaptureAction::Task,
+        WidgetCaptureAction::Event,
+        WidgetCaptureAction::Files,
+    ]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetCaptureOptions {
+    #[serde(default = "default_capture_actions")]
+    pub actions: Vec<WidgetCaptureAction>,
+}
+
+impl Default for WidgetCaptureOptions {
+    fn default() -> Self {
+        Self {
+            actions: default_capture_actions(),
+        }
+    }
+}
+
+/// A user-pinned vault entry, addressed only by stable opaque identity. The
+/// owning server is resolved from the replica inventory at publication time and
+/// never stored in the configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetPinnedTarget {
+    pub vault_id: String,
+    pub file_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetShortcutOptions {
+    #[serde(default)]
+    pub pinned: Vec<WidgetPinnedTarget>,
+    /// Fills any remaining rows from bounded replica metadata.
+    #[serde(default = "default_true")]
+    pub include_recent: bool,
+}
+
+impl Default for WidgetShortcutOptions {
+    fn default() -> Self {
+        Self {
+            pinned: Vec::new(),
+            include_recent: true,
+        }
+    }
+}
+
+impl Default for WidgetTaskOptions {
+    fn default() -> Self {
+        Self {
+            include_calendar_tasks: true,
+            include_kanban_tasks: true,
+            include_undated: true,
+            selected_board_ids: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WidgetConfiguration {
@@ -128,6 +319,12 @@ pub(crate) struct WidgetConfiguration {
     pub display: WidgetDisplayOptions,
     #[serde(default)]
     pub actions: WidgetActionOptions,
+    #[serde(default)]
+    pub tasks: WidgetTaskOptions,
+    #[serde(default)]
+    pub capture: WidgetCaptureOptions,
+    #[serde(default)]
+    pub shortcuts: WidgetShortcutOptions,
     pub updated_at: String,
 }
 
@@ -173,10 +370,72 @@ pub(crate) struct WidgetItemInput {
     pub all_day: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<WidgetTaskDetails>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shortcut: Option<WidgetShortcutDetails>,
 }
 
 fn default_private_item_title() -> String {
     "Private item".into()
+}
+
+/// The bounded descriptor a capture tile or vault shortcut row taps through.
+/// Targets are addressed by stable opaque identity only: no path, URL, or
+/// server origin is ever persisted for the launcher to hand back.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetShortcutDetails {
+    pub destination: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_kind: Option<WidgetEntryKind>,
+    #[serde(default)]
+    pub pinned: bool,
+}
+
+/// Destinations a capture or shortcut row is allowed to carry.
+const SHORTCUT_DESTINATIONS: [&str; 6] = [
+    "capture-note",
+    "capture-task",
+    "calendar-create",
+    "capture-files",
+    "vault-file",
+    "vault-folder",
+];
+
+/// When a task is due relative to the profile-timezone day the snapshot was
+/// generated for. Rust decides this so Kotlin never infers calendar semantics.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum WidgetTaskDue {
+    Overdue,
+    Today,
+    Upcoming,
+    Unscheduled,
+}
+
+/// The bounded, privacy-independent task projection carried by task snapshots.
+/// Every identifier here is opaque; no server URL, board name, or document body
+/// crosses into launcher-readable storage.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetTaskDetails {
+    pub source: WidgetTaskSource,
+    pub due: WidgetTaskDue,
+    pub completion: WidgetTaskCompletion,
+    /// The item revision the row was rendered from. Native completion refuses
+    /// to act when the stored item has moved on.
+    pub revision: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -217,6 +476,10 @@ pub(crate) struct WidgetSnapshotItem {
     pub all_day: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<WidgetTaskDetails>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shortcut: Option<WidgetShortcutDetails>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -324,6 +587,9 @@ pub(crate) enum WidgetActionKind {
     OpenMonth,
     OpenBirthdays,
     OpenCountdowns,
+    OpenTasks,
+    OpenCapture,
+    OpenShortcuts,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -338,6 +604,31 @@ pub(crate) struct WidgetActionRequest {
 pub(crate) struct WidgetPreparedAction {
     pub configuration_id: String,
     pub destination_kind: String,
+}
+
+/// A launcher-confirmed request to complete one task. The caller must supply
+/// the revision it displayed so a stale row cannot silently overwrite newer
+/// state.
+#[cfg(any(target_os = "android", test))]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetTaskCompletionRequest {
+    pub configuration_id: String,
+    pub item_id: String,
+    pub expected_revision: i64,
+    /// Set by the launcher only after the user confirmed the action in place.
+    #[serde(default)]
+    pub confirmed: bool,
+}
+
+#[cfg(any(target_os = "android", test))]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetTaskCompletionResult {
+    /// True when the native queue accepted the mutation. Only then may the
+    /// launcher show the row as completed.
+    pub applied: bool,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -380,6 +671,14 @@ fn default_widget_time_format() -> String {
 struct ActiveWidgetProfile {
     schema_version: u32,
     profile_id: String,
+}
+
+#[cfg(any(target_os = "android", test))]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WidgetDeviceIdentity {
+    schema_version: u32,
+    device_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -639,6 +938,11 @@ impl WidgetStore {
             (WidgetKind::Month, WidgetActionKind::OpenMonth) => "calendar-today",
             (WidgetKind::Birthday, WidgetActionKind::OpenBirthdays) => "calendar-today",
             (WidgetKind::Countdown, WidgetActionKind::OpenCountdowns) => "calendar-today",
+            (WidgetKind::Tasks, WidgetActionKind::OpenTasks) => "calendar-today",
+            (WidgetKind::Capture, WidgetActionKind::OpenCapture) => "capture-note",
+            // The shortcuts header opens the vault list rather than guessing a
+            // target the user did not tap.
+            (WidgetKind::Shortcuts, WidgetActionKind::OpenShortcuts) => "vault-list",
             _ => return Err("The widget action does not match its configuration.".into()),
         };
         Ok(WidgetPreparedAction {
@@ -780,6 +1084,29 @@ pub(crate) fn active_profile(config_root: &Path) -> Result<Option<String>, Strin
     Ok(Some(profile.profile_id))
 }
 
+/// Returns the stable device identifier stamped onto widget-originated
+/// calendar operations, creating it on first use. Widget writes are attributed
+/// to their own device so they stay distinguishable from webview edits during
+/// synchronization.
+#[cfg(any(target_os = "android", test))]
+fn widget_device_id(config_root: &Path) -> Result<String, String> {
+    let _guard = store_lock().lock().map_err(|_| store_error())?;
+    let path = config_root.join("widgets").join("device.json");
+    if let Some(existing) = read_json_optional::<WidgetDeviceIdentity>(&path, 1024)? {
+        if existing.schema_version == WIDGET_SCHEMA_VERSION
+            && validate_identifier(&existing.device_id, "widget device").is_ok()
+        {
+            return Ok(existing.device_id);
+        }
+    }
+    let identity = WidgetDeviceIdentity {
+        schema_version: WIDGET_SCHEMA_VERSION,
+        device_id: format!("widget-{}", uuid::Uuid::new_v4()),
+    };
+    atomic_replace(&path, &encode_bounded(&identity, 1024)?)?;
+    Ok(identity.device_id)
+}
+
 pub(crate) fn clear_active_profile(
     config_root: &Path,
     expected_profile_id: &str,
@@ -900,6 +1227,9 @@ pub(crate) fn build_snapshot(
             }
             WidgetKind::Countdown => "No selected events upcoming",
             WidgetKind::Month => "No items today",
+            WidgetKind::Tasks => "No tasks due",
+            WidgetKind::Capture => "Choose actions in Collab settings",
+            WidgetKind::Shortcuts => "Pin files in Collab settings",
             WidgetKind::Agenda => "Nothing upcoming",
         }
     } else {
@@ -965,10 +1295,26 @@ pub(crate) async fn build_and_publish_agenda_profile(
             WidgetKind::Birthday | WidgetKind::Countdown => {
                 configuration.display.horizon_days.max(31)
             }
-            WidgetKind::Agenda => configuration.display.horizon_days,
+            WidgetKind::Agenda | WidgetKind::Tasks => configuration.display.horizon_days,
+            // Not calendar-ranged; they must not widen the shared query.
+            WidgetKind::Capture | WidgetKind::Shortcuts => 1,
         })
         .max()
         .unwrap_or(default_horizon_days());
+    // Only the tasks widget renders tasks that were never scheduled, so the
+    // shared projection stays as narrow as the placed widgets require.
+    let include_unscheduled_tasks = configurations.iter().any(|configuration| {
+        configuration.kind == WidgetKind::Tasks && configuration.tasks.include_undated
+    });
+    // Replica metadata is only read when a shortcut widget is actually placed.
+    let shortcut_candidates = if configurations
+        .iter()
+        .any(|configuration| configuration.kind == WidgetKind::Shortcuts)
+    {
+        read_shortcut_candidates(config_root)
+    } else {
+        Vec::new()
+    };
     let last_day = today + Duration::days(i64::from(max_horizon));
     let query_from = local_midnight_utc(time_zone, oldest)?;
     let query_to = local_midnight_utc(time_zone, last_day + Duration::days(1))?;
@@ -1003,7 +1349,7 @@ pub(crate) async fn build_and_publish_agenda_profile(
             to: query_to,
             limit: MAX_RANGE_QUERY_ITEMS as usize,
             include_deleted: false,
-            include_unscheduled_tasks: false,
+            include_unscheduled_tasks,
         },
     )
     .map_err(|error| error.to_string())?;
@@ -1028,13 +1374,45 @@ pub(crate) async fn build_and_publish_agenda_profile(
     }
 
     let mut outcomes = Vec::with_capacity(configurations.len());
-    for configuration in configurations {
+    for mut configuration in configurations {
+        // The shared item limit is a calendar-list concept. Capture tiles and
+        // pinned shortcuts are explicit user choices, so they raise the limit
+        // (still inside the snapshot bound) instead of being silently cut.
+        match configuration.kind {
+            WidgetKind::Capture => {
+                configuration.display.max_items =
+                    (configuration.capture.actions.len().max(1)).min(MAX_SNAPSHOT_ITEMS) as u8;
+            }
+            WidgetKind::Shortcuts => {
+                let recent = if configuration.shortcuts.include_recent {
+                    usize::from(configuration.display.max_items)
+                } else {
+                    0
+                };
+                configuration.display.max_items = (configuration.shortcuts.pinned.len() + recent)
+                    .clamp(1, MAX_SNAPSHOT_ITEMS)
+                    as u8;
+            }
+            _ => {}
+        }
         let generation_started = Instant::now();
         let configuration_id = configuration.configuration_id.clone();
         let max_items = usize::from(configuration.display.max_items);
         let horizon_end = today + Duration::days(i64::from(configuration.display.horizon_days));
         let mut items = Vec::new();
+        // Capture and shortcut widgets are not calendar projections; they build
+        // their rows directly and skip the item scan entirely.
+        match configuration.kind {
+            WidgetKind::Capture => items = capture_item_inputs(&configuration),
+            WidgetKind::Shortcuts => {
+                items = shortcut_item_inputs(&configuration, &shortcut_candidates)
+            }
+            _ => {}
+        }
         for item in &projected {
+            if matches!(configuration.kind, WidgetKind::Capture | WidgetKind::Shortcuts) {
+                break;
+            }
             if !configuration.selected_source_ids.is_empty()
                 && !configuration
                     .selected_source_ids
@@ -1047,6 +1425,35 @@ pub(crate) async fn build_and_publish_agenda_profile(
                 continue;
             };
             if !appearance.show_declined && is_declined_for_calendar(item, calendar) {
+                continue;
+            }
+            if configuration.kind == WidgetKind::Tasks {
+                let source_freshness = freshness
+                    .iter()
+                    .find(|entry| entry.source_id == item.calendar_id)
+                    .map(|entry| entry.freshness)
+                    .unwrap_or(WidgetFreshness::Fresh);
+                let Some(input) = task_item_input(
+                    item,
+                    calendar,
+                    &configuration,
+                    source_freshness,
+                    now,
+                    today,
+                    horizon_end,
+                    time_zone,
+                    &appearance.time_format,
+                )?
+                else {
+                    continue;
+                };
+                if !configuration.display.show_completed && input.completed {
+                    continue;
+                }
+                items.push(input);
+                if items.len() >= MAX_SNAPSHOT_ITEMS * 4 {
+                    break;
+                }
                 continue;
             }
             if configuration.kind == WidgetKind::Birthday && item.kind != CalendarItemKind::Birthday
@@ -1187,6 +1594,140 @@ pub(crate) async fn build_and_publish_agenda_profile(
         outcomes.push(outcome);
     }
     Ok(outcomes)
+}
+
+/// Applies a launcher-confirmed task completion.
+///
+/// Every gate the launcher already evaluated is re-checked here against current
+/// state, because the snapshot the user tapped may be minutes old: the
+/// configuration must still exist and still enable the action, the item must
+/// still be an incomplete non-recurring calendar task at the revision that was
+/// displayed, and its calendar must still be writable. Only then is the normal
+/// calendar pending-operation path used, with an idempotency key derived from
+/// the item and revision so a repeated tap or retry cannot queue a second
+/// mutation. The caller republishes snapshots afterwards, so the launcher only
+/// ever shows state the native queue accepted.
+#[cfg(any(target_os = "android", test))]
+pub(crate) async fn complete_task(
+    config_root: &Path,
+    profile_id: &str,
+    calendar_store: &CalendarStore,
+    request: WidgetTaskCompletionRequest,
+    now: DateTime<Utc>,
+) -> Result<WidgetTaskCompletionResult, String> {
+    validate_identifier(&request.configuration_id, "widget configuration")?;
+    validate_identifier(&request.item_id, "widget calendar item")?;
+    if !request.confirmed {
+        return Err("The task completion was not confirmed.".into());
+    }
+    if request.expected_revision < 0 {
+        return Err("The task revision is invalid.".into());
+    }
+    let widget_store = WidgetStore::open(config_root, profile_id)?;
+    let configuration = widget_store
+        .list_configurations()?
+        .into_iter()
+        .find(|entry| entry.configuration_id == request.configuration_id)
+        .ok_or_else(|| "The widget configuration no longer exists.".to_string())?;
+    if configuration.kind != WidgetKind::Tasks || !configuration.actions.toggle_task {
+        return Err("This widget cannot complete tasks.".into());
+    }
+
+    let Some(item) = calendar_store
+        .read_item(&request.item_id)
+        .await
+        .map_err(|error| error.to_string())?
+    else {
+        return Err("The task is no longer available on this device.".into());
+    };
+    if item.deleted_at.is_some() {
+        return Err("The task was deleted.".into());
+    }
+    if item.kind != CalendarItemKind::Task {
+        return Err("Only tasks can be completed from a widget.".into());
+    }
+    if !configuration.selected_source_ids.is_empty()
+        && !configuration
+            .selected_source_ids
+            .iter()
+            .any(|source_id| source_id == &item.calendar_id)
+    {
+        return Err("The task is not part of this widget.".into());
+    }
+    if item.revision != request.expected_revision {
+        return Err("The task changed since the widget last updated.".into());
+    }
+    if item.completed_at.is_some()
+        || item
+            .status
+            .as_deref()
+            .is_some_and(|status| status == "completed")
+    {
+        return Ok(WidgetTaskCompletionResult {
+            applied: false,
+            message: "Already completed.".into(),
+        });
+    }
+    if item.recurrence.is_some() || item.recurrence_id.is_some() {
+        return Err("Open Collab to complete a repeating task.".into());
+    }
+    if matches!(
+        item.source_binding,
+        Some(collab_calendar::CalendarSourceBinding::Kanban { .. })
+    ) {
+        return Err("Open Collab to complete a Kanban task.".into());
+    }
+
+    let calendar = calendar_store
+        .list_calendars()
+        .await
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|calendar| calendar.id == item.calendar_id)
+        .ok_or_else(|| "The task's calendar is no longer available.".to_string())?;
+    if calendar.archived || calendar.deleted_at.is_some() {
+        return Err("The task's calendar is no longer available.".into());
+    }
+    if calendar.read_only || calendar.location.is_inherently_read_only() {
+        return Err("The task's calendar is read only.".into());
+    }
+
+    let timestamp = now.to_rfc3339();
+    let completed = CalendarItem {
+        status: Some("completed".into()),
+        completed_at: Some(timestamp.clone()),
+        revision: item.revision.saturating_add(1),
+        updated_at: timestamp,
+        ..item.clone()
+    };
+    // Deterministic in the item and the revision it was completed from, so a
+    // retried JNI call replays into the same already-recorded operation.
+    let operation = collab_calendar::CalendarOperation {
+        client_operation_id: format!("widget-complete-{}-{}", item.id, item.revision),
+        device_id: widget_device_id(config_root)?,
+        expected_revision: Some(item.revision),
+        source_change_id: None,
+        propagation_lineage: Vec::new(),
+        mutation: collab_calendar::CalendarMutation::UpsertItem {
+            item: completed.clone(),
+        },
+    };
+    calendar_store
+        .upsert_item_with_operation(&completed, &operation)
+        .await
+        .map_err(|error| error.to_string())?;
+    if matches!(calendar.location, CalendarLocation::Local { .. }) {
+        // Local calendars have no server to acknowledge the queue entry, which
+        // matches how the mobile calendar editor persists local writes.
+        calendar_store
+            .acknowledge_operations(std::slice::from_ref(&operation.client_operation_id))
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(WidgetTaskCompletionResult {
+        applied: true,
+        message: "Task completed.".into(),
+    })
 }
 
 #[cfg(any(target_os = "android", test))]
@@ -1357,7 +1898,416 @@ fn agenda_item_input(
         start_at: Some(instant.to_rfc3339()),
         all_day,
         source_color: Some(calendar.color.clone()),
+        task: None,
+        shortcut: None,
     }))
+}
+
+/// Projects one calendar or Kanban-assigned task into the shared task row used
+/// by the tasks widget. Unlike the agenda projection this keeps tasks that have
+/// no due date, and it decides the completion capability in Rust so the
+/// launcher can never offer an action the app would reject.
+#[cfg(any(target_os = "android", test))]
+#[allow(clippy::too_many_arguments)]
+fn task_item_input(
+    item: &CalendarItem,
+    calendar: &CalendarDefinition,
+    configuration: &WidgetConfiguration,
+    source_freshness: WidgetFreshness,
+    now: DateTime<Utc>,
+    today: NaiveDate,
+    horizon_end: NaiveDate,
+    time_zone: chrono_tz::Tz,
+    time_format: &str,
+) -> Result<Option<WidgetItemInput>, String> {
+    if item.kind != CalendarItemKind::Task {
+        return Ok(None);
+    }
+    let kanban_binding = match &item.source_binding {
+        Some(collab_calendar::CalendarSourceBinding::Kanban {
+            vault_id,
+            file_id,
+            card_id,
+            ..
+        }) => Some((vault_id.clone(), file_id.clone(), card_id.clone())),
+        _ => None,
+    };
+    let source = if kanban_binding.is_some() || matches!(calendar.location, CalendarLocation::Kanban { .. }) {
+        WidgetTaskSource::Kanban
+    } else {
+        WidgetTaskSource::Calendar
+    };
+    match source {
+        WidgetTaskSource::Kanban if !configuration.tasks.include_kanban_tasks => {
+            return Ok(None)
+        }
+        WidgetTaskSource::Calendar if !configuration.tasks.include_calendar_tasks => {
+            return Ok(None)
+        }
+        _ => {}
+    }
+    if !configuration.tasks.selected_board_ids.is_empty() {
+        let board_id = kanban_binding.as_ref().map(|(_, file_id, _)| file_id);
+        match board_id {
+            Some(board_id)
+                if configuration
+                    .tasks
+                    .selected_board_ids
+                    .iter()
+                    .any(|selected| selected == board_id) => {}
+            Some(_) => return Ok(None),
+            // A board filter is a Kanban filter; calendar tasks are governed by
+            // the calendar selection instead.
+            None if source == WidgetTaskSource::Kanban => return Ok(None),
+            None => {}
+        }
+    }
+
+    let completed = item.completed_at.is_some()
+        || item
+            .status
+            .as_deref()
+            .is_some_and(|status| status == "completed");
+    let time_value = item.due.as_ref().or(item.start.as_ref());
+    let scheduled = match time_value {
+        None => None,
+        Some(CalendarTimeValue::Date { date }) => {
+            let day = NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                .map_err(|_| "A calendar task has an invalid date.".to_string())?;
+            Some((local_midnight_utc(time_zone, day)?, day, true))
+        }
+        Some(CalendarTimeValue::DateTime { date_time, .. }) => {
+            let instant = DateTime::parse_from_rfc3339(date_time)
+                .map(|value| value.with_timezone(&Utc))
+                .map_err(|_| "A calendar task has an invalid date-time.".to_string())?;
+            Some((
+                instant,
+                instant.with_timezone(&time_zone).date_naive(),
+                false,
+            ))
+        }
+    };
+    let (due, day, all_day, instant) = match scheduled {
+        None => {
+            if !configuration.tasks.include_undated {
+                return Ok(None);
+            }
+            (WidgetTaskDue::Unscheduled, None, false, None)
+        }
+        Some((instant, day, all_day)) => {
+            // An all-day task is due for the whole day, so it only becomes
+            // overdue once that day has passed; a timed task is overdue the
+            // moment its due instant does.
+            let passed = if all_day { day < today } else { instant < now };
+            let due = if !completed && passed {
+                WidgetTaskDue::Overdue
+            } else if day <= today {
+                WidgetTaskDue::Today
+            } else if day <= horizon_end {
+                WidgetTaskDue::Upcoming
+            } else {
+                return Ok(None);
+            };
+            (due, Some(day), all_day, Some(instant))
+        }
+    };
+
+    let completion = if !configuration.actions.toggle_task || completed {
+        WidgetTaskCompletion::Unavailable
+    } else if source == WidgetTaskSource::Kanban {
+        // Kanban completion needs the hosted card write-through, which requires
+        // the authenticated app; the launcher process must never make it.
+        WidgetTaskCompletion::ConfirmInApp
+    } else if calendar.read_only || calendar.location.is_inherently_read_only() {
+        WidgetTaskCompletion::Unavailable
+    } else if item.recurrence.is_some() || item.recurrence_id.is_some() {
+        // Completing an occurrence is a scope decision the user makes in the app.
+        WidgetTaskCompletion::ConfirmInApp
+    } else if source_freshness == WidgetFreshness::Unavailable {
+        WidgetTaskCompletion::ConfirmInApp
+    } else {
+        WidgetTaskCompletion::Available
+    };
+
+    let due_label = match (due, all_day, instant) {
+        (WidgetTaskDue::Unscheduled, _, _) => "No due date".to_string(),
+        (_, true, _) => day
+            .map(|day| day.format("%b %-d").to_string())
+            .unwrap_or_else(|| "All day".into()),
+        (_, false, Some(instant)) => {
+            let local = instant.with_timezone(&time_zone);
+            match time_format {
+                "12-hour" => local.format("%b %-d, %-I:%M %p").to_string(),
+                _ => local.format("%b %-d, %H:%M").to_string(),
+            }
+        }
+        (_, false, None) => "No due date".to_string(),
+    };
+    let due_order = match due {
+        WidgetTaskDue::Overdue => 0,
+        WidgetTaskDue::Today => 1,
+        WidgetTaskDue::Upcoming => 2,
+        WidgetTaskDue::Unscheduled => 3,
+    };
+    let section = match due {
+        WidgetTaskDue::Overdue => Some(WidgetAgendaSection::Overdue),
+        WidgetTaskDue::Today => Some(WidgetAgendaSection::Today),
+        WidgetTaskDue::Upcoming => Some(WidgetAgendaSection::Upcoming),
+        WidgetTaskDue::Unscheduled => None,
+    };
+    // Unscheduled tasks sort after every dated one, deterministically by id.
+    let sort_instant = instant
+        .map(|value| value.to_rfc3339())
+        .unwrap_or_else(|| "9999".into());
+    Ok(Some(WidgetItemInput {
+        stable_id: item.id.clone(),
+        source_id: item.calendar_id.clone(),
+        sort_key: format!("{due_order}:{sort_instant}:{}", item.id),
+        title: item.title.clone(),
+        detail: format!("{due_label} · {}", calendar.name),
+        title_only_detail: due_label,
+        private_title: "Private task".into(),
+        completed,
+        section,
+        item_kind: Some(WidgetAgendaItemKind::Task),
+        calendar_id: configuration
+            .actions
+            .open_item
+            .then(|| item.calendar_id.clone()),
+        item_id: configuration.actions.open_item.then(|| item.id.clone()),
+        day_key: day.map(|day| day.format("%Y-%m-%d").to_string()),
+        start_at: instant.map(|value| value.to_rfc3339()),
+        all_day,
+        source_color: Some(calendar.color.clone()),
+        task: Some(WidgetTaskDetails {
+            source,
+            due,
+            completion,
+            revision: item.revision.max(0),
+            vault_id: kanban_binding
+                .as_ref()
+                .and_then(|(vault_id, _, _)| vault_id.clone())
+                .filter(|value| validate_identifier(value, "vault").is_ok()),
+            file_id: kanban_binding
+                .as_ref()
+                .map(|(_, file_id, _)| file_id.clone())
+                .filter(|value| validate_identifier(value, "file").is_ok()),
+            card_id: kanban_binding
+                .as_ref()
+                .map(|(_, _, card_id)| card_id.clone())
+                .filter(|value| validate_identifier(value, "card").is_ok()),
+        }),
+        shortcut: None,
+    }))
+}
+
+/// One resolvable vault entry gathered from the native replica inventory.
+#[cfg(any(target_os = "android", test))]
+#[derive(Debug, Clone)]
+struct ShortcutCandidate {
+    vault_id: String,
+    vault_name: String,
+    file_id: String,
+    name: String,
+    entry_kind: WidgetEntryKind,
+    updated_at: String,
+}
+
+/// Reads bounded shortcut candidates from the offline replica manifests.
+///
+/// This is metadata only — no document body is opened and no network request is
+/// made. Entries are filtered at publication time so a trashed, tombstoned, or
+/// no-longer-authorized file can never be published to the launcher: a replica
+/// the user has lost `vault.read` on contributes nothing at all.
+#[cfg(any(target_os = "android", test))]
+fn read_shortcut_candidates(config_root: &Path) -> Vec<ShortcutCandidate> {
+    let Ok(replicas) = collab_replica::ReplicaStore::list(config_root) else {
+        return Vec::new();
+    };
+    let mut candidates = Vec::new();
+    for replica in replicas {
+        if !replica
+            .capabilities
+            .iter()
+            .any(|capability| capability == "vault.read")
+        {
+            continue;
+        }
+        let Some(store) = collab_replica::ReplicaStore::open_existing(
+            config_root,
+            &replica.server_url,
+            &replica.vault_id,
+        ) else {
+            continue;
+        };
+        let Ok(Some(manifest)) = store.read_manifest() else {
+            continue;
+        };
+        for entry in manifest.files {
+            if entry.state != collab_protocol::HostedFileState::Active {
+                continue;
+            }
+            if validate_identifier(&replica.vault_id, "vault").is_err()
+                || validate_identifier(&entry.id, "file").is_err()
+            {
+                continue;
+            }
+            candidates.push(ShortcutCandidate {
+                vault_id: replica.vault_id.clone(),
+                vault_name: replica.vault_name.clone(),
+                file_id: entry.id.clone(),
+                name: entry.name.clone(),
+                entry_kind: entry_kind_for(&entry),
+                updated_at: entry.updated_at.clone(),
+            });
+            if candidates.len() >= MAX_SHORTCUT_CANDIDATES {
+                return candidates;
+            }
+        }
+    }
+    candidates
+}
+
+#[cfg(any(target_os = "android", test))]
+fn entry_kind_for(entry: &collab_protocol::HostedFileEntry) -> WidgetEntryKind {
+    use collab_protocol::{HostedDocumentType, HostedFileKind};
+    match entry.kind {
+        HostedFileKind::Folder => WidgetEntryKind::Folder,
+        HostedFileKind::Document => match entry.document_type {
+            Some(HostedDocumentType::Note) => WidgetEntryKind::Note,
+            Some(HostedDocumentType::Kanban) => WidgetEntryKind::Board,
+            Some(HostedDocumentType::Canvas) => WidgetEntryKind::Canvas,
+            Some(HostedDocumentType::Sheet) => WidgetEntryKind::Sheet,
+            None => WidgetEntryKind::File,
+        },
+        HostedFileKind::Asset => {
+            if entry.name.to_ascii_lowercase().ends_with(".pdf") {
+                WidgetEntryKind::Pdf
+            } else {
+                WidgetEntryKind::File
+            }
+        }
+    }
+}
+
+/// Builds the quick-capture tiles. Labels are fixed app strings that contain no
+/// user content, so they read the same at every privacy level.
+#[cfg(any(target_os = "android", test))]
+fn capture_item_inputs(configuration: &WidgetConfiguration) -> Vec<WidgetItemInput> {
+    configuration
+        .capture
+        .actions
+        .iter()
+        .enumerate()
+        .map(|(index, action)| WidgetItemInput {
+            stable_id: action.destination().into(),
+            source_id: "capture".into(),
+            sort_key: format!("{index:02}"),
+            title: action.label().into(),
+            detail: action.detail().into(),
+            title_only_detail: action.detail().into(),
+            private_title: action.label().into(),
+            completed: false,
+            section: None,
+            item_kind: None,
+            calendar_id: None,
+            item_id: None,
+            day_key: None,
+            start_at: None,
+            all_day: false,
+            source_color: None,
+            task: None,
+            shortcut: Some(WidgetShortcutDetails {
+                destination: action.destination().into(),
+                vault_id: None,
+                file_id: None,
+                entry_kind: None,
+                pinned: false,
+            }),
+        })
+        .collect()
+}
+
+/// Builds vault shortcut rows: every resolvable pin first, in the order the
+/// user pinned them, then the most recently updated remaining entries.
+#[cfg(any(target_os = "android", test))]
+fn shortcut_item_inputs(
+    configuration: &WidgetConfiguration,
+    candidates: &[ShortcutCandidate],
+) -> Vec<WidgetItemInput> {
+    let mut rows = Vec::new();
+    let mut used = HashSet::new();
+    for pin in &configuration.shortcuts.pinned {
+        // An unresolved pin is dropped rather than published: the target is
+        // trashed, removed, or no longer authorized on this device.
+        let Some(candidate) = candidates
+            .iter()
+            .find(|entry| entry.vault_id == pin.vault_id && entry.file_id == pin.file_id)
+        else {
+            continue;
+        };
+        used.insert((candidate.vault_id.clone(), candidate.file_id.clone()));
+        rows.push(shortcut_row(candidate, true, rows.len()));
+    }
+    if configuration.shortcuts.include_recent {
+        let mut recent = candidates
+            .iter()
+            .filter(|candidate| {
+                !used.contains(&(candidate.vault_id.clone(), candidate.file_id.clone()))
+            })
+            .collect::<Vec<_>>();
+        recent.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| left.file_id.cmp(&right.file_id))
+        });
+        for candidate in recent
+            .into_iter()
+            .take(usize::from(configuration.display.max_items))
+        {
+            rows.push(shortcut_row(candidate, false, rows.len()));
+        }
+    }
+    rows
+}
+
+#[cfg(any(target_os = "android", test))]
+fn shortcut_row(candidate: &ShortcutCandidate, pinned: bool, order: usize) -> WidgetItemInput {
+    let destination = if candidate.entry_kind == WidgetEntryKind::Folder {
+        "vault-folder"
+    } else {
+        "vault-file"
+    };
+    let kind_label = candidate.entry_kind.private_label();
+    WidgetItemInput {
+        stable_id: format!("{}:{}", candidate.vault_id, candidate.file_id),
+        source_id: candidate.vault_id.clone(),
+        // Pins keep their configured order ahead of every recent entry.
+        sort_key: format!("{}:{order:03}", if pinned { 0 } else { 1 }),
+        title: truncate_utf8(&candidate.name, MAX_TEXT_BYTES),
+        detail: format!("{kind_label} · {}", truncate_utf8(&candidate.vault_name, 64)),
+        // Title-only drops the vault (account) detail but keeps the type.
+        title_only_detail: kind_label.into(),
+        private_title: kind_label.into(),
+        completed: false,
+        section: None,
+        item_kind: None,
+        calendar_id: None,
+        item_id: None,
+        day_key: None,
+        start_at: None,
+        all_day: false,
+        source_color: None,
+        task: None,
+        shortcut: Some(WidgetShortcutDetails {
+            destination: destination.into(),
+            vault_id: Some(candidate.vault_id.clone()),
+            file_id: Some(candidate.file_id.clone()),
+            entry_kind: Some(candidate.entry_kind),
+            pinned,
+        }),
+    }
 }
 
 #[cfg(any(target_os = "android", test))]
@@ -1569,14 +2519,26 @@ fn reduce_item(item: WidgetItemInput, privacy: WidgetPrivacy) -> WidgetSnapshotI
         item.start_at,
         item.all_day,
         source_color,
+        item.task,
+        item.shortcut,
     );
     let (title, detail) = match privacy {
         WidgetPrivacy::Full => (item.title, item.detail),
         WidgetPrivacy::TitleOnly => (item.title, item.title_only_detail),
         WidgetPrivacy::Private => (item.private_title, item.title_only_detail),
     };
-    let (section, item_kind, calendar_id, item_id, day_key, start_at, all_day, source_color) =
-        metadata;
+    let (
+        section,
+        item_kind,
+        calendar_id,
+        item_id,
+        day_key,
+        start_at,
+        all_day,
+        source_color,
+        task,
+        shortcut,
+    ) = metadata;
     WidgetSnapshotItem {
         stable_id: item.stable_id,
         title,
@@ -1589,6 +2551,8 @@ fn reduce_item(item: WidgetItemInput, privacy: WidgetPrivacy) -> WidgetSnapshotI
         start_at,
         all_day,
         source_color,
+        task,
+        shortcut,
     }
 }
 
@@ -1622,9 +2586,43 @@ fn validate_configuration(configuration: &WidgetConfiguration) -> Result<(), Str
             return Err("A countdown event was selected more than once.".into());
         }
     }
+    if configuration.tasks.selected_board_ids.len() > MAX_SOURCE_IDS {
+        return Err("Too many Kanban boards were selected.".into());
+    }
+    let mut unique_boards = HashSet::new();
+    for board_id in &configuration.tasks.selected_board_ids {
+        validate_text(board_id, MAX_ID_BYTES, "widget Kanban board")?;
+        if !unique_boards.insert(board_id) {
+            return Err("A Kanban board was selected more than once.".into());
+        }
+    }
+    if configuration.capture.actions.len() > MAX_CAPTURE_ACTIONS {
+        return Err("Too many quick capture actions were selected.".into());
+    }
+    let mut unique_actions = HashSet::new();
+    for action in &configuration.capture.actions {
+        if !unique_actions.insert(*action) {
+            return Err("A quick capture action was selected more than once.".into());
+        }
+    }
+    if configuration.shortcuts.pinned.len() > MAX_PINNED_SHORTCUTS {
+        return Err("Too many shortcuts were pinned.".into());
+    }
+    let mut unique_pins = HashSet::new();
+    for pin in &configuration.shortcuts.pinned {
+        validate_identifier(&pin.vault_id, "widget vault")?;
+        validate_identifier(&pin.file_id, "widget file")?;
+        if !unique_pins.insert((&pin.vault_id, &pin.file_id)) {
+            return Err("A shortcut was pinned more than once.".into());
+        }
+    }
     let max_horizon = match configuration.kind {
         WidgetKind::Agenda => 31,
         WidgetKind::Month => 42,
+        WidgetKind::Tasks => 90,
+        // Capture and shortcut widgets are not time-ranged; the horizon is
+        // carried only so one configuration shape covers every kind.
+        WidgetKind::Capture | WidgetKind::Shortcuts => 366,
         WidgetKind::Birthday | WidgetKind::Countdown => 366,
     };
     if !(1..=max_horizon).contains(&configuration.display.horizon_days) {
@@ -1735,6 +2733,40 @@ fn validate_snapshot(snapshot: &WidgetSnapshot, expected_profile_hash: &str) -> 
         }
         if let Some(value) = &item.source_color {
             validate_text(value, MAX_TEXT_BYTES, "widget source color")?;
+        }
+        if let Some(task) = &item.task {
+            if task.revision < 0 {
+                return Err("A widget task has an invalid revision.".into());
+            }
+            // Kanban destinations are resolved from these opaque identifiers in
+            // app routing. Anything that is not a strict identifier is dropped
+            // rather than persisted, so a tap falls back to the calendar item.
+            for value in [&task.vault_id, &task.file_id, &task.card_id]
+                .into_iter()
+                .flatten()
+            {
+                validate_identifier(value, "widget Kanban reference")?;
+            }
+            if task.source == WidgetTaskSource::Kanban
+                && task.completion == WidgetTaskCompletion::Available
+            {
+                return Err("Kanban tasks cannot be completed from the launcher.".into());
+            }
+        }
+        if let Some(shortcut) = &item.shortcut {
+            if !SHORTCUT_DESTINATIONS.contains(&shortcut.destination.as_str()) {
+                return Err("A widget shortcut uses an unsupported destination.".into());
+            }
+            for value in [&shortcut.vault_id, &shortcut.file_id].into_iter().flatten() {
+                validate_identifier(value, "widget shortcut reference")?;
+            }
+            // A vault destination without a resolved target would hand the app
+            // an unopenable route, so it must never reach the launcher.
+            if matches!(shortcut.destination.as_str(), "vault-file" | "vault-folder")
+                && (shortcut.vault_id.is_none() || shortcut.file_id.is_none())
+            {
+                return Err("A widget shortcut is missing its vault target.".into());
+            }
         }
     }
     Ok(())
@@ -1912,6 +2944,9 @@ pub(crate) fn build_phase0_agenda_preview(date_label: &str) -> Result<String, St
             ..WidgetDisplayOptions::default()
         },
         actions: WidgetActionOptions::default(),
+        tasks: WidgetTaskOptions::default(),
+        capture: WidgetCaptureOptions::default(),
+        shortcuts: WidgetShortcutOptions::default(),
         updated_at: date_label.into(),
     };
     let snapshot = build_snapshot(
@@ -1958,6 +2993,8 @@ fn preview_item(stable_id: &str, title: &str, detail: &str, sort_key: &str) -> W
         start_at: None,
         all_day: false,
         source_color: None,
+        task: None,
+        shortcut: None,
     }
 }
 
@@ -1988,6 +3025,9 @@ mod tests {
             privacy,
             display: WidgetDisplayOptions::default(),
             actions: WidgetActionOptions::default(),
+            tasks: WidgetTaskOptions::default(),
+            capture: WidgetCaptureOptions::default(),
+            shortcuts: WidgetShortcutOptions::default(),
             updated_at: "2026-08-01T10:00:00Z".into(),
         }
     }
@@ -2026,6 +3066,8 @@ mod tests {
                     start_at: None,
                     all_day: false,
                     source_color: None,
+                    task: None,
+                    shortcut: None,
                 },
                 WidgetItemInput {
                     stable_id: "earlier".into(),
@@ -2044,6 +3086,8 @@ mod tests {
                     start_at: None,
                     all_day: false,
                     source_color: None,
+                    task: None,
+                    shortcut: None,
                 },
             ],
         }
@@ -2521,6 +3565,978 @@ mod tests {
             failed[0].last_error.as_deref(),
             Some("Widget refresh failed. Open Collab and try again.")
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn task_calendar(id: &str, read_only: bool, location: CalendarLocation) -> CalendarDefinition {
+        CalendarDefinition {
+            schema_version: 1,
+            id: id.into(),
+            global_id: format!("{id}-global"),
+            location,
+            name: "Work".into(),
+            color: "#a174ff".into(),
+            default_time_zone: "Europe/Berlin".into(),
+            archived: false,
+            read_only,
+            revision: 1,
+            created_at: "2026-08-01T00:00:00Z".into(),
+            updated_at: "2026-08-01T00:00:00Z".into(),
+            deleted_at: None,
+        }
+    }
+
+    fn task_item(id: &str, calendar_id: &str, due: Option<CalendarTimeValue>) -> CalendarItem {
+        CalendarItem {
+            id: id.into(),
+            uid: format!("{id}@collab"),
+            calendar_id: calendar_id.into(),
+            kind: CalendarItemKind::Task,
+            title: "Ship the release".into(),
+            description: None,
+            url: None,
+            reminders: vec![],
+            attendees: vec![],
+            attachments: vec![],
+            recurrence: None,
+            recurrence_id: None,
+            recurrence_series_id: None,
+            source_binding: None,
+            icalendar_properties: vec![],
+            start: None,
+            end: None,
+            due,
+            date: None,
+            birth_year: None,
+            location: None,
+            availability: None,
+            priority: None,
+            status: Some("needs-action".into()),
+            completed_at: None,
+            revision: 3,
+            created_at: "2026-08-01T00:00:00Z".into(),
+            updated_at: "2026-08-01T00:00:00Z".into(),
+            deleted_at: None,
+        }
+    }
+
+    fn tasks_configuration(id: &str) -> WidgetConfiguration {
+        let mut configuration = configuration(id, WidgetPrivacy::Full);
+        configuration.kind = WidgetKind::Tasks;
+        configuration.selected_source_ids.clear();
+        configuration.display.horizon_days = 7;
+        configuration.actions.toggle_task = true;
+        configuration
+    }
+
+    fn project_task(
+        item: &CalendarItem,
+        calendar: &CalendarDefinition,
+        configuration: &WidgetConfiguration,
+        source_freshness: WidgetFreshness,
+    ) -> Option<WidgetItemInput> {
+        let now = DateTime::parse_from_rfc3339("2026-08-01T08:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        task_item_input(
+            item,
+            calendar,
+            configuration,
+            source_freshness,
+            now,
+            NaiveDate::from_ymd_opt(2026, 8, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 8, 8).unwrap(),
+            chrono_tz::Europe::Berlin,
+            "24-hour",
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn task_projection_orders_due_states_and_keeps_unscheduled_last() {
+        let calendar = task_calendar(
+            "calendar-a",
+            false,
+            CalendarLocation::Local {
+                profile_id: "profile-1".into(),
+            },
+        );
+        let configuration = tasks_configuration("tasks-1");
+        let overdue = project_task(
+            &task_item(
+                "task-overdue",
+                &calendar.id,
+                Some(CalendarTimeValue::DateTime {
+                    date_time: "2026-07-30T09:00:00Z".into(),
+                    time_zone: "Europe/Berlin".into(),
+                }),
+            ),
+            &calendar,
+            &configuration,
+            WidgetFreshness::Fresh,
+        )
+        .unwrap();
+        let upcoming = project_task(
+            &task_item(
+                "task-upcoming",
+                &calendar.id,
+                Some(CalendarTimeValue::Date {
+                    date: "2026-08-05".into(),
+                }),
+            ),
+            &calendar,
+            &configuration,
+            WidgetFreshness::Fresh,
+        )
+        .unwrap();
+        let unscheduled =
+            project_task(&task_item("task-none", &calendar.id, None), &calendar, &configuration, WidgetFreshness::Fresh)
+                .unwrap();
+        assert_eq!(overdue.task.as_ref().unwrap().due, WidgetTaskDue::Overdue);
+        assert_eq!(upcoming.task.as_ref().unwrap().due, WidgetTaskDue::Upcoming);
+        assert_eq!(
+            unscheduled.task.as_ref().unwrap().due,
+            WidgetTaskDue::Unscheduled
+        );
+        assert!(overdue.sort_key < upcoming.sort_key);
+        assert!(upcoming.sort_key < unscheduled.sort_key);
+        assert_eq!(
+            overdue.task.as_ref().unwrap().completion,
+            WidgetTaskCompletion::Available
+        );
+        assert_eq!(overdue.task.as_ref().unwrap().revision, 3);
+
+        // A task beyond the configured horizon is dropped entirely.
+        assert!(project_task(
+            &task_item(
+                "task-far",
+                &calendar.id,
+                Some(CalendarTimeValue::Date {
+                    date: "2026-09-30".into()
+                })
+            ),
+            &calendar,
+            &configuration,
+            WidgetFreshness::Fresh,
+        )
+        .is_none());
+
+        let mut without_undated = configuration.clone();
+        without_undated.tasks.include_undated = false;
+        assert!(project_task(
+            &task_item("task-none", &calendar.id, None),
+            &calendar,
+            &without_undated,
+            WidgetFreshness::Fresh
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn task_completion_capability_keeps_unsafe_mutations_in_the_app() {
+        let local = task_calendar(
+            "calendar-a",
+            false,
+            CalendarLocation::Local {
+                profile_id: "profile-1".into(),
+            },
+        );
+        let configuration = tasks_configuration("tasks-1");
+        let due = Some(CalendarTimeValue::Date {
+            date: "2026-08-01".into(),
+        });
+
+        let mut recurring = task_item("task-recurring", &local.id, due.clone());
+        recurring.recurrence = Some(collab_calendar::CalendarRecurrence {
+            rrule: "FREQ=DAILY".into(),
+            rdates: Vec::new(),
+            exdates: Vec::new(),
+        });
+        assert_eq!(
+            project_task(&recurring, &local, &configuration, WidgetFreshness::Fresh)
+                .unwrap()
+                .task
+                .unwrap()
+                .completion,
+            WidgetTaskCompletion::ConfirmInApp,
+        );
+
+        assert_eq!(
+            project_task(
+                &task_item("task-1", &local.id, due.clone()),
+                &local,
+                &configuration,
+                WidgetFreshness::Unavailable,
+            )
+            .unwrap()
+            .task
+            .unwrap()
+            .completion,
+            WidgetTaskCompletion::ConfirmInApp,
+        );
+
+        let subscription = task_calendar(
+            "calendar-a",
+            true,
+            CalendarLocation::Subscription {
+                subscription_id: "subscription-1".into(),
+                server_url: None,
+                user_id: None,
+            },
+        );
+        assert_eq!(
+            project_task(
+                &task_item("task-1", &subscription.id, due.clone()),
+                &subscription,
+                &configuration,
+                WidgetFreshness::Fresh,
+            )
+            .unwrap()
+            .task
+            .unwrap()
+            .completion,
+            WidgetTaskCompletion::Unavailable,
+        );
+
+        let mut disabled = configuration.clone();
+        disabled.actions.toggle_task = false;
+        assert_eq!(
+            project_task(
+                &task_item("task-1", &local.id, due),
+                &local,
+                &disabled,
+                WidgetFreshness::Fresh,
+            )
+            .unwrap()
+            .task
+            .unwrap()
+            .completion,
+            WidgetTaskCompletion::Unavailable,
+        );
+    }
+
+    #[test]
+    fn kanban_tasks_carry_opaque_destinations_and_never_complete_natively() {
+        let kanban = task_calendar(
+            "calendar-kanban",
+            true,
+            CalendarLocation::Kanban {
+                origin_key: "https://collab.example::vault-1".into(),
+            },
+        );
+        let mut item = task_item(
+            "task-kanban",
+            &kanban.id,
+            Some(CalendarTimeValue::Date {
+                date: "2026-08-01".into(),
+            }),
+        );
+        item.source_binding = Some(collab_calendar::CalendarSourceBinding::Kanban {
+            server_url: Some("https://collab.example".into()),
+            vault_id: Some("vault-1".into()),
+            file_id: "file-1".into(),
+            card_id: "card-1".into(),
+            path: Some("Boards/Team.kanban".into()),
+            source_revision: Some(4),
+        });
+        let configuration = tasks_configuration("tasks-1");
+        let projected = project_task(&item, &kanban, &configuration, WidgetFreshness::Fresh).unwrap();
+        let task = projected.task.clone().unwrap();
+        assert_eq!(task.source, WidgetTaskSource::Kanban);
+        assert_eq!(task.completion, WidgetTaskCompletion::ConfirmInApp);
+        assert_eq!(task.vault_id.as_deref(), Some("vault-1"));
+        assert_eq!(task.card_id.as_deref(), Some("card-1"));
+
+        let snapshot = build_snapshot(
+            "profile-1",
+            WidgetBuildRequest {
+                configuration: configuration.clone(),
+                generated_at: "2026-08-01T08:00:00Z".into(),
+                date_label: "2026-08-01".into(),
+                appearance: None,
+                freshness: vec![],
+                items: vec![projected],
+            },
+        )
+        .unwrap();
+        let encoded = serde_json::to_string(&snapshot).unwrap();
+        assert!(!encoded.contains("collab.example"));
+        assert!(!encoded.contains("Boards/Team.kanban"));
+
+        // Board filters exclude other boards but never calendar tasks.
+        let mut filtered = configuration.clone();
+        filtered.tasks.selected_board_ids = vec!["file-other".into()];
+        assert!(project_task(&item, &kanban, &filtered, WidgetFreshness::Fresh).is_none());
+        let mut excluded = configuration;
+        excluded.tasks.include_kanban_tasks = false;
+        assert!(project_task(&item, &kanban, &excluded, WidgetFreshness::Fresh).is_none());
+    }
+
+    #[test]
+    fn kanban_rows_can_never_claim_native_completion() {
+        let mut item = WidgetSnapshotItem {
+            stable_id: "task-1".into(),
+            title: "Ship".into(),
+            detail: "Today".into(),
+            section: Some(WidgetAgendaSection::Today),
+            item_kind: Some(WidgetAgendaItemKind::Task),
+            calendar_id: None,
+            item_id: None,
+            day_key: None,
+            start_at: None,
+            all_day: false,
+            source_color: None,
+            shortcut: None,
+            task: Some(WidgetTaskDetails {
+                source: WidgetTaskSource::Kanban,
+                due: WidgetTaskDue::Today,
+                completion: WidgetTaskCompletion::Available,
+                revision: 1,
+                vault_id: None,
+                file_id: None,
+                card_id: None,
+            }),
+        };
+        let mut snapshot = build_snapshot(
+            "profile-1",
+            WidgetBuildRequest {
+                configuration: tasks_configuration("tasks-1"),
+                generated_at: "2026-08-01T08:00:00Z".into(),
+                date_label: "2026-08-01".into(),
+                appearance: None,
+                freshness: vec![],
+                items: vec![],
+            },
+        )
+        .unwrap();
+        let profile_hash = snapshot.profile_id_hash.clone();
+        snapshot.items = vec![item.clone()];
+        assert!(validate_snapshot(&snapshot, &profile_hash).is_err());
+        item.task.as_mut().unwrap().completion = WidgetTaskCompletion::ConfirmInApp;
+        snapshot.items = vec![item];
+        assert!(validate_snapshot(&snapshot, &profile_hash).is_ok());
+    }
+
+    #[tokio::test]
+    async fn confirmed_completion_queues_one_idempotent_operation() {
+        let root = test_root();
+        let calendar_store = CalendarStore::open(&root, "profile-1").await.unwrap();
+        let calendar = task_calendar(
+            "calendar-a",
+            false,
+            CalendarLocation::Hosted {
+                server_url: "https://collab.example".into(),
+                user_id: "user-1".into(),
+            },
+        );
+        calendar_store.upsert_calendar(&calendar).await.unwrap();
+        let item = task_item(
+            "task-1",
+            &calendar.id,
+            Some(CalendarTimeValue::Date {
+                date: "2026-08-01".into(),
+            }),
+        );
+        let seed = collab_calendar::CalendarOperation {
+            client_operation_id: "seed-1".into(),
+            device_id: "test-device".into(),
+            expected_revision: None,
+            source_change_id: None,
+            propagation_lineage: Vec::new(),
+            mutation: collab_calendar::CalendarMutation::UpsertItem { item: item.clone() },
+        };
+        calendar_store
+            .upsert_item_with_operation(&item, &seed)
+            .await
+            .unwrap();
+        calendar_store
+            .acknowledge_operations(&["seed-1".to_string()])
+            .await
+            .unwrap();
+
+        let widget_store = WidgetStore::open(&root, "profile-1").unwrap();
+        widget_store
+            .save_configuration(tasks_configuration("tasks-1"))
+            .unwrap();
+        let now = DateTime::parse_from_rfc3339("2026-08-01T09:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let request = WidgetTaskCompletionRequest {
+            configuration_id: "tasks-1".into(),
+            item_id: "task-1".into(),
+            expected_revision: 3,
+            confirmed: true,
+        };
+
+        // An unconfirmed launcher tap must never mutate shared data.
+        let mut unconfirmed = request.clone();
+        unconfirmed.confirmed = false;
+        assert!(
+            complete_task(&root, "profile-1", &calendar_store, unconfirmed, now)
+                .await
+                .is_err()
+        );
+        assert!(calendar_store
+            .list_pending_operations()
+            .await
+            .unwrap()
+            .is_empty());
+
+        let result = complete_task(&root, "profile-1", &calendar_store, request.clone(), now)
+            .await
+            .unwrap();
+        assert!(result.applied);
+        let stored = calendar_store.read_item("task-1").await.unwrap().unwrap();
+        assert_eq!(stored.status.as_deref(), Some("completed"));
+        assert_eq!(stored.revision, 4);
+        let pending = calendar_store.list_pending_operations().await.unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].client_operation_id, "widget-complete-task-1-3");
+
+        // Replaying the same confirmed tap is a no-op, and a stale revision is
+        // refused rather than overwriting the newer state.
+        assert!(complete_task(&root, "profile-1", &calendar_store, request, now)
+            .await
+            .is_err());
+        assert_eq!(
+            calendar_store.list_pending_operations().await.unwrap().len(),
+            1
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn completion_refuses_read_only_kanban_and_disabled_widgets() {
+        let root = test_root();
+        let calendar_store = CalendarStore::open(&root, "profile-1").await.unwrap();
+        let mut generated = task_calendar(
+            "calendar-kanban",
+            true,
+            CalendarLocation::Kanban {
+                origin_key: "https://collab.example::vault-1".into(),
+            },
+        );
+        generated.name = "Assigned tasks".into();
+        let mut item = task_item("task-kanban", &generated.id, None);
+        item.source_binding = Some(collab_calendar::CalendarSourceBinding::Kanban {
+            server_url: Some("https://collab.example".into()),
+            vault_id: Some("vault-1".into()),
+            file_id: "file-1".into(),
+            card_id: "card-1".into(),
+            path: None,
+            source_revision: Some(1),
+        });
+        calendar_store
+            .replace_generated_kanban_calendar(&generated, std::slice::from_ref(&item))
+            .await
+            .unwrap();
+
+        let widget_store = WidgetStore::open(&root, "profile-1").unwrap();
+        widget_store
+            .save_configuration(tasks_configuration("tasks-1"))
+            .unwrap();
+        let now = DateTime::parse_from_rfc3339("2026-08-01T09:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let request = WidgetTaskCompletionRequest {
+            configuration_id: "tasks-1".into(),
+            item_id: "task-kanban".into(),
+            expected_revision: item.revision,
+            confirmed: true,
+        };
+        assert!(
+            complete_task(&root, "profile-1", &calendar_store, request.clone(), now)
+                .await
+                .is_err()
+        );
+        assert!(calendar_store
+            .list_pending_operations()
+            .await
+            .unwrap()
+            .is_empty());
+
+        // An agenda configuration must not be usable as a task mutation surface.
+        widget_store
+            .save_configuration(configuration("agenda-1", WidgetPrivacy::Full))
+            .unwrap();
+        let mut wrong_kind = request;
+        wrong_kind.configuration_id = "agenda-1".into();
+        assert!(
+            complete_task(&root, "profile-1", &calendar_store, wrong_kind, now)
+                .await
+                .is_err()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn task_profile_pipeline_publishes_completion_capable_rows() {
+        let root = test_root();
+        let calendar_store = CalendarStore::open(&root, "profile-1").await.unwrap();
+        let calendar = task_calendar(
+            "calendar-a",
+            false,
+            CalendarLocation::Local {
+                profile_id: "profile-1".into(),
+            },
+        );
+        calendar_store.upsert_calendar(&calendar).await.unwrap();
+        let item = task_item(
+            "task-1",
+            &calendar.id,
+            Some(CalendarTimeValue::Date {
+                date: "2026-08-01".into(),
+            }),
+        );
+        let operation = collab_calendar::CalendarOperation {
+            client_operation_id: "seed-1".into(),
+            device_id: "test-device".into(),
+            expected_revision: None,
+            source_change_id: None,
+            propagation_lineage: Vec::new(),
+            mutation: collab_calendar::CalendarMutation::UpsertItem { item: item.clone() },
+        };
+        calendar_store
+            .upsert_item_with_operation(&item, &operation)
+            .await
+            .unwrap();
+
+        let widget_store = WidgetStore::open(&root, "profile-1").unwrap();
+        widget_store
+            .save_configuration(tasks_configuration("tasks-1"))
+            .unwrap();
+        save_appearance(
+            &root,
+            WidgetAppearanceSnapshot {
+                schema_version: WIDGET_SCHEMA_VERSION,
+                theme: "dark".into(),
+                accent: "violet".into(),
+                font_scale: 1.0,
+                time_zone: "Europe/Berlin".into(),
+                time_format: "24-hour".into(),
+                show_declined: false,
+            },
+        )
+        .unwrap();
+        let now = DateTime::parse_from_rfc3339("2026-08-01T08:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let outcomes =
+            build_and_publish_agenda_profile(&root, "profile-1", &calendar_store, now, "test")
+                .await
+                .unwrap();
+        assert_eq!(outcomes.len(), 1);
+        let snapshot = &outcomes[0].snapshot;
+        assert_eq!(snapshot.kind, WidgetKind::Tasks);
+        assert_eq!(snapshot.items.len(), 1);
+        let task = snapshot.items[0].task.as_ref().unwrap();
+        assert_eq!(task.source, WidgetTaskSource::Calendar);
+        assert_eq!(task.completion, WidgetTaskCompletion::Available);
+        assert_eq!(task.due, WidgetTaskDue::Today);
+
+        // Completing it through the confirmed path removes it from the next
+        // publication instead of leaving the launcher on optimistic state.
+        complete_task(
+            &root,
+            "profile-1",
+            &calendar_store,
+            WidgetTaskCompletionRequest {
+                configuration_id: "tasks-1".into(),
+                item_id: "task-1".into(),
+                expected_revision: task.revision,
+                confirmed: true,
+            },
+            now,
+        )
+        .await
+        .unwrap();
+        let republished =
+            build_and_publish_agenda_profile(&root, "profile-1", &calendar_store, now, "test")
+                .await
+                .unwrap();
+        assert!(republished[0].snapshot.items.is_empty());
+        assert_eq!(republished[0].snapshot.state_label, "No tasks due");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn hosted_entry(
+        id: &str,
+        name: &str,
+        kind: collab_protocol::HostedFileKind,
+        document_type: Option<collab_protocol::HostedDocumentType>,
+        state: collab_protocol::HostedFileState,
+        updated_at: &str,
+    ) -> collab_protocol::HostedFileEntry {
+        collab_protocol::HostedFileEntry {
+            id: id.into(),
+            parent_id: None,
+            name: name.into(),
+            relative_path: name.into(),
+            kind,
+            document_type,
+            state,
+            current_revision: None,
+            trashed_by_display_name: None,
+            trashed_at: None,
+            created_at: "2026-07-01T00:00:00Z".into(),
+            updated_at: updated_at.into(),
+        }
+    }
+
+    fn seed_replica(
+        root: &Path,
+        vault_id: &str,
+        capabilities: &[String],
+        files: Vec<collab_protocol::HostedFileEntry>,
+    ) {
+        let store = collab_replica::ReplicaStore::open_or_create(
+            root,
+            "https://collab.example",
+            vault_id,
+            "Team vault",
+            Some("editor"),
+            capabilities,
+        )
+        .unwrap();
+        store
+            .write_manifest(&collab_protocol::HostedVaultManifest {
+                vault_id: vault_id.into(),
+                sequence: 4,
+                files,
+            })
+            .unwrap();
+    }
+
+    fn shortcuts_configuration(id: &str) -> WidgetConfiguration {
+        let mut configuration = configuration(id, WidgetPrivacy::Full);
+        configuration.kind = WidgetKind::Shortcuts;
+        configuration.selected_source_ids.clear();
+        configuration.display.max_items = 3;
+        configuration
+    }
+
+    #[test]
+    fn capture_tiles_only_carry_allow_listed_destinations() {
+        let mut configuration = configuration("capture-1", WidgetPrivacy::Private);
+        configuration.kind = WidgetKind::Capture;
+        configuration.selected_source_ids.clear();
+        configuration.capture.actions = vec![WidgetCaptureAction::Note, WidgetCaptureAction::Files];
+        configuration.display.max_items = 2;
+
+        let items = capture_item_inputs(&configuration);
+        assert_eq!(items.len(), 2);
+        let snapshot = build_snapshot(
+            "profile-1",
+            WidgetBuildRequest {
+                configuration,
+                generated_at: "2026-08-01T08:00:00Z".into(),
+                date_label: "2026-08-01".into(),
+                appearance: None,
+                freshness: vec![],
+                items,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            snapshot
+                .items
+                .iter()
+                .map(|item| item.shortcut.as_ref().unwrap().destination.as_str())
+                .collect::<Vec<_>>(),
+            vec!["capture-note", "capture-files"],
+        );
+        // Capture labels carry no user content, so privacy reduction keeps them
+        // readable instead of replacing them with a generic placeholder.
+        assert_eq!(snapshot.items[0].title, "New note");
+        assert!(snapshot
+            .items
+            .iter()
+            .all(|item| item.shortcut.as_ref().unwrap().vault_id.is_none()));
+    }
+
+    #[test]
+    fn shortcut_rows_exclude_trashed_and_unauthorized_entries() {
+        let root = test_root();
+        seed_replica(
+            &root,
+            "vault-1",
+            &["vault.read".to_string()],
+            vec![
+                hosted_entry(
+                    "file-note",
+                    "Roadmap.md",
+                    collab_protocol::HostedFileKind::Document,
+                    Some(collab_protocol::HostedDocumentType::Note),
+                    collab_protocol::HostedFileState::Active,
+                    "2026-08-01T10:00:00Z",
+                ),
+                hosted_entry(
+                    "file-trashed",
+                    "Old.md",
+                    collab_protocol::HostedFileKind::Document,
+                    Some(collab_protocol::HostedDocumentType::Note),
+                    collab_protocol::HostedFileState::Trashed,
+                    "2026-08-01T11:00:00Z",
+                ),
+                hosted_entry(
+                    "file-gone",
+                    "Removed.md",
+                    collab_protocol::HostedFileKind::Document,
+                    Some(collab_protocol::HostedDocumentType::Note),
+                    collab_protocol::HostedFileState::Tombstoned,
+                    "2026-08-01T12:00:00Z",
+                ),
+            ],
+        );
+        // A replica the user has lost read access to contributes nothing.
+        seed_replica(
+            &root,
+            "vault-revoked",
+            &["vault.search".to_string()],
+            vec![hosted_entry(
+                "file-secret",
+                "Secret.md",
+                collab_protocol::HostedFileKind::Document,
+                Some(collab_protocol::HostedDocumentType::Note),
+                collab_protocol::HostedFileState::Active,
+                "2026-08-02T10:00:00Z",
+            )],
+        );
+
+        let candidates = read_shortcut_candidates(&root);
+        assert_eq!(
+            candidates.iter().map(|entry| entry.file_id.as_str()).collect::<Vec<_>>(),
+            vec!["file-note"],
+        );
+        assert_eq!(candidates[0].entry_kind, WidgetEntryKind::Note);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn pinned_shortcuts_lead_and_unresolvable_pins_are_dropped() {
+        let candidates = vec![
+            ShortcutCandidate {
+                vault_id: "vault-1".into(),
+                vault_name: "Team vault".into(),
+                file_id: "file-board".into(),
+                name: "Sprint.kanban".into(),
+                entry_kind: WidgetEntryKind::Board,
+                updated_at: "2026-08-01T09:00:00Z".into(),
+            },
+            ShortcutCandidate {
+                vault_id: "vault-1".into(),
+                vault_name: "Team vault".into(),
+                file_id: "file-recent".into(),
+                name: "Notes.md".into(),
+                entry_kind: WidgetEntryKind::Note,
+                updated_at: "2026-08-01T18:00:00Z".into(),
+            },
+            ShortcutCandidate {
+                vault_id: "vault-1".into(),
+                vault_name: "Team vault".into(),
+                file_id: "file-folder".into(),
+                name: "Designs".into(),
+                entry_kind: WidgetEntryKind::Folder,
+                updated_at: "2026-08-01T08:00:00Z".into(),
+            },
+        ];
+        let mut configuration = shortcuts_configuration("shortcuts-1");
+        configuration.shortcuts.pinned = vec![
+            WidgetPinnedTarget {
+                vault_id: "vault-1".into(),
+                file_id: "file-board".into(),
+            },
+            // A pin whose target is gone must not publish a dead row.
+            WidgetPinnedTarget {
+                vault_id: "vault-1".into(),
+                file_id: "file-missing".into(),
+            },
+        ];
+
+        let rows = shortcut_item_inputs(&configuration, &candidates);
+        assert_eq!(
+            rows.iter().map(|row| row.stable_id.as_str()).collect::<Vec<_>>(),
+            vec![
+                "vault-1:file-board",
+                "vault-1:file-recent",
+                "vault-1:file-folder",
+            ],
+        );
+        assert!(rows[0].shortcut.as_ref().unwrap().pinned);
+        assert!(!rows[1].shortcut.as_ref().unwrap().pinned);
+        // Recent rows come newest-first behind every resolvable pin.
+        assert!(rows[1].sort_key < rows[2].sort_key);
+        assert_eq!(
+            rows[2].shortcut.as_ref().unwrap().destination,
+            "vault-folder",
+        );
+        assert_eq!(rows[0].shortcut.as_ref().unwrap().destination, "vault-file");
+
+        let mut without_recent = configuration;
+        without_recent.shortcuts.include_recent = false;
+        assert_eq!(shortcut_item_inputs(&without_recent, &candidates).len(), 1);
+    }
+
+    #[test]
+    fn shortcut_privacy_replaces_names_and_never_persists_a_path() {
+        let candidates = vec![ShortcutCandidate {
+            vault_id: "vault-1".into(),
+            vault_name: "Team vault".into(),
+            file_id: "file-note".into(),
+            name: "Salary review.md".into(),
+            entry_kind: WidgetEntryKind::Note,
+            updated_at: "2026-08-01T09:00:00Z".into(),
+        }];
+        let mut configuration = shortcuts_configuration("shortcuts-1");
+        configuration.privacy = WidgetPrivacy::Private;
+        let snapshot = build_snapshot(
+            "profile-1",
+            WidgetBuildRequest {
+                configuration: configuration.clone(),
+                generated_at: "2026-08-01T08:00:00Z".into(),
+                date_label: "2026-08-01".into(),
+                appearance: None,
+                freshness: vec![],
+                items: shortcut_item_inputs(&configuration, &candidates),
+            },
+        )
+        .unwrap();
+        assert_eq!(snapshot.items[0].title, "Note");
+        let encoded = serde_json::to_string(&snapshot).unwrap();
+        assert!(!encoded.contains("Salary review"));
+        assert!(!encoded.contains("Team vault"));
+        // The opaque identity the app routes by must survive reduction.
+        assert_eq!(
+            snapshot.items[0].shortcut.as_ref().unwrap().file_id.as_deref(),
+            Some("file-note"),
+        );
+
+        let mut title_only = configuration.clone();
+        title_only.privacy = WidgetPrivacy::TitleOnly;
+        let snapshot = build_snapshot(
+            "profile-1",
+            WidgetBuildRequest {
+                configuration: title_only.clone(),
+                generated_at: "2026-08-01T08:00:00Z".into(),
+                date_label: "2026-08-01".into(),
+                appearance: None,
+                freshness: vec![],
+                items: shortcut_item_inputs(&title_only, &candidates),
+            },
+        )
+        .unwrap();
+        assert_eq!(snapshot.items[0].title, "Salary review.md");
+        // Title-only keeps the name but drops the owning account detail.
+        assert_eq!(snapshot.items[0].detail, "Note");
+    }
+
+    #[test]
+    fn vault_destinations_require_a_resolved_target() {
+        let mut snapshot = build_snapshot(
+            "profile-1",
+            WidgetBuildRequest {
+                configuration: shortcuts_configuration("shortcuts-1"),
+                generated_at: "2026-08-01T08:00:00Z".into(),
+                date_label: "2026-08-01".into(),
+                appearance: None,
+                freshness: vec![],
+                items: vec![],
+            },
+        )
+        .unwrap();
+        let profile_hash = snapshot.profile_id_hash.clone();
+        let mut item = WidgetSnapshotItem {
+            stable_id: "vault-1:file-1".into(),
+            title: "Notes".into(),
+            detail: "Note".into(),
+            section: None,
+            item_kind: None,
+            calendar_id: None,
+            item_id: None,
+            day_key: None,
+            start_at: None,
+            all_day: false,
+            source_color: None,
+            task: None,
+            shortcut: Some(WidgetShortcutDetails {
+                destination: "vault-file".into(),
+                vault_id: Some("vault-1".into()),
+                file_id: None,
+                entry_kind: Some(WidgetEntryKind::Note),
+                pinned: true,
+            }),
+        };
+        snapshot.items = vec![item.clone()];
+        assert!(validate_snapshot(&snapshot, &profile_hash).is_err());
+
+        item.shortcut.as_mut().unwrap().file_id = Some("file-1".into());
+        snapshot.items = vec![item.clone()];
+        assert!(validate_snapshot(&snapshot, &profile_hash).is_ok());
+
+        // An unknown destination fails closed rather than reaching the launcher.
+        item.shortcut.as_mut().unwrap().destination = "open-anything".into();
+        snapshot.items = vec![item];
+        assert!(validate_snapshot(&snapshot, &profile_hash).is_err());
+    }
+
+    #[tokio::test]
+    async fn capture_and_shortcut_profiles_publish_without_calendar_data() {
+        let root = test_root();
+        let calendar_store = CalendarStore::open(&root, "profile-1").await.unwrap();
+        seed_replica(
+            &root,
+            "vault-1",
+            &["vault.read".to_string()],
+            vec![hosted_entry(
+                "file-note",
+                "Roadmap.md",
+                collab_protocol::HostedFileKind::Document,
+                Some(collab_protocol::HostedDocumentType::Note),
+                collab_protocol::HostedFileState::Active,
+                "2026-08-01T10:00:00Z",
+            )],
+        );
+        let widget_store = WidgetStore::open(&root, "profile-1").unwrap();
+        let mut capture = configuration("capture-1", WidgetPrivacy::Full);
+        capture.kind = WidgetKind::Capture;
+        capture.selected_source_ids.clear();
+        widget_store.save_configuration(capture).unwrap();
+        widget_store
+            .save_configuration(shortcuts_configuration("shortcuts-1"))
+            .unwrap();
+
+        let now = DateTime::parse_from_rfc3339("2026-08-01T08:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let outcomes =
+            build_and_publish_agenda_profile(&root, "profile-1", &calendar_store, now, "test")
+                .await
+                .unwrap();
+        assert_eq!(outcomes.len(), 2);
+        let capture_snapshot = outcomes
+            .iter()
+            .find(|outcome| outcome.snapshot.kind == WidgetKind::Capture)
+            .unwrap();
+        // All four default tiles survive even though max_items defaults to 6.
+        assert_eq!(capture_snapshot.snapshot.items.len(), 4);
+        let shortcut_snapshot = outcomes
+            .iter()
+            .find(|outcome| outcome.snapshot.kind == WidgetKind::Shortcuts)
+            .unwrap();
+        assert_eq!(shortcut_snapshot.snapshot.items.len(), 1);
+        assert_eq!(
+            shortcut_snapshot.snapshot.items[0]
+                .shortcut
+                .as_ref()
+                .unwrap()
+                .file_id
+                .as_deref(),
+            Some("file-note"),
+        );
+        // No server URL reaches launcher-readable storage.
+        assert!(!serde_json::to_string(&shortcut_snapshot.snapshot)
+            .unwrap()
+            .contains("collab.example"));
         fs::remove_dir_all(root).unwrap();
     }
 }

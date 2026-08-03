@@ -176,12 +176,13 @@ vault name in a privacy-reduced mode.
 | 2. Calendar agenda widget | Complete | The cached native calendar projection, responsive agenda rendering, source freshness, privacy-aware rows, exact header/item/add destinations, live reconfiguration, and launcher refresh behavior are validated. |
 | 3. Lifecycle, refresh, and management | Testing | Event-driven refresh, stale-aware launcher updates, per-profile WorkManager fallback, lifecycle cleanup, manual refresh, and privacy-safe diagnostics are implemented; physical-device lifecycle validation remains. |
 | 4. Month, birthday, and countdown widgets | Complete | Native month, birthday, and explicit countdown providers reuse the calendar snapshot, privacy, configuration, destination, and refresh boundaries; automated checks and physical launcher validation pass. |
-| 5. Tasks widget and confirmed actions | Not started | Combine calendar/Kanban tasks and route completion through existing idempotent pending-operation paths. |
-| 6. Quick capture and vault shortcuts | Not started | Add validated deep links for creation, pinned content, and recent files without duplicating editors. |
+| 5. Tasks widget and confirmed actions | Testing | The shared task projection, opaque calendar/Kanban destinations, opt-in confirmed completion, and the idempotent native pending-operation write-through are implemented; physical launcher validation remains. |
+| 6. Quick capture and vault shortcuts | Testing | Capture tiles and pinned/recent vault shortcuts are implemented as deep-link-only surfaces over bounded replica metadata, with a recovery path for missing targets; photo capture is deferred and physical launcher validation remains. |
 | 7. Sync status widget | Not started | Expose privacy-safe native ledger rollups and a coalesced manual-sync action. |
 | 8. Hardening and release | Not started | Complete automated, launcher, upgrade, privacy, battery, accessibility, and physical-device validation. |
 
-## Phase 0: Contract And Android Feasibility
+## Phase 0: Contract And Android Feasibility# SOUL.md — Offensive Bias
+
 
 ### Implementation Status
 
@@ -516,6 +517,58 @@ vault name in a privacy-reduced mode.
 
 ## Phase 5: Tasks Widget And Confirmed Actions
 
+### Implementation Status
+
+- Android registers a fifth `Tasks` Glance provider that reuses the existing
+  opaque launcher binding, native configuration activity, WorkManager fallback,
+  and lifecycle/update coordinator. No task-specific polling was added.
+- Rust owns one shared task projection over both calendar tasks and cached
+  Kanban assignments. Because hosted Kanban assignments are already indexed into
+  generated read-only Kanban calendars, both sources come from the same bounded
+  profile calendar query; Kotlin never re-derives due state or capability.
+- Each row carries its source, due state (`overdue`, `today`, `upcoming`,
+  `unscheduled`), completion capability, and the revision it was rendered from.
+  Unlike the agenda projection, the tasks projection keeps tasks that were never
+  scheduled, and an all-day task only becomes overdue once its day has passed.
+- Completion capability is decided before publication: `available` only for
+  non-recurring, incomplete tasks in a writable calendar whose source is
+  available, `confirmInApp` for Kanban assignments, recurring occurrences, and
+  unavailable sources, and `unavailable` when the calendar is read-only or the
+  action is switched off. Kanban rows claiming native completion are rejected by
+  both snapshot validation and the Kotlin parser.
+- Completion is opt-in per configuration and always takes two taps: the first
+  arms the row through per-widget Glance state, and only the second calls Rust.
+  Rust then re-validates configuration, kind, source membership, deletion,
+  read-only state, recurrence, Kanban binding, and the displayed revision before
+  writing through `upsert_item_with_operation` with the deterministic
+  `widget-complete-{itemId}-{revision}` idempotency key. Local calendars
+  acknowledge the queue entry exactly as the mobile editor does.
+- The launcher never shows optimistic state: the JNI entry point republishes the
+  profile's snapshots inside the same call, so rows reflect what the native
+  queue accepted. Rejections surface as a bounded generic message and the task
+  stays visible.
+- Widget-originated operations use their own persisted device identity, so they
+  remain distinguishable from webview edits during synchronization.
+- Task taps open the surface the task lives on: a validated `kanban-card`
+  destination carrying only opaque vault/file/card identifiers, otherwise the
+  existing `calendar-item` destination. The intent carries no server URL; the
+  mobile shell resolves the owning server from the vaults it is signed in to and
+  falls back to Calendar when that vault is unavailable on the device.
+- Mobile Settings manages the task sources, Kanban board filters (labelled from
+  cached assignments), and the completion opt-in. Account, vault, and assignee
+  filtering is expressed through the calendar selection, because each hosted
+  account and Kanban origin owns its own calendar and the Kanban projection is
+  already scoped to the signed-in user's assignments.
+- Seven focused Rust widget tests, four Android widget unit tests, four mobile
+  tests, all 155 mobile tests, all 1274 frontend tests, `cargo test --workspace`,
+  desktop and `aarch64-linux-android` `cargo check`, crate-boundary validation,
+  TypeScript validation for both projects, the Android app unit suite, and
+  manifest merge (five registered providers) pass.
+- Remaining Phase 5 exit work is physical-device validation: placement and
+  resize of the tasks widget, the two-tap confirmation, a rejected stale
+  completion, Kanban and calendar destinations after cold start, and behavior
+  with an offline hosted source.
+
 - Define one shared task projection across calendar tasks and cached Kanban
   assignments, with stable source/item identity, due state, completion state,
   capability, and freshness.
@@ -533,6 +586,64 @@ vault name in a privacy-reduced mode.
   the app and the snapshot returns to authoritative state.
 
 ## Phase 6: Quick Capture And Vault Shortcuts
+
+### Implementation Status
+
+- Android registers `Quick capture` and `Shortcuts` Glance providers. Both reuse
+  the existing opaque launcher binding, native configuration activity,
+  WorkManager fallback, and lifecycle/update coordinator; neither adds polling,
+  and both are pure deep-link surfaces that write nothing.
+- Capture tiles are configuration-driven and open only existing mobile flows:
+  new note, new task, new calendar event, and the file picker. Tile labels are
+  fixed app strings containing no user content, so they read the same at every
+  privacy level. The last remaining tile cannot be switched off.
+- Vault shortcut rows are built in Rust from bounded offline replica manifests —
+  metadata only, no document body is opened and no network request is made.
+  Trashed, tombstoned, and unresolvable entries are excluded at publication
+  time, and a replica the user no longer holds `vault.read` on contributes
+  nothing at all. Every resolvable pin renders ahead of the most recently
+  updated remaining entries.
+- Shortcut privacy follows the shared rule: Full shows the file name and vault,
+  Title-only keeps the name but drops the owning account detail, and Private
+  replaces the name with a generic entry-type label. The opaque routing identity
+  survives reduction so a private row still opens the right file.
+- Rows carry only stable opaque `vaultId`/`fileId` identifiers. Snapshot
+  validation and the Kotlin parser both reject an unknown destination or a vault
+  destination missing its target, so a dead or hostile row can never reach the
+  launcher. No path, URL, or server origin is persisted.
+- Taps resolve through one shared `openVaultTarget` store action that matches the
+  vault by identity across the servers the device is signed in to, rebuilds the
+  folder trail by walking parents, and opens the right editor for the entry.
+  Kanban card taps from the tasks widget now use this same resolver.
+- A missing or revoked target does not open a blank screen: the shell shows a
+  recovery notice explaining what happened, lands on a safe surface, and
+  requests a widget refresh so the stale row is republished away.
+- Quick capture never bypasses permissions. With no vault open it routes to the
+  normal vault picker, and the Files screen re-checks `file.create` /
+  `file.uploadAsset` and read-only state before opening a flow.
+- Mobile Settings manages capture tiles, the recent-file toggle, and pins. Pins
+  are offered from the vault currently open in Files, so the screen never has to
+  enumerate every server's contents.
+- Six focused Rust widget tests (27 total), three Android widget unit tests (23
+  total), five mobile tests (159 total), all 1274 frontend tests,
+  `cargo test --workspace`, desktop and `aarch64-linux-android` `cargo check`,
+  crate-boundary validation, TypeScript for both projects, the Android app unit
+  suite, and manifest merge (seven registered providers) pass.
+
+### Deferred In This Phase
+
+- **Photo capture is not implemented.** The plan requires every capture action to
+  open an existing mobile flow and forbids the widget from requesting camera
+  permission itself, but the mobile app has no camera capture flow to open yet.
+  Adding one is an app feature, not a widget feature. The tile is intentionally
+  absent rather than silently redirected to the file picker; it should be added
+  once the mobile shell gains real photo capture.
+
+### Remaining Exit Work
+
+- Physical launcher validation: placement and resize of both widgets, capture
+  tiles reaching each flow after cold start, pinned and recent rows opening the
+  correct file and folder, and the recovery path for a trashed or revoked pin.
 
 ### Quick Capture
 

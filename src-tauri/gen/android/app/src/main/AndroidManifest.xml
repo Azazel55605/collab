@@ -63,6 +63,18 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/collab_countdown_widget_info" />
         </receiver>
+        <receiver android:name=".CollabTasksWidgetReceiver" android:exported="false" android:label="@string/tasks_widget_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/collab_tasks_widget_info" />
+        </receiver>
+        <receiver android:name=".CollabCaptureWidgetReceiver" android:exported="false" android:label="@string/capture_widget_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/collab_capture_widget_info" />
+        </receiver>
+        <receiver android:name=".CollabShortcutsWidgetReceiver" android:exported="false" android:label="@string/shortcuts_widget_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/collab_shortcuts_widget_info" />
+        </receiver>
 
         <receiver
             android:name=".CollabWidgetLifecycleReceiver"

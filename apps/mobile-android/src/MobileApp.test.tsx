@@ -8,6 +8,8 @@ import { findBackgroundAttention, MobileApp } from './MobileApp';
 import type { BackgroundJobRecord } from './mobileTauri';
 import { useMobileStore } from './state/store';
 
+const realOpenVaultTarget = useMobileStore.getState().openVaultTarget;
+
 function mockInvoke(handlers: Record<string, (args: unknown) => unknown>) {
   invoke.mockImplementation((command: string, args: unknown) => {
     const handler = handlers[command];
@@ -70,6 +72,9 @@ describe('MobileApp shell', () => {
       tab: 'servers',
       folderTrail: [{ id: null, name: 'Root' }],
       activeSheet: null,
+      // Restore the real resolver: a test that stubs it must not leak into the
+      // next one.
+      openVaultTarget: realOpenVaultTarget,
     });
   });
 
@@ -182,6 +187,89 @@ describe('MobileApp shell', () => {
 
     await waitFor(() => expect(useMobileStore.getState().tab).toBe('calendar'));
     expect(await screen.findByRole('heading', { name: 'Calendar' })).toBeTruthy();
+  });
+
+  it('resolves widget vault destinations through the shared target resolver', async () => {
+    mockInvoke({
+      server_connection_statuses: () => [],
+      calendar_list: () => [],
+      calendar_list_items: () => [],
+    });
+    render(<MobileApp />);
+    await waitFor(() => expect(useMobileStore.getState().restored).toBe(true));
+    const openVaultTarget = vi.fn().mockResolvedValue('opened');
+    act(() => {
+      useMobileStore.setState({ openVaultTarget } as never);
+    });
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('collab-app-destination', {
+        detail: {
+          kind: 'kanban-card',
+          vaultId: 'vault-1',
+          fileId: 'file-1',
+          cardId: 'card-1',
+        },
+      }));
+    });
+
+    await waitFor(() => {
+      expect(openVaultTarget).toHaveBeenCalledWith(
+        'vault-1',
+        'file-1',
+        { cardId: 'card-1', expectFolder: false },
+      );
+    });
+  });
+
+  it('shows a recovery notice when a shortcut vault is unavailable', async () => {
+    mockInvoke({
+      server_connection_statuses: () => [],
+      calendar_list: () => [],
+      calendar_list_items: () => [],
+      widget_refresh: () => [],
+    });
+    render(<MobileApp />);
+    await waitFor(() => expect(useMobileStore.getState().restored).toBe(true));
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('collab-app-destination', {
+        detail: {
+          kind: 'vault-file',
+          vaultId: 'missing-vault',
+          fileId: 'file-1',
+        },
+      }));
+    });
+
+    // A revoked or removed target lands on a safe surface, explains itself, and
+    // asks for a widget refresh so the stale row is republished away.
+    expect(await screen.findByText(/vault this device cannot open/)).toBeTruthy();
+    await waitFor(() => expect(useMobileStore.getState().tab).toBe('vaults'));
+    expect(useMobileStore.getState().activeSheet).toBeNull();
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('widget_refresh', expect.anything());
+    });
+  });
+
+  it('routes a quick capture note destination into the Files flow', async () => {
+    mockInvoke({
+      server_connection_statuses: () => [],
+      calendar_list: () => [],
+      calendar_list_items: () => [],
+    });
+    render(<MobileApp />);
+    await waitFor(() => expect(useMobileStore.getState().restored).toBe(true));
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('collab-app-destination', {
+        detail: { kind: 'capture-note' },
+      }));
+    });
+
+    // With no vault open, capture sends the user to the normal picker rather
+    // than guessing a destination.
+    await waitFor(() => expect(useMobileStore.getState().tab).toBe('vaults'));
   });
 
   it('persists the IEC/DIN schematic notation preference', async () => {

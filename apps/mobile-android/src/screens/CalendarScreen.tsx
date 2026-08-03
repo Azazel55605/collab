@@ -438,6 +438,7 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
         setView('day');
       }
       if (destination.kind === 'calendar-create') setEditor({ kind: 'event' });
+      if (destination.kind === 'capture-task') setEditor({ kind: 'task' });
     };
     window.addEventListener('collab-calendar-open-destination', openDestination);
     return () => window.removeEventListener('collab-calendar-open-destination', openDestination);

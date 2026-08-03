@@ -80,7 +80,8 @@ native Android behavior that Tauri's generated defaults do not provide:
 - `CollabNotifications.kt` owns Android channels, alarms, native actions, and
   optional Firebase Messaging token/invalidation handling.
 - `CollabAgendaWidget.kt`, `CollabAppDestination.kt`, the agenda/month/birthday/
-  countdown widget manifest entries and `collab_*_widget_info.xml` resources,
+  countdown/tasks/capture/shortcuts widget manifest entries and
+  `collab_*_widget_info.xml` resources,
   the kind-specific `collab_*_widget_preview.xml` launcher layouts and drawables,
   and the Glance/Compose Gradle wiring form the native mobile widget boundary.
   Regeneration must preserve these files and declarations.
@@ -97,6 +98,24 @@ switch these cached pages without starting the app, invoking Rust, or using the
 network. Birthday and explicit countdown views reuse privacy-reduced item rows.
 Glance never interprets recurrence rules. Ordinary widget rendering does not
 start the Tauri webview, invoke Rust, or perform network work.
+
+The tasks widget is the only widget that may mutate shared data, and only when
+its configuration opts in. Its completion action is deliberately a two-tap
+flow: the first tap stores a pending item id in per-widget Glance state, and
+only the confirming tap enters Rust through `nativeCompleteTask`. Rust
+re-validates current state and the displayed revision before queueing a normal
+calendar pending operation, then republishes the profile's snapshots inside the
+same call. Kanban assignments are never completed from the launcher because
+their write-through needs the authenticated app; their rows open the board
+through the opaque `kanban-card` destination instead.
+
+The quick-capture and shortcut widgets never mutate anything. Capture tiles
+open existing mobile flows, and shortcut rows are built from bounded offline
+replica manifests (metadata only, no document body, no network). Every vault
+row carries only opaque `vaultId`/`fileId` identifiers and resolves through the
+shared `openVaultTarget` store action; a target that no longer resolves shows a
+recovery notice and triggers a widget refresh rather than opening a dead
+screen.
 
 Every widget app destination includes a distinct Intent data identity because
 Android PendingIntent matching ignores extras. The native activity persists a

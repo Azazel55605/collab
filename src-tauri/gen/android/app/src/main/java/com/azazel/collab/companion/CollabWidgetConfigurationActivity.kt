@@ -189,6 +189,9 @@ class CollabWidgetConfigurationActivity : Activity() {
       "month" -> "Month calendar"
       "birthday" -> "Birthdays"
       "countdown" -> "Countdowns"
+      "tasks" -> "Tasks"
+      "capture" -> "Quick capture"
+      "shortcuts" -> "Shortcuts"
       else -> "Agenda"
     }
     val choices = listOf(
@@ -223,10 +226,17 @@ class CollabWidgetConfigurationActivity : Activity() {
     content.addView(title("Set up $widgetTitle"), spaced(top = 30))
     content.addView(
       body(
-        if (widgetKind == "countdown") {
-          "Choose launcher privacy here, then select countdown events in Collab Settings."
-        } else {
-          "Choose what Collab may place in launcher-visible storage. You can change this later in Settings."
+        when (widgetKind) {
+          "countdown" ->
+            "Choose launcher privacy here, then select countdown events in Collab Settings."
+          "tasks" ->
+            "Choose launcher privacy here. Task sources and the optional complete action are set in Collab Settings."
+          "capture" ->
+            "Choose launcher privacy here, then pick which create shortcuts appear in Collab Settings."
+          "shortcuts" ->
+            "Choose launcher privacy here, then pin the files you want in Collab Settings."
+          else ->
+            "Choose what Collab may place in launcher-visible storage. You can change this later in Settings."
         },
       ),
       spaced(top = 9),
@@ -313,6 +323,8 @@ class CollabWidgetConfigurationActivity : Activity() {
             .put("horizonDays", when (widgetKind) {
               "month" -> 42
               "birthday", "countdown" -> 366
+              "tasks" -> 14
+              "capture", "shortcuts" -> 366
               else -> 7
             })
             .put("maxItems", 6)

@@ -1,10 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@drawable/collab_widget_preview_background"
-    android:orientation="vertical"
-    android:padding="12dp">
+    style="@style/CollabWidgetPreviewShell">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -12,27 +8,32 @@
         android:gravity="center_vertical"
         android:orientation="horizontal">
         <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="August"
-            android:textColor="#E4E8EF"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-        <TextView android:layout_width="30dp" android:layout_height="wrap_content" android:gravity="center" android:text="‹" android:textColor="#808693" android:textSize="21sp" />
-        <TextView android:layout_width="30dp" android:layout_height="wrap_content" android:gravity="center" android:text="›" android:textColor="#808693" android:textSize="21sp" />
+            style="@style/CollabWidgetPreviewHeader"
+            android:text="August" />
         <TextView
-            android:layout_width="40dp"
-            android:layout_height="32dp"
-            android:background="@drawable/collab_widget_preview_accent"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:background="@drawable/collab_widget_preview_quiet_button"
             android:gravity="center"
-            android:text="+"
-            android:textColor="#0C0F16"
-            android:textSize="21sp"
-            android:textStyle="bold" />
+            android:text="‹"
+            android:textColor="#E4E8EF"
+            android:textSize="18sp" />
+        <TextView
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:layout_marginStart="4dp"
+            android:background="@drawable/collab_widget_preview_quiet_button"
+            android:gravity="center"
+            android:text="›"
+            android:textColor="#E4E8EF"
+            android:textSize="18sp" />
+        <TextView
+            style="@style/CollabWidgetPreviewAccentButton"
+            android:layout_marginStart="6dp"
+            android:text="＋" />
     </LinearLayout>
 
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:orientation="horizontal">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="7dp" android:orientation="horizontal">
         <TextView style="@style/CollabWidgetPreviewWeekday" android:text="M" />
         <TextView style="@style/CollabWidgetPreviewWeekday" android:text="T" />
         <TextView style="@style/CollabWidgetPreviewWeekday" android:text="W" />
@@ -42,7 +43,7 @@
         <TextView style="@style/CollabWidgetPreviewWeekday" android:text="S" />
     </LinearLayout>
 
-    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="horizontal">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_marginTop="4dp" android:layout_weight="1" android:orientation="horizontal">
         <LinearLayout style="@style/CollabWidgetPreviewDay"><TextView style="@style/CollabWidgetPreviewDayNumber" android:text="27" android:textColor="#646A75" /></LinearLayout>
         <LinearLayout style="@style/CollabWidgetPreviewDay"><TextView style="@style/CollabWidgetPreviewDayNumber" android:text="28" android:textColor="#646A75" /></LinearLayout>
         <LinearLayout style="@style/CollabWidgetPreviewDay"><TextView style="@style/CollabWidgetPreviewDayNumber" android:text="29" android:textColor="#646A75" /></LinearLayout>

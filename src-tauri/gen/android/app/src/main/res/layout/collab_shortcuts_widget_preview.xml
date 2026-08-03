@@ -6,43 +6,59 @@
         style="@style/CollabWidgetPreviewHeader"
         android:layout_width="match_parent"
         android:layout_weight="0"
-        android:text="Countdowns" />
+        android:text="Shortcuts" />
 
     <LinearLayout
         style="@style/CollabWidgetPreviewCard"
         android:layout_marginTop="9dp">
-        <View
-            style="@style/CollabWidgetPreviewRail"
-            android:background="@drawable/collab_widget_preview_rail_violet" />
-        <LinearLayout
-            android:layout_width="match_parent"
+        <TextView
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginEnd="9dp"
+            android:text="📄"
+            android:textColor="#A174FF"
+            android:textSize="13sp" />
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
             android:orientation="vertical">
             <TextView
                 style="@style/CollabWidgetPreviewCardTitle"
-                android:text="Release day" />
+                android:text="Roadmap" />
             <TextView
                 style="@style/CollabWidgetPreviewCardDetail"
-                android:text="In 12 days · Thu, Aug 13" />
+                android:text="Note · Team vault" />
         </LinearLayout>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="★"
+            android:textColor="#808693"
+            android:textSize="11sp" />
     </LinearLayout>
 
     <LinearLayout
         style="@style/CollabWidgetPreviewCard"
         android:layout_marginTop="6dp">
-        <View
-            style="@style/CollabWidgetPreviewRail"
-            android:background="@drawable/collab_widget_preview_rail_cyan" />
-        <LinearLayout
-            android:layout_width="match_parent"
+        <TextView
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginEnd="9dp"
+            android:text="🗂"
+            android:textColor="#A174FF"
+            android:textSize="13sp" />
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
             android:orientation="vertical">
             <TextView
                 style="@style/CollabWidgetPreviewCardTitle"
-                android:text="Quarter close" />
+                android:text="Sprint board" />
             <TextView
                 style="@style/CollabWidgetPreviewCardDetail"
-                android:text="In 29 days · Sun, Aug 30" />
+                android:text="Board · Team vault" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

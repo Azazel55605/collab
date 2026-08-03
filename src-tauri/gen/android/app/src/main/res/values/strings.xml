@@ -9,4 +9,10 @@
     <string name="birthday_widget_description">Upcoming birthdays from Collab</string>
     <string name="countdown_widget_name">Collab countdowns</string>
     <string name="countdown_widget_description">Selected event countdowns from Collab</string>
+    <string name="tasks_widget_name">Collab tasks</string>
+    <string name="tasks_widget_description">Calendar and Kanban tasks from Collab</string>
+    <string name="capture_widget_name">Collab quick capture</string>
+    <string name="capture_widget_description">Shortcuts into the Collab create and import flows</string>
+    <string name="shortcuts_widget_name">Collab shortcuts</string>
+    <string name="shortcuts_widget_description">Pinned and recent Collab vault files</string>
 </resources>

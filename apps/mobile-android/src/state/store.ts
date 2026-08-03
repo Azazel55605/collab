@@ -165,7 +165,16 @@ interface MobileState {
   replaceFile: (file: HostedFileEntry) => void;
   makeOffline: (serverUrl: string, vault: HostedVault) => Promise<void>;
   removeOffline: (serverUrl: string, vaultId: string) => Promise<void>;
+  /** Opens a widget shortcut target by stable vault/file identity. Returns why
+   * it could not be opened so the caller can show a recovery surface. */
+  openVaultTarget: (
+    vaultId: string,
+    fileId: string,
+    options?: { cardId?: string; expectFolder?: boolean },
+  ) => Promise<VaultTargetResult>;
 }
+
+export type VaultTargetResult = 'opened' | 'vault-unavailable' | 'file-unavailable';
 
 function isConnected(status: ServerConnectionStatus | undefined): boolean {
   return !!status && status.connected;
@@ -703,5 +712,54 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     if (get().selected && replicaKey(get().selected!.serverUrl, get().selected!.vault.id) === key) {
       set({ fileCache: {} });
     }
+  },
+
+  openVaultTarget: async (vaultId, fileId, options) => {
+    // Resolve by stable identity across the servers this device is signed in
+    // to. A widget intent never carries a server URL or a path.
+    const match = Object.entries(get().vaults)
+      .flatMap(([serverUrl, vaults]) => vaults.map((vault) => ({ serverUrl, vault })))
+      .find(({ vault }) => vault.id === vaultId);
+    if (!match) return 'vault-unavailable';
+    const alreadyOpen = get().selected?.vault.id === vaultId;
+    if (!alreadyOpen) {
+      await get().selectVault(match.serverUrl, match.vault);
+    } else {
+      set({ tab: 'files', activeSheet: null, folderTrail: [ROOT_CRUMB] });
+    }
+    const files = get().files;
+    const entry = files.find((file) => file.id === fileId);
+    // A target that has been trashed, deleted, or is not readable here is
+    // reported so the caller can offer recovery instead of a dead screen.
+    if (!entry) return 'file-unavailable';
+
+    // Rebuild the folder trail by walking parents so the file opens in context.
+    const trail: Crumb[] = [];
+    const byId = new Map(files.map((file) => [file.id, file]));
+    let parentId = options?.expectFolder ? entry.id : entry.parentId;
+    const seen = new Set<string>();
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId);
+      const parent = byId.get(parentId);
+      if (!parent) break;
+      trail.unshift({ id: parent.id, name: parent.name });
+      parentId = parent.parentId;
+    }
+    set({ folderTrail: [ROOT_CRUMB, ...trail] });
+    if (options?.expectFolder || entry.kind === 'folder') return 'opened';
+
+    const name = entry.name.toLowerCase();
+    if (options?.cardId || name.endsWith('.kanban')) {
+      set({ activeSheet: { kind: 'kanban', fileId: entry.id, cardId: options?.cardId } });
+    } else if (name.endsWith('.md') || name.endsWith('.markdown')) {
+      set({ activeSheet: { kind: 'note', fileId: entry.id } });
+    } else if (name.endsWith('.sheet')) {
+      set({ activeSheet: { kind: 'workbook', fileId: entry.id } });
+    } else if (name.endsWith('.canvas') || name.endsWith('.logic') || name.endsWith('.pdf')) {
+      set({ activeSheet: { kind: 'viewer', fileId: entry.id } });
+    } else {
+      set({ activeSheet: { kind: 'fileDetail', fileId: entry.id } });
+    }
+    return 'opened';
   },
 }));

@@ -1,5 +1,69 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- These mirror the rendered Glance widgets in CollabAgendaWidget.kt. Keep
+         them in step so the picker preview never promises a different design
+         from the widget the user actually places. -->
+    <style name="CollabWidgetPreviewShell">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:background">@drawable/collab_widget_preview_background</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:padding">12dp</item>
+    </style>
+    <style name="CollabWidgetPreviewHeader">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:textColor">#E4E8EF</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="CollabWidgetPreviewAccentButton">
+        <item name="android:layout_width">40dp</item>
+        <item name="android:layout_height">34dp</item>
+        <item name="android:background">@drawable/collab_widget_preview_accent_button</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textColor">#0C0F16</item>
+        <item name="android:textSize">19sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="CollabWidgetPreviewCard">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:background">@drawable/collab_widget_preview_card</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:paddingLeft">9dp</item>
+        <item name="android:paddingRight">9dp</item>
+        <item name="android:paddingTop">8dp</item>
+        <item name="android:paddingBottom">8dp</item>
+    </style>
+    <style name="CollabWidgetPreviewRail">
+        <item name="android:layout_width">3dp</item>
+        <item name="android:layout_height">26dp</item>
+        <item name="android:layout_marginEnd">9dp</item>
+    </style>
+    <style name="CollabWidgetPreviewCardTitle">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">#E4E8EF</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+    <style name="CollabWidgetPreviewCardDetail">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">#808693</item>
+        <item name="android:textSize">11sp</item>
+    </style>
+    <style name="CollabWidgetPreviewSection">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:paddingStart">2dp</item>
+        <item name="android:textColor">#808693</item>
+        <item name="android:textSize">10sp</item>
+    </style>
     <style name="CollabWidgetPreviewWeekday">
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">wrap_content</item>

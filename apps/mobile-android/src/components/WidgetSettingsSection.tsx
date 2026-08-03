@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutDashboard, RefreshCw } from 'lucide-react';
 
-import type { CalendarDefinition, CalendarEvent } from '../../../../src/types/calendar';
-import type { WidgetConfiguration, WidgetDiagnostics, WidgetPrivacy } from '../../../../src/types/widget';
+import type { CalendarDefinition, CalendarEvent, CalendarTask } from '../../../../src/types/calendar';
+import type {
+  WidgetCaptureAction,
+  WidgetCaptureOptions,
+  WidgetConfiguration,
+  WidgetDiagnostics,
+  WidgetPrivacy,
+  WidgetShortcutOptions,
+  WidgetTaskOptions,
+} from '../../../../src/types/widget';
 import { mobileCalendarProfileId } from '../lib/calendarSync';
+import { useMobileStore } from '../state/store';
 import {
   listProfileCalendars,
   listProfileCalendarItems,
@@ -25,7 +34,43 @@ const WIDGET_KIND_LABELS = {
   month: 'Month',
   birthday: 'Birthdays',
   countdown: 'Countdowns',
+  tasks: 'Tasks',
+  capture: 'Quick capture',
+  shortcuts: 'Shortcuts',
 } as const;
+
+const CAPTURE_ACTIONS: Array<[WidgetCaptureAction, string]> = [
+  ['note', 'New note'],
+  ['task', 'New task'],
+  ['event', 'New event'],
+  ['files', 'Add files'],
+];
+
+const DEFAULT_CAPTURE_OPTIONS: WidgetCaptureOptions = {
+  actions: ['note', 'task', 'event', 'files'],
+};
+
+const DEFAULT_SHORTCUT_OPTIONS: WidgetShortcutOptions = { pinned: [], includeRecent: true };
+
+function captureOptions(configuration: WidgetConfiguration): WidgetCaptureOptions {
+  return { ...DEFAULT_CAPTURE_OPTIONS, ...(configuration.capture ?? {}) };
+}
+
+function shortcutOptions(configuration: WidgetConfiguration): WidgetShortcutOptions {
+  return { ...DEFAULT_SHORTCUT_OPTIONS, ...(configuration.shortcuts ?? {}) };
+}
+
+const DEFAULT_TASK_OPTIONS: WidgetTaskOptions = {
+  includeCalendarTasks: true,
+  includeKanbanTasks: true,
+  includeUndated: true,
+  selectedBoardIds: [],
+};
+
+/** Older configurations predate the task options, so reads normalize them. */
+function taskOptions(configuration: WidgetConfiguration): WidgetTaskOptions {
+  return { ...DEFAULT_TASK_OPTIONS, ...(configuration.tasks ?? {}) };
+}
 
 function countdownDateLabel(event: CalendarEvent) {
   const value = event.start.kind === 'date' ? event.start.date : event.start.dateTime;
@@ -38,6 +83,7 @@ export function WidgetSettingsSection() {
   const [configurations, setConfigurations] = useState<WidgetConfiguration[]>([]);
   const [calendars, setCalendars] = useState<CalendarDefinition[]>([]);
   const [countdownEvents, setCountdownEvents] = useState<CalendarEvent[]>([]);
+  const [kanbanTasks, setKanbanTasks] = useState<CalendarTask[]>([]);
   const [diagnostics, setDiagnostics] = useState<WidgetDiagnostics[]>([]);
   const [busy, setBusy] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -57,6 +103,26 @@ export function WidgetSettingsSection() {
     });
     return [...byId.entries()].slice(0, 24);
   }, [countdownEvents]);
+  /** Boards are derived from cached Kanban assignments, so the picker only ever
+   * lists boards this profile already has authorized tasks in. */
+  const boardCandidates = useMemo(() => {
+    const byFileId = new Map<string, string>();
+    kanbanTasks.forEach((task) => {
+      const binding = task.sourceBinding;
+      if (binding?.kind !== 'kanban' || byFileId.has(binding.fileId)) return;
+      const label = binding.path?.split('/').pop()?.replace(/\.kanban$/, '');
+      byFileId.set(binding.fileId, label || 'Kanban board');
+    });
+    return [...byFileId.entries()].slice(0, 24);
+  }, [kanbanTasks]);
+  // Pins are offered from the vault the user currently has open in Files, so
+  // this screen never has to enumerate every server's contents.
+  const selectedVault = useMobileStore((state) => state.selected);
+  const vaultFiles = useMobileStore((state) => state.files);
+  const pinCandidates = useMemo(
+    () => vaultFiles.filter((entry) => entry.state === 'active').slice(0, 40),
+    [vaultFiles],
+  );
 
   const applyConfigurations = (next: WidgetConfiguration[]) => {
     configurationsRef.current = next;
@@ -82,6 +148,8 @@ export function WidgetSettingsSection() {
         setCalendars(nextCalendars.filter((calendar) => !calendar.deletedAt && !calendar.archived));
         setDiagnostics(nextDiagnostics);
         setCountdownEvents(nextItems.filter((item): item is CalendarEvent => item.kind === 'event'));
+        setKanbanTasks(nextItems.filter((item): item is CalendarTask =>
+          item.kind === 'task' && item.sourceBinding?.kind === 'kanban'));
       })
       .catch((reason) => {
         if (!cancelled) setError(String(reason));
@@ -207,6 +275,164 @@ export function WidgetSettingsSection() {
                 ))}
               </div>
             </div>
+          ) : null}
+          {configuration.kind === 'capture' ? (
+            <div className="setting-row stacked">
+              <div><strong>Capture actions</strong><span>Each tile opens the matching Collab flow.</span></div>
+              <div className="widget-calendar-options">
+                {CAPTURE_ACTIONS.map(([action, label]) => {
+                  const actions = captureOptions(configuration).actions;
+                  const checked = actions.includes(action);
+                  return (
+                    <label className="toggle-row" key={action}>
+                      <span><strong>{label}</strong></span>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        // The last remaining tile stays on: an empty capture
+                        // widget would have nothing to tap.
+                        disabled={checked && actions.length === 1}
+                        onChange={(event) => save(configuration.configurationId, (current) => {
+                          const options = captureOptions(current);
+                          const next = event.currentTarget.checked
+                            ? CAPTURE_ACTIONS.map(([value]) => value)
+                              .filter((value) => options.actions.includes(value) || value === action)
+                            : options.actions.filter((value) => value !== action);
+                          return { ...current, capture: { ...options, actions: next } };
+                        })}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+          {configuration.kind === 'shortcuts' ? (
+            <>
+              <div className="setting-row">
+                <div>
+                  <strong>Fill with recent files</strong>
+                  <span>Uses offline vault metadata only. Pins always come first.</span>
+                </div>
+                <input
+                  type="checkbox"
+                  aria-label="Fill with recent files"
+                  checked={shortcutOptions(configuration).includeRecent}
+                  onChange={(event) => save(configuration.configurationId, (current) => ({
+                    ...current,
+                    shortcuts: {
+                      ...shortcutOptions(current),
+                      includeRecent: event.currentTarget.checked,
+                    },
+                  }))}
+                />
+              </div>
+              <div className="setting-row stacked">
+                <div>
+                  <strong>Pinned files</strong>
+                  <span>
+                    {selectedVault
+                      ? `Pin from ${selectedVault.vault.name}.`
+                      : 'Open a vault in Files to pin from it.'}
+                  </span>
+                </div>
+                <div className="widget-calendar-options">
+                  {pinCandidates.map((entry) => {
+                    const pinned = shortcutOptions(configuration).pinned;
+                    const checked = pinned.some((pin) =>
+                      pin.vaultId === selectedVault?.vault.id && pin.fileId === entry.id);
+                    return (
+                      <label className="toggle-row" key={entry.id}>
+                        <span><strong>{entry.name}</strong></span>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(changeEvent) => save(configuration.configurationId, (current) => {
+                            const options = shortcutOptions(current);
+                            const vaultId = selectedVault!.vault.id;
+                            const next = changeEvent.currentTarget.checked
+                              ? [...options.pinned, { vaultId, fileId: entry.id }].slice(0, 16)
+                              : options.pinned.filter((pin) =>
+                                !(pin.vaultId === vaultId && pin.fileId === entry.id));
+                            return { ...current, shortcuts: { ...options, pinned: next } };
+                          })}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          ) : null}
+          {configuration.kind === 'tasks' ? (
+            <>
+              <div className="setting-row stacked">
+                <div><strong>Task sources</strong><span>Kanban assignments come from your cached boards.</span></div>
+                <div className="widget-calendar-options">
+                  {([
+                    ['includeCalendarTasks', 'Calendar tasks'],
+                    ['includeKanbanTasks', 'Kanban assignments'],
+                    ['includeUndated', 'Tasks without a due date'],
+                  ] as Array<[keyof WidgetTaskOptions, string]>).map(([key, label]) => (
+                    <label className="toggle-row" key={key}>
+                      <span><strong>{label}</strong></span>
+                      <input
+                        type="checkbox"
+                        checked={taskOptions(configuration)[key] as boolean}
+                        onChange={(event) => save(configuration.configurationId, (current) => ({
+                          ...current,
+                          tasks: { ...taskOptions(current), [key]: event.currentTarget.checked },
+                        }))}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {taskOptions(configuration).includeKanbanTasks && boardCandidates.length > 0 ? (
+                <div className="setting-row stacked">
+                  <div><strong>Kanban boards</strong><span>All boards when none are selected.</span></div>
+                  <div className="widget-calendar-options">
+                    {boardCandidates.map(([fileId, label]) => {
+                      const selected = taskOptions(configuration).selectedBoardIds;
+                      return (
+                        <label className="toggle-row" key={fileId}>
+                          <span><strong>{label}</strong></span>
+                          <input
+                            type="checkbox"
+                            checked={selected.length === 0 || selected.includes(fileId)}
+                            onChange={(event) => save(configuration.configurationId, (current) => {
+                              const options = taskOptions(current);
+                              const baseline = options.selectedBoardIds.length === 0
+                                ? boardCandidates.map(([id]) => id)
+                                : options.selectedBoardIds;
+                              const selectedBoardIds = event.currentTarget.checked
+                                ? [...new Set([...baseline, fileId])]
+                                : baseline.filter((id) => id !== fileId);
+                              return { ...current, tasks: { ...options, selectedBoardIds } };
+                            })}
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+              <div className="setting-row">
+                <div>
+                  <strong>Complete from the widget</strong>
+                  <span>Adds a confirmed complete action for your own calendar tasks. Kanban tasks always open Collab.</span>
+                </div>
+                <input
+                  type="checkbox"
+                  aria-label="Complete from the widget"
+                  checked={configuration.actions.toggleTask}
+                  onChange={(event) => save(configuration.configurationId, (current) => ({
+                    ...current,
+                    actions: { ...current.actions, toggleTask: event.currentTarget.checked },
+                  }))}
+                />
+              </div>
+            </>
           ) : null}
           {configuration.kind !== 'month' ? <div className="setting-row stacked">
             <div><strong>Privacy</strong><span>Controls content persisted for the launcher.</span></div>

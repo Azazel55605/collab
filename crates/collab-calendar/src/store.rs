@@ -965,6 +965,23 @@ impl CalendarStore {
             .collect()
     }
 
+    /// Reads a single stored item by its stable identifier, including items the
+    /// bounded range queries would not return. Deleted items are returned so
+    /// callers can distinguish "removed" from "never existed" before acting on
+    /// a cached identity.
+    pub async fn read_item(
+        &self,
+        item_id: &str,
+    ) -> Result<Option<CalendarItem>, CalendarStoreError> {
+        validate_non_empty(item_id, "item ID")?;
+        let row = sqlx::query("SELECT data_json FROM calendar_items WHERE id = ?")
+            .bind(item_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(|row| serde_json::from_str(row.get::<&str, _>("data_json")).map_err(Into::into))
+            .transpose()
+    }
+
     pub async fn upsert_item_with_operation(
         &self,
         item: &CalendarItem,

@@ -175,4 +175,96 @@ describe('mobile widget settings', () => {
       );
     });
   });
+
+  describe('tasks widget', () => {
+    const tasks = {
+      ...configuration,
+      kind: 'tasks',
+      display: { horizonDays: 14, maxItems: 6, showCompleted: false },
+      tasks: {
+        includeCalendarTasks: true,
+        includeKanbanTasks: true,
+        includeUndated: true,
+        selectedBoardIds: [],
+      },
+    } as const;
+
+    beforeEach(() => {
+      vi.mocked(invoke).mockImplementation((command, args) => {
+        if (command === 'widget_active_profile_set') return Promise.resolve(undefined);
+        if (command === 'widget_configuration_list') return Promise.resolve([tasks]);
+        if (command === 'widget_diagnostics_list') return Promise.resolve([diagnostics]);
+        if (command === 'calendar_list') return Promise.resolve([]);
+        if (command === 'calendar_list_items') {
+          return Promise.resolve([{
+            id: 'task-1',
+            uid: 'task-1',
+            calendarId: 'calendar-kanban',
+            kind: 'task',
+            title: 'Review the board',
+            status: 'needs-action',
+            sourceBinding: {
+              kind: 'kanban',
+              vaultId: 'vault-1',
+              fileId: 'file-1',
+              cardId: 'card-1',
+              path: 'Boards/Team.kanban',
+            },
+          }]);
+        }
+        if (command === 'widget_configuration_save') {
+          return Promise.resolve((args as { configuration: typeof tasks }).configuration);
+        }
+        return Promise.reject(new Error(`unexpected command: ${command}`));
+      });
+    });
+
+    it('persists task source selection and board filters', async () => {
+      render(<WidgetSettingsSection />);
+      expect(await screen.findByText('Tasks 1')).not.toBeNull();
+
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Tasks without a due date' }));
+      await waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith(
+          'widget_configuration_save',
+          expect.objectContaining({
+            configuration: expect.objectContaining({
+              tasks: expect.objectContaining({ includeUndated: false }),
+            }),
+          }),
+        );
+      });
+
+      // Boards are labelled from the cached assignment, not from a stored path.
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Team' }));
+      await waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith(
+          'widget_configuration_save',
+          expect.objectContaining({
+            configuration: expect.objectContaining({
+              tasks: expect.objectContaining({ selectedBoardIds: [] }),
+            }),
+          }),
+        );
+      });
+    });
+
+    it('keeps the launcher completion action opt-in', async () => {
+      render(<WidgetSettingsSection />);
+      const toggle = await screen.findByRole('checkbox', { name: /Complete from the widget/ });
+      expect((toggle as HTMLInputElement).checked).toBe(false);
+
+      fireEvent.click(toggle);
+      await waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith(
+          'widget_configuration_save',
+          expect.objectContaining({
+            configuration: expect.objectContaining({
+              actions: expect.objectContaining({ toggleTask: true }),
+            }),
+          }),
+        );
+      });
+    });
+  });
 });
