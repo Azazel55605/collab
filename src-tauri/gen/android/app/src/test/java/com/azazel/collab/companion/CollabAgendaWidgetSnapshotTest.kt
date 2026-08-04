@@ -363,4 +363,94 @@ class CollabAgendaWidgetSnapshotTest {
       }
     }
   }
+
+  /**
+   * RemoteViews only inflates views annotated `@RemoteView`. A widget preview
+   * containing anything else — a bare `<View>` spacer being the easy mistake —
+   * fails to inflate in the launcher and shows a broken picker entry, which no
+   * amount of building or resource compilation reveals.
+   */
+  private val remoteViewsSafeTags = setOf(
+    "AdapterViewFlipper", "AnalogClock", "Button", "Chronometer", "FrameLayout",
+    "GridLayout", "GridView", "ImageButton", "ImageView", "LinearLayout",
+    "ListView", "ProgressBar", "RelativeLayout", "StackView", "TextView",
+    "ViewFlipper", "ViewStub",
+  )
+
+  private fun widgetPreviewLayouts(): List<java.io.File> {
+    var directory: java.io.File? = java.io.File(System.getProperty("user.dir")!!)
+    while (directory != null) {
+      val layouts = java.io.File(directory, "src/main/res/layout")
+      if (layouts.isDirectory) {
+        return layouts.listFiles { file -> file.name.endsWith("_widget_preview.xml") }
+          .orEmpty()
+          .sortedBy { it.name }
+      }
+      directory = directory.parentFile
+    }
+    fail("Could not locate the widget preview layouts.")
+    return emptyList()
+  }
+
+  @Test
+  fun widgetPreviewsOnlyUseViewsRemoteViewsCanInflate() {
+    val layouts = widgetPreviewLayouts()
+    assertEquals(7, layouts.size)
+    layouts.forEach { layout ->
+      val body = layout.readText().replace(Regex("(?s)<!--.*?-->"), "")
+      Regex("<([A-Za-z][A-Za-z0-9_.]*)").findAll(body).forEach { match ->
+        val tag = match.groupValues[1]
+        assertTrue(
+          "${layout.name} uses <$tag>, which RemoteViews cannot inflate",
+          tag in remoteViewsSafeTags,
+        )
+      }
+    }
+  }
+
+  private fun hex(color: androidx.compose.ui.graphics.Color): String =
+    "#%06X".format(color.value.toLong().ushr(32).and(0xFFFFFFL))
+
+  /**
+   * The widget is painted from the app's own theme tokens, resolved from OKLCH
+   * to sRGB. Pinning them here keeps a launcher widget and the screen it opens
+   * from drifting into lookalike-but-different colours.
+   */
+  @Test
+  fun palettesResolveTheAppThemeTokens() {
+    val dark = agendaWidgetPalette("dark", "violet")
+    assertEquals("#0C0F16", hex(dark.background))
+    assertEquals("#E4E8EF", hex(dark.foreground))
+    assertEquals("#808693", hex(dark.muted))
+    assertEquals("#13161D", hex(dark.card))
+    assertEquals("#171B22", hex(dark.surface))
+    assertEquals("#272930", hex(dark.grid))
+
+    // A card must sit between the background and the control surface, or the
+    // app's layering reads inverted on the launcher.
+    listOf("dark", "midnight", "warm").forEach { theme ->
+      val palette = agendaWidgetPalette(theme, "violet")
+      val luminance = { color: androidx.compose.ui.graphics.Color ->
+        val value = hex(color).removePrefix("#").toLong(16)
+        (value shr 16) + (value shr 8 and 0xFF) + (value and 0xFF)
+      }
+      assertTrue(
+        "$theme card must be lighter than its background",
+        luminance(palette.card) > luminance(palette.background),
+      )
+      assertTrue(
+        "$theme surface must be lighter than its card",
+        luminance(palette.surface) > luminance(palette.card),
+      )
+    }
+
+    // Every accent the app offers must resolve, and none may collide.
+    val accents = listOf("violet", "blue", "emerald", "rose", "orange", "cyan")
+      .map { hex(agendaWidgetPalette("dark", it).accent) }
+    assertEquals(
+      listOf("#A174FF", "#009BF2", "#00C483", "#FA416B", "#FA7C20", "#00C4CD"),
+      accents,
+    )
+    assertEquals(accents.size, accents.toSet().size)
+  }
 }

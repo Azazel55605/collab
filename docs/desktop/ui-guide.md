@@ -289,6 +289,19 @@ Rules:
   built from the shared `CollabWidgetPreview*` styles) in step with what the
   composable actually renders. A preview that flatters the widget is a bug —
   it sells a design the user will not get.
+- **Preview layouts may only use views RemoteViews can inflate** — no bare
+  `<View>`, `<Space>`, or custom views. Anything else fails to inflate in the
+  launcher and shows a broken picker entry, which building and resource
+  compilation both pass. `widgetPreviewsOnlyUseViewsRemoteViewsCanInflate`
+  guards this; use `ImageView` for rails, bars, and spacers.
+- Widget colours come from the app's own theme tokens resolved to sRGB in
+  `agendaWidgetPalette`, and keep the stylesheet's split: `--card` behind
+  content cards, `--surface` behind controls, `--border` for separators and
+  card outlines, `--background` for month cells. Do not invent a lookalike
+  shade — `palettesResolveTheAppThemeTokens` pins the resolved values.
+- Glance has no border modifier, so a card's 1px outline is a border-coloured
+  layer the card sits 1dp inside of (`WidgetCardFrame`). The subtle card fill
+  needs that outline to read as a card.
 - Compact sizes drop detail lines and section labels rather than shrinking hit
   targets or crowding the card.
 

@@ -166,6 +166,15 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")
 }
 
+// The widget preview layouts are asserted by a unit test that reads them from
+// disk, so they have to be declared inputs or Gradle keeps a stale pass after a
+// layout is edited.
+tasks.withType<Test>().configureEach {
+    inputs.dir(layout.projectDirectory.dir("src/main/res/layout"))
+        .withPropertyName("widgetPreviewLayouts")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
 if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
 }

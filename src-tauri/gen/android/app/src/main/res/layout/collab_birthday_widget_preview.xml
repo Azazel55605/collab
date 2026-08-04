@@ -11,7 +11,7 @@
     <LinearLayout
         style="@style/CollabWidgetPreviewCard"
         android:layout_marginTop="9dp">
-        <View
+        <ImageView
             style="@style/CollabWidgetPreviewRail"
             android:background="@drawable/collab_widget_preview_rail_violet" />
         <LinearLayout
@@ -30,7 +30,7 @@
     <LinearLayout
         style="@style/CollabWidgetPreviewCard"
         android:layout_marginTop="6dp">
-        <View
+        <ImageView
             style="@style/CollabWidgetPreviewRail"
             android:background="@drawable/collab_widget_preview_rail_rose" />
         <LinearLayout

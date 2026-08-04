@@ -244,21 +244,34 @@ private object CollabAgendaWidgetSnapshotCache {
   }
 }
 
+/**
+ * The app's theme tokens resolved to sRGB. `card`, `surface`, and `grid` keep
+ * the same split the stylesheet uses — `--card` behind content, `--surface`
+ * behind controls, `--border` for separators — so a widget and the screen it
+ * opens are painted from the same values rather than lookalike ones.
+ */
 internal data class AgendaWidgetPalette(
   val background: Color,
   val foreground: Color,
   val muted: Color,
   val accent: Color,
+  val card: Color,
   val surface: Color,
   val grid: Color,
 )
 
 internal fun agendaWidgetPalette(theme: String, accent: String): AgendaWidgetPalette {
-  val (background, foreground, muted, surface, grid) = when (theme) {
-    "midnight" -> listOf(Color(0xFF010101), Color(0xFFDEDEDE), Color(0xFF6F7278), Color(0xFF171717), Color(0xFF2A2A2A))
-    "warm" -> listOf(Color(0xFF090301), Color(0xFFEFE2D8), Color(0xFF8E7C6F), Color(0xFF1C100A), Color(0xFF362A24))
-    "light" -> listOf(Color(0xFFF5F5F5), Color(0xFF090909), Color(0xFF52555B), Color(0xFFFFFFFF), Color(0xFFDCDCDC))
-    else -> listOf(Color(0xFF0C0F16), Color(0xFFE4E8EF), Color(0xFF808693), Color(0xFF171B22), Color(0xFF2D3037))
+  val (background, foreground, muted) = when (theme) {
+    "midnight" -> listOf(Color(0xFF010101), Color(0xFFDEDEDE), Color(0xFF6F7278))
+    "warm" -> listOf(Color(0xFF090301), Color(0xFFEFE2D8), Color(0xFF8E7C6F))
+    "light" -> listOf(Color(0xFFF5F5F5), Color(0xFF090909), Color(0xFF52555B))
+    else -> listOf(Color(0xFF0C0F16), Color(0xFFE4E8EF), Color(0xFF808693))
+  }
+  val (card, surface, grid) = when (theme) {
+    "midnight" -> listOf(Color(0xFF030303), Color(0xFF050607), Color(0xFF151515))
+    "warm" -> listOf(Color(0xFF0F0703), Color(0xFF140B05), Color(0xFF1F1A18))
+    "light" -> listOf(Color(0xFFFFFFFF), Color(0xFFFCFCFC), Color(0xFFDCDCDC))
+    else -> listOf(Color(0xFF13161D), Color(0xFF171B22), Color(0xFF272930))
   }
   val accentColor = when (accent) {
     "blue" -> Color(0xFF009BF2)
@@ -268,7 +281,7 @@ internal fun agendaWidgetPalette(theme: String, accent: String): AgendaWidgetPal
     "cyan" -> Color(0xFF00C4CD)
     else -> Color(0xFFA174FF)
   }
-  return AgendaWidgetPalette(background, foreground, muted, accentColor, surface, grid)
+  return AgendaWidgetPalette(background, foreground, muted, accentColor, card, surface, grid)
 }
 
 internal object CollabAgendaWidgetSnapshotStore {
@@ -1041,8 +1054,31 @@ private fun GlanceModifier.appWidgetBackgroundRadius(): GlanceModifier =
 /** The raised card surface shared by every widget list row. */
 private fun GlanceModifier.widgetCard(palette: AgendaWidgetPalette): GlanceModifier =
   this.fillMaxWidth()
-    .background(ColorProvider(palette.surface))
+    .background(ColorProvider(palette.card))
     .cornerRadius(WidgetCardRadius)
+
+/**
+ * Draws the app's 1px card border. Glance has no border modifier, so the
+ * hairline is a border-coloured layer the card sits 1dp inside of. The app
+ * pairs a subtle card fill with this outline, and without it the fill alone is
+ * too quiet to read as a card.
+ */
+@Composable
+private fun WidgetCardFrame(
+  palette: AgendaWidgetPalette,
+  content: @Composable () -> Unit,
+) {
+  Box(
+    modifier = GlanceModifier
+      .fillMaxWidth()
+      .background(ColorProvider(palette.grid))
+      .cornerRadius(WidgetCardRadius)
+      .padding(1.dp),
+    contentAlignment = Alignment.Center,
+  ) {
+    content()
+  }
+}
 
 /**
  * The shell every Collab widget paints: one rounded surface on the theme
@@ -1185,23 +1221,25 @@ private fun WidgetRowCard(
   compact: Boolean,
   content: @Composable ColumnScope.() -> Unit,
 ) {
-  Row(
-    modifier = GlanceModifier
-      .widgetCard(palette)
-      .clickable(action)
-      .padding(horizontal = 9.dp, vertical = if (compact) 6.dp else 8.dp),
-    verticalAlignment = Alignment.Vertical.CenterVertically,
-  ) {
-    Box(
+  WidgetCardFrame(palette) {
+    Row(
       modifier = GlanceModifier
-        .width(WidgetRailWidth)
-        .fillMaxHeight()
-        .background(ColorProvider(railColor))
-        .cornerRadius(WidgetRailWidth),
-      contentAlignment = Alignment.Center,
-    ) {}
-    Spacer(GlanceModifier.width(9.dp))
-    Column(modifier = GlanceModifier.defaultWeight(), content = content)
+        .widgetCard(palette)
+        .clickable(action)
+        .padding(horizontal = 9.dp, vertical = if (compact) 6.dp else 8.dp),
+      verticalAlignment = Alignment.Vertical.CenterVertically,
+    ) {
+      Box(
+        modifier = GlanceModifier
+          .width(WidgetRailWidth)
+          .fillMaxHeight()
+          .background(ColorProvider(railColor))
+          .cornerRadius(WidgetRailWidth),
+        contentAlignment = Alignment.Center,
+      ) {}
+      Spacer(GlanceModifier.width(9.dp))
+      Column(modifier = GlanceModifier.defaultWeight(), content = content)
+    }
   }
 }
 
@@ -1239,47 +1277,49 @@ private fun ShortcutWidgetContent(
       visibleItems.forEachIndexed { visibleIndex, item ->
         val originalIndex = snapshot.items.indexOf(item)
         val action = actionStartActivity(itemIntents.getOrElse(originalIndex) { openHeader })
-        Row(
-          modifier = GlanceModifier
-            .widgetCard(palette)
-            .clickable(action)
-            .padding(horizontal = 9.dp, vertical = if (compact) 6.dp else 8.dp),
-          verticalAlignment = Alignment.Vertical.CenterVertically,
-        ) {
-          Text(
-            if (showIcons) shortcutEntryGlyph(item.shortcut?.entryKind) else "＋",
-            modifier = GlanceModifier.clickable(action),
-            style = TextStyle(
-              color = ColorProvider(palette.accent),
-              fontSize = (13f * snapshot.fontScale).sp,
-            ),
-          )
-          Spacer(GlanceModifier.width(9.dp))
-          Column(modifier = GlanceModifier.defaultWeight()) {
+        WidgetCardFrame(palette) {
+          Row(
+            modifier = GlanceModifier
+              .widgetCard(palette)
+              .clickable(action)
+              .padding(horizontal = 9.dp, vertical = if (compact) 6.dp else 8.dp),
+            verticalAlignment = Alignment.Vertical.CenterVertically,
+          ) {
             Text(
-              item.title,
+              if (showIcons) shortcutEntryGlyph(item.shortcut?.entryKind) else "＋",
               modifier = GlanceModifier.clickable(action),
               style = TextStyle(
-                color = ColorProvider(palette.foreground),
-                fontWeight = FontWeight.Medium,
+                color = ColorProvider(palette.accent),
                 fontSize = (13f * snapshot.fontScale).sp,
               ),
             )
-            if (size.height >= 180.dp && item.detail.isNotBlank()) {
+            Spacer(GlanceModifier.width(9.dp))
+            Column(modifier = GlanceModifier.defaultWeight()) {
               Text(
-                item.detail,
+                item.title,
+                modifier = GlanceModifier.clickable(action),
+                style = TextStyle(
+                  color = ColorProvider(palette.foreground),
+                  fontWeight = FontWeight.Medium,
+                  fontSize = (13f * snapshot.fontScale).sp,
+                ),
+              )
+              if (size.height >= 180.dp && item.detail.isNotBlank()) {
+                Text(
+                  item.detail,
+                  modifier = GlanceModifier.clickable(action),
+                  style = mutedTextStyle(palette, 11f * snapshot.fontScale),
+                )
+              }
+            }
+            if (item.shortcut?.pinned == true && size.height >= 180.dp) {
+              Text(
+                "★",
                 modifier = GlanceModifier.clickable(action),
                 style = mutedTextStyle(palette, 11f * snapshot.fontScale),
               )
             }
-          }
-          if (item.shortcut?.pinned == true && size.height >= 180.dp) {
-            Text(
-              "★",
-              modifier = GlanceModifier.clickable(action),
-              style = mutedTextStyle(palette, 11f * snapshot.fontScale),
-            )
-          }
+        }
         }
         if (visibleIndex < visibleItems.lastIndex) Spacer(GlanceModifier.height(6.dp))
       }
@@ -1547,50 +1587,52 @@ private fun TasksWidgetContent(
             )
           }
         }
-        Row(
-          modifier = GlanceModifier
-            .fillMaxWidth()
-            // An armed row steps up one surface level so the pending
-            // confirmation is unmistakable without borrowing the accent, which
-            // already marks the confirming control itself.
-            .background(ColorProvider(if (awaitingConfirmation) palette.grid else palette.surface))
-            .cornerRadius(WidgetCardRadius)
-            .padding(horizontal = 6.dp, vertical = if (compact) 2.dp else 4.dp),
-          verticalAlignment = Alignment.Vertical.CenterVertically,
-        ) {
-          TaskCompleteControl(snapshot, palette, item, awaitingConfirmation)
-          Spacer(GlanceModifier.width(7.dp))
-          Column(modifier = GlanceModifier.defaultWeight().clickable(itemAction)) {
-            Text(
-              item.title,
-              modifier = GlanceModifier.clickable(itemAction),
-              style = TextStyle(
-                color = ColorProvider(palette.foreground),
-                fontWeight = FontWeight.Medium,
-                fontSize = (13f * snapshot.fontScale).sp,
-              ),
-            )
-            if (!compact) {
+        WidgetCardFrame(palette) {
+          Row(
+            modifier = GlanceModifier
+              .fillMaxWidth()
+              // An armed row steps up one surface level so the pending
+              // confirmation is unmistakable without borrowing the accent, which
+              // already marks the confirming control itself.
+              .background(ColorProvider(if (awaitingConfirmation) palette.surface else palette.card))
+              .cornerRadius(WidgetCardRadius)
+              .padding(horizontal = 6.dp, vertical = if (compact) 2.dp else 4.dp),
+            verticalAlignment = Alignment.Vertical.CenterVertically,
+          ) {
+            TaskCompleteControl(snapshot, palette, item, awaitingConfirmation)
+            Spacer(GlanceModifier.width(7.dp))
+            Column(modifier = GlanceModifier.defaultWeight().clickable(itemAction)) {
               Text(
-                if (awaitingConfirmation) "Tap ✓ to confirm" else item.detail,
+                item.title,
                 modifier = GlanceModifier.clickable(itemAction),
-                style = mutedTextStyle(palette, 11f * snapshot.fontScale),
+                style = TextStyle(
+                  color = ColorProvider(palette.foreground),
+                  fontWeight = FontWeight.Medium,
+                  fontSize = (13f * snapshot.fontScale).sp,
+                ),
               )
+              if (!compact) {
+                Text(
+                  if (awaitingConfirmation) "Tap ✓ to confirm" else item.detail,
+                  modifier = GlanceModifier.clickable(itemAction),
+                  style = mutedTextStyle(palette, 11f * snapshot.fontScale),
+                )
+              }
             }
-          }
-          if (awaitingConfirmation) {
-            Spacer(GlanceModifier.width(4.dp))
-            Box(
-              modifier = GlanceModifier.width(34.dp).height(34.dp)
-                .clickable(actionRunCallback<CollabTaskCancelCompleteAction>()),
-              contentAlignment = Alignment.Center,
-            ) {
-              Text(
-                "✕",
-                style = mutedTextStyle(palette, 15f * snapshot.fontScale),
-              )
+            if (awaitingConfirmation) {
+              Spacer(GlanceModifier.width(4.dp))
+              Box(
+                modifier = GlanceModifier.width(34.dp).height(34.dp)
+                  .clickable(actionRunCallback<CollabTaskCancelCompleteAction>()),
+                contentAlignment = Alignment.Center,
+              ) {
+                Text(
+                  "✕",
+                  style = mutedTextStyle(palette, 15f * snapshot.fontScale),
+                )
+              }
             }
-          }
+        }
         }
         if (visibleIndex < visibleItems.lastIndex) Spacer(GlanceModifier.height(6.dp))
       }
@@ -1722,32 +1764,42 @@ private fun MonthWidgetContent(
             Column(
               modifier = GlanceModifier.defaultWeight().padding(1.dp),
             ) {
+              // Square cells on the theme background, separated by the row's
+              // border colour showing through the 1dp gutter — the same grid
+              // the app's month view draws.
               Column(
                 modifier = GlanceModifier.fillMaxSize()
-                  .background(ColorProvider(palette.surface))
-                  .cornerRadius(7.dp)
+                  .background(
+                    ColorProvider(if (day.inMonth) palette.background else palette.card),
+                  )
                   .clickable(action)
                   .padding(horizontal = 3.dp, vertical = 3.dp),
+                horizontalAlignment = Alignment.Horizontal.End,
               ) {
-                Text(
-                  number,
+                val numberSize = (18f * snapshot.fontScale).dp
+                Box(
                   modifier = if (day.isToday) {
-                    GlanceModifier.background(ColorProvider(palette.accent))
-                      .cornerRadius(12.dp)
-                      .padding(horizontal = 5.dp, vertical = 1.dp)
+                    GlanceModifier.width(numberSize).height(numberSize)
+                      .background(ColorProvider(palette.accent))
+                      .cornerRadius(numberSize / 2)
                       .clickable(action)
                   } else {
-                    GlanceModifier.clickable(action)
+                    GlanceModifier.width(numberSize).height(numberSize).clickable(action)
                   },
-                  style = TextStyle(
-                    color = ColorProvider(
-                      if (day.isToday) palette.background
-                      else if (day.inMonth) palette.foreground else palette.muted,
+                  contentAlignment = Alignment.Center,
+                ) {
+                  Text(
+                    number,
+                    style = TextStyle(
+                      color = ColorProvider(
+                        if (day.isToday) palette.background
+                        else if (day.inMonth) palette.foreground else palette.muted,
+                      ),
+                      fontWeight = if (day.isToday) FontWeight.Bold else FontWeight.Normal,
+                      fontSize = (11f * snapshot.fontScale).sp,
                     ),
-                    fontWeight = if (day.isToday) FontWeight.Bold else FontWeight.Normal,
-                    fontSize = (11f * snapshot.fontScale).sp,
-                  ),
-                )
+                  )
+                }
                 // Without room for bars the day still reports its density.
                 if (laneCount == 0 && marker.isNotEmpty()) {
                   Text(
