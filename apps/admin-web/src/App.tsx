@@ -29,6 +29,7 @@ import {
   ShieldCheck,
   SunMoon,
   Trash2,
+  FileWarning,
   Upload,
   UserCheck,
   UserCog,
@@ -64,6 +65,8 @@ import type {
   UserGroupMember,
   VaultGrant,
 } from './types';
+import { truncatePathForDisplay } from './paths';
+import { dedupeNestedSelection, describeIncompatibility, findIncompatibleFiles } from './compatibility';
 import { ALL_CAPABILITIES, CAPABILITY_GROUPS, capabilityLabel } from './types';
 import { Badge, Button, Card, Checkbox, ConfirmDialog, DialogShell, Input, PromptDialog, SelectMenu, Separator, Switch } from './ui';
 
@@ -708,7 +711,9 @@ function BackupsPage() {
   }, []);
   const load = useCallback(() => serverApi.backups().then((data) => { applyOverview(data); setError(''); }).catch((reason) => setError(String(reason))), [applyOverview]);
   useEffect(() => void load(), [load]);
-  useAutoRefresh(load, { intervalMs: 10_000 });
+  // Polling during a long operation would re-render the page underneath the
+  // progress banner for no benefit; the operation reloads on completion anyway.
+  useAutoRefresh(load, { intervalMs: 10_000, enabled: busy === '' });
 
   async function runBackup() {
     setBusy('run');
@@ -841,8 +846,9 @@ function BackupsPage() {
         eyebrow="RECOVERY"
         title="Backups"
         subtitle="Inspect, verify, and manage deployment backups visible to the server."
-        action={<div className="actions"><input ref={importInputRef} type="file" accept=".tar.gz,.tgz,application/gzip,application/x-gzip" hidden onChange={(event) => void importBackup(event)} /><Button variant="outline" size="sm" disabled={busy === 'import'} onClick={() => importInputRef.current?.click()}><Upload size={16} />Import</Button><Button variant="outline" size="sm" onClick={load}><RefreshCw size={16} />Refresh</Button><Button size="sm" disabled={!overview?.backupCommandConfigured || busy === 'run'} onClick={runBackup}><Archive size={16} />Run backup</Button></div>}
+        action={<div className="actions"><input ref={importInputRef} type="file" accept=".tar.gz,.tgz,application/gzip,application/x-gzip" hidden onChange={(event) => void importBackup(event)} /><Button variant="outline" size="sm" disabled={busy === 'import'} onClick={() => importInputRef.current?.click()}><Upload size={16} />Import</Button><Button variant="outline" size="sm" onClick={load}><RefreshCw size={16} />Refresh</Button><Button size="sm" disabled={!overview?.backupCommandConfigured || busy !== ''} onClick={runBackup}>{busy === 'run' ? <><RefreshCw size={16} className="spin" />Running backup...</> : <><Archive size={16} />Run backup</>}</Button></div>}
       />
+      <BackupActivity busy={busy} />
       {error && <div className="error-banner"><CircleAlert size={16} />{error}</div>}
       {message && <div className="success-banner" role="status"><ShieldCheck size={16} />{message}</div>}
       {!overview ? <Loading /> : <>
@@ -1253,6 +1259,9 @@ function VaultDetailPage({ vaultId, onBack }: { vaultId: string; onBack: () => v
   const [fileBrowserTab, setFileBrowserTab] = useState<'files' | 'trash'>('files');
   const [draggingFileId, setDraggingFileId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null | '__root__'>(null);
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number; label: string } | null>(null);
   const [users, setUsers] = useState<ServerUser[]>([]);
   const [newMemberId, setNewMemberId] = useState('');
   const [grants, setGrants] = useState<VaultGrant[]>([]);
@@ -1278,6 +1287,7 @@ function VaultDetailPage({ vaultId, onBack }: { vaultId: string; onBack: () => v
   const [forceDeleting, setForceDeleting] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const load = useCallback(async () => {
     setError('');
     try {
@@ -1402,6 +1412,49 @@ function VaultDetailPage({ vaultId, onBack }: { vaultId: string; onBack: () => v
     }));
   }
 
+  /**
+   * Runs one vault operation per entry, in sequence.
+   *
+   * Every mutation advances the vault manifest, and each request must carry the
+   * sequence it was authored against, so these cannot be issued in parallel —
+   * the second would be rejected as stale. Threading the returned sequence
+   * avoids a reload between each step. A failure stops the run and reports how
+   * far it got, because continuing past an unexpected rejection risks acting on
+   * a vault that is no longer in the state the operator reviewed.
+   */
+  async function runBulkOperations(
+    entries: HostedFileEntry[],
+    label: string,
+    operationsFor: (file: HostedFileEntry) => Array<'trash' | 'purge' | 'restore'>,
+  ) {
+    setError('');
+    setBulkProgress({ done: 0, total: entries.length, label });
+    let sequence = manifestSequence;
+    let completed = 0;
+    try {
+      for (const file of entries) {
+        for (const operationType of operationsFor(file)) {
+          const result = await serverApi.moveFile(vaultId, {
+            clientOperationId: crypto.randomUUID(),
+            baseManifestSequence: sequence,
+            operationType,
+            targetFileId: file.id,
+          });
+          sequence = result.resultManifestSequence;
+        }
+        completed += 1;
+        setBulkProgress({ done: completed, total: entries.length, label });
+      }
+      setMessage(`${label}: ${completed} of ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}.`);
+    } catch (reason) {
+      setError(`${label} stopped after ${completed} of ${entries.length}: ${reason}`);
+    } finally {
+      setBulkProgress(null);
+      setSelectedFileIds(new Set());
+      await load();
+    }
+  }
+
   async function performTrashOperation(file: HostedFileEntry, operationType: 'restore' | 'purge') {
     await serverApi.moveFile(vaultId, {
       clientOperationId: crypto.randomUUID(),
@@ -1476,12 +1529,46 @@ function VaultDetailPage({ vaultId, onBack }: { vaultId: string; onBack: () => v
       return left.name.localeCompare(right.name, undefined, { sensitivity: 'base' });
     });
   }, [activeFiles, currentFolderId, normalizedSearch]);
+  // A selection only means something within the list it was made in.
+  useEffect(() => {
+    setSelectedFileIds(new Set());
+  }, [currentFolderId, fileBrowserTab, fileSearch]);
+
+  const incompatibleFiles = useMemo(() => findIncompatibleFiles(files), [files]);
+  // Selection is keyed by id but only ever acted on through the entries still
+  // visible, so a stale id from a previous folder can never be operated on.
+  const selectedEntries = useMemo(
+    () => dedupeNestedSelection(files, selectedFileIds),
+    [files, selectedFileIds],
+  );
+  const selectableVisibleIds = useMemo(
+    () => visibleFiles.filter((file) => file.state === 'active').map((file) => file.id),
+    [visibleFiles],
+  );
+  const allVisibleSelected = selectableVisibleIds.length > 0
+    && selectableVisibleIds.every((id) => selectedFileIds.has(id));
+
+  const toggleFileSelected = useCallback((fileId: string) => {
+    setSelectedFileIds((current) => {
+      const next = new Set(current);
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
+      return next;
+    });
+  }, []);
+
   const trashedFiles = useMemo(() => {
     const trashedIds = new Set(files.filter((file) => file.state === 'trashed').map((file) => file.id));
     return files
       .filter((file) => file.state === 'trashed' && (!file.parentId || !trashedIds.has(file.parentId)))
       .sort((left, right) => (right.trashedAt ?? '').localeCompare(left.trashedAt ?? ''));
   }, [files]);
+  const selectedTrashEntries = useMemo(
+    () => trashedFiles.filter((file) => selectedFileIds.has(file.id)),
+    [trashedFiles, selectedFileIds],
+  );
+  const allTrashSelected = trashedFiles.length > 0
+    && trashedFiles.every((file) => selectedFileIds.has(file.id));
 
   function openFolder(folderId: string | null) {
     setCurrentFolderId(folderId);
@@ -1526,6 +1613,7 @@ function VaultDetailPage({ vaultId, onBack }: { vaultId: string; onBack: () => v
         action={lifecycleActions ?? <Button variant="outline" size="sm" onClick={onBack}>Back to vaults</Button>}
       />
       {error && <div className="error-banner"><CircleAlert size={16} />{error}</div>}
+      {message && <div className="success-banner" role="status"><ShieldCheck size={16} />{message}</div>}
       {!detail ? <Loading /> : <>
         <div className="metric-grid">
           <Metric icon={<Database />} label="Vault storage" value={formatBytes(detail.storageBytes)} detail="Sum of all stored revisions" />
@@ -1654,6 +1742,17 @@ function VaultDetailPage({ vaultId, onBack }: { vaultId: string; onBack: () => v
                 onChange={(event) => setFileSearch(event.target.value)}
               />
             </label>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={incompatibleFiles.length === 0}
+              onClick={() => setCleanupOpen(true)}
+            >
+              <FileWarning size={15} />
+              {incompatibleFiles.length === 0
+                ? 'No unsupported files'
+                : `Unsupported files (${incompatibleFiles.length})`}
+            </Button>
           </div>
           <div className="file-browser-tabs" role="tablist" aria-label="Vault file browser sections">
             <Button
@@ -1684,8 +1783,73 @@ function VaultDetailPage({ vaultId, onBack }: { vaultId: string; onBack: () => v
                 ? `${visibleFiles.length} matches across the vault`
                 : `${visibleFiles.length} entries in ${currentFolder?.relativePath ?? 'Vault root'} · drag a row onto a folder to move it`}
             </p>
+            {selectedEntries.length > 0 && (
+              <div className="bulk-bar" role="group" aria-label="Bulk file actions">
+                <strong>{selectedEntries.length} selected</strong>
+                {selectedEntries.length !== selectedFileIds.size && (
+                  <span className="subtle">
+                    {selectedFileIds.size - selectedEntries.length} nested inside a selected folder
+                  </span>
+                )}
+                <div className="bulk-bar-actions">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={pendingDelete || bulkProgress !== null}
+                    onClick={() => setConfirm({
+                      title: `Move ${selectedEntries.length} ${selectedEntries.length === 1 ? 'entry' : 'entries'} to trash?`,
+                      description: 'Selected folders move with their contents. Everything stays recoverable from the Trash section.',
+                      label: 'Move to trash',
+                      action: () => runBulkOperations(selectedEntries, 'Moved to trash', () => ['trash']),
+                    })}
+                  >
+                    <Trash2 size={15} />Move to trash
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={pendingDelete || bulkProgress !== null}
+                    onClick={() => setConfirm({
+                      title: `Permanently delete ${selectedEntries.length} ${selectedEntries.length === 1 ? 'entry' : 'entries'}?`,
+                      description: 'Each entry is moved to the trash and then purged. This cannot be undone.',
+                      label: 'Delete permanently',
+                      // Purge requires the entry to be trashed first, so each one
+                      // takes both operations in order.
+                      action: () => runBulkOperations(selectedEntries, 'Permanently deleted', () => ['trash', 'purge']),
+                    })}
+                  >
+                    <Trash2 size={15} />Delete permanently
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedFileIds(new Set())}>Clear</Button>
+                </div>
+              </div>
+            )}
+            {bulkProgress && (
+              <div className="bulk-progress" role="status" aria-live="polite">
+                <RefreshCw size={15} className="spin" />
+                <span>{bulkProgress.label}: {bulkProgress.done} of {bulkProgress.total}</span>
+                <div className="bulk-progress-bar">
+                  <span style={{ width: `${Math.round((bulkProgress.done / Math.max(bulkProgress.total, 1)) * 100)}%` }} />
+                </div>
+              </div>
+            )}
             <div className="file-browser">
             <div className="file-row file-header">
+              <input
+                type="checkbox"
+                className="file-select"
+                aria-label={allVisibleSelected ? 'Clear selection' : 'Select all listed files'}
+                checked={allVisibleSelected}
+                disabled={selectableVisibleIds.length === 0}
+                onChange={(event) => setSelectedFileIds((current) => {
+                  const next = new Set(current);
+                  for (const id of selectableVisibleIds) {
+                    if (event.target.checked) next.add(id);
+                    else next.delete(id);
+                  }
+                  return next;
+                })}
+              />
               <span>{normalizedSearch ? 'Path' : 'Name'}</span><span>Size</span><span>Modified</span><span>State</span><span>Actions</span>
             </div>
             {!normalizedSearch && currentFolder && (
@@ -1695,6 +1859,7 @@ function VaultDetailPage({ vaultId, onBack }: { vaultId: string; onBack: () => v
                 onDragLeave={() => setDropTargetId((current) => (current === (currentFolder.parentId ?? '__root__') ? null : current))}
                 onDrop={(event) => { event.preventDefault(); handleDropOnTarget(currentFolder.parentId ?? null); }}
               >
+                <span className="file-select" aria-hidden="true" />
                 <div className="file-name">
                   <FolderOpen size={16} />
                   <span><button type="button" className="file-open-button" onClick={() => openFolder(currentFolder.parentId ?? null)}>.. (up one level)</button></span>
@@ -1718,6 +1883,14 @@ function VaultDetailPage({ vaultId, onBack }: { vaultId: string; onBack: () => v
                   onDragLeave={file.kind === 'folder' ? () => setDropTargetId((current) => (current === file.id ? null : current)) : undefined}
                   onDrop={file.kind === 'folder' ? (event) => { event.preventDefault(); handleDropOnTarget(file.id); } : undefined}
                 >
+                  <input
+                    type="checkbox"
+                    className="file-select"
+                    aria-label={`Select ${file.relativePath}`}
+                    checked={selectedFileIds.has(file.id)}
+                    disabled={file.state !== 'active'}
+                    onChange={() => toggleFileSelected(file.id)}
+                  />
                   <div className="file-name">
                     {file.kind === 'folder' ? <Folder size={16} /> : <FileIcon size={16} />}
                     <span>
@@ -1768,13 +1941,76 @@ function VaultDetailPage({ vaultId, onBack }: { vaultId: string; onBack: () => v
             </div>
           </>}
           {fileBrowserTab === 'trash' && <div className="ui-dialog-section">
-            <p className="subtle">Trashed top-level items are kept separately from active vault files. Restoring a folder also restores its contents.</p>
+            <div className="trash-section-head">
+              <p className="subtle">Trashed top-level items are kept separately from active vault files. Restoring a folder also restores its contents.</p>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={pendingDelete || bulkProgress !== null || trashedFiles.length === 0}
+                onClick={() => setConfirm({
+                  title: `Empty the trash?`,
+                  description: `All ${trashedFiles.length} trashed ${trashedFiles.length === 1 ? 'entry' : 'entries'} and their contents are purged, along with their retained trash records. This cannot be undone.`,
+                  label: 'Empty trash',
+                  // Every trashed top-level entry takes its subtree with it, so
+                  // purging the roots clears the whole trash.
+                  action: () => runBulkOperations(trashedFiles, 'Emptied trash', () => ['purge']),
+                })}
+              >
+                <Trash2 size={15} />Empty trash{trashedFiles.length > 0 ? ` (${trashedFiles.length})` : ''}
+              </Button>
+            </div>
+            {selectedTrashEntries.length > 0 && (
+              <div className="bulk-bar" role="group" aria-label="Bulk trash actions">
+                <strong>{selectedTrashEntries.length} selected</strong>
+                <div className="bulk-bar-actions">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={pendingDelete || bulkProgress !== null}
+                    onClick={() => void runBulkOperations(selectedTrashEntries, 'Restored', () => ['restore'])}
+                  >
+                    <RotateCcw size={15} />Restore
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={pendingDelete || bulkProgress !== null}
+                    onClick={() => setConfirm({
+                      title: `Permanently delete ${selectedTrashEntries.length} trashed ${selectedTrashEntries.length === 1 ? 'entry' : 'entries'}?`,
+                      description: 'This removes the items and their retained trash records. This action cannot be undone.',
+                      label: 'Delete permanently',
+                      action: () => runBulkOperations(selectedTrashEntries, 'Permanently deleted', () => ['purge']),
+                    })}
+                  >
+                    <Trash2 size={15} />Delete permanently
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedFileIds(new Set())}>Clear</Button>
+                </div>
+              </div>
+            )}
             <div className="file-browser">
               <div className="file-row trash-file-row file-header">
+                <input
+                  type="checkbox"
+                  className="file-select"
+                  aria-label={allTrashSelected ? 'Clear selection' : 'Select all trashed entries'}
+                  checked={allTrashSelected}
+                  disabled={trashedFiles.length === 0}
+                  onChange={(event) => setSelectedFileIds(
+                    event.target.checked ? new Set(trashedFiles.map((file) => file.id)) : new Set(),
+                  )}
+                />
                 <span>Original path</span><span>Size</span><span>Deleted</span><span>Deleted by</span><span>Actions</span>
               </div>
               {trashedFiles.map((file) => (
                 <div className="file-row trash-file-row" key={file.id}>
+                  <input
+                    type="checkbox"
+                    className="file-select"
+                    aria-label={`Select ${file.relativePath}`}
+                    checked={selectedFileIds.has(file.id)}
+                    onChange={() => toggleFileSelected(file.id)}
+                  />
                   <div className="file-name">
                     {file.kind === 'folder' ? <Folder size={16} /> : <FileIcon size={16} />}
                     <span><strong>{file.relativePath}</strong><small>{file.kind}{file.documentType ? ` · ${file.documentType}` : ''}</small></span>
@@ -1813,6 +2049,31 @@ function VaultDetailPage({ vaultId, onBack }: { vaultId: string; onBack: () => v
           </div>
           <div className="ui-dialog-actions"><Button variant="outline" onClick={() => setFilesOpen(false)}>Close</Button></div>
           </DialogShell>
+        )}
+        {cleanupOpen && (
+          <UnsupportedFilesDialog
+            files={incompatibleFiles}
+            busy={bulkProgress !== null || pendingDelete}
+            onClose={() => setCleanupOpen(false)}
+            onTrash={(entries) => {
+              setCleanupOpen(false);
+              setConfirm({
+                title: `Move ${entries.length} unsupported ${entries.length === 1 ? 'file' : 'files'} to trash?`,
+                description: 'They stay recoverable from the Trash section until purged.',
+                label: 'Move to trash',
+                action: () => runBulkOperations(entries, 'Moved to trash', () => ['trash']),
+              });
+            }}
+            onPurge={(entries) => {
+              setCleanupOpen(false);
+              setConfirm({
+                title: `Permanently delete ${entries.length} unsupported ${entries.length === 1 ? 'file' : 'files'}?`,
+                description: 'Each file is moved to the trash and then purged. This cannot be undone.',
+                label: 'Delete permanently',
+                action: () => runBulkOperations(entries, 'Permanently deleted', () => ['trash', 'purge']),
+              });
+            }}
+          />
         )}
         <Panel title="Members & access" icon={<Users size={17} />}>
           <h3 className="subsection-heading">Members ({members.length})</h3>
@@ -3408,7 +3669,9 @@ function StorageBreakdown({
                 <span className="storage-legend-dot" style={{ background: row.color }} />
                 <div className="storage-legend-main">
                   <div className="storage-legend-head">
-                    <span className="storage-legend-label" title={row.label}>{row.label}</span>
+                    <span className="storage-legend-label" title={row.label}>
+                      {truncatePathForDisplay(row.label)}
+                    </span>
                     <span className="storage-legend-size">{formatBytes(row.bytes)} · {(fraction * 100).toFixed(1)}%</span>
                   </div>
                   <div className="storage-legend-bar"><span style={{ width: `${Math.max(fraction * 100, 1.5)}%`, background: row.color }} /></div>
@@ -3421,6 +3684,153 @@ function StorageBreakdown({
     </Panel>
   );
 }
+
+/**
+ * Review list for vault files no Collab client can open.
+ *
+ * Uploads of unsupported types are awkward but possible, so a long-lived vault
+ * accumulates archives, media, and stray binaries that occupy quota and appear
+ * in the file tree as dead ends. This lists them largest-first with the reason
+ * each one is unopenable, and lets the operator choose exactly what goes —
+ * nothing is selected implicitly, and the destructive action is confirmed
+ * separately.
+ */
+function UnsupportedFilesDialog({
+  files,
+  busy,
+  onClose,
+  onTrash,
+  onPurge,
+}: {
+  files: HostedFileEntry[];
+  busy: boolean;
+  onClose: () => void;
+  onTrash: (entries: HostedFileEntry[]) => void;
+  onPurge: (entries: HostedFileEntry[]) => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(files.map((file) => file.id)));
+  const chosen = files.filter((file) => selected.has(file.id));
+  const chosenBytes = chosen.reduce((sum, file) => sum + (file.currentRevision?.sizeBytes ?? 0), 0);
+  const allSelected = files.length > 0 && chosen.length === files.length;
+
+  return (
+    <DialogShell
+      title="Unsupported files"
+      description="Files in this vault that no Collab client can open. Review before removing."
+      onClose={onClose}
+      className="ui-dialog-files"
+    >
+      <div className="ui-dialog-section">
+        <div className="bulk-bar">
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              aria-label={allSelected ? 'Clear selection' : 'Select every unsupported file'}
+              onChange={(event) => setSelected(
+                event.target.checked ? new Set(files.map((file) => file.id)) : new Set(),
+              )}
+            />
+            Select all
+          </label>
+          <strong>{chosen.length} of {files.length} selected</strong>
+          <span className="subtle">{formatBytes(chosenBytes)} reclaimable</span>
+        </div>
+        <div className="file-browser">
+          <div className="file-row unsupported-file-row file-header">
+            <span /><span>Path</span><span>Size</span><span>Reason</span>
+          </div>
+          {files.map((file) => (
+            <div className="file-row unsupported-file-row" key={file.id}>
+              <input
+                type="checkbox"
+                className="file-select"
+                aria-label={`Select ${file.relativePath}`}
+                checked={selected.has(file.id)}
+                onChange={() => setSelected((current) => {
+                  const next = new Set(current);
+                  if (next.has(file.id)) next.delete(file.id);
+                  else next.add(file.id);
+                  return next;
+                })}
+              />
+              <div className="file-name">
+                <FileWarning size={16} />
+                <span title={file.relativePath}>
+                  <strong>{truncatePathForDisplay(file.relativePath, 52)}</strong>
+                  <small>{file.kind}</small>
+                </span>
+              </div>
+              <span>{file.currentRevision ? formatBytes(file.currentRevision.sizeBytes) : '—'}</span>
+              <span className="subtle">{describeIncompatibility(file)}</span>
+            </div>
+          ))}
+          {files.length === 0 && <div className="file-browser-empty">Every file in this vault can be opened.</div>}
+        </div>
+      </div>
+      <div className="ui-dialog-actions">
+        <Button variant="outline" onClick={onClose}>Cancel</Button>
+        <Button variant="outline" disabled={busy || chosen.length === 0} onClick={() => onTrash(chosen)}>
+          <Trash2 size={15} />Move to trash
+        </Button>
+        <Button variant="destructive" disabled={busy || chosen.length === 0} onClick={() => onPurge(chosen)}>
+          <Trash2 size={15} />Delete permanently
+        </Button>
+      </div>
+    </DialogShell>
+  );
+}
+
+/**
+ * Progress feedback for a running backup operation.
+ *
+ * The admin backup endpoints are single blocking requests that return only a
+ * final result, so there is no percentage to report — showing one would be
+ * invented. This states what is running and how long it has been going, with an
+ * indeterminate bar, so a long backup reads as working rather than hung.
+ */
+function BackupActivity({ busy }: { busy: string }) {
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!busy) {
+      setSeconds(0);
+      return undefined;
+    }
+    const started = Date.now();
+    setSeconds(0);
+    const timer = setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [busy]);
+
+  if (!busy) return null;
+  const [action, name] = busy.split(':');
+  const label = BACKUP_ACTIVITY_LABELS[action] ?? 'Working';
+  return (
+    <div className="backup-activity" role="status" aria-live="polite">
+      <div className="backup-activity-head">
+        <RefreshCw size={16} className="spin" />
+        <strong>{name ? `${label} ${name}` : label}...</strong>
+        <span className="backup-activity-elapsed">{formatDuration(seconds)}</span>
+      </div>
+      <div className="backup-activity-bar"><span /></div>
+      <small>
+        This can take a while on a large deployment. Leaving the page does not cancel it,
+        and the list refreshes when it finishes.
+      </small>
+    </div>
+  );
+}
+
+const BACKUP_ACTIVITY_LABELS: Record<string, string> = {
+  run: 'Running backup',
+  verify: 'Verifying',
+  export: 'Exporting',
+  import: 'Importing backup',
+  restore: 'Restoring',
+  delete: 'Deleting',
+  settings: 'Saving backup settings',
+};
 
 function PageHeader({ eyebrow, title, subtitle, action }: { eyebrow: string; title: string; subtitle: string; action?: React.ReactNode }) {
   return <header className="page-header"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="subtle">{subtitle}</p></div>{action}</header>;

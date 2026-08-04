@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App, fileToBase64, isSelectedFile } from './App';
 import { serverApi } from './api';
@@ -416,6 +416,278 @@ describe('admin application', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Delete backup' }));
     await waitFor(() => expect(serverApi.deleteBackup).toHaveBeenCalledWith('collab-backup-20260619T111501Z'));
+  });
+
+  it('reports progress while a backup runs and restores the idle controls after', async () => {
+    vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
+    vi.mocked(serverApi.me).mockResolvedValue(admin);
+    vi.mocked(serverApi.backups).mockResolvedValue({
+      backupDir: '/backups',
+      backupCommandConfigured: true,
+      restoreCommandConfigured: false,
+      schedule: { enabled: false, intervalSeconds: 86_400, retentionDays: 14, mode: 'server-scheduler' },
+      exportTarget: { configured: false, path: null, writable: false, message: 'No export target configured.' },
+      settings: { scheduleEnabled: false, intervalSeconds: 86_400, retentionDays: 14, exportDir: null, locks: unlockedBackupLocks },
+      backups: [],
+    });
+    // A backup the caller controls the completion of, so the running state is
+    // observable rather than a race.
+    let finishBackup: (result: { status: string; message: string; output: string | null }) => void = () => {};
+    vi.mocked(serverApi.runBackup).mockReturnValue(new Promise((resolve) => {
+      finishBackup = resolve;
+    }));
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /Backups/ }));
+    const runButton = await screen.findByRole('button', { name: /Run backup/ });
+
+    // Nothing is running yet, so no progress is claimed.
+    expect(screen.queryByRole('status')).toBeNull();
+
+    fireEvent.click(runButton);
+
+    const activity = await screen.findByRole('status');
+    expect(activity.textContent).toContain('Running backup');
+    // The action is disabled while it runs so a second run cannot be started.
+    expect((await screen.findByRole('button', { name: /Running backup/ })).hasAttribute('disabled')).toBe(true);
+
+    await act(async () => {
+      finishBackup({ status: 'ok', message: 'Backup complete.', output: null });
+    });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /Run backup/ })).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Backup complete.')).toBeTruthy());
+  });
+
+  it('shortens long file paths in the storage breakdown and keeps the full path on hover', async () => {
+    const longPath = 'Projects/2026/Quarter-3/Reports/Regional/Europe/quarterly-summary.md';
+    const currentRevision = {
+      id: 'revision-1', sequence: 1, contentHash: 'hash-1', sizeBytes: 4096,
+      createdByDisplayName: 'Owner', createdAt: '2026-06-10T00:00:00Z',
+    };
+    vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
+    vi.mocked(serverApi.me).mockResolvedValue(admin);
+    vi.mocked(serverApi.vaults).mockResolvedValue([{
+      id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Admin User',
+      status: 'active' as const, members: 1, storageBytes: 4096,
+      updatedAt: '2026-06-10T00:00:00Z',
+    }]);
+    vi.mocked(serverApi.vaultDetail).mockResolvedValue({
+      id: 'vault-1', name: 'Team Vault', ownerUserId: 'admin-1', ownerUsername: 'admin',
+      ownerDisplayName: 'Admin User', status: 'active' as const, manifestSequence: 1, members: 1,
+      activeFiles: 1, trashedFiles: 0, storageBytes: 4096, requireOfflineCopy: false,
+      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+    });
+    vi.mocked(serverApi.users).mockResolvedValue([admin]);
+    vi.mocked(serverApi.vaultMembers).mockResolvedValue([]);
+    vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
+    vi.mocked(serverApi.vaultChat).mockResolvedValue([]);
+    vi.mocked(serverApi.vaultFiles).mockResolvedValue({
+      vaultId: 'vault-1',
+      sequence: 1,
+      files: [{
+        id: 'file-1', parentId: null, name: 'quarterly-summary.md', relativePath: longPath,
+        kind: 'document', documentType: 'note', state: 'active', currentRevision,
+        createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+      }],
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Vaults' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Team Vault' }));
+
+    // The rendered label is shortened so it cannot overflow its container...
+    const label = await screen.findByTitle(longPath);
+    expect(label.textContent).not.toBe(longPath);
+    expect(label.textContent).toContain('…');
+    // ...while still identifying the file by name, and the full path stays
+    // reachable through the tooltip.
+    expect(label.textContent).toContain('quarterly-summary.md');
+    expect(label.getAttribute('title')).toBe(longPath);
+  });
+
+  it('bulk-deletes selected files sequentially against the advancing manifest', async () => {
+    const revision = {
+      id: 'revision-1', sequence: 1, contentHash: 'hash-1', sizeBytes: 100,
+      createdByDisplayName: 'Owner', createdAt: '2026-06-10T00:00:00Z',
+    };
+    vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
+    vi.mocked(serverApi.me).mockResolvedValue(admin);
+    vi.mocked(serverApi.users).mockResolvedValue([admin]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([{
+      id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Admin User',
+      status: 'active' as const, members: 1, storageBytes: 300, updatedAt: '2026-06-10T00:00:00Z',
+    }]);
+    vi.mocked(serverApi.vaultDetail).mockResolvedValue({
+      id: 'vault-1', name: 'Team Vault', ownerUserId: 'admin-1', ownerUsername: 'admin',
+      ownerDisplayName: 'Admin User', status: 'active' as const, manifestSequence: 7, members: 1,
+      activeFiles: 2, trashedFiles: 0, storageBytes: 300, requireOfflineCopy: false,
+      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+    });
+    vi.mocked(serverApi.vaultMembers).mockResolvedValue([]);
+    vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
+    vi.mocked(serverApi.vaultChat).mockResolvedValue([]);
+    vi.mocked(serverApi.vaultFiles).mockResolvedValue({
+      vaultId: 'vault-1',
+      sequence: 7,
+      files: [
+        { id: 'file-a', parentId: null, name: 'a.md', relativePath: 'a.md', kind: 'document', documentType: 'note', state: 'active', currentRevision: revision, createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
+        { id: 'file-b', parentId: null, name: 'b.md', relativePath: 'b.md', kind: 'document', documentType: 'note', state: 'active', currentRevision: revision, createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
+      ],
+    });
+    let sequence = 7;
+    vi.mocked(serverApi.moveFile).mockImplementation(async () => {
+      sequence += 1;
+      return { resultManifestSequence: sequence };
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Vaults' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Team Vault' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Browse files' }));
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select all listed files' }));
+    expect(await screen.findByText('2 selected')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Delete permanently/ }));
+    const confirm = (await screen.findByText('Permanently delete 2 entries?')).closest<HTMLElement>('.ui-dialog')!;
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Delete permanently' }));
+
+    await waitFor(() => expect(vi.mocked(serverApi.moveFile).mock.calls).toHaveLength(4));
+    const payloads = vi.mocked(serverApi.moveFile).mock.calls.map(([, payload]) => payload as Record<string, unknown>);
+    // Purge requires the entry to already be trashed, so each file takes both
+    // operations in order.
+    expect(payloads.map((payload) => payload.operationType)).toEqual(['trash', 'purge', 'trash', 'purge']);
+    // Every mutation advances the manifest, so each call must carry the sequence
+    // the previous one returned rather than the stale one the page loaded with.
+    expect(payloads.map((payload) => payload.baseManifestSequence)).toEqual([7, 8, 9, 10]);
+  });
+
+  it('lists only unsupported files for cleanup and acts on the chosen subset', async () => {
+    const revision = (sizeBytes: number) => ({
+      id: 'revision-1', sequence: 1, contentHash: 'hash-1', sizeBytes,
+      createdByDisplayName: 'Owner', createdAt: '2026-06-10T00:00:00Z',
+    });
+    vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
+    vi.mocked(serverApi.me).mockResolvedValue(admin);
+    vi.mocked(serverApi.users).mockResolvedValue([admin]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([{
+      id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Admin User',
+      status: 'active' as const, members: 1, storageBytes: 300, updatedAt: '2026-06-10T00:00:00Z',
+    }]);
+    vi.mocked(serverApi.vaultDetail).mockResolvedValue({
+      id: 'vault-1', name: 'Team Vault', ownerUserId: 'admin-1', ownerUsername: 'admin',
+      ownerDisplayName: 'Admin User', status: 'active' as const, manifestSequence: 3, members: 1,
+      activeFiles: 3, trashedFiles: 0, storageBytes: 300, requireOfflineCopy: false,
+      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+    });
+    vi.mocked(serverApi.vaultMembers).mockResolvedValue([]);
+    vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
+    vi.mocked(serverApi.vaultChat).mockResolvedValue([]);
+    vi.mocked(serverApi.vaultFiles).mockResolvedValue({
+      vaultId: 'vault-1',
+      sequence: 3,
+      files: [
+        { id: 'file-note', parentId: null, name: 'notes.md', relativePath: 'notes.md', kind: 'document', documentType: 'note', state: 'active', currentRevision: revision(10), createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
+        { id: 'file-zip', parentId: null, name: 'backup.zip', relativePath: 'backup.zip', kind: 'asset', documentType: null, state: 'active', currentRevision: revision(5_000), createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
+        { id: 'file-mp4', parentId: null, name: 'clip.mp4', relativePath: 'clip.mp4', kind: 'asset', documentType: null, state: 'active', currentRevision: revision(9_000), createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
+      ],
+    });
+    let sequence = 3;
+    vi.mocked(serverApi.moveFile).mockImplementation(async () => {
+      sequence += 1;
+      return { resultManifestSequence: sequence };
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Vaults' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Team Vault' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Browse files' }));
+
+    // Only the two unopenable assets count; the note is not offered for cleanup.
+    fireEvent.click(await screen.findByRole('button', { name: 'Unsupported files (2)' }));
+    const dialog = (await screen.findByText('Unsupported files')).closest<HTMLElement>('.ui-dialog')!;
+    expect(within(dialog).getByRole('checkbox', { name: 'Select backup.zip' })).toBeTruthy();
+    expect(within(dialog).getByRole('checkbox', { name: 'Select clip.mp4' })).toBeTruthy();
+    expect(within(dialog).queryByRole('checkbox', { name: 'Select notes.md' })).toBeNull();
+    expect(within(dialog).getByText('.zip has no viewer in the Collab apps')).toBeTruthy();
+
+    // Deselecting one leaves the other as the only target.
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Select backup.zip' }));
+    expect(within(dialog).getByText('1 of 2 selected')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: /Move to trash/ }));
+    const confirm = (await screen.findByText('Move 1 unsupported file to trash?')).closest<HTMLElement>('.ui-dialog')!;
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Move to trash' }));
+
+    await waitFor(() => expect(vi.mocked(serverApi.moveFile).mock.calls).toHaveLength(1));
+    const [, payload] = vi.mocked(serverApi.moveFile).mock.calls[0];
+    expect(payload).toMatchObject({ operationType: 'trash', targetFileId: 'file-mp4' });
+  });
+
+  it('empties the trash and bulk-restores selected trashed entries', async () => {
+    const revision = {
+      id: 'revision-1', sequence: 1, contentHash: 'hash-1', sizeBytes: 40,
+      createdByDisplayName: 'Owner', createdAt: '2026-06-10T00:00:00Z',
+    };
+    const trashed = (id: string, name: string) => ({
+      id, parentId: null, name, relativePath: name, kind: 'document' as const,
+      documentType: 'note' as const, state: 'trashed' as const, currentRevision: revision,
+      trashedByDisplayName: 'Owner', trashedAt: '2026-06-11T00:00:00Z',
+      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-11T00:00:00Z',
+    });
+    vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
+    vi.mocked(serverApi.me).mockResolvedValue(admin);
+    vi.mocked(serverApi.users).mockResolvedValue([admin]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([{
+      id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Admin User',
+      status: 'active' as const, members: 1, storageBytes: 80, updatedAt: '2026-06-10T00:00:00Z',
+    }]);
+    vi.mocked(serverApi.vaultDetail).mockResolvedValue({
+      id: 'vault-1', name: 'Team Vault', ownerUserId: 'admin-1', ownerUsername: 'admin',
+      ownerDisplayName: 'Admin User', status: 'active' as const, manifestSequence: 2, members: 1,
+      activeFiles: 0, trashedFiles: 2, storageBytes: 80, requireOfflineCopy: false,
+      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+    });
+    vi.mocked(serverApi.vaultMembers).mockResolvedValue([]);
+    vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
+    vi.mocked(serverApi.vaultChat).mockResolvedValue([]);
+    vi.mocked(serverApi.vaultFiles).mockResolvedValue({
+      vaultId: 'vault-1',
+      sequence: 2,
+      files: [trashed('gone-1', 'old.md'), trashed('gone-2', 'older.md')],
+    });
+    let sequence = 2;
+    vi.mocked(serverApi.moveFile).mockImplementation(async () => {
+      sequence += 1;
+      return { resultManifestSequence: sequence };
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Vaults' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Team Vault' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Browse files' }));
+    fireEvent.click(await screen.findByRole('tab', { name: /Trash \(2\)/ }));
+
+    // Restoring a chosen subset leaves the rest trashed.
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select old.md' }));
+    const bulkBar = await screen.findByRole('group', { name: 'Bulk trash actions' });
+    fireEvent.click(within(bulkBar).getByRole('button', { name: /Restore/ }));
+    await waitFor(() => expect(vi.mocked(serverApi.moveFile).mock.calls).toHaveLength(1));
+    expect(vi.mocked(serverApi.moveFile).mock.calls[0][1]).toMatchObject({
+      operationType: 'restore', targetFileId: 'gone-1',
+    });
+
+    vi.mocked(serverApi.moveFile).mockClear();
+    fireEvent.click(await screen.findByRole('button', { name: /Empty trash/ }));
+    const confirm = (await screen.findByText('Empty the trash?')).closest<HTMLElement>('.ui-dialog')!;
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Empty trash' }));
+
+    // Every trashed root is purged; subtrees go with their root.
+    await waitFor(() => expect(vi.mocked(serverApi.moveFile).mock.calls).toHaveLength(2));
+    expect(vi.mocked(serverApi.moveFile).mock.calls.map(([, payload]) => payload)).toEqual([
+      expect.objectContaining({ operationType: 'purge', targetFileId: 'gone-1' }),
+      expect.objectContaining({ operationType: 'purge', targetFileId: 'gone-2' }),
+    ]);
   });
 
   it('does not render administration pages for a non-admin user', async () => {

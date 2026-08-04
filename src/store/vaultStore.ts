@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { tauriCommands } from '../lib/tauri';
 import { createVaultClient, requireRuntimeCapability } from '../lib/vaultClient';
 import { cleanupReplicaCache, makeHostedVaultAvailableOffline, seedReplicaFromManifest } from '../lib/vaultReplica';
+import { reconcileFileTreeIdentity } from '../lib/fileTreeIdentity';
 import { hostedVaultMeta, vaultCan, type HostedVaultMeta, type HostedVaultSummary, type VaultMeta, type NoteFile } from '../types/vault';
 
 const ALWAYS_CREATE_OFFLINE_COPY_KEY = 'collab-hosted-always-create-offline-copy';
@@ -157,10 +158,12 @@ export const useVaultStore = create<VaultState>()(
         set({ isVaultLocked: false, fileTree });
       },
       refreshFileTree: async () => {
-        const { vault } = get();
+        const { vault, fileTree: previous } = get();
         if (!vault) return;
-        const fileTree = sortFileTreeAlphabetically(await createVaultClient(vault).listFiles());
-        set({ fileTree });
+        const listed = sortFileTreeAlphabetically(await createVaultClient(vault).listFiles());
+        // Unchanged nodes keep their identity so the sidebar's memoized rows can
+        // skip re-rendering; the watcher fires this after every file write.
+        set({ fileTree: reconcileFileTreeIdentity(previous, listed) });
       },
       refreshHostedVaultMetadata: (serverUrl, summaries) => {
         const vault = get().vault;

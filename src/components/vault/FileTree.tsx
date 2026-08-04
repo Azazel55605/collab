@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react';
 import {
   ChevronRight, ChevronDown, CircuitBoard, FileText, Folder, FolderOpen,
   Plus, FolderPlus, FileUp, Layout, LayoutDashboard, Paperclip, Image as ImageIcon, Trash2,
@@ -75,18 +75,26 @@ function isManagedPicturesFolder(node: Pick<NoteFile, 'isFolder' | 'relativePath
 }
 
 export default function FileTree() {
-  const { vault, fileTree, refreshFileTree } = useVaultStore();
+  // Narrow selectors throughout: this component owns thousands of children, so a
+  // whole-store subscription turns any unrelated store write — an editor cursor
+  // move, a UI preference — into a re-render of the entire tree.
+  const vault = useVaultStore((state) => state.vault);
+  const fileTree = useVaultStore((state) => state.fileTree);
+  const refreshFileTree = useVaultStore((state) => state.refreshFileTree);
   const serverStatus = useServerStore((state) =>
     vault?.kind === 'hosted' ? state.connections[vault.serverUrl]?.status ?? null : null,
   );
-  const { openTab, closeTab, renameTab, activeTabPath } = useEditorStore();
-  const {
-    setActiveView,
-    confirmDelete: confirmDeleteEnabled,
-    fileTreeHoverPreviewsEnabled,
-    fileTreeCollapsedPathsByVault,
-    setFileTreeCollapsedPathsForVault,
-  } = useUiStore();
+  const openTab = useEditorStore((state) => state.openTab);
+  const closeTab = useEditorStore((state) => state.closeTab);
+  const renameTab = useEditorStore((state) => state.renameTab);
+  const activeTabPath = useEditorStore((state) => state.activeTabPath);
+  const setActiveView = useUiStore((state) => state.setActiveView);
+  const confirmDeleteEnabled = useUiStore((state) => state.confirmDelete);
+  const fileTreeHoverPreviewsEnabled = useUiStore((state) => state.fileTreeHoverPreviewsEnabled);
+  const fileTreeCollapsedPathsByVault = useUiStore((state) => state.fileTreeCollapsedPathsByVault);
+  const setFileTreeCollapsedPathsForVault = useUiStore(
+    (state) => state.setFileTreeCollapsedPathsForVault,
+  );
   const [dialog, setDialog] = useState<DialogState>({ type: 'none' });
   const [deleteRemoveReferences, setDeleteRemoveReferences] = useState(false);
   const [taskAttachmentsByPath, setTaskAttachmentsByPath] = useState<Record<string, TaskAttachmentRef[]>>({});
@@ -269,23 +277,25 @@ export default function FileTree() {
     else handleOpenFile(node);
   }, [handleOpenFile, selectedRelativePath, toggleCollapsePath, visibleNodes]);
 
-  const handleCreateNote = (parentPath?: string) => {
+  // These are passed to every row, so they must keep a stable identity or the
+  // memoized rows re-render on each parent render.
+  const handleCreateNote = useCallback((parentPath?: string) => {
     setDialog({ type: 'create-note', parentPath });
-  };
+  }, []);
 
-  const handleCreateLogic = (parentPath?: string) => {
+  const handleCreateLogic = useCallback((parentPath?: string) => {
     setDialog({ type: 'create-logic', parentPath });
-  };
+  }, []);
 
-  const handleCreateSheet = (parentPath?: string) => {
+  const handleCreateSheet = useCallback((parentPath?: string) => {
     setDialog({ type: 'create-sheet', parentPath });
-  };
+  }, []);
 
-  const handleCreateFolder = (parentPath?: string) => {
+  const handleCreateFolder = useCallback((parentPath?: string) => {
     setDialog({ type: 'create-folder', parentPath });
-  };
+  }, []);
 
-  const handleDelete = (file: NoteFile) => {
+  const handleDelete = useCallback((file: NoteFile) => {
     if (isManagedPicturesFolder(file)) {
       toast.error('The Pictures folder is managed by the app and cannot be deleted');
       return;
@@ -296,7 +306,11 @@ export default function FileTree() {
       return;
     }
     setDialog({ type: 'delete', files: [file] });
-  };
+    // `moveFilesToTrash` is declared below and is stable for a given vault; it is
+    // read through the closure rather than listed, which would need a forward
+    // reference.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirmDeleteEnabled, vault]);
 
   // When several entries are selected, dropping a folder also trashes its
   // descendants — drop any selected child whose ancestor folder is also selected
@@ -322,13 +336,13 @@ export default function FileTree() {
     setDialog({ type: 'delete', files });
   };
 
-  const handleRename = (file: NoteFile) => {
+  const handleRename = useCallback((file: NoteFile) => {
     setDialog({ type: 'rename', file });
-  };
+  }, []);
 
   const isLocalVault = !!vault && vault.kind !== 'hosted';
 
-  const handleReveal = async (file: NoteFile) => {
+  const handleReveal = useCallback(async (file: NoteFile) => {
     if (!vault || !isLocalVault) return;
     try {
       const absolute = await tauriCommands.resolveVaultFilePath(vault.path, file.relativePath);
@@ -336,20 +350,20 @@ export default function FileTree() {
     } catch (e) {
       toast.error(`Could not reveal ${file.name}: ${e}`);
     }
-  };
+  }, [vault, isLocalVault]);
 
   // Native drag-out to the OS / another app instance. Local-only: the OS drag
   // must begin synchronously within the gesture, so we need the file's real path
   // immediately (hosted files would require an async fetch, and "Download" covers
   // exporting those). Works for both files and folders on local vaults.
-  const handleDragOut = (file: NoteFile) => {
+  const handleDragOut = useCallback((file: NoteFile) => {
     if (!vault || !isLocalVault) return;
     void startFileDragOut([nativeVaultPath(vault.path, file.relativePath)]).catch((e) =>
       toast.error(`Could not drag ${file.name}: ${e}`),
     );
-  };
+  }, [vault, isLocalVault]);
 
-  const handleDownload = async (file: NoteFile) => {
+  const handleDownload = useCallback(async (file: NoteFile) => {
     if (!vault || file.isFolder) return;
     try {
       const dataUrl = await createVaultClient(vault).readAssetDataUrl(file.relativePath);
@@ -361,9 +375,9 @@ export default function FileTree() {
     } catch (e) {
       toast.error(`Could not download ${file.name}: ${e}`);
     }
-  };
+  }, [vault]);
 
-  const handleDuplicate = async (file: NoteFile) => {
+  const handleDuplicate = useCallback(async (file: NoteFile) => {
     if (!vault || file.isFolder) return;
     try {
       const client = createVaultClient(vault);
@@ -377,7 +391,7 @@ export default function FileTree() {
     } catch (e) {
       toast.error(`Could not duplicate ${file.name}: ${e}`);
     }
-  };
+  }, [vault, fileTree, refreshFileTree]);
 
   const closeTabsForFile = (file: NoteFile) => {
     const prefix = file.isFolder ? `${file.relativePath}/` : null;
@@ -979,17 +993,31 @@ interface FileTreeNodeProps {
   fileTreeHoverPreviewsEnabled: boolean;
 }
 
-function FileTreeNode({
+/**
+ * One row of the tree.
+ *
+ * Memoized because a large vault renders thousands of these: without it, any
+ * state change in the parent — a hover, a selection, a watcher refresh — walks
+ * the entire tree. `reconcileFileTreeIdentity` keeps `node` stable across
+ * refreshes that did not touch a given entry, which is what makes the memo
+ * effective rather than merely present.
+ */
+const FileTreeNode = memo(function FileTreeNode({
   node, depth, collapsed, setCollapsed,
   onOpenFile, onCreateNote, onCreateLogic, onCreateSheet, onCreateFolder, onDelete, onRename, onReveal, onDownload, onDuplicate, canDuplicate, onDragOut, canReveal, onViewHistory,
   onNodeClick, selectedPaths, onHover,
   draggingPath, dropTargetPath, taskAttachmentsByPath, setDraggingPath, setDropTargetPath, onMove,
   fileTreeHoverPreviewsEnabled,
 }: FileTreeNodeProps) {
-  const { activeTabPath, openTab } = useEditorStore();
-  const { peers } = useCollabStore();
-  const { setActiveView } = useUiStore();
-  const { setEditing } = useKanbanStore();
+  // Narrow selectors, one per value. Subscribing to a whole store here re-renders
+  // every node in the tree whenever anything in that store changes — and the
+  // editor store changes on cursor moves and scrolls, so with a large vault the
+  // tree re-rendered continuously while typing.
+  const activeTabPath = useEditorStore((state) => state.activeTabPath);
+  const openTab = useEditorStore((state) => state.openTab);
+  const peers = useCollabStore((state) => state.peers);
+  const setActiveView = useUiStore((state) => state.setActiveView);
+  const setEditing = useKanbanStore((state) => state.setEditing);
   const [attachmentPopoverOpen, setAttachmentPopoverOpen] = useState(false);
   const [hoverPreviewAnchorRect, setHoverPreviewAnchorRect] = useState<DOMRect | null>(null);
   const [suppressHtmlDrag, setSuppressHtmlDrag] = useState(false);
@@ -1329,4 +1357,4 @@ function FileTreeNode({
       </ContextMenuContent>
     </ContextMenu>
   );
-}
+})
