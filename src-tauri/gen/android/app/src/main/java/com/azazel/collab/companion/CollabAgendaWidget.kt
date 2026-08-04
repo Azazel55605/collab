@@ -67,6 +67,7 @@ private val MonthOffsetStateKey = intPreferencesKey("month-widget-offset-v1")
 /** The task a launcher tap asked to complete, awaiting in-place confirmation. */
 private val TaskPendingCompleteStateKey = stringPreferencesKey("tasks-widget-pending-complete-v1")
 private val TaskActionMessageStateKey = stringPreferencesKey("tasks-widget-action-message-v1")
+private val SyncActionMessageStateKey = stringPreferencesKey("sync-widget-action-message-v1")
 private val TaskItemIdParameter = ActionParameters.Key<String>("collabTaskItemId")
 private const val MIN_MONTH_OFFSET = -6
 private const val MAX_MONTH_OFFSET = 6
@@ -193,6 +194,42 @@ internal data class MonthWidgetPage(
   val monthLabel: String,
   val days: List<MonthWidgetDay>,
 )
+/**
+ * The privacy-safe synchronization rollup Rust attached to a sync snapshot.
+ *
+ * Every field is a count, a coarse state, or a pre-rendered phrase. The launcher
+ * renders it and never re-derives what a state means, and there is deliberately
+ * nothing here — no account name, server, or error text — that could identify
+ * where the work was going.
+ */
+internal data class AgendaWidgetSync(
+  val state: String,
+  val lastSuccessLabel: String?,
+  val pendingOperations: Int,
+  val failedOperations: Int,
+  val activeJobs: Int,
+  val attentionRequired: Int,
+  val accounts: Int,
+  val vaults: Int,
+  val progressCompleted: Long,
+  val progressTotal: Long?,
+  val canSyncNow: Boolean,
+) {
+  val needsAttention: Boolean
+    get() = state == "actionRequired" || state == "authenticationRequired"
+
+  val running: Boolean
+    get() = state == "syncing"
+
+  /** Only a job that stated a total can be drawn as a proportion. */
+  val progressFraction: Float?
+    get() {
+      val total = progressTotal ?: return null
+      if (total <= 0L) return null
+      return (progressCompleted.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+    }
+}
+
 internal data class AgendaWidgetSnapshot(
   val kind: String,
   val generatedAt: String?,
@@ -206,6 +243,7 @@ internal data class AgendaWidgetSnapshot(
   val selectedDayKey: String?,
   val days: List<MonthWidgetDay>,
   val months: List<MonthWidgetPage>,
+  val sync: AgendaWidgetSync? = null,
 )
 
 internal fun agendaWidgetSnapshotFromState(raw: String?): AgendaWidgetSnapshot {
@@ -258,6 +296,9 @@ internal data class AgendaWidgetPalette(
   val card: Color,
   val surface: Color,
   val grid: Color,
+  /** `--destructive`. Reserved for states the user has to recover from, so it
+   * never competes with the accent for ordinary emphasis. */
+  val danger: Color,
 )
 
 internal fun agendaWidgetPalette(theme: String, accent: String): AgendaWidgetPalette {
@@ -281,7 +322,9 @@ internal fun agendaWidgetPalette(theme: String, accent: String): AgendaWidgetPal
     "cyan" -> Color(0xFF00C4CD)
     else -> Color(0xFFA174FF)
   }
-  return AgendaWidgetPalette(background, foreground, muted, accentColor, card, surface, grid)
+  // Only the light theme overrides `--destructive`; the dark family shares one.
+  val danger = if (theme == "light") Color(0xFFE60016) else Color(0xFFF9423D)
+  return AgendaWidgetPalette(background, foreground, muted, accentColor, card, surface, grid, danger)
 }
 
 internal object CollabAgendaWidgetSnapshotStore {
@@ -349,7 +392,9 @@ internal object CollabAgendaWidgetSnapshotStore {
     return AgendaWidgetSnapshot(
       json.optString("kind", "agenda")
         .takeIf {
-          it in setOf("agenda", "month", "birthday", "countdown", "tasks", "capture", "shortcuts")
+          it in setOf(
+            "agenda", "month", "birthday", "countdown", "tasks", "capture", "shortcuts", "sync",
+          )
         } ?: "agenda",
       json.optString("generatedAt").takeIf { it.isNotBlank() },
       json.optString("dateLabel", "Today").take(MAX_TEXT),
@@ -362,6 +407,37 @@ internal object CollabAgendaWidgetSnapshotStore {
       json.optString("selectedDayKey").takeIf { it.matches(Regex("^\\d{4}-\\d{2}-\\d{2}$")) },
       days,
       months,
+      parseSync(json.optJSONObject("sync")),
+    )
+  }
+
+  private fun parseSync(sync: JSONObject?): AgendaWidgetSync? {
+    if (sync == null) return null
+    val state = sync.optString("state").takeIf {
+      it in setOf(
+        "upToDate",
+        "syncing",
+        "pendingChanges",
+        "actionRequired",
+        "authenticationRequired",
+        "offline",
+        "paused",
+      )
+    } ?: return null
+    val completed = sync.optLong("progressCompleted", 0L).coerceAtLeast(0L)
+    return AgendaWidgetSync(
+      state = state,
+      lastSuccessLabel = sync.optString("lastSuccessLabel").takeIf { it.isNotBlank() }?.take(MAX_TEXT),
+      pendingOperations = sync.optInt("pendingOperations", 0).coerceIn(0, 999_999),
+      failedOperations = sync.optInt("failedOperations", 0).coerceIn(0, 999_999),
+      activeJobs = sync.optInt("activeJobs", 0).coerceIn(0, 999_999),
+      attentionRequired = sync.optInt("attentionRequired", 0).coerceIn(0, 999_999),
+      accounts = sync.optInt("accounts", 0).coerceIn(0, 999_999),
+      vaults = sync.optInt("vaults", 0).coerceIn(0, 999_999),
+      progressCompleted = completed,
+      // A total below what is already done would draw a bar past its own end.
+      progressTotal = sync.optLong("progressTotal", -1L).takeIf { it >= completed },
+      canSyncNow = sync.optBoolean("canSyncNow", false),
     )
   }
 
@@ -399,6 +475,10 @@ internal object CollabAgendaWidgetSnapshotStore {
         "capture-files",
         "vault-file",
         "vault-folder",
+        // Sync recovery opens the app's own settings; the launcher never
+        // attempts a fix it cannot show the result of.
+        "settings-background",
+        "settings-account",
       )
     } ?: return null
     val vaultId = shortcut.optString("vaultId").takeIf(identifier::matches)
@@ -524,6 +604,7 @@ internal fun widgetProviderClasses(): List<Class<out android.content.BroadcastRe
   CollabTasksWidgetReceiver::class.java,
   CollabCaptureWidgetReceiver::class.java,
   CollabShortcutsWidgetReceiver::class.java,
+  CollabSyncWidgetReceiver::class.java,
 )
 
 internal fun widgetKindForId(context: Context, appWidgetId: Int): String {
@@ -535,6 +616,7 @@ internal fun widgetKindForId(context: Context, appWidgetId: Int): String {
     CollabTasksWidgetReceiver::class.java.name -> "tasks"
     CollabCaptureWidgetReceiver::class.java.name -> "capture"
     CollabShortcutsWidgetReceiver::class.java.name -> "shortcuts"
+    CollabSyncWidgetReceiver::class.java.name -> "sync"
     else -> "agenda"
   }
 }
@@ -593,6 +675,10 @@ object CollabWidgetBridge {
     context: Context,
     profileId: String,
     requestJson: String,
+  ): String
+  @JvmStatic external fun nativeRequestSync(
+    context: Context,
+    profileId: String,
   ): String
 
   fun requestPhase0Rebuild(context: Context) {
@@ -708,6 +794,7 @@ object CollabWidgetBridge {
         "tasks" -> "openTasks"
         "capture" -> "openCapture"
         "shortcuts" -> "openShortcuts"
+        "sync" -> "openSync"
         else -> "openAgenda"
       }
       val request = JSONObject()
@@ -743,6 +830,20 @@ object CollabWidgetBridge {
       false to (failure.message ?: "The task could not be completed.").take(80)
     }
   }
+
+  /**
+   * Hands a launcher sync request to the native coordinator. The widget itself
+   * never syncs: this enqueues the same unique, constraint-bound WorkManager
+   * chain the app and the scheduler use, so repeated taps join the run already
+   * queued instead of starting a second one.
+   */
+  internal fun requestSync(context: Context, profileId: String): Pair<Boolean, String> =
+    runCatching {
+      JSONObject(nativeRequestSync(context.applicationContext, profileId))
+        .optBoolean("requested", false) to "Sync requested."
+    }.getOrElse { failure ->
+      false to (failure.message ?: "Sync could not be requested.").take(80)
+    }
 
   fun rebuildPhase0(context: Context) {
     val appContext = context.applicationContext
@@ -783,6 +884,7 @@ object CollabWidgetBridge {
       CollabTasksWidget().updateAll(appContext)
       CollabCaptureWidget().updateAll(appContext)
       CollabShortcutsWidget().updateAll(appContext)
+      CollabSyncWidget().updateAll(appContext)
     }
     if (shouldNotifyAgendaWidgetProvider(origin)) {
       widgetProviderClasses().forEach { provider ->
@@ -996,6 +1098,68 @@ abstract class CollabShortcutWidget(private val widgetKind: String) : GlanceAppW
 
 class CollabCaptureWidget : CollabShortcutWidget("capture")
 class CollabShortcutsWidget : CollabShortcutWidget("shortcuts")
+
+/**
+ * The synchronization status widget. It renders a rollup Rust built from the
+ * persistent background ledger and the replica queues; the launcher performs no
+ * network work, polls nothing, and can only ask the coordinator to run.
+ */
+class CollabSyncWidget : GlanceAppWidget() {
+  override val stateDefinition = PreferencesGlanceStateDefinition
+
+  override val sizeMode: SizeMode = SizeMode.Responsive(
+    setOf(
+      DpSize(110.dp, 56.dp),
+      DpSize(250.dp, 110.dp),
+      DpSize(250.dp, 220.dp),
+      DpSize(250.dp, 400.dp),
+    ),
+  )
+
+  override suspend fun provideGlance(context: Context, id: GlanceId) {
+    val appWidgetId = (id as? AppWidgetId)?.appWidgetId
+    provideContent {
+      val snapshot = agendaWidgetSnapshotFromState(currentState(AgendaWidgetSnapshotStateKey))
+      val binding = appWidgetId?.let { CollabWidgetBindings.read(context, it) }
+      val open = binding?.let { CollabWidgetBridge.prepareOpenIntent(context, it, "sync") }
+        ?: CollabAppDestination.intent(context, "settings-background")
+      val itemIntents = snapshot.items.map { item -> shortcutDestination(context, item, open) }
+      SyncWidgetContent(
+        snapshot = snapshot,
+        openSettings = open,
+        itemIntents = itemIntents,
+        actionMessage = currentState(SyncActionMessageStateKey),
+      )
+    }
+  }
+}
+
+/**
+ * Asks the native coordinator to sync. The launcher shows only that the request
+ * was accepted; the resulting state arrives with the next republished snapshot,
+ * so a failed or deferred run can never be rendered as a success.
+ */
+class CollabSyncNowAction : ActionCallback {
+  override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+    val appContext = context.applicationContext
+    val appWidgetId = (glanceId as? AppWidgetId)?.appWidgetId
+    val binding = appWidgetId?.let { CollabWidgetBindings.read(appContext, it) }
+    val message = if (binding == null) {
+      "This widget is no longer set up."
+    } else {
+      CollabWidgetBridge.requestSync(appContext, binding.profileId).second
+    }
+    updateAppWidgetState(context, glanceId) { preferences ->
+      preferences[SyncActionMessageStateKey] = message
+    }
+    CollabSyncWidget().update(context, glanceId)
+    if (binding != null) {
+      // Republish so the queued job appears through the normal snapshot path
+      // rather than as optimistic launcher state.
+      CollabWidgetBridge.requestProfileRebuild(appContext, binding.profileId, "sync-action")
+    }
+  }
+}
 
 /**
  * Resolves a capture tile or shortcut row to its validated destination. A row
@@ -1325,6 +1489,192 @@ private fun ShortcutWidgetContent(
       }
     }
   }
+}
+
+/** The colour a sync state is allowed to speak with. The accent stays reserved
+ * for the widget's one primary action, so a healthy state is quiet. */
+internal fun syncStateColor(state: String?, palette: AgendaWidgetPalette): Color = when (state) {
+  "actionRequired", "authenticationRequired" -> palette.danger
+  "syncing" -> palette.accent
+  "pendingChanges", "offline", "paused" -> palette.muted
+  else -> palette.muted
+}
+
+@Composable
+private fun SyncWidgetContent(
+  snapshot: AgendaWidgetSnapshot,
+  openSettings: Intent,
+  itemIntents: List<Intent>,
+  actionMessage: String?,
+) {
+  val size = LocalSize.current
+  val palette = agendaWidgetPalette(snapshot.theme, snapshot.accent)
+  val sync = snapshot.sync
+  val openAction = actionStartActivity(openSettings)
+  val compact = size.height < 90.dp
+  val itemLimit = when {
+    compact -> 0
+    size.height < 180.dp -> 2
+    size.height < 260.dp -> 4
+    else -> 8
+  }
+  val visibleItems = snapshot.items.take(itemLimit)
+  WidgetSurface(
+    palette = palette,
+    modifier = GlanceModifier.clickable(openAction),
+    padding = if (compact) 10.dp else 12.dp,
+  ) {
+    WidgetHeader(
+      palette = palette,
+      fontScale = snapshot.fontScale,
+      title = "Sync",
+      titleAction = openAction,
+      // The only action offered is the one the coordinator can coalesce.
+      accentAction = if (sync?.canSyncNow == true) {
+        actionRunCallback<CollabSyncNowAction>()
+      } else {
+        null
+      },
+      accentGlyph = "⟳",
+    )
+    Spacer(GlanceModifier.height(if (compact) 6.dp else 9.dp))
+    WidgetCardFrame(palette) {
+      Row(
+        modifier = GlanceModifier
+          .widgetCard(palette)
+          .clickable(openAction)
+          .padding(horizontal = 9.dp, vertical = if (compact) 6.dp else 8.dp),
+        verticalAlignment = Alignment.Vertical.CenterVertically,
+      ) {
+        Box(
+          modifier = GlanceModifier
+            .width(WidgetRailWidth)
+            .fillMaxHeight()
+            .background(ColorProvider(syncStateColor(sync?.state, palette)))
+            .cornerRadius(WidgetRailWidth),
+          contentAlignment = Alignment.Center,
+        ) {}
+        Spacer(GlanceModifier.width(9.dp))
+        Column(modifier = GlanceModifier.defaultWeight()) {
+          Text(
+            snapshot.stateLabel,
+            modifier = GlanceModifier.clickable(openAction),
+            style = TextStyle(
+              color = ColorProvider(palette.foreground),
+              fontWeight = FontWeight.Medium,
+              fontSize = (13f * snapshot.fontScale).sp,
+            ),
+          )
+          if (!compact) {
+            Text(
+              syncDetailLine(sync),
+              modifier = GlanceModifier.clickable(openAction),
+              style = mutedTextStyle(palette, 11f * snapshot.fontScale),
+            )
+          }
+        }
+      }
+    }
+    if (!compact && sync?.running == true) {
+      Spacer(GlanceModifier.height(6.dp))
+      SyncProgressBar(palette, sync)
+    }
+    if (visibleItems.isNotEmpty()) {
+      Spacer(GlanceModifier.height(if (sync?.running == true) 6.dp else 8.dp))
+      visibleItems.forEachIndexed { visibleIndex, item ->
+        val originalIndex = snapshot.items.indexOf(item)
+        val itemAction = actionStartActivity(itemIntents.getOrElse(originalIndex) { openSettings })
+        WidgetRowCard(
+          palette = palette,
+          // A row only carries its own destination when something went wrong
+          // there, so the rail marks exactly the rows that need the user.
+          railColor = if (item.shortcut != null) palette.danger else palette.muted,
+          action = itemAction,
+          compact = false,
+        ) {
+          Text(
+            item.title,
+            modifier = GlanceModifier.clickable(itemAction),
+            style = TextStyle(
+              color = ColorProvider(palette.foreground),
+              fontWeight = FontWeight.Medium,
+              fontSize = (13f * snapshot.fontScale).sp,
+            ),
+          )
+          Text(
+            item.detail,
+            modifier = GlanceModifier.clickable(itemAction),
+            style = mutedTextStyle(palette, 11f * snapshot.fontScale),
+          )
+        }
+        if (visibleIndex < visibleItems.lastIndex) Spacer(GlanceModifier.height(6.dp))
+      }
+    }
+    if (!compact && actionMessage != null) {
+      Spacer(GlanceModifier.height(8.dp))
+      Text(
+        actionMessage,
+        modifier = GlanceModifier.clickable(openAction),
+        style = mutedTextStyle(palette, 10f * snapshot.fontScale),
+      )
+    }
+  }
+}
+
+/** The secondary line under the headline: what is covered, and how fresh it is. */
+internal fun syncDetailLine(sync: AgendaWidgetSync?): String {
+  if (sync == null) return "Open Collab to refresh"
+  val scope = when {
+    sync.vaults == 0 -> null
+    sync.vaults == 1 -> "1 vault"
+    else -> "${sync.vaults} vaults"
+  }
+  return listOfNotNull(scope, sync.lastSuccessLabel).joinToString(" · ")
+    .ifBlank { "Not synced yet" }
+}
+
+/**
+ * Coarse progress across the running jobs. A run whose total is unknown fills
+ * the track evenly rather than inventing a proportion.
+ */
+@Composable
+private fun SyncProgressBar(palette: AgendaWidgetPalette, sync: AgendaWidgetSync) {
+  val fraction = sync.progressFraction
+  // An unknown total fills the whole track in the quiet surface colour: the run
+  // is visible without claiming a completion it cannot know.
+  val (filled, empty) = if (fraction == null) {
+    0 to SYNC_PROGRESS_SEGMENTS
+  } else {
+    syncProgressSegments((fraction * 100f).toInt())
+  }
+  Row(modifier = GlanceModifier.fillMaxWidth().height(4.dp)) {
+    repeat(filled) {
+      Box(
+        modifier = GlanceModifier.defaultWeight().fillMaxHeight()
+          .background(ColorProvider(palette.accent)),
+        contentAlignment = Alignment.Center,
+      ) {}
+    }
+    repeat(empty) {
+      Box(
+        modifier = GlanceModifier.defaultWeight().fillMaxHeight()
+          .background(ColorProvider(palette.surface)),
+        contentAlignment = Alignment.Center,
+      ) {}
+    }
+  }
+}
+
+internal const val SYNC_PROGRESS_SEGMENTS = 10
+
+/**
+ * Resolves a percentage into filled and empty segments of a fixed-width track.
+ * Glance weights are equal-only, so progress is quantised to whole segments
+ * rather than drawn to the pixel.
+ */
+internal fun syncProgressSegments(percent: Int, segments: Int = SYNC_PROGRESS_SEGMENTS): Pair<Int, Int> {
+  val filled = ((percent.coerceIn(0, 100) * segments) / 100).coerceIn(1, segments)
+  return filled to (segments - filled)
 }
 
 /**
@@ -1955,6 +2305,10 @@ class CollabCaptureWidgetReceiver : CollabCalendarWidgetReceiver() {
 
 class CollabShortcutsWidgetReceiver : CollabCalendarWidgetReceiver() {
   override val glanceAppWidget: GlanceAppWidget = CollabShortcutsWidget()
+}
+
+class CollabSyncWidgetReceiver : CollabCalendarWidgetReceiver() {
+  override val glanceAppWidget: GlanceAppWidget = CollabSyncWidget()
 }
 
 class CollabWidgetLifecycleReceiver : android.content.BroadcastReceiver() {

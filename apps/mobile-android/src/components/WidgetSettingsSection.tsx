@@ -9,6 +9,7 @@ import type {
   WidgetDiagnostics,
   WidgetPrivacy,
   WidgetShortcutOptions,
+  WidgetSyncAccount,
   WidgetTaskOptions,
 } from '../../../../src/types/widget';
 import { mobileCalendarProfileId } from '../lib/calendarSync';
@@ -21,6 +22,7 @@ import {
   widgetConfigurationList,
   widgetConfigurationSave,
   widgetRefresh,
+  widgetSyncAccounts,
 } from '../mobileTauri';
 
 const PRIVACY_OPTIONS: Array<[WidgetPrivacy, string]> = [
@@ -37,6 +39,7 @@ const WIDGET_KIND_LABELS = {
   tasks: 'Tasks',
   capture: 'Quick capture',
   shortcuts: 'Shortcuts',
+  sync: 'Sync status',
 } as const;
 
 const CAPTURE_ACTIONS: Array<[WidgetCaptureAction, string]> = [
@@ -78,6 +81,15 @@ function countdownDateLabel(event: CalendarEvent) {
   return Number.isFinite(date.getTime()) ? date.toLocaleDateString() : value;
 }
 
+/** What a widget's selected sources mean depends on its kind: calendars for the
+ * calendar family, hosted accounts for the sync rollup. */
+export function widgetSourceSummary(configuration: WidgetConfiguration): string {
+  const noun = configuration.kind === 'sync' ? 'accounts' : 'calendars';
+  const count = configuration.selectedSourceIds.length;
+  if (count === 0) return `All ${noun}`;
+  return `${count} ${count === 1 ? noun.slice(0, -1) : noun}`;
+}
+
 export function WidgetSettingsSection() {
   const profileId = mobileCalendarProfileId();
   const [configurations, setConfigurations] = useState<WidgetConfiguration[]>([]);
@@ -85,6 +97,7 @@ export function WidgetSettingsSection() {
   const [countdownEvents, setCountdownEvents] = useState<CalendarEvent[]>([]);
   const [kanbanTasks, setKanbanTasks] = useState<CalendarTask[]>([]);
   const [diagnostics, setDiagnostics] = useState<WidgetDiagnostics[]>([]);
+  const [syncAccounts, setSyncAccounts] = useState<WidgetSyncAccount[]>([]);
   const [busy, setBusy] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -141,9 +154,13 @@ export function WidgetSettingsSection() {
       listProfileCalendars(profileId),
       widgetDiagnosticsList(profileId),
       listProfileCalendarItems(profileId, rangeStart.toISOString(), rangeEnd.toISOString(), 2_000, false),
+      // Accounts are only needed by the sync widget, and a failure here must not
+      // stop the rest of the widget settings from loading.
+      widgetSyncAccounts().catch(() => [] as WidgetSyncAccount[]),
     ])
-      .then(([, nextConfigurations, nextCalendars, nextDiagnostics, nextItems]) => {
+      .then(([, nextConfigurations, nextCalendars, nextDiagnostics, nextItems, nextAccounts]) => {
         if (cancelled) return;
+        setSyncAccounts(nextAccounts);
         applyConfigurations(nextConfigurations);
         setCalendars(nextCalendars.filter((calendar) => !calendar.deletedAt && !calendar.archived));
         setDiagnostics(nextDiagnostics);
@@ -234,7 +251,7 @@ export function WidgetSettingsSection() {
           <div className="setting-row">
             <div>
               <strong>{WIDGET_KIND_LABELS[configuration.kind]} {index + 1}</strong>
-              <span>{configuration.selectedSourceIds.length === 0 ? 'All calendars' : `${configuration.selectedSourceIds.length} calendars`}</span>
+              <span>{widgetSourceSummary(configuration)}</span>
             </div>
             <span className="widget-live-label">Changes apply live</span>
           </div>
@@ -434,6 +451,45 @@ export function WidgetSettingsSection() {
               </div>
             </>
           ) : null}
+          {configuration.kind === 'sync' ? (
+            <div className="setting-row stacked">
+              <div>
+                <strong>Accounts</strong>
+                <span>All accounts when none are selected. The widget shows counts only.</span>
+              </div>
+              <div className="widget-calendar-options">
+                {syncAccounts.length === 0 ? (
+                  <span className="footnote">No accounts with offline data yet.</span>
+                ) : null}
+                {syncAccounts.map((account) => {
+                  const allSelected = configuration.selectedSourceIds.length === 0;
+                  const checked = allSelected
+                    || configuration.selectedSourceIds.includes(account.accountId);
+                  return (
+                    <label className="toggle-row" key={account.accountId}>
+                      <span>
+                        <strong>{account.label}</strong>
+                        <small>{account.vaults === 1 ? '1 vault' : `${account.vaults} vaults`}</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => save(configuration.configurationId, (current) => {
+                          const baseline = current.selectedSourceIds.length === 0
+                            ? syncAccounts.map((entry) => entry.accountId)
+                            : current.selectedSourceIds;
+                          const selectedSourceIds = event.currentTarget.checked
+                            ? [...new Set([...baseline, account.accountId])]
+                            : baseline.filter((id) => id !== account.accountId);
+                          return { ...current, selectedSourceIds };
+                        })}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
           {configuration.kind !== 'month' ? <div className="setting-row stacked">
             <div><strong>Privacy</strong><span>Controls content persisted for the launcher.</span></div>
             <div className="segmented-control">
@@ -452,7 +508,7 @@ export function WidgetSettingsSection() {
               ))}
             </div>
           </div> : null}
-          <div className="setting-row stacked">
+          {configuration.kind === 'sync' ? null : <div className="setting-row stacked">
             <div><strong>Calendars</strong><span>Select sources included by this widget.</span></div>
             <div className="widget-calendar-options">
               {calendars.map((calendar) => {
@@ -484,7 +540,7 @@ export function WidgetSettingsSection() {
                 );
               })}
             </div>
-          </div>
+          </div>}
           <div className="setting-row stacked">
             <div><strong>Maximum items</strong><span>Launcher size may show fewer.</span></div>
             <div className="segmented-control compact">

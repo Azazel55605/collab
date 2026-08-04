@@ -395,7 +395,7 @@ class CollabAgendaWidgetSnapshotTest {
   @Test
   fun widgetPreviewsOnlyUseViewsRemoteViewsCanInflate() {
     val layouts = widgetPreviewLayouts()
-    assertEquals(7, layouts.size)
+    assertEquals(8, layouts.size)
     layouts.forEach { layout ->
       val body = layout.readText().replace(Regex("(?s)<!--.*?-->"), "")
       Regex("<([A-Za-z][A-Za-z0-9_.]*)").findAll(body).forEach { match ->
@@ -452,5 +452,127 @@ class CollabAgendaWidgetSnapshotTest {
       accents,
     )
     assertEquals(accents.size, accents.toSet().size)
+
+    // `--destructive` is shared across the dark family and overridden only by
+    // the light theme, exactly as the stylesheet does it.
+    assertEquals("#F9423D", hex(agendaWidgetPalette("dark", "violet").danger))
+    assertEquals("#F9423D", hex(agendaWidgetPalette("midnight", "violet").danger))
+    assertEquals("#E60016", hex(agendaWidgetPalette("light", "violet").danger))
+  }
+
+  @Test
+  fun parsesTheSyncRollupAndRejectsAnUnknownState() {
+    val snapshot = CollabAgendaWidgetSnapshotStore.parse(
+      """{"schemaVersion":1,"kind":"sync","stateLabel":"2 changes waiting to sync","items":[],
+        "sync":{"state":"pendingChanges","lastSuccessAt":"2026-08-01T07:40:00Z",
+        "lastSuccessLabel":"Synced 20 min ago","pendingOperations":2,"failedOperations":0,
+        "activeJobs":0,"attentionRequired":0,"accounts":1,"vaults":2,
+        "progressCompleted":0,"canSyncNow":true}}""",
+    )
+    assertEquals("sync", snapshot.kind)
+    val sync = snapshot.sync!!
+    assertEquals("pendingChanges", sync.state)
+    assertEquals(2, sync.pendingOperations)
+    assertEquals("Synced 20 min ago", sync.lastSuccessLabel)
+    assertTrue(sync.canSyncNow)
+    assertTrue(!sync.needsAttention && !sync.running)
+    // Without a total there is no proportion to draw.
+    assertEquals(null, sync.progressTotal)
+    assertEquals(null, sync.progressFraction)
+
+    val unknown = CollabAgendaWidgetSnapshotStore.parse(
+      """{"schemaVersion":1,"kind":"sync","items":[],"sync":{"state":"exploding"}}""",
+    )
+    assertEquals(null, unknown.sync)
+  }
+
+  @Test
+  fun syncProgressNeverExceedsItsOwnTotal() {
+    val overrun = CollabAgendaWidgetSnapshotStore.parse(
+      """{"schemaVersion":1,"kind":"sync","items":[],"sync":{"state":"syncing",
+        "pendingOperations":0,"failedOperations":0,"activeJobs":1,"attentionRequired":0,
+        "accounts":1,"vaults":1,"progressCompleted":9,"progressTotal":4,"canSyncNow":true}}""",
+    )
+    // A total behind the work already done is dropped rather than drawn.
+    assertEquals(null, overrun.sync!!.progressTotal)
+    assertTrue(overrun.sync!!.running)
+
+    val running = CollabAgendaWidgetSnapshotStore.parse(
+      """{"schemaVersion":1,"kind":"sync","items":[],"sync":{"state":"syncing",
+        "pendingOperations":0,"failedOperations":0,"activeJobs":1,"attentionRequired":0,
+        "accounts":1,"vaults":1,"progressCompleted":3,"progressTotal":4,"canSyncNow":true}}""",
+    )
+    assertEquals(0.75f, running.sync!!.progressFraction)
+    assertEquals(7 to 3, syncProgressSegments(75))
+    // A started run always shows at least one filled segment, and a finished
+    // one never overflows the track.
+    assertEquals(1 to 9, syncProgressSegments(0))
+    assertEquals(SYNC_PROGRESS_SEGMENTS to 0, syncProgressSegments(100))
+    assertEquals(SYNC_PROGRESS_SEGMENTS to 0, syncProgressSegments(400))
+  }
+
+  @Test
+  fun syncRecoveryRowsOnlyCarrySettingsDestinations() {
+    val snapshot = CollabAgendaWidgetSnapshotStore.parse(
+      """{"schemaVersion":1,"kind":"sync","items":[
+        {"title":"Sign in again","detail":"Opens Collab settings","shortcut":{"destination":"settings-account"}},
+        {"title":"Team vault","detail":"1 change needs attention","shortcut":{"destination":"settings-background"}},
+        {"title":"Notes","detail":"Synced 5 min ago"},
+        {"title":"Hostile","detail":"","shortcut":{"destination":"settings-everything"}}
+      ],"sync":{"state":"actionRequired","pendingOperations":1,"failedOperations":1,
+        "activeJobs":0,"attentionRequired":1,"accounts":1,"vaults":2,
+        "progressCompleted":0,"canSyncNow":true}}""",
+    )
+    assertEquals("settings-account", snapshot.items[0].shortcut!!.destination)
+    assertEquals("settings-background", snapshot.items[1].shortcut!!.destination)
+    // A healthy row has no destination of its own and falls back to the header.
+    assertEquals(null, snapshot.items[2].shortcut)
+    // An unknown settings route is dropped rather than handed to the app.
+    assertEquals(null, snapshot.items[3].shortcut)
+    assertTrue(snapshot.sync!!.needsAttention)
+  }
+
+  @Test
+  fun syncStateColorsReserveTheAccentAndSpeakDangerOnlyForRecovery() {
+    val palette = agendaWidgetPalette("dark", "violet")
+    assertEquals(palette.danger, syncStateColor("actionRequired", palette))
+    assertEquals(palette.danger, syncStateColor("authenticationRequired", palette))
+    assertEquals(palette.accent, syncStateColor("syncing", palette))
+    // Everything else stays quiet: waiting is not a problem to be alarmed by.
+    listOf("upToDate", "pendingChanges", "offline", "paused", null).forEach { state ->
+      assertEquals(palette.muted, syncStateColor(state, palette))
+    }
+  }
+
+  @Test
+  fun syncDetailLineStatesScopeAndFreshnessOnly() {
+    fun sync(vaults: Int, label: String?) = AgendaWidgetSync(
+      state = "upToDate",
+      lastSuccessLabel = label,
+      pendingOperations = 0,
+      failedOperations = 0,
+      activeJobs = 0,
+      attentionRequired = 0,
+      accounts = 1,
+      vaults = vaults,
+      progressCompleted = 0,
+      progressTotal = null,
+      canSyncNow = true,
+    )
+    assertEquals("1 vault · Synced 5 min ago", syncDetailLine(sync(1, "Synced 5 min ago")))
+    assertEquals("3 vaults", syncDetailLine(sync(3, null)))
+    assertEquals("Not synced yet", syncDetailLine(sync(0, null)))
+    assertEquals("Open Collab to refresh", syncDetailLine(null))
+  }
+
+  @Test
+  fun everyRegisteredWidgetProviderResolvesItsKind() {
+    // A provider missing from either list renders as an agenda widget, which
+    // would silently show the wrong content for its snapshot.
+    assertEquals(8, widgetProviderClasses().size)
+    assertEquals(
+      widgetProviderClasses().size,
+      widgetProviderClasses().toSet().size,
+    )
   }
 }

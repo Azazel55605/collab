@@ -15,4 +15,6 @@
     <string name="capture_widget_description">Shortcuts into the Collab create and import flows</string>
     <string name="shortcuts_widget_name">Collab shortcuts</string>
     <string name="shortcuts_widget_description">Pinned and recent Collab vault files</string>
+    <string name="sync_widget_name">Collab sync</string>
+    <string name="sync_widget_description">Background sync status for your Collab accounts</string>
 </resources>

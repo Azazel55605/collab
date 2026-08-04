@@ -75,6 +75,10 @@ pub struct ReplicaSummary {
     pub offline_available_at: Option<String>,
     pub status: SyncStatus,
     pub pending_count: usize,
+    /// The subset of `pending_count` whose last replay attempt failed, i.e. what
+    /// the user actually has to recover. Counted in the same pass.
+    #[serde(default)]
+    pub failed_count: usize,
     pub updated_at: String,
     pub role: Option<String>,
     pub capabilities: Vec<String>,
@@ -89,6 +93,15 @@ impl Default for ReplicaSyncState {
             status: SyncStatus::Idle,
         }
     }
+}
+
+/// Queued-operation counts derived without materializing the queue.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingOpCounts {
+    pub total: usize,
+    /// Operations whose last replay attempt failed.
+    pub failed: usize,
 }
 
 /// The kind of structural or content mutation a pending operation represents.

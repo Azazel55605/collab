@@ -28,7 +28,9 @@ impl BackgroundPersistence {
         }
     }
 
-    #[cfg(test)]
+    /// Opens the durable background state at an explicit root. Used by tests and
+    /// by readers that have a config root but no coordinator, such as the
+    /// launcher-facing widget builder.
     pub fn at(root: PathBuf) -> Self {
         Self {
             root_override: Some(root),

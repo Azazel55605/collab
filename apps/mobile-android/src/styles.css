@@ -4666,9 +4666,14 @@ p {
   width: min(100%, 560px);
   display: flex;
   padding: 6px 8px calc(6px + var(--safe-bottom));
-  background: color-mix(in oklch, var(--sidebar) 92%, transparent);
+  /* Deliberately opaque, with no backdrop-filter. This bar is fixed and visible
+     on every screen, so a translucent blur makes the compositor re-snapshot and
+     re-blur the region behind it whenever anything repaints anywhere in the app
+     — which on Android WebView costs a frame on every visual change, not just
+     when the bar itself moves. Blur belongs on transient surfaces, not on
+     permanent chrome. */
+  background: var(--sidebar);
   border-top: 1px solid var(--border);
-  backdrop-filter: blur(12px);
   z-index: 20;
 }
 .tab {

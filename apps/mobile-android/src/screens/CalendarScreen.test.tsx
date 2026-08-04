@@ -145,6 +145,71 @@ describe('mobile Calendar screen', () => {
     expect(screen.getByRole('dialog', { name: 'Edit calendar item' })).toBeTruthy();
   });
 
+  // The month grid buckets items by day once rather than testing every item
+  // against every cell. These are the cases where the two could disagree.
+  it('places multi-day, birthday, and task items on exactly the days they occur', async () => {
+    const now = new Date();
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    invoke.mockImplementation((command: string) => {
+      if (command === 'calendar_list') return Promise.resolve([calendar]);
+      if (command === 'calendar_list_items') return Promise.resolve([
+        {
+          id: 'event-span',
+          uid: 'event-span@collab.test',
+          calendarId: calendar.id,
+          kind: 'event',
+          title: 'Offsite',
+          // A timed event covering three days must appear on all three.
+          start: { kind: 'dateTime', dateTime: `${month}-10T09:00:00.000Z`, timeZone: 'UTC' },
+          end: { kind: 'dateTime', dateTime: `${month}-12T17:00:00.000Z`, timeZone: 'UTC' },
+          availability: 'busy',
+          reminders: [],
+          attendees: [],
+          attachments: [],
+          revision: 0,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        },
+        {
+          id: 'birthday-1',
+          uid: 'birthday-1@collab.test',
+          calendarId: calendar.id,
+          kind: 'birthday',
+          title: 'Sam',
+          // Birthdays match on month and day, ignoring the stored year.
+          date: `1990-${month.slice(5)}-15`,
+          reminders: [],
+          revision: 0,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        },
+        {
+          id: 'task-1',
+          uid: 'task-1@collab.test',
+          calendarId: calendar.id,
+          kind: 'task',
+          title: 'File report',
+          due: { kind: 'date', date: `${month}-20` },
+          completed: false,
+          reminders: [],
+          revision: 0,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        },
+      ]);
+      if (command === 'calendar_acknowledge_operations') return Promise.resolve();
+      return Promise.reject(new Error(`unhandled command ${command}`));
+    });
+
+    render(<CalendarScreen prefs={DEFAULT_PREFS} />);
+    await screen.findAllByRole('button', { name: /Personal/ });
+    fireEvent.click(screen.getByRole('button', { name: 'Month' }));
+
+    expect((await screen.findAllByRole('button', { name: 'Offsite' })).length).toBe(3);
+    expect(screen.getAllByRole('button', { name: 'Sam' }).length).toBe(1);
+    expect(screen.getAllByRole('button', { name: 'File report' }).length).toBe(1);
+  });
+
   it('renders timed items in the vertical day timeline', async () => {
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9);

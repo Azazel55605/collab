@@ -235,6 +235,31 @@ ORG_GRADLE_PROJECT_collabKeepNativeDebugSymbols=true \
 pnpm android:build:debug
 ```
 
+### Debug Build Runtime Speed
+
+A debug APK ships the same native library as a release APK, built with Cargo's
+dev profile. With Cargo's defaults that means `opt-level = 0` for every
+dependency, and because every IPC call runs through that library the app feels
+far slower than the release build — cryptography and parsing suffer most
+(AES-GCM measured ~65x slower unoptimized). The workspace root therefore sets:
+
+```toml
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+```
+
+Dependencies are optimized fully because they are compiled once and rarely
+change; the workspace's own crates stay at a light level so incremental rebuilds
+remain quick. `debug-assertions` and `overflow-checks` are untouched, so debug
+builds keep their correctness checks. The cost is a slower first build after a
+`cargo clean` or a dependency bump.
+
+If a debug build ever feels dramatically slower than release again, check this
+block is still present before profiling app code.
+
 Do not use an `*-unsigned.apk` release artifact for manual installation. Android
 will reject unsigned release APKs. Production release APKs need a real signing
 configuration before they can be installed or distributed.

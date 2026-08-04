@@ -267,4 +267,60 @@ describe('mobile widget settings', () => {
       });
     });
   });
+
+  describe('sync widget', () => {
+    const syncConfiguration = {
+      ...configuration,
+      configurationId: 'widget-sync-1',
+      kind: 'sync',
+      display: { horizonDays: 366, maxItems: 6, showCompleted: false },
+    };
+
+    beforeEach(() => {
+      vi.mocked(invoke).mockImplementation((command, args) => {
+        if (command === 'widget_active_profile_set') return Promise.resolve(undefined);
+        if (command === 'widget_configuration_list') return Promise.resolve([syncConfiguration]);
+        if (command === 'widget_diagnostics_list') {
+          return Promise.resolve([{ ...diagnostics, configurationId: 'widget-sync-1' }]);
+        }
+        if (command === 'widget_sync_accounts') {
+          return Promise.resolve([
+            { accountId: 'account-aaaa', label: 'https://collab.example', vaults: 2 },
+            { accountId: 'account-bbbb', label: 'https://other.example', vaults: 1 },
+          ]);
+        }
+        if (command === 'calendar_list') {
+          return Promise.resolve([
+            { id: 'calendar-a', name: 'Personal', archived: false, deletedAt: null },
+          ]);
+        }
+        if (command === 'calendar_list_items') return Promise.resolve([]);
+        if (command === 'widget_configuration_save') {
+          return Promise.resolve((args as { configuration: typeof configuration }).configuration);
+        }
+        return Promise.reject(new Error(`unexpected command: ${command}`));
+      });
+    });
+
+    it('scopes by account and never offers the calendar picker', async () => {
+      render(<WidgetSettingsSection />);
+
+      expect(await screen.findByText('Sync status 1')).not.toBeNull();
+      // A sync widget aggregates accounts, so calendars are meaningless here.
+      expect(screen.queryByText('Calendars')).toBeNull();
+      expect(screen.getByText('All accounts')).not.toBeNull();
+
+      // Deselecting one account expands the implicit "all" into an explicit
+      // list, so the remaining choice is unambiguous.
+      fireEvent.click(screen.getByRole('checkbox', { name: /other\.example/ }));
+      await waitFor(() => {
+        expect(invoke).toHaveBeenCalledWith(
+          'widget_configuration_save',
+          expect.objectContaining({
+            configuration: expect.objectContaining({ selectedSourceIds: ['account-aaaa'] }),
+          }),
+        );
+      });
+    });
+  });
 });

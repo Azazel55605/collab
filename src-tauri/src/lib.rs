@@ -287,6 +287,7 @@ pub fn run() {
             commands::widgets::widget_appearance_save,
             commands::widgets::widget_configuration_save,
             commands::widgets::widget_configuration_delete,
+            commands::widgets::widget_sync_accounts,
             commands::widgets::widget_diagnostics_list,
             commands::widgets::widget_refresh,
             commands::widgets::widget_snapshot_build_and_publish,

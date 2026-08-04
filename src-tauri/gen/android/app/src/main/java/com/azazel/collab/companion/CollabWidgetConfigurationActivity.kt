@@ -192,6 +192,7 @@ class CollabWidgetConfigurationActivity : Activity() {
       "tasks" -> "Tasks"
       "capture" -> "Quick capture"
       "shortcuts" -> "Shortcuts"
+      "sync" -> "Sync status"
       else -> "Agenda"
     }
     val choices = listOf(
@@ -235,6 +236,8 @@ class CollabWidgetConfigurationActivity : Activity() {
             "Choose launcher privacy here, then pick which create shortcuts appear in Collab Settings."
           "shortcuts" ->
             "Choose launcher privacy here, then pin the files you want in Collab Settings."
+          "sync" ->
+            "Choose launcher privacy here. The widget shows sync counts and states only, never an account or server."
           else ->
             "Choose what Collab may place in launcher-visible storage. You can change this later in Settings."
         },
@@ -324,7 +327,7 @@ class CollabWidgetConfigurationActivity : Activity() {
               "month" -> 42
               "birthday", "countdown" -> 366
               "tasks" -> 14
-              "capture", "shortcuts" -> 366
+              "capture", "shortcuts", "sync" -> 366
               else -> 7
             })
             .put("maxItems", 6)

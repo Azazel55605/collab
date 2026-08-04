@@ -149,6 +149,11 @@ export interface ReplicaSummary {
   offlineAvailableAt?: string | null;
   status: SyncStatus;
   pendingCount: number;
+  /** The subset of `pendingCount` whose last replay attempt failed — what the
+   * user actually has to recover. Counted in the same pass. Optional because the
+   * Rust field carries `serde(default)`, so a summary decoded from state an
+   * older build wrote omits it. */
+  failedCount?: number;
   updatedAt: string;
   role?: string | null;
   capabilities: string[];

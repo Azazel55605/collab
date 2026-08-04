@@ -76,6 +76,11 @@
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/collab_shortcuts_widget_info" />
         </receiver>
 
+        <receiver android:name=".CollabSyncWidgetReceiver" android:exported="false" android:label="@string/sync_widget_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/collab_sync_widget_info" />
+        </receiver>
+
         <receiver
             android:name=".CollabWidgetLifecycleReceiver"
             android:directBootAware="false"

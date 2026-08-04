@@ -112,6 +112,19 @@
         <item name="android:textColor">#0C0F16</item>
         <item name="android:textSize">8sp</item>
     </style>
+    <!-- One segment of the quantised sync progress track. -->
+    <style name="CollabWidgetPreviewProgressFilled">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:background">#A174FF</item>
+    </style>
+    <style name="CollabWidgetPreviewProgressEmpty">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:background">#171B22</item>
+    </style>
     <style name="CollabWidgetPreviewChip">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>

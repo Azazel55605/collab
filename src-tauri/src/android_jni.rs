@@ -880,6 +880,43 @@ pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativ
     widget_jni_string_result(&mut env, result)
 }
 
+/// Enqueues a user-initiated synchronization for one profile from the launcher.
+///
+/// The widget never syncs anything itself: it hands the request to the same
+/// WorkManager chain the app and the scheduler use, under the same unique work
+/// name and the same settings-derived constraints. Repeated taps therefore join
+/// the existing run rather than starting a parallel one, and no launcher tap can
+/// make work run on a network or battery state the user excluded.
+#[no_mangle]
+pub extern "system" fn Java_com_azazel_collab_companion_CollabWidgetBridge_nativeRequestSync(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    context: JObject<'_>,
+    profile_id: JString<'_>,
+) -> jstring {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        register_worker_context(&mut env, &context)?;
+        let profile_id = env
+            .get_string(&profile_id)
+            .map_err(|_| "Could not decode the widget profile identifier.".to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let root = files_dir()?.join("collab");
+        let settings = crate::background::read_ledger_view(&root)?.settings;
+        request_immediate_background_work(
+            &profile_id,
+            true,
+            settings.only_unmetered_networks,
+            settings.require_charging,
+            settings.pause_on_low_battery,
+            settings.allow_roaming,
+        )?;
+        serde_json::to_string(&serde_json::json!({ "requested": true }))
+            .map_err(|_| "Could not encode the sync request result.".to_string())
+    }));
+    widget_jni_string_result(&mut env, result)
+}
+
 /// Applies a launcher-confirmed task completion and republishes the affected
 /// snapshots, so the widget only ever renders state the native queue accepted.
 #[no_mangle]

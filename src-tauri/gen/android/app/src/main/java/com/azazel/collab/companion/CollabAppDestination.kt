@@ -31,6 +31,10 @@ object CollabAppDestination {
     "vault-file",
     "vault-folder",
     "vault-list",
+    // Sync recovery. These carry no target of their own: they open the settings
+    // category where the state is explained and can actually be fixed.
+    "settings-background",
+    "settings-account",
   )
   private val vaultTargetKinds = setOf("vault-file", "vault-folder")
   private val datePattern = Regex("^\\d{4}-\\d{2}-\\d{2}$")

@@ -242,6 +242,19 @@ export function MobileApp() {
           .catch(() => {});
         return;
       }
+      if (destination.kind === 'settings-background' || destination.kind === 'settings-account') {
+        // Sync recovery lands in the settings category that explains the state
+        // and can act on it; the widget never attempts a fix itself.
+        setTab('settings');
+        window.setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('collab-settings-open-category', {
+            detail: {
+              category: destination.kind === 'settings-background' ? 'background' : 'account',
+            },
+          }));
+        }, 0);
+        return;
+      }
       if (destination.kind === 'capture-task') {
         setTab('calendar');
         window.setTimeout(() => {

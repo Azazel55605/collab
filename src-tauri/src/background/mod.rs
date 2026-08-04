@@ -26,6 +26,35 @@ use std::time::Duration;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
+/// A read-only view of the durable background state for one config root.
+///
+/// Widget snapshots are built in processes that have no session runtime and
+/// therefore no `BackgroundCoordinator` — the WorkManager worker and the
+/// foreground app both reach the builder through the JNI bridge. Reading the
+/// same ledger, registry, and settings files the coordinator writes keeps the
+/// widget reporting on real coordinator state instead of a parallel copy.
+#[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
+pub(crate) struct BackgroundLedgerView {
+    pub jobs: Vec<BackgroundJobRecord>,
+    pub servers: Vec<BackgroundServerRegistration>,
+    pub settings: BackgroundSettings,
+}
+
+#[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
+pub(crate) fn read_ledger_view(
+    config_root: &std::path::Path,
+) -> Result<BackgroundLedgerView, String> {
+    let persistence = BackgroundPersistence::at(config_root.to_path_buf());
+    Ok(BackgroundLedgerView {
+        jobs: persistence.list_jobs(MAX_LEDGER_VIEW_JOBS)?,
+        servers: persistence.list_servers()?,
+        settings: persistence.settings()?,
+    })
+}
+
+/// Matches the coordinator's own aggregate window, so the widget and the app
+/// summarize the same slice of the ledger.
+const MAX_LEDGER_VIEW_JOBS: usize = 200;
 const DEFAULT_RUNTIME_BUDGET_SECONDS: u64 = 120;
 const MAX_RUNTIME_BUDGET_SECONDS: u64 = 600;
 const MAX_IDEMPOTENCY_KEY_LENGTH: usize = 128;

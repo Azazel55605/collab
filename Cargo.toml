@@ -16,6 +16,23 @@ members = [
   "src-tauri",
 ]
 
+# Debug builds ship the same native library the release build does, just built
+# with the dev profile — so an unoptimized `opt-level = 0` build of every
+# dependency runs behind every IPC call on device. Cryptography and parsing are
+# the worst affected — AES-GCM measured ~65x slower unoptimized (220ms vs 3.4ms
+# per MiB) and calendar recurrence projection ~4x — so the Android debug APK
+# feels broken while the release APK is fine.
+#
+# Dependencies are compiled once and rarely change, so they are optimized fully;
+# the workspace's own crates keep a light optimization level that preserves fast
+# incremental rebuilds. `debug-assertions` and `overflow-checks` stay on — this
+# trades build time for runtime, not correctness checks.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
 [workspace.package]
 version = "0.6.9"
 edition = "2021"

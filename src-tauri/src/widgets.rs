@@ -58,6 +58,7 @@ pub(crate) enum WidgetKind {
     Tasks,
     Capture,
     Shortcuts,
+    Sync,
 }
 
 /// A quick-capture tile. Each one only opens an existing mobile flow; the
@@ -170,6 +171,86 @@ pub(crate) enum WidgetFreshness {
     Fresh,
     Stale,
     Unavailable,
+}
+
+/// The operational rollup a sync widget renders.
+///
+/// Rust decides this from the persistent background ledger and the replica
+/// queues so the launcher never infers operational meaning from raw counts, and
+/// so the same precedence applies wherever the rollup is shown.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum WidgetSyncState {
+    UpToDate,
+    Syncing,
+    PendingChanges,
+    ActionRequired,
+    AuthenticationRequired,
+    Offline,
+    Paused,
+}
+
+#[cfg(any(target_os = "android", test))]
+impl WidgetSyncState {
+    /// The row-independent headline. It never names an account, a vault, or a
+    /// server, so it reads the same at every privacy level.
+    fn label(self, summary: &WidgetSyncSummary) -> String {
+        match self {
+            Self::UpToDate => "Up to date".into(),
+            Self::Syncing => "Syncing…".into(),
+            Self::PendingChanges => match summary.pending_operations {
+                1 => "1 change waiting to sync".into(),
+                count => format!("{count} changes waiting to sync"),
+            },
+            Self::ActionRequired => {
+                match summary.attention_required + summary.failed_operations {
+                    1 => "1 item needs attention".into(),
+                    count => format!("{count} items need attention"),
+                }
+            }
+            Self::AuthenticationRequired => "Sign in again to sync".into(),
+            Self::Offline => "Offline · changes sync later".into(),
+            Self::Paused => "Background sync is paused".into(),
+        }
+    }
+
+    /// Whether the state is one the user has to act on. These states deep-link
+    /// into the app's own recovery settings instead of offering a launcher fix.
+    fn needs_attention(self) -> bool {
+        matches!(self, Self::ActionRequired | Self::AuthenticationRequired)
+    }
+}
+
+/// The privacy-safe operational rollup carried by a sync snapshot.
+///
+/// Every field is a count, a coarse state, or a timestamp. No server URL,
+/// account name, or error body is ever published: an authentication failure
+/// becomes `AuthenticationRequired` and nothing more.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetSyncSummary {
+    pub state: WidgetSyncState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_success_at: Option<String>,
+    /// The rendered "Synced 5 min ago" phrasing. Rust owns it so the launcher
+    /// never has to decide what an age means.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_success_label: Option<String>,
+    pub pending_operations: u32,
+    pub failed_operations: u32,
+    pub active_jobs: u32,
+    pub attention_required: u32,
+    pub accounts: u32,
+    pub vaults: u32,
+    /// Coarse progress across the jobs currently running. `progress_total` is
+    /// absent whenever any running job cannot state a total, so the launcher
+    /// shows an indeterminate state rather than an invented percentage.
+    pub progress_completed: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_total: Option<u64>,
+    /// False when there is nothing registered to sync, so the launcher does not
+    /// offer an action that would enqueue no work.
+    pub can_sync_now: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -399,14 +480,18 @@ pub(crate) struct WidgetShortcutDetails {
     pub pinned: bool,
 }
 
-/// Destinations a capture or shortcut row is allowed to carry.
-const SHORTCUT_DESTINATIONS: [&str; 6] = [
+/// Destinations a capture, shortcut, or sync-recovery row is allowed to carry.
+const SHORTCUT_DESTINATIONS: [&str; 8] = [
     "capture-note",
     "capture-task",
     "calendar-create",
     "capture-files",
     "vault-file",
     "vault-folder",
+    // Sync recovery opens the app's own settings rather than offering a fix in
+    // the launcher, where authorization and errors are not visible.
+    "settings-background",
+    "settings-account",
 ];
 
 /// When a task is due relative to the profile-timezone day the snapshot was
@@ -561,6 +646,8 @@ pub(crate) struct WidgetSnapshot {
     pub days: Vec<WidgetDaySummary>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub months: Vec<WidgetMonthPage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync: Option<WidgetSyncSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -614,6 +701,7 @@ pub(crate) enum WidgetActionKind {
     OpenTasks,
     OpenCapture,
     OpenShortcuts,
+    OpenSync,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -967,6 +1055,9 @@ impl WidgetStore {
             // The shortcuts header opens the vault list rather than guessing a
             // target the user did not tap.
             (WidgetKind::Shortcuts, WidgetActionKind::OpenShortcuts) => "vault-list",
+            // The sync header opens the background settings the widget reports
+            // on, so the app is always where the state is explained and fixed.
+            (WidgetKind::Sync, WidgetActionKind::OpenSync) => "settings-background",
             _ => return Err("The widget action does not match its configuration.".into()),
         };
         Ok(WidgetPreparedAction {
@@ -1254,6 +1345,9 @@ pub(crate) fn build_snapshot(
             WidgetKind::Tasks => "No tasks due",
             WidgetKind::Capture => "Choose actions in Collab settings",
             WidgetKind::Shortcuts => "Pin files in Collab settings",
+            // Replaced below with the rollup headline once the sync summary is
+            // attached; this only shows for a profile with no offline copies.
+            WidgetKind::Sync => "No offline vaults yet",
             WidgetKind::Agenda => "Nothing upcoming",
         }
     } else {
@@ -1276,6 +1370,7 @@ pub(crate) fn build_snapshot(
         items,
         days: Vec::new(),
         months: Vec::new(),
+        sync: None,
     };
     validate_snapshot(&snapshot, &snapshot.profile_id_hash)?;
     encode_bounded(&snapshot, MAX_SNAPSHOT_BYTES)?;
@@ -1321,7 +1416,7 @@ pub(crate) async fn build_and_publish_agenda_profile(
             }
             WidgetKind::Agenda | WidgetKind::Tasks => configuration.display.horizon_days,
             // Not calendar-ranged; they must not widen the shared query.
-            WidgetKind::Capture | WidgetKind::Shortcuts => 1,
+            WidgetKind::Capture | WidgetKind::Shortcuts | WidgetKind::Sync => 1,
         })
         .max()
         .unwrap_or(default_horizon_days());
@@ -1419,6 +1514,14 @@ pub(crate) async fn build_and_publish_agenda_profile(
             }
             _ => {}
         }
+        // The sync widget reports on durable local state instead of the shared
+        // calendar projection, so its rows and freshness are built up front and
+        // replace the calendar ones entirely.
+        let sync_rollup = if configuration.kind == WidgetKind::Sync {
+            Some(sync_item_inputs(config_root, &configuration, now))
+        } else {
+            None
+        };
         let generation_started = Instant::now();
         let configuration_id = configuration.configuration_id.clone();
         let max_items = usize::from(configuration.display.max_items);
@@ -1431,10 +1534,18 @@ pub(crate) async fn build_and_publish_agenda_profile(
             WidgetKind::Shortcuts => {
                 items = shortcut_item_inputs(&configuration, &shortcut_candidates)
             }
+            WidgetKind::Sync => {
+                if let Some((rows, _, _)) = &sync_rollup {
+                    items = rows.clone();
+                }
+            }
             _ => {}
         }
         for item in &projected {
-            if matches!(configuration.kind, WidgetKind::Capture | WidgetKind::Shortcuts) {
+            if matches!(
+                configuration.kind,
+                WidgetKind::Capture | WidgetKind::Shortcuts | WidgetKind::Sync
+            ) {
                 break;
             }
             if !configuration.selected_source_ids.is_empty()
@@ -1548,10 +1659,19 @@ pub(crate) async fn build_and_publish_agenda_profile(
                 generated_at: now.to_rfc3339(),
                 date_label: today.format("%Y-%m-%d").to_string(),
                 appearance: Some(appearance.clone()),
-                freshness: freshness.clone(),
+                freshness: match &sync_rollup {
+                    Some((_, accounts, _)) => accounts.clone(),
+                    None => freshness.clone(),
+                },
                 items,
             },
         )?;
+        if let Some((_, _, summary)) = sync_rollup {
+            // The rollup decides the headline, replacing the generic
+            // stale/unavailable phrasing the shared builder produces.
+            snapshot.state_label = summary.state.label(&summary);
+            snapshot.sync = Some(summary);
+        }
         if snapshot.kind == WidgetKind::Month {
             let mut months =
                 Vec::with_capacity(usize::from((MAX_MONTH_OFFSET - MIN_MONTH_OFFSET + 1) as u8));
@@ -2334,6 +2454,459 @@ fn shortcut_row(candidate: &ShortcutCandidate, pinned: bool, order: usize) -> Wi
     }
 }
 
+/// One hosted account a sync widget can be scoped to.
+///
+/// `account_id` is the opaque identity used in widget configurations and
+/// snapshots. `label` is the server URL and exists only so the in-app settings
+/// screen can name the account the user is choosing; it must never be written
+/// into a snapshot or any launcher-readable storage.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WidgetSyncAccount {
+    pub account_id: String,
+    pub label: String,
+    pub vaults: u32,
+}
+
+/// Lists the accounts a sync widget could be scoped to: every registered server
+/// plus every server an offline replica belongs to, so an account whose
+/// registration was dropped is still selectable while its replicas remain.
+pub(crate) fn list_sync_accounts(config_root: &Path) -> Result<Vec<WidgetSyncAccount>, String> {
+    let mut accounts: Vec<WidgetSyncAccount> = Vec::new();
+    let mut record = |server_url: &str, vault: bool| {
+        let account_id = account_hash(server_url);
+        match accounts
+            .iter_mut()
+            .find(|account| account.account_id == account_id)
+        {
+            Some(account) => {
+                if vault {
+                    account.vaults += 1;
+                }
+            }
+            None => accounts.push(WidgetSyncAccount {
+                account_id,
+                label: server_url.to_string(),
+                vaults: u32::from(vault),
+            }),
+        }
+    };
+    if let Ok(view) = crate::background::read_ledger_view(config_root) {
+        for server in view.servers {
+            record(&server.server_url, false);
+        }
+    }
+    // Only identities are needed here, so this must not take the inventory path
+    // that counts queued operations — it would decrypt every replica's queue to
+    // produce numbers this screen never shows.
+    for server_url in collab_replica::ReplicaStore::list_server_urls(config_root).unwrap_or_default()
+    {
+        record(&server_url, true);
+    }
+    accounts.sort_by(|left, right| left.label.cmp(&right.label));
+    Ok(accounts)
+}
+
+/// The opaque identity a sync widget groups and filters accounts by.
+///
+/// Hashing the server URL lets a configuration select accounts, and lets rows
+/// carry their owning account, without the URL ever reaching launcher-readable
+/// storage or a widget configuration file.
+fn account_hash(server_url: &str) -> String {
+    let digest = Sha256::digest(server_url.as_bytes());
+    format!("account-{}", hex::encode(&digest[..8]))
+}
+
+/// A stable, content-free row identity. The vault id is hashed with its account
+/// so the launcher's own preference storage cannot be mined for vault ids.
+#[cfg(any(target_os = "android", test))]
+fn sync_row_id(account: &str, vault_id: &str) -> String {
+    let digest = Sha256::digest(format!("{account}/{vault_id}").as_bytes());
+    format!("sync-{}", hex::encode(&digest[..8]))
+}
+
+/// How long ago something happened, in the coarse terms the widget shows.
+#[cfg(any(target_os = "android", test))]
+fn relative_time_label(now: DateTime<Utc>, then: &str) -> Option<String> {
+    let parsed = DateTime::parse_from_rfc3339(then).ok()?.with_timezone(&Utc);
+    let minutes = (now - parsed).num_minutes();
+    Some(match minutes {
+        // A clock that has moved backwards must not render a negative age.
+        value if value < 1 => "just now".into(),
+        value if value < 60 => format!("{value} min ago"),
+        value if value < 60 * 24 => format!("{} h ago", value / 60),
+        value => format!("{} d ago", value / (60 * 24)),
+    })
+}
+
+/// Builds the sync widget's rows and its privacy-safe rollup.
+///
+/// Everything read here is durable local state — the background ledger the
+/// coordinator writes, plus the replica queues — so the launcher process makes
+/// no network request and starts no webview. Accounts appear only as hashes,
+/// and a failure becomes a coarse state rather than a message: the ledger's
+/// error text and server URLs never leave this function.
+#[cfg(any(target_os = "android", test))]
+fn sync_item_inputs(
+    config_root: &Path,
+    configuration: &WidgetConfiguration,
+    now: DateTime<Utc>,
+) -> (
+    Vec<WidgetItemInput>,
+    Vec<WidgetSourceFreshness>,
+    WidgetSyncSummary,
+) {
+    use crate::background::BackgroundJobStatus;
+    use collab_replica::models::SyncStatus;
+
+    let view = crate::background::read_ledger_view(config_root).ok();
+    let settings = view
+        .as_ref()
+        .map(|view| view.settings.clone())
+        .unwrap_or_default();
+    let jobs = view.as_ref().map(|view| view.jobs.as_slice()).unwrap_or(&[]);
+    let selected: HashSet<&str> = configuration
+        .selected_source_ids
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let includes = |account: &str| selected.is_empty() || selected.contains(account);
+
+    // Accounts are every registered server plus every server a replica belongs
+    // to, so a vault whose registration was dropped still reports honestly.
+    let mut accounts: HashMap<String, AccountRollup> = HashMap::new();
+    for server in view.iter().flat_map(|view| view.servers.iter()) {
+        let account = account_hash(&server.server_url);
+        if includes(&account) {
+            accounts.entry(account).or_default();
+        }
+    }
+
+    let mut summary = WidgetSyncSummary {
+        state: WidgetSyncState::UpToDate,
+        last_success_at: None,
+        last_success_label: None,
+        pending_operations: 0,
+        failed_operations: 0,
+        active_jobs: 0,
+        attention_required: 0,
+        accounts: 0,
+        vaults: 0,
+        progress_completed: 0,
+        progress_total: None,
+        can_sync_now: false,
+    };
+    let mut progress_total_known = true;
+    for job in jobs {
+        let account = job.server_url.as_deref().map(account_hash);
+        // A job without a server is profile-local maintenance; it still counts
+        // toward the rollup unless the user narrowed to specific accounts.
+        let counted = match &account {
+            Some(account) => includes(account),
+            None => selected.is_empty(),
+        };
+        if !counted {
+            continue;
+        }
+        let entry = account
+            .as_ref()
+            .map(|account| accounts.entry(account.clone()).or_default());
+        match job.status {
+            BackgroundJobStatus::Queued | BackgroundJobStatus::Running => {
+                summary.active_jobs += 1;
+                summary.progress_completed = summary
+                    .progress_completed
+                    .saturating_add(job.progress.completed);
+                match job.progress.total {
+                    Some(total) => {
+                        summary.progress_total =
+                            Some(summary.progress_total.unwrap_or(0).saturating_add(total))
+                    }
+                    // One unbounded job makes the whole total a guess, so the
+                    // launcher is told to render an indeterminate state.
+                    None => progress_total_known = false,
+                }
+                if let Some(entry) = entry {
+                    entry.running = true;
+                }
+            }
+            BackgroundJobStatus::Succeeded => {
+                if job.finished_at > summary.last_success_at {
+                    summary.last_success_at = job.finished_at.clone();
+                }
+                if let Some(entry) = entry {
+                    if job.finished_at > entry.last_success_at {
+                        entry.last_success_at = job.finished_at.clone();
+                    }
+                }
+            }
+            BackgroundJobStatus::AuthenticationRequired => {
+                summary.attention_required += 1;
+                if let Some(entry) = entry {
+                    entry.authentication_required = true;
+                }
+            }
+            BackgroundJobStatus::Partial
+            | BackgroundJobStatus::PermissionDenied
+            | BackgroundJobStatus::Conflict
+            | BackgroundJobStatus::Failed => {
+                summary.attention_required += 1;
+                if let Some(entry) = entry {
+                    entry.attention_required += 1;
+                }
+            }
+            BackgroundJobStatus::Deferred | BackgroundJobStatus::Cancelled => {}
+        }
+    }
+    if !progress_total_known {
+        summary.progress_total = None;
+    }
+
+    let mut rows = Vec::new();
+    let mut vaults = Vec::new();
+    for replica in collab_replica::ReplicaStore::list(config_root).unwrap_or_default() {
+        let account = account_hash(&replica.server_url);
+        if !includes(&account) {
+            continue;
+        }
+        let entry = accounts.entry(account.clone()).or_default();
+        entry.replicas += 1;
+        if replica.status == SyncStatus::Offline {
+            entry.offline_replicas += 1;
+        }
+        if replica.status == SyncStatus::Syncing {
+            entry.running = true;
+        }
+        if replica.last_synced_at > entry.last_success_at {
+            entry.last_success_at = replica.last_synced_at.clone();
+        }
+        if replica.last_synced_at > summary.last_success_at {
+            summary.last_success_at = replica.last_synced_at.clone();
+        }
+        // Both counts come from the single inventory pass. Re-opening the
+        // replica to count failures again would decrypt and parse every queued
+        // payload a second time, and this runs on every widget publication.
+        let pending = replica.pending_count.min(u32::MAX as usize) as u32;
+        let failed = replica.failed_count.min(u32::MAX as usize) as u32;
+        summary.pending_operations = summary.pending_operations.saturating_add(pending);
+        summary.failed_operations = summary.failed_operations.saturating_add(failed);
+        entry.attention_required += failed;
+        vaults.push(SyncVaultRow {
+            account,
+            vault_id: replica.vault_id,
+            name: replica.vault_name,
+            pending,
+            failed,
+            offline: replica.status == SyncStatus::Offline,
+            syncing: replica.status == SyncStatus::Syncing,
+            last_synced_at: replica.last_synced_at,
+        });
+    }
+
+    summary.vaults = vaults.len() as u32;
+    summary.accounts = accounts.len() as u32;
+    summary.can_sync_now = summary.accounts > 0;
+    let authentication_required = accounts
+        .values()
+        .any(|account| account.authentication_required);
+    let all_offline = !vaults.is_empty() && vaults.iter().all(|vault| vault.offline);
+    summary.state = if authentication_required {
+        WidgetSyncState::AuthenticationRequired
+    } else if summary.attention_required > 0 || summary.failed_operations > 0 {
+        WidgetSyncState::ActionRequired
+    } else if summary.active_jobs > 0 || vaults.iter().any(|vault| vault.syncing) {
+        WidgetSyncState::Syncing
+    } else if all_offline {
+        WidgetSyncState::Offline
+    } else if settings.paused || !settings.background_sync {
+        WidgetSyncState::Paused
+    } else if summary.pending_operations > 0 {
+        WidgetSyncState::PendingChanges
+    } else {
+        WidgetSyncState::UpToDate
+    };
+    summary.last_success_label = summary
+        .last_success_at
+        .as_deref()
+        .and_then(|value| relative_time_label(now, value))
+        .map(|value| format!("Synced {value}"));
+
+    // The recovery row is the only launcher affordance for an attention state,
+    // and it opens the app rather than attempting a fix in the launcher.
+    if summary.state.needs_attention() {
+        let destination = if summary.state == WidgetSyncState::AuthenticationRequired {
+            "settings-account"
+        } else {
+            "settings-background"
+        };
+        let title = if summary.state == WidgetSyncState::AuthenticationRequired {
+            "Sign in again"
+        } else {
+            "Review sync problems"
+        };
+        let source_id = accounts
+            .iter()
+            .find(|(_, account)| account.authentication_required || account.attention_required > 0)
+            .map(|(id, _)| id.clone())
+            .or_else(|| accounts.keys().next().cloned())
+            .unwrap_or_else(|| "account-unknown".into());
+        rows.push(WidgetItemInput {
+            stable_id: "sync-recovery".into(),
+            source_id,
+            sort_key: "0".into(),
+            title: title.into(),
+            detail: "Opens Collab settings".into(),
+            title_only_detail: "Opens Collab settings".into(),
+            private_title: title.into(),
+            completed: false,
+            section: None,
+            item_kind: None,
+            calendar_id: None,
+            item_id: None,
+            day_key: None,
+            start_at: None,
+            all_day: false,
+            source_color: None,
+            task: None,
+            shortcut: Some(WidgetShortcutDetails {
+                destination: destination.into(),
+                vault_id: None,
+                file_id: None,
+                entry_kind: None,
+                pinned: false,
+            }),
+        });
+    }
+
+    // Vaults that need something rank above vaults that are simply waiting,
+    // which rank above vaults with nothing to report.
+    vaults.sort_by(|left, right| {
+        right
+            .failed
+            .cmp(&left.failed)
+            .then_with(|| right.pending.cmp(&left.pending))
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.vault_id.cmp(&right.vault_id))
+    });
+    for (order, vault) in vaults.iter().enumerate() {
+        rows.push(WidgetItemInput {
+            stable_id: sync_row_id(&vault.account, &vault.vault_id),
+            source_id: vault.account.clone(),
+            sort_key: format!("1:{order:03}"),
+            title: truncate_utf8(&vault.name, MAX_TEXT_BYTES),
+            detail: sync_row_detail(vault, now),
+            title_only_detail: sync_row_detail(vault, now),
+            private_title: "Vault".into(),
+            completed: false,
+            section: None,
+            item_kind: None,
+            calendar_id: None,
+            item_id: None,
+            day_key: None,
+            start_at: None,
+            all_day: false,
+            source_color: None,
+            task: None,
+            // A vault with nothing to recover has no destination of its own and
+            // falls back to the widget header. One that does opens the sync
+            // settings, where the conflict actually has a recovery UI.
+            shortcut: (vault.failed > 0).then(|| WidgetShortcutDetails {
+                destination: "settings-background".into(),
+                vault_id: None,
+                file_id: None,
+                entry_kind: None,
+                pinned: false,
+            }),
+        });
+    }
+
+    let mut freshness = accounts
+        .iter()
+        .map(|(account, rollup)| WidgetSourceFreshness {
+            source_id: account.clone(),
+            freshness: rollup.freshness(),
+        })
+        .collect::<Vec<_>>();
+    freshness.sort_by(|left, right| left.source_id.cmp(&right.source_id));
+    (rows, freshness, summary)
+}
+
+/// Per-account totals used to derive the rollup and each account's freshness.
+#[cfg(any(target_os = "android", test))]
+#[derive(Debug, Default)]
+struct AccountRollup {
+    running: bool,
+    authentication_required: bool,
+    attention_required: u32,
+    replicas: u32,
+    offline_replicas: u32,
+    last_success_at: Option<String>,
+}
+
+#[cfg(any(target_os = "android", test))]
+impl AccountRollup {
+    fn freshness(&self) -> WidgetFreshness {
+        if self.authentication_required
+            || (self.replicas > 0 && self.offline_replicas == self.replicas)
+        {
+            WidgetFreshness::Unavailable
+        } else if self.attention_required > 0 || self.last_success_at.is_none() {
+            WidgetFreshness::Stale
+        } else {
+            WidgetFreshness::Fresh
+        }
+    }
+}
+
+/// One replica's row in the sync widget.
+#[cfg(any(target_os = "android", test))]
+struct SyncVaultRow {
+    account: String,
+    vault_id: String,
+    name: String,
+    pending: u32,
+    failed: u32,
+    offline: bool,
+    syncing: bool,
+    last_synced_at: Option<String>,
+}
+
+/// The row detail. It carries counts and an age only — never a path, a server,
+/// or a failure message — so it is identical at every privacy level.
+#[cfg(any(target_os = "android", test))]
+fn sync_row_detail(vault: &SyncVaultRow, now: DateTime<Utc>) -> String {
+    if vault.failed > 0 {
+        return match vault.failed {
+            1 => "1 change needs attention".into(),
+            count => format!("{count} changes need attention"),
+        };
+    }
+    if vault.syncing {
+        return "Syncing…".into();
+    }
+    if vault.pending > 0 {
+        let pending = match vault.pending {
+            1 => "1 change waiting".to_string(),
+            count => format!("{count} changes waiting"),
+        };
+        return if vault.offline {
+            format!("Offline · {pending}")
+        } else {
+            pending
+        };
+    }
+    match vault
+        .last_synced_at
+        .as_deref()
+        .and_then(|value| relative_time_label(now, value))
+    {
+        Some(age) if vault.offline => format!("Offline · synced {age}"),
+        Some(age) => format!("Synced {age}"),
+        None if vault.offline => "Offline".into(),
+        None => "Not synced yet".into(),
+    }
+}
+
 #[cfg(any(target_os = "android", test))]
 fn countdown_item_is_selected(item: &CalendarItem, selected_item_ids: &[String]) -> bool {
     selected_item_ids.iter().any(|selected| {
@@ -2749,7 +3322,7 @@ fn validate_configuration(configuration: &WidgetConfiguration) -> Result<(), Str
         WidgetKind::Tasks => 90,
         // Capture and shortcut widgets are not time-ranged; the horizon is
         // carried only so one configuration shape covers every kind.
-        WidgetKind::Capture | WidgetKind::Shortcuts => 366,
+        WidgetKind::Capture | WidgetKind::Shortcuts | WidgetKind::Sync => 366,
         WidgetKind::Birthday | WidgetKind::Countdown => 366,
     };
     if !(1..=max_horizon).contains(&configuration.display.horizon_days) {
@@ -2814,6 +3387,22 @@ fn validate_snapshot(snapshot: &WidgetSnapshot, expected_profile_hash: &str) -> 
     }
     if snapshot.days.len() > MAX_SNAPSHOT_DAYS {
         return Err("The widget snapshot exceeds its day-summary limit.".into());
+    }
+    if snapshot.sync.is_some() && snapshot.kind != WidgetKind::Sync {
+        return Err("Only a sync widget may carry a synchronization rollup.".into());
+    }
+    if let Some(sync) = &snapshot.sync {
+        if let Some(value) = &sync.last_success_at {
+            validate_text(value, MAX_TEXT_BYTES, "widget sync time")?;
+        }
+        // A total below what has already completed would render as a progress
+        // bar running past its own end.
+        if sync
+            .progress_total
+            .is_some_and(|total| total < sync.progress_completed)
+        {
+            return Err("The widget sync progress is inconsistent.".into());
+        }
     }
     if let Some(value) = &snapshot.month_label {
         validate_text(value, MAX_TEXT_BYTES, "widget month label")?;
@@ -2993,6 +3582,7 @@ fn snapshot_content_eq(left: &WidgetSnapshot, right: &WidgetSnapshot) -> bool {
         && left.items == right.items
         && left.days == right.days
         && left.months == right.months
+        && left.sync == right.sync
 }
 
 fn encode_bounded<T: Serialize>(value: &T, max_bytes: usize) -> Result<Vec<u8>, String> {
@@ -4809,5 +5399,481 @@ mod tests {
             .unwrap()
             .contains("collab.example"));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    fn sync_configuration(id: &str) -> WidgetConfiguration {
+        let mut configuration = configuration(id, WidgetPrivacy::Full);
+        configuration.kind = WidgetKind::Sync;
+        configuration.selected_source_ids.clear();
+        configuration.display.max_items = 6;
+        configuration
+    }
+
+    fn seed_sync_replica(
+        root: &Path,
+        server_url: &str,
+        vault_id: &str,
+        vault_name: &str,
+        status: collab_replica::models::SyncStatus,
+        last_synced_at: Option<&str>,
+        pending: &[collab_replica::PendingOpStatus],
+    ) {
+        let store = collab_replica::ReplicaStore::open_or_create(
+            root,
+            server_url,
+            vault_id,
+            vault_name,
+            Some("editor"),
+            &["vault.read".to_string()],
+        )
+        .unwrap();
+        store
+            .write_sync_state(&collab_replica::ReplicaSyncState {
+                manifest_sequence: 3,
+                last_synced_at: last_synced_at.map(str::to_string),
+                offline_available_at: None,
+                status,
+            })
+            .unwrap();
+        for (index, status) in pending.iter().enumerate() {
+            store
+                .enqueue_operation(&collab_replica::PendingOperation {
+                    id: format!("op-{index}"),
+                    kind: collab_replica::models::PendingOpKind::Edit,
+                    file_id: Some("file-1".into()),
+                    relative_path: Some("Note.md".into()),
+                    payload: serde_json::json!({}),
+                    base_manifest_sequence: 3,
+                    created_at: "2026-08-01T07:00:00Z".into(),
+                    status: *status,
+                    failure_code: None,
+                    failure_message: None,
+                })
+                .unwrap();
+        }
+    }
+
+    fn write_background_state(
+        root: &Path,
+        jobs: serde_json::Value,
+        servers: serde_json::Value,
+        settings: Option<serde_json::Value>,
+    ) {
+        fs::create_dir_all(root).unwrap();
+        fs::write(
+            root.join("background-jobs.json"),
+            serde_json::json!({ "schemaVersion": 1, "jobs": jobs }).to_string(),
+        )
+        .unwrap();
+        fs::write(
+            root.join("background-servers.json"),
+            serde_json::json!({ "schemaVersion": 1, "servers": servers }).to_string(),
+        )
+        .unwrap();
+        if let Some(settings) = settings {
+            fs::write(root.join("background-settings.json"), settings.to_string()).unwrap();
+        }
+    }
+
+    fn background_job(
+        id: &str,
+        server_url: &str,
+        status: &str,
+        finished_at: Option<&str>,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "id": id,
+            "idempotencyKey": id,
+            "kind": "replica_sync",
+            "serverUrl": server_url,
+            "profileId": serde_json::Value::Null,
+            "vaultId": serde_json::Value::Null,
+            "trigger": "periodic",
+            "attempt": 1,
+            "status": status,
+            "createdAt": "2026-08-01T07:00:00Z",
+            "startedAt": "2026-08-01T07:00:00Z",
+            "finishedAt": finished_at,
+            "nextRetryAt": serde_json::Value::Null,
+            "progress": { "completed": 0, "total": serde_json::Value::Null, "detail": serde_json::Value::Null },
+            "summary": serde_json::Value::Null,
+            "errorCategory": serde_json::Value::Null,
+            "errorMessage": serde_json::Value::Null,
+            "retryable": false,
+        })
+    }
+
+    fn sync_now() -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339("2026-08-01T08:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    #[test]
+    fn sync_rollup_reports_pending_work_without_naming_a_server() {
+        let root = test_root();
+        write_background_state(
+            &root,
+            serde_json::json!([background_job(
+                "job-1",
+                "https://collab.example",
+                "succeeded",
+                Some("2026-08-01T07:40:00Z"),
+            )]),
+            serde_json::json!([{
+                "serverUrl": "https://collab.example",
+                "allowInvalidCertificates": false,
+                "persistAcrossReboots": false,
+                "backgroundSyncEnabled": true,
+                "profileIds": ["profile-1"],
+                "updatedAt": "2026-08-01T07:00:00Z",
+            }]),
+            None,
+        );
+        seed_sync_replica(
+            &root,
+            "https://collab.example",
+            "vault-1",
+            "Team vault",
+            collab_replica::models::SyncStatus::Idle,
+            Some("2026-08-01T07:40:00Z"),
+            &[collab_replica::PendingOpStatus::Pending],
+        );
+
+        let (rows, freshness, summary) =
+            sync_item_inputs(&root, &sync_configuration("sync-1"), sync_now());
+        assert_eq!(summary.state, WidgetSyncState::PendingChanges);
+        assert_eq!(summary.pending_operations, 1);
+        assert_eq!(summary.failed_operations, 0);
+        assert_eq!(summary.vaults, 1);
+        assert_eq!(summary.accounts, 1);
+        assert!(summary.can_sync_now);
+        assert_eq!(
+            summary.last_success_label.as_deref(),
+            Some("Synced 20 min ago"),
+        );
+        assert_eq!(summary.state.label(&summary), "1 change waiting to sync");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].detail, "1 change waiting");
+        // Accounts are identified only by an opaque hash of their origin.
+        assert_eq!(freshness.len(), 1);
+        assert!(freshness[0].source_id.starts_with("account-"));
+        let encoded = serde_json::to_string(&rows).unwrap();
+        assert!(!encoded.contains("collab.example"));
+        assert!(!encoded.contains("vault-1"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sync_states_rank_attention_above_progress_and_pending() {
+        let root = test_root();
+        write_background_state(
+            &root,
+            serde_json::json!([
+                background_job("job-auth", "https://collab.example", "authentication_required", None),
+                background_job("job-run", "https://collab.example", "running", None),
+            ]),
+            serde_json::json!([]),
+            None,
+        );
+        seed_sync_replica(
+            &root,
+            "https://collab.example",
+            "vault-1",
+            "Team vault",
+            collab_replica::models::SyncStatus::Idle,
+            Some("2026-08-01T07:00:00Z"),
+            &[collab_replica::PendingOpStatus::Pending],
+        );
+
+        let (rows, _, summary) = sync_item_inputs(&root, &sync_configuration("sync-1"), sync_now());
+        // Re-authentication outranks a run in flight and queued local changes.
+        assert_eq!(summary.state, WidgetSyncState::AuthenticationRequired);
+        assert_eq!(summary.active_jobs, 1);
+        assert_eq!(summary.state.label(&summary), "Sign in again to sync");
+        // The only launcher affordance for an attention state opens the app.
+        let recovery = rows.first().unwrap();
+        assert_eq!(recovery.stable_id, "sync-recovery");
+        assert_eq!(
+            recovery.shortcut.as_ref().unwrap().destination,
+            "settings-account",
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sync_failed_operations_become_an_attention_state_with_a_background_link() {
+        let root = test_root();
+        write_background_state(&root, serde_json::json!([]), serde_json::json!([]), None);
+        seed_sync_replica(
+            &root,
+            "https://collab.example",
+            "vault-1",
+            "Team vault",
+            collab_replica::models::SyncStatus::Idle,
+            Some("2026-08-01T07:55:00Z"),
+            &[
+                collab_replica::PendingOpStatus::Failed,
+                collab_replica::PendingOpStatus::Pending,
+            ],
+        );
+
+        let (rows, _, summary) = sync_item_inputs(&root, &sync_configuration("sync-1"), sync_now());
+        assert_eq!(summary.state, WidgetSyncState::ActionRequired);
+        assert_eq!(summary.failed_operations, 1);
+        assert_eq!(summary.pending_operations, 2);
+        assert_eq!(
+            rows[0].shortcut.as_ref().unwrap().destination,
+            "settings-background",
+        );
+        // The vault row leads with what has to be recovered.
+        assert_eq!(rows[1].detail, "1 change needs attention");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sync_pauses_and_reports_offline_only_when_every_replica_is() {
+        let root = test_root();
+        write_background_state(
+            &root,
+            serde_json::json!([]),
+            serde_json::json!([]),
+            Some(serde_json::json!({
+                "schemaVersion": 1,
+                "runInBackground": true,
+                "backgroundSync": true,
+                "syncInterval": "system_managed",
+                "startAtLogin": false,
+                "closeBehavior": "hide_to_tray",
+                "paused": true,
+            })),
+        );
+        seed_sync_replica(
+            &root,
+            "https://collab.example",
+            "vault-1",
+            "Team vault",
+            collab_replica::models::SyncStatus::Offline,
+            Some("2026-08-01T06:00:00Z"),
+            &[],
+        );
+        seed_sync_replica(
+            &root,
+            "https://collab.example",
+            "vault-2",
+            "Notes",
+            collab_replica::models::SyncStatus::Idle,
+            Some("2026-08-01T06:00:00Z"),
+            &[],
+        );
+
+        // One reachable replica keeps the rollup out of the offline state, so a
+        // paused profile still reports the reason nothing is running.
+        let (_, _, summary) = sync_item_inputs(&root, &sync_configuration("sync-1"), sync_now());
+        assert_eq!(summary.state, WidgetSyncState::Paused);
+
+        seed_sync_replica(
+            &root,
+            "https://collab.example",
+            "vault-2",
+            "Notes",
+            collab_replica::models::SyncStatus::Offline,
+            Some("2026-08-01T06:00:00Z"),
+            &[],
+        );
+        let (_, _, summary) = sync_item_inputs(&root, &sync_configuration("sync-1"), sync_now());
+        assert_eq!(summary.state, WidgetSyncState::Offline);
+        assert_eq!(summary.state.label(&summary), "Offline · changes sync later");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sync_accounts_expose_an_app_only_label_beside_the_opaque_identity() {
+        let root = test_root();
+        write_background_state(
+            &root,
+            serde_json::json!([]),
+            serde_json::json!([{
+                "serverUrl": "https://collab.example",
+                "allowInvalidCertificates": false,
+                "persistAcrossReboots": false,
+                "backgroundSyncEnabled": true,
+                "profileIds": ["profile-1"],
+                "updatedAt": "2026-08-01T07:00:00Z",
+            }]),
+            None,
+        );
+        seed_sync_replica(
+            &root,
+            "https://collab.example",
+            "vault-1",
+            "Team vault",
+            collab_replica::models::SyncStatus::Idle,
+            None,
+            &[],
+        );
+        // A replica whose server registration was dropped stays selectable.
+        seed_sync_replica(
+            &root,
+            "https://other.example",
+            "vault-2",
+            "Other vault",
+            collab_replica::models::SyncStatus::Idle,
+            None,
+            &[],
+        );
+
+        let accounts = list_sync_accounts(&root).unwrap();
+        assert_eq!(accounts.len(), 2);
+        assert_eq!(accounts[0].label, "https://collab.example");
+        assert_eq!(accounts[0].vaults, 1);
+        // The identity the configuration stores is the hash, not the label.
+        assert_eq!(accounts[0].account_id, account_hash("https://collab.example"));
+        assert!(accounts
+            .iter()
+            .all(|account| account.account_id.starts_with("account-")));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sync_selection_filters_by_opaque_account_identity() {
+        let root = test_root();
+        write_background_state(&root, serde_json::json!([]), serde_json::json!([]), None);
+        seed_sync_replica(
+            &root,
+            "https://collab.example",
+            "vault-1",
+            "Team vault",
+            collab_replica::models::SyncStatus::Idle,
+            Some("2026-08-01T07:50:00Z"),
+            &[],
+        );
+        seed_sync_replica(
+            &root,
+            "https://other.example",
+            "vault-2",
+            "Other vault",
+            collab_replica::models::SyncStatus::Idle,
+            Some("2026-08-01T07:50:00Z"),
+            &[collab_replica::PendingOpStatus::Pending],
+        );
+
+        let mut configuration = sync_configuration("sync-1");
+        configuration.selected_source_ids = vec![account_hash("https://collab.example")];
+        let (rows, freshness, summary) = sync_item_inputs(&root, &configuration, sync_now());
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "Team vault");
+        assert_eq!(freshness.len(), 1);
+        // The excluded account contributes neither a row nor a pending change.
+        assert_eq!(summary.pending_operations, 0);
+        assert_eq!(summary.state, WidgetSyncState::UpToDate);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sync_progress_stays_indeterminate_when_a_running_job_has_no_total() {
+        let root = test_root();
+        let mut bounded = background_job("job-1", "https://collab.example", "running", None);
+        bounded["progress"] = serde_json::json!({ "completed": 2, "total": 8, "detail": null });
+        let unbounded = background_job("job-2", "https://collab.example", "running", None);
+        write_background_state(
+            &root,
+            serde_json::json!([bounded.clone()]),
+            serde_json::json!([]),
+            None,
+        );
+        let (_, _, summary) = sync_item_inputs(&root, &sync_configuration("sync-1"), sync_now());
+        assert_eq!(summary.state, WidgetSyncState::Syncing);
+        assert_eq!(summary.progress_completed, 2);
+        assert_eq!(summary.progress_total, Some(8));
+
+        write_background_state(
+            &root,
+            serde_json::json!([bounded, unbounded]),
+            serde_json::json!([]),
+            None,
+        );
+        let (_, _, summary) = sync_item_inputs(&root, &sync_configuration("sync-1"), sync_now());
+        assert_eq!(summary.progress_total, None);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn sync_profiles_publish_a_rollup_without_reading_the_calendar() {
+        let root = test_root();
+        let calendar_store = CalendarStore::open(&root, "profile-1").await.unwrap();
+        write_background_state(&root, serde_json::json!([]), serde_json::json!([]), None);
+        seed_sync_replica(
+            &root,
+            "https://collab.example",
+            "vault-1",
+            "Team vault",
+            collab_replica::models::SyncStatus::Idle,
+            Some("2026-08-01T07:30:00Z"),
+            &[],
+        );
+        let widget_store = WidgetStore::open(&root, "profile-1").unwrap();
+        widget_store
+            .save_configuration(sync_configuration("sync-1"))
+            .unwrap();
+
+        let outcomes = build_and_publish_agenda_profile(
+            &root,
+            "profile-1",
+            &calendar_store,
+            sync_now(),
+            "test",
+        )
+        .await
+        .unwrap();
+        let snapshot = &outcomes[0].snapshot;
+        assert_eq!(snapshot.kind, WidgetKind::Sync);
+        let summary = snapshot.sync.as_ref().unwrap();
+        assert_eq!(summary.state, WidgetSyncState::UpToDate);
+        assert_eq!(snapshot.state_label, "Up to date");
+        assert_eq!(snapshot.items.len(), 1);
+        assert!(snapshot.days.is_empty() && snapshot.months.is_empty());
+        assert!(!serde_json::to_string(snapshot)
+            .unwrap()
+            .contains("collab.example"));
+
+        let action = widget_store
+            .prepare_action(WidgetActionRequest {
+                configuration_id: "sync-1".into(),
+                action: WidgetActionKind::OpenSync,
+            })
+            .unwrap();
+        assert_eq!(action.destination_kind, "settings-background");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn only_a_sync_widget_may_carry_a_rollup() {
+        let profile_hash = profile_hash("profile-1");
+        let mut snapshot = build_snapshot(
+            "profile-1",
+            request(configuration("config-1", WidgetPrivacy::Full), "2026-08-01T10:00:00Z"),
+        )
+        .unwrap();
+        snapshot.sync = Some(WidgetSyncSummary {
+            state: WidgetSyncState::UpToDate,
+            last_success_at: None,
+            last_success_label: None,
+            pending_operations: 0,
+            failed_operations: 0,
+            active_jobs: 0,
+            attention_required: 0,
+            accounts: 0,
+            vaults: 0,
+            progress_completed: 4,
+            progress_total: Some(1),
+            can_sync_now: false,
+        });
+        assert!(validate_snapshot(&snapshot, &profile_hash).is_err());
+        snapshot.kind = WidgetKind::Sync;
+        // Progress that has already passed its own total is still rejected.
+        assert!(validate_snapshot(&snapshot, &profile_hash).is_err());
+        snapshot.sync.as_mut().unwrap().progress_total = Some(8);
+        assert!(validate_snapshot(&snapshot, &profile_hash).is_ok());
     }
 }

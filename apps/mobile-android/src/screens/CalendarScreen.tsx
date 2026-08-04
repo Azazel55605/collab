@@ -346,8 +346,14 @@ export function CalendarScreen({ prefs }: { prefs: ThemePrefs }) {
     [currentUserIds, prefs.calendarShowDeclined, projectedItems, visibleIds],
   );
   const calendarById = useMemo(() => new Map(calendars.map((calendar) => [calendar.id, calendar])), [calendars]);
-  const selectedItems = visibleItems.filter((item) => itemOccursOn(item, selectedDate));
-  const taskItems = visibleItems.filter((item) => item.kind === 'task');
+  const selectedItems = useMemo(
+    () => visibleItems.filter((item) => itemOccursOn(item, selectedDate)),
+    [visibleItems, selectedDate],
+  );
+  const taskItems = useMemo(
+    () => visibleItems.filter((item) => item.kind === 'task'),
+    [visibleItems],
+  );
 
   const refresh = async () => {
     await syncCalendars().catch(() => {});
@@ -1104,16 +1110,100 @@ function calendarServerLabel(serverUrl: string): string {
   try { return new URL(serverUrl).host; } catch { return serverUrl; }
 }
 
+/** Shared empty bucket so days with nothing on them do not allocate. */
+const EMPTY_ITEMS: CalendarItem[] = [];
+
+interface MonthDayCell {
+  date: Date;
+  key: string;
+  /** `MM-DD`, for the birthday match. */
+  monthDay: string;
+  startMs: number;
+  endMs: number;
+}
+
+/**
+ * Buckets a month's items by day once, instead of filtering the whole list
+ * inside every cell.
+ *
+ * The per-cell filter this replaces evaluated `itemOccursOn` 42 × items times on
+ * every render, and each timed-event test built up to four `Date` objects by
+ * parsing strings. Hoisting the parsing out — each item's span once, each day's
+ * bounds once — leaves only numeric and string comparisons in the inner loop.
+ * The match rules below are deliberately identical to `itemOccursOn`.
+ */
+function useMonthItemsByDay(
+  days: MonthDayCell[],
+  items: CalendarItem[],
+): Map<string, CalendarItem[]> {
+  return useMemo(() => {
+    const buckets = new Map<string, CalendarItem[]>();
+    for (const day of days) buckets.set(day.key, []);
+    for (const item of items) {
+      if (item.kind === 'birthday') {
+        const monthDay = item.date.slice(5);
+        for (const day of days) {
+          if (day.monthDay === monthDay) buckets.get(day.key)!.push(item);
+        }
+        continue;
+      }
+      if (item.kind === 'event') {
+        if (item.start.kind === 'date' && item.end.kind === 'date') {
+          const from = item.start.date;
+          const to = item.end.date;
+          for (const day of days) {
+            if (from <= day.key && day.key < to) buckets.get(day.key)!.push(item);
+          }
+          continue;
+        }
+        const start = item.start.kind === 'dateTime'
+          ? new Date(item.start.dateTime).getTime()
+          : parseDate(item.start.date).getTime();
+        const end = item.end.kind === 'dateTime'
+          ? new Date(item.end.dateTime).getTime()
+          : parseDate(item.end.date).getTime();
+        for (const day of days) {
+          if (start < day.endMs && end > day.startMs) buckets.get(day.key)!.push(item);
+        }
+        continue;
+      }
+      buckets.get(itemDate(item))?.push(item);
+    }
+    return buckets;
+  }, [days, items]);
+}
+
 function MonthView({ anchor, selectedDate, items, calendarById, weekStart, hideWeekends, onStep, onSelect, onOpen }: {
   anchor: Date; selectedDate: string; items: CalendarItem[]; calendarById: Map<string, CalendarDefinition>;
   weekStart: 0 | 1; hideWeekends: boolean;
   onStep: (direction: -1 | 1) => void; onSelect: (date: string) => void; onOpen: (item: CalendarItem) => void;
 }) {
   const todayKey = dateKey(new Date());
-  const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-  const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1 - ((first.getDay() - weekStart + 7) % 7));
-  const fullDays = Array.from({ length: 42 }, (_, index) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + index));
-  const days = hideWeekends ? fullDays.filter(day => day.getDay() !== 0 && day.getDay() !== 6) : fullDays;
+  const anchorYear = anchor.getFullYear();
+  const anchorMonth = anchor.getMonth();
+  // Keyed on primitives so the grid and its buckets survive re-renders that did
+  // not actually change the month.
+  const days = useMemo(() => {
+    const first = new Date(anchorYear, anchorMonth, 1);
+    const start = new Date(anchorYear, anchorMonth, 1 - ((first.getDay() - weekStart + 7) % 7));
+    const cells = Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
+      const key = dateKey(date);
+      return {
+        date,
+        key,
+        monthDay: key.slice(5),
+        // Day boundaries are computed once per cell rather than once per
+        // (cell, item) pair.
+        startMs: new Date(`${key}T00:00:00`).getTime(),
+        endMs: new Date(`${addDays(key, 1)}T00:00:00`).getTime(),
+      };
+    });
+    return hideWeekends
+      ? cells.filter(cell => cell.date.getDay() !== 0 && cell.date.getDay() !== 6)
+      : cells;
+  }, [anchorYear, anchorMonth, weekStart, hideWeekends]);
+  const itemsByDay = useMonthItemsByDay(days, items);
   const weekdayDates = Array.from({ length: 7 }, (_, index) => new Date(2026, 6, 5 + ((weekStart + index) % 7)))
     .filter(day => !hideWeekends || (day.getDay() !== 0 && day.getDay() !== 6));
   const columnStyle = { gridTemplateColumns: `repeat(${hideWeekends ? 5 : 7}, minmax(0, 1fr))` };
@@ -1124,12 +1214,11 @@ function MonthView({ anchor, selectedDate, items, calendarById, weekStart, hideW
       <button type="button" className="icon-button" aria-label="Next month" onClick={() => onStep(1)}><ChevronRight size={18} /></button>
     </div>
     <div className="calendar-mobile-weekdays" style={columnStyle}>{weekdayDates.map(day => <span key={day.getDay()}>{day.toLocaleDateString(undefined, { weekday: 'narrow' })}</span>)}</div>
-    <div className="calendar-mobile-grid" style={columnStyle}>{days.map(day => {
-      const key = dateKey(day);
-      const dayItems = items.filter(item => itemOccursOn(item, key));
+    <div className="calendar-mobile-grid" style={columnStyle}>{days.map(({ date: day, key }) => {
+      const dayItems = itemsByDay.get(key) ?? EMPTY_ITEMS;
       return <div
         key={key}
-        className={`calendar-mobile-cell ${day.getMonth() === anchor.getMonth() ? '' : 'outside'} ${selectedDate === key ? 'selected' : ''} ${todayKey === key ? 'today' : ''}`}
+        className={`calendar-mobile-cell ${day.getMonth() === anchorMonth ? '' : 'outside'} ${selectedDate === key ? 'selected' : ''} ${todayKey === key ? 'today' : ''}`}
         onClick={() => onSelect(key)}
       >
         <button

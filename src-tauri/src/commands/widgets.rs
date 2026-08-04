@@ -2,9 +2,10 @@ use super::app_config_dir;
 #[cfg(target_os = "android")]
 use crate::widgets::active_profile;
 use crate::widgets::{
-    build_snapshot, clear_active_profile, save_appearance, set_active_profile, WidgetActionRequest,
-    WidgetAppearanceSnapshot, WidgetBuildRequest, WidgetConfiguration, WidgetDiagnostics,
-    WidgetPreparedAction, WidgetPublishOutcome, WidgetSnapshot, WidgetStore,
+    build_snapshot, clear_active_profile, list_sync_accounts, save_appearance, set_active_profile,
+    WidgetActionRequest, WidgetAppearanceSnapshot, WidgetBuildRequest, WidgetConfiguration,
+    WidgetDiagnostics, WidgetPreparedAction, WidgetPublishOutcome, WidgetSnapshot, WidgetStore,
+    WidgetSyncAccount,
 };
 
 fn store(profile_id: &str) -> Result<WidgetStore, String> {
@@ -85,6 +86,15 @@ pub fn widget_configuration_delete(
     #[cfg(target_os = "android")]
     crate::android_jni::request_widget_profile_rebuild(&profile_id)?;
     Ok(removed)
+}
+
+/// The accounts a sync widget may be scoped to. The returned label is the
+/// server URL and is for the in-app settings screen only — it is never carried
+/// into a widget configuration, snapshot, or launcher storage, which use the
+/// opaque `accountId` instead.
+#[tauri::command]
+pub async fn widget_sync_accounts() -> Result<Vec<WidgetSyncAccount>, String> {
+    list_sync_accounts(&app_config_dir()?)
 }
 
 #[tauri::command]

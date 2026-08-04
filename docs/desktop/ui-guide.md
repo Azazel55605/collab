@@ -304,6 +304,14 @@ Rules:
   needs that outline to read as a card.
 - Compact sizes drop detail lines and section labels rather than shrinking hit
   targets or crowding the card.
+- State colour is not decoration. `--destructive` marks only what the user has
+  to recover from, the accent marks work actually in flight, and everything
+  else — waiting, offline, paused — stays muted. A widget that colours ordinary
+  states loses the ability to signal a real one.
+- A widget must not render optimistic state. An action reports that it was
+  accepted and then republishes; what actually happened arrives through the
+  normal snapshot path, so the launcher can never show a success the native
+  layer did not apply.
 
 ## Canvas, Graph, and Spatial Views
 

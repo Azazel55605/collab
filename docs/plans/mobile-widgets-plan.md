@@ -666,6 +666,46 @@ vault name in a privacy-reduced mode.
 
 ## Phase 7: Sync Status Widget
 
+### Implementation Status
+
+- Android registers a `Sync` Glance provider that reuses the existing opaque
+  launcher binding, native configuration activity, WorkManager fallback, and
+  lifecycle/update coordinator. It adds no polling of its own.
+- The rollup is built in Rust from durable local state only: the persistent
+  background ledger the coordinator writes, plus the replica sync states and
+  pending-operation queues. The launcher process makes no network request and
+  starts no webview.
+- `WidgetSyncState` ranks re-authentication above recoverable failures, above a
+  run in flight, above a fully offline profile, above a paused profile, above
+  queued local changes. Rust owns that precedence and the rendered headline, so
+  Kotlin never infers what a count means.
+- Accounts appear only as `account-{hash(serverUrl)}`. Configurations scope by
+  that hash, snapshot rows carry it as their source, and no server URL reaches a
+  configuration file, a snapshot, or launcher-readable storage. Settings names
+  accounts through the separate `widget_sync_accounts` command, whose label is
+  app-only.
+- Rows are per-vault, sorted by what needs recovery first. Their details carry
+  counts and ages only — never a path, an origin, or a failure message — so they
+  are identical at every privacy level. Private mode still replaces vault names.
+- Sync now enqueues through the same unique, settings-constrained WorkManager
+  chain the app and scheduler use (`ExistingWorkPolicy.KEEP`), so repeated taps
+  join the queued run. The widget shows only that the request was accepted and
+  republishes; resulting state arrives through the normal snapshot path.
+- Progress is coarse and quantised to ten segments, and a run whose total is
+  unknown renders indeterminate rather than inventing a proportion.
+- Attention states expose one recovery row that deep-links to the `background`
+  or `account` settings category. The widget never attempts a fix it cannot show
+  the result of.
+
+### Remaining Exit Work
+
+- Physical launcher validation: placement and resize, Sync now under Doze and
+  battery saver, repeated taps producing exactly one run, the recovery rows
+  landing in the right settings category after a cold start, and the rollup
+  staying honest while a profile is signed out.
+
+### Requirements
+
 - Build privacy-safe rollups from the persistent background ledger and replica
   state: last success, running state, pending count, recoverable failures, auth
   required, and offline state.

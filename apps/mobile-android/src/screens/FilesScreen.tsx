@@ -94,23 +94,31 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
 
   // Quick capture opens the flows this screen already owns. It never bypasses
   // the capability checks the corresponding toolbar buttons apply.
+  //
+  // The handler is held in a ref so the listener can be registered once. Without
+  // a dependency array this effect re-subscribed on every render, and adding one
+  // would instead capture a stale `handleUpload` (which closes over the current
+  // folder), so neither plain form is correct here.
+  const captureHandlerRef = useRef<(kind: string | undefined) => void>(() => {});
+  captureHandlerRef.current = (kind) => {
+    if (!selected || readOnly || !connected) return;
+    if (kind === 'capture-note' && selected.vault.capabilities.includes('file.create')) {
+      setShowCreateNote(true);
+    } else if (
+      kind === 'capture-files'
+      && (selected.vault.capabilities.includes('file.create')
+        || selected.vault.capabilities.includes('file.uploadAsset'))
+    ) {
+      void handleUpload();
+    }
+  };
   useEffect(() => {
     const onCapture = (event: Event) => {
-      const kind = (event as CustomEvent<{ kind?: string }>).detail?.kind;
-      if (!selected || readOnly || !connected) return;
-      if (kind === 'capture-note' && selected.vault.capabilities.includes('file.create')) {
-        setShowCreateNote(true);
-      } else if (
-        kind === 'capture-files'
-        && (selected.vault.capabilities.includes('file.create')
-          || selected.vault.capabilities.includes('file.uploadAsset'))
-      ) {
-        void handleUpload();
-      }
+      captureHandlerRef.current((event as CustomEvent<{ kind?: string }>).detail?.kind);
     };
     window.addEventListener('collab-files-capture', onCapture);
     return () => window.removeEventListener('collab-files-capture', onCapture);
-  });
+  }, []);
 
   async function handleUpload() {
     await runTransfer(async () => {

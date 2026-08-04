@@ -28,7 +28,12 @@ import type {
   SheetFormulaEvaluationRequest,
   SheetFormulaEvaluationResponse,
 } from '../../../src/types/sheetFormula';
-import type { WidgetAppearanceSnapshot, WidgetConfiguration, WidgetDiagnostics } from '../../../src/types/widget';
+import type {
+  WidgetAppearanceSnapshot,
+  WidgetConfiguration,
+  WidgetDiagnostics,
+  WidgetSyncAccount,
+} from '../../../src/types/widget';
 
 export type {
   BackgroundJobRecord,
@@ -108,6 +113,10 @@ export function widgetConfigurationDelete(
   return invoke('widget_configuration_delete', { profileId, configurationId });
 }
 
+export function widgetSyncAccounts(): Promise<WidgetSyncAccount[]> {
+  return invoke('widget_sync_accounts');
+}
+
 export function widgetDiagnosticsList(profileId: string): Promise<WidgetDiagnostics[]> {
   return invoke('widget_diagnostics_list', { profileId });
 }
@@ -128,7 +137,10 @@ export interface MobileAppDestination {
     | 'capture-files'
     | 'vault-file'
     | 'vault-folder'
-    | 'vault-list';
+    | 'vault-list'
+    // Sync recovery. These carry no target: they open a settings category.
+    | 'settings-background'
+    | 'settings-account';
   date?: string;
   itemId?: string;
   /** Opaque Kanban card target. The owning server is resolved from the vault

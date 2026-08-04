@@ -272,6 +272,27 @@ describe('MobileApp shell', () => {
     await waitFor(() => expect(useMobileStore.getState().tab).toBe('vaults'));
   });
 
+  it('routes a sync widget recovery destination into the matching settings category', async () => {
+    mockInvoke({
+      server_connection_statuses: () => [],
+      calendar_list: () => [],
+      calendar_list_items: () => [],
+    });
+    render(<MobileApp />);
+    await waitFor(() => expect(useMobileStore.getState().restored).toBe(true));
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('collab-app-destination', {
+        detail: { kind: 'settings-account' },
+      }));
+    });
+
+    // Sync recovery opens the app's own settings; the widget offers no fix of
+    // its own because it cannot show whether one worked.
+    await waitFor(() => expect(useMobileStore.getState().tab).toBe('settings'));
+    expect(await screen.findByRole('heading', { name: /Account/ })).toBeTruthy();
+  });
+
   it('persists the IEC/DIN schematic notation preference', async () => {
     mockInvoke({ server_connection_statuses: () => [] });
     render(<MobileApp />);

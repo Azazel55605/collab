@@ -7,7 +7,7 @@
 //! recorded in `integrity.json`.
 
 use super::models::{
-    CacheCleanupReport, CachedContentStatus, PendingOpStatus, PendingOperation,
+    CacheCleanupReport, CachedContentStatus, PendingOpCounts, PendingOpStatus, PendingOperation,
     ReplicaIntegrityReport, ReplicaMeta, ReplicaSummary, ReplicaSyncState, Tombstone,
     REPLICA_SCHEMA_VERSION,
 };
@@ -25,6 +25,27 @@ const MANIFEST_FILE: &str = "manifest.json";
 const SYNC_STATE_FILE: &str = "sync-state.json";
 const TOMBSTONES_FILE: &str = "tombstones.json";
 const PENDING_OPS_FILE: &str = "pending-ops.jsonl";
+/// How `PendingOpStatus::Failed` appears in a serialized queue line. Used only
+/// to skip lines that cannot be failures; see `count_pending_operations`.
+const FAILED_STATUS_MARKER: &str = "\"failed\"";
+const PENDING_INDEX_FILE: &str = "pending-index.json";
+
+/// Cached queue counts, keyed on the queue file they were derived from. Private
+/// to the store: callers see only `PendingOpCounts`.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PendingOpIndex {
+    total: usize,
+    failed: usize,
+    source_bytes: u64,
+    source_modified_nanos: u128,
+}
+
+impl PendingOpIndex {
+    fn matches(&self, stamp: (u64, u128)) -> bool {
+        self.source_bytes == stamp.0 && self.source_modified_nanos == stamp.1
+    }
+}
 const INTEGRITY_FILE: &str = "integrity.json";
 const DOCUMENTS_DIR: &str = "documents";
 const ASSETS_DIR: &str = "assets";
@@ -191,10 +212,7 @@ impl ReplicaStore {
                     continue;
                 };
                 let sync_state = store.read_sync_state().unwrap_or_default();
-                let pending_count = store
-                    .list_pending_operations()
-                    .map(|ops| ops.len())
-                    .unwrap_or_default();
+                let pending = store.count_pending_operations().unwrap_or_default();
                 summaries.push(ReplicaSummary {
                     server_url: meta.server_url,
                     vault_id: meta.vault_id,
@@ -203,7 +221,8 @@ impl ReplicaStore {
                     last_synced_at: sync_state.last_synced_at,
                     offline_available_at: sync_state.offline_available_at,
                     status: sync_state.status,
-                    pending_count,
+                    pending_count: pending.total,
+                    failed_count: pending.failed,
                     updated_at: meta.updated_at,
                     role: meta.role,
                     capabilities: meta.capabilities,
@@ -217,6 +236,47 @@ impl ReplicaStore {
                 .then_with(|| left.vault_id.cmp(&right.vault_id))
         });
         Ok(summaries)
+    }
+
+    /// Lists the owning server URL of every seeded replica, one entry per
+    /// replica.
+    ///
+    /// This is the identity-only counterpart to `list`: it reads `meta.json` and
+    /// nothing else. Callers that just need to know which accounts have offline
+    /// data must use this rather than `list`, whose pending-operation counts
+    /// require decrypting every queue.
+    pub fn list_server_urls(config_root: &Path) -> Result<Vec<String>, String> {
+        let root = replica_root(config_root);
+        let servers = match std::fs::read_dir(&root) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(err) => return Err(err.to_string()),
+        };
+        let mut urls = Vec::new();
+        for server_entry in servers.flatten() {
+            let server_path = server_entry.path();
+            if !server_path.is_dir() {
+                continue;
+            }
+            let Ok(vaults) = std::fs::read_dir(server_path) else {
+                continue;
+            };
+            for vault_entry in vaults.flatten() {
+                let vault_path = vault_entry.path();
+                if !vault_path.join(META_FILE).is_file() {
+                    continue;
+                }
+                let store = Self {
+                    root: vault_path,
+                    encryption_key: None,
+                };
+                if let Ok(Some(meta)) = store.read_json::<ReplicaMeta>(META_FILE) {
+                    urls.push(meta.server_url);
+                }
+            }
+        }
+        urls.sort();
+        Ok(urls)
     }
 
     #[cfg(test)]
@@ -250,6 +310,114 @@ impl ReplicaStore {
         let mut ops = self.list_pending_operations()?;
         ops.push(op.clone());
         self.write_pending_operations(&ops)
+    }
+
+    /// Counts the queued operations without materializing them.
+    ///
+    /// An edit operation carries the whole new document body in its payload, so
+    /// counting the queue costs a read and scan of every byte of queued
+    /// *content*, not of its length. Inventory reads happen on every widget
+    /// publication and every offline vault listing, so the counts are cached
+    /// beside the queue.
+    ///
+    /// The cache is a pure derivative and is never trusted on its own: it is
+    /// keyed on the queue file's length and modification time, so any writer
+    /// that does not maintain it — an older build, an interrupted write —
+    /// invalidates it and forces exactly one recount.
+    pub fn count_pending_operations(&self) -> Result<PendingOpCounts, String> {
+        let stamp = self.pending_queue_stamp();
+        if let Some(stamp) = stamp {
+            if let Ok(Some(index)) = self.read_json::<PendingOpIndex>(PENDING_INDEX_FILE) {
+                if index.matches(stamp) {
+                    return Ok(PendingOpCounts {
+                        total: index.total,
+                        failed: index.failed,
+                    });
+                }
+            }
+        }
+        let counts = self.scan_pending_operations()?;
+        // Only cache when the queue did not move under the scan.
+        if let (Some(before), Some(after)) = (stamp, self.pending_queue_stamp()) {
+            if before == after {
+                let index = PendingOpIndex {
+                    total: counts.total,
+                    failed: counts.failed,
+                    source_bytes: after.0,
+                    source_modified_nanos: after.1,
+                };
+                if let Ok(bytes) = serde_json::to_vec(&index) {
+                    // Best-effort: a cache that cannot be written just means the
+                    // next read recounts.
+                    let _ = write_file_atomic(&self.root.join(PENDING_INDEX_FILE), &bytes);
+                }
+            }
+        }
+        Ok(counts)
+    }
+
+    /// The queue file's length and modification time, or `None` when there is
+    /// no queue to describe.
+    fn pending_queue_stamp(&self) -> Option<(u64, u128)> {
+        let metadata = std::fs::metadata(self.root.join(PENDING_OPS_FILE)).ok()?;
+        let modified = metadata
+            .modified()
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_nanos();
+        Some((metadata.len(), modified))
+    }
+
+    fn scan_pending_operations(&self) -> Result<PendingOpCounts, String> {
+        let Some(raw) = self.read_pending_operations_text()? else {
+            return Ok(PendingOpCounts::default());
+        };
+        #[derive(serde::Deserialize)]
+        struct StatusOnly {
+            status: PendingOpStatus,
+        }
+        let mut counts = PendingOpCounts::default();
+        for line in raw.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            counts.total += 1;
+            // Handing every line to serde would lex the whole queued document
+            // body just to reach `status`, which is the entire cost of an
+            // inventory read. The substring is only a filter to find the lines
+            // worth parsing; the parse below is what actually decides, so a
+            // payload that happens to contain the same text is never miscounted.
+            if !line.contains(FAILED_STATUS_MARKER) {
+                continue;
+            }
+            let op: StatusOnly = serde_json::from_str(line).map_err(|e| e.to_string())?;
+            if op.status == PendingOpStatus::Failed {
+                counts.failed += 1;
+            }
+        }
+        Ok(counts)
+    }
+
+    /// Reads and decrypts the queue, applying the shared quarantine recovery.
+    /// `None` means there is no readable queue and the caller should treat it as
+    /// empty.
+    fn read_pending_operations_text(&self) -> Result<Option<String>, String> {
+        let path = self.root.join(PENDING_OPS_FILE);
+        let raw = match std::fs::read(&path) {
+            Ok(raw) => raw,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(err) => return Err(err.to_string()),
+        };
+        let raw = match self.decrypt_persisted(&raw) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                self.quarantine_unreadable(PENDING_OPS_FILE);
+                return Ok(None);
+            }
+        };
+        String::from_utf8(raw).map(Some).map_err(|e| e.to_string())
     }
 
     pub fn list_pending_operations(&self) -> Result<Vec<PendingOperation>, String> {
@@ -894,6 +1062,95 @@ mod tests {
             &["vault.read".into(), "file.write".into()],
         )
         .unwrap()
+    }
+
+    /// The counts must agree with the authoritative queue in every case the
+    /// cheap path takes a shortcut: skipping lines that cannot be failures, and
+    /// reusing a cached result.
+    #[test]
+    fn pending_counts_match_the_queue_and_survive_a_decoy_payload() {
+        let dir = TempDir::new().unwrap();
+        let store = open(&dir);
+
+        assert_eq!(store.count_pending_operations().unwrap().total, 0);
+
+        store.enqueue_operation(&pending_op("op-1")).unwrap();
+        let mut failed = pending_op("op-2");
+        failed.status = PendingOpStatus::Failed;
+        store.enqueue_operation(&failed).unwrap();
+        // A payload that contains the same text the fast path filters on must
+        // not be counted as a failure: the filter only selects lines to parse.
+        let mut decoy = pending_op("op-3");
+        decoy.payload = json!({ "content": "the build \"failed\" yesterday" });
+        store.enqueue_operation(&decoy).unwrap();
+
+        let expected = store.list_pending_operations().unwrap();
+        let counts = store.count_pending_operations().unwrap();
+        assert_eq!(counts.total, expected.len());
+        assert_eq!(
+            counts.failed,
+            expected
+                .iter()
+                .filter(|op| op.status == PendingOpStatus::Failed)
+                .count(),
+        );
+        assert_eq!(counts, PendingOpCounts { total: 3, failed: 1 });
+        // The second read is served from the cache and must not drift.
+        assert_eq!(store.count_pending_operations().unwrap(), counts);
+    }
+
+    #[test]
+    fn pending_count_cache_is_invalidated_by_every_queue_write() {
+        let dir = TempDir::new().unwrap();
+        let store = open(&dir);
+        store.enqueue_operation(&pending_op("op-1")).unwrap();
+        assert_eq!(store.count_pending_operations().unwrap().total, 1);
+
+        store.enqueue_operation(&pending_op("op-2")).unwrap();
+        assert_eq!(store.count_pending_operations().unwrap().total, 2);
+
+        store
+            .update_operation_status("op-2", PendingOpStatus::Failed)
+            .unwrap();
+        assert_eq!(
+            store.count_pending_operations().unwrap(),
+            PendingOpCounts { total: 2, failed: 1 },
+        );
+
+        // A queue rewritten behind the store's back — an older build, a restored
+        // backup — still invalidates the cache, because it is keyed on the file
+        // rather than trusted on its own.
+        let queue = store.root().join(PENDING_OPS_FILE);
+        let raw = std::fs::read_to_string(&queue).unwrap();
+        let first = raw.lines().next().unwrap();
+        std::fs::write(&queue, format!("{first}\n")).unwrap();
+        assert_eq!(
+            store.count_pending_operations().unwrap(),
+            PendingOpCounts { total: 1, failed: 0 },
+        );
+
+        // The inventory listing reports the same numbers.
+        let summary = ReplicaStore::list(dir.path())
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.vault_id == "vault-1")
+            .unwrap();
+        assert_eq!(summary.pending_count, 1);
+        assert_eq!(summary.failed_count, 0);
+    }
+
+    #[test]
+    fn server_url_listing_reads_identities_without_touching_the_queue() {
+        let dir = TempDir::new().unwrap();
+        let store = open(&dir);
+        store.enqueue_operation(&pending_op("op-1")).unwrap();
+        // Remove the queue so any read of it would be observable, then confirm
+        // the identity-only listing still resolves.
+        std::fs::remove_file(store.root().join(PENDING_OPS_FILE)).unwrap();
+        assert_eq!(
+            ReplicaStore::list_server_urls(dir.path()).unwrap(),
+            vec!["https://example.test/".to_string()],
+        );
     }
 
     #[test]

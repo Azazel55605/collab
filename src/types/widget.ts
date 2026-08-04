@@ -7,7 +7,8 @@ export type WidgetKind =
   | 'countdown'
   | 'tasks'
   | 'capture'
-  | 'shortcuts';
+  | 'shortcuts'
+  | 'sync';
 /** A quick-capture tile. Each only opens an existing mobile flow. */
 export type WidgetCaptureAction = 'note' | 'task' | 'event' | 'files';
 export type WidgetEntryKind =
@@ -64,6 +65,48 @@ export interface WidgetPinnedTarget {
 export interface WidgetShortcutOptions {
   pinned: WidgetPinnedTarget[];
   includeRecent: boolean;
+}
+
+/** The operational rollup a sync widget renders. Decided in Rust from the
+ * background ledger and the replica queues. */
+export type WidgetSyncState =
+  | 'upToDate'
+  | 'syncing'
+  | 'pendingChanges'
+  | 'actionRequired'
+  | 'authenticationRequired'
+  | 'offline'
+  | 'paused';
+
+/**
+ * The privacy-safe synchronization rollup carried by a sync snapshot. Every
+ * field is a count, a coarse state, or a pre-rendered phrase — never a server
+ * URL, an account name, or an error body.
+ */
+export interface WidgetSyncSummary {
+  state: WidgetSyncState;
+  lastSuccessAt?: string;
+  lastSuccessLabel?: string;
+  pendingOperations: number;
+  failedOperations: number;
+  activeJobs: number;
+  attentionRequired: number;
+  accounts: number;
+  vaults: number;
+  progressCompleted: number;
+  progressTotal?: number;
+  canSyncNow: boolean;
+}
+
+/**
+ * One hosted account a sync widget can be scoped to. `accountId` is the opaque
+ * identity stored in the configuration; `label` is the server URL and is for
+ * in-app settings only — it must never reach a snapshot or launcher storage.
+ */
+export interface WidgetSyncAccount {
+  accountId: string;
+  label: string;
+  vaults: number;
 }
 
 export interface WidgetConfiguration {
