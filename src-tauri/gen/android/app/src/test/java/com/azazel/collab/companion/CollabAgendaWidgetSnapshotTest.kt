@@ -153,6 +153,73 @@ class CollabAgendaWidgetSnapshotTest {
   }
 
   @Test
+  fun onlyAPublicationThatChangedSomethingIsRendered() {
+    // The common case: a periodic or foreground refresh that found no change
+    // must not re-compose every placed widget.
+    assertTrue(!publicationRequiresRender("""{"configured":true,"changed":false}"""))
+    assertTrue(publicationRequiresRender("""{"configured":true,"changed":true}"""))
+    // Nothing is configured, so there is nothing to show either way.
+    assertTrue(!publicationRequiresRender("""{"configured":false,"changed":true}"""))
+    // A missed update is worse than a wasted one, so an outcome that cannot say
+    // whether anything changed renders.
+    assertTrue(publicationRequiresRender("""{"configured":true}"""))
+    assertTrue(publicationRequiresRender("not json"))
+  }
+
+  @Test
+  fun widgetStateOnlyReportsAChangeWhenTheSnapshotReallyMoved() {
+    val snapshot = """{"schemaVersion":1,"dateLabel":"Today","items":[]}"""
+
+    // A widget holding this exact snapshot is left alone.
+    assertEquals(snapshot to false, widgetStateTransition(snapshot, snapshot, isMonth = false))
+    // A newly placed widget has no state yet, so it always renders.
+    assertEquals(snapshot to true, widgetStateTransition(null, snapshot, isMonth = false))
+    // A snapshot that became unreadable clears the state and renders the
+    // fallback rather than leaving stale content on the launcher.
+    assertEquals(null to true, widgetStateTransition(snapshot, null, isMonth = false))
+    assertEquals(null to false, widgetStateTransition(null, null, isMonth = false))
+  }
+
+  @Test
+  fun monthWidgetsTrackTheirSnapshotThroughARevisionMarker() {
+    val snapshot = """{"schemaVersion":1,"kind":"month","dateLabel":"Aug","items":[]}"""
+    val edited = """{"schemaVersion":1,"kind":"month","dateLabel":"Sep","items":[]}"""
+
+    // The month widget reads its snapshot natively, so state carries a digest
+    // instead of the (much larger) snapshot itself.
+    val (marker, changed) = widgetStateTransition(null, snapshot, isMonth = true)
+    assertTrue(changed)
+    assertTrue(marker != null && marker != snapshot)
+    assertEquals(marker, widgetRevisionMarker(snapshot))
+    // Same snapshot, same marker: no re-render.
+    assertEquals(marker to false, widgetStateTransition(marker, snapshot, isMonth = true))
+    // A different month has to reach the launcher.
+    assertTrue(widgetStateTransition(marker, edited, isMonth = true).second)
+    assertEquals(null, widgetRevisionMarker(null))
+  }
+
+  @Test
+  fun everyProviderRendersItsOwnWidget() {
+    // Change-gated rendering updates only the providers that moved, so a
+    // provider missing from this mapping would silently re-render the agenda
+    // widget and never itself.
+    val expected = mapOf(
+      CollabAgendaWidgetReceiver::class.java to CollabAgendaWidget::class.java,
+      CollabMonthWidgetReceiver::class.java to CollabMonthWidget::class.java,
+      CollabBirthdayWidgetReceiver::class.java to CollabBirthdayWidget::class.java,
+      CollabCountdownWidgetReceiver::class.java to CollabCountdownWidget::class.java,
+      CollabTasksWidgetReceiver::class.java to CollabTasksWidget::class.java,
+      CollabCaptureWidgetReceiver::class.java to CollabCaptureWidget::class.java,
+      CollabShortcutsWidgetReceiver::class.java to CollabShortcutsWidget::class.java,
+      CollabSyncWidgetReceiver::class.java to CollabSyncWidget::class.java,
+    )
+    assertEquals(widgetProviderClasses().toSet(), expected.keys)
+    expected.forEach { (provider, widget) ->
+      assertEquals(widget, widgetForProvider(provider)::class.java)
+    }
+  }
+
+  @Test
   fun parsesTaskProjectionAndKeepsOnlyValidatedKanbanReferences() {
     val snapshot = CollabAgendaWidgetSnapshotStore.parse(
       """{"schemaVersion":1,"kind":"tasks","dateLabel":"2026-08-01","items":[

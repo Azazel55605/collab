@@ -57,6 +57,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executors
@@ -68,6 +69,12 @@ private val MonthOffsetStateKey = intPreferencesKey("month-widget-offset-v1")
 private val TaskPendingCompleteStateKey = stringPreferencesKey("tasks-widget-pending-complete-v1")
 private val TaskActionMessageStateKey = stringPreferencesKey("tasks-widget-action-message-v1")
 private val SyncActionMessageStateKey = stringPreferencesKey("sync-widget-action-message-v1")
+/**
+ * Digest of the snapshot a month widget last rendered. The month widget reads
+ * its snapshot natively rather than from state, so without this its state never
+ * moves and change-gated rendering could never re-render it.
+ */
+private val MonthRevisionStateKey = stringPreferencesKey("month-widget-revision-v1")
 private val TaskItemIdParameter = ActionParameters.Key<String>("collabTaskItemId")
 private const val MIN_MONTH_OFFSET = -6
 private const val MAX_MONTH_OFFSET = 6
@@ -715,7 +722,9 @@ object CollabWidgetBridge {
         check(outcome.optBoolean("configured", false)) {
           "The widget configuration was not found."
         }
-        requestAgendaUpdate(appContext)
+        // A just-configured widget has to render even if the snapshot it lands
+        // on happens to match what another widget already published.
+        requestAgendaUpdate(appContext, force = true)
       }.exceptionOrNull()
       if (failure == null) {
         Handler(Looper.getMainLooper()).post { completed(null) }
@@ -771,10 +780,9 @@ object CollabWidgetBridge {
   }
 
   fun rebuildProfile(context: Context, profileId: String, cause: String = "foreground"): Boolean {
-    val outcome = JSONObject(nativePublishAgendaProfile(context, profileId, cause))
-    val configured = outcome.optBoolean("configured", false)
-    if (configured) requestAgendaUpdate(context)
-    return configured
+    val raw = nativePublishAgendaProfile(context, profileId, cause)
+    if (publicationRequiresRender(raw)) requestAgendaUpdate(context)
+    return JSONObject(raw).optBoolean("configured", false)
   }
 
   internal fun readBoundSnapshotRaw(context: Context, binding: WidgetBinding): String? =
@@ -849,57 +857,138 @@ object CollabWidgetBridge {
     val appContext = context.applicationContext
     val snapshot = nativeBuildAgendaPreview(appContext, LocalDate.now().toString())
     CollabAgendaWidgetSnapshotStore.publish(appContext, snapshot)
-    requestAgendaUpdate(appContext)
+    requestAgendaUpdate(appContext, force = true)
   }
 
+  /**
+   * Writes the current snapshot into each placed widget's state and re-renders
+   * only what that actually changed.
+   *
+   * Re-rendering is not free: every `updateAll` re-composes each placed
+   * instance and hands the launcher a new tree, and the provider broadcast
+   * costs a second pass through the system. Most publications carry no visible
+   * change — a periodic refresh, a sync-state write, a second edit to the same
+   * item — so the render is gated on the stored value really differing. `force`
+   * exists for the paths where the launcher may be showing something we did not
+   * write (process death, app update, boot) and state equality proves nothing.
+   *
+   * Returns true when at least one widget was re-rendered.
+   */
   internal fun requestAgendaUpdate(
     context: Context,
     origin: AgendaWidgetUpdateOrigin = AgendaWidgetUpdateOrigin.External,
-  ) {
+    force: Boolean = false,
+  ): Boolean {
     val appContext = context.applicationContext
     val manager = AppWidgetManager.getInstance(appContext)
-    val ids = widgetProviderClasses().flatMap { provider ->
-      manager.getAppWidgetIds(ComponentName(appContext, provider)).asIterable()
-    }.distinct().toIntArray()
-    if (ids.isEmpty()) return
-    val monthIds = manager
-      .getAppWidgetIds(ComponentName(appContext, CollabMonthWidgetReceiver::class.java))
-      .toSet()
+    val idsByProvider = widgetProviderClasses().associateWith { provider ->
+      manager.getAppWidgetIds(ComponentName(appContext, provider)).toList()
+    }.filterValues { it.isNotEmpty() }
+    if (idsByProvider.isEmpty()) return false
+    val monthIds = idsByProvider[CollabMonthWidgetReceiver::class.java].orEmpty().toSet()
+    val changedProviders = mutableSetOf<Class<out android.content.BroadcastReceiver>>()
     runBlocking {
-      ids.forEach { appWidgetId ->
-        val binding = CollabWidgetBindings.read(appContext, appWidgetId)
-        val raw = binding?.let { readBoundSnapshotRaw(appContext, it) }
-        updateAppWidgetState(appContext, AppWidgetId(appWidgetId)) { preferences ->
-          if (appWidgetId in monthIds || raw == null) {
-            preferences.remove(AgendaWidgetSnapshotStateKey)
-          } else {
-            preferences[AgendaWidgetSnapshotStateKey] = raw
+      idsByProvider.forEach { (provider, providerIds) ->
+        providerIds.forEach { appWidgetId ->
+          val binding = CollabWidgetBindings.read(appContext, appWidgetId)
+          val raw = binding?.let { readBoundSnapshotRaw(appContext, it) }
+          // The month widget reads its snapshot natively in `provideGlance`
+          // because the rendered month is far larger than Glance state should
+          // carry. It still needs a state value that moves when the snapshot
+          // does, or a real change would never trigger a re-render — so it
+          // stores a digest under its own key, leaving the snapshot key clear
+          // the way it always was.
+          val isMonth = appWidgetId in monthIds
+          val key = if (isMonth) MonthRevisionStateKey else AgendaWidgetSnapshotStateKey
+          updateAppWidgetState(appContext, AppWidgetId(appWidgetId)) { preferences ->
+            if (isMonth && preferences[AgendaWidgetSnapshotStateKey] != null) {
+              preferences.remove(AgendaWidgetSnapshotStateKey)
+            }
+            val (next, changed) = widgetStateTransition(preferences[key], raw, isMonth)
+            if (!changed) return@updateAppWidgetState
+            changedProviders += provider
+            if (next == null) preferences.remove(key) else preferences[key] = next
           }
         }
       }
-      CollabAgendaWidget().updateAll(appContext)
-      CollabMonthWidget().updateAll(appContext)
-      CollabBirthdayWidget().updateAll(appContext)
-      CollabCountdownWidget().updateAll(appContext)
-      CollabTasksWidget().updateAll(appContext)
-      CollabCaptureWidget().updateAll(appContext)
-      CollabShortcutsWidget().updateAll(appContext)
-      CollabSyncWidget().updateAll(appContext)
+      val render = if (force) idsByProvider.keys else changedProviders
+      render.forEach { provider -> widgetForProvider(provider).updateAll(appContext) }
     }
-    if (shouldNotifyAgendaWidgetProvider(origin)) {
-      widgetProviderClasses().forEach { provider ->
-        val component = ComponentName(appContext, provider)
-        val providerIds = manager.getAppWidgetIds(component)
+    val rendered = force || changedProviders.isNotEmpty()
+    // A no-op publication must not cost a system broadcast round trip. The
+    // provider path re-enters this function, so broadcasting when nothing moved
+    // would double the work of every periodic refresh for no visible change.
+    if (rendered && shouldNotifyAgendaWidgetProvider(origin)) {
+      val notify = if (force) idsByProvider.keys else changedProviders
+      notify.forEach { provider ->
+        val providerIds = idsByProvider[provider].orEmpty()
         if (providerIds.isNotEmpty()) {
           appContext.sendBroadcast(
             Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE)
-              .setComponent(component)
-              .putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, providerIds),
+              .setComponent(ComponentName(appContext, provider))
+              .putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, providerIds.toIntArray()),
           )
         }
       }
     }
+    return rendered
   }
+}
+
+/**
+ * Whether a native publication produced anything worth re-rendering.
+ *
+ * Rust already compared the rebuilt snapshot against the published one, so a
+ * periodic or foreground refresh that found no change costs nothing further.
+ * A publication that reports no configuration has nothing to show, and an
+ * outcome that omits `changed` — an older native library, or a shape we failed
+ * to parse — renders, because a missed update is worse than a wasted one.
+ */
+internal fun publicationRequiresRender(outcomeJson: String): Boolean {
+  val outcome = runCatching { JSONObject(outcomeJson) }.getOrNull() ?: return true
+  if (!outcome.optBoolean("configured", false)) return false
+  return outcome.optBoolean("changed", true)
+}
+
+/**
+ * The value a widget's state should hold after a publication, and whether that
+ * differs from what it holds now. Only a real difference re-renders: an
+ * `updateAll` re-composes every placed instance, and most publications carry no
+ * visible change at all.
+ */
+internal fun widgetStateTransition(
+  current: String?,
+  raw: String?,
+  isMonth: Boolean,
+): Pair<String?, Boolean> {
+  val next = if (isMonth) widgetRevisionMarker(raw) else raw
+  return next to (next != current)
+}
+
+/**
+ * A short stable marker for a snapshot the widget state cannot hold in full.
+ * Only equality matters, so any content-derived digest works; it is never
+ * parsed, displayed, or persisted anywhere the launcher can read as content.
+ */
+internal fun widgetRevisionMarker(raw: String?): String? {
+  if (raw == null) return null
+  val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
+  return digest.take(16).joinToString("") { byte ->
+    byte.toUByte().toString(16).padStart(2, '0')
+  }
+}
+
+internal fun widgetForProvider(
+  provider: Class<out android.content.BroadcastReceiver>,
+): GlanceAppWidget = when (provider) {
+  CollabMonthWidgetReceiver::class.java -> CollabMonthWidget()
+  CollabBirthdayWidgetReceiver::class.java -> CollabBirthdayWidget()
+  CollabCountdownWidgetReceiver::class.java -> CollabCountdownWidget()
+  CollabTasksWidgetReceiver::class.java -> CollabTasksWidget()
+  CollabCaptureWidgetReceiver::class.java -> CollabCaptureWidget()
+  CollabShortcutsWidgetReceiver::class.java -> CollabShortcutsWidget()
+  CollabSyncWidgetReceiver::class.java -> CollabSyncWidget()
+  else -> CollabAgendaWidget()
 }
 
 class CollabAgendaWidget : GlanceAppWidget() {

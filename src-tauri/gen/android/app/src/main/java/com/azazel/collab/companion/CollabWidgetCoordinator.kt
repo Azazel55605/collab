@@ -84,9 +84,14 @@ internal object CollabWidgetRefreshScheduler {
         ),
       )
       .build()
+    // A refresh wants the newest data, so a later request must win rather than
+    // be dropped behind one already queued. With KEEP, a request that is
+    // retrying under backoff swallowed every boot, time-change, and
+    // launcher-update request until it finally ran, which is the difference
+    // between a widget that lags by seconds and one that lags by half an hour.
     WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
       refreshName(profileId),
-      ExistingWorkPolicy.KEEP,
+      ExistingWorkPolicy.REPLACE,
       request,
     )
   }
@@ -152,7 +157,10 @@ internal object CollabWidgetUpdateCoordinator {
     val appContext = context.applicationContext
     executor.execute {
       try {
-        CollabWidgetBridge.requestAgendaUpdate(appContext)
+        // Boot, an app replacement, or a locale/time change can leave the
+        // launcher showing views this process never wrote, so state equality
+        // proves nothing here and the render is forced.
+        CollabWidgetBridge.requestAgendaUpdate(appContext, force = true)
         val cause = when (intent.action) {
           Intent.ACTION_BOOT_COMPLETED -> "boot"
           Intent.ACTION_MY_PACKAGE_REPLACED -> "app-replaced"

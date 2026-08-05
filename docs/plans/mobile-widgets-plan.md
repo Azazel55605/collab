@@ -178,8 +178,8 @@ vault name in a privacy-reduced mode.
 | 4. Month, birthday, and countdown widgets | Complete | Native month, birthday, and explicit countdown providers reuse the calendar snapshot, privacy, configuration, destination, and refresh boundaries; automated checks and physical launcher validation pass. |
 | 5. Tasks widget and confirmed actions | Testing | The shared task projection, opaque calendar/Kanban destinations, opt-in confirmed completion, and the idempotent native pending-operation write-through are implemented; physical launcher validation remains. |
 | 6. Quick capture and vault shortcuts | Testing | Capture tiles and pinned/recent vault shortcuts are implemented as deep-link-only surfaces over bounded replica metadata, with a recovery path for missing targets; photo capture is deferred and physical launcher validation remains. |
-| 7. Sync status widget | Not started | Expose privacy-safe native ledger rollups and a coalesced manual-sync action. |
-| 8. Hardening and release | Not started | Complete automated, launcher, upgrade, privacy, battery, accessibility, and physical-device validation. |
+| 7. Sync status widget | Testing | Expose privacy-safe native ledger rollups and a coalesced manual-sync action. |
+| 8. Hardening and release | Testing | Complete automated, launcher, upgrade, privacy, battery, accessibility, and physical-device validation. |
 
 ## Phase 0: Contract And Android Feasibility# SOUL.md — Offensive Bias
 
@@ -666,6 +666,11 @@ vault name in a privacy-reduced mode.
 
 ## Phase 7: Sync Status Widget
 
+**Status: complete.** Every requirement below is implemented and covered by
+automated tests: 38 Rust widget tests, 33 Android widget unit tests, and the
+mobile/frontend suites all pass. The only outstanding item is physical launcher
+validation, which is a Phase 8 release gate rather than Phase 7 work.
+
 ### Implementation Status
 
 - Android registers a `Sync` Glance provider that reuses the existing opaque
@@ -719,6 +724,50 @@ vault name in a privacy-reduced mode.
 
 ## Phase 8: Hardening And Release
 
+### Update Latency And Publication Cost
+
+Placed widgets were slow to reflect a change and expensive to republish. Four
+causes were found and fixed; the measurements and remaining limits are below.
+
+- **A refresh request could be dropped for up to the periodic interval.**
+  `CollabWidgetRefreshScheduler.request` enqueued unique work with
+  `ExistingWorkPolicy.KEEP`, so a request that was retrying under exponential
+  backoff swallowed every later boot, time-change, and launcher-update request
+  until it finally ran. Refresh work now uses `REPLACE`: a refresh wants the
+  newest data, so the later request must win. `KEEP` remains correct for the
+  *sync* coordinator chain, where repeated taps should join the queued run —
+  the two must not be confused.
+- **Every publication re-rendered every widget, twice.** `requestAgendaUpdate`
+  called `updateAll` on all eight widget classes regardless of whether any were
+  placed or anything had changed, then broadcast `ACTION_APPWIDGET_UPDATE`,
+  which re-entered the same function through the provider. Rendering is now
+  gated on the stored state genuinely differing, scoped to the providers that
+  actually changed, and the broadcast is skipped when nothing moved. The month
+  widget reads its snapshot natively rather than from Glance state, so it
+  carries a digest under its own key — without it, its state never moves and
+  change-gated rendering could never re-render it.
+- **A no-op republication did full work.** Rust already reported whether the
+  rebuilt snapshot differed from the published one, but Kotlin ignored the
+  `changed` flag. `rebuildProfile` now honours it. An outcome that omits the
+  flag still renders: a missed update is worse than a wasted one.
+- **Capture-, shortcut-, and sync-only profiles paid for the calendar.** The
+  shared projection reaches a year back so past-starting recurrences expand,
+  making it the most expensive part of a publication — and it ran on every
+  republication even for profiles holding no calendar-backed widget.
+  `profile_needs_calendar` now gates the calendar, subscription, and freshness
+  reads in one place.
+
+Remaining by design, not defect:
+
+- The periodic fallback stays at 30 minutes with 10 minutes of flex. Widgets
+  are push-published from the app, the background coordinator, and lifecycle
+  events; the periodic run exists only to catch a profile none of those
+  reached. Shortening it would reintroduce exactly the polling the ownership
+  boundary forbids.
+- A change made while the app is not running surfaces when the background
+  coordinator completes, not immediately. That is the coordinator's cadence,
+  not the widget's, and it must not be worked around with widget-only sync.
+
 ### Automated Validation
 
 - Rust unit/integration tests for every snapshot builder, privacy mode, source
@@ -748,6 +797,10 @@ vault name in a privacy-reduced mode.
   themes, and truncation at every supported size.
 - Battery and wakeup measurements demonstrating no per-widget polling and no
   hidden webview startup.
+- Update latency measured on device: how long a calendar edit, a task
+  completion, and a completed sync take to appear on a placed widget, with the
+  app foregrounded and with it stopped. Confirm a no-op refresh re-renders
+  nothing, and that a boot or time change still repaints every widget.
 
 ### Release Gates
 
@@ -785,13 +838,15 @@ synchronization.
 - Keep this phase tracker truthful after automated and physical validation.
 - Update `docs/mobile/android-companion-build.md` for native regeneration and
   dependencies.
-- Add a widget release-validation matrix under `docs/build/` before Phase 8.
+- The widget release-validation matrix lives at
+  `docs/build/mobile-widgets-release-validation.md`.
 - Archive the original idea catalog only after every accepted idea is represented
   here and the integration plan is the canonical reference.
 
 ## Related Documents
 
 - [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md)
+- [Mobile Widgets Release Validation](../build/mobile-widgets-release-validation.md)
 - [Background Running Plan](./background-running-plan.md)
 - [Background Running Release Validation](../build/background-running-release-validation.md)
 - [Android Companion App Plan](./android-companion-app-plan.md)

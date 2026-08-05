@@ -95,6 +95,7 @@ export function MobileApp() {
     useState<'vault-unavailable' | 'file-unavailable' | null>(null);
 
   const restore = useMobileStore((s) => s.restore);
+  const watchBackgroundEvents = useMobileStore((s) => s.watchBackgroundEvents);
   const refreshStatuses = useMobileStore((s) => s.refreshStatuses);
   const backgroundJobs = useMobileStore((s) => s.backgroundJobs);
   const servers = useMobileStore((s) => s.servers);
@@ -109,6 +110,10 @@ export function MobileApp() {
     [statuses],
   );
   const backgroundAttention = findBackgroundAttention(backgroundJobs, servers, statuses);
+
+  // Native background work is otherwise invisible to the webview: a sync could
+  // land new content under the open vault and nothing would reload it.
+  useEffect(() => watchBackgroundEvents(), [watchBackgroundEvents]);
 
   useEffect(() => {
     void widgetActiveProfileSet(mobileCalendarProfileId()).catch(() => {});

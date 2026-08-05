@@ -1,6 +1,7 @@
 mod android_jni;
 mod android_notifications;
 mod background;
+mod background_observer;
 #[cfg(not(mobile))]
 mod background_lifecycle;
 mod commands;
@@ -72,6 +73,18 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            // The coordinator is process-level and also runs headless, so it
+            // cannot hold an app handle of its own. Give it one while this app
+            // is alive: without it, background work is invisible to the UI —
+            // no progress, and no reload when a sync lands new content.
+            {
+                use tauri::Manager;
+                let state = app.state::<AppState>();
+                state.background.set_observer(std::sync::Arc::new(
+                    background_observer::AppBackgroundObserver::new(app.handle().clone()),
+                ));
+            }
+
             #[cfg(not(mobile))]
             background_lifecycle::setup_background_lifecycle(app)?;
             #[cfg(mobile)]

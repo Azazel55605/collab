@@ -62,7 +62,10 @@ impl BackgroundPersistence {
         let root = self.root()?;
         let path = root.join(file_name);
         let temporary = root.join(format!("{file_name}.tmp"));
-        let bytes = serde_json::to_vec_pretty(value)
+        // Compact, not pretty. These are machine-managed files that are
+        // rewritten whole on every change; the indentation roughly doubled the
+        // bytes written for no reader that benefits from it.
+        let bytes = serde_json::to_vec(value)
             .map_err(|error| format!("Could not encode {file_name}: {error}"))?;
         std::fs::write(&temporary, bytes)
             .map_err(|error| format!("Could not write {file_name}: {error}"))?;
@@ -297,6 +300,7 @@ mod tests {
             retryable: false,
         }
     }
+
 
     #[test]
     fn retention_removes_old_terminal_jobs_but_keeps_active_work() {

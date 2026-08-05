@@ -3720,26 +3720,31 @@ function UnsupportedFilesDialog({
       onClose={onClose}
       className="ui-dialog-files"
     >
-      <div className="ui-dialog-section">
-        <div className="bulk-bar">
-          <label className="toggle-row">
-            <input
-              type="checkbox"
-              checked={allSelected}
-              aria-label={allSelected ? 'Clear selection' : 'Select every unsupported file'}
-              onChange={(event) => setSelected(
-                event.target.checked ? new Set(files.map((file) => file.id)) : new Set(),
-              )}
-            />
-            Select all
-          </label>
-          <strong>{chosen.length} of {files.length} selected</strong>
-          <span className="subtle">{formatBytes(chosenBytes)} reclaimable</span>
+      {/* The bulk bar is pinned rather than scrolled with the list: on a long
+          list the running selection count is exactly what the user needs while
+          scrolling, and the select-all has to stay reachable. */}
+      <div className="bulk-bar">
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={allSelected}
+            aria-label={allSelected ? 'Clear selection' : 'Select every unsupported file'}
+            onChange={(event) => setSelected(
+              event.target.checked ? new Set(files.map((file) => file.id)) : new Set(),
+            )}
+          />
+          Select all
+        </label>
+        <strong>{chosen.length} of {files.length} selected</strong>
+        <span className="subtle">{formatBytes(chosenBytes)} reclaimable</span>
+      </div>
+      <div className="files-modal-body unsupported-file-list">
+        {/* Outside `.file-browser` on purpose: a sticky grid item is clamped to
+            its own grid area, so a header inside the row grid would not stick. */}
+        <div className="file-row unsupported-file-row file-header">
+          <span /><span>Path</span><span>Size</span><span>Reason</span>
         </div>
         <div className="file-browser">
-          <div className="file-row unsupported-file-row file-header">
-            <span /><span>Path</span><span>Size</span><span>Reason</span>
-          </div>
           {files.map((file) => (
             <div className="file-row unsupported-file-row" key={file.id}>
               <input

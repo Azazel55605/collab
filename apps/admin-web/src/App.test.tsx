@@ -612,6 +612,19 @@ describe('admin application', () => {
     expect(within(dialog).queryByRole('checkbox', { name: 'Select notes.md' })).toBeNull();
     expect(within(dialog).getByText('.zip has no viewer in the Collab apps')).toBeTruthy();
 
+    // The dialog is a fixed-height `overflow:hidden` shell, so the list has to
+    // sit in the scrolling body region — it was previously in a plain
+    // `.ui-dialog-section`, which silently clipped every row past the fold.
+    // jsdom has no layout, so this checks the structure that makes scrolling
+    // possible rather than the scrolling itself.
+    const body = dialog.querySelector('.files-modal-body');
+    expect(body).toBeTruthy();
+    expect(body!.contains(within(dialog).getByRole('checkbox', { name: 'Select clip.mp4' }))).toBe(true);
+    // The selection summary and the actions stay pinned outside that region so
+    // they remain reachable however long the list gets.
+    expect(dialog.querySelector('.bulk-bar')!.closest('.files-modal-body')).toBeNull();
+    expect(dialog.querySelector('.ui-dialog-actions')!.closest('.files-modal-body')).toBeNull();
+
     // Deselecting one leaves the other as the only target.
     fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Select backup.zip' }));
     expect(within(dialog).getByText('1 of 2 selected')).toBeTruthy();

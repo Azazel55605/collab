@@ -70,9 +70,15 @@ small,.subtle { color:var(--muted-foreground); }
 /* Files modal: a fixed-size shell whose middle region scrolls so the page and
    dialog never reflow as folders, search results, or trash change. */
 .ui-dialog-files { width:min(1100px,94vw); height:min(82vh,780px); display:flex; flex-direction:column; gap:10px; overflow:hidden; }
-.ui-dialog-files > h2, .ui-dialog-files > p, .ui-dialog-files > .file-browser-toolbar, .ui-dialog-files > .ui-dialog-actions { flex:none; margin-top:0; }
+.ui-dialog-files > h2, .ui-dialog-files > p, .ui-dialog-files > .file-browser-toolbar, .ui-dialog-files > .bulk-bar, .ui-dialog-files > .ui-dialog-actions { flex:none; margin-top:0; }
 .files-modal-body { flex:1; min-height:0; overflow:auto; padding-right:4px; }
 .files-modal-body .file-browser-summary { margin-top:0; }
+/* The column labels are the only thing identifying which cell is which, so on a
+   long list they stay put while the rows scroll under them. The background is
+   opaque because rows pass beneath it, and the header sits outside
+   `.file-browser` because a sticky grid item is clamped to its own grid area. */
+.unsupported-file-list > .file-header { position:sticky; top:0; z-index:1; background:var(--card); }
+.ui-dialog-files > .bulk-bar { margin-bottom:0; }
 .ui-dialog h2 { font-size:15px; }
 .ui-dialog>p { font-size:12px; color:var(--muted-foreground); }
 .ui-dialog form { display:grid; gap:12px; margin-top:6px; }

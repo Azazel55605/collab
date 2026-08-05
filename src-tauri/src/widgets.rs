@@ -1377,6 +1377,26 @@ pub(crate) fn build_snapshot(
     Ok(snapshot)
 }
 
+/// Whether a publication has to read the calendar at all.
+///
+/// Capture, shortcut, and sync widgets never render a calendar item. A profile
+/// holding only those must not pay for the shared projection, which reaches a
+/// year back so past-starting recurrences still expand and is therefore the
+/// most expensive part of a publication.
+#[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
+pub(crate) fn profile_needs_calendar(configurations: &[WidgetConfiguration]) -> bool {
+    configurations.iter().any(|configuration| {
+        matches!(
+            configuration.kind,
+            WidgetKind::Agenda
+                | WidgetKind::Month
+                | WidgetKind::Birthday
+                | WidgetKind::Countdown
+                | WidgetKind::Tasks
+        )
+    })
+}
+
 #[cfg(any(target_os = "android", test))]
 pub(crate) async fn build_and_publish_agenda_profile(
     config_root: &Path,
@@ -1438,44 +1458,63 @@ pub(crate) async fn build_and_publish_agenda_profile(
     let query_from = local_midnight_utc(time_zone, oldest)?;
     let query_to = local_midnight_utc(time_zone, last_day + Duration::days(1))?;
 
-    let calendars = calendar_store
-        .list_calendars()
-        .await
-        .map_err(|error| error.to_string())?
-        .into_iter()
-        .filter(|calendar| !calendar.archived && calendar.deleted_at.is_none())
-        .collect::<Vec<_>>();
+    // Capture, shortcut, and sync widgets never render a calendar item, so a
+    // profile holding only those must not pay for the shared projection. It
+    // reaches a year back so a recurrence that started in the past still
+    // expands, which makes it the most expensive part of a publication — and
+    // this runs on every republication, not just the first.
+    let needs_calendar = profile_needs_calendar(&configurations);
+
+    let calendars = if needs_calendar {
+        calendar_store
+            .list_calendars()
+            .await
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .filter(|calendar| !calendar.archived && calendar.deleted_at.is_none())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     let active_calendar_ids = calendars
         .iter()
         .map(|calendar| calendar.id.as_str())
         .collect::<HashSet<_>>();
-    let candidates = calendar_store
-        .list_items_in_range(
-            &query_from.to_rfc3339(),
-            &query_to.to_rfc3339(),
-            MAX_RANGE_QUERY_ITEMS,
-            false,
+    let projected = if needs_calendar {
+        let candidates = calendar_store
+            .list_items_in_range(
+                &query_from.to_rfc3339(),
+                &query_to.to_rfc3339(),
+                MAX_RANGE_QUERY_ITEMS,
+                false,
+            )
+            .await
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .filter(|item| active_calendar_ids.contains(item.calendar_id.as_str()))
+            .collect::<Vec<_>>();
+        query_calendar_items(
+            &candidates,
+            CalendarQueryRange {
+                from: query_from,
+                to: query_to,
+                limit: MAX_RANGE_QUERY_ITEMS as usize,
+                include_deleted: false,
+                include_unscheduled_tasks,
+            },
         )
-        .await
         .map_err(|error| error.to_string())?
-        .into_iter()
-        .filter(|item| active_calendar_ids.contains(item.calendar_id.as_str()))
-        .collect::<Vec<_>>();
-    let projected = query_calendar_items(
-        &candidates,
-        CalendarQueryRange {
-            from: query_from,
-            to: query_to,
-            limit: MAX_RANGE_QUERY_ITEMS as usize,
-            include_deleted: false,
-            include_unscheduled_tasks,
-        },
-    )
-    .map_err(|error| error.to_string())?;
-    let subscriptions = calendar_store
-        .list_subscriptions()
-        .await
-        .map_err(|error| error.to_string())?;
+    } else {
+        Vec::new()
+    };
+    let subscriptions = if needs_calendar {
+        calendar_store
+            .list_subscriptions()
+            .await
+            .map_err(|error| error.to_string())?
+    } else {
+        Vec::new()
+    };
     let subscriptions = subscriptions
         .into_iter()
         .map(|subscription| (subscription.id.clone(), subscription))
@@ -5407,6 +5446,44 @@ mod tests {
         configuration.selected_source_ids.clear();
         configuration.display.max_items = 6;
         configuration
+    }
+
+    #[test]
+    fn only_calendar_backed_widgets_pay_for_the_shared_projection() {
+        let of_kind = |kind: WidgetKind| {
+            let mut configuration = configuration("widget-1", WidgetPrivacy::Full);
+            configuration.kind = kind;
+            configuration
+        };
+
+        // These render nothing from the calendar, so a profile holding only
+        // them must not run the year-deep recurrence projection on every
+        // republication.
+        for kind in [WidgetKind::Capture, WidgetKind::Shortcuts, WidgetKind::Sync] {
+            assert!(
+                !profile_needs_calendar(&[of_kind(kind)]),
+                "{kind:?} does not render calendar data"
+            );
+        }
+        for kind in [
+            WidgetKind::Agenda,
+            WidgetKind::Month,
+            WidgetKind::Birthday,
+            WidgetKind::Countdown,
+            WidgetKind::Tasks,
+        ] {
+            assert!(
+                profile_needs_calendar(&[of_kind(kind)]),
+                "{kind:?} renders calendar data"
+            );
+        }
+
+        // One calendar-backed widget anywhere in the profile is enough.
+        assert!(profile_needs_calendar(&[
+            of_kind(WidgetKind::Sync),
+            of_kind(WidgetKind::Agenda),
+        ]));
+        assert!(!profile_needs_calendar(&[]));
     }
 
     fn seed_sync_replica(

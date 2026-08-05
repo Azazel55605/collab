@@ -22,7 +22,7 @@ use persistence::BackgroundPersistence;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
@@ -64,10 +64,59 @@ struct ActiveJob {
     cancel: Arc<AtomicBool>,
 }
 
+/// How often a running job's progress reaches the durable ledger.
+///
+/// Progress used to be persisted on every tick, and a tick happens once per
+/// file cached and once per queued operation replayed. Each one rewrote the
+/// whole ledger — measured at ~580µs and ~126KB on a desktop SSD, so a
+/// 1500-file vault wrote roughly 190MB and spent about a second in blocking IO
+/// on the async runtime, holding a lock every UI read contends on. Android
+/// flash is far slower than that, which is what made a background sync stall
+/// the app. The live value now lives in memory and readers see it immediately;
+/// the ledger only needs to be good enough to survive a crash.
+const PROGRESS_PERSIST_INTERVAL: Duration = Duration::from_secs(2);
+
+/// How often a run in flight republishes the launcher widgets.
+///
+/// Widget publication rebuilds every snapshot for the profile, so it is far too
+/// expensive to do per tick — but publishing only at completion is why the sync
+/// widget showed nothing at all while a sync was running.
+#[cfg(target_os = "android")]
+const WIDGET_PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
+
+struct LiveProgress {
+    progress: BackgroundJobProgress,
+    persisted_at: Instant,
+    /// Captured when the job starts so a widget republication does not have to
+    /// re-read the ledger to find out which profile to publish.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    profile_id: Option<String>,
+    #[cfg(target_os = "android")]
+    widgets_published_at: Instant,
+}
+
+/// Notified when background work starts, progresses, or lands new content.
+///
+/// The coordinator is a process-level singleton that must run headless in the
+/// WorkManager process, where there is no Tauri app at all — so it cannot hold
+/// an `AppHandle`. The running app installs this observer during setup and the
+/// headless path simply has none.
+pub trait BackgroundObserver: Send + Sync {
+    /// A job started, made persisted progress, or reached a terminal state.
+    fn status_changed(&self, snapshot: &BackgroundStatusSnapshot);
+    /// A vault's replica took on new content. Views showing that vault are
+    /// stale until they reload.
+    fn vault_synced(&self, server_url: &str, vault_id: &str, changed: u64);
+}
+
 pub struct BackgroundCoordinator {
     pub(crate) sessions: Arc<HostedSessionRuntime>,
     persistence: BackgroundPersistence,
     active: Mutex<HashMap<String, ActiveJob>>,
+    /// Progress of running jobs, ahead of the ledger. Overlaid onto every read
+    /// so the UI and the widgets see the live value without paying for a write.
+    live_progress: Mutex<HashMap<String, LiveProgress>>,
+    observer: Mutex<Option<Arc<dyn BackgroundObserver>>>,
     concurrency: Arc<Semaphore>,
     shutting_down: AtomicBool,
     #[cfg(test)]
@@ -80,6 +129,8 @@ impl BackgroundCoordinator {
             sessions,
             persistence: BackgroundPersistence::new(),
             active: Mutex::new(HashMap::new()),
+            live_progress: Mutex::new(HashMap::new()),
+            observer: Mutex::new(None),
             concurrency: Arc::new(Semaphore::new(2)),
             shutting_down: AtomicBool::new(false),
             #[cfg(test)]
@@ -95,6 +146,8 @@ impl BackgroundCoordinator {
             sessions,
             persistence: BackgroundPersistence::at(root),
             active: Mutex::new(HashMap::new()),
+            live_progress: Mutex::new(HashMap::new()),
+            observer: Mutex::new(None),
             concurrency: Arc::new(Semaphore::new(2)),
             shutting_down: AtomicBool::new(false),
             allow_unencrypted_replicas: true,
@@ -184,11 +237,14 @@ impl BackgroundCoordinator {
     }
 
     pub fn list_jobs(&self, limit: usize) -> Result<Vec<BackgroundJobRecord>, String> {
-        self.persistence.list_jobs(limit)
+        Ok(self.with_live_progress(self.persistence.list_jobs(limit)?))
     }
 
     pub fn job(&self, id: &str) -> Result<Option<BackgroundJobRecord>, String> {
-        self.persistence.job(id)
+        let Some(job) = self.persistence.job(id)? else {
+            return Ok(None);
+        };
+        Ok(self.with_live_progress(vec![job]).pop())
     }
 
     pub fn aggregate(&self) -> Result<BackgroundJobAggregate, String> {
@@ -214,7 +270,7 @@ impl BackgroundCoordinator {
     }
 
     pub fn status_snapshot(&self) -> Result<BackgroundStatusSnapshot, String> {
-        let jobs = self.persistence.list_jobs(200)?;
+        let jobs = self.with_live_progress(self.persistence.list_jobs(200)?);
         let mut snapshot = BackgroundStatusSnapshot {
             generated_at: Utc::now().to_rfc3339(),
             ..BackgroundStatusSnapshot::default()
@@ -661,15 +717,142 @@ impl BackgroundCoordinator {
         }
     }
 
+    /// Records a job's progress. Cheap by design — see
+    /// [`PROGRESS_PERSIST_INTERVAL`]. The value is visible to readers
+    /// immediately; only the durable copy is throttled.
     pub(crate) fn update_progress(
         &self,
         id: &str,
         progress: BackgroundJobProgress,
     ) -> Result<(), String> {
-        self.persistence.update_job(id, |job| {
-            job.progress = progress;
-        })?;
+        let now = Instant::now();
+        #[cfg(target_os = "android")]
+        let mut publish_widgets = false;
+        let persist = {
+            let mut live = self.live_progress.lock();
+            match live.get_mut(id) {
+                Some(entry) => {
+                    entry.progress = progress.clone();
+                    #[cfg(target_os = "android")]
+                    if now.duration_since(entry.widgets_published_at) >= WIDGET_PROGRESS_INTERVAL {
+                        entry.widgets_published_at = now;
+                        publish_widgets = true;
+                    }
+                    let due = now.duration_since(entry.persisted_at) >= PROGRESS_PERSIST_INTERVAL;
+                    if due {
+                        entry.persisted_at = now;
+                    }
+                    due
+                }
+                None => {
+                    // The first tick persists and publishes, so a run is visible
+                    // as soon as it starts rather than only once it finishes.
+                    live.insert(
+                        id.to_string(),
+                        LiveProgress {
+                            progress: progress.clone(),
+                            persisted_at: now,
+                            profile_id: None,
+                            #[cfg(target_os = "android")]
+                            widgets_published_at: now,
+                        },
+                    );
+                    #[cfg(target_os = "android")]
+                    {
+                        publish_widgets = true;
+                    }
+                    true
+                }
+            }
+        };
+        if persist {
+            self.persistence.update_job(id, |job| {
+                job.progress = progress;
+            })?;
+            self.notify_status();
+        }
+        #[cfg(target_os = "android")]
+        if publish_widgets {
+            self.publish_widgets_for_job(id);
+        }
         Ok(())
+    }
+
+    /// Hands the running app a status snapshot. Best effort: a headless process
+    /// has no observer, and a failed notification must never fail a job.
+    fn notify_status(&self) {
+        let Some(observer) = self.observer.lock().clone() else {
+            return;
+        };
+        if let Ok(snapshot) = self.status_snapshot() {
+            observer.status_changed(&snapshot);
+        }
+    }
+
+    pub(crate) fn notify_vault_synced(&self, server_url: &str, vault_id: &str, changed: u64) {
+        if let Some(observer) = self.observer.lock().clone() {
+            observer.vault_synced(server_url, vault_id, changed);
+        }
+    }
+
+    /// Installs the running app's observer. Replacing it is intentional: the
+    /// coordinator outlives any single app instance on Android.
+    pub fn set_observer(&self, observer: Arc<dyn BackgroundObserver>) {
+        *self.observer.lock() = Some(observer);
+    }
+
+    /// Opens a live-progress entry for a job that is about to run, so the first
+    /// tick has the profile it belongs to and readers see it as active.
+    fn begin_job_progress(&self, id: &str, profile_id: Option<&str>) {
+        let now = Instant::now();
+        self.live_progress.lock().insert(
+            id.to_string(),
+            LiveProgress {
+                progress: BackgroundJobProgress::default(),
+                // Backdated so the first real tick persists and publishes
+                // immediately instead of waiting out an interval.
+                persisted_at: now - PROGRESS_PERSIST_INTERVAL,
+                profile_id: profile_id.map(str::to_string),
+                #[cfg(target_os = "android")]
+                widgets_published_at: now - WIDGET_PROGRESS_INTERVAL,
+            },
+        );
+    }
+
+    #[cfg(target_os = "android")]
+    fn publish_widgets_for_job(&self, id: &str) {
+        let profile_id = self
+            .live_progress
+            .lock()
+            .get(id)
+            .and_then(|entry| entry.profile_id.clone());
+        if let Some(profile_id) = profile_id {
+            let _ = crate::android_jni::request_widget_profile_rebuild(&profile_id);
+        }
+    }
+
+    /// Replaces ledger progress with the live value for any job still running.
+    ///
+    /// Without this a reader would see progress up to
+    /// [`PROGRESS_PERSIST_INTERVAL`] stale, which is exactly the "no progress"
+    /// the sync widget and the status UI showed.
+    fn with_live_progress(&self, mut jobs: Vec<BackgroundJobRecord>) -> Vec<BackgroundJobRecord> {
+        let live = self.live_progress.lock();
+        if live.is_empty() {
+            return jobs;
+        }
+        for job in &mut jobs {
+            if let Some(entry) = live.get(&job.id) {
+                job.progress = entry.progress.clone();
+            }
+        }
+        jobs
+    }
+
+    /// Drops the live entry for a job that has reached a terminal state, so its
+    /// final persisted progress is what readers see from then on.
+    fn forget_live_progress(&self, id: &str) {
+        self.live_progress.lock().remove(id);
     }
 
     pub(crate) fn config_root(&self) -> Result<std::path::PathBuf, String> {
@@ -692,19 +875,23 @@ impl BackgroundCoordinator {
                 "The background scheduler is unavailable.",
                 true,
             );
+            self.forget_live_progress(&id);
             self.active.lock().remove(&resource);
             return;
         }
         if cancel.load(Ordering::Acquire) {
             let _ = self.finish_cancelled(&id);
+            self.forget_live_progress(&id);
             self.active.lock().remove(&resource);
             return;
         }
+        self.begin_job_progress(&id, request.profile_id.as_deref());
         let _ = self.persistence.update_job(&id, |job| {
             job.status = BackgroundJobStatus::Running;
             job.started_at = Some(Utc::now().to_rfc3339());
             job.summary = Some("Background job started".to_string());
         });
+        self.notify_status();
 
         let budget = Duration::from_secs(
             request
@@ -761,7 +948,11 @@ impl BackgroundCoordinator {
                 );
             }
         }
+        // Every branch above wrote a terminal record, so the live value has
+        // served its purpose and would otherwise mask the final progress.
+        self.forget_live_progress(&id);
         self.active.lock().remove(&resource);
+        self.notify_status();
     }
 
     fn finish_cancelled(&self, id: &str) -> Result<(), String> {
@@ -1132,6 +1323,153 @@ mod tests {
             Some("Offline replicas are already up to date")
         );
         no_op_delta.assert_hits_async(1).await;
+    }
+
+
+    /// A tick used to rewrite the whole ledger, and a tick happens once per file
+    /// cached. On a large vault that was thousands of full-file writes holding a
+    /// lock every UI read contends on — the stall the user saw. The live value
+    /// still has to be exact, or the sync UI and widget show nothing.
+    #[test]
+    fn progress_ticks_stay_live_without_rewriting_the_ledger_each_time() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let coordinator = Arc::new(BackgroundCoordinator::for_test(
+            Arc::new(HostedSessionRuntime::new()),
+            directory.path().to_path_buf(),
+        ));
+        let ledger = directory.path().join("background-jobs.json");
+        coordinator
+            .persistence
+            .insert_job(running_job("job-1", Some("profile-1")))
+            .expect("insert");
+        coordinator.begin_job_progress("job-1", Some("profile-1"));
+
+        let mut persisted_writes = 0;
+        let mut previous = Vec::new();
+        for completed in 0..200u64 {
+            coordinator
+                .update_progress(
+                    "job-1",
+                    BackgroundJobProgress {
+                        completed,
+                        total: Some(200),
+                        detail: Some(format!("Notes/file-{completed}.md")),
+                    },
+                )
+                .expect("progress");
+            let current = std::fs::read(&ledger).expect("ledger");
+            if current != previous {
+                persisted_writes += 1;
+                previous = current;
+            }
+            // Every tick is visible immediately, whether or not it was persisted.
+            let live = coordinator.job("job-1").expect("job").expect("record");
+            assert_eq!(live.progress.completed, completed);
+            assert_eq!(
+                live.progress.detail.as_deref(),
+                Some(format!("Notes/file-{completed}.md").as_str())
+            );
+        }
+
+        // The whole burst runs well inside one persist interval, so it costs a
+        // single write instead of 200.
+        assert_eq!(persisted_writes, 1);
+
+        // The status rollup readers use is live too, not just the record.
+        let snapshot = coordinator.status_snapshot().expect("snapshot");
+        assert_eq!(snapshot.active_jobs, 1);
+        assert_eq!(snapshot.progress.completed, 199);
+        assert_eq!(snapshot.progress.total, Some(200));
+
+        // Once the job is done the durable record is authoritative again, so a
+        // stale live value can never outlive the run that produced it.
+        coordinator
+            .persistence
+            .update_job("job-1", |job| {
+                job.status = BackgroundJobStatus::Succeeded;
+                job.progress.completed = 200;
+                job.finished_at = Some(Utc::now().to_rfc3339());
+            })
+            .expect("finish");
+        coordinator.forget_live_progress("job-1");
+        let finished = coordinator.job("job-1").expect("job").expect("record");
+        assert_eq!(finished.progress.completed, 200);
+        assert_eq!(coordinator.status_snapshot().expect("snapshot").active_jobs, 0);
+    }
+
+    /// The observer is how the app learns anything happened. Without it a sync
+    /// could land new content under an open vault and nothing would reload it.
+    #[test]
+    fn the_app_observer_is_told_about_progress_and_new_vault_content() {
+        #[derive(Default)]
+        struct Recorder {
+            statuses: Mutex<Vec<u64>>,
+            vaults: Mutex<Vec<(String, String, u64)>>,
+        }
+        impl BackgroundObserver for Recorder {
+            fn status_changed(&self, snapshot: &BackgroundStatusSnapshot) {
+                self.statuses.lock().push(snapshot.progress.completed);
+            }
+            fn vault_synced(&self, server_url: &str, vault_id: &str, changed: u64) {
+                self.vaults
+                    .lock()
+                    .push((server_url.to_string(), vault_id.to_string(), changed));
+            }
+        }
+
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let coordinator = Arc::new(BackgroundCoordinator::for_test(
+            Arc::new(HostedSessionRuntime::new()),
+            directory.path().to_path_buf(),
+        ));
+        let recorder = Arc::new(Recorder::default());
+        coordinator.set_observer(recorder.clone());
+        coordinator
+            .persistence
+            .insert_job(running_job("job-1", Some("profile-1")))
+            .expect("insert");
+
+        coordinator
+            .update_progress(
+                "job-1",
+                BackgroundJobProgress {
+                    completed: 7,
+                    total: Some(9),
+                    detail: None,
+                },
+            )
+            .expect("progress");
+        coordinator.notify_vault_synced("https://collab.example", "vault-1", 3);
+
+        assert_eq!(*recorder.statuses.lock(), vec![7]);
+        assert_eq!(
+            *recorder.vaults.lock(),
+            vec![("https://collab.example".to_string(), "vault-1".to_string(), 3)]
+        );
+    }
+
+    fn running_job(id: &str, profile_id: Option<&str>) -> BackgroundJobRecord {
+        BackgroundJobRecord {
+            id: id.to_string(),
+            idempotency_key: id.to_string(),
+            kind: BackgroundJobKind::ReplicaSync,
+            server_url: Some("https://collab.example".to_string()),
+            profile_id: profile_id.map(str::to_string),
+            vault_id: None,
+            trigger: BackgroundJobTrigger::Foreground,
+            attempt: 1,
+            status: BackgroundJobStatus::Running,
+            created_at: Utc::now().to_rfc3339(),
+            started_at: Some(Utc::now().to_rfc3339()),
+            finished_at: None,
+            next_retry_at: None,
+            progress: BackgroundJobProgress::default(),
+            changed: None,
+            summary: None,
+            error_category: None,
+            error_message: None,
+            retryable: false,
+        }
     }
 
     #[test]

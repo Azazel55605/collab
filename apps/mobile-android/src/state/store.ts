@@ -39,6 +39,9 @@ import {
   refreshVaultOfflineContents,
 } from '../lib/replica';
 import { runTopBackDismiss } from '../lib/backStack';
+import { listenToBackgroundEvents } from '../lib/backgroundEvents';
+import type { VaultSyncedEvent } from '../lib/backgroundEvents';
+import type { BackgroundStatusSnapshot } from '../../../../src/lib/tauri';
 import { shouldAlwaysCreateOfflineCopy } from '../lib/preferences';
 import {
   listMobileCalendarCacheOrigins,
@@ -133,8 +136,12 @@ interface MobileState {
   calendarMirrorProgress: Record<string, CalendarMirrorProgress>;
   calendarCacheOrigins: Array<{ serverUrl: string; userId: string }>;
   backgroundJobs: BackgroundJobRecord[];
+  /** Live coordinator status, pushed from native. Null until the first event. */
+  backgroundStatus: BackgroundStatusSnapshot | null;
 
   restore: () => Promise<void>;
+  /** Starts listening for native background events. Returns a disposer. */
+  watchBackgroundEvents: () => () => void;
   refreshStatuses: () => Promise<void>;
   refreshBackgroundJobs: () => Promise<void>;
   loadReplicas: () => Promise<void>;
@@ -208,6 +215,7 @@ export const useMobileStore = create<MobileState>((set, get) => ({
   calendarMirrorProgress: {},
   calendarCacheOrigins: [],
   backgroundJobs: [],
+  backgroundStatus: null,
 
   tab: 'servers',
   folderTrail: [ROOT_CRUMB],
@@ -262,6 +270,25 @@ export const useMobileStore = create<MobileState>((set, get) => ({
   refreshBackgroundJobs: async () => {
     set({ backgroundJobs: await backgroundJobList(30) });
   },
+
+  watchBackgroundEvents: () => listenToBackgroundEvents({
+    onStatus: (snapshot: BackgroundStatusSnapshot) => {
+      set({ backgroundStatus: snapshot });
+    },
+    onVaultSynced: (event: VaultSyncedEvent) => {
+      // Only the vault being looked at needs a reload; refreshing every vault
+      // on every event would undo the point of pushing these at all.
+      const selected = get().selected;
+      if (
+        !selected
+        || selected.vault.id !== event.vaultId
+        || normalizeServerUrl(selected.serverUrl) !== normalizeServerUrl(event.serverUrl)
+      ) {
+        return;
+      }
+      void get().loadFiles().catch(() => {});
+    },
+  }),
 
   restore: async () => {
     const servers = listKnownServers();

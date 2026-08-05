@@ -180,7 +180,14 @@ pub(crate) async fn run_replica_sync(
         )
         .await
         {
-            Ok(target_changed) => changed += target_changed,
+            Ok(target_changed) => {
+                changed += target_changed;
+                if target_changed > 0 {
+                    // Views showing this vault are now stale. Nothing else tells
+                    // the webview that content arrived underneath it.
+                    coordinator.notify_vault_synced(server_url, &vault.id, target_changed);
+                }
+            }
             Err(error)
                 if matches!(
                     error.status,
