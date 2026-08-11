@@ -84,6 +84,15 @@ const PROGRESS_PERSIST_INTERVAL: Duration = Duration::from_secs(2);
 #[cfg(target_os = "android")]
 const WIDGET_PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
 
+/// How long a run must last before it is worth telling the user about.
+///
+/// Most syncs reconcile nothing and finish in well under a second. Posting for
+/// those would flash a notification the user cannot read and did not need,
+/// which is how an informative notification turns into an annoying one. Only a
+/// run long enough to be worth waiting on gets one.
+#[cfg(target_os = "android")]
+const SYNC_NOTIFICATION_DELAY: Duration = Duration::from_secs(4);
+
 struct LiveProgress {
     progress: BackgroundJobProgress,
     persisted_at: Instant,
@@ -93,6 +102,9 @@ struct LiveProgress {
     profile_id: Option<String>,
     #[cfg(target_os = "android")]
     widgets_published_at: Instant,
+    /// When the run began, so a short one never posts a notification at all.
+    #[cfg(target_os = "android")]
+    started_at: Instant,
 }
 
 /// Notified when background work starts, progresses, or lands new content.
@@ -119,6 +131,11 @@ pub struct BackgroundCoordinator {
     observer: Mutex<Option<Arc<dyn BackgroundObserver>>>,
     concurrency: Arc<Semaphore>,
     shutting_down: AtomicBool,
+    /// Whether an ongoing sync notification is currently posted. Coordinator
+    /// state rather than job state, so whichever job finishes last takes it
+    /// down regardless of which one put it up.
+    #[cfg(target_os = "android")]
+    sync_notification_shown: AtomicBool,
     #[cfg(test)]
     allow_unencrypted_replicas: bool,
 }
@@ -133,6 +150,8 @@ impl BackgroundCoordinator {
             observer: Mutex::new(None),
             concurrency: Arc::new(Semaphore::new(2)),
             shutting_down: AtomicBool::new(false),
+            #[cfg(target_os = "android")]
+            sync_notification_shown: AtomicBool::new(false),
             #[cfg(test)]
             allow_unencrypted_replicas: false,
         };
@@ -150,6 +169,8 @@ impl BackgroundCoordinator {
             observer: Mutex::new(None),
             concurrency: Arc::new(Semaphore::new(2)),
             shutting_down: AtomicBool::new(false),
+            #[cfg(target_os = "android")]
+            sync_notification_shown: AtomicBool::new(false),
             allow_unencrypted_replicas: true,
         };
         coordinator
@@ -728,6 +749,8 @@ impl BackgroundCoordinator {
         let now = Instant::now();
         #[cfg(target_os = "android")]
         let mut publish_widgets = false;
+        #[cfg(target_os = "android")]
+        let mut notify_progress = false;
         let persist = {
             let mut live = self.live_progress.lock();
             match live.get_mut(id) {
@@ -737,6 +760,9 @@ impl BackgroundCoordinator {
                     if now.duration_since(entry.widgets_published_at) >= WIDGET_PROGRESS_INTERVAL {
                         entry.widgets_published_at = now;
                         publish_widgets = true;
+                        if now.duration_since(entry.started_at) >= SYNC_NOTIFICATION_DELAY {
+                            notify_progress = true;
+                        }
                     }
                     let due = now.duration_since(entry.persisted_at) >= PROGRESS_PERSIST_INTERVAL;
                     if due {
@@ -755,6 +781,8 @@ impl BackgroundCoordinator {
                             profile_id: None,
                             #[cfg(target_os = "android")]
                             widgets_published_at: now,
+                            #[cfg(target_os = "android")]
+                            started_at: now,
                         },
                     );
                     #[cfg(target_os = "android")]
@@ -767,13 +795,18 @@ impl BackgroundCoordinator {
         };
         if persist {
             self.persistence.update_job(id, |job| {
-                job.progress = progress;
+                job.progress = progress.clone();
             })?;
             self.notify_status();
         }
         #[cfg(target_os = "android")]
         if publish_widgets {
             self.publish_widgets_for_job(id);
+        }
+        #[cfg(target_os = "android")]
+        if notify_progress {
+            self.sync_notification_shown.store(true, Ordering::SeqCst);
+            crate::android_jni::show_sync_progress_notification(&progress);
         }
         Ok(())
     }
@@ -815,6 +848,10 @@ impl BackgroundCoordinator {
                 profile_id: profile_id.map(str::to_string),
                 #[cfg(target_os = "android")]
                 widgets_published_at: now - WIDGET_PROGRESS_INTERVAL,
+                // Not backdated: the notification delay is measured from the
+                // real start, so a run that finishes quickly never posts one.
+                #[cfg(target_os = "android")]
+                started_at: now,
             },
         );
     }
@@ -852,7 +889,26 @@ impl BackgroundCoordinator {
     /// Drops the live entry for a job that has reached a terminal state, so its
     /// final persisted progress is what readers see from then on.
     fn forget_live_progress(&self, id: &str) {
-        self.live_progress.lock().remove(id);
+        let idle = {
+            let mut live = self.live_progress.lock();
+            live.remove(id);
+            live.is_empty()
+        };
+        // A progress notification is only meaningful while something is
+        // running. Clearing it here covers every terminal path — success,
+        // failure, and cancellation alike — so none can leave one pinned in the
+        // shade reporting work that is over.
+        //
+        // Whether one is showing is tracked on the coordinator rather than on
+        // the job that posted it: with a per-job flag, a notified job finishing
+        // while a short un-notified job was still running left nothing behind
+        // that knew to take the notification down.
+        #[cfg(target_os = "android")]
+        if idle && self.sync_notification_shown.swap(false, Ordering::SeqCst) {
+            crate::android_jni::clear_sync_progress_notification();
+        }
+        #[cfg(not(target_os = "android"))]
+        let _ = idle;
     }
 
     pub(crate) fn config_root(&self) -> Result<std::path::PathBuf, String> {

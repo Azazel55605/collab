@@ -28,6 +28,23 @@ import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.Executors
 
+/**
+ * The line under "Syncing": what the run is on, and how far along it is.
+ *
+ * A run that stated no total contributes no counts rather than "0 of 0", which
+ * would read as a finished run. A run that has reported nothing at all still
+ * says something rather than leaving the notification blank.
+ *
+ * Top-level on purpose: [CollabNotificationBridge] loads the native library in
+ * its static initializer, so anything reachable from a JVM unit test has to
+ * live outside it.
+ */
+internal fun syncProgressText(detail: String?, completed: Long, total: Long?): String =
+  listOfNotNull(detail, total?.let { "$completed of $it" })
+    .joinToString(" · ")
+    .ifBlank { "Checking for changes" }
+    .take(180)
+
 object CollabNotificationBridge {
   const val EXTRA_PROFILE_ID = "collabNotificationProfileId"
   const val EXTRA_NOTIFICATION_ID = "collabNotificationId"
@@ -236,6 +253,66 @@ object CollabNotificationBridge {
     )
   }
 
+  /**
+   * Shows or updates the ongoing "syncing" notification.
+   *
+   * It lives on the low-importance Transfers channel, so it appears silently
+   * and can be turned off on its own without losing sync failure alerts. It is
+   * deliberately not `setOngoing`: this is information, not a foreground
+   * service, and the user must always be able to swipe it away.
+   *
+   * Everything shown is decided in Rust — the detail arrives already reduced to
+   * a bare name, and the counts are the coordinator's own. Kotlin only draws.
+   */
+  @JvmStatic
+  fun showSyncProgress(context: Context, payloadJson: String): String? = try {
+    ensureChannels(context)
+    if (permissionStatus(context) != "granted") {
+      null
+    } else {
+      val payload = JSONObject(payloadJson)
+      val detail = payload.optString("detail").takeIf { it.isNotBlank() && it != "null" }
+      val completed = payload.optLong("completed", 0L).coerceAtLeast(0L)
+      // A total below what is already done would draw a bar past its own end,
+      // so it is treated as no total at all.
+      val total = payload.optLong("total", -1L).takeIf { it >= completed && it > 0L }
+      val intent = Intent(context, MainActivity::class.java)
+        .setAction(ACTION_OPEN)
+        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+      val builder = NotificationCompat.Builder(context, CHANNEL_TRANSFERS)
+        .setSmallIcon(R.drawable.ic_notification)
+        .setContentTitle("Syncing")
+        .setContentText(syncProgressText(detail, completed, total))
+        .setContentIntent(
+          PendingIntent.getActivity(
+            context,
+            stableId("background-sync-progress-open"),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+          ),
+        )
+        .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+        .setSilent(true)
+        .setOnlyAlertOnce(true)
+        // A run that cannot state a total gets an indeterminate bar rather than
+        // an invented percentage.
+        .setProgress(total?.toInt() ?: 0, completed.toInt(), total == null)
+      NotificationManagerCompat.from(context).notify(SYNC_PROGRESS_ID, builder.build())
+      null
+    }
+  } catch (error: Throwable) {
+    error.message ?: error.javaClass.simpleName
+  }
+
+  /** Takes the ongoing sync notification down. Safe to call when none is showing. */
+  @JvmStatic
+  fun clearSyncProgress(context: Context): String? = try {
+    NotificationManagerCompat.from(context).cancel(SYNC_PROGRESS_ID)
+    null
+  } catch (error: Throwable) {
+    error.message ?: error.javaClass.simpleName
+  }
+
   fun ensureChannels(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     val manager = context.getSystemService(NotificationManager::class.java)
@@ -410,6 +487,9 @@ object CollabNotificationBridge {
   private const val CHANNEL_COLLABORATION = "collab_collaboration"
   private const val CHANNEL_SYNC = "collab_sync"
   private const val CHANNEL_TRANSFERS = "collab_transfers"
+
+  /** One fixed id: a progress notification updates in place, it does not stack. */
+  private val SYNC_PROGRESS_ID = stableId("background-sync-progress")
 }
 
 class CollabFirebaseMessagingService : FirebaseMessagingService() {

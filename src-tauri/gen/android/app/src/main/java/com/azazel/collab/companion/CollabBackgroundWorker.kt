@@ -240,16 +240,32 @@ object CollabBackgroundScheduler {
     else -> NetworkType.CONNECTED
   }
 
+  /**
+   * The settings-derived constraints for a run.
+   *
+   * `expedited` drops the power constraints, because WorkManager rejects an
+   * expedited request that carries any constraint other than network and
+   * storage — it throws "Expedited jobs only support network and storage
+   * constraints" out of `enqueue`, which is what made every user-initiated
+   * "Sync now" fail for anyone who had charging or battery-not-low enabled.
+   *
+   * Dropping them is also the honest reading of the setting. Charging and
+   * battery-not-low exist to defer *unattended* work to a better moment; a
+   * person tapping "Sync now" has already decided this moment is the right one.
+   * The network constraint is kept in both forms, because unmetered-only and
+   * no-roaming are about what the sync may cost the user, not when it may run.
+   */
   internal fun constraints(
     onlyUnmetered: Boolean,
     requireCharging: Boolean,
     pauseOnLowBattery: Boolean,
     allowRoaming: Boolean,
+    expedited: Boolean = false,
   ): Constraints =
     Constraints.Builder()
       .setRequiredNetworkType(requiredNetworkType(onlyUnmetered, allowRoaming))
-      .setRequiresCharging(requireCharging)
-      .setRequiresBatteryNotLow(pauseOnLowBattery)
+      .setRequiresCharging(requireCharging && !expedited)
+      .setRequiresBatteryNotLow(pauseOnLowBattery && !expedited)
       .setRequiresStorageNotLow(true)
       .build()
 
@@ -327,6 +343,7 @@ object CollabBackgroundScheduler {
           requireCharging == "true",
           pauseOnLowBattery == "true",
           allowRoaming == "true",
+          expedited = isUserInitiated,
         ),
       )
       .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)

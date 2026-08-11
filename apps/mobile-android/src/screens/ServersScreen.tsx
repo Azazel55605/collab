@@ -2,6 +2,7 @@ import { CalendarX2, ChevronRight, Cloud, KeyRound, LogOut, Pencil, Plus, Refres
 import { FormEvent, useMemo, useState } from 'react';
 import { useBackDismiss } from '../lib/backStack';
 
+import { SyncActivityBanner } from '../components/SyncActivityBanner';
 import { Banner, EmptyState, Spinner, StatusDot } from '../components/ui';
 import { normalizeServerUrl, type KnownServer } from '../lib/servers';
 import { useMobileStore } from '../state/store';
@@ -18,6 +19,7 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
   const reauthenticate = useMobileStore((s) => s.reauthenticate);
   const reconnect = useMobileStore((s) => s.reconnect);
   const disconnect = useMobileStore((s) => s.disconnect);
+  const backgroundStatus = useMobileStore((s) => s.backgroundStatus);
   const calendarCacheOrigins = useMobileStore((s) => s.calendarCacheOrigins);
   const removeCalendarCachesForServer = useMobileStore((s) => s.removeCalendarCachesForServer);
 
@@ -149,6 +151,8 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
           </button>
         ) : null}
       </header>
+
+      <SyncActivityBanner status={backgroundStatus} />
 
       {error ? <Banner tone="error">{error}</Banner> : null}
 

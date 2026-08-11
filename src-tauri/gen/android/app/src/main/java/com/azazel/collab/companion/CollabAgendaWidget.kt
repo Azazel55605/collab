@@ -220,6 +220,10 @@ internal data class AgendaWidgetSync(
   val vaults: Int,
   val progressCompleted: Long,
   val progressTotal: Long?,
+  /** What the run is on right now. Rust reduces this; Kotlin only shows it. */
+  val activityLabel: String?,
+  /** Rust-rendered "12 of 40". Absent when the run cannot state a total. */
+  val progressLabel: String?,
   val canSyncNow: Boolean,
 ) {
   val needsAttention: Boolean
@@ -273,7 +277,15 @@ internal fun agendaWidgetSnapshotFromState(raw: String?): AgendaWidgetSnapshot {
   )
 }
 
-private object CollabAgendaWidgetSnapshotCache {
+/**
+ * One parsed snapshot, keyed by the exact text it was parsed from.
+ *
+ * Keying on content rather than on a binding means the cache can never serve a
+ * stale snapshot: a republished snapshot is a different string and misses. The
+ * single entry is sized for the access pattern that actually repeats — the same
+ * widget re-composing against the same snapshot, which is every month-arrow tap.
+ */
+internal object CollabAgendaWidgetSnapshotCache {
   private var raw: String? = null
   private var snapshot: AgendaWidgetSnapshot? = null
 
@@ -444,6 +456,13 @@ internal object CollabAgendaWidgetSnapshotStore {
       progressCompleted = completed,
       // A total below what is already done would draw a bar past its own end.
       progressTotal = sync.optLong("progressTotal", -1L).takeIf { it >= completed },
+      // Rust reduces the activity line to a bare last path segment. Refusing
+      // anything still carrying a separator or an origin keeps this parser
+      // honest about what it will render, rather than trusting the writer.
+      activityLabel = sync.optString("activityLabel")
+        .takeIf { it.isNotBlank() && !it.contains('/') && !it.contains('\\') && !it.contains('@') }
+        ?.take(MAX_TEXT),
+      progressLabel = sync.optString("progressLabel").takeIf { it.isNotBlank() }?.take(MAX_TEXT),
       canSyncNow = sync.optBoolean("canSyncNow", false),
     )
   }
@@ -789,7 +808,14 @@ object CollabWidgetBridge {
     runCatching {
       val raw = nativeReadSnapshot(context, binding.profileId, binding.configurationId)
       if (raw == "null") return@runCatching null
-      CollabAgendaWidgetSnapshotStore.parse(raw)
+      // Validating through the shared cache instead of parsing directly, because
+      // the caller composes against this same string moments later and would
+      // otherwise parse it a second time. A month snapshot carries thirteen
+      // pages of day cells, so that duplicate parse was most of what a
+      // month-arrow tap spent its time on.
+      requireNotNull(CollabAgendaWidgetSnapshotCache.read(raw)) {
+        "The widget snapshot could not be read."
+      }
       raw
     }.getOrNull()
 
@@ -847,8 +873,12 @@ object CollabWidgetBridge {
    */
   internal fun requestSync(context: Context, profileId: String): Pair<Boolean, String> =
     runCatching {
-      JSONObject(nativeRequestSync(context.applicationContext, profileId))
-        .optBoolean("requested", false) to "Sync requested."
+      val requested = JSONObject(nativeRequestSync(context.applicationContext, profileId))
+        .optBoolean("requested", false)
+      // A rejected enqueue used to be reported as "Sync requested." all the
+      // same, so a launcher tap that scheduled nothing was indistinguishable
+      // from one that worked.
+      requested to if (requested) "Sync requested." else "Sync could not be requested."
     }.getOrElse { failure ->
       false to (failure.message ?: "Sync could not be requested.").take(80)
     }
@@ -1580,6 +1610,23 @@ private fun ShortcutWidgetContent(
   }
 }
 
+/** The fill behind one day cell in the month grid. */
+internal fun monthDayCellColor(day: MonthWidgetDay, palette: AgendaWidgetPalette): Color =
+  if (day.inMonth) palette.background else palette.card
+
+/**
+ * The fill behind a day's number pill.
+ *
+ * Every day gets a colour, not only today. A launcher reapplies RemoteViews
+ * onto views it already holds, so a background applied in an `isToday` branch
+ * and simply omitted otherwise has nothing to undo it — yesterday kept the
+ * accent it was handed and the marker grew a trail across the month. The off
+ * state therefore repaints the day's own cell fill rather than painting
+ * nothing.
+ */
+internal fun monthDayMarkerColor(day: MonthWidgetDay, palette: AgendaWidgetPalette): Color =
+  if (day.isToday) palette.accent else monthDayCellColor(day, palette)
+
 /** The colour a sync state is allowed to speak with. The accent stays reserved
  * for the widget's one primary action, so a healthy state is quiet. */
 internal fun syncStateColor(state: String?, palette: AgendaWidgetPalette): Color = when (state) {
@@ -1664,7 +1711,10 @@ private fun SyncWidgetContent(
         }
       }
     }
-    if (!compact && sync?.running == true) {
+    // The bar shows at every size. It is 4dp tall and it is the one thing a
+    // run in flight can say without room for words, so the smallest widget is
+    // exactly where it earns its space.
+    if (sync?.running == true) {
       Spacer(GlanceModifier.height(6.dp))
       SyncProgressBar(palette, sync)
     }
@@ -1710,9 +1760,21 @@ private fun SyncWidgetContent(
   }
 }
 
-/** The secondary line under the headline: what is covered, and how fresh it is. */
+/**
+ * The secondary line under the headline.
+ *
+ * While a run is in flight it answers "what is happening right now" — the thing
+ * being synced and how far along it is — because that is the only question a
+ * headline of "Syncing…" leaves open. Everything Rust puts here is already
+ * reduced and phrased; this only chooses which of it to show. At rest the line
+ * falls back to what is covered and how fresh it is.
+ */
 internal fun syncDetailLine(sync: AgendaWidgetSync?): String {
   if (sync == null) return "Open Collab to refresh"
+  if (sync.running) {
+    val live = listOfNotNull(sync.activityLabel, sync.progressLabel).joinToString(" · ")
+    if (live.isNotBlank()) return live
+  }
   val scope = when {
     sync.vaults == 0 -> null
     sync.vaults == 1 -> "1 vault"
@@ -1729,18 +1791,22 @@ internal fun syncDetailLine(sync: AgendaWidgetSync?): String {
 @Composable
 private fun SyncProgressBar(palette: AgendaWidgetPalette, sync: AgendaWidgetSync) {
   val fraction = sync.progressFraction
-  // An unknown total fills the whole track in the quiet surface colour: the run
-  // is visible without claiming a completion it cannot know.
-  val (filled, empty) = if (fraction == null) {
-    0 to SYNC_PROGRESS_SEGMENTS
+  // A run that cannot state a total fills the whole track in the muted colour.
+  // That reads as "working" at a glance while staying visibly different from
+  // the accent, which is reserved for progress that was actually measured — an
+  // indeterminate run must never be mistaken for a finished one.
+  val indeterminate = fraction == null
+  val (filled, empty) = if (indeterminate) {
+    SYNC_PROGRESS_SEGMENTS to 0
   } else {
     syncProgressSegments((fraction * 100f).toInt())
   }
+  val filledColor = if (indeterminate) palette.muted else palette.accent
   Row(modifier = GlanceModifier.fillMaxWidth().height(4.dp)) {
     repeat(filled) {
       Box(
         modifier = GlanceModifier.defaultWeight().fillMaxHeight()
-          .background(ColorProvider(palette.accent)),
+          .background(ColorProvider(filledColor)),
         contentAlignment = Alignment.Center,
       ) {}
     }
@@ -2208,23 +2274,17 @@ private fun MonthWidgetContent(
               // the app's month view draws.
               Column(
                 modifier = GlanceModifier.fillMaxSize()
-                  .background(
-                    ColorProvider(if (day.inMonth) palette.background else palette.card),
-                  )
+                  .background(ColorProvider(monthDayCellColor(day, palette)))
                   .clickable(action)
                   .padding(horizontal = 3.dp, vertical = 3.dp),
                 horizontalAlignment = Alignment.Horizontal.End,
               ) {
                 val numberSize = (18f * snapshot.fontScale).dp
                 Box(
-                  modifier = if (day.isToday) {
-                    GlanceModifier.width(numberSize).height(numberSize)
-                      .background(ColorProvider(palette.accent))
-                      .cornerRadius(numberSize / 2)
-                      .clickable(action)
-                  } else {
-                    GlanceModifier.width(numberSize).height(numberSize).clickable(action)
-                  },
+                  modifier = GlanceModifier.width(numberSize).height(numberSize)
+                    .background(ColorProvider(monthDayMarkerColor(day, palette)))
+                    .cornerRadius(numberSize / 2)
+                    .clickable(action),
                   contentAlignment = Alignment.Center,
                 ) {
                   Text(

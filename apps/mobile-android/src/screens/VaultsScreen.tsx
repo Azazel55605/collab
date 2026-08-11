@@ -1,6 +1,7 @@
 import { Check, ChevronRight, Cloud, CloudDownload, CloudOff, Library, RefreshCw } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
+import { SyncActivityBanner } from '../components/SyncActivityBanner';
 import {
   Banner,
   ConfirmSheet,
@@ -64,6 +65,7 @@ export function VaultsScreen() {
   const offlineBusy = useMobileStore((s) => s.offlineBusy);
   const offlineProgress = useMobileStore((s) => s.offlineProgress);
   const offlineError = useMobileStore((s) => s.offlineError);
+  const backgroundStatus = useMobileStore((s) => s.backgroundStatus);
   const activeSheet = useMobileStore((s) => s.activeSheet);
   const loadVaults = useMobileStore((s) => s.loadVaults);
   const selectVault = useMobileStore((s) => s.selectVault);
@@ -156,6 +158,8 @@ export function VaultsScreen() {
           <p>{vaultGroups.length > 0 ? 'Choose a vault to browse' : 'No connected servers'}</p>
         </div>
       </header>
+
+      <SyncActivityBanner status={backgroundStatus} />
 
       {offlineError ? <Banner tone="error">{offlineError}</Banner> : null}
 

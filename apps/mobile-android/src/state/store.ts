@@ -4,6 +4,7 @@ import {
   connectServer,
   backgroundJobGet,
   backgroundJobList,
+  backgroundStatusSnapshot,
   backgroundJobRun,
   cancelAndroidBackgroundProfile,
   disconnectServer,
@@ -271,24 +272,33 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     set({ backgroundJobs: await backgroundJobList(30) });
   },
 
-  watchBackgroundEvents: () => listenToBackgroundEvents({
-    onStatus: (snapshot: BackgroundStatusSnapshot) => {
-      set({ backgroundStatus: snapshot });
-    },
-    onVaultSynced: (event: VaultSyncedEvent) => {
-      // Only the vault being looked at needs a reload; refreshing every vault
-      // on every event would undo the point of pushing these at all.
-      const selected = get().selected;
-      if (
-        !selected
-        || selected.vault.id !== event.vaultId
-        || normalizeServerUrl(selected.serverUrl) !== normalizeServerUrl(event.serverUrl)
-      ) {
-        return;
-      }
-      void get().loadFiles().catch(() => {});
-    },
-  }),
+  watchBackgroundEvents: () => {
+    // A WorkManager run can already be in flight when the app opens, and the
+    // next event is up to a progress interval away. Without this seed the
+    // indicator stays blank through the part of a sync the user is most likely
+    // to be watching.
+    void backgroundStatusSnapshot()
+      .then((snapshot) => set({ backgroundStatus: snapshot }))
+      .catch(() => {});
+    return listenToBackgroundEvents({
+      onStatus: (snapshot: BackgroundStatusSnapshot) => {
+        set({ backgroundStatus: snapshot });
+      },
+      onVaultSynced: (event: VaultSyncedEvent) => {
+        // Only the vault being looked at needs a reload; refreshing every vault
+        // on every event would undo the point of pushing these at all.
+        const selected = get().selected;
+        if (
+          !selected
+          || selected.vault.id !== event.vaultId
+          || normalizeServerUrl(selected.serverUrl) !== normalizeServerUrl(event.serverUrl)
+        ) {
+          return;
+        }
+        void get().loadFiles().catch(() => {});
+      },
+    });
+  },
 
   restore: async () => {
     const servers = listKnownServers();

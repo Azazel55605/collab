@@ -4606,6 +4606,70 @@ p {
   transition: width 200ms ease;
 }
 
+/* A run with no total sweeps instead of filling, so it never reads as a
+   proportion it does not know. */
+.progress-fill.indeterminate {
+  width: 40%;
+  animation: sync-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes sync-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+.sync-activity {
+  margin: 0 12px 10px;
+  padding: 10px 0 0;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.sync-activity-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px 8px;
+}
+
+.sync-activity-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.sync-activity-text strong {
+  font-size: 0.82rem;
+}
+
+/* The detail is a file or vault name and can be long; it must truncate rather
+   than reflow the row. */
+.sync-activity-text span {
+  font-size: 0.72rem;
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-track.sync-activity-track {
+  margin: 0;
+  border-radius: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill.indeterminate {
+    animation: none;
+  }
+  .progress-fill.indeterminate {
+    width: 100%;
+    opacity: 0.5;
+  }
+}
+
 .cache-badge {
   flex: 0 0 auto;
   padding: 2px 8px;

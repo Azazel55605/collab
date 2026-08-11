@@ -317,6 +317,36 @@ pub fn take_pending_notification_open() -> Result<Option<String>, String> {
     call_static_string(NOTIFICATION_BRIDGE_CLASS, "takePendingOpen", &[])
 }
 
+/// Shows or updates the ongoing "syncing" notification.
+///
+/// Best effort by design: this is a progress display, and a job must never fail
+/// because the shade could not be updated. The detail is reduced the same way
+/// the sync widget reduces it — the notification is visible on a lock screen,
+/// so the folders above a file have no business in it.
+#[cfg(target_os = "android")]
+pub fn show_sync_progress_notification(progress: &crate::background::BackgroundJobProgress) {
+    let payload = serde_json::json!({
+        "detail": progress
+            .detail
+            .as_deref()
+            .map(crate::widgets::sync_activity_detail)
+            .filter(|detail| !detail.is_empty()),
+        "completed": progress.completed,
+        "total": progress.total,
+    });
+    let _ = call_static_string(
+        NOTIFICATION_BRIDGE_CLASS,
+        "showSyncProgress",
+        &[&payload.to_string()],
+    );
+}
+
+/// Takes the ongoing "syncing" notification down. Best effort, as above.
+#[cfg(target_os = "android")]
+pub fn clear_sync_progress_notification() {
+    let _ = call_static_string(NOTIFICATION_BRIDGE_CLASS, "clearSyncProgress", &[]);
+}
+
 pub fn exact_alarm_status() -> Result<String, String> {
     call_static_string(NOTIFICATION_SCHEDULER_CLASS, "exactAlarmStatus", &[])?
         .ok_or_else(|| "Android returned no exact-alarm status.".to_string())

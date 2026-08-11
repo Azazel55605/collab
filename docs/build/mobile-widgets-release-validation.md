@@ -88,6 +88,34 @@ Record the device, Android version, and launcher for every row.
 - [ ] Boot and a time change still repaint every placed widget, because state
       equality proves nothing after the launcher may have lost our views.
 - [ ] Repeated `Sync now` taps produce exactly one run.
+- [ ] `Sync now` actually enqueues with charging and battery-not-low enabled in
+      background settings. WorkManager rejects an expedited request carrying a
+      power constraint, so this combination is the one that used to fail with
+      "Expedited jobs only support network and storage constraints".
+- [ ] The widget reports a rejected sync request as a failure, never as
+      "Sync requested."
+- [ ] Crossing midnight with a month widget placed moves the today marker and
+      leaves no marker behind on the previous day. A launcher reapplies views it
+      already holds, so this cannot be confirmed from a fresh placement — leave
+      the widget in place across the day boundary.
+- [ ] Stepping through months with the arrows repaints without a perceptible
+      wait, including on the first tap after the app process has been killed.
+
+### Sync progress
+
+- [ ] While a real multi-file sync runs: the sync widget names what it is on and
+      shows a moving bar; the in-app banner on Vaults and Servers shows the same;
+      and an ongoing notification appears with a progress bar.
+- [ ] A sync that reconciles nothing posts no notification at all (the
+      `SYNC_NOTIFICATION_DELAY` gate).
+- [ ] The notification clears on success, on failure, and on cancellation — and
+      when two runs overlap, whichever finishes last clears it.
+- [ ] Opening the app mid-sync shows the banner immediately rather than after
+      the next progress tick.
+- [ ] A run that reports no total renders as indeterminate everywhere (widget,
+      banner, notification) rather than as 0%.
+- [ ] No file path, folder name, server URL, or account appears in the
+      notification on a lock screen, or anywhere in the widget.
 
 ### Accessibility and presentation
 

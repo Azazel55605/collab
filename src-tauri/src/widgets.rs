@@ -248,6 +248,20 @@ pub(crate) struct WidgetSyncSummary {
     pub progress_completed: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress_total: Option<u64>,
+    /// What the running work is on right now — a vault name, or the phase the
+    /// executor reported. Absent when nothing is running.
+    ///
+    /// This is the job's own progress detail, which is a vault name or a
+    /// vault-relative file path. Vault names already appear in this widget's
+    /// rows, but a path does not, so the detail is reduced to its last segment
+    /// and never carries a server, an account, or a directory tree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activity_label: Option<String>,
+    /// The rendered "12 of 40" or "45%" phrasing. Rust owns it so the launcher
+    /// never has to decide what a pair of counts means, and it is absent
+    /// whenever the running work cannot state a total.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_label: Option<String>,
     /// False when there is nothing registered to sync, so the launcher does not
     /// offer an action that would enqueue no work.
     pub can_sync_now: bool,
@@ -2633,9 +2647,15 @@ fn sync_item_inputs(
         vaults: 0,
         progress_completed: 0,
         progress_total: None,
+        activity_label: None,
+        progress_label: None,
         can_sync_now: false,
     };
     let mut progress_total_known = true;
+    // The activity line names one thing, so the job furthest along its own work
+    // wins: that is the one actually moving, rather than a queued job that has
+    // reported nothing yet.
+    let mut activity_detail: Option<(u64, String)> = None;
     for job in jobs {
         let account = job.server_url.as_deref().map(account_hash);
         // A job without a server is profile-local maintenance; it still counts
@@ -2664,6 +2684,16 @@ fn sync_item_inputs(
                     // One unbounded job makes the whole total a guess, so the
                     // launcher is told to render an indeterminate state.
                     None => progress_total_known = false,
+                }
+                if let Some(detail) = job.progress.detail.as_deref() {
+                    let detail = sync_activity_detail(detail);
+                    if !detail.is_empty()
+                        && activity_detail
+                            .as_ref()
+                            .is_none_or(|(best, _)| job.progress.completed >= *best)
+                    {
+                        activity_detail = Some((job.progress.completed, detail));
+                    }
                 }
                 if let Some(entry) = entry {
                     entry.running = true;
@@ -2769,6 +2799,21 @@ fn sync_item_inputs(
         .as_deref()
         .and_then(|value| relative_time_label(now, value))
         .map(|value| format!("Synced {value}"));
+
+    // Progress phrasing belongs to a run in flight. Reporting it in any other
+    // state would leave the last run's counts frozen on the launcher long after
+    // it finished.
+    if summary.state == WidgetSyncState::Syncing {
+        summary.activity_label = activity_detail
+            .map(|(_, detail)| detail)
+            .or_else(|| Some("Checking for changes".to_string()));
+        summary.progress_label = summary.progress_total.and_then(|total| {
+            (total > 0).then(|| {
+                let completed = summary.progress_completed.min(total);
+                format!("{completed} of {total}")
+            })
+        });
+    }
 
     // The recovery row is the only launcher affordance for an attention state,
     // and it opens the app rather than attempting a fix in the launcher.
@@ -2908,6 +2953,30 @@ struct SyncVaultRow {
     offline: bool,
     syncing: bool,
     last_synced_at: Option<String>,
+}
+
+/// Reduces a background job's progress detail to something a launcher may show.
+///
+/// The executors report either a vault name or a vault-relative file path.
+/// A vault name is already published in this widget's own rows, but a path is
+/// not: the directories above a file describe how someone organises their work,
+/// and nothing in the widget needs them. Only the last segment survives, and it
+/// is bounded like every other published string.
+///
+/// Anything that could carry an origin is dropped outright rather than trimmed,
+/// because a URL's last segment is still part of a URL.
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn sync_activity_detail(detail: &str) -> String {
+    let detail = detail.trim();
+    if detail.contains("://") || detail.contains('@') {
+        return String::new();
+    }
+    let last = detail
+        .rsplit(['/', '\\'])
+        .find(|segment| !segment.trim().is_empty())
+        .unwrap_or("")
+        .trim();
+    truncate_utf8(last, MAX_TEXT_BYTES)
 }
 
 /// The row detail. It carries counts and an age only — never a path, a server,
@@ -3433,6 +3502,23 @@ fn validate_snapshot(snapshot: &WidgetSnapshot, expected_profile_hash: &str) -> 
     if let Some(sync) = &snapshot.sync {
         if let Some(value) = &sync.last_success_at {
             validate_text(value, MAX_TEXT_BYTES, "widget sync time")?;
+        }
+        if let Some(value) = &sync.activity_label {
+            validate_text(value, MAX_TEXT_BYTES, "widget sync activity")?;
+            // The activity line is derived from a job's progress detail, which
+            // is the one published string with a path or an origin anywhere
+            // upstream of it. Re-check the reduction here, at the boundary that
+            // writes launcher-readable state.
+            if value.contains("://")
+                || value.contains('@')
+                || value.contains('/')
+                || value.contains('\\')
+            {
+                return Err("The widget sync activity is not privacy-reduced.".into());
+            }
+        }
+        if let Some(value) = &sync.progress_label {
+            validate_text(value, MAX_TEXT_BYTES, "widget sync progress")?;
         }
         // A total below what has already completed would render as a progress
         // bar running past its own end.
@@ -5875,6 +5961,89 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[test]
+    fn a_running_sync_reports_what_it_is_on_and_how_far_along_it_is() {
+        let root = test_root();
+        let mut behind = background_job("job-1", "https://collab.example", "running", None);
+        behind["progress"] =
+            serde_json::json!({ "completed": 1, "total": 4, "detail": "Checking offline replicas" });
+        let mut ahead = background_job("job-2", "https://collab.example", "running", None);
+        // A vault-relative path is what the file executor reports. Only the
+        // last segment may be published: the folders above it are not the
+        // launcher's business.
+        ahead["progress"] = serde_json::json!({
+            "completed": 9,
+            "total": 12,
+            "detail": "Notes/Personal/Finances/plan.md",
+        });
+        write_background_state(
+            &root,
+            serde_json::json!([behind, ahead]),
+            serde_json::json!([]),
+            None,
+        );
+
+        let (_, _, summary) = sync_item_inputs(&root, &sync_configuration("sync-1"), sync_now());
+        assert_eq!(summary.state, WidgetSyncState::Syncing);
+        // The job furthest along is the one actually moving, so it names the line.
+        assert_eq!(summary.activity_label.as_deref(), Some("plan.md"));
+        assert_eq!(summary.progress_label.as_deref(), Some("10 of 16"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn progress_phrasing_is_dropped_once_nothing_is_running() {
+        let root = test_root();
+        let mut finished =
+            background_job("job-1", "https://collab.example", "succeeded", Some("2026-08-01T07:55:00Z"));
+        // A finished job keeps the counts it ended on. Publishing them would
+        // freeze "9 of 12" on the launcher long after the run was over.
+        finished["progress"] =
+            serde_json::json!({ "completed": 9, "total": 12, "detail": "plan.md" });
+        write_background_state(
+            &root,
+            serde_json::json!([finished]),
+            serde_json::json!([]),
+            None,
+        );
+
+        let (_, _, summary) = sync_item_inputs(&root, &sync_configuration("sync-1"), sync_now());
+        assert_ne!(summary.state, WidgetSyncState::Syncing);
+        assert_eq!(summary.activity_label, None);
+        assert_eq!(summary.progress_label, None);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_running_sync_that_reported_nothing_still_says_it_is_working() {
+        let root = test_root();
+        let running = background_job("job-1", "https://collab.example", "running", None);
+        write_background_state(
+            &root,
+            serde_json::json!([running]),
+            serde_json::json!([]),
+            None,
+        );
+
+        let (_, _, summary) = sync_item_inputs(&root, &sync_configuration("sync-1"), sync_now());
+        assert_eq!(summary.activity_label.as_deref(), Some("Checking for changes"));
+        // Nothing stated a total, so no proportion is invented.
+        assert_eq!(summary.progress_label, None);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_progress_detail_that_could_carry_an_origin_is_dropped_not_trimmed() {
+        // Trimming a URL to its last segment still publishes part of a URL, so
+        // anything origin-shaped contributes nothing at all.
+        assert_eq!(sync_activity_detail("https://collab.example/vault"), "");
+        assert_eq!(sync_activity_detail("user@host"), "");
+        assert_eq!(sync_activity_detail("Notes/plan.md"), "plan.md");
+        assert_eq!(sync_activity_detail("Team vault"), "Team vault");
+        // A trailing separator must not reduce the whole detail to nothing.
+        assert_eq!(sync_activity_detail("Notes/Personal/"), "Personal");
+    }
+
     #[tokio::test]
     async fn sync_profiles_publish_a_rollup_without_reading_the_calendar() {
         let root = test_root();
@@ -5944,6 +6113,8 @@ mod tests {
             vaults: 0,
             progress_completed: 4,
             progress_total: Some(1),
+            activity_label: None,
+            progress_label: None,
             can_sync_now: false,
         });
         assert!(validate_snapshot(&snapshot, &profile_hash).is_err());
@@ -5951,6 +6122,19 @@ mod tests {
         // Progress that has already passed its own total is still rejected.
         assert!(validate_snapshot(&snapshot, &profile_hash).is_err());
         snapshot.sync.as_mut().unwrap().progress_total = Some(8);
+        assert!(validate_snapshot(&snapshot, &profile_hash).is_ok());
+
+        // The activity line is the one published string derived from a value
+        // that can hold a path, so the boundary refuses to write one that was
+        // not reduced rather than trusting its caller.
+        for leaked in ["Notes/Personal/plan.md", "https://collab.example", "a@b"] {
+            snapshot.sync.as_mut().unwrap().activity_label = Some(leaked.to_string());
+            assert!(
+                validate_snapshot(&snapshot, &profile_hash).is_err(),
+                "{leaked} should not reach launcher-readable state",
+            );
+        }
+        snapshot.sync.as_mut().unwrap().activity_label = Some("plan.md".to_string());
         assert!(validate_snapshot(&snapshot, &profile_hash).is_ok());
     }
 }

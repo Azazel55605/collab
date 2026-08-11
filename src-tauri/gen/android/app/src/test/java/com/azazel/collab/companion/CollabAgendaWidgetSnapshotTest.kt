@@ -3,6 +3,10 @@ package com.azazel.collab.companion
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -624,6 +628,8 @@ class CollabAgendaWidgetSnapshotTest {
       vaults = vaults,
       progressCompleted = 0,
       progressTotal = null,
+      activityLabel = null,
+      progressLabel = null,
       canSyncNow = true,
     )
     assertEquals("1 vault · Synced 5 min ago", syncDetailLine(sync(1, "Synced 5 min ago")))
@@ -631,6 +637,117 @@ class CollabAgendaWidgetSnapshotTest {
     assertEquals("Not synced yet", syncDetailLine(sync(0, null)))
     assertEquals("Open Collab to refresh", syncDetailLine(null))
   }
+
+  @Test
+  fun aRunInFlightSaysWhatItIsOnInsteadOfHowFreshItIs() {
+    fun sync(state: String, activity: String?, progress: String?) = AgendaWidgetSync(
+      state = state,
+      lastSuccessLabel = "Synced 5 min ago",
+      pendingOperations = 0,
+      failedOperations = 0,
+      activeJobs = 1,
+      attentionRequired = 0,
+      accounts = 1,
+      vaults = 2,
+      progressCompleted = 9,
+      progressTotal = 12,
+      activityLabel = activity,
+      progressLabel = progress,
+      canSyncNow = true,
+    )
+
+    assertEquals("plan.md · 9 of 12", syncDetailLine(sync("syncing", "plan.md", "9 of 12")))
+    // A run that cannot state a total still names what it is on.
+    assertEquals("plan.md", syncDetailLine(sync("syncing", "plan.md", null)))
+    // Nothing to say about the run falls back to scope and freshness rather
+    // than rendering an empty line.
+    assertEquals("2 vaults · Synced 5 min ago", syncDetailLine(sync("syncing", null, null)))
+    // At rest the live phrasing is never shown, even if a stale one is present.
+    assertEquals(
+      "2 vaults · Synced 5 min ago",
+      syncDetailLine(sync("upToDate", "plan.md", "9 of 12")),
+    )
+  }
+
+  @Test
+  fun theActivityLineRefusesAnythingThatWasNotPrivacyReduced() {
+    fun parseActivity(detail: String): String? = CollabAgendaWidgetSnapshotStore.parse(
+      syncSnapshotJson(detail),
+    ).sync?.activityLabel
+
+    // Rust reduces this, but the parser is the last thing standing between a
+    // snapshot file and the launcher, so it does not take the writer's word.
+    assertNull(parseActivity("Notes/Personal/plan.md"))
+    assertNull(parseActivity("https://collab.example"))
+    assertNull(parseActivity("user@host"))
+    assertEquals("plan.md", parseActivity("plan.md"))
+  }
+
+  @Test
+  fun repeatedReadsOfOneSnapshotParseItOnce() {
+    // Every month-arrow tap re-reads the same snapshot text. Parsing thirteen
+    // pages of day cells again on each tap is what made switching months lag,
+    // so the identical string must come back as the identical object.
+    val raw = syncSnapshotJson("plan.md")
+    val first = CollabAgendaWidgetSnapshotCache.read(raw)
+    val second = CollabAgendaWidgetSnapshotCache.read(raw)
+
+    assertNotNull(first)
+    assertSame(first, second)
+    // A republished snapshot is a different string, so it can never be served
+    // from the cache.
+    assertNotSame(first, CollabAgendaWidgetSnapshotCache.read(syncSnapshotJson("other.md")))
+  }
+
+  @Test
+  fun theTodayMarkerRepaintsEveryDaySoItLeavesNoTrail() {
+    // A launcher reapplies RemoteViews onto views it already holds. When the
+    // marker background was only applied in the `isToday` branch nothing ever
+    // cleared yesterday's, so the pill smeared across the month as days passed.
+    // Off days must resolve to the cell's own fill, never to "no colour".
+    val palette = agendaWidgetPalette("dark", "violet")
+    fun day(isToday: Boolean, inMonth: Boolean) =
+      MonthWidgetDay("2026-08-11", 0, emptyList(), emptyList(), inMonth, isToday)
+
+    assertEquals(palette.accent, monthDayMarkerColor(day(true, true), palette))
+    assertEquals(
+      monthDayCellColor(day(false, true), palette),
+      monthDayMarkerColor(day(false, true), palette),
+    )
+    assertEquals(
+      monthDayCellColor(day(false, false), palette),
+      monthDayMarkerColor(day(false, false), palette),
+    )
+  }
+
+  /** A minimal valid sync snapshot carrying one activity label. */
+  private fun syncSnapshotJson(activity: String): String = JSONObject()
+    .put("schemaVersion", 1)
+    .put("kind", "sync")
+    .put("generatedAt", "2026-08-11T10:00:00Z")
+    .put("dateLabel", "2026-08-11")
+    .put("stateLabel", "Syncing…")
+    .put("theme", "dark")
+    .put("accent", "violet")
+    .put("fontScale", 1.0)
+    .put("items", JSONArray())
+    .put(
+      "sync",
+      JSONObject()
+        .put("state", "syncing")
+        .put("pendingOperations", 0)
+        .put("failedOperations", 0)
+        .put("activeJobs", 1)
+        .put("attentionRequired", 0)
+        .put("accounts", 1)
+        .put("vaults", 1)
+        .put("progressCompleted", 9)
+        .put("progressTotal", 12)
+        .put("activityLabel", activity)
+        .put("progressLabel", "9 of 12")
+        .put("canSyncNow", true),
+    )
+    .toString()
 
   @Test
   fun everyRegisteredWidgetProviderResolvesItsKind() {
