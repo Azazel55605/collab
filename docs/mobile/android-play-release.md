@@ -167,6 +167,109 @@ a checklist under **Policy** / **App content**):
 - **Target API level** — Play requires a recent `targetSdk`; the project targets
   API 36, which is current.
 
+## 8. Launcher widgets
+
+The app ships eight opt-in home-screen widgets. They change what you declare to
+Play, what a backup can restore, and what a reviewer sees, so they get their own
+section. Behaviour and physical sign-off live in
+[Mobile Widgets Release Validation](../build/mobile-widgets-release-validation.md);
+this covers only what the Play listing and the Console forms need.
+
+### What is declared
+
+`src-tauri/gen/android/app/src/main/AndroidManifest.xml` declares:
+
+- Eight `AppWidgetProvider` receivers — agenda, month, birthday, countdown,
+  tasks, quick capture, vault shortcuts, sync status — each **`exported="false"`**
+  with an `android.appwidget.provider` meta-data pointing at its
+  `res/xml/collab_*_widget_info.xml`. Non-exported is correct and intentional:
+  the launcher binds providers through the AppWidget framework, not by sending
+  them intents, so nothing outside the app can trigger one.
+- `CollabWidgetConfigurationActivity`, `exported="true"` with an
+  `APPWIDGET_CONFIGURE` intent filter. This one **must** be exported — the
+  launcher starts it on the user's behalf when a widget is added. It accepts
+  only the framework's `EXTRA_APPWIDGET_ID` and writes nothing a caller controls.
+- `CollabWidgetLifecycleReceiver`, `exported="false"`, listening for
+  `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`, `TIME_SET`, `TIMEZONE_CHANGED`,
+  `LOCALE_CHANGED`, and `USER_UNLOCKED` so placed widgets repaint after the
+  launcher may have lost the views this process wrote.
+
+Widget-relevant permissions, and why each is needed:
+
+| Permission | Why widgets need it |
+| --- | --- |
+| `RECEIVE_BOOT_COMPLETED` | Repaint placed widgets after a reboot and re-arm scheduled refresh work |
+| `POST_NOTIFICATIONS` | The sync progress notification and background-sync diagnostics; widgets themselves post nothing |
+| `INTERNET` | Used by the app and the background coordinator. **Not** by the launcher process — widget rendering makes no network request |
+
+`SCHEDULE_EXACT_ALARM` is for calendar reminders, not widgets.
+
+### Backup and data handling
+
+The manifest sets no `allowBackup`, `fullBackupContent`, or
+`dataExtractionRules`, so platform defaults apply. What widgets persist, and how
+each behaves under backup and restore:
+
+| Data | Location | On restore |
+| --- | --- | --- |
+| Published snapshots | `files/collab/widgets/profiles/{sha256(profileId)}/` | Re-published from local data; a profile that no longer exists publishes nothing |
+| Widget → configuration bindings | SharedPreferences `collab-widget-bindings-v1`, keyed by `appWidgetId` | Inert. A restored `appWidgetId` has no placed widget behind it, so the binding is never read |
+| Refresh scheduling state | SharedPreferences `collab-widget-refresh-scheduler` | Reconciled against actually-placed widgets on next run |
+| Glance state | Per-widget DataStore | Holds only a content digest used for change detection — never snapshot content |
+
+No widget storage holds a credential. Access and refresh tokens live in the
+Android Keystore via `CollabTokenStore`, and replica encryption keys in
+`CollabReplicaKeyStore`; neither is reachable from a widget.
+
+### Privacy disclosures
+
+The Data safety form answers in section 7 already cover the app. Widgets add one
+consideration worth stating accurately if asked: **widget content is written to
+app-private storage that the launcher reads to render**, so it is subject to the
+same on-device protections as the rest of the app's data and is never
+transmitted anywhere by the launcher.
+
+What a widget may contain is deliberately bounded:
+
+- Hosted accounts appear **only** as `account-{hash(serverUrl)}`. No server URL,
+  account name, or token ever reaches widget storage.
+- A per-widget privacy level (Full details / Titles only / Private) controls how
+  much of the user's own content is persisted for the launcher. At reduced
+  levels titles are replaced and source colours stripped before the snapshot is
+  written, not at render time.
+- Progress detail is reduced to a bare last path segment, and anything
+  origin-shaped is dropped rather than trimmed.
+
+This does not change any Data safety answer — no new collection, no sharing, no
+third-party recipients — but it is the honest description if a reviewer asks why
+a home-screen widget shows account-scoped counts.
+
+### Screenshots and the store listing
+
+- Play requires screenshots of the app; widgets are optional but worth showing,
+  since they are a headline feature. Capture **placed** widgets on a home
+  screen, not the picker previews.
+- The picker previews under `res/layout/collab_*_widget_preview.xml` are what
+  users see when adding a widget. They must depict a state the placed widget
+  actually reaches — verify against the validation doc before a release, because
+  a preview promising a layout the widget cannot deliver reads as a bug.
+- If the listing mentions widgets, say they require a configured Collab server:
+  every widget except quick capture renders data that only exists once an
+  account is signed in.
+
+### Launcher-specific limitations to expect in review
+
+- Launchers are not uniform. Some ignore sizes in `SizeMode.Responsive`, some
+  ignore dynamic colour. A reviewer on an OEM launcher may see a different
+  layout than a Pixel screenshot shows.
+- Widget updates are push-published, not polled. A reviewer who force-stops the
+  app and waits will see the last published state until the background
+  coordinator next runs; the 30-minute periodic refresh is a fallback, not the
+  normal path.
+- Under Doze or battery saver the platform defers the WorkManager run behind
+  `Sync now`. The widget reports only that the request was accepted, so a
+  deferred run looks like nothing happening — which is correct, not a failure.
+
 ## Versioning cheat-sheet for future releases
 
 ```text

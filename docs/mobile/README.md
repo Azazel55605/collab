@@ -11,7 +11,8 @@ separate mobile React shell under `apps/mobile-android`.
 - [Android companion build](./android-companion-build.md) — local SDK/JDK/NDK
   setup, debug builds, APK builds, and troubleshooting.
 - [Android Play release](./android-play-release.md) — upload keystore, AAB
-  signing, Play Console rollout, and policy checklist.
+  signing, Play Console rollout, policy checklist, and the launcher-widget
+  declarations, backup behaviour, and privacy disclosures Play needs.
 - [Background running release validation](../build/background-running-release-validation.md)
   — WorkManager limitations, device matrix, diagnostics, and troubleshooting.
 - [Mobile widgets integration plan](../plans/mobile-widgets-plan.md) — committed
