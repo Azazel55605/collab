@@ -67,6 +67,29 @@ describe('admin API client', () => {
     );
   });
 
+  it('posts a backup archive as raw bytes rather than base64', async () => {
+    // Base64 needed roughly four copies of the whole archive live in the tab at
+    // once — the ArrayBuffer, the binary string, the encoded string, and the
+    // JSON envelope — and the encoded string had to fit in one allocation, so a
+    // large backup threw `InternalError: allocation size overflow` in Firefox
+    // before a byte was sent. The body must stay the archive itself.
+    document.cookie = 'collab_csrf=csrf-token';
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: {} }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const archive = new Blob([new Uint8Array([31, 139])], { type: 'application/gzip' });
+
+    await serverApi.importBackup(archive);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/v1/admin/backups/import');
+    expect(init.body).toBe(archive);
+    const headers = init.headers as Headers;
+    expect(headers.get('content-type')).toBe('application/octet-stream');
+    expect(headers.get('x-collab-csrf')).toBe('csrf-token');
+  });
+
   it('uses the hosted vault transfer endpoints from the admin client', async () => {
     document.cookie = 'collab_csrf=csrf-token';
     const fetchMock = vi.fn()

@@ -7,7 +7,7 @@ use crate::{
     },
 };
 use axum::{
-    body::Body,
+    body::{Body, Bytes},
     extract::{Extension, Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
@@ -362,12 +362,6 @@ pub struct ManifestDeltaQuery {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportVaultZipRequest {
-    pub archive_base64: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ImportBackupArchiveRequest {
     pub archive_base64: String,
 }
 
@@ -6043,18 +6037,22 @@ pub async fn admin_export_backup_archive(
     Ok(response)
 }
 
+/// Imports a backup archive from a raw request body.
+///
+/// The body is the `.tar.gz` itself, not base64 inside JSON. Base64 cost the
+/// browser roughly four copies of the archive at once — the `ArrayBuffer`, the
+/// binary string, the encoded string, and the JSON envelope — and the encoded
+/// string had to fit in a single allocation, so Firefox failed a large import
+/// with `InternalError: allocation size overflow` before anything was sent.
+/// Raw bytes remove the amplification and the string ceiling alike.
 pub async fn admin_import_backup_archive(
     State(state): State<AppState>,
     Extension(request_id): Extension<String>,
     headers: HeaderMap,
-    Json(payload): Json<ImportBackupArchiveRequest>,
+    archive: Bytes,
 ) -> Result<Json<DataResponse<AdminBackupOverview>>, ApiFailure> {
     let actor = require_admin_csrf(&state, &headers, &request_id).await?;
-    let archive = STANDARD
-        .decode(payload.archive_base64.as_bytes())
-        .map_err(|_| {
-            ApiFailure::validation("Backup archive is not valid base64.", request_id.clone())
-        })?;
+    let archive_bytes = archive.len();
     let max_backup_archive_bytes = state.config.max_import_bytes as u64;
     if archive.is_empty() || archive.len() as u64 > max_backup_archive_bytes {
         return Err(ApiFailure::validation(
@@ -6072,7 +6070,7 @@ pub async fn admin_import_backup_archive(
         .tempdir_in(&state.config.backup_dir)
         .map_err(|_| ApiFailure::server(request_id.clone()))?;
     let archive_path = import_root.path().join("backup.tar.gz");
-    fs::write(&archive_path, archive).map_err(|_| ApiFailure::server(request_id.clone()))?;
+    fs::write(&archive_path, &archive).map_err(|_| ApiFailure::server(request_id.clone()))?;
     let listed = list_backup_archive_entries(&archive_path, &request_id)?;
     let archive_root = validate_backup_archive_entries(
         &listed,
@@ -6098,7 +6096,7 @@ pub async fn admin_import_backup_archive(
         Some(&archive_root),
         "success",
         &request_id,
-        json!({"bytes": payload.archive_base64.len()}),
+        json!({"bytes": archive_bytes}),
     )
     .await?;
     Ok(Json(DataResponse::new(load_backup_overview(&state))))

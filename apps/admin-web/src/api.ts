@@ -47,7 +47,8 @@ function readCookie(name: string) {
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body) headers.set('content-type', 'application/json');
+  // An explicit content-type wins: the backup importer posts a raw archive.
+  if (init.body && !headers.has('content-type')) headers.set('content-type', 'application/json');
   const csrf = readCookie('collab_csrf');
   if (csrf && init.method && init.method !== 'GET') headers.set('x-collab-csrf', csrf);
   const response = await fetch(path, { ...init, headers, credentials: 'same-origin' });
@@ -125,10 +126,14 @@ export const serverApi = {
     }),
   exportBackup: (name: string) =>
     apiBlob(`/api/v1/admin/backups/${encodeURIComponent(name)}/archive`),
-  importBackup: (archiveBase64: string) =>
+  // The archive is sent as raw bytes. Base64 needed roughly four copies of it
+  // live in the tab at once and had to fit in a single string allocation, so a
+  // large backup failed in the browser before any of it was sent.
+  importBackup: (archive: Blob) =>
     api<AdminBackupOverview>('/api/v1/admin/backups/import', {
       method: 'POST',
-      body: JSON.stringify({ archiveBase64 }),
+      body: archive,
+      headers: { 'content-type': 'application/octet-stream' },
     }),
   deleteBackup: (name: string) =>
     api<void>(`/api/v1/admin/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),

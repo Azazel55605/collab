@@ -132,12 +132,23 @@ pub fn parse_byte_size(input: &str) -> Result<u64, ()> {
 
 impl ServerConfig {
     pub fn max_json_body_bytes(&self) -> usize {
-        // Binary uploads and ZIP imports are currently base64-encoded in JSON.
+        // Binary uploads and vault ZIP imports are still base64-encoded in JSON,
+        // which costs 4/3 of the payload on the wire. Backup archive import is
+        // not — it posts raw bytes and is bounded by `max_import_body_bytes`.
         self.max_file_bytes
             .max(self.max_import_bytes)
             .saturating_mul(4)
             .div_ceil(3)
             .saturating_add(1024 * 1024)
+    }
+
+    /// The body limit for routes that accept a raw archive rather than base64.
+    ///
+    /// Sized to the configured import limit plus a small allowance for framing,
+    /// so an oversized archive is refused by the transport instead of being
+    /// buffered in full and rejected by the handler afterwards.
+    pub fn max_import_body_bytes(&self) -> usize {
+        self.max_import_bytes.saturating_add(1024 * 1024)
     }
 
     pub fn load() -> Result<Self, ConfigError> {

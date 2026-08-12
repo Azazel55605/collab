@@ -62,6 +62,7 @@ impl AppState {
 pub fn build_router(state: AppState) -> Router {
     let admin_index = state.config.admin_web_dir.join("index.html");
     let max_json_body_bytes = state.config.max_json_body_bytes();
+    let max_import_body_bytes = state.config.max_import_body_bytes();
     let admin_assets =
         ServeDir::new(&state.config.admin_web_dir).fallback(ServeFile::new(admin_index));
     Router::new()
@@ -326,9 +327,14 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/admin/backups/{backup_name}/verify",
             post(api::admin_verify_backup),
         )
+        // Raw `.tar.gz` bytes rather than base64 in JSON, so this route is
+        // bounded by the configured import limit itself. The global JSON limit
+        // carries a 4/3 base64 allowance that would otherwise let an oversized
+        // archive buffer here before the handler could reject it.
         .route(
             "/api/v1/admin/backups/import",
-            post(api::admin_import_backup_archive),
+            post(api::admin_import_backup_archive)
+                .layer(DefaultBodyLimit::max(max_import_body_bytes)),
         )
         .route(
             "/api/v1/admin/backups/{backup_name}/archive",
@@ -953,6 +959,26 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
         assert_eq!(response.headers()["location"], "/admin/");
+    }
+
+    #[tokio::test]
+    async fn backup_import_accepts_a_raw_archive_over_the_default_body_limit() {
+        // The archive is posted as raw bytes, not base64 in JSON. Axum's default
+        // limit is 2 MiB, so a body past it reaching authentication proves the
+        // route's own limit and the `Bytes` extractor are both in effect.
+        let response = build_router(test_state().await)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/admin/backups/import")
+                    .header("content-type", "application/octet-stream")
+                    .body(Body::from(vec![0u8; 3 * 1024 * 1024]))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("router should respond");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]

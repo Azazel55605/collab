@@ -773,8 +773,7 @@ function BackupsPage() {
     setMessage('');
     setError('');
     try {
-      const archiveBase64 = await fileToBase64(file);
-      const next = await serverApi.importBackup(archiveBase64);
+      const next = await serverApi.importBackup(file);
       applyOverview(next);
       setMessage(`Imported ${file.name}.`);
     } catch (reason) {
