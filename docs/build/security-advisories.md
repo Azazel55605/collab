@@ -125,12 +125,62 @@ maintained drop-in replacement.
   any shipped artifact. It clears when `httpmock` drops `async-std` or is
   replaced.
 
+## npm advisories below the failing threshold
+
+`pnpm audit` fails CI at `high` and above. The project currently reports **no
+high or critical** npm advisory. The moderate/low remainder is recorded here so
+it is a tracked decision rather than background noise.
+
+Transitive fixes are applied through the `overrides` block in
+`pnpm-workspace.yaml` (pnpm 11 no longer reads `pnpm.overrides` from
+`package.json`). The rule for that block: an override may only raise a package to
+a version its own parent's declared semver range **already permits** — that is a
+forced dedupe, not an unsupported upgrade. An advisory whose fix falls outside
+the parent's range needs the parent upgraded instead, and does not belong there.
+
+### `shadcn` subtree — `hono`, `@hono/node-server`, `qs`, `body-parser` (10 findings)
+
+- **Severity:** moderate and low.
+- **Dependency path:** `shadcn` → `@modelcontextprotocol/sdk` → an Express/Hono
+  server the CLI ships.
+- **Why it is not reachable here:** `shadcn` is a **devDependency** and none of
+  it is bundled into any shipped artifact. Nothing in the repo invokes the local
+  binary — no script references it, and the documented workflow in `AGENTS.md` is
+  `pnpm dlx shadcn@latest add <component>`, which fetches the CLI on demand.
+- **Recommended fix:** remove the `shadcn` devDependency entirely. It clears all
+  ten findings and does not change the documented workflow. Left in place pending
+  a maintainer decision.
+
+### `diff` — GHSA-73rr-hh4g-fpgx (ReDoS in `parsePatch`/`applyPatch`)
+
+- **Severity:** low.
+- **Dependency path:** direct dependency, used by `src/lib/textMerge.ts`,
+  `DocumentReconciler`, and `VersionHistoryModal`.
+- **Why it is not reachable here:** the advisory is in patch **string parsing**.
+  `textMerge` never calls `parsePatch`; it passes `applyPatch` a structured patch
+  object produced in-process by `merge`, so the vulnerable parsing path is not
+  entered.
+- **Why it is not fixed:** the fix is in `diff` >= 8.0.3, and `diff` 8.0.0
+  **removed the `merge` export** that `mergeText` is built on. Upgrading means
+  reimplementing the frontend three-way merge that mirrors the backend's
+  non-overlapping auto-merge.
+- **Remove this entry when:** `mergeText` is rewritten against the 8.x API (or
+  onto another three-way merge), and `diff` is raised to >= 8.0.3.
+
+### `esbuild` and `@babel/core`
+
+- **Severity:** low, build-time only; neither ships in an artifact.
+- **Why they are not overridden:** `esbuild`'s fix is 0.28.1 but `vite` declares
+  `^0.27.0`; `@babel/core`'s fix exists only in 8.x but `@vitejs/plugin-react`
+  declares 7.x. Both fall outside what the parent supports, so they need `vite`
+  and `@vitejs/plugin-react` upgraded rather than a forced override.
+
 ## Review cadence
 
-Re-check these entries whenever Tauri, `sqlx`, or `plist` are upgraded, and at
-minimum before each tagged release. Drop any ignore whose upstream fix has
+Re-check these entries whenever Tauri, `sqlx`, `plist`, `vite`, or `mermaid` are
+upgraded, and at minimum before each tagged release. Drop any ignore whose upstream fix has
 shipped, and delete the corresponding entry here. Also re-scan the non-failing
 warnings for newly available upgrades (e.g. a maintained fork or a Tauri release
 that moves off GTK3 / old `phf`).
 
-_Last reviewed: 2026-07-14._
+_Last reviewed: 2026-08-12._

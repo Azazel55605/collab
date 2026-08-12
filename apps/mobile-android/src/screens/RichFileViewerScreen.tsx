@@ -3376,7 +3376,9 @@ function PdfMobileViewer({
       .then((pdf) => {
         if (!pdf) return;
         if (cancelled) {
-          void pdf.destroy();
+          // pdf.js 6 removed `PDFDocumentProxy.destroy`; the loading task owns
+          // the worker teardown now.
+          void pdf.loadingTask.destroy();
           return;
         }
         setDocument(pdf);
@@ -3394,7 +3396,9 @@ function PdfMobileViewer({
     };
   }, [dataUrl]);
 
-  useEffect(() => () => void document?.destroy(), [document]);
+  // Tearing down the document the state holds, which outlives the effect that
+  // created its loading task — so the task is reached through the document.
+  useEffect(() => () => void document?.loadingTask.destroy(), [document]);
 
   useEffect(() => {
     setPan({ x: 0, y: 0 });

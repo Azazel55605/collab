@@ -1004,7 +1004,9 @@ export default function PdfView({ relativePath }: Props) {
         const task = getDocument({ data });
         const pdf = await task.promise;
         if (cancelled) {
-          await pdf.destroy().catch(() => {});
+          // pdf.js 6 removed `PDFDocumentProxy.destroy`; the loading task owns
+          // the worker teardown now.
+          await task.destroy().catch(() => {});
           return;
         }
 

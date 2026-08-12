@@ -1,12 +1,26 @@
 verifyDepsBeforeRun: false
 
+# Transitive advisory fixes. Every entry here raises a dependency to a version
+# its own parent's semver range already permits, so it is a forced dedupe rather
+# than an unsupported upgrade. An advisory whose fix falls outside what the
+# parent declares does not belong here — it needs the parent upgraded instead.
+#
+# Deliberately absent: @babel/core (the fix exists only in 8.x, outside what
+# @vitejs/plugin-react declares) and esbuild (fixed in 0.28, outside vite's
+# ^0.27.0). Both are low-severity and build-time only; they need vite and
+# @vitejs/plugin-react upgraded rather than an override forcing a version the
+# parent never claimed to support.
 overrides:
   'brace-expansion@>=3.0.0 <5.0.9': 5.0.9
+  # mermaid declares ^3.3.3 and so already permits this; without the override
+  # pnpm keeps a second, older copy alongside our direct dependency.
+  'dompurify@<3.4.13': 3.4.13
   'fast-uri@>=3.0.0 <3.1.5': 3.1.5
   'ip-address@<=10.3.0': 10.4.0
-  'js-yaml@>=4.0.0 <4.3.0': 4.3.0
+  'js-yaml@>=4.0.0 <4.3.1': 4.3.1
   'linkify-it@<=5.0.1': 5.0.2
-  'postcss@<=8.5.17': 8.5.18
+  'nanoid@<3.3.17': 3.3.17
+  'postcss@<=8.5.22': 8.5.23
   'undici@>=7.0.0 <7.29.0': 7.29.0
 
 allowBuilds:

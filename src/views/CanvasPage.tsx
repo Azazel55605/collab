@@ -495,7 +495,9 @@ async function renderPdfPreview(dataUrl: string) {
 
     return canvas.toDataURL('image/png');
   } finally {
-    await pdf.destroy().catch(() => {});
+    // pdf.js 6 removed `PDFDocumentProxy.destroy`; the loading task owns the
+    // worker teardown now.
+    await task.destroy().catch(() => {});
   }
 }
 
