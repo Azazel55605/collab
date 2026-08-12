@@ -1,6 +1,6 @@
 # Open Development Work
 
-Last reviewed: 2026-07-31
+Last reviewed: 2026-08-12
 
 This is the entry point for unfinished Collab projects. Detailed requirements,
 implementation notes, and acceptance criteria remain in their canonical plan
@@ -31,7 +31,6 @@ work from being mistaken for an active roadmap item.
 | Collab Presentations | Planned | Complete the `.deck` Phase 0 proofs for scene/text fidelity, deck-specific live text collaboration, and compatible PPTX export before beginning the editor. | [Collab Presentations Plan](./presentation-tool-plan.md) |
 | Digital ink and annotation | Planned | Complete the `.ink` Phase 0 physical-device proofs, then build one shared pressure-sensitive ink engine for drawings, note exports, and viewer annotations. | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
-| Mobile widgets | Testing | Validate the implemented native snapshot/configuration foundation on a physical smartphone, then deliver the Phase 2 calendar agenda data path; Phase 0 is complete. | [Mobile Widgets Integration Plan](./mobile-widgets-plan.md) |
 
 ## Recommended Dependency Order
 
@@ -47,9 +46,6 @@ work from being mistaken for an active roadmap item.
    system's persistent channel and permission flow.
 6. Complete the calendar Phase 9 maintained external-client interoperability
    matrix.
-7. Implement the Android mobile-widget contract and calendar agenda foundation,
-   then deliver the remaining accepted widgets through the phased integration
-   plan.
 
 Circuit simulation and Flatpak distribution can proceed independently, subject
 to normal release and platform capacity.

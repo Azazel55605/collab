@@ -4,7 +4,7 @@
 
 This is the original idea catalog. The ideas have been accepted for Android and
 their committed delivery sequence, architecture, and release gates now live in
-the [Mobile Widgets Integration Plan](../plans/mobile-widgets-plan.md). Android
+the [Mobile Widgets Integration Plan](./mobile-widgets-plan.md). Android
 is the first relevant platform because Collab currently has an Android companion
 app. The same product ideas can be revisited for iOS if that client is added
 later.

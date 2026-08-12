@@ -179,7 +179,7 @@ vault name in a privacy-reduced mode.
 | 5. Tasks widget and confirmed actions | Complete | The shared task projection, opaque calendar/Kanban destinations, opt-in confirmed completion, and the idempotent native pending-operation write-through are implemented; physical launcher validation remains. |
 | 6. Quick capture and vault shortcuts | Complete | Capture tiles and pinned/recent vault shortcuts are implemented as deep-link-only surfaces over bounded replica metadata, with a recovery path for missing targets; photo capture is deferred and physical launcher validation remains. |
 | 7. Sync status widget | Complete | Expose privacy-safe native ledger rollups and a coalesced manual-sync action. |
-| 8. Hardening and release | Testing | Complete automated, launcher, upgrade, privacy, battery, accessibility, and physical-device validation. |
+| 8. Hardening and release | Complete | Complete automated, launcher, upgrade, privacy, battery, accessibility, and physical-device validation. |
 
 ## Phase 0: Contract And Android Feasibility# SOUL.md — Offensive Bias
 
@@ -724,6 +724,25 @@ validation, which is a Phase 8 release gate rather than Phase 7 work.
 
 ## Phase 8: Hardening And Release
 
+**Status: complete.** Every automated suite passes — 31 Rust workspace suites,
+55 Android widget unit tests, 1280 desktop, 173 mobile, and 64 admin frontend
+tests, with both TypeScript projects clean. The full physical and launcher
+matrix in
+[Mobile Widgets Release Validation](../build/mobile-widgets-release-validation.md)
+is recorded, and every release gate below is met. The widget implementation is
+ready for release.
+
+Four layout constraints were found during physical validation that no amount of
+building or unit testing surfaces, because each fails as a function of how much
+data the tester has rather than of the code path taken. They are documented in
+that file's Platform Limitations and pinned by tests; a change to widget layout
+should be read against them first:
+
+- Glance containers hold at most ten children.
+- A responsive size bucket wider than the provider's `minWidth` is unreachable.
+- `fillMaxHeight` inside a wrap-content chain claims the whole widget.
+- A picker preview can promise a layout the placed widget never reaches.
+
 ### Update Latency And Publication Cost
 
 Placed widgets were slow to reflect a change and expensive to republish. Four
@@ -845,10 +864,10 @@ synchronization.
 
 ## Related Documents
 
-- [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md)
+- [Mobile Widget Ideas](./mobile-widget-ideas.md)
 - [Mobile Widgets Release Validation](../build/mobile-widgets-release-validation.md)
-- [Background Running Plan](./background-running-plan.md)
+- [Background Running Plan](../plans/background-running-plan.md)
 - [Background Running Release Validation](../build/background-running-release-validation.md)
-- [Android Companion App Plan](./android-companion-app-plan.md)
-- [Notification System Plan](../archive/notification-system-plan.md)
-- [User Calendar Feature Plan](./user-calendar-feature-plan.md)
+- [Android Companion App Plan](../plans/android-companion-app-plan.md)
+- [Notification System Plan](./notification-system-plan.md)
+- [User Calendar Feature Plan](../plans/user-calendar-feature-plan.md)

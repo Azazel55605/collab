@@ -11,7 +11,6 @@ implementation status. Start with
 - [Electronic Circuit Simulation](./electronic-circuit-simulation-plan.md)
 - [Flatpak Distribution](./flatpak-distribution-plan.md)
 - [Logic And Circuit Diagram Editor](./logic-circuit-diagram-plan.md)
-- [Mobile Widgets Integration](./mobile-widgets-plan.md)
 - [Collab Presentations](./presentation-tool-plan.md)
 - [User Calendar](./user-calendar-feature-plan.md)
 

@@ -15,11 +15,15 @@ separate mobile React shell under `apps/mobile-android`.
   declarations, backup behaviour, and privacy disclosures Play needs.
 - [Background running release validation](../build/background-running-release-validation.md)
   — WorkManager limitations, device matrix, diagnostics, and troubleshooting.
-- [Mobile widgets integration plan](../plans/mobile-widgets-plan.md) — committed
-  Android widget scope, native snapshot boundary, delivery phases, and release
-  gates.
-- [Mobile widget ideas](./mobile-widget-ideas.md) — original evaluated product
-  catalog retained as design context.
+- [Mobile widgets release validation](../build/mobile-widgets-release-validation.md)
+  — the eight launcher widgets: platform limitations, the physical and launcher
+  matrix, and the release gates. Re-run per release.
+- [Mobile widgets integration plan](../archive/mobile-widgets-plan.md) —
+  archived. Delivered scope, the native snapshot boundary, and the phase history
+  behind the shipped widgets.
+- [Mobile widget ideas](../archive/mobile-widget-ideas.md) — archived. The
+  original evaluated catalog, retained as design context should iOS widgets
+  ever be picked up.
 - [Versioning and releases](../build/versioning-and-releases.md) — how the mobile
   `versionName` and Play `versionCode` are decoupled from desktop, server, and
   admin-web versions.

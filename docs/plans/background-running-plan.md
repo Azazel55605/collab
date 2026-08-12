@@ -34,9 +34,9 @@ not become separate sync implementations.
 | 0. Lifecycle contract and feasibility | Complete | Define platform behavior, OS limits, settings, job ownership, and a small desktop/Android proof. |
 | 1. Shared headless background coordinator | Complete | Run bounded sync and maintenance jobs without depending on a mounted webview. |
 | 2. Desktop tray and background lifecycle | Complete | Keep the desktop process available in the tray, support hide/restore/quit, and run scheduled work. |
-| 3. Android scheduled background work | Testing | Use WorkManager for durable, constrained sync and catch-up work. |
-| 4. Reliability, progress, and power controls | Testing | Add locking, backoff, persisted outcomes, network/battery policy, and transparent status. |
-| 5. Platform hardening and release | Testing | Validate lifecycle, packaging, upgrades, and device/desktop behavior before enabling by default. |
+| 3. Android scheduled background work | Complete | Use WorkManager for durable, constrained sync and catch-up work. |
+| 4. Reliability, progress, and power controls | Complete | Add locking, backoff, persisted outcomes, network/battery policy, and transparent status. |
+| 5. Platform hardening and release | Complete | Validate lifecycle, packaging, upgrades, and device/desktop behavior before enabling by default. |
 
 ## Product Behavior
 
@@ -187,7 +187,7 @@ coordinator from the desktop tray without mounting React.
   jobs remain visible when the app is restored.
 - [x] Prevent duplicate desktop instances and restore the existing window when a
   second launch is attempted.
-- [ ] Validate close-to-tray, restore, autostart, scheduled/manual sync, pause,
+- [X] Validate close-to-tray, restore, autostart, scheduled/manual sync, pause,
   and quit on Linux, Windows, and macOS packages.
 
 Exit gate: close-to-tray, restore, login startup, manual sync, pause, and quit
@@ -205,8 +205,8 @@ enabled.
 - [x] Add immediate catch-up and user-initiated sync requests.
 - [x] Reconcile jobs after boot/app update through WorkManager persistence.
 - [x] Surface authentication-required and permission failures on next foreground.
-- [ ] Add foreground transfer handling for large explicit uploads/downloads.
-- [ ] Validate process-death, reboot, update, retry, and sign-out behavior on a
+- [X] Add foreground transfer handling for large explicit uploads/downloads.
+- [X] Validate process-death, reboot, update, retry, and sign-out behavior on a
   physical Android device.
 
 Exit gate: a physical device syncs eligible cached content after the activity
@@ -257,15 +257,15 @@ covered by Phase 5.
   keep sleep/resume handling on the monotonic native scheduler.
 - [x] Defer routine Android synchronization under low-storage conditions and
   redact bounded worker errors before logging or returning output data.
-- [ ] Validate Android Doze, force-stop, reboot, low-storage, and battery
+- [X] Validate Android Doze, force-stop, reboot, low-storage, and battery
   restrictions on a physical-device matrix.
-- [ ] Verify tray behavior under GNOME/KDE/Hyprland, Windows, and macOS.
+- [X] Verify tray behavior under GNOME/KDE/Hyprland, Windows, and macOS.
 - [x] Document platform limitations, release checks, physical test matrices, and
   troubleshooting in
   [Background Running Release Validation](../build/background-running-release-validation.md).
 - [x] Keep desktop and Android background running behind explicit opt-in
   settings; do not migrate existing users to enabled defaults.
-- [ ] Add notification-backed Android foreground transfer handling for large
+- [X] Add notification-backed Android foreground transfer handling for large
   explicit uploads/downloads after the notification system provides its
   persistent channel and permission flow.
 
@@ -307,7 +307,7 @@ can be represented accurately by an in-process test.
 
 - [Notification System Plan](../archive/notification-system-plan.md) consumes job and
   reminder outcomes but does not own synchronization.
-- [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) consumes compact snapshots
+- [Mobile Widget Ideas](../archive/mobile-widget-ideas.md) consumes compact snapshots
   produced by the background coordinator.
 - [Android Companion App Plan](./android-companion-app-plan.md) Phase 7 must
   validate the lifecycle and release behavior delivered here.

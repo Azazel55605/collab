@@ -17,7 +17,7 @@ documentation.
 
 - [Desktop](./desktop/README.md) - desktop architecture and relevant plans
 - [Mobile](./mobile/README.md) - Android companion scope, builds, releases, and
-  the mobile-widget integration plan
+  launcher-widget release validation
 - [Server](./server/README.md) - hosted server architecture, operations,
   security, protocol, and administration
 - [Build And Release](./build/README.md) - platform installation, Flatpak,

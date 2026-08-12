@@ -457,5 +457,5 @@ silent.
   scheduling, session restoration, and background execution.
 - [User Calendar Feature Plan](../plans/user-calendar-feature-plan.md) supplies the
   reminder model and calendar synchronization.
-- [Mobile Widget Ideas](../mobile/mobile-widget-ideas.md) may reuse the inbox and
+- [Mobile Widget Ideas](../archive/mobile-widget-ideas.md) may reuse the inbox and
   background snapshots but does not require notifications for its first slice.

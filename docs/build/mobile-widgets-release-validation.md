@@ -98,7 +98,7 @@ Record the device, Android version, and launcher for every row.
 
 ### Data and state
 
-- [ ] Offline-to-online transition; signed-out hosted source alongside a local
+- [X] Offline-to-online transition; signed-out hosted source alongside a local
       source; the rollup stays honest while a profile is signed out.
 - [X] Doze, battery saver, background restriction, and low storage.
 - [X] Timezone and DST changes; locale and 12/24-hour changes.
@@ -185,7 +185,7 @@ populated profile — many vaults, a full task list, several pinned shortcuts.
 
 ## Release Gates
 
-- [ ] The background-running physical validation is complete enough to trust
+- [X] The background-running physical validation is complete enough to trust
       the coordinator outcomes the sync widget reports.
 - [X] No widget snapshot, log, backup, intent, or Android preview contains a
       token, a server URL, an unapproved private title, or a document body.
@@ -200,7 +200,7 @@ populated profile — many vaults, a full task list, several pinned shortcuts.
 
 ## Related Documents
 
-- [Mobile Widgets Plan](../plans/mobile-widgets-plan.md)
+- [Mobile Widgets Plan](../archive/mobile-widgets-plan.md)
 - [Publishing the Android Companion to Google Play](../mobile/android-play-release.md)
 - [Background Running Release Validation](./background-running-release-validation.md)
 - [Android Companion Build](../mobile/android-companion-build.md)
