@@ -262,8 +262,9 @@ nav { display:grid; gap:3px; } nav .ui-button { justify-content:flex-start; min-
 /* Even out spacing between separated settings sections in a panel. */
 .panel > .ui-separator { margin:16px 0; }
 /* Storage breakdown chart (donut + legend). */
-/* Indeterminate progress for a running backup: the endpoint reports no
-   percentage, so the bar sweeps rather than filling to a fraction. */
+/* Backup activity. A transfer reports real bytes and fills to that fraction;
+   server-side packing and unpacking report nothing, so the bar sweeps rather
+   than showing a number nobody measured. */
 .backup-activity { display:grid; gap:8px; padding:13px 15px; margin-bottom:14px; border:1px solid var(--border); border-radius:var(--radius); background:var(--card); }
 .backup-activity-head { display:flex; align-items:center; gap:9px; }
 .backup-activity-head strong { font-size:13px; font-weight:600; }
@@ -271,6 +272,10 @@ nav { display:grid; gap:3px; } nav .ui-button { justify-content:flex-start; min-
 .backup-activity small { color:var(--muted-foreground); font-size:11.5px; }
 .backup-activity-bar { height:4px; border-radius:999px; background:color-mix(in srgb,var(--foreground) 9%,transparent); overflow:hidden; }
 .backup-activity-bar > span { display:block; height:100%; width:34%; border-radius:999px; background:var(--primary); animation:backup-sweep 1.4s ease-in-out infinite; }
+/* A measured transfer fills to its real fraction instead of sweeping. */
+.backup-activity-bar.determinate > span { width:0; animation:none; transition:width .2s ease; }
+.backup-activity-percent { font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; }
+.backup-activity-phase { color:var(--muted-foreground); font-variant-numeric:tabular-nums; }
 @keyframes backup-sweep { 0% { transform:translateX(-110%); } 100% { transform:translateX(400%); } }
 @media (prefers-reduced-motion: reduce) {
   .backup-activity-bar > span { animation:none; width:100%; opacity:.5; }

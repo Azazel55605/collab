@@ -14,7 +14,7 @@ use axum::{
     Json,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use collab_archive::{
     plan_export, validate_manifest_version as validate_archive_manifest_version,
     validate_single_root, ArchiveEntryKind, ArchiveEntryMetadata, ArchiveLimits, ArchivePathPolicy,
@@ -8576,6 +8576,42 @@ fn backup_settings_path(backup_dir: &FsPath) -> PathBuf {
     backup_dir.join("backup-settings.json")
 }
 
+fn backup_last_run_path(backup_dir: &FsPath) -> PathBuf {
+    backup_dir.join("backup-last-run.json")
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BackupLastRun {
+    pub attempted_at: DateTime<Utc>,
+}
+
+/// When the scheduler last *attempted* a run, or `None` if it never has.
+///
+/// The schedule is anchored to this rather than to process start. Anchoring to
+/// start meant the first run was a full interval away every time the process
+/// came up, so a server restarting more often than its interval — a Pi that
+/// reboots, a container that redeploys — never ran a scheduled backup at all.
+pub(crate) fn load_backup_last_run(backup_dir: &FsPath) -> Option<DateTime<Utc>> {
+    let raw = fs::read_to_string(backup_last_run_path(backup_dir)).ok()?;
+    serde_json::from_str::<BackupLastRun>(&raw)
+        .ok()
+        .map(|record| record.attempted_at)
+}
+
+/// Records an attempt, successful or not.
+///
+/// Failures are recorded too: a command that fails immediately would otherwise
+/// be retried in a tight loop for as long as it keeps failing.
+pub(crate) fn record_backup_last_run(backup_dir: &FsPath, attempted_at: DateTime<Utc>) {
+    if fs::create_dir_all(backup_dir).is_err() {
+        return;
+    }
+    if let Ok(raw) = serde_json::to_string_pretty(&BackupLastRun { attempted_at }) {
+        let _ = fs::write(backup_last_run_path(backup_dir), raw);
+    }
+}
+
 fn load_backup_overview(state: &AppState) -> AdminBackupOverview {
     let settings = load_backup_runtime_settings(&state.config);
     let mut backups = Vec::new();
@@ -12101,8 +12137,9 @@ mod tests {
         cookie, delete_or_quarantine_backup_dir, indexed_note_tags, indexed_note_title,
         is_safe_backup_name, mentioned_usernames, parse_backup_created_at, parse_tar_listing_entry,
         parse_vault_zip, run_operator_command, search_excerpt, sha256_file,
-        validate_backup_archive_entries, validate_backup_manifest_version, validate_file_kind,
-        verify_backup, BackupRuntimeSettings, Capability, STANDARD,
+        load_backup_last_run, record_backup_last_run, validate_backup_archive_entries,
+        validate_backup_manifest_version, validate_file_kind, verify_backup,
+        BackupRuntimeSettings, Capability, STANDARD,
     };
     use crate::auth::hash_secret;
     use crate::{
@@ -16059,5 +16096,41 @@ mod tests {
         )
         .await;
         assert_eq!(operation_after_revoke.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn a_scheduled_backup_is_due_again_after_a_restart() {
+        // The schedule used to be anchored to process start: the first run was
+        // always a full interval away, so a server restarting more often than
+        // its interval never ran one. Anchoring to the recorded attempt makes
+        // "due" survive a restart.
+        let dir = tempfile::tempdir().expect("temporary directory");
+        let backup_dir = dir.path();
+        let interval = chrono::Duration::seconds(24 * 60 * 60);
+
+        // Never run: due immediately, which is what makes the first scheduled
+        // backup after enabling the schedule actually happen.
+        assert_eq!(load_backup_last_run(backup_dir), None);
+
+        let now = chrono::Utc::now();
+        record_backup_last_run(backup_dir, now - interval - chrono::Duration::seconds(1));
+        let last = load_backup_last_run(backup_dir).expect("attempt should be recorded");
+        assert!(now >= last + interval, "an overdue run stays due across a restart");
+
+        // A recent attempt is not due again, no matter how many times the
+        // process restarts in between.
+        record_backup_last_run(backup_dir, now);
+        let last = load_backup_last_run(backup_dir).expect("attempt should be recorded");
+        assert!(now < last + interval, "a fresh run must not repeat immediately");
+    }
+
+    #[test]
+    fn an_unreadable_last_run_record_is_treated_as_never_run() {
+        // A truncated or hand-edited file must not wedge the scheduler; the
+        // safe reading is that no backup has been taken.
+        let dir = tempfile::tempdir().expect("temporary directory");
+        std::fs::write(dir.path().join("backup-last-run.json"), b"{ not json").expect("write");
+
+        assert_eq!(load_backup_last_run(dir.path()), None);
     }
 }

@@ -31,6 +31,8 @@ interface DataResponse<T> {
   data: T;
 }
 
+import { downloadWithProgress, uploadWithProgress, type TransferListener } from './transfer';
+
 interface ErrorResponse {
   error?: {
     message?: string;
@@ -65,14 +67,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (JSON.parse(text) as DataResponse<T>).data;
 }
 
-async function apiBlob(path: string): Promise<Blob> {
-  const response = await fetch(path, { credentials: 'same-origin' });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as ErrorResponse;
-    const suffix = body.error?.requestId ? ` (${body.error.requestId})` : '';
-    throw new Error(`${body.error?.message ?? `Request failed with ${response.status}`}${suffix}`);
-  }
-  return response.blob();
+async function apiBlob(path: string, onProgress?: TransferListener): Promise<Blob> {
+  return downloadWithProgress(path, onProgress);
 }
 
 export const serverApi = {
@@ -124,16 +120,15 @@ export const serverApi = {
       method: 'POST',
       body: JSON.stringify({ confirmation: 'restore' }),
     }),
-  exportBackup: (name: string) =>
-    apiBlob(`/api/v1/admin/backups/${encodeURIComponent(name)}/archive`),
+  exportBackup: (name: string, onProgress?: TransferListener) =>
+    apiBlob(`/api/v1/admin/backups/${encodeURIComponent(name)}/archive`, onProgress),
   // The archive is sent as raw bytes. Base64 needed roughly four copies of it
   // live in the tab at once and had to fit in a single string allocation, so a
   // large backup failed in the browser before any of it was sent.
-  importBackup: (archive: Blob) =>
-    api<AdminBackupOverview>('/api/v1/admin/backups/import', {
-      method: 'POST',
-      body: archive,
-      headers: { 'content-type': 'application/octet-stream' },
+  importBackup: (archive: Blob, onProgress?: TransferListener) =>
+    uploadWithProgress<AdminBackupOverview>('/api/v1/admin/backups/import', archive, {
+      csrf: readCookie('collab_csrf'),
+      onProgress,
     }),
   deleteBackup: (name: string) =>
     api<void>(`/api/v1/admin/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
@@ -216,7 +211,8 @@ export const serverApi = {
       method: 'POST',
       body: JSON.stringify({ archiveBase64 }),
     }),
-  exportVault: (id: string) => apiBlob(`/api/v1/vaults/${id}/export`),
+  exportVault: (id: string, onProgress?: TransferListener) =>
+    apiBlob(`/api/v1/vaults/${id}/export`, onProgress),
   auditEvents: () => api<AuditEvent[]>('/api/v1/admin/audit-events'),
 
   // Permission templates

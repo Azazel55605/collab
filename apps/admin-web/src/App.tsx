@@ -40,6 +40,7 @@ import {
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { serverApi } from './api';
+import type { TransferProgress } from './transfer';
 import { useAutoRefresh } from './useAutoRefresh';
 import { useAdminAppearance, type AdminAccent, type AdminTheme } from './theme';
 import type {
@@ -700,6 +701,10 @@ function BackupsPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
+  // Byte progress for the transfer only. It is cleared the moment the last byte
+  // moves, so the activity panel falls back to indeterminate for the server-side
+  // work rather than parking a full bar there.
+  const [transfer, setTransfer] = useState<TransferProgress | null>(null);
   const applyOverview = useCallback((data: AdminBackupOverview) => {
     setOverview(data);
     setSettingsDraft({
@@ -748,7 +753,8 @@ function BackupsPage() {
     setError('');
     setMessage('');
     try {
-      const blob = await serverApi.exportBackup(name);
+      const blob = await serverApi.exportBackup(name, setTransfer);
+      setTransfer(null);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -762,6 +768,7 @@ function BackupsPage() {
       setError(String(reason));
     } finally {
       setBusy('');
+      setTransfer(null);
     }
   }
 
@@ -773,13 +780,15 @@ function BackupsPage() {
     setMessage('');
     setError('');
     try {
-      const next = await serverApi.importBackup(file);
+      const next = await serverApi.importBackup(file, setTransfer);
+      setTransfer(null);
       applyOverview(next);
       setMessage(`Imported ${file.name}.`);
     } catch (reason) {
       setError(String(reason));
     } finally {
       setBusy('');
+      setTransfer(null);
     }
   }
 
@@ -847,7 +856,7 @@ function BackupsPage() {
         subtitle="Inspect, verify, and manage deployment backups visible to the server."
         action={<div className="actions"><input ref={importInputRef} type="file" accept=".tar.gz,.tgz,application/gzip,application/x-gzip" hidden onChange={(event) => void importBackup(event)} /><Button variant="outline" size="sm" disabled={busy === 'import'} onClick={() => importInputRef.current?.click()}><Upload size={16} />Import</Button><Button variant="outline" size="sm" onClick={load}><RefreshCw size={16} />Refresh</Button><Button size="sm" disabled={!overview?.backupCommandConfigured || busy !== ''} onClick={runBackup}>{busy === 'run' ? <><RefreshCw size={16} className="spin" />Running backup...</> : <><Archive size={16} />Run backup</>}</Button></div>}
       />
-      <BackupActivity busy={busy} />
+      <BackupActivity busy={busy} transfer={transfer} />
       {error && <div className="error-banner"><CircleAlert size={16} />{error}</div>}
       {message && <div className="success-banner" role="status"><ShieldCheck size={16} />{message}</div>}
       {!overview ? <Loading /> : <>
@@ -3788,12 +3797,15 @@ function UnsupportedFilesDialog({
 /**
  * Progress feedback for a running backup operation.
  *
- * The admin backup endpoints are single blocking requests that return only a
- * final result, so there is no percentage to report — showing one would be
- * invented. This states what is running and how long it has been going, with an
- * indeterminate bar, so a long backup reads as working rather than hung.
+ * An import or export has two phases and they are reported differently on
+ * purpose. While bytes are moving the bar is a real fraction of a real total.
+ * Once the transfer finishes the server packs, verifies, or unpacks in a single
+ * blocking request that returns only a final result — there is no percentage to
+ * read there, so the bar goes indeterminate and the label says what is happening
+ * instead of inventing a number. Every other operation here (run, restore,
+ * verify) is server-side from the start and stays indeterminate throughout.
  */
-function BackupActivity({ busy }: { busy: string }) {
+function BackupActivity({ busy, transfer }: { busy: string; transfer?: TransferProgress | null }) {
   const [seconds, setSeconds] = useState(0);
 
   useEffect(() => {
@@ -3810,14 +3822,30 @@ function BackupActivity({ busy }: { busy: string }) {
   if (!busy) return null;
   const [action, name] = busy.split(':');
   const label = BACKUP_ACTIVITY_LABELS[action] ?? 'Working';
+  const percent = transferPercent(transfer);
+  const detail = transfer
+    ? `${BACKUP_TRANSFER_VERBS[action] ?? 'Transferring'} ${formatBytes(transfer.transferred)}${
+        transfer.total ? ` of ${formatBytes(transfer.total)}` : ''
+      }`
+    : BACKUP_SERVER_PHASE[action] ?? null;
   return (
     <div className="backup-activity" role="status" aria-live="polite">
       <div className="backup-activity-head">
         <RefreshCw size={16} className="spin" />
         <strong>{name ? `${label} ${name}` : label}...</strong>
+        {percent !== null && <span className="backup-activity-percent">{percent}%</span>}
         <span className="backup-activity-elapsed">{formatDuration(seconds)}</span>
       </div>
-      <div className="backup-activity-bar"><span /></div>
+      <div
+        className={percent === null ? 'backup-activity-bar' : 'backup-activity-bar determinate'}
+        role="progressbar"
+        {...(percent === null
+          ? { 'aria-valuetext': detail ?? 'Working' }
+          : { 'aria-valuenow': percent, 'aria-valuemin': 0, 'aria-valuemax': 100 })}
+      >
+        <span style={percent === null ? undefined : { width: `${percent}%` }} />
+      </div>
+      {detail && <small className="backup-activity-phase">{detail}</small>}
       <small>
         This can take a while on a large deployment. Leaving the page does not cancel it,
         and the list refreshes when it finishes.
@@ -3825,6 +3853,27 @@ function BackupActivity({ busy }: { busy: string }) {
     </div>
   );
 }
+
+/** The transfer as a whole percent, or null when there is nothing honest to show. */
+export function transferPercent(transfer?: TransferProgress | null): number | null {
+  if (!transfer || !transfer.total || transfer.total <= 0) return null;
+  const ratio = transfer.transferred / transfer.total;
+  return Math.max(0, Math.min(100, Math.round(ratio * 100)));
+}
+
+const BACKUP_TRANSFER_VERBS: Record<string, string> = {
+  import: 'Uploaded',
+  export: 'Downloaded',
+};
+
+/** What the server is doing once the bytes have moved and progress goes dark. */
+const BACKUP_SERVER_PHASE: Record<string, string> = {
+  import: 'Verifying and unpacking on the server',
+  export: 'Packing the archive on the server',
+  run: 'The backup command is running on the server',
+  restore: 'The restore command is running on the server',
+  verify: 'Checking archive checksums on the server',
+};
 
 const BACKUP_ACTIVITY_LABELS: Record<string, string> = {
   run: 'Running backup',

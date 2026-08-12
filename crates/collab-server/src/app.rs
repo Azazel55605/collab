@@ -7,6 +7,7 @@ use axum::{
     routing::{any, delete, get, patch, post, put},
     Json, Router,
 };
+use chrono::Duration as ChronoDuration;
 use collab_protocol::{
     ApiError, DataResponse, ErrorCode, ErrorResponse, HealthState, HealthStatus, PROTOCOL_VERSION,
 };
@@ -468,32 +469,59 @@ pub fn build_router(state: AppState) -> Router {
         .with_state(state)
 }
 
+/// How often the scheduler wakes to ask whether a backup is due.
+///
+/// It deliberately does not sleep the whole interval in one go. A single long
+/// sleep also meant a settings change — enabling the schedule, shortening the
+/// interval — was not noticed until the previous sleep expired, which on a
+/// daily interval could be the better part of a day.
+const BACKUP_SCHEDULER_TICK: Duration = Duration::from_secs(60);
+
+/// Grace period before the first due check, so a backup started by the schedule
+/// does not contend with the rest of server startup.
+const BACKUP_SCHEDULER_STARTUP_GRACE: Duration = Duration::from_secs(30);
+
 pub fn spawn_backup_scheduler(state: AppState) {
     let Some(command) = state.config.backup_command.clone() else {
-        tracing::warn!("backup schedule is enabled but no backup command is configured");
+        // Not a warning: no backup command is the default, and the schedule
+        // cannot be enabled into a useful state without one. Saying "the
+        // schedule is enabled" here was wrong whenever it was not.
+        tracing::info!("no backup command configured; scheduled backups are unavailable");
         return;
     };
     let backup_dir = state.config.backup_dir.clone();
     tokio::spawn(async move {
+        sleep(BACKUP_SCHEDULER_STARTUP_GRACE).await;
         loop {
             let settings = crate::api::load_backup_runtime_settings(&state.config);
             if !settings.schedule_enabled {
-                sleep(Duration::from_secs(60)).await;
+                sleep(BACKUP_SCHEDULER_TICK).await;
                 continue;
             }
-            let interval = Duration::from_secs(settings.interval_seconds.max(60));
-            tracing::debug!(
+            let interval = ChronoDuration::seconds(settings.interval_seconds.max(60) as i64);
+            let now = chrono::Utc::now();
+            // The schedule is anchored to the last attempt on disk, not to when
+            // this process started. A server that never completed a run is due
+            // immediately, which is what makes the first backup after enabling
+            // the schedule actually happen.
+            let due_at = crate::api::load_backup_last_run(&backup_dir).map(|last| last + interval);
+            if let Some(due_at) = due_at {
+                if now < due_at {
+                    let remaining = (due_at - now).to_std().unwrap_or(BACKUP_SCHEDULER_TICK);
+                    sleep(remaining.min(BACKUP_SCHEDULER_TICK)).await;
+                    continue;
+                }
+            }
+            // Recorded before the run, so a command that fails or is killed
+            // mid-way still waits a full interval instead of retrying in a loop.
+            crate::api::record_backup_last_run(&backup_dir, now);
+            let request_id = format!("scheduled-backup-{}", now.timestamp());
+            tracing::info!(
                 interval_seconds = settings.interval_seconds,
                 retention_days = settings.retention_days,
                 export_dir = ?settings.export_dir,
-                "backup scheduler sleeping"
+                "starting scheduled backup"
             );
-            sleep(interval).await;
-            let settings = crate::api::load_backup_runtime_settings(&state.config);
-            if !settings.schedule_enabled {
-                continue;
-            }
-            let request_id = format!("scheduled-backup-{}", chrono::Utc::now().timestamp());
             match crate::api::run_operator_command(
                 &command,
                 &backup_dir,

@@ -405,7 +405,10 @@ describe('admin application', () => {
     expect(await screen.findByText('Verified')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
-    await waitFor(() => expect(serverApi.exportBackup).toHaveBeenCalledWith('collab-backup-20260618T111501Z'));
+    await waitFor(() => expect(serverApi.exportBackup).toHaveBeenCalledWith(
+      'collab-backup-20260618T111501Z',
+      expect.any(Function),
+    ));
 
     const importInput = document.querySelector('input[type="file"][accept*=".tar.gz"]') as HTMLInputElement;
     const archive = new window.File([new Uint8Array([31, 139])], 'collab-backup-20260619T111501Z.tar.gz', { type: 'application/gzip' });
@@ -413,7 +416,10 @@ describe('admin application', () => {
     // The archive is handed over as the File itself, not base64: encoding it in
     // the tab needed several copies of the whole backup live at once and blew
     // the engine's string limit on anything large.
-    await waitFor(() => expect(serverApi.importBackup).toHaveBeenCalledWith(archive));
+    await waitFor(() => expect(serverApi.importBackup).toHaveBeenCalledWith(
+      archive,
+      expect.any(Function),
+    ));
     expect(await screen.findByText('collab-backup-20260619T111501Z')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
