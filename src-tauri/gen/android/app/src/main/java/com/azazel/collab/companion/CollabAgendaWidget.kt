@@ -74,7 +74,8 @@ private val SyncActionMessageStateKey = stringPreferencesKey("sync-widget-action
  * its snapshot natively rather than from state, so without this its state never
  * moves and change-gated rendering could never re-render it.
  */
-private val MonthRevisionStateKey = stringPreferencesKey("month-widget-revision-v1")
+/** The digest of the snapshot a widget last rendered. Change detection only. */
+private val SnapshotRevisionStateKey = stringPreferencesKey("month-widget-revision-v1")
 private val TaskItemIdParameter = ActionParameters.Key<String>("collabTaskItemId")
 private const val MIN_MONTH_OFFSET = -6
 private const val MAX_MONTH_OFFSET = 6
@@ -915,29 +916,32 @@ object CollabWidgetBridge {
       manager.getAppWidgetIds(ComponentName(appContext, provider)).toList()
     }.filterValues { it.isNotEmpty() }
     if (idsByProvider.isEmpty()) return false
-    val monthIds = idsByProvider[CollabMonthWidgetReceiver::class.java].orEmpty().toSet()
     val changedProviders = mutableSetOf<Class<out android.content.BroadcastReceiver>>()
     runBlocking {
       idsByProvider.forEach { (provider, providerIds) ->
         providerIds.forEach { appWidgetId ->
           val binding = CollabWidgetBindings.read(appContext, appWidgetId)
           val raw = binding?.let { readBoundSnapshotRaw(appContext, it) }
-          // The month widget reads its snapshot natively in `provideGlance`
-          // because the rendered month is far larger than Glance state should
-          // carry. It still needs a state value that moves when the snapshot
-          // does, or a real change would never trigger a re-render — so it
-          // stores a digest under its own key, leaving the snapshot key clear
-          // the way it always was.
-          val isMonth = appWidgetId in monthIds
-          val key = if (isMonth) MonthRevisionStateKey else AgendaWidgetSnapshotStateKey
+          // Every widget reads its snapshot natively, so state holds only a
+          // digest that moves when the snapshot does — enough to decide whether
+          // a re-render is warranted, and nothing a launcher can read as
+          // content.
           updateAppWidgetState(appContext, AppWidgetId(appWidgetId)) { preferences ->
-            if (isMonth && preferences[AgendaWidgetSnapshotStateKey] != null) {
+            // Older builds stored the whole snapshot here. Nothing reads it now,
+            // so clear it rather than leaving a stale copy in launcher-readable
+            // storage forever.
+            if (preferences[AgendaWidgetSnapshotStateKey] != null) {
               preferences.remove(AgendaWidgetSnapshotStateKey)
             }
-            val (next, changed) = widgetStateTransition(preferences[key], raw, isMonth)
+            val (next, changed) =
+              widgetStateTransition(preferences[SnapshotRevisionStateKey], raw)
             if (!changed) return@updateAppWidgetState
             changedProviders += provider
-            if (next == null) preferences.remove(key) else preferences[key] = next
+            if (next == null) {
+              preferences.remove(SnapshotRevisionStateKey)
+            } else {
+              preferences[SnapshotRevisionStateKey] = next
+            }
           }
         }
       }
@@ -986,12 +990,15 @@ internal fun publicationRequiresRender(outcomeJson: String): Boolean {
  * `updateAll` re-composes every placed instance, and most publications carry no
  * visible change at all.
  */
-internal fun widgetStateTransition(
-  current: String?,
-  raw: String?,
-  isMonth: Boolean,
-): Pair<String?, Boolean> {
-  val next = if (isMonth) widgetRevisionMarker(raw) else raw
+/**
+ * The state a widget should hold for `raw`, and whether that moved.
+ *
+ * State carries a digest, never the snapshot: widgets read their snapshot
+ * natively (see `boundWidgetSnapshot`), so the only thing state is still for is
+ * deciding whether a re-render is warranted.
+ */
+internal fun widgetStateTransition(current: String?, raw: String?): Pair<String?, Boolean> {
+  val next = widgetRevisionMarker(raw)
   return next to (next != current)
 }
 
@@ -1006,6 +1013,29 @@ internal fun widgetRevisionMarker(raw: String?): String? {
   return digest.take(16).joinToString("") { byte ->
     byte.toUByte().toString(16).padStart(2, '0')
   }
+}
+
+/**
+ * The snapshot a placed widget should render.
+ *
+ * Read from the native store rather than from Glance state. The published
+ * snapshot file is the source of truth; Glance state is only a change marker
+ * (see [widgetStateTransition]). Carrying the snapshot itself through state
+ * meant a widget rendered whatever the last successful state write happened to
+ * contain, and a write that never landed was indistinguishable from having no
+ * data — the widget quietly showed its empty fallback while a perfectly good
+ * snapshot sat on disk. The month widget already read natively because its
+ * payload was too large for state; every widget now does, for correctness.
+ *
+ * Falls back to the empty snapshot when the widget has no binding yet or its
+ * configuration has been removed.
+ */
+@Composable
+private fun boundWidgetSnapshot(context: Context, appWidgetId: Int?): AgendaWidgetSnapshot {
+  val raw = appWidgetId
+    ?.let { CollabWidgetBindings.read(context, it) }
+    ?.let { CollabWidgetBridge.readBoundSnapshotRaw(context, it) }
+  return agendaWidgetSnapshotFromState(raw)
 }
 
 internal fun widgetForProvider(
@@ -1027,16 +1057,16 @@ class CollabAgendaWidget : GlanceAppWidget() {
   override val sizeMode: SizeMode = SizeMode.Responsive(
     setOf(
       DpSize(110.dp, 56.dp),
-      DpSize(250.dp, 110.dp),
-      DpSize(250.dp, 220.dp),
-      DpSize(250.dp, 400.dp),
+      DpSize(180.dp, 110.dp),
+      DpSize(180.dp, 220.dp),
+      DpSize(180.dp, 400.dp),
     ),
   )
 
   override suspend fun provideGlance(context: Context, id: GlanceId) {
     val appWidgetId = (id as? AppWidgetId)?.appWidgetId
     provideContent {
-      val snapshot = agendaWidgetSnapshotFromState(currentState(AgendaWidgetSnapshotStateKey))
+      val snapshot = boundWidgetSnapshot(context, appWidgetId)
       val binding = appWidgetId?.let { CollabWidgetBindings.read(context, it) }
       val openToday = binding?.let { CollabWidgetBridge.prepareOpenIntent(context, it, snapshot.kind) }
         ?: CollabAppDestination.intent(context, "calendar-today")
@@ -1055,18 +1085,29 @@ class CollabAgendaWidget : GlanceAppWidget() {
 
 class CollabMonthWidget : GlanceAppWidget() {
   override val stateDefinition = PreferencesGlanceStateDefinition
-  override val sizeMode: SizeMode = SizeMode.Responsive(
-    setOf(DpSize(250.dp, 180.dp), DpSize(250.dp, 260.dp), DpSize(320.dp, 360.dp)),
-  )
+
+  // Exact, not Responsive, and only for this widget.
+  //
+  // Responsive composes and translates the whole tree once per declared size,
+  // and this tree is by far the most expensive one: 42 day cells plus bar lanes,
+  // each clickable view costing a PendingIntent — a binder round trip — at
+  // translation time. Three buckets meant paying that three times for every
+  // month-arrow tap, which is what the user feels as a wait after pressing ‹ or
+  // ›. Exact composes once, for the size the launcher actually reports.
+  //
+  // The trade is a re-composition on resize instead of a free bucket swap. That
+  // is the right way round here: months are stepped through constantly and the
+  // widget is resized once. Every other widget stays Responsive — their trees
+  // are a handful of rows, so the extra passes cost little and the free resize
+  // is worth more.
+  override val sizeMode: SizeMode = SizeMode.Exact
 
   override suspend fun provideGlance(context: Context, id: GlanceId) {
     val appWidgetId = (id as? AppWidgetId)?.appWidgetId
     val binding = appWidgetId?.let { CollabWidgetBindings.read(context, it) }
     val boundSnapshot = binding?.let { CollabWidgetBridge.readBoundSnapshotRaw(context, it) }
     provideContent {
-      val snapshot = agendaWidgetSnapshotFromState(
-        boundSnapshot ?: currentState(AgendaWidgetSnapshotStateKey),
-      )
+      val snapshot = agendaWidgetSnapshotFromState(boundSnapshot)
       val monthOffset = (currentState(MonthOffsetStateKey) ?: 0)
         .coerceIn(MIN_MONTH_OFFSET, MAX_MONTH_OFFSET)
       val page = snapshot.months.firstOrNull { it.offset == monthOffset }
@@ -1119,13 +1160,13 @@ class CollabNextMonthAction : ActionCallback {
 abstract class CollabUpcomingDateWidget(private val widgetKind: String) : GlanceAppWidget() {
   override val stateDefinition = PreferencesGlanceStateDefinition
   override val sizeMode: SizeMode = SizeMode.Responsive(
-    setOf(DpSize(110.dp, 56.dp), DpSize(250.dp, 110.dp), DpSize(250.dp, 220.dp)),
+    setOf(DpSize(110.dp, 56.dp), DpSize(180.dp, 110.dp), DpSize(180.dp, 220.dp)),
   )
 
   override suspend fun provideGlance(context: Context, id: GlanceId) {
     val appWidgetId = (id as? AppWidgetId)?.appWidgetId
     provideContent {
-      val snapshot = agendaWidgetSnapshotFromState(currentState(AgendaWidgetSnapshotStateKey))
+      val snapshot = boundWidgetSnapshot(context, appWidgetId)
       val binding = appWidgetId?.let { CollabWidgetBindings.read(context, it) }
       val open = binding?.let { CollabWidgetBridge.prepareOpenIntent(context, it, widgetKind) }
         ?: CollabAppDestination.intent(context, "calendar-today")
@@ -1154,16 +1195,16 @@ class CollabTasksWidget : GlanceAppWidget() {
   override val sizeMode: SizeMode = SizeMode.Responsive(
     setOf(
       DpSize(110.dp, 56.dp),
-      DpSize(250.dp, 110.dp),
-      DpSize(250.dp, 220.dp),
-      DpSize(250.dp, 400.dp),
+      DpSize(180.dp, 110.dp),
+      DpSize(180.dp, 220.dp),
+      DpSize(180.dp, 400.dp),
     ),
   )
 
   override suspend fun provideGlance(context: Context, id: GlanceId) {
     val appWidgetId = (id as? AppWidgetId)?.appWidgetId
     provideContent {
-      val snapshot = agendaWidgetSnapshotFromState(currentState(AgendaWidgetSnapshotStateKey))
+      val snapshot = boundWidgetSnapshot(context, appWidgetId)
       val binding = appWidgetId?.let { CollabWidgetBindings.read(context, it) }
       val openTasks = binding?.let { CollabWidgetBridge.prepareOpenIntent(context, it, "tasks") }
         ?: CollabAppDestination.intent(context, "calendar-today")
@@ -1190,16 +1231,16 @@ abstract class CollabShortcutWidget(private val widgetKind: String) : GlanceAppW
   override val sizeMode: SizeMode = SizeMode.Responsive(
     setOf(
       DpSize(110.dp, 56.dp),
-      DpSize(250.dp, 110.dp),
-      DpSize(250.dp, 220.dp),
-      DpSize(250.dp, 400.dp),
+      DpSize(180.dp, 110.dp),
+      DpSize(180.dp, 220.dp),
+      DpSize(180.dp, 400.dp),
     ),
   )
 
   override suspend fun provideGlance(context: Context, id: GlanceId) {
     val appWidgetId = (id as? AppWidgetId)?.appWidgetId
     provideContent {
-      val snapshot = agendaWidgetSnapshotFromState(currentState(AgendaWidgetSnapshotStateKey))
+      val snapshot = boundWidgetSnapshot(context, appWidgetId)
       val binding = appWidgetId?.let { CollabWidgetBindings.read(context, it) }
       val open = binding?.let { CollabWidgetBridge.prepareOpenIntent(context, it, widgetKind) }
         ?: CollabAppDestination.intent(context, "calendar-today")
@@ -1226,19 +1267,27 @@ class CollabShortcutsWidget : CollabShortcutWidget("shortcuts")
 class CollabSyncWidget : GlanceAppWidget() {
   override val stateDefinition = PreferencesGlanceStateDefinition
 
+  // Bucket widths track each provider's declared `minWidth`, not an aspiration.
+  // Glance picks the largest bucket that fits in *both* dimensions, so a bucket
+  // wider than the widget can ever be is unreachable: these were 250dp while the
+  // provider declares minWidth=180dp and targetCellWidth=3, so a widget placed
+  // at its own target size fell through to the 110x56 bucket and rendered as
+  // `compact` — header and summary card only, no vault rows, at every height the
+  // user tried. Nothing here branches on width, so the width only ever gated
+  // which height bucket was reachable.
   override val sizeMode: SizeMode = SizeMode.Responsive(
     setOf(
       DpSize(110.dp, 56.dp),
-      DpSize(250.dp, 110.dp),
-      DpSize(250.dp, 220.dp),
-      DpSize(250.dp, 400.dp),
+      DpSize(180.dp, 110.dp),
+      DpSize(180.dp, 220.dp),
+      DpSize(180.dp, 400.dp),
     ),
   )
 
   override suspend fun provideGlance(context: Context, id: GlanceId) {
     val appWidgetId = (id as? AppWidgetId)?.appWidgetId
     provideContent {
-      val snapshot = agendaWidgetSnapshotFromState(currentState(AgendaWidgetSnapshotStateKey))
+      val snapshot = boundWidgetSnapshot(context, appWidgetId)
       val binding = appWidgetId?.let { CollabWidgetBindings.read(context, it) }
       val open = binding?.let { CollabWidgetBridge.prepareOpenIntent(context, it, "sync") }
         ?: CollabAppDestination.intent(context, "settings-background")
@@ -1493,6 +1542,38 @@ private fun WidgetSectionLabel(
 }
 
 /**
+ * Glance ships generated container layouts for 0..10 children and nothing more;
+ * an eleventh child fails translation with "Cannot find generated children for
+ * … with N children". A list rendered as `row, spacer, row, spacer, …` directly
+ * inside the widget's root Column therefore breaks once it holds six rows, and
+ * it breaks as a function of the *user's data* — which is why it survived every
+ * size, every re-creation, and every test on a profile with fewer vaults.
+ */
+internal const val MAX_GLANCE_CONTAINER_CHILDREN = 10
+
+/**
+ * How many rows may share one container, given each row is followed by a spacer
+ * except the last. Kept as arithmetic rather than a literal so the budget stays
+ * tied to the ceiling it is derived from.
+ */
+internal const val MAX_ROWS_PER_CHUNK = MAX_GLANCE_CONTAINER_CHILDREN / 2
+
+/**
+ * Splits `count` rows into per-container groups that respect the ceiling.
+ *
+ * Each group becomes one nested Column, so the parent sees one child per group
+ * instead of one per row — turning an unbounded child count into a bounded one
+ * at both levels.
+ */
+internal fun glanceRowChunks(count: Int, perChunk: Int = MAX_ROWS_PER_CHUNK): List<IntRange> {
+  if (count <= 0) return emptyList()
+  val size = perChunk.coerceAtLeast(1)
+  return (0 until count step size).map { start ->
+    start until minOf(start + size, count)
+  }
+}
+
+/**
  * A list row in the app's card language: a raised surface whose source colour
  * is carried by a left rail, mirroring the agenda cards in the mobile app.
  */
@@ -1502,6 +1583,7 @@ private fun WidgetRowCard(
   railColor: Color,
   action: Action,
   compact: Boolean,
+  fontScale: Float,
   content: @Composable ColumnScope.() -> Unit,
 ) {
   WidgetCardFrame(palette) {
@@ -1512,18 +1594,42 @@ private fun WidgetRowCard(
         .padding(horizontal = 9.dp, vertical = if (compact) 6.dp else 8.dp),
       verticalAlignment = Alignment.Vertical.CenterVertically,
     ) {
-      Box(
-        modifier = GlanceModifier
-          .width(WidgetRailWidth)
-          .fillMaxHeight()
-          .background(ColorProvider(railColor))
-          .cornerRadius(WidgetRailWidth),
-        contentAlignment = Alignment.Center,
-      ) {}
+      WidgetRail(railColor, compact, fontScale)
       Spacer(GlanceModifier.width(9.dp))
       Column(modifier = GlanceModifier.defaultWeight(), content = content)
     }
   }
+}
+
+/**
+ * The slim colour rail down the left of a card.
+ *
+ * Sized explicitly, never with `fillMaxHeight`. Glance turns that into
+ * `layout_height=match_parent`, and a match_parent descendant inside an
+ * otherwise wrap-content chain is measured against the *root* — which is
+ * `fillMaxSize`. The rail therefore claimed the widget's whole height and
+ * dragged its Row and card with it, so the first card swallowed the surface and
+ * every row below it was pushed out of view. The rail must be told how tall it
+ * is so it can never drive the layout.
+ */
+/**
+ * How tall a card's rail is: two text lines at the row's own sizes, or one when
+ * compact. Scales with the user's font preference so the rail keeps matching
+ * the text beside it.
+ */
+internal fun widgetRailHeight(compact: Boolean, fontScale: Float): Dp =
+  ((if (compact) 17f else 31f) * fontScale.coerceIn(0.85f, 1.3f)).dp
+
+@Composable
+private fun WidgetRail(railColor: Color, compact: Boolean, fontScale: Float) {
+  Box(
+    modifier = GlanceModifier
+      .width(WidgetRailWidth)
+      .height(widgetRailHeight(compact, fontScale))
+      .background(ColorProvider(railColor))
+      .cornerRadius(WidgetRailWidth),
+    contentAlignment = Alignment.Center,
+  ) {}
 }
 
 @Composable
@@ -1557,9 +1663,13 @@ private fun ShortcutWidgetContent(
         style = mutedTextStyle(palette, 11f * snapshot.fontScale),
       )
     } else {
-      visibleItems.forEachIndexed { visibleIndex, item ->
-        val originalIndex = snapshot.items.indexOf(item)
-        val action = actionStartActivity(itemIntents.getOrElse(originalIndex) { openHeader })
+      // A shortcut row is a card plus a spacer, so groups are sized against
+      // the ten-child ceiling rather than a round number.
+      glanceRowChunks(visibleItems.size).forEach { chunk ->
+      Column(modifier = GlanceModifier.fillMaxWidth()) {
+      for (visibleIndex in chunk) {
+        val item = visibleItems[visibleIndex]
+        val action = actionStartActivity(itemIntents.getOrElse(visibleIndex) { openHeader })
         WidgetCardFrame(palette) {
           Row(
             modifier = GlanceModifier
@@ -1605,6 +1715,8 @@ private fun ShortcutWidgetContent(
         }
         }
         if (visibleIndex < visibleItems.lastIndex) Spacer(GlanceModifier.height(6.dp))
+      }
+      }
       }
     }
   }
@@ -1682,14 +1794,7 @@ private fun SyncWidgetContent(
           .padding(horizontal = 9.dp, vertical = if (compact) 6.dp else 8.dp),
         verticalAlignment = Alignment.Vertical.CenterVertically,
       ) {
-        Box(
-          modifier = GlanceModifier
-            .width(WidgetRailWidth)
-            .fillMaxHeight()
-            .background(ColorProvider(syncStateColor(sync?.state, palette)))
-            .cornerRadius(WidgetRailWidth),
-          contentAlignment = Alignment.Center,
-        ) {}
+        WidgetRail(syncStateColor(sync?.state, palette), compact, snapshot.fontScale)
         Spacer(GlanceModifier.width(9.dp))
         Column(modifier = GlanceModifier.defaultWeight()) {
           Text(
@@ -1720,33 +1825,41 @@ private fun SyncWidgetContent(
     }
     if (visibleItems.isNotEmpty()) {
       Spacer(GlanceModifier.height(if (sync?.running == true) 6.dp else 8.dp))
-      visibleItems.forEachIndexed { visibleIndex, item ->
-        val originalIndex = snapshot.items.indexOf(item)
-        val itemAction = actionStartActivity(itemIntents.getOrElse(originalIndex) { openSettings })
-        WidgetRowCard(
-          palette = palette,
-          // A row only carries its own destination when something went wrong
-          // there, so the rail marks exactly the rows that need the user.
-          railColor = if (item.shortcut != null) palette.danger else palette.muted,
-          action = itemAction,
-          compact = false,
-        ) {
-          Text(
-            item.title,
-            modifier = GlanceModifier.clickable(itemAction),
-            style = TextStyle(
-              color = ColorProvider(palette.foreground),
-              fontWeight = FontWeight.Medium,
-              fontSize = (13f * snapshot.fontScale).sp,
-            ),
-          )
-          Text(
-            item.detail,
-            modifier = GlanceModifier.clickable(itemAction),
-            style = mutedTextStyle(palette, 11f * snapshot.fontScale),
-          )
+      // Grouped so neither this Column nor any group exceeds Glance's ceiling.
+      glanceRowChunks(visibleItems.size).forEach { chunk ->
+        Column(modifier = GlanceModifier.fillMaxWidth()) {
+          for (visibleIndex in chunk) {
+            val item = visibleItems[visibleIndex]
+            val itemAction =
+              actionStartActivity(itemIntents.getOrElse(visibleIndex) { openSettings })
+            WidgetRowCard(
+              palette = palette,
+              // A row only carries its own destination when something went
+              // wrong there, so the rail marks exactly the rows that need the
+              // user.
+              railColor = if (item.shortcut != null) palette.danger else palette.muted,
+              action = itemAction,
+              compact = false,
+              fontScale = snapshot.fontScale,
+            ) {
+              Text(
+                item.title,
+                modifier = GlanceModifier.clickable(itemAction),
+                style = TextStyle(
+                  color = ColorProvider(palette.foreground),
+                  fontWeight = FontWeight.Medium,
+                  fontSize = (13f * snapshot.fontScale).sp,
+                ),
+              )
+              Text(
+                item.detail,
+                modifier = GlanceModifier.clickable(itemAction),
+                style = mutedTextStyle(palette, 11f * snapshot.fontScale),
+              )
+            }
+            if (visibleIndex < visibleItems.lastIndex) Spacer(GlanceModifier.height(6.dp))
+          }
         }
-        if (visibleIndex < visibleItems.lastIndex) Spacer(GlanceModifier.height(6.dp))
       }
     }
     if (!compact && actionMessage != null) {
@@ -1977,9 +2090,13 @@ private fun AgendaWidgetContent(
         style = mutedTextStyle(palette, 11f * snapshot.fontScale),
       )
     } else {
-      visibleItems.forEachIndexed { visibleIndex, item ->
-        val originalIndex = snapshot.items.indexOf(item)
-        val itemAction = actionStartActivity(itemIntents.getOrElse(originalIndex) { openToday })
+      // Each item can emit a section label, a card, and a spacer, so groups are
+      // sized against Glance's ten-child ceiling rather than a round number.
+      glanceRowChunks(visibleItems.size, MAX_GLANCE_CONTAINER_CHILDREN / 3).forEach { chunk ->
+      Column(modifier = GlanceModifier.fillMaxWidth()) {
+      for (visibleIndex in chunk) {
+        val item = visibleItems[visibleIndex]
+        val itemAction = actionStartActivity(itemIntents.getOrElse(visibleIndex) { openToday })
         if (size.height >= 180.dp) {
           val priorSection = visibleItems.getOrNull(visibleIndex - 1)?.section
           if (item.section != null && item.section != priorSection) {
@@ -1996,6 +2113,7 @@ private fun AgendaWidgetContent(
           railColor = widgetSourceColor(item.sourceColor, palette.accent),
           action = itemAction,
           compact = compact,
+          fontScale = snapshot.fontScale,
         ) {
           Text(
             item.title,
@@ -2015,6 +2133,8 @@ private fun AgendaWidgetContent(
           }
         }
         if (visibleIndex < visibleItems.lastIndex) Spacer(GlanceModifier.height(6.dp))
+      }
+      }
       }
       if (size.height >= 180.dp) {
         Spacer(GlanceModifier.height(8.dp))
@@ -2077,9 +2197,13 @@ private fun TasksWidgetContent(
         style = mutedTextStyle(palette, 11f * snapshot.fontScale),
       )
     } else {
-      visibleItems.forEachIndexed { visibleIndex, item ->
-        val originalIndex = snapshot.items.indexOf(item)
-        val itemAction = actionStartActivity(itemIntents.getOrElse(originalIndex) { openTasks })
+      // A task row can emit a section label, a card, and a spacer, so groups
+      // are sized against the ten-child ceiling rather than a round number.
+      glanceRowChunks(visibleItems.size, MAX_GLANCE_CONTAINER_CHILDREN / 3).forEach { chunk ->
+      Column(modifier = GlanceModifier.fillMaxWidth()) {
+      for (visibleIndex in chunk) {
+        val item = visibleItems[visibleIndex]
+        val itemAction = actionStartActivity(itemIntents.getOrElse(visibleIndex) { openTasks })
         val awaitingConfirmation = item.itemId != null && item.itemId == pendingCompleteId
         if (size.height >= 180.dp) {
           val priorDue = visibleItems.getOrNull(visibleIndex - 1)?.task?.due
@@ -2141,6 +2265,8 @@ private fun TasksWidgetContent(
         }
         if (visibleIndex < visibleItems.lastIndex) Spacer(GlanceModifier.height(6.dp))
       }
+      }
+      }
       if (size.height >= 180.dp) {
         Spacer(GlanceModifier.height(8.dp))
         Text(
@@ -2190,11 +2316,7 @@ private fun TaskCompleteControl(
       if (awaitingConfirmation) "✓" else if (completable) "○" else "•",
       style = TextStyle(
         color = ColorProvider(
-          when {
-            awaitingConfirmation -> palette.background
-            completable -> widgetSourceColor(item.sourceColor, palette.accent)
-            else -> palette.muted
-          },
+          taskGlyphColor(item.sourceColor, completable, awaitingConfirmation, palette),
         ),
         fontWeight = if (awaitingConfirmation) FontWeight.Bold else FontWeight.Normal,
         fontSize = ((if (awaitingConfirmation) 15f else 14f) * snapshot.fontScale).sp,
@@ -2249,16 +2371,26 @@ private fun MonthWidgetContent(
       size.height >= 300.dp -> 2
       else -> 0
     }
-    page.days.chunked(7).take(6).forEach { week ->
+    // Built once and indexed by position. Every clickable view costs a
+    // PendingIntent at RemoteViews translation time — a binder round trip to the
+    // system — and the grid is translated once per responsive size, so the
+    // number of clickable views is what a month-arrow tap actually waits on.
+    val dayActions = page.days.indices.map { index ->
+      actionStartActivity(dayIntents.getOrElse(index) { openMonth })
+    }
+    page.days.chunked(7).take(6).forEachIndexed { weekIndex, week ->
       // The day cells and the bar lanes are separate layers: a bar has to run
       // across column boundaries, which it could never do from inside a cell.
       Box(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
         Row(
           modifier = GlanceModifier.fillMaxSize().background(ColorProvider(palette.grid)),
         ) {
-          week.forEach { day ->
-            val index = page.days.indexOf(day)
-            val action = actionStartActivity(dayIntents.getOrElse(index) { openMonth })
+          week.forEachIndexed { column, day ->
+            // Position arithmetic, not a search. `indexOf` compared every day in
+            // the page against every other one, and a day carries its item list,
+            // so each comparison was a deep equality check.
+            val index = weekIndex * 7 + column
+            val action = dayActions.getOrElse(index) { openAction }
             val number = runCatching { LocalDate.parse(day.dayKey).dayOfMonth.toString() }.getOrDefault("·")
             val marker = when {
               day.count == 0 -> ""
@@ -2280,11 +2412,14 @@ private fun MonthWidgetContent(
                 horizontalAlignment = Alignment.Horizontal.End,
               ) {
                 val numberSize = (18f * snapshot.fontScale).dp
+                // No clickable here or on the marker below: both sit inside the
+                // cell, whose own clickable already covers them. Repeating it
+                // tripled the PendingIntents this grid builds and changed
+                // nothing about where a tap lands.
                 Box(
                   modifier = GlanceModifier.width(numberSize).height(numberSize)
                     .background(ColorProvider(monthDayMarkerColor(day, palette)))
-                    .cornerRadius(numberSize / 2)
-                    .clickable(action),
+                    .cornerRadius(numberSize / 2),
                   contentAlignment = Alignment.Center,
                 ) {
                   Text(
@@ -2303,7 +2438,6 @@ private fun MonthWidgetContent(
                 if (laneCount == 0 && marker.isNotEmpty()) {
                   Text(
                     marker,
-                    modifier = GlanceModifier.clickable(action),
                     style = TextStyle(
                       color = ColorProvider(widgetSourceColor(day.colors.firstOrNull(), palette.accent)),
                       fontSize = (8f * snapshot.fontScale).sp,
@@ -2315,7 +2449,7 @@ private fun MonthWidgetContent(
           }
         }
         if (laneCount > 0) {
-          MonthBarLanes(snapshot, palette, week, laneCount, openMonth, dayIntents, page)
+          MonthBarLanes(snapshot, palette, week, laneCount, openAction, dayActions, weekIndex)
         }
       }
     }
@@ -2333,9 +2467,9 @@ private fun MonthBarLanes(
   palette: AgendaWidgetPalette,
   week: List<MonthWidgetDay>,
   laneCount: Int,
-  openMonth: Intent,
-  dayIntents: List<Intent>,
-  page: MonthWidgetPage,
+  fallbackAction: Action,
+  dayActions: List<Action>,
+  weekIndex: Int,
 ) {
   val barHeight = (11f * snapshot.fontScale).dp
   Column(modifier = GlanceModifier.fillMaxWidth()) {
@@ -2348,10 +2482,7 @@ private fun MonthBarLanes(
             Spacer(GlanceModifier.defaultWeight().height(barHeight))
             return@forEachIndexed
           }
-          val day = week.getOrNull(column)
-          val action = actionStartActivity(
-            dayIntents.getOrElse(page.days.indexOf(day)) { openMonth },
-          )
+          val action = dayActions.getOrElse(weekIndex * 7 + column) { fallbackAction }
           Box(
             modifier = GlanceModifier
               .defaultWeight()
@@ -2393,6 +2524,31 @@ private fun mutedTextStyle(palette: AgendaWidgetPalette, fontSize: Float) =
     color = ColorProvider(palette.muted),
     fontSize = fontSize.sp,
   )
+
+/**
+ * The colour of a task row's leading glyph.
+ *
+ * The glyph carries two independent things and they must not be collapsed: its
+ * *shape* says whether the launcher can complete the task (`○` vs `•`), its
+ * *colour* says which calendar the task came from. Tying the colour to
+ * completability meant Kanban assignments, recurring occurrences, and read-only
+ * calendars — most real tasks — all rendered as one undifferentiated grey list.
+ *
+ * A task with no source colour still falls back by completability, and a
+ * reduced privacy level strips source colours in Rust before they ever get
+ * here, so both of those keep the older, quieter appearance.
+ */
+internal fun taskGlyphColor(
+  sourceColor: String?,
+  completable: Boolean,
+  awaitingConfirmation: Boolean,
+  palette: AgendaWidgetPalette,
+): Color = if (awaitingConfirmation) {
+  // The armed row paints the glyph against the accent behind it.
+  palette.background
+} else {
+  widgetSourceColor(sourceColor, if (completable) palette.accent else palette.muted)
+}
 
 private fun widgetSourceColor(value: String?, fallback: Color): Color {
   val rgb = value?.removePrefix("#")?.toLongOrNull(16) ?: return fallback

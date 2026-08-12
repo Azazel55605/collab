@@ -5961,6 +5961,52 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[tokio::test]
+    async fn several_offline_vaults_each_get_their_own_published_row() {
+        // Reproduces a real profile rather than the single-replica happy path:
+        // several offline copies across two servers, with the UUID-shaped vault
+        // ids the hosted server actually issues.
+        let root = test_root();
+        let calendar_store = CalendarStore::open(&root, "profile-1").await.unwrap();
+        write_background_state(&root, serde_json::json!([]), serde_json::json!([]), None);
+        let vaults = [
+            ("https://collab.example", "b3f1c2d4-5e6a-4b7c-8d9e-0f1a2b3c4d5e", "Team vault"),
+            ("https://collab.example", "c4a2d3e5-6f7b-4c8d-9e0f-1a2b3c4d5e6f", "Notes"),
+            ("https://other.example", "d5b3e4f6-7a8c-4d9e-0f1a-2b3c4d5e6f70", "Personal"),
+        ];
+        for (server, id, name) in vaults {
+            seed_sync_replica(
+                &root,
+                server,
+                id,
+                name,
+                collab_replica::models::SyncStatus::Idle,
+                Some("2026-08-01T07:30:00Z"),
+                &[],
+            );
+        }
+        let widget_store = WidgetStore::open(&root, "profile-1").unwrap();
+        widget_store
+            .save_configuration(sync_configuration("sync-1"))
+            .unwrap();
+
+        let outcomes = build_and_publish_agenda_profile(
+            &root,
+            "profile-1",
+            &calendar_store,
+            sync_now(),
+            "test",
+        )
+        .await
+        .unwrap();
+        let snapshot = &outcomes[0].snapshot;
+
+        assert_eq!(snapshot.sync.as_ref().unwrap().vaults, 3);
+        let titles: Vec<&str> = snapshot.items.iter().map(|item| item.title.as_str()).collect();
+        assert_eq!(titles, vec!["Notes", "Personal", "Team vault"]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn a_running_sync_reports_what_it_is_on_and_how_far_along_it_is() {
         let root = test_root();

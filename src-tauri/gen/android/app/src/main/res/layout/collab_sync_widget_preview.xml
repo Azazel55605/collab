@@ -1,4 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  The sync widget at rest, which is what it shows almost all of the time.
+
+  Deliberately no progress track and no "Syncing…" headline: the composable
+  draws a bar only while `state == "syncing"`, so a preview that always showed
+  one promised a permanent progress bar the placed widget never delivers. The
+  rails are all muted for the same reason — a row turns danger only when it has
+  a recovery destination, which would also have moved the headline off
+  "Up to date".
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     style="@style/CollabWidgetPreviewShell">
 
@@ -20,36 +30,18 @@
         android:layout_marginTop="9dp">
         <ImageView
             style="@style/CollabWidgetPreviewRail"
-            android:background="@drawable/collab_widget_preview_rail_violet" />
+            android:background="@drawable/collab_widget_preview_rail_muted" />
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical">
             <TextView
                 style="@style/CollabWidgetPreviewCardTitle"
-                android:text="Syncing…" />
+                android:text="Up to date" />
             <TextView
                 style="@style/CollabWidgetPreviewCardDetail"
                 android:text="2 vaults · Synced 5 min ago" />
         </LinearLayout>
-    </LinearLayout>
-
-    <!-- Quantised progress track, matching SyncProgressBar. -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="4dp"
-        android:layout_marginTop="6dp"
-        android:orientation="horizontal">
-        <ImageView style="@style/CollabWidgetPreviewProgressFilled" />
-        <ImageView style="@style/CollabWidgetPreviewProgressFilled" />
-        <ImageView style="@style/CollabWidgetPreviewProgressFilled" />
-        <ImageView style="@style/CollabWidgetPreviewProgressFilled" />
-        <ImageView style="@style/CollabWidgetPreviewProgressFilled" />
-        <ImageView style="@style/CollabWidgetPreviewProgressFilled" />
-        <ImageView style="@style/CollabWidgetPreviewProgressEmpty" />
-        <ImageView style="@style/CollabWidgetPreviewProgressEmpty" />
-        <ImageView style="@style/CollabWidgetPreviewProgressEmpty" />
-        <ImageView style="@style/CollabWidgetPreviewProgressEmpty" />
     </LinearLayout>
 
     <LinearLayout
@@ -57,7 +49,7 @@
         android:layout_marginTop="8dp">
         <ImageView
             style="@style/CollabWidgetPreviewRail"
-            android:background="@drawable/collab_widget_preview_rail_danger" />
+            android:background="@drawable/collab_widget_preview_rail_muted" />
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -67,7 +59,7 @@
                 android:text="Team vault" />
             <TextView
                 style="@style/CollabWidgetPreviewCardDetail"
-                android:text="1 change needs attention" />
+                android:text="Synced 5 min ago" />
         </LinearLayout>
     </LinearLayout>
 
@@ -86,7 +78,7 @@
                 android:text="Notes" />
             <TextView
                 style="@style/CollabWidgetPreviewCardDetail"
-                android:text="Synced 5 min ago" />
+                android:text="Synced 12 min ago" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

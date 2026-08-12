@@ -171,34 +171,27 @@ class CollabAgendaWidgetSnapshotTest {
   }
 
   @Test
-  fun widgetStateOnlyReportsAChangeWhenTheSnapshotReallyMoved() {
+  fun widgetStateTracksTheSnapshotThroughARevisionMarker() {
     val snapshot = """{"schemaVersion":1,"dateLabel":"Today","items":[]}"""
+    val edited = """{"schemaVersion":1,"dateLabel":"Tomorrow","items":[]}"""
 
-    // A widget holding this exact snapshot is left alone.
-    assertEquals(snapshot to false, widgetStateTransition(snapshot, snapshot, isMonth = false))
-    // A newly placed widget has no state yet, so it always renders.
-    assertEquals(snapshot to true, widgetStateTransition(null, snapshot, isMonth = false))
-    // A snapshot that became unreadable clears the state and renders the
-    // fallback rather than leaving stale content on the launcher.
-    assertEquals(null to true, widgetStateTransition(snapshot, null, isMonth = false))
-    assertEquals(null to false, widgetStateTransition(null, null, isMonth = false))
-  }
-
-  @Test
-  fun monthWidgetsTrackTheirSnapshotThroughARevisionMarker() {
-    val snapshot = """{"schemaVersion":1,"kind":"month","dateLabel":"Aug","items":[]}"""
-    val edited = """{"schemaVersion":1,"kind":"month","dateLabel":"Sep","items":[]}"""
-
-    // The month widget reads its snapshot natively, so state carries a digest
-    // instead of the (much larger) snapshot itself.
-    val (marker, changed) = widgetStateTransition(null, snapshot, isMonth = true)
-    assertTrue(changed)
+    // Every widget reads its snapshot natively, so state carries only a digest.
+    // It must never carry the snapshot itself: that made a widget render
+    // whatever the last state write contained, and a write that never landed
+    // was indistinguishable from having no data at all.
+    val (marker, changed) = widgetStateTransition(null, snapshot)
+    assertTrue("a newly placed widget always renders", changed)
     assertTrue(marker != null && marker != snapshot)
     assertEquals(marker, widgetRevisionMarker(snapshot))
+
     // Same snapshot, same marker: no re-render.
-    assertEquals(marker to false, widgetStateTransition(marker, snapshot, isMonth = true))
-    // A different month has to reach the launcher.
-    assertTrue(widgetStateTransition(marker, edited, isMonth = true).second)
+    assertEquals(marker to false, widgetStateTransition(marker, snapshot))
+    // A real change has to reach the launcher.
+    assertTrue(widgetStateTransition(marker, edited).second)
+    // A snapshot that became unreadable clears the state and renders the
+    // fallback rather than leaving stale content on the launcher.
+    assertEquals(null to true, widgetStateTransition(marker, null))
+    assertEquals(null to false, widgetStateTransition(null, null))
     assertEquals(null, widgetRevisionMarker(null))
   }
 
@@ -758,5 +751,229 @@ class CollabAgendaWidgetSnapshotTest {
       widgetProviderClasses().size,
       widgetProviderClasses().toSet().size,
     )
+  }
+}
+
+class CollabWidgetRailTest {
+  @Test
+  fun aRailIsSizedExplicitlyAndScalesWithTheText() {
+    // The rail must always be told how tall it is. Sized with `fillMaxHeight`
+    // it became `layout_height=match_parent`, and a match_parent descendant in
+    // an otherwise wrap-content chain measures against the `fillMaxSize` root:
+    // the rail claimed the widget's whole height and dragged its Row and card
+    // with it, so the first card swallowed the surface and every row below was
+    // pushed out of view.
+    assertTrue(widgetRailHeight(compact = false, fontScale = 1f).value > 0f)
+    assertTrue(
+      "a two-line row is taller than a compact one",
+      widgetRailHeight(compact = false, fontScale = 1f).value >
+        widgetRailHeight(compact = true, fontScale = 1f).value,
+    )
+    // Larger text, taller rail.
+    assertTrue(
+      widgetRailHeight(compact = false, fontScale = 1.3f).value >
+        widgetRailHeight(compact = false, fontScale = 1f).value,
+    )
+    // A snapshot with an out-of-range scale cannot produce an absurd rail.
+    assertEquals(
+      widgetRailHeight(compact = false, fontScale = 1.3f),
+      widgetRailHeight(compact = false, fontScale = 99f),
+    )
+  }
+
+  @Test
+  fun onlyBoundedContainersMayUseFillMaxHeight() {
+    // `fillMaxHeight` is safe only where an ancestor fixes the height. The two
+    // permitted uses are the sync progress-bar segments, whose Row sets an
+    // explicit 4dp height. A third occurrence is a layout bug waiting to
+    // happen, so it has to be reviewed rather than merged silently.
+    var directory: java.io.File? = java.io.File(System.getProperty("user.dir")!!)
+    var source: java.io.File? = null
+    while (directory != null && source == null) {
+      val candidate = java.io.File(
+        directory,
+        "src/main/java/com/azazel/collab/companion/CollabAgendaWidget.kt",
+      )
+      if (candidate.isFile) source = candidate
+      directory = directory.parentFile
+    }
+    assertNotNull("could not locate CollabAgendaWidget.kt", source)
+
+    val uses = Regex("""fillMaxHeight\(\)""").findAll(source!!.readText()).count()
+    assertEquals("unreviewed fillMaxHeight() use", 2, uses)
+  }
+}
+
+class CollabGlanceContainerBudgetTest {
+  /**
+   * Glance ships generated container layouts for 0..10 children only; an
+   * eleventh fails translation outright. A list emitted as `row, spacer, row,
+   * …` straight into the widget's root Column therefore breaks as a function of
+   * how much data the *user* has — which is why a profile with nine offline
+   * vaults rendered no rows at all while a profile with two rendered fine, at
+   * every size and after every re-creation.
+   */
+  @Test
+  fun noChunkCanOverflowAGlanceContainer() {
+    for (perChunk in 1..MAX_ROWS_PER_CHUNK) {
+      for (count in 0..64) {
+        val chunks = glanceRowChunks(count, perChunk)
+
+        // Every row lands in exactly one chunk, in order.
+        assertEquals(
+          (0 until count).toList(),
+          chunks.flatMap { it.toList() },
+        )
+        // A chunk emits a card and a spacer per row, so it must stay inside the
+        // ceiling with room for the spacers.
+        chunks.forEach { chunk ->
+          val rows = chunk.count()
+          assertTrue(
+            "a chunk of $rows rows overflows the container budget",
+            rows * 2 <= MAX_GLANCE_CONTAINER_CHILDREN,
+          )
+        }
+        // And the parent sees one child per chunk, not one per row.
+        assertTrue(chunks.size <= count.coerceAtLeast(1))
+      }
+    }
+  }
+
+  @Test
+  fun aDegenerateChunkSizeStillTerminates() {
+    // A budget that divided down to zero would loop forever building chunks.
+    assertEquals(listOf(0 until 1, 1 until 2), glanceRowChunks(2, 0))
+    assertEquals(emptyList<IntRange>(), glanceRowChunks(0))
+    assertEquals(emptyList<IntRange>(), glanceRowChunks(-3))
+  }
+}
+
+class CollabSyncSnapshotParseTest {
+  /** Byte-for-byte what `build_and_publish_agenda_profile` writes for a
+   *  three-vault sync profile, captured from the Rust pipeline. */
+  private val published = """{"schemaVersion":1,"profileIdHash":"50135a426adc9d099a1a73d202e668af","configurationId":"sync-1","kind":"sync","generatedAt":"2026-08-01T08:00:00+00:00","dateLabel":"2026-08-01","stateLabel":"Up to date","theme":"dark","accent":"violet","fontScale":1.0,"freshness":[{"sourceId":"account-eb8aeaa7d6dcc18a","freshness":"fresh"},{"sourceId":"account-f1326c06391b6333","freshness":"fresh"}],"items":[{"stableId":"sync-c960046092a3245d","title":"Notes","detail":"Synced 30 min ago","allDay":false},{"stableId":"sync-eab1c7ca2c2eda45","title":"Personal","detail":"Synced 30 min ago","allDay":false},{"stableId":"sync-6d7e36c0d118f7da","title":"Team vault","detail":"Synced 30 min ago","allDay":false}],"sync":{"state":"upToDate","lastSuccessAt":"2026-08-01T07:30:00Z","lastSuccessLabel":"Synced 30 min ago","pendingOperations":0,"failedOperations":0,"activeJobs":0,"attentionRequired":0,"accounts":2,"vaults":3,"progressCompleted":0,"canSyncNow":true}}"""
+
+  @Test
+  fun aPublishedSyncSnapshotKeepsItsVaultRows() {
+    val snapshot = CollabAgendaWidgetSnapshotStore.parse(published)
+
+    assertEquals("sync", snapshot.kind)
+    assertEquals("Up to date", snapshot.stateLabel)
+    assertEquals(
+      listOf("Notes", "Personal", "Team vault"),
+      snapshot.items.map { it.title },
+    )
+    assertEquals(3, snapshot.sync!!.vaults)
+  }
+}
+
+class CollabWidgetSizeBucketTest {
+  private fun resDirectory(name: String): java.io.File {
+    var directory: java.io.File? = java.io.File(System.getProperty("user.dir")!!)
+    while (directory != null) {
+      val candidate = java.io.File(directory, "src/main/res/$name")
+      if (candidate.isDirectory) return candidate
+      directory = directory.parentFile
+    }
+    fail("Could not locate src/main/res/$name")
+    error("unreachable")
+  }
+
+  /**
+   * Glance picks the largest responsive bucket that fits in *both* dimensions,
+   * so a bucket wider than the widget's own declared minimum is unreachable.
+   * When the sync widget's buckets asked for 250dp while its provider declared
+   * minWidth=180dp, a widget placed at its target size fell all the way through
+   * to the smallest bucket and rendered `compact` — no rows, at any height.
+   *
+   * Every widget must therefore declare at least one bucket no wider than its
+   * own minWidth, or its taller layouts can never be reached.
+   */
+  @Test
+  fun everyWidgetHasASizeBucketReachableAtItsDeclaredMinimumWidth() {
+    val source = java.io.File(
+      resDirectory("layout").parentFile.parentFile,
+      "java/com/azazel/collab/companion/CollabAgendaWidget.kt",
+    ).readText()
+    val bucketWidths = Regex("""DpSize\((\d+)\.dp,\s*(\d+)\.dp\)""")
+      .findAll(source)
+      .map { it.groupValues[1].toInt() }
+      .toList()
+    assertTrue("no responsive buckets found", bucketWidths.isNotEmpty())
+    val narrowest = bucketWidths.min()
+
+    resDirectory("xml").listFiles { file -> file.name.endsWith("_widget_info.xml") }
+      .orEmpty()
+      .forEach { info ->
+        val minWidth = Regex("""minWidth="(\d+)dp"""")
+          .find(info.readText())!!
+          .groupValues[1]
+          .toInt()
+        assertTrue(
+          "${info.name} declares minWidth=${minWidth}dp but the narrowest bucket is ${narrowest}dp",
+          narrowest <= minWidth,
+        )
+      }
+  }
+}
+
+class CollabTaskGlyphColorTest {
+  private val palette = agendaWidgetPalette("dark", "violet")
+
+  @Test
+  fun aTaskKeepsItsCalendarColourEvenWhenTheLauncherCannotCompleteIt() {
+    // Regression: the colour used to be gated on completability, so Kanban
+    // assignments, recurring occurrences, and read-only calendars — which are
+    // most real tasks — lost their calendar colour and the widget rendered as
+    // an undifferentiated grey list.
+    val rose = androidx.compose.ui.graphics.Color(0xFFFA416B)
+
+    assertEquals(rose, taskGlyphColor("#FA416B", completable = true, awaitingConfirmation = false, palette = palette))
+    assertEquals(rose, taskGlyphColor("#FA416B", completable = false, awaitingConfirmation = false, palette = palette))
+  }
+
+  @Test
+  fun aTaskWithoutASourceColourStillFallsBackByCompletability() {
+    // Reduced privacy levels strip source colours in Rust before they reach the
+    // launcher, so this path must keep the older, quieter appearance.
+    assertEquals(
+      palette.accent,
+      taskGlyphColor(null, completable = true, awaitingConfirmation = false, palette = palette),
+    )
+    assertEquals(
+      palette.muted,
+      taskGlyphColor(null, completable = false, awaitingConfirmation = false, palette = palette),
+    )
+  }
+
+  @Test
+  fun anArmedRowPaintsTheGlyphAgainstTheAccentBehindIt() {
+    assertEquals(
+      palette.background,
+      taskGlyphColor("#FA416B", completable = true, awaitingConfirmation = true, palette = palette),
+    )
+  }
+}
+
+class CollabMonthGridIndexTest {
+  private fun day(key: String) = MonthWidgetDay(key, 0, emptyList(), emptyList(), true, false)
+
+  @Test
+  fun everyGridCellMapsToItsOwnDayEvenWhenTwoDaysLookIdentical() {
+    // The grid used to find a cell's index with `page.days.indexOf(day)`, which
+    // is both an O(n) scan per cell and wrong for equal values: `indexOf`
+    // returns the *first* match, so two data-class-equal days sent both cells to
+    // the earlier one's date. Position arithmetic cannot do that.
+    val days = List(42) { day("2026-08-%02d".format((it % 28) + 1)) }
+
+    val mapped = days.chunked(7).take(6).flatMapIndexed { weekIndex, week ->
+      week.mapIndexed { column, _ -> weekIndex * 7 + column }
+    }
+
+    assertEquals((0 until 42).toList(), mapped)
+    // The duplicate pair proves the point: cells 0 and 28 hold equal days.
+    assertEquals(days[0], days[28])
+    assertEquals(28, mapped[28])
+    assertEquals(0, days.indexOf(days[28]))
   }
 }

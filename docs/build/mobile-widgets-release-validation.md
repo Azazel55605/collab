@@ -61,21 +61,21 @@ Record the device, Android version, and launcher for every row.
 
 ### Placement and lifecycle
 
-- [ ] Add, resize, reconfigure, duplicate, and remove each of the eight widgets.
-- [ ] Launcher restart, app process death, force-stop, reboot, and app update.
-- [ ] Restore from backup: no widget data reappears for a removed profile.
-- [ ] Profile removal cancels scheduled work and clears published snapshots.
-- [ ] Supported minimum Android version plus the current Android release.
-- [ ] Pixel Launcher plus at least one major OEM launcher.
+- [X] Add, resize, reconfigure, duplicate, and remove each of the eight widgets.
+- [X] Launcher restart, app process death, force-stop, reboot, and app update.
+- [X] Restore from backup: no widget data reappears for a removed profile.
+- [X] Profile removal cancels scheduled work and clears published snapshots.
+- [X] Supported minimum Android version plus the current Android release.
+- [X] Pixel Launcher plus at least one major OEM launcher.
 
 ### Data and state
 
 - [ ] Offline-to-online transition; signed-out hosted source alongside a local
       source; the rollup stays honest while a profile is signed out.
-- [ ] Doze, battery saver, background restriction, and low storage.
-- [ ] Timezone and DST changes; locale and 12/24-hour changes.
-- [ ] Locked-device privacy behaviour at every privacy level.
-- [ ] Stale cached data still renders an honest last-updated or
+- [X] Doze, battery saver, background restriction, and low storage.
+- [X] Timezone and DST changes; locale and 12/24-hour changes.
+- [X] Locked-device privacy behaviour at every privacy level.
+- [X] Stale cached data still renders an honest last-updated or
       action-required state rather than silently showing old content as current.
 
 ### Update latency
@@ -83,18 +83,18 @@ Record the device, Android version, and launcher for every row.
 - [ ] A calendar edit, a task completion, and a completed sync each reach a
       placed widget promptly with the app foregrounded. Record the times.
 - [ ] The same three with the app stopped, via the background coordinator.
-- [ ] A refresh that changes nothing re-renders nothing (no visible repaint,
+- [X] A refresh that changes nothing re-renders nothing (no visible repaint,
       no launcher churn).
-- [ ] Boot and a time change still repaint every placed widget, because state
+- [X] Boot and a time change still repaint every placed widget, because state
       equality proves nothing after the launcher may have lost our views.
-- [ ] Repeated `Sync now` taps produce exactly one run.
+- [X] Repeated `Sync now` taps produce exactly one run.
 - [ ] `Sync now` actually enqueues with charging and battery-not-low enabled in
       background settings. WorkManager rejects an expedited request carrying a
       power constraint, so this combination is the one that used to fail with
       "Expedited jobs only support network and storage constraints".
 - [ ] The widget reports a rejected sync request as a failure, never as
       "Sync requested."
-- [ ] Crossing midnight with a month widget placed moves the today marker and
+- [X] Crossing midnight with a month widget placed moves the today marker and
       leaves no marker behind on the previous day. A launcher reapplies views it
       already holds, so this cannot be confirmed from a fresh placement — leave
       the widget in place across the day boundary.
@@ -103,10 +103,10 @@ Record the device, Android version, and launcher for every row.
 
 ### Sync progress
 
-- [ ] While a real multi-file sync runs: the sync widget names what it is on and
+- [X] While a real multi-file sync runs: the sync widget names what it is on and
       shows a moving bar; the in-app banner on Vaults and Servers shows the same;
       and an ongoing notification appears with a progress bar.
-- [ ] A sync that reconciles nothing posts no notification at all (the
+- [X] A sync that reconciles nothing posts no notification at all (the
       `SYNC_NOTIFICATION_DELAY` gate).
 - [ ] The notification clears on success, on failure, and on cancellation — and
       when two runs overlap, whichever finishes last clears it.
@@ -120,14 +120,21 @@ Record the device, Android version, and launcher for every row.
 ### Accessibility and presentation
 
 - [ ] TalkBack labels on every row and control.
-- [ ] Minimum touch targets, font scaling, contrast.
-- [ ] Light and dark themes; truncation at every supported size.
+- [X] Minimum touch targets, font scaling, contrast.
+- [X] Light and dark themes; truncation at every supported size.
 - [ ] Picker previews match what the placed widget actually renders.
+      - [ ] Tasks: glyphs carry their calendar colour, including for tasks the
+            launcher cannot complete (Kanban assignments, recurring occurrences,
+            read-only calendars). At reduced privacy levels Rust strips source
+            colours, so a grey list there is correct, not a regression.
+      - [ ] Sync: the preview shows the resting state with no progress track.
+            Per-vault rows appear only for vaults with an offline copy, and only
+            at 90dp or taller — confirm against a profile that has both.
 
 ### Measurement
 
-- [ ] Battery and wakeup measurements showing no per-widget polling.
-- [ ] No hidden webview startup during launcher rendering.
+- [X] Battery and wakeup measurements showing no per-widget polling.
+- [X] No hidden webview startup during launcher rendering.
 
 ## Release Gates
 

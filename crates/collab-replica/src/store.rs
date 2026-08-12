@@ -336,7 +336,14 @@ impl ReplicaStore {
                 }
             }
         }
-        let counts = self.scan_pending_operations()?;
+        let Some(counts) = self.scan_pending_operations()? else {
+            // The queue is there but this caller cannot decrypt it. Zero is the
+            // only answer available, but it is a guess — caching it would let a
+            // keyless inventory read teach the cache that a queue full of
+            // unsynced edits is empty, and every later reader (including one
+            // holding the key) would believe it.
+            return Ok(PendingOpCounts::default());
+        };
         // Only cache when the queue did not move under the scan.
         if let (Some(before), Some(after)) = (stamp, self.pending_queue_stamp()) {
             if before == after {
@@ -369,9 +376,16 @@ impl ReplicaStore {
         Some((metadata.len(), modified))
     }
 
-    fn scan_pending_operations(&self) -> Result<PendingOpCounts, String> {
+    /// Counts the queue, or `None` when a queue exists that this caller cannot
+    /// decrypt. `Some(0)` means genuinely empty; the two must stay
+    /// distinguishable or an unreadable queue gets cached as an empty one.
+    fn scan_pending_operations(&self) -> Result<Option<PendingOpCounts>, String> {
         let Some(raw) = self.read_pending_operations_text()? else {
-            return Ok(PendingOpCounts::default());
+            return Ok(if self.root.join(PENDING_OPS_FILE).is_file() {
+                None
+            } else {
+                Some(PendingOpCounts::default())
+            });
         };
         #[derive(serde::Deserialize)]
         struct StatusOnly {
@@ -397,7 +411,7 @@ impl ReplicaStore {
                 counts.failed += 1;
             }
         }
-        Ok(counts)
+        Ok(Some(counts))
     }
 
     /// Reads and decrypts the queue, applying the shared quarantine recovery.
@@ -510,7 +524,41 @@ impl ReplicaStore {
             body.push('\n');
         }
         let bytes = self.encrypt_persisted(body.as_bytes())?;
-        self.write_atomic(PENDING_OPS_FILE, &bytes)
+        self.write_atomic(PENDING_OPS_FILE, &bytes)?;
+        // Refresh the plaintext count cache in the same write.
+        //
+        // The writer is the only party that knows the counts without paying to
+        // decrypt, and inventory readers hold no key at all. Leaving the cache
+        // stale here meant every enqueue forced the next inventory read to scan
+        // the encrypted queue, which it cannot decrypt — so an offline edit
+        // reported zero pending changes and, worse, tripped the quarantine
+        // recovery. Best effort: a cache that cannot be written just costs a
+        // recount by a reader that does hold the key.
+        let counts = PendingOpCounts {
+            total: ops.len(),
+            failed: ops
+                .iter()
+                .filter(|op| op.status == PendingOpStatus::Failed)
+                .count(),
+        };
+        self.write_pending_index(counts);
+        Ok(())
+    }
+
+    /// Stamps the current queue's counts into the plaintext cache.
+    fn write_pending_index(&self, counts: PendingOpCounts) {
+        let Some((bytes, modified)) = self.pending_queue_stamp() else {
+            return;
+        };
+        let index = PendingOpIndex {
+            total: counts.total,
+            failed: counts.failed,
+            source_bytes: bytes,
+            source_modified_nanos: modified,
+        };
+        if let Ok(encoded) = serde_json::to_vec(&index) {
+            let _ = write_file_atomic(&self.root.join(PENDING_INDEX_FILE), &encoded);
+        }
     }
 
     // ---- tombstones -----------------------------------------------------
@@ -943,7 +991,20 @@ impl ReplicaStore {
     /// Best-effort: move an undecryptable authoritative file aside (rather than
     /// deleting it) so its bytes are preserved for possible later recovery while
     /// the replica falls back to an empty/default state instead of erroring.
+    /// Moves an undecryptable file aside so it is preserved rather than lost.
+    ///
+    /// Only a caller that *holds* a key may do this. Quarantine means "I could
+    /// not read this even with the key, so it is unrecoverable" — a keyless
+    /// reader has established nothing of the sort, and `ReplicaStore::list`
+    /// opens every replica keyless because it only needs plaintext metadata.
+    /// Letting it quarantine meant an inventory read — which happens on the
+    /// Vaults screen and on every widget publication — renamed away the one
+    /// local copy of the user's unsynced edits, within seconds of them being
+    /// made.
     fn quarantine_unreadable(&self, name: &str) {
+        if self.encryption_key.is_none() {
+            return;
+        }
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis())
@@ -1493,6 +1554,81 @@ mod tests {
             .filter_map(|e| e.ok())
             .any(|e| e.file_name().to_string_lossy().contains("pending-ops.jsonl.unreadable-"));
         assert!(quarantined, "the undecryptable queue should be quarantined, not lost");
+    }
+
+    fn queued_edit(id: &str) -> PendingOperation {
+        PendingOperation {
+            id: id.into(),
+            kind: PendingOpKind::Edit,
+            file_id: Some("file-1".into()),
+            relative_path: Some("Note.md".into()),
+            base_manifest_sequence: 1,
+            payload: json!({ "content": "x" }),
+            created_at: "2026-06-17T00:00:00Z".into(),
+            status: PendingOpStatus::Pending,
+            failure_code: None,
+            failure_message: None,
+        }
+    }
+
+    #[test]
+    fn listing_replicas_counts_an_encrypted_queue_without_touching_it() {
+        // `list` is an inventory read: it opens every replica *without* a key,
+        // because it only needs plaintext metadata. It still has to report
+        // pending work honestly, and it must never decide the queue is
+        // unreadable — `list` runs on the Vaults screen and on every widget
+        // publication, so any recovery action it takes lands on the user's
+        // unsynced edits within seconds of them being made.
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(&dir).with_encryption_key([1u8; 32]);
+        store.enqueue_operation(&queued_edit("op-1")).unwrap();
+
+        let summaries = ReplicaStore::list(dir.path()).unwrap();
+
+        assert_eq!(summaries.len(), 1, "the replica should be listed");
+        let quarantined = std::fs::read_dir(store.root())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .any(|entry| {
+                entry.file_name().to_string_lossy().contains("pending-ops.jsonl.unreadable-")
+            });
+        assert!(!quarantined, "an inventory read must never quarantine the queue");
+        assert_eq!(summaries[0].pending_count, 1, "the queued edit must be counted");
+        // Still readable under its own key, which is the point of not quarantining.
+        assert_eq!(
+            open(&dir).with_encryption_key([1u8; 32]).list_pending_operations().unwrap().len(),
+            1,
+        );
+    }
+
+    #[test]
+    fn a_legacy_queue_without_a_count_cache_is_preserved_and_heals() {
+        // A replica last written by a build that did not maintain the plaintext
+        // cache. A keyless reader cannot count it and must say so by leaving it
+        // at zero rather than destroying it; the first keyed reader restores the
+        // cache, and every later keyless read is correct.
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(&dir).with_encryption_key([1u8; 32]);
+        store.enqueue_operation(&queued_edit("op-1")).unwrap();
+        std::fs::remove_file(store.root().join(PENDING_INDEX_FILE)).unwrap();
+
+        let blind = ReplicaStore::list(dir.path()).unwrap();
+        assert_eq!(blind[0].pending_count, 0, "a keyless read cannot count it");
+        let quarantined = std::fs::read_dir(store.root())
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .any(|entry| {
+                entry.file_name().to_string_lossy().contains("pending-ops.jsonl.unreadable-")
+            });
+        assert!(!quarantined, "the queue must survive a read that cannot decrypt it");
+
+        // The owner recounts and rewrites the cache...
+        assert_eq!(
+            open(&dir).with_encryption_key([1u8; 32]).count_pending_operations().unwrap().total,
+            1,
+        );
+        // ...so the inventory is correct from then on.
+        assert_eq!(ReplicaStore::list(dir.path()).unwrap()[0].pending_count, 1);
     }
 
     #[test]
