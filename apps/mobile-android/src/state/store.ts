@@ -79,6 +79,8 @@ export type ActiveSheet =
   | { kind: 'kanban'; fileId: string; cardId?: string }
   /** A `.sheet` workbook opened in the mobile spreadsheet screen. */
   | { kind: 'workbook'; fileId: string }
+  /** An `.ink` drawing opened in the mobile drawing screen. */
+  | { kind: 'drawing'; fileId: string }
   | { kind: 'viewer'; fileId: string }
   | { kind: 'removeOffline'; serverUrl: string; vault: HostedVault }
   | null;
@@ -792,6 +794,8 @@ export const useMobileStore = create<MobileState>((set, get) => ({
       set({ activeSheet: { kind: 'note', fileId: entry.id } });
     } else if (name.endsWith('.sheet')) {
       set({ activeSheet: { kind: 'workbook', fileId: entry.id } });
+    } else if (name.endsWith('.ink')) {
+      set({ activeSheet: { kind: 'drawing', fileId: entry.id } });
     } else if (name.endsWith('.canvas') || name.endsWith('.logic') || name.endsWith('.pdf')) {
       set({ activeSheet: { kind: 'viewer', fileId: entry.id } });
     } else {

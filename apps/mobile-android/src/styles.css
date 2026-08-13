@@ -126,6 +126,10 @@ p {
   padding-bottom: 0;
   overflow: hidden;
 }
+.app-main:has(.ink-screen) {
+  padding-bottom: 0;
+  overflow: hidden;
+}
 
 .main-view {
   min-height: 100%;
@@ -5683,6 +5687,10 @@ p {
   font-variant-numeric: tabular-nums;
 }
 
+/* Shared pill control. Promoted out of the workbook screen so the drawing
+ * screen extends the pattern instead of cloning it; `.workbook-chip` stays as
+ * the name that screen already uses. */
+.chip,
 .workbook-chip {
   display: inline-flex;
   align-items: center;
@@ -5696,10 +5704,12 @@ p {
   font-size: 0.78rem;
   font-weight: 600;
 }
+.chip.active,
 .workbook-chip.active {
   border-color: var(--primary);
   background: color-mix(in oklch, var(--primary) 20%, var(--surface));
 }
+.chip:disabled,
 .workbook-chip:disabled {
   color: var(--muted-foreground);
   opacity: 0.6;
@@ -5784,5 +5794,215 @@ p {
     left: auto;
     width: min(680px, calc(100% - 28px));
     max-height: calc(100% - 28px);
+  }
+}
+
+
+/* ── Drawings (.ink) ──────────────────────────────────────────────────────── */
+/* Namespaced `ink-`, matching the `workbook-` precedent. Controls reuse the
+ * app's shared `.icon-button`, `.chip`, `.segmented-control`, `.toggle-row`,
+ * and bottom-sheet classes; only layout that is genuinely specific to a
+ * full-bleed drawing surface lives here. */
+
+.file-icon.glyph-ink {
+  color: oklch(0.72 0.19 320);
+}
+
+.ink-screen {
+  /* Own the scroll region rather than letting the WebView scroll `.app-main`
+     to reveal a focused control, which leaves an offset behind after the soft
+     keyboard closes. `dvh` so the height tracks the keyboard; `vh` first as
+     the fallback. */
+  height: calc(100vh - 72px - var(--safe-top) - var(--safe-bottom));
+  height: calc(100dvh - 72px - var(--safe-top) - var(--safe-bottom));
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ink-screen-centered {
+  align-items: center;
+  justify-content: center;
+}
+
+.ink-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  min-height: 44px;
+}
+.ink-header .row-text strong {
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ink-header .row-text span {
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+.ink-header-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+
+/* The drawing surface takes every pixel the chrome leaves. */
+.ink-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+}
+.ink-canvas-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.ink-canvas-live {
+  pointer-events: none;
+}
+
+/* A bottom rail, not a side rail: on a phone held in either hand the bottom
+   edge is the only one both thumbs reach. */
+.ink-rail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* No safe-area inset here: `.ink-screen` already subtracts `--safe-bottom`
+     from its height, so adding it again left a blank strip under the rail. */
+  padding: 7px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ink-rail::-webkit-scrollbar {
+  display: none;
+}
+.ink-rail .icon-button {
+  flex: 0 0 auto;
+  /* 44px is the smallest comfortable touch target, and a drawing app is used
+     with a hand already resting on the screen. */
+  width: 44px;
+  height: 44px;
+}
+/* Grouped like a desktop toolbar cluster, so related controls read together
+   instead of as one undifferentiated row. */
+.ink-rail-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--muted);
+}
+
+/* Tools that keep settings behind a second tap carry a corner mark, so the
+   gesture is advertised instead of being something you have to be told. */
+.ink-tool {
+  position: relative;
+}
+.ink-tool-more {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--muted-foreground);
+  opacity: 0.55;
+}
+.ink-tool.active .ink-tool-more {
+  background: var(--primary);
+  opacity: 1;
+}
+
+.ink-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ink-swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.ink-swatch.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+.ink-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.ink-layer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ink-layer {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+.ink-layer.active {
+  border-color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 14%, var(--surface));
+  color: var(--primary);
+}
+
+/* A tablet in landscape has room for the rail beside the page, which keeps the
+   drawing area taller where it matters most. */
+@media (min-width: 720px) and (orientation: landscape) {
+  .ink-screen {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .ink-header {
+    grid-column: 1 / -1;
+  }
+  .ink-rail {
+    grid-row: 2;
+    grid-column: 1;
+    flex-direction: column;
+    align-items: stretch;
+    overflow-x: visible;
+    overflow-y: auto;
+    padding-bottom: 10px;
+    border-right: 1px solid var(--border);
+  }
+  .ink-rail-group {
+    flex-direction: column;
+  }
+  .ink-canvas {
+    grid-row: 2;
+    grid-column: 2;
+    border-top: none;
   }
 }

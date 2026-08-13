@@ -14,6 +14,14 @@ import { isKanbanFile } from '../lib/kanban';
 import { isLogicFile } from '../lib/logic';
 import { isNoteFile } from '../lib/notes';
 import { isSheetFile } from '../lib/sheet';
+import { isInkFile } from '../lib/ink';
+import {
+  NEW_DOCUMENT_TYPES,
+  newDocumentBaseName,
+  newDocumentFileName,
+  newDocumentType,
+  type NewDocumentKind,
+} from '../lib/newDocument';
 import { isRichViewableFile } from '../lib/assets';
 import type { FileCacheState } from '../lib/replica';
 import type { ThemePrefs } from '../lib/theme';
@@ -22,9 +30,10 @@ import { KanbanScreen } from './KanbanScreen';
 import { NoteScreen } from './NoteScreen';
 import { RichFileViewerScreen } from './RichFileViewerScreen';
 import { SheetScreen } from './SheetScreen';
+import { InkScreen } from './InkScreen';
 import { useMobileStore } from '../state/store';
 import { createHostedDocument } from '../mobileTauri';
-import { downloadEntireVault, downloadEntry, normalizedNoteName, pickAndUploadFiles } from '../lib/fileTransfer';
+import { downloadEntireVault, downloadEntry, pickAndUploadFiles } from '../lib/fileTransfer';
 
 const PAGE_SIZE = 60;
 const FOLDER_SCAN_BUDGET_MS = 7;
@@ -63,8 +72,9 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   const [transferBusy, setTransferBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [showCreateNote, setShowCreateNote] = useState(false);
-  const [newNoteName, setNewNoteName] = useState('');
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
+  const [createKind, setCreateKind] = useState<NewDocumentKind | null>(null);
+  const [newDocumentName, setNewDocumentName] = useState('');
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(() => new Set());
   const longPressRef = useRef<{
     id: string;
@@ -77,7 +87,8 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   const connected = selected ? !!statuses[selected.serverUrl]?.connected : false;
 
   // Back closes the create sheet before navigating out of the folder.
-  useBackDismiss(showCreateNote, () => setShowCreateNote(false));
+  useBackDismiss(showCreateMenu, () => setShowCreateMenu(false));
+  useBackDismiss(createKind !== null, () => setCreateKind(null));
 
   async function runTransfer(action: () => Promise<void>) {
     setTransferBusy(true);
@@ -103,7 +114,9 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   captureHandlerRef.current = (kind) => {
     if (!selected || readOnly || !connected) return;
     if (kind === 'capture-note' && selected.vault.capabilities.includes('file.create')) {
-      setShowCreateNote(true);
+      // The widget's capture shortcut still means "a note", not "pick a type".
+      setNewDocumentName('');
+      setCreateKind('note');
     } else if (
       kind === 'capture-files'
       && (selected.vault.capabilities.includes('file.create')
@@ -129,14 +142,25 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
     });
   }
 
-  async function handleCreateNote() {
+  async function handleCreateDocument() {
+    const kind = createKind;
+    if (!kind) return;
     await runTransfer(async () => {
-      const name = normalizedNoteName(newNoteName);
-      const created = await createHostedDocument(selected!.serverUrl, selected!.vault.id, currentParent, name, 'note');
+      const type = newDocumentType(kind);
+      const name = newDocumentFileName(kind, newDocumentName);
+      const created = await createHostedDocument(
+        selected!.serverUrl,
+        selected!.vault.id,
+        currentParent,
+        name,
+        type.documentType,
+        type.initialContent(newDocumentBaseName(kind, name)),
+      );
       await loadFiles();
-      setShowCreateNote(false);
-      setNewNoteName('');
-      openSheet({ kind: 'note', fileId: created.id });
+      setCreateKind(null);
+      setNewDocumentName('');
+      const target = type.open(created.id);
+      if (target) openSheet(target);
     });
   }
 
@@ -274,6 +298,7 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   const noteFile = activeSheet?.kind === 'note' ? activeFile : null;
   const kanbanFile = activeSheet?.kind === 'kanban' ? activeFile : null;
   const workbookFile = activeSheet?.kind === 'workbook' ? activeFile : null;
+  const drawingFile = activeSheet?.kind === 'drawing' ? activeFile : null;
   const viewerFile = activeSheet?.kind === 'viewer' ? activeFile : null;
 
   if (!selected) {
@@ -300,6 +325,10 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
 
   if (kanbanFile) {
     return <KanbanScreen file={kanbanFile} initialCardId={activeSheet?.kind === 'kanban' ? activeSheet.cardId : undefined} />;
+  }
+
+  if (drawingFile) {
+    return <InkScreen file={drawingFile} />;
   }
 
   if (workbookFile) {
@@ -333,7 +362,7 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
           ) : null}
           {!selectionMode && readOnly ? <ReadOnlyBadge /> : null}
           {!selectionMode && !readOnly && connected && selected.vault.capabilities.includes('file.create') ? (
-            <button type="button" className="icon-button" aria-label="New note" onClick={() => setShowCreateNote(true)}>
+            <button type="button" className="icon-button" aria-label="Create" onClick={() => setShowCreateMenu(true)}>
               <FilePlus2 size={16} aria-hidden />
             </button>
           ) : null}
@@ -444,6 +473,8 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
                       openSheet({ kind: 'kanban', fileId: entry.id });
                     } else if (isSheetFile(entry)) {
                       openSheet({ kind: 'workbook', fileId: entry.id });
+                    } else if (isInkFile(entry)) {
+                      openSheet({ kind: 'drawing', fileId: entry.id });
                     } else if (isRichViewableFile(entry) || isCanvasFile(entry)) {
                       openSheet({ kind: 'viewer', fileId: entry.id });
                     } else {
@@ -492,20 +523,70 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
         />
       ) : null}
 
-      {showCreateNote ? (
-        <div className="sheet-backdrop" onClick={() => setShowCreateNote(false)}>
-          <form className="sheet" aria-label="Create note" onSubmit={(event) => { event.preventDefault(); void handleCreateNote(); }} onClick={(event) => event.stopPropagation()}>
+      {showCreateMenu ? (
+        <div className="sheet-backdrop" onClick={() => setShowCreateMenu(false)}>
+          <div className="sheet" role="dialog" aria-label="Create" onClick={(event) => event.stopPropagation()}>
             <div className="sheet-handle" />
             <div className="sheet-head">
-              <div className="row-text"><strong>New note</strong><span>Created in the current folder</span></div>
-              <button type="button" className="icon-button" aria-label="Close" onClick={() => setShowCreateNote(false)}><X size={18} /></button>
+              <div className="row-text"><strong>Create</strong><span>Added to the current folder</span></div>
+              <button type="button" className="icon-button" aria-label="Close" onClick={() => setShowCreateMenu(false)}><X size={18} /></button>
+            </div>
+            <ul className="list" aria-label="Document types">
+              {NEW_DOCUMENT_TYPES.map((type) => (
+                <li key={type.kind}>
+                  <button
+                    type="button"
+                    className="row"
+                    onClick={() => {
+                      setShowCreateMenu(false);
+                      setNewDocumentName('');
+                      setCreateKind(type.kind);
+                    }}
+                  >
+                    <span className={`file-icon glyph-${type.glyph}`}>
+                      <GlyphIcon glyph={type.glyph} size={18} />
+                    </span>
+                    <span className="row-text">
+                      <strong>{type.label}</strong>
+                      <span>.{type.extension}</span>
+                    </span>
+                    <ChevronRight size={16} aria-hidden />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ) : null}
+
+      {createKind ? (
+        <div className="sheet-backdrop" onClick={() => setCreateKind(null)}>
+          <form
+            className="sheet"
+            aria-label={`Create ${newDocumentType(createKind).label.toLowerCase()}`}
+            onSubmit={(event) => { event.preventDefault(); void handleCreateDocument(); }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="sheet-handle" />
+            <div className="sheet-head">
+              <div className="row-text">
+                <strong>New {newDocumentType(createKind).label.toLowerCase()}</strong>
+                <span>Created in the current folder</span>
+              </div>
+              <button type="button" className="icon-button" aria-label="Close" onClick={() => setCreateKind(null)}><X size={18} /></button>
             </div>
             <label className="field">
               <span>Name</span>
-              <input autoFocus value={newNoteName} placeholder="Untitled.md" onChange={(event) => setNewNoteName(event.target.value)} />
+              <input
+                autoFocus
+                value={newDocumentName}
+                placeholder={newDocumentType(createKind).placeholder}
+                onChange={(event) => setNewDocumentName(event.target.value)}
+              />
             </label>
-            <button className="primary-button" type="submit" disabled={transferBusy || !newNoteName.trim()}>
-              {transferBusy ? <Spinner size={16} /> : <FilePlus2 size={16} />} Create note
+            <button className="primary-button" type="submit" disabled={transferBusy || !newDocumentName.trim()}>
+              {transferBusy ? <Spinner size={16} /> : <FilePlus2 size={16} />}
+              Create {newDocumentType(createKind).label.toLowerCase()}
             </button>
           </form>
         </div>

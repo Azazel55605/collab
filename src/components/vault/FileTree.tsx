@@ -25,6 +25,10 @@ import {
   ContextMenu, ContextMenuContent, ContextMenuItem,
   ContextMenuSeparator, ContextMenuTrigger,
 } from '../ui/context-menu';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { toast } from 'sonner';
@@ -843,63 +847,48 @@ export default function FileTree() {
         {mode === 'files' && (
           <div className="flex items-center gap-0.5">
             {!readOnly && (
-              <>
+              /* One menu rather than five stacked icon buttons: the row was
+                 growing by one every time a document type was added, and a
+                 header is not the place to keep a list. */
+              <DropdownMenu>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <button
-                      onClick={() => handleCreateNote()}
-                      className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
-                    >
-                      <Plus size={13} />
-                    </button>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        aria-label="Create"
+                        className="flex h-6 items-center gap-0.5 rounded px-1 text-muted-foreground transition-colors app-motion-fast hover:bg-accent/60 hover:text-foreground"
+                      >
+                        <Plus size={13} />
+                        <ChevronDown size={10} />
+                      </button>
+                    </DropdownMenuTrigger>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs text-foreground">New note</TooltipContent>
+                  <TooltipContent side="bottom" className="text-xs text-foreground">Create</TooltipContent>
                 </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => handleCreateFolder()}
-                      className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
-                    >
-                      <FolderPlus size={13} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs text-foreground">New folder</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => handleCreateLogic()}
-                      className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
-                    >
-                      <CircuitBoard size={13} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs text-foreground">New logic diagram</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => handleCreateSheet()}
-                      className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
-                    >
-                      <Table2 size={13} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs text-foreground">New spreadsheet</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => handleCreateInk()}
-                      className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
-                    >
-                      <PenLine size={13} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="text-xs text-foreground">New drawing</TooltipContent>
-                </Tooltip>
-              </>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuItem onClick={() => handleCreateNote()}>
+                    <FileText size={13} />
+                    New note
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleCreateSheet()}>
+                    <Table2 size={13} />
+                    New spreadsheet
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleCreateInk()}>
+                    <PenLine size={13} />
+                    New drawing
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleCreateLogic()}>
+                    <CircuitBoard size={13} />
+                    New logic diagram
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => handleCreateFolder()}>
+                    <FolderPlus size={13} />
+                    New folder
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
             {!readOnly && (
               <Tooltip>

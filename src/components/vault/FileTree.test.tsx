@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { tauriCommands } from '../../lib/tauri';
@@ -30,6 +30,20 @@ vi.mock('../../lib/tauri', () => ({
 vi.mock('../../lib/dragOut', () => ({
   startFileDragOut: vi.fn(async () => {}),
   nativeVaultPath: (root: string, rel: string) => `${root}/${rel}`,
+}));
+
+// Radix menus need a real pointer stack to open; the repo's precedent
+// (`CanvasToolbar.test.tsx`) is to render the primitives inline instead.
+vi.mock('../ui/dropdown-menu', () => ({
+  DropdownMenu: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
+    <div role="menu">{children}</div>
+  ),
+  DropdownMenuItem: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
+    <button type="button" role="menuitem" onClick={onClick}>{children}</button>
+  ),
+  DropdownMenuSeparator: () => null,
 }));
 
 vi.mock('./useNativeFileDrop', () => ({
@@ -185,6 +199,29 @@ describe('FileTree folder collapse state', () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it('offers every document type from one create menu', () => {
+    // The header used to grow an icon button per document type; a header is
+    // not the place to keep a list.
+    render(<FileTree />);
+    const menu = screen.getByRole('menu');
+
+    for (const label of ['New note', 'New spreadsheet', 'New drawing', 'New logic diagram', 'New folder']) {
+      expect(within(menu).getByText(label)).toBeTruthy();
+    }
+    // And exactly one create control in the header, not one per type.
+    expect(screen.getByLabelText('Create')).toBeTruthy();
+  });
+
+  it('routes each menu item to its own creation dialog', () => {
+    render(<FileTree />);
+    const menu = screen.getByRole('menu');
+
+    // `NewDrawingDialog` is the one creation surface not stubbed here, so it
+    // proves the menu item reaches the right dialog rather than a generic one.
+    fireEvent.click(within(menu).getByText('New drawing'));
+    expect(screen.getByText('Choose the paper now — every part of it stays editable later.')).toBeTruthy();
   });
 
   it('keeps a folder collapsed after remounting', () => {

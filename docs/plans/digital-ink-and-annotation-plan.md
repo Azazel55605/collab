@@ -2,12 +2,13 @@
 
 ## Status
 
-Phase 0 is complete except for its physical-device gate. Phases 1-3 are
+Phase 0 is complete except for its physical-device gate. Phases 1-4 are
 complete: the shared ink domain, its Rust trust boundary, the full `.ink` vault
-lifecycle, and the desktop editor. A user can create a drawing, draw in it with
-pressure-sensitive brushes, erase, select, transform, arrange, use layers and
-pages, undo, and have it autosave — locally or in a hosted vault.
-Phases 4-11 have not started.
+lifecycle, the desktop editor, and the mobile/tablet editor. A user can create a
+drawing, draw in it with pressure-sensitive brushes, erase, select, transform,
+arrange, use layers and pages, undo, and have it autosave — on desktop or
+Android, locally or in a hosted vault, online or offline.
+Phases 5-11 have not started.
 
 The frozen contract, the measured baselines, and the open device gate are in
 `docs/plans/digital-ink-phase0-contract.md`.
@@ -694,7 +695,7 @@ Target behaviors:
 | 1. Shared ink domain | Complete | Implement the schema, migrations, operations, spatial index, stroke adapter, renderer, and export scene. |
 | 2. Native `.ink` lifecycle | Complete | Add New Drawing creation, vault routing, tabs, revisions, snapshots, references, status, and local/hosted persistence. |
 | 3. Core desktop editor | Complete | Deliver pens, erasers, selection, transforms, pages, layers, history, clipboard, and drawing-tablet operation. |
-| 4. Mobile and tablet editor | Not started | Deliver adaptive touch/pen UI, gestures, palm policy, rotation/process recovery, and physical-device validation. |
+| 4. Mobile and tablet editor | Complete | Deliver adaptive touch/pen UI, gestures, palm policy, rotation/process recovery, and physical-device validation. |
 | 5. Advanced tools | Not started | Add geometry, recognition, guides, precision tools, text, images, symbols, links, and templates. |
 | 6. Hosted collaboration and offline merge | Not started | Add `LiveDocumentKind::Ink`, final-stroke transactions, ephemeral previews, awareness, replica merge, and recovery. |
 | 7. Export and note integration | Not started | Add PNG/SVG/PDF export, source-linked note embeds, stable re-export, progress, and cancellation. |
@@ -844,14 +845,35 @@ judgement that needs a real pen.
 
 ### Phase 4: Mobile And Tablet Editor
 
-- Build adaptive phone/tablet tool rails and property sheets.
-- Add pen-versus-touch gesture arbitration and best-effort palm rejection.
-- Add anchored pinch zoom, pan, page navigation, and orientation changes.
-- Ensure system back dismisses tools/panels before closing the document.
-- Restore unfinished-safe state after process recreation.
-- Validate low-memory tile eviction and background/foreground transitions.
-- Test representative Samsung S Pen, USI/MPP/AES device, generic Android touch,
-  and tablet layouts where hardware is available.
+Complete, apart from the physical-device testing that shares the open Phase 0
+gate.
+
+- [x] Bottom tool rail on a phone and a side rail on a landscape tablet, with
+      the tool options as a panel rather than a permanent sidebar. Mobile is
+      deliberately bounded to **drawing** — selection, transforms, grouping,
+      alignment, and clipboard stay desktop capabilities, because they need
+      precision a fingertip does not have.
+- [x] Pen-versus-touch arbitration and palm rejection through the *shared*
+      `InkContactArbiter`, so the policy is identical to desktop and tested
+      once. One finger pans, two pinch, the pen draws; finger drawing is an
+      explicit setting for devices with no pen.
+- [x] Anchored pinch zoom that also follows the fingers' midpoint, pan, page
+      navigation, and an orientation-aware layout.
+- [x] System back dismisses an open panel before it closes the drawing, through
+      the shared `useBackDismiss` stack.
+- [x] Page and viewport restored after process recreation, from `sessionStorage`
+      — device-local, never in the document.
+- [x] Low-memory handling: a smaller tile budget than desktop, and the derived
+      tile cache is dropped when the app is backgrounded. Nothing is lost,
+      because tiles regenerate from the vector data.
+- [ ] **Test on representative Samsung S Pen, USI/MPP/AES, generic Android
+      touch, and tablet hardware.** Pen pressure, tilt, palm behaviour, and
+      pinch feel cannot be established in jsdom. This shares the Phase 0 device
+      gate; `tools/ink-input-probe.html` reports what each device delivers.
+
+Deferred deliberately: live co-editing is Phase 6 and lands for both clients at
+once, so mobile drawings use the same REST-with-offline-queue path as the note,
+Kanban, and workbook screens.
 
 ### Phase 5: Advanced Tools
 

@@ -54,6 +54,7 @@ export type FileGlyph =
   | 'canvas'
   | 'logic'
   | 'sheet'
+  | 'ink'
   | 'image'
   | 'pdf'
   | 'file';
@@ -66,6 +67,7 @@ export function fileGlyph(entry: HostedFileEntry): FileGlyph {
   if (ext === 'canvas') return 'canvas';
   if (ext === 'logic') return 'logic';
   if (ext === 'sheet') return 'sheet';
+  if (ext === 'ink') return 'ink';
   if (ext === 'pdf') return 'pdf';
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'apng', 'avif', 'ico'].includes(ext)) {
     return 'image';

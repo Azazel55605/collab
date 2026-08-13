@@ -282,8 +282,13 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
     return () => {
       cancelled = true;
     };
+    // Keyed on the file *id*, not the entry object. Saving calls `replaceFile`,
+    // which hands this screen a fresh `HostedFileEntry` for the same document;
+    // depending on that identity reloaded the document after every save. A live
+    // session masked it, so it only surfaced offline or where live is
+    // unavailable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected, file, selected]);
+  }, [connected, file.id, selected?.serverUrl, selected?.vault.id]);
 
   useEffect(() => {
     let cancelled = false;
