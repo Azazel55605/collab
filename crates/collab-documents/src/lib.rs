@@ -1,3 +1,4 @@
+pub mod ink;
 pub mod kanban;
 pub mod pdf;
 pub mod references;
@@ -13,6 +14,7 @@ pub enum DocumentKind {
     Canvas,
     Logic,
     Sheet,
+    Ink,
     Svg,
     PdfSidecar,
 }
@@ -25,6 +27,7 @@ impl DocumentKind {
             Self::Canvas => "canvas",
             Self::Logic => "logic",
             Self::Sheet => "sheet",
+            Self::Ink => "ink",
             Self::Svg => "svg",
             Self::PdfSidecar => "pdf-sidecar",
         }
@@ -37,6 +40,7 @@ impl DocumentKind {
             "canvas" => Some(Self::Canvas),
             "logic" => Some(Self::Logic),
             "sheet" => Some(Self::Sheet),
+            "ink" => Some(Self::Ink),
             "svg" => Some(Self::Svg),
             "pdf-sidecar" => Some(Self::PdfSidecar),
             _ => None,
@@ -105,6 +109,8 @@ pub enum DocumentError {
     InvalidSvgRoot,
     #[error("sheet document is invalid: {0}")]
     InvalidSheet(#[from] sheet::SheetValidationError),
+    #[error("ink document is invalid: {0}")]
+    InvalidInk(#[from] ink::InkValidationError),
     #[error(transparent)]
     Reference(#[from] references::ReferenceError),
 }
@@ -121,6 +127,8 @@ pub fn classify_path(path: &str) -> Option<DocumentKind> {
         Some(DocumentKind::Logic)
     } else if path.ends_with(".sheet") {
         Some(DocumentKind::Sheet)
+    } else if path.ends_with(".ink") {
+        Some(DocumentKind::Ink)
     } else if path.ends_with(".svg") {
         Some(DocumentKind::Svg)
     } else if path.ends_with(".pdf.json") || path.ends_with(".pdf-sidecar.json") {
@@ -156,6 +164,7 @@ pub fn validate(
         | DocumentKind::Canvas
         | DocumentKind::Logic
         | DocumentKind::Sheet
+        | DocumentKind::Ink
         | DocumentKind::PdfSidecar => validate_json(input, limits)?,
         DocumentKind::Svg => validate_svg(input, limits)?,
     }
@@ -187,6 +196,9 @@ fn validate_json(input: DocumentInput<'_>, limits: ParserLimits) -> Result<(), D
     }
     if input.kind == DocumentKind::Sheet {
         sheet::validate_document(&value, sheet::DEFAULT_SHEET_LIMITS)?;
+    }
+    if input.kind == DocumentKind::Ink {
+        ink::validate_document(&value, ink::DEFAULT_INK_LIMITS)?;
     }
     Ok(())
 }
@@ -379,11 +391,15 @@ mod tests {
         );
         assert_eq!(classify_path("Flow.logic"), Some(DocumentKind::Logic));
         assert_eq!(classify_path("Drawing.svg"), Some(DocumentKind::Svg));
+        // `.ink` and `.svg` are both drawings but are not interchangeable: one
+        // is the editable ink document, the other a vector file.
+        assert_eq!(classify_path("Sketches/Idea.INK"), Some(DocumentKind::Ink));
         assert_eq!(classify_path("manual.pdf"), None);
         assert_eq!(
             DocumentKind::from_storage_name("canvas"),
             Some(DocumentKind::Canvas)
         );
+        assert_eq!(DocumentKind::from_storage_name("ink"), Some(DocumentKind::Ink));
         assert_eq!(DocumentKind::from_storage_name("asset"), None);
     }
 

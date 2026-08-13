@@ -266,6 +266,9 @@ importers:
       jsdom:
         specifier: ^29.1.1
         version: 29.1.1(@noble/hashes@1.8.0)
+      perfect-freehand:
+        specifier: ^1.2.3
+        version: 1.2.3
       shadcn:
         specifier: ^4.11.0
         version: 4.11.0(typescript@5.8.3)
@@ -3668,6 +3671,9 @@ packages:
   pdfjs-dist@6.2.108:
     resolution: {integrity: sha512-YxFb+SQcodN2rnX9Tn3dHYlqfb7NjlzzfONPpJd+AKoKtUjEdevTfbC07d5TcczzOK6261auRkP/M8OBHs9vFQ==}
     engines: {node: '>=22.13.0 || >=24'}
+
+  perfect-freehand@1.2.3:
+    resolution: {integrity: sha512-bHZSfqDHGNlPpgH2yxXgPHlQSPpEbo+qg7li0M78J9vNAi2yjwLeA4x79BEQhX44lEWpCLSFCeRZwpw0niiXPA==}
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
@@ -7898,6 +7904,8 @@ snapshots:
   pdfjs-dist@6.2.108:
     optionalDependencies:
       '@napi-rs/canvas': 1.0.5
+
+  perfect-freehand@1.2.3: {}
 
   picocolors@1.1.1: {}
 

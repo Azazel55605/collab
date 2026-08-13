@@ -1,6 +1,6 @@
 # Open Development Work
 
-Last reviewed: 2026-08-12
+Last reviewed: 2026-08-13
 
 This is the entry point for unfinished Collab projects. Detailed requirements,
 implementation notes, and acceptance criteria remain in their canonical plan
@@ -29,7 +29,7 @@ work from being mistaken for an active roadmap item.
 | User calendar | Testing | Complete the Phase 9 maintained external-client CalDAV interoperability matrix. Cross-location mirroring, hardening/restore drills, and notification delivery are complete. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
 | Background running | Testing | Phase 5 automated hardening is implemented. Complete the packaged desktop/physical Android matrix, then add notification-backed Android foreground transfers. | [Background Running Plan](./background-running-plan.md) |
 | Collab Presentations | Planned | Complete the `.deck` Phase 0 proofs for scene/text fidelity, deck-specific live text collaboration, and compatible PPTX export before beginning the editor. | [Collab Presentations Plan](./presentation-tool-plan.md) |
-| Digital ink and annotation | Planned | Complete the `.ink` Phase 0 physical-device proofs, then build one shared pressure-sensitive ink engine for drawings, note exports, and viewer annotations. | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md) |
+| Digital ink and annotation | Phases 0-1 complete, device gate open | The `.ink` contract and the shared ink domain — document lifecycle, reversible operations, spatial index, tiled renderer, SVG/raster export, and the Rust trust boundary — are done and tested, with no user-visible surface yet. Run `tools/ink-input-probe.html` on real pens and tablets to close the Phase 0 device gate, then start Phase 2 (New Drawing creation, vault routing, and `InkView`). | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md), [Phase 0 Contract](./digital-ink-phase0-contract.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
 
 ## Recommended Dependency Order

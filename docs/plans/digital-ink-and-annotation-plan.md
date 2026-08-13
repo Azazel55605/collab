@@ -2,7 +2,12 @@
 
 ## Status
 
-Proposed. No implementation has started.
+Phase 0 is complete except for its physical-device gate. Phase 1 is complete:
+the shared ink domain, its Rust trust boundary, and its fixtures exist and are
+tested, with no user-visible surface yet. Phases 2-11 have not started.
+
+The frozen contract, the measured baselines, and the open device gate are in
+`docs/plans/digital-ink-phase0-contract.md`.
 
 This plan introduces first-class handwriting and drawing documents to Collab,
 then reuses the same ink model, renderer, input pipeline, and tools for PDF,
@@ -682,8 +687,8 @@ Target behaviors:
 
 | Phase | Status | Goal |
 | --- | --- | --- |
-| 0. Contract and input/renderer proofs | Not started | Freeze `.ink`, prove cross-device capture, low-latency pressure rendering, bounded storage, and deterministic export. |
-| 1. Shared ink domain | Not started | Implement the schema, migrations, operations, spatial index, stroke adapter, renderer, and export scene. |
+| 0. Contract and input/renderer proofs | Complete, device gate open | Freeze `.ink`, prove cross-device capture, low-latency pressure rendering, bounded storage, and deterministic export. |
+| 1. Shared ink domain | Complete | Implement the schema, migrations, operations, spatial index, stroke adapter, renderer, and export scene. |
 | 2. Native `.ink` lifecycle | Not started | Add New Drawing creation, vault routing, tabs, revisions, snapshots, references, status, and local/hosted persistence. |
 | 3. Core desktop editor | Not started | Deliver pens, erasers, selection, transforms, pages, layers, history, clipboard, and drawing-tablet operation. |
 | 4. Mobile and tablet editor | Not started | Deliver adaptive touch/pen UI, gestures, palm policy, rotation/process recovery, and physical-device validation. |
@@ -699,35 +704,61 @@ Target behaviors:
 
 ### Phase 0: Contract And Input/Renderer Proofs
 
-- Freeze extension, MIME type, schema direction, coordinate units, page modes,
-  sample channels, quantization, and resource limits.
-- Capture Pointer Events from Android pens, Android touch, Windows pen/tablet,
-  Linux drawing tablet, macOS tablet where available, mouse, and touchpad.
-- Verify pressure, tilt, twist, eraser, barrel button, coalesced events, pointer
-  capture, cancellation, rotation, and app-background behavior.
-- Compare first-party stroke generation with an isolated
-  `perfect-freehand` adapter.
-- Prove tiled Canvas 2D rendering with at least 10,000 representative strokes.
-- Prove deterministic PNG and SVG output from the scene, not the viewport.
-- Prove sample simplification/quantization stays inside a documented visual
-  tolerance and materially reduces size.
-- Prove one completed stroke maps to one bounded collaboration transaction.
-- Record latency, memory, bundle, license, and physical-device findings.
+Frozen in `docs/plans/digital-ink-phase0-contract.md`.
+
+- [x] Freeze extension, MIME type, schema, coordinate units, page modes, sample
+      channels, quantization, and resource limits — `src/types/ink.ts`.
+- [x] Compare first-party stroke generation with an isolated `perfect-freehand`
+      adapter — first-party selected; the adapter stays as the proven seam.
+- [x] Prove tiled rendering with at least 10,000 representative strokes — at the
+      work-model level, not yet against a real canvas.
+- [x] Prove deterministic SVG output from the scene, not the viewport. PNG uses
+      the same scene walk and lands in Phase 7.
+- [x] Prove sample simplification/quantization stays inside a documented visual
+      tolerance and materially reduces size.
+- [x] Prove one completed stroke maps to one bounded collaboration transaction —
+      against real Yjs.
+- [x] Record latency, memory, bundle, and license findings.
+- [ ] Capture Pointer Events from Android pens, Android touch, Windows
+      pen/tablet, Linux drawing tablet, macOS tablet where available, mouse, and
+      touchpad, and verify pressure, tilt, twist, eraser, barrel button,
+      coalesced events, pointer capture, cancellation, rotation, and
+      app-background behavior. Run `tools/ink-input-probe.html` on each device
+      and record the findings in the contract.
 
 Exit gate: the same fixture must draw, reopen, zoom, export, and preserve
-pressure faithfully on desktop and Android without frame-long UI stalls.
+pressure faithfully on desktop and Android without frame-long UI stalls. The
+model half is proven; the device half is the open item above.
 
 ### Phase 1: Shared Ink Domain
 
-- Add framework-free `src/lib/ink/` types and operations.
-- Add `.ink` classification and bounded validation to `collab-documents`.
-- Implement parse, normalize, migrate, validate, and deterministic serialize.
-- Implement page/layer/object operations and inverses.
-- Implement spatial indexing and hit testing.
-- Implement brush/sample normalization and stroke-outline adapter.
-- Implement shared scene renderer and dirty-tile cache.
-- Implement SVG/raster export scene adapters.
-- Add malformed, migration, geometry, and large-document fixtures.
+Complete. Everything here is framework-free and has no UI; Phase 2 is the first
+phase a user can see.
+
+- [x] Framework-free `src/lib/ink/` types and operations.
+- [x] `.ink` classification and bounded validation in `collab-documents`
+      (`crates/collab-documents/src/ink.rs`), wired into `classify_path` and the
+      shared `validate` dispatch.
+- [x] Parse, normalize, migrate, validate, and deterministic serialize
+      (`document.ts`). Malformed input is **repaired and reported**, not
+      rejected: an object whose layer record went missing moves to the bottom
+      layer rather than being dropped. Only wrong-kind, bad-schema-version, and
+      limit-exceeded refuse to open.
+- [x] Page/layer/object operations, each returning its own inverse
+      (`operations.ts`). The inverse is captured at edit time rather than
+      derived later, so an erase can restore its samples and its paint index.
+- [x] Spatial indexing and hit testing (`spatialIndex.ts`), on the same tile
+      grid the renderer uses, with point, rectangle, lasso, and eraser-path
+      queries.
+- [x] Brush/sample normalization and the stroke-outline adapter (Phase 0).
+- [x] Shared scene renderer and dirty-tile cache (`renderer.ts`), written
+      against a minimal `InkRenderTarget` so the paint path is testable without
+      a canvas.
+- [x] SVG (Phase 0) and raster (`raster.ts`) export scene adapters. Raster
+      export plans and bounds-checks the output size separately from painting
+      it, so an impossible export is refused before anything is allocated.
+- [x] Malformed, migration, geometry, and large-document fixtures
+      (`fixtureShapes.ts`), shared so later phases test one corpus.
 
 ### Phase 2: Native `.ink` Lifecycle
 

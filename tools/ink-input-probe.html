@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Collab ink input probe</title>
+    <style>
+      :root { color-scheme: light dark; --bg: #ffffff; --fg: #14161a; --muted: #6b7280; --line: #d8dce3; --accent: #6d5efc; }
+      @media (prefers-color-scheme: dark) {
+        :root { --bg: #101216; --fg: #e7e9ee; --muted: #9aa3b2; --line: #262b34; --accent: #8b7dff; }
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+        font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+      body { display: flex; flex-direction: column; overscroll-behavior: none; }
+      header { padding: 8px 12px; border-bottom: 1px solid var(--line); display: flex; gap: 8px;
+        align-items: center; flex-wrap: wrap; }
+      h1 { font-size: 13px; margin: 0 8px 0 0; font-weight: 600; }
+      button { font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px;
+        background: transparent; color: inherit; cursor: pointer; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      main { flex: 1; display: flex; min-height: 0; }
+      /* touch-action:none is required, or the browser scrolls instead of
+         delivering pointermove, and pen input silently stops mid-stroke. */
+      #surface { flex: 1; touch-action: none; -webkit-user-select: none; user-select: none;
+        display: block; background: var(--bg); }
+      aside { width: 340px; max-width: 45vw; border-left: 1px solid var(--line); overflow: auto;
+        padding: 10px 12px; }
+      @media (max-width: 720px) { aside { display: none; } }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { text-align: left; padding: 2px 6px 2px 0; vertical-align: top;
+        font-variant-numeric: tabular-nums; }
+      th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+      .bad { color: #d0342c; font-weight: 600; }
+      .good { color: #1a7f37; font-weight: 600; }
+      h2 { font-size: 12px; margin: 14px 0 4px; color: var(--muted); text-transform: uppercase;
+        letter-spacing: 0.04em; }
+      #summary { padding: 10px 12px; border-top: 1px solid var(--line); max-height: 30vh;
+        overflow: auto; font-family: ui-monospace, monospace; font-size: 11px;
+        white-space: pre-wrap; word-break: break-word; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Collab ink input probe</h1>
+      <button id="clear">Clear canvas</button>
+      <button id="reset">Reset findings</button>
+      <button id="copy" class="primary">Copy report</button>
+      <span id="hint" style="color: var(--muted)"></span>
+    </header>
+    <main>
+      <canvas id="surface"></canvas>
+      <aside>
+        <h2>Live pointer</h2>
+        <table id="live"></table>
+        <h2>Observed this session</h2>
+        <table id="observed"></table>
+      </aside>
+    </main>
+    <pre id="summary"></pre>
+
+    <script>
+      /*
+       * Phase 0 of the Digital Ink plan needs evidence about what real hardware
+       * reports, on the platforms Collab ships to. That cannot be gathered on a
+       * CI machine or in jsdom, so this is a standalone page: open it on the
+       * device, draw for a few seconds with every input you have, and copy the
+       * report.
+       *
+       * Deliberately dependency-free and single-file so it can be opened from a
+       * file:// URL, served over a LAN, or pasted into a device browser without
+       * a build step. It writes nothing and sends nothing.
+       */
+      const canvas = document.getElementById('surface');
+      const context = canvas.getContext('2d');
+      const liveTable = document.getElementById('live');
+      const observedTable = document.getElementById('observed');
+      const summary = document.getElementById('summary');
+
+      const findings = {
+        userAgent: navigator.userAgent,
+        devicePixelRatio: window.devicePixelRatio,
+        maxTouchPoints: navigator.maxTouchPoints,
+        pointerTypes: new Set(),
+        pressureValues: new Set(),
+        distinctPressureCount: 0,
+        sawTilt: false,
+        sawTwist: false,
+        sawEraser: false,
+        sawBarrelButton: false,
+        sawContactGeometry: false,
+        coalescedSupported: typeof PointerEvent !== 'undefined' &&
+          typeof PointerEvent.prototype.getCoalescedEvents === 'function',
+        maxCoalesced: 0,
+        totalCoalesced: 0,
+        moveEvents: 0,
+        maxConcurrentContacts: 0,
+        sawPointerCancel: false,
+        sawLostCapture: false,
+        strokes: 0,
+        sampleIntervalsMs: [],
+      };
+
+      function resize() {
+        const ratio = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = Math.round(rect.width * ratio);
+        canvas.height = Math.round(rect.height * ratio);
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
+        context.lineCap = 'round';
+        context.lineJoin = 'round';
+      }
+      window.addEventListener('resize', resize);
+
+      const active = new Map();
+
+      function strokeColor(type) {
+        return type === 'pen' ? '#6d5efc' : type === 'touch' ? '#1a7f37' : '#d0342c';
+      }
+
+      function record(event) {
+        findings.pointerTypes.add(event.pointerType);
+        if (event.pointerType === 'pen') {
+          findings.pressureValues.add(event.pressure.toFixed(4));
+          findings.distinctPressureCount = findings.pressureValues.size;
+        }
+        if (event.tiltX || event.tiltY) findings.sawTilt = true;
+        if (event.twist) findings.sawTwist = true;
+        if ((event.buttons & 32) !== 0 || event.button === 5) findings.sawEraser = true;
+        if ((event.buttons & 2) !== 0) findings.sawBarrelButton = true;
+        if ((event.width && event.width !== 1) || (event.height && event.height !== 1)) {
+          findings.sawContactGeometry = true;
+        }
+      }
+
+      function draw(event) {
+        const entry = active.get(event.pointerId);
+        if (!entry) return;
+
+        const coalesced = findings.coalescedSupported ? event.getCoalescedEvents() : [event];
+        const points = coalesced.length > 0 ? coalesced : [event];
+        findings.maxCoalesced = Math.max(findings.maxCoalesced, points.length);
+        findings.totalCoalesced += points.length;
+        findings.moveEvents += 1;
+
+        for (const point of points) {
+          record(point);
+          if (entry.lastTime !== null) {
+            const delta = point.timeStamp - entry.lastTime;
+            if (delta > 0 && delta < 200) findings.sampleIntervalsMs.push(delta);
+          }
+          entry.lastTime = point.timeStamp;
+
+          const rect = canvas.getBoundingClientRect();
+          const x = point.clientX - rect.left;
+          const y = point.clientY - rect.top;
+          const pressure = point.pointerType === 'pen' && point.pressure > 0 ? point.pressure : 0.5;
+
+          context.strokeStyle = strokeColor(point.pointerType);
+          context.lineWidth = 1 + pressure * 11;
+          context.beginPath();
+          context.moveTo(entry.x, entry.y);
+          context.lineTo(x, y);
+          context.stroke();
+          entry.x = x;
+          entry.y = y;
+        }
+        renderLive(event, points.length);
+      }
+
+      canvas.addEventListener('pointerdown', (event) => {
+        // Pointer capture is what makes a stroke terminate correctly when the
+        // pen leaves the surface mid-stroke.
+        canvas.setPointerCapture(event.pointerId);
+        const rect = canvas.getBoundingClientRect();
+        active.set(event.pointerId, {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+          lastTime: null,
+        });
+        findings.strokes += 1;
+        findings.maxConcurrentContacts = Math.max(findings.maxConcurrentContacts, active.size);
+        record(event);
+        renderLive(event, 1);
+        event.preventDefault();
+      });
+
+      canvas.addEventListener('pointermove', (event) => {
+        if (!active.has(event.pointerId)) {
+          record(event); // hover, on devices that report it
+          renderLive(event, 1);
+          return;
+        }
+        draw(event);
+        event.preventDefault();
+      });
+
+      for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
+        canvas.addEventListener(type, (event) => {
+          if (type === 'pointercancel') findings.sawPointerCancel = true;
+          active.delete(event.pointerId);
+          renderObserved();
+        });
+      }
+      canvas.addEventListener('lostpointercapture', () => {
+        findings.sawLostCapture = true;
+      });
+
+      function rows(table, entries) {
+        table.innerHTML = entries
+          .map(([label, value, cls]) =>
+            `<tr><th>${label}</th><td class="${cls ?? ''}">${value}</td></tr>`)
+          .join('');
+      }
+
+      function renderLive(event, coalescedCount) {
+        rows(liveTable, [
+          ['type', event.pointerType],
+          ['pressure', event.pressure.toFixed(4)],
+          ['tiltX / tiltY', `${event.tiltX ?? '-'} / ${event.tiltY ?? '-'}`],
+          ['twist', event.twist ?? '-'],
+          ['buttons', event.buttons],
+          ['width x height', `${event.width ?? '-'} x ${event.height ?? '-'}`],
+          ['coalesced', coalescedCount],
+          ['active contacts', active.size],
+        ]);
+      }
+
+      function median(values) {
+        if (values.length === 0) return null;
+        const sorted = [...values].sort((a, b) => a - b);
+        return sorted[Math.floor(sorted.length / 2)];
+      }
+
+      function yesNo(value) {
+        return [value ? 'yes' : 'no', value ? 'good' : 'bad'];
+      }
+
+      function renderObserved() {
+        const interval = median(findings.sampleIntervalsMs);
+        rows(observedTable, [
+          ['pointer types', [...findings.pointerTypes].join(', ') || '-'],
+          ['distinct pen pressures', ...(findings.distinctPressureCount > 8
+            ? [findings.distinctPressureCount, 'good']
+            : [findings.distinctPressureCount, 'bad'])],
+          ['tilt', ...yesNo(findings.sawTilt)],
+          ['twist', ...yesNo(findings.sawTwist)],
+          ['eraser end', ...yesNo(findings.sawEraser)],
+          ['barrel button', ...yesNo(findings.sawBarrelButton)],
+          ['contact geometry', ...yesNo(findings.sawContactGeometry)],
+          ['getCoalescedEvents', ...yesNo(findings.coalescedSupported)],
+          ['max coalesced/event', findings.maxCoalesced],
+          ['mean coalesced/event', findings.moveEvents
+            ? (findings.totalCoalesced / findings.moveEvents).toFixed(2) : '-'],
+          ['median sample gap', interval === null ? '-' : `${interval.toFixed(1)} ms`],
+          ['implied sample rate', interval ? `${Math.round(1000 / interval)} Hz` : '-'],
+          ['max concurrent contacts', findings.maxConcurrentContacts],
+          ['pointercancel seen', findings.sawPointerCancel ? 'yes' : 'no'],
+          ['strokes', findings.strokes],
+        ]);
+        renderSummary();
+      }
+
+      function renderSummary() {
+        const interval = median(findings.sampleIntervalsMs);
+        summary.textContent = JSON.stringify(
+          {
+            userAgent: findings.userAgent,
+            devicePixelRatio: findings.devicePixelRatio,
+            maxTouchPoints: findings.maxTouchPoints,
+            pointerTypes: [...findings.pointerTypes],
+            distinctPenPressureLevels: findings.distinctPressureCount,
+            tilt: findings.sawTilt,
+            twist: findings.sawTwist,
+            eraserEnd: findings.sawEraser,
+            barrelButton: findings.sawBarrelButton,
+            contactGeometry: findings.sawContactGeometry,
+            coalescedSupported: findings.coalescedSupported,
+            maxCoalescedPerEvent: findings.maxCoalesced,
+            meanCoalescedPerEvent: findings.moveEvents
+              ? Number((findings.totalCoalesced / findings.moveEvents).toFixed(2)) : null,
+            medianSampleGapMs: interval === null ? null : Number(interval.toFixed(2)),
+            impliedSampleRateHz: interval ? Math.round(1000 / interval) : null,
+            maxConcurrentContacts: findings.maxConcurrentContacts,
+            pointerCancelSeen: findings.sawPointerCancel,
+            lostPointerCaptureSeen: findings.sawLostCapture,
+            strokes: findings.strokes,
+          },
+          null,
+          2,
+        );
+      }
+
+      document.getElementById('clear').addEventListener('click', () => {
+        context.clearRect(0, 0, canvas.width, canvas.height);
+      });
+      document.getElementById('reset').addEventListener('click', () => {
+        findings.pointerTypes.clear();
+        findings.pressureValues.clear();
+        findings.distinctPressureCount = 0;
+        findings.sawTilt = findings.sawTwist = findings.sawEraser = false;
+        findings.sawBarrelButton = findings.sawContactGeometry = false;
+        findings.sawPointerCancel = findings.sawLostCapture = false;
+        findings.maxCoalesced = findings.totalCoalesced = findings.moveEvents = 0;
+        findings.maxConcurrentContacts = findings.strokes = 0;
+        findings.sampleIntervalsMs = [];
+        renderObserved();
+      });
+      document.getElementById('copy').addEventListener('click', async () => {
+        const hint = document.getElementById('hint');
+        try {
+          await navigator.clipboard.writeText(summary.textContent);
+          hint.textContent = 'Report copied.';
+        } catch {
+          hint.textContent = 'Clipboard blocked — select the text below instead.';
+        }
+        setTimeout(() => { hint.textContent = ''; }, 4000);
+      });
+
+      resize();
+      renderObserved();
+    </script>
+  </body>
+</html>
