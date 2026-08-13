@@ -520,7 +520,7 @@ internal object CollabAgendaWidgetSnapshotStore {
       vaultId = vaultId,
       fileId = fileId,
       entryKind = shortcut.optString("entryKind").takeIf {
-        it in setOf("note", "board", "canvas", "sheet", "pdf", "folder", "file")
+        it in setOf("note", "board", "canvas", "sheet", "drawing", "pdf", "folder", "file")
       },
       pinned = shortcut.optBoolean("pinned"),
     )
@@ -1359,6 +1359,7 @@ internal fun shortcutEntryGlyph(entryKind: String?): String = when (entryKind) {
   "board" -> "🗂"
   "canvas" -> "🎨"
   "sheet" -> "▦"
+  "drawing" -> "✏"
   "pdf" -> "📕"
   "folder" -> "📁"
   else -> "•"

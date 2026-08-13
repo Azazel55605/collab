@@ -41,6 +41,24 @@ const toastMocks = vi.hoisted(() => ({
 vi.mock('sonner', () => ({ toast: toastMocks }));
 
 import InkView from './InkView';
+import { TooltipProvider } from '../components/ui/tooltip';
+
+/** `getByRole` returns HTMLElement; the tests care about button state. */
+function button(name: string | RegExp): HTMLButtonElement {
+  return screen.getByRole('button', { name }) as HTMLButtonElement;
+}
+function labelled(name: string): HTMLButtonElement {
+  return screen.getByLabelText(name) as HTMLButtonElement;
+}
+
+/** `App.tsx` provides this at the root; tests have to supply it themselves. */
+function renderView(path = PATH) {
+  return render(
+    <TooltipProvider>
+      <InkView relativePath={path} />
+    </TooltipProvider>,
+  );
+}
 
 const LOCAL_VAULT: VaultMeta = {
   id: 'vault-1',
@@ -90,7 +108,7 @@ function setVault(vault: VaultMeta) {
 }
 
 async function openDrawing() {
-  render(<InkView relativePath={PATH} />);
+  renderView();
   await screen.findByTestId('ink-canvas-host');
 }
 
@@ -130,13 +148,13 @@ describe('InkView', () => {
 
   it('surfaces a read failure instead of rendering an empty surface', async () => {
     clientMocks.readDocument.mockRejectedValue(new Error('vault unavailable'));
-    render(<InkView relativePath={PATH} />);
+    renderView();
     await screen.findByText(/vault unavailable/);
   });
 
   it('reports a document it cannot parse rather than showing a blank page', async () => {
     clientMocks.readDocument.mockResolvedValue({ content: '{ not json', version: '1' });
-    render(<InkView relativePath={PATH} />);
+    renderView();
     await screen.findByText(/could not be opened/i);
   });
 
@@ -229,10 +247,11 @@ describe('InkView', () => {
     await screen.findByText('100%');
   });
 
-  it('pans without changing the document', async () => {
+  it('pans with the pan tool, without changing the document', async () => {
     await openDrawing();
+    fireEvent.click(screen.getByRole('button', { name: 'Pan (H)' }));
+
     const host = screen.getByTestId('ink-canvas-host');
-    // jsdom has no pointer capture.
     host.setPointerCapture = vi.fn();
     host.hasPointerCapture = vi.fn(() => true);
     host.releasePointerCapture = vi.fn();
@@ -245,6 +264,166 @@ describe('InkView', () => {
       const state = useEditorStore.getState().inkViewStates[PATH];
       expect(state?.originX).toBeGreaterThan(0);
     });
+    expect(clientMocks.writeDocument).not.toHaveBeenCalled();
+  });
+});
+
+describe('InkView drawing', () => {
+  /** Drags a pointer across the surface, the way a pen would. */
+  function drawStroke(host: HTMLElement, points: Array<[number, number]>) {
+    host.setPointerCapture = vi.fn();
+    host.hasPointerCapture = vi.fn(() => true);
+    host.releasePointerCapture = vi.fn();
+
+    fireEvent.pointerDown(host, {
+      pointerId: 1, pointerType: 'pen', clientX: points[0][0], clientY: points[0][1],
+      pressure: 0.5, buttons: 1, isPrimary: true,
+    });
+    for (const [x, y] of points.slice(1)) {
+      fireEvent.pointerMove(host, {
+        pointerId: 1, pointerType: 'pen', clientX: x, clientY: y, pressure: 0.5, buttons: 1,
+      });
+    }
+    fireEvent.pointerUp(host, { pointerId: 1, pointerType: 'pen', clientX: points[points.length - 1][0], clientY: points[points.length - 1][1] });
+  }
+
+  async function savedDocument() {
+    await waitFor(() => expect(clientMocks.writeDocument).toHaveBeenCalled());
+    const calls = clientMocks.writeDocument.mock.calls;
+    return JSON.parse(calls[calls.length - 1][1] as string);
+  }
+
+  it('commits one stroke per pen gesture', async () => {
+    // The rule the collaboration model rests on: a stroke is one edit, not one
+    // per pointer sample.
+    await openDrawing();
+    const host = screen.getByTestId('ink-canvas-host');
+    drawStroke(host, [[100, 100], [150, 120], [200, 160], [260, 200]]);
+
+    fireEvent.click(screen.getByText('Save'));
+    const written = await savedDocument();
+    const scene = written.pages[written.pageOrder[0]].scene;
+    // Two fixture strokes plus the one just drawn.
+    expect(scene.objectOrder).toHaveLength(3);
+  });
+
+  it('stores the brush the stroke was drawn with, not a preset pointer', async () => {
+    await openDrawing();
+    fireEvent.click(screen.getByRole('button', { name: 'Fountain pen' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Colour #c0392b' }));
+
+    drawStroke(screen.getByTestId('ink-canvas-host'), [[100, 100], [180, 140], [240, 190]]);
+    fireEvent.click(screen.getByText('Save'));
+
+    const written = await savedDocument();
+    const scene = written.pages[written.pageOrder[0]].scene;
+    const drawn = scene.objects[scene.objectOrder[scene.objectOrder.length - 1]];
+    expect(drawn.brush.kind).toBe('fountain');
+    expect(drawn.brush.color).toBe('#c0392b');
+  });
+
+  it('does not commit a stroke the platform cancelled', async () => {
+    // pointercancel means the pointer was taken away — the user did not finish.
+    await openDrawing();
+    const host = screen.getByTestId('ink-canvas-host');
+    host.setPointerCapture = vi.fn();
+    host.hasPointerCapture = vi.fn(() => true);
+    host.releasePointerCapture = vi.fn();
+
+    fireEvent.pointerDown(host, { pointerId: 1, pointerType: 'pen', clientX: 10, clientY: 10, pressure: 0.5, buttons: 1 });
+    fireEvent.pointerMove(host, { pointerId: 1, pointerType: 'pen', clientX: 90, clientY: 90, pressure: 0.5, buttons: 1 });
+    fireEvent.pointerCancel(host, { pointerId: 1, pointerType: 'pen' });
+
+    expect(screen.getByText('Save').closest('button')?.disabled).toBe(true);
+  });
+
+  it('undoes and redoes a stroke', async () => {
+    await openDrawing();
+    const host = screen.getByTestId('ink-canvas-host');
+    expect(button('Undo').disabled).toBe(true);
+
+    drawStroke(host, [[100, 100], [160, 130], [220, 180]]);
+    await waitFor(() =>
+      expect(button(/^Undo/).disabled).toBe(false),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /^Undo/ }));
+    await waitFor(() => expect(screen.getByText('2 strokes')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: /^Redo/ }));
+    await waitFor(() => expect(screen.getByText('3 strokes')).toBeTruthy());
+  });
+
+  it('erases a stroke with the eraser tool', async () => {
+    await openDrawing();
+    fireEvent.click(screen.getByRole('button', { name: 'Eraser (E)' }));
+
+    const host = screen.getByTestId('ink-canvas-host');
+    // The fixture strokes sit around y=1000 ink units, near the origin.
+    drawStroke(host, [[0, 10], [40, 15], [80, 20]]);
+
+    await waitFor(() => expect(screen.getByText(/strokes$/)).toBeTruthy());
+  });
+
+  it('switches tools from the keyboard, layout-independently', async () => {
+    await openDrawing();
+    fireEvent.keyDown(window, { key: 'e' });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Eraser (E)' }).getAttribute('aria-pressed')).toBe('true'),
+    );
+    fireEvent.keyDown(window, { key: 'v' });
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Select (V)' }).getAttribute('aria-pressed')).toBe('true'),
+    );
+  });
+
+  it('does not steal keys from a field the user is typing in', async () => {
+    await openDrawing();
+    const layerName = screen.getByLabelText('Layer name for Layer 1');
+    fireEvent.keyDown(layerName, { key: 'e' });
+    expect(screen.getByRole('button', { name: 'Pen (P)' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('adds, renames, and removes layers but keeps the last one', async () => {
+    await openDrawing();
+    expect(labelled('Delete Layer 1').disabled).toBe(true);
+
+    fireEvent.click(screen.getByLabelText('Add layer'));
+    await screen.findByLabelText('Layer name for Layer 2');
+    expect(labelled('Delete Layer 2').disabled).toBe(false);
+
+    fireEvent.click(screen.getByLabelText('Delete Layer 2'));
+    await waitFor(() => expect(screen.queryByLabelText('Layer name for Layer 2')).toBeNull());
+  });
+
+  it('autosaves shortly after an edit without a manual save', async () => {
+    await openDrawing();
+    drawStroke(screen.getByTestId('ink-canvas-host'), [[100, 100], [170, 140], [230, 190]]);
+    await waitFor(() => expect(clientMocks.writeDocument).toHaveBeenCalled(), { timeout: 3_000 });
+  });
+
+  it('hides the chrome in focus mode and restores it', async () => {
+    await openDrawing();
+    expect(screen.queryByRole('toolbar', { name: 'Drawing tools' })).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Focus'));
+    await waitFor(() =>
+      expect(screen.queryByRole('toolbar', { name: 'Drawing tools' })).toBeNull(),
+    );
+
+    fireEvent.click(screen.getByLabelText('Leave focus mode'));
+    await screen.findByRole('toolbar', { name: 'Drawing tools' });
+  });
+
+  it('gives a hosted viewer no drawing tools and never writes', async () => {
+    setVault(HOSTED_VIEWER_VAULT);
+    await openDrawing();
+
+    expect(button('Pen (P)').disabled).toBe(true);
+    expect(button('Eraser (E)').disabled).toBe(true);
+
+    drawStroke(screen.getByTestId('ink-canvas-host'), [[100, 100], [200, 200]]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(clientMocks.writeDocument).not.toHaveBeenCalled();
   });
 });

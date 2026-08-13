@@ -2,11 +2,12 @@
 
 ## Status
 
-Phase 0 is complete except for its physical-device gate. Phases 1 and 2 are
-complete: the shared ink domain, its Rust trust boundary, and the full `.ink`
-vault lifecycle exist and are tested. A user can create, open, navigate, and
-save a drawing today — but cannot yet draw in it, which is Phase 3.
-Phases 3-11 have not started.
+Phase 0 is complete except for its physical-device gate. Phases 1-3 are
+complete: the shared ink domain, its Rust trust boundary, the full `.ink` vault
+lifecycle, and the desktop editor. A user can create a drawing, draw in it with
+pressure-sensitive brushes, erase, select, transform, arrange, use layers and
+pages, undo, and have it autosave — locally or in a hosted vault.
+Phases 4-11 have not started.
 
 The frozen contract, the measured baselines, and the open device gate are in
 `docs/plans/digital-ink-phase0-contract.md`.
@@ -692,7 +693,7 @@ Target behaviors:
 | 0. Contract and input/renderer proofs | Complete, device gate open | Freeze `.ink`, prove cross-device capture, low-latency pressure rendering, bounded storage, and deterministic export. |
 | 1. Shared ink domain | Complete | Implement the schema, migrations, operations, spatial index, stroke adapter, renderer, and export scene. |
 | 2. Native `.ink` lifecycle | Complete | Add New Drawing creation, vault routing, tabs, revisions, snapshots, references, status, and local/hosted persistence. |
-| 3. Core desktop editor | Not started | Deliver pens, erasers, selection, transforms, pages, layers, history, clipboard, and drawing-tablet operation. |
+| 3. Core desktop editor | Complete | Deliver pens, erasers, selection, transforms, pages, layers, history, clipboard, and drawing-tablet operation. |
 | 4. Mobile and tablet editor | Not started | Deliver adaptive touch/pen UI, gestures, palm policy, rotation/process recovery, and physical-device validation. |
 | 5. Advanced tools | Not started | Add geometry, recognition, guides, precision tools, text, images, symbols, links, and templates. |
 | 6. Hosted collaboration and offline merge | Not started | Add `LiveDocumentKind::Ink`, final-stroke transactions, ephemeral previews, awareness, replica merge, and recovery. |
@@ -803,15 +804,43 @@ arrays would produce something that parses and is not what either person drew.
 
 ### Phase 3: Core Desktop Editor
 
-- Build page navigator, tiled stage, tool rail, properties, and layers panel.
-- Add ballpoint, fountain, technical pen, pencil, marker, highlighter, and
-  brush presets.
-- Add stroke, segment, and object erasers.
-- Add lasso/rectangle selection, transforms, grouping, ordering, and alignment.
-- Add page and layer management.
-- Add clipboard, keyboard commands, autosave, and local undo/redo.
-- Add distraction-free tablet mode and configurable pen-button mappings.
-- Validate mouse, touchpad, and drawing-tablet workflows.
+Complete, apart from the physical-hardware validation that depends on the still
+open Phase 0 device gate.
+
+- [x] Tiled stage, tool rail, and a combined properties/layers panel. Page
+      navigation is in the top bar rather than a separate navigator; a page rail
+      with thumbnails belongs with the tablet layout in Phase 4.
+- [x] Ballpoint, fountain, technical pen, pencil, marker, and highlighter
+      presets. The highlighter is inserted **below** the ink already on its
+      layer, because that is what a highlighter is rather than a rendering
+      special case.
+- [x] Stroke, segment, and object erasers. Segment erase splits a stroke into
+      the runs that survive, tombstones the source, and gives the replacements
+      deterministic ids so the Phase 6 merge stays tractable.
+- [x] Rectangle and lasso selection, move/resize transforms, grouping,
+      reordering, and align/distribute. Transforms are baked into the geometry
+      rather than stored as a matrix.
+- [x] Page and layer management: add, delete, rename, reorder, merge down,
+      visibility, and locking.
+- [x] Clipboard (copy/cut/paste/duplicate), a layout-independent keyboard map,
+      600 ms autosave, and local undo/redo built on the inverses Phase 1 already
+      returns.
+- [x] Distraction-free focus mode and configurable pen-button mappings (barrel
+      and eraser end).
+- [ ] **Validate mouse, touchpad, and drawing-tablet workflows on real
+      hardware.** The pointer pipeline, contact arbitration, and pen-button
+      handling are covered by tests against synthesized and recorded events, but
+      no test can tell you how a real tablet feels. This shares the Phase 0
+      device gate.
+
+Also deferred deliberately: the tile cache is invalidated wholesale on each
+edit rather than from the edit's own bounds. `invalidateMoved` exists and is
+tested; wiring it to edit bounds is a performance pass, not a behaviour change,
+and is best done against the Phase 10 budgets on real documents.
+
+The first-party versus `perfect-freehand` outliner decision the Phase 0 contract
+defers to this phase **remains open**, for the same reason: it is a visual
+judgement that needs a real pen.
 
 ### Phase 4: Mobile And Tablet Editor
 

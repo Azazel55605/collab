@@ -1,0 +1,248 @@
+/**
+ * Moving, scaling, and rotating ink objects.
+ *
+ * Transforms are **baked into the geometry** rather than stored as a matrix on
+ * the object. The schema has a `transform` field and this deliberately does not
+ * use it: bounds, hit testing, the spatial index, the tile cache, and both
+ * exporters all read coordinates directly, so a stored matrix would mean five
+ * separate places learning to compose it, and any one of them forgetting is a
+ * stroke that draws in one place and selects in another.
+ *
+ * Baking costs a rewrite of the sample arrays per transform. That is cheap —
+ * the arrays are small integers, and a drag commits once on pointer-up, not per
+ * frame.
+ */
+
+import { INK_LIMITS } from '../../types/ink';
+import type { InkBounds, InkObject, InkSample } from '../../types/ink';
+import { decodeSamples, encodeSamples } from './codec';
+
+/** A 2D affine map, applied as `[x', y'] = [a·x + c·y + e, b·x + d·y + f]`. */
+export interface InkAffine {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  e: number;
+  f: number;
+}
+
+export const INK_IDENTITY: InkAffine = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+
+export function translation(dx: number, dy: number): InkAffine {
+  return { a: 1, b: 0, c: 0, d: 1, e: dx, f: dy };
+}
+
+/** Scale about a fixed point, so a resize handle drags against its opposite corner. */
+export function scaleAbout(
+  originX: number,
+  originY: number,
+  scaleX: number,
+  scaleY: number,
+): InkAffine {
+  return {
+    a: scaleX,
+    b: 0,
+    c: 0,
+    d: scaleY,
+    e: originX - originX * scaleX,
+    f: originY - originY * scaleY,
+  };
+}
+
+/** Rotate about a fixed point. `radians` is clockwise in screen coordinates. */
+export function rotationAbout(originX: number, originY: number, radians: number): InkAffine {
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  return {
+    a: cos,
+    b: sin,
+    c: -sin,
+    d: cos,
+    e: originX - originX * cos + originY * sin,
+    f: originY - originX * sin - originY * cos,
+  };
+}
+
+export function composeAffine(first: InkAffine, second: InkAffine): InkAffine {
+  return {
+    a: second.a * first.a + second.c * first.b,
+    b: second.b * first.a + second.d * first.b,
+    c: second.a * first.c + second.c * first.d,
+    d: second.b * first.c + second.d * first.d,
+    e: second.a * first.e + second.c * first.f + second.e,
+    f: second.b * first.e + second.d * first.f + second.f,
+  };
+}
+
+export function applyAffine(
+  transform: InkAffine,
+  x: number,
+  y: number,
+): { x: number; y: number } {
+  return {
+    x: transform.a * x + transform.c * y + transform.e,
+    y: transform.b * x + transform.d * y + transform.f,
+  };
+}
+
+/**
+ * Uniform scale factor of a transform.
+ *
+ * Used to scale stroke width with the object. Taken as the geometric mean of
+ * the two axis scales so a non-uniform resize still widens the line sensibly
+ * rather than picking one axis arbitrarily — ink has no notion of a
+ * differently-scaled x and y line width.
+ */
+export function affineScale(transform: InkAffine): number {
+  const determinant = Math.abs(transform.a * transform.d - transform.b * transform.c);
+  return Math.sqrt(determinant) || 1;
+}
+
+function clampCoordinate(value: number): number {
+  return Math.max(-INK_LIMITS.worldExtent, Math.min(INK_LIMITS.worldExtent, Math.round(value)));
+}
+
+function transformSamples(samples: InkSample[], transform: InkAffine): InkSample[] {
+  return samples.map((sample) => {
+    const point = applyAffine(transform, sample.x, sample.y);
+    // Pressure, tilt, twist, and time are properties of how the stroke was
+    // drawn, not of where it sits. Moving a stroke must not restyle it.
+    return { ...sample, x: clampCoordinate(point.x), y: clampCoordinate(point.y) };
+  });
+}
+
+/**
+ * Applies a transform to one object, returning a new object.
+ *
+ * Groups are not transformed here: the caller expands a selection to its
+ * members first, so every member moves and the group record — which holds only
+ * ids — needs no change.
+ */
+export function transformObject(object: InkObject, transform: InkAffine): InkObject {
+  const scale = affineScale(transform);
+
+  switch (object.type) {
+    case 'stroke': {
+      const samples = transformSamples(decodeSamples(object.samples), transform);
+      return {
+        ...object,
+        samples: encodeSamples(samples),
+        brush: { ...object.brush, width: Math.max(1, object.brush.width * scale) },
+        bounds: undefined,
+      };
+    }
+    case 'shape': {
+      const points = [...object.points];
+      for (let index = 0; index + 1 < points.length; index += 2) {
+        const moved = applyAffine(transform, points[index], points[index + 1]);
+        points[index] = clampCoordinate(moved.x);
+        points[index + 1] = clampCoordinate(moved.y);
+      }
+      return {
+        ...object,
+        points,
+        stroke: { ...object.stroke, width: Math.max(1, object.stroke.width * scale) },
+        bounds: undefined,
+      };
+    }
+    case 'connector': {
+      const from = applyAffine(transform, object.from.x, object.from.y);
+      const to = applyAffine(transform, object.to.x, object.to.y);
+      return {
+        ...object,
+        from: { ...object.from, x: clampCoordinate(from.x), y: clampCoordinate(from.y) },
+        to: { ...object.to, x: clampCoordinate(to.x), y: clampCoordinate(to.y) },
+        bounds: undefined,
+      };
+    }
+    case 'text':
+    case 'image':
+    case 'stamp': {
+      const origin = applyAffine(transform, object.x, object.y);
+      const next = {
+        ...object,
+        x: clampCoordinate(origin.x),
+        y: clampCoordinate(origin.y),
+        width: Math.max(0, object.width * scale),
+        height: Math.max(0, object.height * scale),
+        bounds: undefined,
+      };
+      // Type size follows the box, or scaling a sticky note leaves its text
+      // the same size in a bigger frame.
+      if (next.type === 'text') next.fontSize = Math.max(1, next.fontSize * scale);
+      return next;
+    }
+    default:
+      return object;
+  }
+}
+
+/** The transform that maps one rectangle onto another. */
+export function boundsToBounds(from: InkBounds, to: InkBounds): InkAffine {
+  const fromWidth = from.maxX - from.minX;
+  const fromHeight = from.maxY - from.minY;
+  const scaleX = fromWidth === 0 ? 1 : (to.maxX - to.minX) / fromWidth;
+  const scaleY = fromHeight === 0 ? 1 : (to.maxY - to.minY) / fromHeight;
+  return {
+    a: scaleX,
+    b: 0,
+    c: 0,
+    d: scaleY,
+    e: to.minX - from.minX * scaleX,
+    f: to.minY - from.minY * scaleY,
+  };
+}
+
+/** Which handle of a selection box a resize is dragging. */
+export type InkResizeHandle =
+  | 'nw' | 'n' | 'ne'
+  | 'w' | 'e'
+  | 'sw' | 's' | 'se';
+
+/**
+ * The bounds a resize drag produces.
+ *
+ * The handle opposite the one being dragged stays fixed, which is what makes a
+ * resize feel anchored. `uniform` locks the aspect ratio.
+ */
+export function resizeBounds(
+  bounds: InkBounds,
+  handle: InkResizeHandle,
+  dx: number,
+  dy: number,
+  uniform = false,
+): InkBounds {
+  let { minX, minY, maxX, maxY } = bounds;
+
+  if (handle.includes('w')) minX += dx;
+  if (handle.includes('e')) maxX += dx;
+  if (handle.includes('n')) minY += dy;
+  if (handle.includes('s')) maxY += dy;
+
+  if (uniform) {
+    const width = bounds.maxX - bounds.minX;
+    const height = bounds.maxY - bounds.minY;
+    if (width > 0 && height > 0) {
+      const ratio = Math.max(
+        Math.abs(maxX - minX) / width,
+        Math.abs(maxY - minY) / height,
+      );
+      const nextWidth = width * ratio;
+      const nextHeight = height * ratio;
+      if (handle.includes('w')) minX = maxX - nextWidth;
+      else maxX = minX + nextWidth;
+      if (handle.includes('n')) minY = maxY - nextHeight;
+      else maxY = minY + nextHeight;
+    }
+  }
+
+  // A drag past the opposite edge flips the box rather than inverting it: an
+  // inverted rectangle would make every downstream bounds check silently false.
+  return {
+    minX: Math.min(minX, maxX),
+    minY: Math.min(minY, maxY),
+    maxX: Math.max(minX, maxX),
+    maxY: Math.max(minY, maxY),
+  };
+}

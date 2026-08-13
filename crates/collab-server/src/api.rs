@@ -16146,4 +16146,150 @@ mod tests {
 
         assert_eq!(load_backup_last_run(dir.path()), None);
     }
+    #[tokio::test]
+    async fn hosted_ink_drawings_are_a_first_class_document_type() {
+        // Regression: `hosted_document_type` is a PostgreSQL enum, so adding
+        // `HostedDocumentType::Ink` in Rust was not enough — the server
+        // rejected every `.ink` upload until migration 0028 added the value.
+        let Ok(url) = std::env::var("COLLAB_TEST_DATABASE_URL") else {
+            return;
+        };
+        let _db_guard = crate::database::db_test_guard().lock().await;
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&url)
+            .await
+            .unwrap();
+        database::migrate(&pool).await.unwrap();
+        sqlx::query(
+            "TRUNCATE audit_events, invitations, native_sessions, sessions, credentials, users, hosted_blobs RESTART IDENTITY CASCADE",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        reseed_builtin_templates(&pool).await;
+        let blobs = Arc::new(
+            FileSystemBlobStorage::new(tempfile::tempdir().unwrap().keep())
+                .await
+                .unwrap(),
+        );
+        let app = build_router(AppState::new(ServerConfig::default(), pool.clone(), blobs));
+
+        let bootstrap = request(
+            &app,
+            "POST",
+            "/api/v1/auth/bootstrap",
+            json!({"username": "owner", "displayName": "Owner", "password": "correct horse battery staple"}),
+            None,
+            None,
+        )
+        .await;
+        let (cookie, csrf) = session_cookies(&bootstrap);
+
+        let vault = request(
+            &app,
+            "POST",
+            "/api/v1/vaults",
+            json!({"name": "Sketchbook"}),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        let vault_id = json_body(vault).await["data"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        let drawing = json!({
+            "kind": "collab-ink",
+            "schemaVersion": 1,
+            "id": "doc-1",
+            "name": "Idea",
+            "settings": {"defaultPageMode": "fixed", "defaultBackground": {"pattern": "blank"}},
+            "pages": {"page-1": {
+                "id": "page-1",
+                "mode": "fixed",
+                "width": 38098,
+                "height": 53881,
+                "background": {"pattern": "ruled"},
+                "scene": {
+                    "layers": {"layer-1": {"id": "layer-1", "name": "Layer 1", "visible": true, "locked": false, "opacity": 1}},
+                    "layerOrder": ["layer-1"],
+                    "objects": {"img-1": {
+                        "id": "img-1", "type": "image", "layerId": "layer-1",
+                        "x": 0, "y": 0, "width": 1000, "height": 1000,
+                        "relativePath": "Pictures/reference.png"
+                    }},
+                    "objectOrder": ["img-1"]
+                }
+            }},
+            "pageOrder": ["page-1"],
+            "brushes": {},
+            "swatches": []
+        });
+
+        let created = request(
+            &app,
+            "POST",
+            &format!("/api/v1/vaults/{vault_id}/files"),
+            json!({
+                "name": "Idea.ink",
+                "kind": "document",
+                "documentType": "ink",
+                "content": drawing.to_string()
+            }),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        assert_eq!(
+            created.status(),
+            StatusCode::CREATED,
+            "the server must accept a .ink document"
+        );
+        let created_body = json_body(created).await;
+        assert_eq!(created_body["data"]["documentType"], json!("ink"));
+
+        // The manifest reports it as ink, so clients route it to the drawing
+        // editor rather than opening it as note text.
+        let manifest = request(
+            &app,
+            "GET",
+            &format!("/api/v1/vaults/{vault_id}/manifest"),
+            json!({}),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        let manifest_body = json_body(manifest).await;
+        let entry = manifest_body["data"]["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|file| file["name"] == json!("Idea.ink"))
+            .expect("the drawing is in the manifest");
+        assert_eq!(entry["documentType"], json!("ink"));
+
+        // A malformed drawing is refused by the shared trust boundary rather
+        // than stored for a client to choke on later.
+        let malformed = request(
+            &app,
+            "POST",
+            &format!("/api/v1/vaults/{vault_id}/files"),
+            json!({
+                "name": "Broken.ink",
+                "kind": "document",
+                "documentType": "ink",
+                "content": json!({"kind": "collab-ink", "schemaVersion": 1}).to_string()
+            }),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        assert_eq!(
+            malformed.status(),
+            StatusCode::BAD_REQUEST,
+            "a structurally invalid drawing must be rejected"
+        );
+    }
 }

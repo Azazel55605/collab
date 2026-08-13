@@ -111,6 +111,7 @@ pub(crate) enum WidgetEntryKind {
     Board,
     Canvas,
     Sheet,
+    Drawing,
     Pdf,
     Folder,
     File,
@@ -125,6 +126,7 @@ impl WidgetEntryKind {
             Self::Board => "Board",
             Self::Canvas => "Canvas",
             Self::Sheet => "Sheet",
+            Self::Drawing => "Drawing",
             Self::Pdf => "PDF",
             Self::Folder => "Folder",
             Self::File => "File",
@@ -2375,6 +2377,7 @@ fn entry_kind_for(entry: &collab_protocol::HostedFileEntry) -> WidgetEntryKind {
             Some(HostedDocumentType::Kanban) => WidgetEntryKind::Board,
             Some(HostedDocumentType::Canvas) => WidgetEntryKind::Canvas,
             Some(HostedDocumentType::Sheet) => WidgetEntryKind::Sheet,
+            Some(HostedDocumentType::Ink) => WidgetEntryKind::Drawing,
             None => WidgetEntryKind::File,
         },
         HostedFileKind::Asset => {
@@ -5166,6 +5169,49 @@ mod tests {
             trashed_at: None,
             created_at: "2026-07-01T00:00:00Z".into(),
             updated_at: updated_at.into(),
+        }
+    }
+
+    #[test]
+    fn every_hosted_document_type_has_its_own_shortcut_icon() {
+        // A new document type that is not mapped here compiles (the match would
+        // fail, which is how `.ink` was caught) but the *Kotlin* allow-list is
+        // the half that fails silently: an unknown kind is dropped and the row
+        // falls back to the generic bullet. Pin the pairs so both halves move
+        // together.
+        use collab_protocol::{HostedDocumentType, HostedFileKind, HostedFileState};
+
+        let cases = [
+            (HostedDocumentType::Note, WidgetEntryKind::Note, "note"),
+            (HostedDocumentType::Kanban, WidgetEntryKind::Board, "board"),
+            (HostedDocumentType::Canvas, WidgetEntryKind::Canvas, "canvas"),
+            (HostedDocumentType::Sheet, WidgetEntryKind::Sheet, "sheet"),
+            (HostedDocumentType::Ink, WidgetEntryKind::Drawing, "drawing"),
+        ];
+
+        let kotlin = include_str!(
+            "../gen/android/app/src/main/java/com/azazel/collab/companion/CollabAgendaWidget.kt"
+        );
+
+        for (document_type, expected, serialized) in cases {
+            let entry = hosted_entry(
+                "f1",
+                "file",
+                HostedFileKind::Document,
+                Some(document_type),
+                HostedFileState::Active,
+                "2026-07-01T00:00:00Z",
+            );
+            assert_eq!(entry_kind_for(&entry), expected, "{serialized}");
+            assert_eq!(
+                serde_json::to_value(expected).unwrap(),
+                serde_json::Value::String(serialized.to_string()),
+                "the serialized name Kotlin matches on"
+            );
+            assert!(
+                kotlin.contains(&format!("\"{serialized}\"")),
+                "Kotlin drops \"{serialized}\" as an unknown entry kind"
+            );
         }
     }
 
