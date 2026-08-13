@@ -12,7 +12,7 @@ import type { HostedFileEntry } from './types';
  * mirrors what the clients route to a viewer (raster images, SVG, PDF). Keep
  * them aligned when a new editor or viewer ships.
  */
-const DOCUMENT_EXTENSIONS = ['md', 'markdown', 'kanban', 'canvas', 'logic', 'sheet', 'svg'];
+const DOCUMENT_EXTENSIONS = ['md', 'markdown', 'kanban', 'canvas', 'logic', 'sheet', 'ink', 'svg'];
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif', 'svg'];
 const VIEWABLE_ASSET_EXTENSIONS = [...IMAGE_EXTENSIONS, 'pdf'];
 

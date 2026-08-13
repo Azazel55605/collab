@@ -4650,6 +4650,12 @@ pub async fn list_file_references(
                 &target_path,
             )
             .unwrap_or_default(),
+            HostedDocumentType::Ink => collab_documents::references::collect_ink_references(
+                &content,
+                &file.relative_path,
+                &target_path,
+            )
+            .unwrap_or_default(),
         };
         for reference in collected {
             let referenced_file_id = path_ids
@@ -5171,6 +5177,10 @@ async fn compute_reference_rewrites(
             .ok(),
             HostedDocumentType::Sheet => {
                 collab_documents::references::rewrite_sheet_references(&content, old_path, new_path)
+                    .ok()
+            }
+            HostedDocumentType::Ink => {
+                collab_documents::references::rewrite_ink_references(&content, old_path, new_path)
                     .ok()
             }
         };
@@ -10380,6 +10390,7 @@ fn document_type_name(document_type: HostedDocumentType) -> &'static str {
         HostedDocumentType::Kanban => "kanban",
         HostedDocumentType::Canvas => "canvas",
         HostedDocumentType::Sheet => "sheet",
+        HostedDocumentType::Ink => "ink",
     }
 }
 
@@ -10388,6 +10399,7 @@ fn parse_document_type(document_type: Option<String>) -> Option<HostedDocumentTy
         "kanban" => HostedDocumentType::Kanban,
         "canvas" => HostedDocumentType::Canvas,
         "sheet" => HostedDocumentType::Sheet,
+        "ink" => HostedDocumentType::Ink,
         _ => HostedDocumentType::Note,
     })
 }
@@ -10736,6 +10748,7 @@ fn validate_file_kind(
                 HostedDocumentType::Kanban => collab_documents::DocumentKind::Kanban,
                 HostedDocumentType::Canvas => collab_documents::DocumentKind::Canvas,
                 HostedDocumentType::Sheet => collab_documents::DocumentKind::Sheet,
+                HostedDocumentType::Ink => collab_documents::DocumentKind::Ink,
             };
             let kind = collab_documents::classify_path(name).unwrap_or(fallback_kind);
             collab_documents::validate(

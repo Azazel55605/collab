@@ -769,3 +769,145 @@ mod tests {
         assert!(!is_vault_relative_path("C:/Windows/x.png"));
     }
 }
+
+#[cfg(test)]
+mod reference_tests {
+    use crate::references::{collect_ink_references, rewrite_ink_references};
+    use serde_json::{json, Value};
+
+    fn drawing(paths: &[&str]) -> String {
+        let mut objects = serde_json::Map::new();
+        let mut order = Vec::new();
+        for (index, path) in paths.iter().enumerate() {
+            let id = format!("img-{index}");
+            objects.insert(
+                id.clone(),
+                json!({
+                    "id": id,
+                    "type": "image",
+                    "layerId": "layer-1",
+                    "x": 0, "y": 0, "width": 100, "height": 100,
+                    "relativePath": path,
+                }),
+            );
+            order.push(Value::String(id));
+        }
+        // A stroke, to prove reference collection ignores everything that is
+        // not an image rather than tripping over it.
+        objects.insert(
+            "s1".into(),
+            json!({
+                "id": "s1", "type": "stroke", "layerId": "layer-1",
+                "brush": { "kind": "ballpoint", "color": "#000", "opacity": 1, "width": 96,
+                           "thinning": 0.5, "smoothing": 0.5, "streamline": 0.4,
+                           "taperStart": 0, "taperEnd": 0 },
+                "samples": { "x": [0, 1], "y": [0, 1] }
+            }),
+        );
+        order.push(Value::String("s1".into()));
+
+        json!({
+            "kind": "collab-ink",
+            "schemaVersion": 1,
+            "id": "doc", "name": "Drawing",
+            "pages": { "page-1": {
+                "id": "page-1", "mode": "fixed", "width": 38098, "height": 53881,
+                "background": { "pattern": "blank" },
+                "scene": {
+                    "layers": { "layer-1": { "id": "layer-1", "name": "L", "visible": true, "locked": false, "opacity": 1 } },
+                    "layerOrder": ["layer-1"],
+                    "objects": objects,
+                    "objectOrder": order,
+                }
+            }},
+            "pageOrder": ["page-1"],
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn collects_image_references_and_ignores_strokes() {
+        let content = drawing(&["Pictures/a.png", "Pictures/b.png"]);
+        let found = collect_ink_references(&content, "Sketches/Idea.ink", "Pictures").unwrap();
+        assert_eq!(found.len(), 2);
+        assert!(found
+            .iter()
+            .all(|reference| reference.source_document_type == "ink"));
+        assert!(found
+            .iter()
+            .all(|reference| reference.reference_kind == "ink-image"));
+    }
+
+    #[test]
+    fn ignores_images_outside_the_queried_target() {
+        let content = drawing(&["Pictures/a.png", "Elsewhere/b.png"]);
+        let found = collect_ink_references(&content, "Sketches/Idea.ink", "Pictures/a.png").unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].referenced_relative_path, "Pictures/a.png");
+    }
+
+    #[test]
+    fn rewrites_a_moved_image_path() {
+        let content = drawing(&["Pictures/a.png"]);
+        let rewritten =
+            rewrite_ink_references(&content, "Pictures/a.png", Some("Media/a.png")).unwrap();
+        let value: Value = serde_json::from_str(&rewritten).unwrap();
+        assert_eq!(
+            value["pages"]["page-1"]["scene"]["objects"]["img-0"]["relativePath"],
+            json!("Media/a.png")
+        );
+    }
+
+    #[test]
+    fn rewrites_a_moved_folder_for_every_image_beneath_it() {
+        let content = drawing(&["Pictures/a.png", "Pictures/nested/b.png"]);
+        let rewritten = rewrite_ink_references(&content, "Pictures", Some("Media")).unwrap();
+        let value: Value = serde_json::from_str(&rewritten).unwrap();
+        let objects = &value["pages"]["page-1"]["scene"]["objects"];
+        assert_eq!(objects["img-0"]["relativePath"], json!("Media/a.png"));
+        assert_eq!(objects["img-1"]["relativePath"], json!("Media/nested/b.png"));
+    }
+
+    #[test]
+    fn removes_a_deleted_image_from_objects_and_from_objectorder_together() {
+        // Leaving the id in `objectOrder` with no object behind it is exactly
+        // the corruption the normalizer then has to repair.
+        let content = drawing(&["Pictures/a.png", "Pictures/b.png"]);
+        let rewritten = rewrite_ink_references(&content, "Pictures/a.png", None).unwrap();
+        let value: Value = serde_json::from_str(&rewritten).unwrap();
+        let scene = &value["pages"]["page-1"]["scene"];
+
+        assert!(scene["objects"].get("img-0").is_none());
+        assert!(scene["objects"].get("img-1").is_some());
+        let order: Vec<&str> = scene["objectOrder"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry.as_str().unwrap())
+            .collect();
+        assert!(!order.contains(&"img-0"));
+        assert!(order.contains(&"img-1"));
+        assert!(order.contains(&"s1"));
+    }
+
+    #[test]
+    fn leaves_unrelated_images_alone() {
+        let content = drawing(&["Elsewhere/b.png"]);
+        let rewritten =
+            rewrite_ink_references(&content, "Pictures/a.png", Some("Media/a.png")).unwrap();
+        let value: Value = serde_json::from_str(&rewritten).unwrap();
+        assert_eq!(
+            value["pages"]["page-1"]["scene"]["objects"]["img-0"]["relativePath"],
+            json!("Elsewhere/b.png")
+        );
+    }
+
+    #[test]
+    fn a_drawing_with_no_images_round_trips_unchanged() {
+        let content = drawing(&[]);
+        let rewritten = rewrite_ink_references(&content, "Pictures/a.png", None).unwrap();
+        let before: Value = serde_json::from_str(&content).unwrap();
+        let after: Value = serde_json::from_str(&rewritten).unwrap();
+        assert_eq!(before, after);
+    }
+}

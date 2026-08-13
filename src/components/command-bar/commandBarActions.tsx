@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Link2,
   ListTodo,
+  PenLine,
   Settings,
   Shapes,
   Table2,
@@ -25,6 +26,7 @@ import type { NoteMetadata, SearchResult } from '../../types/note';
 import type { NoteFile, VaultMeta } from '../../types/vault';
 import { createEmptyLogicDiagram } from '../../types/logicDiagram';
 import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
+import { createInkDocument, serializeInkDocument } from '../../lib/ink/document';
 
 export interface RenderCtx {
   notes: NoteMetadata[];
@@ -33,7 +35,7 @@ export interface RenderCtx {
   activeView: ActiveView;
   vault: VaultMeta | null;
   dateFormat: DateFormat;
-  openTab: (relativePath: string, title: string, type?: 'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'graph' | 'settings' | 'image' | 'pdf') => void;
+  openTab: (relativePath: string, title: string, type?: 'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'graph' | 'settings' | 'image' | 'pdf') => void;
   setActiveView: (v: ActiveView) => void;
   openSettings: () => void;
   refreshFileTree: () => Promise<void>;
@@ -196,6 +198,30 @@ export const ACTIONS: Action[] = [
         ctx.setActiveView('editor');
       } catch (e) {
         toast.error('Failed to create spreadsheet: ' + e);
+      }
+      ctx.close();
+    },
+  },
+  {
+    id: 'new-drawing',
+    keywords: ['new drawing', 'create drawing', 'handwriting', 'sketch', 'ink', 'draw', 'notebook'],
+    label: 'New Drawing',
+    icon: <PenLine className="size-4 shrink-0" />,
+    onSelect: async (ctx, query) => {
+      const rawName = query.replace(/^new\s+(?:drawing|sketch|ink)\s*/i, '').trim() || 'Drawing';
+      const name = rawName.replace(/\.ink$/i, '');
+      if (!ctx.vault) return;
+      try {
+        const client = createVaultClient(ctx.vault);
+        const file = await client.createDocument(`${name}.ink`);
+        const created = await client.readDocument(file.relativePath);
+        const content = serializeInkDocument(createInkDocument({ name }));
+        await client.writeDocument(file.relativePath, content, created.version, created.content);
+        await ctx.refreshFileTree();
+        ctx.openTab(file.relativePath, name, 'ink');
+        ctx.setActiveView('editor');
+      } catch (e) {
+        toast.error('Failed to create drawing: ' + e);
       }
       ctx.close();
     },

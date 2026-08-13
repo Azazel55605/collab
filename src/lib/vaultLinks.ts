@@ -4,7 +4,7 @@ import type { NoteFile } from '../types/vault';
 const ABSOLUTE_URL_RE = /^(?:[a-z][a-z\d+.-]*:|\/\/)/i;
 const IMAGE_EXT_RE = /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i;
 
-export type VaultDocumentTabType = 'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'image' | 'pdf';
+export type VaultDocumentTabType = 'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'image' | 'pdf';
 
 export interface VaultLinkTarget {
   relativePath: string;
@@ -89,6 +89,7 @@ export function getVaultDocumentTabType(relativePath: string): VaultDocumentTabT
   if (/\.pdf$/i.test(relativePath)) return 'pdf';
   if (/\.logic$/i.test(relativePath)) return 'logic';
   if (/\.sheet$/i.test(relativePath)) return 'sheet';
+  if (/\.ink$/i.test(relativePath)) return 'ink';
   if (/\.kanban$/i.test(relativePath)) return 'kanban';
   if (/\.canvas$/i.test(relativePath)) return 'canvas';
   return 'note';

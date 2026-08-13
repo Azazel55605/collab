@@ -2,9 +2,11 @@
 
 ## Status
 
-Phase 0 is complete except for its physical-device gate. Phase 1 is complete:
-the shared ink domain, its Rust trust boundary, and its fixtures exist and are
-tested, with no user-visible surface yet. Phases 2-11 have not started.
+Phase 0 is complete except for its physical-device gate. Phases 1 and 2 are
+complete: the shared ink domain, its Rust trust boundary, and the full `.ink`
+vault lifecycle exist and are tested. A user can create, open, navigate, and
+save a drawing today — but cannot yet draw in it, which is Phase 3.
+Phases 3-11 have not started.
 
 The frozen contract, the measured baselines, and the open device gate are in
 `docs/plans/digital-ink-phase0-contract.md`.
@@ -689,7 +691,7 @@ Target behaviors:
 | --- | --- | --- |
 | 0. Contract and input/renderer proofs | Complete, device gate open | Freeze `.ink`, prove cross-device capture, low-latency pressure rendering, bounded storage, and deterministic export. |
 | 1. Shared ink domain | Complete | Implement the schema, migrations, operations, spatial index, stroke adapter, renderer, and export scene. |
-| 2. Native `.ink` lifecycle | Not started | Add New Drawing creation, vault routing, tabs, revisions, snapshots, references, status, and local/hosted persistence. |
+| 2. Native `.ink` lifecycle | Complete | Add New Drawing creation, vault routing, tabs, revisions, snapshots, references, status, and local/hosted persistence. |
 | 3. Core desktop editor | Not started | Deliver pens, erasers, selection, transforms, pages, layers, history, clipboard, and drawing-tablet operation. |
 | 4. Mobile and tablet editor | Not started | Deliver adaptive touch/pen UI, gestures, palm policy, rotation/process recovery, and physical-device validation. |
 | 5. Advanced tools | Not started | Add geometry, recognition, guides, precision tools, text, images, symbols, links, and templates. |
@@ -762,16 +764,42 @@ phase a user can see.
 
 ### Phase 2: Native `.ink` Lifecycle
 
-- Add **New Drawing** to every normal create surface.
-- Add creation presets and reusable templates.
-- Add file-tree icon, tab kind, deep links, duplication, history, snapshots,
-  trash, search, command bar, and routing to `InkView`.
-- Add loading/saving through `VaultClient` and
-  `DocumentSessionController`.
-- Add hosted document classification and offline replica storage.
-- Add asset/reference collection and rename/move/trash rewrites.
-- Persist only device-local viewport/tool state in `editorStore`/`uiStore`.
-- Register save/sync/conflict state in the shared status bar.
+Complete. A `.ink` document is now an ordinary vault document everywhere the app
+handles documents. The surface itself is display-and-navigate only; the tools
+arrive in Phase 3.
+
+- [x] **New Drawing** on the Files sidebar header, the folder context menu, and
+      the command bar.
+- [x] Creation presets: paper (blank, ruled, graph, dotted, staff, storyboard),
+      fixed page versus infinite canvas, A4/A5/Letter/Legal/4:3/16:9, and
+      landscape — chosen at creation through `NewDrawingDialog`, and all of it
+      ordinary document content that stays editable afterwards. **Reusable
+      user-saved templates are not in this phase**; the plan already schedules
+      document templates in Phase 5, and they land there.
+- [x] File-tree icon, `ink` tab kind, link resolution, duplication, history and
+      snapshots (`.ink` is text-backed, so the shared snapshot mechanism
+      applies), trash, search, and routing to `InkView`.
+- [x] Loading and saving through `VaultClient` and `DocumentSessionController`
+      (`useInkSession`), including the optimistic-write conflict path and the
+      offline-queued path.
+- [x] Hosted document classification (`HostedDocumentType::Ink`) end to end:
+      protocol, server persistence, validation dispatch, and the admin app.
+      Offline replica storage needs no per-type work — it stores documents by
+      stable file id.
+- [x] Asset/reference collection and rename/move/trash rewrites
+      (`collect_ink_references` / `rewrite_ink_references`). Image objects are a
+      drawing's only reference surface; a deleted target removes the object from
+      `objects` **and** `objectOrder` together.
+- [x] Device-local viewport/page state in `editorStore.inkViewStates`, never in
+      the document — one person's scroll position must not be a change every
+      collaborator merges.
+- [x] Save/sync/conflict state registered in the shared status bar through
+      `useDocumentStatusRegistration`.
+
+Deliberately deferred: live co-editing (Phase 6 owns `LiveDocumentKind::Ink`),
+so `.ink` uses the REST optimistic-write path. A concurrent edit surfaces as a
+conflict rather than being text-merged — interleaving two drawings' sample
+arrays would produce something that parses and is not what either person drew.
 
 ### Phase 3: Core Desktop Editor
 

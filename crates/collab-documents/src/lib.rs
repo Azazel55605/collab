@@ -337,6 +337,11 @@ pub fn references(
             query.source_path,
             query.target_path,
         )?),
+        DocumentKind::Ink => Ok(references::collect_ink_references(
+            content,
+            query.source_path,
+            query.target_path,
+        )?),
         _ => Ok(Vec::new()),
     }
 }
@@ -364,6 +369,9 @@ pub fn rewrite_references(
         }
         DocumentKind::Sheet => {
             references::rewrite_sheet_references(content, rewrite.old_path, rewrite.new_path)?
+        }
+        DocumentKind::Ink => {
+            references::rewrite_ink_references(content, rewrite.old_path, rewrite.new_path)?
         }
         _ => content.to_owned(),
     };

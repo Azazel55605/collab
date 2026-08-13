@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Trash2, CircuitBoard, FilePlus, FolderPlus, Pencil, Layout, LayoutDashboard, Table2 } from 'lucide-react';
+import { Trash2, CircuitBoard, FilePlus, FolderPlus, Pencil, Layout, LayoutDashboard, PenLine, Table2 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter,
@@ -104,7 +104,7 @@ export function ConfirmDeleteDialog({
 
 // ─── Input (create / rename) ──────────────────────────────────────────────────
 
-type InputDialogVariant = 'create-note' | 'create-folder' | 'rename' | 'create-canvas' | 'create-kanban' | 'create-logic' | 'create-sheet' | 'create-template';
+type InputDialogVariant = 'create-note' | 'create-folder' | 'rename' | 'create-canvas' | 'create-kanban' | 'create-logic' | 'create-sheet' | 'create-ink' | 'create-template';
 
 const VARIANT_META: Record<InputDialogVariant, {
   icon: React.ReactNode;
@@ -160,6 +160,13 @@ const VARIANT_META: Record<InputDialogVariant, {
     title: 'New spreadsheet',
     label: 'Spreadsheet name',
     placeholder: 'Untitled Spreadsheet',
+    confirm: 'Create',
+  },
+  'create-ink': {
+    icon: <PenLine size={16} />,
+    title: 'New drawing',
+    label: 'Drawing name',
+    placeholder: 'Untitled Drawing',
     confirm: 'Create',
   },
   'create-template': {

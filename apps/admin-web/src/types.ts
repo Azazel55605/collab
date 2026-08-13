@@ -328,7 +328,7 @@ export interface HostedFileEntry {
   name: string;
   relativePath: string;
   kind: HostedFileKind;
-  documentType: 'note' | 'kanban' | 'canvas' | 'sheet' | null;
+  documentType: 'note' | 'kanban' | 'canvas' | 'sheet' | 'ink' | null;
   state: HostedFileState;
   currentRevision: HostedFileRevision | null;
   trashedByDisplayName?: string | null;

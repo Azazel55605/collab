@@ -736,6 +736,7 @@ pub enum HostedDocumentType {
     Kanban,
     Canvas,
     Sheet,
+    Ink,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

@@ -164,6 +164,20 @@ describe('vaultLinks', () => {
   });
 });
 
+describe('ink drawings', () => {
+  it('routes .ink paths to the ink tab type', () => {
+    expect(getVaultDocumentTabType('Sketches/idea.ink')).toBe('ink');
+    expect(getVaultDocumentTabType('Sketches/IDEA.INK')).toBe('ink');
+    expect(getVaultDocumentView('ink')).toBe('editor');
+  });
+
+  it('does not confuse an .ink drawing with an .svg vector file', () => {
+    // Both are drawings; only one is the editable ink document.
+    expect(getVaultDocumentTabType('Sketches/idea.svg')).toBe('image');
+    expect(getVaultDocumentTabType('Sketches/idea.ink')).toBe('ink');
+  });
+});
+
 describe('spreadsheet documents', () => {
   it('routes .sheet paths to the sheet tab type', () => {
     expect(getVaultDocumentTabType('Docs/budget.sheet')).toBe('sheet');

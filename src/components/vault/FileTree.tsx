@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react';
 import {
   ChevronRight, ChevronDown, CircuitBoard, FileText, Folder, FolderOpen,
   Plus, FolderPlus, FileUp, Layout, LayoutDashboard, Paperclip, Image as ImageIcon, Trash2,
-  Download, FolderSearch, Table2,
+  Download, FolderSearch, PenLine, Table2,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useVaultStore } from '../../store/vaultStore';
@@ -37,6 +37,8 @@ import { VersionHistoryModal } from '../collaboration/history/VersionHistoryModa
 import { supportsVersionHistoryRelativePath } from '../collaboration/history/historyUtils';
 import { createEmptyLogicDiagram } from '../../types/logicDiagram';
 import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
+import { createInkDocument, serializeInkDocument } from '../../lib/ink/document';
+import NewDrawingDialog, { type NewDrawingChoice } from '../ink/NewDrawingDialog';
 import { isTextDocumentPath, nextAvailableCopyPath } from '../../lib/vaultDuplicate';
 import { flattenVaultFiles } from '../../lib/vaultLinks';
 
@@ -47,6 +49,7 @@ type DialogState =
   | { type: 'create-note'; parentPath?: string }
   | { type: 'create-logic'; parentPath?: string }
   | { type: 'create-sheet'; parentPath?: string }
+  | { type: 'create-ink'; parentPath?: string }
   | { type: 'create-folder'; parentPath?: string };
 
 interface TaskAttachmentRef {
@@ -290,6 +293,38 @@ export default function FileTree() {
   const handleCreateSheet = useCallback((parentPath?: string) => {
     setDialog({ type: 'create-sheet', parentPath });
   }, []);
+
+  const handleCreateInk = useCallback((parentPath?: string) => {
+    setDialog({ type: 'create-ink', parentPath });
+  }, []);
+
+  const createDrawing = useCallback(async (choice: NewDrawingChoice) => {
+    const parentPath = dialog.type === 'create-ink' ? dialog.parentPath : undefined;
+    setDialog({ type: 'none' });
+    if (!vault) return;
+    const stem = choice.name.replace(/\.ink$/i, '');
+    const relativePath = parentPath ? `${parentPath}/${stem}.ink` : `${stem}.ink`;
+    try {
+      const client = createVaultClient(vault);
+      await client.createDocument(relativePath);
+      const created = await client.readDocument(relativePath);
+      await client.writeDocument(
+        relativePath,
+        serializeInkDocument(createInkDocument({
+          name: stem,
+          mode: choice.mode,
+          preset: choice.preset,
+          landscape: choice.landscape,
+          background: { pattern: choice.pattern },
+        })),
+        created.version,
+        created.content,
+      );
+      await refreshFileTree();
+      openTab(relativePath, stem, 'ink');
+      setActiveView('editor');
+    } catch (e) { toast.error('Failed to create drawing: ' + e); }
+  }, [dialog, openTab, refreshFileTree, setActiveView, vault]);
 
   const handleCreateFolder = useCallback((parentPath?: string) => {
     setDialog({ type: 'create-folder', parentPath });
@@ -760,6 +795,11 @@ export default function FileTree() {
         onConfirm={dialog.type === 'rename' ? confirmRename : confirmCreate}
         onCancel={() => setDialog({ type: 'none' })}
       />
+      <NewDrawingDialog
+        open={dialog.type === 'create-ink'}
+        onOpenChange={(open) => { if (!open) setDialog({ type: 'none' }); }}
+        onCreate={(choice) => { void createDrawing(choice); }}
+      />
       <RenameMovePreviewDialog
         open={!!previewState}
         preview={previewState?.preview ?? null}
@@ -848,6 +888,17 @@ export default function FileTree() {
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="text-xs text-foreground">New spreadsheet</TooltipContent>
                 </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => handleCreateInk()}
+                      className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
+                    >
+                      <PenLine size={13} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs text-foreground">New drawing</TooltipContent>
+                </Tooltip>
               </>
             )}
             {!readOnly && (
@@ -861,7 +912,7 @@ export default function FileTree() {
                     <FileUp size={13} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs text-foreground">Add files (images, PDFs, markdown, canvas, Kanban, logic, spreadsheets)</TooltipContent>
+                <TooltipContent side="bottom" className="text-xs text-foreground">Add files (images, PDFs, markdown, canvas, Kanban, logic, spreadsheets, drawings)</TooltipContent>
               </Tooltip>
             )}
           </div>
@@ -917,6 +968,7 @@ export default function FileTree() {
               onCreateNote={handleCreateNote}
               onCreateLogic={handleCreateLogic}
               onCreateSheet={handleCreateSheet}
+              onCreateInk={handleCreateInk}
               onCreateFolder={handleCreateFolder}
               onDelete={handleDelete}
               onRename={handleRename}
@@ -971,6 +1023,7 @@ interface FileTreeNodeProps {
   onCreateNote: (parentPath?: string) => void;
   onCreateLogic: (parentPath?: string) => void;
   onCreateSheet: (parentPath?: string) => void;
+  onCreateInk: (parentPath?: string) => void;
   onCreateFolder: (parentPath?: string) => void;
   onDelete: (file: NoteFile) => void;
   onRename: (file: NoteFile) => void;
@@ -1004,7 +1057,7 @@ interface FileTreeNodeProps {
  */
 const FileTreeNode = memo(function FileTreeNode({
   node, depth, collapsed, setCollapsed,
-  onOpenFile, onCreateNote, onCreateLogic, onCreateSheet, onCreateFolder, onDelete, onRename, onReveal, onDownload, onDuplicate, canDuplicate, onDragOut, canReveal, onViewHistory,
+  onOpenFile, onCreateNote, onCreateLogic, onCreateSheet, onCreateInk, onCreateFolder, onDelete, onRename, onReveal, onDownload, onDuplicate, canDuplicate, onDragOut, canReveal, onViewHistory,
   onNodeClick, selectedPaths, onHover,
   draggingPath, dropTargetPath, taskAttachmentsByPath, setDraggingPath, setDropTargetPath, onMove,
   fileTreeHoverPreviewsEnabled,
@@ -1048,6 +1101,7 @@ const FileTreeNode = memo(function FileTreeNode({
     if (node.extension === 'kanban')  return <LayoutDashboard size={13} className="text-emerald-400/70" />;
     if (node.extension === 'logic')   return <CircuitBoard size={13} className="text-cyan-400/75" />;
     if (node.extension === 'sheet')   return <Table2 size={13} className="text-violet-400/75" />;
+    if (node.extension === 'ink')     return <PenLine size={13} className="text-fuchsia-400/75" />;
     return <FileText size={13} className="text-muted-foreground/70" />;
   };
 
@@ -1298,6 +1352,7 @@ const FileTreeNode = memo(function FileTreeNode({
                   onCreateNote={onCreateNote}
                   onCreateLogic={onCreateLogic}
                   onCreateSheet={onCreateSheet}
+                  onCreateInk={onCreateInk}
                   onCreateFolder={onCreateFolder}
                   onDelete={onDelete}
                   onRename={onRename}
@@ -1331,6 +1386,7 @@ const FileTreeNode = memo(function FileTreeNode({
             <ContextMenuItem onClick={() => onCreateNote(node.relativePath)}>New Note</ContextMenuItem>
             <ContextMenuItem onClick={() => onCreateLogic(node.relativePath)}>New Logic Diagram</ContextMenuItem>
             <ContextMenuItem onClick={() => onCreateSheet(node.relativePath)}>New Spreadsheet</ContextMenuItem>
+            <ContextMenuItem onClick={() => onCreateInk(node.relativePath)}>New Drawing</ContextMenuItem>
             <ContextMenuItem onClick={() => onCreateFolder(node.relativePath)}>New Folder</ContextMenuItem>
             <ContextMenuSeparator />
           </>

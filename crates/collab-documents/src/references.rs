@@ -1152,3 +1152,154 @@ mod tests {
         ));
     }
 }
+
+/* -------------------------------------------------------------------------
+ * Ink
+ * ---------------------------------------------------------------------- */
+
+/// Walks every image object of an `.ink` document.
+///
+/// Image objects are the only place a drawing names another vault file, so
+/// they are the whole of its reference surface. Strokes, shapes, and text carry
+/// no paths.
+fn for_each_ink_image<F>(document: &mut serde_json::Value, mut visit: F)
+where
+    F: FnMut(&mut serde_json::Map<String, serde_json::Value>),
+{
+    let Some(pages) = document
+        .get_mut("pages")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    for page in pages.values_mut() {
+        let Some(objects) = page
+            .get_mut("scene")
+            .and_then(|scene| scene.get_mut("objects"))
+            .and_then(serde_json::Value::as_object_mut)
+        else {
+            continue;
+        };
+        for object in objects.values_mut() {
+            let Some(object) = object.as_object_mut() else {
+                continue;
+            };
+            if object.get("type").and_then(serde_json::Value::as_str) != Some("image") {
+                continue;
+            }
+            visit(object);
+        }
+    }
+}
+
+pub fn collect_ink_references(
+    content: &str,
+    source_relative_path: &str,
+    target_path: &str,
+) -> Result<Vec<FileReference>, ReferenceError> {
+    let mut document: serde_json::Value = serde_json::from_str(content)
+        .map_err(|error| ReferenceError::InvalidDocument(error.to_string()))?;
+    let mut references = Vec::new();
+
+    for_each_ink_image(&mut document, |object| {
+        let Some(raw_target) = object
+            .get("relativePath")
+            .and_then(serde_json::Value::as_str)
+        else {
+            return;
+        };
+        let (path, _) = split_path_suffix(raw_target.trim());
+        let Some(normalized) = normalized_path_string(path) else {
+            return;
+        };
+        if !path_matches_or_descends(&normalized, target_path) {
+            return;
+        }
+        references.push(FileReference {
+            referenced_relative_path: normalized,
+            source_relative_path: source_relative_path.to_string(),
+            source_document_type: "ink".into(),
+            reference_kind: "ink-image".into(),
+            display_label: object
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            context: Some(raw_target.to_string()),
+        });
+    });
+
+    Ok(references)
+}
+
+pub fn rewrite_ink_references(
+    content: &str,
+    old_path: &str,
+    new_path: Option<&str>,
+) -> Result<String, ReferenceError> {
+    let mut document: serde_json::Value = serde_json::from_str(content)
+        .map_err(|error| ReferenceError::InvalidDocument(error.to_string()))?;
+
+    // Objects whose target was deleted rather than moved. They are removed from
+    // `objects` and `objectOrder` together — leaving an id in the order with no
+    // object behind it is the exact corruption the normalizer has to repair.
+    let mut dropped: Vec<(String, String)> = Vec::new();
+
+    {
+        let Some(pages) = document
+            .get_mut("pages")
+            .and_then(serde_json::Value::as_object_mut)
+        else {
+            return Ok(content.to_string());
+        };
+        for (page_id, page) in pages.iter_mut() {
+            let Some(objects) = page
+                .get_mut("scene")
+                .and_then(|scene| scene.get_mut("objects"))
+                .and_then(serde_json::Value::as_object_mut)
+            else {
+                continue;
+            };
+            let mut remove: Vec<String> = Vec::new();
+            for (object_id, object) in objects.iter_mut() {
+                let Some(object) = object.as_object_mut() else {
+                    continue;
+                };
+                if object.get("type").and_then(serde_json::Value::as_str) != Some("image") {
+                    continue;
+                }
+                let Some(raw_target) = object
+                    .get("relativePath")
+                    .and_then(serde_json::Value::as_str)
+                else {
+                    continue;
+                };
+                match rewrite_sheet_path(raw_target, old_path, new_path) {
+                    Some(next) => {
+                        object.insert("relativePath".into(), serde_json::Value::String(next));
+                    }
+                    None => remove.push(object_id.clone()),
+                }
+            }
+            for object_id in remove {
+                objects.remove(&object_id);
+                dropped.push((page_id.clone(), object_id));
+            }
+        }
+    }
+
+    for (page_id, object_id) in dropped {
+        let Some(order) = document
+            .get_mut("pages")
+            .and_then(|pages| pages.get_mut(&page_id))
+            .and_then(|page| page.get_mut("scene"))
+            .and_then(|scene| scene.get_mut("objectOrder"))
+            .and_then(serde_json::Value::as_array_mut)
+        else {
+            continue;
+        };
+        order.retain(|entry| entry.as_str() != Some(object_id.as_str()));
+    }
+
+    serde_json::to_string_pretty(&document)
+        .map_err(|error| ReferenceError::InvalidDocument(error.to_string()))
+}

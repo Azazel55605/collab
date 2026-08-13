@@ -6,7 +6,7 @@ export interface OpenTab {
   title: string;
   isDirty: boolean;
   savedHash: string | null;
-  type: 'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'graph' | 'settings' | 'image' | 'pdf';
+  type: 'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'graph' | 'settings' | 'image' | 'pdf';
 }
 
 export interface NoteEditorViewState {
@@ -22,6 +22,22 @@ export interface SheetViewState {
   scrollLeft: number;
   activeRow: number;
   activeColumn: number;
+}
+
+/**
+ * Per-tab drawing view state, restored when an `.ink` tab is reopened.
+ *
+ * Device-local by design: which page you were on and where you were zoomed are
+ * properties of this editor session, not of the shared document. Persisting
+ * them into `.ink` would make one person's scroll position a change every
+ * collaborator has to merge.
+ */
+export interface InkViewState {
+  pageId: string | null;
+  /** Ink-unit coordinate at the top-left of the surface. */
+  originX: number;
+  originY: number;
+  zoom: number;
 }
 
 export interface PendingSearchJump {
@@ -44,6 +60,7 @@ interface EditorState {
   pendingSheetJump: PendingSheetJump | null;
   noteViewStates: Record<string, NoteEditorViewState>;
   sheetViewStates: Record<string, SheetViewState>;
+  inkViewStates: Record<string, InkViewState>;
   setSessionVaultPath: (vaultPath: string | null) => void;
   resetSession: (vaultPath?: string | null) => void;
   openTab: (relativePath: string, title: string, type?: OpenTab['type']) => void;
@@ -61,6 +78,7 @@ interface EditorState {
   setPendingSheetJump: (target: PendingSheetJump | null) => void;
   setNoteViewState: (relativePath: string, viewState: NoteEditorViewState) => void;
   setSheetViewState: (relativePath: string, viewState: SheetViewState) => void;
+  setInkViewState: (relativePath: string, viewState: InkViewState) => void;
 }
 
 function remapViewStates<T>(
@@ -92,6 +110,7 @@ export const useEditorStore = create<EditorState>()(
   pendingSheetJump: null,
   noteViewStates: {},
   sheetViewStates: {},
+  inkViewStates: {},
 
   setSessionVaultPath: (sessionVaultPath) => set({ sessionVaultPath }),
 
@@ -105,6 +124,7 @@ export const useEditorStore = create<EditorState>()(
     pendingSheetJump: null,
     noteViewStates: {},
     sheetViewStates: {},
+    inkViewStates: {},
   }),
 
   openTab: (relativePath, title, type = 'note') => {
@@ -193,6 +213,7 @@ export const useEditorStore = create<EditorState>()(
           : state.activeTabPath,
       noteViewStates: remapViewStates(state.noteViewStates, oldPath, newPath),
       sheetViewStates: remapViewStates(state.sheetViewStates, oldPath, newPath),
+    inkViewStates: remapViewStates(state.inkViewStates, oldPath, newPath),
     }));
   },
 
@@ -227,6 +248,13 @@ export const useEditorStore = create<EditorState>()(
       [relativePath]: viewState,
     },
   })),
+
+  setInkViewState: (relativePath, viewState) => set((state) => ({
+    inkViewStates: {
+      ...state.inkViewStates,
+      [relativePath]: viewState,
+    },
+  })),
 }),
     {
       name: 'editor-storage',
@@ -236,6 +264,7 @@ export const useEditorStore = create<EditorState>()(
         activeTabPath: state.activeTabPath,
         noteViewStates: state.noteViewStates,
         sheetViewStates: state.sheetViewStates,
+        inkViewStates: state.inkViewStates,
       }),
     }
   )
