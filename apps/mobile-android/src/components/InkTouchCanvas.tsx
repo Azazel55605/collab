@@ -56,6 +56,7 @@ interface CanvasTile {
 /** Absorbs paint calls where no 2D context exists (jsdom). */
 const NULL_TARGET: InkRenderTarget = {
   save() {}, restore() {}, setTransform() {}, translate() {}, scale() {},
+  rotate() {},
   clearRect() {}, fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {},
   closePath() {}, fill() {}, stroke() {}, fillText() {},
   fillStyle: '', strokeStyle: '', lineWidth: 1, globalAlpha: 1, font: '',
