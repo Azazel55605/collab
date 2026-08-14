@@ -16,14 +16,18 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
+import { useState } from 'react';
 
 import { cn } from '../../lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
-import type { InkLayer, InkScene } from '../../types/ink';
+import type { InkBrushPreset, InkLayer, InkPage, InkPageBackground, InkScene, InkSwatch } from '../../types/ink';
+import { INK_LIMITS } from '../../types/ink';
 import { INK_BRUSH_WIDTHS, INK_DEFAULT_SWATCHES, INK_ERASER_SIZES } from '../../lib/ink/tools';
 import type { InkToolState } from '../../lib/ink/tools';
 import type { InkEraserMode } from '../../lib/ink/erase';
 import type { InkAlignment, InkDistribution } from '../../lib/ink/align';
+import { INK_SHAPE_ORDER, INK_STAMP_CATALOG } from '../../lib/ink/advancedTools';
+import type { InkDocumentTemplate } from '../../lib/ink/templates';
 
 /**
  * The properties and layers panel.
@@ -37,6 +41,9 @@ const sectionLabel = 'text-[11px] font-medium uppercase tracking-wide text-muted
 
 export interface InkSidePanelProps {
   scene: InkScene | null;
+  page: InkPage | null;
+  brushes: InkBrushPreset[];
+  swatches: InkSwatch[];
   tool: InkToolState;
   readOnly: boolean;
   selectedIds: string[];
@@ -53,10 +60,29 @@ export interface InkSidePanelProps {
   onDeleteLayer: (layerId: string) => void;
   onAlign: (alignment: InkAlignment) => void;
   onDistribute: (axis: InkDistribution) => void;
+  onAdvancedToolChange: (change: Partial<InkToolState>) => void;
+  onRecognizeSelection: () => void;
+  onSmoothSelection: () => void;
+  onRecolorSelection: (color: string) => void;
+  onUpdateSelectedText: (change: { text?: string; backgroundColor?: string }) => void;
+  onPageBackgroundChange: (change: Partial<InkPageBackground>) => void;
+  onSelectBrushPreset: (preset: InkBrushPreset) => void;
+  onSaveBrushFavorite: () => void;
+  onAddSwatch: () => void;
+  onSetSelectedLink: (target: string | null) => void;
+  templates: InkDocumentTemplate[];
+  onSavePageTemplate: (name: string) => void;
+  onAddPageFromTemplate: (templateId: string) => void;
+  onDeleteTemplate: (templateId: string) => void;
+  onImportTemplate: () => void;
+  onExportTemplate: (templateId: string) => void;
 }
 
 export default function InkSidePanel({
   scene,
+  page,
+  brushes,
+  swatches,
   tool,
   readOnly,
   selectedIds,
@@ -73,10 +99,31 @@ export default function InkSidePanel({
   onDeleteLayer,
   onAlign,
   onDistribute,
+  onAdvancedToolChange,
+  onRecognizeSelection,
+  onSmoothSelection,
+  onRecolorSelection,
+  onUpdateSelectedText,
+  onPageBackgroundChange,
+  onSelectBrushPreset,
+  onSaveBrushFavorite,
+  onAddSwatch,
+  onSetSelectedLink,
+  templates,
+  onSavePageTemplate,
+  onAddPageFromTemplate,
+  onDeleteTemplate,
+  onImportTemplate,
+  onExportTemplate,
 }: InkSidePanelProps) {
+  const [templateName, setTemplateName] = useState('');
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
   // Top of the list is the top of the drawing, which is the end of layerOrder.
   const layers = scene ? [...scene.layerOrder].reverse() : [];
   const effectiveLayerId = activeLayerId ?? layers[0] ?? null;
+  const selectedObject = selectedIds.length === 1 ? scene?.objects[selectedIds[0]] : null;
+  const selectedText = selectedObject?.type === 'text' ? selectedObject : null;
+  const paletteColors = [...new Set([...swatches.map((swatch) => swatch.color), ...INK_DEFAULT_SWATCHES])];
 
   return (
     <aside
@@ -88,7 +135,7 @@ export default function InkSidePanel({
           <h2 className={sectionLabel}>Pen</h2>
 
           <div className="grid grid-cols-8 gap-1" role="radiogroup" aria-label="Colour">
-            {INK_DEFAULT_SWATCHES.map((color) => (
+            {paletteColors.map((color) => (
               <button
                 key={color}
                 type="button"
@@ -106,6 +153,37 @@ export default function InkSidePanel({
                 )}
               />
             ))}
+          </div>
+          <button
+            type="button"
+            disabled={readOnly || swatches.length >= INK_LIMITS.swatchesPerDocument || swatches.some((swatch) => swatch.color.toLowerCase() === tool.brush.color.toLowerCase())}
+            onClick={onAddSwatch}
+            className="w-full rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50 disabled:opacity-40"
+          >
+            Add current colour to swatches
+          </button>
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className={sectionLabel}>Brush favourites</span>
+              <button type="button" disabled={readOnly || brushes.length >= INK_LIMITS.brushesPerDocument} onClick={onSaveBrushFavorite} className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent/50 disabled:opacity-40">Save current</button>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {brushes.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  aria-label={`Use brush favourite ${preset.name}`}
+                  onClick={() => onSelectBrushPreset(preset)}
+                  className={cn(
+                    'rounded-md border px-2 py-1 text-[11px] hover:bg-accent/50',
+                    tool.brushId === preset.id ? 'border-primary bg-primary/10' : 'border-border/60',
+                  )}
+                >
+                  {preset.name}
+                </button>
+              ))}
+            </div>
           </div>
 
           <label className="block space-y-1">
@@ -221,6 +299,308 @@ export default function InkSidePanel({
               </button>
             ))}
           </div>
+        </section>
+      )}
+
+      {(tool.tool === 'shape' || tool.tool === 'connector') && (
+        <section className="space-y-2">
+          <h2 className={sectionLabel}>{tool.tool === 'shape' ? 'Shape' : 'Connector'}</h2>
+          {tool.tool === 'shape' && (
+            <label className="block space-y-1">
+              <span className={sectionLabel}>Geometry</span>
+              <select
+                aria-label="Shape kind"
+                value={tool.shapeKind}
+                disabled={readOnly}
+                onChange={(event) => onAdvancedToolChange({ shapeKind: event.target.value as InkToolState['shapeKind'] })}
+                className="w-full rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs"
+              >
+                {INK_SHAPE_ORDER.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+              </select>
+            </label>
+          )}
+          <label className="block space-y-1">
+            <span className={sectionLabel}>Line style</span>
+            <select
+              aria-label="Line style"
+              value={tool.brush.dash ?? 'solid'}
+              disabled={readOnly}
+              onChange={(event) => onBrushChange({ dash: event.target.value as InkToolState['brush']['dash'] })}
+              className="w-full rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs"
+            >
+              <option value="solid">Solid</option>
+              <option value="dashed">Dashed</option>
+              <option value="dotted">Dotted</option>
+            </select>
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="space-y-1">
+              <span className={sectionLabel}>Start</span>
+              <select
+                aria-label="Start arrowhead"
+                value={tool.arrowStart}
+                onChange={(event) => onAdvancedToolChange({ arrowStart: event.target.value as InkToolState['arrowStart'] })}
+                className="w-full rounded-md border border-border/60 bg-background px-1 py-1.5 text-xs"
+              >
+                {['none', 'arrow', 'open', 'dot'].map((kind) => <option key={kind}>{kind}</option>)}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <span className={sectionLabel}>End</span>
+              <select
+                aria-label="End arrowhead"
+                value={tool.arrowEnd}
+                onChange={(event) => onAdvancedToolChange({ arrowEnd: event.target.value as InkToolState['arrowEnd'] })}
+                className="w-full rounded-md border border-border/60 bg-background px-1 py-1.5 text-xs"
+              >
+                {['none', 'arrow', 'open', 'dot'].map((kind) => <option key={kind}>{kind}</option>)}
+              </select>
+            </label>
+          </div>
+          {tool.tool === 'shape' && (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={tool.shapeFill !== null}
+                onChange={(event) => onAdvancedToolChange({ shapeFill: event.target.checked ? tool.brush.color : null })}
+              />
+              Fill with line colour
+            </label>
+          )}
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={tool.snapToGrid}
+              onChange={(event) => onAdvancedToolChange({ snapToGrid: event.target.checked })}
+            />
+            Snap to page grid
+          </label>
+        </section>
+      )}
+
+      {tool.tool === 'stamp' && (
+        <section className="space-y-2">
+          <h2 className={sectionLabel}>Stamp</h2>
+          <div className="grid grid-cols-4 gap-1">
+            {INK_STAMP_CATALOG.map((stamp) => (
+              <button
+                key={stamp.id}
+                type="button"
+                aria-label={`Stamp ${stamp.label}`}
+                aria-pressed={tool.stampSymbolId === stamp.id}
+                onClick={() => onAdvancedToolChange({ stampSymbolId: stamp.id })}
+                className={cn(
+                  'flex h-9 items-center justify-center rounded-md border text-lg',
+                  tool.stampSymbolId === stamp.id ? 'border-primary bg-primary/10' : 'border-border/60 hover:bg-accent/50',
+                )}
+              >
+                {stamp.glyph}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {(['image', 'equation', 'ruler', 'protractor', 'compass', 'guide', 'loupe', 'eyedropper'] as InkToolState['tool'][]).includes(tool.tool) && (
+        <section className="space-y-1.5">
+          <h2 className={sectionLabel}>{tool.tool}</h2>
+          <p className="text-xs text-muted-foreground">
+            {tool.tool === 'image' ? 'Drag a box, then choose a PNG, JPEG, WebP, GIF, or SVG asset.'
+              : tool.tool === 'equation' ? 'Drag a box and enter bounded LaTeX.'
+              : tool.tool === 'ruler' ? 'Drag an exact straight line.'
+              : tool.tool === 'protractor' ? 'Drag a line snapped to 15 degree increments.'
+              : tool.tool === 'compass' ? 'Drag from the centre to draw a perfect circle.'
+              : tool.tool === 'guide' ? 'Drag a non-exported alignment guide.'
+              : tool.tool === 'loupe' ? 'Press and drag to magnify the committed scene.'
+              : 'Click an object to pick its colour.'}
+          </p>
+        </section>
+      )}
+
+      {tool.tool === 'pen' && (
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            disabled={readOnly}
+            checked={tool.holdToStraighten}
+            onChange={(event) => onAdvancedToolChange({ holdToStraighten: event.target.checked })}
+          />
+          Hold to straighten
+        </label>
+      )}
+
+      {selectedIds.length > 0 && !readOnly && (
+        <section className="space-y-2">
+          <h2 className={sectionLabel}>Selection cleanup</h2>
+          <div className="flex gap-1">
+            <button type="button" onClick={onRecognizeSelection} disabled={selectedIds.length !== 1} className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50 disabled:opacity-40">
+              Recognize shape
+            </button>
+            <button type="button" onClick={onSmoothSelection} className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50">
+              Smooth
+            </button>
+          </div>
+          <div className="grid grid-cols-8 gap-1" aria-label="Recolor selection">
+            {paletteColors.map((color) => (
+              <button
+                key={color}
+                type="button"
+                aria-label={`Recolor selection ${color}`}
+                onClick={() => onRecolorSelection(color)}
+                style={{ background: color }}
+                className="size-5 rounded-full border border-border/60 hover:scale-110"
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {selectedText && !readOnly && (
+        <section className="space-y-2">
+          <h2 className={sectionLabel}>{selectedText.sticky ? 'Sticky note' : selectedText.equation ? 'Equation' : 'Text'}</h2>
+          <textarea
+            aria-label="Selected text"
+            value={selectedText.text}
+            maxLength={16_384}
+            rows={4}
+            onChange={(event) => onUpdateSelectedText({ text: event.target.value })}
+            className="w-full resize-y rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs outline-none focus:border-primary"
+          />
+          {selectedText.sticky && (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              Note colour
+              <input
+                type="color"
+                aria-label="Sticky note colour"
+                value={selectedText.backgroundColor ?? '#fef3a7'}
+                onChange={(event) => onUpdateSelectedText({ backgroundColor: event.target.value })}
+                className="h-7 w-10 rounded border border-border/60 bg-transparent"
+              />
+            </label>
+          )}
+        </section>
+      )}
+
+      {selectedObject && !readOnly && (
+        <section className="space-y-2">
+          <h2 className={sectionLabel}>Link</h2>
+          <input
+            key={`${selectedObject.id}:${selectedObject.link?.target ?? ''}`}
+            aria-label="Selected object link"
+            defaultValue={selectedObject.link?.target ?? ''}
+            placeholder="Notes/Target.md or https://…"
+            onBlur={(event) => onSetSelectedLink(event.target.value.trim() || null)}
+            className="w-full rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs outline-none focus:border-primary"
+          />
+          {selectedObject.link ? (
+            <button type="button" onClick={() => onSetSelectedLink(null)} className="w-full rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50">
+              Remove link
+            </button>
+          ) : null}
+          <p className="text-[11px] text-muted-foreground">Double-click the object to open its link.</p>
+        </section>
+      )}
+
+      {page && (
+        <section className="space-y-2">
+          <h2 className={sectionLabel}>Page background</h2>
+          <select
+            aria-label="Page background"
+            value={page.background.pattern}
+            disabled={readOnly}
+            onChange={(event) => onPageBackgroundChange({ pattern: event.target.value as InkPageBackground['pattern'] })}
+            className="w-full rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs"
+          >
+            <option value="blank">Blank</option>
+            <option value="ruled">Ruled</option>
+            <option value="grid">Graph</option>
+            <option value="dotted">Dotted</option>
+            <option value="staff">Music staff</option>
+            <option value="storyboard">Storyboard</option>
+          </select>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              Paper
+              <input
+                type="color"
+                aria-label="Page colour"
+                disabled={readOnly}
+                value={page.background.color ?? '#ffffff'}
+                onChange={(event) => onPageBackgroundChange({ color: event.target.value })}
+                className="h-7 w-10 rounded border border-border/60 bg-transparent"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              Lines
+              <input
+                type="color"
+                aria-label="Page line colour"
+                disabled={readOnly}
+                value={page.background.lineColor ?? '#c9d1dc'}
+                onChange={(event) => onPageBackgroundChange({ lineColor: event.target.value })}
+                className="h-7 w-10 rounded border border-border/60 bg-transparent"
+              />
+            </label>
+          </div>
+        </section>
+      )}
+
+      {page && !readOnly && (
+        <section className="space-y-2">
+          <h2 className={sectionLabel}>Document templates</h2>
+          <div className="flex gap-1">
+            <input
+              aria-label="Template name"
+              value={templateName}
+              placeholder={page.name ?? 'Page template'}
+              onChange={(event) => setTemplateName(event.target.value)}
+              className="min-w-0 flex-1 rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs"
+            />
+            <button
+              type="button"
+              aria-label="Save page as template"
+              onClick={() => {
+                onSavePageTemplate(templateName || page.name || 'Page template');
+                setTemplateName('');
+              }}
+              className="rounded-md border border-border/60 px-2 text-[11px] hover:bg-accent/50"
+            >
+              Save template
+            </button>
+          </div>
+          {templates.length > 0 ? (
+            <>
+              <select
+                aria-label="Drawing template"
+                value={selectedTemplateId}
+                onChange={(event) => setSelectedTemplateId(event.target.value)}
+                className="w-full rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs"
+              >
+                <option value="">Choose a template…</option>
+                {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+              </select>
+              <div className="flex gap-1">
+                <button type="button" disabled={!selectedTemplateId} onClick={() => onAddPageFromTemplate(selectedTemplateId)} className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50 disabled:opacity-40">
+                  Add template page
+                </button>
+                <button type="button" disabled={!selectedTemplateId} onClick={() => { onDeleteTemplate(selectedTemplateId); setSelectedTemplateId(''); }} className="rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-destructive/20 hover:text-destructive disabled:opacity-40">
+                  Delete
+                </button>
+              </div>
+              <div className="flex gap-1">
+                <button type="button" onClick={onImportTemplate} className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50">
+                  Import template
+                </button>
+                <button type="button" disabled={!selectedTemplateId} onClick={() => onExportTemplate(selectedTemplateId)} className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50 disabled:opacity-40">
+                  Export template
+                </button>
+              </div>
+            </>
+          ) : (
+            <button type="button" onClick={onImportTemplate} className="w-full rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50">
+              Import template
+            </button>
+          )}
         </section>
       )}
 

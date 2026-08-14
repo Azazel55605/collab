@@ -1,6 +1,6 @@
 # Open Development Work
 
-Last reviewed: 2026-08-13
+Last reviewed: 2026-08-14
 
 This is the entry point for unfinished Collab projects. Detailed requirements,
 implementation notes, and acceptance criteria remain in their canonical plan
@@ -29,7 +29,7 @@ work from being mistaken for an active roadmap item.
 | User calendar | Testing | Complete the Phase 9 maintained external-client CalDAV interoperability matrix. Cross-location mirroring, hardening/restore drills, and notification delivery are complete. | [User Calendar Feature Plan](./user-calendar-feature-plan.md) |
 | Background running | Testing | Phase 5 automated hardening is implemented. Complete the packaged desktop/physical Android matrix, then add notification-backed Android foreground transfers. | [Background Running Plan](./background-running-plan.md) |
 | Collab Presentations | Planned | Complete the `.deck` Phase 0 proofs for scene/text fidelity, deck-specific live text collaboration, and compatible PPTX export before beginning the editor. | [Collab Presentations Plan](./presentation-tool-plan.md) |
-| Digital ink and annotation | Phases 0-4 complete, device gate open | The `.ink` contract, shared domain, vault lifecycle, desktop editor, and mobile/tablet editor are done. Drawing works on desktop and Android, online and offline. Run `tools/ink-input-probe.html` on real pens and tablets to close the Phase 0 device gate — it also gates the Phase 3 desktop-hardware validation, the Phase 4 device matrix, and the outliner choice. Phase 5 is advanced tools (shapes, text, images, guides). | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md), [Phase 0 Contract](./digital-ink-phase0-contract.md) |
+| Digital ink and annotation | Phase 5 complete, device gate open | Phases 0-5 are implemented, including advanced objects, recognition, precision tools, vault-backed assets, safe links, equations, and portable templates. Start Phase 6 hosted/offline collaboration. Run `tools/ink-input-probe.html` on real pens and tablets to close the shared Phase 0/3/4 device gate and outliner choice. | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md), [Phase 0 Contract](./digital-ink-phase0-contract.md) |
 | Flatpak distribution | Planned | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs. | [Flatpak Distribution Plan](./flatpak-distribution-plan.md) |
 
 ## Recommended Dependency Order
@@ -123,12 +123,13 @@ Open tracker entries:
 
 Open tracker entries:
 
-- Phase 0, **Not started**: freeze the `.ink` schema and prove pen, touch,
-  drawing-tablet, mouse, and touchpad capture plus pressure rendering and
-  deterministic export on real desktop and Android hardware.
-- Phases 1-7, **Planned**: shared ink domain, first-class New Drawing lifecycle,
-  desktop/mobile editors, advanced tools, hosted/offline collaboration, and
-  source-linked PNG/SVG/PDF export.
+- Phase 0, **Implemented; physical gate open**: the `.ink` schema and input
+  contract are frozen; real desktop and Android pen/touch/tablet validation is
+  still required.
+- Phases 1-5, **Complete**: shared ink domain, first-class New Drawing
+  lifecycle, desktop/mobile editors, and advanced tools.
+- Phases 6-7, **Planned**: hosted/offline collaboration and source-linked
+  PNG/SVG/PDF export.
 - Phases 8-10, **Planned**: migrate PDF/image annotations to the shared engine,
   extend the anchored annotation contract to other viewers, and complete
   release hardening.

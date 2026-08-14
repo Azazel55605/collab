@@ -28,10 +28,46 @@ use super::{parse_a1, ConversionError, ConversionLimits, ConversionResult, Conve
 /// `SHEET_FUNCTIONS` in `src/lib/sheet/formulaFunctions.ts` and the proof in
 /// `crates/collab-sheet/tests/formula_proof.rs`; keep all three in sync.
 const SUPPORTED_FUNCTIONS: &[&str] = &[
-    "SUM", "AVERAGE", "MIN", "MAX", "COUNT", "COUNTA", "SUMIF", "SUMIFS", "COUNTIF", "COUNTIFS",
-    "AVERAGEIF", "AVERAGEIFS", "IF", "IFS", "AND", "OR", "NOT", "IFERROR", "ROUND", "ABS", "MOD",
-    "SQRT", "POWER", "CONCAT", "LEFT", "RIGHT", "MID", "LEN", "TRIM", "DATE", "YEAR", "MONTH",
-    "DAY", "TODAY", "NOW", "INDEX", "MATCH", "VLOOKUP", "HLOOKUP", "XLOOKUP",
+    "SUM",
+    "AVERAGE",
+    "MIN",
+    "MAX",
+    "COUNT",
+    "COUNTA",
+    "SUMIF",
+    "SUMIFS",
+    "COUNTIF",
+    "COUNTIFS",
+    "AVERAGEIF",
+    "AVERAGEIFS",
+    "IF",
+    "IFS",
+    "AND",
+    "OR",
+    "NOT",
+    "IFERROR",
+    "ROUND",
+    "ABS",
+    "MOD",
+    "SQRT",
+    "POWER",
+    "CONCAT",
+    "LEFT",
+    "RIGHT",
+    "MID",
+    "LEN",
+    "TRIM",
+    "DATE",
+    "YEAR",
+    "MONTH",
+    "DAY",
+    "TODAY",
+    "NOW",
+    "INDEX",
+    "MATCH",
+    "VLOOKUP",
+    "HLOOKUP",
+    "XLOOKUP",
 ];
 
 /// Archive members that mean the workbook carries something Collab refuses to
@@ -251,7 +287,11 @@ fn parse_shared_strings(xml: &str, limits: &ConversionLimits) -> ConversionResul
                 _ => {}
             },
             Ok(Event::Text(text)) if in_text => {
-                current.push_str(&text.xml_content(XmlVersion::Explicit1_0).unwrap_or_default());
+                current.push_str(
+                    &text
+                        .xml_content(XmlVersion::Explicit1_0)
+                        .unwrap_or_default(),
+                );
             }
             Ok(Event::GeneralRef(reference)) if in_text => {
                 if let Some(character) = resolve_entity(&reference) {
@@ -335,7 +375,9 @@ fn parse_styles(xml: &str) -> ConversionResult<StyleTables> {
                         font.family = attribute(&element, b"val");
                     }
                     b"color" if section == Some("fonts") => {
-                        font.color = attribute(&element, b"rgb").as_deref().and_then(normalize_color);
+                        font.color = attribute(&element, b"rgb")
+                            .as_deref()
+                            .and_then(normalize_color);
                     }
                     b"fill" if section == Some("fills") => fill = None,
                     b"patternFill" if section == Some("fills") => {
@@ -344,15 +386,21 @@ fn parse_styles(xml: &str) -> ConversionResult<StyleTables> {
                         // paint every cell.
                         let pattern = attribute(&element, b"patternType").unwrap_or_default();
                         if pattern != "none" && pattern != "gray125" {
-                            fill = attribute(&element, b"fgColor").as_deref().and_then(normalize_color);
+                            fill = attribute(&element, b"fgColor")
+                                .as_deref()
+                                .and_then(normalize_color);
                         }
                     }
                     b"fgColor" if section == Some("fills") => {
                         if fill.is_none() {
-                            fill = attribute(&element, b"rgb").as_deref().and_then(normalize_color);
+                            fill = attribute(&element, b"rgb")
+                                .as_deref()
+                                .and_then(normalize_color);
                         }
                     }
-                    b"border" if section == Some("borders") => borders = ConvertedBorders::default(),
+                    b"border" if section == Some("borders") => {
+                        borders = ConvertedBorders::default()
+                    }
                     b"top" if section == Some("borders") => {
                         borders.top = attribute(&element, b"style").is_some();
                     }
@@ -384,8 +432,8 @@ fn parse_styles(xml: &str) -> ConversionResult<StyleTables> {
                     }
                     b"alignment" => {
                         if let Some(format) = cell_format.as_mut() {
-                            format.horizontal_align = attribute(&element, b"horizontal")
-                                .filter(|value| {
+                            format.horizontal_align =
+                                attribute(&element, b"horizontal").filter(|value| {
                                     matches!(value.as_str(), "left" | "center" | "right")
                                 });
                             format.vertical_align = attribute(&element, b"vertical").map(|value| {
@@ -597,7 +645,8 @@ pub(crate) fn serial_to_datetime(serial: f64) -> Option<NaiveDateTime> {
     };
     let date = epoch.checked_add_signed(Duration::days(days))?;
     let seconds = ((serial.fract() * 86_400.0).round() as i64).clamp(0, 86_399);
-    date.and_hms_opt(0, 0, 0)?.checked_add_signed(Duration::seconds(seconds))
+    date.and_hms_opt(0, 0, 0)?
+        .checked_add_signed(Duration::seconds(seconds))
 }
 
 fn temporal_value(kind: &str, serial: f64) -> Option<ConvertedValue> {
@@ -672,7 +721,9 @@ pub(crate) fn translate_references(source: &str, row_delta: i64, column_delta: i
         }
         let digits = cursor - digits_start;
         let followed_by_identifier = cursor < bytes.len()
-            && (bytes[cursor].is_ascii_alphanumeric() || bytes[cursor] == '_' || bytes[cursor] == '(');
+            && (bytes[cursor].is_ascii_alphanumeric()
+                || bytes[cursor] == '_'
+                || bytes[cursor] == '(');
         let preceded_by_identifier = start > 0
             && (bytes[start - 1].is_ascii_alphanumeric()
                 || bytes[start - 1] == '_'
@@ -686,7 +737,9 @@ pub(crate) fn translate_references(source: &str, row_delta: i64, column_delta: i
             && !followed_by_identifier
             && !preceded_by_identifier
         {
-            let column_label: String = bytes[letters_start..letters_start + letters].iter().collect();
+            let column_label: String = bytes[letters_start..letters_start + letters]
+                .iter()
+                .collect();
             let row_text: String = bytes[digits_start..digits_start + digits].iter().collect();
             if let Some((row, column)) = parse_a1(&format!("{column_label}{row_text}")) {
                 let new_row = if row_absolute {
@@ -887,13 +940,16 @@ fn parse_worksheet(
                     b"pane" => {
                         worksheet.frozen_rows = attribute(&element, b"ySplit")
                             .and_then(|v| v.parse::<f64>().ok())
-                            .unwrap_or(0.0) as usize;
+                            .unwrap_or(0.0)
+                            as usize;
                         worksheet.frozen_columns = attribute(&element, b"xSplit")
                             .and_then(|v| v.parse::<f64>().ok())
-                            .unwrap_or(0.0) as usize;
+                            .unwrap_or(0.0)
+                            as usize;
                     }
                     b"col" => {
-                        let width = attribute(&element, b"width").and_then(|v| v.parse::<f64>().ok());
+                        let width =
+                            attribute(&element, b"width").and_then(|v| v.parse::<f64>().ok());
                         let custom = attribute(&element, b"customWidth")
                             .is_some_and(|value| value == "1" || value == "true");
                         if let (Some(width), true) = (width, custom) {
@@ -977,7 +1033,9 @@ fn parse_worksheet(
                 }
             }
             Event::Text(text) => {
-                let decoded = text.xml_content(XmlVersion::Explicit1_0).unwrap_or_default();
+                let decoded = text
+                    .xml_content(XmlVersion::Explicit1_0)
+                    .unwrap_or_default();
                 if in_value || in_inline_text {
                     value.push_str(&decoded);
                 } else if in_formula {
@@ -1036,7 +1094,11 @@ fn parse_worksheet(
                     let style = style_index
                         .and_then(|index| styles.cell_formats.get(index))
                         .map(|format| {
-                            let font = styles.fonts.get(format.font_id).cloned().unwrap_or_default();
+                            let font = styles
+                                .fonts
+                                .get(format.font_id)
+                                .cloned()
+                                .unwrap_or_default();
                             ConvertedStyle {
                                 bold: font.bold,
                                 italic: font.italic,
@@ -1061,7 +1123,10 @@ fn parse_worksheet(
                                     .unwrap_or_default(),
                                 number_format: number_format_for(
                                     format.number_format_id,
-                                    styles.number_formats.get(&format.number_format_id).map(String::as_str),
+                                    styles
+                                        .number_formats
+                                        .get(&format.number_format_id)
+                                        .map(String::as_str),
                                 ),
                             }
                         })
@@ -1114,7 +1179,11 @@ fn parse_worksheet(
                                 if !SUPPORTED_FUNCTIONS.contains(&function.as_str()) {
                                     unsupported_functions.push((
                                         function,
-                                        format!("{name}!{}{}", super::column_label(column), row + 1),
+                                        format!(
+                                            "{name}!{}{}",
+                                            super::column_label(column),
+                                            row + 1
+                                        ),
                                     ));
                                 }
                             }
@@ -1228,7 +1297,10 @@ pub fn import_xlsx(
         let Some(xml) = archive.read(&path)? else {
             report.skipped(
                 "Worksheet",
-                format!("The worksheet \"{}\" is missing from the file and was not imported.", sheet.name),
+                format!(
+                    "The worksheet \"{}\" is missing from the file and was not imported.",
+                    sheet.name
+                ),
                 None,
             );
             continue;
@@ -1278,7 +1350,9 @@ pub fn import_xlsx(
     if formula_cells > 0 {
         report.imported(
             "Formulas",
-            format!("Imported {formula_cells} formula(s) as source; Collab recalculates them on open."),
+            format!(
+                "Imported {formula_cells} formula(s) as source; Collab recalculates them on open."
+            ),
         );
     }
     for (function, (count, location)) in unsupported {
@@ -1385,7 +1459,10 @@ mod tests {
     fn maps_common_builtin_number_formats() {
         assert_eq!(number_format_for(0, None), None);
         assert_eq!(number_format_for(9, None).unwrap().kind, "percent");
-        assert_eq!(number_format_for(4, None).unwrap().use_thousands_separator, true);
+        assert_eq!(
+            number_format_for(4, None).unwrap().use_thousands_separator,
+            true
+        );
         assert_eq!(number_format_for(14, None).unwrap().kind, "date");
         assert_eq!(number_format_for(49, None).unwrap().kind, "text");
         let custom = number_format_for(200, Some("[$€-x-euro2] #,##0.00")).unwrap();

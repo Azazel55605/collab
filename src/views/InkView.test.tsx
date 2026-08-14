@@ -8,10 +8,13 @@ import { createInkDocument, serializeInkDocument } from '../lib/ink/document';
 import { addObject } from '../lib/ink/operations';
 import { buildStroke } from '../lib/ink/fixture';
 import type { VaultMeta } from '../types/vault';
+import { tauriCommands } from '../lib/tauri';
 
 const clientMocks = vi.hoisted(() => ({
   readDocument: vi.fn(),
   writeDocument: vi.fn(),
+  importAsset: vi.fn(),
+  readAssetDataUrl: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -22,8 +25,10 @@ vi.mock('../lib/vaultClient', () => ({
   createVaultClient: vi.fn(() => ({
     kind: 'local',
     capabilities: { filesystemWatch: true },
+    runtime: { externalAssetImport: { import: clientMocks.importAsset } },
     readDocument: clientMocks.readDocument,
     writeDocument: clientMocks.writeDocument,
+    readAssetDataUrl: clientMocks.readAssetDataUrl,
   })),
 }));
 
@@ -114,8 +119,11 @@ async function openDrawing() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
   clientMocks.readDocument.mockResolvedValue({ content: drawingContent(), version: '1' });
   clientMocks.writeDocument.mockResolvedValue({ version: '2' });
+  clientMocks.importAsset.mockResolvedValue('Pictures/diagram.svg');
+  clientMocks.readAssetDataUrl.mockResolvedValue('data:image/png;base64,AAAA');
   setVault(LOCAL_VAULT);
   useEditorStore.setState({
     openTabs: [{ relativePath: PATH, title: 'Ideas', isDirty: false, savedHash: null, type: 'ink' }],
@@ -320,6 +328,129 @@ describe('InkView drawing', () => {
     const drawn = scene.objects[scene.objectOrder[scene.objectOrder.length - 1]];
     expect(drawn.brush.kind).toBe('fountain');
     expect(drawn.brush.color).toBe('#c0392b');
+  });
+
+  it('creates a snapped filled shape from a drag gesture', async () => {
+    await openDrawing();
+    fireEvent.click(screen.getByRole('button', { name: 'Shape (U)' }));
+    fireEvent.click(screen.getByLabelText('Fill with line colour'));
+
+    const host = screen.getByTestId('ink-canvas-host');
+    host.setPointerCapture = vi.fn();
+    host.hasPointerCapture = vi.fn(() => true);
+    host.releasePointerCapture = vi.fn();
+    fireEvent.pointerDown(host, { pointerId: 2, pointerType: 'mouse', clientX: 20, clientY: 20, buttons: 1, isPrimary: true });
+    fireEvent.pointerMove(host, { pointerId: 2, pointerType: 'mouse', clientX: 120, clientY: 80, buttons: 1 });
+    fireEvent.pointerUp(host, { pointerId: 2, pointerType: 'mouse', clientX: 120, clientY: 80 });
+    fireEvent.click(screen.getByText('Save'));
+
+    const written = await savedDocument();
+    const scene = written.pages[written.pageOrder[0]].scene;
+    const created = scene.objects[scene.objectOrder[scene.objectOrder.length - 1]];
+    expect(created).toMatchObject({ type: 'shape', shape: 'rectangle', fill: '#1f2933' });
+    expect(created.points.every((value: number) => value % 768 === 0)).toBe(true);
+  });
+
+  it('creates sticky text as an editable scene object', async () => {
+    await openDrawing();
+    fireEvent.click(screen.getByRole('button', { name: 'Sticky note' }));
+
+    const host = screen.getByTestId('ink-canvas-host');
+    host.setPointerCapture = vi.fn();
+    host.hasPointerCapture = vi.fn(() => true);
+    host.releasePointerCapture = vi.fn();
+    fireEvent.pointerDown(host, { pointerId: 3, pointerType: 'mouse', clientX: 30, clientY: 30, buttons: 1, isPrimary: true });
+    fireEvent.pointerMove(host, { pointerId: 3, pointerType: 'mouse', clientX: 180, clientY: 130, buttons: 1 });
+    fireEvent.pointerUp(host, { pointerId: 3, pointerType: 'mouse', clientX: 180, clientY: 130 });
+    fireEvent.change(await screen.findByLabelText('Sticky note text'), { target: { value: 'Remember this' } });
+    fireEvent.click(screen.getByText('Add to drawing'));
+    fireEvent.click(screen.getByText('Save'));
+
+    const written = await savedDocument();
+    const scene = written.pages[written.pageOrder[0]].scene;
+    const created = scene.objects[scene.objectOrder[scene.objectOrder.length - 1]];
+    expect(created).toMatchObject({ type: 'text', text: 'Remember this', sticky: true, backgroundColor: '#fef3a7' });
+  });
+
+  it('changes the current page background as document content', async () => {
+    await openDrawing();
+    fireEvent.change(screen.getByLabelText('Page background'), { target: { value: 'staff' } });
+    fireEvent.click(screen.getByText('Save'));
+    const written = await savedDocument();
+    expect(written.pages[written.pageOrder[0]].background.pattern).toBe('staff');
+  });
+
+  it('stores document brush favourites and swatches', async () => {
+    await openDrawing();
+    fireEvent.click(screen.getByRole('radio', { name: 'Colour #0e7490' }));
+    fireEvent.click(screen.getByText('Add current colour to swatches'));
+    fireEvent.click(screen.getByText('Save current'));
+    fireEvent.click(screen.getByText('Save'));
+
+    const written = await savedDocument();
+    expect(written.swatches.some((swatch: { color: string }) => swatch.color === '#0e7490')).toBe(true);
+    expect(Object.values(written.brushes).some((preset: any) => preset.color === '#0e7490')).toBe(true);
+  });
+
+  it('adds stamps, equations, precision lines, circles, and non-exported guides', async () => {
+    await openDrawing();
+    const host = screen.getByTestId('ink-canvas-host');
+    host.setPointerCapture = vi.fn();
+    host.hasPointerCapture = vi.fn(() => true);
+    host.releasePointerCapture = vi.fn();
+    const drag = (pointerId: number) => {
+      fireEvent.pointerDown(host, { pointerId, pointerType: 'mouse', clientX: 30, clientY: 30, buttons: 1, isPrimary: true });
+      fireEvent.pointerMove(host, { pointerId, pointerType: 'mouse', clientX: 150, clientY: 90, buttons: 1 });
+      fireEvent.pointerUp(host, { pointerId, pointerType: 'mouse', clientX: 150, clientY: 90 });
+    };
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stamp (K)' }));
+    drag(10);
+    fireEvent.click(screen.getByRole('button', { name: 'Equation (Q)' }));
+    drag(11);
+    fireEvent.change(await screen.findByLabelText('Equation LaTeX'), { target: { value: 'x^2+y^2' } });
+    fireEvent.click(screen.getByText('Add to drawing'));
+    fireEvent.click(screen.getByRole('button', { name: 'Protractor (O)' }));
+    drag(12);
+    fireEvent.click(screen.getByRole('button', { name: 'Compass (M)' }));
+    drag(13);
+    fireEvent.click(screen.getByRole('button', { name: 'Guide (G)' }));
+    drag(14);
+    fireEvent.click(screen.getByText('Save'));
+
+    const written = await savedDocument();
+    const objects = Object.values(written.pages[written.pageOrder[0]].scene.objects) as any[];
+    expect(objects.some((object) => object.type === 'stamp')).toBe(true);
+    expect(objects.some((object) => object.type === 'text' && object.equation)).toBe(true);
+    expect(objects.some((object) => object.type === 'shape' && object.shape === 'ellipse')).toBe(true);
+    expect(objects.some((object) => object.type === 'shape' && object.guide)).toBe(true);
+  });
+
+  it('imports image assets through the vault runtime capability', async () => {
+    vi.spyOn(tauriCommands, 'showOpenFilesDialog').mockResolvedValue(['/tmp/diagram.svg']);
+    await openDrawing();
+    fireEvent.click(screen.getByRole('button', { name: 'Image (I)' }));
+    const host = screen.getByTestId('ink-canvas-host');
+    host.setPointerCapture = vi.fn();
+    host.hasPointerCapture = vi.fn(() => true);
+    host.releasePointerCapture = vi.fn();
+    fireEvent.pointerDown(host, { pointerId: 20, pointerType: 'mouse', clientX: 20, clientY: 20, buttons: 1, isPrimary: true });
+    fireEvent.pointerMove(host, { pointerId: 20, pointerType: 'mouse', clientX: 180, clientY: 120, buttons: 1 });
+    fireEvent.pointerUp(host, { pointerId: 20, pointerType: 'mouse', clientX: 180, clientY: 120 });
+    await waitFor(() => expect(clientMocks.importAsset).toHaveBeenCalledWith('/tmp/diagram.svg', 'Pictures'));
+    fireEvent.click(screen.getByText('Save'));
+    const written = await savedDocument();
+    const objects = Object.values(written.pages[written.pageOrder[0]].scene.objects) as any[];
+    expect(objects.some((object) => object.type === 'image' && object.relativePath === 'Pictures/diagram.svg')).toBe(true);
+  });
+
+  it('saves reusable page templates and instantiates them with fresh identities', async () => {
+    await openDrawing();
+    fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Reusable sketch' } });
+    fireEvent.click(screen.getByLabelText('Save page as template'));
+    fireEvent.change(await screen.findByLabelText('Drawing template'), { target: { value: JSON.parse(localStorage.getItem('collab-ink-templates-v1')!)[0].id } });
+    fireEvent.click(screen.getByText('Add template page'));
+    await screen.findByText('Page 2 of 2');
   });
 
   it('does not commit a stroke the platform cancelled', async () => {

@@ -14,6 +14,7 @@
 
 import type {
   InkBounds,
+  InkDashStyle,
   InkLayer,
   InkObject,
   InkPage,
@@ -24,6 +25,7 @@ import { decodeSamples } from './codec';
 import { outlineStroke } from './stroke';
 import type { InkPoint, InkStrokeOutliner } from './stroke';
 import { objectBounds } from './svg';
+import { stampGlyph } from './advancedTools';
 import {
   INK_TILE_CACHE_BUDGET_BYTES,
   INK_TILE_SIZE,
@@ -53,6 +55,7 @@ export interface InkRenderTarget {
   fill(): void;
   stroke(): void;
   fillText(text: string, x: number, y: number): void;
+  setLineDash?(segments: number[]): void;
   fillStyle: string;
   strokeStyle: string;
   lineWidth: number;
@@ -68,6 +71,8 @@ export interface InkRenderOptions {
   includeNonExported?: boolean;
   /** Skip hidden layers. Defaults to true. */
   respectVisibility?: boolean;
+  /** Paint equation source as plain text when no rich KaTeX overlay exists. */
+  paintEquationFallback?: boolean;
 }
 
 function layerPaints(layer: InkLayer | undefined, options: InkRenderOptions): boolean {
@@ -105,6 +110,7 @@ function paintObject(
   target: InkRenderTarget,
   object: InkObject,
   outliner: InkStrokeOutliner,
+  options: InkRenderOptions,
 ): void {
   switch (object.type) {
     case 'stroke':
@@ -128,20 +134,133 @@ function paintObject(
       }
       target.strokeStyle = object.stroke.color;
       target.lineWidth = object.stroke.width;
+      applyDash(target, object.stroke.dash, object.stroke.width);
       target.globalAlpha = object.stroke.opacity;
       target.stroke();
+      paintArrowheads(target, object.points, object.arrowStart, object.arrowEnd, object.stroke);
+      applyDash(target, 'solid', object.stroke.width);
       target.globalAlpha = 1;
       break;
     }
-    case 'text':
+    case 'connector': {
+      const points = connectorPoints(object);
+      target.beginPath();
+      target.moveTo(points[0], points[1]);
+      for (let index = 2; index + 1 < points.length; index += 2) {
+        target.lineTo(points[index], points[index + 1]);
+      }
+      target.strokeStyle = object.stroke.color;
+      target.lineWidth = object.stroke.width;
+      target.globalAlpha = object.stroke.opacity;
+      applyDash(target, object.stroke.dash, object.stroke.width);
+      target.stroke();
+      paintArrowheads(target, points, object.arrowStart, object.arrowEnd, object.stroke);
+      applyDash(target, 'solid', object.stroke.width);
+      target.globalAlpha = 1;
+      break;
+    }
+    case 'text': {
+      if (object.equation && options.paintEquationFallback === false) break;
+      if (object.sticky || object.backgroundColor) {
+        target.fillStyle = object.backgroundColor ?? '#fef3a7';
+        target.fillRect(object.x, object.y, object.width, object.height);
+      }
       target.fillStyle = object.color;
       target.font = `${object.fontSize}px ${object.fontFamily ?? 'sans-serif'}`;
-      target.fillText(object.text, object.x, object.y + object.fontSize);
+      const inset = object.sticky ? Math.max(32, object.fontSize * 0.35) : 0;
+      object.text.split('\n').forEach((line, index) => {
+        target.fillText(line, object.x + inset, object.y + inset + object.fontSize * (index + 1));
+      });
       break;
+    }
+    case 'stamp': {
+      target.fillStyle = object.color ?? '#1f2933';
+      target.font = `${Math.max(1, object.height)}px sans-serif`;
+      target.fillText(stampGlyph(object.symbolId), object.x, object.y + object.height);
+      break;
+    }
     default:
       // Images, stamps, connectors, and groups need asset loading or Phase 5
       // editors. Painting a placeholder would be worse than painting nothing.
       break;
+  }
+}
+
+function applyDash(
+  target: InkRenderTarget,
+  dash: InkDashStyle | undefined,
+  width: number,
+): void {
+  if (!target.setLineDash) return;
+  target.setLineDash(
+    dash === 'dashed' ? [width * 4, width * 3] : dash === 'dotted' ? [width, width * 2] : [],
+  );
+}
+
+function connectorPoints(object: Extract<InkObject, { type: 'connector' }>): number[] {
+  if (object.routing === 'orthogonal') {
+    const midX = Math.round((object.from.x + object.to.x) / 2);
+    return [object.from.x, object.from.y, midX, object.from.y, midX, object.to.y, object.to.x, object.to.y];
+  }
+  return [object.from.x, object.from.y, object.to.x, object.to.y];
+}
+
+function paintArrowheads(
+  target: InkRenderTarget,
+  points: number[],
+  start: Extract<InkObject, { type: 'shape' }>['arrowStart'],
+  end: Extract<InkObject, { type: 'shape' }>['arrowEnd'],
+  stroke: Extract<InkObject, { type: 'shape' }>['stroke'],
+): void {
+  if (points.length < 4) return;
+  if (start && start !== 'none') {
+    paintArrowhead(target, points[0], points[1], points[2], points[3], start, stroke);
+  }
+  if (end && end !== 'none') {
+    const last = points.length - 2;
+    paintArrowhead(target, points[last], points[last + 1], points[last - 2], points[last - 1], end, stroke);
+  }
+}
+
+function paintArrowhead(
+  target: InkRenderTarget,
+  x: number,
+  y: number,
+  previousX: number,
+  previousY: number,
+  kind: 'arrow' | 'open' | 'dot',
+  stroke: Extract<InkObject, { type: 'shape' }>['stroke'],
+): void {
+  const angle = Math.atan2(y - previousY, x - previousX);
+  const size = Math.max(stroke.width * 4, 160);
+  target.fillStyle = stroke.color;
+  target.strokeStyle = stroke.color;
+  if (kind === 'dot') {
+    const segments = 12;
+    target.beginPath();
+    for (let index = 0; index < segments; index += 1) {
+      const theta = (index / segments) * Math.PI * 2;
+      const px = x + Math.cos(theta) * size * 0.45;
+      const py = y + Math.sin(theta) * size * 0.45;
+      if (index === 0) target.moveTo(px, py); else target.lineTo(px, py);
+    }
+    target.closePath();
+    target.fill();
+    return;
+  }
+  const leftX = x - Math.cos(angle - Math.PI / 6) * size;
+  const leftY = y - Math.sin(angle - Math.PI / 6) * size;
+  const rightX = x - Math.cos(angle + Math.PI / 6) * size;
+  const rightY = y - Math.sin(angle + Math.PI / 6) * size;
+  target.beginPath();
+  target.moveTo(leftX, leftY);
+  target.lineTo(x, y);
+  target.lineTo(rightX, rightY);
+  if (kind === 'arrow') {
+    target.closePath();
+    target.fill();
+  } else {
+    target.stroke();
   }
 }
 
@@ -166,6 +285,7 @@ export function paintScene(
   for (const id of scene.objectOrder) {
     const object = scene.objects[id];
     if (!object) continue;
+    if (object.type === 'shape' && object.guide && !options.includeNonExported) continue;
     if (only && !only.has(id)) continue;
     if (!layerPaints(scene.layers[object.layerId], options)) continue;
 
@@ -178,7 +298,7 @@ export function paintScene(
       target.save();
       target.globalAlpha = layerOpacity;
     }
-    paintObject(target, object, outliner);
+    paintObject(target, object, outliner, options);
     if (layerOpacity < 1) target.restore();
     painted += 1;
   }
@@ -226,6 +346,37 @@ export function paintPageBackground(
       target.moveTo(region.minX, y);
       target.lineTo(region.maxX, y);
       target.stroke();
+    }
+  }
+  if (background.pattern === 'staff') {
+    const staffGap = Math.max(64, Math.round(spacing / 4));
+    const staffStride = staffGap * 8;
+    const firstStaffY = Math.floor(region.minY / staffStride) * staffStride;
+    for (let startY = firstStaffY; startY <= region.maxY; startY += staffStride) {
+      for (let line = 0; line < 5; line += 1) {
+        const y = startY + line * staffGap;
+        target.beginPath();
+        target.moveTo(region.minX, y);
+        target.lineTo(region.maxX, y);
+        target.stroke();
+      }
+    }
+  }
+  if (background.pattern === 'storyboard') {
+    const columnWidth = Math.max(spacing * 4, 3_200);
+    const rowHeight = Math.max(spacing * 3, 2_400);
+    const firstColumn = Math.floor(region.minX / columnWidth) * columnWidth;
+    const firstRow = Math.floor(region.minY / rowHeight) * rowHeight;
+    for (let y = firstRow; y <= region.maxY; y += rowHeight) {
+      for (let x = firstColumn; x <= region.maxX; x += columnWidth) {
+        target.beginPath();
+        target.moveTo(x + 96, y + 96);
+        target.lineTo(x + columnWidth - 96, y + 96);
+        target.lineTo(x + columnWidth - 96, y + rowHeight - 96);
+        target.lineTo(x + 96, y + rowHeight - 96);
+        target.closePath();
+        target.stroke();
+      }
     }
   }
   if (background.pattern === 'grid') {

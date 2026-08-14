@@ -5,7 +5,7 @@
  * shared with the mobile editor in Phase 4 rather than reimplemented there.
  */
 
-import type { InkBrushParameters, InkBrushKind } from '../../types/ink';
+import type { InkArrowhead, InkBrushParameters, InkBrushKind, InkShapeKind } from '../../types/ink';
 import { INK_DEFAULT_BRUSHES } from './document';
 import type { InkEraserMode } from './erase';
 
@@ -14,6 +14,19 @@ export type InkToolId =
   | 'eraser'
   | 'select'
   | 'lasso'
+  | 'shape'
+  | 'connector'
+  | 'text'
+  | 'sticky'
+  | 'image'
+  | 'stamp'
+  | 'equation'
+  | 'ruler'
+  | 'protractor'
+  | 'compass'
+  | 'guide'
+  | 'loupe'
+  | 'eyedropper'
   | 'pan';
 
 export interface InkToolState {
@@ -27,6 +40,15 @@ export interface InkToolState {
   eraserRadius: number;
   /** Active layer new objects land on. Null means the topmost layer. */
   activeLayerId: string | null;
+  shapeKind: InkShapeKind;
+  shapeFill: string | null;
+  shapeFillOpacity: number;
+  arrowStart: InkArrowhead;
+  arrowEnd: InkArrowhead;
+  snapToGrid: boolean;
+  snapSpacing: number;
+  holdToStraighten: boolean;
+  stampSymbolId: string;
 }
 
 /** Eraser sizes, in ink units. 640 units is 10 pt, about a pencil rubber. */
@@ -40,6 +62,15 @@ export function defaultToolState(): InkToolState {
     eraserMode: 'stroke',
     eraserRadius: 640,
     activeLayerId: null,
+    shapeKind: 'rectangle',
+    shapeFill: null,
+    shapeFillOpacity: 0.2,
+    arrowStart: 'none',
+    arrowEnd: 'none',
+    snapToGrid: true,
+    snapSpacing: 768,
+    holdToStraighten: true,
+    stampSymbolId: 'check',
   };
 }
 
@@ -101,6 +132,18 @@ export type InkCommand =
   | 'tool.eraser'
   | 'tool.select'
   | 'tool.lasso'
+  | 'tool.shape'
+  | 'tool.connector'
+  | 'tool.text'
+  | 'tool.image'
+  | 'tool.stamp'
+  | 'tool.equation'
+  | 'tool.ruler'
+  | 'tool.protractor'
+  | 'tool.compass'
+  | 'tool.guide'
+  | 'tool.loupe'
+  | 'tool.eyedropper'
   | 'tool.pan'
   | 'edit.undo'
   | 'edit.redo'
@@ -134,6 +177,18 @@ export const INK_SHORTCUTS: InkShortcut[] = [
   { key: 'e', command: 'tool.eraser', label: 'Eraser' },
   { key: 'v', command: 'tool.select', label: 'Select' },
   { key: 'l', command: 'tool.lasso', label: 'Lasso' },
+  { key: 'u', command: 'tool.shape', label: 'Shape' },
+  { key: 'c', command: 'tool.connector', label: 'Connector' },
+  { key: 't', command: 'tool.text', label: 'Text' },
+  { key: 'i', command: 'tool.image', label: 'Image' },
+  { key: 'k', command: 'tool.stamp', label: 'Stamp' },
+  { key: 'q', command: 'tool.equation', label: 'Equation' },
+  { key: 'r', command: 'tool.ruler', label: 'Ruler' },
+  { key: 'o', command: 'tool.protractor', label: 'Protractor' },
+  { key: 'm', command: 'tool.compass', label: 'Compass' },
+  { key: 'g', command: 'tool.guide', label: 'Guide' },
+  { key: 'j', command: 'tool.loupe', label: 'Loupe' },
+  { key: 'x', command: 'tool.eyedropper', label: 'Eyedropper' },
   { key: 'h', command: 'tool.pan', label: 'Pan' },
 
   { key: 'z', ctrl: true, command: 'edit.undo', label: 'Undo' },

@@ -73,7 +73,10 @@ mod tests {
         let key = [7u8; 32];
         let encrypted = encrypt_bytes(&key, b"hello replica").expect("encrypt");
         assert!(is_encrypted_data(&encrypted));
-        assert_eq!(decrypt_bytes(&key, &encrypted).expect("decrypt"), b"hello replica");
+        assert_eq!(
+            decrypt_bytes(&key, &encrypted).expect("decrypt"),
+            b"hello replica"
+        );
     }
 
     #[test]

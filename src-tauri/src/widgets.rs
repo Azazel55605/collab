@@ -204,12 +204,10 @@ impl WidgetSyncState {
                 1 => "1 change waiting to sync".into(),
                 count => format!("{count} changes waiting to sync"),
             },
-            Self::ActionRequired => {
-                match summary.attention_required + summary.failed_operations {
-                    1 => "1 item needs attention".into(),
-                    count => format!("{count} items need attention"),
-                }
-            }
+            Self::ActionRequired => match summary.attention_required + summary.failed_operations {
+                1 => "1 item needs attention".into(),
+                count => format!("{count} items need attention"),
+            },
             Self::AuthenticationRequired => "Sign in again to sync".into(),
             Self::Offline => "Offline · changes sync later".into(),
             Self::Paused => "Background sync is paused".into(),
@@ -2131,15 +2129,15 @@ fn task_item_input(
         }) => Some((vault_id.clone(), file_id.clone(), card_id.clone())),
         _ => None,
     };
-    let source = if kanban_binding.is_some() || matches!(calendar.location, CalendarLocation::Kanban { .. }) {
+    let source = if kanban_binding.is_some()
+        || matches!(calendar.location, CalendarLocation::Kanban { .. })
+    {
         WidgetTaskSource::Kanban
     } else {
         WidgetTaskSource::Calendar
     };
     match source {
-        WidgetTaskSource::Kanban if !configuration.tasks.include_kanban_tasks => {
-            return Ok(None)
-        }
+        WidgetTaskSource::Kanban if !configuration.tasks.include_kanban_tasks => return Ok(None),
         WidgetTaskSource::Calendar if !configuration.tasks.include_calendar_tasks => {
             return Ok(None)
         }
@@ -2486,7 +2484,10 @@ fn shortcut_row(candidate: &ShortcutCandidate, pinned: bool, order: usize) -> Wi
         // Pins keep their configured order ahead of every recent entry.
         sort_key: format!("{}:{order:03}", if pinned { 0 } else { 1 }),
         title: truncate_utf8(&candidate.name, MAX_TEXT_BYTES),
-        detail: format!("{kind_label} · {}", truncate_utf8(&candidate.vault_name, 64)),
+        detail: format!(
+            "{kind_label} · {}",
+            truncate_utf8(&candidate.vault_name, 64)
+        ),
         // Title-only drops the vault (account) detail but keeps the type.
         title_only_detail: kind_label.into(),
         private_title: kind_label.into(),
@@ -2555,7 +2556,8 @@ pub(crate) fn list_sync_accounts(config_root: &Path) -> Result<Vec<WidgetSyncAcc
     // Only identities are needed here, so this must not take the inventory path
     // that counts queued operations — it would decrypt every replica's queue to
     // produce numbers this screen never shows.
-    for server_url in collab_replica::ReplicaStore::list_server_urls(config_root).unwrap_or_default()
+    for server_url in
+        collab_replica::ReplicaStore::list_server_urls(config_root).unwrap_or_default()
     {
         record(&server_url, true);
     }
@@ -2620,7 +2622,10 @@ fn sync_item_inputs(
         .as_ref()
         .map(|view| view.settings.clone())
         .unwrap_or_default();
-    let jobs = view.as_ref().map(|view| view.jobs.as_slice()).unwrap_or(&[]);
+    let jobs = view
+        .as_ref()
+        .map(|view| view.jobs.as_slice())
+        .unwrap_or(&[]);
     let selected: HashSet<&str> = configuration
         .selected_source_ids
         .iter()
@@ -3601,7 +3606,10 @@ fn validate_snapshot(snapshot: &WidgetSnapshot, expected_profile_hash: &str) -> 
             if !SHORTCUT_DESTINATIONS.contains(&shortcut.destination.as_str()) {
                 return Err("A widget shortcut uses an unsupported destination.".into());
             }
-            for value in [&shortcut.vault_id, &shortcut.file_id].into_iter().flatten() {
+            for value in [&shortcut.vault_id, &shortcut.file_id]
+                .into_iter()
+                .flatten()
+            {
                 validate_identifier(value, "widget shortcut reference")?;
             }
             // A vault destination without a resolved target would hand the app
@@ -4398,9 +4406,7 @@ mod tests {
             recurrence_series_id: None,
             source_binding: None,
             icalendar_properties: vec![],
-            start: Some(CalendarTimeValue::Date {
-                date: start.into(),
-            }),
+            start: Some(CalendarTimeValue::Date { date: start.into() }),
             end: Some(CalendarTimeValue::Date { date: end.into() }),
             due: None,
             date: None,
@@ -4678,9 +4684,13 @@ mod tests {
             WidgetFreshness::Fresh,
         )
         .unwrap();
-        let unscheduled =
-            project_task(&task_item("task-none", &calendar.id, None), &calendar, &configuration, WidgetFreshness::Fresh)
-                .unwrap();
+        let unscheduled = project_task(
+            &task_item("task-none", &calendar.id, None),
+            &calendar,
+            &configuration,
+            WidgetFreshness::Fresh,
+        )
+        .unwrap();
         assert_eq!(overdue.task.as_ref().unwrap().due, WidgetTaskDue::Overdue);
         assert_eq!(upcoming.task.as_ref().unwrap().due, WidgetTaskDue::Upcoming);
         assert_eq!(
@@ -4829,7 +4839,8 @@ mod tests {
             source_revision: Some(4),
         });
         let configuration = tasks_configuration("tasks-1");
-        let projected = project_task(&item, &kanban, &configuration, WidgetFreshness::Fresh).unwrap();
+        let projected =
+            project_task(&item, &kanban, &configuration, WidgetFreshness::Fresh).unwrap();
         let task = projected.task.clone().unwrap();
         assert_eq!(task.source, WidgetTaskSource::Kanban);
         assert_eq!(task.completion, WidgetTaskCompletion::ConfirmInApp);
@@ -4984,11 +4995,17 @@ mod tests {
 
         // Replaying the same confirmed tap is a no-op, and a stale revision is
         // refused rather than overwriting the newer state.
-        assert!(complete_task(&root, "profile-1", &calendar_store, request, now)
-            .await
-            .is_err());
+        assert!(
+            complete_task(&root, "profile-1", &calendar_store, request, now)
+                .await
+                .is_err()
+        );
         assert_eq!(
-            calendar_store.list_pending_operations().await.unwrap().len(),
+            calendar_store
+                .list_pending_operations()
+                .await
+                .unwrap()
+                .len(),
             1
         );
         fs::remove_dir_all(root).unwrap();
@@ -5184,7 +5201,11 @@ mod tests {
         let cases = [
             (HostedDocumentType::Note, WidgetEntryKind::Note, "note"),
             (HostedDocumentType::Kanban, WidgetEntryKind::Board, "board"),
-            (HostedDocumentType::Canvas, WidgetEntryKind::Canvas, "canvas"),
+            (
+                HostedDocumentType::Canvas,
+                WidgetEntryKind::Canvas,
+                "canvas",
+            ),
             (HostedDocumentType::Sheet, WidgetEntryKind::Sheet, "sheet"),
             (HostedDocumentType::Ink, WidgetEntryKind::Drawing, "drawing"),
         ];
@@ -5280,10 +5301,12 @@ mod tests {
         // Capture labels carry no user content, so privacy reduction keeps them
         // readable instead of replacing them with a generic placeholder.
         assert_eq!(snapshot.items[0].title, "New note");
-        assert!(snapshot
-            .items
-            .iter()
-            .all(|item| item.shortcut.as_ref().unwrap().vault_id.is_none()));
+        assert!(snapshot.items.iter().all(|item| item
+            .shortcut
+            .as_ref()
+            .unwrap()
+            .vault_id
+            .is_none()));
     }
 
     #[test]
@@ -5337,7 +5360,10 @@ mod tests {
 
         let candidates = read_shortcut_candidates(&root);
         assert_eq!(
-            candidates.iter().map(|entry| entry.file_id.as_str()).collect::<Vec<_>>(),
+            candidates
+                .iter()
+                .map(|entry| entry.file_id.as_str())
+                .collect::<Vec<_>>(),
             vec!["file-note"],
         );
         assert_eq!(candidates[0].entry_kind, WidgetEntryKind::Note);
@@ -5387,7 +5413,9 @@ mod tests {
 
         let rows = shortcut_item_inputs(&configuration, &candidates);
         assert_eq!(
-            rows.iter().map(|row| row.stable_id.as_str()).collect::<Vec<_>>(),
+            rows.iter()
+                .map(|row| row.stable_id.as_str())
+                .collect::<Vec<_>>(),
             vec![
                 "vault-1:file-board",
                 "vault-1:file-recent",
@@ -5439,7 +5467,12 @@ mod tests {
         assert!(!encoded.contains("Team vault"));
         // The opaque identity the app routes by must survive reduction.
         assert_eq!(
-            snapshot.items[0].shortcut.as_ref().unwrap().file_id.as_deref(),
+            snapshot.items[0]
+                .shortcut
+                .as_ref()
+                .unwrap()
+                .file_id
+                .as_deref(),
             Some("file-note"),
         );
 
@@ -5779,7 +5812,12 @@ mod tests {
         write_background_state(
             &root,
             serde_json::json!([
-                background_job("job-auth", "https://collab.example", "authentication_required", None),
+                background_job(
+                    "job-auth",
+                    "https://collab.example",
+                    "authentication_required",
+                    None
+                ),
                 background_job("job-run", "https://collab.example", "running", None),
             ]),
             serde_json::json!([]),
@@ -5892,7 +5930,10 @@ mod tests {
         );
         let (_, _, summary) = sync_item_inputs(&root, &sync_configuration("sync-1"), sync_now());
         assert_eq!(summary.state, WidgetSyncState::Offline);
-        assert_eq!(summary.state.label(&summary), "Offline · changes sync later");
+        assert_eq!(
+            summary.state.label(&summary),
+            "Offline · changes sync later"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -5937,7 +5978,10 @@ mod tests {
         assert_eq!(accounts[0].label, "https://collab.example");
         assert_eq!(accounts[0].vaults, 1);
         // The identity the configuration stores is the hash, not the label.
-        assert_eq!(accounts[0].account_id, account_hash("https://collab.example"));
+        assert_eq!(
+            accounts[0].account_id,
+            account_hash("https://collab.example")
+        );
         assert!(accounts
             .iter()
             .all(|account| account.account_id.starts_with("account-")));
@@ -6016,9 +6060,21 @@ mod tests {
         let calendar_store = CalendarStore::open(&root, "profile-1").await.unwrap();
         write_background_state(&root, serde_json::json!([]), serde_json::json!([]), None);
         let vaults = [
-            ("https://collab.example", "b3f1c2d4-5e6a-4b7c-8d9e-0f1a2b3c4d5e", "Team vault"),
-            ("https://collab.example", "c4a2d3e5-6f7b-4c8d-9e0f-1a2b3c4d5e6f", "Notes"),
-            ("https://other.example", "d5b3e4f6-7a8c-4d9e-0f1a-2b3c4d5e6f70", "Personal"),
+            (
+                "https://collab.example",
+                "b3f1c2d4-5e6a-4b7c-8d9e-0f1a2b3c4d5e",
+                "Team vault",
+            ),
+            (
+                "https://collab.example",
+                "c4a2d3e5-6f7b-4c8d-9e0f-1a2b3c4d5e6f",
+                "Notes",
+            ),
+            (
+                "https://other.example",
+                "d5b3e4f6-7a8c-4d9e-0f1a-2b3c4d5e6f70",
+                "Personal",
+            ),
         ];
         for (server, id, name) in vaults {
             seed_sync_replica(
@@ -6048,7 +6104,11 @@ mod tests {
         let snapshot = &outcomes[0].snapshot;
 
         assert_eq!(snapshot.sync.as_ref().unwrap().vaults, 3);
-        let titles: Vec<&str> = snapshot.items.iter().map(|item| item.title.as_str()).collect();
+        let titles: Vec<&str> = snapshot
+            .items
+            .iter()
+            .map(|item| item.title.as_str())
+            .collect();
         assert_eq!(titles, vec!["Notes", "Personal", "Team vault"]);
         fs::remove_dir_all(root).unwrap();
     }
@@ -6057,8 +6117,7 @@ mod tests {
     fn a_running_sync_reports_what_it_is_on_and_how_far_along_it_is() {
         let root = test_root();
         let mut behind = background_job("job-1", "https://collab.example", "running", None);
-        behind["progress"] =
-            serde_json::json!({ "completed": 1, "total": 4, "detail": "Checking offline replicas" });
+        behind["progress"] = serde_json::json!({ "completed": 1, "total": 4, "detail": "Checking offline replicas" });
         let mut ahead = background_job("job-2", "https://collab.example", "running", None);
         // A vault-relative path is what the file executor reports. Only the
         // last segment may be published: the folders above it are not the
@@ -6086,8 +6145,12 @@ mod tests {
     #[test]
     fn progress_phrasing_is_dropped_once_nothing_is_running() {
         let root = test_root();
-        let mut finished =
-            background_job("job-1", "https://collab.example", "succeeded", Some("2026-08-01T07:55:00Z"));
+        let mut finished = background_job(
+            "job-1",
+            "https://collab.example",
+            "succeeded",
+            Some("2026-08-01T07:55:00Z"),
+        );
         // A finished job keeps the counts it ended on. Publishing them would
         // freeze "9 of 12" on the launcher long after the run was over.
         finished["progress"] =
@@ -6118,7 +6181,10 @@ mod tests {
         );
 
         let (_, _, summary) = sync_item_inputs(&root, &sync_configuration("sync-1"), sync_now());
-        assert_eq!(summary.activity_label.as_deref(), Some("Checking for changes"));
+        assert_eq!(
+            summary.activity_label.as_deref(),
+            Some("Checking for changes")
+        );
         // Nothing stated a total, so no proportion is invented.
         assert_eq!(summary.progress_label, None);
         fs::remove_dir_all(root).unwrap();
@@ -6190,7 +6256,10 @@ mod tests {
         let profile_hash = profile_hash("profile-1");
         let mut snapshot = build_snapshot(
             "profile-1",
-            request(configuration("config-1", WidgetPrivacy::Full), "2026-08-01T10:00:00Z"),
+            request(
+                configuration("config-1", WidgetPrivacy::Full),
+                "2026-08-01T10:00:00Z",
+            ),
         )
         .unwrap();
         snapshot.sync = Some(WidgetSyncSummary {

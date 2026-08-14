@@ -23,6 +23,8 @@ import { penButtonTool } from '../../lib/ink/tools';
 import type { InkPenButtonMapping, InkToolState } from '../../lib/ink/tools';
 import type { InkEraserPoint } from '../../lib/ink/erase';
 import type { InkResizeHandle } from '../../lib/ink/transform';
+import { shouldHoldToStraighten } from '../../lib/ink/advancedTools';
+import InkRichObjectLayer from './InkRichObjectLayer';
 
 /**
  * The interactive ink surface.
@@ -51,6 +53,7 @@ const NULL_TARGET: InkRenderTarget = {
   save() {}, restore() {}, setTransform() {}, translate() {}, scale() {},
   clearRect() {}, fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {},
   closePath() {}, fill() {}, stroke() {}, fillText() {},
+  setLineDash() {},
   fillStyle: '', strokeStyle: '', lineWidth: 1, globalAlpha: 1, font: '',
 };
 
@@ -80,7 +83,16 @@ export interface InkCanvasProps {
   selectedIds: string[];
   readOnly: boolean;
   onViewportChange: (next: { originX: number; originY: number; zoom: number }) => void;
-  onCommitStroke: (samples: InkSample[]) => void;
+  onCommitStroke: (samples: InkSample[], options?: { straighten?: boolean }) => void;
+  onCreateAdvancedObject: (
+    tool: 'shape' | 'connector' | 'text' | 'sticky' | 'image' | 'stamp' | 'equation' | 'ruler' | 'protractor' | 'compass' | 'guide',
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    uniform: boolean,
+  ) => void;
+  onEyedropObject: (objectId: string) => void;
+  onActivateObjectLink: (objectId: string) => void;
+  readAssetDataUrl: (relativePath: string) => Promise<string>;
   onErase: (path: InkEraserPoint[], radius: number) => void;
   onSelectionChange: (ids: string[], additive: boolean) => void;
   onMoveSelection: (dx: number, dy: number) => void;
@@ -100,7 +112,9 @@ type Gesture =
   | { kind: 'marquee'; pointerId: number; from: { x: number; y: number }; to: { x: number; y: number }; additive: boolean }
   | { kind: 'lasso'; pointerId: number; points: number[]; additive: boolean }
   | { kind: 'move'; pointerId: number; clientX: number; clientY: number }
-  | { kind: 'resize'; pointerId: number; handle: InkResizeHandle; clientX: number; clientY: number };
+  | { kind: 'resize'; pointerId: number; handle: InkResizeHandle; clientX: number; clientY: number }
+  | { kind: 'create'; pointerId: number; tool: 'shape' | 'connector' | 'text' | 'sticky' | 'image' | 'stamp' | 'equation' | 'ruler' | 'protractor' | 'compass' | 'guide'; from: { x: number; y: number }; to: { x: number; y: number }; uniform: boolean }
+  | { kind: 'loupe'; pointerId: number };
 
 export default function InkCanvas({
   page,
@@ -114,6 +128,10 @@ export default function InkCanvas({
   readOnly,
   onViewportChange,
   onCommitStroke,
+  onCreateAdvancedObject,
+  onEyedropObject,
+  onActivateObjectLink,
+  readAssetDataUrl,
   onErase,
   onSelectionChange,
   onMoveSelection,
@@ -123,14 +141,18 @@ export default function InkCanvas({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const tileCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const liveCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const loupeCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<InkTileRenderer<CanvasTile> | null>(null);
   const arbiterRef = useRef(new InkContactArbiter(inputSettings));
   const gestureRef = useRef<Gesture>({ kind: 'none' });
   const [gestureKind, setGestureKind] = useState<Gesture['kind']>('none');
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [overlayVersion, setOverlayVersion] = useState(0);
+  const [loupePoint, setLoupePoint] = useState<{ x: number; y: number } | null>(null);
 
-  rendererRef.current ??= new InkTileRenderer(createTileFactory());
+  rendererRef.current ??= new InkTileRenderer(createTileFactory(), {
+    render: { includeNonExported: true, paintEquationFallback: false },
+  });
 
   useEffect(() => {
     arbiterRef.current.updateSettings(inputSettings);
@@ -220,6 +242,31 @@ export default function InkCanvas({
     const frame = requestAnimationFrame(drawTiles);
     return () => cancelAnimationFrame(frame);
   }, [drawTiles]);
+
+  useEffect(() => {
+    const source = tileCanvasRef.current;
+    const loupe = loupeCanvasRef.current;
+    if (!source || !loupe || !loupePoint) return;
+    const ratio = window.devicePixelRatio || 1;
+    const sizePx = 144;
+    loupe.width = sizePx * ratio;
+    loupe.height = sizePx * ratio;
+    const context = loupe.getContext('2d');
+    if (!context) return;
+    const sample = sizePx / 2;
+    context.clearRect(0, 0, loupe.width, loupe.height);
+    context.drawImage(
+      source,
+      (loupePoint.x - sample / 2) * ratio,
+      (loupePoint.y - sample / 2) * ratio,
+      sample * ratio,
+      sample * ratio,
+      0,
+      0,
+      sizePx * ratio,
+      sizePx * ratio,
+    );
+  }, [loupePoint, overlayVersion]);
 
   /* --------------------------------------------------------------------- */
   /* The stroke under the pen                                               */
@@ -350,7 +397,7 @@ export default function InkCanvas({
       }
       if (role === 'erase') effective = 'eraser';
       if (role === 'navigate') effective = 'pan';
-      if (readOnly && effective !== 'pan' && effective !== 'select') effective = 'pan';
+      if (readOnly && effective !== 'pan' && effective !== 'select' && effective !== 'loupe' && effective !== 'eyedropper') effective = 'pan';
 
       if (effective === 'pan') {
         gestureRef.current = {
@@ -369,6 +416,19 @@ export default function InkCanvas({
         gestureRef.current = {
           kind: 'lasso', pointerId: event.pointerId, points: [point.x, point.y],
           additive: event.shiftKey,
+        };
+      } else if (effective === 'eyedropper') {
+        const hit = index?.hitTest(point.x, point.y, { slop: HANDLE_PX * unitsPerPixel }) ?? null;
+        if (hit) onEyedropObject(hit);
+        gestureRef.current = { kind: 'none' };
+      } else if (effective === 'loupe') {
+        const rect = hostRef.current?.getBoundingClientRect();
+        setLoupePoint({ x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) });
+        gestureRef.current = { kind: 'loupe', pointerId: event.pointerId };
+      } else if (['shape', 'connector', 'text', 'sticky', 'image', 'stamp', 'equation', 'ruler', 'protractor', 'compass', 'guide'].includes(effective)) {
+        gestureRef.current = {
+          kind: 'create', pointerId: event.pointerId, tool: effective as Extract<Gesture, { kind: 'create' }>['tool'],
+          from: point, to: point, uniform: event.shiftKey,
         };
       } else {
         const handle = handleAt(event.clientX, event.clientY);
@@ -400,7 +460,7 @@ export default function InkCanvas({
       setGestureKind(gestureRef.current.kind);
       bump();
     },
-    [handleAt, index, onSelectionChange, originX, originY, penButtons, readOnly, selectedIds, tool.tool, toDocument, unitsPerPixel, zoom],
+    [handleAt, index, onEyedropObject, onSelectionChange, originX, originY, penButtons, readOnly, selectedIds, tool.tool, toDocument, unitsPerPixel, zoom],
   );
 
   const onPointerMove = useCallback(
@@ -484,6 +544,17 @@ export default function InkCanvas({
           gesture.clientY = event.clientY;
           return;
         }
+        case 'create': {
+          gesture.to = toDocument(event.clientX, event.clientY);
+          gesture.uniform = event.shiftKey;
+          bump();
+          return;
+        }
+        case 'loupe': {
+          const rect = hostRef.current?.getBoundingClientRect();
+          setLoupePoint({ x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) });
+          return;
+        }
       }
     },
     [onMoveSelection, onResizeSelection, onViewportChange, originX, originY, toDocument, unitsPerPixel, zoom],
@@ -505,6 +576,7 @@ export default function InkCanvas({
       // A cancelled gesture commits nothing. `pointercancel` means the platform
       // took the pointer away — the user did not finish the stroke.
       if (cancelled) {
+        if (gesture.kind === 'loupe') setLoupePoint(null);
         bump();
         return;
       }
@@ -514,7 +586,11 @@ export default function InkCanvas({
           const samples = captureStroke(gesture.readings, {
             streamline: tool.brush.streamline,
           });
-          if (samples.length > 0) onCommitStroke(samples);
+          if (samples.length > 0) {
+            onCommitStroke(samples, {
+              straighten: tool.holdToStraighten && shouldHoldToStraighten(samples, event.timeStamp - gesture.startedAt),
+            });
+          }
           break;
         }
         case 'erase':
@@ -536,12 +612,18 @@ export default function InkCanvas({
           onSelectionChange(hits, gesture.additive);
           break;
         }
+        case 'create':
+          onCreateAdvancedObject(gesture.tool, gesture.from, gesture.to, gesture.uniform);
+          break;
+        case 'loupe':
+          setLoupePoint(null);
+          break;
         default:
           break;
       }
       bump();
     },
-    [index, onCommitStroke, onErase, onSelectionChange, tool.brush.streamline, tool.eraserRadius],
+    [index, onCommitStroke, onCreateAdvancedObject, onErase, onSelectionChange, tool.brush.streamline, tool.eraserRadius, tool.holdToStraighten],
   );
 
   const onWheel = useCallback(
@@ -600,12 +682,38 @@ export default function InkCanvas({
       onPointerUp={(event) => endGesture(event, false)}
       onPointerCancel={(event) => endGesture(event, true)}
       onLostPointerCapture={(event) => endGesture(event, true)}
+      onDoubleClick={(event) => {
+        const point = toDocument(event.clientX, event.clientY);
+        const hit = index?.hitTest(point.x, point.y, { slop: HANDLE_PX * unitsPerPixel });
+        if (hit) onActivateObjectLink(hit);
+      }}
     >
       <canvas
         ref={tileCanvasRef}
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
         aria-label={page?.name ? `Drawing page ${page.name}` : 'Drawing page'}
         role="img"
+      />
+      {page ? (
+        <InkRichObjectLayer
+          scene={page.scene}
+          originX={originX}
+          originY={originY}
+          zoom={zoom}
+          readAssetDataUrl={readAssetDataUrl}
+        />
+      ) : null}
+      <canvas
+        ref={loupeCanvasRef}
+        aria-hidden
+        className="pointer-events-none absolute rounded-full border-2 border-primary bg-background shadow-xl"
+        style={{
+          display: loupePoint ? 'block' : 'none',
+          left: (loupePoint?.x ?? 0) + 18,
+          top: (loupePoint?.y ?? 0) + 18,
+          width: 144,
+          height: 144,
+        }}
       />
       <canvas
         ref={liveCanvasRef}
@@ -632,6 +740,9 @@ export default function InkCanvas({
             strokeDasharray="4 3"
           />
         )}
+        {gesture.kind === 'create' && (
+          <CreationPreview gesture={gesture} toScreen={toScreen} />
+        )}
         {bounds && gesture.kind !== 'marquee' && gesture.kind !== 'lasso' && (
           <SelectionOverlay bounds={bounds} toScreen={toScreen} readOnly={readOnly} />
         )}
@@ -651,8 +762,35 @@ function pairs(flat: number[]): Array<[number, number]> {
 function cursorFor(tool: string, gesture: string): string {
   if (gesture === 'pan') return 'grabbing';
   if (tool === 'pan') return 'grab';
-  if (tool === 'pen' || tool === 'eraser') return 'crosshair';
+  if (tool === 'pen' || tool === 'eraser' || tool === 'shape' || tool === 'connector' || tool === 'text' || tool === 'sticky' || tool === 'image' || tool === 'stamp' || tool === 'equation' || tool === 'ruler' || tool === 'protractor' || tool === 'compass' || tool === 'guide' || tool === 'eyedropper' || tool === 'loupe') return 'crosshair';
   return 'default';
+}
+
+function CreationPreview({
+  gesture,
+  toScreen,
+}: {
+  gesture: Extract<Gesture, { kind: 'create' }>;
+  toScreen: ToScreen;
+}) {
+  const from = toScreen(gesture.from.x, gesture.from.y);
+  const to = toScreen(gesture.to.x, gesture.to.y);
+  if (gesture.tool === 'connector' || gesture.tool === 'ruler' || gesture.tool === 'protractor' || gesture.tool === 'guide') {
+    return <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="rgba(139,125,255,0.9)" strokeWidth={1.5} />;
+  }
+  return (
+    <rect
+      x={Math.min(from.x, to.x)}
+      y={Math.min(from.y, to.y)}
+      width={Math.max(1, Math.abs(to.x - from.x))}
+      height={Math.max(1, Math.abs(to.y - from.y))}
+      rx={gesture.tool === 'sticky' ? 6 : 0}
+      fill={gesture.tool === 'sticky' ? 'rgba(254,243,167,0.35)' : 'rgba(139,125,255,0.08)'}
+      stroke="rgba(139,125,255,0.9)"
+      strokeWidth={1}
+      strokeDasharray="4 3"
+    />
+  );
 }
 
 /** Union bounds of a selection, from the index's cached values. */

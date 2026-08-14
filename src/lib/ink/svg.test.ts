@@ -119,6 +119,23 @@ describe('sceneToSvg', () => {
     expect(sceneToSvg(empty)).toContain('<svg');
   });
 
+  it('exports bundled stamps but omits non-exported guides', () => {
+    const scene = buildInkScene({ strokes: 0 });
+    scene.objects.stamp = {
+      id: 'stamp', type: 'stamp', layerId: 'layer-1', x: 0, y: 0,
+      width: 500, height: 500, symbolId: 'check', color: '#123456',
+    };
+    scene.objects.guide = {
+      id: 'guide', type: 'shape', layerId: 'layer-1', shape: 'line',
+      points: [0, 0, 1_000, 0], guide: true,
+      stroke: { kind: 'technical', color: '#8b7dff', opacity: 1, width: 32, thinning: 0, smoothing: 0, streamline: 0, taperStart: 0, taperEnd: 0 },
+    };
+    scene.objectOrder.push('stamp', 'guide');
+    const svg = sceneToSvg(scene);
+    expect(svg).toContain('✓');
+    expect(svg).not.toContain('#8b7dff');
+  });
+
   it('skips an id in objectOrder that has no object', () => {
     const scene = buildInkScene({ strokes: 2, samplesPerStroke: 6 });
     scene.objectOrder.push('missing');

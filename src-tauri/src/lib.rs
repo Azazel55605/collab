@@ -1,9 +1,9 @@
 mod android_jni;
 mod android_notifications;
 mod background;
-mod background_observer;
 #[cfg(not(mobile))]
 mod background_lifecycle;
+mod background_observer;
 mod commands;
 mod crypto;
 #[cfg(not(mobile))]

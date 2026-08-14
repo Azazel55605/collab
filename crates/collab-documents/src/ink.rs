@@ -127,9 +127,7 @@ pub fn is_vault_relative_path(path: &str) -> bool {
             return false;
         }
     }
-    !path
-        .split(['/', '\\'])
-        .any(|segment| segment == "..")
+    !path.split(['/', '\\']).any(|segment| segment == "..")
 }
 
 /// Validates a parsed `.ink` document.
@@ -190,7 +188,8 @@ pub fn validate_document(value: &Value, limits: InkLimits) -> Result<(), InkVali
     let mut total_samples = 0usize;
 
     for entry in page_order {
-        let page_id = valid_id(Some(entry)).ok_or(InkValidationError::InvalidId { kind: "page" })?;
+        let page_id =
+            valid_id(Some(entry)).ok_or(InkValidationError::InvalidId { kind: "page" })?;
         if !seen_pages.insert(page_id.to_string()) {
             return Err(InkValidationError::DuplicateId {
                 kind: "page",
@@ -253,10 +252,13 @@ fn validate_page(page: &Value, limits: InkLimits) -> Result<PageCounts, InkValid
         .get("layers")
         .and_then(Value::as_object)
         .ok_or(InkValidationError::WrongType { field: "layers" })?;
-    let layer_order = scene
-        .get("layerOrder")
-        .and_then(Value::as_array)
-        .ok_or(InkValidationError::WrongType { field: "layerOrder" })?;
+    let layer_order =
+        scene
+            .get("layerOrder")
+            .and_then(Value::as_array)
+            .ok_or(InkValidationError::WrongType {
+                field: "layerOrder",
+            })?;
 
     if layer_order.len() > limits.layers_per_page {
         return Err(InkValidationError::LimitExceeded {
@@ -286,12 +288,11 @@ fn validate_page(page: &Value, limits: InkLimits) -> Result<PageCounts, InkValid
         .get("objects")
         .and_then(Value::as_object)
         .ok_or(InkValidationError::WrongType { field: "objects" })?;
-    let object_order = scene
-        .get("objectOrder")
-        .and_then(Value::as_array)
-        .ok_or(InkValidationError::WrongType {
+    let object_order = scene.get("objectOrder").and_then(Value::as_array).ok_or(
+        InkValidationError::WrongType {
             field: "objectOrder",
-        })?;
+        },
+    )?;
 
     if object_order.len() > limits.objects_per_page {
         return Err(InkValidationError::LimitExceeded {
@@ -348,6 +349,10 @@ fn validate_object(
         });
     }
 
+    if let Some(link) = map.get("link") {
+        validate_object_link(link)?;
+    }
+
     match map.get("type").and_then(Value::as_str) {
         Some("stroke") => validate_stroke(id, map, limits),
         Some("text") => {
@@ -385,9 +390,61 @@ fn validate_object(
             }
             Ok(0)
         }
-        Some("shape") | Some("connector") | Some("stamp") => Ok(0),
+        Some("shape") => {
+            let points = map
+                .get("points")
+                .and_then(Value::as_array)
+                .ok_or(InkValidationError::WrongType { field: "points" })?;
+            if points.len() < 4 || points.len() % 2 != 0 {
+                return Err(InkValidationError::UndrawableGeometry { id: id.to_string() });
+            }
+            if points
+                .iter()
+                .any(|entry| entry.as_f64().is_none_or(|value| !drawable(value)))
+            {
+                return Err(InkValidationError::UndrawableGeometry { id: id.to_string() });
+            }
+            Ok(0)
+        }
+        Some("connector") => {
+            validate_nested_point(id, map.get("from"))?;
+            validate_nested_point(id, map.get("to"))?;
+            Ok(0)
+        }
+        Some("stamp") => {
+            validate_point(id, map)?;
+            Ok(0)
+        }
         _ => Err(InkValidationError::WrongType { field: "type" }),
     }
+}
+
+fn validate_object_link(value: &Value) -> Result<(), InkValidationError> {
+    let map = value
+        .as_object()
+        .ok_or(InkValidationError::WrongType { field: "link" })?;
+    let kind = map.get("kind").and_then(Value::as_str);
+    let target = map
+        .get("target")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let valid = match kind {
+        Some("vault") => is_vault_relative_path(target),
+        Some("url") => target.starts_with("https://") && target.len() <= 2048,
+        _ => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(InkValidationError::WrongType { field: "link" })
+    }
+}
+
+fn validate_nested_point(id: &str, value: Option<&Value>) -> Result<(), InkValidationError> {
+    let map = value
+        .and_then(Value::as_object)
+        .ok_or_else(|| InkValidationError::UndrawableGeometry { id: id.to_string() })?;
+    validate_point(id, map)
 }
 
 fn validate_point(
@@ -520,6 +577,53 @@ mod tests {
                        "taperStart": 0, "taperEnd": 0 },
             "samples": { "x": x, "y": y }
         })
+    }
+
+    #[test]
+    fn validates_phase_five_shape_and_connector_geometry() {
+        let valid = document(
+            json!({
+                "shape": {
+                    "id": "shape", "type": "shape", "layerId": "layer-1",
+                    "points": [0, 0, 100, 100]
+                },
+                "connector": {
+                    "id": "connector", "type": "connector", "layerId": "layer-1",
+                    "from": { "x": 0, "y": 0 }, "to": { "x": 100, "y": 100 }
+                }
+            }),
+            json!(["shape", "connector"]),
+        );
+        assert_eq!(validate_document(&valid, DEFAULT_INK_LIMITS), Ok(()));
+
+        let malformed = document(
+            json!({
+                "shape": {
+                    "id": "shape", "type": "shape", "layerId": "layer-1",
+                    "points": [0, 0, "outside", 100]
+                }
+            }),
+            json!(["shape"]),
+        );
+        assert!(matches!(
+            validate_document(&malformed, DEFAULT_INK_LIMITS),
+            Err(InkValidationError::UndrawableGeometry { .. })
+        ));
+    }
+
+    #[test]
+    fn validates_phase_five_object_links() {
+        let mut value = valid();
+        value["pages"]["page-1"]["scene"]["objects"]["s1"]["link"] =
+            json!({ "kind": "url", "target": "https://example.test/path" });
+        assert!(validate_document(&value, DEFAULT_INK_LIMITS).is_ok());
+
+        value["pages"]["page-1"]["scene"]["objects"]["s1"]["link"] =
+            json!({ "kind": "url", "target": "javascript:alert(1)" });
+        assert!(matches!(
+            validate_document(&value, DEFAULT_INK_LIMITS),
+            Err(InkValidationError::WrongType { field: "link" })
+        ));
     }
 
     fn valid() -> Value {
@@ -841,7 +945,8 @@ mod reference_tests {
     #[test]
     fn ignores_images_outside_the_queried_target() {
         let content = drawing(&["Pictures/a.png", "Elsewhere/b.png"]);
-        let found = collect_ink_references(&content, "Sketches/Idea.ink", "Pictures/a.png").unwrap();
+        let found =
+            collect_ink_references(&content, "Sketches/Idea.ink", "Pictures/a.png").unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].referenced_relative_path, "Pictures/a.png");
     }
@@ -865,7 +970,10 @@ mod reference_tests {
         let value: Value = serde_json::from_str(&rewritten).unwrap();
         let objects = &value["pages"]["page-1"]["scene"]["objects"];
         assert_eq!(objects["img-0"]["relativePath"], json!("Media/a.png"));
-        assert_eq!(objects["img-1"]["relativePath"], json!("Media/nested/b.png"));
+        assert_eq!(
+            objects["img-1"]["relativePath"],
+            json!("Media/nested/b.png")
+        );
     }
 
     #[test]

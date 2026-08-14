@@ -42,6 +42,7 @@ import { supportsVersionHistoryRelativePath } from '../collaboration/history/his
 import { createEmptyLogicDiagram } from '../../types/logicDiagram';
 import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
 import { createInkDocument, serializeInkDocument } from '../../lib/ink/document';
+import { instantiateInkTemplate, loadInkTemplates } from '../../lib/ink/templates';
 import NewDrawingDialog, { type NewDrawingChoice } from '../ink/NewDrawingDialog';
 import { isTextDocumentPath, nextAvailableCopyPath } from '../../lib/vaultDuplicate';
 import { flattenVaultFiles } from '../../lib/vaultLinks';
@@ -312,15 +313,28 @@ export default function FileTree() {
       const client = createVaultClient(vault);
       await client.createDocument(relativePath);
       const created = await client.readDocument(relativePath);
+      let inkDocument = createInkDocument({
+        name: stem,
+        mode: choice.mode,
+        preset: choice.preset,
+        landscape: choice.landscape,
+        background: { pattern: choice.pattern },
+      });
+      if (choice.templateId) {
+        const template = loadInkTemplates().find((entry) => entry.id === choice.templateId);
+        const pageId = inkDocument.pageOrder[0];
+        if (template && pageId) {
+          const page = instantiateInkTemplate(
+            template,
+            pageId,
+            (prefix) => `${prefix}-${crypto.randomUUID()}`,
+          );
+          inkDocument = { ...inkDocument, pages: { [pageId]: page } };
+        }
+      }
       await client.writeDocument(
         relativePath,
-        serializeInkDocument(createInkDocument({
-          name: stem,
-          mode: choice.mode,
-          preset: choice.preset,
-          landscape: choice.landscape,
-          background: { pattern: choice.pattern },
-        })),
+        serializeInkDocument(inkDocument),
         created.version,
         created.content,
       );

@@ -9,6 +9,19 @@ import {
   Pencil,
   Brush,
   Minus,
+  Shapes,
+  Workflow,
+  Type,
+  StickyNote,
+  Image,
+  Stamp,
+  Sigma,
+  Ruler,
+  Gauge,
+  CircleDot,
+  MoveHorizontal,
+  Search,
+  Pipette,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
@@ -134,6 +147,68 @@ export default function InkToolRail({
         onClick={() => onSelectTool('lasso')}
       >
         <Lasso size={16} />
+      </RailButton>
+      <RailButton
+        label={`Shape${shortcutFor('tool.shape')}`}
+        active={tool.tool === 'shape'}
+        disabled={readOnly}
+        onClick={() => onSelectTool('shape')}
+      >
+        <Shapes size={16} />
+      </RailButton>
+      <RailButton
+        label={`Connector${shortcutFor('tool.connector')}`}
+        active={tool.tool === 'connector'}
+        disabled={readOnly}
+        onClick={() => onSelectTool('connector')}
+      >
+        <Workflow size={16} />
+      </RailButton>
+      <RailButton
+        label={`Text${shortcutFor('tool.text')}`}
+        active={tool.tool === 'text'}
+        disabled={readOnly}
+        onClick={() => onSelectTool('text')}
+      >
+        <Type size={16} />
+      </RailButton>
+      <RailButton
+        label="Sticky note"
+        active={tool.tool === 'sticky'}
+        disabled={readOnly}
+        onClick={() => onSelectTool('sticky')}
+      >
+        <StickyNote size={16} />
+      </RailButton>
+      <RailButton label={`Image${shortcutFor('tool.image')}`} active={tool.tool === 'image'} disabled={readOnly} onClick={() => onSelectTool('image')}>
+        <Image size={16} />
+      </RailButton>
+      <RailButton label={`Stamp${shortcutFor('tool.stamp')}`} active={tool.tool === 'stamp'} disabled={readOnly} onClick={() => onSelectTool('stamp')}>
+        <Stamp size={16} />
+      </RailButton>
+      <RailButton label={`Equation${shortcutFor('tool.equation')}`} active={tool.tool === 'equation'} disabled={readOnly} onClick={() => onSelectTool('equation')}>
+        <Sigma size={16} />
+      </RailButton>
+
+      <div className="my-1 h-px w-6 bg-border/60" />
+
+      <RailButton label={`Ruler${shortcutFor('tool.ruler')}`} active={tool.tool === 'ruler'} disabled={readOnly} onClick={() => onSelectTool('ruler')}>
+        <Ruler size={16} />
+      </RailButton>
+      <RailButton label={`Protractor${shortcutFor('tool.protractor')}`} active={tool.tool === 'protractor'} disabled={readOnly} onClick={() => onSelectTool('protractor')}>
+        <Gauge size={16} />
+      </RailButton>
+      <RailButton label={`Compass${shortcutFor('tool.compass')}`} active={tool.tool === 'compass'} disabled={readOnly} onClick={() => onSelectTool('compass')}>
+        <CircleDot size={16} />
+      </RailButton>
+      <RailButton label={`Guide${shortcutFor('tool.guide')}`} active={tool.tool === 'guide'} disabled={readOnly} onClick={() => onSelectTool('guide')}>
+        <MoveHorizontal size={16} />
+      </RailButton>
+      <RailButton label={`Loupe${shortcutFor('tool.loupe')}`} active={tool.tool === 'loupe'} onClick={() => onSelectTool('loupe')}>
+        <Search size={16} />
+      </RailButton>
+      <RailButton label={`Eyedropper${shortcutFor('tool.eyedropper')}`} active={tool.tool === 'eyedropper'} onClick={() => onSelectTool('eyedropper')}>
+        <Pipette size={16} />
       </RailButton>
       <RailButton
         label={`Pan${shortcutFor('tool.pan')}`}

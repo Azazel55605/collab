@@ -220,6 +220,10 @@ export interface InkBounds {
 /** 2D affine transform, row-major `[a, b, c, d, e, f]`. */
 export type InkTransform = [number, number, number, number, number, number];
 
+export type InkObjectLink =
+  | { kind: 'vault'; target: string }
+  | { kind: 'url'; target: string };
+
 interface InkObjectBase {
   id: string;
   layerId: string;
@@ -231,6 +235,8 @@ interface InkObjectBase {
   /** Derived from geometry; rebuilt on load rather than trusted. */
   bounds?: InkBounds;
   locked?: boolean;
+  /** Optional click-through destination. Never interpreted as renderable content. */
+  link?: InkObjectLink;
 }
 
 export interface InkStroke extends InkObjectBase {
@@ -278,6 +284,8 @@ export interface InkShape extends InkObjectBase {
   cornerRadius?: number;
   /** Retained until an ink-to-shape conversion is committed, so it can undo. */
   sourceStrokeId?: string;
+  /** Alignment aid. Guides paint on screen but are omitted from export. */
+  guide?: boolean;
 }
 
 export interface InkConnector extends InkObjectBase {
@@ -305,6 +313,8 @@ export interface InkText extends InkObjectBase {
   align?: 'start' | 'center' | 'end';
   sticky?: boolean;
   backgroundColor?: string;
+  /** When true, `text` is bounded LaTeX rendered through KaTeX on screen. */
+  equation?: boolean;
 }
 
 export interface InkImage extends InkObjectBase {

@@ -23,8 +23,8 @@ use collab_sheet::convert::{
 
 fn zip_of(parts: &[(&str, &str)]) -> Vec<u8> {
     let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
-    let options =
-        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
     for (name, body) in parts {
         archive.start_file(*name, options).unwrap();
         archive.write_all(body.as_bytes()).unwrap();
@@ -212,9 +212,18 @@ fn expands_a_shared_formula_group_with_translated_references() {
     // Importing them verbatim would compute the first row's answer three times.
     let workbook = import(&realistic_workbook_parts()).value;
     let sheet = &workbook.worksheets[0];
-    assert_eq!(sheet.cell_at(1, 2).unwrap().formula.as_deref(), Some("=A2*B2"));
-    assert_eq!(sheet.cell_at(2, 2).unwrap().formula.as_deref(), Some("=A3*B3"));
-    assert_eq!(sheet.cell_at(3, 2).unwrap().formula.as_deref(), Some("=A4*B4"));
+    assert_eq!(
+        sheet.cell_at(1, 2).unwrap().formula.as_deref(),
+        Some("=A2*B2")
+    );
+    assert_eq!(
+        sheet.cell_at(2, 2).unwrap().formula.as_deref(),
+        Some("=A3*B3")
+    );
+    assert_eq!(
+        sheet.cell_at(3, 2).unwrap().formula.as_deref(),
+        Some("=A4*B4")
+    );
 }
 
 #[test]
@@ -275,7 +284,10 @@ fn reports_an_unsupported_function_instead_of_claiming_compatibility() {
 #[test]
 fn reports_features_it_refuses_to_carry_across() {
     let mut parts = realistic_workbook_parts();
-    parts.push(("xl/vbaProject.bin", "not really a macro, but the part exists"));
+    parts.push((
+        "xl/vbaProject.bin",
+        "not really a macro, but the part exists",
+    ));
     parts.push(("xl/connections.xml", "<connections/>"));
     parts.push(("xl/externalLinks/externalLink1.xml", "<externalLink/>"));
     parts.push(("xl/charts/chart1.xml", "<chart/>"));

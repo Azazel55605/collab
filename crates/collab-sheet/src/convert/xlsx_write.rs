@@ -57,7 +57,10 @@ fn sanitize_worksheet_name(name: &str, index: usize, taken: &mut Vec<String>) ->
     let changed = candidate != name;
     let base = candidate.clone();
     let mut suffix = 2;
-    while taken.iter().any(|used| used.eq_ignore_ascii_case(&candidate)) {
+    while taken
+        .iter()
+        .any(|used| used.eq_ignore_ascii_case(&candidate))
+    {
         let room = 31 - format!(" ({suffix})").len();
         candidate = format!("{} ({suffix})", base.chars().take(room).collect::<String>());
         suffix += 1;
@@ -178,7 +181,9 @@ impl StyleWriter {
             ],
             borders: vec!["<border><left/><right/><top/><bottom/><diagonal/></border>".into()],
             number_formats: Vec::new(),
-            formats: vec!["<xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/>".into()],
+            formats: vec![
+                "<xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/>".into(),
+            ],
             index: BTreeMap::new(),
         }
     }
@@ -216,10 +221,14 @@ impl StyleWriter {
             "<name val=\"{}\"/></font>",
             escape(style.font_family.as_deref().unwrap_or("Calibri"))
         ));
-        let font_id = self.fonts.iter().position(|existing| *existing == font).unwrap_or_else(|| {
-            self.fonts.push(font);
-            self.fonts.len() - 1
-        });
+        let font_id = self
+            .fonts
+            .iter()
+            .position(|existing| *existing == font)
+            .unwrap_or_else(|| {
+                self.fonts.push(font);
+                self.fonts.len() - 1
+            });
 
         let fill_id = match &style.background_color {
             Some(color) => {
@@ -486,7 +495,9 @@ fn worksheet_xml(worksheet: &ConvertedWorksheet, styles: &mut StyleWriter) -> St
                 _ => (type_attribute, body),
             };
 
-            xml.push_str(&format!("<c r=\"{reference}\"{style_attribute}{type_attribute}>"));
+            xml.push_str(&format!(
+                "<c r=\"{reference}\"{style_attribute}{type_attribute}>"
+            ));
             if let Some(formula) = formula {
                 xml.push_str(&formula);
             }
@@ -498,7 +509,10 @@ fn worksheet_xml(worksheet: &ConvertedWorksheet, styles: &mut StyleWriter) -> St
     xml.push_str("</sheetData>");
 
     if !worksheet.merges.is_empty() {
-        xml.push_str(&format!("<mergeCells count=\"{}\">", worksheet.merges.len()));
+        xml.push_str(&format!(
+            "<mergeCells count=\"{}\">",
+            worksheet.merges.len()
+        ));
         for merge in &worksheet.merges {
             xml.push_str(&format!(
                 "<mergeCell ref=\"{}{}:{}{}\"/>",
@@ -533,7 +547,10 @@ pub fn export_xlsx(workbook: &ConvertedWorkbook) -> ConversionResult<Converted<V
         if renamed {
             report.flattened(
                 "Worksheet names",
-                format!("Renamed \"{}\" to \"{name}\" to satisfy the stricter .xlsx naming rules.", worksheet.name),
+                format!(
+                    "Renamed \"{}\" to \"{name}\" to satisfy the stricter .xlsx naming rules.",
+                    worksheet.name
+                ),
                 None,
             );
         }
@@ -544,7 +561,10 @@ pub fn export_xlsx(workbook: &ConvertedWorkbook) -> ConversionResult<Converted<V
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
-    let write = |archive: &mut zip::ZipWriter<Cursor<Vec<u8>>>, name: &str, body: &str| -> ConversionResult<()> {
+    let write = |archive: &mut zip::ZipWriter<Cursor<Vec<u8>>>,
+                 name: &str,
+                 body: &str|
+     -> ConversionResult<()> {
         archive
             .start_file(name, options)
             .map_err(|error| ConversionError::Malformed(error.to_string()))?;

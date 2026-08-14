@@ -620,7 +620,9 @@ impl ReplicaStore {
         let path = self.root.join(DOCUMENTS_DIR).join(safe_segment(file_id)?);
         match std::fs::read(&path) {
             Ok(bytes) => match self.decrypt_content_or_miss(&bytes) {
-                Some(plain) => String::from_utf8(plain).map(Some).map_err(|e| e.to_string()),
+                Some(plain) => String::from_utf8(plain)
+                    .map(Some)
+                    .map_err(|e| e.to_string()),
                 None => Ok(None),
             },
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -1155,7 +1157,13 @@ mod tests {
                 .filter(|op| op.status == PendingOpStatus::Failed)
                 .count(),
         );
-        assert_eq!(counts, PendingOpCounts { total: 3, failed: 1 });
+        assert_eq!(
+            counts,
+            PendingOpCounts {
+                total: 3,
+                failed: 1
+            }
+        );
         // The second read is served from the cache and must not drift.
         assert_eq!(store.count_pending_operations().unwrap(), counts);
     }
@@ -1175,7 +1183,10 @@ mod tests {
             .unwrap();
         assert_eq!(
             store.count_pending_operations().unwrap(),
-            PendingOpCounts { total: 2, failed: 1 },
+            PendingOpCounts {
+                total: 2,
+                failed: 1
+            },
         );
 
         // A queue rewritten behind the store's back — an older build, a restored
@@ -1187,7 +1198,10 @@ mod tests {
         std::fs::write(&queue, format!("{first}\n")).unwrap();
         assert_eq!(
             store.count_pending_operations().unwrap(),
-            PendingOpCounts { total: 1, failed: 0 },
+            PendingOpCounts {
+                total: 1,
+                failed: 0
+            },
         );
 
         // The inventory listing reports the same numbers.
@@ -1537,7 +1551,10 @@ mod tests {
         };
 
         // Queue an op under the original key.
-        open(&dir).with_encryption_key([1u8; 32]).enqueue_operation(&op("op-1")).unwrap();
+        open(&dir)
+            .with_encryption_key([1u8; 32])
+            .enqueue_operation(&op("op-1"))
+            .unwrap();
 
         // With a rotated key the legacy queue is undecryptable: listing it must
         // not error (it quarantines the file and returns empty) and a new enqueue
@@ -1546,14 +1563,24 @@ mod tests {
         assert_eq!(rotated.list_pending_operations().unwrap().len(), 0);
         rotated.enqueue_operation(&op("op-2")).unwrap();
         let ops = rotated.list_pending_operations().unwrap();
-        assert_eq!(ops.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), ["op-2"]);
+        assert_eq!(
+            ops.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+            ["op-2"]
+        );
 
         // The original bytes are preserved beside the queue, not deleted.
         let quarantined = std::fs::read_dir(rotated.root())
             .unwrap()
             .filter_map(|e| e.ok())
-            .any(|e| e.file_name().to_string_lossy().contains("pending-ops.jsonl.unreadable-"));
-        assert!(quarantined, "the undecryptable queue should be quarantined, not lost");
+            .any(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .contains("pending-ops.jsonl.unreadable-")
+            });
+        assert!(
+            quarantined,
+            "the undecryptable queue should be quarantined, not lost"
+        );
     }
 
     fn queued_edit(id: &str) -> PendingOperation {
@@ -1590,13 +1617,26 @@ mod tests {
             .unwrap()
             .filter_map(|entry| entry.ok())
             .any(|entry| {
-                entry.file_name().to_string_lossy().contains("pending-ops.jsonl.unreadable-")
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .contains("pending-ops.jsonl.unreadable-")
             });
-        assert!(!quarantined, "an inventory read must never quarantine the queue");
-        assert_eq!(summaries[0].pending_count, 1, "the queued edit must be counted");
+        assert!(
+            !quarantined,
+            "an inventory read must never quarantine the queue"
+        );
+        assert_eq!(
+            summaries[0].pending_count, 1,
+            "the queued edit must be counted"
+        );
         // Still readable under its own key, which is the point of not quarantining.
         assert_eq!(
-            open(&dir).with_encryption_key([1u8; 32]).list_pending_operations().unwrap().len(),
+            open(&dir)
+                .with_encryption_key([1u8; 32])
+                .list_pending_operations()
+                .unwrap()
+                .len(),
             1,
         );
     }
@@ -1618,13 +1658,23 @@ mod tests {
             .unwrap()
             .filter_map(|entry| entry.ok())
             .any(|entry| {
-                entry.file_name().to_string_lossy().contains("pending-ops.jsonl.unreadable-")
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .contains("pending-ops.jsonl.unreadable-")
             });
-        assert!(!quarantined, "the queue must survive a read that cannot decrypt it");
+        assert!(
+            !quarantined,
+            "the queue must survive a read that cannot decrypt it"
+        );
 
         // The owner recounts and rewrites the cache...
         assert_eq!(
-            open(&dir).with_encryption_key([1u8; 32]).count_pending_operations().unwrap().total,
+            open(&dir)
+                .with_encryption_key([1u8; 32])
+                .count_pending_operations()
+                .unwrap()
+                .total,
             1,
         );
         // ...so the inventory is correct from then on.

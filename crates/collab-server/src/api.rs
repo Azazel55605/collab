@@ -12148,11 +12148,11 @@ impl IntoResponse for ApiFailure {
 mod tests {
     use super::{
         cookie, delete_or_quarantine_backup_dir, indexed_note_tags, indexed_note_title,
-        is_safe_backup_name, mentioned_usernames, parse_backup_created_at, parse_tar_listing_entry,
-        parse_vault_zip, run_operator_command, search_excerpt, sha256_file,
-        load_backup_last_run, record_backup_last_run, validate_backup_archive_entries,
-        validate_backup_manifest_version, validate_file_kind, verify_backup,
-        BackupRuntimeSettings, Capability, STANDARD,
+        is_safe_backup_name, load_backup_last_run, mentioned_usernames, parse_backup_created_at,
+        parse_tar_listing_entry, parse_vault_zip, record_backup_last_run, run_operator_command,
+        search_excerpt, sha256_file, validate_backup_archive_entries,
+        validate_backup_manifest_version, validate_file_kind, verify_backup, BackupRuntimeSettings,
+        Capability, STANDARD,
     };
     use crate::auth::hash_secret;
     use crate::{
@@ -16128,13 +16128,19 @@ mod tests {
         let now = chrono::Utc::now();
         record_backup_last_run(backup_dir, now - interval - chrono::Duration::seconds(1));
         let last = load_backup_last_run(backup_dir).expect("attempt should be recorded");
-        assert!(now >= last + interval, "an overdue run stays due across a restart");
+        assert!(
+            now >= last + interval,
+            "an overdue run stays due across a restart"
+        );
 
         // A recent attempt is not due again, no matter how many times the
         // process restarts in between.
         record_backup_last_run(backup_dir, now);
         let last = load_backup_last_run(backup_dir).expect("attempt should be recorded");
-        assert!(now < last + interval, "a fresh run must not repeat immediately");
+        assert!(
+            now < last + interval,
+            "a fresh run must not repeat immediately"
+        );
     }
 
     #[test]

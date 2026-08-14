@@ -2346,7 +2346,8 @@ mod tests {
 
         // A workbook from a newer schema version stays writable: this build
         // must not reject data it simply does not understand yet.
-        let newer = r#"{"kind":"collab-sheet","schemaVersion":99,"worksheetsRenamedInTheFuture":[]}"#;
+        let newer =
+            r#"{"kind":"collab-sheet","schemaVersion":99,"worksheetsRenamedInTheFuture":[]}"#;
         write_note_to_path(
             &target,
             "Books/Budget.sheet",

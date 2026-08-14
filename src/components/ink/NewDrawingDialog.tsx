@@ -12,10 +12,11 @@ import {
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { cn } from '../../lib/utils';
-
-const labelClass = 'text-xs font-medium text-muted-foreground';
 import { INK_PAGE_PRESETS } from '../../types/ink';
 import type { InkBackgroundPattern, InkPageMode, InkPagePresetId } from '../../types/ink';
+import { loadInkTemplates } from '../../lib/ink/templates';
+
+const labelClass = 'text-xs font-medium text-muted-foreground';
 
 /**
  * The New Drawing dialog.
@@ -36,6 +37,7 @@ export interface NewDrawingChoice {
   preset: InkPagePresetId;
   landscape: boolean;
   pattern: InkBackgroundPattern;
+  templateId?: string;
 }
 
 const PAPERS: Array<{ id: InkBackgroundPattern; label: string; hint: string }> = [
@@ -72,6 +74,8 @@ export default function NewDrawingDialog({
   const [preset, setPreset] = useState<InkPagePresetId>('a4');
   const [landscape, setLandscape] = useState(false);
   const [pattern, setPattern] = useState<InkBackgroundPattern>('blank');
+  const [templateId, setTemplateId] = useState('');
+  const [templates, setTemplates] = useState(() => loadInkTemplates());
 
   useEffect(() => {
     if (!open) return;
@@ -80,6 +84,8 @@ export default function NewDrawingDialog({
     setPreset('a4');
     setLandscape(false);
     setPattern('blank');
+    setTemplateId('');
+    setTemplates(loadInkTemplates());
   }, [open]);
 
   const submit = () => {
@@ -89,6 +95,7 @@ export default function NewDrawingDialog({
       preset,
       landscape,
       pattern,
+      ...(templateId ? { templateId } : {}),
     });
   };
 
@@ -121,6 +128,21 @@ export default function NewDrawingDialog({
               }}
             />
           </div>
+
+          {templates.length > 0 && (
+            <div className="space-y-1.5">
+              <label htmlFor="ink-template" className={labelClass}>Saved template</label>
+              <select
+                id="ink-template"
+                value={templateId}
+                onChange={(event) => setTemplateId(event.target.value)}
+                className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-xs"
+              >
+                <option value="">Use the paper settings below</option>
+                {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+              </select>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <span className={labelClass}>Paper</span>

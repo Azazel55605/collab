@@ -407,7 +407,10 @@ mod tests {
             DocumentKind::from_storage_name("canvas"),
             Some(DocumentKind::Canvas)
         );
-        assert_eq!(DocumentKind::from_storage_name("ink"), Some(DocumentKind::Ink));
+        assert_eq!(
+            DocumentKind::from_storage_name("ink"),
+            Some(DocumentKind::Ink)
+        );
         assert_eq!(DocumentKind::from_storage_name("asset"), None);
     }
 

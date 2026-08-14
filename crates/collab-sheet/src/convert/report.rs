@@ -140,10 +140,17 @@ mod tests {
     fn collapses_repeated_notes_instead_of_growing_without_bound() {
         let mut report = ConversionReport::default();
         for index in 0..1_000 {
-            report.skipped("Pivot table", "Not supported.", Some(format!("Sheet1!A{index}")));
+            report.skipped(
+                "Pivot table",
+                "Not supported.",
+                Some(format!("Sheet1!A{index}")),
+            );
         }
         assert_eq!(report.notes.len(), MAX_NOTES_PER_FEATURE);
-        assert_eq!(report.notes.last().unwrap().count, 1 + 1_000 - MAX_NOTES_PER_FEATURE as u32);
+        assert_eq!(
+            report.notes.last().unwrap().count,
+            1 + 1_000 - MAX_NOTES_PER_FEATURE as u32
+        );
     }
 
     #[test]

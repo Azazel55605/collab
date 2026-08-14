@@ -23,6 +23,7 @@ import type {
 import { decodeSamples } from './codec';
 import { outlineStroke, strokeBounds } from './stroke';
 import type { InkPoint, InkStrokeOutliner } from './stroke';
+import { stampGlyph } from './advancedTools';
 
 export interface InkSvgExportOptions {
   /** Region to export. Defaults to the scene's content bounds. */
@@ -111,6 +112,15 @@ export function objectBounds(object: InkObject): InkBounds | null {
         maxY: maxY + half,
       };
     }
+    case 'connector': {
+      const half = object.stroke.width / 2;
+      return {
+        minX: Math.min(object.from.x, object.to.x) - half,
+        minY: Math.min(object.from.y, object.to.y) - half,
+        maxX: Math.max(object.from.x, object.to.x) + half,
+        maxY: Math.max(object.from.y, object.to.y) + half,
+      };
+    }
     case 'text':
     case 'image':
     case 'stamp':
@@ -131,6 +141,7 @@ export function sceneBounds(scene: InkScene): InkBounds {
   for (const id of scene.objectOrder) {
     const object = scene.objects[id];
     if (!object) continue;
+    if (object.type === 'shape' && object.guide) continue;
     const layer = scene.layers[object.layerId];
     if (layer && layer.exported === false) continue;
     const objectBound = objectBounds(object);
@@ -167,23 +178,101 @@ function shapeElement(object: Extract<InkObject, { type: 'shape' }>, precision: 
   const closed = object.shape !== 'line' && object.shape !== 'polyline' && object.shape !== 'arc';
   const tag = closed ? 'polygon' : 'polyline';
   const fill = closed && object.fill ? escapeXml(object.fill) : 'none';
-  return (
+  const dash = object.stroke.dash === 'dashed'
+    ? ` stroke-dasharray="${num(object.stroke.width * 4, precision)} ${num(object.stroke.width * 3, precision)}"`
+    : object.stroke.dash === 'dotted'
+      ? ` stroke-dasharray="${num(object.stroke.width, precision)} ${num(object.stroke.width * 2, precision)}"`
+      : '';
+  const fillOpacity = closed && object.fill && object.fillOpacity !== undefined
+    ? ` fill-opacity="${num(object.fillOpacity, 3)}"`
+    : '';
+  const base = (
     `<${tag} points="${points.join(' ')}" fill="${fill}"` +
+    fillOpacity +
     ` stroke="${escapeXml(object.stroke.color)}"` +
     ` stroke-width="${num(object.stroke.width, precision)}"` +
-    ' stroke-linecap="round" stroke-linejoin="round"/>'
+    dash + ' stroke-linecap="round" stroke-linejoin="round"/>'
   );
+  const arrows = arrowElements(object.points, object.arrowStart, object.arrowEnd, object.stroke.color, object.stroke.width, precision);
+  return arrows ? `<g>${base}${arrows}</g>` : base;
+}
+
+function connectorElement(object: Extract<InkObject, { type: 'connector' }>, precision: number): string {
+  const points = object.routing === 'orthogonal'
+    ? [object.from.x, object.from.y, (object.from.x + object.to.x) / 2, object.from.y,
+      (object.from.x + object.to.x) / 2, object.to.y, object.to.x, object.to.y]
+    : [object.from.x, object.from.y, object.to.x, object.to.y];
+  const pairs: string[] = [];
+  for (let index = 0; index + 1 < points.length; index += 2) {
+    pairs.push(`${num(points[index], precision)},${num(points[index + 1], precision)}`);
+  }
+  const dash = object.stroke.dash === 'dashed'
+    ? ` stroke-dasharray="${num(object.stroke.width * 4, precision)} ${num(object.stroke.width * 3, precision)}"`
+    : object.stroke.dash === 'dotted'
+      ? ` stroke-dasharray="${num(object.stroke.width, precision)} ${num(object.stroke.width * 2, precision)}"`
+      : '';
+  const base = `<polyline points="${pairs.join(' ')}" fill="none" stroke="${escapeXml(object.stroke.color)}" stroke-width="${num(object.stroke.width, precision)}"${dash} stroke-linecap="round" stroke-linejoin="round"/>`;
+  const arrows = arrowElements(points, object.arrowStart, object.arrowEnd, object.stroke.color, object.stroke.width, precision);
+  return arrows ? `<g>${base}${arrows}</g>` : base;
+}
+
+function arrowElements(
+  points: number[],
+  start: 'none' | 'arrow' | 'open' | 'dot' | undefined,
+  end: 'none' | 'arrow' | 'open' | 'dot' | undefined,
+  color: string,
+  width: number,
+  precision: number,
+): string {
+  if (points.length < 4) return '';
+  const elements: string[] = [];
+  if (start && start !== 'none') {
+    elements.push(arrowElement(points[0], points[1], points[2], points[3], start, color, width, precision));
+  }
+  if (end && end !== 'none') {
+    const last = points.length - 2;
+    elements.push(arrowElement(points[last], points[last + 1], points[last - 2], points[last - 1], end, color, width, precision));
+  }
+  return elements.join('');
+}
+
+function arrowElement(
+  x: number,
+  y: number,
+  previousX: number,
+  previousY: number,
+  kind: 'arrow' | 'open' | 'dot',
+  color: string,
+  width: number,
+  precision: number,
+): string {
+  const size = Math.max(width * 4, 160);
+  if (kind === 'dot') {
+    return `<circle cx="${num(x, precision)}" cy="${num(y, precision)}" r="${num(size * 0.45, precision)}" fill="${escapeXml(color)}"/>`;
+  }
+  const angle = Math.atan2(y - previousY, x - previousX);
+  const left = [x - Math.cos(angle - Math.PI / 6) * size, y - Math.sin(angle - Math.PI / 6) * size];
+  const right = [x - Math.cos(angle + Math.PI / 6) * size, y - Math.sin(angle + Math.PI / 6) * size];
+  const path = `${num(left[0], precision)},${num(left[1], precision)} ${num(x, precision)},${num(y, precision)} ${num(right[0], precision)},${num(right[1], precision)}`;
+  return kind === 'arrow'
+    ? `<polygon points="${path}" fill="${escapeXml(color)}"/>`
+    : `<polyline points="${path}" fill="none" stroke="${escapeXml(color)}" stroke-width="${num(width, precision)}"/>`;
 }
 
 function textElement(object: Extract<InkObject, { type: 'text' }>, precision: number): string {
   // Text is emitted as a single element with no markup: the schema stores plain
   // text, and anything richer would mean parsing document content into XML.
-  return (
-    `<text x="${num(object.x, precision)}" y="${num(object.y + object.fontSize, precision)}"` +
-    ` fill="${escapeXml(object.color)}" font-size="${num(object.fontSize, precision)}"` +
+  const inset = object.sticky ? Math.max(32, object.fontSize * 0.35) : 0;
+  const background = object.sticky || object.backgroundColor
+    ? `<rect x="${num(object.x, precision)}" y="${num(object.y, precision)}" width="${num(object.width, precision)}" height="${num(object.height, precision)}" fill="${escapeXml(object.backgroundColor ?? '#fef3a7')}"/>`
+    : '';
+  const lines = object.text.split('\n').map((line, index) =>
+    `<tspan x="${num(object.x + inset, precision)}" y="${num(object.y + inset + object.fontSize * (index + 1), precision)}">${escapeXml(line)}</tspan>`,
+  ).join('');
+  const text = `<text fill="${escapeXml(object.color)}" font-size="${num(object.fontSize, precision)}"` +
     (object.fontFamily ? ` font-family="${escapeXml(object.fontFamily)}"` : '') +
-    `>${escapeXml(object.text)}</text>`
-  );
+    `>${lines}</text>`;
+  return background ? `<g>${background}${text}</g>` : text;
 }
 
 /**
@@ -216,6 +305,7 @@ export function sceneToSvg(scene: InkScene, options: InkSvgExportOptions = {}): 
   for (const id of scene.objectOrder) {
     const object = scene.objects[id];
     if (!object) continue;
+    if (object.type === 'shape' && object.guide) continue;
     if (only && !only.has(id)) continue;
     const layer = scene.layers[object.layerId];
     if (!layerIsVisible(layer)) continue;
@@ -228,8 +318,14 @@ export function sceneToSvg(scene: InkScene, options: InkSvgExportOptions = {}): 
       case 'shape':
         element = shapeElement(object, precision);
         break;
+      case 'connector':
+        element = connectorElement(object, precision);
+        break;
       case 'text':
         element = textElement(object, precision);
+        break;
+      case 'stamp':
+        element = `<text x="${num(object.x, precision)}" y="${num(object.y + object.height, precision)}" fill="${escapeXml(object.color ?? '#1f2933')}" font-size="${num(object.height, precision)}">${escapeXml(stampGlyph(object.symbolId))}</text>`;
         break;
       default:
         element = '';

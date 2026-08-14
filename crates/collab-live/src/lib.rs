@@ -579,11 +579,7 @@ mod tests {
             LiveDocumentKind::Sheet
         );
         assert_eq!(
-            materialization_decision(
-                LiveDocumentKind::Sheet,
-                Some(content),
-                Some(&materialized)
-            ),
+            materialization_decision(LiveDocumentKind::Sheet, Some(content), Some(&materialized)),
             MaterializationDecision::Ready
         );
         let value: serde_json::Value = serde_json::from_str(&materialized).unwrap();

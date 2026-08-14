@@ -301,7 +301,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn retention_removes_old_terminal_jobs_but_keeps_active_work() {
         let old = (Utc::now() - Duration::days(COMPLETED_JOB_RETENTION_DAYS + 1)).to_rfc3339();

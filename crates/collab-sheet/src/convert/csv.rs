@@ -83,7 +83,11 @@ fn decode(bytes: &[u8]) -> ConversionResult<String> {
 
 /// Picks the delimiter that yields the most consistent field count.
 pub fn detect_csv_dialect(text: &str) -> char {
-    let sample: Vec<&str> = text.lines().take(20).filter(|line| !line.is_empty()).collect();
+    let sample: Vec<&str> = text
+        .lines()
+        .take(20)
+        .filter(|line| !line.is_empty())
+        .collect();
     if sample.is_empty() {
         return ',';
     }
@@ -204,8 +208,9 @@ fn infer(text: &str) -> ConvertedValue {
     }
     // A leading zero or a leading `+` usually means an identifier — a postal
     // code, a phone number, an account number — not a number to do maths on.
-    let numeric_candidate = !(trimmed.len() > 1 && trimmed.starts_with('0') && !trimmed.starts_with("0."))
-        && !trimmed.starts_with('+');
+    let numeric_candidate =
+        !(trimmed.len() > 1 && trimmed.starts_with('0') && !trimmed.starts_with("0."))
+            && !trimmed.starts_with('+');
     if numeric_candidate {
         if let Ok(number) = trimmed.parse::<f64>() {
             if number.is_finite() {
@@ -242,7 +247,9 @@ fn is_iso_datetime(value: &str) -> bool {
     value.len() >= 16
         && value.as_bytes()[10] == b'T'
         && is_iso_date(&value[..10])
-        && value[11..].chars().all(|c| c.is_ascii_digit() || matches!(c, ':' | '.' | 'Z' | '+' | '-'))
+        && value[11..]
+            .chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, ':' | '.' | 'Z' | '+' | '-'))
 }
 
 pub fn import_csv(
@@ -258,11 +265,15 @@ pub fn import_csv(
 
     let mut report = ConversionReport::default();
     let text = decode(bytes)?;
-    let delimiter = options.delimiter.unwrap_or_else(|| detect_csv_dialect(&text));
+    let delimiter = options
+        .delimiter
+        .unwrap_or_else(|| detect_csv_dialect(&text));
     let records = parse_records(&text, delimiter, limits);
 
     if records.is_empty() {
-        return Err(ConversionError::Malformed("the file contains no rows".into()));
+        return Err(ConversionError::Malformed(
+            "the file contains no rows".into(),
+        ));
     }
     if records.len() >= limits.rows_per_worksheet {
         report.truncated = true;
@@ -322,7 +333,10 @@ pub fn import_csv(
         report.truncated = true;
         report.flattened(
             "Cell text",
-            format!("Truncated {truncated_text} field(s) to the {} character cell limit.", limits.cell_text_length),
+            format!(
+                "Truncated {truncated_text} field(s) to the {} character cell limit.",
+                limits.cell_text_length
+            ),
             None,
         );
     }
@@ -333,7 +347,11 @@ pub fn import_csv(
             "Imported {} row(s) and {} column(s) with '{}' as the delimiter.",
             records.len(),
             column_count,
-            if delimiter == '\t' { "tab".to_string() } else { delimiter.to_string() },
+            if delimiter == '\t' {
+                "tab".to_string()
+            } else {
+                delimiter.to_string()
+            },
         ),
     );
     if options.infer_types {
@@ -436,10 +454,7 @@ fn escape_field(field: &str, options: &CsvExportOptions) -> String {
 }
 
 /// Writes one worksheet as CSV.
-pub fn export_csv(
-    worksheet: &ConvertedWorksheet,
-    options: &CsvExportOptions,
-) -> Converted<String> {
+pub fn export_csv(worksheet: &ConvertedWorksheet, options: &CsvExportOptions) -> Converted<String> {
     let mut report = ConversionReport::default();
 
     let range = options.range.unwrap_or(super::model::ConvertedRange {
@@ -474,9 +489,7 @@ pub fn export_csv(
                 }
                 None => String::new(),
             };
-            if options.sanitize_formulas
-                && field.starts_with(INJECTION_PREFIXES)
-            {
+            if options.sanitize_formulas && field.starts_with(INJECTION_PREFIXES) {
                 // A leading apostrophe is the conventional inert marker: the
                 // consuming application shows the text and does not evaluate it.
                 field.insert(0, '\'');
@@ -652,10 +665,14 @@ mod tests {
         let mut utf8 = vec![0xEF, 0xBB, 0xBF];
         utf8.extend_from_slice("a,b\n".as_bytes());
         assert_eq!(
-            import_csv(&utf8, &CsvImportOptions::default(), &DEFAULT_CONVERSION_LIMITS)
-                .unwrap()
-                .value
-                .worksheets[0]
+            import_csv(
+                &utf8,
+                &CsvImportOptions::default(),
+                &DEFAULT_CONVERSION_LIMITS
+            )
+            .unwrap()
+            .value
+            .worksheets[0]
                 .cell_at(0, 0)
                 .unwrap()
                 .value,
@@ -667,10 +684,14 @@ mod tests {
             utf16.extend_from_slice(&unit.to_le_bytes());
         }
         assert_eq!(
-            import_csv(&utf16, &CsvImportOptions::default(), &DEFAULT_CONVERSION_LIMITS)
-                .unwrap()
-                .value
-                .worksheets[0]
+            import_csv(
+                &utf16,
+                &CsvImportOptions::default(),
+                &DEFAULT_CONVERSION_LIMITS
+            )
+            .unwrap()
+            .value
+            .worksheets[0]
                 .cell_at(0, 1)
                 .unwrap()
                 .value,
@@ -697,7 +718,11 @@ mod tests {
     #[test]
     fn rejects_an_empty_file() {
         assert!(matches!(
-            import_csv(b"", &CsvImportOptions::default(), &DEFAULT_CONVERSION_LIMITS),
+            import_csv(
+                b"",
+                &CsvImportOptions::default(),
+                &DEFAULT_CONVERSION_LIMITS
+            ),
             Err(ConversionError::Malformed(_))
         ));
     }

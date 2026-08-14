@@ -380,7 +380,10 @@ fn unique_worksheet_name(
     };
     let mut candidate = base.clone();
     let mut suffix = 2;
-    while taken.iter().any(|name| name.eq_ignore_ascii_case(&candidate)) {
+    while taken
+        .iter()
+        .any(|name| name.eq_ignore_ascii_case(&candidate))
+    {
         candidate = format!("{base} ({suffix})");
         suffix += 1;
     }
@@ -410,7 +413,10 @@ fn parse_number_format(value: Option<&Value>) -> Option<ConvertedNumberFormat> {
     };
     Some(ConvertedNumberFormat {
         kind: object.get("kind")?.as_str()?.to_string(),
-        decimals: object.get("decimals").and_then(Value::as_u64).map(|v| v as u32),
+        decimals: object
+            .get("decimals")
+            .and_then(Value::as_u64)
+            .map(|v| v as u32),
         use_thousands_separator: object
             .get("useThousandsSeparator")
             .and_then(Value::as_bool)
@@ -432,7 +438,10 @@ fn parse_style(value: Option<&Value>) -> Option<ConvertedStyle> {
     };
     let style = ConvertedStyle {
         bold: object.get("bold").and_then(Value::as_bool).unwrap_or(false),
-        italic: object.get("italic").and_then(Value::as_bool).unwrap_or(false),
+        italic: object
+            .get("italic")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
         underline: object
             .get("underline")
             .and_then(Value::as_bool)
@@ -446,7 +455,10 @@ fn parse_style(value: Option<&Value>) -> Option<ConvertedStyle> {
             .get("fontFamily")
             .and_then(Value::as_str)
             .map(str::to_string),
-        color: object.get("color").and_then(Value::as_str).map(str::to_string),
+        color: object
+            .get("color")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         background_color: object
             .get("backgroundColor")
             .and_then(Value::as_str)
@@ -460,7 +472,10 @@ fn parse_style(value: Option<&Value>) -> Option<ConvertedStyle> {
             .and_then(Value::as_str)
             .map(str::to_string),
         wrap: object.get("wrap").and_then(Value::as_bool).unwrap_or(false),
-        indent: object.get("indent").and_then(Value::as_u64).map(|v| v as u32),
+        indent: object
+            .get("indent")
+            .and_then(Value::as_u64)
+            .map(|v| v as u32),
         borders: parse_borders(object.get("borders")),
         number_format: parse_number_format(object.get("numberFormat")),
     };

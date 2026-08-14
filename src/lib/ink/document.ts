@@ -32,13 +32,17 @@ import type {
   InkBrushKind,
   InkBrushParameters,
   InkBrushPreset,
+  InkArrowhead,
+  InkConnector,
   InkDocument,
   InkLayer,
   InkObject,
+  InkObjectLink,
   InkPage,
   InkPageBackground,
   InkSampleChannels,
   InkScene,
+  InkShapeKind,
   InkStroke,
   InkSwatch,
 } from '../../types/ink';
@@ -455,6 +459,7 @@ function normalizeObject(
     ...(typeof value.createdAt === 'number' ? { createdAt: value.createdAt } : {}),
     ...(typeof value.updatedAt === 'number' ? { updatedAt: value.updatedAt } : {}),
     ...(value.locked === true ? { locked: true } : {}),
+    ...(normalizeInkObjectLink(value.link) ? { link: normalizeInkObjectLink(value.link)! } : {}),
   };
 
   switch (type) {
@@ -505,7 +510,14 @@ function normalizeObject(
         color: stringOr(value.color, '#1f2933'),
         fontSize: Math.max(1, numberOr(value.fontSize, 96)),
         ...(typeof value.fontFamily === 'string' ? { fontFamily: value.fontFamily } : {}),
+        ...(value.align === 'start' || value.align === 'center' || value.align === 'end'
+          ? { align: value.align }
+          : {}),
         ...(value.sticky === true ? { sticky: true } : {}),
+        ...(typeof value.backgroundColor === 'string'
+          ? { backgroundColor: value.backgroundColor }
+          : {}),
+        ...(value.equation === true ? { equation: true } : {}),
       };
     }
     case 'image': {
@@ -539,13 +551,101 @@ function normalizeObject(
         : [];
       return { ...base, type: 'group', childIds };
     }
-    default: {
-      // Shapes, connectors, and stamps are structurally simple enough to carry
-      // through with their geometry checked; Phase 5 owns their editors.
-      const object = { ...base, ...value, type } as InkObject;
-      return object;
+    case 'shape': {
+      const points = Array.isArray(value.points) && value.points.every(isDrawableCoordinate)
+        ? value.points as number[]
+        : [];
+      if (points.length < 4 || points.length % 2 !== 0) {
+        warnings.push(`${context}: dropped shape '${value.id}' with unusable geometry`);
+        return null;
+      }
+      const shape = SHAPE_KINDS.has(value.shape as InkShapeKind) ? value.shape as InkShapeKind : 'line';
+      return {
+        ...base,
+        type: 'shape',
+        shape,
+        points,
+        stroke: normalizeBrush(value.stroke, warnings, `${context}: shape '${value.id}'`),
+        ...(typeof value.fill === 'string' ? { fill: value.fill } : {}),
+        ...(typeof value.fillOpacity === 'number' ? { fillOpacity: clamp(value.fillOpacity, 0, 1) } : {}),
+        ...(isArrowhead(value.arrowStart) ? { arrowStart: value.arrowStart } : {}),
+        ...(isArrowhead(value.arrowEnd) ? { arrowEnd: value.arrowEnd } : {}),
+        ...(typeof value.sourceStrokeId === 'string' ? { sourceStrokeId: value.sourceStrokeId } : {}),
+        ...(value.guide === true ? { guide: true } : {}),
+      };
+    }
+    case 'connector': {
+      if (!isInkEndpoint(value.from) || !isInkEndpoint(value.to)) {
+        warnings.push(`${context}: dropped connector '${value.id}' with unusable geometry`);
+        return null;
+      }
+      return {
+        ...base,
+        type: 'connector',
+        from: normalizeInkEndpoint(value.from),
+        to: normalizeInkEndpoint(value.to),
+        routing: value.routing === 'orthogonal' || value.routing === 'curved' ? value.routing : 'straight',
+        stroke: normalizeBrush(value.stroke, warnings, `${context}: connector '${value.id}'`),
+        ...(isArrowhead(value.arrowStart) ? { arrowStart: value.arrowStart } : {}),
+        ...(isArrowhead(value.arrowEnd) ? { arrowEnd: value.arrowEnd } : {}),
+        ...(typeof value.label === 'string' ? { label: value.label.slice(0, INK_LIMITS.textLength) } : {}),
+      };
+    }
+    case 'stamp': {
+      if (!isDrawableCoordinate(value.x) || !isDrawableCoordinate(value.y) || typeof value.symbolId !== 'string') {
+        warnings.push(`${context}: dropped stamp '${value.id}' with unusable geometry`);
+        return null;
+      }
+      return {
+        ...base,
+        type: 'stamp',
+        x: value.x,
+        y: value.y,
+        width: Math.max(0, numberOr(value.width, 0)),
+        height: Math.max(0, numberOr(value.height, 0)),
+        symbolId: value.symbolId,
+        ...(typeof value.color === 'string' ? { color: value.color } : {}),
+      };
     }
   }
+  return null;
+}
+
+const SHAPE_KINDS = new Set<InkShapeKind>([
+  'line', 'polyline', 'rectangle', 'ellipse', 'triangle', 'diamond', 'polygon', 'star', 'arc',
+]);
+
+function isArrowhead(value: unknown): value is InkArrowhead {
+  return value === 'none' || value === 'arrow' || value === 'open' || value === 'dot';
+}
+
+function isInkEndpoint(value: unknown): value is InkConnector['from'] {
+  return isObject(value) && isDrawableCoordinate(value.x) && isDrawableCoordinate(value.y);
+}
+
+function normalizeInkEndpoint(value: InkConnector['from']): InkConnector['from'] {
+  return {
+    x: value.x,
+    y: value.y,
+    ...(typeof value.objectId === 'string' ? { objectId: value.objectId } : {}),
+    ...(typeof value.anchor === 'string' ? { anchor: value.anchor } : {}),
+  };
+}
+
+function normalizeInkObjectLink(value: unknown): InkObjectLink | null {
+  if (!isObject(value) || typeof value.target !== 'string') return null;
+  if (value.kind === 'vault' && isVaultRelativePath(value.target)) {
+    return { kind: 'vault', target: value.target };
+  }
+  if (value.kind === 'url') {
+    try {
+      const parsed = new URL(value.target);
+      if (parsed.protocol === 'https:') return { kind: 'url', target: parsed.toString() };
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 /** Rejects absolute paths, parent traversal, and anything URL-shaped. */

@@ -23,7 +23,7 @@ mod xlsx_read;
 mod xlsx_write;
 
 pub use csv::{
-    CsvExportOptions, CsvImportOptions, CsvQuoting, detect_csv_dialect, export_csv, import_csv,
+    detect_csv_dialect, export_csv, import_csv, CsvExportOptions, CsvImportOptions, CsvQuoting,
 };
 pub use model::{
     ConvertedBorders, ConvertedCell, ConvertedNumberFormat, ConvertedRange, ConvertedStyle,
@@ -140,7 +140,9 @@ pub(crate) fn parse_a1(reference: &str) -> Option<(usize, usize)> {
                 .checked_add((character.to_ascii_uppercase() as u8 - b'A' + 1) as usize)?;
         } else if character.is_ascii_digit() {
             seen_digit = true;
-            row = row.checked_mul(10)?.checked_add(character as usize - '0' as usize)?;
+            row = row
+                .checked_mul(10)?
+                .checked_add(character as usize - '0' as usize)?;
         } else {
             return None;
         }

@@ -8,7 +8,13 @@ lifecycle, the desktop editor, and the mobile/tablet editor. A user can create a
 drawing, draw in it with pressure-sensitive brushes, erase, select, transform,
 arrange, use layers and pages, undo, and have it autosave — on desktop or
 Android, locally or in a hosted vault, online or offline.
-Phases 5-11 have not started.
+Phase 5 is complete. The editor now provides authored shapes and connectors,
+snapping, arrows/fills/dashes, reversible line/rectangle/ellipse recognition,
+hold-to-straighten, editable text and sticky notes, safe links, vault-backed
+images/SVG, stamps, rendered equations, precision instruments and guides,
+loupe/eyedropper tools, page backgrounds, portable reusable templates,
+document swatches/brush favourites, and selection smoothing/recoloring.
+Phases 6-11 have not started.
 
 The frozen contract, the measured baselines, and the open device gate are in
 `docs/plans/digital-ink-phase0-contract.md`.
@@ -696,7 +702,7 @@ Target behaviors:
 | 2. Native `.ink` lifecycle | Complete | Add New Drawing creation, vault routing, tabs, revisions, snapshots, references, status, and local/hosted persistence. |
 | 3. Core desktop editor | Complete | Deliver pens, erasers, selection, transforms, pages, layers, history, clipboard, and drawing-tablet operation. |
 | 4. Mobile and tablet editor | Complete | Deliver adaptive touch/pen UI, gestures, palm policy, rotation/process recovery, and physical-device validation. |
-| 5. Advanced tools | Not started | Add geometry, recognition, guides, precision tools, text, images, symbols, links, and templates. |
+| 5. Advanced tools | Complete | Deliver geometry, reversible recognition, text/stickies, vault-backed images/SVG, safe links, stamps/equations, precision tools/guides, backgrounds, portable templates, favourites/swatches, and cleanup. |
 | 6. Hosted collaboration and offline merge | Not started | Add `LiveDocumentKind::Ink`, final-stroke transactions, ephemeral previews, awareness, replica merge, and recovery. |
 | 7. Export and note integration | Not started | Add PNG/SVG/PDF export, source-linked note embeds, stable re-export, progress, and cancellation. |
 | 8. PDF annotation integration | Not started | Migrate PDF sidecars and add shared ink tools, live/offline editing, and flattened annotated-PDF export. |
@@ -877,13 +883,30 @@ Kanban, and workbook screens.
 
 ### Phase 5: Advanced Tools
 
-- Add shapes, connectors, arrows, fills, dashes, and snapping.
-- Add reversible shape recognition and hold-to-straighten.
-- Add text, sticky notes, images/SVG, links, stamps, and equations.
-- Add ruler, protractor, compass, guides, loupe, and eyedropper.
-- Add page backgrounds, document templates, brush favorites, and swatches.
-- Add selection cleanup, smoothing, and recoloring.
-- Keep recognition optional and non-destructive.
+Complete. Advanced objects share the bounded ink scene and renderer, and
+editor-only guides remain excluded from deterministic exports.
+
+- [x] Add authored line/rectangle/ellipse/triangle/diamond/star shapes,
+      straight connectors, arrows, fills, dashes, and grid snapping.
+- [x] Add explicit reversible line/rectangle/ellipse recognition and optional
+      hold-to-straighten. More shape classes remain optional follow-up work.
+- [x] Add text, sticky notes, images/SVG, links, stamps, and equations. Images
+      use the vault asset boundary, SVG is sanitized before display, equations
+      use bounded untrusted KaTeX rendering, and links accept only vault-relative
+      paths or HTTPS targets.
+- [x] Add ruler, protractor, compass, guides, loupe, and eyedropper. Guides are
+      editor-only objects and are omitted from deterministic exports.
+- [x] Add page backgrounds, document templates, brush favorites, and swatches.
+      Templates persist locally, instantiate fresh object identities, and use a
+      bounded versioned import/export format for sharing.
+- [x] Add selection smoothing and recoloring.
+- [x] Keep recognition optional and non-destructive: it runs only on an
+      explicit command or the opt-in hold gesture, records source identity,
+      and the operation inverse restores the captured stroke.
+
+The Phase 5 trust-boundary slice also validates shape point arrays and
+connector endpoints in `collab-documents`; the frontend normalizer repairs or
+drops malformed advanced objects before they reach rendering.
 
 ### Phase 6: Hosted Collaboration And Offline Merge
 

@@ -256,9 +256,9 @@ pub fn sheet_convert_export(
                     .get("worksheets")
                     .and_then(Value::as_array)
                     .and_then(|worksheets| {
-                        worksheets
-                            .iter()
-                            .position(|worksheet| worksheet.get("id").and_then(Value::as_str) == Some(id))
+                        worksheets.iter().position(|worksheet| {
+                            worksheet.get("id").and_then(Value::as_str) == Some(id)
+                        })
                     })
                     .ok_or_else(|| "That worksheet is no longer in the workbook.".to_string())?,
                 None => 0,
@@ -477,7 +477,11 @@ mod tests {
 
         let text = std::fs::read_to_string(&target).unwrap();
         assert_eq!(text, "Rent,1240\n,2480\n");
-        assert!(result.report.notes.iter().any(|note| note.feature == "Formulas"));
+        assert!(result
+            .report
+            .notes
+            .iter()
+            .any(|note| note.feature == "Formulas"));
     }
 
     #[test]

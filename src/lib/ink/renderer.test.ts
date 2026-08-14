@@ -26,6 +26,7 @@ class RecordingTarget implements InkRenderTarget {
   rects = 0;
   colors: string[] = [];
   alphas: number[] = [];
+  dashes: number[][] = [];
   fillStyle = '';
   strokeStyle = '';
   lineWidth = 1;
@@ -65,6 +66,9 @@ class RecordingTarget implements InkRenderTarget {
   }
   fillText(text: string): void {
     this.texts.push(text);
+  }
+  setLineDash(segments: number[]): void {
+    this.dashes.push(segments);
   }
 }
 
@@ -165,6 +169,36 @@ describe('paintScene', () => {
     expect(target.texts).toEqual(['hello']);
   });
 
+  it('paints styled shapes, connector arrowheads, and sticky backgrounds', () => {
+    const scene = buildInkScene({ strokes: 0 });
+    scene.objects.shape = {
+      id: 'shape', type: 'shape', layerId: 'layer-1', shape: 'rectangle',
+      points: [0, 0, 1_000, 0, 1_000, 500, 0, 500],
+      stroke: { kind: 'technical', color: '#123', opacity: 1, width: 64, thinning: 0, smoothing: 0, streamline: 0, taperStart: 0, taperEnd: 0, dash: 'dashed' },
+      fill: '#fff', fillOpacity: 0.5,
+    };
+    scene.objects.connector = {
+      id: 'connector', type: 'connector', layerId: 'layer-1',
+      from: { x: 0, y: 0 }, to: { x: 1_000, y: 1_000 }, routing: 'straight',
+      stroke: { kind: 'technical', color: '#123', opacity: 1, width: 64, thinning: 0, smoothing: 0, streamline: 0, taperStart: 0, taperEnd: 0 },
+      arrowEnd: 'arrow',
+    };
+    scene.objects.sticky = {
+      id: 'sticky', type: 'text', layerId: 'layer-1', x: 0, y: 0,
+      width: 1_000, height: 800, text: 'remember', color: '#000', fontSize: 96,
+      sticky: true, backgroundColor: '#ff0',
+    };
+    scene.objectOrder.push('shape', 'connector', 'sticky');
+
+    const target = new RecordingTarget();
+    expect(paintScene(target, scene, wholePage)).toBe(3);
+    expect(target.strokes).toBeGreaterThanOrEqual(2);
+    expect(target.fills).toBeGreaterThanOrEqual(2);
+    expect(target.rects).toBe(1);
+    expect(target.texts).toContain('remember');
+    expect(target.dashes).toContainEqual([256, 192]);
+  });
+
   it('skips an id in objectOrder with no object', () => {
     const scene = buildInkScene({ strokes: 2, samplesPerStroke: 6 });
     scene.objectOrder.push('ghost');
@@ -215,6 +249,15 @@ describe('paintPageBackground', () => {
       region,
     );
     expect(target.rects).toBeGreaterThan(50);
+  });
+
+  it('draws music staffs and storyboard frames', () => {
+    const staff = new RecordingTarget();
+    const storyboard = new RecordingTarget();
+    paintPageBackground(staff, createInkPage('p', { background: { pattern: 'staff', spacing: 1_000 } }), region);
+    paintPageBackground(storyboard, createInkPage('p', { background: { pattern: 'storyboard', spacing: 1_000 } }), region);
+    expect(staff.strokes).toBeGreaterThan(5);
+    expect(storyboard.strokes).toBeGreaterThan(1);
   });
 
   it('terminates on a zero spacing rather than looping forever', () => {

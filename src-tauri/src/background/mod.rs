@@ -1381,7 +1381,6 @@ mod tests {
         no_op_delta.assert_hits_async(1).await;
     }
 
-
     /// A tick used to rewrite the whole ledger, and a tick happens once per file
     /// cached. On a large vault that was thousands of full-file writes holding a
     /// lock every UI read contends on — the stall the user saw. The live value
@@ -1450,7 +1449,10 @@ mod tests {
         coordinator.forget_live_progress("job-1");
         let finished = coordinator.job("job-1").expect("job").expect("record");
         assert_eq!(finished.progress.completed, 200);
-        assert_eq!(coordinator.status_snapshot().expect("snapshot").active_jobs, 0);
+        assert_eq!(
+            coordinator.status_snapshot().expect("snapshot").active_jobs,
+            0
+        );
     }
 
     /// The observer is how the app learns anything happened. Without it a sync
@@ -1500,7 +1502,11 @@ mod tests {
         assert_eq!(*recorder.statuses.lock(), vec![7]);
         assert_eq!(
             *recorder.vaults.lock(),
-            vec![("https://collab.example".to_string(), "vault-1".to_string(), 3)]
+            vec![(
+                "https://collab.example".to_string(),
+                "vault-1".to_string(),
+                3
+            )]
         );
     }
 

@@ -156,6 +156,50 @@ describe('normalizeInkDocument', () => {
     }
   });
 
+  it('normalizes Phase 5 shapes, connectors, and sticky text at the trust boundary', () => {
+    const source = wellFormedInkDocument();
+    const scene = (source.pages as any)['page-1'].scene;
+    scene.objects.shape = {
+      id: 'shape', type: 'shape', layerId: 'layer-1', shape: 'rectangle',
+      points: [0, 0, 100, 0, 100, 100, 0, 100],
+      stroke: { kind: 'technical', color: '#123', opacity: 2, width: 64, thinning: 0, smoothing: 0, streamline: 0, taperStart: 0, taperEnd: 0 },
+      fill: '#fff', fillOpacity: 2, arrowEnd: 'arrow',
+    };
+    scene.objects.connector = {
+      id: 'connector', type: 'connector', layerId: 'layer-1',
+      from: { x: 0, y: 0 }, to: { x: 100, y: 100 }, routing: 'orthogonal',
+      stroke: scene.objects.shape.stroke, arrowEnd: 'arrow',
+    };
+    scene.objects.sticky = {
+      id: 'sticky', type: 'text', layerId: 'layer-1', x: 0, y: 0,
+      width: 100, height: 100, text: 'note', color: '#000', fontSize: 24,
+      sticky: true, backgroundColor: '#ff0', align: 'center',
+    };
+    scene.objectOrder.push('shape', 'connector', 'sticky');
+
+    const normalized = normalizeInkDocument(source).document.pages['page-1'].scene;
+    expect(normalized.objects.shape).toMatchObject({ type: 'shape', fillOpacity: 1, arrowEnd: 'arrow' });
+    expect(normalized.objects.connector).toMatchObject({ type: 'connector', routing: 'orthogonal', arrowEnd: 'arrow' });
+    expect(normalized.objects.sticky).toMatchObject({ type: 'text', sticky: true, backgroundColor: '#ff0', align: 'center' });
+  });
+
+  it('keeps safe object links and equations while dropping unsafe links', () => {
+    const source = wellFormedInkDocument();
+    const scene = (source.pages as any)['page-1'].scene;
+    scene.objects.s1.link = { kind: 'url', target: 'javascript:alert(1)' };
+    scene.objects.equation = {
+      id: 'equation', type: 'text', layerId: 'layer-1', x: 0, y: 0,
+      width: 100, height: 50, text: 'x^2', color: '#000', fontSize: 24,
+      equation: true, link: { kind: 'vault', target: 'Notes/Math.md' },
+    };
+    scene.objectOrder.push('equation');
+    const normalized = normalizeInkDocument(source).document.pages['page-1'].scene;
+    expect(normalized.objects.s1.link).toBeUndefined();
+    expect(normalized.objects.equation).toMatchObject({
+      type: 'text', equation: true, link: { kind: 'vault', target: 'Notes/Math.md' },
+    });
+  });
+
   it('preserves fields it does not understand', () => {
     // A file written by a newer build has to survive a round trip through an
     // older one, or a shared vault degrades every time it is opened.

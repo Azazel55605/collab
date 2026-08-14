@@ -95,7 +95,7 @@ describe('resolveInkCommand', () => {
   });
 
   it('returns null for an unbound key', () => {
-    expect(resolveInkCommand(key('q'))).toBeNull();
+    expect(resolveInkCommand(key('b'))).toBeNull();
     expect(resolveInkCommand(key('p', { alt: true }))).toBeNull();
   });
 
