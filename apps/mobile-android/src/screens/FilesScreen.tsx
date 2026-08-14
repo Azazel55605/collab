@@ -328,7 +328,7 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   }
 
   if (drawingFile) {
-    return <InkScreen file={drawingFile} />;
+    return <InkScreen file={drawingFile} theme={prefs.theme} />;
   }
 
   if (workbookFile) {

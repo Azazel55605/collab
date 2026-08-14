@@ -34,6 +34,8 @@ import type { InkEraserMode } from '../../lib/ink/erase';
 import type { InkAlignment, InkDistribution } from '../../lib/ink/align';
 import { INK_SHAPE_ORDER, INK_STAMP_CATALOG } from '../../lib/ink/advancedTools';
 import type { InkDocumentTemplate } from '../../lib/ink/templates';
+import { INK_LIGHT_PALETTE, canonicalInkColor, inkColorLabel, resolveInkColor } from '../../lib/ink/colors';
+import type { InkColorPalette } from '../../lib/ink/colors';
 
 /**
  * The properties and layers panel.
@@ -52,6 +54,7 @@ export interface InkSidePanelProps {
   swatches: InkSwatch[];
   tool: InkToolState;
   readOnly: boolean;
+  colorPalette?: InkColorPalette;
   selectedIds: string[];
   activeLayerId: string | null;
   onBrushChange: (change: Partial<InkToolState['brush']>) => void;
@@ -91,6 +94,7 @@ export default function InkSidePanel({
   swatches,
   tool,
   readOnly,
+  colorPalette = INK_LIGHT_PALETTE,
   selectedIds,
   activeLayerId,
   onBrushChange,
@@ -129,7 +133,10 @@ export default function InkSidePanel({
   const effectiveLayerId = activeLayerId ?? layers[0] ?? null;
   const selectedObject = selectedIds.length === 1 ? scene?.objects[selectedIds[0]] : null;
   const selectedText = selectedObject?.type === 'text' ? selectedObject : null;
-  const paletteColors = [...new Set([...swatches.map((swatch) => swatch.color), ...INK_DEFAULT_SWATCHES])];
+  const paletteColors = [...new Set([
+    ...swatches.map((swatch) => canonicalInkColor(swatch.color)),
+    ...INK_DEFAULT_SWATCHES,
+  ])];
 
   return (
     <aside
@@ -147,10 +154,11 @@ export default function InkSidePanel({
                 type="button"
                 role="radio"
                 aria-checked={tool.brush.color === color}
-                aria-label={`Colour ${color}`}
+                aria-label={inkColorLabel(color)}
+                title={inkColorLabel(color)}
                 disabled={readOnly}
                 onClick={() => onBrushChange({ color })}
-                style={{ background: color }}
+                style={{ background: resolveInkColor(color, colorPalette) }}
                 className={cn(
                   'size-5 rounded-full border transition-transform app-motion-fast',
                   tool.brush.color === color
@@ -446,9 +454,10 @@ export default function InkSidePanel({
               <button
                 key={color}
                 type="button"
-                aria-label={`Recolor selection ${color}`}
+                aria-label={`Recolor selection ${inkColorLabel(color)}`}
+                title={inkColorLabel(color)}
                 onClick={() => onRecolorSelection(color)}
-                style={{ background: color }}
+                style={{ background: resolveInkColor(color, colorPalette) }}
                 className="size-5 rounded-full border border-border/60 hover:scale-110"
               />
             ))}

@@ -4,6 +4,7 @@ import type { InkObject, InkScene } from '../../types/ink';
 import { buildInkScene, buildStroke } from './fixture';
 import { outlineStrokeWithPerfectFreehand } from './strokeAdapters';
 import { objectBounds, escapeXml, sceneBounds, sceneToSvg } from './svg';
+import { INK_COLOR_TOKENS, INK_DARK_PALETTE, INK_LIGHT_PALETTE } from './colors';
 
 function sceneWithLayers(): InkScene {
   const scene = buildInkScene({ strokes: 3, samplesPerStroke: 12, layers: 3 });
@@ -11,6 +12,17 @@ function sceneWithLayers(): InkScene {
 }
 
 describe('sceneToSvg', () => {
+  it('resolves semantic ink to concrete portable export colours', () => {
+    const scene = buildInkScene({ strokes: 1, samplesPerStroke: 6 });
+    const stroke = scene.objects['stroke-1'];
+    if (stroke?.type === 'stroke') {
+      scene.objects[stroke.id] = { ...stroke, brush: { ...stroke.brush, color: INK_COLOR_TOKENS.foreground } };
+    }
+    expect(sceneToSvg(scene)).toContain(`fill="${INK_LIGHT_PALETTE.foreground}"`);
+    expect(sceneToSvg(scene, { colors: INK_DARK_PALETTE })).toContain(`fill="${INK_DARK_PALETTE.foreground}"`);
+    expect(sceneToSvg(scene)).not.toContain(INK_COLOR_TOKENS.foreground);
+  });
+
   it('is byte-identical across repeated exports', () => {
     // Phase 7 re-exports source-linked assets into notes. A generator that
     // varied would rewrite those assets on every export and fill the revision

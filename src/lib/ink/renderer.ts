@@ -26,6 +26,8 @@ import { outlineStroke } from './stroke';
 import type { InkPoint, InkStrokeOutliner } from './stroke';
 import { objectBounds } from './svg';
 import { stampGlyph } from './advancedTools';
+import { INK_LIGHT_PALETTE, resolveInkColor } from './colors';
+import type { InkColorPalette } from './colors';
 import {
   INK_TILE_CACHE_BUDGET_BYTES,
   INK_TILE_SIZE,
@@ -74,6 +76,8 @@ export interface InkRenderOptions {
   respectVisibility?: boolean;
   /** Paint equation source as plain text when no rich KaTeX overlay exists. */
   paintEquationFallback?: boolean;
+  /** Concrete colours used to resolve semantic `ink:*` document colours. */
+  colors?: InkColorPalette;
 }
 
 function layerPaints(layer: InkLayer | undefined, options: InkRenderOptions): boolean {
@@ -98,10 +102,11 @@ function paintStroke(
   target: InkRenderTarget,
   stroke: InkStroke,
   outliner: InkStrokeOutliner,
+  colors: InkColorPalette,
 ): void {
   const outline = outliner(decodeSamples(stroke.samples), stroke.brush);
   if (outline.length === 0) return;
-  target.fillStyle = stroke.brush.color;
+  target.fillStyle = resolveInkColor(stroke.brush.color, colors);
   target.globalAlpha = stroke.brush.opacity;
   fillOutline(target, outline);
   target.globalAlpha = 1;
@@ -113,6 +118,7 @@ function paintObject(
   outliner: InkStrokeOutliner,
   options: InkRenderOptions,
 ): void {
+  const colors = options.colors ?? INK_LIGHT_PALETTE;
   if (
     (object.type === 'text' || object.type === 'stamp')
     && object.rotation
@@ -129,7 +135,7 @@ function paintObject(
   }
   switch (object.type) {
     case 'stroke':
-      paintStroke(target, object, outliner);
+      paintStroke(target, object, outliner, colors);
       break;
     case 'shape': {
       if (object.points.length < 4) return;
@@ -142,17 +148,18 @@ function paintObject(
         object.shape !== 'line' && object.shape !== 'polyline' && object.shape !== 'arc';
       if (closed) target.closePath();
       if (closed && object.fill) {
-        target.fillStyle = object.fill;
+        target.fillStyle = resolveInkColor(object.fill, colors);
         target.globalAlpha = object.fillOpacity ?? 1;
         target.fill();
         target.globalAlpha = 1;
       }
-      target.strokeStyle = object.stroke.color;
+      const strokeColor = resolveInkColor(object.stroke.color, colors);
+      target.strokeStyle = strokeColor;
       target.lineWidth = object.stroke.width;
       applyDash(target, object.stroke.dash, object.stroke.width);
       target.globalAlpha = object.stroke.opacity;
       target.stroke();
-      paintArrowheads(target, object.points, object.arrowStart, object.arrowEnd, object.stroke);
+      paintArrowheads(target, object.points, object.arrowStart, object.arrowEnd, { ...object.stroke, color: strokeColor });
       applyDash(target, 'solid', object.stroke.width);
       target.globalAlpha = 1;
       break;
@@ -164,12 +171,13 @@ function paintObject(
       for (let index = 2; index + 1 < points.length; index += 2) {
         target.lineTo(points[index], points[index + 1]);
       }
-      target.strokeStyle = object.stroke.color;
+      const strokeColor = resolveInkColor(object.stroke.color, colors);
+      target.strokeStyle = strokeColor;
       target.lineWidth = object.stroke.width;
       target.globalAlpha = object.stroke.opacity;
       applyDash(target, object.stroke.dash, object.stroke.width);
       target.stroke();
-      paintArrowheads(target, points, object.arrowStart, object.arrowEnd, object.stroke);
+      paintArrowheads(target, points, object.arrowStart, object.arrowEnd, { ...object.stroke, color: strokeColor });
       applyDash(target, 'solid', object.stroke.width);
       target.globalAlpha = 1;
       break;
@@ -177,10 +185,10 @@ function paintObject(
     case 'text': {
       if (object.equation && options.paintEquationFallback === false) break;
       if (object.sticky || object.backgroundColor) {
-        target.fillStyle = object.backgroundColor ?? '#fef3a7';
+        target.fillStyle = resolveInkColor(object.backgroundColor ?? '#fef3a7', colors);
         target.fillRect(object.x, object.y, object.width, object.height);
       }
-      target.fillStyle = object.color;
+      target.fillStyle = resolveInkColor(object.color, colors);
       target.font = `${object.fontSize}px ${object.fontFamily ?? 'sans-serif'}`;
       const inset = object.sticky ? Math.max(32, object.fontSize * 0.35) : 0;
       object.text.split('\n').forEach((line, index) => {
@@ -189,7 +197,7 @@ function paintObject(
       break;
     }
     case 'stamp': {
-      target.fillStyle = object.color ?? '#1f2933';
+      target.fillStyle = resolveInkColor(object.color ?? 'ink:foreground', colors);
       target.font = `${Math.max(1, object.height)}px sans-serif`;
       target.fillText(stampGlyph(object.symbolId), object.x, object.y + object.height);
       break;
@@ -334,10 +342,11 @@ export function paintPageBackground(
   target: InkRenderTarget,
   page: InkPage,
   region: InkBounds,
+  colors: InkColorPalette = INK_LIGHT_PALETTE,
 ): void {
   const background = page.background;
   if (background.color) {
-    target.fillStyle = background.color;
+    target.fillStyle = resolveInkColor(background.color, colors);
     target.fillRect(
       region.minX,
       region.minY,
@@ -348,9 +357,12 @@ export function paintPageBackground(
   if (background.pattern === 'blank') return;
 
   const spacing = background.spacing && background.spacing > 0 ? background.spacing : 1_600;
-  target.strokeStyle = background.lineColor ?? '#c9d1dc';
+  const lineColor = background.lineColor
+    ? resolveInkColor(background.lineColor, colors)
+    : colors.grid;
+  target.strokeStyle = lineColor;
   target.lineWidth = 8;
-  target.fillStyle = background.lineColor ?? '#c9d1dc';
+  target.fillStyle = lineColor;
 
   const firstY = Math.ceil(region.minY / spacing) * spacing;
   const firstX = Math.ceil(region.minX / spacing) * spacing;
@@ -471,6 +483,12 @@ export class InkTileRenderer<S> {
     return this.cachedBytes;
   }
 
+  /** Theme changes alter semantic colours without changing scene identity. */
+  setRenderOptions(render: InkRenderOptions): void {
+    this.options.render = render;
+    this.invalidateAll();
+  }
+
   /** Discards a tile so the next request repaints it. */
   invalidate(key: InkTileKey): void {
     const id = tileId(key);
@@ -544,7 +562,7 @@ export class InkTileRenderer<S> {
     target.clearRect(0, 0, pixelSize, pixelSize);
     target.scale(scale, scale);
     target.translate(-bounds.minX, -bounds.minY);
-    if (page) paintPageBackground(target, page, bounds);
+    if (page) paintPageBackground(target, page, bounds, this.options.render?.colors);
     paintScene(target, scene, bounds, this.options.render);
     target.restore();
 

@@ -9,11 +9,8 @@
  * whose `schemaVersion` is newer than this build understands — rewriting the
  * latter would silently strip fields a newer client wrote.
  *
- * Live co-editing is **not** wired up here. Phase 6 of
- * `docs/plans/digital-ink-and-annotation-plan.md` adds `LiveDocumentKind::Ink`
- * with final-stroke transactions and ephemeral previews; until then `.ink`
- * uses the REST optimistic-write path, exactly as it would when a live session
- * is unavailable.
+ * Hosted drawings prefer the Phase 6 live Ink CRDT session and retain this
+ * controller as the local-vault and unavailable-socket fallback.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -40,6 +37,8 @@ import {
   serializeInkDocument,
   type InkSchemaSupport,
 } from './document';
+import { openLiveInkSession, type LiveInkSession } from '../liveInkDocument';
+import { useLiveDocumentStatus } from '../useLiveDocumentStatus';
 
 interface UseInkSessionOptions {
   vault: VaultMeta | null;
@@ -69,6 +68,7 @@ export interface InkSession {
   controller: DocumentSessionController<InkDocument>;
   snapshot: DocumentSessionSnapshot<InkDocument>;
   saveMineAsNew: (localContent: string) => Promise<void>;
+  liveSession: LiveInkSession | null;
 }
 
 export function useInkSession({
@@ -87,6 +87,9 @@ export function useInkSession({
   const [schemaSupport, setSchemaSupport] = useState<InkSchemaSupport>('supported');
   const [schemaVersion, setSchemaVersion] = useState<number | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [restLoaded, setRestLoaded] = useState(false);
+  const [liveSession, setLiveSession] = useState<LiveInkSession | null>(null);
+  const liveSessionRef = useRef<LiveInkSession | null>(null);
 
   const vaultReadOnly = isVaultReadOnly(vault);
   const readOnly = vaultReadOnly || schemaSupport === 'newer';
@@ -147,7 +150,10 @@ export function useInkSession({
     // conflict is surfaced for the user to resolve.
     mergeRemote: () => null,
     compareVersions: compareDocumentVersions,
+    isLive: () => liveSessionRef.current !== null,
   });
+
+  useLiveDocumentStatus(controller, liveSession);
 
   useEffect(() => {
     if (!client || !relativePath) {
@@ -163,6 +169,7 @@ export function useInkSession({
     setWarnings([]);
     setSchemaSupport('supported');
     setSchemaVersion(null);
+    setRestLoaded(false);
 
     client.readDocument(relativePath)
       .then((doc) => {
@@ -190,7 +197,10 @@ export function useInkSession({
         );
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setRestLoaded(true);
+        }
       });
 
     return () => {
@@ -199,10 +209,63 @@ export function useInkSession({
   }, [client, controller, relativePath, drawingName]);
 
   useEffect(() => {
+    if (!client || !relativePath || !restLoaded || schemaSupport !== 'supported' || !client.resolveLiveSession) {
+      liveSessionRef.current = null;
+      setLiveSession(null);
+      return;
+    }
+    let cancelled = false;
+    let opened: LiveInkSession | null = null;
+    let off: (() => void) | undefined;
+    openLiveInkSession(client, relativePath)
+      .then((session) => {
+        if (cancelled || !session) {
+          session?.destroy();
+          return;
+        }
+        const initial = session.readDocument();
+        if (!initial) {
+          session.discardOfflineState();
+          session.destroy();
+          return;
+        }
+        const inspection = normalizeInkDocument(initial);
+        if (inspection.support !== 'supported') {
+          session.discardOfflineState();
+          session.destroy();
+          return;
+        }
+        opened = session;
+        liveSessionRef.current = session;
+        documentRef.current = inspection.document;
+        setDocument(inspection.document);
+        off = session.onChange((candidate) => {
+          if (cancelled) return;
+          const remote = normalizeInkDocument(candidate);
+          if (remote.support !== 'supported') return;
+          documentRef.current = remote.document;
+          setDocument(remote.document);
+        });
+        setLiveSession(session);
+      })
+      .catch(() => {
+        // Best-effort: the REST controller remains active.
+      });
+    return () => {
+      cancelled = true;
+      off?.();
+      if (liveSessionRef.current === opened) liveSessionRef.current = null;
+      opened?.destroy();
+      setLiveSession(null);
+    };
+  }, [client, relativePath, restLoaded, schemaSupport]);
+
+  useEffect(() => {
     if (!relativePath) return;
+    if (liveSession) return;
     if (snapshot.dirty) markDirty(relativePath);
     else if (snapshot.loadedVersion) markSaved(relativePath, `ink:${snapshot.loadedVersion}`);
-  }, [markDirty, markSaved, relativePath, snapshot.dirty, snapshot.loadedVersion]);
+  }, [liveSession, markDirty, markSaved, relativePath, snapshot.dirty, snapshot.loadedVersion]);
 
   const updateDocument = useCallback(
     (updater: (current: InkDocument) => InkDocument) => {
@@ -216,7 +279,8 @@ export function useInkSession({
       const stamped: InkDocument = { ...next, updatedAt: new Date().toISOString() };
       documentRef.current = stamped;
       setDocument(stamped);
-      controller.markLocalChange(stamped);
+      if (liveSessionRef.current) liveSessionRef.current.writeDocument(stamped);
+      else controller.markLocalChange(stamped);
     },
     [controller, readOnly],
   );
@@ -240,13 +304,14 @@ export function useInkSession({
   useEffect(() => {
     if (!relativePath || client?.capabilities?.filesystemWatch) return;
     return onReplicaMutated((mutation) => {
+      if (liveSessionRef.current) return;
       if (!replicaMutationAffectsPath(mutation, relativePath)) return;
       void controller.handleExternalMutation('cache');
     });
   }, [client, controller, relativePath]);
 
   const save = useCallback(async () => {
-    if (readOnly) return;
+    if (readOnly || liveSessionRef.current) return;
     await controller.requestSave('manual');
   }, [controller, readOnly]);
 
@@ -276,5 +341,6 @@ export function useInkSession({
     controller,
     snapshot,
     saveMineAsNew,
+    liveSession,
   };
 }

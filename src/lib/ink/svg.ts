@@ -24,6 +24,8 @@ import { decodeSamples } from './codec';
 import { outlineStroke, strokeBounds } from './stroke';
 import type { InkPoint, InkStrokeOutliner } from './stroke';
 import { stampGlyph } from './advancedTools';
+import { inkExportPalette, resolveInkColor } from './colors';
+import type { InkColorPalette } from './colors';
 
 export interface InkSvgExportOptions {
   /** Region to export. Defaults to the scene's content bounds. */
@@ -37,6 +39,8 @@ export interface InkSvgExportOptions {
   outliner?: InkStrokeOutliner;
   /** Decimal places for emitted coordinates. */
   precision?: number;
+  /** Override semantic ink colours for a particular export destination. */
+  colors?: InkColorPalette;
 }
 
 const DEFAULT_PRECISION = 2;
@@ -182,6 +186,7 @@ function strokeElement(
   stroke: InkStroke,
   outliner: InkStrokeOutliner,
   precision: number,
+  colors: InkColorPalette,
 ): string {
   const samples = decodeSamples(stroke.samples);
   const outline = outliner(samples, stroke.brush);
@@ -189,10 +194,10 @@ function strokeElement(
   const path = pointsToPath(outline, precision);
   const opacity = stroke.brush.opacity;
   const opacityAttribute = opacity >= 1 ? '' : ` fill-opacity="${num(opacity, 3)}"`;
-  return `<path d="${path}" fill="${escapeXml(stroke.brush.color)}"${opacityAttribute}/>`;
+  return `<path d="${path}" fill="${escapeXml(resolveInkColor(stroke.brush.color, colors))}"${opacityAttribute}/>`;
 }
 
-function shapeElement(object: Extract<InkObject, { type: 'shape' }>, precision: number): string {
+function shapeElement(object: Extract<InkObject, { type: 'shape' }>, precision: number, colors: InkColorPalette): string {
   const points: string[] = [];
   for (let index = 0; index + 1 < object.points.length; index += 2) {
     points.push(`${num(object.points[index], precision)},${num(object.points[index + 1], precision)}`);
@@ -200,7 +205,8 @@ function shapeElement(object: Extract<InkObject, { type: 'shape' }>, precision: 
   if (points.length === 0) return '';
   const closed = object.shape !== 'line' && object.shape !== 'polyline' && object.shape !== 'arc';
   const tag = closed ? 'polygon' : 'polyline';
-  const fill = closed && object.fill ? escapeXml(object.fill) : 'none';
+  const fill = closed && object.fill ? escapeXml(resolveInkColor(object.fill, colors)) : 'none';
+  const strokeColor = resolveInkColor(object.stroke.color, colors);
   const dash = object.stroke.dash === 'dashed'
     ? ` stroke-dasharray="${num(object.stroke.width * 4, precision)} ${num(object.stroke.width * 3, precision)}"`
     : object.stroke.dash === 'dotted'
@@ -212,15 +218,15 @@ function shapeElement(object: Extract<InkObject, { type: 'shape' }>, precision: 
   const base = (
     `<${tag} points="${points.join(' ')}" fill="${fill}"` +
     fillOpacity +
-    ` stroke="${escapeXml(object.stroke.color)}"` +
+    ` stroke="${escapeXml(strokeColor)}"` +
     ` stroke-width="${num(object.stroke.width, precision)}"` +
     dash + ' stroke-linecap="round" stroke-linejoin="round"/>'
   );
-  const arrows = arrowElements(object.points, object.arrowStart, object.arrowEnd, object.stroke.color, object.stroke.width, precision);
+  const arrows = arrowElements(object.points, object.arrowStart, object.arrowEnd, strokeColor, object.stroke.width, precision);
   return arrows ? `<g>${base}${arrows}</g>` : base;
 }
 
-function connectorElement(object: Extract<InkObject, { type: 'connector' }>, precision: number): string {
+function connectorElement(object: Extract<InkObject, { type: 'connector' }>, precision: number, colors: InkColorPalette): string {
   const points = object.routing === 'orthogonal'
     ? [object.from.x, object.from.y, (object.from.x + object.to.x) / 2, object.from.y,
       (object.from.x + object.to.x) / 2, object.to.y, object.to.x, object.to.y]
@@ -234,8 +240,9 @@ function connectorElement(object: Extract<InkObject, { type: 'connector' }>, pre
     : object.stroke.dash === 'dotted'
       ? ` stroke-dasharray="${num(object.stroke.width, precision)} ${num(object.stroke.width * 2, precision)}"`
       : '';
-  const base = `<polyline points="${pairs.join(' ')}" fill="none" stroke="${escapeXml(object.stroke.color)}" stroke-width="${num(object.stroke.width, precision)}"${dash} stroke-linecap="round" stroke-linejoin="round"/>`;
-  const arrows = arrowElements(points, object.arrowStart, object.arrowEnd, object.stroke.color, object.stroke.width, precision);
+  const strokeColor = resolveInkColor(object.stroke.color, colors);
+  const base = `<polyline points="${pairs.join(' ')}" fill="none" stroke="${escapeXml(strokeColor)}" stroke-width="${num(object.stroke.width, precision)}"${dash} stroke-linecap="round" stroke-linejoin="round"/>`;
+  const arrows = arrowElements(points, object.arrowStart, object.arrowEnd, strokeColor, object.stroke.width, precision);
   return arrows ? `<g>${base}${arrows}</g>` : base;
 }
 
@@ -282,17 +289,17 @@ function arrowElement(
     : `<polyline points="${path}" fill="none" stroke="${escapeXml(color)}" stroke-width="${num(width, precision)}"/>`;
 }
 
-function textElement(object: Extract<InkObject, { type: 'text' }>, precision: number): string {
+function textElement(object: Extract<InkObject, { type: 'text' }>, precision: number, colors: InkColorPalette): string {
   // Text is emitted as a single element with no markup: the schema stores plain
   // text, and anything richer would mean parsing document content into XML.
   const inset = object.sticky ? Math.max(32, object.fontSize * 0.35) : 0;
   const background = object.sticky || object.backgroundColor
-    ? `<rect x="${num(object.x, precision)}" y="${num(object.y, precision)}" width="${num(object.width, precision)}" height="${num(object.height, precision)}" fill="${escapeXml(object.backgroundColor ?? '#fef3a7')}"/>`
+    ? `<rect x="${num(object.x, precision)}" y="${num(object.y, precision)}" width="${num(object.width, precision)}" height="${num(object.height, precision)}" fill="${escapeXml(resolveInkColor(object.backgroundColor ?? '#fef3a7', colors))}"/>`
     : '';
   const lines = object.text.split('\n').map((line, index) =>
     `<tspan x="${num(object.x + inset, precision)}" y="${num(object.y + inset + object.fontSize * (index + 1), precision)}">${escapeXml(line)}</tspan>`,
   ).join('');
-  const text = `<text fill="${escapeXml(object.color)}" font-size="${num(object.fontSize, precision)}"` +
+  const text = `<text fill="${escapeXml(resolveInkColor(object.color, colors))}" font-size="${num(object.fontSize, precision)}"` +
     (object.fontFamily ? ` font-family="${escapeXml(object.fontFamily)}"` : '') +
     `>${lines}</text>`;
   const content = background ? `<g>${background}${text}</g>` : text;
@@ -326,13 +333,14 @@ export function sceneToSvg(scene: InkScene, options: InkSvgExportOptions = {}): 
   const height = Math.max(1, bounds.maxY - bounds.minY);
   const scale = options.scale ?? 1;
   const only = options.objectIds ? new Set(options.objectIds) : null;
+  const colors = options.colors ?? inkExportPalette(options.background);
 
   const body: string[] = [];
   if (options.background) {
     body.push(
       `<rect x="${num(bounds.minX, precision)}" y="${num(bounds.minY, precision)}"` +
         ` width="${num(width, precision)}" height="${num(height, precision)}"` +
-        ` fill="${escapeXml(options.background)}"/>`,
+        ` fill="${escapeXml(resolveInkColor(options.background, colors))}"/>`,
     );
   }
 
@@ -349,19 +357,19 @@ export function sceneToSvg(scene: InkScene, options: InkSvgExportOptions = {}): 
     let element = '';
     switch (object.type) {
       case 'stroke':
-        element = strokeElement(object, outliner, precision);
+        element = strokeElement(object, outliner, precision, colors);
         break;
       case 'shape':
-        element = shapeElement(object, precision);
+        element = shapeElement(object, precision, colors);
         break;
       case 'connector':
-        element = connectorElement(object, precision);
+        element = connectorElement(object, precision, colors);
         break;
       case 'text':
-        element = textElement(object, precision);
+        element = textElement(object, precision, colors);
         break;
       case 'stamp':
-        element = rotateSvgBox(`<text x="${num(object.x, precision)}" y="${num(object.y + object.height, precision)}" fill="${escapeXml(object.color ?? '#1f2933')}" font-size="${num(object.height, precision)}">${escapeXml(stampGlyph(object.symbolId))}</text>`, object, precision);
+        element = rotateSvgBox(`<text x="${num(object.x, precision)}" y="${num(object.y + object.height, precision)}" fill="${escapeXml(resolveInkColor(object.color ?? 'ink:foreground', colors))}" font-size="${num(object.height, precision)}">${escapeXml(stampGlyph(object.symbolId))}</text>`, object, precision);
         break;
       default:
         element = '';

@@ -81,6 +81,7 @@ export function toShared(value: JsonValue): unknown {
 
 /** Reads a Yjs value back into a plain JSON value. */
 export function yToJson(value: unknown): JsonValue {
+  if (value instanceof Y.Text) return value.toString();
   if (value instanceof Y.Map) {
     const result: JsonObject = {};
     value.forEach((child, key) => {

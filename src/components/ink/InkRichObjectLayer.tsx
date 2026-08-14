@@ -5,6 +5,8 @@ import 'katex/dist/katex.min.css';
 
 import type { InkImage, InkScene, InkText } from '../../types/ink';
 import { INK_UNITS_PER_PX } from '../../types/ink';
+import { resolveInkColor } from '../../lib/ink/colors';
+import type { InkColorPalette } from '../../lib/ink/colors';
 
 interface InkRichObjectLayerProps {
   scene: InkScene;
@@ -12,6 +14,7 @@ interface InkRichObjectLayerProps {
   originY: number;
   zoom: number;
   readAssetDataUrl: (relativePath: string) => Promise<string>;
+  colorPalette: InkColorPalette;
 }
 
 export default function InkRichObjectLayer({
@@ -20,6 +23,7 @@ export default function InkRichObjectLayer({
   originY,
   zoom,
   readAssetDataUrl,
+  colorPalette,
 }: InkRichObjectLayerProps) {
   const images = useMemo(
     () => scene.objectOrder
@@ -96,6 +100,7 @@ export default function InkRichObjectLayer({
           unitsPerPixel={unitsPerPixel}
           originX={originX}
           originY={originY}
+          colorPalette={colorPalette}
         />
       ))}
     </div>
@@ -107,11 +112,13 @@ function InkEquationObject({
   unitsPerPixel,
   originX,
   originY,
+  colorPalette,
 }: {
   object: InkText;
   unitsPerPixel: number;
   originX: number;
   originY: number;
+  colorPalette: InkColorPalette;
 }) {
   const html = useMemo(() => katex.renderToString(object.text, {
     displayMode: true,
@@ -127,7 +134,7 @@ function InkEquationObject({
         top: (object.y - originY) / unitsPerPixel,
         width: object.width / unitsPerPixel,
         height: object.height / unitsPerPixel,
-        color: object.color,
+        color: resolveInkColor(object.color, colorPalette),
         fontSize: Math.max(10, object.fontSize / unitsPerPixel),
         overflow: 'hidden',
         transform: object.rotation ? `rotate(${object.rotation}rad)` : undefined,

@@ -32,7 +32,7 @@ const REMOTE_AWARENESS_ORIGIN = Symbol('mobile-live-awareness-remote');
 const LOCAL_JSON_ORIGIN = Symbol('mobile-live-json-local');
 
 export type LiveStatus = 'connecting' | 'connected' | 'disconnected';
-export type MobileLiveDocumentKind = 'note' | 'kanban' | 'canvas' | 'logic' | 'sheet';
+export type MobileLiveDocumentKind = 'note' | 'kanban' | 'canvas' | 'logic' | 'sheet' | 'ink';
 export type JsonValue =
   | string
   | number
@@ -66,16 +66,18 @@ function isPlainObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function toShared(value: JsonValue): unknown {
+function toShared(value: JsonValue, ink = false, textValue = false): unknown {
+  if (textValue && typeof value === 'string') return new Y.Text(value);
   if (Array.isArray(value)) {
     const array = new Y.Array<unknown>();
-    array.push(value.map((item) => toShared(item)));
+    array.push(value.map((item) => toShared(item, ink)));
     return array;
   }
   if (isPlainObject(value)) {
     const map = new Y.Map<unknown>();
+    const inkText = ink && value.type === 'text';
     for (const [key, child] of Object.entries(value)) {
-      map.set(key, toShared(child));
+      map.set(key, toShared(child, ink, inkText && key === 'text'));
     }
     return map;
   }
@@ -83,6 +85,7 @@ function toShared(value: JsonValue): unknown {
 }
 
 function yToJson(value: unknown): JsonValue {
+  if (value instanceof Y.Text) return value.toString();
   if (value instanceof Y.Map) {
     const result: JsonObject = {};
     value.forEach((child, key) => {
@@ -119,15 +122,36 @@ function entryId(value: unknown): string | undefined {
   return undefined;
 }
 
-function reconcileMap(ymap: Y.Map<unknown>, obj: JsonObject) {
+function reconcileText(text: Y.Text, next: string) {
+  const current = text.toString();
+  if (current === next) return;
+  let prefix = 0;
+  const limit = Math.min(current.length, next.length);
+  while (prefix < limit && current[prefix] === next[prefix]) prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < current.length - prefix
+    && suffix < next.length - prefix
+    && current[current.length - 1 - suffix] === next[next.length - 1 - suffix]
+  ) suffix += 1;
+  const remove = current.length - prefix - suffix;
+  if (remove > 0) text.delete(prefix, remove);
+  const insert = next.slice(prefix, next.length - suffix);
+  if (insert) text.insert(prefix, insert);
+}
+
+function reconcileMap(ymap: Y.Map<unknown>, obj: JsonObject, ink = false) {
+  const inkText = ink && obj.type === 'text';
   for (const [key, next] of Object.entries(obj)) {
     const current = ymap.get(key);
-    if (current instanceof Y.Map && isPlainObject(next)) {
-      reconcileMap(current, next);
+    if (inkText && key === 'text' && current instanceof Y.Text && typeof next === 'string') {
+      reconcileText(current, next);
+    } else if (current instanceof Y.Map && isPlainObject(next)) {
+      reconcileMap(current, next, ink);
     } else if (current instanceof Y.Array && Array.isArray(next)) {
-      reconcileArray(current, next);
+      reconcileArray(current, next, ink);
     } else if (!stableEqual(yToJson(current), next)) {
-      ymap.set(key, toShared(next));
+      ymap.set(key, toShared(next, ink, inkText && key === 'text'));
     }
   }
   for (const key of Array.from(ymap.keys())) {
@@ -135,12 +159,12 @@ function reconcileMap(ymap: Y.Map<unknown>, obj: JsonObject) {
   }
 }
 
-function reconcileArray(yarr: Y.Array<unknown>, arr: JsonValue[]) {
+function reconcileArray(yarr: Y.Array<unknown>, arr: JsonValue[], ink = false) {
   const idKeyed = arr.length > 0 && arr.every((item) => entryId(item) !== undefined);
   if (!idKeyed) {
     if (!stableEqual(yToJson(yarr), arr)) {
       if (yarr.length > 0) yarr.delete(0, yarr.length);
-      yarr.insert(0, arr.map((item) => toShared(item)));
+      yarr.insert(0, arr.map((item) => toShared(item, ink)));
     }
     return;
   }
@@ -153,7 +177,7 @@ function reconcileArray(yarr: Y.Array<unknown>, arr: JsonValue[]) {
     const item = arr[index] as JsonObject;
     const current = index < yarr.length ? yarr.get(index) : undefined;
     if (current instanceof Y.Map && entryId(current) === item.id) {
-      reconcileMap(current, item);
+      reconcileMap(current, item, ink);
       continue;
     }
     let existingIndex = -1;
@@ -164,7 +188,7 @@ function reconcileArray(yarr: Y.Array<unknown>, arr: JsonValue[]) {
       }
     }
     if (existingIndex >= 0) yarr.delete(existingIndex, 1);
-    yarr.insert(index, [toShared(item)]);
+    yarr.insert(index, [toShared(item, ink)]);
   }
   if (yarr.length > arr.length) yarr.delete(arr.length, yarr.length - arr.length);
 }
@@ -627,7 +651,7 @@ export async function openMobileLiveJsonSession(
     awareness: provider.awareness,
     readJson: () => yToJson(root) as JsonObject,
     writeJson: (value: JsonObject) => {
-      provider.doc.transact(() => reconcileMap(root, value), LOCAL_JSON_ORIGIN);
+      provider.doc.transact(() => reconcileMap(root, value, kind === 'ink'), LOCAL_JSON_ORIGIN);
     },
     onChange: (cb) => {
       const observer = (_events: unknown, transaction: Y.Transaction) => {

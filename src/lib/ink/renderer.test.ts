@@ -11,6 +11,7 @@ import {
 import type { InkRenderTarget, InkTileSurfaceFactory } from './renderer';
 import { outlineStrokeWithPerfectFreehand } from './strokeAdapters';
 import { INK_TILE_SIZE } from './tiles';
+import { INK_COLOR_TOKENS, INK_DARK_PALETTE } from './colors';
 
 /**
  * Records what would be drawn.
@@ -76,6 +77,17 @@ class RecordingTarget implements InkRenderTarget {
 const wholePage = { minX: -1e9, minY: -1e9, maxX: 1e9, maxY: 1e9 };
 
 describe('paintScene', () => {
+  it('resolves semantic and legacy default ink through the render palette', () => {
+    const scene = buildInkScene({ strokes: 2, samplesPerStroke: 6 });
+    const first = strokeOf(scene, 'stroke-1');
+    const second = strokeOf(scene, 'stroke-2');
+    if (first) scene.objects[first.id] = { ...first, brush: { ...first.brush, color: INK_COLOR_TOKENS.foreground } };
+    if (second) scene.objects[second.id] = { ...second, brush: { ...second.brush, color: '#1f2933' } };
+    const target = new RecordingTarget();
+    paintScene(target, scene, wholePage, { colors: INK_DARK_PALETTE });
+    expect(target.colors).toEqual([INK_DARK_PALETTE.foreground, INK_DARK_PALETTE.foreground]);
+  });
+
   it('paints every stroke in the region', () => {
     const scene = buildInkScene({ strokes: 5, samplesPerStroke: 10 });
     const target = new RecordingTarget();

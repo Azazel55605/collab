@@ -288,6 +288,8 @@ export interface InkShape extends InkObjectBase {
   sourceStrokeId?: string;
   /** Alignment aid. Guides paint on screen but are omitted from export. */
   guide?: boolean;
+  /** Editor selection-frame orientation. Geometry remains baked into `points`. */
+  rotation?: number;
 }
 
 export interface InkConnector extends InkObjectBase {
@@ -299,6 +301,8 @@ export interface InkConnector extends InkObjectBase {
   arrowStart?: InkArrowhead;
   arrowEnd?: InkArrowhead;
   label?: string;
+  /** Editor selection-frame orientation. Endpoints remain authoritative. */
+  rotation?: number;
 }
 
 export interface InkText extends InkObjectBase {

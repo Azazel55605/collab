@@ -11,8 +11,8 @@
  * Everything about the document is shared with desktop: schema, normalization,
  * operations, erasing, capture, rendering, and the tool model. The load/save
  * lifecycle follows the same REST-with-offline-queue path as the note, Kanban,
- * and workbook screens. Live co-editing arrives with Phase 6 for both clients
- * at once.
+ * and workbook screens, with the shared Ink CRDT taking over while a live
+ * document session is available.
  */
 
 import {
@@ -41,6 +41,7 @@ import {
   clampInkScale,
   drawingName,
   INK_MOBILE_SCALE,
+  inspectInkContent,
   loadInkViewState,
   readInkDrawing,
   saveInkDrawing,
@@ -49,11 +50,17 @@ import {
   type InkDocument,
 } from '../lib/ink';
 import {
+  openMobileLiveJsonSession,
+  type JsonObject,
+  type LiveStatus,
+  type MobileLiveJsonSession,
+} from '../lib/liveNote';
+import {
   enqueueDocumentEdit,
   isLikelyConnectivityError,
   pendingEditsForFile,
 } from '../lib/sync';
-import type { HostedFileEntry, PendingOperation } from '../mobileTauri';
+import { replicaCacheDocument, type HostedFileEntry, type PendingOperation } from '../mobileTauri';
 import { useMobileStore } from '../state/store';
 import { INK_UNITS_PER_PX } from '../../../../src/types/ink';
 import type { InkBrushKind, InkSample, InkScene } from '../../../../src/types/ink';
@@ -74,12 +81,16 @@ import {
 } from '../../../../src/lib/ink/tools';
 import type { InkToolState } from '../../../../src/lib/ink/tools';
 import type { InkInputSettings } from '../../../../src/lib/ink/pointer';
+import { useLivePeers, type InkInteraction } from '../../../../src/lib/liveAwareness';
+import { userColorForId } from '../../../../src/lib/userColor';
+import { inkColorLabel, inkPaletteForTheme, resolveInkColor } from '../../../../src/lib/ink/colors';
+import type { Theme } from '../lib/theme';
 
 const SAVE_DEBOUNCE_MS = 600;
 
 type ActivePanel = 'none' | 'brush' | 'eraser' | 'layers';
 
-export function InkScreen({ file }: { file: HostedFileEntry }) {
+export function InkScreen({ file, theme = 'dark' }: { file: HostedFileEntry; theme?: Theme }) {
   const selected = useMobileStore((s) => s.selected);
   const statuses = useMobileStore((s) => s.statuses);
   const closeSheet = useMobileStore((s) => s.closeSheet);
@@ -111,8 +122,13 @@ export function InkScreen({ file }: { file: HostedFileEntry }) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [historyVersion, setHistoryVersion] = useState(0);
+  const [liveSession, setLiveSession] = useState<MobileLiveJsonSession | null>(null);
+  const [liveStatus, setLiveStatus] = useState<LiveStatus | null>(null);
 
   const readOnly = vaultReadOnly || schemaNewer;
+  const localUser = statuses[serverUrl]?.user;
+  const localUserId = localUser?.id ?? 'mobile';
+  const remotePeers = useLivePeers(liveSession);
 
   const documentRef = useRef<InkDocument | null>(null);
   documentRef.current = document;
@@ -127,7 +143,10 @@ export function InkScreen({ file }: { file: HostedFileEntry }) {
   const mountedRef = useRef(true);
   const saveTimerRef = useRef<number | null>(null);
   const historyRef = useRef(new InkHistory<InkDocument>());
+  const liveSessionRef = useRef<MobileLiveJsonSession | null>(null);
+  liveSessionRef.current = liveSession;
   const idCounter = useRef(0);
+  const awarenessSentAtRef = useRef(0);
 
   const nextId = useCallback((prefix: string) => {
     idCounter.current += 1;
@@ -162,6 +181,7 @@ export function InkScreen({ file }: { file: HostedFileEntry }) {
       try {
         const loaded = await readInkDrawing(serverUrl, vaultId, file, connected);
         if (cancelled) return;
+        if (liveSessionRef.current) return;
         setCurrentFile(loaded.file);
         setDocument(loaded.document);
         setSchemaNewer(loaded.support === 'newer');
@@ -204,6 +224,75 @@ export function InkScreen({ file }: { file: HostedFileEntry }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, file.id, selected?.serverUrl, selected?.vault.id]);
 
+  useEffect(() => {
+    let cancelled = false;
+    let opened: MobileLiveJsonSession | null = null;
+    let offStatus: (() => void) | undefined;
+    let offChange: (() => void) | undefined;
+
+    setLiveSession(null);
+    setLiveStatus(null);
+    if (!selected || !connectedRef.current || schemaNewer) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const applyLiveDocument = (value: JsonObject, nextSource: 'network' | 'cache') => {
+      if (Object.keys(value).length === 0) return;
+      const inspected = inspectInkContent(JSON.stringify(value));
+      if (inspected.support === 'newer') {
+        setSchemaNewer(true);
+        return;
+      }
+      const content = serializeInk(inspected.document);
+      documentRef.current = inspected.document;
+      setDocument(inspected.document);
+      setRepairs(inspected.warnings);
+      markSaved(content);
+      setSource(nextSource);
+      setError(null);
+      setPageId((previous) =>
+        previous && inspected.document.pages[previous]
+          ? previous
+          : (inspected.document.pageOrder[0] ?? null),
+      );
+      void replicaCacheDocument(serverUrl, vaultId, file.id, content).catch(() => {});
+    };
+
+    openMobileLiveJsonSession(serverUrl, vaultId, file.id, 'ink')
+      .then((session) => {
+        if (cancelled || !session) {
+          session?.destroy();
+          return;
+        }
+        opened = session;
+        setLiveSession(session);
+        setLiveStatus(session.getStatus());
+        offStatus = session.onStatus((status) => {
+          if (!cancelled) setLiveStatus(status);
+        });
+        applyLiveDocument(session.readJson(), 'network');
+        offChange = session.onChange((json) => {
+          if (!cancelled) {
+            applyLiveDocument(json, session.getStatus() === 'connected' ? 'network' : 'cache');
+          }
+        });
+      })
+      .catch(() => {
+        // Best effort. REST plus the durable offline queue remains available.
+      });
+
+    return () => {
+      cancelled = true;
+      offChange?.();
+      offStatus?.();
+      opened?.destroy();
+      setLiveSession(null);
+      setLiveStatus(null);
+    };
+  }, [file.id, markSaved, schemaNewer, selected?.serverUrl, selected?.vault.id, serverUrl, vaultId]);
+
   const activePageId = useMemo(() => {
     if (!document) return null;
     if (pageId && document.pages[pageId]) return pageId;
@@ -211,6 +300,10 @@ export function InkScreen({ file }: { file: HostedFileEntry }) {
   }, [document, pageId]);
 
   const page = activePageId ? (document?.pages[activePageId] ?? null) : null;
+  const colorPalette = useMemo(
+    () => inkPaletteForTheme(theme, page?.background.color),
+    [page?.background.color, theme],
+  );
   const pageIndex = activePageId ? (document?.pageOrder.indexOf(activePageId) ?? -1) : -1;
   const scene: InkScene | null = page?.scene ?? null;
 
@@ -254,7 +347,7 @@ export function InkScreen({ file }: { file: HostedFileEntry }) {
 
   const flushSave = useCallback(async () => {
     const current = documentRef.current;
-    if (!current || savingRef.current || readOnlyRef.current) return;
+    if (!current || savingRef.current || readOnlyRef.current || liveSessionRef.current) return;
     const content = serializeInk(current);
     if (content === savedContentRef.current) return;
     savingRef.current = true;
@@ -326,7 +419,11 @@ export function InkScreen({ file }: { file: HostedFileEntry }) {
       const stamped = { ...edit.result, updatedAt: new Date().toISOString() };
       documentRef.current = stamped;
       setDocument(stamped);
-      scheduleSave();
+      if (liveSessionRef.current) {
+        liveSessionRef.current.writeJson(stamped as unknown as JsonObject);
+      } else {
+        scheduleSave();
+      }
     },
     [readOnly, scheduleSave],
   );
@@ -385,7 +482,11 @@ export function InkScreen({ file }: { file: HostedFileEntry }) {
     if (!reverted) return;
     documentRef.current = reverted;
     setDocument(reverted);
-    scheduleSave();
+    if (liveSessionRef.current) {
+      liveSessionRef.current.writeJson(reverted as unknown as JsonObject);
+    } else {
+      scheduleSave();
+    }
   }, [readOnly, scheduleSave]);
 
   const redo = useCallback(() => {
@@ -396,7 +497,11 @@ export function InkScreen({ file }: { file: HostedFileEntry }) {
     if (!reapplied) return;
     documentRef.current = reapplied;
     setDocument(reapplied);
-    scheduleSave();
+    if (liveSessionRef.current) {
+      liveSessionRef.current.writeJson(reapplied as unknown as JsonObject);
+    } else {
+      scheduleSave();
+    }
   }, [readOnly, scheduleSave]);
 
   const history = useMemo(
@@ -456,6 +561,47 @@ export function InkScreen({ file }: { file: HostedFileEntry }) {
 
   const stats = useMemo(() => (document ? inkDocumentStats(document) : null), [document]);
 
+  useEffect(() => {
+    const awareness = liveSession?.awareness;
+    if (!awareness || !activePageId) return;
+    awareness.setLocalStateField('user', {
+      id: localUserId,
+      name: localUser?.displayName || localUser?.username || 'Mobile',
+      color: userColorForId(localUserId),
+    });
+    awareness.setLocalStateField('document', { kind: 'ink', relativePath: file.relativePath });
+    awareness.setLocalStateField('ink', {
+      activePageId,
+      tool:
+        tool.tool === 'pen'
+          ? 'draw'
+          : tool.tool === 'eraser'
+            ? 'erase'
+            : tool.tool === 'pan'
+              ? 'navigate'
+              : 'other',
+      viewport,
+      preview: null,
+    } satisfies InkInteraction);
+  }, [activePageId, file.relativePath, liveSession, localUser, localUserId, tool.tool, viewport]);
+
+  const publishInkAwareness = useCallback(
+    (interaction: Pick<InkInteraction, 'cursor' | 'preview'>) => {
+      const awareness = liveSessionRef.current?.awareness;
+      if (!awareness || !activePageId) return;
+      const now = performance.now();
+      if (now - awarenessSentAtRef.current < 50 && interaction.preview) return;
+      awarenessSentAtRef.current = now;
+      const current = awareness.getLocalState()?.ink as InkInteraction | undefined;
+      awareness.setLocalStateField('ink', {
+        ...(current ?? { activePageId, tool: 'other' }),
+        ...interaction,
+        activePageId,
+      } satisfies InkInteraction);
+    },
+    [activePageId],
+  );
+
   /* --------------------------------------------------------------------- */
   /* Render                                                                 */
   /* --------------------------------------------------------------------- */
@@ -501,6 +647,7 @@ export function InkScreen({ file }: { file: HostedFileEntry }) {
         <span className="ink-header-status">
           {readOnly && <ReadOnlyBadge />}
           {source === 'cache' && <CloudOff size={15} aria-label="Offline copy" />}
+          {liveStatus === 'connecting' && <Spinner size={15} />}
           {saving && <Spinner size={15} />}
         </span>
       </header>
@@ -530,9 +677,12 @@ export function InkScreen({ file }: { file: HostedFileEntry }) {
         tool={{ ...tool, activeLayerId }}
         inputSettings={inputSettings}
         readOnly={readOnly}
+        colorPalette={colorPalette}
         onViewportChange={setViewport}
         onCommitStroke={commitStroke}
         onErase={erase}
+        remotePeers={remotePeers}
+        onInkAwareness={publishInkAwareness}
       />
 
       <nav className="ink-rail" aria-label="Drawing tools">
@@ -672,9 +822,10 @@ export function InkScreen({ file }: { file: HostedFileEntry }) {
                         type="button"
                         role="radio"
                         aria-checked={tool.brush.color === color}
-                        aria-label={`Colour ${color}`}
+                        aria-label={inkColorLabel(color)}
+                        title={inkColorLabel(color)}
                         className={`ink-swatch${tool.brush.color === color ? ' active' : ''}`}
-                        style={{ background: color }}
+                        style={{ background: resolveInkColor(color, colorPalette) }}
                         onClick={() =>
                           setTool((current) => ({ ...current, brush: { ...current.brush, color } }))
                         }

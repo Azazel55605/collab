@@ -8,6 +8,7 @@
 import type { InkArrowhead, InkBrushParameters, InkBrushKind, InkShapeKind } from '../../types/ink';
 import { INK_DEFAULT_BRUSHES } from './document';
 import type { InkEraserMode } from './erase';
+import { INK_THEME_SWATCHES } from './colors';
 
 export type InkToolId =
   | 'pen'
@@ -82,14 +83,7 @@ export const INK_BRUSH_WIDTHS = [32, 64, 96, 160, 256, 384, 640];
 
 /** The swatches the pen offers before the user picks their own. */
 export const INK_DEFAULT_SWATCHES = [
-  '#1f2933',
-  '#1a2b6d',
-  '#c0392b',
-  '#1a7f37',
-  '#b7791f',
-  '#7c3aed',
-  '#0e7490',
-  '#e5e7eb',
+  ...INK_THEME_SWATCHES,
 ];
 
 /**

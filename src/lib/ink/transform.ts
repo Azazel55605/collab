@@ -2,10 +2,10 @@
  * Moving, scaling, and rotating ink objects.
  *
  * Vector transforms are **baked into geometry** rather than stored as a matrix.
- * Box-backed text, images, and stamps retain only their scalar rotation because
- * their DOM/canvas renderers need an orientation as well as an axis-aligned
- * frame. Bounds, hit testing, the tile cache, and exporters all understand that
- * one value; the general `transform` matrix remains deliberately unused.
+ * Box-backed text, images, and stamps retain scalar rotation for rendering.
+ * Shapes and connectors retain the same scalar only for their editor selection
+ * frame; their visible geometry is still baked into points/endpoints. The
+ * general `transform` matrix remains deliberately unused.
  *
  * Baking costs a rewrite of the sample arrays per transform. The arrays are
  * small integers, so this remains bounded during interactive transforms.
@@ -97,6 +97,44 @@ export function affineScale(transform: InkAffine): number {
   return Math.sqrt(determinant) || 1;
 }
 
+function similarityRotation(transform: InkAffine): number {
+  const xLength = Math.hypot(transform.a, transform.b);
+  const yLength = Math.hypot(transform.c, transform.d);
+  const dot = transform.a * transform.c + transform.b * transform.d;
+  const tolerance = Math.max(1, xLength, yLength) * 1e-8;
+  if (Math.abs(xLength - yLength) > tolerance || Math.abs(dot) > tolerance) return 0;
+  return Math.atan2(transform.b, transform.a);
+}
+
+/** Orientation used by the editor frame when an older vector has no metadata. */
+export function selectionRotationOf(object: InkObject): number {
+  if (object.type === 'text' || object.type === 'image' || object.type === 'stamp') {
+    return object.rotation ?? 0;
+  }
+  if (object.type === 'connector') {
+    return object.rotation ?? Math.atan2(object.to.y - object.from.y, object.to.x - object.from.x);
+  }
+  if (object.type !== 'shape') return 0;
+  if (object.rotation !== undefined) return object.rotation;
+  if (object.points.length < 4) return 0;
+  if (object.shape === 'ellipse' || object.shape === 'star' || object.shape === 'polygon') {
+    let centerX = 0;
+    let centerY = 0;
+    const count = object.points.length / 2;
+    for (let index = 0; index + 1 < object.points.length; index += 2) {
+      centerX += object.points[index];
+      centerY += object.points[index + 1];
+    }
+    centerX /= count;
+    centerY /= count;
+    return Math.atan2(object.points[1] - centerY, object.points[0] - centerX);
+  }
+  return Math.atan2(
+    object.points[3] - object.points[1],
+    object.points[2] - object.points[0],
+  );
+}
+
 function clampCoordinate(value: number): number {
   return Math.max(-INK_LIMITS.worldExtent, Math.min(INK_LIMITS.worldExtent, Math.round(value)));
 }
@@ -141,6 +179,7 @@ export function transformObject(object: InkObject, transform: InkAffine): InkObj
         ...object,
         points,
         stroke: { ...object.stroke, width: Math.max(1, object.stroke.width * scale) },
+        rotation: selectionRotationOf(object) + similarityRotation(transform),
         bounds: undefined,
       };
     }
@@ -151,6 +190,7 @@ export function transformObject(object: InkObject, transform: InkAffine): InkObj
         ...object,
         from: { ...object.from, x: clampCoordinate(from.x), y: clampCoordinate(from.y) },
         to: { ...object.to, x: clampCoordinate(to.x), y: clampCoordinate(to.y) },
+        rotation: selectionRotationOf(object) + similarityRotation(transform),
         bounds: undefined,
       };
     }
@@ -162,9 +202,22 @@ export function transformObject(object: InkObject, transform: InkAffine): InkObj
         object.x + object.width / 2,
         object.y + object.height / 2,
       );
-      const width = Math.max(0, object.width * scale);
-      const height = Math.max(0, object.height * scale);
-      const rotation = (object.rotation ?? 0) + Math.atan2(transform.b, transform.a);
+      const previousRotation = object.rotation ?? 0;
+      const cos = Math.cos(previousRotation);
+      const sin = Math.sin(previousRotation);
+      const widthVector = {
+        x: transform.a * (cos * object.width) + transform.c * (sin * object.width),
+        y: transform.b * (cos * object.width) + transform.d * (sin * object.width),
+      };
+      const heightVector = {
+        x: transform.a * (-sin * object.height) + transform.c * (cos * object.height),
+        y: transform.b * (-sin * object.height) + transform.d * (cos * object.height),
+      };
+      const width = Math.max(0, Math.hypot(widthVector.x, widthVector.y));
+      const height = Math.max(0, Math.hypot(heightVector.x, heightVector.y));
+      const rotation = width > 0
+        ? Math.atan2(widthVector.y, widthVector.x)
+        : previousRotation + similarityRotation(transform);
       const next = {
         ...object,
         x: clampCoordinate(center.x - width / 2),
@@ -176,7 +229,11 @@ export function transformObject(object: InkObject, transform: InkAffine): InkObj
       };
       // Type size follows the box, or scaling a sticky note leaves its text
       // the same size in a bigger frame.
-      if (next.type === 'text') next.fontSize = Math.max(1, next.fontSize * scale);
+      if (next.type === 'text') {
+        const widthScale = object.width > 0 ? width / object.width : scale;
+        const heightScale = object.height > 0 ? height / object.height : scale;
+        next.fontSize = Math.max(1, next.fontSize * Math.sqrt(widthScale * heightScale));
+      }
       return next;
     }
     default:

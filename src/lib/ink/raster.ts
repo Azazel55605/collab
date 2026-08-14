@@ -16,6 +16,7 @@ import type { InkBounds, InkPage, InkScene } from '../../types/ink';
 import { paintPageBackground, paintScene } from './renderer';
 import type { InkRenderOptions, InkRenderTarget } from './renderer';
 import { sceneBounds } from './svg';
+import { inkExportPalette, resolveInkColor } from './colors';
 
 /**
  * Hard ceiling on an exported bitmap.
@@ -155,18 +156,22 @@ export function paintRasterExport(
   target.save();
   target.setTransform(1, 0, 0, 1, 0, 0);
   target.clearRect(0, 0, plan.width, plan.height);
+  const exportSurface = request.background
+    ?? (request.includePageBackground ? page?.background.color : undefined);
+  const colors = options.colors ?? inkExportPalette(exportSurface);
   if (request.background) {
-    target.fillStyle = request.background;
+    target.fillStyle = resolveInkColor(request.background, colors);
     target.fillRect(0, 0, plan.width, plan.height);
   }
   target.scale(pixelsPerUnit, pixelsPerUnit);
   target.translate(-plan.bounds.minX, -plan.bounds.minY);
 
   if (page && request.includePageBackground) {
-    paintPageBackground(target, page, plan.bounds);
+    paintPageBackground(target, page, plan.bounds, colors);
   }
   paintScene(target, scene, plan.bounds, {
     ...options,
+    colors,
     // Export honours per-layer export exclusion; the screen does not.
     includeNonExported: false,
     ...(request.objectIds ? { objectIds: request.objectIds } : {}),

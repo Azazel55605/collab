@@ -23,8 +23,12 @@ import { penButtonTool } from '../../lib/ink/tools';
 import type { InkPenButtonMapping, InkToolState } from '../../lib/ink/tools';
 import type { InkEraserPoint } from '../../lib/ink/erase';
 import type { InkResizeHandle } from '../../lib/ink/transform';
+import { frameCorners, selectionFrame, type InkSelectionFrame } from '../../lib/ink/selectionFrame';
 import { shouldHoldToStraighten } from '../../lib/ink/advancedTools';
 import InkRichObjectLayer from './InkRichObjectLayer';
+import type { InkInteraction, LivePeer } from '../../lib/liveAwareness';
+import { INK_LIGHT_PALETTE, resolveInkColor } from '../../lib/ink/colors';
+import type { InkColorPalette } from '../../lib/ink/colors';
 
 /**
  * The interactive ink surface.
@@ -83,6 +87,7 @@ export interface InkCanvasProps {
   inputSettings?: InkInputSettings;
   selectedIds: string[];
   readOnly: boolean;
+  colorPalette?: InkColorPalette;
   onViewportChange: (next: { originX: number; originY: number; zoom: number }) => void;
   onCommitStroke: (samples: InkSample[], options?: { straighten?: boolean }) => void;
   onCreateAdvancedObject: (
@@ -97,8 +102,10 @@ export interface InkCanvasProps {
   onErase: (path: InkEraserPoint[], radius: number) => void;
   onSelectionChange: (ids: string[], additive: boolean) => void;
   onMoveSelection: (dx: number, dy: number) => void;
-  onResizeSelection: (handle: InkResizeHandle, dx: number, dy: number, uniform: boolean) => void;
+  onResizeSelection: (handle: InkResizeHandle, dx: number, dy: number, uniform: boolean, rotation: number) => void;
   onRotateSelection: (radians: number) => void;
+  remotePeers?: LivePeer[];
+  onInkAwareness?: (change: Pick<InkInteraction, 'cursor' | 'preview'>) => void;
   className?: string;
 }
 
@@ -115,7 +122,7 @@ type Gesture =
   | { kind: 'marquee'; pointerId: number; from: { x: number; y: number }; to: { x: number; y: number }; additive: boolean }
   | { kind: 'lasso'; pointerId: number; points: number[]; additive: boolean }
   | { kind: 'move'; pointerId: number; clientX: number; clientY: number }
-  | { kind: 'resize'; pointerId: number; handle: InkResizeHandle; clientX: number; clientY: number }
+  | { kind: 'resize'; pointerId: number; handle: InkResizeHandle; clientX: number; clientY: number; rotation: number }
   | { kind: 'rotate'; pointerId: number; center: { x: number; y: number }; startAngle: number; appliedAngle: number }
   | { kind: 'create'; pointerId: number; tool: 'shape' | 'connector' | 'text' | 'sticky' | 'image' | 'stamp' | 'equation' | 'ruler' | 'protractor' | 'compass' | 'guide'; from: { x: number; y: number }; to: { x: number; y: number }; uniform: boolean }
   | { kind: 'loupe'; pointerId: number };
@@ -130,6 +137,7 @@ export default function InkCanvas({
   inputSettings = INK_DEFAULT_INPUT_SETTINGS,
   selectedIds,
   readOnly,
+  colorPalette = INK_LIGHT_PALETTE,
   onViewportChange,
   onCommitStroke,
   onCreateAdvancedObject,
@@ -141,6 +149,8 @@ export default function InkCanvas({
   onMoveSelection,
   onResizeSelection,
   onRotateSelection,
+  remotePeers = [],
+  onInkAwareness,
   className,
 }: InkCanvasProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -157,16 +167,28 @@ export default function InkCanvas({
   const [hoveredHandle, setHoveredHandle] = useState<InkResizeHandle | 'rotate' | null>(null);
 
   rendererRef.current ??= new InkTileRenderer(createTileFactory(), {
-    render: { includeNonExported: true, paintEquationFallback: false },
+    render: { includeNonExported: true, paintEquationFallback: false, colors: colorPalette },
   });
 
   useEffect(() => {
     arbiterRef.current.updateSettings(inputSettings);
   }, [inputSettings]);
 
+  useEffect(() => {
+    rendererRef.current?.setRenderOptions({
+      includeNonExported: true,
+      paintEquationFallback: false,
+      colors: colorPalette,
+    });
+  }, [colorPalette]);
+
   const index = useMemo(
     () => (page ? new InkSpatialIndex(page.scene) : null),
     [page],
+  );
+  const selection = useMemo(
+    () => (page ? selectionFrame(page.scene, selectedIds) : null),
+    [page, selectedIds],
   );
 
   // The scene changes identity on every edit. Phase 3 drops the whole cache
@@ -295,6 +317,25 @@ export default function InkCanvas({
     const gesture = gestureRef.current;
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
 
+    for (const peer of remotePeers) {
+      const preview = peer.ink?.preview;
+      if (!preview || preview.pageId !== page?.id || preview.samples.length === 0) continue;
+      const outline = outlineStroke(preview.samples, preview.brush);
+      if (outline.length < 3) continue;
+      context.beginPath();
+      const first = toScreen(outline[0].x, outline[0].y);
+      context.moveTo(first.x, first.y);
+      for (let index = 1; index < outline.length; index += 1) {
+        const point = toScreen(outline[index].x, outline[index].y);
+        context.lineTo(point.x, point.y);
+      }
+      context.closePath();
+      context.fillStyle = peer.user?.color ?? resolveInkColor(preview.brush.color, colorPalette);
+      context.globalAlpha = Math.min(0.72, preview.brush.opacity);
+      context.fill();
+      context.globalAlpha = 1;
+    }
+
     if (gesture.kind === 'draw' && gesture.readings.length > 0) {
       // Use the exact commit pipeline for the live line. A handwritten stroke
       // must not change shape or pressure the moment the pen lifts.
@@ -312,7 +353,7 @@ export default function InkCanvas({
           context.lineTo(point.x, point.y);
         }
         context.closePath();
-        context.fillStyle = tool.brush.color;
+        context.fillStyle = resolveInkColor(tool.brush.color, colorPalette);
         context.globalAlpha = tool.brush.opacity;
         context.fill();
         context.globalAlpha = 1;
@@ -341,7 +382,7 @@ export default function InkCanvas({
       context.lineWidth = 1;
       context.stroke();
     }
-  }, [size.height, size.width, toScreen, tool.brush, tool.eraserRadius, unitsPerPixel]);
+  }, [colorPalette, page?.id, remotePeers, size.height, size.width, toScreen, tool.brush, tool.eraserRadius, unitsPerPixel]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(drawLive);
@@ -377,14 +418,12 @@ export default function InkCanvas({
   /** Which resize handle, if any, is under a client point. */
   const handleAt = useCallback(
     (clientX: number, clientY: number): InkResizeHandle | null => {
-      if (selectedIds.length === 0 || !page) return null;
-      const bounds = selectionBounds(selectedIds, index);
-      if (!bounds) return null;
+      if (!selection) return null;
       const point = { x: clientX, y: clientY };
       const rect = hostRef.current?.getBoundingClientRect();
       const local = { x: point.x - (rect?.left ?? 0), y: point.y - (rect?.top ?? 0) };
 
-      for (const [handle, position] of handlePositions(bounds, toScreen)) {
+      for (const [handle, position] of handlePositions(selection, toScreen)) {
         if (
           Math.abs(local.x - position.x) <= HANDLE_PX &&
           Math.abs(local.y - position.y) <= HANDLE_PX
@@ -394,21 +433,19 @@ export default function InkCanvas({
       }
       return null;
     },
-    [index, page, selectedIds, toScreen],
+    [selection, toScreen],
   );
 
   const rotationHandleAt = useCallback(
     (clientX: number, clientY: number): boolean => {
-      if (selectedIds.length === 0 || !page) return false;
-      const bounds = selectionBounds(selectedIds, index);
-      if (!bounds) return false;
+      if (!selection) return false;
       const rect = hostRef.current?.getBoundingClientRect();
-      const center = toScreen((bounds.minX + bounds.maxX) / 2, bounds.minY);
+      const handle = rotationHandlePosition(selection, toScreen);
       const localX = clientX - (rect?.left ?? 0);
       const localY = clientY - (rect?.top ?? 0);
-      return Math.hypot(localX - center.x, localY - (center.y - ROTATION_HANDLE_OFFSET_PX)) <= HANDLE_PX;
+      return Math.hypot(localX - handle.x, localY - handle.y) <= HANDLE_PX;
     },
-    [index, page, selectedIds, toScreen],
+    [selection, toScreen],
   );
 
   const onPointerDown = useCallback(
@@ -419,6 +456,7 @@ export default function InkCanvas({
 
       event.currentTarget.setPointerCapture(event.pointerId);
       const point = toDocument(event.clientX, event.clientY);
+      onInkAwareness?.({ cursor: point, preview: null });
 
       // A pen button temporarily overrides the tool, without changing it.
       let effective = tool.tool;
@@ -438,12 +476,17 @@ export default function InkCanvas({
         gestureRef.current = { kind: 'erase', pointerId: event.pointerId, path: [point] };
         onErase([point], tool.eraserRadius);
       } else if (effective === 'pen') {
+        const readings = readingsFromEvent(native, { originX, originY, zoom }, event.timeStamp);
         gestureRef.current = {
           kind: 'draw',
           pointerId: event.pointerId,
           startedAt: event.timeStamp,
-          readings: readingsFromEvent(native, { originX, originY, zoom }, event.timeStamp),
+          readings,
         };
+        onInkAwareness?.({
+          cursor: point,
+          preview: page ? { pageId: page.id, brush: tool.brush, samples: boundedPreviewSamples(captureStroke(readings, { streamline: tool.brush.streamline, simplifyTolerance: 0 })) } : null,
+        });
       } else if (effective === 'lasso') {
         gestureRef.current = {
           kind: 'lasso', pointerId: event.pointerId, points: [point.x, point.y],
@@ -463,11 +506,10 @@ export default function InkCanvas({
           from: point, to: point, uniform: event.shiftKey,
         };
       } else {
-        const bounds = selectionBounds(selectedIds, index);
-        if (rotationHandleAt(event.clientX, event.clientY) && bounds && !readOnly) {
+        if (rotationHandleAt(event.clientX, event.clientY) && selection && !readOnly) {
           const center = {
-            x: (bounds.minX + bounds.maxX) / 2,
-            y: (bounds.minY + bounds.maxY) / 2,
+            x: selection.centerX,
+            y: selection.centerY,
           };
           gestureRef.current = {
             kind: 'rotate',
@@ -481,7 +523,7 @@ export default function InkCanvas({
           if (handle && !readOnly) {
             gestureRef.current = {
               kind: 'resize', pointerId: event.pointerId, handle,
-              clientX: event.clientX, clientY: event.clientY,
+              clientX: event.clientX, clientY: event.clientY, rotation: selection?.rotation ?? 0,
             };
           } else {
             const hit = index?.hitTest(point.x, point.y, { slop: HANDLE_PX * unitsPerPixel }) ?? null;
@@ -507,13 +549,15 @@ export default function InkCanvas({
       setGestureKind(gestureRef.current.kind);
       bump();
     },
-    [handleAt, index, onErase, onEyedropObject, onSelectionChange, originX, originY, penButtons, readOnly, rotationHandleAt, selectedIds, tool.eraserRadius, tool.tool, toDocument, unitsPerPixel, zoom],
+    [handleAt, index, onErase, onEyedropObject, onInkAwareness, onSelectionChange, originX, originY, page, penButtons, readOnly, rotationHandleAt, selectedIds, selection, tool.brush, tool.eraserRadius, tool.tool, toDocument, unitsPerPixel, zoom],
   );
 
   const onPointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const gesture = gestureRef.current;
       if (gesture.kind === 'none') {
+        const cursor = toDocument(event.clientX, event.clientY);
+        onInkAwareness?.({ cursor, preview: null });
         if (tool.tool === 'select' && !readOnly) {
           setHoveredHandle(
             rotationHandleAt(event.clientX, event.clientY)
@@ -561,6 +605,15 @@ export default function InkCanvas({
               ...readingsFromEvent(entry, { originX, originY, zoom }, gesture.startedAt),
             );
           }
+          const cursor = toDocument(event.clientX, event.clientY);
+          const samples = captureStroke(gesture.readings, {
+            streamline: tool.brush.streamline,
+            simplifyTolerance: 0,
+          });
+          onInkAwareness?.({
+            cursor,
+            preview: page ? { pageId: page.id, brush: tool.brush, samples: boundedPreviewSamples(samples) } : null,
+          });
           bump();
           return;
         }
@@ -593,11 +646,16 @@ export default function InkCanvas({
           return;
         }
         case 'resize': {
+          const worldDx = (event.clientX - gesture.clientX) * unitsPerPixel;
+          const worldDy = (event.clientY - gesture.clientY) * unitsPerPixel;
+          const cos = Math.cos(gesture.rotation);
+          const sin = Math.sin(gesture.rotation);
           onResizeSelection(
             gesture.handle,
-            (event.clientX - gesture.clientX) * unitsPerPixel,
-            (event.clientY - gesture.clientY) * unitsPerPixel,
+            worldDx * cos + worldDy * sin,
+            -worldDx * sin + worldDy * cos,
             event.shiftKey,
+            gesture.rotation,
           );
           gesture.clientX = event.clientX;
           gesture.clientY = event.clientY;
@@ -628,7 +686,7 @@ export default function InkCanvas({
         }
       }
     },
-    [handleAt, onErase, onMoveSelection, onResizeSelection, onRotateSelection, onViewportChange, originX, originY, readOnly, rotationHandleAt, toDocument, tool.eraserRadius, tool.tool, unitsPerPixel, zoom],
+    [handleAt, onErase, onInkAwareness, onMoveSelection, onResizeSelection, onRotateSelection, onViewportChange, originX, originY, page, readOnly, rotationHandleAt, toDocument, tool.brush, tool.eraserRadius, tool.tool, unitsPerPixel, zoom],
   );
 
   const endGesture = useCallback(
@@ -639,6 +697,10 @@ export default function InkCanvas({
 
       gestureRef.current = { kind: 'none' };
       setGestureKind('none');
+      onInkAwareness?.({
+        cursor: toDocument(event.clientX, event.clientY),
+        preview: null,
+      });
 
       if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
@@ -694,7 +756,7 @@ export default function InkCanvas({
       }
       bump();
     },
-    [index, onCommitStroke, onCreateAdvancedObject, onSelectionChange, tool.brush.streamline, tool.holdToStraighten],
+    [index, onCommitStroke, onCreateAdvancedObject, onInkAwareness, onSelectionChange, toDocument, tool.brush.streamline, tool.holdToStraighten],
   );
 
   const onWheel = useCallback(
@@ -735,7 +797,6 @@ export default function InkCanvas({
     };
   }, []);
 
-  const bounds = page ? selectionBounds(selectedIds, index) : null;
   const gesture = gestureRef.current;
 
   return (
@@ -746,7 +807,7 @@ export default function InkCanvas({
       data-gesture={gestureKind}
       // Required, or the browser scrolls instead of delivering pointermove and
       // a stroke silently stops mid-gesture.
-      style={{ touchAction: 'none', cursor: cursorFor(tool.tool, gestureKind, hoveredHandle, gestureRef.current) }}
+      style={{ touchAction: 'none', cursor: cursorFor(tool.tool, gestureKind, hoveredHandle, gestureRef.current, selection?.rotation ?? 0) }}
       onWheel={onWheel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -773,6 +834,7 @@ export default function InkCanvas({
           originY={originY}
           zoom={zoom}
           readAssetDataUrl={readAssetDataUrl}
+          colorPalette={colorPalette}
         />
       ) : null}
       <canvas
@@ -815,9 +877,27 @@ export default function InkCanvas({
         {gesture.kind === 'create' && (
           <CreationPreview gesture={gesture} toScreen={toScreen} />
         )}
-        {bounds && gesture.kind !== 'marquee' && gesture.kind !== 'lasso' && (
-          <SelectionOverlay bounds={bounds} toScreen={toScreen} readOnly={readOnly} />
+        {selection && gesture.kind !== 'marquee' && gesture.kind !== 'lasso' && (
+          <SelectionOverlay frame={selection} toScreen={toScreen} readOnly={readOnly} />
         )}
+        {remotePeers.map((peer) => {
+          const interaction = peer.ink;
+          if (!interaction || interaction.activePageId !== page?.id) return null;
+          const remoteFrame = page ? selectionFrame(page.scene, interaction.selectedIds ?? []) : null;
+          const cursor = interaction.cursor ? toScreen(interaction.cursor.x, interaction.cursor.y) : null;
+          const color = peer.user?.color ?? '#8b7dff';
+          return (
+            <g key={peer.clientId} data-testid="ink-remote-peer">
+              {remoteFrame ? <SelectionOverlay frame={remoteFrame} toScreen={toScreen} readOnly color={color} /> : null}
+              {cursor ? (
+                <g transform={`translate(${cursor.x} ${cursor.y})`}>
+                  <circle r={4} fill={color} stroke="var(--background, #fff)" strokeWidth={1} />
+                  <text x={7} y={-7} fill={color} fontSize={11}>{peer.user?.name ?? 'Peer'}</text>
+                </g>
+              ) : null}
+            </g>
+          );
+        })}
       </svg>
     </div>
   );
@@ -831,26 +911,44 @@ function pairs(flat: number[]): Array<[number, number]> {
   return out;
 }
 
+function boundedPreviewSamples(samples: InkSample[]): InkSample[] {
+  if (samples.length <= 128) return samples;
+  const bounded: InkSample[] = [];
+  for (let index = 0; index < 128; index += 1) {
+    bounded.push(samples[Math.round((index / 127) * (samples.length - 1))]);
+  }
+  return bounded;
+}
+
 function cursorFor(
   tool: string,
   gesture: string,
   hoveredHandle: InkResizeHandle | 'rotate' | null,
   activeGesture: Gesture,
+  selectionRotation: number,
 ): string {
   if (gesture === 'pan') return 'grabbing';
   if (gesture === 'rotate') return 'grabbing';
-  if (activeGesture.kind === 'resize') return resizeCursor(activeGesture.handle);
+  if (activeGesture.kind === 'resize') return resizeCursor(activeGesture.handle, activeGesture.rotation);
   if (hoveredHandle === 'rotate') return 'grab';
-  if (hoveredHandle) return resizeCursor(hoveredHandle);
+  if (hoveredHandle) return resizeCursor(hoveredHandle, selectionRotation);
   if (tool === 'pan') return 'grab';
   if (tool === 'pen' || tool === 'eraser' || tool === 'shape' || tool === 'connector' || tool === 'text' || tool === 'sticky' || tool === 'image' || tool === 'stamp' || tool === 'equation' || tool === 'ruler' || tool === 'protractor' || tool === 'compass' || tool === 'guide' || tool === 'eyedropper' || tool === 'loupe') return 'crosshair';
   return 'default';
 }
 
-function resizeCursor(handle: InkResizeHandle): string {
-  if (handle === 'n' || handle === 's') return 'ns-resize';
-  if (handle === 'e' || handle === 'w') return 'ew-resize';
-  if (handle === 'nw' || handle === 'se') return 'nwse-resize';
+function resizeCursor(handle: InkResizeHandle, rotation = 0): string {
+  const baseDegrees = handle === 'n' || handle === 's'
+    ? 90
+    : handle === 'e' || handle === 'w'
+      ? 0
+      : handle === 'nw' || handle === 'se'
+        ? 45
+        : 135;
+  const normalized = ((baseDegrees + rotation * 180 / Math.PI) % 180 + 180) % 180;
+  if (normalized < 22.5 || normalized >= 157.5) return 'ew-resize';
+  if (normalized < 67.5) return 'nwse-resize';
+  if (normalized < 112.5) return 'ns-resize';
   return 'nesw-resize';
 }
 
@@ -881,103 +979,99 @@ function CreationPreview({
   );
 }
 
-/** Union bounds of a selection, from the index's cached values. */
-function selectionBounds(
-  selectedIds: string[],
-  index: InkSpatialIndex | null,
-): InkBounds | null {
-  let bounds: InkBounds | null = null;
-  for (const id of selectedIds) {
-    const objectBound = index?.boundsOf(id);
-    if (!objectBound) continue;
-    bounds = bounds
-      ? {
-          minX: Math.min(bounds.minX, objectBound.minX),
-          minY: Math.min(bounds.minY, objectBound.minY),
-          maxX: Math.max(bounds.maxX, objectBound.maxX),
-          maxY: Math.max(bounds.maxY, objectBound.maxY),
-        }
-      : objectBound;
-  }
-  return bounds;
-}
-
 type ToScreen = (x: number, y: number) => { x: number; y: number };
 
 function handlePositions(
-  bounds: InkBounds,
+  frame: InkSelectionFrame,
   toScreen: ToScreen,
 ): Array<[InkResizeHandle, { x: number; y: number }]> {
-  const midX = (bounds.minX + bounds.maxX) / 2;
-  const midY = (bounds.minY + bounds.maxY) / 2;
+  const [nw, ne, se, sw] = frameCorners(frame).map((point) => toScreen(point.x, point.y));
+  const midpoint = (a: { x: number; y: number }, b: { x: number; y: number }) => ({
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
+  });
   return [
-    ['nw', toScreen(bounds.minX, bounds.minY)],
-    ['n', toScreen(midX, bounds.minY)],
-    ['ne', toScreen(bounds.maxX, bounds.minY)],
-    ['w', toScreen(bounds.minX, midY)],
-    ['e', toScreen(bounds.maxX, midY)],
-    ['sw', toScreen(bounds.minX, bounds.maxY)],
-    ['s', toScreen(midX, bounds.maxY)],
-    ['se', toScreen(bounds.maxX, bounds.maxY)],
+    ['nw', nw],
+    ['n', midpoint(nw, ne)],
+    ['ne', ne],
+    ['w', midpoint(nw, sw)],
+    ['e', midpoint(ne, se)],
+    ['sw', sw],
+    ['s', midpoint(sw, se)],
+    ['se', se],
   ];
 }
 
+function rotationHandlePosition(frame: InkSelectionFrame, toScreen: ToScreen) {
+  const [nw, ne] = frameCorners(frame).map((point) => toScreen(point.x, point.y));
+  const top = { x: (nw.x + ne.x) / 2, y: (nw.y + ne.y) / 2 };
+  const center = toScreen(frame.centerX, frame.centerY);
+  const dx = top.x - center.x;
+  const dy = top.y - center.y;
+  const length = Math.hypot(dx, dy) || 1;
+  return {
+    x: top.x + (dx / length) * ROTATION_HANDLE_OFFSET_PX,
+    y: top.y + (dy / length) * ROTATION_HANDLE_OFFSET_PX,
+    anchorX: top.x,
+    anchorY: top.y,
+  };
+}
+
 function SelectionOverlay({
-  bounds,
+  frame,
   toScreen,
   readOnly,
+  color = 'rgba(139,125,255,0.9)',
 }: {
-  bounds: InkBounds;
+  frame: InkSelectionFrame;
   toScreen: ToScreen;
   readOnly: boolean;
+  color?: string;
 }) {
-  const topLeft = toScreen(bounds.minX, bounds.minY);
-  const bottomRight = toScreen(bounds.maxX, bounds.maxY);
+  const corners = frameCorners(frame).map((point) => toScreen(point.x, point.y));
+  const rotationHandle = rotationHandlePosition(frame, toScreen);
   return (
     <g data-testid="ink-selection">
-      <rect
-        x={topLeft.x}
-        y={topLeft.y}
-        width={Math.max(1, bottomRight.x - topLeft.x)}
-        height={Math.max(1, bottomRight.y - topLeft.y)}
+      <polygon
+        points={corners.map((point) => `${point.x},${point.y}`).join(' ')}
         fill="none"
-        stroke="rgba(139,125,255,0.9)"
+        stroke={color}
         strokeWidth={1}
         strokeDasharray="4 3"
       />
       {!readOnly &&
         <>
           <line
-            x1={(topLeft.x + bottomRight.x) / 2}
-            y1={topLeft.y}
-            x2={(topLeft.x + bottomRight.x) / 2}
-            y2={topLeft.y - ROTATION_HANDLE_OFFSET_PX}
+            x1={rotationHandle.anchorX}
+            y1={rotationHandle.anchorY}
+            x2={rotationHandle.x}
+            y2={rotationHandle.y}
             stroke="rgba(139,125,255,0.9)"
             strokeWidth={1}
           />
           <circle
             data-ink-handle="rotate"
-            cx={(topLeft.x + bottomRight.x) / 2}
-            cy={topLeft.y - ROTATION_HANDLE_OFFSET_PX}
+            cx={rotationHandle.x}
+            cy={rotationHandle.y}
             r={HANDLE_PX / 2}
             fill="var(--background, #fff)"
             stroke="rgba(139,125,255,0.9)"
             strokeWidth={1}
             style={{ cursor: 'grab' }}
           />
-          {handlePositions(bounds, toScreen).map(([handle, point]) => (
-          <rect
-            key={handle}
-            data-ink-handle={handle}
-            x={point.x - HANDLE_PX / 2}
-            y={point.y - HANDLE_PX / 2}
-            width={HANDLE_PX}
-            height={HANDLE_PX}
-            fill="var(--background, #fff)"
-            stroke="rgba(139,125,255,0.9)"
-            strokeWidth={1}
-            style={{ cursor: resizeCursor(handle) }}
-          />
+          {handlePositions(frame, toScreen).map(([handle, point]) => (
+            <rect
+              key={handle}
+              data-ink-handle={handle}
+              x={point.x - HANDLE_PX / 2}
+              y={point.y - HANDLE_PX / 2}
+              width={HANDLE_PX}
+              height={HANDLE_PX}
+              fill="var(--background, #fff)"
+              stroke="rgba(139,125,255,0.9)"
+              strokeWidth={1}
+              style={{ cursor: resizeCursor(handle, frame.rotation) }}
+            />
           ))}
         </>}
     </g>

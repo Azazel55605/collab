@@ -46,6 +46,7 @@ import type {
   InkStroke,
   InkSwatch,
 } from '../../types/ink';
+import { INK_COLOR_TOKENS } from './colors';
 import { sampleCount } from './codec';
 
 export type InkDocumentErrorCode =
@@ -199,7 +200,7 @@ export const INK_DEFAULT_BRUSHES: Readonly<Record<string, InkBrushPreset>> = {
     id: 'ballpoint',
     name: 'Ballpoint',
     kind: 'ballpoint',
-    color: '#1f2933',
+    color: INK_COLOR_TOKENS.foreground,
     opacity: 1,
     width: 96,
     thinning: 0.5,
@@ -212,7 +213,7 @@ export const INK_DEFAULT_BRUSHES: Readonly<Record<string, InkBrushPreset>> = {
     id: 'fountain',
     name: 'Fountain pen',
     kind: 'fountain',
-    color: '#1a2b6d',
+    color: INK_COLOR_TOKENS.blue,
     opacity: 1,
     width: 128,
     thinning: 0.75,
@@ -225,7 +226,7 @@ export const INK_DEFAULT_BRUSHES: Readonly<Record<string, InkBrushPreset>> = {
     id: 'pencil',
     name: 'Pencil',
     kind: 'pencil',
-    color: '#3f4650',
+    color: INK_COLOR_TOKENS.foreground,
     opacity: 0.85,
     width: 80,
     thinning: 0.6,
@@ -239,7 +240,7 @@ export const INK_DEFAULT_BRUSHES: Readonly<Record<string, InkBrushPreset>> = {
     id: 'marker',
     name: 'Marker',
     kind: 'marker',
-    color: '#c0392b',
+    color: INK_COLOR_TOKENS.red,
     opacity: 1,
     width: 224,
     thinning: 0.15,
@@ -265,7 +266,7 @@ export const INK_DEFAULT_BRUSHES: Readonly<Record<string, InkBrushPreset>> = {
     id: 'technical',
     name: 'Technical pen',
     kind: 'technical',
-    color: '#111418',
+    color: INK_COLOR_TOKENS.foreground,
     opacity: 1,
     width: 48,
     thinning: 0,
@@ -334,10 +335,10 @@ export function createInkDocument(options: CreateInkDocumentOptions): InkDocumen
     pageOrder: [page.id],
     brushes: { ...INK_DEFAULT_BRUSHES },
     swatches: [
-      { id: 'ink', color: '#1f2933' },
-      { id: 'blue', color: '#1a2b6d' },
-      { id: 'red', color: '#c0392b' },
-      { id: 'green', color: '#1a7f37' },
+      { id: 'ink', color: INK_COLOR_TOKENS.foreground },
+      { id: 'blue', color: INK_COLOR_TOKENS.blue },
+      { id: 'red', color: INK_COLOR_TOKENS.red },
+      { id: 'green', color: INK_COLOR_TOKENS.green },
     ],
   };
 }
@@ -575,6 +576,7 @@ function normalizeObject(
         ...(isArrowhead(value.arrowEnd) ? { arrowEnd: value.arrowEnd } : {}),
         ...(typeof value.sourceStrokeId === 'string' ? { sourceStrokeId: value.sourceStrokeId } : {}),
         ...(value.guide === true ? { guide: true } : {}),
+        ...(typeof value.rotation === 'number' && Number.isFinite(value.rotation) ? { rotation: value.rotation } : {}),
       };
     }
     case 'connector': {
@@ -592,6 +594,7 @@ function normalizeObject(
         ...(isArrowhead(value.arrowStart) ? { arrowStart: value.arrowStart } : {}),
         ...(isArrowhead(value.arrowEnd) ? { arrowEnd: value.arrowEnd } : {}),
         ...(typeof value.label === 'string' ? { label: value.label.slice(0, INK_LIMITS.textLength) } : {}),
+        ...(typeof value.rotation === 'number' && Number.isFinite(value.rotation) ? { rotation: value.rotation } : {}),
       };
     }
     case 'stamp': {

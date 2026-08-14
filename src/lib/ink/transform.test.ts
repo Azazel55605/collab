@@ -139,6 +139,30 @@ describe('transformObject', () => {
     expect(rotated.rotation).toBeCloseTo(Math.PI / 2, 6);
   });
 
+  it('rotates connector endpoints and retains their selection orientation', () => {
+    const connector: InkObject = {
+      id: 'c', type: 'connector', layerId: 'layer-1',
+      from: { x: 0, y: 0 }, to: { x: 1_000, y: 0 },
+      routing: 'straight', stroke: FIXTURE_BRUSH,
+    };
+    const rotated = transformObject(connector, rotationAbout(500, 0, Math.PI / 2));
+    expect(rotated).toMatchObject({
+      from: { x: 500, y: -500 },
+      to: { x: 500, y: 500 },
+    });
+    expect((rotated as typeof connector).rotation).toBeCloseTo(Math.PI / 2, 6);
+  });
+
+  it('rotates guide geometry and retains its selection orientation', () => {
+    const guide: InkObject = {
+      id: 'g', type: 'shape', shape: 'line', guide: true, layerId: 'layer-1',
+      points: [0, 0, 1_000, 0], stroke: FIXTURE_BRUSH,
+    };
+    const rotated = transformObject(guide, rotationAbout(500, 0, Math.PI / 2));
+    expect((rotated as typeof guide).points).toEqual([500, -500, 500, 500]);
+    expect((rotated as typeof guide).rotation).toBeCloseTo(Math.PI / 2, 6);
+  });
+
   it('leaves a group record alone, since it holds only ids', () => {
     const group: InkObject = { id: 'g', type: 'group', layerId: 'layer-1', childIds: ['a', 'b'] };
     expect(transformObject(group, translation(50, 50))).toEqual(group);

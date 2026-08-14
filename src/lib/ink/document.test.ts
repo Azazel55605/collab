@@ -163,12 +163,12 @@ describe('normalizeInkDocument', () => {
       id: 'shape', type: 'shape', layerId: 'layer-1', shape: 'rectangle',
       points: [0, 0, 100, 0, 100, 100, 0, 100],
       stroke: { kind: 'technical', color: '#123', opacity: 2, width: 64, thinning: 0, smoothing: 0, streamline: 0, taperStart: 0, taperEnd: 0 },
-      fill: '#fff', fillOpacity: 2, arrowEnd: 'arrow',
+      fill: '#fff', fillOpacity: 2, arrowEnd: 'arrow', rotation: Math.PI / 4,
     };
     scene.objects.connector = {
       id: 'connector', type: 'connector', layerId: 'layer-1',
       from: { x: 0, y: 0 }, to: { x: 100, y: 100 }, routing: 'orthogonal',
-      stroke: scene.objects.shape.stroke, arrowEnd: 'arrow',
+      stroke: scene.objects.shape.stroke, arrowEnd: 'arrow', rotation: Math.PI / 3,
     };
     scene.objects.sticky = {
       id: 'sticky', type: 'text', layerId: 'layer-1', x: 0, y: 0,
@@ -178,8 +178,8 @@ describe('normalizeInkDocument', () => {
     scene.objectOrder.push('shape', 'connector', 'sticky');
 
     const normalized = normalizeInkDocument(source).document.pages['page-1'].scene;
-    expect(normalized.objects.shape).toMatchObject({ type: 'shape', fillOpacity: 1, arrowEnd: 'arrow' });
-    expect(normalized.objects.connector).toMatchObject({ type: 'connector', routing: 'orthogonal', arrowEnd: 'arrow' });
+    expect(normalized.objects.shape).toMatchObject({ type: 'shape', fillOpacity: 1, arrowEnd: 'arrow', rotation: Math.PI / 4 });
+    expect(normalized.objects.connector).toMatchObject({ type: 'connector', routing: 'orthogonal', arrowEnd: 'arrow', rotation: Math.PI / 3 });
     expect(normalized.objects.sticky).toMatchObject({ type: 'text', sticky: true, backgroundColor: '#ff0', align: 'center' });
   });
 

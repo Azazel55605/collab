@@ -12,7 +12,8 @@ pub use yrs::Doc;
 use yrs::{
     types::ToJson,
     updates::{decoder::Decode, encoder::Encode},
-    Any, ArrayPrelim, GetString, In, Map, MapPrelim, ReadTxn, StateVector, Text, Transact, Update,
+    Any, ArrayPrelim, GetString, In, Map, MapPrelim, ReadTxn, StateVector, Text, TextPrelim,
+    Transact, Update,
 };
 
 pub const NOTE_TEXT_NAME: &str = "content";
@@ -26,6 +27,7 @@ pub enum LiveDocumentKind {
     Json,
     Canvas,
     Sheet,
+    Ink,
 }
 
 impl LiveDocumentKind {
@@ -35,12 +37,13 @@ impl LiveDocumentKind {
             Some("kanban") => Self::Json,
             Some("canvas") => Self::Canvas,
             Some("sheet") => Self::Sheet,
+            Some("ink") => Self::Ink,
             _ => Self::None,
         }
     }
 
     pub fn is_structured(self) -> bool {
-        matches!(self, Self::Json | Self::Canvas | Self::Sheet)
+        matches!(self, Self::Json | Self::Canvas | Self::Sheet | Self::Ink)
     }
 
     pub fn document_kind(self) -> Option<DocumentKind> {
@@ -50,6 +53,7 @@ impl LiveDocumentKind {
             Self::Json => Some(DocumentKind::Kanban),
             Self::Canvas => Some(DocumentKind::Canvas),
             Self::Sheet => Some(DocumentKind::Sheet),
+            Self::Ink => Some(DocumentKind::Ink),
         }
     }
 }
@@ -204,12 +208,19 @@ pub fn seed_document(doc: &Doc, kind: LiveDocumentKind, content: &str) -> Result
             }
             Ok(())
         }
-        LiveDocumentKind::Json | LiveDocumentKind::Canvas | LiveDocumentKind::Sheet => {
+        LiveDocumentKind::Json
+        | LiveDocumentKind::Canvas
+        | LiveDocumentKind::Sheet
+        | LiveDocumentKind::Ink => {
             let map = structured_object(content)?;
             let root = doc.get_or_insert_map(JSON_ROOT_NAME);
             let mut txn = doc.transact_mut();
             for (key, value) in map {
-                root.insert(&mut txn, key, json_to_in(&value));
+                root.insert(
+                    &mut txn,
+                    key,
+                    json_to_in(&value, kind == LiveDocumentKind::Ink),
+                );
             }
             Ok(())
         }
@@ -235,13 +246,20 @@ pub fn replace_document(
                 text.insert(&mut txn, 0, content);
             }
         }
-        LiveDocumentKind::Json | LiveDocumentKind::Canvas | LiveDocumentKind::Sheet => {
+        LiveDocumentKind::Json
+        | LiveDocumentKind::Canvas
+        | LiveDocumentKind::Sheet
+        | LiveDocumentKind::Ink => {
             let map = structured_object(content)?;
             let root = doc.get_or_insert_map(JSON_ROOT_NAME);
             let mut txn = doc.transact_mut();
             root.clear(&mut txn);
             for (key, value) in map {
-                root.insert(&mut txn, key, json_to_in(&value));
+                root.insert(
+                    &mut txn,
+                    key,
+                    json_to_in(&value, kind == LiveDocumentKind::Ink),
+                );
             }
         }
     }
@@ -255,7 +273,10 @@ pub fn materialized_content(doc: &Doc, kind: LiveDocumentKind) -> Option<String>
             let text = doc.get_or_insert_text(NOTE_TEXT_NAME);
             Some(text.get_string(&doc.transact()))
         }
-        LiveDocumentKind::Json | LiveDocumentKind::Canvas | LiveDocumentKind::Sheet => {
+        LiveDocumentKind::Json
+        | LiveDocumentKind::Canvas
+        | LiveDocumentKind::Sheet
+        | LiveDocumentKind::Ink => {
             let root = doc.get_or_insert_map(JSON_ROOT_NAME);
             let txn = doc.transact();
             if root.len(&txn) == 0 {
@@ -286,7 +307,7 @@ pub fn recovery_decision(
                 RecoveryDecision::Keep
             }
         }
-        LiveDocumentKind::Json | LiveDocumentKind::Sheet => {
+        LiveDocumentKind::Json | LiveDocumentKind::Sheet | LiveDocumentKind::Ink => {
             if live_content.is_none() {
                 RecoveryDecision::ReseedFromCanonical
             } else {
@@ -419,19 +440,33 @@ fn structured_object(
     }
 }
 
-fn json_to_in(value: &serde_json::Value) -> In {
+fn json_to_in(value: &serde_json::Value, ink: bool) -> In {
     match value {
         serde_json::Value::Null => In::Any(Any::Null),
         serde_json::Value::Bool(value) => In::Any(Any::Bool(*value)),
         serde_json::Value::Number(value) => In::Any(Any::Number(value.as_f64().unwrap_or(0.0))),
         serde_json::Value::String(value) => In::Any(Any::String(value.as_str().into())),
         serde_json::Value::Array(items) => In::Array(ArrayPrelim::from(
-            items.iter().map(json_to_in).collect::<Vec<_>>(),
+            items
+                .iter()
+                .map(|item| json_to_in(item, ink))
+                .collect::<Vec<_>>(),
         )),
-        serde_json::Value::Object(map) => In::Map(MapPrelim::from_iter(
-            map.iter()
-                .map(|(key, value)| (key.clone(), json_to_in(value))),
-        )),
+        serde_json::Value::Object(map) => {
+            let is_ink_text =
+                ink && map.get("type").and_then(serde_json::Value::as_str) == Some("text");
+            In::Map(MapPrelim::from_iter(map.iter().map(|(key, value)| {
+                let child = if is_ink_text && key == "text" {
+                    value
+                        .as_str()
+                        .map(|text| In::from(TextPrelim::new(text)))
+                        .unwrap_or_else(|| json_to_in(value, ink))
+                } else {
+                    json_to_in(value, ink)
+                };
+                (key.clone(), child)
+            })))
+        }
     }
 }
 
@@ -553,7 +588,7 @@ mod tests {
 
     #[test]
     fn sheet_documents_use_the_structured_live_boundary() {
-        let content = r#"{
+        let content = r##"{
           "kind":"collab-sheet",
           "schemaVersion":1,
           "id":"wb1",
@@ -569,7 +604,7 @@ mod tests {
             "cells":{"r1:c1":{"formula":"=1+1"}}
           }],
           "styles":{}
-        }"#;
+        }"##;
         let doc = Doc::new();
         seed_document(&doc, LiveDocumentKind::Sheet, content).unwrap();
         let materialized = materialized_content(&doc, LiveDocumentKind::Sheet).unwrap();
@@ -585,6 +620,42 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&materialized).unwrap();
         assert_eq!(value["worksheets"][0]["cells"]["r1:c1"]["formula"], "=1+1");
         assert!(value.get("computedValues").is_none());
+    }
+
+    #[test]
+    fn ink_documents_use_the_structured_live_boundary() {
+        let content = r##"{
+          "kind":"collab-ink","schemaVersion":1,"id":"ink1","name":"Shared ink",
+          "pages":{"page-1":{"id":"page-1","mode":"fixed","width":38098,"height":53881,
+            "background":{"pattern":"blank"},"scene":{
+              "layers":{"layer-1":{"id":"layer-1","name":"Layer 1","visible":true,"locked":false,"opacity":1}},
+              "layerOrder":["layer-1"],
+              "objects":{"text-1":{"id":"text-1","type":"text","layerId":"layer-1","x":10,"y":20,"width":300,"height":100,"text":"hello","color":"#111111","fontSize":64}},
+              "objectOrder":["text-1"]}}},
+          "pageOrder":["page-1"],"brushes":{},"swatches":[]
+        }"##;
+        let doc = Doc::new();
+        seed_document(&doc, LiveDocumentKind::Ink, content).unwrap();
+        let materialized = materialized_content(&doc, LiveDocumentKind::Ink).unwrap();
+
+        assert_eq!(
+            LiveDocumentKind::from_document_type(Some("ink")),
+            LiveDocumentKind::Ink
+        );
+        assert!(LiveDocumentKind::Ink.is_structured());
+        assert_eq!(
+            LiveDocumentKind::Ink.document_kind(),
+            Some(DocumentKind::Ink)
+        );
+        assert_eq!(
+            materialization_decision(LiveDocumentKind::Ink, Some(content), Some(&materialized)),
+            MaterializationDecision::Ready
+        );
+        let value: serde_json::Value = serde_json::from_str(&materialized).unwrap();
+        assert_eq!(
+            value["pages"]["page-1"]["scene"]["objects"]["text-1"]["text"],
+            "hello"
+        );
     }
 
     #[test]

@@ -14,7 +14,12 @@ hold-to-straighten, editable text and sticky notes, safe links, vault-backed
 images/SVG, stamps, rendered equations, precision instruments and guides,
 loupe/eyedropper tools, page backgrounds, portable reusable templates,
 document swatches/brush favourites, and selection smoothing/recoloring.
-Phases 6-11 have not started.
+Phase 6 is in testing. Desktop and Android now share the hosted Ink CRDT,
+offline replica state, final-edit transactions, text CRDTs, throttled stroke
+previews, cursors, selections, active-page awareness, peer colours, server
+materialization, and recovery paths. Automated convergence and materialization
+coverage passes; the remaining gate is a physical desktop/Android multi-client
+offline/reconnect and snapshot-restore run. Phases 7-11 have not started.
 
 The frozen contract, the measured baselines, and the open device gate are in
 `docs/plans/digital-ink-phase0-contract.md`.
@@ -703,7 +708,7 @@ Target behaviors:
 | 3. Core desktop editor | Complete | Deliver pens, erasers, selection, transforms, pages, layers, history, clipboard, and drawing-tablet operation. |
 | 4. Mobile and tablet editor | Complete | Deliver adaptive touch/pen UI, gestures, palm policy, rotation/process recovery, and physical-device validation. |
 | 5. Advanced tools | Complete | Deliver geometry, reversible recognition, text/stickies, vault-backed images/SVG, safe links, stamps/equations, precision tools/guides, backgrounds, portable templates, favourites/swatches, and cleanup. |
-| 6. Hosted collaboration and offline merge | Not started | Add `LiveDocumentKind::Ink`, final-stroke transactions, ephemeral previews, awareness, replica merge, and recovery. |
+| 6. Hosted collaboration and offline merge | Testing | Add `LiveDocumentKind::Ink`, final-stroke transactions, ephemeral previews, awareness, replica merge, and recovery. Automated coverage passes; physical desktop/Android multi-client recovery validation remains. |
 | 7. Export and note integration | Not started | Add PNG/SVG/PDF export, source-linked note embeds, stable re-export, progress, and cancellation. |
 | 8. PDF annotation integration | Not started | Migrate PDF sidecars and add shared ink tools, live/offline editing, and flattened annotated-PDF export. |
 | 9. Image and shared-view annotations | Not started | Migrate image overlays and add capability-driven annotation surfaces for images, decks, and future viewers. |
@@ -820,7 +825,10 @@ open Phase 0 device gate.
 - [x] Ballpoint, fountain, technical pen, pencil, marker, and highlighter
       presets. The highlighter is inserted **below** the ink already on its
       layer, because that is what a highlighter is rather than a rendering
-      special case.
+      special case. Built-in swatches are semantic `ink:*` colours: desktop and
+      mobile resolve them against the active theme or an explicit page surface,
+      while literal custom colours stay literal. Original built-in hex colours
+      receive the same adaptive treatment for existing documents.
 - [x] Stroke, segment, and object erasers. Segment erase splits a stroke into
       the runs that survive, tombstones the source, and gives the replacements
       deterministic ids so the Phase 6 merge stays tractable. Partial erase is
@@ -832,9 +840,10 @@ open Phase 0 device gate.
       unsimplified sample path. Lifting the pen therefore never redraws writing
       into a different curve; smoothing remains an explicit selection command.
 - [x] Rectangle and lasso selection, move/resize/rotate transforms, directional
-      resize cursors, a visible rotation handle with Shift snapping, grouping,
-      reordering, and align/distribute. Vector transforms are baked into
-      geometry; box-backed objects persist a bounded scalar rotation.
+      resize cursors, an object-aligned bounding box and visible rotation handle
+      with Shift snapping, grouping, reordering, and align/distribute. Vector
+      transforms are baked into geometry; box-backed objects and vector
+      selection frames persist a bounded scalar rotation.
 - [x] Page and layer management: add, delete, rename, reorder, merge down,
       visibility, and locking.
 - [x] Clipboard (copy/cut/paste/duplicate), a layout-independent keyboard map,
@@ -918,21 +927,28 @@ drops malformed advanced objects before they reach rendering.
 
 ### Phase 6: Hosted Collaboration And Offline Merge
 
-- Add `LiveDocumentKind::Ink` across frontend, `collab-live`, server,
+- [x] Add `LiveDocumentKind::Ink` across frontend, `collab-live`, server,
   classification, materialization, replica, and recovery.
-- Implement stable map/order CRDT structures and `Y.Text` text objects.
-- Commit final strokes/semantic edits as bounded transactions.
-- Send unfinished stroke previews through throttled awareness only.
-- Add remote cursors, selections, active page, and peer colors.
-- Validate concurrent add/erase/transform/reorder/text scenarios.
-- Validate offline restart, reconnect merge, role enforcement, revision
-  materialization, and snapshot restore on desktop and Android.
+- [x] Implement stable map/order CRDT structures and `Y.Text` text objects.
+- [x] Commit final strokes/semantic edits as bounded transactions.
+- [x] Send unfinished stroke previews through throttled awareness only.
+- [x] Add remote cursors, selections, active page, and peer colors.
+- [x] Validate concurrent add/erase/transform/reorder/text scenarios.
+- [x] Cover offline replica hydration/reconnect, role enforcement, revision
+  materialization, and canonical recovery through the shared live-document
+  infrastructure and Ink-specific materialization tests.
+- [ ] Complete the physical desktop/Android multi-client run: edit both online,
+  restart one client offline, reconnect and inspect the merged drawing, verify a
+  viewer receives but cannot write, then restore a snapshot and confirm both
+  clients converge without losing pages, objects, order, or editable text.
 
 ### Phase 7: Export And Note Integration
 
 - Add PNG, SVG, and multi-page PDF export.
 - Add page, selection, region, scale, crop, transparency, and background
-  options.
+  options. Semantic ink colours must resolve to concrete, deterministic colours
+  for PNG/PDF and standalone SVG; exporters may select a destination palette,
+  and an explicit dark export background must select its contrasting palette.
 - Run heavy exports in a worker/bounded job with progress and cancellation.
 - Add **Insert into note** with source-linked stable assets.
 - Reopen the `.ink` page/region when the embed is activated.

@@ -22,11 +22,11 @@ function selectedPage() {
   return { ...page, scene: addObject(page.scene, shape).result };
 }
 
-function renderCanvas(onRotateSelection = vi.fn()) {
+function renderCanvas(onRotateSelection = vi.fn(), page = selectedPage()) {
   const tool = { ...defaultToolState(), tool: 'select' as const };
   render(
     <InkCanvas
-      page={selectedPage()}
+      page={page}
       originX={0}
       originY={0}
       zoom={1}
@@ -89,5 +89,21 @@ describe('InkCanvas selection affordances', () => {
     });
     expect(onRotateSelection).toHaveBeenCalled();
     expect(host.style.cursor).toBe('grabbing');
+  });
+
+  it('renders the selection box on the rotated object axes', () => {
+    const page = selectedPage();
+    const shape = page.scene.objects['shape-1'] as InkShape;
+    page.scene.objects['shape-1'] = {
+      ...shape,
+      points: [2_000, 2_586, 3_414, 4_000, 2_000, 5_414, 586, 4_000],
+      rotation: Math.PI / 4,
+    };
+    renderCanvas(vi.fn(), page);
+    const outline = document.querySelector('[data-testid="ink-selection"] polygon');
+    expect(outline).not.toBeNull();
+    const points = outline!.getAttribute('points')!.split(' ').map((pair) => pair.split(',').map(Number));
+    expect(points[0][1]).not.toBeCloseTo(points[1][1]);
+    expect(points[1][0]).not.toBeCloseTo(points[2][0]);
   });
 });

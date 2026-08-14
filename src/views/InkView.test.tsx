@@ -46,6 +46,7 @@ const toastMocks = vi.hoisted(() => ({
 vi.mock('sonner', () => ({ toast: toastMocks }));
 
 import InkView from './InkView';
+import { INK_COLOR_TOKENS } from '../lib/ink/colors';
 import { TooltipProvider } from '../components/ui/tooltip';
 
 /** `getByRole` returns HTMLElement; the tests care about button state. */
@@ -322,7 +323,7 @@ describe('InkView drawing', () => {
   it('stores the brush the stroke was drawn with, not a preset pointer', async () => {
     await openDrawing();
     fireEvent.click(screen.getByRole('button', { name: 'Fountain pen' }));
-    fireEvent.click(screen.getByRole('radio', { name: 'Colour #c0392b' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Theme red' }));
 
     drawStroke(screen.getByTestId('ink-canvas-host'), [[100, 100], [180, 140], [240, 190]]);
     fireEvent.click(screen.getByText('Save'));
@@ -331,7 +332,7 @@ describe('InkView drawing', () => {
     const scene = written.pages[written.pageOrder[0]].scene;
     const drawn = scene.objects[scene.objectOrder[scene.objectOrder.length - 1]];
     expect(drawn.brush.kind).toBe('fountain');
-    expect(drawn.brush.color).toBe('#c0392b');
+    expect(drawn.brush.color).toBe(INK_COLOR_TOKENS.red);
   });
 
   it('creates a snapped filled shape from a drag gesture', async () => {
@@ -351,7 +352,7 @@ describe('InkView drawing', () => {
     const written = await savedDocument();
     const scene = written.pages[written.pageOrder[0]].scene;
     const created = scene.objects[scene.objectOrder[scene.objectOrder.length - 1]];
-    expect(created).toMatchObject({ type: 'shape', shape: 'rectangle', fill: '#1f2933' });
+    expect(created).toMatchObject({ type: 'shape', shape: 'rectangle', fill: INK_COLOR_TOKENS.foreground });
     expect(created.points.every((value: number) => value % 768 === 0)).toBe(true);
   });
 
@@ -387,14 +388,14 @@ describe('InkView drawing', () => {
 
   it('stores document brush favourites and swatches', async () => {
     await openDrawing();
-    fireEvent.click(screen.getByRole('radio', { name: 'Colour #0e7490' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Theme cyan' }));
     fireEvent.click(screen.getByText('Add current colour to swatches'));
     fireEvent.click(screen.getByText('Save current'));
     fireEvent.click(screen.getByText('Save'));
 
     const written = await savedDocument();
-    expect(written.swatches.some((swatch: { color: string }) => swatch.color === '#0e7490')).toBe(true);
-    expect(Object.values(written.brushes).some((preset: any) => preset.color === '#0e7490')).toBe(true);
+    expect(written.swatches.some((swatch: { color: string }) => swatch.color === INK_COLOR_TOKENS.cyan)).toBe(true);
+    expect(Object.values(written.brushes).some((preset: any) => preset.color === INK_COLOR_TOKENS.cyan)).toBe(true);
   });
 
   it('adds stamps, equations, precision lines, circles, and non-exported guides', async () => {

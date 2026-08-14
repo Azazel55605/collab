@@ -380,9 +380,10 @@ impl Room {
     fn materialized_content(&self) -> Option<String> {
         match self.materialize {
             MaterializeKind::NoteText => Some(self.note_text()),
-            MaterializeKind::Json | MaterializeKind::Canvas | MaterializeKind::Sheet => {
-                self.json_content()
-            }
+            MaterializeKind::Json
+            | MaterializeKind::Canvas
+            | MaterializeKind::Sheet
+            | MaterializeKind::Ink => self.json_content(),
             MaterializeKind::None => None,
         }
     }
@@ -499,9 +500,10 @@ fn spawn_materializer(room: Arc<Room>, db: PgPool, blobs: Arc<dyn BlobStorage>) 
             tokio::time::sleep(MATERIALIZE_DEBOUNCE).await;
             let content = match room.materialize {
                 MaterializeKind::NoteText => Some(room.note_text()),
-                MaterializeKind::Json | MaterializeKind::Canvas | MaterializeKind::Sheet => {
-                    room.json_content()
-                }
+                MaterializeKind::Json
+                | MaterializeKind::Canvas
+                | MaterializeKind::Sheet
+                | MaterializeKind::Ink => room.json_content(),
                 MaterializeKind::None => None,
             };
             let Some(content) = content else { continue };
@@ -773,9 +775,10 @@ impl Hub {
                     None => ExternalRevisionMerge::Conflict,
                 }
             }
-            MaterializeKind::Json | MaterializeKind::Canvas | MaterializeKind::Sheet => {
-                ExternalRevisionMerge::Conflict
-            }
+            MaterializeKind::Json
+            | MaterializeKind::Canvas
+            | MaterializeKind::Sheet
+            | MaterializeKind::Ink => ExternalRevisionMerge::Conflict,
             MaterializeKind::None => ExternalRevisionMerge::Merged(incoming_content),
         }
     }
@@ -2119,6 +2122,72 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&content).unwrap();
         assert_eq!(value["title"], serde_json::json!("My Board"));
         assert_eq!(value["columns"][0]["id"], serde_json::json!("c1"));
+    }
+
+    #[tokio::test]
+    async fn live_ink_document_seeds_and_materializes() {
+        let Some((pool, _db_guard)) = test_pool().await else {
+            return;
+        };
+        let owner = insert_user(&pool, "ink-owner").await;
+        let vault = insert_vault(&pool, owner).await;
+        let file = insert_typed_document(&pool, vault, "shared.ink", "ink").await;
+        insert_ticket(&pool, owner, vault, "ink-live-t").await;
+
+        let (addr, state) = serve(pool.clone()).await;
+        let seed = r#"{
+          "kind":"collab-ink","schemaVersion":1,"id":"ink1","name":"Shared ink",
+          "pages":{"page-1":{"id":"page-1","mode":"fixed","width":38098,"height":53881,
+            "background":{"pattern":"blank"},"scene":{
+              "layers":{"layer-1":{"id":"layer-1","name":"Layer 1","visible":true,"locked":false,"opacity":1}},
+              "layerOrder":["layer-1"],"objects":{},"objectOrder":[]}}},
+          "pageOrder":["page-1"],"brushes":{},"swatches":[]
+        }"#;
+        insert_note_revision(&pool, &state.blobs, vault, file, seed).await;
+
+        let mut client = TestClient::connect(&addr, vault, "ink-live-t").await;
+        client.expect_ready().await;
+        client.subscribe(file).await;
+        let _ = client.next_binary(ws_message::SYNC_STEP1).await;
+        client
+            .send_binary(
+                ws_message::SYNC_STEP1,
+                file,
+                &StateVector::default().encode_v1(),
+            )
+            .await;
+        let (_, state_update) = client
+            .next_binary(ws_message::SYNC_UPDATE)
+            .await
+            .expect("seeded ink state");
+        assert_eq!(read_doc_json(&state_update)["kind"], "collab-ink");
+
+        let local = Doc::new();
+        apply_update_bytes(&local, &state_update);
+        let before = local.transact().state_vector();
+        {
+            let root = local.get_or_insert_map(JSON_ROOT_NAME);
+            root.insert(
+                &mut local.transact_mut(),
+                "name",
+                In::Any(Any::String("Renamed together".into())),
+            );
+        }
+        let delta = local.transact().encode_state_as_update_v1(&before);
+        client
+            .send_binary(ws_message::SYNC_UPDATE, file, &delta)
+            .await;
+
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        let content = api::load_current_document_text(&pool, &*state.blobs, vault, file)
+            .await
+            .expect("materialized ink");
+        let value: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(value["name"], "Renamed together");
+        assert_eq!(
+            value["pages"]["page-1"]["scene"]["layerOrder"][0],
+            "layer-1"
+        );
     }
 
     /// A canvas that loses every node must never overwrite a canonical revision

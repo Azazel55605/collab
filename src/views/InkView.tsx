@@ -32,6 +32,7 @@ import InkCanvas from '../components/ink/InkCanvas';
 import InkToolRail from '../components/ink/InkToolRail';
 import InkSidePanel from '../components/ink/InkSidePanel';
 import InkTextDialog from '../components/ink/InkTextDialog';
+import LivePeers from '../components/collaboration/LivePeers';
 import type { InkTextDraft } from '../components/ink/InkTextDialog';
 import { useEditorStore } from '../store/editorStore';
 import { useDocumentStatusRegistration } from '../store/documentStatusStore';
@@ -51,7 +52,6 @@ import {
   addLayer,
   addObject,
   addPage,
-  boundsOf,
   groupObjects,
   mergeLayerDown,
   onPage,
@@ -76,11 +76,14 @@ import { alignObjects, distributeObjects } from '../lib/ink/align';
 import type { InkAlignment, InkDistribution } from '../lib/ink/align';
 import {
   boundsToBounds,
+  composeAffine,
   resizeBounds,
   rotationAbout,
   transformObject,
   translation,
 } from '../lib/ink/transform';
+import { selectionFrame } from '../lib/ink/selectionFrame';
+import { canonicalInkColor, inkPaletteForTheme } from '../lib/ink/colors';
 import type { InkResizeHandle } from '../lib/ink/transform';
 import {
   INK_DEFAULT_PEN_BUTTONS,
@@ -105,6 +108,9 @@ import { createVaultClient } from '../lib/vaultClient';
 import { tauriCommands } from '../lib/tauri';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { getVaultDocumentTabType, getVaultDocumentView } from '../lib/vaultLinks';
+import { useCollabIdentity } from '../lib/collabIdentity';
+import { useLivePeers } from '../lib/liveAwareness';
+import type { InkInteraction } from '../lib/liveAwareness';
 import {
   createInkTemplate,
   deleteInkTemplate,
@@ -134,7 +140,9 @@ const AUTOSAVE_MS = 600;
 export default function InkView({ relativePath }: InkViewProps) {
   const { vault } = useVaultStore();
   const setActiveView = useUiStore((state) => state.setActiveView);
+  const theme = useUiStore((state) => state.theme);
   const { markDirty, setSavedHash, inkViewStates, setInkViewState, openTab, setActiveTab } = useEditorStore();
+  const { userId: myUserId, userName: myUserName, userColor: myUserColor } = useCollabIdentity();
   const vaultClient = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
   const readAssetDataUrl = useCallback(
     (path: string) => vaultClient
@@ -154,6 +162,20 @@ export default function InkView({ relativePath }: InkViewProps) {
     markSaved: markInkSaved,
   });
   const { document } = session;
+  const livePeers = useLivePeers(session.liveSession);
+
+  useEffect(() => {
+    if (!session.liveSession) return;
+    session.liveSession.awareness.setLocalStateField('user', {
+      id: myUserId,
+      name: myUserName,
+      color: myUserColor,
+    });
+    session.liveSession.awareness.setLocalStateField('document', {
+      kind: 'ink',
+      relativePath,
+    });
+  }, [myUserColor, myUserId, myUserName, relativePath, session.liveSession]);
 
   const documentStatus = useMemo(
     () => ({
@@ -180,6 +202,9 @@ export default function InkView({ relativePath }: InkViewProps) {
   const [historyVersion, setHistoryVersion] = useState(0);
   const [textDraft, setTextDraft] = useState<InkTextDraft | null>(null);
   const [templates, setTemplates] = useState(() => loadInkTemplates());
+  const awarenessTimerRef = useRef<number | null>(null);
+  const pendingAwarenessRef = useRef<InkInteraction | null>(null);
+  const lastAwarenessSentRef = useRef(0);
 
   const historyRef = useRef(new InkHistory<InkDocument>());
   const clipboardRef = useRef<InkClipboard | null>(null);
@@ -196,8 +221,69 @@ export default function InkView({ relativePath }: InkViewProps) {
   }, [document, pageId]);
 
   const page = activePageId ? (document?.pages[activePageId] ?? null) : null;
+  const colorPalette = useMemo(
+    () => inkPaletteForTheme(theme, page?.background.color),
+    [page?.background.color, theme],
+  );
   const pageIndex = activePageId ? (document?.pageOrder.indexOf(activePageId) ?? -1) : -1;
   const scene: InkScene | null = page?.scene ?? null;
+
+  useEffect(() => {
+    if (!session.liveSession || !activePageId) return;
+    const category = tool.tool === 'pen'
+      ? 'draw'
+      : tool.tool === 'eraser'
+        ? 'erase'
+        : tool.tool === 'select' || tool.tool === 'lasso'
+          ? 'select'
+          : tool.tool === 'pan' || tool.tool === 'loupe'
+            ? 'navigate'
+            : 'other';
+    if (awarenessTimerRef.current !== null) window.clearTimeout(awarenessTimerRef.current);
+    awarenessTimerRef.current = null;
+    pendingAwarenessRef.current = null;
+    session.liveSession.awareness.setLocalStateField('ink', {
+      activePageId,
+      tool: category,
+      selectedIds: selectedIds.slice(0, 100),
+      viewport,
+    });
+  }, [activePageId, selectedIds, session.liveSession, tool.tool, viewport]);
+
+  const publishInkAwareness = useCallback((change: Pick<InkInteraction, 'cursor' | 'preview'>) => {
+    if (!session.liveSession || !activePageId) return;
+    const category: InkInteraction['tool'] = tool.tool === 'pen'
+      ? 'draw'
+      : tool.tool === 'eraser'
+        ? 'erase'
+        : tool.tool === 'select' || tool.tool === 'lasso'
+          ? 'select'
+          : tool.tool === 'pan' || tool.tool === 'loupe'
+            ? 'navigate'
+            : 'other';
+    pendingAwarenessRef.current = {
+      activePageId,
+      tool: category,
+      selectedIds: selectedIds.slice(0, 100),
+      viewport,
+      ...change,
+    };
+    const flush = () => {
+      awarenessTimerRef.current = null;
+      const pending = pendingAwarenessRef.current;
+      pendingAwarenessRef.current = null;
+      if (!pending) return;
+      lastAwarenessSentRef.current = performance.now();
+      session.liveSession?.awareness.setLocalStateField('ink', pending);
+    };
+    const remaining = 50 - (performance.now() - lastAwarenessSentRef.current);
+    if (remaining <= 0) flush();
+    else if (awarenessTimerRef.current === null) awarenessTimerRef.current = window.setTimeout(flush, remaining);
+  }, [activePageId, selectedIds, session.liveSession, tool.tool, viewport]);
+
+  useEffect(() => () => {
+    if (awarenessTimerRef.current !== null) window.clearTimeout(awarenessTimerRef.current);
+  }, []);
 
   const activeLayerId = useMemo(() => {
     if (!scene) return null;
@@ -498,7 +584,11 @@ export default function InkView({ relativePath }: InkViewProps) {
     const object = scene?.objects[objectId];
     if (!object) return;
     const color = inkObjectColor(object);
-    if (color) setTool((current) => ({ ...current, brush: { ...current.brush, color }, tool: 'pen' }));
+    if (color) setTool((current) => ({
+      ...current,
+      brush: { ...current.brush, color: canonicalInkColor(color) },
+      tool: 'pen',
+    }));
   }, [scene]);
 
   const activateObjectLink = useCallback((objectId: string) => {
@@ -581,12 +671,21 @@ export default function InkView({ relativePath }: InkViewProps) {
   );
 
   const resizeSelection = useCallback(
-    (handle: InkResizeHandle, dx: number, dy: number, uniform: boolean) => {
+    (handle: InkResizeHandle, dx: number, dy: number, uniform: boolean, rotation: number) => {
       if (selectedIds.length === 0 || !scene) return;
-      const before = boundsOf(scene, selectedIds);
-      if (!before) return;
+      const frame = selectionFrame(scene, selectedIds);
+      if (!frame) return;
+      const before = {
+        minX: frame.centerX - frame.width / 2,
+        minY: frame.centerY - frame.height / 2,
+        maxX: frame.centerX + frame.width / 2,
+        maxY: frame.centerY + frame.height / 2,
+      };
       const after = resizeBounds(before, handle, dx, dy, uniform);
-      const transform = boundsToBounds(before, after);
+      const localResize = boundsToBounds(before, after);
+      const toLocal = rotationAbout(frame.centerX, frame.centerY, -rotation);
+      const toWorld = rotationAbout(frame.centerX, frame.centerY, rotation);
+      const transform = composeAffine(composeAffine(toLocal, localResize), toWorld);
 
       commitScene('Resize', (current) => {
         const edits: Array<InkEdit<InkScene>> = [];
@@ -606,11 +705,11 @@ export default function InkView({ relativePath }: InkViewProps) {
   const rotateSelection = useCallback(
     (radians: number) => {
       if (selectedIds.length === 0 || !scene) return;
-      const bounds = boundsOf(scene, selectedIds);
-      if (!bounds) return;
+      const frame = selectionFrame(scene, selectedIds);
+      if (!frame) return;
       const transform = rotationAbout(
-        (bounds.minX + bounds.maxX) / 2,
-        (bounds.minY + bounds.maxY) / 2,
+        frame.centerX,
+        frame.centerY,
         radians,
       );
       commitScene('Rotate', (current) => {
@@ -959,6 +1058,7 @@ export default function InkView({ relativePath }: InkViewProps) {
       {stats ? <span>{stats.strokes.toLocaleString()} strokes</span> : null}
       {selectedIds.length > 0 ? <span>{selectedIds.length} selected</span> : null}
       <span>{Math.round(viewport.zoom * 100)}%</span>
+      <LivePeers peers={livePeers} />
     </>
   ) : undefined;
 
@@ -1115,6 +1215,7 @@ export default function InkView({ relativePath }: InkViewProps) {
             penButtons={INK_DEFAULT_PEN_BUTTONS}
             selectedIds={selectedIds}
             readOnly={session.readOnly}
+            colorPalette={colorPalette}
             onViewportChange={setViewport}
             onCommitStroke={commitStroke}
             onCreateAdvancedObject={createAdvancedObject}
@@ -1126,6 +1227,8 @@ export default function InkView({ relativePath }: InkViewProps) {
             onMoveSelection={moveSelection}
             onResizeSelection={resizeSelection}
             onRotateSelection={rotateSelection}
+            remotePeers={livePeers}
+            onInkAwareness={publishInkAwareness}
             className="absolute inset-0"
           />
           {focusMode && (
@@ -1148,6 +1251,7 @@ export default function InkView({ relativePath }: InkViewProps) {
             swatches={document?.swatches ?? []}
             tool={tool}
             readOnly={session.readOnly}
+            colorPalette={colorPalette}
             selectedIds={selectedIds}
             activeLayerId={activeLayerId}
             onBrushChange={(change) =>
@@ -1190,7 +1294,12 @@ export default function InkView({ relativePath }: InkViewProps) {
             }}
             onSelectBrushPreset={(preset) => {
               const { id, name: _name, ...brush } = preset;
-              setTool((current) => ({ ...current, tool: 'pen', brushId: id, brush: { ...brush, presetId: id } }));
+              setTool((current) => ({
+                ...current,
+                tool: 'pen',
+                brushId: id,
+                brush: { ...brush, color: canonicalInkColor(brush.color), presetId: id },
+              }));
             }}
             onSaveBrushFavorite={() => {
               const id = nextId('brush');

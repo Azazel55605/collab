@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Awareness } from 'y-protocols/awareness';
 import type { LiveDocumentHandle } from './liveDocumentSession';
+import type { InkBrushParameters, InkSample } from '../types/ink';
 
 /**
  * Shared consumption side of the Phase 5 ephemeral awareness relay.
@@ -22,7 +23,7 @@ export interface LiveAwarenessUser {
 
 /** Document context so a peer state can be matched to the right document. */
 export interface LiveAwarenessDocument {
-  kind: 'note' | 'kanban' | 'canvas' | 'logic' | 'sheet';
+  kind: 'note' | 'kanban' | 'canvas' | 'logic' | 'sheet' | 'ink';
   relativePath: string;
 }
 
@@ -49,6 +50,19 @@ export interface SheetInteraction {
   }>;
 }
 
+export interface InkInteraction {
+  activePageId: string;
+  tool: 'draw' | 'erase' | 'select' | 'navigate' | 'other';
+  selectedIds?: string[];
+  cursor?: { x: number; y: number };
+  viewport?: { originX: number; originY: number; zoom: number };
+  preview?: {
+    pageId: string;
+    brush: InkBrushParameters;
+    samples: InkSample[];
+  } | null;
+}
+
 /** The full ephemeral state a peer publishes for one document. */
 export interface LiveAwarenessState {
   user?: LiveAwarenessUser;
@@ -56,6 +70,7 @@ export interface LiveAwarenessState {
   kanban?: KanbanInteraction;
   canvas?: CanvasInteraction;
   sheet?: SheetInteraction;
+  ink?: InkInteraction;
 }
 
 /** A remote peer's awareness state keyed by its Yjs client id. */

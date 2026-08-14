@@ -47,7 +47,10 @@ import { INK_TILE_SIZE } from '../../../../src/lib/ink/tiles';
 import type { InkViewport } from '../../../../src/lib/ink/tiles';
 import { penButtonTool, INK_DEFAULT_PEN_BUTTONS } from '../../../../src/lib/ink/tools';
 import type { InkToolState } from '../../../../src/lib/ink/tools';
+import type { InkInteraction, LivePeer } from '../../../../src/lib/liveAwareness';
 import { clampInkScale } from '../lib/ink';
+import { INK_LIGHT_PALETTE, resolveInkColor } from '../../../../src/lib/ink/colors';
+import type { InkColorPalette } from '../../../../src/lib/ink/colors';
 
 interface CanvasTile {
   canvas: HTMLCanvasElement;
@@ -94,9 +97,12 @@ export interface InkTouchCanvasProps {
   tool: InkToolState;
   inputSettings: InkInputSettings;
   readOnly: boolean;
+  colorPalette?: InkColorPalette;
   onViewportChange: (next: { originX: number; originY: number; zoom: number }) => void;
   onCommitStroke: (samples: InkSample[]) => void;
   onErase: (path: Array<{ x: number; y: number }>, radius: number) => void;
+  remotePeers?: LivePeer[];
+  onInkAwareness?: (interaction: Pick<InkInteraction, 'cursor' | 'preview'>) => void;
 }
 
 type Gesture =
@@ -121,9 +127,12 @@ export function InkTouchCanvas({
   tool,
   inputSettings,
   readOnly,
+  colorPalette = INK_LIGHT_PALETTE,
   onViewportChange,
   onCommitStroke,
   onErase,
+  remotePeers = [],
+  onInkAwareness,
 }: InkTouchCanvasProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const tileCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -142,6 +151,10 @@ export function InkTouchCanvas({
   useEffect(() => {
     arbiterRef.current.updateSettings(inputSettings);
   }, [inputSettings]);
+
+  useEffect(() => {
+    rendererRef.current?.setRenderOptions({ colors: colorPalette });
+  }, [colorPalette]);
 
   useEffect(() => {
     rendererRef.current?.invalidateAll();
@@ -245,8 +258,44 @@ export function InkTouchCanvas({
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
 
+    for (const peer of remotePeers) {
+      if (!peer.user) continue;
+      const preview = peer.ink?.preview;
+      if (!preview || preview.pageId !== page?.id || preview.samples.length === 0) continue;
+      const outline = outlineStroke(preview.samples, preview.brush);
+      if (outline.length < 3) continue;
+      context.beginPath();
+      const first = toScreen(outline[0].x, outline[0].y);
+      context.moveTo(first.x, first.y);
+      for (let index = 1; index < outline.length; index += 1) {
+        const point = toScreen(outline[index].x, outline[index].y);
+        context.lineTo(point.x, point.y);
+      }
+      context.closePath();
+      context.fillStyle = peer.user.color;
+      context.globalAlpha = preview.brush.opacity * 0.8;
+      context.fill();
+    }
+
+    for (const peer of remotePeers) {
+      if (!peer.user) continue;
+      const cursor = peer.ink?.cursor;
+      if (!cursor || peer.ink?.activePageId !== page?.id) continue;
+      const point = toScreen(cursor.x, cursor.y);
+      context.beginPath();
+      context.arc(point.x, point.y, 5, 0, Math.PI * 2);
+      context.fillStyle = peer.user.color;
+      context.globalAlpha = 1;
+      context.fill();
+      context.font = '12px sans-serif';
+      context.fillText(peer.user.name, point.x + 9, point.y - 7);
+    }
+
     const gesture = gestureRef.current;
-    if (gesture.kind !== 'draw' || gesture.readings.length === 0) return;
+    if (gesture.kind !== 'draw' || gesture.readings.length === 0) {
+      context.globalAlpha = 1;
+      return;
+    }
 
     const samples: InkSample[] = gesture.readings.map((reading) => ({
       x: reading.x,
@@ -264,11 +313,11 @@ export function InkTouchCanvas({
       context.lineTo(point.x, point.y);
     }
     context.closePath();
-    context.fillStyle = tool.brush.color;
+    context.fillStyle = resolveInkColor(tool.brush.color, colorPalette);
     context.globalAlpha = tool.brush.opacity;
     context.fill();
     context.globalAlpha = 1;
-  }, [size.height, size.width, toScreen, tool.brush]);
+  }, [colorPalette, page?.id, remotePeers, size.height, size.width, toScreen, tool.brush]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(drawLive);
@@ -335,6 +384,7 @@ export function InkTouchCanvas({
       if (readOnly && effective !== 'pan') effective = 'pan';
 
       const point = toDocument(event.clientX, event.clientY);
+      onInkAwareness?.({ cursor: point, preview: null });
       if (effective === 'eraser') {
         gestureRef.current = { kind: 'erase', pointerId: event.pointerId, path: [point] };
       } else if (effective === 'pen') {
@@ -354,7 +404,7 @@ export function InkTouchCanvas({
       }
       bump();
     },
-    [originX, originY, readOnly, toDocument, tool.tool, zoom],
+    [onInkAwareness, originX, originY, readOnly, toDocument, tool.tool, zoom],
   );
 
   const onPointerMove = useCallback(
@@ -432,6 +482,15 @@ export function InkTouchCanvas({
             ...readingsFromEvent(entry, { originX, originY, zoom }, gesture.startedAt),
           );
         }
+        const samples: InkSample[] = gesture.readings.slice(-128).map((reading) => ({
+          x: reading.x,
+          y: reading.y,
+          ...(reading.pressure === undefined ? {} : { pressure: Math.round(reading.pressure * 4095) }),
+        }));
+        onInkAwareness?.({
+          cursor: toDocument(event.clientX, event.clientY),
+          preview: page ? { pageId: page.id, brush: tool.brush, samples } : null,
+        });
         bump();
         return;
       }
@@ -440,7 +499,7 @@ export function InkTouchCanvas({
         bump();
       }
     },
-    [onViewportChange, originX, originY, toDocument, unitsPerPixel, zoom],
+    [onInkAwareness, onViewportChange, originX, originY, page, toDocument, tool.brush, unitsPerPixel, zoom],
   );
 
   const endGesture = useCallback(
@@ -456,6 +515,7 @@ export function InkTouchCanvas({
       }
       if (gesture.pointerId !== event.pointerId) return;
       gestureRef.current = { kind: 'none' };
+      onInkAwareness?.({ cursor: toDocument(event.clientX, event.clientY), preview: null });
 
       if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
@@ -475,7 +535,7 @@ export function InkTouchCanvas({
       }
       bump();
     },
-    [onCommitStroke, onErase, tool.brush.streamline, tool.eraserRadius],
+    [onCommitStroke, onErase, onInkAwareness, toDocument, tool.brush.streamline, tool.eraserRadius],
   );
 
   const cursorHint = useMemo(() => {
