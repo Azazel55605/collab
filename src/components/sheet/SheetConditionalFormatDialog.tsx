@@ -7,6 +7,7 @@ import type {
 } from '../../types/sheet';
 import type { SheetConditionalFormatDraft } from '../../lib/sheet/conditionalFormatting';
 import { Button } from '../ui/button';
+import { ColorPicker } from '../ui/color-picker';
 import {
   Dialog,
   DialogContent,
@@ -23,11 +24,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-
-const COLORS = [
-  '#fee2e2', '#ffedd5', '#fef3c7', '#dcfce7', '#cffafe',
-  '#dbeafe', '#ede9fe', '#fce7f3', '#fecaca', '#bbf7d0',
-] as const;
 
 const KIND_LABELS: Record<SheetConditionalFormatKind, string> = {
   comparison: 'Comparison',
@@ -67,7 +63,7 @@ export default function SheetConditionalFormatDialog({
   const [operator, setOperator] = useState<ComparisonOperator>('greater');
   const [firstValue, setFirstValue] = useState('');
   const [secondValue, setSecondValue] = useState('');
-  const [color, setColor] = useState<string>(COLORS[0]);
+  const [color, setColor] = useState<string>('#fee2e2');
   const [scaleStart, setScaleStart] = useState<string>('#fee2e2');
   const [scaleEnd, setScaleEnd] = useState<string>('#dcfce7');
   const [formula, setFormula] = useState('');
@@ -147,11 +143,11 @@ export default function SheetConditionalFormatDialog({
 
           {kind === 'colorScale' ? (
             <div className="grid grid-cols-2 gap-3">
-              <ColorPicker label="Low values" value={scaleStart} onChange={setScaleStart} />
-              <ColorPicker label="High values" value={scaleEnd} onChange={setScaleEnd} />
+              <ColorPicker label="Low values" value={scaleStart} onValueChange={setScaleStart} className="w-full" />
+              <ColorPicker label="High values" value={scaleEnd} onValueChange={setScaleEnd} className="w-full" />
             </div>
           ) : (
-            <ColorPicker label="Cell fill" value={color} onChange={setColor} />
+            <ColorPicker label="Cell fill" value={color} onValueChange={setColor} className="w-full" />
           )}
 
           {rules.length > 0 && (
@@ -189,34 +185,5 @@ export default function SheetConditionalFormatDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function ColorPicker({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="space-y-1">
-      <div className="text-xs font-medium">{label}</div>
-      <div className="grid grid-cols-5 gap-1.5">
-        {COLORS.map((color) => (
-          <button
-            key={color}
-            type="button"
-            className="size-8 rounded-md border outline-none hover:ring-2 hover:ring-primary"
-            style={{ backgroundColor: color }}
-            aria-label={`${label} ${color}`}
-            aria-pressed={value === color}
-            onClick={() => onChange(color)}
-          />
-        ))}
-      </div>
-    </div>
   );
 }

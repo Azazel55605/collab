@@ -21,15 +21,8 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
-import { Input } from '../ui/input';
-
-const COLUMN_COLORS = [
-  '#6366f1', '#8b5cf6', '#ec4899', '#ef4444',
-  '#f97316', '#eab308', '#22c55e', '#14b8a6',
-  '#3b82f6', '#64748b',
-];
+import { ColorPicker } from '../ui/color-picker';
 
 const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
@@ -116,8 +109,6 @@ export default function KanbanColumnView({ column }: Props) {
   }, [editingTitle]);
   const [addingCard,       setAddingCard]       = useState(false);
   const [cardDraft,        setCardDraft]        = useState('');
-  const [colorOpen,        setColorOpen]        = useState(false);
-  const [hexDraft,         setHexDraft]         = useState('');
   const [defaultTagsOpen,  setDefaultTagsOpen]  = useState(false);
   const [tagInput,         setTagInput]         = useState('');
 
@@ -150,7 +141,6 @@ export default function KanbanColumnView({ column }: Props) {
   }
 
   function setColor(color: string) {
-    setColorOpen(false);
     updateBoard(prev => ({
       ...prev,
       columns: prev.columns.map(c => c.id === column.id ? { ...c, color } : c),
@@ -329,62 +319,22 @@ export default function KanbanColumnView({ column }: Props) {
           </button>
 
           {/* Color swatch */}
-          <Popover
-            open={colorOpen}
-            onOpenChange={(o) => {
-              setColorOpen(o);
-              if (o) setHexDraft(column.color ?? '#64748b');
-            }}
-          >
-            <PopoverTrigger asChild>
+          <ColorPicker
+            label={`Color for ${column.title}`}
+            value={column.color ?? '#64748b'}
+            disabled={!caps.columnManage}
+            align="start"
+            onValueChange={setColor}
+            trigger={(
               <button
+                type="button"
+                aria-label={`Color for ${column.title}`}
+                disabled={!caps.columnManage}
                 className="w-3.5 h-3.5 rounded-full border border-white/15 hover:scale-125 transition-transform shrink-0 mt-0.5"
                 style={{ backgroundColor: column.color ?? '#64748b' }}
               />
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-auto p-2.5 flex flex-col gap-2">
-              {/* Preset swatches */}
-              <div className="grid grid-cols-5 gap-2">
-                {COLUMN_COLORS.map(c => (
-                  <button
-                    key={c}
-                    onClick={() => setColor(c)}
-                    className={cn(
-                      'w-7 h-7 rounded-full border border-white/10 hover:scale-110 transition-transform',
-                      column.color === c && 'ring-2 ring-white/60 ring-offset-1 ring-offset-popover',
-                    )}
-                    style={{ backgroundColor: c }}
-                  />
-                ))}
-              </div>
-
-              {/* Custom hex input */}
-              <div className="border-t border-border/40 pt-2 flex items-center gap-2">
-                <div
-                  className="w-6 h-6 shrink-0 rounded-md border border-white/15"
-                  style={{ backgroundColor: /^#[0-9a-f]{6}$/i.test(hexDraft) ? hexDraft : (column.color ?? '#64748b') }}
-                />
-                <Input
-                  value={hexDraft}
-                  onChange={e => setHexDraft(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      const v = hexDraft.trim();
-                      if (/^#[0-9a-f]{6}$/i.test(v)) setColor(v);
-                    }
-                  }}
-                  onBlur={() => {
-                    const v = hexDraft.trim();
-                    if (/^#[0-9a-f]{6}$/i.test(v)) setColor(v);
-                  }}
-                  placeholder="#rrggbb"
-                  className="h-7 w-28 font-mono text-xs px-2"
-                  maxLength={7}
-                  spellCheck={false}
-                />
-              </div>
-            </PopoverContent>
-          </Popover>
+            )}
+          />
 
           {/* Title */}
           {editingTitle ? (

@@ -138,7 +138,8 @@ describe('calendar management', () => {
       target: { value: 'Private' },
     });
     expect(screen.queryByRole('textbox', { name: 'Default time zone' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Use color #60a5fa' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Calendar accent color' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Calendar accent color #60a5fa' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(localCalendar.id, {
       name: 'Private',

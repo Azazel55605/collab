@@ -3,7 +3,11 @@ import type { SvgNode } from '../../types/svg';
 import { setNodeFontSize, setNodeStyle, setNodeText } from '../../lib/svgDocument';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
+import { ColorPicker } from '../ui/color-picker';
 import { Input } from '../ui/input';
+import { Slider } from '../ui/slider';
+import { Textarea } from '../ui/textarea';
 
 interface Props {
   node: SvgNode;
@@ -44,44 +48,42 @@ export function SvgPropertiesPanel({ node, onChange, onReorder, onDelete, onClos
       <div className="flex flex-col gap-2.5">
         {supportsFill && (
           <Row label="Fill">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={fillOn}
-              onChange={(e) =>
-                onChange((n) => setNodeStyle(n, { fill: e.target.checked ? NORMALIZE_COLOR(n.style.fill, '#38bdf8') : 'none' }))
+              onCheckedChange={(checked) =>
+                onChange((n) => setNodeStyle(n, { fill: checked === true ? NORMALIZE_COLOR(n.style.fill, '#38bdf8') : 'none' }))
               }
-              title="Toggle fill"
+              aria-label="Toggle fill"
             />
-            <input
-              type="color"
+            <ColorPicker
+              label="Fill colour"
               value={NORMALIZE_COLOR(node.style.fill, '#38bdf8')}
               disabled={!fillOn}
-              onChange={(e) => onChange((n) => setNodeStyle(n, { fill: e.target.value }))}
-              className="h-7 w-9 cursor-pointer rounded border border-input bg-transparent disabled:opacity-40"
+              onValueChange={(fill) => onChange((n) => setNodeStyle(n, { fill }))}
+              className="w-32"
             />
           </Row>
         )}
 
         <Row label="Stroke">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={strokeOn}
-            onChange={(e) =>
+            onCheckedChange={(checked) =>
               onChange((n) =>
                 setNodeStyle(n, {
-                  stroke: e.target.checked ? NORMALIZE_COLOR(n.style.stroke, '#0f172a') : 'none',
-                  strokeWidth: e.target.checked && n.style.strokeWidth == null ? 2 : n.style.strokeWidth,
+                  stroke: checked === true ? NORMALIZE_COLOR(n.style.stroke, '#0f172a') : 'none',
+                  strokeWidth: checked === true && n.style.strokeWidth == null ? 2 : n.style.strokeWidth,
                 }),
               )
             }
-            title="Toggle stroke"
+            aria-label="Toggle stroke"
           />
-          <input
-            type="color"
+          <ColorPicker
+            label="Stroke colour"
             value={NORMALIZE_COLOR(node.style.stroke, '#0f172a')}
             disabled={!strokeOn}
-            onChange={(e) => onChange((n) => setNodeStyle(n, { stroke: e.target.value }))}
-            className="h-7 w-9 cursor-pointer rounded border border-input bg-transparent disabled:opacity-40"
+            onValueChange={(stroke) => onChange((n) => setNodeStyle(n, { stroke }))}
+            className="w-32"
           />
         </Row>
 
@@ -99,14 +101,14 @@ export function SvgPropertiesPanel({ node, onChange, onReorder, onDelete, onClos
         )}
 
         <Row label="Opacity">
-          <input
-            type="range"
+          <Slider
             min={0}
-            max={1}
-            step={0.05}
-            value={node.style.opacity ?? 1}
-            onChange={(e) => onChange((n) => setNodeStyle(n, { opacity: Number.parseFloat(e.target.value) }))}
-            className="w-28 accent-primary"
+            max={100}
+            step={5}
+            value={[(node.style.opacity ?? 1) * 100]}
+            onValueChange={([opacity]) => onChange((n) => setNodeStyle(n, { opacity: opacity / 100 }))}
+            aria-label="Opacity"
+            className="w-28"
           />
         </Row>
 
@@ -114,10 +116,10 @@ export function SvgPropertiesPanel({ node, onChange, onReorder, onDelete, onClos
           <>
             <div className="flex flex-col gap-1.5">
               <span className="text-xs text-muted-foreground">Text</span>
-              <textarea
+              <Textarea
                 value={node.text ?? ''}
                 onChange={(e) => onChange((n) => setNodeText(n, e.target.value))}
-                className="min-h-16 w-full rounded-lg border border-input bg-background/55 px-2.5 py-1.5 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                className="min-h-16 w-full text-sm"
                 placeholder="Text"
               />
             </div>

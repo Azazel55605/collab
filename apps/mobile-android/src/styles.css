@@ -416,6 +416,128 @@ p {
   box-shadow: 0 0 0 3px var(--glow);
 }
 
+.mobile-color-picker {
+  display: grid;
+  gap: 10px;
+}
+
+.mobile-color-trigger {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.mobile-color-trigger code {
+  flex: 1;
+  text-align: left;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+}
+
+.mobile-color-preview {
+  width: 24px;
+  height: 24px;
+  border: 1px solid color-mix(in srgb, var(--foreground) 20%, transparent);
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, white 15%, transparent);
+}
+
+.mobile-color-panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 24%);
+}
+
+.mobile-color-plane {
+  position: relative;
+  height: 180px;
+  touch-action: none;
+  border: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent);
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+
+.mobile-color-plane > span,
+.mobile-color-hue > span {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 3px solid white;
+  border-radius: 50%;
+  box-shadow: 0 1px 5px rgb(0 0 0 / 65%);
+  transform: translate(-50%, -50%);
+}
+
+.mobile-color-hue {
+  position: relative;
+  height: 16px;
+  touch-action: none;
+  border-radius: 999px;
+  outline: none;
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+
+.mobile-color-hue > span {
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  background: var(--background);
+}
+
+.mobile-color-plane:focus-visible,
+.mobile-color-hue:focus-visible {
+  box-shadow: 0 0 0 3px var(--glow);
+}
+
+.mobile-color-hex {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.mobile-color-hex > span {
+  padding-left: 12px;
+  color: var(--muted-foreground);
+}
+
+.mobile-color-hex input {
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-family: monospace;
+  text-transform: uppercase;
+}
+
+.mobile-color-presets {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 7px;
+}
+
+.mobile-color-presets button {
+  display: grid;
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--foreground) 18%, transparent);
+  border-radius: 9px;
+  color: white;
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 45%));
+}
+
 .toggle-field {
   display: flex;
   align-items: flex-start;

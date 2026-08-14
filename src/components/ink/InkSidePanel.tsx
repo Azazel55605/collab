@@ -168,6 +168,13 @@ export default function InkSidePanel({
               />
             ))}
           </div>
+          <ColorPicker
+            label="Pen colour"
+            disabled={readOnly}
+            value={resolveInkColor(tool.brush.color, colorPalette)}
+            onValueChange={(color) => onBrushChange({ color })}
+            className="w-full"
+          />
           <button
             type="button"
             disabled={readOnly || swatches.length >= INK_LIMITS.swatchesPerDocument || swatches.some((swatch) => swatch.color.toLowerCase() === tool.brush.color.toLowerCase())}

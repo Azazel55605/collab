@@ -856,7 +856,8 @@ Located in `src/components/ui/`. Install new ones with `pnpm dlx shadcn@latest a
 | ContextMenu | `context-menu.tsx` | KanbanCard, FileTree, TabBar |
 | Select | `select.tsx` | CardDialog column selector |
 | Slider | `slider.tsx` | Ink brush opacity and stabilization |
-| ColorPicker | `color-picker.tsx` | Theme-aware ink and document colours |
+| ColorPicker | `color-picker.tsx` | App-wide full-range HSV/hex/opacity colour selection; shared conversion math lives in `lib/color.ts` |
+| Field / Label | `field.tsx`, `label.tsx` | Accessible form grouping and labels used by composite controls |
 | Calendar | `calendar.tsx` | CardDialog date pickers |
 | DatePicker | `date-picker.tsx` | Shared Calendar/Popover date field used by account Calendar and future forms |
 | TimePicker | `time-picker.tsx` | Shared modal 12/24-hour time field used by account Calendar and future forms |

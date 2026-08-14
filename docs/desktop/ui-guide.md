@@ -67,6 +67,12 @@ Animations should support orientation, state change, and spatial continuity. Avo
   disabled, and accessible-name behavior part of the component contract.
 - Raw semantic HTML remains appropriate when it has no platform-native visual
   UI or when it is encapsulated inside the shared component implementation.
+- Use `src/components/ui/color-picker.tsx` whenever a desktop workflow accepts
+  an arbitrary colour. It provides a full HSV range, exact hex entry, optional
+  opacity, presets, and keyboard operation without native control chrome. Mobile
+  surfaces use their app-owned counterpart over the same shared colour math in
+  `src/lib/color.ts`; do not reintroduce a native colour input or a fixed-only
+  palette as the sole way to choose a colour.
 
 ### Surfaces
 

@@ -32,6 +32,7 @@ import {
 
 import { Banner, ReadOnlyBadge, Spinner } from '../components/ui';
 import { DateField } from '../components/DateField';
+import { ColorPicker } from '../components/ColorPicker';
 import { useBackDismiss } from '../lib/backStack';
 import { isReadOnlyRole } from '../lib/format';
 import {
@@ -1060,7 +1061,10 @@ function ColumnEditSheet({
         <div className="sheet-handle" />
         <div className="sheet-head"><div className="row-text"><strong>Edit column</strong><span>{column.cards.length} cards</span></div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={18} /></button></div>
         <label className="field"><span>Title</span><input value={column.title} onChange={(event) => onChange({ title: event.target.value })} /></label>
-        <label className="field"><span>Color</span><input type="color" value={column.color ?? '#64748b'} onChange={(event) => onChange({ color: event.target.value })} /></label>
+        <label className="field">
+          <span>Color</span>
+          <ColorPicker label="Column color" value={column.color ?? '#64748b'} onValueChange={(color) => onChange({ color })} />
+        </label>
         <label className="toggle-row"><span><strong>Auto-complete moved cards</strong><small>Cards moved here are marked done.</small></span><input type="checkbox" checked={column.autoComplete ?? false} onChange={(event) => onChange({ autoComplete: event.target.checked })} /></label>
         <label className="toggle-row"><span><strong>Hide from timeline</strong><small>Exclude this column from the timeline view.</small></span><input type="checkbox" checked={column.hideFromTimeline ?? false} onChange={(event) => onChange({ hideFromTimeline: event.target.checked })} /></label>
         <div className="column-order-actions">

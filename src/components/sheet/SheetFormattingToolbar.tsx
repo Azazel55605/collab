@@ -23,6 +23,7 @@ import {
 import type { SheetNumberFormat, SheetNumberFormatKind, SheetStyle } from '../../types/sheet';
 import type { SheetPasteMode } from '../../lib/sheet/clipboard';
 import { Button } from '../ui/button';
+import { ColorPicker } from '../ui/color-picker';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,11 +46,6 @@ interface Props {
   note?: string;
   onNoteChange: (note: string | null) => void;
 }
-
-const COLORS = [
-  '#111827', '#f8fafc', '#ef4444', '#f97316', '#eab308',
-  '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899',
-] as const;
 
 const FORMAT_LABELS: Record<SheetNumberFormatKind, string> = {
   general: 'General',
@@ -89,8 +85,13 @@ function ColorMenu({
   onChange: (color: string | undefined) => void;
 }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <ColorPicker
+      label={label}
+      value={value ?? '#111827'}
+      disabled={disabled}
+      align="start"
+      onValueChange={(color) => onChange(color)}
+      trigger={(
         <ToolButton aria-label={label} title={label} disabled={disabled}>
           {icon}
           <span
@@ -98,23 +99,8 @@ function ColorMenu({
             style={{ backgroundColor: value ?? 'currentColor' }}
           />
         </ToolButton>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-44" align="start">
-        <div className="grid grid-cols-5 gap-1 p-1" aria-label={`${label} colors`}>
-          {COLORS.map((color) => (
-            <button
-              key={color}
-              type="button"
-              aria-label={`${label} ${color}`}
-              className="size-7 rounded border border-border/70 outline-none ring-offset-1 hover:ring-2 hover:ring-primary"
-              style={{ backgroundColor: color }}
-              onClick={() => onChange(color)}
-            />
-          ))}
-        </div>
-        <DropdownMenuItem onSelect={() => onChange(undefined)}>Default</DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      )}
+    />
   );
 }
 

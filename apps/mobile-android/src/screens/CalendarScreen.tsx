@@ -35,6 +35,8 @@ import {
   type TouchEvent as ReactTouchEvent,
 } from 'react';
 
+import { ColorPicker } from '../components/ColorPicker';
+
 import {
   acknowledgeProfileCalendarOperations,
   deleteProfileCalendarItem,
@@ -1074,7 +1076,7 @@ function CalendarManager({ calendars, statuses, mirrorStatuses, mirrorConflicts,
           const selected = calendarLocationKey(draft.location) === calendarLocationKey(option.location);
           return <button key={option.key} type="button" className={selected ? 'active' : ''} onClick={() => setDraft(current => current ? { ...current, location: option.location } : current)}>{option.location.kind === 'local' ? 'Device' : 'Server'}<small>{option.label}</small></button>;
         })}</fieldset> : <p className="calendar-manager-origin">Stored in {calendarOrigin(draft.calendar)}</p>}
-        <fieldset className="calendar-manager-colors"><legend>Accent color</legend>{CALENDAR_COLORS.map(color => <button key={color} type="button" className={draft.color === color ? 'active' : ''} aria-label={`Use color ${color}`} aria-pressed={draft.color === color} style={{ '--calendar-color': color } as CSSProperties} onClick={() => setDraft(current => current ? { ...current, color } : current)} />)}</fieldset>
+        <fieldset className="calendar-manager-colors"><legend>Accent color</legend><ColorPicker label="Calendar accent color" value={draft.color} onValueChange={(color) => setDraft(current => current ? { ...current, color } : current)} /></fieldset>
         <div className="form-actions"><button type="button" className="ghost-button" onClick={() => setDraft(null)}>Cancel</button><button type="button" className="primary-button" disabled={saving || !draft.name.trim()} onClick={() => void saveDraft()}>{saving ? <Spinner /> : null}{draft.calendar ? 'Save' : 'Create'}</button></div>
       </div> : null}
     </div>
