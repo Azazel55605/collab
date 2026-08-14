@@ -46,6 +46,7 @@ export interface InkRenderTarget {
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void;
   translate(x: number, y: number): void;
   scale(x: number, y: number): void;
+  rotate(angle: number): void;
   clearRect(x: number, y: number, width: number, height: number): void;
   fillRect(x: number, y: number, width: number, height: number): void;
   beginPath(): void;
@@ -112,6 +113,20 @@ function paintObject(
   outliner: InkStrokeOutliner,
   options: InkRenderOptions,
 ): void {
+  if (
+    (object.type === 'text' || object.type === 'stamp')
+    && object.rotation
+  ) {
+    const centerX = object.x + object.width / 2;
+    const centerY = object.y + object.height / 2;
+    target.save();
+    target.translate(centerX, centerY);
+    target.rotate(object.rotation);
+    target.translate(-centerX, -centerY);
+    paintObject(target, { ...object, rotation: 0 }, outliner, options);
+    target.restore();
+    return;
+  }
   switch (object.type) {
     case 'stroke':
       paintStroke(target, object, outliner);

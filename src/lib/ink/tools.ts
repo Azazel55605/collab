@@ -59,7 +59,7 @@ export function defaultToolState(): InkToolState {
     tool: 'pen',
     brushId: 'ballpoint',
     brush: { ...INK_DEFAULT_BRUSHES.ballpoint },
-    eraserMode: 'stroke',
+    eraserMode: 'segment',
     eraserRadius: 640,
     activeLayerId: null,
     shapeKind: 'rectangle',

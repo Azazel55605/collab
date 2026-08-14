@@ -59,6 +59,99 @@ function distanceToSegmentSquared(
   return ox * ox + oy * oy;
 }
 
+function segmentsIntersect(
+  a: InkEraserPoint,
+  b: InkEraserPoint,
+  c: InkEraserPoint,
+  d: InkEraserPoint,
+): boolean {
+  const cross = (p: InkEraserPoint, q: InkEraserPoint, r: InkEraserPoint) =>
+    (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const abC = cross(a, b, c);
+  const abD = cross(a, b, d);
+  const cdA = cross(c, d, a);
+  const cdB = cross(c, d, b);
+  return ((abC <= 0 && abD >= 0) || (abC >= 0 && abD <= 0))
+    && ((cdA <= 0 && cdB >= 0) || (cdA >= 0 && cdB <= 0));
+}
+
+function segmentDistanceSquared(
+  a: InkEraserPoint,
+  b: InkEraserPoint,
+  c: InkEraserPoint,
+  d: InkEraserPoint,
+): number {
+  if (segmentsIntersect(a, b, c, d)) return 0;
+  return Math.min(
+    distanceToSegmentSquared(a.x, a.y, c.x, c.y, d.x, d.y),
+    distanceToSegmentSquared(b.x, b.y, c.x, c.y, d.x, d.y),
+    distanceToSegmentSquared(c.x, c.y, a.x, a.y, b.x, b.y),
+    distanceToSegmentSquared(d.x, d.y, a.x, a.y, b.x, b.y),
+  );
+}
+
+function segmentTouchesEraser(
+  from: InkSample,
+  to: InkSample,
+  path: InkEraserPoint[],
+  radius: number,
+): boolean {
+  if (path.length === 1) {
+    return distanceToSegmentSquared(path[0].x, path[0].y, from.x, from.y, to.x, to.y)
+      <= radius * radius;
+  }
+  for (let index = 1; index < path.length; index += 1) {
+    if (segmentDistanceSquared(from, to, path[index - 1], path[index]) <= radius * radius) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function interpolateSample(from: InkSample, to: InkSample, amount: number): InkSample {
+  const sample: InkSample = {
+    x: Math.round(from.x + (to.x - from.x) * amount),
+    y: Math.round(from.y + (to.y - from.y) * amount),
+  };
+  for (const key of ['pressure', 'tiltX', 'tiltY', 'twist', 'elapsed'] as const) {
+    const start = from[key];
+    const end = to[key];
+    if (start !== undefined && end !== undefined) {
+      sample[key] = Math.round(start + (end - start) * amount);
+    }
+  }
+  return sample;
+}
+
+/**
+ * Adds temporary samples only where an eraser crosses a long stored segment.
+ * Old drawings may have been simplified aggressively; clipping only at their
+ * surviving sample positions would remove a much larger chunk than the rubber
+ * actually covered.
+ */
+function refineSamplesNearEraser(
+  samples: InkSample[],
+  path: InkEraserPoint[],
+  radius: number,
+): InkSample[] {
+  if (samples.length < 2) return samples;
+  const refined: InkSample[] = [samples[0]];
+  const targetStep = Math.max(1, radius / 3);
+  for (let index = 1; index < samples.length; index += 1) {
+    const from = samples[index - 1];
+    const to = samples[index];
+    if (segmentTouchesEraser(from, to, path, radius)) {
+      const length = Math.hypot(to.x - from.x, to.y - from.y);
+      const divisions = Math.min(256, Math.max(1, Math.ceil(length / targetStep)));
+      for (let division = 1; division < divisions; division += 1) {
+        refined.push(interpolateSample(from, to, division / divisions));
+      }
+    }
+    refined.push(to);
+  }
+  return refined;
+}
+
 /** True when the eraser path passes within `radius` of a sample. */
 function sampleIsErased(
   sample: InkSample,
@@ -96,8 +189,9 @@ export function splitStrokeAroundEraser(
 ): InkSample[][] {
   const runs: InkSample[][] = [];
   let current: InkSample[] = [];
+  const refined = refineSamplesNearEraser(samples, path, radius);
 
-  for (const sample of samples) {
+  for (const sample of refined) {
     if (sampleIsErased(sample, path, radius)) {
       if (current.length > 1) runs.push(current);
       current = [];
@@ -189,7 +283,8 @@ export function applyErase(scene: InkScene, plan: InkEraseResult): InkEdit<InkSc
   // them, which shows up the moment two pieces overlap.
   const cursors = new Map<string, number>();
   for (const replacement of plan.replacements) {
-    const sourceId = replacement.id.split('~e')[0];
+    const suffix = replacement.id.lastIndexOf('~e');
+    const sourceId = suffix < 0 ? replacement.id : replacement.id.slice(0, suffix);
     const base = indexes.get(sourceId);
     const offset = cursors.get(sourceId) ?? 0;
     const insertAt = base === undefined || base < 0

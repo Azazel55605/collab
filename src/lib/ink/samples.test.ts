@@ -200,6 +200,17 @@ describe('captureStroke', () => {
     expect(captured.length).toBeLessThan(readings.length / 2);
   });
 
+  it('preserves every captured turn when simplification is disabled for handwriting', () => {
+    const readings = [
+      { x: 0, y: 0 },
+      { x: 20, y: 40 },
+      { x: 40, y: 0 },
+      { x: 60, y: 40 },
+    ];
+    expect(captureStroke(readings, { streamline: 0, simplifyTolerance: 0 }))
+      .toEqual(readings);
+  });
+
   it('returns nothing when every reading is invalid', () => {
     expect(captureStroke([{ x: Number.NaN, y: Number.NaN }])).toEqual([]);
   });

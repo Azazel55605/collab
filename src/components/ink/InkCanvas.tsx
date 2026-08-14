@@ -40,8 +40,8 @@ import InkRichObjectLayer from './InkRichObjectLayer';
  * 3. **A DOM overlay** draws selection handles and the lasso, where hit targets
  *    and accessibility belong.
  *
- * Nothing is serialized, written, or sent per pointer event. A stroke becomes a
- * document edit exactly once, on pointer-up.
+ * Drawn strokes become document edits on pointer-up. Erasing is applied while
+ * the pointer moves so the surface responds like a physical eraser.
  */
 
 interface CanvasTile {
@@ -51,6 +51,7 @@ interface CanvasTile {
 /** Absorbs paint calls where no 2D context exists (jsdom, headless tests). */
 const NULL_TARGET: InkRenderTarget = {
   save() {}, restore() {}, setTransform() {}, translate() {}, scale() {},
+  rotate() {},
   clearRect() {}, fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {},
   closePath() {}, fill() {}, stroke() {}, fillText() {},
   setLineDash() {},
@@ -97,12 +98,14 @@ export interface InkCanvasProps {
   onSelectionChange: (ids: string[], additive: boolean) => void;
   onMoveSelection: (dx: number, dy: number) => void;
   onResizeSelection: (handle: InkResizeHandle, dx: number, dy: number, uniform: boolean) => void;
+  onRotateSelection: (radians: number) => void;
   className?: string;
 }
 
 const ZOOM_STEP = 1.15;
 /** Handle size in CSS pixels — a comfortable mouse and touch target. */
 const HANDLE_PX = 9;
+const ROTATION_HANDLE_OFFSET_PX = 28;
 
 type Gesture =
   | { kind: 'none' }
@@ -113,6 +116,7 @@ type Gesture =
   | { kind: 'lasso'; pointerId: number; points: number[]; additive: boolean }
   | { kind: 'move'; pointerId: number; clientX: number; clientY: number }
   | { kind: 'resize'; pointerId: number; handle: InkResizeHandle; clientX: number; clientY: number }
+  | { kind: 'rotate'; pointerId: number; center: { x: number; y: number }; startAngle: number; appliedAngle: number }
   | { kind: 'create'; pointerId: number; tool: 'shape' | 'connector' | 'text' | 'sticky' | 'image' | 'stamp' | 'equation' | 'ruler' | 'protractor' | 'compass' | 'guide'; from: { x: number; y: number }; to: { x: number; y: number }; uniform: boolean }
   | { kind: 'loupe'; pointerId: number };
 
@@ -136,6 +140,7 @@ export default function InkCanvas({
   onSelectionChange,
   onMoveSelection,
   onResizeSelection,
+  onRotateSelection,
   className,
 }: InkCanvasProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -149,6 +154,7 @@ export default function InkCanvas({
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [overlayVersion, setOverlayVersion] = useState(0);
   const [loupePoint, setLoupePoint] = useState<{ x: number; y: number } | null>(null);
+  const [hoveredHandle, setHoveredHandle] = useState<InkResizeHandle | 'rotate' | null>(null);
 
   rendererRef.current ??= new InkTileRenderer(createTileFactory(), {
     render: { includeNonExported: true, paintEquationFallback: false },
@@ -290,14 +296,12 @@ export default function InkCanvas({
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
 
     if (gesture.kind === 'draw' && gesture.readings.length > 0) {
-      // Outlined from the raw readings, not the simplified commit: the line has
-      // to follow the nib exactly while it is being drawn.
-      const samples: InkSample[] = gesture.readings.map((reading) => ({
-        x: reading.x,
-        y: reading.y,
-        ...(reading.pressure === undefined ? {} : { pressure: Math.round(reading.pressure * 4095) }),
-        ...(reading.elapsed === undefined ? {} : { elapsed: reading.elapsed }),
-      }));
+      // Use the exact commit pipeline for the live line. A handwritten stroke
+      // must not change shape or pressure the moment the pen lifts.
+      const samples = captureStroke(gesture.readings, {
+        streamline: tool.brush.streamline,
+        simplifyTolerance: 0,
+      });
       const outline = outlineStroke(samples, tool.brush);
       if (outline.length > 2) {
         context.beginPath();
@@ -316,6 +320,19 @@ export default function InkCanvas({
     }
 
     if (gesture.kind === 'erase' && gesture.path.length > 0) {
+      context.lineCap = 'round';
+      context.lineJoin = 'round';
+      context.beginPath();
+      const first = toScreen(gesture.path[0].x, gesture.path[0].y);
+      context.moveTo(first.x, first.y);
+      for (let index = 1; index < gesture.path.length; index += 1) {
+        const point = toScreen(gesture.path[index].x, gesture.path[index].y);
+        context.lineTo(point.x, point.y);
+      }
+      context.strokeStyle = 'rgba(148,163,184,0.28)';
+      context.lineWidth = Math.max(2, (tool.eraserRadius * 2) / unitsPerPixel);
+      context.stroke();
+
       const last = gesture.path[gesture.path.length - 1];
       const centre = toScreen(last.x, last.y);
       context.beginPath();
@@ -380,6 +397,20 @@ export default function InkCanvas({
     [index, page, selectedIds, toScreen],
   );
 
+  const rotationHandleAt = useCallback(
+    (clientX: number, clientY: number): boolean => {
+      if (selectedIds.length === 0 || !page) return false;
+      const bounds = selectionBounds(selectedIds, index);
+      if (!bounds) return false;
+      const rect = hostRef.current?.getBoundingClientRect();
+      const center = toScreen((bounds.minX + bounds.maxX) / 2, bounds.minY);
+      const localX = clientX - (rect?.left ?? 0);
+      const localY = clientY - (rect?.top ?? 0);
+      return Math.hypot(localX - center.x, localY - (center.y - ROTATION_HANDLE_OFFSET_PX)) <= HANDLE_PX;
+    },
+    [index, page, selectedIds, toScreen],
+  );
+
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const native = asPointerEvent(event);
@@ -405,6 +436,7 @@ export default function InkCanvas({
         };
       } else if (effective === 'eraser') {
         gestureRef.current = { kind: 'erase', pointerId: event.pointerId, path: [point] };
+        onErase([point], tool.eraserRadius);
       } else if (effective === 'pen') {
         gestureRef.current = {
           kind: 'draw',
@@ -431,42 +463,66 @@ export default function InkCanvas({
           from: point, to: point, uniform: event.shiftKey,
         };
       } else {
-        const handle = handleAt(event.clientX, event.clientY);
-        if (handle && !readOnly) {
+        const bounds = selectionBounds(selectedIds, index);
+        if (rotationHandleAt(event.clientX, event.clientY) && bounds && !readOnly) {
+          const center = {
+            x: (bounds.minX + bounds.maxX) / 2,
+            y: (bounds.minY + bounds.maxY) / 2,
+          };
           gestureRef.current = {
-            kind: 'resize', pointerId: event.pointerId, handle,
-            clientX: event.clientX, clientY: event.clientY,
+            kind: 'rotate',
+            pointerId: event.pointerId,
+            center,
+            startAngle: Math.atan2(point.y - center.y, point.x - center.x),
+            appliedAngle: 0,
           };
         } else {
-          const hit = index?.hitTest(point.x, point.y, { slop: HANDLE_PX * unitsPerPixel }) ?? null;
-          if (hit && selectedIds.includes(hit) && !readOnly) {
+          const handle = handleAt(event.clientX, event.clientY);
+          if (handle && !readOnly) {
             gestureRef.current = {
-              kind: 'move', pointerId: event.pointerId,
+              kind: 'resize', pointerId: event.pointerId, handle,
               clientX: event.clientX, clientY: event.clientY,
             };
-          } else if (hit) {
-            onSelectionChange([hit], event.shiftKey);
-            gestureRef.current = readOnly
-              ? { kind: 'none' }
-              : { kind: 'move', pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY };
           } else {
-            gestureRef.current = {
-              kind: 'marquee', pointerId: event.pointerId,
-              from: point, to: point, additive: event.shiftKey,
-            };
+            const hit = index?.hitTest(point.x, point.y, { slop: HANDLE_PX * unitsPerPixel }) ?? null;
+            if (hit && selectedIds.includes(hit) && !readOnly) {
+              gestureRef.current = {
+                kind: 'move', pointerId: event.pointerId,
+                clientX: event.clientX, clientY: event.clientY,
+              };
+            } else if (hit) {
+              onSelectionChange([hit], event.shiftKey);
+              gestureRef.current = readOnly
+                ? { kind: 'none' }
+                : { kind: 'move', pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY };
+            } else {
+              gestureRef.current = {
+                kind: 'marquee', pointerId: event.pointerId,
+                from: point, to: point, additive: event.shiftKey,
+              };
+            }
           }
         }
       }
       setGestureKind(gestureRef.current.kind);
       bump();
     },
-    [handleAt, index, onEyedropObject, onSelectionChange, originX, originY, penButtons, readOnly, selectedIds, tool.tool, toDocument, unitsPerPixel, zoom],
+    [handleAt, index, onErase, onEyedropObject, onSelectionChange, originX, originY, penButtons, readOnly, rotationHandleAt, selectedIds, tool.eraserRadius, tool.tool, toDocument, unitsPerPixel, zoom],
   );
 
   const onPointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const gesture = gestureRef.current;
-      if (gesture.kind === 'none') return;
+      if (gesture.kind === 'none') {
+        if (tool.tool === 'select' && !readOnly) {
+          setHoveredHandle(
+            rotationHandleAt(event.clientX, event.clientY)
+              ? 'rotate'
+              : handleAt(event.clientX, event.clientY),
+          );
+        }
+        return;
+      }
       const native = asPointerEvent(event);
       if (arbiterRef.current.move(native) === 'reject') return;
       if (gesture.pointerId !== event.pointerId) return;
@@ -509,7 +565,10 @@ export default function InkCanvas({
           return;
         }
         case 'erase': {
-          gesture.path.push(toDocument(event.clientX, event.clientY));
+          const next = toDocument(event.clientX, event.clientY);
+          const previous = gesture.path[gesture.path.length - 1];
+          gesture.path.push(next);
+          onErase([previous, next], tool.eraserRadius);
           bump();
           return;
         }
@@ -544,6 +603,18 @@ export default function InkCanvas({
           gesture.clientY = event.clientY;
           return;
         }
+        case 'rotate': {
+          const point = toDocument(event.clientX, event.clientY);
+          const angle = Math.atan2(point.y - gesture.center.y, point.x - gesture.center.x);
+          const raw = angle - gesture.startAngle;
+          const desired = event.shiftKey
+            ? Math.round(raw / (Math.PI / 12)) * (Math.PI / 12)
+            : raw;
+          const delta = desired - gesture.appliedAngle;
+          if (delta !== 0) onRotateSelection(delta);
+          gesture.appliedAngle = desired;
+          return;
+        }
         case 'create': {
           gesture.to = toDocument(event.clientX, event.clientY);
           gesture.uniform = event.shiftKey;
@@ -557,7 +628,7 @@ export default function InkCanvas({
         }
       }
     },
-    [onMoveSelection, onResizeSelection, onViewportChange, originX, originY, toDocument, unitsPerPixel, zoom],
+    [handleAt, onErase, onMoveSelection, onResizeSelection, onRotateSelection, onViewportChange, originX, originY, readOnly, rotationHandleAt, toDocument, tool.eraserRadius, tool.tool, unitsPerPixel, zoom],
   );
 
   const endGesture = useCallback(
@@ -573,8 +644,8 @@ export default function InkCanvas({
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
 
-      // A cancelled gesture commits nothing. `pointercancel` means the platform
-      // took the pointer away — the user did not finish the stroke.
+      // A cancelled drawing gesture commits nothing. Erasing is deliberately
+      // immediate, so portions already erased stay erased if capture is lost.
       if (cancelled) {
         if (gesture.kind === 'loupe') setLoupePoint(null);
         bump();
@@ -585,6 +656,7 @@ export default function InkCanvas({
         case 'draw': {
           const samples = captureStroke(gesture.readings, {
             streamline: tool.brush.streamline,
+            simplifyTolerance: 0,
           });
           if (samples.length > 0) {
             onCommitStroke(samples, {
@@ -594,7 +666,6 @@ export default function InkCanvas({
           break;
         }
         case 'erase':
-          if (gesture.path.length > 0) onErase(gesture.path, tool.eraserRadius);
           break;
         case 'marquee': {
           const bounds: InkBounds = {
@@ -623,7 +694,7 @@ export default function InkCanvas({
       }
       bump();
     },
-    [index, onCommitStroke, onCreateAdvancedObject, onErase, onSelectionChange, tool.brush.streamline, tool.eraserRadius, tool.holdToStraighten],
+    [index, onCommitStroke, onCreateAdvancedObject, onSelectionChange, tool.brush.streamline, tool.holdToStraighten],
   );
 
   const onWheel = useCallback(
@@ -675,13 +746,14 @@ export default function InkCanvas({
       data-gesture={gestureKind}
       // Required, or the browser scrolls instead of delivering pointermove and
       // a stroke silently stops mid-gesture.
-      style={{ touchAction: 'none', cursor: cursorFor(tool.tool, gestureKind) }}
+      style={{ touchAction: 'none', cursor: cursorFor(tool.tool, gestureKind, hoveredHandle, gestureRef.current) }}
       onWheel={onWheel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={(event) => endGesture(event, false)}
       onPointerCancel={(event) => endGesture(event, true)}
       onLostPointerCapture={(event) => endGesture(event, true)}
+      onPointerLeave={() => setHoveredHandle(null)}
       onDoubleClick={(event) => {
         const point = toDocument(event.clientX, event.clientY);
         const hit = index?.hitTest(point.x, point.y, { slop: HANDLE_PX * unitsPerPixel });
@@ -759,11 +831,27 @@ function pairs(flat: number[]): Array<[number, number]> {
   return out;
 }
 
-function cursorFor(tool: string, gesture: string): string {
+function cursorFor(
+  tool: string,
+  gesture: string,
+  hoveredHandle: InkResizeHandle | 'rotate' | null,
+  activeGesture: Gesture,
+): string {
   if (gesture === 'pan') return 'grabbing';
+  if (gesture === 'rotate') return 'grabbing';
+  if (activeGesture.kind === 'resize') return resizeCursor(activeGesture.handle);
+  if (hoveredHandle === 'rotate') return 'grab';
+  if (hoveredHandle) return resizeCursor(hoveredHandle);
   if (tool === 'pan') return 'grab';
   if (tool === 'pen' || tool === 'eraser' || tool === 'shape' || tool === 'connector' || tool === 'text' || tool === 'sticky' || tool === 'image' || tool === 'stamp' || tool === 'equation' || tool === 'ruler' || tool === 'protractor' || tool === 'compass' || tool === 'guide' || tool === 'eyedropper' || tool === 'loupe') return 'crosshair';
   return 'default';
+}
+
+function resizeCursor(handle: InkResizeHandle): string {
+  if (handle === 'n' || handle === 's') return 'ns-resize';
+  if (handle === 'e' || handle === 'w') return 'ew-resize';
+  if (handle === 'nw' || handle === 'se') return 'nwse-resize';
+  return 'nesw-resize';
 }
 
 function CreationPreview({
@@ -858,9 +946,29 @@ function SelectionOverlay({
         strokeDasharray="4 3"
       />
       {!readOnly &&
-        handlePositions(bounds, toScreen).map(([handle, point]) => (
+        <>
+          <line
+            x1={(topLeft.x + bottomRight.x) / 2}
+            y1={topLeft.y}
+            x2={(topLeft.x + bottomRight.x) / 2}
+            y2={topLeft.y - ROTATION_HANDLE_OFFSET_PX}
+            stroke="rgba(139,125,255,0.9)"
+            strokeWidth={1}
+          />
+          <circle
+            data-ink-handle="rotate"
+            cx={(topLeft.x + bottomRight.x) / 2}
+            cy={topLeft.y - ROTATION_HANDLE_OFFSET_PX}
+            r={HANDLE_PX / 2}
+            fill="var(--background, #fff)"
+            stroke="rgba(139,125,255,0.9)"
+            strokeWidth={1}
+            style={{ cursor: 'grab' }}
+          />
+          {handlePositions(bounds, toScreen).map(([handle, point]) => (
           <rect
             key={handle}
+            data-ink-handle={handle}
             x={point.x - HANDLE_PX / 2}
             y={point.y - HANDLE_PX / 2}
             width={HANDLE_PX}
@@ -868,8 +976,10 @@ function SelectionOverlay({
             fill="var(--background, #fff)"
             stroke="rgba(139,125,255,0.9)"
             strokeWidth={1}
+            style={{ cursor: resizeCursor(handle) }}
           />
-        ))}
+          ))}
+        </>}
     </g>
   );
 }

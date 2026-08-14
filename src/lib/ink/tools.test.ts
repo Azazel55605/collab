@@ -29,6 +29,7 @@ describe('defaultToolState', () => {
     const state = defaultToolState();
     expect(state.tool).toBe('pen');
     expect(state.brush).toEqual(INK_DEFAULT_BRUSHES.ballpoint);
+    expect(state.eraserMode).toBe('segment');
   });
 
   it('does not share the preset object, so editing the tool cannot restyle it', () => {

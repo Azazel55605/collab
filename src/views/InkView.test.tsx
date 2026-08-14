@@ -135,6 +135,10 @@ beforeEach(() => {
     x: 0, y: 0, top: 0, left: 0, right: 1000, bottom: 800, width: 1000, height: 800,
     toJSON: () => ({}),
   })) as unknown as typeof Element.prototype.getBoundingClientRect;
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  Element.prototype.setPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.scrollIntoView = vi.fn();
 
   // jsdom does not implement ResizeObserver, which the canvas host uses to
   // learn its own size.
@@ -374,7 +378,8 @@ describe('InkView drawing', () => {
 
   it('changes the current page background as document content', async () => {
     await openDrawing();
-    fireEvent.change(screen.getByLabelText('Page background'), { target: { value: 'staff' } });
+    fireEvent.click(screen.getByLabelText('Page background'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Music staff' }));
     fireEvent.click(screen.getByText('Save'));
     const written = await savedDocument();
     expect(written.pages[written.pageOrder[0]].background.pattern).toBe('staff');
@@ -448,7 +453,8 @@ describe('InkView drawing', () => {
     await openDrawing();
     fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Reusable sketch' } });
     fireEvent.click(screen.getByLabelText('Save page as template'));
-    fireEvent.change(await screen.findByLabelText('Drawing template'), { target: { value: JSON.parse(localStorage.getItem('collab-ink-templates-v1')!)[0].id } });
+    fireEvent.click(await screen.findByLabelText('Drawing template'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Reusable sketch' }));
     fireEvent.click(screen.getByText('Add template page'));
     await screen.findByText('Page 2 of 2');
   });
@@ -496,6 +502,25 @@ describe('InkView drawing', () => {
     await waitFor(() => expect(screen.getByText(/strokes$/)).toBeTruthy());
   });
 
+  it('applies the eraser immediately instead of waiting for pointer-up', async () => {
+    await openDrawing();
+    fireEvent.click(screen.getByRole('button', { name: 'Eraser (E)' }));
+    const host = screen.getByTestId('ink-canvas-host');
+
+    fireEvent.pointerDown(host, {
+      pointerId: 41,
+      pointerType: 'pen',
+      clientX: 0,
+      clientY: 21,
+      pressure: 0.5,
+      buttons: 1,
+    });
+
+    await waitFor(() => expect(screen.getByText('Save').closest('button')?.disabled).toBe(false));
+    expect(host.getAttribute('data-gesture')).toBe('erase');
+    fireEvent.pointerUp(host, { pointerId: 41, pointerType: 'pen' });
+  });
+
   it('switches tools from the keyboard, layout-independently', async () => {
     await openDrawing();
     fireEvent.keyDown(window, { key: 'e' });
@@ -515,6 +540,18 @@ describe('InkView drawing', () => {
     expect(screen.getByRole('button', { name: 'Pen (P)' }).getAttribute('aria-pressed')).toBe('true');
   });
 
+  it('stops a handled Delete key before the file tree can receive it', async () => {
+    await openDrawing();
+    const downstream = vi.fn();
+    window.addEventListener('keydown', downstream);
+    try {
+      fireEvent.keyDown(window, { key: 'Delete' });
+      expect(downstream).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', downstream);
+    }
+  });
+
   it('adds, renames, and removes layers but keeps the last one', async () => {
     await openDrawing();
     expect(labelled('Delete Layer 1').disabled).toBe(true);
@@ -531,6 +568,9 @@ describe('InkView drawing', () => {
     await openDrawing();
     drawStroke(screen.getByTestId('ink-canvas-host'), [[100, 100], [170, 140], [230, 190]]);
     await waitFor(() => expect(clientMocks.writeDocument).toHaveBeenCalled(), { timeout: 3_000 });
+    const savesAfterSettling = clientMocks.writeDocument.mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(clientMocks.writeDocument).toHaveBeenCalledTimes(savesAfterSettling);
   });
 
   it('hides the chrome in focus mode and restores it', async () => {

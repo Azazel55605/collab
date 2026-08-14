@@ -823,10 +823,18 @@ open Phase 0 device gate.
       special case.
 - [x] Stroke, segment, and object erasers. Segment erase splits a stroke into
       the runs that survive, tombstones the source, and gives the replacements
-      deterministic ids so the Phase 6 merge stays tractable.
-- [x] Rectangle and lasso selection, move/resize transforms, grouping,
-      reordering, and align/distribute. Transforms are baked into the geometry
-      rather than stored as a matrix.
+      deterministic ids so the Phase 6 merge stays tractable. Partial erase is
+      the default and refines sparse stored segments around the eraser path, so
+      it removes the covered portion rather than the whole interval between two
+      stored samples. The editor paints the eraser's swept path and applies each
+      covered portion immediately instead of waiting for pointer-up.
+- [x] The live handwriting overlay and committed stroke use the same stabilized,
+      unsimplified sample path. Lifting the pen therefore never redraws writing
+      into a different curve; smoothing remains an explicit selection command.
+- [x] Rectangle and lasso selection, move/resize/rotate transforms, directional
+      resize cursors, a visible rotation handle with Shift snapping, grouping,
+      reordering, and align/distribute. Vector transforms are baked into
+      geometry; box-backed objects persist a bounded scalar rotation.
 - [x] Page and layer management: add, delete, rename, reorder, merge down,
       visibility, and locking.
 - [x] Clipboard (copy/cut/paste/duplicate), a layout-independent keyboard map,

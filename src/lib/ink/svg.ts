@@ -123,13 +123,36 @@ export function objectBounds(object: InkObject): InkBounds | null {
     }
     case 'text':
     case 'image':
-    case 'stamp':
+    case 'stamp': {
+      const rotation = object.rotation ?? 0;
+      if (rotation === 0) {
+        return {
+          minX: object.x,
+          minY: object.y,
+          maxX: object.x + object.width,
+          maxY: object.y + object.height,
+        };
+      }
+      const centerX = object.x + object.width / 2;
+      const centerY = object.y + object.height / 2;
+      const cos = Math.cos(rotation);
+      const sin = Math.sin(rotation);
+      const corners = [
+        [object.x, object.y],
+        [object.x + object.width, object.y],
+        [object.x + object.width, object.y + object.height],
+        [object.x, object.y + object.height],
+      ].map(([x, y]) => ({
+        x: centerX + (x - centerX) * cos - (y - centerY) * sin,
+        y: centerY + (x - centerX) * sin + (y - centerY) * cos,
+      }));
       return {
-        minX: object.x,
-        minY: object.y,
-        maxX: object.x + object.width,
-        maxY: object.y + object.height,
+        minX: Math.min(...corners.map((point) => point.x)),
+        minY: Math.min(...corners.map((point) => point.y)),
+        maxX: Math.max(...corners.map((point) => point.x)),
+        maxY: Math.max(...corners.map((point) => point.y)),
       };
+    }
     default:
       return null;
   }
@@ -272,7 +295,20 @@ function textElement(object: Extract<InkObject, { type: 'text' }>, precision: nu
   const text = `<text fill="${escapeXml(object.color)}" font-size="${num(object.fontSize, precision)}"` +
     (object.fontFamily ? ` font-family="${escapeXml(object.fontFamily)}"` : '') +
     `>${lines}</text>`;
-  return background ? `<g>${background}${text}</g>` : text;
+  const content = background ? `<g>${background}${text}</g>` : text;
+  return rotateSvgBox(content, object, precision);
+}
+
+function rotateSvgBox(
+  content: string,
+  object: { x: number; y: number; width: number; height: number; rotation?: number },
+  precision: number,
+): string {
+  if (!object.rotation) return content;
+  const degrees = (object.rotation * 180) / Math.PI;
+  const centerX = object.x + object.width / 2;
+  const centerY = object.y + object.height / 2;
+  return `<g transform="rotate(${num(degrees, precision)} ${num(centerX, precision)} ${num(centerY, precision)})">${content}</g>`;
 }
 
 /**
@@ -325,7 +361,7 @@ export function sceneToSvg(scene: InkScene, options: InkSvgExportOptions = {}): 
         element = textElement(object, precision);
         break;
       case 'stamp':
-        element = `<text x="${num(object.x, precision)}" y="${num(object.y + object.height, precision)}" fill="${escapeXml(object.color ?? '#1f2933')}" font-size="${num(object.height, precision)}">${escapeXml(stampGlyph(object.symbolId))}</text>`;
+        element = rotateSvgBox(`<text x="${num(object.x, precision)}" y="${num(object.y + object.height, precision)}" fill="${escapeXml(object.color ?? '#1f2933')}" font-size="${num(object.height, precision)}">${escapeXml(stampGlyph(object.symbolId))}</text>`, object, precision);
         break;
       default:
         element = '';

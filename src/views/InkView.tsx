@@ -77,6 +77,7 @@ import type { InkAlignment, InkDistribution } from '../lib/ink/align';
 import {
   boundsToBounds,
   resizeBounds,
+  rotationAbout,
   transformObject,
   translation,
 } from '../lib/ink/transform';
@@ -141,12 +142,16 @@ export default function InkView({ relativePath }: InkViewProps) {
       : Promise.reject(new Error('No vault is open.')),
     [vaultClient],
   );
+  const markInkSaved = useCallback(
+    (path: string, hash: string) => setSavedHash(path, hash),
+    [setSavedHash],
+  );
 
   const session = useInkSession({
     vault,
     relativePath,
     markDirty,
-    markSaved: (path, hash) => setSavedHash(path, hash),
+    markSaved: markInkSaved,
   });
   const { document } = session;
 
@@ -531,12 +536,12 @@ export default function InkView({ relativePath }: InkViewProps) {
 
   const erase = useCallback(
     (path: Array<{ x: number; y: number }>, radius: number) => {
-      if (!scene) return;
-      const plan = planErase(scene, path, radius, tool.eraserMode);
-      if (plan.removedIds.length === 0 && plan.replacements.length === 0) return;
-      commitScene('Erase', (current) => applyErase(current, plan));
+      commitScene('Erase', (current) => {
+        const plan = planErase(current, path, radius, tool.eraserMode);
+        return applyErase(current, plan);
+      });
     },
-    [commitScene, scene, tool.eraserMode],
+    [commitScene, tool.eraserMode],
   );
 
   /* --------------------------------------------------------------------- */
@@ -584,6 +589,31 @@ export default function InkView({ relativePath }: InkViewProps) {
       const transform = boundsToBounds(before, after);
 
       commitScene('Resize', (current) => {
+        const edits: Array<InkEdit<InkScene>> = [];
+        let result = current;
+        for (const id of selectedIds) {
+          if (!result.objects[id]) continue;
+          const edit = updateObject(result, id, (object) => transformObject(object, transform));
+          edits.push(edit);
+          result = edit.result;
+        }
+        return { result, inverse: reverseAll(edits) };
+      });
+    },
+    [commitScene, scene, selectedIds],
+  );
+
+  const rotateSelection = useCallback(
+    (radians: number) => {
+      if (selectedIds.length === 0 || !scene) return;
+      const bounds = boundsOf(scene, selectedIds);
+      if (!bounds) return;
+      const transform = rotationAbout(
+        (bounds.minX + bounds.maxX) / 2,
+        (bounds.minY + bounds.maxY) / 2,
+        radians,
+      );
+      commitScene('Rotate', (current) => {
         const edits: Array<InkEdit<InkScene>> = [];
         let result = current;
         for (const id of selectedIds) {
@@ -888,10 +918,14 @@ export default function InkView({ relativePath }: InkViewProps) {
       }
       const command = resolveInkCommand(event);
       if (!command) return;
-      if (runCommand(command)) event.preventDefault();
+      if (runCommand(command)) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+      }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
   }, [runCommand]);
 
   /* --------------------------------------------------------------------- */
@@ -1091,6 +1125,7 @@ export default function InkView({ relativePath }: InkViewProps) {
             onSelectionChange={changeSelection}
             onMoveSelection={moveSelection}
             onResizeSelection={resizeSelection}
+            onRotateSelection={rotateSelection}
             className="absolute inset-0"
           />
           {focusMode && (

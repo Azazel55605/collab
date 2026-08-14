@@ -60,6 +60,14 @@ describe('splitStrokeAroundEraser', () => {
     ];
     expect(splitStrokeAroundEraser(line(), path, 300)).toHaveLength(2);
   });
+
+  it('clips only the covered part of a long stored segment', () => {
+    const sparse = [{ x: 0, y: 0 }, { x: 10_000, y: 0 }];
+    const runs = splitStrokeAroundEraser(sparse, [{ x: 5_000, y: 0 }], 300);
+    expect(runs).toHaveLength(2);
+    expect(runs[0][runs[0].length - 1].x).toBeGreaterThan(4_000);
+    expect(runs[1][0].x).toBeLessThan(6_000);
+  });
 });
 
 describe('planErase', () => {

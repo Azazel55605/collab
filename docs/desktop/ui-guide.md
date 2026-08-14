@@ -56,6 +56,18 @@ Animations should support orientation, state change, and spatial continuity. Avo
 - Do not introduce one-off hard-coded colors unless there is no suitable token and the use is extremely local.
 - New UI should work across all supported themes and accent colors.
 
+### Application controls
+
+- Use the shared controls in `src/components/ui/` before adding a local control.
+- Never expose browser or operating-system-native control chrome in product UI.
+  Raw `<select>`, `<input type="color">`, date/time inputs, and unstyled native
+  checkboxes, radios, or ranges break the app's theme and interaction language.
+- When a shared control is missing, add a theme-token-based component there,
+  preferably on a shadcn/Radix primitive, and make its keyboard, focus,
+  disabled, and accessible-name behavior part of the component contract.
+- Raw semantic HTML remains appropriate when it has no platform-native visual
+  UI or when it is encapsulated inside the shared component implementation.
+
 ### Surfaces
 
 Primary surface types:
@@ -331,6 +343,7 @@ Rules:
 ## What To Avoid
 
 - browser-default looking controls when a shared app style exists
+- operating-system-native form controls anywhere in product-facing UI
 - purple-by-default styling that ignores the active accent
 - text that appears only on hover when it is core content
 - oversized icons or affordances that overpower content

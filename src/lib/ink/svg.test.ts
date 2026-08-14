@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { InkScene } from '../../types/ink';
+import type { InkObject, InkScene } from '../../types/ink';
 import { buildInkScene, buildStroke } from './fixture';
 import { outlineStrokeWithPerfectFreehand } from './strokeAdapters';
 import { objectBounds, escapeXml, sceneBounds, sceneToSvg } from './svg';
@@ -174,6 +174,15 @@ describe('objectBounds', () => {
     const stroke = buildStroke('s', 'layer-1', { samples: 30, x: 0, y: 0 });
     const lied = { ...stroke, bounds: { minX: 0, minY: 0, maxX: 1, maxY: 1 } };
     expect(objectBounds(lied)).not.toEqual(lied.bounds);
+  });
+
+  it('includes the rotated footprint of box-backed objects', () => {
+    const text: InkObject = {
+      id: 't', type: 'text', layerId: 'layer-1',
+      x: 100, y: 100, width: 200, height: 80,
+      text: 'hi', color: '#000', fontSize: 40, rotation: Math.PI / 2,
+    };
+    expect(objectBounds(text)).toMatchObject({ minX: 160, minY: 40, maxX: 240, maxY: 240 });
   });
 });
 

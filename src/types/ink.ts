@@ -232,6 +232,8 @@ interface InkObjectBase {
   createdAt?: number;
   updatedAt?: number;
   transform?: InkTransform;
+  /** Clockwise rotation in radians for box-backed text, image, and stamp objects. */
+  rotation?: number;
   /** Derived from geometry; rebuilt on load rather than trusted. */
   bounds?: InkBounds;
   locked?: boolean;

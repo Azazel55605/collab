@@ -128,6 +128,17 @@ describe('transformObject', () => {
     expect(scaled).toMatchObject({ x: 200, y: 200, width: 400, height: 160, fontSize: 192 });
   });
 
+  it('rotates a box-backed object around the selection center', () => {
+    const text: InkObject = {
+      id: 't', type: 'text', layerId: 'layer-1',
+      x: 100, y: 100, width: 200, height: 80,
+      text: 'hi', color: '#000', fontSize: 96,
+    };
+    const rotated = transformObject(text, rotationAbout(200, 140, Math.PI / 2));
+    expect(rotated).toMatchObject({ x: 100, y: 100, width: 200, height: 80 });
+    expect(rotated.rotation).toBeCloseTo(Math.PI / 2, 6);
+  });
+
   it('leaves a group record alone, since it holds only ids', () => {
     const group: InkObject = { id: 'g', type: 'group', layerId: 'layer-1', childIds: ['a', 'b'] };
     expect(transformObject(group, translation(50, 50))).toEqual(group);

@@ -35,6 +35,7 @@ class CountingTarget implements InkRenderTarget {
   setTransform(): void {}
   translate(): void {}
   scale(): void {}
+  rotate(): void {}
   clearRect(): void {}
   fillRect(): void {
     this.rects += 1;

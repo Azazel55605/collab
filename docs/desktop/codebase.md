@@ -119,6 +119,11 @@ manual save (Ctrl+S) → immediate write + createSnapshot
 
 ## Components
 
+Product-facing form controls come from `components/ui/`; do not render browser
+or operating-system-native control chrome directly. If the shared set is
+missing a control, add it there using the interaction and theming rules in
+`docs/desktop/ui-guide.md`.
+
 ### Layout
 
 | File | Purpose | Key stores | shadcn used |
@@ -850,6 +855,8 @@ Located in `src/components/ui/`. Install new ones with `pnpm dlx shadcn@latest a
 | Sheet | `sheet.tsx` | Mobile sidebar |
 | ContextMenu | `context-menu.tsx` | KanbanCard, FileTree, TabBar |
 | Select | `select.tsx` | CardDialog column selector |
+| Slider | `slider.tsx` | Ink brush opacity and stabilization |
+| ColorPicker | `color-picker.tsx` | Theme-aware ink and document colours |
 | Calendar | `calendar.tsx` | CardDialog date pickers |
 | DatePicker | `date-picker.tsx` | Shared Calendar/Popover date field used by account Calendar and future forms |
 | TimePicker | `time-picker.tsx` | Shared modal 12/24-hour time field used by account Calendar and future forms |

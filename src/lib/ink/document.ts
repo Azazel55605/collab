@@ -458,6 +458,9 @@ function normalizeObject(
     ...(typeof value.authorId === 'string' ? { authorId: value.authorId } : {}),
     ...(typeof value.createdAt === 'number' ? { createdAt: value.createdAt } : {}),
     ...(typeof value.updatedAt === 'number' ? { updatedAt: value.updatedAt } : {}),
+    ...(typeof value.rotation === 'number' && Number.isFinite(value.rotation)
+      ? { rotation: value.rotation }
+      : {}),
     ...(value.locked === true ? { locked: true } : {}),
     ...(normalizeInkObjectLink(value.link) ? { link: normalizeInkObjectLink(value.link)! } : {}),
   };

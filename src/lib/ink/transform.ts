@@ -1,16 +1,14 @@
 /**
  * Moving, scaling, and rotating ink objects.
  *
- * Transforms are **baked into the geometry** rather than stored as a matrix on
- * the object. The schema has a `transform` field and this deliberately does not
- * use it: bounds, hit testing, the spatial index, the tile cache, and both
- * exporters all read coordinates directly, so a stored matrix would mean five
- * separate places learning to compose it, and any one of them forgetting is a
- * stroke that draws in one place and selects in another.
+ * Vector transforms are **baked into geometry** rather than stored as a matrix.
+ * Box-backed text, images, and stamps retain only their scalar rotation because
+ * their DOM/canvas renderers need an orientation as well as an axis-aligned
+ * frame. Bounds, hit testing, the tile cache, and exporters all understand that
+ * one value; the general `transform` matrix remains deliberately unused.
  *
- * Baking costs a rewrite of the sample arrays per transform. That is cheap —
- * the arrays are small integers, and a drag commits once on pointer-up, not per
- * frame.
+ * Baking costs a rewrite of the sample arrays per transform. The arrays are
+ * small integers, so this remains bounded during interactive transforms.
  */
 
 import { INK_LIMITS } from '../../types/ink';
@@ -159,13 +157,21 @@ export function transformObject(object: InkObject, transform: InkAffine): InkObj
     case 'text':
     case 'image':
     case 'stamp': {
-      const origin = applyAffine(transform, object.x, object.y);
+      const center = applyAffine(
+        transform,
+        object.x + object.width / 2,
+        object.y + object.height / 2,
+      );
+      const width = Math.max(0, object.width * scale);
+      const height = Math.max(0, object.height * scale);
+      const rotation = (object.rotation ?? 0) + Math.atan2(transform.b, transform.a);
       const next = {
         ...object,
-        x: clampCoordinate(origin.x),
-        y: clampCoordinate(origin.y),
-        width: Math.max(0, object.width * scale),
-        height: Math.max(0, object.height * scale),
+        x: clampCoordinate(center.x - width / 2),
+        y: clampCoordinate(center.y - height / 2),
+        width,
+        height,
+        rotation,
         bounds: undefined,
       };
       // Type size follows the box, or scaling a sticky note leaves its text

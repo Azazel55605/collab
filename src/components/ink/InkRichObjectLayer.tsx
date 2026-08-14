@@ -83,6 +83,8 @@ export default function InkRichObjectLayer({
               ...box(object.x, object.y, object.width, object.height),
               objectFit: 'contain',
               opacity: object.opacity ?? 1,
+              transform: object.rotation ? `rotate(${object.rotation}rad)` : undefined,
+              transformOrigin: 'center',
             }}
           />
         );
@@ -128,6 +130,8 @@ function InkEquationObject({
         color: object.color,
         fontSize: Math.max(10, object.fontSize / unitsPerPixel),
         overflow: 'hidden',
+        transform: object.rotation ? `rotate(${object.rotation}rad)` : undefined,
+        transformOrigin: 'center',
       }}
       dangerouslySetInnerHTML={{ __html: html }}
     />

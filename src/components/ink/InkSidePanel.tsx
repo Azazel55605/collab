@@ -19,6 +19,12 @@ import {
 import { useState } from 'react';
 
 import { cn } from '../../lib/utils';
+import { Checkbox } from '../ui/checkbox';
+import { ColorPicker } from '../ui/color-picker';
+import { Input } from '../ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Slider } from '../ui/slider';
+import { Textarea } from '../ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import type { InkBrushPreset, InkLayer, InkPage, InkPageBackground, InkScene, InkSwatch } from '../../types/ink';
 import { INK_LIMITS } from '../../types/ink';
@@ -211,42 +217,37 @@ export default function InkSidePanel({
             </div>
           </label>
 
-          <label className="block space-y-1">
+          <div className="space-y-1">
             <span className={sectionLabel}>Opacity</span>
-            <input
-              type="range"
+            <Slider
               min={5}
               max={100}
               step={5}
               disabled={readOnly}
-              value={Math.round(tool.brush.opacity * 100)}
+              value={[Math.round(tool.brush.opacity * 100)]}
               aria-label="Opacity"
-              onChange={(event) => onBrushChange({ opacity: Number(event.target.value) / 100 })}
-              className="w-full accent-[var(--primary)]"
+              onValueChange={([value]) => onBrushChange({ opacity: value / 100 })}
             />
-          </label>
+          </div>
 
-          <label className="block space-y-1">
+          <div className="space-y-1">
             <span className={sectionLabel}>Stabilizer</span>
-            <input
-              type="range"
+            <Slider
               min={0}
               max={95}
               step={5}
               disabled={readOnly}
-              value={Math.round(tool.brush.streamline * 100)}
+              value={[Math.round(tool.brush.streamline * 100)]}
               aria-label="Stabilizer"
-              onChange={(event) => onBrushChange({ streamline: Number(event.target.value) / 100 })}
-              className="w-full accent-[var(--primary)]"
+              onValueChange={([value]) => onBrushChange({ streamline: value / 100 })}
             />
-          </label>
+          </div>
 
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
+            <Checkbox
               disabled={readOnly}
               checked={tool.brush.simulatePressure === true}
-              onChange={(event) => onBrushChange({ simulatePressure: event.target.checked })}
+              onCheckedChange={(checked) => onBrushChange({ simulatePressure: checked === true })}
             />
             Simulate pressure
           </label>
@@ -274,7 +275,7 @@ export default function InkSidePanel({
                     : 'border-border/60 hover:bg-accent/50',
                 )}
               >
-                {mode}
+                {mode === 'segment' ? 'Partial' : mode}
               </button>
             ))}
           </div>
@@ -306,72 +307,73 @@ export default function InkSidePanel({
         <section className="space-y-2">
           <h2 className={sectionLabel}>{tool.tool === 'shape' ? 'Shape' : 'Connector'}</h2>
           {tool.tool === 'shape' && (
-            <label className="block space-y-1">
+            <div className="space-y-1">
               <span className={sectionLabel}>Geometry</span>
-              <select
-                aria-label="Shape kind"
+              <Select
                 value={tool.shapeKind}
                 disabled={readOnly}
-                onChange={(event) => onAdvancedToolChange({ shapeKind: event.target.value as InkToolState['shapeKind'] })}
-                className="w-full rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs"
+                onValueChange={(value) => onAdvancedToolChange({ shapeKind: value as InkToolState['shapeKind'] })}
               >
-                {INK_SHAPE_ORDER.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
-              </select>
-            </label>
+                <SelectTrigger aria-label="Shape kind" size="sm" className="w-full capitalize">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {INK_SHAPE_ORDER.map((kind) => <SelectItem key={kind} value={kind} className="capitalize">{kind}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           )}
-          <label className="block space-y-1">
+          <div className="space-y-1">
             <span className={sectionLabel}>Line style</span>
-            <select
-              aria-label="Line style"
+            <Select
               value={tool.brush.dash ?? 'solid'}
               disabled={readOnly}
-              onChange={(event) => onBrushChange({ dash: event.target.value as InkToolState['brush']['dash'] })}
-              className="w-full rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs"
+              onValueChange={(value) => onBrushChange({ dash: value as InkToolState['brush']['dash'] })}
             >
-              <option value="solid">Solid</option>
-              <option value="dashed">Dashed</option>
-              <option value="dotted">Dotted</option>
-            </select>
-          </label>
+              <SelectTrigger aria-label="Line style" size="sm" className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="solid">Solid</SelectItem>
+                <SelectItem value="dashed">Dashed</SelectItem>
+                <SelectItem value="dotted">Dotted</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="grid grid-cols-2 gap-2">
-            <label className="space-y-1">
+            <div className="space-y-1">
               <span className={sectionLabel}>Start</span>
-              <select
-                aria-label="Start arrowhead"
+              <Select
                 value={tool.arrowStart}
-                onChange={(event) => onAdvancedToolChange({ arrowStart: event.target.value as InkToolState['arrowStart'] })}
-                className="w-full rounded-md border border-border/60 bg-background px-1 py-1.5 text-xs"
+                onValueChange={(value) => onAdvancedToolChange({ arrowStart: value as InkToolState['arrowStart'] })}
               >
-                {['none', 'arrow', 'open', 'dot'].map((kind) => <option key={kind}>{kind}</option>)}
-              </select>
-            </label>
-            <label className="space-y-1">
+                <SelectTrigger aria-label="Start arrowhead" size="sm" className="w-full capitalize"><SelectValue /></SelectTrigger>
+                <SelectContent>{['none', 'arrow', 'open', 'dot'].map((kind) => <SelectItem key={kind} value={kind} className="capitalize">{kind}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
               <span className={sectionLabel}>End</span>
-              <select
-                aria-label="End arrowhead"
+              <Select
                 value={tool.arrowEnd}
-                onChange={(event) => onAdvancedToolChange({ arrowEnd: event.target.value as InkToolState['arrowEnd'] })}
-                className="w-full rounded-md border border-border/60 bg-background px-1 py-1.5 text-xs"
+                onValueChange={(value) => onAdvancedToolChange({ arrowEnd: value as InkToolState['arrowEnd'] })}
               >
-                {['none', 'arrow', 'open', 'dot'].map((kind) => <option key={kind}>{kind}</option>)}
-              </select>
-            </label>
+                <SelectTrigger aria-label="End arrowhead" size="sm" className="w-full capitalize"><SelectValue /></SelectTrigger>
+                <SelectContent>{['none', 'arrow', 'open', 'dot'].map((kind) => <SelectItem key={kind} value={kind} className="capitalize">{kind}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
           </div>
           {tool.tool === 'shape' && (
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
+              <Checkbox
+                aria-label="Fill with line colour"
                 checked={tool.shapeFill !== null}
-                onChange={(event) => onAdvancedToolChange({ shapeFill: event.target.checked ? tool.brush.color : null })}
+                onCheckedChange={(checked) => onAdvancedToolChange({ shapeFill: checked === true ? tool.brush.color : null })}
               />
               Fill with line colour
             </label>
           )}
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={tool.snapToGrid}
-              onChange={(event) => onAdvancedToolChange({ snapToGrid: event.target.checked })}
+              onCheckedChange={(checked) => onAdvancedToolChange({ snapToGrid: checked === true })}
             />
             Snap to page grid
           </label>
@@ -419,11 +421,10 @@ export default function InkSidePanel({
 
       {tool.tool === 'pen' && (
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <input
-            type="checkbox"
+          <Checkbox
             disabled={readOnly}
             checked={tool.holdToStraighten}
-            onChange={(event) => onAdvancedToolChange({ holdToStraighten: event.target.checked })}
+            onCheckedChange={(checked) => onAdvancedToolChange({ holdToStraighten: checked === true })}
           />
           Hold to straighten
         </label>
@@ -458,25 +459,24 @@ export default function InkSidePanel({
       {selectedText && !readOnly && (
         <section className="space-y-2">
           <h2 className={sectionLabel}>{selectedText.sticky ? 'Sticky note' : selectedText.equation ? 'Equation' : 'Text'}</h2>
-          <textarea
+          <Textarea
             aria-label="Selected text"
             value={selectedText.text}
             maxLength={16_384}
             rows={4}
             onChange={(event) => onUpdateSelectedText({ text: event.target.value })}
-            className="w-full resize-y rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs outline-none focus:border-primary"
+            className="min-h-20 resize-y text-xs"
           />
           {selectedText.sticky && (
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              Note colour
-              <input
-                type="color"
-                aria-label="Sticky note colour"
+            <div className="space-y-1">
+              <span className={sectionLabel}>Note colour</span>
+              <ColorPicker
+                label="Sticky note colour"
                 value={selectedText.backgroundColor ?? '#fef3a7'}
-                onChange={(event) => onUpdateSelectedText({ backgroundColor: event.target.value })}
-                className="h-7 w-10 rounded border border-border/60 bg-transparent"
+                onValueChange={(backgroundColor) => onUpdateSelectedText({ backgroundColor })}
+                className="w-full"
               />
-            </label>
+            </div>
           )}
         </section>
       )}
@@ -484,13 +484,13 @@ export default function InkSidePanel({
       {selectedObject && !readOnly && (
         <section className="space-y-2">
           <h2 className={sectionLabel}>Link</h2>
-          <input
+          <Input
             key={`${selectedObject.id}:${selectedObject.link?.target ?? ''}`}
             aria-label="Selected object link"
             defaultValue={selectedObject.link?.target ?? ''}
             placeholder="Notes/Target.md or https://…"
             onBlur={(event) => onSetSelectedLink(event.target.value.trim() || null)}
-            className="w-full rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs outline-none focus:border-primary"
+            className="h-8 text-xs"
           />
           {selectedObject.link ? (
             <button type="button" onClick={() => onSetSelectedLink(null)} className="w-full rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50">
@@ -504,43 +504,42 @@ export default function InkSidePanel({
       {page && (
         <section className="space-y-2">
           <h2 className={sectionLabel}>Page background</h2>
-          <select
-            aria-label="Page background"
+          <Select
             value={page.background.pattern}
             disabled={readOnly}
-            onChange={(event) => onPageBackgroundChange({ pattern: event.target.value as InkPageBackground['pattern'] })}
-            className="w-full rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs"
+            onValueChange={(value) => onPageBackgroundChange({ pattern: value as InkPageBackground['pattern'] })}
           >
-            <option value="blank">Blank</option>
-            <option value="ruled">Ruled</option>
-            <option value="grid">Graph</option>
-            <option value="dotted">Dotted</option>
-            <option value="staff">Music staff</option>
-            <option value="storyboard">Storyboard</option>
-          </select>
+            <SelectTrigger aria-label="Page background" size="sm" className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="blank">Blank</SelectItem>
+              <SelectItem value="ruled">Ruled</SelectItem>
+              <SelectItem value="grid">Graph</SelectItem>
+              <SelectItem value="dotted">Dotted</SelectItem>
+              <SelectItem value="staff">Music staff</SelectItem>
+              <SelectItem value="storyboard">Storyboard</SelectItem>
+            </SelectContent>
+          </Select>
           <div className="grid grid-cols-2 gap-2">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              Paper
-              <input
-                type="color"
-                aria-label="Page colour"
+            <div className="space-y-1">
+              <span className={sectionLabel}>Paper</span>
+              <ColorPicker
+                label="Page colour"
                 disabled={readOnly}
                 value={page.background.color ?? '#ffffff'}
-                onChange={(event) => onPageBackgroundChange({ color: event.target.value })}
-                className="h-7 w-10 rounded border border-border/60 bg-transparent"
+                onValueChange={(color) => onPageBackgroundChange({ color })}
+                className="w-full"
               />
-            </label>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              Lines
-              <input
-                type="color"
-                aria-label="Page line colour"
+            </div>
+            <div className="space-y-1">
+              <span className={sectionLabel}>Lines</span>
+              <ColorPicker
+                label="Page line colour"
                 disabled={readOnly}
                 value={page.background.lineColor ?? '#c9d1dc'}
-                onChange={(event) => onPageBackgroundChange({ lineColor: event.target.value })}
-                className="h-7 w-10 rounded border border-border/60 bg-transparent"
+                onValueChange={(lineColor) => onPageBackgroundChange({ lineColor })}
+                className="w-full"
               />
-            </label>
+            </div>
           </div>
         </section>
       )}
@@ -549,12 +548,12 @@ export default function InkSidePanel({
         <section className="space-y-2">
           <h2 className={sectionLabel}>Document templates</h2>
           <div className="flex gap-1">
-            <input
+            <Input
               aria-label="Template name"
               value={templateName}
               placeholder={page.name ?? 'Page template'}
               onChange={(event) => setTemplateName(event.target.value)}
-              className="min-w-0 flex-1 rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs"
+              className="h-8 min-w-0 flex-1 text-xs"
             />
             <button
               type="button"
@@ -570,15 +569,17 @@ export default function InkSidePanel({
           </div>
           {templates.length > 0 ? (
             <>
-              <select
-                aria-label="Drawing template"
+              <Select
                 value={selectedTemplateId}
-                onChange={(event) => setSelectedTemplateId(event.target.value)}
-                className="w-full rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs"
+                onValueChange={setSelectedTemplateId}
               >
-                <option value="">Choose a template…</option>
-                {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-              </select>
+                <SelectTrigger aria-label="Drawing template" size="sm" className="w-full">
+                  <SelectValue placeholder="Choose a template…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {templates.map((template) => <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
               <div className="flex gap-1">
                 <button type="button" disabled={!selectedTemplateId} onClick={() => onAddPageFromTemplate(selectedTemplateId)} className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50 disabled:opacity-40">
                   Add template page
@@ -702,13 +703,13 @@ export default function InkSidePanel({
                   >
                     {layer.locked ? <Lock size={13} /> : <LockOpen size={13} />}
                   </button>
-                  <input
+                  <Input
                     value={layer.name}
                     aria-label={`Layer name for ${layer.name}`}
                     readOnly={readOnly}
                     onFocus={() => onActiveLayerChange(layerId)}
                     onChange={(event) => onRenameLayer(layerId, event.target.value)}
-                    className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none"
+                    className="h-7 min-w-0 flex-1 border-transparent bg-transparent px-1.5 text-xs shadow-none focus-visible:border-ring"
                   />
                 </div>
                 {!readOnly && (
