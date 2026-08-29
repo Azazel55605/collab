@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+
 import { ChevronsUpDown, Clock3 } from 'lucide-react';
 
 import { systemTimeZone } from '../../store/uiStore';
@@ -54,7 +55,10 @@ function currentTimeInZone(timeZone: string): string {
   }).format(new Date());
 }
 
-export default function TimeZoneSelect({ value, onValueChange }: {
+export default function TimeZoneSelect({
+  value,
+  onValueChange,
+}: {
   value: string;
   onValueChange: (value: string) => void;
 }) {
@@ -62,37 +66,57 @@ export default function TimeZoneSelect({ value, onValueChange }: {
   const zones = useMemo(supportedTimeZones, []);
   const systemZone = systemTimeZone();
 
-  return <Popover open={open} onOpenChange={setOpen}>
-    <PopoverTrigger asChild>
-      <Button type="button" variant="outline" role="combobox" aria-expanded={open} aria-label="Default calendar time zone" className="w-full justify-between font-normal">
-        <span className="flex min-w-0 items-center gap-2"><Clock3 className="size-3.5 shrink-0 text-muted-foreground" /><span className="truncate">{value}</span></span>
-        <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
-      </Button>
-    </PopoverTrigger>
-    <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
-      <Command>
-        <CommandInput placeholder="Search time zones..." />
-        <CommandList
-          className="h-72 max-h-72 touch-pan-y overscroll-contain overflow-y-scroll [scrollbar-gutter:stable] [scrollbar-width:thin]"
-          onWheelCapture={(event) => event.stopPropagation()}
-          onTouchMove={(event) => event.stopPropagation()}
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          aria-label="Default calendar time zone"
+          className="w-full justify-between font-normal"
         >
-          <CommandEmpty>No matching time zone</CommandEmpty>
-          <CommandGroup>
-            {zones.map((zone) => <CommandItem
-              key={zone}
-              value={`${zone} ${zone.replace(/_/g, ' ')}`}
-              data-checked={zone === value}
-              onSelect={() => {
-                onValueChange(zone);
-                setOpen(false);
-              }}
-            >
-              <span className="min-w-0 flex-1"><span className="block truncate">{zone}</span><span className="block truncate text-[10px] text-muted-foreground">{zone === systemZone ? 'System time zone · ' : ''}{currentTimeInZone(zone)}</span></span>
-            </CommandItem>)}
-          </CommandGroup>
-        </CommandList>
-      </Command>
-    </PopoverContent>
-  </Popover>;
+          <span className="flex min-w-0 items-center gap-2">
+            <Clock3 className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">{value}</span>
+          </span>
+          <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
+        <Command>
+          <CommandInput placeholder="Search time zones..." />
+          <CommandList
+            className="h-72 max-h-72 touch-pan-y overscroll-contain overflow-y-scroll [scrollbar-gutter:stable] [scrollbar-width:thin]"
+            onWheelCapture={(event) => event.stopPropagation()}
+            onTouchMove={(event) => event.stopPropagation()}
+          >
+            <CommandEmpty>No matching time zone</CommandEmpty>
+            <CommandGroup>
+              {zones.map((zone) => (
+                <CommandItem
+                  key={zone}
+                  value={`${zone} ${zone.replace(/_/g, ' ')}`}
+                  data-checked={zone === value}
+                  onSelect={() => {
+                    onValueChange(zone);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{zone}</span>
+                    <span className="block truncate text-[10px] text-muted-foreground">
+                      {zone === systemZone ? 'System time zone · ' : ''}
+                      {currentTimeInZone(zone)}
+                    </span>
+                  </span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+
 import { BookmarkPlus, Trash2 } from 'lucide-react';
 
-import type { SheetDocument, SheetNamedRange } from '../../types/sheet';
-import type { SheetNamedRangeScope } from '../../lib/sheet/namedRanges';
 import { SheetAddressIndex } from '../../lib/sheet/address';
+import type { SheetNamedRangeScope } from '../../lib/sheet/namedRanges';
+import type { SheetDocument, SheetNamedRange } from '../../types/sheet';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import {
@@ -56,25 +57,31 @@ export default function SheetNamedRangeDialog({
     setScope('workbook');
   }, [open]);
 
-  const rows = useMemo(() => (document.namedRanges ?? []).map((namedRange) => {
-    const worksheet = document.worksheets.find(
-      (candidate) => candidate.id === namedRange.worksheetId,
-    );
-    return {
-      namedRange,
-      worksheet,
-      rangeLabel: worksheet
-        ? new SheetAddressIndex(worksheet).a1ForRange(namedRange.range)
-        : null,
-    };
-  }), [document.namedRanges, document.worksheets]);
+  const rows = useMemo(
+    () =>
+      (document.namedRanges ?? []).map((namedRange) => {
+        const worksheet = document.worksheets.find(
+          (candidate) => candidate.id === namedRange.worksheetId,
+        );
+        return {
+          namedRange,
+          worksheet,
+          rangeLabel: worksheet
+            ? new SheetAddressIndex(worksheet).a1ForRange(namedRange.range)
+            : null,
+        };
+      }),
+    [document.namedRanges, document.worksheets],
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Named ranges</DialogTitle>
-          <DialogDescription>Create a reusable formula name for {selectionLabel}.</DialogDescription>
+          <DialogDescription>
+            Create a reusable formula name for {selectionLabel}.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
@@ -91,8 +98,14 @@ export default function SheetNamedRangeDialog({
             </label>
             <label className="flex flex-col gap-1 text-xs font-medium">
               Scope
-              <Select value={scope} disabled={readOnly} onValueChange={(value) => setScope(value as SheetNamedRangeScope)}>
-                <SelectTrigger className="w-full" aria-label="Named range scope"><SelectValue /></SelectTrigger>
+              <Select
+                value={scope}
+                disabled={readOnly}
+                onValueChange={(value) => setScope(value as SheetNamedRangeScope)}
+              >
+                <SelectTrigger className="w-full" aria-label="Named range scope">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
                     <SelectItem value="workbook">Workbook</SelectItem>
@@ -120,7 +133,10 @@ export default function SheetNamedRangeDialog({
               <Separator />
               <div className="flex max-h-56 flex-col gap-1 overflow-y-auto">
                 {rows.map(({ namedRange, worksheet, rangeLabel }) => (
-                  <div key={namedRange.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50">
+                  <div
+                    key={namedRange.id}
+                    className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
+                  >
                     <button
                       type="button"
                       className="min-w-0 flex-1 text-left"

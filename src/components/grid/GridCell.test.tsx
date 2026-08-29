@@ -1,9 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import GridCell from './GridCell';
-import { useGridStore, type GridCell as GridCellType } from '../../store/gridStore';
+import { type GridCell as GridCellType, useGridStore } from '../../store/gridStore';
 import { useVaultStore } from '../../store/vaultStore';
+
+import GridCell from './GridCell';
 
 const canvasPageMock = vi.fn();
 const kanbanPageMock = vi.fn();
@@ -212,7 +213,8 @@ describe('GridCell', () => {
 
     fireEvent.drop(dropZone as Element, {
       dataTransfer: {
-        getData: (type: string) => (type === 'application/x-collab-vault-file' ? 'Boards/network.canvas' : ''),
+        getData: (type: string) =>
+          type === 'application/x-collab-vault-file' ? 'Boards/network.canvas' : '',
       },
     });
 
@@ -281,7 +283,8 @@ describe('GridCell', () => {
 
     fireEvent.drop(dropZone as Element, {
       dataTransfer: {
-        getData: (type: string) => (type === 'application/x-collab-vault-file' ? 'Boards/spec.pdf' : ''),
+        getData: (type: string) =>
+          type === 'application/x-collab-vault-file' ? 'Boards/spec.pdf' : '',
       },
     });
 
@@ -314,7 +317,8 @@ describe('GridCell', () => {
 
     fireEvent.drop(dropZone as Element, {
       dataTransfer: {
-        getData: (type: string) => (type === 'application/x-collab-vault-file' ? 'Boards/logic.logic' : ''),
+        getData: (type: string) =>
+          type === 'application/x-collab-vault-file' ? 'Boards/logic.logic' : '',
       },
     });
 

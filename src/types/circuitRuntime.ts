@@ -43,7 +43,8 @@ export interface CircuitDcResult {
   probeValues: CircuitProbeValue[];
 }
 
-export type CircuitJobPhase = 'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
+export type CircuitJobPhase =
+  'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
 export type CircuitJobStage = 'queued' | 'compiling' | 'solving' | 'finalizing';
 
 export interface CircuitJobStatus {
@@ -53,8 +54,7 @@ export interface CircuitJobStatus {
 }
 
 export type CircuitSweepOutput =
-  | { kind: 'node-voltage'; node: string }
-  | { kind: 'component-current'; component: string };
+  { kind: 'node-voltage'; node: string } | { kind: 'component-current'; component: string };
 
 export interface CircuitSweepSummary {
   source: string;
@@ -76,8 +76,7 @@ export interface CircuitSweepResult extends CircuitSweepSummary {
 }
 
 export type CircuitTransientOutput =
-  | { kind: 'node-voltage'; node: string }
-  | { kind: 'component-current'; component: string };
+  { kind: 'node-voltage'; node: string } | { kind: 'component-current'; component: string };
 
 export interface CircuitTransientSummary {
   sampleCount: number;

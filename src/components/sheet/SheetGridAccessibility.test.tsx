@@ -5,15 +5,16 @@
  * technology still gets the active cell, the selection shape, and a fully
  * keyboard-driven editing path. See `lib/sheet/accessibility.ts`.
  */
+import { useState } from 'react';
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useState } from 'react';
 
-import type { SheetWorksheet } from '../../types/sheet';
 import { createEmptySheetDocument } from '../../lib/sheet/document';
 import { setCell } from '../../lib/sheet/operations';
 import { createSelection, type SheetSelection } from '../../lib/sheet/selection';
+import type { SheetWorksheet } from '../../types/sheet';
+
 import SheetGrid, { type SheetGridEditing } from './SheetGrid';
 
 function worksheetFixture(): SheetWorksheet {
@@ -22,8 +23,18 @@ function worksheetFixture(): SheetWorksheet {
     worksheet: { name: 'Sheet1', rows: 20, columns: 8 },
   });
   const worksheetId = document.worksheets[0].id;
-  document = setCell(document, worksheetId, { row: 0, column: 0 }, { value: 'Rent', valueType: 'text' });
-  document = setCell(document, worksheetId, { row: 0, column: 1 }, { value: 1240, valueType: 'number' });
+  document = setCell(
+    document,
+    worksheetId,
+    { row: 0, column: 0 },
+    { value: 'Rent', valueType: 'text' },
+  );
+  document = setCell(
+    document,
+    worksheetId,
+    { row: 0, column: 1 },
+    { value: 1240, valueType: 'number' },
+  );
   document = setCell(document, worksheetId, { row: 1, column: 0 }, { formula: '=B1*2' });
   return document.worksheets[0];
 }
@@ -31,8 +42,13 @@ function worksheetFixture(): SheetWorksheet {
 function Harness({
   readOnly = false,
   onCommit = () => {},
-}: { readOnly?: boolean; onCommit?: (position: { row: number; column: number }, text: string) => void }) {
-  const [selection, setSelection] = useState<SheetSelection>(() => createSelection({ row: 0, column: 0 }));
+}: {
+  readOnly?: boolean;
+  onCommit?: (position: { row: number; column: number }, text: string) => void;
+}) {
+  const [selection, setSelection] = useState<SheetSelection>(() =>
+    createSelection({ row: 0, column: 0 }),
+  );
   const [editing, setEditing] = useState<SheetGridEditing | null>(null);
   return (
     <SheetGrid
@@ -60,7 +76,14 @@ function announcement() {
 
 beforeEach(() => {
   Element.prototype.getBoundingClientRect = vi.fn(() => ({
-    x: 0, y: 0, top: 0, left: 0, right: 1000, bottom: 800, width: 1000, height: 800,
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: 1000,
+    bottom: 800,
+    width: 1000,
+    height: 800,
     toJSON: () => ({}),
   })) as unknown as typeof Element.prototype.getBoundingClientRect;
 });

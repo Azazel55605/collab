@@ -1,14 +1,15 @@
-import type { LogicDiagramDocument } from '../types/logicDiagram';
 import type {
   CircuitJobOutcome,
   CircuitSweepChunk,
   CircuitSweepResult,
   CircuitSweepSummary,
 } from '../types/circuitRuntime';
+import type { LogicDiagramDocument } from '../types/logicDiagram';
+
 import {
-  runCircuitJob,
   type CircuitJobClient,
   type CircuitJobRunOptions,
+  runCircuitJob,
 } from './circuitJobRunner';
 
 const SWEEP_CHUNK_SIZE = 512;
@@ -19,9 +20,7 @@ export interface CircuitSweepJobClient extends CircuitJobClient {
 }
 
 function outputKey(output: CircuitSweepSummary['outputs'][number]): string {
-  return output.kind === 'node-voltage'
-    ? `node:${output.node}`
-    : `component:${output.component}`;
+  return output.kind === 'node-voltage' ? `node:${output.node}` : `component:${output.component}`;
 }
 
 export async function runCircuitSweepJob(
@@ -42,7 +41,9 @@ export async function runCircuitSweepJob(
 
   const summary = outcome.summary;
   const sourceValues: number[] = [];
-  const valuesByOutput = new Map(summary.outputs.map((output) => [outputKey(output), [] as number[]]));
+  const valuesByOutput = new Map(
+    summary.outputs.map((output) => [outputKey(output), [] as number[]]),
+  );
   let offset = 0;
 
   try {

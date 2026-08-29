@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { INK_LIMITS, INK_SAMPLE_RANGES } from '../../types/ink';
+
 import { buildStrokeSamples } from './fixture';
 import {
   captureStroke,
@@ -207,8 +208,7 @@ describe('captureStroke', () => {
       { x: 40, y: 0 },
       { x: 60, y: 40 },
     ];
-    expect(captureStroke(readings, { streamline: 0, simplifyTolerance: 0 }))
-      .toEqual(readings);
+    expect(captureStroke(readings, { streamline: 0, simplifyTolerance: 0 })).toEqual(readings);
   });
 
   it('returns nothing when every reading is invalid', () => {

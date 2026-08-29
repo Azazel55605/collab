@@ -1,7 +1,8 @@
 import { useCallback, useEffect } from 'react';
 
-import type { CanvasPickerMode } from './CanvasPickerDialog';
 import type { Viewport } from '@xyflow/react';
+
+import type { CanvasPickerMode } from './CanvasPickerDialog';
 
 const MIN_CANVAS_ZOOM = 0.2;
 const MAX_CANVAS_ZOOM = 2.5;
@@ -26,8 +27,12 @@ interface UseCanvasViewportControlsOptions {
 }
 
 function isEditableTarget(target: EventTarget | null) {
-  return target instanceof HTMLElement
-    && target.matches('input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"], [role="combobox"]');
+  return (
+    target instanceof HTMLElement &&
+    target.matches(
+      'input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"], [role="combobox"]',
+    )
+  );
 }
 
 export function useCanvasViewportControls({
@@ -41,27 +46,39 @@ export function useCanvasViewportControls({
   duplicateSelection,
   deleteSelection,
 }: UseCanvasViewportControlsOptions) {
-  const syncViewport = useCallback((nextViewport: Viewport, duration = 180) => {
-    void reactFlow.setViewport(nextViewport, { duration });
-    setViewport(nextViewport);
-  }, [reactFlow, setViewport]);
+  const syncViewport = useCallback(
+    (nextViewport: Viewport, duration = 180) => {
+      void reactFlow.setViewport(nextViewport, { duration });
+      setViewport(nextViewport);
+    },
+    [reactFlow, setViewport],
+  );
 
-  const panViewport = useCallback((deltaX: number, deltaY: number) => {
-    syncViewport({
-      x: viewport.x + deltaX,
-      y: viewport.y + deltaY,
-      zoom: viewport.zoom,
-    });
-  }, [syncViewport, viewport.x, viewport.y, viewport.zoom]);
+  const panViewport = useCallback(
+    (deltaX: number, deltaY: number) => {
+      syncViewport({
+        x: viewport.x + deltaX,
+        y: viewport.y + deltaY,
+        zoom: viewport.zoom,
+      });
+    },
+    [syncViewport, viewport.x, viewport.y, viewport.zoom],
+  );
 
-  const adjustZoom = useCallback((direction: 1 | -1) => {
-    const nextZoom = Math.min(MAX_CANVAS_ZOOM, Math.max(MIN_CANVAS_ZOOM, viewport.zoom * (direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP)));
-    syncViewport({
-      x: viewport.x,
-      y: viewport.y,
-      zoom: nextZoom,
-    });
-  }, [syncViewport, viewport.x, viewport.y, viewport.zoom]);
+  const adjustZoom = useCallback(
+    (direction: 1 | -1) => {
+      const nextZoom = Math.min(
+        MAX_CANVAS_ZOOM,
+        Math.max(MIN_CANVAS_ZOOM, viewport.zoom * (direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP)),
+      );
+      syncViewport({
+        x: viewport.x,
+        y: viewport.y,
+        zoom: nextZoom,
+      });
+    },
+    [syncViewport, viewport.x, viewport.y, viewport.zoom],
+  );
 
   const resetZoom = useCallback(() => {
     syncViewport({
@@ -165,9 +182,22 @@ export function useCanvasViewportControls({
 
     document.addEventListener('keydown', handleKeyDown, { capture: true });
     return () => {
-      document.removeEventListener('keydown', handleKeyDown, { capture: true } as EventListenerOptions);
+      document.removeEventListener('keydown', handleKeyDown, {
+        capture: true,
+      } as EventListenerOptions);
     };
-  }, [addTextNode, addWebNode, adjustZoom, deleteSelection, duplicateSelection, fitCanvasView, panViewport, pickerMode, resetZoom, setPickerMode]);
+  }, [
+    addTextNode,
+    addWebNode,
+    adjustZoom,
+    deleteSelection,
+    duplicateSelection,
+    fitCanvasView,
+    panViewport,
+    pickerMode,
+    resetZoom,
+    setPickerMode,
+  ]);
 
   return {
     adjustZoom,

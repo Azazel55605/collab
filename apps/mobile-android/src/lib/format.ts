@@ -1,4 +1,4 @@
-import type { MemberRole, HostedFileEntry } from '../mobileTauri';
+import type { HostedFileEntry, MemberRole } from '../mobileTauri';
 
 export function formatBytes(bytes: number | null | undefined): string {
   if (bytes == null || bytes <= 0) return '—';
@@ -48,16 +48,7 @@ export function fileEntryExtension(entry: HostedFileEntry): string {
 }
 
 export type FileGlyph =
-  | 'folder'
-  | 'note'
-  | 'kanban'
-  | 'canvas'
-  | 'logic'
-  | 'sheet'
-  | 'ink'
-  | 'image'
-  | 'pdf'
-  | 'file';
+  'folder' | 'note' | 'kanban' | 'canvas' | 'logic' | 'sheet' | 'ink' | 'image' | 'pdf' | 'file';
 
 export function fileGlyph(entry: HostedFileEntry): FileGlyph {
   if (entry.kind === 'folder') return 'folder';

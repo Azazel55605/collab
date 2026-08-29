@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { CalendarDefinition, CalendarMirrorGroup } from '../../types/calendar';
 import { useCalendarStore } from '../../store/calendarStore';
 import { useServerStore } from '../../store/serverStore';
 import { useUiStore } from '../../store/uiStore';
+import type { CalendarDefinition, CalendarMirrorGroup } from '../../types/calendar';
+
 import CalendarSyncStatusIndicator from './CalendarSyncStatusIndicator';
 
 const serverUrl = 'https://calendar.example.test';
@@ -30,8 +31,18 @@ const group: CalendarMirrorGroup = {
   name: 'Personal mirror',
   enabled: true,
   members: [
-    { id: 'local-member', calendarId: 'local-calendar', location: localLocation, addedAt: '2026-07-24T08:00:00.000Z' },
-    { id: 'hosted-member', calendarId: hostedCalendar.id, location: hostedLocation, addedAt: '2026-07-24T08:00:00.000Z' },
+    {
+      id: 'local-member',
+      calendarId: 'local-calendar',
+      location: localLocation,
+      addedAt: '2026-07-24T08:00:00.000Z',
+    },
+    {
+      id: 'hosted-member',
+      calendarId: hostedCalendar.id,
+      location: hostedLocation,
+      addedAt: '2026-07-24T08:00:00.000Z',
+    },
   ],
   createdAt: '2026-07-24T08:00:00.000Z',
   updatedAt: '2026-07-24T08:00:00.000Z',
@@ -78,12 +89,14 @@ beforeEach(() => {
 describe('CalendarSyncStatusIndicator mirrors', () => {
   it('shows waiting groups in the global calendar sync menu', () => {
     useCalendarStore.setState({
-      mirrorStatuses: [{
-        groupId: group.id,
-        state: 'waiting',
-        missingMemberIds: ['hosted-member'],
-        conflictCount: 0,
-      }],
+      mirrorStatuses: [
+        {
+          groupId: group.id,
+          state: 'waiting',
+          missingMemberIds: ['hosted-member'],
+          conflictCount: 0,
+        },
+      ],
     });
     render(<CalendarSyncStatusIndicator />);
 
@@ -94,13 +107,15 @@ describe('CalendarSyncStatusIndicator mirrors', () => {
 
   it('shows operation progress and retries an isolated mirror error', async () => {
     useCalendarStore.setState({
-      mirrorStatuses: [{
-        groupId: group.id,
-        state: 'error',
-        missingMemberIds: [],
-        conflictCount: 0,
-        error: 'temporary write failure',
-      }],
+      mirrorStatuses: [
+        {
+          groupId: group.id,
+          state: 'error',
+          missingMemberIds: [],
+          conflictCount: 0,
+          error: 'temporary write failure',
+        },
+      ],
       mirrorProgress: {
         [group.id]: {
           groupId: group.id,
@@ -117,27 +132,29 @@ describe('CalendarSyncStatusIndicator mirrors', () => {
     fireEvent.click(screen.getByText('1 calendar issue'));
     expect(screen.getByText('temporary write failure')).toBeTruthy();
     fireEvent.click(screen.getByTitle('Retry mirror sync'));
-    await waitFor(() => expect(syncHosted).toHaveBeenCalledWith([
-      { serverUrl, userId: 'user-1' },
-    ]));
+    await waitFor(() => expect(syncHosted).toHaveBeenCalledWith([{ serverUrl, userId: 'user-1' }]));
   });
 
   it('opens Calendar to resolve preserved mirror conflicts', () => {
     useCalendarStore.setState({
-      mirrorStatuses: [{
-        groupId: group.id,
-        state: 'conflict',
-        missingMemberIds: [],
-        conflictCount: 1,
-      }],
-      mirrorConflicts: [{
-        id: 'conflict-1',
-        groupId: group.id,
-        logicalItemKey: 'item-key',
-        status: 'unresolved',
-        versions: [],
-        detectedAt: '2026-07-24T08:00:00.000Z',
-      }],
+      mirrorStatuses: [
+        {
+          groupId: group.id,
+          state: 'conflict',
+          missingMemberIds: [],
+          conflictCount: 1,
+        },
+      ],
+      mirrorConflicts: [
+        {
+          id: 'conflict-1',
+          groupId: group.id,
+          logicalItemKey: 'item-key',
+          status: 'unresolved',
+          versions: [],
+          detectedAt: '2026-07-24T08:00:00.000Z',
+        },
+      ],
     });
     render(<CalendarSyncStatusIndicator />);
 

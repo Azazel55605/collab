@@ -13,18 +13,13 @@
  * windowing a touch grid needs. The two clients must never fork the workbook
  * model.
  */
-
-import { SHEET_DEFAULTS } from '../../../../src/types/sheet';
-import type {
-  SheetDocument,
-  SheetWorksheet,
-} from '../../../../src/types/sheet';
 import {
   inspectSheetDocumentText,
   serializeSheetDocument,
   type SheetSchemaSupport,
 } from '../../../../src/lib/sheet/document';
-import { fileEntryExtension } from './format';
+import { SHEET_DEFAULTS } from '../../../../src/types/sheet';
+import type { SheetDocument, SheetWorksheet } from '../../../../src/types/sheet';
 import {
   type HostedFileEntry,
   type HostedTextDocument,
@@ -33,6 +28,8 @@ import {
   replicaReadCachedDocument,
   writeHostedDocument,
 } from '../mobileTauri';
+
+import { fileEntryExtension } from './format';
 
 export type { SheetDocument, SheetWorksheet };
 

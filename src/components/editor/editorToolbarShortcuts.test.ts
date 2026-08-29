@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { EDITOR_TOOLBAR_ACTION_EVENT } from '../../lib/editorToolbarActions';
+
 import { handleEditorToolbarShortcutKeydown } from './editorToolbarShortcuts';
 
 describe('editorToolbarShortcuts', () => {

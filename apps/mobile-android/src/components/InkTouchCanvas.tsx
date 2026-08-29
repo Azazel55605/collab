@@ -17,21 +17,18 @@
  * - Committed ink is painted through the shared tile cache; the stroke under
  *   the pen lives on a second canvas that is cleared each frame.
  */
-
 import {
+  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type PointerEvent as ReactPointerEvent,
 } from 'react';
 
-import type { InkPage, InkSample } from '../../../../src/types/ink';
-import { INK_UNITS_PER_PX } from '../../../../src/types/ink';
-import { captureStroke } from '../../../../src/lib/ink/samples';
-import type { InkPointerReading } from '../../../../src/lib/ink/samples';
+import { INK_LIGHT_PALETTE, resolveInkColor } from '../../../../src/lib/ink/colors';
+import type { InkColorPalette } from '../../../../src/lib/ink/colors';
 import {
   InkContactArbiter,
   isBarrelButton,
@@ -42,15 +39,17 @@ import {
 import type { InkInputSettings, InkPointerEventLike } from '../../../../src/lib/ink/pointer';
 import { InkTileRenderer } from '../../../../src/lib/ink/renderer';
 import type { InkRenderTarget, InkTileSurfaceFactory } from '../../../../src/lib/ink/renderer';
+import { captureStroke } from '../../../../src/lib/ink/samples';
+import type { InkPointerReading } from '../../../../src/lib/ink/samples';
 import { outlineStroke } from '../../../../src/lib/ink/stroke';
 import { INK_TILE_SIZE } from '../../../../src/lib/ink/tiles';
 import type { InkViewport } from '../../../../src/lib/ink/tiles';
-import { penButtonTool, INK_DEFAULT_PEN_BUTTONS } from '../../../../src/lib/ink/tools';
+import { INK_DEFAULT_PEN_BUTTONS, penButtonTool } from '../../../../src/lib/ink/tools';
 import type { InkToolState } from '../../../../src/lib/ink/tools';
 import type { InkInteraction, LivePeer } from '../../../../src/lib/liveAwareness';
+import type { InkPage, InkSample } from '../../../../src/types/ink';
+import { INK_UNITS_PER_PX } from '../../../../src/types/ink';
 import { clampInkScale } from '../lib/ink';
-import { INK_LIGHT_PALETTE, resolveInkColor } from '../../../../src/lib/ink/colors';
-import type { InkColorPalette } from '../../../../src/lib/ink/colors';
 
 interface CanvasTile {
   canvas: HTMLCanvasElement;
@@ -58,11 +57,26 @@ interface CanvasTile {
 
 /** Absorbs paint calls where no 2D context exists (jsdom). */
 const NULL_TARGET: InkRenderTarget = {
-  save() {}, restore() {}, setTransform() {}, translate() {}, scale() {},
+  save() {},
+  restore() {},
+  setTransform() {},
+  translate() {},
+  scale() {},
   rotate() {},
-  clearRect() {}, fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {},
-  closePath() {}, fill() {}, stroke() {}, fillText() {},
-  fillStyle: '', strokeStyle: '', lineWidth: 1, globalAlpha: 1, font: '',
+  clearRect() {},
+  fillRect() {},
+  beginPath() {},
+  moveTo() {},
+  lineTo() {},
+  closePath() {},
+  fill() {},
+  stroke() {},
+  fillText() {},
+  fillStyle: '',
+  strokeStyle: '',
+  lineWidth: 1,
+  globalAlpha: 1,
+  font: '',
 };
 
 function createTileFactory(): InkTileSurfaceFactory<CanvasTile> {
@@ -460,23 +474,22 @@ export function InkTouchCanvas({
         return;
       }
       if (gesture.kind === 'draw') {
-        const coalesced =
-          (event.nativeEvent as PointerEvent).getCoalescedEvents?.() ?? [];
+        const coalesced = (event.nativeEvent as PointerEvent).getCoalescedEvents?.() ?? [];
         const rect = hostRef.current?.getBoundingClientRect();
-        const entries = (coalesced.length > 0 ? coalesced : [event.nativeEvent as PointerEvent]).map(
-          (entry) => ({
-            pointerId: entry.pointerId,
-            pointerType: entry.pointerType,
-            isPrimary: entry.isPrimary,
-            buttons: entry.buttons,
-            pressure: entry.pressure,
-            tiltX: entry.tiltX,
-            tiltY: entry.tiltY,
-            offsetX: entry.clientX - (rect?.left ?? 0),
-            offsetY: entry.clientY - (rect?.top ?? 0),
-            timeStamp: entry.timeStamp,
-          }),
-        );
+        const entries = (
+          coalesced.length > 0 ? coalesced : [event.nativeEvent as PointerEvent]
+        ).map((entry) => ({
+          pointerId: entry.pointerId,
+          pointerType: entry.pointerType,
+          isPrimary: entry.isPrimary,
+          buttons: entry.buttons,
+          pressure: entry.pressure,
+          tiltX: entry.tiltX,
+          tiltY: entry.tiltY,
+          offsetX: entry.clientX - (rect?.left ?? 0),
+          offsetY: entry.clientY - (rect?.top ?? 0),
+          timeStamp: entry.timeStamp,
+        }));
         for (const entry of entries) {
           gesture.readings.push(
             ...readingsFromEvent(entry, { originX, originY, zoom }, gesture.startedAt),
@@ -485,7 +498,9 @@ export function InkTouchCanvas({
         const samples: InkSample[] = gesture.readings.slice(-128).map((reading) => ({
           x: reading.x,
           y: reading.y,
-          ...(reading.pressure === undefined ? {} : { pressure: Math.round(reading.pressure * 4095) }),
+          ...(reading.pressure === undefined
+            ? {}
+            : { pressure: Math.round(reading.pressure * 4095) }),
         }));
         onInkAwareness?.({
           cursor: toDocument(event.clientX, event.clientY),
@@ -499,7 +514,17 @@ export function InkTouchCanvas({
         bump();
       }
     },
-    [onInkAwareness, onViewportChange, originX, originY, page, toDocument, tool.brush, unitsPerPixel, zoom],
+    [
+      onInkAwareness,
+      onViewportChange,
+      originX,
+      originY,
+      page,
+      toDocument,
+      tool.brush,
+      unitsPerPixel,
+      zoom,
+    ],
   );
 
   const endGesture = useCallback(

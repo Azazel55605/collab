@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import type { SheetWorksheet } from '../../types/sheet';
+
 import { describeSheetCell, describeSheetSelection, sheetActiveCellDomId } from './accessibility';
-import { createSelection, selectAll, selectColumns, selectRows, extendSelection } from './selection';
+import {
+  createSelection,
+  extendSelection,
+  selectAll,
+  selectColumns,
+  selectRows,
+} from './selection';
 
 const worksheet: SheetWorksheet = {
   id: 'ws1',
@@ -26,15 +33,12 @@ const bounds = { rowCount: 3, columnCount: 3 };
 
 describe('describeSheetCell', () => {
   it('reads the address and the displayed content', () => {
-    expect(describeSheetCell({ worksheet, position: { row: 0, column: 0 } }))
-      .toBe('A1, Rent');
-    expect(describeSheetCell({ worksheet, position: { row: 0, column: 1 } }))
-      .toBe('B1, 1240');
+    expect(describeSheetCell({ worksheet, position: { row: 0, column: 0 } })).toBe('A1, Rent');
+    expect(describeSheetCell({ worksheet, position: { row: 0, column: 1 } })).toBe('B1, 1240');
   });
 
   it('says a blank cell is empty rather than saying nothing', () => {
-    expect(describeSheetCell({ worksheet, position: { row: 2, column: 2 } }))
-      .toBe('C3, empty');
+    expect(describeSheetCell({ worksheet, position: { row: 2, column: 2 } })).toBe('C3, empty');
   });
 
   it('reads both the result and the source of a formula cell', () => {
@@ -49,27 +53,32 @@ describe('describeSheetCell', () => {
   });
 
   it('announces a formula whose value has not been computed yet', () => {
-    expect(describeSheetCell({ worksheet, position: { row: 1, column: 0 } }))
-      .toContain('formula =A1');
+    expect(describeSheetCell({ worksheet, position: { row: 1, column: 0 } })).toContain(
+      'formula =A1',
+    );
   });
 
   it('mentions links and attachments', () => {
-    expect(describeSheetCell({ worksheet, position: { row: 1, column: 1 } }))
-      .toContain('has link');
-    expect(describeSheetCell({ worksheet, position: { row: 2, column: 0 } }))
-      .toContain('1 attachment');
+    expect(describeSheetCell({ worksheet, position: { row: 1, column: 1 } })).toContain('has link');
+    expect(describeSheetCell({ worksheet, position: { row: 2, column: 0 } })).toContain(
+      '1 attachment',
+    );
   });
 });
 
 describe('describeSheetSelection', () => {
   it('reads the cell itself for a single-cell selection', () => {
     const selection = createSelection({ row: 0, column: 0 });
-    expect(describeSheetSelection({ worksheet, selection, position: selection.active }))
-      .toBe('A1, Rent');
+    expect(describeSheetSelection({ worksheet, selection, position: selection.active })).toBe(
+      'A1, Rent',
+    );
   });
 
   it('describes the shape of a range instead of every cell in it', () => {
-    const selection = extendSelection(createSelection({ row: 0, column: 0 }), { row: 2, column: 2 });
+    const selection = extendSelection(createSelection({ row: 0, column: 0 }), {
+      row: 2,
+      column: 2,
+    });
     const description = describeSheetSelection({
       worksheet,
       selection,
@@ -82,23 +91,29 @@ describe('describeSheetSelection', () => {
   });
 
   it('describes row, column, and whole-sheet selections', () => {
-    expect(describeSheetSelection({
-      worksheet,
-      selection: selectRows(0, 1, bounds),
-      position: { row: 0, column: 0 },
-    })).toContain('Rows 1 to 2 selected');
+    expect(
+      describeSheetSelection({
+        worksheet,
+        selection: selectRows(0, 1, bounds),
+        position: { row: 0, column: 0 },
+      }),
+    ).toContain('Rows 1 to 2 selected');
 
-    expect(describeSheetSelection({
-      worksheet,
-      selection: selectColumns(1, 2, bounds),
-      position: { row: 0, column: 1 },
-    })).toContain('Columns B to C selected');
+    expect(
+      describeSheetSelection({
+        worksheet,
+        selection: selectColumns(1, 2, bounds),
+        position: { row: 0, column: 1 },
+      }),
+    ).toContain('Columns B to C selected');
 
-    expect(describeSheetSelection({
-      worksheet,
-      selection: selectAll(bounds),
-      position: { row: 0, column: 0 },
-    })).toContain('All cells selected, 3 rows by 3 columns');
+    expect(
+      describeSheetSelection({
+        worksheet,
+        selection: selectAll(bounds),
+        position: { row: 0, column: 0 },
+      }),
+    ).toContain('All cells selected, 3 rows by 3 columns');
   });
 
   it('reports how many disjoint ranges are selected', () => {
@@ -107,8 +122,9 @@ describe('describeSheetSelection', () => {
       ...first,
       ranges: [...first.ranges, { anchor: { row: 2, column: 2 }, focus: { row: 2, column: 2 } }],
     };
-    expect(describeSheetSelection({ worksheet, selection, position: selection.active }))
-      .toContain('2 ranges selected, 2 cells');
+    expect(describeSheetSelection({ worksheet, selection, position: selection.active })).toContain(
+      '2 ranges selected, 2 cells',
+    );
   });
 
   it('states read-only and protected status, because they change what typing does', () => {

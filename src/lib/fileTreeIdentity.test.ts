@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { reconcileFileTreeIdentity } from './fileTreeIdentity';
 import type { NoteFile } from '../types/vault';
+
+import { reconcileFileTreeIdentity } from './fileTreeIdentity';
 
 function file(path: string, modifiedAt = 1, size = 10): NoteFile {
   return {
@@ -28,11 +29,9 @@ function folder(path: string, children: NoteFile[]): NoteFile {
 
 /** A fresh tree with identical content, as `listFiles` returns after a refresh. */
 function rebuild(nodes: NoteFile[]): NoteFile[] {
-  return nodes.map((node) => (
-    node.children
-      ? { ...node, children: rebuild(node.children) }
-      : { ...node }
-  ));
+  return nodes.map((node) =>
+    node.children ? { ...node, children: rebuild(node.children) } : { ...node },
+  );
 }
 
 describe('file tree identity reconciliation', () => {
@@ -108,10 +107,13 @@ describe('file tree identity reconciliation', () => {
    * far cheaper than re-rendering it, or the optimization pays for itself twice.
    */
   it('reconciles a large vault well inside the watcher budget', () => {
-    const build = () => Array.from({ length: 48 }, (_, index) => folder(
-      `Folder${index}`,
-      Array.from({ length: 32 }, (_, child) => file(`Folder${index}/note${child}.md`)),
-    ));
+    const build = () =>
+      Array.from({ length: 48 }, (_, index) =>
+        folder(
+          `Folder${index}`,
+          Array.from({ length: 32 }, (_, child) => file(`Folder${index}/note${child}.md`)),
+        ),
+      );
     const previous = build();
 
     const started = performance.now();

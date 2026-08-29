@@ -10,8 +10,6 @@
  * The source file is never modified, and the exported copy never becomes the
  * backing file of the open workbook.
  */
-
-import type { NoteFile } from '../../types/vault';
 import type { SheetDocument } from '../../types/sheet';
 import type {
   SheetConversionReport,
@@ -23,8 +21,10 @@ import type {
 } from '../../types/sheetConversion';
 import type { SheetFormulaValueMap } from '../../types/sheetFormula';
 import { sheetFormulaResultKey } from '../../types/sheetFormula';
+import type { NoteFile } from '../../types/vault';
 import { tauriCommands } from '../tauri';
 import type { VaultClient } from '../vaultClient';
+
 import { serializeSheetDocument } from './document';
 
 export interface SheetImportOutcome {

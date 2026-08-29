@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { toast } from 'sonner';
+
 import {
   AlertTriangle,
   ArrowUp,
@@ -16,22 +16,27 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
-import { useVaultStore } from '../../store/vaultStore';
-import { useServerStore } from '../../store/serverStore';
-import { syncRollup, useSyncStore } from '../../store/syncStore';
-import { onReplicaMutated, type PendingOpKind, type PendingOperation } from '../../lib/vaultReplica';
-import { vaultKind, type HostedVaultMeta } from '../../types/vault';
+import { type BackgroundJobRecord, tauriCommands } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '../ui/popover';
+  onReplicaMutated,
+  type PendingOperation,
+  type PendingOpKind,
+} from '../../lib/vaultReplica';
+import { useServerStore } from '../../store/serverStore';
+import { syncRollup, useSyncStore } from '../../store/syncStore';
+import {
+  type SyncTransfer,
+  transferPercent,
+  useSyncTransferStore,
+} from '../../store/syncTransferStore';
+import { useVaultStore } from '../../store/vaultStore';
+import { type HostedVaultMeta, vaultKind } from '../../types/vault';
 import { Button } from '../ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Progress } from '../ui/progress';
-import { transferPercent, useSyncTransferStore, type SyncTransfer } from '../../store/syncTransferStore';
-import { tauriCommands, type BackgroundJobRecord } from '../../lib/tauri';
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -84,23 +89,38 @@ function PendingRow({ operation }: { operation: PendingOperation }) {
 
 function TransferRow({ transfer }: { transfer: SyncTransfer }) {
   const percent = transferPercent(transfer);
-  const Icon = transfer.direction === 'upload' ? Upload : transfer.direction === 'download' ? Download : RefreshCw;
-  const count = transfer.total !== null
-    ? `${Math.min(transfer.completed, transfer.total)} of ${transfer.total}`
-    : null;
+  const Icon =
+    transfer.direction === 'upload'
+      ? Upload
+      : transfer.direction === 'download'
+        ? Download
+        : RefreshCw;
+  const count =
+    transfer.total !== null
+      ? `${Math.min(transfer.completed, transfer.total)} of ${transfer.total}`
+      : null;
   return (
     <li className="rounded-md border border-border/50 bg-muted/20 px-2 py-1.5">
       <div className="flex items-center gap-2">
-        <Icon size={12} className={cn(
-          'shrink-0',
-          transfer.status === 'failed' ? 'text-destructive' : 'text-sky-500',
-          transfer.direction === 'sync' && transfer.status === 'active' && 'app-spin-soft',
-        )} />
+        <Icon
+          size={12}
+          className={cn(
+            'shrink-0',
+            transfer.status === 'failed' ? 'text-destructive' : 'text-sky-500',
+            transfer.direction === 'sync' && transfer.status === 'active' && 'app-spin-soft',
+          )}
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-[11px] font-medium text-foreground">{transfer.label}</span>
-            {transfer.status === 'completed' && <Check size={11} className="ml-auto shrink-0 text-emerald-500" />}
-            {transfer.status === 'failed' && <AlertTriangle size={11} className="ml-auto shrink-0 text-destructive" />}
+            <span className="truncate text-[11px] font-medium text-foreground">
+              {transfer.label}
+            </span>
+            {transfer.status === 'completed' && (
+              <Check size={11} className="ml-auto shrink-0 text-emerald-500" />
+            )}
+            {transfer.status === 'failed' && (
+              <AlertTriangle size={11} className="ml-auto shrink-0 text-destructive" />
+            )}
             {transfer.status === 'active' && (percent !== null || count) && (
               <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground">
                 {percent !== null ? `${percent}%` : count}
@@ -108,39 +128,50 @@ function TransferRow({ transfer }: { transfer: SyncTransfer }) {
             )}
           </div>
           {(transfer.vaultName || transfer.detail || transfer.error) && (
-            <p className={cn(
-              'mt-0.5 truncate text-[10px] text-muted-foreground',
-              transfer.error && 'text-destructive',
-            )} title={transfer.error ?? transfer.detail ?? undefined}>
+            <p
+              className={cn(
+                'mt-0.5 truncate text-[10px] text-muted-foreground',
+                transfer.error && 'text-destructive',
+              )}
+              title={transfer.error ?? transfer.detail ?? undefined}
+            >
               {transfer.error ?? [transfer.vaultName, transfer.detail].filter(Boolean).join(' · ')}
             </p>
           )}
         </div>
       </div>
-      {transfer.status === 'active' && (
-        percent !== null
-          ? <Progress value={percent} className="mt-1.5 h-1" />
-          : <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-primary/20"><div className="h-full w-1/3 animate-pulse rounded-full bg-primary" /></div>
-      )}
+      {transfer.status === 'active' &&
+        (percent !== null ? (
+          <Progress value={percent} className="mt-1.5 h-1" />
+        ) : (
+          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-primary/20">
+            <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
+          </div>
+        ))}
     </li>
   );
 }
 
 function BackgroundJobRow({ job }: { job: BackgroundJobRecord }) {
   const total = job.progress.total;
-  const percent = total && total > 0
-    ? Math.min(100, Math.round((job.progress.completed / total) * 100))
-    : null;
+  const percent =
+    total && total > 0 ? Math.min(100, Math.round((job.progress.completed / total) * 100)) : null;
   const active = job.status === 'queued' || job.status === 'running';
-  const failed = ['partial', 'authentication_required', 'permission_denied', 'conflict', 'failed']
-    .includes(job.status);
-  const label = job.kind === 'replica_sync'
-    ? 'Vault sync'
-    : job.kind === 'calendar_sync'
-      ? 'Calendar sync'
-      : job.kind === 'notification_sync'
-        ? 'Notification sync'
-      : 'Maintenance';
+  const failed = [
+    'partial',
+    'authentication_required',
+    'permission_denied',
+    'conflict',
+    'failed',
+  ].includes(job.status);
+  const label =
+    job.kind === 'replica_sync'
+      ? 'Vault sync'
+      : job.kind === 'calendar_sync'
+        ? 'Calendar sync'
+        : job.kind === 'notification_sync'
+          ? 'Notification sync'
+          : 'Maintenance';
   return (
     <li className="rounded-md border border-border/50 bg-muted/20 px-2 py-1.5">
       <div className="flex items-center gap-2">
@@ -160,18 +191,27 @@ function BackgroundJobRow({ job }: { job: BackgroundJobRecord }) {
             </span>
           </div>
           <p
-            className={cn('mt-0.5 truncate text-[10px] text-muted-foreground', failed && 'text-destructive')}
+            className={cn(
+              'mt-0.5 truncate text-[10px] text-muted-foreground',
+              failed && 'text-destructive',
+            )}
             title={job.errorMessage ?? job.progress.detail ?? job.summary ?? undefined}
           >
-            {job.errorMessage ?? job.progress.detail ?? job.summary ?? `Started ${timeAgo(job.createdAt)}`}
+            {job.errorMessage ??
+              job.progress.detail ??
+              job.summary ??
+              `Started ${timeAgo(job.createdAt)}`}
           </p>
         </div>
       </div>
-      {active && (
-        percent !== null
-          ? <Progress value={percent} className="mt-1.5 h-1" />
-          : <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-primary/20"><div className="h-full w-1/3 animate-pulse rounded-full bg-primary" /></div>
-      )}
+      {active &&
+        (percent !== null ? (
+          <Progress value={percent} className="mt-1.5 h-1" />
+        ) : (
+          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-primary/20">
+            <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
+          </div>
+        ))}
     </li>
   );
 }
@@ -189,10 +229,21 @@ export default function SyncStatusIndicator() {
   const vault = useVaultStore((state) => state.vault);
   const closeVault = useVaultStore((state) => state.closeVault);
   const serverStatus = useServerStore((state) =>
-    vault?.kind === 'hosted' ? state.connections[vault.serverUrl]?.status ?? null : null,
+    vault?.kind === 'hosted' ? (state.connections[vault.serverUrl]?.status ?? null) : null,
   );
-  const { status, lastSyncedAt, pending, failed, access, isSyncing, refresh, syncNow, retry, discard, removeReplica } =
-    useSyncStore();
+  const {
+    status,
+    lastSyncedAt,
+    pending,
+    failed,
+    access,
+    isSyncing,
+    refresh,
+    syncNow,
+    retry,
+    discard,
+    removeReplica,
+  } = useSyncStore();
   const clear = useSyncStore((state) => state.clear);
   const transfers = useSyncTransferStore((state) => state.transfers);
   const clearFinishedTransfers = useSyncTransferStore((state) => state.clearFinished);
@@ -213,15 +264,19 @@ export default function SyncStatusIndicator() {
       setBackgroundJobs([]);
       return;
     }
-    void tauriCommands.backgroundJobList(30)
-      .then((jobs) => setBackgroundJobs(
-        jobs
-          .filter((job) =>
-            job.serverUrl === hostedVault.serverUrl
-            && (job.vaultId === null || job.vaultId === hostedVault.hostedVaultId),
-          )
-          .slice(0, 8),
-      ))
+    void tauriCommands
+      .backgroundJobList(30)
+      .then((jobs) =>
+        setBackgroundJobs(
+          jobs
+            .filter(
+              (job) =>
+                job.serverUrl === hostedVault.serverUrl &&
+                (job.vaultId === null || job.vaultId === hostedVault.hostedVaultId),
+            )
+            .slice(0, 8),
+        ),
+      )
       .catch(() => {});
   }, [hostedVault]);
 
@@ -313,19 +368,23 @@ export default function SyncStatusIndicator() {
   }, [failed.length]);
 
   const rollup = useMemo(
-    () => syncRollup({
-      isSyncing: isSyncing
-        || transfers.some((transfer) => transfer.status === 'active')
-        || backgroundJobs.some((job) => job.status === 'queued' || job.status === 'running'),
-      status,
-      pending,
-      failed,
-    }),
+    () =>
+      syncRollup({
+        isSyncing:
+          isSyncing ||
+          transfers.some((transfer) => transfer.status === 'active') ||
+          backgroundJobs.some((job) => job.status === 'queued' || job.status === 'running'),
+        status,
+        pending,
+        failed,
+      }),
     [isSyncing, status, pending, failed, transfers, backgroundJobs],
   );
   const activeTransfers = transfers.filter((transfer) => transfer.status === 'active');
   const recentTransfers = transfers.filter((transfer) => transfer.status !== 'active').slice(0, 5);
-  const activeBackgroundJobs = backgroundJobs.filter((job) => job.status === 'queued' || job.status === 'running');
+  const activeBackgroundJobs = backgroundJobs.filter(
+    (job) => job.status === 'queued' || job.status === 'running',
+  );
 
   if (!hostedVault) return null;
 
@@ -343,33 +402,33 @@ export default function SyncStatusIndicator() {
         label: accessTitle,
       }
     : (() => {
-    switch (rollup) {
-      case 'conflicts':
-        return {
-          className: 'text-destructive hover:text-destructive',
-          icon: <AlertTriangle size={11} />,
-          label: `${failed.length} conflict${failed.length === 1 ? '' : 's'}`,
-        };
-      case 'syncing':
-        return {
-          className: 'text-sky-500/90 hover:text-sky-400',
-          icon: <RefreshCw size={11} className="app-spin-soft" />,
-          label: 'Syncing…',
-        };
-      case 'pending':
-        return {
-          className: 'text-amber-500/90 hover:text-amber-400',
-          icon: <ArrowUp size={11} />,
-          label: `${pending.length} pending`,
-        };
-      default:
-        return {
-          className: 'text-muted-foreground hover:text-foreground',
-          icon: <Check size={11} />,
-          label: 'Synced',
-        };
-    }
-  })();
+        switch (rollup) {
+          case 'conflicts':
+            return {
+              className: 'text-destructive hover:text-destructive',
+              icon: <AlertTriangle size={11} />,
+              label: `${failed.length} conflict${failed.length === 1 ? '' : 's'}`,
+            };
+          case 'syncing':
+            return {
+              className: 'text-sky-500/90 hover:text-sky-400',
+              icon: <RefreshCw size={11} className="app-spin-soft" />,
+              label: 'Syncing…',
+            };
+          case 'pending':
+            return {
+              className: 'text-amber-500/90 hover:text-amber-400',
+              icon: <ArrowUp size={11} />,
+              label: `${pending.length} pending`,
+            };
+          default:
+            return {
+              className: 'text-muted-foreground hover:text-foreground',
+              icon: <Check size={11} />,
+              label: 'Synced',
+            };
+        }
+      })();
 
   const handleSyncNow = async () => {
     try {
@@ -479,7 +538,9 @@ export default function SyncStatusIndicator() {
                 Active transfers ({activeTransfers.length})
               </p>
               <ul className="flex flex-col gap-1">
-                {activeTransfers.map((transfer) => <TransferRow key={transfer.id} transfer={transfer} />)}
+                {activeTransfers.map((transfer) => (
+                  <TransferRow key={transfer.id} transfer={transfer} />
+                ))}
               </ul>
             </div>
           )}
@@ -490,7 +551,9 @@ export default function SyncStatusIndicator() {
                 Background activity
               </p>
               <ul className="flex flex-col gap-1">
-                {backgroundJobs.map((job) => <BackgroundJobRow key={job.id} job={job} />)}
+                {backgroundJobs.map((job) => (
+                  <BackgroundJobRow key={job.id} job={job} />
+                ))}
               </ul>
             </div>
           )}
@@ -506,10 +569,15 @@ export default function SyncStatusIndicator() {
                     key={recovery.operation.id}
                     className="rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5"
                   >
-                    <p className="truncate text-xs font-medium text-foreground" title={recovery.operation.relativePath ?? undefined}>
+                    <p
+                      className="truncate text-xs font-medium text-foreground"
+                      title={recovery.operation.relativePath ?? undefined}
+                    >
                       {OP_META[recovery.operation.kind].label} · {opLabel(recovery.operation)}
                     </p>
-                    <p className="mt-0.5 text-[10px] text-muted-foreground">{recovery.failure.message}</p>
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">
+                      {recovery.failure.message}
+                    </p>
                     <div className="mt-1.5 flex gap-1.5">
                       <Button
                         size="sm"
@@ -549,7 +617,10 @@ export default function SyncStatusIndicator() {
             </>
           ) : (
             failed.length === 0 &&
-            !accessLost && activeTransfers.length === 0 && recentTransfers.length === 0 && backgroundJobs.length === 0 && (
+            !accessLost &&
+            activeTransfers.length === 0 &&
+            recentTransfers.length === 0 &&
+            backgroundJobs.length === 0 && (
               <p className="px-1 py-3 text-center text-[11px] text-muted-foreground">
                 All changes are synced.
               </p>
@@ -559,13 +630,20 @@ export default function SyncStatusIndicator() {
           {recentTransfers.length > 0 && (
             <div className="mt-2 border-t border-border/50 pt-2">
               <div className="mb-1 flex items-center justify-between px-1">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Recent</p>
-                <button className="text-[10px] text-muted-foreground hover:text-foreground" onClick={clearFinishedTransfers}>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  Recent
+                </p>
+                <button
+                  className="text-[10px] text-muted-foreground hover:text-foreground"
+                  onClick={clearFinishedTransfers}
+                >
                   Clear
                 </button>
               </div>
               <ul className="flex flex-col gap-1">
-                {recentTransfers.map((transfer) => <TransferRow key={transfer.id} transfer={transfer} />)}
+                {recentTransfers.map((transfer) => (
+                  <TransferRow key={transfer.id} transfer={transfer} />
+                ))}
               </ul>
             </div>
           )}

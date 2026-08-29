@@ -1,4 +1,5 @@
-import { useEffect, useRef, type MutableRefObject } from 'react';
+import { type MutableRefObject, useEffect, useRef } from 'react';
+
 import { EditorView } from '@codemirror/view';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -119,8 +120,8 @@ export function resolveHoverPreviewState(
     const linkTarget = wikiEl?.dataset.path
       ? resolveVaultWikilinkTarget(wikiEl.dataset.path, fileTree)
       : linkEl?.dataset.url
-      ? resolveVaultRelativeLinkTarget(linkEl.dataset.url, currentDocumentRelativePath, fileTree)
-      : null;
+        ? resolveVaultRelativeLinkTarget(linkEl.dataset.url, currentDocumentRelativePath, fileTree)
+        : null;
     if (linkTarget?.type === 'pdf') {
       const anchor = wikiEl ?? linkEl;
       return {
@@ -136,16 +137,25 @@ export function resolveHoverPreviewState(
 
 function extensionForClipboardMime(mime: string) {
   switch (mime.toLowerCase()) {
-    case 'image/png': return 'png';
-    case 'image/jpeg': return 'jpg';
-    case 'image/webp': return 'webp';
-    case 'image/gif': return 'gif';
-    case 'image/svg+xml': return 'svg';
-    case 'image/bmp': return 'bmp';
+    case 'image/png':
+      return 'png';
+    case 'image/jpeg':
+      return 'jpg';
+    case 'image/webp':
+      return 'webp';
+    case 'image/gif':
+      return 'gif';
+    case 'image/svg+xml':
+      return 'svg';
+    case 'image/bmp':
+      return 'bmp';
     case 'image/x-icon':
-    case 'image/vnd.microsoft.icon': return 'ico';
-    case 'image/avif': return 'avif';
-    default: return 'png';
+    case 'image/vnd.microsoft.icon':
+      return 'ico';
+    case 'image/avif':
+      return 'avif';
+    default:
+      return 'png';
   }
 }
 
@@ -166,7 +176,9 @@ async function blobToDataUrl(blob: Blob) {
   });
 }
 
-export function getClipboardEventImageSources(clipboardData: DataTransfer | null | undefined): ClipboardImageSource[] {
+export function getClipboardEventImageSources(
+  clipboardData: DataTransfer | null | undefined,
+): ClipboardImageSource[] {
   if (!clipboardData) return [];
 
   const files = Array.from(clipboardData.files ?? []);
@@ -177,7 +189,8 @@ export function getClipboardEventImageSources(clipboardData: DataTransfer | null
         kind: 'blob' as const,
         blob: file,
         mime: file.type || 'image/png',
-        suggestedFileName: file.name || buildClipboardSuggestedFileName(file.type || 'image/png', index),
+        suggestedFileName:
+          file.name || buildClipboardSuggestedFileName(file.type || 'image/png', index),
       }));
   }
 
@@ -190,7 +203,8 @@ export function getClipboardEventImageSources(clipboardData: DataTransfer | null
       kind: 'blob',
       blob: file,
       mime: file.type || item.type || 'image/png',
-      suggestedFileName: file.name || buildClipboardSuggestedFileName(file.type || item.type || 'image/png', index),
+      suggestedFileName:
+        file.name || buildClipboardSuggestedFileName(file.type || item.type || 'image/png', index),
     });
     return sources;
   }, []);
@@ -281,7 +295,8 @@ type ImportClipboardImagesArgs = {
   clipboardImages: ClipboardImageSource[];
   insertPos: number;
   view: EditorView;
-  importData: ((dataUrl: string, suggestedName: string, targetFolder?: string) => Promise<string>) | null;
+  importData:
+    ((dataUrl: string, suggestedName: string, targetFolder?: string) => Promise<string>) | null;
   currentDocumentRelativePath: string;
   buildImageMarkdown: (relativePath: string, currentDocumentRelativePath: string) => string;
   onError?: (message: string) => void;
@@ -301,9 +316,7 @@ export async function importClipboardImagesIntoEditor({
   try {
     const insertedPaths: string[] = [];
     for (const image of clipboardImages) {
-      const dataUrl = image.kind === 'dataUrl'
-        ? image.dataUrl
-        : await blobToDataUrl(image.blob);
+      const dataUrl = image.kind === 'dataUrl' ? image.dataUrl : await blobToDataUrl(image.blob);
       const imported = await importData(dataUrl, image.suggestedFileName, 'Pictures');
       insertedPaths.push(imported);
     }
@@ -334,10 +347,7 @@ export function handleNativeEditorDrop({
 }: NativeDropArgs) {
   const rect = editorDom.getBoundingClientRect();
   const insideEditor =
-    clientX >= rect.left &&
-    clientX <= rect.right &&
-    clientY >= rect.top &&
-    clientY <= rect.bottom;
+    clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
 
   if (!insideEditor) return false;
 
@@ -364,7 +374,11 @@ export function handleEditorImageShiftClick(event: MouseEvent) {
   const assetValue = imageEl.dataset.assetValue;
   if (assetKind !== 'vault' || !assetValue) return false;
 
-  const title = assetValue.split('/').pop()?.replace(/\.[^.]+$/, '') ?? assetValue;
+  const title =
+    assetValue
+      .split('/')
+      .pop()
+      ?.replace(/\.[^.]+$/, '') ?? assetValue;
   useEditorStore.getState().openTab(assetValue, title, 'image');
   useUiStore.getState().setActiveView('editor');
   event.preventDefault();
@@ -372,7 +386,10 @@ export function handleEditorImageShiftClick(event: MouseEvent) {
   return true;
 }
 
-export function handleEditorDocumentLinkMouseDown(event: MouseEvent, currentDocumentRelativePath: string) {
+export function handleEditorDocumentLinkMouseDown(
+  event: MouseEvent,
+  currentDocumentRelativePath: string,
+) {
   if (event.button !== 0) return false;
 
   const target = event.target instanceof Element ? event.target : null;
@@ -384,8 +401,8 @@ export function handleEditorDocumentLinkMouseDown(event: MouseEvent, currentDocu
   const linkTarget = wikiEl?.dataset.path
     ? resolveVaultWikilinkTarget(wikiEl.dataset.path, fileTree)
     : linkEl?.dataset.url
-    ? resolveVaultRelativeLinkTarget(linkEl.dataset.url, currentDocumentRelativePath, fileTree)
-    : null;
+      ? resolveVaultRelativeLinkTarget(linkEl.dataset.url, currentDocumentRelativePath, fileTree)
+      : null;
 
   if (!linkTarget) return false;
 
@@ -450,7 +467,7 @@ export function useMarkdownEditorIntegrations({
 
     const resolveAssetImport = () => {
       const vault = useVaultStore.getState().vault;
-      return vault ? createVaultClient(vault).runtime.externalAssetImport ?? null : null;
+      return vault ? (createVaultClient(vault).runtime.externalAssetImport ?? null) : null;
     };
 
     const importDroppedImages = (sourcePaths: string[], dropPos: number) => {
@@ -475,14 +492,21 @@ export function useMarkdownEditorIntegrations({
     };
 
     const attachDropListener = (
-      subscribe: (handler: (event: {
-        payload: { type: 'enter' | 'over' | 'drop' | 'leave'; paths?: string[]; position?: { x: number; y: number } };
-      }) => void) => Promise<() => void>,
+      subscribe: (
+        handler: (event: {
+          payload: {
+            type: 'enter' | 'over' | 'drop' | 'leave';
+            paths?: string[];
+            position?: { x: number; y: number };
+          };
+        }) => void,
+      ) => Promise<() => void>,
       setUnlisten: (unlisten: (() => void) | null) => void,
       label: string,
     ) => {
       void subscribe((event) => {
-        if (event.payload.type !== 'drop' || !event.payload.paths || !event.payload.position) return;
+        if (event.payload.type !== 'drop' || !event.payload.paths || !event.payload.position)
+          return;
         const clientX = event.payload.position.x / window.devicePixelRatio;
         const clientY = event.payload.position.y / window.devicePixelRatio;
         handleNativeEditorDrop({
@@ -494,25 +518,33 @@ export function useMarkdownEditorIntegrations({
           stateRef: nativeDropStateRef,
           importDroppedImages,
         });
-      }).then((unlisten) => {
-        setUnlisten(unlisten);
-      }).catch((err) => {
-        console.error(`[MarkdownEditor] failed to attach ${label} drag-drop listener:`, err);
-      });
+      })
+        .then((unlisten) => {
+          setUnlisten(unlisten);
+        })
+        .catch((err) => {
+          console.error(`[MarkdownEditor] failed to attach ${label} drag-drop listener:`, err);
+        });
     };
 
     attachDropListener(
       (handler) => webview.onDragDropEvent(handler),
-      (unlisten) => { unlistenWebviewDragDrop = unlisten; },
+      (unlisten) => {
+        unlistenWebviewDragDrop = unlisten;
+      },
       'webview',
     );
     attachDropListener(
       (handler) => appWindow.onDragDropEvent(handler),
-      (unlisten) => { unlistenWindowDragDrop = unlisten; },
+      (unlisten) => {
+        unlistenWindowDragDrop = unlisten;
+      },
       'window',
     );
 
-    const handleDrop = (event: DragEvent) => { void handleImageDrop(event); };
+    const handleDrop = (event: DragEvent) => {
+      void handleImageDrop(event);
+    };
     const handlePaste = (event: ClipboardEvent) => {
       const insertPos = view.state.selection.main.from;
       const clipboardFileUriPaths = getClipboardFileUriPaths(event.clipboardData);
@@ -537,7 +569,9 @@ export function useMarkdownEditorIntegrations({
         return;
       }
 
-      const htmlImages = getClipboardHtmlImageSources(event.clipboardData?.getData('text/html') ?? '');
+      const htmlImages = getClipboardHtmlImageSources(
+        event.clipboardData?.getData('text/html') ?? '',
+      );
       if (htmlImages.length > 0) {
         event.preventDefault();
         void importClipboardImagesIntoEditor({
@@ -582,14 +616,22 @@ export function useMarkdownEditorIntegrations({
         if (!navigatorClipboardText) return;
 
         view.dispatch({
-          changes: { from: insertPos, to: view.state.selection.main.to, insert: navigatorClipboardText },
+          changes: {
+            from: insertPos,
+            to: view.state.selection.main.to,
+            insert: navigatorClipboardText,
+          },
           selection: { anchor: insertPos + navigatorClipboardText.length },
         });
         view.focus();
       })();
     };
     const handlePreviewHover = (event: MouseEvent) => {
-      const next = resolveHoverPreviewState(event, hoverWebLinkPreviewsEnabled, currentDocumentRelativePath);
+      const next = resolveHoverPreviewState(
+        event,
+        hoverWebLinkPreviewsEnabled,
+        currentDocumentRelativePath,
+      );
       const nextUrl = webPreviewsEnabled ? next.url : null;
       setHoveredUrl(nextUrl);
       setHoveredPdfRelativePath(next.pdfRelativePath);

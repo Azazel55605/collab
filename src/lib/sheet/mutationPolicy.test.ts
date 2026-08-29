@@ -11,10 +11,15 @@ describe('sheet mutation policies', () => {
   it('enforces destination validation during paste and preserves its identity', () => {
     let document = createEmptySheetDocument('Policy', { worksheet: { rows: 3, columns: 2 } });
     let worksheet = activeWorksheet(document);
-    document = setCell(document, worksheet.id, { row: 0, column: 0 }, {
-      value: 20,
-      valueType: 'number',
-    });
+    document = setCell(
+      document,
+      worksheet.id,
+      { row: 0, column: 0 },
+      {
+        value: 20,
+        valueType: 'number',
+      },
+    );
     document = applySheetValidation(
       document,
       worksheet.id,
@@ -35,10 +40,15 @@ describe('sheet mutation policies', () => {
     );
     expect(() => enforceSheetMutationPolicies(document, pasted)).toThrowError(/less than or equal/);
 
-    document = setCell(document, worksheet.id, { row: 0, column: 0 }, {
-      value: 5,
-      valueType: 'number',
-    });
+    document = setCell(
+      document,
+      worksheet.id,
+      { row: 0, column: 0 },
+      {
+        value: 5,
+        valueType: 'number',
+      },
+    );
     worksheet = activeWorksheet(document);
     const validPayload = createSheetClipboardPayload(
       document,

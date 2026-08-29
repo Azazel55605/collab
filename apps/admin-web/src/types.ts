@@ -387,7 +387,10 @@ export interface VaultGrant {
  * `collab_protocol::Capability`. Drives the template capability editor and the
  * grant capability summaries.
  */
-export const CAPABILITY_GROUPS: Array<{ domain: string; capabilities: Array<{ token: string; label: string }> }> = [
+export const CAPABILITY_GROUPS: Array<{
+  domain: string;
+  capabilities: Array<{ token: string; label: string }>;
+}> = [
   {
     domain: 'Vault',
     capabilities: [

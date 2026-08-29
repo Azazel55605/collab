@@ -1,12 +1,12 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const invoke = vi.fn();
-vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
-
 import { findBackgroundAttention, MobileApp } from './MobileApp';
 import type { BackgroundJobRecord } from './mobileTauri';
 import { useMobileStore } from './state/store';
+
+const invoke = vi.fn();
+vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 
 const realOpenVaultTarget = useMobileStore.getState().openVaultTarget;
 
@@ -98,10 +98,8 @@ describe('MobileApp shell', () => {
       allowInvalidCertificates: false,
       persistAcrossReboots: true,
     };
-    expect(findBackgroundAttention(
-      [AUTH_REQUIRED_JOB],
-      [server],
-      {
+    expect(
+      findBackgroundAttention([AUTH_REQUIRED_JOB], [server], {
         'https://collab.example.com': {
           connected: true,
           serverUrl: 'https://collab.example.com',
@@ -109,28 +107,30 @@ describe('MobileApp shell', () => {
           user: null,
           accessExpiresAt: null,
         },
-      },
-    )).toBeUndefined();
+      }),
+    ).toBeUndefined();
     expect(findBackgroundAttention([AUTH_REQUIRED_JOB], [server], {})).toEqual(AUTH_REQUIRED_JOB);
   });
 
   it('opens the profile calendar without selecting a vault', async () => {
     mockInvoke({
       server_connection_statuses: () => [],
-      calendar_list: () => [{
-        schemaVersion: 1,
-        id: 'calendar-1',
-        globalId: 'global-1',
-        location: { kind: 'local', profileId: 'mobile-profile' },
-        name: 'Personal',
-        color: '#a78bfa',
-        defaultTimeZone: 'UTC',
-        archived: false,
-        readOnly: false,
-        revision: 0,
-        createdAt: '2026-07-23T08:00:00.000Z',
-        updatedAt: '2026-07-23T08:00:00.000Z',
-      }],
+      calendar_list: () => [
+        {
+          schemaVersion: 1,
+          id: 'calendar-1',
+          globalId: 'global-1',
+          location: { kind: 'local', profileId: 'mobile-profile' },
+          name: 'Personal',
+          color: '#a78bfa',
+          defaultTimeZone: 'UTC',
+          archived: false,
+          readOnly: false,
+          revision: 0,
+          createdAt: '2026-07-23T08:00:00.000Z',
+          updatedAt: '2026-07-23T08:00:00.000Z',
+        },
+      ],
       calendar_list_items: () => [],
     });
     render(<MobileApp />);
@@ -143,7 +143,9 @@ describe('MobileApp shell', () => {
     expect(useMobileStore.getState().selected).toBeNull();
 
     expect(screen.getByRole('button', { name: 'Month' }).getAttribute('aria-pressed')).toBe('true');
-    await waitFor(() => expect(document.querySelector('.mobile-calendar-content.view-month')).toBeTruthy());
+    await waitFor(() =>
+      expect(document.querySelector('.mobile-calendar-content.view-month')).toBeTruthy(),
+    );
     const month = document.querySelector('.mobile-calendar-content.view-month');
     expect(month).toBeTruthy();
     fireEvent.touchStart(month!, { touches: [{ clientX: 280, clientY: 240 }] });
@@ -166,7 +168,9 @@ describe('MobileApp shell', () => {
     render(<MobileApp />);
 
     await waitFor(() => expect(useMobileStore.getState().tab).toBe('calendar'));
-    await waitFor(() => expect(document.querySelector('.mobile-calendar-content.view-day')).toBeTruthy());
+    await waitFor(() =>
+      expect(document.querySelector('.mobile-calendar-content.view-day')).toBeTruthy(),
+    );
     expect(screen.getByText('September 2026')).toBeTruthy();
   });
 
@@ -180,9 +184,11 @@ describe('MobileApp shell', () => {
     await waitFor(() => expect(useMobileStore.getState().restored).toBe(true));
 
     act(() => {
-      window.dispatchEvent(new CustomEvent('collab-app-destination', {
-        detail: { kind: 'calendar-today' },
-      }));
+      window.dispatchEvent(
+        new CustomEvent('collab-app-destination', {
+          detail: { kind: 'calendar-today' },
+        }),
+      );
     });
 
     await waitFor(() => expect(useMobileStore.getState().tab).toBe('calendar'));
@@ -203,22 +209,23 @@ describe('MobileApp shell', () => {
     });
 
     act(() => {
-      window.dispatchEvent(new CustomEvent('collab-app-destination', {
-        detail: {
-          kind: 'kanban-card',
-          vaultId: 'vault-1',
-          fileId: 'file-1',
-          cardId: 'card-1',
-        },
-      }));
+      window.dispatchEvent(
+        new CustomEvent('collab-app-destination', {
+          detail: {
+            kind: 'kanban-card',
+            vaultId: 'vault-1',
+            fileId: 'file-1',
+            cardId: 'card-1',
+          },
+        }),
+      );
     });
 
     await waitFor(() => {
-      expect(openVaultTarget).toHaveBeenCalledWith(
-        'vault-1',
-        'file-1',
-        { cardId: 'card-1', expectFolder: false },
-      );
+      expect(openVaultTarget).toHaveBeenCalledWith('vault-1', 'file-1', {
+        cardId: 'card-1',
+        expectFolder: false,
+      });
     });
   });
 
@@ -233,13 +240,15 @@ describe('MobileApp shell', () => {
     await waitFor(() => expect(useMobileStore.getState().restored).toBe(true));
 
     act(() => {
-      window.dispatchEvent(new CustomEvent('collab-app-destination', {
-        detail: {
-          kind: 'vault-file',
-          vaultId: 'missing-vault',
-          fileId: 'file-1',
-        },
-      }));
+      window.dispatchEvent(
+        new CustomEvent('collab-app-destination', {
+          detail: {
+            kind: 'vault-file',
+            vaultId: 'missing-vault',
+            fileId: 'file-1',
+          },
+        }),
+      );
     });
 
     // A revoked or removed target lands on a safe surface, explains itself, and
@@ -262,9 +271,11 @@ describe('MobileApp shell', () => {
     await waitFor(() => expect(useMobileStore.getState().restored).toBe(true));
 
     act(() => {
-      window.dispatchEvent(new CustomEvent('collab-app-destination', {
-        detail: { kind: 'capture-note' },
-      }));
+      window.dispatchEvent(
+        new CustomEvent('collab-app-destination', {
+          detail: { kind: 'capture-note' },
+        }),
+      );
     });
 
     // With no vault open, capture sends the user to the normal picker rather
@@ -282,9 +293,11 @@ describe('MobileApp shell', () => {
     await waitFor(() => expect(useMobileStore.getState().restored).toBe(true));
 
     act(() => {
-      window.dispatchEvent(new CustomEvent('collab-app-destination', {
-        detail: { kind: 'settings-account' },
-      }));
+      window.dispatchEvent(
+        new CustomEvent('collab-app-destination', {
+          detail: { kind: 'settings-account' },
+        }),
+      );
     });
 
     // Sync recovery opens the app's own settings; the widget offers no fix of
@@ -299,11 +312,16 @@ describe('MobileApp shell', () => {
     await waitFor(() => expect(useMobileStore.getState().restored).toBe(true));
 
     fireEvent.click(screen.getByRole('button', { name: /Settings/ }));
-    const settingsCategories = await screen.findByRole('navigation', { name: 'Settings categories' });
+    const settingsCategories = await screen.findByRole('navigation', {
+      name: 'Settings categories',
+    });
     fireEvent.click(within(settingsCategories).getByRole('button', { name: /Logic & circuits/ }));
     (await screen.findByRole('button', { name: 'IEC / DIN' })).click();
 
-    const stored = JSON.parse(localStorage.getItem('collab-mobile-theme') ?? '{}') as Record<string, unknown>;
+    const stored = JSON.parse(localStorage.getItem('collab-mobile-theme') ?? '{}') as Record<
+      string,
+      unknown
+    >;
     expect(stored.schematicSymbolSet).toBe('iec');
   });
 
@@ -313,16 +331,25 @@ describe('MobileApp shell', () => {
     await waitFor(() => expect(useMobileStore.getState().restored).toBe(true));
 
     fireEvent.click(screen.getByRole('button', { name: /Settings/ }));
-    const settingsCategories = await screen.findByRole('navigation', { name: 'Settings categories' });
+    const settingsCategories = await screen.findByRole('navigation', {
+      name: 'Settings categories',
+    });
     fireEvent.click(within(settingsCategories).getByRole('button', { name: /Calendar/ }));
     expect(await screen.findByText('Default time zone')).toBeTruthy();
     screen.getByRole('button', { name: '2026-07-23' }).click();
-    await waitFor(() => expect(screen.getByRole('button', { name: '2026-07-23' }).className).toContain('selected'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '2026-07-23' }).className).toContain('selected'),
+    );
     screen.getByRole('button', { name: '24 hour' }).click();
-    await waitFor(() => expect(screen.getByRole('button', { name: '24 hour' }).className).toContain('selected'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '24 hour' }).className).toContain('selected'),
+    );
     fireEvent.click(screen.getByRole('checkbox', { name: /Hide weekends/ }));
 
-    const stored = JSON.parse(localStorage.getItem('collab-mobile-theme') ?? '{}') as Record<string, unknown>;
+    const stored = JSON.parse(localStorage.getItem('collab-mobile-theme') ?? '{}') as Record<
+      string,
+      unknown
+    >;
     expect(stored.calendarDateFormat).toBe('YYYY_MM_DD');
     expect(stored.calendarTimeFormat).toBe('24-hour');
     expect(stored.calendarHideWeekends).toBe(true);
@@ -367,7 +394,14 @@ describe('MobileApp shell', () => {
         };
       },
       hosted_vault_request: () => [
-        { id: 'v1', name: 'Research', role: 'viewer', status: 'active', members: 2, storageBytes: 1024 },
+        {
+          id: 'v1',
+          name: 'Research',
+          role: 'viewer',
+          status: 'active',
+          members: 2,
+          storageBytes: 1024,
+        },
       ],
     });
 
@@ -424,7 +458,10 @@ describe('MobileApp shell', () => {
     act(() => {
       useMobileStore.setState({
         tab: 'files',
-        folderTrail: [{ id: null, name: 'Root' }, { id: 'folder-1', name: 'Folder' }],
+        folderTrail: [
+          { id: null, name: 'Root' },
+          { id: 'folder-1', name: 'Folder' },
+        ],
         activeSheet: null,
       });
     });

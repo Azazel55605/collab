@@ -27,10 +27,14 @@ describe('DocumentStatusPill', () => {
   });
 
   it('only shows recovery actions for remote-pending and conflict', () => {
-    const { rerender } = render(<DocumentStatusPill status="dirty" onLoadRemote={vi.fn()} onKeepLocal={vi.fn()} />);
+    const { rerender } = render(
+      <DocumentStatusPill status="dirty" onLoadRemote={vi.fn()} onKeepLocal={vi.fn()} />,
+    );
     expect(screen.queryByRole('button', { name: /load latest/i })).toBeNull();
 
-    rerender(<DocumentStatusPill status="remote-pending" onLoadRemote={vi.fn()} onKeepLocal={vi.fn()} />);
+    rerender(
+      <DocumentStatusPill status="remote-pending" onLoadRemote={vi.fn()} onKeepLocal={vi.fn()} />,
+    );
     expect(screen.getByRole('button', { name: /load latest/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /keep editing/i })).toBeTruthy();
 
@@ -41,7 +45,13 @@ describe('DocumentStatusPill', () => {
   it('wires the recovery callbacks', () => {
     const onLoadRemote = vi.fn();
     const onKeepLocal = vi.fn();
-    render(<DocumentStatusPill status="conflict" onLoadRemote={onLoadRemote} onKeepLocal={onKeepLocal} />);
+    render(
+      <DocumentStatusPill
+        status="conflict"
+        onLoadRemote={onLoadRemote}
+        onKeepLocal={onKeepLocal}
+      />,
+    );
 
     fireEvent.click(screen.getByRole('button', { name: /load latest/i }));
     fireEvent.click(screen.getByRole('button', { name: /keep mine/i }));

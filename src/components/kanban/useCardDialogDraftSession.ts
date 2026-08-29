@@ -13,7 +13,10 @@ type UseCardDialogDraftSessionArgs = {
   debounceMs?: number;
 };
 
-export function createInitialCardDialogDraft(initialCard: KanbanCard, storedDraft?: KanbanCard | null): KanbanCard {
+export function createInitialCardDialogDraft(
+  initialCard: KanbanCard,
+  storedDraft?: KanbanCard | null,
+): KanbanCard {
   const base = storedDraft && storedDraft.id === initialCard.id ? storedDraft : initialCard;
   return {
     ...base,
@@ -23,7 +26,11 @@ export function createInitialCardDialogDraft(initialCard: KanbanCard, storedDraf
   };
 }
 
-export function applyCardDraftToBoard(board: KanbanBoard, columnId: string, draft: KanbanCard): KanbanBoard {
+export function applyCardDraftToBoard(
+  board: KanbanBoard,
+  columnId: string,
+  draft: KanbanCard,
+): KanbanBoard {
   return {
     ...board,
     columns: board.columns.map((column) =>
@@ -45,7 +52,9 @@ export function useCardDialogDraftSession({
   storeUpdateDraft,
   debounceMs = 300,
 }: UseCardDialogDraftSessionArgs) {
-  const [draft, setDraft] = useState<KanbanCard>(() => createInitialCardDialogDraft(initialCard, storedDraft));
+  const [draft, setDraft] = useState<KanbanCard>(() =>
+    createInitialCardDialogDraft(initialCard, storedDraft),
+  );
   const [currentColumnId, setCurrentColumnId] = useState(columnId);
   const currentColIdRef = useRef(columnId);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -57,27 +66,36 @@ export function useCardDialogDraftSession({
     }
   }, []);
 
-  const flushDraft = useCallback((nextDraft: KanbanCard) => {
-    cancelPendingFlush();
-    const targetColumnId = currentColIdRef.current;
-    saveTimerRef.current = setTimeout(() => {
-      updateBoard((prev) => applyCardDraftToBoard(prev, targetColumnId, nextDraft));
-      saveTimerRef.current = undefined;
-    }, debounceMs);
-  }, [cancelPendingFlush, debounceMs, updateBoard]);
+  const flushDraft = useCallback(
+    (nextDraft: KanbanCard) => {
+      cancelPendingFlush();
+      const targetColumnId = currentColIdRef.current;
+      saveTimerRef.current = setTimeout(() => {
+        updateBoard((prev) => applyCardDraftToBoard(prev, targetColumnId, nextDraft));
+        saveTimerRef.current = undefined;
+      }, debounceMs);
+    },
+    [cancelPendingFlush, debounceMs, updateBoard],
+  );
 
-  const patchDraft = useCallback((changes: Partial<KanbanCard>) => {
-    setDraft((prev) => {
-      const next = { ...prev, ...changes };
-      flushDraft(next);
-      storeUpdateDraft(next);
-      return next;
-    });
-  }, [flushDraft, storeUpdateDraft]);
+  const patchDraft = useCallback(
+    (changes: Partial<KanbanCard>) => {
+      setDraft((prev) => {
+        const next = { ...prev, ...changes };
+        flushDraft(next);
+        storeUpdateDraft(next);
+        return next;
+      });
+    },
+    [flushDraft, storeUpdateDraft],
+  );
 
-  useEffect(() => () => {
-    cancelPendingFlush();
-  }, [cancelPendingFlush]);
+  useEffect(
+    () => () => {
+      cancelPendingFlush();
+    },
+    [cancelPendingFlush],
+  );
 
   return {
     draft,

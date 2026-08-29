@@ -34,7 +34,9 @@ describe('isSheetConvertibleFile', () => {
 
 describe('isLosslessConversion', () => {
   it('is true only when every note is an imported one', () => {
-    expect(isLosslessConversion(report({ severity: 'imported', feature: 'Worksheets' }))).toBe(true);
+    expect(isLosslessConversion(report({ severity: 'imported', feature: 'Worksheets' }))).toBe(
+      true,
+    );
     expect(
       isLosslessConversion(
         report({ severity: 'imported', feature: 'A' }, { severity: 'skipped', feature: 'B' }),

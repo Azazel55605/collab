@@ -1,15 +1,30 @@
 import { useState } from 'react';
-import { CircuitBoard, GitFork, Layout, LayoutDashboard, Settings, FileText, Search, Image as ImageIcon } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+
+import {
+  CircuitBoard,
+  FileText,
+  GitFork,
+  Image as ImageIcon,
+  Layout,
+  LayoutDashboard,
+  Search,
+  Settings,
+} from 'lucide-react';
+
+import {
+  flattenVaultFiles,
+  getVaultDocumentTabType,
+  getVaultDocumentTitle,
+} from '../../lib/vaultLinks';
+import type { CellContentType, GridCellContent } from '../../store/gridStore';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useVaultStore } from '../../store/vaultStore';
-import type { GridCellContent, CellContentType } from '../../store/gridStore';
-import { flattenVaultFiles, getVaultDocumentTabType, getVaultDocumentTitle } from '../../lib/vaultLinks';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 const VIEW_OPTIONS: { type: CellContentType; label: string; icon: React.ReactNode }[] = [
-  { type: 'graph',    label: 'Graph',    icon: <GitFork size={14} /> },
-  { type: 'settings',label: 'Settings', icon: <Settings size={14} /> },
+  { type: 'graph', label: 'Graph', icon: <GitFork size={14} /> },
+  { type: 'settings', label: 'Settings', icon: <Settings size={14} /> },
 ];
 
 interface Props {
@@ -23,10 +38,18 @@ export default function CellContentPicker({ children, onSelect }: Props) {
   const { notes } = useNoteIndexStore();
   const fileTree = useVaultStore((state) => state.fileTree);
   const flatFiles = flattenVaultFiles(fileTree);
-  const canvasBoards = flatFiles.filter((file) => getVaultDocumentTabType(file.relativePath) === 'canvas');
-  const kanbanBoards = flatFiles.filter((file) => getVaultDocumentTabType(file.relativePath) === 'kanban');
-  const logicDiagrams = flatFiles.filter((file) => getVaultDocumentTabType(file.relativePath) === 'logic');
-  const imageFiles = flatFiles.filter((file) => getVaultDocumentTabType(file.relativePath) === 'image');
+  const canvasBoards = flatFiles.filter(
+    (file) => getVaultDocumentTabType(file.relativePath) === 'canvas',
+  );
+  const kanbanBoards = flatFiles.filter(
+    (file) => getVaultDocumentTabType(file.relativePath) === 'kanban',
+  );
+  const logicDiagrams = flatFiles.filter(
+    (file) => getVaultDocumentTabType(file.relativePath) === 'logic',
+  );
+  const imageFiles = flatFiles.filter(
+    (file) => getVaultDocumentTabType(file.relativePath) === 'image',
+  );
   const pdfFiles = flatFiles.filter((file) => getVaultDocumentTabType(file.relativePath) === 'pdf');
 
   const filteredNotes = search.trim()
@@ -34,36 +57,56 @@ export default function CellContentPicker({ children, onSelect }: Props) {
         .filter(
           (n) =>
             n.title.toLowerCase().includes(search.toLowerCase()) ||
-            n.relativePath.toLowerCase().includes(search.toLowerCase())
+            n.relativePath.toLowerCase().includes(search.toLowerCase()),
         )
         .slice(0, 12)
     : notes.slice(0, 10);
 
   const query = search.trim().toLowerCase();
-  const filteredCanvasBoards = (query
-    ? canvasBoards.filter((file) =>
-        file.name.toLowerCase().includes(query) || file.relativePath.toLowerCase().includes(query))
-    : canvasBoards
+  const filteredCanvasBoards = (
+    query
+      ? canvasBoards.filter(
+          (file) =>
+            file.name.toLowerCase().includes(query) ||
+            file.relativePath.toLowerCase().includes(query),
+        )
+      : canvasBoards
   ).slice(0, 8);
-  const filteredKanbanBoards = (query
-    ? kanbanBoards.filter((file) =>
-        file.name.toLowerCase().includes(query) || file.relativePath.toLowerCase().includes(query))
-    : kanbanBoards
+  const filteredKanbanBoards = (
+    query
+      ? kanbanBoards.filter(
+          (file) =>
+            file.name.toLowerCase().includes(query) ||
+            file.relativePath.toLowerCase().includes(query),
+        )
+      : kanbanBoards
   ).slice(0, 8);
-  const filteredLogicDiagrams = (query
-    ? logicDiagrams.filter((file) =>
-        file.name.toLowerCase().includes(query) || file.relativePath.toLowerCase().includes(query))
-    : logicDiagrams
+  const filteredLogicDiagrams = (
+    query
+      ? logicDiagrams.filter(
+          (file) =>
+            file.name.toLowerCase().includes(query) ||
+            file.relativePath.toLowerCase().includes(query),
+        )
+      : logicDiagrams
   ).slice(0, 8);
-  const filteredImageFiles = (query
-    ? imageFiles.filter((file) =>
-        file.name.toLowerCase().includes(query) || file.relativePath.toLowerCase().includes(query))
-    : imageFiles
+  const filteredImageFiles = (
+    query
+      ? imageFiles.filter(
+          (file) =>
+            file.name.toLowerCase().includes(query) ||
+            file.relativePath.toLowerCase().includes(query),
+        )
+      : imageFiles
   ).slice(0, 8);
-  const filteredPdfFiles = (query
-    ? pdfFiles.filter((file) =>
-        file.name.toLowerCase().includes(query) || file.relativePath.toLowerCase().includes(query))
-    : pdfFiles
+  const filteredPdfFiles = (
+    query
+      ? pdfFiles.filter(
+          (file) =>
+            file.name.toLowerCase().includes(query) ||
+            file.relativePath.toLowerCase().includes(query),
+        )
+      : pdfFiles
   ).slice(0, 8);
 
   const select = (content: GridCellContent) => {
@@ -93,7 +136,9 @@ export default function CellContentPicker({ children, onSelect }: Props) {
                   {icon}
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">{label}</TooltipContent>
+              <TooltipContent side="bottom" className="text-xs">
+                {label}
+              </TooltipContent>
             </Tooltip>
           ))}
         </div>
@@ -202,33 +247,33 @@ export default function CellContentPicker({ children, onSelect }: Props) {
                 </span>
               </button>
             ))}
-            {filteredNotes.length > 0 ? (
-              filteredNotes.map((note) => (
-                <button
-                  key={note.relativePath}
-                  onClick={() =>
-                    select({
-                      type: 'note',
-                      relativePath: note.relativePath,
-                      title: note.title || note.relativePath,
-                    })
-                  }
-                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-accent/60 text-left transition-colors min-w-0"
-                >
-                  <FileText size={11} className="text-muted-foreground shrink-0" />
-                  <span className="truncate text-foreground/80">
-                    {note.title || note.relativePath}
-                  </span>
-                </button>
-              ))
-            ) : (
-              filteredCanvasBoards.length === 0
-              && filteredKanbanBoards.length === 0
-              && filteredPdfFiles.length === 0
-              && filteredImageFiles.length === 0 && (
-                <p className="text-xs text-muted-foreground text-center py-4">No matching content found</p>
-              )
-            )}
+            {filteredNotes.length > 0
+              ? filteredNotes.map((note) => (
+                  <button
+                    key={note.relativePath}
+                    onClick={() =>
+                      select({
+                        type: 'note',
+                        relativePath: note.relativePath,
+                        title: note.title || note.relativePath,
+                      })
+                    }
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-accent/60 text-left transition-colors min-w-0"
+                  >
+                    <FileText size={11} className="text-muted-foreground shrink-0" />
+                    <span className="truncate text-foreground/80">
+                      {note.title || note.relativePath}
+                    </span>
+                  </button>
+                ))
+              : filteredCanvasBoards.length === 0 &&
+                filteredKanbanBoards.length === 0 &&
+                filteredPdfFiles.length === 0 &&
+                filteredImageFiles.length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-4">
+                    No matching content found
+                  </p>
+                )}
           </div>
         </div>
       </PopoverContent>

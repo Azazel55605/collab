@@ -5,20 +5,15 @@
  * `transformObject`, so alignment inherits the same geometry baking as every
  * other transform and needs no special case in bounds, hit testing, or export.
  */
-
 import type { InkBounds, InkScene } from '../../types/ink';
+
 import { boundsOf, expandSelection, updateObject } from './operations';
 import type { InkEdit } from './operations';
 import { objectBounds } from './svg';
 import { transformObject, translation } from './transform';
 
 export type InkAlignment =
-  | 'left'
-  | 'center-horizontal'
-  | 'right'
-  | 'top'
-  | 'center-vertical'
-  | 'bottom';
+  'left' | 'center-horizontal' | 'right' | 'top' | 'center-vertical' | 'bottom';
 
 export type InkDistribution = 'horizontal' | 'vertical';
 
@@ -67,9 +62,7 @@ export function alignObjects(
     if (!bounds) continue;
     const { dx, dy } = offsetFor(bounds, target, alignment);
     if (dx === 0 && dy === 0) continue;
-    const edit = updateObject(result, id, (object) =>
-      transformObject(object, translation(dx, dy)),
-    );
+    const edit = updateObject(result, id, (object) => transformObject(object, translation(dx, dy)));
     edits.push(edit);
     result = edit.result;
   }
@@ -105,8 +98,7 @@ export function distributeObjects(
 
   const first = entries[0].bounds;
   const last = entries[entries.length - 1].bounds;
-  const span =
-    axis === 'horizontal' ? last.maxX - first.minX : last.maxY - first.minY;
+  const span = axis === 'horizontal' ? last.maxX - first.minX : last.maxY - first.minY;
   const totalSize = entries.reduce(
     (sum, entry) =>
       sum +
@@ -152,10 +144,7 @@ export function distributeObjects(
 }
 
 /** Undoes a batch of edits in reverse, then re-applies the whole operation. */
-function reverseAll(
-  edits: Array<InkEdit<InkScene>>,
-  redo: (scene: InkScene) => InkEdit<InkScene>,
-) {
+function reverseAll(edits: Array<InkEdit<InkScene>>, redo: (scene: InkScene) => InkEdit<InkScene>) {
   return (input: InkScene): InkEdit<InkScene> => {
     let reverted = input;
     for (let index = edits.length - 1; index >= 0; index -= 1) {

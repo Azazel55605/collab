@@ -1,7 +1,9 @@
 import { Circle, Minus, MousePointer2, Save, Square, Type } from 'lucide-react';
+
 import { cn } from '../../lib/utils';
-import { Button } from '../ui/button';
 import { documentTopBarButtonClass, documentTopBarGroupClass } from '../layout/DocumentTopBar';
+import { Button } from '../ui/button';
+
 import type { SvgTool } from './SvgEditStage';
 
 const TOOLS: { tool: SvgTool; label: string; icon: typeof Square }[] = [
@@ -29,7 +31,10 @@ export function SvgToolbar({ tool, onToolChange, dirty, saving, onSave }: Props)
             key={value}
             size="icon"
             variant="ghost"
-            className={cn('size-8 app-motion-fast', tool === value && 'bg-accent text-accent-foreground')}
+            className={cn(
+              'size-8 app-motion-fast',
+              tool === value && 'bg-accent text-accent-foreground',
+            )}
             title={label}
             aria-pressed={tool === value}
             onClick={() => onToolChange(value)}

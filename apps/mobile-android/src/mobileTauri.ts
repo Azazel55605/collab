@@ -1,8 +1,25 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import type { LogicDiagramDocument } from '../../../src/types/logicDiagram';
-import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarMirrorAnchor, CalendarMirrorConflict, CalendarMirrorGroup, CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSyncState } from '../../../src/types/calendar';
+
+import type {
+  BackgroundJobRecord,
+  BackgroundJobRequest,
+  BackgroundSettings,
+  BackgroundStatusSnapshot,
+} from '../../../src/lib/tauri';
+import type {
+  CalendarCleanupResult,
+  CalendarDefinition,
+  CalendarItem,
+  CalendarMirrorAnchor,
+  CalendarMirrorConflict,
+  CalendarMirrorGroup,
+  CalendarOperation,
+  CalendarOperationFailure,
+  CalendarRemoteChange,
+  CalendarSyncState,
+} from '../../../src/types/calendar';
 import type {
   CircuitDcResult,
   CircuitJobOutcome,
@@ -13,12 +30,7 @@ import type {
   CircuitTransientChunk,
   CircuitTransientResult,
 } from '../../../src/types/circuitRuntime';
-import type {
-  BackgroundJobRecord,
-  BackgroundJobRequest,
-  BackgroundSettings,
-  BackgroundStatusSnapshot,
-} from '../../../src/lib/tauri';
+import type { LogicDiagramDocument } from '../../../src/types/logicDiagram';
 import type {
   NotificationPermissionStatus,
   NotificationPreferences,
@@ -257,7 +269,10 @@ export function listProfileCalendars(profileId: string): Promise<CalendarDefinit
   return invoke('calendar_list', { profileId });
 }
 
-export function saveProfileCalendar(profileId: string, calendar: CalendarDefinition): Promise<void> {
+export function saveProfileCalendar(
+  profileId: string,
+  calendar: CalendarDefinition,
+): Promise<void> {
   return invokeWithWidgetPublication('calendar_save', { profileId, calendar }, profileId);
 }
 
@@ -266,7 +281,11 @@ export function saveProfileCalendarWithOperation(
   calendar: CalendarDefinition,
   operation: CalendarOperation,
 ): Promise<void> {
-  return invokeWithWidgetPublication('calendar_save_with_operation', { profileId, calendar, operation }, profileId);
+  return invokeWithWidgetPublication(
+    'calendar_save_with_operation',
+    { profileId, calendar, operation },
+    profileId,
+  );
 }
 
 export function deleteProfileCalendar(
@@ -275,10 +294,17 @@ export function deleteProfileCalendar(
   deletedAt: string,
   operation: CalendarOperation,
 ): Promise<void> {
-  return invokeWithWidgetPublication('calendar_delete', { profileId, calendarId, deletedAt, operation }, profileId);
+  return invokeWithWidgetPublication(
+    'calendar_delete',
+    { profileId, calendarId, deletedAt, operation },
+    profileId,
+  );
 }
 
-export function cleanupProfileCalendar(profileId: string, retentionDays = 90): Promise<CalendarCleanupResult> {
+export function cleanupProfileCalendar(
+  profileId: string,
+  retentionDays = 90,
+): Promise<CalendarCleanupResult> {
   return invoke('calendar_cleanup', { profileId, retentionDays });
 }
 
@@ -297,7 +323,11 @@ export function upsertProfileCalendarItem(
   item: CalendarItem,
   operation: CalendarOperation,
 ): Promise<void> {
-  return invokeWithWidgetPublication('calendar_upsert_item', { profileId, item, operation }, profileId);
+  return invokeWithWidgetPublication(
+    'calendar_upsert_item',
+    { profileId, item, operation },
+    profileId,
+  );
 }
 
 export function upsertProfileCalendarItems(
@@ -329,19 +359,32 @@ export function deleteProfileCalendarItem(
   );
 }
 
-export function searchProfileCalendarItems(profileId: string, query: string, limit = 100): Promise<CalendarItem[]> {
+export function searchProfileCalendarItems(
+  profileId: string,
+  query: string,
+  limit = 100,
+): Promise<CalendarItem[]> {
   return invoke('calendar_search_items', { profileId, query, limit });
 }
 
-export function acknowledgeProfileCalendarOperations(profileId: string, clientOperationIds: string[]): Promise<void> {
+export function acknowledgeProfileCalendarOperations(
+  profileId: string,
+  clientOperationIds: string[],
+): Promise<void> {
   return invoke('calendar_acknowledge_operations', { profileId, clientOperationIds });
 }
 
-export function readProfileCalendarSyncState(profileId: string, originKey: string): Promise<CalendarSyncState | null> {
+export function readProfileCalendarSyncState(
+  profileId: string,
+  originKey: string,
+): Promise<CalendarSyncState | null> {
   return invoke('calendar_read_sync_state', { profileId, originKey });
 }
 
-export function writeProfileCalendarSyncState(profileId: string, state: CalendarSyncState): Promise<void> {
+export function writeProfileCalendarSyncState(
+  profileId: string,
+  state: CalendarSyncState,
+): Promise<void> {
   return invokeWithWidgetPublication('calendar_write_sync_state', { profileId, state }, profileId);
 }
 
@@ -350,14 +393,22 @@ export function applyProfileCalendarRemoteChanges(
   changes: CalendarRemoteChange[],
   state: CalendarSyncState,
 ): Promise<void> {
-  return invokeWithWidgetPublication('calendar_apply_remote_changes', { profileId, changes, state }, profileId);
+  return invokeWithWidgetPublication(
+    'calendar_apply_remote_changes',
+    { profileId, changes, state },
+    profileId,
+  );
 }
 
-export function listProfileCalendarPendingOperations(profileId: string): Promise<CalendarOperation[]> {
+export function listProfileCalendarPendingOperations(
+  profileId: string,
+): Promise<CalendarOperation[]> {
   return invoke('calendar_list_pending_operations', { profileId });
 }
 
-export function listProfileCalendarFailedOperations(profileId: string): Promise<CalendarOperationFailure[]> {
+export function listProfileCalendarFailedOperations(
+  profileId: string,
+): Promise<CalendarOperationFailure[]> {
   return invoke('calendar_list_failed_operations', { profileId });
 }
 
@@ -374,11 +425,17 @@ export function markProfileCalendarOperationFailed(
   );
 }
 
-export function retryProfileCalendarOperation(profileId: string, clientOperationId: string): Promise<void> {
+export function retryProfileCalendarOperation(
+  profileId: string,
+  clientOperationId: string,
+): Promise<void> {
   return invoke('calendar_retry_operation', { profileId, clientOperationId });
 }
 
-export function discardProfileCalendarOperation(profileId: string, clientOperationId: string): Promise<void> {
+export function discardProfileCalendarOperation(
+  profileId: string,
+  clientOperationId: string,
+): Promise<void> {
   return invoke('calendar_discard_operation', { profileId, clientOperationId });
 }
 
@@ -387,26 +444,42 @@ export function removeHostedCalendarCache(
   serverUrl: string,
   userId: string,
 ): Promise<CalendarCleanupResult> {
-  return invokeWithWidgetPublication('calendar_remove_hosted_cache', { profileId, serverUrl, userId }, profileId);
+  return invokeWithWidgetPublication(
+    'calendar_remove_hosted_cache',
+    { profileId, serverUrl, userId },
+    profileId,
+  );
 }
 
 export function listProfileCalendarMirrorGroups(profileId: string): Promise<CalendarMirrorGroup[]> {
   return invoke('calendar_list_mirror_groups', { profileId });
 }
 
-export function saveProfileCalendarMirrorGroup(profileId: string, group: CalendarMirrorGroup): Promise<void> {
+export function saveProfileCalendarMirrorGroup(
+  profileId: string,
+  group: CalendarMirrorGroup,
+): Promise<void> {
   return invoke('calendar_save_mirror_group', { profileId, group });
 }
 
-export function deleteProfileCalendarMirrorGroup(profileId: string, groupId: string): Promise<void> {
+export function deleteProfileCalendarMirrorGroup(
+  profileId: string,
+  groupId: string,
+): Promise<void> {
   return invoke('calendar_delete_mirror_group', { profileId, groupId });
 }
 
-export function listProfileCalendarMirrorAnchors(profileId: string, groupId: string): Promise<CalendarMirrorAnchor[]> {
+export function listProfileCalendarMirrorAnchors(
+  profileId: string,
+  groupId: string,
+): Promise<CalendarMirrorAnchor[]> {
   return invoke('calendar_list_mirror_anchors', { profileId, groupId });
 }
 
-export function saveProfileCalendarMirrorAnchors(profileId: string, anchors: CalendarMirrorAnchor[]): Promise<void> {
+export function saveProfileCalendarMirrorAnchors(
+  profileId: string,
+  anchors: CalendarMirrorAnchor[],
+): Promise<void> {
   return invoke('calendar_save_mirror_anchors', { profileId, anchors });
 }
 
@@ -415,14 +488,25 @@ export function listProfileCalendarMirrorConflicts(
   groupId?: string,
   includeResolved = false,
 ): Promise<CalendarMirrorConflict[]> {
-  return invoke('calendar_list_mirror_conflicts', { profileId, groupId: groupId ?? null, includeResolved });
+  return invoke('calendar_list_mirror_conflicts', {
+    profileId,
+    groupId: groupId ?? null,
+    includeResolved,
+  });
 }
 
-export function saveProfileCalendarMirrorConflict(profileId: string, conflict: CalendarMirrorConflict): Promise<void> {
+export function saveProfileCalendarMirrorConflict(
+  profileId: string,
+  conflict: CalendarMirrorConflict,
+): Promise<void> {
   return invoke('calendar_save_mirror_conflict', { profileId, conflict });
 }
 
-export function listProfileCalendarMirrorItems(profileId: string, calendarIds: string[], limit = 5_000): Promise<CalendarItem[]> {
+export function listProfileCalendarMirrorItems(
+  profileId: string,
+  calendarIds: string[],
+  limit = 5_000,
+): Promise<CalendarItem[]> {
   return invoke('calendar_list_mirror_items', { profileId, calendarIds, limit });
 }
 
@@ -447,7 +531,10 @@ export interface UserDirectoryEntry {
   displayName: string | null;
 }
 
-export function hostedUserDirectory(serverUrl: string, query: string): Promise<UserDirectoryEntry[]> {
+export function hostedUserDirectory(
+  serverUrl: string,
+  query: string,
+): Promise<UserDirectoryEntry[]> {
   return invoke('hosted_user_directory', { serverUrl, query });
 }
 
@@ -852,7 +939,9 @@ export async function uploadHostedFile(
   parentId: string | null,
   sourcePath: string,
 ): Promise<HostedFileEntry> {
-  return parseFileEntry(await invoke('hosted_vault_upload_file', { serverUrl, vaultId, parentId, sourcePath }));
+  return parseFileEntry(
+    await invoke('hosted_vault_upload_file', { serverUrl, vaultId, parentId, sourcePath }),
+  );
 }
 
 export function readFileForUpload(sourcePath: string): Promise<HostedUploadPayload> {
@@ -1065,14 +1154,7 @@ export function replicaDelete(serverUrl: string, vaultId: string): Promise<void>
 // ── Pending-operation queue (offline writes) ─────────────────────────────────
 
 export type PendingOpKind =
-  | 'create'
-  | 'edit'
-  | 'rename'
-  | 'move'
-  | 'trash'
-  | 'restore'
-  | 'delete'
-  | 'assetUpload';
+  'create' | 'edit' | 'rename' | 'move' | 'trash' | 'restore' | 'delete' | 'assetUpload';
 
 export type PendingOpStatus = 'pending' | 'inflight' | 'failed';
 

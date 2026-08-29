@@ -1,6 +1,6 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ACTIONS, SETTINGS_SECTIONS, type RenderCtx } from './commandBarActions';
+import { ACTIONS, type RenderCtx, SETTINGS_SECTIONS } from './commandBarActions';
 
 const createNote = vi.fn();
 const readNote = vi.fn();

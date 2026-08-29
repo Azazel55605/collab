@@ -1,22 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const invoke = vi.fn();
-vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
-
 import type { HostedFileEntry } from '../mobileTauri';
+
 import {
-  addColumn,
-  createColumn,
   addCardToColumn,
   addChecklistItem,
+  addColumn,
   addComment,
   addTag,
   collectBoardTags,
   createCard,
+  createColumn,
   findCard,
   isKanbanFile,
-  moveColumn,
+  type KanbanBoard,
+  type KanbanCard,
   moveCardToColumn,
+  moveColumn,
   parseBoardContent,
   readKanbanDocument,
   removeCard,
@@ -28,9 +28,10 @@ import {
   toggleChecklistItem,
   updateColumn,
   viewCards,
-  type KanbanBoard,
-  type KanbanCard,
 } from './kanban';
+
+const invoke = vi.fn();
+vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 
 const SERVER = 'https://collab.example.com';
 const VAULT = 'v1';
@@ -130,13 +131,27 @@ describe('mobile kanban model', () => {
     const comment = findCard(commented, cardId)!.card.comments[0];
     expect(comment).toMatchObject({ userId: 'u1', userName: 'Ada', content: 'Looks good' });
     // Blank comments are ignored.
-    expect(addComment(board, cardId, '   ', { userId: 'u1', userName: 'Ada', userColor: '#fff' })).toBe(board);
+    expect(
+      addComment(board, cardId, '   ', { userId: 'u1', userName: 'Ada', userColor: '#fff' }),
+    ).toBe(board);
   });
 
   it('collects board tags and filters/sorts a column view without mutating', () => {
     const cards: KanbanCard[] = [
-      { ...createCard('Beta'), priority: 'low', dueDate: '2026-08-01', createdAt: 100, tags: ['api'] },
-      { ...createCard('Alpha'), priority: 'high', dueDate: '2026-07-15', createdAt: 300, tags: ['ui', 'api'] },
+      {
+        ...createCard('Beta'),
+        priority: 'low',
+        dueDate: '2026-08-01',
+        createdAt: 100,
+        tags: ['api'],
+      },
+      {
+        ...createCard('Alpha'),
+        priority: 'high',
+        dueDate: '2026-07-15',
+        createdAt: 300,
+        tags: ['ui', 'api'],
+      },
       { ...createCard('Gamma'), createdAt: 200, tags: ['ui'] },
     ];
     const board: KanbanBoard = { columns: [{ id: 'c', title: 'Col', cards }] };
@@ -148,13 +163,29 @@ describe('mobile kanban model', () => {
     expect(manual.map((card) => card.title)).toEqual(['Beta', 'Alpha', 'Gamma']);
     expect(cards.map((card) => card.title)).toEqual(['Beta', 'Alpha', 'Gamma']);
 
-    expect(viewCards(cards, '', 'title').map((card) => card.title)).toEqual(['Alpha', 'Beta', 'Gamma']);
+    expect(viewCards(cards, '', 'title').map((card) => card.title)).toEqual([
+      'Alpha',
+      'Beta',
+      'Gamma',
+    ]);
     // High priority first; unset priority sorts last.
-    expect(viewCards(cards, '', 'priority').map((card) => card.title)).toEqual(['Alpha', 'Beta', 'Gamma']);
+    expect(viewCards(cards, '', 'priority').map((card) => card.title)).toEqual([
+      'Alpha',
+      'Beta',
+      'Gamma',
+    ]);
     // Earliest due date first; cards without a due date sort last.
-    expect(viewCards(cards, '', 'due').map((card) => card.title)).toEqual(['Alpha', 'Beta', 'Gamma']);
+    expect(viewCards(cards, '', 'due').map((card) => card.title)).toEqual([
+      'Alpha',
+      'Beta',
+      'Gamma',
+    ]);
     // Newest created first.
-    expect(viewCards(cards, '', 'created').map((card) => card.title)).toEqual(['Alpha', 'Gamma', 'Beta']);
+    expect(viewCards(cards, '', 'created').map((card) => card.title)).toEqual([
+      'Alpha',
+      'Gamma',
+      'Beta',
+    ]);
 
     // Text filter matches title/description/tags.
     expect(viewCards(cards, 'ui', 'manual').map((card) => card.title)).toEqual(['Alpha', 'Gamma']);
@@ -166,7 +197,10 @@ describe('mobile kanban model', () => {
     const content = serializeBoard(board);
     invoke.mockImplementation((command: string) => {
       if (command === 'hosted_vault_request') {
-        return Promise.resolve({ file: { ...BOARD_FILE, currentRevision: { sequence: 4 } }, content });
+        return Promise.resolve({
+          file: { ...BOARD_FILE, currentRevision: { sequence: 4 } },
+          content,
+        });
       }
       if (command === 'replica_cache_document') return Promise.resolve(null);
       return Promise.reject(new Error(`unhandled ${command}`));
@@ -175,7 +209,10 @@ describe('mobile kanban model', () => {
     const loaded = await readKanbanDocument(SERVER, VAULT, BOARD_FILE, true);
     expect(loaded.source).toBe('network');
     expect(loaded.board.columns).toHaveLength(2);
-    expect(invoke).toHaveBeenCalledWith('replica_cache_document', expect.objectContaining({ fileId: 'board-1' }));
+    expect(invoke).toHaveBeenCalledWith(
+      'replica_cache_document',
+      expect.objectContaining({ fileId: 'board-1' }),
+    );
   });
 
   it('falls back to the cached board when offline', async () => {
@@ -197,7 +234,10 @@ describe('mobile kanban model', () => {
     invoke.mockImplementation((command: string, args: Record<string, unknown> = {}) => {
       if (command === 'hosted_vault_request') {
         posted = args;
-        return Promise.resolve({ file: { ...BOARD_FILE, currentRevision: { sequence: 5 } }, content: serializeBoard(board) });
+        return Promise.resolve({
+          file: { ...BOARD_FILE, currentRevision: { sequence: 5 } },
+          content: serializeBoard(board),
+        });
       }
       if (command === 'replica_cache_document') return Promise.resolve(null);
       return Promise.reject(new Error(`unhandled ${command}`));

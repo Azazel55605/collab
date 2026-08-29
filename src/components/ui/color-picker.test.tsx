@@ -38,17 +38,29 @@ describe('ColorPicker', () => {
     const onValueChange = vi.fn();
     render(<ColorPicker value="#ff0000" label="Stroke colour" onValueChange={onValueChange} />);
     fireEvent.click(screen.getByRole('button', { name: 'Stroke colour' }));
-    fireEvent.keyDown(screen.getByRole('slider', { name: 'Stroke colour saturation and brightness' }), {
-      key: 'ArrowLeft',
-    });
+    fireEvent.keyDown(
+      screen.getByRole('slider', { name: 'Stroke colour saturation and brightness' }),
+      {
+        key: 'ArrowLeft',
+      },
+    );
     expect(onValueChange).toHaveBeenCalledWith('#ff0303');
   });
 
   it('emits alpha only when opacity is enabled', () => {
     const onValueChange = vi.fn();
-    render(<ColorPicker value="#33669980" label="Overlay colour" allowAlpha onValueChange={onValueChange} />);
+    render(
+      <ColorPicker
+        value="#33669980"
+        label="Overlay colour"
+        allowAlpha
+        onValueChange={onValueChange}
+      />,
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Overlay colour' }));
-    fireEvent.change(screen.getByLabelText('Overlay colour hex'), { target: { value: '12345678' } });
+    fireEvent.change(screen.getByLabelText('Overlay colour hex'), {
+      target: { value: '12345678' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
     expect(onValueChange).toHaveBeenCalledWith('#12345678');
   });

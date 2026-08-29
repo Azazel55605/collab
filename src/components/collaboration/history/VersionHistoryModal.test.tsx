@@ -1,9 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { useCollabStore } from '@/store/collabStore';
-import { useEditorStore } from '@/store/editorStore';
-import { useVaultStore } from '@/store/vaultStore';
+import { useCollabStore } from '../../../store/collabStore';
+import { useEditorStore } from '../../../store/editorStore';
+import { useVaultStore } from '../../../store/vaultStore';
+
+import { VersionHistoryModal } from './VersionHistoryModal';
 
 const { tauriCommandsMock } = vi.hoisted(() => ({
   tauriCommandsMock: {
@@ -27,12 +29,16 @@ vi.mock('sonner', () => ({
   },
 }));
 
-import { VersionHistoryModal } from './VersionHistoryModal';
-
 describe('VersionHistoryModal', () => {
   beforeEach(() => {
     useVaultStore.setState({
-      vault: { id: 'vault-1', path: '/vault', name: 'Vault', isEncrypted: false, lastOpened: Date.now() },
+      vault: {
+        id: 'vault-1',
+        path: '/vault',
+        name: 'Vault',
+        isEncrypted: false,
+        lastOpened: Date.now(),
+      },
       isVaultLocked: false,
       fileTree: [],
       recentVaults: [],
@@ -74,22 +80,24 @@ describe('VersionHistoryModal', () => {
         label: 'Before edits',
       },
     ]);
-    tauriCommandsMock.readSnapshot.mockResolvedValue([
-      'line one',
-      'line old',
-      'shared 1',
-      'shared 2',
-      'shared 3',
-      'shared 4',
-      'shared 5',
-      'shared 6',
-      'shared 7',
-      'shared 8',
-      'shared 9',
-      'shared 10',
-      'tail old',
-      '',
-    ].join('\n'));
+    tauriCommandsMock.readSnapshot.mockResolvedValue(
+      [
+        'line one',
+        'line old',
+        'shared 1',
+        'shared 2',
+        'shared 3',
+        'shared 4',
+        'shared 5',
+        'shared 6',
+        'shared 7',
+        'shared 8',
+        'shared 9',
+        'shared 10',
+        'tail old',
+        '',
+      ].join('\n'),
+    );
     tauriCommandsMock.readNote.mockResolvedValue({
       content: [
         'line one',
@@ -109,7 +117,11 @@ describe('VersionHistoryModal', () => {
       ].join('\n'),
       hash: 'bbb',
     });
-    tauriCommandsMock.restoreSnapshot.mockResolvedValue({ hash: 'ccc', merged: false, conflict: null });
+    tauriCommandsMock.restoreSnapshot.mockResolvedValue({
+      hash: 'ccc',
+      merged: false,
+      conflict: null,
+    });
     tauriCommandsMock.deleteSnapshot.mockResolvedValue(undefined);
     tauriCommandsMock.clearSnapshotHistory.mockResolvedValue(undefined);
   });
@@ -120,13 +132,7 @@ describe('VersionHistoryModal', () => {
   });
 
   it('loads snapshots and shows a roomy diff view', async () => {
-    render(
-      <VersionHistoryModal
-        open
-        relativePath="Docs/plan.md"
-        onOpenChange={() => {}}
-      />,
-    );
+    render(<VersionHistoryModal open relativePath="Docs/plan.md" onOpenChange={() => {}} />);
 
     await waitFor(() => {
       expect(tauriCommandsMock.listSnapshots).toHaveBeenCalledWith('/vault', 'Docs/plan.md');
@@ -140,13 +146,7 @@ describe('VersionHistoryModal', () => {
   });
 
   it('restores the selected snapshot', async () => {
-    render(
-      <VersionHistoryModal
-        open
-        relativePath="Docs/plan.md"
-        onOpenChange={() => {}}
-      />,
-    );
+    render(<VersionHistoryModal open relativePath="Docs/plan.md" onOpenChange={() => {}} />);
 
     expect((await screen.findAllByText('Before edits')).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByText('Restore this version'));
@@ -163,13 +163,7 @@ describe('VersionHistoryModal', () => {
   });
 
   it('expands and collapses unchanged gaps in the diff', async () => {
-    render(
-      <VersionHistoryModal
-        open
-        relativePath="Docs/plan.md"
-        onOpenChange={() => {}}
-      />,
-    );
+    render(<VersionHistoryModal open relativePath="Docs/plan.md" onOpenChange={() => {}} />);
 
     expect(await screen.findByText('10 unchanged lines hidden')).toBeTruthy();
     expect(screen.queryByText('shared 5')).toBeNull();
@@ -185,28 +179,30 @@ describe('VersionHistoryModal', () => {
   });
 
   it('collapses leading and trailing unchanged sections too', async () => {
-    tauriCommandsMock.readSnapshot.mockResolvedValue([
-      'lead 1',
-      'lead 2',
-      'lead 3',
-      'lead 4',
-      'lead 5',
-      'lead 6',
-      'lead 7',
-      'lead 8',
-      'lead 9',
-      'middle old',
-      'tail 1',
-      'tail 2',
-      'tail 3',
-      'tail 4',
-      'tail 5',
-      'tail 6',
-      'tail 7',
-      'tail 8',
-      'tail 9',
-      '',
-    ].join('\n'));
+    tauriCommandsMock.readSnapshot.mockResolvedValue(
+      [
+        'lead 1',
+        'lead 2',
+        'lead 3',
+        'lead 4',
+        'lead 5',
+        'lead 6',
+        'lead 7',
+        'lead 8',
+        'lead 9',
+        'middle old',
+        'tail 1',
+        'tail 2',
+        'tail 3',
+        'tail 4',
+        'tail 5',
+        'tail 6',
+        'tail 7',
+        'tail 8',
+        'tail 9',
+        '',
+      ].join('\n'),
+    );
     tauriCommandsMock.readNote.mockResolvedValue({
       content: [
         'lead 1',
@@ -233,13 +229,7 @@ describe('VersionHistoryModal', () => {
       hash: 'bbb',
     });
 
-    render(
-      <VersionHistoryModal
-        open
-        relativePath="Docs/plan.md"
-        onOpenChange={() => {}}
-      />,
-    );
+    render(<VersionHistoryModal open relativePath="Docs/plan.md" onOpenChange={() => {}} />);
 
     expect((await screen.findAllByText('9 unchanged lines hidden')).length).toBe(2);
     expect(screen.queryByText('lead 5')).toBeNull();
@@ -252,31 +242,23 @@ describe('VersionHistoryModal', () => {
   });
 
   it('deletes a selected snapshot after confirmation', async () => {
-    render(
-      <VersionHistoryModal
-        open
-        relativePath="Docs/plan.md"
-        onOpenChange={() => {}}
-      />,
-    );
+    render(<VersionHistoryModal open relativePath="Docs/plan.md" onOpenChange={() => {}} />);
 
     await screen.findAllByText('Before edits');
     fireEvent.click(screen.getByTitle('Delete snapshot'));
     fireEvent.click(screen.getByText('Delete snapshot'));
 
     await waitFor(() => {
-      expect(tauriCommandsMock.deleteSnapshot).toHaveBeenCalledWith('/vault', 'Docs/plan.md', 'snap-1');
+      expect(tauriCommandsMock.deleteSnapshot).toHaveBeenCalledWith(
+        '/vault',
+        'Docs/plan.md',
+        'snap-1',
+      );
     });
   });
 
   it('clears history after confirmation', async () => {
-    render(
-      <VersionHistoryModal
-        open
-        relativePath="Docs/plan.md"
-        onOpenChange={() => {}}
-      />,
-    );
+    render(<VersionHistoryModal open relativePath="Docs/plan.md" onOpenChange={() => {}} />);
 
     await screen.findAllByText('Before edits');
     fireEvent.click(screen.getByText('Clear history'));

@@ -11,9 +11,9 @@ import {
   normalizeRange,
   selectAll,
   selectColumns,
-  selectRows,
   selectedCellCount,
   selectedPositions,
+  selectRows,
 } from './selection';
 
 const BOUNDS = { rowCount: 10, columnCount: 5 };
@@ -21,7 +21,10 @@ const BOUNDS = { rowCount: 10, columnCount: 5 };
 describe('range normalization', () => {
   it('orders anchor and focus regardless of drag direction', () => {
     const forward = normalizeRange({ anchor: { row: 1, column: 1 }, focus: { row: 3, column: 4 } });
-    const backward = normalizeRange({ anchor: { row: 3, column: 4 }, focus: { row: 1, column: 1 } });
+    const backward = normalizeRange({
+      anchor: { row: 3, column: 4 },
+      focus: { row: 1, column: 1 },
+    });
     expect(forward).toEqual({ top: 1, left: 1, bottom: 3, right: 4 });
     expect(backward).toEqual(forward);
   });
@@ -37,7 +40,10 @@ describe('selection construction', () => {
   });
 
   it('extends the active range to a focus cell', () => {
-    const selection = extendSelection(createSelection({ row: 1, column: 1 }), { row: 3, column: 2 });
+    const selection = extendSelection(createSelection({ row: 1, column: 1 }), {
+      row: 3,
+      column: 2,
+    });
     expect(selectedCellCount(selection)).toBe(6);
     // The anchor stays put while the focus moves.
     expect(selection.ranges[0].anchor).toEqual({ row: 1, column: 1 });
@@ -52,7 +58,9 @@ describe('selection construction', () => {
     expect(selection.ranges).toHaveLength(2);
     // 4 cells + 4 cells, sharing exactly one.
     expect(selectedCellCount(selection)).toBe(7);
-    expect(selectedPositions(selection).filter((p) => p.row === 1 && p.column === 1)).toHaveLength(1);
+    expect(selectedPositions(selection).filter((p) => p.row === 1 && p.column === 1)).toHaveLength(
+      1,
+    );
   });
 
   it('selects whole rows, columns, and the entire grid', () => {
@@ -95,7 +103,8 @@ describe('navigation', () => {
   it('jumps to the end of a populated block, then to the next block, then the edge', () => {
     // Column 0 populated at rows 0-2 and row 6.
     const populated = new Set(['0:0', '1:0', '2:0', '6:0']);
-    const isPopulated = ({ row, column }: { row: number; column: number }) => populated.has(`${row}:${column}`);
+    const isPopulated = ({ row, column }: { row: number; column: number }) =>
+      populated.has(`${row}:${column}`);
 
     let selection = createSelection({ row: 0, column: 0 });
     selection = moveSelection(selection, 'down', BOUNDS, { jump: true, isPopulated });

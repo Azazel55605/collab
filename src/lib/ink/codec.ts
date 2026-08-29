@@ -12,7 +12,6 @@
  * opaque to the CRDT, to revision diffs, and to anyone reading a document to
  * debug it — and the delta arrays already recover most of the difference.
  */
-
 import type { InkSample, InkSampleChannels } from '../../types/ink';
 
 type OptionalChannel = 'p' | 'tx' | 'ty' | 'tw' | 't';

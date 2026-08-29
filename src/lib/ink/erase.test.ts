@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { InkSample, InkScene } from '../../types/ink';
+
 import { decodeSamples, encodeSamples } from './codec';
 import { strokeOf } from './document';
 import { applyErase, planErase, splitStrokeAroundEraser } from './erase';
@@ -43,13 +44,27 @@ describe('splitStrokeAroundEraser', () => {
   });
 
   it('removes everything when the eraser covers the whole stroke', () => {
-    const runs = splitStrokeAroundEraser(line(), [{ x: 0, y: 0 }, { x: 10_000, y: 0 }], 600);
+    const runs = splitStrokeAroundEraser(
+      line(),
+      [
+        { x: 0, y: 0 },
+        { x: 10_000, y: 0 },
+      ],
+      600,
+    );
     expect(runs).toEqual([]);
   });
 
   it('drops a one-sample leftover rather than leaving eraser debris', () => {
     // A single surviving point renders as a dot the user never drew.
-    const runs = splitStrokeAroundEraser(line(), [{ x: 750, y: 0 }, { x: 10_000, y: 0 }], 600);
+    const runs = splitStrokeAroundEraser(
+      line(),
+      [
+        { x: 750, y: 0 },
+        { x: 10_000, y: 0 },
+      ],
+      600,
+    );
     for (const run of runs) expect(run.length).toBeGreaterThan(1);
   });
 
@@ -62,7 +77,10 @@ describe('splitStrokeAroundEraser', () => {
   });
 
   it('clips only the covered part of a long stored segment', () => {
-    const sparse = [{ x: 0, y: 0 }, { x: 10_000, y: 0 }];
+    const sparse = [
+      { x: 0, y: 0 },
+      { x: 10_000, y: 0 },
+    ];
     const runs = splitStrokeAroundEraser(sparse, [{ x: 5_000, y: 0 }], 300);
     expect(runs).toHaveLength(2);
     expect(runs[0][runs[0].length - 1].x).toBeGreaterThan(4_000);
@@ -114,9 +132,16 @@ describe('planErase', () => {
     // Rubbing over a note must not delete the note.
     const scene = sceneWithLine();
     scene.objects.note = {
-      id: 'note', type: 'text', layerId: 'layer-1',
-      x: 4_800, y: -200, width: 500, height: 400,
-      text: 'keep me', color: '#000', fontSize: 96,
+      id: 'note',
+      type: 'text',
+      layerId: 'layer-1',
+      x: 4_800,
+      y: -200,
+      width: 500,
+      height: 400,
+      text: 'keep me',
+      color: '#000',
+      fontSize: 96,
     };
     scene.objectOrder.push('note');
 
@@ -148,8 +173,14 @@ describe('applyErase', () => {
   it('keeps the surviving pieces at the original stroke position in z-order', () => {
     const scene = sceneWithLine();
     scene.objects.over = {
-      id: 'over', type: 'stroke', layerId: 'layer-1',
-      brush: FIXTURE_BRUSH, samples: encodeSamples([{ x: 0, y: 9_000 }, { x: 100, y: 9_000 }]),
+      id: 'over',
+      type: 'stroke',
+      layerId: 'layer-1',
+      brush: FIXTURE_BRUSH,
+      samples: encodeSamples([
+        { x: 0, y: 9_000 },
+        { x: 100, y: 9_000 },
+      ]),
     };
     scene.objectOrder = ['s1', 'over'];
 
@@ -178,7 +209,15 @@ describe('applyErase', () => {
 
   it('removes a stroke entirely when nothing survives', () => {
     const scene = sceneWithLine();
-    const plan = planErase(scene, [{ x: 0, y: 0 }, { x: 10_000, y: 0 }], 600, 'segment');
+    const plan = planErase(
+      scene,
+      [
+        { x: 0, y: 0 },
+        { x: 10_000, y: 0 },
+      ],
+      600,
+      'segment',
+    );
     const edit = applyErase(scene, plan);
     expect(edit.result.objectOrder).toEqual([]);
     expect(edit.inverse(edit.result).result).toEqual(scene);

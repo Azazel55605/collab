@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { useServerStore } from '../../store/serverStore';
 import { useVaultStore } from '../../store/vaultStore';
+
 import VaultPicker from './VaultPicker';
 
 vi.mock('../../lib/tauri', () => ({
@@ -63,7 +65,13 @@ describe('VaultPicker hosted vaults', () => {
             connected: true,
             serverUrl: 'https://collab.example.test',
             allowInvalidCertificates: false,
-            user: { id: 'user-1', username: 'alice', displayName: 'Alice', role: 'member', status: 'active' },
+            user: {
+              id: 'user-1',
+              username: 'alice',
+              displayName: 'Alice',
+              role: 'member',
+              status: 'active',
+            },
             accessExpiresAt: '2999-01-01T00:00:00Z',
           },
           hostedVaults: [hostedVault],
@@ -82,13 +90,17 @@ describe('VaultPicker hosted vaults', () => {
     render(<VaultPicker />);
     fireEvent.click(screen.getByRole('button', { name: /Team Vault/ }));
 
-    await waitFor(() => expect(openHostedVault).toHaveBeenCalledWith(expect.objectContaining({
-      kind: 'hosted',
-      hostedVaultId: 'vault-1',
-      serverUrl: 'https://collab.example.test',
-      role: 'editor',
-      path: 'hosted://vault-1',
-    })));
+    await waitFor(() =>
+      expect(openHostedVault).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'hosted',
+          hostedVaultId: 'vault-1',
+          serverUrl: 'https://collab.example.test',
+          role: 'editor',
+          path: 'hosted://vault-1',
+        }),
+      ),
+    );
   });
 
   it('keeps branding outside a bounded scrollable vault inventory', () => {
@@ -103,14 +115,22 @@ describe('VaultPicker hosted vaults', () => {
   it('creates a hosted vault and opens it', async () => {
     render(<VaultPicker />);
     fireEvent.click(screen.getByTitle('New hosted vault'));
-    fireEvent.change(screen.getByPlaceholderText('New hosted vault name'), { target: { value: 'Fresh Vault' } });
+    fireEvent.change(screen.getByPlaceholderText('New hosted vault name'), {
+      target: { value: 'Fresh Vault' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 
-    await waitFor(() => expect(createHostedVault).toHaveBeenCalledWith('https://collab.example.test', 'Fresh Vault'));
-    await waitFor(() => expect(openHostedVault).toHaveBeenCalledWith(expect.objectContaining({
-      kind: 'hosted',
-      hostedVaultId: 'vault-1',
-    })));
+    await waitFor(() =>
+      expect(createHostedVault).toHaveBeenCalledWith('https://collab.example.test', 'Fresh Vault'),
+    );
+    await waitFor(() =>
+      expect(openHostedVault).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'hosted',
+          hostedVaultId: 'vault-1',
+        }),
+      ),
+    );
   });
 
   it('reveals an inline hosted login form when disconnected', async () => {
@@ -129,12 +149,17 @@ describe('VaultPicker hosted vaults', () => {
   });
 
   it('offers password-only sign in for a saved disconnected server', () => {
-    localStorage.setItem('collab-hosted-servers', JSON.stringify([{
-      serverUrl: 'https://saved.example.test',
-      username: 'alice',
-      allowInvalidCertificates: false,
-      persistAcrossReboots: true,
-    }]));
+    localStorage.setItem(
+      'collab-hosted-servers',
+      JSON.stringify([
+        {
+          serverUrl: 'https://saved.example.test',
+          username: 'alice',
+          allowInvalidCertificates: false,
+          persistAcrossReboots: true,
+        },
+      ]),
+    );
     useServerStore.setState({ connections: {} });
 
     render(<VaultPicker />);
@@ -182,13 +207,17 @@ describe('VaultPicker hosted vaults', () => {
     expect(screen.getByText('Offline copies · https://server-two.test')).toBeTruthy();
     fireEvent.click(screen.getAllByTitle('Open offline copy')[0]);
 
-    await waitFor(() => expect(openHostedVault).toHaveBeenCalledWith(expect.objectContaining({
-      kind: 'hosted',
-      hostedVaultId: 'vault-offline-1',
-      serverUrl: 'https://server-one.test',
-      role: 'editor',
-      capabilities: ['vault.read', 'file.write'],
-    })));
+    await waitFor(() =>
+      expect(openHostedVault).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'hosted',
+          hostedVaultId: 'vault-offline-1',
+          serverUrl: 'https://server-one.test',
+          role: 'editor',
+          capabilities: ['vault.read', 'file.write'],
+        }),
+      ),
+    );
   });
 
   it('removes an offline hosted vault copy from a stale server', async () => {
@@ -215,7 +244,9 @@ describe('VaultPicker hosted vaults', () => {
     expect(await screen.findByText('Stale Offline')).toBeTruthy();
     fireEvent.click(screen.getByLabelText('Remove offline copy Stale Offline'));
 
-    await waitFor(() => expect(replicaMock.deleteHostedVaultReplica).toHaveBeenCalledWith(staleReplica));
+    await waitFor(() =>
+      expect(replicaMock.deleteHostedVaultReplica).toHaveBeenCalledWith(staleReplica),
+    );
     await waitFor(() => expect(screen.queryByText('Stale Offline')).toBeNull());
   });
 

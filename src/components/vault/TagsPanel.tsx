@@ -1,15 +1,17 @@
-import { useState, useCallback } from 'react';
-import { Plus, X, ChevronRight, ChevronDown, Check, Tag } from 'lucide-react';
-import { useNoteIndexStore } from '../../store/noteIndexStore';
+import { useCallback, useState } from 'react';
+
+import { Check, ChevronDown, ChevronRight, Plus, Tag, X } from 'lucide-react';
+import { toast } from 'sonner';
+
+import { addTagToContent, getTagsFromContent, removeTagFromContent } from '../../lib/frontmatter';
+import { createVaultClient, type VaultClient } from '../../lib/vaultClient';
 import { useEditorStore } from '../../store/editorStore';
+import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
-import { createVaultClient, type VaultClient } from '../../lib/vaultClient';
-import { addTagToContent, removeTagFromContent, getTagsFromContent } from '../../lib/frontmatter';
+import type { NoteMetadata } from '../../types/note';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { toast } from 'sonner';
-import type { NoteMetadata } from '../../types/note';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -23,9 +25,7 @@ async function patchNoteTag(
 ): Promise<void> {
   const doc = await client.readDocument(note.relativePath);
   const patched =
-    action === 'add'
-      ? addTagToContent(doc.content, tag)
-      : removeTagFromContent(doc.content, tag);
+    action === 'add' ? addTagToContent(doc.content, tag) : removeTagFromContent(doc.content, tag);
   const result = await client.writeDocument(note.relativePath, patched, doc.version, doc.content);
   if (result.conflict) {
     toast.error(`Conflict saving ${note.title} — please reload it.`);
@@ -89,36 +89,37 @@ export default function TagsPanel() {
   }, [newTag, addTagToActive]);
 
   // Add/remove tag on a specific (possibly non-active) note
-  const handleTagOnNote = useCallback(async (
-    note: NoteMetadata,
-    tag: string,
-    action: 'add' | 'remove',
-  ) => {
-    if (!vault) return;
-    const key = `${action}:${tag}:${note.relativePath}`;
-    if (busy === key) return;
+  const handleTagOnNote = useCallback(
+    async (note: NoteMetadata, tag: string, action: 'add' | 'remove') => {
+      if (!vault) return;
+      const key = `${action}:${tag}:${note.relativePath}`;
+      if (busy === key) return;
 
-    if (note.relativePath === activeTabPath) {
-      // Active note — use the CustomEvent so NoteView handles it (avoids hash conflicts)
-      if (action === 'add') {
-        window.dispatchEvent(new CustomEvent('tag:add-tag', { detail: { tag } }));
+      if (note.relativePath === activeTabPath) {
+        // Active note — use the CustomEvent so NoteView handles it (avoids hash conflicts)
+        if (action === 'add') {
+          window.dispatchEvent(new CustomEvent('tag:add-tag', { detail: { tag } }));
+        } else {
+          const currentTags = activeNote?.tags ?? [];
+          window.dispatchEvent(
+            new CustomEvent('tag:set-tags', {
+              detail: { tags: currentTags.filter((t) => t !== tag) },
+            }),
+          );
+        }
       } else {
-        const currentTags = activeNote?.tags ?? [];
-        window.dispatchEvent(new CustomEvent('tag:set-tags', {
-          detail: { tags: currentTags.filter((t) => t !== tag) },
-        }));
+        setBusy(key);
+        try {
+          await patchNoteTag(createVaultClient(vault), note, action, tag, updateNote);
+        } catch (e) {
+          toast.error('Failed to update tags: ' + e);
+        } finally {
+          setBusy(null);
+        }
       }
-    } else {
-      setBusy(key);
-      try {
-        await patchNoteTag(createVaultClient(vault), note, action, tag, updateNote);
-      } catch (e) {
-        toast.error('Failed to update tags: ' + e);
-      } finally {
-        setBusy(null);
-      }
-    }
-  }, [vault, activeTabPath, activeNote, busy, updateNote]);
+    },
+    [vault, activeTabPath, activeNote, busy, updateNote],
+  );
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -177,18 +178,27 @@ export default function TagsPanel() {
                   onClick={() => toggle(tag)}
                   className="flex flex-1 items-center gap-1 min-w-0 text-left"
                 >
-                  {isOpen
-                    ? <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
-                    : <ChevronRight size={12} className="shrink-0 text-muted-foreground" />
-                  }
+                  {isOpen ? (
+                    <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight size={12} className="shrink-0 text-muted-foreground" />
+                  )}
                   <span className="text-xs font-medium truncate">#{tag}</span>
-                  <span className="ml-1 text-[10px] text-muted-foreground shrink-0">{tagNotes.length}</span>
+                  <span className="ml-1 text-[10px] text-muted-foreground shrink-0">
+                    {tagNotes.length}
+                  </span>
                 </button>
 
                 {/* Add to current note button */}
                 {activeTabPath && (
                   <button
-                    onClick={() => handleTagOnNote(activeNote ?? tagNotes[0], tag, activeAlreadyHas ? 'remove' : 'add')}
+                    onClick={() =>
+                      handleTagOnNote(
+                        activeNote ?? tagNotes[0],
+                        tag,
+                        activeAlreadyHas ? 'remove' : 'add',
+                      )
+                    }
                     title={activeAlreadyHas ? 'Remove from current note' : 'Add to current note'}
                     className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors opacity-0 group-hover:opacity-100 ${
                       activeAlreadyHas

@@ -3,12 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createSheetTable, setSheetTableColumnFilter, sortSheetTable } from './dataTools';
 import { createEmptySheetDocument } from './document';
 import { enforceSheetMutationPolicies } from './mutationPolicy';
-import {
-  activeWorksheet,
-  getCell,
-  mergeSelection,
-  setCell,
-} from './operations';
+import { activeWorksheet, getCell, mergeSelection, setCell } from './operations';
 import { createSelection, extendSelection } from './selection';
 import { applySheetValidation } from './validation';
 
@@ -26,15 +21,25 @@ describe('Phase 5 combined data-tool matrix', () => {
     ] as const;
     for (const [row, values] of rows.entries()) {
       for (const [column, value] of values.entries()) {
-        document = setCell(document, worksheet.id, { row, column }, {
-          value,
-          valueType: typeof value === 'number' ? 'number' : 'text',
-        });
+        document = setCell(
+          document,
+          worksheet.id,
+          { row, column },
+          {
+            value,
+            valueType: typeof value === 'number' ? 'number' : 'text',
+          },
+        );
       }
       if (row > 0) {
-        document = setCell(document, worksheet.id, { row, column: 2 }, {
-          formula: `=B${row + 1}*2`,
-        });
+        document = setCell(
+          document,
+          worksheet.id,
+          { row, column: 2 },
+          {
+            formula: `=B${row + 1}*2`,
+          },
+        );
       }
     }
     document = applySheetValidation(
@@ -64,12 +69,9 @@ describe('Phase 5 combined data-tool matrix', () => {
       { columnId: table.columns[1].columnId, numberMin: 2 },
     );
     const before = document;
-    const sorted = sortSheetTable(
-      document,
-      worksheet.id,
-      table.id,
-      [{ columnId: table.columns[0].columnId, direction: 'ascending' }],
-    );
+    const sorted = sortSheetTable(document, worksheet.id, table.id, [
+      { columnId: table.columns[0].columnId, direction: 'ascending' },
+    ]);
     const result = enforceSheetMutationPolicies(before, sorted).document;
     worksheet = activeWorksheet(result);
     expect(getCell(worksheet, { row: 1, column: 0 })?.value).toBe('Alpha');

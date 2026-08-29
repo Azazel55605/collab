@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  type CalendarItem,
   CalendarValidationError,
   createCalendarDefinition,
   isCalendarDate,
@@ -8,7 +9,6 @@ import {
   normalizeCalendarItem,
   normalizeCalendarTimeValue,
   queryCalendarItems,
-  type CalendarItem,
 } from './calendar';
 
 const createdAt = '2026-07-22T08:00:00Z';
@@ -87,11 +87,13 @@ describe('calendar domain', () => {
       kind: 'date',
       date: '2026-03-29',
     });
-    expect(normalizeCalendarTimeValue({
-      kind: 'dateTime',
-      dateTime: '2026-03-29T10:30:00+02:00',
-      timeZone: 'Europe/Berlin',
-    })).toEqual({
+    expect(
+      normalizeCalendarTimeValue({
+        kind: 'dateTime',
+        dateTime: '2026-03-29T10:30:00+02:00',
+        timeZone: 'Europe/Berlin',
+      }),
+    ).toEqual({
       kind: 'dateTime',
       dateTime: '2026-03-29T08:30:00.000Z',
       timeZone: 'Europe/Berlin',
@@ -100,61 +102,75 @@ describe('calendar domain', () => {
 
   it('rejects impossible dates, floating timestamps, and unknown time zones', () => {
     expect(isCalendarDate('2026-02-29')).toBe(false);
-    expect(() => normalizeCalendarTimeValue({
-      kind: 'dateTime',
-      dateTime: '2026-07-22T10:30:00',
-      timeZone: 'Europe/Berlin',
-    })).toThrow(/offset/i);
-    expect(() => normalizeCalendarTimeValue({
-      kind: 'dateTime',
-      dateTime: '2026-07-22T10:30:00Z',
-      timeZone: 'Mars/Olympus',
-    })).toThrow(/IANA/i);
+    expect(() =>
+      normalizeCalendarTimeValue({
+        kind: 'dateTime',
+        dateTime: '2026-07-22T10:30:00',
+        timeZone: 'Europe/Berlin',
+      }),
+    ).toThrow(/offset/i);
+    expect(() =>
+      normalizeCalendarTimeValue({
+        kind: 'dateTime',
+        dateTime: '2026-07-22T10:30:00Z',
+        timeZone: 'Mars/Olympus',
+      }),
+    ).toThrow(/IANA/i);
   });
 
   it('uses exclusive all-day event ends and rejects mixed time semantics', () => {
-    const event = normalizeCalendarItem(baseItem({
-      kind: 'event',
-      start: { kind: 'date', date: '2026-07-22' },
-      end: { kind: 'date', date: '2026-07-23' },
-      availability: 'busy',
-    }));
+    const event = normalizeCalendarItem(
+      baseItem({
+        kind: 'event',
+        start: { kind: 'date', date: '2026-07-22' },
+        end: { kind: 'date', date: '2026-07-23' },
+        availability: 'busy',
+      }),
+    );
 
     expect(event.kind).toBe('event');
-    expect(() => normalizeCalendarItem(baseItem({
-      kind: 'event',
-      start: { kind: 'date', date: '2026-07-22' },
-      end: { kind: 'dateTime', dateTime: '2026-07-23T10:00:00Z', timeZone: 'UTC' },
-    }))).toThrow(/both be dates/i);
+    expect(() =>
+      normalizeCalendarItem(
+        baseItem({
+          kind: 'event',
+          start: { kind: 'date', date: '2026-07-22' },
+          end: { kind: 'dateTime', dateTime: '2026-07-23T10:00:00Z', timeZone: 'UTC' },
+        }),
+      ),
+    ).toThrow(/both be dates/i);
   });
 
   it('normalizes task, birthday, reminder, recurrence, and source-binding fields', () => {
-    const task = normalizeCalendarItem(baseItem({
-      kind: 'task',
-      due: { kind: 'date', date: '2026-07-25' },
-      priority: 'high',
-      status: 'in-progress',
-      reminders: [{ kind: 'relative', minutesBefore: 30 }],
-      recurrence: {
-        rrule: 'RRULE:FREQ=WEEKLY;COUNT=4',
-        exdates: [{ kind: 'date', date: '2026-08-01' }],
-      },
-      sourceBinding: {
-        kind: 'kanban',
-        serverUrl: 'https://server.test',
-        vaultId: 'vault-1',
-        fileId: 'file-1',
-        cardId: 'card-1',
-        sourceRevision: 4,
-      },
-    }));
-    const birthday = normalizeCalendarItem(baseItem({
-      id: 'birthday-1',
-      uid: 'birthday-1@collab.local',
-      kind: 'birthday',
-      date: '1990-04-12',
-      birthYear: 1990,
-    }));
+    const task = normalizeCalendarItem(
+      baseItem({
+        kind: 'task',
+        due: { kind: 'date', date: '2026-07-25' },
+        priority: 'high',
+        status: 'in-progress',
+        reminders: [{ kind: 'relative', minutesBefore: 30 }],
+        recurrence: {
+          rrule: 'RRULE:FREQ=WEEKLY;COUNT=4',
+          exdates: [{ kind: 'date', date: '2026-08-01' }],
+        },
+        sourceBinding: {
+          kind: 'kanban',
+          serverUrl: 'https://server.test',
+          vaultId: 'vault-1',
+          fileId: 'file-1',
+          cardId: 'card-1',
+          sourceRevision: 4,
+        },
+      }),
+    );
+    const birthday = normalizeCalendarItem(
+      baseItem({
+        id: 'birthday-1',
+        uid: 'birthday-1@collab.local',
+        kind: 'birthday',
+        date: '1990-04-12',
+        birthYear: 1990,
+      }),
+    );
 
     expect(task).toMatchObject({
       kind: 'task',
@@ -166,29 +182,35 @@ describe('calendar domain', () => {
   });
 
   it('normalizes hosted attendees, typed attachments, and legacy location strings', () => {
-    const event = normalizeCalendarItem(baseItem({
-      kind: 'event',
-      start: { kind: 'dateTime', dateTime: '2026-07-22T10:00:00Z', timeZone: 'Europe/Berlin' },
-      end: { kind: 'dateTime', dateTime: '2026-07-22T11:00:00Z', timeZone: 'Europe/Berlin' },
-      location: 'Alexanderplatz, Berlin',
-      attendees: [{
-        id: 'attendee-1',
-        kind: 'collabUser',
-        serverUrl: 'https://calendar.example.test/',
-        userId: 'user-1',
-        displayName: 'Ada',
-        response: 'accepted',
-        role: 'required',
-      }],
-      attachments: [{
-        id: 'attachment-1',
-        kind: 'kanbanTask',
-        name: 'Release task',
-        vaultId: 'vault-1',
-        fileId: 'board-1',
-        cardId: 'card-1',
-      }],
-    }));
+    const event = normalizeCalendarItem(
+      baseItem({
+        kind: 'event',
+        start: { kind: 'dateTime', dateTime: '2026-07-22T10:00:00Z', timeZone: 'Europe/Berlin' },
+        end: { kind: 'dateTime', dateTime: '2026-07-22T11:00:00Z', timeZone: 'Europe/Berlin' },
+        location: 'Alexanderplatz, Berlin',
+        attendees: [
+          {
+            id: 'attendee-1',
+            kind: 'collabUser',
+            serverUrl: 'https://calendar.example.test/',
+            userId: 'user-1',
+            displayName: 'Ada',
+            response: 'accepted',
+            role: 'required',
+          },
+        ],
+        attachments: [
+          {
+            id: 'attachment-1',
+            kind: 'kanbanTask',
+            name: 'Release task',
+            vaultId: 'vault-1',
+            fileId: 'board-1',
+            cardId: 'card-1',
+          },
+        ],
+      }),
+    );
 
     expect(event).toMatchObject({
       kind: 'event',
@@ -200,66 +222,82 @@ describe('calendar domain', () => {
 
   it('returns overlapping non-deleted items in stable order and enforces query bounds', () => {
     const items: CalendarItem[] = [
-      normalizeCalendarItem(baseItem({
-        id: 'later',
-        uid: 'later@collab.local',
-        title: 'Later',
-        kind: 'event',
-        start: { kind: 'dateTime', dateTime: '2026-07-22T12:00:00Z', timeZone: 'UTC' },
-        end: { kind: 'dateTime', dateTime: '2026-07-22T13:00:00Z', timeZone: 'UTC' },
-      })),
-      normalizeCalendarItem(baseItem({
-        id: 'all-day',
-        uid: 'all-day@collab.local',
-        title: 'All day',
-        kind: 'event',
-        start: { kind: 'date', date: '2026-07-22' },
-        end: { kind: 'date', date: '2026-07-23' },
-      })),
-      normalizeCalendarItem(baseItem({
-        id: 'deleted',
-        uid: 'deleted@collab.local',
-        title: 'Deleted',
-        kind: 'task',
-        due: { kind: 'date', date: '2026-07-22' },
-        deletedAt: '2026-07-22T09:00:00Z',
-      })),
+      normalizeCalendarItem(
+        baseItem({
+          id: 'later',
+          uid: 'later@collab.local',
+          title: 'Later',
+          kind: 'event',
+          start: { kind: 'dateTime', dateTime: '2026-07-22T12:00:00Z', timeZone: 'UTC' },
+          end: { kind: 'dateTime', dateTime: '2026-07-22T13:00:00Z', timeZone: 'UTC' },
+        }),
+      ),
+      normalizeCalendarItem(
+        baseItem({
+          id: 'all-day',
+          uid: 'all-day@collab.local',
+          title: 'All day',
+          kind: 'event',
+          start: { kind: 'date', date: '2026-07-22' },
+          end: { kind: 'date', date: '2026-07-23' },
+        }),
+      ),
+      normalizeCalendarItem(
+        baseItem({
+          id: 'deleted',
+          uid: 'deleted@collab.local',
+          title: 'Deleted',
+          kind: 'task',
+          due: { kind: 'date', date: '2026-07-22' },
+          deletedAt: '2026-07-22T09:00:00Z',
+        }),
+      ),
     ];
 
-    expect(queryCalendarItems(items, {
-      from: '2026-07-22',
-      to: '2026-07-23',
-    }).map((item) => item.id)).toEqual(['all-day', 'later']);
-    expect(() => queryCalendarItems(items, {
-      from: '2026-07-23',
-      to: '2026-07-22',
-    })).toThrow(CalendarValidationError);
-    expect(() => queryCalendarItems(items, {
-      from: '2026-07-22',
-      to: '2026-07-23',
-      limit: 5_001,
-    })).toThrow(/limit/i);
+    expect(
+      queryCalendarItems(items, {
+        from: '2026-07-22',
+        to: '2026-07-23',
+      }).map((item) => item.id),
+    ).toEqual(['all-day', 'later']);
+    expect(() =>
+      queryCalendarItems(items, {
+        from: '2026-07-23',
+        to: '2026-07-22',
+      }),
+    ).toThrow(CalendarValidationError);
+    expect(() =>
+      queryCalendarItems(items, {
+        from: '2026-07-22',
+        to: '2026-07-23',
+        limit: 5_001,
+      }),
+    ).toThrow(/limit/i);
   });
 
   it('replaces generated recurrence instances with stored exceptions', () => {
-    const master = normalizeCalendarItem(baseItem({
-      id: 'series-1',
-      uid: 'series@collab.local',
-      kind: 'event',
-      start: { kind: 'date', date: '2026-07-20' },
-      end: { kind: 'date', date: '2026-07-21' },
-      recurrence: { rrule: 'FREQ=DAILY;COUNT=3' },
-    }));
-    const exception = normalizeCalendarItem(baseItem({
-      id: 'exception-1',
-      uid: 'series@collab.local',
-      title: 'Moved occurrence',
-      kind: 'event',
-      start: { kind: 'date', date: '2026-07-23' },
-      end: { kind: 'date', date: '2026-07-24' },
-      recurrenceId: { kind: 'date', date: '2026-07-21' },
-      recurrenceSeriesId: 'series-1',
-    }));
+    const master = normalizeCalendarItem(
+      baseItem({
+        id: 'series-1',
+        uid: 'series@collab.local',
+        kind: 'event',
+        start: { kind: 'date', date: '2026-07-20' },
+        end: { kind: 'date', date: '2026-07-21' },
+        recurrence: { rrule: 'FREQ=DAILY;COUNT=3' },
+      }),
+    );
+    const exception = normalizeCalendarItem(
+      baseItem({
+        id: 'exception-1',
+        uid: 'series@collab.local',
+        title: 'Moved occurrence',
+        kind: 'event',
+        start: { kind: 'date', date: '2026-07-23' },
+        end: { kind: 'date', date: '2026-07-24' },
+        recurrenceId: { kind: 'date', date: '2026-07-21' },
+        recurrenceSeriesId: 'series-1',
+      }),
+    );
 
     const items = queryCalendarItems([master, exception], {
       from: '2026-07-20',

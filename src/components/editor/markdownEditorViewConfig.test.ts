@@ -21,8 +21,12 @@ describe('markdownEditorViewConfig', () => {
       contentAttrsExtension: [],
     };
 
-    expect(buildMarkdownEditorInitialExtensions(compartments, compartmentExtensions)).toHaveLength(6);
-    expect(buildMarkdownEditorReconfigureEffects(compartments, compartmentExtensions)).toHaveLength(6);
+    expect(buildMarkdownEditorInitialExtensions(compartments, compartmentExtensions)).toHaveLength(
+      6,
+    );
+    expect(buildMarkdownEditorReconfigureEffects(compartments, compartmentExtensions)).toHaveLength(
+      6,
+    );
   });
 
   it('builds an editor state with the provided content and indentation config', () => {

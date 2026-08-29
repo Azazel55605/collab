@@ -25,16 +25,16 @@ Inventory reviewed on 2026-07-28.
 
 ### Durable Notification Candidates
 
-| Current source | Current behavior | Notification kind | Phase |
-| --- | --- | --- | --- |
-| `calendarReminderScheduler.ts` | Reconciles event/task/birthday reminder entries into a no-op connector. | Event, task, and birthday reminders | 1-3 |
-| `CalendarRelations.tsx` invitations | Polls hosted invitations and shows an in-calendar badge/popover. | Calendar invitation/update | 1 and 4 |
-| `CollabProvider.tsx` incoming chat | Shows a foreground toast when chat is not visible. | Collaboration message | 1-4 |
-| Future parsed direct mentions | No separate mention parser or durable source exists yet. | Collaboration mention | 4 |
-| `SyncStatusIndicator.tsx` pending-operation failures | Shows a toast when new conflicts require attention. | Sync conflict | 1-3 |
-| Background coordinator terminal outcomes | Persists authentication-required, permission-denied, conflict, and failed outcomes. | Sync action required | 1-3 |
-| Hosted session recovery | Shows foreground reconnect and reauthentication errors. | Authentication required after a durable/background failure | 1-3 |
-| `syncTransferStore.ts` completed user-visible transfers | Keeps bounded foreground transfer history. | Transfer complete only after its UI is no longer visible | 1-3 |
+| Current source                                          | Current behavior                                                                    | Notification kind                                          | Phase   |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------- |
+| `calendarReminderScheduler.ts`                          | Reconciles event/task/birthday reminder entries into a no-op connector.             | Event, task, and birthday reminders                        | 1-3     |
+| `CalendarRelations.tsx` invitations                     | Polls hosted invitations and shows an in-calendar badge/popover.                    | Calendar invitation/update                                 | 1 and 4 |
+| `CollabProvider.tsx` incoming chat                      | Shows a foreground toast when chat is not visible.                                  | Collaboration message                                      | 1-4     |
+| Future parsed direct mentions                           | No separate mention parser or durable source exists yet.                            | Collaboration mention                                      | 4       |
+| `SyncStatusIndicator.tsx` pending-operation failures    | Shows a toast when new conflicts require attention.                                 | Sync conflict                                              | 1-3     |
+| Background coordinator terminal outcomes                | Persists authentication-required, permission-denied, conflict, and failed outcomes. | Sync action required                                       | 1-3     |
+| Hosted session recovery                                 | Shows foreground reconnect and reauthentication errors.                             | Authentication required after a durable/background failure | 1-3     |
+| `syncTransferStore.ts` completed user-visible transfers | Keeps bounded foreground transfer history.                                          | Transfer complete only after its UI is no longer visible   | 1-3     |
 
 ### Foreground-Only Feedback
 

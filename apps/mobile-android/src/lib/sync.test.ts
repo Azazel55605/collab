@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const invoke = vi.fn();
-vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
-
 import type { HostedFileEntry, PendingOperation } from '../mobileTauri';
+
 import {
   classifyPendingOperationFailure,
   enqueueNoteEdit,
@@ -11,6 +9,9 @@ import {
   pendingEditsForFile,
   replayPendingOperations,
 } from './sync';
+
+const invoke = vi.fn();
+vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 
 const SERVER = 'https://collab.example.com';
 const VAULT = 'v1';
@@ -114,7 +115,11 @@ describe('mobile offline sync', () => {
 
     const result = await replayPendingOperations(SERVER, VAULT);
 
-    expect(result).toMatchObject({ replayed: 1, stoppedForConnectivity: false, stoppedForFailure: false });
+    expect(result).toMatchObject({
+      replayed: 1,
+      stoppedForConnectivity: false,
+      stoppedForFailure: false,
+    });
     expect(statuses).toContainEqual({ operationId: 'op-1', status: 'inflight' });
     expect(invoke).toHaveBeenCalledWith(
       'replica_remove_operation',
@@ -128,7 +133,9 @@ describe('mobile offline sync', () => {
       if (command === 'replica_list_pending_operations') return Promise.resolve([editOp()]);
       if (command === 'replica_update_operation_status') return Promise.resolve(null);
       if (command === 'hosted_vault_request') {
-        return Promise.reject(new Error('The document has changed on the server (revision_conflict).'));
+        return Promise.reject(
+          new Error('The document has changed on the server (revision_conflict).'),
+        );
       }
       if (command === 'replica_record_operation_failure') {
         failures.push(args);
@@ -169,10 +176,7 @@ describe('mobile offline sync', () => {
   it('lists only queued edits for a given file', async () => {
     invoke.mockImplementation((command: string) => {
       if (command === 'replica_list_pending_operations') {
-        return Promise.resolve([
-          editOp({ id: 'op-a' }),
-          editOp({ id: 'op-b', fileId: 'other' }),
-        ]);
+        return Promise.resolve([editOp({ id: 'op-a' }), editOp({ id: 'op-b', fileId: 'other' })]);
       }
       return Promise.reject(new Error(`unhandled ${command}`));
     });

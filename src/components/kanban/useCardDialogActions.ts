@@ -2,11 +2,11 @@ import { useState } from 'react';
 
 import {
   getMissingColumnDefaultTags,
-  mergeUniqueTags,
-  setCardDoneState,
   type KanbanBoard,
   type KanbanCard,
   type KanbanColumn,
+  mergeUniqueTags,
+  setCardDoneState,
 } from '../../types/kanban';
 
 type UpdateBoard = (updater: (prev: KanbanBoard) => KanbanBoard) => void;
@@ -31,7 +31,11 @@ type UseCardDialogActionsArgs = {
   onClose: () => void;
 };
 
-export function deleteCardFromBoard(board: KanbanBoard, columnId: string, cardId: string): KanbanBoard {
+export function deleteCardFromBoard(
+  board: KanbanBoard,
+  columnId: string,
+  cardId: string,
+): KanbanBoard {
   return {
     ...board,
     columns: board.columns.map((column) =>
@@ -89,11 +93,11 @@ export function applyPromptTagsToBoard(
       return {
         ...column,
         autoApplyDefaultTagsOnMove: enableAutoApply ? true : column.autoApplyDefaultTagsOnMove,
-        cards: column.cards.map((entry) => (
+        cards: column.cards.map((entry) =>
           entry.id !== draftId
             ? entry
-            : { ...entry, tags: mergeUniqueTags(entry.tags, prompt.missingTags) }
-        )),
+            : { ...entry, tags: mergeUniqueTags(entry.tags, prompt.missingTags) },
+        ),
       };
     }),
   };
@@ -122,31 +126,36 @@ export function moveCardBetweenColumns(
 
   const missingTags = getMissingColumnDefaultTags(draft, destinationColumn);
   const shouldAutoApplyTags = destinationColumn.autoApplyDefaultTagsOnMove;
-  const promptRequest = missingTags.length > 0 && !shouldAutoApplyTags
-    ? {
-        destinationColumnId: destinationColumn.id,
-        destinationColumnTitle: destinationColumn.title,
-        missingTags,
-      }
-    : null;
+  const promptRequest =
+    missingTags.length > 0 && !shouldAutoApplyTags
+      ? {
+          destinationColumnId: destinationColumn.id,
+          destinationColumnTitle: destinationColumn.title,
+          missingTags,
+        }
+      : null;
 
   const movedCard = {
     ...draft,
     isDone: destinationColumn.autoComplete ? true : draft.isDone,
     tags: shouldAutoApplyTags ? mergeUniqueTags(draft.tags, missingTags) : draft.tags,
   };
-  const nextBoard = setCardDoneState({
-    ...board,
-    columns: board.columns.map((column) => {
-      if (column.id === sourceColumnId) {
-        return { ...column, cards: column.cards.filter((entry) => entry.id !== draft.id) };
-      }
-      if (column.id === destinationColumnId) {
-        return { ...column, cards: [...column.cards, movedCard] };
-      }
-      return column;
-    }),
-  }, draft.id, movedCard.isDone ?? false);
+  const nextBoard = setCardDoneState(
+    {
+      ...board,
+      columns: board.columns.map((column) => {
+        if (column.id === sourceColumnId) {
+          return { ...column, cards: column.cards.filter((entry) => entry.id !== draft.id) };
+        }
+        if (column.id === destinationColumnId) {
+          return { ...column, cards: [...column.cards, movedCard] };
+        }
+        return column;
+      }),
+    },
+    draft.id,
+    movedCard.isDone ?? false,
+  );
 
   return {
     nextBoard,
@@ -180,7 +189,12 @@ export function useCardDialogActions({
 
     cancelPendingFlush();
     const sourceColId = currentColIdRef.current;
-    const { nextBoard, destinationColumn, promptRequest } = moveCardBetweenColumns(board, draft, sourceColId, newColId);
+    const { nextBoard, destinationColumn, promptRequest } = moveCardBetweenColumns(
+      board,
+      draft,
+      sourceColId,
+      newColId,
+    );
     updateBoard(() => nextBoard);
 
     currentColIdRef.current = newColId;
@@ -210,13 +224,12 @@ export function useCardDialogActions({
 
   function toggleArchive() {
     cancelPendingFlush();
-    updateBoard((prev) => toggleArchivedCardInBoard(
-      prev,
-      currentColIdRef.current,
-      draft.id,
-      draft.archived,
-      { userId: myUserId, userName: myUserName },
-    ));
+    updateBoard((prev) =>
+      toggleArchivedCardInBoard(prev, currentColIdRef.current, draft.id, draft.archived, {
+        userId: myUserId,
+        userName: myUserName,
+      }),
+    );
     onClose();
   }
 

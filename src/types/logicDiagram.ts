@@ -6,17 +6,7 @@ export type SchematicRotation = 0 | 90 | 180 | 270;
 export type SchematicSymbolSet = 'ansi' | 'iec';
 
 export type LogicGateKind =
-  | 'input'
-  | 'clock'
-  | 'output'
-  | 'group'
-  | 'and'
-  | 'or'
-  | 'not'
-  | 'xor'
-  | 'nand'
-  | 'nor'
-  | 'xnor';
+  'input' | 'clock' | 'output' | 'group' | 'and' | 'or' | 'not' | 'xor' | 'nand' | 'nor' | 'xnor';
 
 export type ElectronicComponentKind =
   | 'resistor'
@@ -197,7 +187,10 @@ export function isElectronicComponentKind(kind: unknown): kind is ElectronicComp
   return ELECTRONIC_COMPONENT_KINDS.has(kind as ElectronicComponentKind);
 }
 
-export function createEmptyLogicDiagram(title?: string, diagramMode: LogicDiagramMode = 'logic'): LogicDiagramDocument {
+export function createEmptyLogicDiagram(
+  title?: string,
+  diagramMode: LogicDiagramMode = 'logic',
+): LogicDiagramDocument {
   return {
     schemaVersion: LOGIC_DIAGRAM_SCHEMA_VERSION,
     kind: 'logic-diagram',
@@ -212,7 +205,7 @@ export function createEmptyLogicDiagram(title?: string, diagramMode: LogicDiagra
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 
@@ -231,11 +224,11 @@ function timestamp(value: unknown) {
 function normalizeComponentPort(value: unknown): LogicComponentPort | null {
   const record = asRecord(value);
   if (
-    !record
-    || typeof record.id !== 'string'
-    || typeof record.label !== 'string'
-    || typeof record.sourceNodeId !== 'string'
-    || (record.direction !== 'input' && record.direction !== 'output')
+    !record ||
+    typeof record.id !== 'string' ||
+    typeof record.label !== 'string' ||
+    typeof record.sourceNodeId !== 'string' ||
+    (record.direction !== 'input' && record.direction !== 'output')
   ) {
     return null;
   }
@@ -261,7 +254,9 @@ function normalizeComponentDefinition(value: unknown): LogicComponentDefinition 
     ? record.wires.map(normalizeWire).filter((wire): wire is LogicDiagramWire => Boolean(wire))
     : [];
   const ports = Array.isArray(record.ports)
-    ? record.ports.map(normalizeComponentPort).filter((port): port is LogicComponentPort => Boolean(port))
+    ? record.ports
+        .map(normalizeComponentPort)
+        .filter((port): port is LogicComponentPort => Boolean(port))
     : [];
   return {
     id: record.id,
@@ -337,26 +332,35 @@ export function defaultSchematicElectricalParameters(
   kind: ElectronicComponentKind,
 ): SchematicElectricalParameters | undefined {
   switch (kind) {
-    case 'resistor': return { resistanceOhms: 1_000 };
-    case 'capacitor': return { capacitanceFarads: 1e-6 };
-    case 'inductor': return { inductanceHenries: 1e-3 };
-    case 'voltage-source': return { voltageVolts: 5 };
-    case 'switch': return { switchClosed: false };
-    case 'diode': return { modelRef: 'builtin:diode' };
-    case 'led': return { modelRef: 'builtin:led' };
-    case 'transistor': return { modelRef: 'builtin:npn' };
+    case 'resistor':
+      return { resistanceOhms: 1_000 };
+    case 'capacitor':
+      return { capacitanceFarads: 1e-6 };
+    case 'inductor':
+      return { inductanceHenries: 1e-3 };
+    case 'voltage-source':
+      return { voltageVolts: 5 };
+    case 'switch':
+      return { switchClosed: false };
+    case 'diode':
+      return { modelRef: 'builtin:diode' };
+    case 'led':
+      return { modelRef: 'builtin:led' };
+    case 'transistor':
+      return { modelRef: 'builtin:npn' };
     case 'ground':
-    case 'junction': return undefined;
+    case 'junction':
+      return undefined;
   }
 }
 
 function normalizeCircuitProbe(value: unknown): LogicCircuitProbe | null {
   const record = asRecord(value);
   if (
-    !record
-    || typeof record.id !== 'string'
-    || typeof record.nodeId !== 'string'
-    || (record.kind !== 'node-voltage' && record.kind !== 'branch-current')
+    !record ||
+    typeof record.id !== 'string' ||
+    typeof record.nodeId !== 'string' ||
+    (record.kind !== 'node-voltage' && record.kind !== 'branch-current')
   ) {
     return null;
   }
@@ -383,18 +387,60 @@ function normalizeSourceWaveform(value: unknown): LogicSourceWaveform | null {
       record.pulseWidthSeconds,
       record.periodSeconds,
     ];
-    if (!values.every((candidate) => typeof candidate === 'number' && Number.isFinite(candidate))) return null;
-    const [lowValue, highValue, delaySeconds, riseSeconds, fallSeconds, pulseWidthSeconds, periodSeconds] = values as number[];
-    if (delaySeconds < 0 || riseSeconds < 0 || fallSeconds < 0 || pulseWidthSeconds <= 0 || periodSeconds <= 0) return null;
+    if (!values.every((candidate) => typeof candidate === 'number' && Number.isFinite(candidate)))
+      return null;
+    const [
+      lowValue,
+      highValue,
+      delaySeconds,
+      riseSeconds,
+      fallSeconds,
+      pulseWidthSeconds,
+      periodSeconds,
+    ] = values as number[];
+    if (
+      delaySeconds < 0 ||
+      riseSeconds < 0 ||
+      fallSeconds < 0 ||
+      pulseWidthSeconds <= 0 ||
+      periodSeconds <= 0
+    )
+      return null;
     if (riseSeconds + pulseWidthSeconds + fallSeconds > periodSeconds) return null;
-    return { kind: 'pulse', lowValue, highValue, delaySeconds, riseSeconds, fallSeconds, pulseWidthSeconds, periodSeconds };
+    return {
+      kind: 'pulse',
+      lowValue,
+      highValue,
+      delaySeconds,
+      riseSeconds,
+      fallSeconds,
+      pulseWidthSeconds,
+      periodSeconds,
+    };
   }
   if (record.kind === 'sine') {
-    const values = [record.offset, record.amplitude, record.frequencyHertz, record.phaseDegrees, record.delaySeconds, record.dampingPerSecond];
-    if (!values.every((candidate) => typeof candidate === 'number' && Number.isFinite(candidate))) return null;
-    const [offset, amplitude, frequencyHertz, phaseDegrees, delaySeconds, dampingPerSecond] = values as number[];
+    const values = [
+      record.offset,
+      record.amplitude,
+      record.frequencyHertz,
+      record.phaseDegrees,
+      record.delaySeconds,
+      record.dampingPerSecond,
+    ];
+    if (!values.every((candidate) => typeof candidate === 'number' && Number.isFinite(candidate)))
+      return null;
+    const [offset, amplitude, frequencyHertz, phaseDegrees, delaySeconds, dampingPerSecond] =
+      values as number[];
     if (frequencyHertz <= 0 || delaySeconds < 0 || dampingPerSecond < 0) return null;
-    return { kind: 'sine', offset, amplitude, frequencyHertz, phaseDegrees, delaySeconds, dampingPerSecond };
+    return {
+      kind: 'sine',
+      offset,
+      amplitude,
+      frequencyHertz,
+      phaseDegrees,
+      delaySeconds,
+      dampingPerSecond,
+    };
   }
   return null;
 }
@@ -405,11 +451,19 @@ function normalizeTransientConfig(value: unknown): LogicTransientConfig | undefi
   const durationSeconds = record.durationSeconds;
   const maxTimeStepSeconds = record.maxTimeStepSeconds;
   if (
-    typeof durationSeconds !== 'number' || !Number.isFinite(durationSeconds) || durationSeconds <= 0
-    || typeof maxTimeStepSeconds !== 'number' || !Number.isFinite(maxTimeStepSeconds) || maxTimeStepSeconds <= 0
-  ) return undefined;
+    typeof durationSeconds !== 'number' ||
+    !Number.isFinite(durationSeconds) ||
+    durationSeconds <= 0 ||
+    typeof maxTimeStepSeconds !== 'number' ||
+    !Number.isFinite(maxTimeStepSeconds) ||
+    maxTimeStepSeconds <= 0
+  )
+    return undefined;
   const boundedDuration = Math.min(durationSeconds, 3_600);
-  const boundedTimeStep = Math.max(Math.min(maxTimeStepSeconds, boundedDuration), boundedDuration / 4_095);
+  const boundedTimeStep = Math.max(
+    Math.min(maxTimeStepSeconds, boundedDuration),
+    boundedDuration / 4_095,
+  );
   const waveforms = asRecord(record.sourceWaveforms);
   const sourceWaveforms: Record<string, LogicSourceWaveform> = {};
   if (waveforms) {
@@ -424,7 +478,10 @@ function normalizeTransientConfig(value: unknown): LogicTransientConfig | undefi
 
 function normalizeSimulationConfig(value: unknown): LogicSimulationConfig | undefined {
   const record = asRecord(value);
-  if (!record || !['dc-operating-point', 'dc-sweep', 'transient'].includes(String(record.analysis))) {
+  if (
+    !record ||
+    !['dc-operating-point', 'dc-sweep', 'transient'].includes(String(record.analysis))
+  ) {
     return undefined;
   }
   const sweep = asRecord(record.dcSweep);
@@ -432,27 +489,34 @@ function normalizeSimulationConfig(value: unknown): LogicSimulationConfig | unde
   const start = sweep?.start;
   const stop = sweep?.stop;
   const sampleCount = sweep?.sampleCount;
-  const dcSweep = sourceNodeId
-    && typeof start === 'number' && Number.isFinite(start)
-    && typeof stop === 'number' && Number.isFinite(stop)
-    && start !== stop
-    && typeof sampleCount === 'number' && Number.isFinite(sampleCount)
-    ? {
-        sourceNodeId,
-        start,
-        stop,
-        sampleCount: Math.min(4096, Math.max(2, Math.floor(sampleCount))),
-      }
-    : undefined;
+  const dcSweep =
+    sourceNodeId &&
+    typeof start === 'number' &&
+    Number.isFinite(start) &&
+    typeof stop === 'number' &&
+    Number.isFinite(stop) &&
+    start !== stop &&
+    typeof sampleCount === 'number' &&
+    Number.isFinite(sampleCount)
+      ? {
+          sourceNodeId,
+          start,
+          stop,
+          sampleCount: Math.min(4096, Math.max(2, Math.floor(sampleCount))),
+        }
+      : undefined;
   const transient = normalizeTransientConfig(record.transient);
   return {
-    analysis: record.analysis === 'dc-sweep' && dcSweep
-      ? 'dc-sweep'
-      : record.analysis === 'transient' && transient
-        ? 'transient'
-        : 'dc-operating-point',
+    analysis:
+      record.analysis === 'dc-sweep' && dcSweep
+        ? 'dc-sweep'
+        : record.analysis === 'transient' && transient
+          ? 'transient'
+          : 'dc-operating-point',
     probes: Array.isArray(record.probes)
-      ? record.probes.map(normalizeCircuitProbe).filter((probe): probe is LogicCircuitProbe => Boolean(probe))
+      ? record.probes
+          .map(normalizeCircuitProbe)
+          .filter((probe): probe is LogicCircuitProbe => Boolean(probe))
       : [],
     dcSweep,
     transient,
@@ -462,17 +526,22 @@ function normalizeSimulationConfig(value: unknown): LogicSimulationConfig | unde
 function normalizeNode(value: unknown): LogicDiagramNode | null {
   const record = asRecord(value);
   if (
-    !record
-    || typeof record.id !== 'string'
-    || !(isLogicGateKind(record.kind) || isElectronicComponentKind(record.kind) || record.kind === 'component')
+    !record ||
+    typeof record.id !== 'string' ||
+    !(
+      isLogicGateKind(record.kind) ||
+      isElectronicComponentKind(record.kind) ||
+      record.kind === 'component'
+    )
   ) {
     return null;
   }
   const position = asRecord(record.position);
   const clock = asRecord(record.clock);
-  const rotation = record.rotation === 90 || record.rotation === 180 || record.rotation === 270
-    ? record.rotation
-    : 0;
+  const rotation =
+    record.rotation === 90 || record.rotation === 180 || record.rotation === 270
+      ? record.rotation
+      : 0;
   return {
     id: record.id,
     kind: record.kind as LogicNodeKind,
@@ -482,25 +551,36 @@ function normalizeNode(value: unknown): LogicDiagramNode | null {
     },
     label: optionalString(record.label),
     value: typeof record.value === 'boolean' ? record.value : undefined,
-    clock: record.kind === 'clock'
-      ? {
-          periodMs: Math.max(100, finiteNumber(clock?.periodMs, 1000)),
-          dutyCycle: Math.min(0.95, Math.max(0.05, finiteNumber(clock?.dutyCycle, 0.5))),
-          phaseMs: Math.max(0, finiteNumber(clock?.phaseMs, 0)),
-        }
-      : undefined,
+    clock:
+      record.kind === 'clock'
+        ? {
+            periodMs: Math.max(100, finiteNumber(clock?.periodMs, 1000)),
+            dutyCycle: Math.min(0.95, Math.max(0.05, finiteNumber(clock?.dutyCycle, 0.5))),
+            phaseMs: Math.max(0, finiteNumber(clock?.phaseMs, 0)),
+          }
+        : undefined,
     rotation: isElectronicComponentKind(record.kind) ? rotation : undefined,
     electrical: normalizeElectricalParameters(record.kind as LogicNodeKind, record.electrical),
     parentId: optionalString(record.parentId),
-    width: typeof record.width === 'number' && Number.isFinite(record.width) ? record.width : undefined,
-    height: typeof record.height === 'number' && Number.isFinite(record.height) ? record.height : undefined,
-    component: record.kind === 'component' ? normalizeComponentInstance(record.component) : undefined,
+    width:
+      typeof record.width === 'number' && Number.isFinite(record.width) ? record.width : undefined,
+    height:
+      typeof record.height === 'number' && Number.isFinite(record.height)
+        ? record.height
+        : undefined,
+    component:
+      record.kind === 'component' ? normalizeComponentInstance(record.component) : undefined,
   };
 }
 
 function normalizeWire(value: unknown): LogicDiagramWire | null {
   const record = asRecord(value);
-  if (!record || typeof record.id !== 'string' || typeof record.source !== 'string' || typeof record.target !== 'string') {
+  if (
+    !record ||
+    typeof record.id !== 'string' ||
+    typeof record.source !== 'string' ||
+    typeof record.target !== 'string'
+  ) {
     return null;
   }
   return {
@@ -521,20 +601,25 @@ export function normalizeLogicDiagramDocument(input: unknown): LogicDiagramDocum
   const nodes = Array.isArray(record.nodes)
     ? record.nodes.map(normalizeNode).filter((node): node is LogicDiagramNode => Boolean(node))
     : [];
-  const inferredMode = nodes.some((node) => isElectronicComponentKind(node.kind)) ? 'schematic' : 'logic';
+  const inferredMode = nodes.some((node) => isElectronicComponentKind(node.kind))
+    ? 'schematic'
+    : 'logic';
   return {
     schemaVersion: LOGIC_DIAGRAM_SCHEMA_VERSION,
     kind: 'logic-diagram',
-    diagramMode: record.diagramMode === 'schematic' || record.diagramMode === 'logic'
-      ? record.diagramMode
-      : inferredMode,
+    diagramMode:
+      record.diagramMode === 'schematic' || record.diagramMode === 'logic'
+        ? record.diagramMode
+        : inferredMode,
     title: optionalString(record.title),
     nodes,
     wires: Array.isArray(record.wires)
       ? record.wires.map(normalizeWire).filter((wire): wire is LogicDiagramWire => Boolean(wire))
       : [],
     components: Array.isArray(record.components)
-      ? record.components.map(normalizeComponentDefinition).filter((component): component is LogicComponentDefinition => Boolean(component))
+      ? record.components
+          .map(normalizeComponentDefinition)
+          .filter((component): component is LogicComponentDefinition => Boolean(component))
       : [],
     simulation: normalizeSimulationConfig(record.simulation),
     viewport: {

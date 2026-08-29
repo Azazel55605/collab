@@ -1,33 +1,34 @@
-import { CalendarDays, Cloud, FolderOpen, Library, Settings as SettingsIcon } from 'lucide-react';
 import type { ReactNode, TouchEvent as ReactTouchEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { CalendarDays, Cloud, FolderOpen, Library, Settings as SettingsIcon } from 'lucide-react';
+
 import { Banner, ConfirmSheet } from './components/ui';
+import { mobileCalendarProfileId } from './lib/calendarSync';
+import { type KnownServer, normalizeServerUrl } from './lib/servers';
+import { applyTheme, loadPrefs, savePrefs, type ThemePrefs } from './lib/theme';
 import {
-  mobileExitApp,
+  type BackgroundJobRecord,
+  type MobileAppDestination,
   mobileAppDestinationTakePending,
+  mobileExitApp,
   notificationAndroidTakePendingOpen,
   notificationListInbox,
   notificationMarkRead,
   notificationSyncRemote,
   reconcileAndroidBackground,
   requestAndroidBackgroundSync,
+  type ServerConnectionStatus,
   widgetActiveProfileSet,
   widgetAppearanceSave,
   widgetRefresh,
-  type BackgroundJobRecord,
-  type MobileAppDestination,
-  type ServerConnectionStatus,
 } from './mobileTauri';
-import { normalizeServerUrl, type KnownServer } from './lib/servers';
-import { applyTheme, loadPrefs, savePrefs, type ThemePrefs } from './lib/theme';
+import { CalendarScreen } from './screens/CalendarScreen';
 import { FilesScreen } from './screens/FilesScreen';
 import { ServersScreen } from './screens/ServersScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { VaultsScreen } from './screens/VaultsScreen';
-import { CalendarScreen } from './screens/CalendarScreen';
-import { mobileCalendarProfileId } from './lib/calendarSync';
-import { TAB_ORDER, type Tab, useMobileStore } from './state/store';
+import { type Tab, TAB_ORDER, useMobileStore } from './state/store';
 
 const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
   { id: 'servers', label: 'Servers', icon: <Cloud size={20} aria-hidden /> },
@@ -45,9 +46,7 @@ function tabIndex(tab: Tab): number {
 
 function isInteractiveSwipeTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
-  return !!target.closest(
-    'input, textarea, select, [contenteditable="true"], .cm-editor',
-  );
+  return !!target.closest('input, textarea, select, [contenteditable="true"], .cm-editor');
 }
 
 export function findBackgroundAttention(
@@ -67,16 +66,23 @@ export function findBackgroundAttention(
     }
     const serverUrl = job.serverUrl ? normalizeServerUrl(job.serverUrl) : null;
     if (serverUrl && !knownServerUrls.has(serverUrl)) return false;
-    if (job.status === 'authentication_required' && serverUrl && connectedServerUrls.has(serverUrl)) {
+    if (
+      job.status === 'authentication_required' &&
+      serverUrl &&
+      connectedServerUrls.has(serverUrl)
+    ) {
       return false;
     }
-    return !jobs.slice(0, index).some((newer) =>
-      newer.status === 'succeeded'
-      && newer.kind === job.kind
-      && newer.serverUrl === job.serverUrl
-      && newer.profileId === job.profileId
-      && newer.vaultId === job.vaultId,
-    );
+    return !jobs
+      .slice(0, index)
+      .some(
+        (newer) =>
+          newer.status === 'succeeded' &&
+          newer.kind === job.kind &&
+          newer.serverUrl === job.serverUrl &&
+          newer.profileId === job.profileId &&
+          newer.vaultId === job.vaultId,
+      );
   });
 }
 
@@ -91,8 +97,9 @@ export function MobileApp() {
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   /** Set when a widget shortcut pointed at a target this device can no longer
    * open, so the user gets an explanation instead of a blank screen. */
-  const [shortcutRecovery, setShortcutRecovery] =
-    useState<'vault-unavailable' | 'file-unavailable' | null>(null);
+  const [shortcutRecovery, setShortcutRecovery] = useState<
+    'vault-unavailable' | 'file-unavailable' | null
+  >(null);
 
   const restore = useMobileStore((s) => s.restore);
   const watchBackgroundEvents = useMobileStore((s) => s.watchBackgroundEvents);
@@ -156,7 +163,10 @@ export function MobileApp() {
         await notificationSyncRemote(profileId).catch(() => {});
         await reconcileAndroidBackground(profileId).catch(() => {});
         await requestAndroidBackgroundSync(profileId, false).catch(() => {});
-        await useMobileStore.getState().refreshBackgroundJobs().catch(() => {});
+        await useMobileStore
+          .getState()
+          .refreshBackgroundJobs()
+          .catch(() => {});
       })();
     };
     window.addEventListener('focus', onFocus);
@@ -218,20 +228,23 @@ export function MobileApp() {
         }
         setTab('files');
         window.setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('collab-files-capture', {
-            detail: { kind: destination.kind },
-          }));
+          window.dispatchEvent(
+            new CustomEvent('collab-files-capture', {
+              detail: { kind: destination.kind },
+            }),
+          );
         }, 0);
         return;
       }
       if (
-        destination.kind === 'kanban-card'
-        || destination.kind === 'vault-file'
-        || destination.kind === 'vault-folder'
+        destination.kind === 'kanban-card' ||
+        destination.kind === 'vault-file' ||
+        destination.kind === 'vault-folder'
       ) {
         const { vaultId, fileId, cardId } = destination;
         if (!vaultId || !fileId) return;
-        void useMobileStore.getState()
+        void useMobileStore
+          .getState()
           .openVaultTarget(vaultId, fileId, {
             cardId,
             expectFolder: destination.kind === 'vault-folder',
@@ -252,32 +265,43 @@ export function MobileApp() {
         // and can act on it; the widget never attempts a fix itself.
         setTab('settings');
         window.setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('collab-settings-open-category', {
-            detail: {
-              category: destination.kind === 'settings-background' ? 'background' : 'account',
-            },
-          }));
+          window.dispatchEvent(
+            new CustomEvent('collab-settings-open-category', {
+              detail: {
+                category: destination.kind === 'settings-background' ? 'background' : 'account',
+              },
+            }),
+          );
         }, 0);
         return;
       }
       if (destination.kind === 'capture-task') {
         setTab('calendar');
         window.setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('collab-calendar-open-destination', {
-            detail: destination,
-          }));
+          window.dispatchEvent(
+            new CustomEvent('collab-calendar-open-destination', {
+              detail: destination,
+            }),
+          );
         }, 0);
         return;
       }
-      if (!['calendar-today', 'calendar-date', 'calendar-create', 'calendar-item'].includes(destination.kind ?? '')) return;
+      if (
+        !['calendar-today', 'calendar-date', 'calendar-create', 'calendar-item'].includes(
+          destination.kind ?? '',
+        )
+      )
+        return;
       setTab('calendar');
       window.setTimeout(() => {
-        window.dispatchEvent(new CustomEvent(
-          destination.kind === 'calendar-item'
-            ? 'collab-calendar-open-notification'
-            : 'collab-calendar-open-destination',
-          { detail: destination },
-        ));
+        window.dispatchEvent(
+          new CustomEvent(
+            destination.kind === 'calendar-item'
+              ? 'collab-calendar-open-notification'
+              : 'collab-calendar-open-destination',
+            { detail: destination },
+          ),
+        );
       }, 0);
     };
     const openAppDestination = (event: Event) => {
@@ -302,9 +326,11 @@ export function MobileApp() {
       if (!record) {
         setTab('settings');
         window.setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('collab-settings-open-category', {
-            detail: { category: 'notifications' },
-          }));
+          window.dispatchEvent(
+            new CustomEvent('collab-settings-open-category', {
+              detail: { category: 'notifications' },
+            }),
+          );
         }, 0);
         return;
       }
@@ -313,15 +339,16 @@ export function MobileApp() {
       if (destination.kind === 'calendar-item' || destination.kind === 'calendar-invitations') {
         setTab('calendar');
         window.setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('collab-calendar-open-notification', {
-            detail: destination,
-          }));
+          window.dispatchEvent(
+            new CustomEvent('collab-calendar-open-notification', {
+              detail: destination,
+            }),
+          );
         }, 0);
       } else if (destination.kind === 'vault-chat') {
         const state = useMobileStore.getState();
         const match = Object.entries(state.vaults)
-          .flatMap(([serverUrl, vaults]) =>
-            vaults.map((vault) => ({ serverUrl, vault })))
+          .flatMap(([serverUrl, vaults]) => vaults.map((vault) => ({ serverUrl, vault })))
           .find(({ vault }) => vault.id === destination.vaultId);
         if (match) {
           await state.selectVault(match.serverUrl, match.vault);
@@ -329,34 +356,41 @@ export function MobileApp() {
         } else {
           setTab('settings');
           window.setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('collab-settings-open-category', {
-              detail: { category: 'notifications' },
-            }));
+            window.dispatchEvent(
+              new CustomEvent('collab-settings-open-category', {
+                detail: { category: 'notifications' },
+              }),
+            );
           }, 0);
         }
       } else {
         setTab('settings');
         window.setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('collab-settings-open-category', {
-            detail: {
-              category: destination.kind === 'settings'
-                ? destination.section === 'background'
-                  ? 'background'
-                  : destination.section === 'servers'
-                    ? 'account'
-                    : 'notifications'
-                : 'notifications',
-            },
-          }));
+          window.dispatchEvent(
+            new CustomEvent('collab-settings-open-category', {
+              detail: {
+                category:
+                  destination.kind === 'settings'
+                    ? destination.section === 'background'
+                      ? 'background'
+                      : destination.section === 'servers'
+                        ? 'account'
+                        : 'notifications'
+                    : 'notifications',
+              },
+            }),
+          );
         }, 0);
       }
     };
 
     const onNotificationOpen = (event: Event) => {
-      const detail = (event as CustomEvent<{
-        profileId?: string;
-        notificationId?: string;
-      }>).detail;
+      const detail = (
+        event as CustomEvent<{
+          profileId?: string;
+          notificationId?: string;
+        }>
+      ).detail;
       if (!detail?.profileId || !detail.notificationId) return;
       void notificationAndroidTakePendingOpen().catch(() => null);
       void openNotification(detail.profileId, detail.notificationId);
@@ -414,7 +448,11 @@ export function MobileApp() {
 
   return (
     <div className="app-root">
-      <main className="app-main" onTouchStart={handleMainTouchStart} onTouchEnd={handleMainTouchEnd}>
+      <main
+        className="app-main"
+        onTouchStart={handleMainTouchStart}
+        onTouchEnd={handleMainTouchEnd}
+      >
         {restoreError ? (
           <div className="screen-top-banner">
             <Banner tone="error">{restoreError}</Banner>
@@ -440,7 +478,9 @@ export function MobileApp() {
         ) : null}
 
         <div key={tab} className={`main-view ${viewDir === 1 ? 'from-right' : 'from-left'}`}>
-          {tab === 'servers' ? <ServersScreen onOpenServer={() => navigateToTab('vaults')} /> : null}
+          {tab === 'servers' ? (
+            <ServersScreen onOpenServer={() => navigateToTab('vaults')} />
+          ) : null}
           {tab === 'vaults' ? <VaultsScreen /> : null}
           {tab === 'files' ? <FilesScreen prefs={prefs} /> : null}
           {tab === 'calendar' ? <CalendarScreen prefs={prefs} /> : null}

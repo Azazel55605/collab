@@ -8,7 +8,7 @@ The app's package name (Play "application ID") is **`com.collab.companion`**
 (the `applicationId` in `src-tauri/gen/android/app/build.gradle.kts`). **This is
 permanent once published** — you can never change it or reuse it for another app.
 
-Note: the *internal* code package (`namespace`, and the Tauri `identifier` in
+Note: the _internal_ code package (`namespace`, and the Tauri `identifier` in
 `src-tauri/tauri.android.conf.json`) intentionally stays
 `com.azazel.collab.companion`. Android allows the public `applicationId` to differ
 from the code namespace, and Tauri/wry + our JNI class lookups resolve against the
@@ -24,8 +24,8 @@ namespace at compile time, so only `applicationId` is the user-facing/Play name.
 
 ## 1. Create your upload keystore (one-time)
 
-Google Play uses **Play App Signing**: Google holds the real *app signing key*;
-you sign uploads with your own *upload key*. Generate the upload key once and
+Google Play uses **Play App Signing**: Google holds the real _app signing key_;
+you sign uploads with your own _upload key_. Generate the upload key once and
 keep it safe — losing it means you must ask Google to reset it.
 
 ```bash
@@ -196,11 +196,11 @@ this covers only what the Play listing and the Console forms need.
 
 Widget-relevant permissions, and why each is needed:
 
-| Permission | Why widgets need it |
-| --- | --- |
-| `RECEIVE_BOOT_COMPLETED` | Repaint placed widgets after a reboot and re-arm scheduled refresh work |
-| `POST_NOTIFICATIONS` | The sync progress notification and background-sync diagnostics; widgets themselves post nothing |
-| `INTERNET` | Used by the app and the background coordinator. **Not** by the launcher process — widget rendering makes no network request |
+| Permission               | Why widgets need it                                                                                                         |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `RECEIVE_BOOT_COMPLETED` | Repaint placed widgets after a reboot and re-arm scheduled refresh work                                                     |
+| `POST_NOTIFICATIONS`     | The sync progress notification and background-sync diagnostics; widgets themselves post nothing                             |
+| `INTERNET`               | Used by the app and the background coordinator. **Not** by the launcher process — widget rendering makes no network request |
 
 `SCHEDULE_EXACT_ALARM` is for calendar reminders, not widgets.
 
@@ -210,12 +210,12 @@ The manifest sets no `allowBackup`, `fullBackupContent`, or
 `dataExtractionRules`, so platform defaults apply. What widgets persist, and how
 each behaves under backup and restore:
 
-| Data | Location | On restore |
-| --- | --- | --- |
-| Published snapshots | `files/collab/widgets/profiles/{sha256(profileId)}/` | Re-published from local data; a profile that no longer exists publishes nothing |
+| Data                            | Location                                                              | On restore                                                                                   |
+| ------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Published snapshots             | `files/collab/widgets/profiles/{sha256(profileId)}/`                  | Re-published from local data; a profile that no longer exists publishes nothing              |
 | Widget → configuration bindings | SharedPreferences `collab-widget-bindings-v1`, keyed by `appWidgetId` | Inert. A restored `appWidgetId` has no placed widget behind it, so the binding is never read |
-| Refresh scheduling state | SharedPreferences `collab-widget-refresh-scheduler` | Reconciled against actually-placed widgets on next run |
-| Glance state | Per-widget DataStore | Holds only a content digest used for change detection — never snapshot content |
+| Refresh scheduling state        | SharedPreferences `collab-widget-refresh-scheduler`                   | Reconciled against actually-placed widgets on next run                                       |
+| Glance state                    | Per-widget DataStore                                                  | Holds only a content digest used for change detection — never snapshot content               |
 
 No widget storage holds a credential. Access and refresh tokens live in the
 Android Keystore via `CollabTokenStore`, and replica encryption keys in
@@ -283,7 +283,7 @@ a home-screen widget shows account-scoped counts.
 
 - **Keep `key.properties` and the `.jks` out of git.** Both are already ignored
   under `src-tauri/gen/android/`. Losing the upload key is recoverable via Google
-  (upload-key reset); losing it *and* not using Play App Signing would not be.
+  (upload-key reset); losing it _and_ not using Play App Signing would not be.
 - If you ever re-run `pnpm android:init`, re-check that the signing block in
   `app/build.gradle.kts` (and the `CollabTokenStore` / `CollabReplicaKeyStore`
   Kotlin classes + `proguard-collab.pro`) are still present; they are committed,

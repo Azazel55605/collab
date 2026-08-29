@@ -13,9 +13,8 @@
  * surface — see `strokeAdapters.ts` for the alternative implementation and
  * `docs/plans/digital-ink-phase0-contract.md` for the comparison.
  */
-
 import { INK_SAMPLE_RANGES } from '../../types/ink';
-import type { InkBrushParameters, InkBounds, InkSample } from '../../types/ink';
+import type { InkBounds, InkBrushParameters, InkSample } from '../../types/ink';
 
 /** A point on a generated outline, in ink units. */
 export interface InkPoint {
@@ -27,10 +26,7 @@ export interface InkPoint {
  * The replaceable half of ink rendering: centre line plus brush in, closed
  * outline polygon out.
  */
-export type InkStrokeOutliner = (
-  samples: InkSample[],
-  brush: InkBrushParameters,
-) => InkPoint[];
+export type InkStrokeOutliner = (samples: InkSample[], brush: InkBrushParameters) => InkPoint[];
 
 function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value;

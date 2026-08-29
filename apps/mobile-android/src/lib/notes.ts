@@ -1,21 +1,23 @@
 import DOMPurify from 'dompurify';
+import hljs from 'highlight.js';
+import katex from 'katex';
 import MarkdownIt from 'markdown-it';
 // @ts-ignore - plugin has no bundled types.
-import texmath from 'markdown-it-texmath';
-import katex from 'katex';
-// @ts-ignore - plugin has no bundled types.
-import taskLists from 'markdown-it-task-lists';
+import mark from 'markdown-it-mark';
 // @ts-ignore - plugin has no bundled types.
 import sub from 'markdown-it-sub';
 // @ts-ignore - plugin has no bundled types.
 import sup from 'markdown-it-sup';
 // @ts-ignore - plugin has no bundled types.
-import mark from 'markdown-it-mark';
-import hljs from 'highlight.js';
+import taskLists from 'markdown-it-task-lists';
+// @ts-ignore - plugin has no bundled types.
+import texmath from 'markdown-it-texmath';
 
-import { parseMathPlots, type ParsedMathPlots } from '../../../../src/components/editor/mathPlotSpec';
+import {
+  type ParsedMathPlots,
+  parseMathPlots,
+} from '../../../../src/components/editor/mathPlotSpec';
 import { isMermaidLanguage } from '../../../../src/lib/mermaidRenderer';
-import type { ColorPreviewFormat, ThemePrefs } from './theme';
 import {
   HostedFileEntry,
   HostedTextDocument,
@@ -24,6 +26,8 @@ import {
   replicaReadCachedDocument,
   writeHostedDocument,
 } from '../mobileTauri';
+
+import type { ColorPreviewFormat, ThemePrefs } from './theme';
 
 export interface RenderedMarkdownDocument {
   html: string;
@@ -88,19 +92,69 @@ const markdown = buildMarkdown();
 
 const PURIFY_CONFIG: Parameters<typeof DOMPurify.sanitize>[1] = {
   ADD_TAGS: [
-    'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'ms', 'mtext',
-    'msup', 'msub', 'msubsup', 'mfrac', 'mover', 'munder', 'munderover',
-    'mroot', 'msqrt', 'mtable', 'mtr', 'mtd', 'mspace', 'annotation',
-    'annotation-xml', 'merror', 'mpadded', 'mphantom', 'mstyle',
-    'mmultiscripts', 'mprescripts', 'none', 'menclose',
+    'math',
+    'semantics',
+    'mrow',
+    'mi',
+    'mo',
+    'mn',
+    'ms',
+    'mtext',
+    'msup',
+    'msub',
+    'msubsup',
+    'mfrac',
+    'mover',
+    'munder',
+    'munderover',
+    'mroot',
+    'msqrt',
+    'mtable',
+    'mtr',
+    'mtd',
+    'mspace',
+    'annotation',
+    'annotation-xml',
+    'merror',
+    'mpadded',
+    'mphantom',
+    'mstyle',
+    'mmultiscripts',
+    'mprescripts',
+    'none',
+    'menclose',
   ],
   ADD_ATTR: [
-    'data-path', 'aria-hidden', 'aria-label', 'aria-describedby',
-    'checked', 'class', 'disabled', 'encoding', 'href', 'id', 'src',
-    'style', 'target', 'title', 'type', 'alt', 'display', 'mathvariant',
-    'mathsize', 'mathcolor', 'mathbackground', 'stretchy', 'fence',
-    'separator', 'lspace', 'rspace', 'columnalign', 'rowalign',
-    'columnspan', 'rowspan',
+    'data-path',
+    'aria-hidden',
+    'aria-label',
+    'aria-describedby',
+    'checked',
+    'class',
+    'disabled',
+    'encoding',
+    'href',
+    'id',
+    'src',
+    'style',
+    'target',
+    'title',
+    'type',
+    'alt',
+    'display',
+    'mathvariant',
+    'mathsize',
+    'mathcolor',
+    'mathbackground',
+    'stretchy',
+    'fence',
+    'separator',
+    'lspace',
+    'rspace',
+    'columnalign',
+    'rowalign',
+    'columnspan',
+    'rowspan',
   ],
   FORCE_BODY: true,
 };
@@ -133,7 +187,10 @@ function preprocessMath(src: string): string {
     .replace(/\\\((.+?)\\\)/g, (_: string, mathSource: string) => `$${mathSource}$`);
 }
 
-function preprocessDisplayMathPlots(src: string): { source: string; plotBlocks: ParsedMathPlots[] } {
+function preprocessDisplayMathPlots(src: string): {
+  source: string;
+  plotBlocks: ParsedMathPlots[];
+} {
   const plotBlocks: ParsedMathPlots[] = [];
   const source = src.replace(/\$\$([\s\S]+?)\$\$/g, (_match: string, mathSource: string) => {
     if (!/%plot[23]d\b/.test(mathSource)) return `$$${mathSource}$$`;
@@ -156,7 +213,11 @@ function preprocessWikilinks(src: string): string {
 }
 
 function tryParseColor(value: string): string | null {
-  if (typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && !CSS.supports('color', value)) {
+  if (
+    typeof CSS !== 'undefined' &&
+    typeof CSS.supports === 'function' &&
+    !CSS.supports('color', value)
+  ) {
     return null;
   }
   const probe = document.createElement('span');
@@ -176,10 +237,12 @@ function findColorMatches(text: string, formats: Record<ColorPreviewFormat, bool
       if (css) matches.push({ from: match.index, to: match.index + source.length, source, css });
     }
   }
-  return matches.sort((a, b) => a.from - b.from || b.to - a.to).filter((match, index, all) => {
-    const previous = all[index - 1];
-    return !previous || match.from >= previous.to;
-  });
+  return matches
+    .sort((a, b) => a.from - b.from || b.to - a.to)
+    .filter((match, index, all) => {
+      const previous = all[index - 1];
+      return !previous || match.from >= previous.to;
+    });
 }
 
 function applyColorPreviews(html: string, prefs?: ThemePrefs): string {
@@ -205,13 +268,16 @@ function applyColorPreviews(html: string, prefs?: ThemePrefs): string {
     const fragment = document.createDocumentFragment();
     let cursor = 0;
     for (const match of matches) {
-      if (match.from > cursor) fragment.append(document.createTextNode(text.slice(cursor, match.from)));
+      if (match.from > cursor)
+        fragment.append(document.createTextNode(text.slice(cursor, match.from)));
       const span = document.createElement('span');
       span.className = [
         'mobile-color-preview',
         prefs.colorPreviewShowSwatch ? 'has-swatch' : '',
         prefs.colorPreviewTintText ? 'is-tinted' : '',
-      ].filter(Boolean).join(' ');
+      ]
+        .filter(Boolean)
+        .join(' ');
       span.style.setProperty('--preview-color', match.css);
       span.textContent = match.source;
       fragment.append(span);
@@ -224,7 +290,10 @@ function applyColorPreviews(html: string, prefs?: ThemePrefs): string {
   return template.innerHTML;
 }
 
-export function renderMarkdownDocument(content: string, prefs?: ThemePrefs): RenderedMarkdownDocument {
+export function renderMarkdownDocument(
+  content: string,
+  prefs?: ThemePrefs,
+): RenderedMarkdownDocument {
   const body = stripFrontmatter(content);
   const withMath = preprocessMath(body);
   const withPlots = preprocessDisplayMathPlots(withMath);
@@ -326,7 +395,13 @@ export async function saveNoteDocument(
   content: string,
 ): Promise<HostedTextDocument> {
   const expectedRevisionSequence = file.revisionSequence ?? 0;
-  const document = await writeHostedDocument(serverUrl, vaultId, file.id, expectedRevisionSequence, content);
+  const document = await writeHostedDocument(
+    serverUrl,
+    vaultId,
+    file.id,
+    expectedRevisionSequence,
+    content,
+  );
   void replicaCacheDocument(serverUrl, vaultId, file.id, document.content).catch(() => {});
   return document;
 }

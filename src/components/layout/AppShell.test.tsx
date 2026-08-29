@@ -1,11 +1,14 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import React, { useEffect } from 'react';
+
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useEditorStore } from '../../store/editorStore';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
+
+import AppShell from './AppShell';
 
 const noteLifecycle = vi.hoisted(() => ({ events: [] as string[] }));
 
@@ -51,14 +54,18 @@ vi.mock('../../views/NoteView', () => ({
   },
 }));
 
-import AppShell from './AppShell';
-
 describe('AppShell document remounting', () => {
   beforeEach(() => {
     noteLifecycle.events.length = 0;
 
     useVaultStore.setState({
-      vault: { id: 'vault-1', path: '/vault', name: 'Vault', isEncrypted: false, lastOpened: Date.now() },
+      vault: {
+        id: 'vault-1',
+        path: '/vault',
+        name: 'Vault',
+        isEncrypted: false,
+        lastOpened: Date.now(),
+      },
       isVaultLocked: false,
       fileTree: [],
       recentVaults: [],

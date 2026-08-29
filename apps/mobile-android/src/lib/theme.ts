@@ -12,7 +12,8 @@ export type ColorPreviewFormat = 'hex' | 'rgb' | 'hsl' | 'oklch' | 'oklab';
 export type SchematicSymbolSet = 'ansi' | 'iec';
 export type CalendarTimeFormat = 'system' | '12-hour' | '24-hour';
 export type CalendarDefaultDuration = 15 | 30 | 45 | 60 | 90 | 120;
-export type CalendarDateFormat = 'MMM_D_YYYY' | 'D_MMM_YYYY' | 'YYYY_MM_DD' | 'MM_DD_YYYY' | 'DD_MM_YYYY';
+export type CalendarDateFormat =
+  'MMM_D_YYYY' | 'D_MMM_YYYY' | 'YYYY_MM_DD' | 'MM_DD_YYYY' | 'DD_MM_YYYY';
 
 export interface ThemePrefs {
   theme: Theme;
@@ -38,7 +39,10 @@ export interface ThemePrefs {
 
 export const TAB_WIDTH_OPTIONS = [2, 3, 4, 6, 8] as const;
 
-export const COLOR_PREVIEW_FORMAT_OPTIONS: Record<ColorPreviewFormat, { label: string; description: string }> = {
+export const COLOR_PREVIEW_FORMAT_OPTIONS: Record<
+  ColorPreviewFormat,
+  { label: string; description: string }
+> = {
   hex: { label: 'Hex', description: '#rgb, #rgba, #rrggbb, #rrggbbaa' },
   rgb: { label: 'RGB / RGBA', description: 'rgb(...) and rgba(...)' },
   hsl: { label: 'HSL / HSLA', description: 'hsl(...) and hsla(...)' },
@@ -140,7 +144,10 @@ const STORAGE_KEY = 'collab-mobile-theme';
 const BASE_FONT_SIZE = 15;
 
 function normalizeColorPreviewFormats(value: unknown): Record<ColorPreviewFormat, boolean> {
-  const record = value && typeof value === 'object' ? (value as Partial<Record<ColorPreviewFormat, unknown>>) : {};
+  const record =
+    value && typeof value === 'object'
+      ? (value as Partial<Record<ColorPreviewFormat, unknown>>)
+      : {};
   return {
     hex: typeof record.hex === 'boolean' ? record.hex : DEFAULT_COLOR_PREVIEW_FORMATS.hex,
     rgb: typeof record.rgb === 'boolean' ? record.rgb : DEFAULT_COLOR_PREVIEW_FORMATS.rgb,
@@ -155,15 +162,19 @@ function validClockTime(value: unknown): value is string {
 }
 
 function validDuration(value: unknown): value is CalendarDefaultDuration {
-  return value === 15 || value === 30 || value === 45 || value === 60 || value === 90 || value === 120;
+  return (
+    value === 15 || value === 30 || value === 45 || value === 60 || value === 90 || value === 120
+  );
 }
 
 function validDateFormat(value: unknown): value is CalendarDateFormat {
-  return value === 'MMM_D_YYYY'
-    || value === 'D_MMM_YYYY'
-    || value === 'YYYY_MM_DD'
-    || value === 'MM_DD_YYYY'
-    || value === 'DD_MM_YYYY';
+  return (
+    value === 'MMM_D_YYYY' ||
+    value === 'D_MMM_YYYY' ||
+    value === 'YYYY_MM_DD' ||
+    value === 'MM_DD_YYYY' ||
+    value === 'DD_MM_YYYY'
+  );
 }
 
 export function loadPrefs(): ThemePrefs {
@@ -172,17 +183,22 @@ export function loadPrefs(): ThemePrefs {
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<ThemePrefs>;
       return {
-        theme: THEMES.some((t) => t.id === parsed.theme) ? (parsed.theme as Theme) : DEFAULT_PREFS.theme,
+        theme: THEMES.some((t) => t.id === parsed.theme)
+          ? (parsed.theme as Theme)
+          : DEFAULT_PREFS.theme,
         accent: ACCENTS.some((a) => a.id === parsed.accent)
           ? (parsed.accent as AccentColor)
           : DEFAULT_PREFS.accent,
         fontScale:
-          typeof parsed.fontScale === 'number' && parsed.fontScale >= 0.85 && parsed.fontScale <= 1.3
+          typeof parsed.fontScale === 'number' &&
+          parsed.fontScale >= 0.85 &&
+          parsed.fontScale <= 1.3
             ? parsed.fontScale
             : DEFAULT_PREFS.fontScale,
         indentStyle: parsed.indentStyle === 'tabs' ? 'tabs' : DEFAULT_PREFS.indentStyle,
         tabWidth:
-          typeof parsed.tabWidth === 'number' && TAB_WIDTH_OPTIONS.includes(parsed.tabWidth as typeof TAB_WIDTH_OPTIONS[number])
+          typeof parsed.tabWidth === 'number' &&
+          TAB_WIDTH_OPTIONS.includes(parsed.tabWidth as (typeof TAB_WIDTH_OPTIONS)[number])
             ? parsed.tabWidth
             : DEFAULT_PREFS.tabWidth,
         showInlineColorPreviews:
@@ -203,9 +219,10 @@ export function loadPrefs(): ThemePrefs {
           ? parsed.calendarDateFormat
           : DEFAULT_PREFS.calendarDateFormat,
         calendarWeekStart: parsed.calendarWeekStart === 0 ? 0 : 1,
-        calendarTimeFormat: parsed.calendarTimeFormat === '12-hour' || parsed.calendarTimeFormat === '24-hour'
-          ? parsed.calendarTimeFormat
-          : 'system',
+        calendarTimeFormat:
+          parsed.calendarTimeFormat === '12-hour' || parsed.calendarTimeFormat === '24-hour'
+            ? parsed.calendarTimeFormat
+            : 'system',
         calendarDefaultDurationMinutes: validDuration(parsed.calendarDefaultDurationMinutes)
           ? parsed.calendarDefaultDurationMinutes
           : DEFAULT_PREFS.calendarDefaultDurationMinutes,
@@ -216,20 +233,20 @@ export function loadPrefs(): ThemePrefs {
           ? parsed.calendarWorkingHoursEnd
           : DEFAULT_PREFS.calendarWorkingHoursEnd,
         calendarDefaultReminderMinutes:
-          parsed.calendarDefaultReminderMinutes === null
-          || (
-            typeof parsed.calendarDefaultReminderMinutes === 'number'
-            && Number.isInteger(parsed.calendarDefaultReminderMinutes)
-            && parsed.calendarDefaultReminderMinutes >= 0
-          )
+          parsed.calendarDefaultReminderMinutes === null ||
+          (typeof parsed.calendarDefaultReminderMinutes === 'number' &&
+            Number.isInteger(parsed.calendarDefaultReminderMinutes) &&
+            parsed.calendarDefaultReminderMinutes >= 0)
             ? parsed.calendarDefaultReminderMinutes
             : DEFAULT_PREFS.calendarDefaultReminderMinutes,
-        calendarHideWeekends: typeof parsed.calendarHideWeekends === 'boolean'
-          ? parsed.calendarHideWeekends
-          : DEFAULT_PREFS.calendarHideWeekends,
-        calendarShowDeclined: typeof parsed.calendarShowDeclined === 'boolean'
-          ? parsed.calendarShowDeclined
-          : DEFAULT_PREFS.calendarShowDeclined,
+        calendarHideWeekends:
+          typeof parsed.calendarHideWeekends === 'boolean'
+            ? parsed.calendarHideWeekends
+            : DEFAULT_PREFS.calendarHideWeekends,
+        calendarShowDeclined:
+          typeof parsed.calendarShowDeclined === 'boolean'
+            ? parsed.calendarShowDeclined
+            : DEFAULT_PREFS.calendarShowDeclined,
       };
     }
   } catch {

@@ -7,18 +7,12 @@ import type {
   SheetTable,
   SheetWorksheet,
 } from '../../types/sheet';
-import type {
-  SheetFormulaComputedValue,
-  SheetFormulaValueMap,
-} from '../../types/sheetFormula';
+import type { SheetFormulaComputedValue, SheetFormulaValueMap } from '../../types/sheetFormula';
 import { sheetFormulaResultKey } from '../../types/sheetFormula';
+
 import type { SheetPosition } from './address';
 import { formatCellEditText } from './cellValue';
-import {
-  SheetDocumentError,
-  createSheetTableColumnId,
-  createSheetTableId,
-} from './document';
+import { createSheetTableColumnId, createSheetTableId, SheetDocumentError } from './document';
 import { translateFormulaReferences } from './formulaReferences';
 import { getCell } from './operations';
 import { normalizeRange, type SheetRectangle, type SheetSelection } from './selection';
@@ -42,31 +36,39 @@ export function tableRectangle(
 }
 
 function rectanglesOverlap(left: SheetRectangle, right: SheetRectangle): boolean {
-  return left.top <= right.bottom
-    && left.bottom >= right.top
-    && left.left <= right.right
-    && left.right >= right.left;
+  return (
+    left.top <= right.bottom &&
+    left.bottom >= right.top &&
+    left.left <= right.right &&
+    left.right >= right.left
+  );
 }
 
 function sameRange(left: SheetTable['range'], right: SheetTable['range']): boolean {
-  return left.startRowId === right.startRowId
-    && left.endRowId === right.endRowId
-    && left.startColumnId === right.startColumnId
-    && left.endColumnId === right.endColumnId;
+  return (
+    left.startRowId === right.startRowId &&
+    left.endRowId === right.endRowId &&
+    left.startColumnId === right.startColumnId &&
+    left.endColumnId === right.endColumnId
+  );
 }
 
 export function tableAtPosition(
   worksheet: SheetWorksheet,
   position: SheetPosition,
 ): SheetTable | null {
-  return (worksheet.tables ?? []).find((table) => {
-    const rectangle = tableRectangle(worksheet, table);
-    return rectangle
-      && position.row >= rectangle.top
-      && position.row <= rectangle.bottom
-      && position.column >= rectangle.left
-      && position.column <= rectangle.right;
-  }) ?? null;
+  return (
+    (worksheet.tables ?? []).find((table) => {
+      const rectangle = tableRectangle(worksheet, table);
+      return (
+        rectangle &&
+        position.row >= rectangle.top &&
+        position.row <= rectangle.bottom &&
+        position.column >= rectangle.left &&
+        position.column <= rectangle.right
+      );
+    }) ?? null
+  );
 }
 
 function uniqueHeaderNames(
@@ -77,10 +79,12 @@ function uniqueHeaderNames(
   const used = new Set<string>();
   return Array.from({ length: rectangle.right - rectangle.left + 1 }, (_, offset) => {
     const raw = hasHeaderRow
-      ? formatCellEditText(getCell(worksheet, {
-        row: rectangle.top,
-        column: rectangle.left + offset,
-      })).trim()
+      ? formatCellEditText(
+          getCell(worksheet, {
+            row: rectangle.top,
+            column: rectangle.left + offset,
+          }),
+        ).trim()
       : '';
     const base = raw || `Column ${offset + 1}`;
     let name = base;
@@ -104,7 +108,10 @@ export function createSheetTable(
   const worksheet = document.worksheets.find((candidate) => candidate.id === worksheetId);
   if (!worksheet) return document;
   if (selection.kind !== 'cells' || selection.ranges.length !== 1) {
-    throw new SheetDocumentError('invalid-structure', 'Select one rectangular cell range for the table.');
+    throw new SheetDocumentError(
+      'invalid-structure',
+      'Select one rectangular cell range for the table.',
+    );
   }
   if ((worksheet.tables?.length ?? 0) >= SHEET_LIMITS.tablesPerWorksheet) {
     throw new SheetDocumentError(
@@ -113,11 +120,17 @@ export function createSheetTable(
     );
   }
   const trimmedName = name.trim();
-  if (!trimmedName) throw new SheetDocumentError('invalid-structure', 'Table names cannot be empty.');
-  if ((worksheet.tables ?? []).some(
-    (table) => table.name.toLocaleLowerCase() === trimmedName.toLocaleLowerCase(),
-  )) {
-    throw new SheetDocumentError('invalid-structure', 'Table names must be unique within a worksheet.');
+  if (!trimmedName)
+    throw new SheetDocumentError('invalid-structure', 'Table names cannot be empty.');
+  if (
+    (worksheet.tables ?? []).some(
+      (table) => table.name.toLocaleLowerCase() === trimmedName.toLocaleLowerCase(),
+    )
+  ) {
+    throw new SheetDocumentError(
+      'invalid-structure',
+      'Table names must be unique within a worksheet.',
+    );
   }
 
   const rectangle = normalizeRange(selection.ranges[0]);
@@ -126,13 +139,18 @@ export function createSheetTable(
     const bottom = worksheet.rowOrder.indexOf(merge.endRowId);
     const left = worksheet.columnOrder.indexOf(merge.startColumnId);
     const right = worksheet.columnOrder.indexOf(merge.endColumnId);
-    if (top >= 0 && bottom >= 0 && left >= 0 && right >= 0
-      && rectanglesOverlap(rectangle, {
+    if (
+      top >= 0 &&
+      bottom >= 0 &&
+      left >= 0 &&
+      right >= 0 &&
+      rectanglesOverlap(rectangle, {
         top: Math.min(top, bottom),
         bottom: Math.max(top, bottom),
         left: Math.min(left, right),
         right: Math.max(left, right),
-      })) {
+      })
+    ) {
       throw new SheetDocumentError('invalid-structure', 'Unmerge cells before creating a table.');
     }
   }
@@ -162,11 +180,11 @@ export function createSheetTable(
   };
   return {
     ...document,
-    worksheets: document.worksheets.map((candidate) => (
+    worksheets: document.worksheets.map((candidate) =>
       candidate.id === worksheetId
         ? { ...candidate, tables: [...(candidate.tables ?? []), table] }
-        : candidate
-    )),
+        : candidate,
+    ),
   };
 }
 
@@ -184,8 +202,10 @@ export function removeSheetTable(
       const next = { ...worksheet };
       if (tables.length > 0) next.tables = tables;
       else delete next.tables;
-      if (worksheet.filters?.range
-        && !tables.some((table) => sameRange(table.range, worksheet.filters!.range!))) {
+      if (
+        worksheet.filters?.range &&
+        !tables.some((table) => sameRange(table.range, worksheet.filters!.range!))
+      ) {
         return clearFilterState(next);
       }
       return next;
@@ -238,8 +258,12 @@ function compareValues(
   if (right === null || right === '') return -1;
   if (typeof left === 'number' && typeof right === 'number') return left - right;
   if (typeof left === 'boolean' && typeof right === 'boolean') return Number(left) - Number(right);
-  if (typeof left === 'string' && typeof right === 'string'
-    && /^\d{4}-\d{2}-\d{2}/.test(left) && /^\d{4}-\d{2}-\d{2}/.test(right)) {
+  if (
+    typeof left === 'string' &&
+    typeof right === 'string' &&
+    /^\d{4}-\d{2}-\d{2}/.test(left) &&
+    /^\d{4}-\d{2}-\d{2}/.test(right)
+  ) {
     return Date.parse(left) - Date.parse(right);
   }
   return String(left).localeCompare(String(right), undefined, {
@@ -265,9 +289,9 @@ export function sortSheetTable(
     { length: Math.max(0, rectangle.bottom - dataTop + 1) },
     (_, index) => dataTop + index,
   );
-  const validRules = rules.filter((rule) => table.columns.some(
-    (column) => column.columnId === rule.columnId,
-  ));
+  const validRules = rules.filter((rule) =>
+    table.columns.some((column) => column.columnId === rule.columnId),
+  );
   if (validRules.length === 0) return document;
   const originalOrder = new Map(rowIndices.map((row, index) => [row, index]));
   rowIndices.sort((leftRow, rightRow) => {
@@ -285,10 +309,15 @@ export function sortSheetTable(
   const cells = { ...worksheet.cells };
   const snapshots = new Map<number, Map<string, SheetCell | undefined>>();
   for (const row of rowIndices) {
-    snapshots.set(row, new Map(table.columns.map((column) => [
-      column.columnId,
-      worksheet.cells[sheetCellKey(worksheet.rowOrder[row], column.columnId)],
-    ])));
+    snapshots.set(
+      row,
+      new Map(
+        table.columns.map((column) => [
+          column.columnId,
+          worksheet.cells[sheetCellKey(worksheet.rowOrder[row], column.columnId)],
+        ]),
+      ),
+    );
   }
   rowIndices.forEach((sourceRow, destinationOffset) => {
     const destinationRow = dataTop + destinationOffset;
@@ -318,11 +347,11 @@ export function sortSheetTable(
   };
   return {
     ...document,
-    worksheets: document.worksheets.map((candidate) => (
+    worksheets: document.worksheets.map((candidate) =>
       candidate.id === worksheetId
         ? applyFilterVisibility(nextWorksheet, document.styles, computedValues)
-        : candidate
-    )),
+        : candidate,
+    ),
   };
 }
 
@@ -333,8 +362,7 @@ function cleanupRectangle(selection: SheetSelection): SheetRectangle {
     throw new SheetDocumentError('invalid-structure', 'Select one rectangular cell range.');
   }
   const rectangle = normalizeRange(selection.ranges[0]);
-  const count = (rectangle.bottom - rectangle.top + 1)
-    * (rectangle.right - rectangle.left + 1);
+  const count = (rectangle.bottom - rectangle.top + 1) * (rectangle.right - rectangle.left + 1);
   if (count > MAX_CLEANUP_CELLS) {
     throw new SheetDocumentError(
       'limit-exceeded',
@@ -357,7 +385,10 @@ export function trimSheetText(
     for (let column = rectangle.left; column <= rectangle.right; column += 1) {
       const cell = getCell(worksheet, { row, column });
       if (cell?.formula || typeof cell?.value !== 'string') continue;
-      const value = cell.value.replace(/\u00a0/g, ' ').trim().replace(/[ \t]+/g, ' ');
+      const value = cell.value
+        .replace(/\u00a0/g, ' ')
+        .trim()
+        .replace(/[ \t]+/g, ' ');
       if (value !== cell.value) {
         next = {
           ...next,
@@ -392,7 +423,10 @@ export function splitSheetTextToColumns(
     if (source?.formula || typeof source?.value !== 'string') continue;
     const parts = source.value.split(delimiter);
     if (rectangle.left + parts.length > worksheet.columnOrder.length) {
-      throw new SheetDocumentError('limit-exceeded', 'The split result exceeds the worksheet columns.');
+      throw new SheetDocumentError(
+        'limit-exceeded',
+        'The split result exceeds the worksheet columns.',
+      );
     }
     for (const [offset, part] of parts.entries()) {
       const columnId = worksheet.columnOrder[rectangle.left + offset];
@@ -402,22 +436,22 @@ export function splitSheetTextToColumns(
       const existing = target.cells[key];
       next = {
         ...next,
-        worksheets: next.worksheets.map((candidate) => (
+        worksheets: next.worksheets.map((candidate) =>
           candidate.id === worksheetId
             ? {
-              ...candidate,
-              cells: {
-                ...candidate.cells,
-                [key]: {
-                  ...(existing ?? {}),
-                  value: part.trim(),
-                  valueType: 'text',
-                  formula: undefined,
+                ...candidate,
+                cells: {
+                  ...candidate.cells,
+                  [key]: {
+                    ...(existing ?? {}),
+                    value: part.trim(),
+                    valueType: 'text',
+                    formula: undefined,
+                  },
                 },
-              },
-            }
-            : candidate
-        )),
+              }
+            : candidate,
+        ),
       };
     }
   }
@@ -435,20 +469,27 @@ export function removeDuplicateSheetRows(
   const seen = new Set<string>();
   const uniqueRows: number[] = [];
   for (let row = rectangle.top; row <= rectangle.bottom; row += 1) {
-    const signature = JSON.stringify(Array.from(
-      { length: rectangle.right - rectangle.left + 1 },
-      (_, offset) => formatCellEditText(getCell(worksheet, {
-        row,
-        column: rectangle.left + offset,
-      })),
-    ));
+    const signature = JSON.stringify(
+      Array.from({ length: rectangle.right - rectangle.left + 1 }, (_, offset) =>
+        formatCellEditText(
+          getCell(worksheet, {
+            row,
+            column: rectangle.left + offset,
+          }),
+        ),
+      ),
+    );
     if (seen.has(signature)) continue;
     seen.add(signature);
     uniqueRows.push(row);
   }
   if (uniqueRows.length === rectangle.bottom - rectangle.top + 1) return document;
   const cells = { ...worksheet.cells };
-  for (let destinationRow = rectangle.top; destinationRow <= rectangle.bottom; destinationRow += 1) {
+  for (
+    let destinationRow = rectangle.top;
+    destinationRow <= rectangle.bottom;
+    destinationRow += 1
+  ) {
     const sourceRow = uniqueRows[destinationRow - rectangle.top];
     for (let column = rectangle.left; column <= rectangle.right; column += 1) {
       const destinationKey = sheetCellKey(
@@ -461,18 +502,16 @@ export function removeDuplicateSheetRows(
         else delete cells[destinationKey];
         continue;
       }
-      const source = worksheet.cells[sheetCellKey(
-        worksheet.rowOrder[sourceRow],
-        worksheet.columnOrder[column],
-      )];
+      const source =
+        worksheet.cells[sheetCellKey(worksheet.rowOrder[sourceRow], worksheet.columnOrder[column])];
       const validationId = cells[destinationKey]?.validationId;
-      const moved = source ? { ...source, validationId } : validationId ? { validationId } : undefined;
+      const moved = source
+        ? { ...source, validationId }
+        : validationId
+          ? { validationId }
+          : undefined;
       if (moved?.formula) {
-        moved.formula = translateFormulaReferences(
-          moved.formula,
-          destinationRow - sourceRow,
-          0,
-        );
+        moved.formula = translateFormulaReferences(moved.formula, destinationRow - sourceRow, 0);
       }
       if (moved) cells[destinationKey] = moved;
       else delete cells[destinationKey];
@@ -480,9 +519,9 @@ export function removeDuplicateSheetRows(
   }
   return {
     ...document,
-    worksheets: document.worksheets.map((candidate) => (
-      candidate.id === worksheetId ? { ...candidate, cells } : candidate
-    )),
+    worksheets: document.worksheets.map((candidate) =>
+      candidate.id === worksheetId ? { ...candidate, cells } : candidate,
+    ),
   };
 }
 
@@ -493,12 +532,19 @@ function filterValueMatches(
 ): boolean {
   const blank = value === null || value === '';
   if (filter.hideBlanks && blank) return false;
-  if (filter.includeValues && !filter.includeValues.some((candidate) => candidate === value)) return false;
-  if (filter.textContains && !String(value ?? '').toLocaleLowerCase().includes(
-    filter.textContains.toLocaleLowerCase(),
-  )) return false;
-  if (filter.numberMin !== undefined && (typeof value !== 'number' || value < filter.numberMin)) return false;
-  if (filter.numberMax !== undefined && (typeof value !== 'number' || value > filter.numberMax)) return false;
+  if (filter.includeValues && !filter.includeValues.some((candidate) => candidate === value))
+    return false;
+  if (
+    filter.textContains &&
+    !String(value ?? '')
+      .toLocaleLowerCase()
+      .includes(filter.textContains.toLocaleLowerCase())
+  )
+    return false;
+  if (filter.numberMin !== undefined && (typeof value !== 'number' || value < filter.numberMin))
+    return false;
+  if (filter.numberMax !== undefined && (typeof value !== 'number' || value > filter.numberMax))
+    return false;
   if (filter.dateFrom && (typeof value !== 'string' || value < filter.dateFrom)) return false;
   if (filter.dateTo && (typeof value !== 'string' || value > filter.dateTo)) return false;
   if (filter.backgroundColors && !filter.backgroundColors.includes(colors.backgroundColor ?? '')) {
@@ -522,13 +568,15 @@ function applyFilterVisibility(
     else delete rows[rowId];
   }
   const range = worksheet.filters?.range;
-  const rectangle = range ? tableRectangle(worksheet, {
-    id: '',
-    name: '',
-    range,
-    hasHeaderRow: false,
-    columns: [],
-  }) : null;
+  const rectangle = range
+    ? tableRectangle(worksheet, {
+        id: '',
+        name: '',
+        range,
+        hasHeaderRow: false,
+        columns: [],
+      })
+    : null;
   if (rectangle) {
     const activeRange = range!;
     const table = worksheet.tables?.find((candidate) => sameRange(candidate.range, activeRange));
@@ -536,13 +584,13 @@ function applyFilterVisibility(
     for (let row = dataTop; row <= rectangle.bottom; row += 1) {
       const visible = (worksheet.filters?.columnFilters ?? []).every((filter) => {
         const column = worksheet.columnOrder.indexOf(filter.columnId);
-        return column >= 0 && filterValueMatches(
-          comparableValue(worksheet, { row, column }, computedValues),
-          filter,
-          {
-            backgroundColor: resolveCellStyle(styles, worksheet, { row, column }).backgroundColor ?? null,
+        return (
+          column >= 0 &&
+          filterValueMatches(comparableValue(worksheet, { row, column }, computedValues), filter, {
+            backgroundColor:
+              resolveCellStyle(styles, worksheet, { row, column }).backgroundColor ?? null,
             textColor: resolveCellStyle(styles, worksheet, { row, column }).color ?? null,
-          },
+          })
         );
       });
       if (!visible) {
@@ -581,14 +629,18 @@ export function setSheetTableColumnFilter(
         (candidate) => candidate.columnId !== columnId,
       );
       if (filter) filters.push(filter);
-      return applyFilterVisibility({
-        ...worksheet,
-        filters: {
-          ...worksheet.filters,
-          range: table.range,
-          columnFilters: filters,
+      return applyFilterVisibility(
+        {
+          ...worksheet,
+          filters: {
+            ...worksheet.filters,
+            range: table.range,
+            columnFilters: filters,
+          },
         },
-      }, document.styles, computedValues);
+        document.styles,
+        computedValues,
+      );
     }),
   };
 }
@@ -599,9 +651,9 @@ export function clearSheetTableFilters(
 ): SheetDocument {
   return {
     ...document,
-    worksheets: document.worksheets.map((worksheet) => (
-      worksheet.id === worksheetId ? clearFilterState(worksheet) : worksheet
-    )),
+    worksheets: document.worksheets.map((worksheet) =>
+      worksheet.id === worksheetId ? clearFilterState(worksheet) : worksheet,
+    ),
   };
 }
 

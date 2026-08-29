@@ -1,8 +1,9 @@
-import { Input } from '../ui/input';
-import { Button } from '../ui/button';
-import { Separator } from '../ui/separator';
-import { OptionRow, SectionLabel } from './settingsControls';
 import { useCollabIdentity } from '../../lib/collabIdentity';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Separator } from '../ui/separator';
+
+import { OptionRow, SectionLabel } from './settingsControls';
 
 type Props = {
   name: string;
@@ -32,7 +33,12 @@ export default function SettingsProfileSection({
       </p>
 
       <div className="space-y-4">
-        <OptionRow label="Display name" description={serverManaged ? 'Provided by the hosted server' : 'Visible to other users in real time'}>
+        <OptionRow
+          label="Display name"
+          description={
+            serverManaged ? 'Provided by the hosted server' : 'Visible to other users in real time'
+          }
+        >
           {serverManaged ? (
             <span className="text-sm font-medium">{identity.userName}</span>
           ) : (
@@ -64,11 +70,7 @@ export default function SettingsProfileSection({
         </div>
 
         {!serverManaged && (
-          <Button
-            size="sm"
-            onClick={onSave}
-            className="mt-2"
-          >
+          <Button size="sm" onClick={onSave} className="mt-2">
             Save Profile
           </Button>
         )}

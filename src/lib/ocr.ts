@@ -1,6 +1,7 @@
+import { type OcrPreprocessingMode, useUiStore } from '../store/uiStore';
+
+import { type OcrCacheScope, readOcrCache, writeOcrCache } from './ocrCache';
 import { tauriCommands } from './tauri';
-import { useUiStore, type OcrPreprocessingMode } from '../store/uiStore';
-import { readOcrCache, writeOcrCache, type OcrCacheScope } from './ocrCache';
 
 export interface OcrResult {
   text: string;
@@ -30,13 +31,11 @@ export interface RecognizeImageTextOptions {
 const OCR_CACHE_PATH = 'collab-ocr/official-fast';
 const OCR_WORKER_IDLE_MS = 3 * 60 * 1000;
 
-let activeWorker:
-  | {
-      language: string;
-      worker: Tesseract.Worker;
-      idleTimer: number | null;
-    }
-  | null = null;
+let activeWorker: {
+  language: string;
+  worker: Tesseract.Worker;
+  idleTimer: number | null;
+} | null = null;
 let activeProgress: OcrProgress | undefined;
 
 function isNativeOcrSupportedBase64ImageDataUrl(value: string): boolean {
@@ -49,7 +48,9 @@ async function imageToNativeOcrDataUrl(image: string | HTMLCanvasElement): Promi
   return (await toCanvas(image)).toDataURL('image/png');
 }
 
-async function getImageSize(image: string | HTMLCanvasElement): Promise<{ width: number; height: number }> {
+async function getImageSize(
+  image: string | HTMLCanvasElement,
+): Promise<{ width: number; height: number }> {
   if (image instanceof HTMLCanvasElement) return { width: image.width, height: image.height };
   const element = await loadImageElement(image);
   return { width: element.naturalWidth, height: element.naturalHeight };
@@ -99,7 +100,7 @@ async function preprocessImage(
     const red = data[index] ?? 0;
     const green = data[index + 1] ?? 0;
     const blue = data[index + 2] ?? 0;
-    const gray = Math.round((red * 0.299) + (green * 0.587) + (blue * 0.114));
+    const gray = Math.round(red * 0.299 + green * 0.587 + blue * 0.114);
 
     if (mode === 'invert') {
       data[index] = 255 - red;
@@ -156,8 +157,10 @@ async function writeTesseractCache(key: string, value: Uint8Array): Promise<void
       const transaction = db.transaction('keyval', 'readwrite');
       transaction.objectStore('keyval').put(value, key);
       transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error ?? new Error('Could not write OCR cache'));
-      transaction.onabort = () => reject(transaction.error ?? new Error('Could not write OCR cache'));
+      transaction.onerror = () =>
+        reject(transaction.error ?? new Error('Could not write OCR cache'));
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error('Could not write OCR cache'));
     });
   } finally {
     db.close();
@@ -168,7 +171,10 @@ async function seedInstalledLanguagePacks(language: string): Promise<void> {
   await Promise.all(
     installedLanguageCodes(language).map(async (code) => {
       const pack = await tauriCommands.readOcrLanguagePackData(code);
-      await writeTesseractCache(`${OCR_CACHE_PATH}/${pack.code}.traineddata`, base64ToBytes(pack.dataBase64));
+      await writeTesseractCache(
+        `${OCR_CACHE_PATH}/${pack.code}.traineddata`,
+        base64ToBytes(pack.dataBase64),
+      );
     }),
   );
 }
@@ -343,7 +349,12 @@ export async function recognizeImageText(
   }
 
   try {
-    onProgress?.(0, ocrPreprocessingMode === 'none' ? 'Preparing OCR' : `Applying ${ocrPreprocessingMode} preprocessing`);
+    onProgress?.(
+      0,
+      ocrPreprocessingMode === 'none'
+        ? 'Preparing OCR'
+        : `Applying ${ocrPreprocessingMode} preprocessing`,
+    );
     const preparedImage = await preprocessImage(image, ocrPreprocessingMode);
     const result = await recognizeWithWasm(preparedImage, language, onProgress);
     if (cacheScope) await writeOcrCache(cacheScope, result, 'ocr').catch(() => undefined);

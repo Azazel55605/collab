@@ -1,14 +1,18 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { TooltipProvider } from '../components/ui/tooltip';
+import { INK_COLOR_TOKENS } from '../lib/ink/colors';
+import { createInkDocument, serializeInkDocument } from '../lib/ink/document';
+import { buildStroke } from '../lib/ink/fixture';
+import { addObject } from '../lib/ink/operations';
+import { tauriCommands } from '../lib/tauri';
 import { useEditorStore } from '../store/editorStore';
 import { useVaultStore } from '../store/vaultStore';
 import { INK_SCHEMA_VERSION } from '../types/ink';
-import { createInkDocument, serializeInkDocument } from '../lib/ink/document';
-import { addObject } from '../lib/ink/operations';
-import { buildStroke } from '../lib/ink/fixture';
 import type { VaultMeta } from '../types/vault';
-import { tauriCommands } from '../lib/tauri';
+
+import InkView from './InkView';
 
 const clientMocks = vi.hoisted(() => ({
   readDocument: vi.fn(),
@@ -44,10 +48,6 @@ const toastMocks = vi.hoisted(() => ({
   warning: vi.fn(),
 }));
 vi.mock('sonner', () => ({ toast: toastMocks }));
-
-import InkView from './InkView';
-import { INK_COLOR_TOKENS } from '../lib/ink/colors';
-import { TooltipProvider } from '../components/ui/tooltip';
 
 /** `getByRole` returns HTMLElement; the tests care about button state. */
 function button(name: string | RegExp): HTMLButtonElement {
@@ -103,7 +103,10 @@ function drawingContent(options: { strokes?: number; pages?: number } = {}) {
     const page = document.pages[pageId];
     document = {
       ...document,
-      pages: { ...document.pages, [pageId]: { ...page, scene: addObject(page.scene, stroke).result } },
+      pages: {
+        ...document.pages,
+        [pageId]: { ...page, scene: addObject(page.scene, stroke).result },
+      },
     };
   }
   return serializeInkDocument(document);
@@ -127,13 +130,22 @@ beforeEach(() => {
   clientMocks.readAssetDataUrl.mockResolvedValue('data:image/png;base64,AAAA');
   setVault(LOCAL_VAULT);
   useEditorStore.setState({
-    openTabs: [{ relativePath: PATH, title: 'Ideas', isDirty: false, savedHash: null, type: 'ink' }],
+    openTabs: [
+      { relativePath: PATH, title: 'Ideas', isDirty: false, savedHash: null, type: 'ink' },
+    ],
     activeTabPath: PATH,
     inkViewStates: {},
   } as never);
 
   Element.prototype.getBoundingClientRect = vi.fn(() => ({
-    x: 0, y: 0, top: 0, left: 0, right: 1000, bottom: 800, width: 1000, height: 800,
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: 1000,
+    bottom: 800,
+    width: 1000,
+    height: 800,
     toJSON: () => ({}),
   })) as unknown as typeof Element.prototype.getBoundingClientRect;
   Element.prototype.hasPointerCapture = vi.fn(() => false);
@@ -289,15 +301,30 @@ describe('InkView drawing', () => {
     host.releasePointerCapture = vi.fn();
 
     fireEvent.pointerDown(host, {
-      pointerId: 1, pointerType: 'pen', clientX: points[0][0], clientY: points[0][1],
-      pressure: 0.5, buttons: 1, isPrimary: true,
+      pointerId: 1,
+      pointerType: 'pen',
+      clientX: points[0][0],
+      clientY: points[0][1],
+      pressure: 0.5,
+      buttons: 1,
+      isPrimary: true,
     });
     for (const [x, y] of points.slice(1)) {
       fireEvent.pointerMove(host, {
-        pointerId: 1, pointerType: 'pen', clientX: x, clientY: y, pressure: 0.5, buttons: 1,
+        pointerId: 1,
+        pointerType: 'pen',
+        clientX: x,
+        clientY: y,
+        pressure: 0.5,
+        buttons: 1,
       });
     }
-    fireEvent.pointerUp(host, { pointerId: 1, pointerType: 'pen', clientX: points[points.length - 1][0], clientY: points[points.length - 1][1] });
+    fireEvent.pointerUp(host, {
+      pointerId: 1,
+      pointerType: 'pen',
+      clientX: points[points.length - 1][0],
+      clientY: points[points.length - 1][1],
+    });
   }
 
   async function savedDocument() {
@@ -311,7 +338,12 @@ describe('InkView drawing', () => {
     // per pointer sample.
     await openDrawing();
     const host = screen.getByTestId('ink-canvas-host');
-    drawStroke(host, [[100, 100], [150, 120], [200, 160], [260, 200]]);
+    drawStroke(host, [
+      [100, 100],
+      [150, 120],
+      [200, 160],
+      [260, 200],
+    ]);
 
     fireEvent.click(screen.getByText('Save'));
     const written = await savedDocument();
@@ -325,7 +357,11 @@ describe('InkView drawing', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Fountain pen' }));
     fireEvent.click(screen.getByRole('radio', { name: 'Theme red' }));
 
-    drawStroke(screen.getByTestId('ink-canvas-host'), [[100, 100], [180, 140], [240, 190]]);
+    drawStroke(screen.getByTestId('ink-canvas-host'), [
+      [100, 100],
+      [180, 140],
+      [240, 190],
+    ]);
     fireEvent.click(screen.getByText('Save'));
 
     const written = await savedDocument();
@@ -344,15 +380,32 @@ describe('InkView drawing', () => {
     host.setPointerCapture = vi.fn();
     host.hasPointerCapture = vi.fn(() => true);
     host.releasePointerCapture = vi.fn();
-    fireEvent.pointerDown(host, { pointerId: 2, pointerType: 'mouse', clientX: 20, clientY: 20, buttons: 1, isPrimary: true });
-    fireEvent.pointerMove(host, { pointerId: 2, pointerType: 'mouse', clientX: 120, clientY: 80, buttons: 1 });
+    fireEvent.pointerDown(host, {
+      pointerId: 2,
+      pointerType: 'mouse',
+      clientX: 20,
+      clientY: 20,
+      buttons: 1,
+      isPrimary: true,
+    });
+    fireEvent.pointerMove(host, {
+      pointerId: 2,
+      pointerType: 'mouse',
+      clientX: 120,
+      clientY: 80,
+      buttons: 1,
+    });
     fireEvent.pointerUp(host, { pointerId: 2, pointerType: 'mouse', clientX: 120, clientY: 80 });
     fireEvent.click(screen.getByText('Save'));
 
     const written = await savedDocument();
     const scene = written.pages[written.pageOrder[0]].scene;
     const created = scene.objects[scene.objectOrder[scene.objectOrder.length - 1]];
-    expect(created).toMatchObject({ type: 'shape', shape: 'rectangle', fill: INK_COLOR_TOKENS.foreground });
+    expect(created).toMatchObject({
+      type: 'shape',
+      shape: 'rectangle',
+      fill: INK_COLOR_TOKENS.foreground,
+    });
     expect(created.points.every((value: number) => value % 768 === 0)).toBe(true);
   });
 
@@ -364,17 +417,37 @@ describe('InkView drawing', () => {
     host.setPointerCapture = vi.fn();
     host.hasPointerCapture = vi.fn(() => true);
     host.releasePointerCapture = vi.fn();
-    fireEvent.pointerDown(host, { pointerId: 3, pointerType: 'mouse', clientX: 30, clientY: 30, buttons: 1, isPrimary: true });
-    fireEvent.pointerMove(host, { pointerId: 3, pointerType: 'mouse', clientX: 180, clientY: 130, buttons: 1 });
+    fireEvent.pointerDown(host, {
+      pointerId: 3,
+      pointerType: 'mouse',
+      clientX: 30,
+      clientY: 30,
+      buttons: 1,
+      isPrimary: true,
+    });
+    fireEvent.pointerMove(host, {
+      pointerId: 3,
+      pointerType: 'mouse',
+      clientX: 180,
+      clientY: 130,
+      buttons: 1,
+    });
     fireEvent.pointerUp(host, { pointerId: 3, pointerType: 'mouse', clientX: 180, clientY: 130 });
-    fireEvent.change(await screen.findByLabelText('Sticky note text'), { target: { value: 'Remember this' } });
+    fireEvent.change(await screen.findByLabelText('Sticky note text'), {
+      target: { value: 'Remember this' },
+    });
     fireEvent.click(screen.getByText('Add to drawing'));
     fireEvent.click(screen.getByText('Save'));
 
     const written = await savedDocument();
     const scene = written.pages[written.pageOrder[0]].scene;
     const created = scene.objects[scene.objectOrder[scene.objectOrder.length - 1]];
-    expect(created).toMatchObject({ type: 'text', text: 'Remember this', sticky: true, backgroundColor: '#fef3a7' });
+    expect(created).toMatchObject({
+      type: 'text',
+      text: 'Remember this',
+      sticky: true,
+      backgroundColor: '#fef3a7',
+    });
   });
 
   it('changes the current page background as document content', async () => {
@@ -394,8 +467,12 @@ describe('InkView drawing', () => {
     fireEvent.click(screen.getByText('Save'));
 
     const written = await savedDocument();
-    expect(written.swatches.some((swatch: { color: string }) => swatch.color === INK_COLOR_TOKENS.cyan)).toBe(true);
-    expect(Object.values(written.brushes).some((preset: any) => preset.color === INK_COLOR_TOKENS.cyan)).toBe(true);
+    expect(
+      written.swatches.some((swatch: { color: string }) => swatch.color === INK_COLOR_TOKENS.cyan),
+    ).toBe(true);
+    expect(
+      Object.values(written.brushes).some((preset: any) => preset.color === INK_COLOR_TOKENS.cyan),
+    ).toBe(true);
   });
 
   it('adds stamps, equations, precision lines, circles, and non-exported guides', async () => {
@@ -405,8 +482,21 @@ describe('InkView drawing', () => {
     host.hasPointerCapture = vi.fn(() => true);
     host.releasePointerCapture = vi.fn();
     const drag = (pointerId: number) => {
-      fireEvent.pointerDown(host, { pointerId, pointerType: 'mouse', clientX: 30, clientY: 30, buttons: 1, isPrimary: true });
-      fireEvent.pointerMove(host, { pointerId, pointerType: 'mouse', clientX: 150, clientY: 90, buttons: 1 });
+      fireEvent.pointerDown(host, {
+        pointerId,
+        pointerType: 'mouse',
+        clientX: 30,
+        clientY: 30,
+        buttons: 1,
+        isPrimary: true,
+      });
+      fireEvent.pointerMove(host, {
+        pointerId,
+        pointerType: 'mouse',
+        clientX: 150,
+        clientY: 90,
+        buttons: 1,
+      });
       fireEvent.pointerUp(host, { pointerId, pointerType: 'mouse', clientX: 150, clientY: 90 });
     };
 
@@ -414,7 +504,9 @@ describe('InkView drawing', () => {
     drag(10);
     fireEvent.click(screen.getByRole('button', { name: 'Equation (Q)' }));
     drag(11);
-    fireEvent.change(await screen.findByLabelText('Equation LaTeX'), { target: { value: 'x^2+y^2' } });
+    fireEvent.change(await screen.findByLabelText('Equation LaTeX'), {
+      target: { value: 'x^2+y^2' },
+    });
     fireEvent.click(screen.getByText('Add to drawing'));
     fireEvent.click(screen.getByRole('button', { name: 'Protractor (O)' }));
     drag(12);
@@ -428,7 +520,9 @@ describe('InkView drawing', () => {
     const objects = Object.values(written.pages[written.pageOrder[0]].scene.objects) as any[];
     expect(objects.some((object) => object.type === 'stamp')).toBe(true);
     expect(objects.some((object) => object.type === 'text' && object.equation)).toBe(true);
-    expect(objects.some((object) => object.type === 'shape' && object.shape === 'ellipse')).toBe(true);
+    expect(objects.some((object) => object.type === 'shape' && object.shape === 'ellipse')).toBe(
+      true,
+    );
     expect(objects.some((object) => object.type === 'shape' && object.guide)).toBe(true);
   });
 
@@ -440,19 +534,40 @@ describe('InkView drawing', () => {
     host.setPointerCapture = vi.fn();
     host.hasPointerCapture = vi.fn(() => true);
     host.releasePointerCapture = vi.fn();
-    fireEvent.pointerDown(host, { pointerId: 20, pointerType: 'mouse', clientX: 20, clientY: 20, buttons: 1, isPrimary: true });
-    fireEvent.pointerMove(host, { pointerId: 20, pointerType: 'mouse', clientX: 180, clientY: 120, buttons: 1 });
+    fireEvent.pointerDown(host, {
+      pointerId: 20,
+      pointerType: 'mouse',
+      clientX: 20,
+      clientY: 20,
+      buttons: 1,
+      isPrimary: true,
+    });
+    fireEvent.pointerMove(host, {
+      pointerId: 20,
+      pointerType: 'mouse',
+      clientX: 180,
+      clientY: 120,
+      buttons: 1,
+    });
     fireEvent.pointerUp(host, { pointerId: 20, pointerType: 'mouse', clientX: 180, clientY: 120 });
-    await waitFor(() => expect(clientMocks.importAsset).toHaveBeenCalledWith('/tmp/diagram.svg', 'Pictures'));
+    await waitFor(() =>
+      expect(clientMocks.importAsset).toHaveBeenCalledWith('/tmp/diagram.svg', 'Pictures'),
+    );
     fireEvent.click(screen.getByText('Save'));
     const written = await savedDocument();
     const objects = Object.values(written.pages[written.pageOrder[0]].scene.objects) as any[];
-    expect(objects.some((object) => object.type === 'image' && object.relativePath === 'Pictures/diagram.svg')).toBe(true);
+    expect(
+      objects.some(
+        (object) => object.type === 'image' && object.relativePath === 'Pictures/diagram.svg',
+      ),
+    ).toBe(true);
   });
 
   it('saves reusable page templates and instantiates them with fresh identities', async () => {
     await openDrawing();
-    fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Reusable sketch' } });
+    fireEvent.change(screen.getByLabelText('Template name'), {
+      target: { value: 'Reusable sketch' },
+    });
     fireEvent.click(screen.getByLabelText('Save page as template'));
     fireEvent.click(await screen.findByLabelText('Drawing template'));
     fireEvent.click(await screen.findByRole('option', { name: 'Reusable sketch' }));
@@ -468,8 +583,22 @@ describe('InkView drawing', () => {
     host.hasPointerCapture = vi.fn(() => true);
     host.releasePointerCapture = vi.fn();
 
-    fireEvent.pointerDown(host, { pointerId: 1, pointerType: 'pen', clientX: 10, clientY: 10, pressure: 0.5, buttons: 1 });
-    fireEvent.pointerMove(host, { pointerId: 1, pointerType: 'pen', clientX: 90, clientY: 90, pressure: 0.5, buttons: 1 });
+    fireEvent.pointerDown(host, {
+      pointerId: 1,
+      pointerType: 'pen',
+      clientX: 10,
+      clientY: 10,
+      pressure: 0.5,
+      buttons: 1,
+    });
+    fireEvent.pointerMove(host, {
+      pointerId: 1,
+      pointerType: 'pen',
+      clientX: 90,
+      clientY: 90,
+      pressure: 0.5,
+      buttons: 1,
+    });
     fireEvent.pointerCancel(host, { pointerId: 1, pointerType: 'pen' });
 
     expect(screen.getByText('Save').closest('button')?.disabled).toBe(true);
@@ -480,10 +609,12 @@ describe('InkView drawing', () => {
     const host = screen.getByTestId('ink-canvas-host');
     expect(button('Undo').disabled).toBe(true);
 
-    drawStroke(host, [[100, 100], [160, 130], [220, 180]]);
-    await waitFor(() =>
-      expect(button(/^Undo/).disabled).toBe(false),
-    );
+    drawStroke(host, [
+      [100, 100],
+      [160, 130],
+      [220, 180],
+    ]);
+    await waitFor(() => expect(button(/^Undo/).disabled).toBe(false));
 
     fireEvent.click(screen.getByRole('button', { name: /^Undo/ }));
     await waitFor(() => expect(screen.getByText('2 strokes')).toBeTruthy());
@@ -498,7 +629,11 @@ describe('InkView drawing', () => {
 
     const host = screen.getByTestId('ink-canvas-host');
     // The fixture strokes sit around y=1000 ink units, near the origin.
-    drawStroke(host, [[0, 10], [40, 15], [80, 20]]);
+    drawStroke(host, [
+      [0, 10],
+      [40, 15],
+      [80, 20],
+    ]);
 
     await waitFor(() => expect(screen.getByText(/strokes$/)).toBeTruthy());
   });
@@ -526,11 +661,15 @@ describe('InkView drawing', () => {
     await openDrawing();
     fireEvent.keyDown(window, { key: 'e' });
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Eraser (E)' }).getAttribute('aria-pressed')).toBe('true'),
+      expect(screen.getByRole('button', { name: 'Eraser (E)' }).getAttribute('aria-pressed')).toBe(
+        'true',
+      ),
     );
     fireEvent.keyDown(window, { key: 'v' });
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Select (V)' }).getAttribute('aria-pressed')).toBe('true'),
+      expect(screen.getByRole('button', { name: 'Select (V)' }).getAttribute('aria-pressed')).toBe(
+        'true',
+      ),
     );
   });
 
@@ -538,7 +677,9 @@ describe('InkView drawing', () => {
     await openDrawing();
     const layerName = screen.getByLabelText('Layer name for Layer 1');
     fireEvent.keyDown(layerName, { key: 'e' });
-    expect(screen.getByRole('button', { name: 'Pen (P)' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Pen (P)' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
   });
 
   it('stops a handled Delete key before the file tree can receive it', async () => {
@@ -567,7 +708,11 @@ describe('InkView drawing', () => {
 
   it('autosaves shortly after an edit without a manual save', async () => {
     await openDrawing();
-    drawStroke(screen.getByTestId('ink-canvas-host'), [[100, 100], [170, 140], [230, 190]]);
+    drawStroke(screen.getByTestId('ink-canvas-host'), [
+      [100, 100],
+      [170, 140],
+      [230, 190],
+    ]);
     await waitFor(() => expect(clientMocks.writeDocument).toHaveBeenCalled(), { timeout: 3_000 });
     const savesAfterSettling = clientMocks.writeDocument.mock.calls.length;
     await new Promise((resolve) => setTimeout(resolve, 800));
@@ -594,7 +739,10 @@ describe('InkView drawing', () => {
     expect(button('Pen (P)').disabled).toBe(true);
     expect(button('Eraser (E)').disabled).toBe(true);
 
-    drawStroke(screen.getByTestId('ink-canvas-host'), [[100, 100], [200, 200]]);
+    drawStroke(screen.getByTestId('ink-canvas-host'), [
+      [100, 100],
+      [200, 200],
+    ]);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(clientMocks.writeDocument).not.toHaveBeenCalled();
   });

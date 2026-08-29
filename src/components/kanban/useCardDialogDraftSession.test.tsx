@@ -1,7 +1,8 @@
-import { renderHook, act } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { KanbanBoard, KanbanCard } from '../../types/kanban';
+
 import {
   applyCardDraftToBoard,
   createInitialCardDialogDraft,
@@ -42,7 +43,21 @@ describe('useCardDialogDraftSession', () => {
     const board: KanbanBoard = {
       columns: [
         { id: 'todo', title: 'Todo', cards: [BASE_CARD] },
-        { id: 'done', title: 'Done', cards: [{ ...BASE_CARD, id: 'card-2', title: 'Other', assignees: [], tags: [], comments: [], checklist: [] }] },
+        {
+          id: 'done',
+          title: 'Done',
+          cards: [
+            {
+              ...BASE_CARD,
+              id: 'card-2',
+              title: 'Other',
+              assignees: [],
+              tags: [],
+              comments: [],
+              checklist: [],
+            },
+          ],
+        },
       ],
     };
 
@@ -71,7 +86,9 @@ describe('useCardDialogDraftSession', () => {
     });
 
     expect(result.current.draft.title).toBe('Updated title');
-    expect(storeUpdateDraft).toHaveBeenCalledWith(expect.objectContaining({ title: 'Updated title' }));
+    expect(storeUpdateDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Updated title' }),
+    );
     expect(updateBoard).not.toHaveBeenCalled();
 
     act(() => {

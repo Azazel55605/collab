@@ -1,14 +1,18 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
+
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { useEditorStore } from '../store/editorStore';
 import { useDocumentStatusStore } from '../store/documentStatusStore';
-import { useVaultStore } from '../store/vaultStore';
+import { useEditorStore } from '../store/editorStore';
 import { useUiStore } from '../store/uiStore';
+import { useVaultStore } from '../store/vaultStore';
+
+import LogicDiagramView from './LogicDiagramView';
 
 const logicEvents = vi.hoisted(() => ({
-  fileModifiedHandler: null as null | ((event: { payload: { path: string } }) => void | Promise<void>),
+  fileModifiedHandler: null as
+    null | ((event: { payload: { path: string } }) => void | Promise<void>),
 }));
 
 const tauriMocks = vi.hoisted(() => ({
@@ -46,12 +50,17 @@ const flowMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@tauri-apps/api/event', () => ({
-  listen: vi.fn(async (eventName: string, handler: (event: { payload: { path: string } }) => void | Promise<void>) => {
-    if (eventName === 'vault:file-modified') logicEvents.fileModifiedHandler = handler;
-    return () => {
-      if (eventName === 'vault:file-modified') logicEvents.fileModifiedHandler = null;
-    };
-  }),
+  listen: vi.fn(
+    async (
+      eventName: string,
+      handler: (event: { payload: { path: string } }) => void | Promise<void>,
+    ) => {
+      if (eventName === 'vault:file-modified') logicEvents.fileModifiedHandler = handler;
+      return () => {
+        if (eventName === 'vault:file-modified') logicEvents.fileModifiedHandler = null;
+      };
+    },
+  ),
 }));
 
 vi.mock('../lib/tauri', () => ({
@@ -137,8 +146,6 @@ vi.mock('@xyflow/react', async () => {
   };
 });
 
-import LogicDiagramView from './LogicDiagramView';
-
 const PATH = 'Diagrams/test.logic';
 
 function logicDoc(kinds: string[]) {
@@ -172,7 +179,9 @@ function seedVault() {
   } as never);
   useEditorStore.setState({
     sessionVaultPath: '/vault',
-    openTabs: [{ relativePath: PATH, title: 'test', isDirty: false, savedHash: null, type: 'logic' }],
+    openTabs: [
+      { relativePath: PATH, title: 'test', isDirty: false, savedHash: null, type: 'logic' },
+    ],
     activeTabPath: PATH,
     forceReloadPath: null,
   } as never);
@@ -185,7 +194,12 @@ describe('LogicDiagramView safe reload policy', () => {
     logicEvents.fileModifiedHandler = null;
     seedVault();
     tauriMocks.writeNote.mockResolvedValue({ hash: 'v-write' });
-    tauriMocks.createNote.mockResolvedValue({ relativePath: 'Pictures/test.svg', name: 'test.svg', isFolder: false, extension: 'svg' });
+    tauriMocks.createNote.mockResolvedValue({
+      relativePath: 'Pictures/test.svg',
+      name: 'test.svg',
+      isFolder: false,
+      extension: 'svg',
+    });
     tauriMocks.createFolder.mockResolvedValue(undefined);
     tauriMocks.hostedVaultRequest.mockReset();
     tauriMocks.listLogicComponents.mockResolvedValue([]);
@@ -197,7 +211,11 @@ describe('LogicDiagramView safe reload policy', () => {
     tauriMocks.circuitStartDc.mockResolvedValue('circuit-job-1');
     tauriMocks.circuitStartDcSweep.mockResolvedValue('sweep-job-1');
     tauriMocks.circuitStartTransient.mockResolvedValue('transient-job-1');
-    tauriMocks.circuitJobStatus.mockResolvedValue({ phase: 'completed', stage: null, elapsedMillis: 1 });
+    tauriMocks.circuitJobStatus.mockResolvedValue({
+      phase: 'completed',
+      stage: null,
+      elapsedMillis: 1,
+    });
     tauriMocks.circuitCancelJob.mockResolvedValue('cancelling');
     tauriMocks.circuitTakeJobResult.mockImplementation(async () => {
       try {
@@ -302,7 +320,11 @@ describe('LogicDiagramView safe reload policy', () => {
   });
 
   it('toggles an input node on the second pointer down of a double click', async () => {
-    tauriMocks.readNote.mockResolvedValueOnce({ content: logicDoc(['input']), hash: 'logic-v1', modifiedAt: 1 });
+    tauriMocks.readNote.mockResolvedValueOnce({
+      content: logicDoc(['input']),
+      hash: 'logic-v1',
+      modifiedAt: 1,
+    });
 
     render(<LogicDiagramView relativePath={PATH} />);
     expect(await screen.findByText(/1 gates/)).toBeTruthy();
@@ -314,7 +336,8 @@ describe('LogicDiagramView safe reload policy', () => {
 
     if (!inputNode) throw new Error('Expected rendered input node.');
     const inputNodeSurface = inputNode.firstElementChild;
-    if (!(inputNodeSurface instanceof HTMLElement)) throw new Error('Expected rendered input node surface.');
+    if (!(inputNodeSurface instanceof HTMLElement))
+      throw new Error('Expected rendered input node surface.');
     expect(inputNode.textContent).toContain('unset');
     fireEvent.mouseDown(inputNodeSurface, { button: 0, detail: 2 });
 
@@ -356,13 +379,15 @@ describe('LogicDiagramView safe reload policy', () => {
         schemaVersion: 6,
         kind: 'logic-diagram',
         diagramMode: 'schematic',
-        nodes: [{
-          id: 'r1',
-          kind: 'resistor',
-          label: 'Load',
-          position: { x: 0, y: 0 },
-          electrical: { resistanceOhms: 1000 },
-        }],
+        nodes: [
+          {
+            id: 'r1',
+            kind: 'resistor',
+            label: 'Load',
+            position: { x: 0, y: 0 },
+            electrical: { resistanceOhms: 1000 },
+          },
+        ],
         wires: [],
         viewport: { x: 0, y: 0, zoom: 1 },
       }),
@@ -375,7 +400,8 @@ describe('LogicDiagramView safe reload policy', () => {
     expect(screen.getByText(/1 kΩ/)).toBeTruthy();
 
     const node = screen.getByText('Load').closest('[data-logic-node]');
-    if (!(node?.firstElementChild instanceof HTMLElement)) throw new Error('Expected resistor surface.');
+    if (!(node?.firstElementChild instanceof HTMLElement))
+      throw new Error('Expected resistor surface.');
     fireEvent.doubleClick(node.firstElementChild);
 
     expect(await screen.findByRole('heading', { name: 'Load settings' })).toBeTruthy();
@@ -393,14 +419,44 @@ describe('LogicDiagramView safe reload policy', () => {
         kind: 'logic-diagram',
         diagramMode: 'schematic',
         nodes: [
-          { id: 'source', kind: 'voltage-source', label: 'Supply', position: { x: 0, y: 0 }, electrical: { voltageVolts: 5 } },
-          { id: 'r1', kind: 'resistor', label: 'Load', position: { x: 200, y: 0 }, electrical: { resistanceOhms: 1000 } },
+          {
+            id: 'source',
+            kind: 'voltage-source',
+            label: 'Supply',
+            position: { x: 0, y: 0 },
+            electrical: { voltageVolts: 5 },
+          },
+          {
+            id: 'r1',
+            kind: 'resistor',
+            label: 'Load',
+            position: { x: 200, y: 0 },
+            electrical: { resistanceOhms: 1000 },
+          },
           { id: 'ground', kind: 'ground', position: { x: 400, y: 0 } },
         ],
         wires: [
-          { id: 'hot', source: 'source', sourceHandle: 'positive', target: 'r1', targetHandle: 'terminal-a' },
-          { id: 'return', source: 'r1', sourceHandle: 'terminal-b', target: 'ground', targetHandle: 'terminal' },
-          { id: 'reference', source: 'source', sourceHandle: 'negative', target: 'ground', targetHandle: 'terminal' },
+          {
+            id: 'hot',
+            source: 'source',
+            sourceHandle: 'positive',
+            target: 'r1',
+            targetHandle: 'terminal-a',
+          },
+          {
+            id: 'return',
+            source: 'r1',
+            sourceHandle: 'terminal-b',
+            target: 'ground',
+            targetHandle: 'terminal',
+          },
+          {
+            id: 'reference',
+            source: 'source',
+            sourceHandle: 'negative',
+            target: 'ground',
+            targetHandle: 'terminal',
+          },
         ],
         viewport: { x: 0, y: 0, zoom: 1 },
       }),
@@ -427,14 +483,22 @@ describe('LogicDiagramView safe reload policy', () => {
         ],
         probes: [],
       },
-      probeValues: [{ kind: 'branch-current', probeId: 'current-result', label: 'Measured load current', valueAmps: 0.005 }],
+      probeValues: [
+        {
+          kind: 'branch-current',
+          probeId: 'current-result',
+          label: 'Measured load current',
+          valueAmps: 0.005,
+        },
+      ],
     });
 
     const { container } = render(<LogicDiagramView relativePath={PATH} />);
     expect(await screen.findByText(/3 symbols/)).toBeTruthy();
     const loadHandle = screen.getByRole('button', { name: /Load terminal terminal-a/i });
     const loadNode = loadHandle.closest('[data-logic-node]');
-    if (!(loadNode?.firstElementChild instanceof HTMLElement)) throw new Error('Expected load surface.');
+    if (!(loadNode?.firstElementChild instanceof HTMLElement))
+      throw new Error('Expected load surface.');
     fireEvent.contextMenu(loadNode.firstElementChild);
     fireEvent.click(screen.getByRole('button', { name: 'Probe branch current' }));
 
@@ -458,16 +522,22 @@ describe('LogicDiagramView safe reload policy', () => {
     expect(screen.getByText('Measured load current')).toBeTruthy();
     expect(container.querySelectorAll('[data-schematic-live="true"]')).toHaveLength(1);
     expect(container.querySelector('[data-schematic-polarity="positive"]')).toBeTruthy();
-    expect(tauriMocks.circuitStartDc).toHaveBeenCalledWith(expect.objectContaining({
-      schemaVersion: 6,
-      simulation: expect.objectContaining({
-        analysis: 'dc-operating-point',
-        probes: expect.arrayContaining([
-          expect.objectContaining({ kind: 'branch-current', nodeId: 'r1' }),
-          expect.objectContaining({ kind: 'node-voltage', nodeId: 'source', handleId: 'positive' }),
-        ]),
+    expect(tauriMocks.circuitStartDc).toHaveBeenCalledWith(
+      expect.objectContaining({
+        schemaVersion: 6,
+        simulation: expect.objectContaining({
+          analysis: 'dc-operating-point',
+          probes: expect.arrayContaining([
+            expect.objectContaining({ kind: 'branch-current', nodeId: 'r1' }),
+            expect.objectContaining({
+              kind: 'node-voltage',
+              nodeId: 'source',
+              handleId: 'positive',
+            }),
+          ]),
+        }),
       }),
-    }));
+    );
 
     fireEvent.doubleClick(loadNode.firstElementChild);
     fireEvent.change(await screen.findByLabelText(/Resistance/), { target: { value: '2000' } });
@@ -484,13 +554,27 @@ describe('LogicDiagramView safe reload policy', () => {
         kind: 'logic-diagram',
         diagramMode: 'schematic',
         nodes: [
-          { id: 'source', kind: 'voltage-source', label: 'Supply', position: { x: 0, y: 0 }, electrical: { voltageVolts: 5 } },
+          {
+            id: 'source',
+            kind: 'voltage-source',
+            label: 'Supply',
+            position: { x: 0, y: 0 },
+            electrical: { voltageVolts: 5 },
+          },
           { id: 'ground', kind: 'ground', position: { x: 240, y: 0 } },
         ],
         wires: [],
         simulation: {
           analysis: 'dc-operating-point',
-          probes: [{ id: 'output', kind: 'node-voltage', nodeId: 'source', handleId: 'positive', label: 'Output' }],
+          probes: [
+            {
+              id: 'output',
+              kind: 'node-voltage',
+              nodeId: 'source',
+              handleId: 'positive',
+              label: 'Output',
+            },
+          ],
         },
         viewport: { x: 0, y: 0, zoom: 1 },
       }),
@@ -506,7 +590,9 @@ describe('LogicDiagramView safe reload policy', () => {
         sourceMap: {
           terminals: [],
           wires: [],
-          probes: [{ probeId: 'output', label: 'Output', kind: 'node-voltage', electricalNode: 'net1' }],
+          probes: [
+            { probeId: 'output', label: 'Output', kind: 'node-voltage', electricalNode: 'net1' },
+          ],
         },
       },
     });
@@ -528,22 +614,26 @@ describe('LogicDiagramView safe reload policy', () => {
     expect(await screen.findByRole('img', { name: 'DC sweep plot' })).toBeTruthy();
     expect(screen.getByText('3 samples')).toBeTruthy();
     expect(screen.getByText('Output')).toBeTruthy();
-    expect(tauriMocks.circuitStartDcSweep).toHaveBeenCalledWith(expect.objectContaining({
-      simulation: {
-        analysis: 'dc-sweep',
-        probes: [expect.objectContaining({ id: 'output' })],
-        dcSweep: { sourceNodeId: 'source', start: 0, stop: 10, sampleCount: 3 },
-      },
-    }));
+    expect(tauriMocks.circuitStartDcSweep).toHaveBeenCalledWith(
+      expect.objectContaining({
+        simulation: {
+          analysis: 'dc-sweep',
+          probes: [expect.objectContaining({ id: 'output' })],
+          dcSweep: { sourceNodeId: 'source', start: 0, stop: 10, sampleCount: 3 },
+        },
+      }),
+    );
     expect(tauriMocks.circuitReadSweepChunk).toHaveBeenCalledWith('sweep-job-1', 0, 512);
     expect(tauriMocks.circuitDiscardJob).toHaveBeenCalledWith('sweep-job-1');
 
     tauriMocks.showDownloadDialog.mockResolvedValue('/tmp/test-dc-sweep.csv');
     fireEvent.click(screen.getByTitle('Export sweep data as CSV'));
-    await waitFor(() => expect(tauriMocks.writeDownloadedFile).toHaveBeenCalledWith(
-      '/tmp/test-dc-sweep.csv',
-      expect.any(String),
-    ));
+    await waitFor(() =>
+      expect(tauriMocks.writeDownloadedFile).toHaveBeenCalledWith(
+        '/tmp/test-dc-sweep.csv',
+        expect.any(String),
+      ),
+    );
     const exported = atob(tauriMocks.writeDownloadedFile.mock.calls[0][1]);
     expect(exported).toContain('Supply (source value),Output (V)');
     expect(exported).toContain('5,2.5');
@@ -556,13 +646,27 @@ describe('LogicDiagramView safe reload policy', () => {
         kind: 'logic-diagram',
         diagramMode: 'schematic',
         nodes: [
-          { id: 'source', kind: 'voltage-source', label: 'Supply', position: { x: 0, y: 0 }, electrical: { voltageVolts: 0 } },
+          {
+            id: 'source',
+            kind: 'voltage-source',
+            label: 'Supply',
+            position: { x: 0, y: 0 },
+            electrical: { voltageVolts: 0 },
+          },
           { id: 'ground', kind: 'ground', position: { x: 240, y: 0 } },
         ],
         wires: [],
         simulation: {
           analysis: 'dc-operating-point',
-          probes: [{ id: 'output', kind: 'node-voltage', nodeId: 'source', handleId: 'positive', label: 'Output' }],
+          probes: [
+            {
+              id: 'output',
+              kind: 'node-voltage',
+              nodeId: 'source',
+              handleId: 'positive',
+              label: 'Output',
+            },
+          ],
         },
         viewport: { x: 0, y: 0, zoom: 1 },
       }),
@@ -577,7 +681,9 @@ describe('LogicDiagramView safe reload policy', () => {
         sourceMap: {
           terminals: [],
           wires: [],
-          probes: [{ probeId: 'output', label: 'Output', kind: 'node-voltage', electricalNode: 'net1' }],
+          probes: [
+            { probeId: 'output', label: 'Output', kind: 'node-voltage', electricalNode: 'net1' },
+          ],
         },
       },
     });
@@ -598,16 +704,20 @@ describe('LogicDiagramView safe reload policy', () => {
 
     expect(await screen.findByRole('img', { name: 'Transient plot' })).toBeTruthy();
     expect(screen.getByText('3 samples')).toBeTruthy();
-    expect(tauriMocks.circuitStartTransient).toHaveBeenCalledWith(expect.objectContaining({
-      simulation: expect.objectContaining({
-        analysis: 'transient',
-        transient: expect.objectContaining({
-          durationSeconds: 0.002,
-          maxTimeStepSeconds: 0.001,
-          sourceWaveforms: expect.objectContaining({ source: expect.objectContaining({ kind: 'pulse' }) }),
+    expect(tauriMocks.circuitStartTransient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        simulation: expect.objectContaining({
+          analysis: 'transient',
+          transient: expect.objectContaining({
+            durationSeconds: 0.002,
+            maxTimeStepSeconds: 0.001,
+            sourceWaveforms: expect.objectContaining({
+              source: expect.objectContaining({ kind: 'pulse' }),
+            }),
+          }),
         }),
       }),
-    }));
+    );
     expect(tauriMocks.circuitReadTransientChunk).toHaveBeenCalledWith('transient-job-1', 0, 512);
     expect(tauriMocks.circuitDiscardJob).toHaveBeenCalledWith('transient-job-1');
   });
@@ -619,14 +729,43 @@ describe('LogicDiagramView safe reload policy', () => {
         kind: 'logic-diagram',
         diagramMode: 'schematic',
         nodes: [
-          { id: 'source', kind: 'voltage-source', position: { x: 0, y: 0 }, electrical: { voltageVolts: 5 } },
-          { id: 'r1', kind: 'resistor', position: { x: 240, y: 0 }, electrical: { resistanceOhms: 1000 } },
+          {
+            id: 'source',
+            kind: 'voltage-source',
+            position: { x: 0, y: 0 },
+            electrical: { voltageVolts: 5 },
+          },
+          {
+            id: 'r1',
+            kind: 'resistor',
+            position: { x: 240, y: 0 },
+            electrical: { resistanceOhms: 1000 },
+          },
           { id: 'ground', kind: 'ground', position: { x: 480, y: 0 } },
         ],
         wires: [
-          { id: 'hot', source: 'source', sourceHandle: 'positive', target: 'r1', targetHandle: 'terminal-a', label: 'supply' },
-          { id: 'return', source: 'r1', sourceHandle: 'terminal-b', target: 'ground', targetHandle: 'terminal' },
-          { id: 'reference', source: 'source', sourceHandle: 'negative', target: 'ground', targetHandle: 'terminal' },
+          {
+            id: 'hot',
+            source: 'source',
+            sourceHandle: 'positive',
+            target: 'r1',
+            targetHandle: 'terminal-a',
+            label: 'supply',
+          },
+          {
+            id: 'return',
+            source: 'r1',
+            sourceHandle: 'terminal-b',
+            target: 'ground',
+            targetHandle: 'terminal',
+          },
+          {
+            id: 'reference',
+            source: 'source',
+            sourceHandle: 'negative',
+            target: 'ground',
+            targetHandle: 'terminal',
+          },
         ],
         viewport: { x: 0, y: 0, zoom: 1 },
       }),
@@ -661,38 +800,46 @@ describe('LogicDiagramView safe reload policy', () => {
 
     await waitFor(() => expect(tauriMocks.circuitStartDc).toHaveBeenCalledOnce());
     const solvedDocument = tauriMocks.circuitStartDc.mock.calls[0][0];
-    const junction = solvedDocument.nodes.find((node: { kind: string }) => node.kind === 'junction');
+    const junction = solvedDocument.nodes.find(
+      (node: { kind: string }) => node.kind === 'junction',
+    );
     expect(junction).toMatchObject({
       kind: 'junction',
       position: { x: 168, y: 28 },
       electrical: undefined,
     });
-    expect(flowMocks.getSmoothStepPath).toHaveBeenCalledWith(expect.objectContaining({
-      targetX: 180,
-      targetY: 40,
-      targetPosition: 'left',
-    }));
-    expect(flowMocks.getSmoothStepPath).toHaveBeenCalledWith(expect.objectContaining({
-      sourceX: 180,
-      sourceY: 40,
-      sourcePosition: 'right',
-    }));
+    expect(flowMocks.getSmoothStepPath).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetX: 180,
+        targetY: 40,
+        targetPosition: 'left',
+      }),
+    );
+    expect(flowMocks.getSmoothStepPath).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceX: 180,
+        sourceY: 40,
+        sourcePosition: 'right',
+      }),
+    );
     expect(solvedDocument.wires).toHaveLength(4);
-    expect(solvedDocument.wires).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: 'hot',
-        source: 'source',
-        target: junction.id,
-        targetHandle: 'terminal',
-        label: 'supply',
-      }),
-      expect.objectContaining({
-        source: junction.id,
-        sourceHandle: 'terminal',
-        target: 'r1',
-        targetHandle: 'terminal-a',
-      }),
-    ]));
+    expect(solvedDocument.wires).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'hot',
+          source: 'source',
+          target: junction.id,
+          targetHandle: 'terminal',
+          label: 'supply',
+        }),
+        expect.objectContaining({
+          source: junction.id,
+          sourceHandle: 'terminal',
+          target: 'r1',
+          targetHandle: 'terminal-a',
+        }),
+      ]),
+    );
   });
 
   it('shows signed wire polarity and NPN operating-region diagnostics', async () => {
@@ -706,7 +853,13 @@ describe('LogicDiagramView safe reload policy', () => {
           { id: 'ground', kind: 'ground', position: { x: 240, y: 0 } },
         ],
         wires: [
-          { id: 'collector-wire', source: 'q1', sourceHandle: 'collector', target: 'ground', targetHandle: 'terminal' },
+          {
+            id: 'collector-wire',
+            source: 'q1',
+            sourceHandle: 'collector',
+            target: 'ground',
+            targetHandle: 'terminal',
+          },
         ],
         viewport: { x: 0, y: 0, zoom: 1 },
       }),
@@ -718,14 +871,16 @@ describe('LogicDiagramView safe reload policy', () => {
         nodeVoltages: { 0: 0, collectorNet: -0.2 },
         componentCurrents: { q1: 0.001 },
         componentPowers: { q1: 0.00084 },
-        diagnostics: [{
-          code: 'npnOutsideForwardActive',
-          context: {
-            component: 'q1',
-            baseEmitterVoltage: 0.7,
-            collectorEmitterVoltage: -0.2,
+        diagnostics: [
+          {
+            code: 'npnOutsideForwardActive',
+            context: {
+              component: 'q1',
+              baseEmitterVoltage: 0.7,
+              collectorEmitterVoltage: -0.2,
+            },
           },
-        }],
+        ],
         iterations: 4,
       },
       sourceMap: {
@@ -756,7 +911,14 @@ describe('LogicDiagramView safe reload policy', () => {
         schemaVersion: 6,
         kind: 'logic-diagram',
         diagramMode: 'schematic',
-        nodes: [{ id: 'r1', kind: 'resistor', position: { x: 0, y: 0 }, electrical: { resistanceOhms: 1000 } }],
+        nodes: [
+          {
+            id: 'r1',
+            kind: 'resistor',
+            position: { x: 0, y: 0 },
+            electrical: { resistanceOhms: 1000 },
+          },
+        ],
         wires: [],
         viewport: { x: 0, y: 0, zoom: 1 },
       }),
@@ -788,11 +950,11 @@ describe('LogicDiagramView safe reload policy', () => {
       hash: 'v1',
       modifiedAt: 1,
     });
-    tauriMocks.circuitJobStatus.mockImplementation(async () => (
+    tauriMocks.circuitJobStatus.mockImplementation(async () =>
       tauriMocks.circuitCancelJob.mock.calls.length > 0
         ? { phase: 'cancelled', stage: null, elapsedMillis: 2 }
-        : { phase: 'running', stage: 'solving', elapsedMillis: 1 }
-    ));
+        : { phase: 'running', stage: 'solving', elapsedMillis: 1 },
+    );
     tauriMocks.circuitTakeJobResult.mockResolvedValueOnce({ state: 'cancelled' });
 
     render(<LogicDiagramView relativePath={PATH} />);
@@ -809,12 +971,22 @@ describe('LogicDiagramView safe reload policy', () => {
     useEditorStore.setState({
       openTabs: [
         { relativePath: PATH, title: 'test', isDirty: false, savedHash: null, type: 'logic' },
-        { relativePath: 'Notes/target.md', title: 'target', isDirty: false, savedHash: 'note-v1', type: 'note' },
+        {
+          relativePath: 'Notes/target.md',
+          title: 'target',
+          isDirty: false,
+          savedHash: 'note-v1',
+          type: 'note',
+        },
       ],
       activeTabPath: PATH,
     } as never);
     tauriMocks.readNote
-      .mockResolvedValueOnce({ content: logicDoc(['input', 'and']), hash: 'logic-v1', modifiedAt: 1 })
+      .mockResolvedValueOnce({
+        content: logicDoc(['input', 'and']),
+        hash: 'logic-v1',
+        modifiedAt: 1,
+      })
       .mockRejectedValueOnce(new Error('missing svg'))
       .mockResolvedValueOnce({ content: '# Target\n', hash: 'note-v1', modifiedAt: 2 });
     tauriMocks.writeNote.mockResolvedValue({ hash: 'note-v2' });
@@ -824,21 +996,25 @@ describe('LogicDiagramView safe reload policy', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /insert in note/i }));
 
-    await waitFor(() => expect(tauriMocks.writeNote).toHaveBeenCalledWith(
-      '/vault',
-      'Pictures/test.svg',
-      expect.stringContaining('<svg'),
-      undefined,
-      undefined,
-    ));
+    await waitFor(() =>
+      expect(tauriMocks.writeNote).toHaveBeenCalledWith(
+        '/vault',
+        'Pictures/test.svg',
+        expect.stringContaining('<svg'),
+        undefined,
+        undefined,
+      ),
+    );
     expect(tauriMocks.createFolder).toHaveBeenCalledWith('/vault', 'Pictures');
-    await waitFor(() => expect(tauriMocks.writeNote).toHaveBeenCalledWith(
-      '/vault',
-      'Notes/target.md',
-      expect.stringContaining('![test](../Pictures/test.svg)'),
-      'note-v1',
-      '# Target\n',
-    ));
+    await waitFor(() =>
+      expect(tauriMocks.writeNote).toHaveBeenCalledWith(
+        '/vault',
+        'Notes/target.md',
+        expect.stringContaining('![test](../Pictures/test.svg)'),
+        'note-v1',
+        '# Target\n',
+      ),
+    );
     expect(useEditorStore.getState().forceReloadPath).toBe('Notes/target.md');
   });
 
@@ -849,14 +1025,27 @@ describe('LogicDiagramView safe reload policy', () => {
           name: 'Pictures',
           relativePath: 'Pictures',
           isFolder: true,
-          children: [{ name: 'test.svg', relativePath: 'Pictures/test.svg', isFolder: false, extension: 'svg' }],
+          children: [
+            {
+              name: 'test.svg',
+              relativePath: 'Pictures/test.svg',
+              isFolder: false,
+              extension: 'svg',
+            },
+          ],
         },
       ],
     } as never);
     useEditorStore.setState({
       openTabs: [
         { relativePath: PATH, title: 'test', isDirty: false, savedHash: null, type: 'logic' },
-        { relativePath: 'Notes/target.md', title: 'target', isDirty: false, savedHash: 'note-v1', type: 'note' },
+        {
+          relativePath: 'Notes/target.md',
+          title: 'target',
+          isDirty: false,
+          savedHash: 'note-v1',
+          type: 'note',
+        },
       ],
       activeTabPath: PATH,
     } as never);
@@ -870,17 +1059,23 @@ describe('LogicDiagramView safe reload policy', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /insert in note/i }), { shiftKey: true });
 
-    await waitFor(() => expect(tauriMocks.writeNote).toHaveBeenCalledWith(
-      '/vault',
-      'Pictures/test-2.svg',
-      expect.stringContaining('<svg'),
-      undefined,
-      undefined,
-    ));
+    await waitFor(() =>
+      expect(tauriMocks.writeNote).toHaveBeenCalledWith(
+        '/vault',
+        'Pictures/test-2.svg',
+        expect.stringContaining('<svg'),
+        undefined,
+        undefined,
+      ),
+    );
   });
 
   it('keeps templates as node-collection insertion', async () => {
-    tauriMocks.readNote.mockResolvedValueOnce({ content: logicDoc([]), hash: 'logic-v1', modifiedAt: 1 });
+    tauriMocks.readNote.mockResolvedValueOnce({
+      content: logicDoc([]),
+      hash: 'logic-v1',
+      modifiedAt: 1,
+    });
 
     render(<LogicDiagramView relativePath={PATH} />);
     expect(await screen.findByText(/0 gates/)).toBeTruthy();
@@ -902,7 +1097,9 @@ describe('LogicDiagramView safe reload policy', () => {
           { id: 'a', kind: 'input', label: 'A', position: { x: 0, y: 0 } },
           { id: 'sum', kind: 'output', label: 'Sum', position: { x: 220, y: 0 } },
         ],
-        wires: [{ id: 'a-sum', source: 'a', target: 'sum', sourceHandle: 'out', targetHandle: 'in' }],
+        wires: [
+          { id: 'a-sum', source: 'a', target: 'sum', sourceHandle: 'out', targetHandle: 'in' },
+        ],
         viewport: { x: 0, y: 0, zoom: 1 },
       }),
       hash: 'logic-v1',
@@ -916,40 +1113,48 @@ describe('LogicDiagramView safe reload policy', () => {
     const saveComponentButtons = screen.getAllByRole('button', { name: /^save component$/i });
     fireEvent.click(saveComponentButtons[saveComponentButtons.length - 1]);
 
-    await waitFor(() => expect(tauriMocks.saveLogicComponent).toHaveBeenCalledWith(
-      '/vault',
-      expect.objectContaining({
-        name: 'test',
-        ports: expect.arrayContaining([
-          expect.objectContaining({ direction: 'input', label: 'A' }),
-          expect.objectContaining({ direction: 'output', label: 'Sum' }),
-        ]),
-      }),
-    ));
+    await waitFor(() =>
+      expect(tauriMocks.saveLogicComponent).toHaveBeenCalledWith(
+        '/vault',
+        expect.objectContaining({
+          name: 'test',
+          ports: expect.arrayContaining([
+            expect.objectContaining({ direction: 'input', label: 'A' }),
+            expect.objectContaining({ direction: 'output', label: 'Sum' }),
+          ]),
+        }),
+      ),
+    );
   });
 
   it('inserts saved components as component nodes', async () => {
-    tauriMocks.readNote.mockResolvedValueOnce({ content: logicDoc([]), hash: 'logic-v1', modifiedAt: 1 });
-    tauriMocks.listLogicComponents.mockResolvedValue([{
-      id: 'component-1',
-      name: 'Reusable Inverter',
-      version: 1,
-      createdAt: 1,
-      updatedAt: 1,
-      ports: [
-        { id: 'in', direction: 'input', label: 'In', sourceNodeId: 'in' },
-        { id: 'out', direction: 'output', label: 'Out', sourceNodeId: 'out' },
-      ],
-      nodes: [
-        { id: 'in', kind: 'input', position: { x: 0, y: 0 } },
-        { id: 'not', kind: 'not', position: { x: 120, y: 0 } },
-        { id: 'out', kind: 'output', position: { x: 240, y: 0 } },
-      ],
-      wires: [
-        { id: 'in-not', source: 'in', target: 'not', sourceHandle: 'out', targetHandle: 'in' },
-        { id: 'not-out', source: 'not', target: 'out', sourceHandle: 'out', targetHandle: 'in' },
-      ],
-    }]);
+    tauriMocks.readNote.mockResolvedValueOnce({
+      content: logicDoc([]),
+      hash: 'logic-v1',
+      modifiedAt: 1,
+    });
+    tauriMocks.listLogicComponents.mockResolvedValue([
+      {
+        id: 'component-1',
+        name: 'Reusable Inverter',
+        version: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        ports: [
+          { id: 'in', direction: 'input', label: 'In', sourceNodeId: 'in' },
+          { id: 'out', direction: 'output', label: 'Out', sourceNodeId: 'out' },
+        ],
+        nodes: [
+          { id: 'in', kind: 'input', position: { x: 0, y: 0 } },
+          { id: 'not', kind: 'not', position: { x: 120, y: 0 } },
+          { id: 'out', kind: 'output', position: { x: 240, y: 0 } },
+        ],
+        wires: [
+          { id: 'in-not', source: 'in', target: 'not', sourceHandle: 'out', targetHandle: 'in' },
+          { id: 'not-out', source: 'not', target: 'out', sourceHandle: 'out', targetHandle: 'in' },
+        ],
+      },
+    ]);
 
     render(<LogicDiagramView relativePath={PATH} />);
     expect(await screen.findByText(/0 gates/)).toBeTruthy();
@@ -981,7 +1186,11 @@ describe('LogicDiagramView safe reload policy', () => {
         { id: 'not-out', source: 'not', target: 'out', sourceHandle: 'out', targetHandle: 'in' },
       ],
     };
-    tauriMocks.readNote.mockResolvedValueOnce({ content: logicDoc([]), hash: 'logic-v1', modifiedAt: 1 });
+    tauriMocks.readNote.mockResolvedValueOnce({
+      content: logicDoc([]),
+      hash: 'logic-v1',
+      modifiedAt: 1,
+    });
     tauriMocks.listLogicComponents.mockResolvedValue([component]);
     tauriMocks.saveLogicComponent.mockImplementation(async (_vaultPath, definition) => ({
       ...definition,
@@ -998,14 +1207,16 @@ describe('LogicDiagramView safe reload policy', () => {
     fireEvent.click(screen.getByRole('button', { name: /^add$/i }));
     fireEvent.click(screen.getByRole('button', { name: /update component/i }));
 
-    await waitFor(() => expect(tauriMocks.saveLogicComponent).toHaveBeenCalledWith(
-      '/vault',
-      expect.objectContaining({
-        id: 'component-1',
-        name: 'Reusable Inverter',
-        version: 4,
-      }),
-    ));
+    await waitFor(() =>
+      expect(tauriMocks.saveLogicComponent).toHaveBeenCalledWith(
+        '/vault',
+        expect.objectContaining({
+          id: 'component-1',
+          name: 'Reusable Inverter',
+          version: 4,
+        }),
+      ),
+    );
     expect(await screen.findByText(/0 gates/)).toBeTruthy();
   });
 
@@ -1161,7 +1372,9 @@ describe('LogicDiagramView safe reload policy', () => {
           { id: 'a', kind: 'input', label: 'A', position: { x: 0, y: 0 }, value: false },
           { id: 'out', kind: 'output', label: 'Result', position: { x: 200, y: 0 } },
         ],
-        wires: [{ id: 'a-out', source: 'a', target: 'out', sourceHandle: 'out', targetHandle: 'in' }],
+        wires: [
+          { id: 'a-out', source: 'a', target: 'out', sourceHandle: 'out', targetHandle: 'in' },
+        ],
         viewport: { x: 0, y: 0, zoom: 1 },
       }),
       hash: 'v1',

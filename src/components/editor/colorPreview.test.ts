@@ -9,9 +9,7 @@ import {
 
 describe('colorPreview helpers', () => {
   it('parses supported colors', () => {
-    expect(tryParseColor('#ff0000')).toEqual(
-      expect.objectContaining({ r: 255, g: 0, b: 0 }),
-    );
+    expect(tryParseColor('#ff0000')).toEqual(expect.objectContaining({ r: 255, g: 0, b: 0 }));
     expect(tryParseColor('not-a-color')).toBeNull();
   });
 
@@ -27,12 +25,14 @@ describe('colorPreview helpers', () => {
   });
 
   it('returns an empty extension when previews are disabled', () => {
-    expect(createColorPreviewExtension({
-      enabled: false,
-      showSwatch: true,
-      tintText: true,
-      formats: { hex: true, rgb: true, hsl: true, oklch: true, oklab: true },
-    })).toEqual([]);
+    expect(
+      createColorPreviewExtension({
+        enabled: false,
+        showSwatch: true,
+        tintText: true,
+        formats: { hex: true, rgb: true, hsl: true, oklch: true, oklab: true },
+      }),
+    ).toEqual([]);
   });
 
   it('formats copied colors in multiple output styles', () => {
@@ -48,7 +48,11 @@ describe('colorPreview helpers', () => {
     const parsed = tryParseColor('rgba(255, 0, 0, 0.5)');
     expect(parsed).not.toBeNull();
     expect(formatColorForClipboard(parsed!, 'hex', 'rgba(255, 0, 0, 0.5)')).toBe('#ff000080');
-    expect(formatColorForClipboard(parsed!, 'rgb', 'rgba(255, 0, 0, 0.5)')).toBe('rgba(255, 0, 0, 0.5)');
-    expect(formatColorForClipboard(parsed!, 'hsl', 'rgba(255, 0, 0, 0.5)')).toBe('hsl(0deg 100% 50% / 0.5)');
+    expect(formatColorForClipboard(parsed!, 'rgb', 'rgba(255, 0, 0, 0.5)')).toBe(
+      'rgba(255, 0, 0, 0.5)',
+    );
+    expect(formatColorForClipboard(parsed!, 'hsl', 'rgba(255, 0, 0, 0.5)')).toBe(
+      'hsl(0deg 100% 50% / 0.5)',
+    );
   });
 });

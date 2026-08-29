@@ -1,27 +1,28 @@
 import { Check, ChevronDown } from 'lucide-react';
 
+import { cn } from '../../lib/utils';
 import {
   COLOR_PREVIEW_FORMAT_OPTIONS,
-  EDITOR_FONTS,
-  EDITOR_FONT_SIZE_OPTIONS,
-  TAB_WIDTH_OPTIONS,
   type ColorPreviewFormat,
+  EDITOR_FONT_SIZE_OPTIONS,
+  EDITOR_FONTS,
   type EditorFont,
   type IndentStyle,
+  TAB_WIDTH_OPTIONS,
 } from '../../store/uiStore';
-import { cn } from '../../lib/utils';
 import { Separator } from '../ui/separator';
+
 import { OptionRow, PillSelect, SectionLabel, ToggleSwitch } from './settingsControls';
 
 type Props = {
   editorFont: EditorFont;
   setEditorFont: (font: EditorFont) => void;
   editorFontSize: number;
-  setEditorFontSize: (fontSize: typeof EDITOR_FONT_SIZE_OPTIONS[number]) => void;
+  setEditorFontSize: (fontSize: (typeof EDITOR_FONT_SIZE_OPTIONS)[number]) => void;
   indentStyle: IndentStyle;
   setIndentStyle: (style: IndentStyle) => void;
   tabWidth: number;
-  setTabWidth: (width: typeof TAB_WIDTH_OPTIONS[number]) => void;
+  setTabWidth: (width: (typeof TAB_WIDTH_OPTIONS)[number]) => void;
   showIndentMarkers: boolean;
   setShowIndentMarkers: (show: boolean) => void;
   showColoredIndents: boolean;
@@ -62,18 +63,19 @@ export default function SettingsEditorSection({
   showColorPreviewFormats,
   setShowColorPreviewFormats,
 }: Props) {
-  const settingsChoiceClass = (selected: boolean) => cn(
-    'w-full flex items-center justify-between rounded-xl border px-3 py-2.5 text-left transition-all app-motion-fast',
-    selected
-      ? 'border-primary/45 bg-primary/8 shadow-sm shadow-primary/10'
-      : 'border-border/40 bg-card/25 hover:border-border hover:bg-accent/25',
-  );
+  const settingsChoiceClass = (selected: boolean) =>
+    cn(
+      'w-full flex items-center justify-between rounded-xl border px-3 py-2.5 text-left transition-all app-motion-fast',
+      selected
+        ? 'border-primary/45 bg-primary/8 shadow-sm shadow-primary/10'
+        : 'border-border/40 bg-card/25 hover:border-border hover:bg-accent/25',
+    );
 
   return (
     <div>
       <SectionLabel>Editor Font Family</SectionLabel>
       <div className="space-y-1.5 mb-5">
-        {(Object.entries(EDITOR_FONTS) as [EditorFont, typeof EDITOR_FONTS[EditorFont]][]).map(
+        {(Object.entries(EDITOR_FONTS) as [EditorFont, (typeof EDITOR_FONTS)[EditorFont]][]).map(
           ([key, value]) => (
             <button
               key={key}
@@ -82,7 +84,10 @@ export default function SettingsEditorSection({
             >
               <div>
                 <p className="text-sm font-medium">{value.label}</p>
-                <p className="text-[12px] text-muted-foreground mt-0.5" style={{ fontFamily: value.css }}>
+                <p
+                  className="text-[12px] text-muted-foreground mt-0.5"
+                  style={{ fontFamily: value.css }}
+                >
                   The quick brown fox jumps over the lazy dog
                 </p>
               </div>
@@ -95,10 +100,13 @@ export default function SettingsEditorSection({
       <Separator className="bg-border/40 my-4" />
 
       <SectionLabel>Editor Font Size</SectionLabel>
-      <OptionRow label="Editor font size" description="Changes note and code editors without affecting the interface">
+      <OptionRow
+        label="Editor font size"
+        description="Changes note and code editors without affecting the interface"
+      >
         <PillSelect
           options={EDITOR_FONT_SIZE_OPTIONS}
-          value={editorFontSize as typeof EDITOR_FONT_SIZE_OPTIONS[number]}
+          value={editorFontSize as (typeof EDITOR_FONT_SIZE_OPTIONS)[number]}
           onChange={setEditorFontSize}
           getLabel={(value) => `${value}px`}
         />
@@ -106,7 +114,10 @@ export default function SettingsEditorSection({
 
       <div
         className="mt-3 rounded-xl border border-border/30 bg-card/25 p-3 text-muted-foreground"
-        style={{ fontSize: `${editorFontSize}px`, fontFamily: EDITOR_FONTS[editorFont]?.css ?? EDITOR_FONTS.codingMono.css }}
+        style={{
+          fontSize: `${editorFontSize}px`,
+          fontFamily: EDITOR_FONTS[editorFont]?.css ?? EDITOR_FONTS.codingMono.css,
+        }}
       >
         Preview: const arrow = () =&gt; value; // editor-only typography
       </div>
@@ -122,7 +133,7 @@ export default function SettingsEditorSection({
           options={['spaces', 'tabs'] as const}
           value={indentStyle}
           onChange={setIndentStyle}
-          getLabel={(value: IndentStyle) => value === 'spaces' ? 'Spaces' : 'Tabs'}
+          getLabel={(value: IndentStyle) => (value === 'spaces' ? 'Spaces' : 'Tabs')}
         />
       </OptionRow>
 
@@ -132,7 +143,7 @@ export default function SettingsEditorSection({
       >
         <PillSelect
           options={TAB_WIDTH_OPTIONS}
-          value={tabWidth as typeof TAB_WIDTH_OPTIONS[number]}
+          value={tabWidth as (typeof TAB_WIDTH_OPTIONS)[number]}
           onChange={setTabWidth}
           getLabel={(value) => `${value}`}
         />
@@ -142,14 +153,20 @@ export default function SettingsEditorSection({
         label="Show indent markers"
         description="Display spaces as dots and tabs as arrows in leading indentation"
       >
-        <ToggleSwitch checked={showIndentMarkers} onToggle={() => setShowIndentMarkers(!showIndentMarkers)} />
+        <ToggleSwitch
+          checked={showIndentMarkers}
+          onToggle={() => setShowIndentMarkers(!showIndentMarkers)}
+        />
       </OptionRow>
 
       <OptionRow
         label="Show colored indents"
         description="Display leading indentation with colored guide bands"
       >
-        <ToggleSwitch checked={showColoredIndents} onToggle={() => setShowColoredIndents(!showColoredIndents)} />
+        <ToggleSwitch
+          checked={showColoredIndents}
+          onToggle={() => setShowColoredIndents(!showColoredIndents)}
+        />
       </OptionRow>
 
       <Separator className="bg-border/40 my-4" />
@@ -159,7 +176,10 @@ export default function SettingsEditorSection({
         label="Enable inline color previews"
         description="Preview recognized color strings directly in note text"
       >
-        <ToggleSwitch checked={showInlineColorPreviews} onToggle={() => setShowInlineColorPreviews(!showInlineColorPreviews)} />
+        <ToggleSwitch
+          checked={showInlineColorPreviews}
+          onToggle={() => setShowInlineColorPreviews(!showInlineColorPreviews)}
+        />
       </OptionRow>
 
       <OptionRow
@@ -215,21 +235,29 @@ export default function SettingsEditorSection({
 
         {showColorPreviewFormats && (
           <div className="mt-2 space-y-1.5">
-            {(Object.entries(COLOR_PREVIEW_FORMAT_OPTIONS) as [ColorPreviewFormat, typeof COLOR_PREVIEW_FORMAT_OPTIONS[ColorPreviewFormat]][]).map(([format, meta]) => (
+            {(
+              Object.entries(COLOR_PREVIEW_FORMAT_OPTIONS) as [
+                ColorPreviewFormat,
+                (typeof COLOR_PREVIEW_FORMAT_OPTIONS)[ColorPreviewFormat],
+              ][]
+            ).map(([format, meta]) => (
               <button
                 key={format}
                 onClick={() => setColorPreviewFormatEnabled(format, !colorPreviewFormats[format])}
                 disabled={!showInlineColorPreviews}
                 className={cn(
                   settingsChoiceClass(colorPreviewFormats[format]),
-                  !showInlineColorPreviews && 'cursor-not-allowed opacity-50 hover:border-border/40 hover:bg-transparent',
+                  !showInlineColorPreviews &&
+                    'cursor-not-allowed opacity-50 hover:border-border/40 hover:bg-transparent',
                 )}
               >
                 <div>
                   <p className="text-sm font-medium">{meta.label}</p>
                   <p className="text-[12px] text-muted-foreground mt-0.5">{meta.description}</p>
                 </div>
-                {colorPreviewFormats[format] && <Check size={14} className="text-primary shrink-0 ml-2" />}
+                {colorPreviewFormats[format] && (
+                  <Check size={14} className="text-primary shrink-0 ml-2" />
+                )}
               </button>
             ))}
           </div>

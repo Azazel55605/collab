@@ -11,7 +11,6 @@
  * as new document state and simply invalidate stale redo entries; they never
  * enter this stack.
  */
-
 import type { InkEdit, InkOperation } from './operations';
 
 /** How many steps back a user can go. Deep enough for a session, bounded. */

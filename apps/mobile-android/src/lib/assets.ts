@@ -1,13 +1,14 @@
-import { fileExtension } from './format';
 import {
   hostedAssetDataUrl,
+  type HostedFileEntry,
   readHostedDocument,
   replicaCacheAsset,
   replicaCacheDocument,
   replicaReadCachedAsset,
   replicaReadCachedDocument,
-  type HostedFileEntry,
 } from '../mobileTauri';
+
+import { fileExtension } from './format';
 
 const IMAGE_MIME_BY_EXT: Record<string, string> = {
   apng: 'image/apng',

@@ -2,7 +2,11 @@ import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { describe, expect, it } from 'vitest';
 
-import { createSnippetSessionExtension, insertSnippetTemplate, parseSnippetTemplate } from './snippetEngine';
+import {
+  createSnippetSessionExtension,
+  insertSnippetTemplate,
+  parseSnippetTemplate,
+} from './snippetEngine';
 
 describe('snippetEngine', () => {
   it('parses placeholders and cursor markers', () => {
@@ -44,13 +48,24 @@ describe('snippetEngine', () => {
       parent,
     });
 
-    insertSnippetTemplate(view, '\\frac{<placeholder:numerator>}{<placeholder:denominator>}<cursor>');
+    insertSnippetTemplate(
+      view,
+      '\\frac{<placeholder:numerator>}{<placeholder:denominator>}<cursor>',
+    );
     view.dispatch({
-      changes: { from: view.state.selection.main.from, to: view.state.selection.main.to, insert: '1' },
+      changes: {
+        from: view.state.selection.main.from,
+        to: view.state.selection.main.to,
+        insert: '1',
+      },
       selection: { anchor: view.state.selection.main.from + 1 },
     });
     view.dispatch({
-      changes: { from: view.state.selection.main.from, to: view.state.selection.main.to, insert: '2' },
+      changes: {
+        from: view.state.selection.main.from,
+        to: view.state.selection.main.to,
+        insert: '2',
+      },
       selection: { anchor: view.state.selection.main.from + 1 },
     });
 
@@ -59,7 +74,9 @@ describe('snippetEngine', () => {
 
     expect(event.defaultPrevented).toBe(true);
     expect(view.state.doc.toString()).toBe('\\frac{12}{denominator}');
-    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe('denominator');
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe(
+      'denominator',
+    );
     view.destroy();
     parent.remove();
   });

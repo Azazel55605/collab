@@ -21,20 +21,14 @@ const boundaries = {
     'readRefreshToken',
     'deleteRefreshToken',
   ],
-  'com.azazel.collab.companion.CollabReplicaKeyStore': [
-    'storeKey',
-    'readKey',
-    'deleteKey',
-  ],
+  'com.azazel.collab.companion.CollabReplicaKeyStore': ['storeKey', 'readKey', 'deleteKey'],
   'com.azazel.collab.companion.CollabBackgroundScheduler': [
     'configure',
     'requestImmediate',
     'requestDiagnostic',
     'cancelProfile',
   ],
-  'com.azazel.collab.companion.CollabContentUri': [
-    'displayName',
-  ],
+  'com.azazel.collab.companion.CollabContentUri': ['displayName'],
   'com.azazel.collab.companion.CollabNotificationBridge': [
     'permissionStatus',
     'requestPermission',
@@ -52,11 +46,13 @@ const boundaries = {
 
 async function mappingFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
-  const files = await Promise.all(entries.map(async (entry) => {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) return mappingFiles(path);
-    return entry.name === 'mapping.txt' ? [path] : [];
-  }));
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) return mappingFiles(path);
+      return entry.name === 'mapping.txt' ? [path] : [];
+    }),
+  );
   return files.flat();
 }
 
@@ -79,10 +75,12 @@ async function main() {
   if (candidates.length === 0) {
     throw new Error(`Android release mapping is missing below ${mappingRoot}.`);
   }
-  const withTimes = await Promise.all(candidates.map(async (path) => ({
-    path,
-    mtimeMs: (await stat(path)).mtimeMs,
-  })));
+  const withTimes = await Promise.all(
+    candidates.map(async (path) => ({
+      path,
+      mtimeMs: (await stat(path)).mtimeMs,
+    })),
+  );
   withTimes.sort((left, right) => right.mtimeMs - left.mtimeMs);
   const mappingPath = withTimes[0].path;
   const mapping = await readFile(mappingPath, 'utf8');

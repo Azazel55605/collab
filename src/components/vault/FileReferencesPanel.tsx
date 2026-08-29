@@ -61,7 +61,9 @@ export default function FileReferencesPanel({
         <GitBranchPlus size={13} className="text-primary/80" />
         <div className="min-w-0">
           <div className="truncate text-[11px] font-medium text-foreground">Where referenced?</div>
-          <div className="truncate text-[10px] text-muted-foreground">{selectedFile.relativePath}</div>
+          <div className="truncate text-[10px] text-muted-foreground">
+            {selectedFile.relativePath}
+          </div>
         </div>
       </div>
 
@@ -90,12 +92,18 @@ export default function FileReferencesPanel({
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
                     {getSourceDocumentIcon(reference)}
-                    <span className="truncate">{reference.displayLabel || reference.sourceRelativePath}</span>
+                    <span className="truncate">
+                      {reference.displayLabel || reference.sourceRelativePath}
+                    </span>
                   </div>
-                  <div className="truncate text-[10px] text-muted-foreground">{reference.sourceRelativePath}</div>
+                  <div className="truncate text-[10px] text-muted-foreground">
+                    {reference.sourceRelativePath}
+                  </div>
                   <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
                     <span>{getReferenceKindLabel(reference)}</span>
-                    {reference.context ? <span className="truncate">· {reference.context}</span> : null}
+                    {reference.context ? (
+                      <span className="truncate">· {reference.context}</span>
+                    ) : null}
                   </div>
                 </div>
               </div>

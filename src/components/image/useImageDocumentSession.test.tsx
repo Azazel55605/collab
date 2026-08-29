@@ -1,6 +1,12 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
 import { useRef, useState } from 'react';
+
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { ImageOverlayDocument } from '../../types/image';
+
+import { useImageDocumentSession } from './useImageDocumentSession';
 
 const tauriMocks = vi.hoisted(() => ({
   readNoteAssetDataUrl: vi.fn(),
@@ -34,10 +40,12 @@ vi.mock('../../lib/vaultClient', () => ({
       authenticatedAssets: vault.kind === 'hosted',
       destructiveSnapshotHistory: vault.kind !== 'hosted',
     },
-    runtime: vault.kind === 'hosted'
-      ? { externalAssetImport: { importData: vaultClientMocks.importData } }
-      : {},
-    readAssetDataUrl: (relativePath: string) => tauriMocks.readNoteAssetDataUrl(vault.path, relativePath),
+    runtime:
+      vault.kind === 'hosted'
+        ? { externalAssetImport: { importData: vaultClientMocks.importData } }
+        : {},
+    readAssetDataUrl: (relativePath: string) =>
+      tauriMocks.readNoteAssetDataUrl(vault.path, relativePath),
     listFiles: vaultClientMocks.listFiles,
   }),
 }));
@@ -53,13 +61,15 @@ vi.mock('sonner', () => ({
   },
 }));
 
-import { useImageDocumentSession } from './useImageDocumentSession';
-import type { ImageOverlayDocument } from '../../types/image';
-import { toast } from 'sonner';
-
 type ImageSessionOptions = Parameters<typeof useImageDocumentSession>[0];
 
-const localVault = { id: 'vault-1', path: '/vault', name: 'Vault', isEncrypted: false, lastOpened: 1 };
+const localVault = {
+  id: 'vault-1',
+  path: '/vault',
+  name: 'Vault',
+  isEncrypted: false,
+  lastOpened: 1,
+};
 const hostedVault = {
   id: 'hosted-vault',
   kind: 'hosted' as const,
@@ -87,7 +97,13 @@ function createSessionOptions(overrides: Partial<ImageSessionOptions> = {}): Ima
     overlayDoc: null,
     overlayLoaded: false,
     persistedOverlaySignature: '',
-    permanentEdits: { rotation: 0, crop: null, resizeWidth: null, resizeHeight: null, lockAspectRatio: true },
+    permanentEdits: {
+      rotation: 0,
+      crop: null,
+      resizeWidth: null,
+      resizeHeight: null,
+      lockAspectRatio: true,
+    },
     cropMode: false,
     permanentDisplayDimensions: { width: 100, height: 100 },
     saveIntent: null,
@@ -190,7 +206,25 @@ describe('useImageDocumentSession', () => {
     const options = createSessionOptions({
       mode: 'additive',
       dimensions: { width: 640, height: 480 },
-      overlayDoc: { version: 1, baseWidth: 640, baseHeight: 480, items: [{ id: 'text-1', type: 'text', x: 0, y: 0, width: 0.2, height: 0.1, text: 'Hello', color: '#fff', fontSize: 18 }], updatedAt: 1 },
+      overlayDoc: {
+        version: 1,
+        baseWidth: 640,
+        baseHeight: 480,
+        items: [
+          {
+            id: 'text-1',
+            type: 'text',
+            x: 0,
+            y: 0,
+            width: 0.2,
+            height: 0.1,
+            text: 'Hello',
+            color: '#fff',
+            fontSize: 18,
+          },
+        ],
+        updatedAt: 1,
+      },
       overlayLoaded: true,
     });
 
@@ -206,7 +240,8 @@ describe('useImageDocumentSession', () => {
   });
 
   it('applies a clean external overlay update from the file watcher', async () => {
-    let modifiedHandler: ((event: { payload?: { path?: string } }) => void | Promise<void>) | undefined;
+    let modifiedHandler:
+      ((event: { payload?: { path?: string } }) => void | Promise<void>) | undefined;
     eventMocks.listen.mockImplementation((_eventName: string, handler: typeof modifiedHandler) => {
       modifiedHandler = handler;
       return Promise.resolve(vi.fn());
@@ -214,7 +249,9 @@ describe('useImageDocumentSession', () => {
     tauriMocks.readNoteAssetDataUrl.mockResolvedValue('data:image/png;base64,abc');
     tauriMocks.readImageOverlay
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce('{"version":1,"baseWidth":640,"baseHeight":480,"items":[{"id":"remote","type":"text","x":0,"y":0,"width":0.2,"height":0.1,"text":"Remote","color":"#fff","fontSize":18}],"updatedAt":2}');
+      .mockResolvedValueOnce(
+        '{"version":1,"baseWidth":640,"baseHeight":480,"items":[{"id":"remote","type":"text","x":0,"y":0,"width":0.2,"height":0.1,"text":"Remote","color":"#fff","fontSize":18}],"updatedAt":2}',
+      );
 
     const { result } = renderImageHarness();
     await waitFor(() => expect(result.current.overlayLoaded).toBe(true));
@@ -230,7 +267,8 @@ describe('useImageDocumentSession', () => {
   });
 
   it('queues an external overlay update while local annotations are dirty', async () => {
-    let modifiedHandler: ((event: { payload?: { path?: string } }) => void | Promise<void>) | undefined;
+    let modifiedHandler:
+      ((event: { payload?: { path?: string } }) => void | Promise<void>) | undefined;
     eventMocks.listen.mockImplementation((_eventName: string, handler: typeof modifiedHandler) => {
       modifiedHandler = handler;
       return Promise.resolve(vi.fn());
@@ -238,18 +276,34 @@ describe('useImageDocumentSession', () => {
     tauriMocks.readNoteAssetDataUrl.mockResolvedValue('data:image/png;base64,abc');
     tauriMocks.readImageOverlay
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce('{"version":1,"baseWidth":640,"baseHeight":480,"items":[{"id":"remote","type":"text","x":0,"y":0,"width":0.2,"height":0.1,"text":"Remote","color":"#fff","fontSize":18}],"updatedAt":2}');
+      .mockResolvedValueOnce(
+        '{"version":1,"baseWidth":640,"baseHeight":480,"items":[{"id":"remote","type":"text","x":0,"y":0,"width":0.2,"height":0.1,"text":"Remote","color":"#fff","fontSize":18}],"updatedAt":2}',
+      );
 
     const { result } = renderImageHarness();
     await waitFor(() => expect(result.current.overlayLoaded).toBe(true));
     act(() => {
-      result.current.setOverlayDoc((current) => current
-        ? {
-            ...current,
-            items: [{ id: 'local', type: 'text', x: 0, y: 0, width: 0.2, height: 0.1, text: 'Local', color: '#fff', fontSize: 18 }],
-            updatedAt: 3,
-          }
-        : current);
+      result.current.setOverlayDoc((current) =>
+        current
+          ? {
+              ...current,
+              items: [
+                {
+                  id: 'local',
+                  type: 'text',
+                  x: 0,
+                  y: 0,
+                  width: 0.2,
+                  height: 0.1,
+                  text: 'Local',
+                  color: '#fff',
+                  fontSize: 18,
+                },
+              ],
+              updatedAt: 3,
+            }
+          : current,
+      );
     });
     await waitFor(() => expect(result.current.session.overlayStatus).toBe('dirty'));
 
@@ -274,18 +328,22 @@ describe('useImageDocumentSession', () => {
     const openTab = vi.fn();
     const setSaveIntent = vi.fn();
 
-    const { result } = renderHook(() => useImageDocumentSession(createSessionOptions({
-      vault: hostedVault,
-      image: { naturalWidth: 640, naturalHeight: 480 } as HTMLImageElement,
-      saveIntent: 'permanent',
-      buildPermanentCanvas,
-      refreshFileTree,
-      openTab,
-      getOutputMime: vi.fn((): 'image/png' => 'image/png'),
-      getOutputFileName: vi.fn(() => 'demo-edited.png'),
-      getBaseName: vi.fn(() => 'demo-edited.png'),
-      setSaveIntent,
-    })));
+    const { result } = renderHook(() =>
+      useImageDocumentSession(
+        createSessionOptions({
+          vault: hostedVault,
+          image: { naturalWidth: 640, naturalHeight: 480 } as HTMLImageElement,
+          saveIntent: 'permanent',
+          buildPermanentCanvas,
+          refreshFileTree,
+          openTab,
+          getOutputMime: vi.fn((): 'image/png' => 'image/png'),
+          getOutputFileName: vi.fn(() => 'demo-edited.png'),
+          getBaseName: vi.fn(() => 'demo-edited.png'),
+          setSaveIntent,
+        }),
+      ),
+    );
 
     await act(async () => {
       await result.current.saveImageOutput(false);
@@ -308,18 +366,22 @@ describe('useImageDocumentSession', () => {
     const outputCanvas = document.createElement('canvas');
     vi.spyOn(outputCanvas, 'toDataURL').mockReturnValue('data:image/png;base64,edited');
 
-    const { result } = renderHook(() => useImageDocumentSession(createSessionOptions({
-      vault: hostedVault,
-      image: { naturalWidth: 640, naturalHeight: 480 } as HTMLImageElement,
-      saveIntent: 'permanent',
-      buildPermanentCanvas: vi.fn(() => ({
-        canvas: outputCanvas,
-        sourceSize: { width: 640, height: 480 },
-      })),
-      getOutputMime: vi.fn((): 'image/png' => 'image/png'),
-      getOutputFileName: vi.fn(() => 'demo-edited.png'),
-      getBaseName: vi.fn(() => 'demo-edited-2.png'),
-    })));
+    const { result } = renderHook(() =>
+      useImageDocumentSession(
+        createSessionOptions({
+          vault: hostedVault,
+          image: { naturalWidth: 640, naturalHeight: 480 } as HTMLImageElement,
+          saveIntent: 'permanent',
+          buildPermanentCanvas: vi.fn(() => ({
+            canvas: outputCanvas,
+            sourceSize: { width: 640, height: 480 },
+          })),
+          getOutputMime: vi.fn((): 'image/png' => 'image/png'),
+          getOutputFileName: vi.fn(() => 'demo-edited.png'),
+          getBaseName: vi.fn(() => 'demo-edited-2.png'),
+        }),
+      ),
+    );
 
     await act(async () => {
       await result.current.saveImageOutput(false);
@@ -336,17 +398,21 @@ describe('useImageDocumentSession', () => {
     const outputCanvas = document.createElement('canvas');
     vi.spyOn(outputCanvas, 'toDataURL').mockReturnValue('data:image/png;base64,edited');
 
-    const { result } = renderHook(() => useImageDocumentSession(createSessionOptions({
-      vault: hostedVault,
-      image: { naturalWidth: 640, naturalHeight: 480 } as HTMLImageElement,
-      saveIntent: 'permanent',
-      buildPermanentCanvas: vi.fn(() => ({
-        canvas: outputCanvas,
-        sourceSize: { width: 640, height: 480 },
-      })),
-      getOutputMime: vi.fn((): 'image/png' => 'image/png'),
-      getOutputFileName: vi.fn(() => 'demo-edited.png'),
-    })));
+    const { result } = renderHook(() =>
+      useImageDocumentSession(
+        createSessionOptions({
+          vault: hostedVault,
+          image: { naturalWidth: 640, naturalHeight: 480 } as HTMLImageElement,
+          saveIntent: 'permanent',
+          buildPermanentCanvas: vi.fn(() => ({
+            canvas: outputCanvas,
+            sourceSize: { width: 640, height: 480 },
+          })),
+          getOutputMime: vi.fn((): 'image/png' => 'image/png'),
+          getOutputFileName: vi.fn(() => 'demo-edited.png'),
+        }),
+      ),
+    );
 
     await act(async () => {
       await result.current.saveImageOutput(true);
@@ -354,7 +420,9 @@ describe('useImageDocumentSession', () => {
 
     expect(vaultClientMocks.importData).not.toHaveBeenCalled();
     expect(tauriMocks.saveGeneratedImage).not.toHaveBeenCalled();
-    expect(toast.error).toHaveBeenCalledWith('Overwriting hosted images is not yet supported. Save as a new file instead.');
+    expect(toast.error).toHaveBeenCalledWith(
+      'Overwriting hosted images is not yet supported. Save as a new file instead.',
+    );
   });
 });
 
@@ -385,6 +453,16 @@ function renderImageHarness() {
       setPersistedOverlaySignature,
     };
     const session = useImageDocumentSession(options);
-    return { src, image, dimensions, loading, error, overlayDoc, overlayLoaded, setOverlayDoc, session };
+    return {
+      src,
+      image,
+      dimensions,
+      loading,
+      error,
+      overlayDoc,
+      overlayLoaded,
+      setOverlayDoc,
+      session,
+    };
   });
 }

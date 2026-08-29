@@ -1,10 +1,22 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+
+import { reconcileFileTreeIdentity } from '../lib/fileTreeIdentity';
 import { tauriCommands } from '../lib/tauri';
 import { createVaultClient, requireRuntimeCapability } from '../lib/vaultClient';
-import { cleanupReplicaCache, makeHostedVaultAvailableOffline, seedReplicaFromManifest } from '../lib/vaultReplica';
-import { reconcileFileTreeIdentity } from '../lib/fileTreeIdentity';
-import { hostedVaultMeta, vaultCan, type HostedVaultMeta, type HostedVaultSummary, type VaultMeta, type NoteFile } from '../types/vault';
+import {
+  cleanupReplicaCache,
+  makeHostedVaultAvailableOffline,
+  seedReplicaFromManifest,
+} from '../lib/vaultReplica';
+import {
+  hostedVaultMeta,
+  type HostedVaultMeta,
+  type HostedVaultSummary,
+  type NoteFile,
+  vaultCan,
+  type VaultMeta,
+} from '../types/vault';
 
 const ALWAYS_CREATE_OFFLINE_COPY_KEY = 'collab-hosted-always-create-offline-copy';
 
@@ -57,11 +69,8 @@ export function sortFileTreeAlphabetically(nodes: NoteFile[]): NoteFile[] {
 function isLikelyFlatpakVaultAccessError(error: unknown) {
   const message = String(error ?? '').toLowerCase();
   return (
-    message.includes('cannot open vault path')
-    && (
-      message.includes('no such file or directory')
-      || message.includes('os error 2')
-    )
+    message.includes('cannot open vault path') &&
+    (message.includes('no such file or directory') || message.includes('os error 2'))
   );
 }
 
@@ -78,26 +87,43 @@ export const useVaultStore = create<VaultState>()(
         const attemptOpenVault = async (vaultPath: string) => {
           const previousVault = get().vault;
           if (previousVault) {
-            await createVaultClient(previousVault).runtime.watch?.stop().catch(() => {});
+            await createVaultClient(previousVault)
+              .runtime.watch?.stop()
+              .catch(() => {});
           }
           const vault = await tauriCommands.openVault(vaultPath);
           const client = createVaultClient(vault);
           if (vault.isEncrypted) {
             // Don't load the file tree yet — wait for the password to be entered.
-            set({ vault, isVaultLocked: true, fileTree: [], isLoading: false, lastOpenedVaultPath: vaultPath });
+            set({
+              vault,
+              isVaultLocked: true,
+              fileTree: [],
+              isLoading: false,
+              lastOpenedVaultPath: vaultPath,
+            });
             return;
           }
 
           const fileTree = sortFileTreeAlphabetically(await client.listFiles());
           await client.runtime.watch?.start();
-          set({ vault, isVaultLocked: false, fileTree, isLoading: false, lastOpenedVaultPath: vaultPath });
+          set({
+            vault,
+            isVaultLocked: false,
+            fileTree,
+            isLoading: false,
+            lastOpenedVaultPath: vaultPath,
+          });
         };
 
         set({ isLoading: true });
         try {
           await attemptOpenVault(path);
         } catch (e) {
-          if (await tauriCommands.isFlatpak().catch(() => false) && isLikelyFlatpakVaultAccessError(e)) {
+          if (
+            (await tauriCommands.isFlatpak().catch(() => false)) &&
+            isLikelyFlatpakVaultAccessError(e)
+          ) {
             const reauthorizedPath = await tauriCommands.showOpenVaultDialog().catch(() => null);
             if (!reauthorizedPath) {
               set({ isLoading: false });
@@ -116,7 +142,9 @@ export const useVaultStore = create<VaultState>()(
         try {
           const previousVault = get().vault;
           if (previousVault) {
-            await createVaultClient(previousVault).runtime.watch?.stop().catch(() => {});
+            await createVaultClient(previousVault)
+              .runtime.watch?.stop()
+              .catch(() => {});
           }
           const fileTree = sortFileTreeAlphabetically(await createVaultClient(vault).listFiles());
           const shouldCreateOfflineCopy =
@@ -172,10 +200,10 @@ export const useVaultStore = create<VaultState>()(
         if (!summary) return;
         const next = hostedVaultMeta(serverUrl, summary);
         if (
-          vault.name === next.name
-          && vault.role === next.role
-          && vault.requireOfflineCopy === next.requireOfflineCopy
-          && sameStringArray(vault.capabilities, next.capabilities)
+          vault.name === next.name &&
+          vault.role === next.role &&
+          vault.requireOfflineCopy === next.requireOfflineCopy &&
+          sameStringArray(vault.capabilities, next.capabilities)
         ) {
           return;
         }
@@ -191,7 +219,10 @@ export const useVaultStore = create<VaultState>()(
       },
       closeVault: () => {
         const vault = get().vault;
-        if (vault) createVaultClient(vault).runtime.watch?.stop().catch(() => {});
+        if (vault)
+          createVaultClient(vault)
+            .runtime.watch?.stop()
+            .catch(() => {});
         set({ vault: null, isVaultLocked: false, fileTree: [] });
       },
       loadRecentVaults: async () => {
@@ -205,7 +236,10 @@ export const useVaultStore = create<VaultState>()(
     }),
     {
       name: 'vault-storage',
-      partialize: (state) => ({ recentVaults: state.recentVaults, lastOpenedVaultPath: state.lastOpenedVaultPath }),
-    }
-  )
+      partialize: (state) => ({
+        recentVaults: state.recentVaults,
+        lastOpenedVaultPath: state.lastOpenedVaultPath,
+      }),
+    },
+  ),
 );

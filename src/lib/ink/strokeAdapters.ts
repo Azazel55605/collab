@@ -13,11 +13,11 @@
  * written against. See `docs/plans/digital-ink-phase0-contract.md` for the
  * measured comparison and the decision.
  */
-
 import getStroke from 'perfect-freehand';
 
 import { INK_SAMPLE_RANGES } from '../../types/ink';
 import type { InkSample } from '../../types/ink';
+
 import type { InkPoint, InkStrokeOutliner } from './stroke';
 
 /**
@@ -54,5 +54,4 @@ export const INK_STROKE_OUTLINERS = {
   perfectFreehand: 'perfectFreehand',
 } as const;
 
-export type InkStrokeOutlinerId =
-  (typeof INK_STROKE_OUTLINERS)[keyof typeof INK_STROKE_OUTLINERS];
+export type InkStrokeOutlinerId = (typeof INK_STROKE_OUTLINERS)[keyof typeof INK_STROKE_OUTLINERS];

@@ -1,17 +1,18 @@
 import { Check } from 'lucide-react';
 
-import {
-  DATE_FORMAT_OPTIONS,
-  formatDate,
-  type CalendarDefaultDuration,
-  type DateFormat,
-  type WeekStart,
-  type TimeFormat,
-} from '../../store/uiStore';
 import { cn } from '../../lib/utils';
-import { Separator } from '../ui/separator';
+import {
+  type CalendarDefaultDuration,
+  DATE_FORMAT_OPTIONS,
+  type DateFormat,
+  formatDate,
+  type TimeFormat,
+  type WeekStart,
+} from '../../store/uiStore';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Separator } from '../ui/separator';
 import { TimePicker } from '../ui/time-picker';
+
 import { OptionRow, SectionLabel, ToggleSwitch } from './settingsControls';
 import TimeZoneSelect from './TimeZoneSelect';
 
@@ -63,30 +64,31 @@ export default function SettingsCalendarSection({
   return (
     <div>
       <SectionLabel>Date Format</SectionLabel>
-      <p className="text-xs text-muted-foreground mb-3">
-        How dates are displayed across the app.
-      </p>
+      <p className="text-xs text-muted-foreground mb-3">How dates are displayed across the app.</p>
       <div className="space-y-1.5 mb-5">
-        {(Object.entries(DATE_FORMAT_OPTIONS) as [DateFormat, typeof DATE_FORMAT_OPTIONS[DateFormat]][]).map(
-          ([key, value]) => (
-            <button
-              key={key}
-              onClick={() => setDateFormat(key)}
-              className={cn(
-                'w-full flex items-center justify-between rounded-xl border px-3 py-2.5 text-left transition-all app-motion-fast',
-                dateFormat === key
-                  ? 'border-primary/45 bg-primary/8 shadow-sm shadow-primary/10'
-                  : 'border-border/40 bg-card/25 hover:border-border hover:bg-accent/25',
-              )}
-            >
-              <div>
-                <p className="text-sm font-medium font-mono">{value.label}</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">{value.description}</p>
-              </div>
-              {dateFormat === key && <Check size={14} className="text-primary shrink-0 ml-2" />}
-            </button>
-          ),
-        )}
+        {(
+          Object.entries(DATE_FORMAT_OPTIONS) as [
+            DateFormat,
+            (typeof DATE_FORMAT_OPTIONS)[DateFormat],
+          ][]
+        ).map(([key, value]) => (
+          <button
+            key={key}
+            onClick={() => setDateFormat(key)}
+            className={cn(
+              'w-full flex items-center justify-between rounded-xl border px-3 py-2.5 text-left transition-all app-motion-fast',
+              dateFormat === key
+                ? 'border-primary/45 bg-primary/8 shadow-sm shadow-primary/10'
+                : 'border-border/40 bg-card/25 hover:border-border hover:bg-accent/25',
+            )}
+          >
+            <div>
+              <p className="text-sm font-medium font-mono">{value.label}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">{value.description}</p>
+            </div>
+            {dateFormat === key && <Check size={14} className="text-primary shrink-0 ml-2" />}
+          </button>
+        ))}
       </div>
 
       <Separator className="bg-border/40 my-4" />
@@ -96,11 +98,13 @@ export default function SettingsCalendarSection({
         Controls time labels and calendar time inputs.
       </p>
       <div className="grid grid-cols-3 gap-2">
-        {([
-          ['system', 'System'],
-          ['12-hour', '12 hour'],
-          ['24-hour', '24 hour'],
-        ] as Array<[TimeFormat, string]>).map(([value, label]) => (
+        {(
+          [
+            ['system', 'System'],
+            ['12-hour', '12 hour'],
+            ['24-hour', '24 hour'],
+          ] as Array<[TimeFormat, string]>
+        ).map(([value, label]) => (
           <button
             key={value}
             onClick={() => setTimeFormat(value)}
@@ -130,7 +134,9 @@ export default function SettingsCalendarSection({
       <OptionRow label="Default duration" description="Length used for new timed events and tasks.">
         <Select
           value={String(defaultDurationMinutes)}
-          onValueChange={(value) => setDefaultDurationMinutes(Number(value) as CalendarDefaultDuration)}
+          onValueChange={(value) =>
+            setDefaultDurationMinutes(Number(value) as CalendarDefaultDuration)
+          }
         >
           <SelectTrigger aria-label="Default event duration" className="w-32">
             <SelectValue />
@@ -138,7 +144,9 @@ export default function SettingsCalendarSection({
           <SelectContent>
             {[15, 30, 45, 60, 90, 120].map((minutes) => (
               <SelectItem key={minutes} value={String(minutes)}>
-                {minutes < 60 ? `${minutes} minutes` : `${minutes / 60} ${minutes === 60 ? 'hour' : 'hours'}`}
+                {minutes < 60
+                  ? `${minutes} minutes`
+                  : `${minutes / 60} ${minutes === 60 ? 'hour' : 'hours'}`}
               </SelectItem>
             ))}
           </SelectContent>
@@ -147,7 +155,9 @@ export default function SettingsCalendarSection({
       <OptionRow label="Default reminder" description="Applied when a new item is created.">
         <Select
           value={defaultReminderMinutes === null ? 'none' : String(defaultReminderMinutes)}
-          onValueChange={(value) => setDefaultReminderMinutes(value === 'none' ? null : Number(value))}
+          onValueChange={(value) =>
+            setDefaultReminderMinutes(value === 'none' ? null : Number(value))
+          }
         >
           <SelectTrigger aria-label="Default calendar reminder" className="w-36">
             <SelectValue />
@@ -166,12 +176,20 @@ export default function SettingsCalendarSection({
       <Separator className="bg-border/40 my-4" />
 
       <SectionLabel>Working Hours</SectionLabel>
-      <p className="text-xs text-muted-foreground mb-3">
-        Week and day views open near this range.
-      </p>
+      <p className="text-xs text-muted-foreground mb-3">Week and day views open near this range.</p>
       <div className="grid grid-cols-2 gap-2">
-        <TimePicker value={workingHoursStart} onChange={setWorkingHoursStart} format={timeFormat} label="Start" />
-        <TimePicker value={workingHoursEnd} onChange={setWorkingHoursEnd} format={timeFormat} label="End" />
+        <TimePicker
+          value={workingHoursStart}
+          onChange={setWorkingHoursStart}
+          format={timeFormat}
+          label="Start"
+        />
+        <TimePicker
+          value={workingHoursEnd}
+          onChange={setWorkingHoursEnd}
+          format={timeFormat}
+          label="End"
+        />
       </div>
 
       <Separator className="bg-border/40 my-4" />
@@ -211,10 +229,25 @@ export default function SettingsCalendarSection({
 
       <SectionLabel>Preview</SectionLabel>
       <div className="rounded-xl border border-border/40 bg-card/25 p-3 text-sm text-muted-foreground">
-        <p>Today: <span className="text-foreground font-medium">{formatDate(new Date(), dateFormat)}</span></p>
-        <p className="mt-1.5">Week starts on: <span className="text-foreground font-medium">{weekStart === 1 ? 'Monday' : 'Sunday'}</span></p>
-        <p className="mt-1.5">Time format: <span className="text-foreground font-medium">{timeFormat === 'system' ? 'System default' : timeFormat}</span></p>
-        <p className="mt-1.5">Default time zone: <span className="text-foreground font-medium">{defaultTimeZone}</span></p>
+        <p>
+          Today:{' '}
+          <span className="text-foreground font-medium">{formatDate(new Date(), dateFormat)}</span>
+        </p>
+        <p className="mt-1.5">
+          Week starts on:{' '}
+          <span className="text-foreground font-medium">
+            {weekStart === 1 ? 'Monday' : 'Sunday'}
+          </span>
+        </p>
+        <p className="mt-1.5">
+          Time format:{' '}
+          <span className="text-foreground font-medium">
+            {timeFormat === 'system' ? 'System default' : timeFormat}
+          </span>
+        </p>
+        <p className="mt-1.5">
+          Default time zone: <span className="text-foreground font-medium">{defaultTimeZone}</span>
+        </p>
       </div>
     </div>
   );

@@ -19,14 +19,14 @@ import {
 import { toast } from 'sonner';
 
 import { dispatchEditorToolbarAction } from '../../lib/editorToolbarActions';
+import { createInkDocument, serializeInkDocument } from '../../lib/ink/document';
+import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
 import { createVaultClient } from '../../lib/vaultClient';
-import type { ActiveView, DateFormat } from '../../store/uiStore';
 import type { PendingSearchJump } from '../../store/editorStore';
+import type { ActiveView, DateFormat } from '../../store/uiStore';
+import { createEmptyLogicDiagram } from '../../types/logicDiagram';
 import type { NoteMetadata, SearchResult } from '../../types/note';
 import type { NoteFile, VaultMeta } from '../../types/vault';
-import { createEmptyLogicDiagram } from '../../types/logicDiagram';
-import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
-import { createInkDocument, serializeInkDocument } from '../../lib/ink/document';
 
 export interface RenderCtx {
   notes: NoteMetadata[];
@@ -35,7 +35,21 @@ export interface RenderCtx {
   activeView: ActiveView;
   vault: VaultMeta | null;
   dateFormat: DateFormat;
-  openTab: (relativePath: string, title: string, type?: 'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'graph' | 'settings' | 'image' | 'pdf') => void;
+  openTab: (
+    relativePath: string,
+    title: string,
+    type?:
+      | 'note'
+      | 'canvas'
+      | 'kanban'
+      | 'logic'
+      | 'sheet'
+      | 'ink'
+      | 'graph'
+      | 'settings'
+      | 'image'
+      | 'pdf',
+  ) => void;
   setActiveView: (v: ActiveView) => void;
   openSettings: () => void;
   refreshFileTree: () => Promise<void>;
@@ -57,7 +71,11 @@ export const SETTINGS_SECTIONS = [
   { id: 'editor', label: 'Editor', keywords: ['font', 'typing', 'delete', 'notes'] },
   { id: 'display', label: 'Display', keywords: ['scale', 'motion', 'animation', 'ui'] },
   { id: 'calendar', label: 'Calendar', keywords: ['date', 'week', 'format'] },
-  { id: 'notifications', label: 'Notifications', keywords: ['alerts', 'reminders', 'permission', 'inbox'] },
+  {
+    id: 'notifications',
+    label: 'Notifications',
+    keywords: ['alerts', 'reminders', 'permission', 'inbox'],
+  },
   { id: 'profile', label: 'Profile', keywords: ['name', 'identity', 'presence', 'user'] },
   { id: 'about', label: 'About', keywords: ['version', 'update', 'app'] },
   { id: 'shortcuts', label: 'Shortcuts', keywords: ['keyboard', 'hotkeys', 'bindings'] },
@@ -228,11 +246,19 @@ export const ACTIONS: Action[] = [
   },
   {
     id: 'new-schematic',
-    keywords: ['new schematic', 'create schematic', 'electronic diagram', 'circuit diagram', 'resistor transistor'],
+    keywords: [
+      'new schematic',
+      'create schematic',
+      'electronic diagram',
+      'circuit diagram',
+      'resistor transistor',
+    ],
     label: 'New Electronic Schematic',
     icon: <CircuitBoard className="size-4 shrink-0" />,
     onSelect: async (ctx, query) => {
-      const rawName = query.replace(/^new\s+(?:electronic\s+)?schematic\s*/i, '').trim() || 'Electronic Schematic';
+      const rawName =
+        query.replace(/^new\s+(?:electronic\s+)?schematic\s*/i, '').trim() ||
+        'Electronic Schematic';
       const name = rawName.replace(/\.logic$/i, '');
       if (!ctx.vault) return;
       try {

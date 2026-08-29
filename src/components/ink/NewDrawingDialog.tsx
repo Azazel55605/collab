@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
+
 import { PenLine } from 'lucide-react';
 
+import { loadInkTemplates } from '../../lib/ink/templates';
+import { cn } from '../../lib/utils';
+import { INK_PAGE_PRESETS } from '../../types/ink';
+import type { InkBackgroundPattern, InkPageMode, InkPagePresetId } from '../../types/ink';
+import { Button } from '../ui/button';
 import {
   Dialog,
   DialogContent,
@@ -9,12 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
-import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { cn } from '../../lib/utils';
-import { INK_PAGE_PRESETS } from '../../types/ink';
-import type { InkBackgroundPattern, InkPageMode, InkPagePresetId } from '../../types/ink';
-import { loadInkTemplates } from '../../lib/ink/templates';
 
 const labelClass = 'text-xs font-medium text-muted-foreground';
 
@@ -64,11 +65,7 @@ interface NewDrawingDialogProps {
   onCreate: (choice: NewDrawingChoice) => void;
 }
 
-export default function NewDrawingDialog({
-  open,
-  onOpenChange,
-  onCreate,
-}: NewDrawingDialogProps) {
+export default function NewDrawingDialog({ open, onOpenChange, onCreate }: NewDrawingDialogProps) {
   const [name, setName] = useState('');
   const [mode, setMode] = useState<InkPageMode>('fixed');
   const [preset, setPreset] = useState<InkPagePresetId>('a4');
@@ -116,7 +113,9 @@ export default function NewDrawingDialog({
 
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <label htmlFor="ink-name" className={labelClass}>Drawing name</label>
+            <label htmlFor="ink-name" className={labelClass}>
+              Drawing name
+            </label>
             <Input
               id="ink-name"
               value={name}
@@ -131,7 +130,9 @@ export default function NewDrawingDialog({
 
           {templates.length > 0 && (
             <div className="space-y-1.5">
-              <label htmlFor="ink-template" className={labelClass}>Saved template</label>
+              <label htmlFor="ink-template" className={labelClass}>
+                Saved template
+              </label>
               <select
                 id="ink-template"
                 value={templateId}
@@ -139,7 +140,11 @@ export default function NewDrawingDialog({
                 className="w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-xs"
               >
                 <option value="">Use the paper settings below</option>
-                {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
               </select>
             </div>
           )}

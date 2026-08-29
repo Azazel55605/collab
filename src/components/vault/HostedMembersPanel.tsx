@@ -1,24 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+
 import { Loader2, ShieldCheck, SlidersHorizontal, Trash2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { createVaultClient, type VaultMembersCapability } from '../../lib/vaultClient';
-import { useCollabIdentity } from '../../lib/collabIdentity';
 import {
   CAPABILITY_GROUPS,
-  MANAGEMENT_CAPABILITIES,
   capabilityLabel,
+  MANAGEMENT_CAPABILITIES,
   sortCapabilityTokens,
 } from '../../lib/capabilities';
+import { useCollabIdentity } from '../../lib/collabIdentity';
+import { createVaultClient, type VaultMembersCapability } from '../../lib/vaultClient';
 import { useServerStore } from '../../store/serverStore';
 import { useVaultStore } from '../../store/vaultStore';
 import {
-  vaultCan,
-  vaultKind,
   type HostedVaultMember,
   type MemberRole,
   type PermissionTemplate,
   type UserDirectoryEntry,
+  vaultCan,
+  vaultKind,
 } from '../../types/vault';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
@@ -32,13 +33,7 @@ import {
 } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { ScrollArea } from '../ui/scroll-area';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 const ROLE_OPTIONS: { value: MemberRole; label: string; hint: string }[] = [
   { value: 'viewer', label: 'Viewer', hint: 'Read-only access' },
@@ -71,7 +66,9 @@ const ROLE_DEFAULT_CAPABILITIES: Record<MemberRole, string[]> = {
     'note.edit',
     'canvas.edit',
   ],
-  admin: CAPABILITY_GROUPS.flatMap((group) => group.capabilities.map((capability) => capability.token)),
+  admin: CAPABILITY_GROUPS.flatMap((group) =>
+    group.capabilities.map((capability) => capability.token),
+  ),
 };
 
 function initials(displayName: string): string {
@@ -91,7 +88,11 @@ function RoleSelect({
   onChange: (role: MemberRole) => void;
 }) {
   return (
-    <Select value={value} disabled={disabled} onValueChange={(next) => onChange(next as MemberRole)}>
+    <Select
+      value={value}
+      disabled={disabled}
+      onValueChange={(next) => onChange(next as MemberRole)}
+    >
       <SelectTrigger className="h-8 w-28 text-xs">
         <SelectValue />
       </SelectTrigger>
@@ -110,7 +111,7 @@ function RoleSelect({
 function CapabilityBadges({ member }: { member: HostedVaultMember }) {
   const tokens = member.owner
     ? ['Full access']
-    : member.capabilities ?? ROLE_DEFAULT_CAPABILITIES[member.role];
+    : (member.capabilities ?? ROLE_DEFAULT_CAPABILITIES[member.role]);
   const source = member.owner
     ? null
     : member.templateName
@@ -177,9 +178,7 @@ function PermissionEditorDialog({
   const [selected, setSelected] = useState<Set<string>>(
     () =>
       new Set(
-        member.customCapabilities ??
-          member.capabilities ??
-          ROLE_DEFAULT_CAPABILITIES[member.role],
+        member.customCapabilities ?? member.capabilities ?? ROLE_DEFAULT_CAPABILITIES[member.role],
       ),
   );
   const [saving, setSaving] = useState(false);
@@ -202,7 +201,10 @@ function PermissionEditorDialog({
   const toggle = (token: string) => {
     // Self-lockout guard: the management capabilities cannot be removed from
     // yourself (mirrors the server-side guard).
-    if (isSelf && MANAGEMENT_CAPABILITIES.includes(token as (typeof MANAGEMENT_CAPABILITIES)[number])) {
+    if (
+      isSelf &&
+      MANAGEMENT_CAPABILITIES.includes(token as (typeof MANAGEMENT_CAPABILITIES)[number])
+    ) {
       return;
     }
     setSelected((prev) => {
@@ -253,8 +255,8 @@ function PermissionEditorDialog({
         <DialogHeader>
           <DialogTitle>Permissions — {member.displayName}</DialogTitle>
           <DialogDescription>
-            Choose how this member&apos;s capabilities are granted. The server enforces the effective
-            capability tokens on every request.
+            Choose how this member&apos;s capabilities are granted. The server enforces the
+            effective capability tokens on every request.
           </DialogDescription>
         </DialogHeader>
 
@@ -281,8 +283,8 @@ function PermissionEditorDialog({
 
         {mode === 'role' && (
           <p className="rounded-md border border-border/50 bg-muted/20 p-3 text-xs text-muted-foreground">
-            Uses the built-in capability set for the member&apos;s <b>{member.role}</b> role. Any custom
-            override or template assignment is cleared.
+            Uses the built-in capability set for the member&apos;s <b>{member.role}</b> role. Any
+            custom override or template assignment is cleared.
           </p>
         )}
 
@@ -293,7 +295,9 @@ function PermissionEditorDialog({
                 <Loader2 size={14} className="animate-spin" /> Loading templates…
               </div>
             ) : templates.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No permission templates are available.</p>
+              <p className="text-xs text-muted-foreground">
+                No permission templates are available.
+              </p>
             ) : (
               <Select value={templateId ?? ''} onValueChange={(value) => setTemplateId(value)}>
                 <SelectTrigger className="h-9 text-sm">
@@ -336,7 +340,11 @@ function PermissionEditorDialog({
                         <label
                           key={capability.token}
                           className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-accent/40"
-                          title={locked ? 'You cannot remove your own management permissions.' : undefined}
+                          title={
+                            locked
+                              ? 'You cannot remove your own management permissions.'
+                              : undefined
+                          }
                         >
                           <Checkbox
                             checked={selected.has(capability.token)}
@@ -344,7 +352,9 @@ function PermissionEditorDialog({
                             onCheckedChange={() => toggle(capability.token)}
                             aria-label={capability.token}
                           />
-                          <span className={locked ? 'text-muted-foreground' : ''}>{capability.label}</span>
+                          <span className={locked ? 'text-muted-foreground' : ''}>
+                            {capability.label}
+                          </span>
                         </label>
                       );
                     })}
@@ -379,7 +389,10 @@ export function HostedMembersPanel() {
   const identity = useCollabIdentity();
   const loadHostedVaults = useServerStore((state) => state.loadHostedVaults);
   const members = useMemo<VaultMembersCapability | null>(
-    () => (vault && vaultKind(vault) === 'hosted' ? createVaultClient(vault).runtime.members ?? null : null),
+    () =>
+      vault && vaultKind(vault) === 'hosted'
+        ? (createVaultClient(vault).runtime.members ?? null)
+        : null,
     [vault],
   );
   const canManageMembers = vaultCan(vault, 'vault.manageMembers');
@@ -474,7 +487,8 @@ export function HostedMembersPanel() {
     toast.success('Permissions updated');
     // When the current user's own grant changed, refresh the open vault DTO so
     // capability-gated UI reflects the new permissions immediately.
-    if (wasSelf && vault?.kind === 'hosted') await loadHostedVaults(vault.serverUrl).catch(() => {});
+    if (wasSelf && vault?.kind === 'hosted')
+      await loadHostedVaults(vault.serverUrl).catch(() => {});
     await refresh();
   };
 
@@ -505,9 +519,9 @@ export function HostedMembersPanel() {
       <div className="rounded-lg border border-border/50 bg-muted/20 p-3 text-xs text-muted-foreground">
         <p className="font-medium text-foreground">Permission grants</p>
         <p className="mt-1">
-          A member&apos;s role provides a baseline capability set. Assign a permission template or a custom
-          capability set to override that baseline; the server enforces the effective tokens on every
-          request.
+          A member&apos;s role provides a baseline capability set. Assign a permission template or a
+          custom capability set to override that baseline; the server enforces the effective tokens
+          on every request.
         </p>
         <p className="mt-1">
           {canManagePermissions
@@ -547,9 +561,12 @@ export function HostedMembersPanel() {
                         className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent/60 disabled:opacity-50"
                       >
                         <span className="truncate">
-                          {entry.displayName} <span className="text-muted-foreground">@{entry.username}</span>
+                          {entry.displayName}{' '}
+                          <span className="text-muted-foreground">@{entry.username}</span>
                         </span>
-                        {alreadyMember && <span className="text-[10px] text-muted-foreground">member</span>}
+                        {alreadyMember && (
+                          <span className="text-[10px] text-muted-foreground">member</span>
+                        )}
                       </button>
                     </li>
                   );
@@ -559,7 +576,12 @@ export function HostedMembersPanel() {
           </div>
           <div className="mt-2 flex items-center gap-2">
             <RoleSelect value={addRole} onChange={setAddRole} />
-            <Button size="sm" className="h-8 gap-1.5" disabled={!selected || adding} onClick={() => void handleAdd()}>
+            <Button
+              size="sm"
+              className="h-8 gap-1.5"
+              disabled={!selected || adding}
+              onClick={() => void handleAdd()}
+            >
               {adding ? <Loader2 size={13} className="animate-spin" /> : <UserPlus size={13} />}
               Add
             </Button>

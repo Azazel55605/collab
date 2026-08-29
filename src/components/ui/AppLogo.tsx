@@ -8,7 +8,7 @@ interface AppLogoProps {
 export function AppLogo({ size = 24, className }: AppLogoProps) {
   const theme = useUiStore((state) => state.theme);
   const isLight = theme === 'light';
-  const backCardOpacity = isLight ? 0.14 : 0.10;
+  const backCardOpacity = isLight ? 0.14 : 0.1;
   const frontCardOpacity = isLight ? 0.18 : 0.14;
   const secondaryStrokeOpacity = isLight ? 0.84 : 0.72;
 
@@ -22,8 +22,24 @@ export function AppLogo({ size = 24, className }: AppLogoProps) {
       className={['app-logo-mark', className].filter(Boolean).join(' ')}
       aria-hidden="true"
     >
-      <rect x="7" y="10" width="30" height="34" rx="8" fill="currentColor" opacity={backCardOpacity} />
-      <rect x="18" y="6" width="30" height="34" rx="8" fill="currentColor" opacity={frontCardOpacity} />
+      <rect
+        x="7"
+        y="10"
+        width="30"
+        height="34"
+        rx="8"
+        fill="currentColor"
+        opacity={backCardOpacity}
+      />
+      <rect
+        x="18"
+        y="6"
+        width="30"
+        height="34"
+        rx="8"
+        fill="currentColor"
+        opacity={frontCardOpacity}
+      />
       <path
         d="M35 8H45V18"
         stroke="currentColor"
@@ -31,12 +47,7 @@ export function AppLogo({ size = 24, className }: AppLogoProps) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <path
-        d="M25 24H39"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-      />
+      <path d="M25 24H39" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
       <path
         d="M25 30H34"
         stroke="currentColor"

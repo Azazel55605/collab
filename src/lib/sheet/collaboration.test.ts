@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { sheetCellKey } from '../../types/sheet';
+
+import { mergeSheetDocuments, mergeStableIdentityOrder, sheetOperationId } from './collaboration';
 import { createWorkbookFixture } from './fixture';
-import {
-  mergeSheetDocuments,
-  mergeStableIdentityOrder,
-  sheetOperationId,
-} from './collaboration';
 
 function workbook() {
   return createWorkbookFixture({
@@ -19,11 +16,13 @@ function workbook() {
 
 describe('sheet collaboration contract', () => {
   it('builds stable per-action idempotency keys', () => {
-    expect(sheetOperationId({
-      actorId: 'user@example.com',
-      clientOperationId: 'paste-1',
-      index: 4,
-    })).toBe('sheet:user%40example.com:paste-1:4');
+    expect(
+      sheetOperationId({
+        actorId: 'user@example.com',
+        clientOperationId: 'paste-1',
+        index: 4,
+      }),
+    ).toBe('sheet:user%40example.com:paste-1:4');
   });
 
   it('merges unrelated cell edits without a whole-document conflict', () => {

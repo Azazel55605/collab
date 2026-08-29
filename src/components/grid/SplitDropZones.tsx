@@ -1,20 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, ArrowUp, ArrowDown } from 'lucide-react';
+
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp } from 'lucide-react';
+
+import { type DragPoint, useDragContext } from '../../contexts/DragContext';
 import { cn } from '../../lib/utils';
-import { useDragContext, type DragPoint } from '../../contexts/DragContext';
-import { useGridStore } from '../../store/gridStore';
 import { useEditorStore } from '../../store/editorStore';
-import { useUiStore } from '../../store/uiStore';
+import { useGridStore } from '../../store/gridStore';
 import type { GridCellContent } from '../../store/gridStore';
+import { useUiStore } from '../../store/uiStore';
 
 type Direction = 'left' | 'right' | 'top' | 'bottom';
 
-const ZONE_CONFIG: Record<Direction, {
-  label: string;
-  icon: React.ReactNode;
-  style: React.CSSProperties;
-  previewStyle: React.CSSProperties;
-}> = {
+const ZONE_CONFIG: Record<
+  Direction,
+  {
+    label: string;
+    icon: React.ReactNode;
+    style: React.CSSProperties;
+    previewStyle: React.CSSProperties;
+  }
+> = {
   left: {
     label: 'Split left',
     icon: <ArrowLeft size={16} />,
@@ -55,9 +60,13 @@ export default function SplitDropZones() {
   const getCurrentContent = (): GridCellContent => {
     const activeTab = openTabs.find((t) => t.relativePath === activeTabPath);
     if (activeTab) {
-      return { type: activeTab.type as any, relativePath: activeTab.relativePath, title: activeTab.title };
+      return {
+        type: activeTab.type as any,
+        relativePath: activeTab.relativePath,
+        title: activeTab.title,
+      };
     }
-    if (activeView === 'graph')  return { type: 'graph',  relativePath: null, title: 'Graph' };
+    if (activeView === 'graph') return { type: 'graph', relativePath: null, title: 'Graph' };
     if (activeView === 'canvas') return { type: 'canvas', relativePath: null, title: 'Canvas' };
     if (activeView === 'kanban') return { type: 'kanban', relativePath: null, title: 'Kanban' };
     return { type: 'empty', relativePath: null, title: '' };
@@ -83,8 +92,10 @@ export default function SplitDropZones() {
     for (const [dir, el] of zoneRefs.current) {
       const rect = el.getBoundingClientRect();
       if (
-        point.x >= rect.left && point.x <= rect.right &&
-        point.y >= rect.top && point.y <= rect.bottom
+        point.x >= rect.left &&
+        point.x <= rect.right &&
+        point.y >= rect.top &&
+        point.y <= rect.bottom
       ) {
         return dir;
       }
@@ -113,7 +124,7 @@ export default function SplitDropZones() {
 
   return (
     <div className="absolute inset-0 pointer-events-none z-50">
-      {(Object.entries(ZONE_CONFIG) as [Direction, typeof ZONE_CONFIG[Direction]][]).map(
+      {(Object.entries(ZONE_CONFIG) as [Direction, (typeof ZONE_CONFIG)[Direction]][]).map(
         ([dir, cfg]) => {
           const isHovered = hoveredZone === dir;
           return (
@@ -125,9 +136,7 @@ export default function SplitDropZones() {
               }}
               className={cn(
                 'absolute transition-all duration-150 app-motion-base',
-                isHovered
-                  ? 'bg-primary/25 backdrop-blur-2px-webkit'
-                  : 'bg-primary/8'
+                isHovered ? 'bg-primary/25 backdrop-blur-2px-webkit' : 'bg-primary/8',
               )}
               style={cfg.style}
             >
@@ -135,21 +144,18 @@ export default function SplitDropZones() {
               <div
                 className={cn(
                   'absolute inset-0 border-2 border-dashed rounded transition-colors duration-150 app-motion-base',
-                  isHovered ? 'border-primary/70' : 'border-primary/20'
+                  isHovered ? 'border-primary/70' : 'border-primary/20',
                 )}
               />
 
               {/* Label — always visible, stronger on hover */}
-              <div
-                className="absolute flex flex-col items-center gap-1.5"
-                style={cfg.previewStyle}
-              >
+              <div className="absolute flex flex-col items-center gap-1.5" style={cfg.previewStyle}>
                 <div
                   className={cn(
                     'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium shadow-lg transition-all duration-150 app-motion-base',
                     isHovered
                       ? 'bg-primary text-primary-foreground scale-105 shadow-primary/30 shadow-xl'
-                      : 'bg-background/80 text-muted-foreground border border-border/50 scale-95 opacity-70'
+                      : 'bg-background/80 text-muted-foreground border border-border/50 scale-95 opacity-70',
                   )}
                 >
                   {cfg.icon}
@@ -158,7 +164,7 @@ export default function SplitDropZones() {
               </div>
             </div>
           );
-        }
+        },
       )}
     </div>
   );

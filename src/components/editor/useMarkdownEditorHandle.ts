@@ -1,5 +1,6 @@
 import type { MutableRefObject } from 'react';
 import { useImperativeHandle } from 'react';
+
 import type { EditorView } from '@codemirror/view';
 
 import type { ParsedCodeBlockAtCursor } from './codeBlockUtils';
@@ -114,92 +115,96 @@ export function useMarkdownEditorHandle({
   getMathBlockAtCursor,
   getCodeBlockAtCursor,
 }: UseMarkdownEditorHandleArgs) {
-  useImperativeHandle(ref, () => ({
-    insertAround(before, after, placeholder) {
-      const view = viewRef.current;
-      if (!view) return;
-      insertAroundSelection(view, before, after, placeholder);
-    },
+  useImperativeHandle(
+    ref,
+    () => ({
+      insertAround(before, after, placeholder) {
+        const view = viewRef.current;
+        if (!view) return;
+        insertAroundSelection(view, before, after, placeholder);
+      },
 
-    insertLine(prefix) {
-      const view = viewRef.current;
-      if (!view) return;
-      toggleLinePrefix(view, prefix);
-    },
+      insertLine(prefix) {
+        const view = viewRef.current;
+        if (!view) return;
+        toggleLinePrefix(view, prefix);
+      },
 
-    insertSnippet(text) {
-      const view = viewRef.current;
-      if (!view) return;
-      insertSnippetAtSelection(view, text);
-    },
+      insertSnippet(text) {
+        const view = viewRef.current;
+        if (!view) return;
+        insertSnippetAtSelection(view, text);
+      },
 
-    insertFootnote() {
-      const view = viewRef.current;
-      if (!view) return;
-      insertOrNavigateFootnote(view);
-    },
+      insertFootnote() {
+        const view = viewRef.current;
+        if (!view) return;
+        insertOrNavigateFootnote(view);
+      },
 
-    focus() {
-      viewRef.current?.focus();
-    },
+      focus() {
+        viewRef.current?.focus();
+      },
 
-    replaceRange(from, to, text) {
-      const view = viewRef.current;
-      if (!view) return;
-      replaceEditorRange(view, { from, to }, text);
-    },
+      replaceRange(from, to, text) {
+        const view = viewRef.current;
+        if (!view) return;
+        replaceEditorRange(view, { from, to }, text);
+      },
 
-    moveCursorToEnd() {
-      const view = viewRef.current;
-      if (!view) return;
-      const end = view.state.doc.length;
-      view.dispatch({
-        selection: { anchor: end, head: end },
-      });
-      view.focus();
-    },
+      moveCursorToEnd() {
+        const view = viewRef.current;
+        if (!view) return;
+        const end = view.state.doc.length;
+        view.dispatch({
+          selection: { anchor: end, head: end },
+        });
+        view.focus();
+      },
 
-    revealRange(from, to = from) {
-      const view = viewRef.current;
-      if (!view) return;
-      const docLength = view.state.doc.length;
-      const anchor = Math.max(0, Math.min(from, docLength));
-      const head = Math.max(0, Math.min(to, docLength));
-      view.dispatch({
-        selection: { anchor, head },
-        scrollIntoView: true,
-      });
-      view.focus();
-    },
+      revealRange(from, to = from) {
+        const view = viewRef.current;
+        if (!view) return;
+        const docLength = view.state.doc.length;
+        const anchor = Math.max(0, Math.min(from, docLength));
+        const head = Math.max(0, Math.min(to, docLength));
+        view.dispatch({
+          selection: { anchor, head },
+          scrollIntoView: true,
+        });
+        view.focus();
+      },
 
-    getViewState() {
-      const view = viewRef.current;
-      if (!view) return null;
-      return captureEditorViewState(view);
-    },
+      getViewState() {
+        const view = viewRef.current;
+        if (!view) return null;
+        return captureEditorViewState(view);
+      },
 
-    restoreViewState(editorViewState) {
-      const view = viewRef.current;
-      if (!view) return;
-      restoreEditorViewState(view, editorViewState);
-    },
+      restoreViewState(editorViewState) {
+        const view = viewRef.current;
+        if (!view) return;
+        restoreEditorViewState(view, editorViewState);
+      },
 
-    getTableAtCursor() {
-      const view = viewRef.current;
-      if (!view) return null;
-      return getTableAtCursor(view);
-    },
+      getTableAtCursor() {
+        const view = viewRef.current;
+        if (!view) return null;
+        return getTableAtCursor(view);
+      },
 
-    getMathBlockAtCursor() {
-      const view = viewRef.current;
-      if (!view) return null;
-      return getMathBlockAtCursor(view);
-    },
+      getMathBlockAtCursor() {
+        const view = viewRef.current;
+        if (!view) return null;
+        return getMathBlockAtCursor(view);
+      },
 
-    getCodeBlockAtCursor() {
-      const view = viewRef.current;
-      if (!view) return null;
-      return getCodeBlockAtCursor(view);
-    },
-  }), [getCodeBlockAtCursor, getMathBlockAtCursor, getTableAtCursor, viewRef]);
+      getCodeBlockAtCursor() {
+        const view = viewRef.current;
+        if (!view) return null;
+        return getCodeBlockAtCursor(view);
+      },
+    }),
+    [getCodeBlockAtCursor, getMathBlockAtCursor, getTableAtCursor, viewRef],
+  );
 }

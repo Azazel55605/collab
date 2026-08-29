@@ -112,11 +112,11 @@ server {
 These are starting points for a small/medium self-hosted team; measure with
 [load testing](./load-testing.md) for your own content and concurrency.
 
-| Deployment | vCPU | RAM | Notes |
-| --- | --- | --- | --- |
-| Evaluation / a few users | 1 | 1 GiB | PostgreSQL + server + gateway co-resident. |
-| Small team (≤ ~25 active) | 2 | 2–4 GiB | Headroom for live rooms and ZIP import/export. |
-| Medium team (≤ ~100 active) | 4 | 8 GiB | Watch storage quota and live-room counts on the dashboard. |
+| Deployment                  | vCPU | RAM     | Notes                                                      |
+| --------------------------- | ---- | ------- | ---------------------------------------------------------- |
+| Evaluation / a few users    | 1    | 1 GiB   | PostgreSQL + server + gateway co-resident.                 |
+| Small team (≤ ~25 active)   | 2    | 2–4 GiB | Headroom for live rooms and ZIP import/export.             |
+| Medium team (≤ ~100 active) | 4    | 8 GiB   | Watch storage quota and live-room counts on the dashboard. |
 
 Memory drivers to watch: in-memory ZIP import/export (bounded by
 `COLLAB_MAX_IMPORT_*`), live-CRDT rooms (one `yrs` document per open file), and
@@ -125,11 +125,11 @@ with `COLLAB_STORAGE_QUOTA_BYTES` and watch `COLLAB_STORAGE_WARNING_BYTES`.
 
 ## Network and Ports
 
-| Port | Service | Exposure |
-| --- | --- | --- |
-| `8788` (`COLLAB_HTTP_PORT`) | Gateway | Public entry point (bind with `COLLAB_HTTP_BIND`). |
-| `8787` | `collab-server` | Private network only. |
-| `5432` | PostgreSQL | Private network only. |
+| Port                        | Service         | Exposure                                           |
+| --------------------------- | --------------- | -------------------------------------------------- |
+| `8788` (`COLLAB_HTTP_PORT`) | Gateway         | Public entry point (bind with `COLLAB_HTTP_BIND`). |
+| `8787`                      | `collab-server` | Private network only.                              |
+| `5432`                      | PostgreSQL      | Private network only.                              |
 
 Set `COLLAB_HTTP_BIND=127.0.0.1` to keep the gateway host-local (e.g. when an
 external reverse proxy on the same host fronts it); the default `0.0.0.0`

@@ -1,11 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LogicDiagramDocument } from '../../../src/types/logicDiagram';
 
-const invoke = vi.fn();
-vi.mock('@tauri-apps/api/core', () => ({
-  Channel: class {},
-  invoke: (...args: unknown[]) => invoke(...args),
-}));
+import type { LogicDiagramDocument } from '../../../src/types/logicDiagram';
 
 import {
   circuitCancelJob,
@@ -18,6 +13,12 @@ import {
   circuitStartTransient,
   circuitTakeJobResult,
 } from './mobileTauri';
+
+const invoke = vi.fn();
+vi.mock('@tauri-apps/api/core', () => ({
+  Channel: class {},
+  invoke: (...args: unknown[]) => invoke(...args),
+}));
 
 describe('mobile circuit commands', () => {
   beforeEach(() => invoke.mockReset());

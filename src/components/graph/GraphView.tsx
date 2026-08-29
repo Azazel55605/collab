@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+
 import * as d3 from 'd3';
+
 import type { NoteMetadata } from '../../types/note';
 import { Input } from '../ui/input';
 
@@ -68,10 +70,7 @@ export function buildGraphData(notes: NoteMetadata[]) {
   const exactRelativeStemToPath = new Map<string, string>();
 
   for (const note of visibleNotes) {
-    exactRelativePathToPath.set(
-      normalizeGraphLinkTarget(note.relativePath),
-      note.relativePath,
-    );
+    exactRelativePathToPath.set(normalizeGraphLinkTarget(note.relativePath), note.relativePath);
     exactRelativeStemToPath.set(
       normalizeGraphLinkTarget(stripMarkdownExtension(note.relativePath)),
       note.relativePath,
@@ -79,13 +78,18 @@ export function buildGraphData(notes: NoteMetadata[]) {
   }
 
   const basenameToPath = buildUniqueLookup(
-    visibleNotes.map((note) => [note.relativePath.split('/').pop() ?? '', note.relativePath] as const),
+    visibleNotes.map(
+      (note) => [note.relativePath.split('/').pop() ?? '', note.relativePath] as const,
+    ),
   );
   const stemToPath = buildUniqueLookup(
-    visibleNotes.map((note) => [
-      stripMarkdownExtension(note.relativePath.split('/').pop() ?? ''),
-      note.relativePath,
-    ] as const),
+    visibleNotes.map(
+      (note) =>
+        [
+          stripMarkdownExtension(note.relativePath.split('/').pop() ?? ''),
+          note.relativePath,
+        ] as const,
+    ),
   );
   const titleToPath = buildUniqueLookup(
     visibleNotes.map((note) => [note.title, note.relativePath] as const),
@@ -108,17 +112,14 @@ export function buildGraphData(notes: NoteMetadata[]) {
       const normalizedTarget = normalizeGraphLinkTarget(wikilink);
       if (!normalizedTarget) continue;
 
-      const targetPath = exactRelativePathToPath.get(normalizedTarget)
-        ?? exactRelativeStemToPath.get(normalizedTarget)
-        ?? basenameToPath.get(normalizedTarget)
-        ?? stemToPath.get(normalizedTarget)
-        ?? titleToPath.get(normalizedTarget);
+      const targetPath =
+        exactRelativePathToPath.get(normalizedTarget) ??
+        exactRelativeStemToPath.get(normalizedTarget) ??
+        basenameToPath.get(normalizedTarget) ??
+        stemToPath.get(normalizedTarget) ??
+        titleToPath.get(normalizedTarget);
 
-      if (
-        targetPath &&
-        targetPath !== note.relativePath &&
-        nodeIds.has(targetPath)
-      ) {
+      if (targetPath && targetPath !== note.relativePath && nodeIds.has(targetPath)) {
         const linkKey = `${note.relativePath}->${targetPath}`;
         if (linkKeys.has(linkKey)) continue;
         linkKeys.add(linkKey);
@@ -162,11 +163,7 @@ export default function GraphView({ notes, onNodeClick }: GraphViewProps) {
     const shouldAlwaysShowLabels = nodes.length <= LABEL_ALWAYS_VISIBLE_NODE_LIMIT;
     let currentScale = 1;
 
-    const nodeRadius = d3
-      .scaleSqrt()
-      .domain([0, 20])
-      .range([5, 16])
-      .clamp(true);
+    const nodeRadius = d3.scaleSqrt().domain([0, 20]).range([5, 16]).clamp(true);
 
     const linkLayer = g.append('g');
     const nodeLayer = g.append('g');
@@ -181,7 +178,8 @@ export default function GraphView({ notes, onNodeClick }: GraphViewProps) {
       .attr('stroke-width', links.length > 300 ? 0.8 : 1);
 
     const applyInteractionDetail = (interacting: boolean, scale = currentScale) => {
-      const showLabels = !interacting && (shouldAlwaysShowLabels || scale >= LABEL_DETAIL_SCALE_THRESHOLD);
+      const showLabels =
+        !interacting && (shouldAlwaysShowLabels || scale >= LABEL_DETAIL_SCALE_THRESHOLD);
       label.attr('display', showLabels ? null : 'none');
 
       link.attr('marker-end', interacting ? null : 'url(#arrowhead)');
@@ -230,7 +228,9 @@ export default function GraphView({ notes, onNodeClick }: GraphViewProps) {
     node
       .append('circle')
       .attr('r', (d) => nodeRadius(d.linkCount))
-      .style('fill', (d) => (d.tags.length > 0 ? GRAPH_COLORS.taggedNodeFill : GRAPH_COLORS.nodeFill))
+      .style('fill', (d) =>
+        d.tags.length > 0 ? GRAPH_COLORS.taggedNodeFill : GRAPH_COLORS.nodeFill,
+      )
       .style('fill-opacity', (d) => (d.tags.length > 0 ? 0.95 : 0.72))
       .style('stroke', GRAPH_COLORS.nodeStroke)
       .style('stroke-opacity', 0.42)
@@ -239,9 +239,7 @@ export default function GraphView({ notes, onNodeClick }: GraphViewProps) {
 
     const label = node
       .append('text')
-      .text((d) =>
-        d.title.length > 20 ? d.title.slice(0, 17) + '\u2026' : d.title
-      )
+      .text((d) => (d.title.length > 20 ? d.title.slice(0, 17) + '\u2026' : d.title))
       .attr('x', (d) => nodeRadius(d.linkCount) + 4)
       .attr('y', 4)
       .attr('font-size', 11)
@@ -328,10 +326,7 @@ export default function GraphView({ notes, onNodeClick }: GraphViewProps) {
           const targetOffset = nodeRadius(target.linkCount) + 1;
           return ty - (dy / distance) * targetOffset;
         });
-      node.attr(
-        'transform',
-        (d) => `translate(${d.x ?? 0},${d.y ?? 0})`
-      );
+      node.attr('transform', (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
     };
 
     const scheduleRender = () => {
@@ -349,15 +344,13 @@ export default function GraphView({ notes, onNodeClick }: GraphViewProps) {
         d3
           .forceLink<GraphNode, GraphLink>(links)
           .id((d) => d.id)
-          .distance(80)
+          .distance(80),
       )
       .force('charge', d3.forceManyBody().strength(-150))
       .force('center', d3.forceCenter(width / 2, height / 2))
       .force(
         'collision',
-        d3
-          .forceCollide<GraphNode>()
-          .radius((d) => nodeRadius(d.linkCount) + 8)
+        d3.forceCollide<GraphNode>().radius((d) => nodeRadius(d.linkCount) + 8),
       )
       .on('tick', scheduleRender);
 

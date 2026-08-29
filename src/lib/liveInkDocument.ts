@@ -1,13 +1,9 @@
 import * as Y from 'yjs';
 
 import type { InkDocument } from '../types/ink';
+
 import { connectLiveProvider, type LiveDocumentHandle } from './liveDocumentSession';
-import {
-  reconcileArray,
-  type JsonObject,
-  type JsonValue,
-  yToJson,
-} from './liveJsonDocument';
+import { type JsonObject, type JsonValue, reconcileArray, yToJson } from './liveJsonDocument';
 import type { VaultClient } from './vaultClient';
 
 const ROOT_MAP = 'doc';
@@ -59,9 +55,9 @@ function reconcileText(text: Y.Text, next: string) {
   while (prefix < limit && current[prefix] === next[prefix]) prefix += 1;
   let suffix = 0;
   while (
-    suffix < current.length - prefix
-    && suffix < next.length - prefix
-    && current[current.length - 1 - suffix] === next[next.length - 1 - suffix]
+    suffix < current.length - prefix &&
+    suffix < next.length - prefix &&
+    current[current.length - 1 - suffix] === next[next.length - 1 - suffix]
   ) {
     suffix += 1;
   }

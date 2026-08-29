@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   getActiveMathBlock,
+  handleMathBlockShortcutKeydown,
   insertMathFraction,
   insertMathIntegral,
   insertMathMatrix,
@@ -13,7 +14,6 @@ import {
   insertMathSubscript,
   insertMathSum,
   insertMathSuperscript,
-  handleMathBlockShortcutKeydown,
   MATH_SOLVER_ACTION_EVENT,
   selectMathBlockContents,
   solveActiveMathInput,
@@ -69,7 +69,9 @@ describe('mathBlockCommands', () => {
 
     expect(insertMathFraction(view)).toBe(true);
     expect(view.state.doc.toString()).toBe('before\n$$\n\\frac{x + 1}{denominator}\n$$\nafter');
-    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe('denominator');
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe(
+      'denominator',
+    );
   });
 
   it('wraps the contiguous math text before the cursor when there is no selection', () => {
@@ -77,7 +79,9 @@ describe('mathBlockCommands', () => {
 
     expect(insertMathFraction(view)).toBe(true);
     expect(view.state.doc.toString()).toBe('$$\n\\frac{x+1}{denominator}\n$$');
-    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe('denominator');
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe(
+      'denominator',
+    );
   });
 
   it('wraps preceding math tokens for templates that accept existing content', () => {
@@ -107,7 +111,9 @@ describe('mathBlockCommands', () => {
 
     expect(insertMathRoot(view)).toBe(true);
     expect(view.state.doc.toString()).toBe('$$\n\\sqrt{radicand}\n$$');
-    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe('radicand');
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe(
+      'radicand',
+    );
   });
 
   it('adds larger math structures through the same snippet session engine', () => {
@@ -115,18 +121,24 @@ describe('mathBlockCommands', () => {
 
     expect(insertMathSuperscript(view)).toBe(true);
     expect(view.state.doc.toString()).toBe('$$\n{y}^{power}\n$$');
-    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe('power');
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe(
+      'power',
+    );
 
     expect(insertMathMatrix(view)).toBe(true);
     expect(view.state.doc.toString()).toContain('\\begin{bmatrix}');
-    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe('a_{11}');
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe(
+      'a_{11}',
+    );
   });
 
   it('selects display math block contents without selecting delimiters', () => {
     const view = createView('before\n$$\nx + 1\n$$\nafter', 10);
 
     expect(selectMathBlockContents(view)).toBe(true);
-    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe('x + 1');
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe(
+      'x + 1',
+    );
   });
 
   it('inserts 2D plot directives near the top of a math block', () => {
@@ -140,15 +152,18 @@ describe('mathBlockCommands', () => {
     const view = createView('$$\ny=\\sin(x)\n$$', 6);
     const preventDefault = vi.fn();
 
-    const handled = handleMathBlockShortcutKeydown({
-      key: '²',
-      code: 'Digit2',
-      ctrlKey: true,
-      metaKey: false,
-      altKey: true,
-      shiftKey: false,
-      preventDefault,
-    }, view);
+    const handled = handleMathBlockShortcutKeydown(
+      {
+        key: '²',
+        code: 'Digit2',
+        ctrlKey: true,
+        metaKey: false,
+        altKey: true,
+        shiftKey: false,
+        preventDefault,
+      },
+      view,
+    );
 
     expect(handled).toBe(true);
     expect(preventDefault).toHaveBeenCalledTimes(1);
@@ -159,7 +174,9 @@ describe('mathBlockCommands', () => {
     const view = createView('$$\n%plot3d z=old, x=-1..1, y=-1..1\nz=x^2+y^2\n$$', 45);
 
     expect(insertMathPlot3D(view)).toBe(true);
-    expect(view.state.doc.toString()).toBe('$$\n%plot3d x=-5..5, y=-5..5, samples=60\nz=x^2+y^2\n$$');
+    expect(view.state.doc.toString()).toBe(
+      '$$\n%plot3d x=-5..5, y=-5..5, samples=60\nz=x^2+y^2\n$$',
+    );
   });
 
   it('appends an evaluated expression result on Ctrl+Enter command', () => {

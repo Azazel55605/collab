@@ -1,13 +1,14 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-
 import { createEmptySheetDocument } from '../../../../src/lib/sheet/document';
 import { activeWorksheet, setCell, setFrozen } from '../../../../src/lib/sheet/operations';
 import { createSelection, type SheetSelection } from '../../../../src/lib/sheet/selection';
 import type { SheetDocument } from '../../../../src/types/sheet';
+
 import { SheetTouchGrid } from './SheetTouchGrid';
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 class ResizeObserverMock {
   observe() {}
@@ -24,7 +25,12 @@ function fixture(rows: number, columns: number): SheetDocument {
     worksheet: { rows, columns },
   });
   const sheetId = activeWorksheet(workbook).id;
-  workbook = setCell(workbook, sheetId, { row: 0, column: 0 }, { value: 'Origin', valueType: 'text' });
+  workbook = setCell(
+    workbook,
+    sheetId,
+    { row: 0, column: 0 },
+    { value: 'Origin', valueType: 'text' },
+  );
   return workbook;
 }
 
@@ -104,10 +110,12 @@ describe('mobile touch grid', () => {
     fireEvent.touchStart(handle, { touches: [{ clientX: 60, clientY: 30 }] });
     fireEvent.touchMove(handle, { touches: [{ clientX: 250, clientY: 90 }] });
 
-    expect(onSelectionChange).toHaveBeenCalledWith(expect.objectContaining({
-      kind: 'cells',
-      ranges: [{ anchor: { row: 0, column: 0 }, focus: { row: 2, column: 2 } }],
-    }));
+    expect(onSelectionChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'cells',
+        ranges: [{ anchor: { row: 0, column: 0 }, focus: { row: 2, column: 2 } }],
+      }),
+    );
   });
 
   it('reports a pinch as a bounded scale change', () => {
@@ -119,17 +127,26 @@ describe('mobile touch grid', () => {
     const grid = screen.getByRole('grid');
 
     fireEvent.touchStart(grid, {
-      touches: [{ clientX: 100, clientY: 100 }, { clientX: 200, clientY: 100 }],
+      touches: [
+        { clientX: 100, clientY: 100 },
+        { clientX: 200, clientY: 100 },
+      ],
     });
     fireEvent.touchMove(grid, {
-      touches: [{ clientX: 60, clientY: 100 }, { clientX: 260, clientY: 100 }],
+      touches: [
+        { clientX: 60, clientY: 100 },
+        { clientX: 260, clientY: 100 },
+      ],
     });
 
     expect(onScaleChange).toHaveBeenCalledWith(2);
 
     // Beyond the maximum, the scale clamps rather than growing without bound.
     fireEvent.touchMove(grid, {
-      touches: [{ clientX: 0, clientY: 100 }, { clientX: 2_000, clientY: 100 }],
+      touches: [
+        { clientX: 0, clientY: 100 },
+        { clientX: 2_000, clientY: 100 },
+      ],
     });
     expect(onScaleChange).toHaveBeenLastCalledWith(2.4);
   });

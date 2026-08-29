@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { nativeVaultPath } from './dragOut';
 
 describe('nativeVaultPath', () => {
@@ -11,6 +12,8 @@ describe('nativeVaultPath', () => {
   });
 
   it('uses backslashes and converts the relative path for Windows roots', () => {
-    expect(nativeVaultPath('C:\\Users\\u\\vault', 'Notes/a.md')).toBe('C:\\Users\\u\\vault\\Notes\\a.md');
+    expect(nativeVaultPath('C:\\Users\\u\\vault', 'Notes/a.md')).toBe(
+      'C:\\Users\\u\\vault\\Notes\\a.md',
+    );
   });
 });

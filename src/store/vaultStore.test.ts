@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { HostedVaultMeta, HostedVaultSummary } from '../types/vault';
+
+import { sortFileTreeAlphabetically, useVaultStore } from './vaultStore';
+
 const tauriCommandsMock = vi.hoisted(() => ({
   unwatchVault: vi.fn(),
   openVault: vi.fn(),
@@ -26,9 +30,6 @@ const tauriCommandsMock = vi.hoisted(() => ({
 vi.mock('../lib/tauri', () => ({
   tauriCommands: tauriCommandsMock,
 }));
-
-import type { HostedVaultMeta, HostedVaultSummary } from '../types/vault';
-import { sortFileTreeAlphabetically, useVaultStore } from './vaultStore';
 
 describe('vaultStore Flatpak reopen fallback', () => {
   const initialState = useVaultStore.getState();
@@ -74,7 +75,9 @@ describe('vaultStore Flatpak reopen fallback', () => {
 
   it('reauthorizes Flatpak recents when direct reopen loses access', async () => {
     tauriCommandsMock.openVault
-      .mockRejectedValueOnce(new Error("Cannot open vault path '/old/vault': No such file or directory (os error 2)"))
+      .mockRejectedValueOnce(
+        new Error("Cannot open vault path '/old/vault': No such file or directory (os error 2)"),
+      )
       .mockResolvedValueOnce({
         id: 'vault-1',
         name: 'Vault',
@@ -165,8 +168,18 @@ describe('vaultStore Flatpak reopen fallback', () => {
       },
     ]);
 
-    expect(sorted.map((node) => node.name)).toEqual(['Beta', 'Ordner', 'Alpha.md', 'äther.md', 'zeta.md']);
-    expect(sorted[1]?.children?.map((node) => node.name)).toEqual(['Ähre.md', 'alpha.md', 'zulu.md']);
+    expect(sorted.map((node) => node.name)).toEqual([
+      'Beta',
+      'Ordner',
+      'Alpha.md',
+      'äther.md',
+      'zeta.md',
+    ]);
+    expect(sorted[1]?.children?.map((node) => node.name)).toEqual([
+      'Ähre.md',
+      'alpha.md',
+      'zulu.md',
+    ]);
   });
 
   it('refreshes hosted file trees without starting a local filesystem watcher', async () => {
@@ -297,10 +310,12 @@ describe('vaultStore Flatpak reopen fallback', () => {
     useVaultStore.setState({ vault: hostedVault });
     const before = useVaultStore.getState().vault;
 
-    useVaultStore.getState().refreshHostedVaultMetadata('https://collab.example.test', [{
-      ...hostedSummary,
-      updatedAt: '2026-07-06T08:00:00.000Z',
-    }]);
+    useVaultStore.getState().refreshHostedVaultMetadata('https://collab.example.test', [
+      {
+        ...hostedSummary,
+        updatedAt: '2026-07-06T08:00:00.000Z',
+      },
+    ]);
 
     expect(useVaultStore.getState().vault).toBe(before);
   });
@@ -308,11 +323,13 @@ describe('vaultStore Flatpak reopen fallback', () => {
   it('updates open hosted vault metadata when access data changes', () => {
     useVaultStore.setState({ vault: hostedVault });
 
-    useVaultStore.getState().refreshHostedVaultMetadata('https://collab.example.test', [{
-      ...hostedSummary,
-      role: 'viewer',
-      capabilities: ['vault.read'],
-    }]);
+    useVaultStore.getState().refreshHostedVaultMetadata('https://collab.example.test', [
+      {
+        ...hostedSummary,
+        role: 'viewer',
+        capabilities: ['vault.read'],
+      },
+    ]);
 
     expect(useVaultStore.getState().vault).toMatchObject({
       role: 'viewer',
@@ -364,19 +381,26 @@ describe('vaultStore Flatpak reopen fallback', () => {
     tauriCommandsMock.hostedVaultRequest.mockImplementation((_url, _method, path) => {
       if (path.endsWith('/manifest')) return Promise.resolve(manifest);
       if (path.endsWith('/files/note-1')) return Promise.resolve({ content: '# Hosted' });
-      return Promise.resolve({ vaultId: 'hosted-vault', baseSequence: 0, sequence: 4, changedFiles: [] });
+      return Promise.resolve({
+        vaultId: 'hosted-vault',
+        baseSequence: 0,
+        sequence: 4,
+        changedFiles: [],
+      });
     });
     tauriCommandsMock.replicaReadManifest.mockResolvedValueOnce(null).mockResolvedValue(manifest);
     tauriCommandsMock.replicaSeed.mockResolvedValue(undefined);
 
     await useVaultStore.getState().openHostedVault(hostedVault);
 
-    await vi.waitFor(() => expect(tauriCommandsMock.replicaCacheDocument).toHaveBeenCalledWith(
-      'https://collab.example.test',
-      'hosted-vault',
-      'note-1',
-      '# Hosted',
-    ));
+    await vi.waitFor(() =>
+      expect(tauriCommandsMock.replicaCacheDocument).toHaveBeenCalledWith(
+        'https://collab.example.test',
+        'hosted-vault',
+        'note-1',
+        '# Hosted',
+      ),
+    );
   });
 
   it('does not create a full offline copy when the user lacks the offline-copy capability', async () => {
@@ -402,7 +426,12 @@ describe('vaultStore Flatpak reopen fallback', () => {
     tauriCommandsMock.hostedVaultRequest.mockImplementation((_url, _method, path) => {
       if (path.endsWith('/manifest')) return Promise.resolve(manifest);
       if (path.endsWith('/files/note-1')) return Promise.resolve({ content: '# Hosted' });
-      return Promise.resolve({ vaultId: 'hosted-vault', baseSequence: 0, sequence: 4, changedFiles: [] });
+      return Promise.resolve({
+        vaultId: 'hosted-vault',
+        baseSequence: 0,
+        sequence: 4,
+        changedFiles: [],
+      });
     });
     tauriCommandsMock.replicaSeed.mockResolvedValue(undefined);
 
@@ -439,19 +468,26 @@ describe('vaultStore Flatpak reopen fallback', () => {
     };
     tauriCommandsMock.hostedVaultRequest.mockImplementation((_url, _method, path) => {
       if (path.endsWith('/manifest')) return Promise.resolve(manifest);
-      return Promise.resolve({ vaultId: 'hosted-vault', baseSequence: 0, sequence: 4, changedFiles: [] });
+      return Promise.resolve({
+        vaultId: 'hosted-vault',
+        baseSequence: 0,
+        sequence: 4,
+        changedFiles: [],
+      });
     });
     tauriCommandsMock.replicaReadManifest.mockResolvedValueOnce(null).mockResolvedValue(manifest);
     tauriCommandsMock.replicaSeed.mockResolvedValue(undefined);
 
     await useVaultStore.getState().openHostedVault({ ...hostedVault, requireOfflineCopy: true });
 
-    await vi.waitFor(() => expect(tauriCommandsMock.replicaCacheAsset).toHaveBeenCalledWith(
-      'https://collab.example.test',
-      'hosted-vault',
-      'asset-1',
-      'YXNzZXQ=',
-    ));
+    await vi.waitFor(() =>
+      expect(tauriCommandsMock.replicaCacheAsset).toHaveBeenCalledWith(
+        'https://collab.example.test',
+        'hosted-vault',
+        'asset-1',
+        'YXNzZXQ=',
+      ),
+    );
   });
 
   it('still opens a hosted vault when replica seeding fails', async () => {
@@ -463,12 +499,14 @@ describe('vaultStore Flatpak reopen fallback', () => {
       status: 'idle',
     });
     tauriCommandsMock.hostedVaultRequest.mockImplementation((_url, _method, path) =>
-      path.endsWith('/manifest') ? Promise.reject(new Error('offline')) : Promise.resolve({
-        vaultId: 'hosted-vault',
-        baseSequence: 1,
-        sequence: 1,
-        changedFiles: [],
-      }),
+      path.endsWith('/manifest')
+        ? Promise.reject(new Error('offline'))
+        : Promise.resolve({
+            vaultId: 'hosted-vault',
+            baseSequence: 1,
+            sequence: 1,
+            changedFiles: [],
+          }),
     );
 
     await useVaultStore.getState().openHostedVault(hostedVault);

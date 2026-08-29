@@ -43,7 +43,12 @@ export function ImagePermanentToolbar({
         <RotateCw size={14} className="mr-1.5" />
         Rotate
       </Button>
-      <Button size="sm" variant={cropMode ? 'default' : 'outline'} className="h-8" onClick={onBeginCrop}>
+      <Button
+        size="sm"
+        variant={cropMode ? 'default' : 'outline'}
+        className="h-8"
+        onClick={onBeginCrop}
+      >
         <Crop size={14} className="mr-1.5" />
         Crop
       </Button>
@@ -80,7 +85,13 @@ export function ImagePermanentToolbar({
       <Button size="sm" variant="ghost" className="h-8" onClick={onReset}>
         Reset
       </Button>
-      <Button size="sm" variant="secondary" className="h-8" disabled={!permanentDirty} onClick={onSaveChanges}>
+      <Button
+        size="sm"
+        variant="secondary"
+        className="h-8"
+        disabled={!permanentDirty}
+        onClick={onSaveChanges}
+      >
         Save Changes
       </Button>
     </>

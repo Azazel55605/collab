@@ -1,10 +1,12 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { useServerStore } from '../../store/serverStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
-import VaultManagerModal from './VaultManagerModal';
 import type { HostedVaultMeta, HostedVaultSummary, LocalVaultMeta } from '../../types/vault';
+
+import VaultManagerModal from './VaultManagerModal';
 
 vi.mock('../../lib/tauri', () => ({
   tauriCommands: {
@@ -101,7 +103,13 @@ function connect(connected: boolean) {
               connected: true,
               serverUrl: 'https://collab.example.test',
               allowInvalidCertificates: false,
-              user: { id: 'user-1', username: 'alice', displayName: 'Alice', role: 'member', status: 'active' },
+              user: {
+                id: 'user-1',
+                username: 'alice',
+                displayName: 'Alice',
+                role: 'member',
+                status: 'active',
+              },
               accessExpiresAt: '2999-01-01T00:00:00Z',
             },
             hostedVaults: [hostedVault],
@@ -169,24 +177,39 @@ describe('VaultManagerModal hosted vaults', () => {
     connect(true);
     render(<VaultManagerModal />);
     fireEvent.click(await screen.findByTitle('New hosted vault'));
-    fireEvent.change(screen.getByPlaceholderText('New hosted vault name'), { target: { value: 'Fresh Vault' } });
+    fireEvent.change(screen.getByPlaceholderText('New hosted vault name'), {
+      target: { value: 'Fresh Vault' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
-    await waitFor(() => expect(createHostedVault).toHaveBeenCalledWith('https://collab.example.test', 'Fresh Vault'));
     await waitFor(() =>
-      expect(openHostedVault).toHaveBeenCalledWith(expect.objectContaining({ kind: 'hosted', hostedVaultId: 'vault-1' })),
+      expect(createHostedVault).toHaveBeenCalledWith('https://collab.example.test', 'Fresh Vault'),
+    );
+    await waitFor(() =>
+      expect(openHostedVault).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'hosted', hostedVaultId: 'vault-1' }),
+      ),
     );
   });
 
   it('exposes hosted offline sync controls and starts the offline cache action', async () => {
     connect(true);
-    syncStoreMock.makeAvailableOffline.mockResolvedValue({ documentsCached: 1, assetsCached: 2, skipped: 0 });
+    syncStoreMock.makeAvailableOffline.mockResolvedValue({
+      documentsCached: 1,
+      assetsCached: 2,
+      skipped: 0,
+    });
     useVaultStore.setState({ vault: openHostedVaultMeta } as never);
     render(<VaultManagerModal />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Offline Sync' }));
     fireEvent.click(screen.getByRole('button', { name: 'Make available offline' }));
 
-    await waitFor(() => expect(syncStoreMock.makeAvailableOffline).toHaveBeenCalledWith(openHostedVaultMeta, expect.any(Function)));
+    await waitFor(() =>
+      expect(syncStoreMock.makeAvailableOffline).toHaveBeenCalledWith(
+        openHostedVaultMeta,
+        expect.any(Function),
+      ),
+    );
   });
 
   it('disables offline copy creation once the hosted vault is already available offline', async () => {
@@ -234,13 +257,17 @@ describe('VaultManagerModal hosted vaults', () => {
     expect(screen.getByText('Offline copies · https://server-two.test')).toBeTruthy();
     fireEvent.click(screen.getAllByTitle('Open hosted vault')[0]);
 
-    await waitFor(() => expect(openHostedVault).toHaveBeenCalledWith(expect.objectContaining({
-      kind: 'hosted',
-      hostedVaultId: 'vault-a',
-      serverUrl: 'https://server-one.test',
-      role: 'editor',
-      capabilities: ['vault.read', 'file.write'],
-    })));
+    await waitFor(() =>
+      expect(openHostedVault).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'hosted',
+          hostedVaultId: 'vault-a',
+          serverUrl: 'https://server-one.test',
+          role: 'editor',
+          capabilities: ['vault.read', 'file.write'],
+        }),
+      ),
+    );
   });
 
   it('removes a stale offline hosted copy and refreshes the list', async () => {
@@ -265,7 +292,9 @@ describe('VaultManagerModal hosted vaults', () => {
     expect(await screen.findByText('Stale Offline')).toBeTruthy();
     fireEvent.click(screen.getByTitle('Remove offline copy'));
 
-    await waitFor(() => expect(replicaMock.deleteHostedVaultReplica).toHaveBeenCalledWith(staleReplica));
+    await waitFor(() =>
+      expect(replicaMock.deleteHostedVaultReplica).toHaveBeenCalledWith(staleReplica),
+    );
     await waitFor(() => expect(screen.queryByText('Stale Offline')).toBeNull());
   });
 });

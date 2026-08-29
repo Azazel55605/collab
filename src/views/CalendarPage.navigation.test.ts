@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { calendarHorizontalGestureDelta, calendarPeriodDayStep } from './CalendarPage';
 
 describe('calendar horizontal gesture navigation', () => {

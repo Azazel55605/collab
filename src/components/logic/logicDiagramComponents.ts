@@ -18,20 +18,20 @@ export function logicComponentNodeId() {
 }
 
 export function logicComponentId(name: string) {
-  const safe = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    || 'component';
+  const safe =
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'component';
   return `logic-component-${safe}-${Date.now().toString(36)}`;
 }
 
 function portId(label: string, direction: 'input' | 'output') {
-  const safe = label
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    || direction;
+  const safe =
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || direction;
   return `${direction}-${safe}`;
 }
 
@@ -73,7 +73,9 @@ function cloneWire(wire: LogicDiagramWire): LogicDiagramWire {
   return { ...wire };
 }
 
-export function cloneComponentDefinition(component: LogicComponentDefinition): LogicComponentDefinition {
+export function cloneComponentDefinition(
+  component: LogicComponentDefinition,
+): LogicComponentDefinition {
   return {
     ...component,
     ports: component.ports.map((port) => ({ ...port })),
@@ -91,14 +93,18 @@ export function captureLogicComponent(
   const selected = new Set(selectedNodeIds);
   const captureAll = selected.size === 0;
   const sourceNodes = document.nodes.filter((node) => captureAll || selected.has(node.id));
-  if (sourceNodes.length === 0) throw new Error('Select gates to save as a component, or use a non-empty logic file.');
+  if (sourceNodes.length === 0)
+    throw new Error('Select gates to save as a component, or use a non-empty logic file.');
 
   const sourceNodeIds = new Set(sourceNodes.map((node) => node.id));
-  const internalWires = document.wires.filter((wire) => sourceNodeIds.has(wire.source) && sourceNodeIds.has(wire.target));
-  const danglingWire = document.wires.find((wire) => (
-    sourceNodeIds.has(wire.source) !== sourceNodeIds.has(wire.target)
-  ));
-  if (danglingWire) throw new Error('Component selections cannot include wires that cross the selection boundary.');
+  const internalWires = document.wires.filter(
+    (wire) => sourceNodeIds.has(wire.source) && sourceNodeIds.has(wire.target),
+  );
+  const danglingWire = document.wires.find(
+    (wire) => sourceNodeIds.has(wire.source) !== sourceNodeIds.has(wire.target),
+  );
+  if (danglingWire)
+    throw new Error('Component selections cannot include wires that cross the selection boundary.');
 
   const usedPortIds = new Set<string>();
   const ports: LogicComponentPort[] = sourceNodes
@@ -124,7 +130,8 @@ export function captureLogicComponent(
   const labels = new Set<string>();
   for (const port of ports) {
     const key = `${port.direction}:${port.label.toLocaleLowerCase()}`;
-    if (labels.has(key)) throw new Error('Component input and output labels must be unique per direction.');
+    if (labels.has(key))
+      throw new Error('Component input and output labels must be unique per direction.');
     labels.add(key);
   }
 
@@ -164,7 +171,9 @@ export function instantiateLogicComponentNode(
   };
 }
 
-export function logicDocumentFromComponent(component: LogicComponentDefinition): LogicDiagramDocument {
+export function logicDocumentFromComponent(
+  component: LogicComponentDefinition,
+): LogicDiagramDocument {
   return {
     schemaVersion: LOGIC_DIAGRAM_SCHEMA_VERSION,
     kind: 'logic-diagram',

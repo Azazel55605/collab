@@ -170,10 +170,10 @@ Supported environment variables:
   not in the Collab server image or client.
 - `COLLAB_PUSH_DISPATCH_INTERVAL_SECONDS`: bounded outbox dispatch interval
   (default `15`, allowed range `5` to `3600`).
-All `*_BYTES` settings below accept either a plain integer or a human-readable
-binary size with a unit suffix (`256MiB`, `12 GiB`, `1.5GiB`, `512k`); suffixes
-are 1024-based and case-insensitive. The same string forms are accepted by the
-`/admin/settings` byte fields, which display and round-trip the binary units.
+  All `*_BYTES` settings below accept either a plain integer or a human-readable
+  binary size with a unit suffix (`256MiB`, `12 GiB`, `1.5GiB`, `512k`); suffixes
+  are 1024-based and case-insensitive. The same string forms are accepted by the
+  `/admin/settings` byte fields, which display and round-trip the binary units.
 
 - `COLLAB_MAX_FILE_BYTES`: maximum decoded size for one hosted file.
 - `COLLAB_MAX_IMPORT_BYTES`: maximum compressed ZIP import size.
@@ -243,6 +243,7 @@ base64 encoding. The current ZIP importer validates in memory, so operators
 should size these limits according to available container memory. A future
 streaming/staged importer is required before enabling multi-gigabyte compressed
 archives.
+
 - `COLLAB_LOG`
 - `COLLAB_LOG_FORMAT`: `pretty` or `json`
 

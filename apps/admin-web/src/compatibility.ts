@@ -53,9 +53,10 @@ export function describeIncompatibility(file: HostedFileEntry): string | null {
 export function findIncompatibleFiles(files: HostedFileEntry[]): HostedFileEntry[] {
   return files
     .filter((file) => file.state === 'active' && file.kind !== 'folder' && !isOpenableInApp(file))
-    .sort((left, right) => (
-      (right.currentRevision?.sizeBytes ?? 0) - (left.currentRevision?.sizeBytes ?? 0)
-    ));
+    .sort(
+      (left, right) =>
+        (right.currentRevision?.sizeBytes ?? 0) - (left.currentRevision?.sizeBytes ?? 0),
+    );
 }
 
 /**

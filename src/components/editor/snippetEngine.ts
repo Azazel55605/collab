@@ -1,12 +1,12 @@
 import {
   EditorSelection,
+  type Extension,
   Prec,
   RangeSetBuilder,
   StateEffect,
   StateField,
-  type Extension,
 } from '@codemirror/state';
-import { keymap, EditorView, Decoration } from '@codemirror/view';
+import { Decoration, EditorView, keymap } from '@codemirror/view';
 
 type PlaceholderRange = { from: number; to: number };
 
@@ -108,7 +108,8 @@ const snippetSessionField = StateField.define<SnippetSession | null>({
             range.from,
             range.to,
             Decoration.mark({
-              class: index === value.index ? 'cm-snippet-placeholder-active' : 'cm-snippet-placeholder',
+              class:
+                index === value.index ? 'cm-snippet-placeholder-active' : 'cm-snippet-placeholder',
             }),
           );
         }
@@ -123,8 +124,10 @@ function moveSnippetSelection(view: EditorView, direction: 1 | -1) {
   if (!session) return false;
   const current = session.placeholders[session.index];
   const selection = view.state.selection.main;
-  const selectionIsCurrentPlaceholder = current && selection.from === current.from && selection.to === current.to;
-  const selectionIsInsideCurrentPlaceholder = current && selection.empty && selection.from >= current.from && selection.from <= current.to;
+  const selectionIsCurrentPlaceholder =
+    current && selection.from === current.from && selection.to === current.to;
+  const selectionIsInsideCurrentPlaceholder =
+    current && selection.empty && selection.from >= current.from && selection.from <= current.to;
   if (!selectionIsCurrentPlaceholder && !selectionIsInsideCurrentPlaceholder) {
     return false;
   }
@@ -158,10 +161,12 @@ function moveSnippetSelection(view: EditorView, direction: 1 | -1) {
 export function createSnippetSessionExtension(): Extension {
   return [
     snippetSessionField,
-    Prec.high(keymap.of([
-      { key: 'Tab', run: (view) => moveSnippetSelection(view, 1) },
-      { key: 'Shift-Tab', run: (view) => moveSnippetSelection(view, -1) },
-    ])),
+    Prec.high(
+      keymap.of([
+        { key: 'Tab', run: (view) => moveSnippetSelection(view, 1) },
+        { key: 'Shift-Tab', run: (view) => moveSnippetSelection(view, -1) },
+      ]),
+    ),
   ];
 }
 
@@ -179,20 +184,31 @@ export function insertSnippetTemplate(
   const effects = [];
 
   if (offsetPlaceholders.length > 0) {
-    effects.push(setSnippetSessionEffect.of({
-      placeholders: offsetPlaceholders,
-      index: 0,
-      finalCursor: parsed.cursorPos === null ? target.from + parsed.text.length : target.from + parsed.cursorPos,
-    }));
+    effects.push(
+      setSnippetSessionEffect.of({
+        placeholders: offsetPlaceholders,
+        index: 0,
+        finalCursor:
+          parsed.cursorPos === null
+            ? target.from + parsed.text.length
+            : target.from + parsed.cursorPos,
+      }),
+    );
   } else {
     effects.push(clearSnippetSessionEffect.of(null));
   }
 
   view.dispatch({
     changes: { from: target.from, to: target.to, insert: parsed.text },
-    selection: offsetPlaceholders.length > 0
-      ? EditorSelection.single(offsetPlaceholders[0].from, offsetPlaceholders[0].to)
-      : { anchor: parsed.cursorPos === null ? target.from + parsed.text.length : target.from + parsed.cursorPos },
+    selection:
+      offsetPlaceholders.length > 0
+        ? EditorSelection.single(offsetPlaceholders[0].from, offsetPlaceholders[0].to)
+        : {
+            anchor:
+              parsed.cursorPos === null
+                ? target.from + parsed.text.length
+                : target.from + parsed.cursorPos,
+          },
     effects,
   });
   view.focus();

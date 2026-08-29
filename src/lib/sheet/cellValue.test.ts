@@ -4,8 +4,8 @@ import {
   cellAlignment,
   formatCellDisplay,
   formatCellEditText,
-  formatNumberWithStyle,
   formatNumber,
+  formatNumberWithStyle,
   numericValueOf,
   parseCellInput,
 } from './cellValue';
@@ -70,17 +70,30 @@ describe('formatting', () => {
   });
 
   it('applies number formats without changing the numeric value', () => {
-    expect(formatNumberWithStyle(0.125, { kind: 'percent', decimals: 1 }, { locale: 'en-US' }))
-      .toBe('12.5%');
-    expect(formatNumberWithStyle(1234.5, {
-      kind: 'currency',
-      currencyCode: 'EUR',
-      decimals: 2,
-    }, { locale: 'en-US' })).toBe('€1,234.50');
-    expect(formatNumberWithStyle(1234.5, {
-      kind: 'custom',
-      pattern: 'Value: #,##0.00',
-    }, { locale: 'en-US' })).toBe('Value: 1,234.50');
+    expect(
+      formatNumberWithStyle(0.125, { kind: 'percent', decimals: 1 }, { locale: 'en-US' }),
+    ).toBe('12.5%');
+    expect(
+      formatNumberWithStyle(
+        1234.5,
+        {
+          kind: 'currency',
+          currencyCode: 'EUR',
+          decimals: 2,
+        },
+        { locale: 'en-US' },
+      ),
+    ).toBe('€1,234.50');
+    expect(
+      formatNumberWithStyle(
+        1234.5,
+        {
+          kind: 'custom',
+          pattern: 'Value: #,##0.00',
+        },
+        { locale: 'en-US' },
+      ),
+    ).toBe('Value: 1,234.50');
   });
 
   it('renders edit text that round-trips through parseCellInput', () => {

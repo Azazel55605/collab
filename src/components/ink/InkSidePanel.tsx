@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import {
   AlignCenterHorizontal,
   AlignCenterVertical,
@@ -16,9 +18,30 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
-import { useState } from 'react';
 
+import { INK_SHAPE_ORDER, INK_STAMP_CATALOG } from '../../lib/ink/advancedTools';
+import type { InkAlignment, InkDistribution } from '../../lib/ink/align';
+import {
+  canonicalInkColor,
+  INK_LIGHT_PALETTE,
+  inkColorLabel,
+  resolveInkColor,
+} from '../../lib/ink/colors';
+import type { InkColorPalette } from '../../lib/ink/colors';
+import type { InkEraserMode } from '../../lib/ink/erase';
+import type { InkDocumentTemplate } from '../../lib/ink/templates';
+import { INK_BRUSH_WIDTHS, INK_DEFAULT_SWATCHES, INK_ERASER_SIZES } from '../../lib/ink/tools';
+import type { InkToolState } from '../../lib/ink/tools';
 import { cn } from '../../lib/utils';
+import type {
+  InkBrushPreset,
+  InkLayer,
+  InkPage,
+  InkPageBackground,
+  InkScene,
+  InkSwatch,
+} from '../../types/ink';
+import { INK_LIMITS } from '../../types/ink';
 import { Checkbox } from '../ui/checkbox';
 import { ColorPicker } from '../ui/color-picker';
 import { Input } from '../ui/input';
@@ -26,16 +49,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Slider } from '../ui/slider';
 import { Textarea } from '../ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
-import type { InkBrushPreset, InkLayer, InkPage, InkPageBackground, InkScene, InkSwatch } from '../../types/ink';
-import { INK_LIMITS } from '../../types/ink';
-import { INK_BRUSH_WIDTHS, INK_DEFAULT_SWATCHES, INK_ERASER_SIZES } from '../../lib/ink/tools';
-import type { InkToolState } from '../../lib/ink/tools';
-import type { InkEraserMode } from '../../lib/ink/erase';
-import type { InkAlignment, InkDistribution } from '../../lib/ink/align';
-import { INK_SHAPE_ORDER, INK_STAMP_CATALOG } from '../../lib/ink/advancedTools';
-import type { InkDocumentTemplate } from '../../lib/ink/templates';
-import { INK_LIGHT_PALETTE, canonicalInkColor, inkColorLabel, resolveInkColor } from '../../lib/ink/colors';
-import type { InkColorPalette } from '../../lib/ink/colors';
 
 /**
  * The properties and layers panel.
@@ -133,10 +146,12 @@ export default function InkSidePanel({
   const effectiveLayerId = activeLayerId ?? layers[0] ?? null;
   const selectedObject = selectedIds.length === 1 ? scene?.objects[selectedIds[0]] : null;
   const selectedText = selectedObject?.type === 'text' ? selectedObject : null;
-  const paletteColors = [...new Set([
-    ...swatches.map((swatch) => canonicalInkColor(swatch.color)),
-    ...INK_DEFAULT_SWATCHES,
-  ])];
+  const paletteColors = [
+    ...new Set([
+      ...swatches.map((swatch) => canonicalInkColor(swatch.color)),
+      ...INK_DEFAULT_SWATCHES,
+    ]),
+  ];
 
   return (
     <aside
@@ -177,7 +192,13 @@ export default function InkSidePanel({
           />
           <button
             type="button"
-            disabled={readOnly || swatches.length >= INK_LIMITS.swatchesPerDocument || swatches.some((swatch) => swatch.color.toLowerCase() === tool.brush.color.toLowerCase())}
+            disabled={
+              readOnly ||
+              swatches.length >= INK_LIMITS.swatchesPerDocument ||
+              swatches.some(
+                (swatch) => swatch.color.toLowerCase() === tool.brush.color.toLowerCase(),
+              )
+            }
             onClick={onAddSwatch}
             className="w-full rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50 disabled:opacity-40"
           >
@@ -187,7 +208,14 @@ export default function InkSidePanel({
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <span className={sectionLabel}>Brush favourites</span>
-              <button type="button" disabled={readOnly || brushes.length >= INK_LIMITS.brushesPerDocument} onClick={onSaveBrushFavorite} className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent/50 disabled:opacity-40">Save current</button>
+              <button
+                type="button"
+                disabled={readOnly || brushes.length >= INK_LIMITS.brushesPerDocument}
+                onClick={onSaveBrushFavorite}
+                className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent/50 disabled:opacity-40"
+              >
+                Save current
+              </button>
             </div>
             <div className="flex flex-wrap gap-1">
               {brushes.map((preset) => (
@@ -198,7 +226,9 @@ export default function InkSidePanel({
                   onClick={() => onSelectBrushPreset(preset)}
                   className={cn(
                     'rounded-md border px-2 py-1 text-[11px] hover:bg-accent/50',
-                    tool.brushId === preset.id ? 'border-primary bg-primary/10' : 'border-border/60',
+                    tool.brushId === preset.id
+                      ? 'border-primary bg-primary/10'
+                      : 'border-border/60',
                   )}
                 >
                   {preset.name}
@@ -327,13 +357,19 @@ export default function InkSidePanel({
               <Select
                 value={tool.shapeKind}
                 disabled={readOnly}
-                onValueChange={(value) => onAdvancedToolChange({ shapeKind: value as InkToolState['shapeKind'] })}
+                onValueChange={(value) =>
+                  onAdvancedToolChange({ shapeKind: value as InkToolState['shapeKind'] })
+                }
               >
                 <SelectTrigger aria-label="Shape kind" size="sm" className="w-full capitalize">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {INK_SHAPE_ORDER.map((kind) => <SelectItem key={kind} value={kind} className="capitalize">{kind}</SelectItem>)}
+                  {INK_SHAPE_ORDER.map((kind) => (
+                    <SelectItem key={kind} value={kind} className="capitalize">
+                      {kind}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -343,9 +379,13 @@ export default function InkSidePanel({
             <Select
               value={tool.brush.dash ?? 'solid'}
               disabled={readOnly}
-              onValueChange={(value) => onBrushChange({ dash: value as InkToolState['brush']['dash'] })}
+              onValueChange={(value) =>
+                onBrushChange({ dash: value as InkToolState['brush']['dash'] })
+              }
             >
-              <SelectTrigger aria-label="Line style" size="sm" className="w-full"><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label="Line style" size="sm" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="solid">Solid</SelectItem>
                 <SelectItem value="dashed">Dashed</SelectItem>
@@ -358,20 +398,40 @@ export default function InkSidePanel({
               <span className={sectionLabel}>Start</span>
               <Select
                 value={tool.arrowStart}
-                onValueChange={(value) => onAdvancedToolChange({ arrowStart: value as InkToolState['arrowStart'] })}
+                onValueChange={(value) =>
+                  onAdvancedToolChange({ arrowStart: value as InkToolState['arrowStart'] })
+                }
               >
-                <SelectTrigger aria-label="Start arrowhead" size="sm" className="w-full capitalize"><SelectValue /></SelectTrigger>
-                <SelectContent>{['none', 'arrow', 'open', 'dot'].map((kind) => <SelectItem key={kind} value={kind} className="capitalize">{kind}</SelectItem>)}</SelectContent>
+                <SelectTrigger aria-label="Start arrowhead" size="sm" className="w-full capitalize">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {['none', 'arrow', 'open', 'dot'].map((kind) => (
+                    <SelectItem key={kind} value={kind} className="capitalize">
+                      {kind}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-1">
               <span className={sectionLabel}>End</span>
               <Select
                 value={tool.arrowEnd}
-                onValueChange={(value) => onAdvancedToolChange({ arrowEnd: value as InkToolState['arrowEnd'] })}
+                onValueChange={(value) =>
+                  onAdvancedToolChange({ arrowEnd: value as InkToolState['arrowEnd'] })
+                }
               >
-                <SelectTrigger aria-label="End arrowhead" size="sm" className="w-full capitalize"><SelectValue /></SelectTrigger>
-                <SelectContent>{['none', 'arrow', 'open', 'dot'].map((kind) => <SelectItem key={kind} value={kind} className="capitalize">{kind}</SelectItem>)}</SelectContent>
+                <SelectTrigger aria-label="End arrowhead" size="sm" className="w-full capitalize">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {['none', 'arrow', 'open', 'dot'].map((kind) => (
+                    <SelectItem key={kind} value={kind} className="capitalize">
+                      {kind}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
           </div>
@@ -380,7 +440,9 @@ export default function InkSidePanel({
               <Checkbox
                 aria-label="Fill with line colour"
                 checked={tool.shapeFill !== null}
-                onCheckedChange={(checked) => onAdvancedToolChange({ shapeFill: checked === true ? tool.brush.color : null })}
+                onCheckedChange={(checked) =>
+                  onAdvancedToolChange({ shapeFill: checked === true ? tool.brush.color : null })
+                }
               />
               Fill with line colour
             </label>
@@ -408,7 +470,9 @@ export default function InkSidePanel({
                 onClick={() => onAdvancedToolChange({ stampSymbolId: stamp.id })}
                 className={cn(
                   'flex h-9 items-center justify-center rounded-md border text-lg',
-                  tool.stampSymbolId === stamp.id ? 'border-primary bg-primary/10' : 'border-border/60 hover:bg-accent/50',
+                  tool.stampSymbolId === stamp.id
+                    ? 'border-primary bg-primary/10'
+                    : 'border-border/60 hover:bg-accent/50',
                 )}
               >
                 {stamp.glyph}
@@ -418,18 +482,36 @@ export default function InkSidePanel({
         </section>
       )}
 
-      {(['image', 'equation', 'ruler', 'protractor', 'compass', 'guide', 'loupe', 'eyedropper'] as InkToolState['tool'][]).includes(tool.tool) && (
+      {(
+        [
+          'image',
+          'equation',
+          'ruler',
+          'protractor',
+          'compass',
+          'guide',
+          'loupe',
+          'eyedropper',
+        ] as InkToolState['tool'][]
+      ).includes(tool.tool) && (
         <section className="space-y-1.5">
           <h2 className={sectionLabel}>{tool.tool}</h2>
           <p className="text-xs text-muted-foreground">
-            {tool.tool === 'image' ? 'Drag a box, then choose a PNG, JPEG, WebP, GIF, or SVG asset.'
-              : tool.tool === 'equation' ? 'Drag a box and enter bounded LaTeX.'
-              : tool.tool === 'ruler' ? 'Drag an exact straight line.'
-              : tool.tool === 'protractor' ? 'Drag a line snapped to 15 degree increments.'
-              : tool.tool === 'compass' ? 'Drag from the centre to draw a perfect circle.'
-              : tool.tool === 'guide' ? 'Drag a non-exported alignment guide.'
-              : tool.tool === 'loupe' ? 'Press and drag to magnify the committed scene.'
-              : 'Click an object to pick its colour.'}
+            {tool.tool === 'image'
+              ? 'Drag a box, then choose a PNG, JPEG, WebP, GIF, or SVG asset.'
+              : tool.tool === 'equation'
+                ? 'Drag a box and enter bounded LaTeX.'
+                : tool.tool === 'ruler'
+                  ? 'Drag an exact straight line.'
+                  : tool.tool === 'protractor'
+                    ? 'Drag a line snapped to 15 degree increments.'
+                    : tool.tool === 'compass'
+                      ? 'Drag from the centre to draw a perfect circle.'
+                      : tool.tool === 'guide'
+                        ? 'Drag a non-exported alignment guide.'
+                        : tool.tool === 'loupe'
+                          ? 'Press and drag to magnify the committed scene.'
+                          : 'Click an object to pick its colour.'}
           </p>
         </section>
       )}
@@ -439,7 +521,9 @@ export default function InkSidePanel({
           <Checkbox
             disabled={readOnly}
             checked={tool.holdToStraighten}
-            onCheckedChange={(checked) => onAdvancedToolChange({ holdToStraighten: checked === true })}
+            onCheckedChange={(checked) =>
+              onAdvancedToolChange({ holdToStraighten: checked === true })
+            }
           />
           Hold to straighten
         </label>
@@ -449,10 +533,19 @@ export default function InkSidePanel({
         <section className="space-y-2">
           <h2 className={sectionLabel}>Selection cleanup</h2>
           <div className="flex gap-1">
-            <button type="button" onClick={onRecognizeSelection} disabled={selectedIds.length !== 1} className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50 disabled:opacity-40">
+            <button
+              type="button"
+              onClick={onRecognizeSelection}
+              disabled={selectedIds.length !== 1}
+              className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50 disabled:opacity-40"
+            >
               Recognize shape
             </button>
-            <button type="button" onClick={onSmoothSelection} className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50">
+            <button
+              type="button"
+              onClick={onSmoothSelection}
+              className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50"
+            >
               Smooth
             </button>
           </div>
@@ -474,7 +567,9 @@ export default function InkSidePanel({
 
       {selectedText && !readOnly && (
         <section className="space-y-2">
-          <h2 className={sectionLabel}>{selectedText.sticky ? 'Sticky note' : selectedText.equation ? 'Equation' : 'Text'}</h2>
+          <h2 className={sectionLabel}>
+            {selectedText.sticky ? 'Sticky note' : selectedText.equation ? 'Equation' : 'Text'}
+          </h2>
           <Textarea
             aria-label="Selected text"
             value={selectedText.text}
@@ -509,11 +604,17 @@ export default function InkSidePanel({
             className="h-8 text-xs"
           />
           {selectedObject.link ? (
-            <button type="button" onClick={() => onSetSelectedLink(null)} className="w-full rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50">
+            <button
+              type="button"
+              onClick={() => onSetSelectedLink(null)}
+              className="w-full rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50"
+            >
               Remove link
             </button>
           ) : null}
-          <p className="text-[11px] text-muted-foreground">Double-click the object to open its link.</p>
+          <p className="text-[11px] text-muted-foreground">
+            Double-click the object to open its link.
+          </p>
         </section>
       )}
 
@@ -523,9 +624,13 @@ export default function InkSidePanel({
           <Select
             value={page.background.pattern}
             disabled={readOnly}
-            onValueChange={(value) => onPageBackgroundChange({ pattern: value as InkPageBackground['pattern'] })}
+            onValueChange={(value) =>
+              onPageBackgroundChange({ pattern: value as InkPageBackground['pattern'] })
+            }
           >
-            <SelectTrigger aria-label="Page background" size="sm" className="w-full"><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label="Page background" size="sm" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="blank">Blank</SelectItem>
               <SelectItem value="ruled">Ruled</SelectItem>
@@ -585,36 +690,63 @@ export default function InkSidePanel({
           </div>
           {templates.length > 0 ? (
             <>
-              <Select
-                value={selectedTemplateId}
-                onValueChange={setSelectedTemplateId}
-              >
+              <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
                 <SelectTrigger aria-label="Drawing template" size="sm" className="w-full">
                   <SelectValue placeholder="Choose a template…" />
                 </SelectTrigger>
                 <SelectContent>
-                  {templates.map((template) => <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>)}
+                  {templates.map((template) => (
+                    <SelectItem key={template.id} value={template.id}>
+                      {template.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <div className="flex gap-1">
-                <button type="button" disabled={!selectedTemplateId} onClick={() => onAddPageFromTemplate(selectedTemplateId)} className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50 disabled:opacity-40">
+                <button
+                  type="button"
+                  disabled={!selectedTemplateId}
+                  onClick={() => onAddPageFromTemplate(selectedTemplateId)}
+                  className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50 disabled:opacity-40"
+                >
                   Add template page
                 </button>
-                <button type="button" disabled={!selectedTemplateId} onClick={() => { onDeleteTemplate(selectedTemplateId); setSelectedTemplateId(''); }} className="rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-destructive/20 hover:text-destructive disabled:opacity-40">
+                <button
+                  type="button"
+                  disabled={!selectedTemplateId}
+                  onClick={() => {
+                    onDeleteTemplate(selectedTemplateId);
+                    setSelectedTemplateId('');
+                  }}
+                  className="rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-destructive/20 hover:text-destructive disabled:opacity-40"
+                >
                   Delete
                 </button>
               </div>
               <div className="flex gap-1">
-                <button type="button" onClick={onImportTemplate} className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50">
+                <button
+                  type="button"
+                  onClick={onImportTemplate}
+                  className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50"
+                >
                   Import template
                 </button>
-                <button type="button" disabled={!selectedTemplateId} onClick={() => onExportTemplate(selectedTemplateId)} className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50 disabled:opacity-40">
+                <button
+                  type="button"
+                  disabled={!selectedTemplateId}
+                  onClick={() => onExportTemplate(selectedTemplateId)}
+                  className="flex-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50 disabled:opacity-40"
+                >
                   Export template
                 </button>
               </div>
             </>
           ) : (
-            <button type="button" onClick={onImportTemplate} className="w-full rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50">
+            <button
+              type="button"
+              onClick={onImportTemplate}
+              className="w-full rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent/50"
+            >
               Import template
             </button>
           )}
@@ -625,14 +757,16 @@ export default function InkSidePanel({
         <section className="space-y-2">
           <h2 className={sectionLabel}>Arrange {selectedIds.length} objects</h2>
           <div className="grid grid-cols-6 gap-1">
-            {([
-              ['left', <AlignStartVertical size={14} key="l" />, 'Align left'],
-              ['center-horizontal', <AlignCenterVertical size={14} key="ch" />, 'Align centre'],
-              ['right', <AlignEndVertical size={14} key="r" />, 'Align right'],
-              ['top', <AlignStartHorizontal size={14} key="t" />, 'Align top'],
-              ['center-vertical', <AlignCenterHorizontal size={14} key="cv" />, 'Align middle'],
-              ['bottom', <AlignEndHorizontal size={14} key="b" />, 'Align bottom'],
-            ] as Array<[InkAlignment, React.ReactNode, string]>).map(([alignment, icon, label]) => (
+            {(
+              [
+                ['left', <AlignStartVertical size={14} key="l" />, 'Align left'],
+                ['center-horizontal', <AlignCenterVertical size={14} key="ch" />, 'Align centre'],
+                ['right', <AlignEndVertical size={14} key="r" />, 'Align right'],
+                ['top', <AlignStartHorizontal size={14} key="t" />, 'Align top'],
+                ['center-vertical', <AlignCenterHorizontal size={14} key="cv" />, 'Align middle'],
+                ['bottom', <AlignEndHorizontal size={14} key="b" />, 'Align bottom'],
+              ] as Array<[InkAlignment, React.ReactNode, string]>
+            ).map(([alignment, icon, label]) => (
               <Tooltip key={alignment}>
                 <TooltipTrigger asChild>
                   <button

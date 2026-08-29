@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
+import { INK_DEFAULT_BRUSHES } from './document';
 import {
+  defaultToolState,
+  drawsBehindInk,
   INK_BRUSH_ORDER,
   INK_DEFAULT_PEN_BUTTONS,
   INK_SHORTCUTS,
-  defaultToolState,
-  drawsBehindInk,
   penButtonTool,
   resolveInkCommand,
 } from './tools';
-import { INK_DEFAULT_BRUSHES } from './document';
 
 function key(
   value: string,
@@ -106,10 +106,9 @@ describe('resolveInkCommand', () => {
     for (const shortcut of INK_SHORTCUTS) {
       const isNamedKey = shortcut.key.length > 1;
       const isAlphanumeric = /^[a-z0-9]$/i.test(shortcut.key);
-      expect(
-        isNamedKey || isAlphanumeric,
-        `"${shortcut.key}" is not layout-independent`,
-      ).toBe(true);
+      expect(isNamedKey || isAlphanumeric, `"${shortcut.key}" is not layout-independent`).toBe(
+        true,
+      );
     }
   });
 

@@ -32,14 +32,20 @@ export function detectMode(raw: string): Mode {
   const insertMatch = s.match(/^insert:(.*)$/i);
   if (insertMatch) return { type: 'insert', query: insertMatch[1].trim() };
 
-  if (/^(table\b|code\b|link\b|mdlink\b|url\b|image\b|img\b|date\b|math\b|equation\b|icon\b|icons\b|glyph\b|symbol\b|heading\b|h[1-6]\b|hr$|quote\b|blockquote\b|checklist\b|todo\b)/i.test(s)) {
+  if (
+    /^(table\b|code\b|link\b|mdlink\b|url\b|image\b|img\b|date\b|math\b|equation\b|icon\b|icons\b|glyph\b|symbol\b|heading\b|h[1-6]\b|hr$|quote\b|blockquote\b|checklist\b|todo\b)/i.test(
+      s,
+    )
+  ) {
     return { type: 'insert', query: s };
   }
 
   return { type: 'search', query: s };
 }
 
-export function getTabType(relativePath: string): 'note' | 'canvas' | 'kanban' | 'logic' | 'image' | 'pdf' {
+export function getTabType(
+  relativePath: string,
+): 'note' | 'canvas' | 'kanban' | 'logic' | 'image' | 'pdf' {
   if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|avif)$/i.test(relativePath)) return 'image';
   if (/\.pdf$/i.test(relativePath)) return 'pdf';
   if (relativePath.endsWith('.logic')) return 'logic';
@@ -48,7 +54,9 @@ export function getTabType(relativePath: string): 'note' | 'canvas' | 'kanban' |
   return 'note';
 }
 
-export function getViewForType(type: 'note' | 'canvas' | 'kanban' | 'logic' | 'image' | 'pdf'): ActiveView {
+export function getViewForType(
+  type: 'note' | 'canvas' | 'kanban' | 'logic' | 'image' | 'pdf',
+): ActiveView {
   if (type === 'kanban') return 'kanban';
   if (type === 'canvas') return 'canvas';
   return 'editor';

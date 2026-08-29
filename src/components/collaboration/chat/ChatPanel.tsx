@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
 import { Send } from 'lucide-react';
-import { useCollabStore } from '../../../store/collabStore';
-import { useVaultStore } from '../../../store/vaultStore';
-import { useUiStore } from '../../../store/uiStore';
+
 import { useCollabIdentity } from '../../../lib/collabIdentity';
 import { createCollabTransport } from '../../../lib/collabTransport';
+import { useCollabStore } from '../../../store/collabStore';
+import { useUiStore } from '../../../store/uiStore';
+import { useVaultStore } from '../../../store/vaultStore';
 import type { ChatMessage } from '../../../types/collab';
 import { Button } from '../../ui/button';
 import { Textarea } from '../../ui/textarea';
@@ -39,13 +41,18 @@ function MessageRow({ msg, isSelf }: { msg: ChatMessage; isSelf: boolean }) {
   );
 }
 
-function TypingIndicator({ users }: { users: Array<{ userId: string; userName: string; userColor: string }> }) {
+function TypingIndicator({
+  users,
+}: {
+  users: Array<{ userId: string; userName: string; userColor: string }>;
+}) {
   const names = users.map((user) => user.userName);
-  const label = names.length === 1
-    ? `${names[0]} is typing...`
-    : names.length === 2
-      ? `${names[0]} and ${names[1]} are typing...`
-      : `${names[0]} and ${names.length - 1} others are typing...`;
+  const label =
+    names.length === 1
+      ? `${names[0]} is typing...`
+      : names.length === 2
+        ? `${names[0]} and ${names[1]} are typing...`
+        : `${names[0]} and ${names.length - 1} others are typing...`;
 
   return (
     <div className="px-3 py-1.5">
@@ -77,12 +84,7 @@ export function ChatPanel() {
   const { vault } = useVaultStore();
   const { isSidebarOpen, sidebarPanel, collabTab } = useUiStore();
   const identity = useCollabIdentity();
-  const {
-    peers,
-    chatMessages,
-    appendChatMessage,
-    setChatTypingUntil,
-  } = useCollabStore();
+  const { peers, chatMessages, appendChatMessage, setChatTypingUntil } = useCollabStore();
   const contextTransport = useCollabContext();
   const transport = contextTransport ?? (vault ? createCollabTransport(vault) : null);
   const supportsChat = !!transport && !!vault;
@@ -115,15 +117,18 @@ export function ChatPanel() {
     return () => window.clearInterval(interval);
   }, [typingUsers.length]);
 
-  const publishTypingState = useCallback((value: string, force = false) => {
-    const now = Date.now();
-    const nextTypingUntil = value.trim() ? now + 3000 : null;
-    if (!force && nextTypingUntil && now - lastTypingPublishRef.current < 1000) {
-      return;
-    }
-    lastTypingPublishRef.current = now;
-    setChatTypingUntil(nextTypingUntil);
-  }, [setChatTypingUntil]);
+  const publishTypingState = useCallback(
+    (value: string, force = false) => {
+      const now = Date.now();
+      const nextTypingUntil = value.trim() ? now + 3000 : null;
+      if (!force && nextTypingUntil && now - lastTypingPublishRef.current < 1000) {
+        return;
+      }
+      lastTypingPublishRef.current = now;
+      setChatTypingUntil(nextTypingUntil);
+    },
+    [setChatTypingUntil],
+  );
 
   const send = useCallback(async () => {
     const content = text.trim();
@@ -149,7 +154,16 @@ export function ChatPanel() {
     } finally {
       setSending(false);
     }
-  }, [text, vault, identity.userId, identity.userName, identity.userColor, sending, supportsChat, transport]);
+  }, [
+    text,
+    vault,
+    identity.userId,
+    identity.userName,
+    identity.userColor,
+    sending,
+    supportsChat,
+    transport,
+  ]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -162,7 +176,9 @@ export function ChatPanel() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
         <p className="text-sm text-muted-foreground">Chat is temporarily unavailable.</p>
-        <p className="text-xs text-muted-foreground/70">Reconnect to the vault server or reopen the vault to restore chat.</p>
+        <p className="text-xs text-muted-foreground/70">
+          Reconnect to the vault server or reopen the vault to restore chat.
+        </p>
       </div>
     );
   }

@@ -1,16 +1,36 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+
 import { useDroppable } from '@dnd-kit/core';
-import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
-  MoreHorizontal, Plus, Trash2, Pencil, CheckCircle2,
-  GripHorizontal, ArrowUpDown, ArrowUp, ArrowDown,
-  CalendarOff, Check, Tag, X, FolderInput, Sparkles,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  CalendarOff,
+  Check,
+  CheckCircle2,
+  FolderInput,
+  GripHorizontal,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Sparkles,
+  Tag,
+  Trash2,
+  X,
 } from 'lucide-react';
+
 import { cn } from '../../lib/utils';
+import {
+  type ColumnSortField,
+  getKanbanSwimlanes,
+  type KanbanColumn,
+  type KanbanLane,
+} from '../../types/kanban';
 import { useKanbanContext } from '../../views/KanbanPage';
-import { getKanbanSwimlanes, type KanbanColumn, type ColumnSortField, type KanbanLane } from '../../types/kanban';
-import KanbanCardView from './KanbanCard';
+import { ColorPicker } from '../ui/color-picker';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,18 +41,18 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
-import { ColorPicker } from '../ui/color-picker';
+
+import KanbanCardView from './KanbanCard';
 
 const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
 const SORT_FIELDS: { field: ColumnSortField; label: string }[] = [
-  { field: 'none',      label: 'Manual (default)' },
-  { field: 'name',      label: 'Name' },
-  { field: 'priority',  label: 'Priority' },
+  { field: 'none', label: 'Manual (default)' },
+  { field: 'name', label: 'Name' },
+  { field: 'priority', label: 'Priority' },
   { field: 'createdAt', label: 'Creation date' },
   { field: 'startDate', label: 'Start date' },
-  { field: 'dueDate',   label: 'Due date' },
+  { field: 'dueDate', label: 'Due date' },
   { field: 'assignees', label: 'Assignees' },
 ];
 
@@ -46,13 +66,7 @@ function makeLaneDropId(columnId: string, laneKey: string) {
   return `${KANBAN_LANE_DROP_PREFIX}${encodeURIComponent(columnId)}:${encodeURIComponent(laneKey)}`;
 }
 
-function SwimlaneSection({
-  columnId,
-  lane,
-}: {
-  columnId: string;
-  lane: KanbanLane;
-}) {
+function SwimlaneSection({ columnId, lane }: { columnId: string; lane: KanbanLane }) {
   const laneDropId = makeLaneDropId(columnId, lane.key);
   const { setNodeRef, isOver } = useDroppable({ id: laneDropId });
 
@@ -62,7 +76,9 @@ function SwimlaneSection({
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
           {lane.title}
         </span>
-        <span className="text-[10px] text-muted-foreground/60 tabular-nums">{lane.cards.length}</span>
+        <span className="text-[10px] text-muted-foreground/60 tabular-nums">
+          {lane.cards.length}
+        </span>
       </div>
       <div
         ref={setNodeRef}
@@ -71,7 +87,10 @@ function SwimlaneSection({
           isOver && 'border-primary/30 bg-primary/5',
         )}
       >
-        <SortableContext items={lane.cards.map((card) => card.id)} strategy={verticalListSortingStrategy}>
+        <SortableContext
+          items={lane.cards.map((card) => card.id)}
+          strategy={verticalListSortingStrategy}
+        >
           <div className="flex flex-col gap-1.5">
             {lane.cards.map((card) => (
               <KanbanCardView key={card.id} card={card} columnId={columnId} />
@@ -85,9 +104,9 @@ function SwimlaneSection({
 
 export default function KanbanColumnView({ column }: Props) {
   const { updateBoard, knownUsers, board, readOnly, caps } = useKanbanContext();
-  const [editingTitle,     setEditingTitle]     = useState(false);
-  const [titleDraft,       setTitleDraft]       = useState(column.title);
-  const titleInputRef  = useRef<HTMLInputElement>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(column.title);
+  const titleInputRef = useRef<HTMLInputElement>(null);
   // Guards against onBlur firing while Radix UI restores focus to the trigger
   // after the dropdown closes. Set to true only after the focus delay elapses.
   const renameReadyRef = useRef(false);
@@ -107,20 +126,13 @@ export default function KanbanColumnView({ column }: Props) {
       renameReadyRef.current = false;
     }
   }, [editingTitle]);
-  const [addingCard,       setAddingCard]       = useState(false);
-  const [cardDraft,        setCardDraft]        = useState('');
-  const [defaultTagsOpen,  setDefaultTagsOpen]  = useState(false);
-  const [tagInput,         setTagInput]         = useState('');
+  const [addingCard, setAddingCard] = useState(false);
+  const [cardDraft, setCardDraft] = useState('');
+  const [defaultTagsOpen, setDefaultTagsOpen] = useState(false);
+  const [tagInput, setTagInput] = useState('');
 
-  const {
-    setNodeRef,
-    attributes,
-    listeners,
-    transform,
-    transition,
-    isDragging,
-    isOver,
-  } = useSortable({ id: column.id, disabled: !caps.columnManage });
+  const { setNodeRef, attributes, listeners, transform, transition, isDragging, isOver } =
+    useSortable({ id: column.id, disabled: !caps.columnManage });
 
   const style = {
     maxHeight: 'calc(100vh - 120px)',
@@ -134,57 +146,57 @@ export default function KanbanColumnView({ column }: Props) {
     const title = titleDraft.trim() || column.title;
     setEditingTitle(false);
     if (title === column.title) return;
-    updateBoard(prev => ({
+    updateBoard((prev) => ({
       ...prev,
-      columns: prev.columns.map(c => c.id === column.id ? { ...c, title } : c),
+      columns: prev.columns.map((c) => (c.id === column.id ? { ...c, title } : c)),
     }));
   }
 
   function setColor(color: string) {
-    updateBoard(prev => ({
+    updateBoard((prev) => ({
       ...prev,
-      columns: prev.columns.map(c => c.id === column.id ? { ...c, color } : c),
+      columns: prev.columns.map((c) => (c.id === column.id ? { ...c, color } : c)),
     }));
   }
 
   function deleteColumn() {
-    updateBoard(prev => ({
+    updateBoard((prev) => ({
       ...prev,
-      columns: prev.columns.filter(c => c.id !== column.id),
+      columns: prev.columns.filter((c) => c.id !== column.id),
     }));
   }
 
   function toggleAutoComplete() {
-    updateBoard(prev => ({
+    updateBoard((prev) => ({
       ...prev,
-      columns: prev.columns.map(c =>
+      columns: prev.columns.map((c) =>
         c.id === column.id ? { ...c, autoComplete: !c.autoComplete } : c,
       ),
     }));
   }
 
   function toggleHideFromTimeline() {
-    updateBoard(prev => ({
+    updateBoard((prev) => ({
       ...prev,
-      columns: prev.columns.map(c =>
+      columns: prev.columns.map((c) =>
         c.id === column.id ? { ...c, hideFromTimeline: !c.hideFromTimeline } : c,
       ),
     }));
   }
 
   function toggleIsDoneDestination() {
-    updateBoard(prev => ({
+    updateBoard((prev) => ({
       ...prev,
-      columns: prev.columns.map(c =>
+      columns: prev.columns.map((c) =>
         c.id === column.id ? { ...c, isDoneDestination: !c.isDoneDestination } : c,
       ),
     }));
   }
 
   function setSort(field: ColumnSortField) {
-    updateBoard(prev => ({
+    updateBoard((prev) => ({
       ...prev,
-      columns: prev.columns.map(c => {
+      columns: prev.columns.map((c) => {
         if (c.id !== column.id) return c;
         if (field === 'none') return { ...c, sort: undefined };
         const dir = c.sort?.field === field && c.sort.dir === 'asc' ? 'desc' : 'asc';
@@ -195,10 +207,13 @@ export default function KanbanColumnView({ column }: Props) {
 
   function addDefaultTag() {
     const t = tagInput.trim();
-    if (!t || (column.defaultTags ?? []).includes(t)) { setTagInput(''); return; }
-    updateBoard(prev => ({
+    if (!t || (column.defaultTags ?? []).includes(t)) {
+      setTagInput('');
+      return;
+    }
+    updateBoard((prev) => ({
       ...prev,
-      columns: prev.columns.map(c =>
+      columns: prev.columns.map((c) =>
         c.id !== column.id ? c : { ...c, defaultTags: [...(c.defaultTags ?? []), t] },
       ),
     }));
@@ -206,29 +221,36 @@ export default function KanbanColumnView({ column }: Props) {
   }
 
   function removeDefaultTag(tag: string) {
-    updateBoard(prev => ({
+    updateBoard((prev) => ({
       ...prev,
-      columns: prev.columns.map(c =>
-        c.id !== column.id ? c : { ...c, defaultTags: (c.defaultTags ?? []).filter(t => t !== tag) },
+      columns: prev.columns.map((c) =>
+        c.id !== column.id
+          ? c
+          : { ...c, defaultTags: (c.defaultTags ?? []).filter((t) => t !== tag) },
       ),
     }));
   }
 
   function toggleAutoApplyDefaultTagsOnMove() {
-    updateBoard(prev => ({
+    updateBoard((prev) => ({
       ...prev,
-      columns: prev.columns.map(c =>
-        c.id !== column.id ? c : { ...c, autoApplyDefaultTagsOnMove: !c.autoApplyDefaultTagsOnMove },
+      columns: prev.columns.map((c) =>
+        c.id !== column.id
+          ? c
+          : { ...c, autoApplyDefaultTagsOnMove: !c.autoApplyDefaultTagsOnMove },
       ),
     }));
   }
 
   function addCard() {
     const title = cardDraft.trim();
-    if (!title) { setAddingCard(false); return; }
-    updateBoard(prev => ({
+    if (!title) {
+      setAddingCard(false);
+      return;
+    }
+    updateBoard((prev) => ({
       ...prev,
-      columns: prev.columns.map(c => {
+      columns: prev.columns.map((c) => {
         if (c.id !== column.id) return c;
         return {
           ...c,
@@ -255,7 +277,7 @@ export default function KanbanColumnView({ column }: Props) {
   // Sorted cards — archived cards are hidden from the board view
   const sortedCards = useMemo(() => {
     const sort = column.sort;
-    const activeCards = column.cards.filter(c => !c.archived);
+    const activeCards = column.cards.filter((c) => !c.archived);
     if (!sort || sort.field === 'none') return activeCards;
     const cards = [...activeCards];
     cards.sort((a, b) => {
@@ -280,8 +302,10 @@ export default function KanbanColumnView({ column }: Props) {
           cmp = (a.dueDate ?? '').localeCompare(b.dueDate ?? '');
           break;
         case 'assignees': {
-          const aName = knownUsers.find(u => a.assignees[0] === u.userId)?.userName ?? a.assignees[0] ?? '';
-          const bName = knownUsers.find(u => b.assignees[0] === u.userId)?.userName ?? b.assignees[0] ?? '';
+          const aName =
+            knownUsers.find((u) => a.assignees[0] === u.userId)?.userName ?? a.assignees[0] ?? '';
+          const bName =
+            knownUsers.find((u) => b.assignees[0] === u.userId)?.userName ?? b.assignees[0] ?? '';
           cmp = aName.localeCompare(bName);
           break;
         }
@@ -291,7 +315,7 @@ export default function KanbanColumnView({ column }: Props) {
     return cards;
   }, [column.cards, column.sort, knownUsers]);
 
-  const cardIds    = sortedCards.map(c => c.id);
+  const cardIds = sortedCards.map((c) => c.id);
   const activeSort = column.sort && column.sort.field !== 'none' ? column.sort : null;
   const swimlaneMode = board.viewSettings?.swimlaneMode ?? 'none';
   const swimlanes = useMemo(
@@ -325,7 +349,7 @@ export default function KanbanColumnView({ column }: Props) {
             disabled={!caps.columnManage}
             align="start"
             onValueChange={setColor}
-            trigger={(
+            trigger={
               <button
                 type="button"
                 aria-label={`Color for ${column.title}`}
@@ -333,7 +357,7 @@ export default function KanbanColumnView({ column }: Props) {
                 className="w-3.5 h-3.5 rounded-full border border-white/15 hover:scale-125 transition-transform shrink-0 mt-0.5"
                 style={{ backgroundColor: column.color ?? '#64748b' }}
               />
-            )}
+            }
           />
 
           {/* Title */}
@@ -341,17 +365,27 @@ export default function KanbanColumnView({ column }: Props) {
             <input
               ref={titleInputRef}
               value={titleDraft}
-              onChange={e => setTitleDraft(e.target.value)}
-              onBlur={() => { if (renameReadyRef.current) renameColumn(); }}
-              onKeyDown={e => {
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={() => {
+                if (renameReadyRef.current) renameColumn();
+              }}
+              onKeyDown={(e) => {
                 if (e.key === 'Enter') renameColumn();
-                if (e.key === 'Escape') { setTitleDraft(column.title); setEditingTitle(false); }
+                if (e.key === 'Escape') {
+                  setTitleDraft(column.title);
+                  setEditingTitle(false);
+                }
               }}
               className="flex-1 bg-transparent text-sm font-semibold text-foreground border-b border-primary/60 focus:outline-none min-w-0"
             />
           ) : (
             <button
-              onDoubleClick={() => { if (caps.columnManage) { setEditingTitle(true); setTitleDraft(column.title); } }}
+              onDoubleClick={() => {
+                if (caps.columnManage) {
+                  setEditingTitle(true);
+                  setTitleDraft(column.title);
+                }
+              }}
               className="flex-1 text-left text-sm font-semibold text-foreground truncate"
             >
               {column.title}
@@ -361,9 +395,11 @@ export default function KanbanColumnView({ column }: Props) {
           {/* Indicators */}
           {activeSort && (
             <span title={`Sorted by ${activeSort.field} (${activeSort.dir})`} className="shrink-0">
-              {activeSort.dir === 'asc'
-                ? <ArrowUp size={11} className="text-primary/60" />
-                : <ArrowDown size={11} className="text-primary/60" />}
+              {activeSort.dir === 'asc' ? (
+                <ArrowUp size={11} className="text-primary/60" />
+              ) : (
+                <ArrowDown size={11} className="text-primary/60" />
+              )}
             </span>
           )}
           {column.isDoneDestination && (
@@ -378,7 +414,11 @@ export default function KanbanColumnView({ column }: Props) {
           )}
           {column.autoComplete && (
             <span title="Auto-marks done on drop">
-              <CheckCircle2 size={12} className="shrink-0" style={{ color: column.color ?? '#64748b', opacity: 0.7 }} />
+              <CheckCircle2
+                size={12}
+                className="shrink-0"
+                style={{ color: column.color ?? '#64748b', opacity: 0.7 }}
+              />
             </span>
           )}
           {column.autoApplyDefaultTagsOnMove && (column.defaultTags?.length ?? 0) > 0 && (
@@ -393,97 +433,147 @@ export default function KanbanColumnView({ column }: Props) {
 
           {/* Column menu — column management capability only */}
           {caps.columnManage && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0">
-                <MoreHorizontal size={13} />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuItem
-                onClick={() => { setEditingTitle(true); setTitleDraft(column.title); }}
-                className="text-xs"
-              >
-                <Pencil size={11} className="mr-2" /> Rename
-              </DropdownMenuItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors shrink-0">
+                  <MoreHorizontal size={13} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem
+                  onClick={() => {
+                    setEditingTitle(true);
+                    setTitleDraft(column.title);
+                  }}
+                  className="text-xs"
+                >
+                  <Pencil size={11} className="mr-2" /> Rename
+                </DropdownMenuItem>
 
-              <DropdownMenuSeparator />
+                <DropdownMenuSeparator />
 
-              {/* Sort submenu */}
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger className="text-xs">
-                  <ArrowUpDown size={11} className="mr-2" />
-                  Sort by
-                  {activeSort && (
-                    <span className="ml-auto text-[10px] text-primary/70 capitalize">
-                      {activeSort.field}
+                {/* Sort submenu */}
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="text-xs">
+                    <ArrowUpDown size={11} className="mr-2" />
+                    Sort by
+                    {activeSort && (
+                      <span className="ml-auto text-[10px] text-primary/70 capitalize">
+                        {activeSort.field}
+                      </span>
+                    )}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-48">
+                    {SORT_FIELDS.map(({ field, label }) => {
+                      const isActive = field === 'none' ? !activeSort : activeSort?.field === field;
+                      const dir = isActive && field !== 'none' ? activeSort!.dir : null;
+                      return (
+                        <DropdownMenuItem
+                          key={field}
+                          onClick={() => setSort(field)}
+                          className="text-xs"
+                        >
+                          <span className="flex-1">{label}</span>
+                          {isActive && field === 'none' && (
+                            <Check size={11} className="text-primary/70" />
+                          )}
+                          {dir === 'asc' && <ArrowUp size={11} className="text-primary/70" />}
+                          {dir === 'desc' && <ArrowDown size={11} className="text-primary/70" />}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+
+                <DropdownMenuSeparator />
+
+                <DropdownMenuItem onClick={toggleAutoComplete} className="text-xs">
+                  <CheckCircle2
+                    size={11}
+                    className={cn(
+                      'mr-2',
+                      column.autoComplete ? 'text-green-400' : 'text-muted-foreground',
+                    )}
+                  />
+                  Auto-mark done on drop
+                  {column.autoComplete && (
+                    <span className="ml-auto text-[10px] text-green-400">On</span>
+                  )}
+                </DropdownMenuItem>
+
+                <DropdownMenuItem onClick={toggleIsDoneDestination} className="text-xs">
+                  <FolderInput
+                    size={11}
+                    className={cn(
+                      'mr-2',
+                      column.isDoneDestination ? 'text-blue-400' : 'text-muted-foreground',
+                    )}
+                  />
+                  Done cards destination
+                  {column.isDoneDestination && (
+                    <span className="ml-auto text-[10px] text-blue-400">On</span>
+                  )}
+                </DropdownMenuItem>
+
+                <DropdownMenuItem onClick={toggleHideFromTimeline} className="text-xs">
+                  <CalendarOff
+                    size={11}
+                    className={cn(
+                      'mr-2',
+                      column.hideFromTimeline ? 'text-amber-400' : 'text-muted-foreground',
+                    )}
+                  />
+                  Hide from Calendar & Timeline
+                  {column.hideFromTimeline && (
+                    <span className="ml-auto text-[10px] text-amber-400">On</span>
+                  )}
+                </DropdownMenuItem>
+
+                <DropdownMenuItem onClick={() => setDefaultTagsOpen(true)} className="text-xs">
+                  <Tag
+                    size={11}
+                    className={cn(
+                      'mr-2',
+                      (column.defaultTags?.length ?? 0) > 0
+                        ? 'text-primary/70'
+                        : 'text-muted-foreground',
+                    )}
+                  />
+                  Default tags
+                  {(column.defaultTags?.length ?? 0) > 0 && (
+                    <span className="ml-auto text-[10px] text-primary/70">
+                      {column.defaultTags!.length}
                     </span>
                   )}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-48">
-                  {SORT_FIELDS.map(({ field, label }) => {
-                    const isActive = field === 'none' ? !activeSort : activeSort?.field === field;
-                    const dir = isActive && field !== 'none' ? activeSort!.dir : null;
-                    return (
-                      <DropdownMenuItem key={field} onClick={() => setSort(field)} className="text-xs">
-                        <span className="flex-1">{label}</span>
-                        {isActive && field === 'none' && <Check size={11} className="text-primary/70" />}
-                        {dir === 'asc'  && <ArrowUp   size={11} className="text-primary/70" />}
-                        {dir === 'desc' && <ArrowDown  size={11} className="text-primary/70" />}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-
-              <DropdownMenuSeparator />
-
-              <DropdownMenuItem onClick={toggleAutoComplete} className="text-xs">
-                <CheckCircle2 size={11} className={cn('mr-2', column.autoComplete ? 'text-green-400' : 'text-muted-foreground')} />
-                Auto-mark done on drop
-                {column.autoComplete && <span className="ml-auto text-[10px] text-green-400">On</span>}
-              </DropdownMenuItem>
-
-              <DropdownMenuItem onClick={toggleIsDoneDestination} className="text-xs">
-                <FolderInput size={11} className={cn('mr-2', column.isDoneDestination ? 'text-blue-400' : 'text-muted-foreground')} />
-                Done cards destination
-                {column.isDoneDestination && <span className="ml-auto text-[10px] text-blue-400">On</span>}
-              </DropdownMenuItem>
-
-              <DropdownMenuItem onClick={toggleHideFromTimeline} className="text-xs">
-                <CalendarOff size={11} className={cn('mr-2', column.hideFromTimeline ? 'text-amber-400' : 'text-muted-foreground')} />
-                Hide from Calendar & Timeline
-                {column.hideFromTimeline && <span className="ml-auto text-[10px] text-amber-400">On</span>}
-              </DropdownMenuItem>
-
-              <DropdownMenuItem
-                onClick={() => setDefaultTagsOpen(true)}
-                className="text-xs"
-              >
-                <Tag size={11} className={cn('mr-2', (column.defaultTags?.length ?? 0) > 0 ? 'text-primary/70' : 'text-muted-foreground')} />
-                Default tags
-                {(column.defaultTags?.length ?? 0) > 0 && (
-                  <span className="ml-auto text-[10px] text-primary/70">{column.defaultTags!.length}</span>
-                )}
-              </DropdownMenuItem>
-
-              {(column.defaultTags?.length ?? 0) > 0 && (
-                <DropdownMenuItem onClick={toggleAutoApplyDefaultTagsOnMove} className="text-xs">
-                  <Sparkles size={11} className={cn('mr-2', column.autoApplyDefaultTagsOnMove ? 'text-primary/70' : 'text-muted-foreground')} />
-                  Auto-apply tags on drop
-                  {column.autoApplyDefaultTagsOnMove && <span className="ml-auto text-[10px] text-primary/70">On</span>}
                 </DropdownMenuItem>
-              )}
 
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={deleteColumn}
-                className="text-xs text-destructive focus:text-destructive"
-              >
-                <Trash2 size={11} className="mr-2" /> Delete column
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                {(column.defaultTags?.length ?? 0) > 0 && (
+                  <DropdownMenuItem onClick={toggleAutoApplyDefaultTagsOnMove} className="text-xs">
+                    <Sparkles
+                      size={11}
+                      className={cn(
+                        'mr-2',
+                        column.autoApplyDefaultTagsOnMove
+                          ? 'text-primary/70'
+                          : 'text-muted-foreground',
+                      )}
+                    />
+                    Auto-apply tags on drop
+                    {column.autoApplyDefaultTagsOnMove && (
+                      <span className="ml-auto text-[10px] text-primary/70">On</span>
+                    )}
+                  </DropdownMenuItem>
+                )}
+
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={deleteColumn}
+                  className="text-xs text-destructive focus:text-destructive"
+                >
+                  <Trash2 size={11} className="mr-2" /> Delete column
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
 
@@ -503,7 +593,7 @@ export default function KanbanColumnView({ column }: Props) {
             {swimlaneMode === 'none' ? (
               <SortableContext items={cardIds} strategy={verticalListSortingStrategy}>
                 <div className="flex flex-col gap-1.5 p-1.5 min-h-[60px]">
-                  {sortedCards.map(card => (
+                  {sortedCards.map((card) => (
                     <KanbanCardView key={card.id} card={card} columnId={column.id} />
                   ))}
                 </div>
@@ -519,46 +609,55 @@ export default function KanbanColumnView({ column }: Props) {
 
           {/* Add card */}
           {!readOnly && caps.addCard && (
-          <div className="p-1.5 shrink-0">
-            {addingCard ? (
-              <div className="flex flex-col gap-1.5">
-                <textarea
-                  autoFocus
-                  value={cardDraft}
-                  onChange={e => setCardDraft(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addCard(); }
-                    if (e.key === 'Escape') { setAddingCard(false); setCardDraft(''); }
-                  }}
-                  placeholder="Card title..."
-                  rows={2}
-                  className="w-full bg-card text-sm px-2 py-1.5 rounded-md border border-border/50 focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none text-foreground placeholder:text-muted-foreground/40"
-                />
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={addCard}
-                    className="flex-1 text-xs px-2 py-1 bg-primary/20 hover:bg-primary/30 text-primary rounded-md transition-colors"
-                  >
-                    Add card
-                  </button>
-                  <button
-                    onClick={() => { setAddingCard(false); setCardDraft(''); }}
-                    className="text-xs px-2 py-1 text-muted-foreground hover:text-foreground rounded-md transition-colors"
-                  >
-                    Cancel
-                  </button>
+            <div className="p-1.5 shrink-0">
+              {addingCard ? (
+                <div className="flex flex-col gap-1.5">
+                  <textarea
+                    autoFocus
+                    value={cardDraft}
+                    onChange={(e) => setCardDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        addCard();
+                      }
+                      if (e.key === 'Escape') {
+                        setAddingCard(false);
+                        setCardDraft('');
+                      }
+                    }}
+                    placeholder="Card title..."
+                    rows={2}
+                    className="w-full bg-card text-sm px-2 py-1.5 rounded-md border border-border/50 focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none text-foreground placeholder:text-muted-foreground/40"
+                  />
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={addCard}
+                      className="flex-1 text-xs px-2 py-1 bg-primary/20 hover:bg-primary/30 text-primary rounded-md transition-colors"
+                    >
+                      Add card
+                    </button>
+                    <button
+                      onClick={() => {
+                        setAddingCard(false);
+                        setCardDraft('');
+                      }}
+                      className="text-xs px-2 py-1 text-muted-foreground hover:text-foreground rounded-md transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <button
-                onClick={() => setAddingCard(true)}
-                className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
-              >
-                <Plus size={12} />
-                Add card
-              </button>
-            )}
-          </div>
+              ) : (
+                <button
+                  onClick={() => setAddingCard(true)}
+                  className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+                >
+                  <Plus size={12} />
+                  Add card
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -569,13 +668,14 @@ export default function KanbanColumnView({ column }: Props) {
           <DialogHeader className="px-4 py-3 border-b border-border/30">
             <DialogTitle className="text-sm font-semibold flex items-center gap-2">
               <Tag size={13} className="text-primary/70" />
-              Default tags — <span className="font-normal text-muted-foreground">{column.title}</span>
+              Default tags —{' '}
+              <span className="font-normal text-muted-foreground">{column.title}</span>
             </DialogTitle>
           </DialogHeader>
           <div className="px-4 py-3 flex flex-col gap-3">
             <p className="text-xs text-muted-foreground/70">
-              These tags are automatically added to every new card created in this column.
-              Cards moved here can also apply any missing tags, either by prompt or automatically.
+              These tags are automatically added to every new card created in this column. Cards
+              moved here can also apply any missing tags, either by prompt or automatically.
             </p>
 
             {(column.defaultTags?.length ?? 0) > 0 && (
@@ -590,7 +690,8 @@ export default function KanbanColumnView({ column }: Props) {
                     Auto-apply on move
                   </div>
                   <div className="mt-1 text-[11px] text-muted-foreground">
-                    Apply missing default tags automatically when a card is dropped into this column.
+                    Apply missing default tags automatically when a card is dropped into this
+                    column.
                   </div>
                 </div>
                 <span
@@ -612,7 +713,7 @@ export default function KanbanColumnView({ column }: Props) {
             {/* Current tags */}
             {(column.defaultTags?.length ?? 0) > 0 && (
               <div className="flex flex-wrap gap-1.5">
-                {column.defaultTags!.map(tag => (
+                {column.defaultTags!.map((tag) => (
                   <span
                     key={tag}
                     className="flex items-center gap-1 text-xs px-2 py-0.5 bg-primary/15 text-primary/80 rounded-full"
@@ -633,9 +734,12 @@ export default function KanbanColumnView({ column }: Props) {
             <div className="flex gap-2">
               <input
                 value={tagInput}
-                onChange={e => setTagInput(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addDefaultTag(); }
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    addDefaultTag();
+                  }
                 }}
                 placeholder="Add tag, press Enter"
                 className="flex-1 bg-muted/25 border border-border/30 rounded text-xs text-foreground px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground/40"

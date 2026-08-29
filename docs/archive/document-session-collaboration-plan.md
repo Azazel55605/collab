@@ -15,16 +15,16 @@ even before full live co-editing exists.
 
 ## Progress Tracker
 
-| Phase | Status | Goal |
-| --- | --- | --- |
-| 0. Audit and invariants | Done | Map every reload/save path and define the non-negotiable safety rules. |
-| 1. Shared document session core | Done | Centralize version, dirty, save, remote-change, and conflict state. |
-| 2. Safe reload policy rollout | Done | Replace destructive per-view reloads with guarded remote-change handling. |
-| 3. Merge and conflict UX | Done | Add graceful remote-update banners, merge outcomes, and recovery actions. |
-| 4. Hosted cache and replica hardening | Done | Prevent stale hosted cache reads from replacing newer in-memory/editor state. |
-| 5. Live structured documents | Done | Move suitable hosted JSON documents onto the existing Yjs live path. |
-| 6. Collaboration polish | Done | Add presence/status/reconnect UX and operational hardening. |
-| 7. Advanced Office-like behavior | Done | Define the per-type path for richer concurrent editing without overclaiming support. |
+| Phase                                 | Status | Goal                                                                                 |
+| ------------------------------------- | ------ | ------------------------------------------------------------------------------------ |
+| 0. Audit and invariants               | Done   | Map every reload/save path and define the non-negotiable safety rules.               |
+| 1. Shared document session core       | Done   | Centralize version, dirty, save, remote-change, and conflict state.                  |
+| 2. Safe reload policy rollout         | Done   | Replace destructive per-view reloads with guarded remote-change handling.            |
+| 3. Merge and conflict UX              | Done   | Add graceful remote-update banners, merge outcomes, and recovery actions.            |
+| 4. Hosted cache and replica hardening | Done   | Prevent stale hosted cache reads from replacing newer in-memory/editor state.        |
+| 5. Live structured documents          | Done   | Move suitable hosted JSON documents onto the existing Yjs live path.                 |
+| 6. Collaboration polish               | Done   | Add presence/status/reconnect UX and operational hardening.                          |
+| 7. Advanced Office-like behavior      | Done   | Define the per-type path for richer concurrent editing without overclaiming support. |
 
 ## Current System Snapshot
 
@@ -250,7 +250,7 @@ Migration order and status:
   serialization, remote-candidate policy, and conflict latch now live in the
   shared controller.
 - View-specific logic kept local: the structural-signature gate still decides
-  *when* to mark a local change (so selection / measurement / fit-view / pan do
+  _when_ to mark a local change (so selection / measurement / fit-view / pan do
   not autosave), and `fromFlowGraph`/`toFlowGraph` serialization stays in the
   view. A `lastMarkedSigRef` makes the mark idempotent per distinct signature so
   a controller-driven re-render never re-marks the same edit.
@@ -260,9 +260,9 @@ Migration order and status:
   pulse); dirty docs queue the remote as pending; our own write echo and
   same-version reads are rejected as stale.
 - **Conflict is no longer a dead-end**: the old latch-until-reopen (`conflictedRef`
-  + toast) is replaced by the controller's `conflict` state with inline
-  `Load latest` / `Keep mine` recovery (the latter rebases onto their version and
-  re-saves). Autosave stays paused until resolved.
+  - toast) is replaced by the controller's `conflict` state with inline
+    `Load latest` / `Keep mine` recovery (the latter rebases onto their version and
+    re-saves). Autosave stays paused until resolved.
 - **Shared status surface**: new `src/components/layout/DocumentStatusPill.tsx`
   renders the controller `status` vocabulary + remote/conflict recovery actions.
   This is the reusable surface every subsequent migrated view will use, so the
@@ -309,7 +309,7 @@ Full suite green (127 files / 626 tests) and `tsc` clean.
 **Canvas migration (`useCanvasDocumentSession.ts` + `CanvasPage.tsx`):**
 
 - All REST session state moved into `useDocumentSessionController`, built
-  *inside* the hook. `CanvasPage` no longer creates `useDocumentSessionState` and
+  _inside_ the hook. `CanvasPage` no longer creates `useDocumentSessionState` and
   no longer threads `hashRef`/`lastWriteRef`/`markLoaded`/`shouldSkipAutosave`/
   `markWriteStarted`/`shouldCreateSnapshot`/`runExclusiveSave`/`isDirtyRef`/
   `addConflict` down — the hook's option surface shrank to just view state,
@@ -722,16 +722,16 @@ document types that actually have live sessions: hosted notes, Kanban boards,
 canvases, and logic diagrams. Document types still on safe REST/session
 fallback remain described as safe/conflict-aware, not real-time co-editable.
 
-| Document type | Current collaboration model | Advanced design before implementation |
-| --- | --- | --- |
-| Notes | Hosted Yjs text with CodeMirror cursor/selection awareness. | Keep text CRDT as canonical. Add comment/review threads as anchored ranges with explicit re-anchor behavior after edits; do not mix review state into raw markdown until export semantics are defined. |
-| Canvas | Hosted generic live JSON, stable node/edge IDs, Canvas selected-node awareness. | Move to per-entity maps for nodes/edges plus an explicit ordered ID list or fractional order key so node field edits survive concurrent reorder/delete operations. Drag previews should remain awareness-only until commit. |
-| Kanban | Hosted generic live JSON, stable column/card IDs, card-edit awareness. | Model columns and cards as entity maps with conflict-free order keys per column. Card moves should update card location/order atomically, while title/content/comments remain independent fields. |
-| Logic diagrams | Hosted generic live JSON, stable gate/wire IDs, live peer presence. | Model gates and wires as entity maps with stable IDs. Gate movement, input toggles, group membership, and wire edits should be independent operations; multi-user drag previews stay awareness-only. |
-| Grid | App-scoped workspace shell embedding document views; no vault-document write path. | No Office-like claim. Cross-document status should aggregate embedded child document states rather than inventing a live grid document model. |
-| SVG vector editor | Safe REST/manual save through `useSvgSession`; no live vector session. | Require a scene-operation design first: recognized primitives can become entity maps, but raw passthrough SVG, defs, filters, groups, and `<use>` need preserve/lock semantics before live editing is offered. |
-| PDF annotations | Safe hosted/local sidecar sessions; no live PDF annotation session. | Limit live work to annotation/comment sidecars. Highlights, text boxes, and comments can become entity maps with page/anchor coordinates; the PDF binary itself stays immutable. |
-| Image overlays | Safe local additive overlay sessions; hosted overlay persistence is unavailable. | Live only the additive overlay sidecar after hosted overlay storage exists. Raster edits remain explicit generated-image operations, never collaborative pixel editing. |
+| Document type     | Current collaboration model                                                        | Advanced design before implementation                                                                                                                                                                                       |
+| ----------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Notes             | Hosted Yjs text with CodeMirror cursor/selection awareness.                        | Keep text CRDT as canonical. Add comment/review threads as anchored ranges with explicit re-anchor behavior after edits; do not mix review state into raw markdown until export semantics are defined.                      |
+| Canvas            | Hosted generic live JSON, stable node/edge IDs, Canvas selected-node awareness.    | Move to per-entity maps for nodes/edges plus an explicit ordered ID list or fractional order key so node field edits survive concurrent reorder/delete operations. Drag previews should remain awareness-only until commit. |
+| Kanban            | Hosted generic live JSON, stable column/card IDs, card-edit awareness.             | Model columns and cards as entity maps with conflict-free order keys per column. Card moves should update card location/order atomically, while title/content/comments remain independent fields.                           |
+| Logic diagrams    | Hosted generic live JSON, stable gate/wire IDs, live peer presence.                | Model gates and wires as entity maps with stable IDs. Gate movement, input toggles, group membership, and wire edits should be independent operations; multi-user drag previews stay awareness-only.                        |
+| Grid              | App-scoped workspace shell embedding document views; no vault-document write path. | No Office-like claim. Cross-document status should aggregate embedded child document states rather than inventing a live grid document model.                                                                               |
+| SVG vector editor | Safe REST/manual save through `useSvgSession`; no live vector session.             | Require a scene-operation design first: recognized primitives can become entity maps, but raw passthrough SVG, defs, filters, groups, and `<use>` need preserve/lock semantics before live editing is offered.              |
+| PDF annotations   | Safe hosted/local sidecar sessions; no live PDF annotation session.                | Limit live work to annotation/comment sidecars. Highlights, text boxes, and comments can become entity maps with page/anchor coordinates; the PDF binary itself stays immutable.                                            |
+| Image overlays    | Safe local additive overlay sessions; hosted overlay persistence is unavailable.   | Live only the additive overlay sidecar after hosted overlay storage exists. Raster edits remain explicit generated-image operations, never collaborative pixel editing.                                                     |
 
 Advanced work must land behind document-type-specific designs and tests. Generic
 JSON reconciliation remains acceptable for today’s stable-ID co-editing, but the
@@ -750,7 +750,7 @@ Source of truth for the audit below is the code as it stands today:
 
 | Document type | Owner module | Current save path | Current reload triggers | Live support | Conflict handling | Main risk | Migration target |
 | --- | --- | --- | --- | --- | --- | --- |
-| Notes | `NoteView.tsx` | REST optimistic autosave (600 ms debounce) via `runExclusiveSave`→`performSave` with `expected_hash` + `base_content` auto-merge; manual save; H1-title rename-move; snapshot on manual save. Hosted live Yjs text disables REST autosave. | initial load on path/vault change; `vault:file-modified` watcher (local); `onReplicaMutated` (hosted); `forceReloadPath` from HistoryPanel; live session seed/binding. | Hosted text Yjs (`openLiveNoteSession`) | `performSave` conflict → `addConflict` → `ConflictDialog`. | Watcher/replica compare with `version !== hashRef` (not monotonic "newer than"); dirty is *ignored* (not queued) so a remote change is silently dropped while typing; no cache-source awareness. | shared controller + existing live path |
+| Notes | `NoteView.tsx` | REST optimistic autosave (600 ms debounce) via `runExclusiveSave`→`performSave` with `expected_hash` + `base_content` auto-merge; manual save; H1-title rename-move; snapshot on manual save. Hosted live Yjs text disables REST autosave. | initial load on path/vault change; `vault:file-modified` watcher (local); `onReplicaMutated` (hosted); `forceReloadPath` from HistoryPanel; live session seed/binding. | Hosted text Yjs (`openLiveNoteSession`) | `performSave` conflict → `addConflict` → `ConflictDialog`. | Watcher/replica compare with `version !== hashRef` (not monotonic "newer than"); dirty is _ignored_ (not queued) so a remote change is silently dropped while typing; no cache-source awareness. | shared controller + existing live path |
 | Canvas | `useCanvasDocumentSession.ts` | REST optimistic autosave (600 ms) via `runExclusiveSave`→`saveCanvas`; merge adoption; blank-doc create + dangling-edge repair writes on load; snapshot. Hosted live JSON disables REST autosave. | initial `loadCanvas(true)`; `vault:file-modified` (local, skip if dirty or <2 s since write); `onReplicaMutated` (hosted, skip if dirty/live, pulse); live `onChange`→`applyLiveCanvas`; merged-content adoption after save. | Hosted JSON Yjs, hardened (`liveHydratedRef`, `lostRestNodes`, empty-root REST fallback, `discardOfflineState`) | `addConflict` → `ConflictDialog`. | Most complex per-view reload logic; several guards to preserve; still `version !==` rather than monotonic. | shared structured session hook |
 | Kanban | `KanbanPage.tsx` | REST optimistic autosave via `updateBoard`→debounced `writeNote` through `runExclusiveSave`; automations on open/save; snapshots. Hosted live JSON disables REST autosave. | initial `loadBoard(true)`; `vault:file-modified` (local, skip if dirty or <2 s); `onReplicaMutated` (hosted, skip if dirty/live, pulse); live `onChange` seed/apply. | Hosted JSON Yjs (`openLiveJsonSession`) | `addConflict` → `ConflictDialog`. | Duplicated session/reload logic mirrored from Canvas; same `version !==` limitation. | shared structured session hook |
 | Logic | `LogicDiagramView.tsx` | REST optimistic autosave (600 ms) through `useDocumentSessionController`; hosted live JSON disables REST autosave. | initial load; `vault:file-modified` watcher (local); `onReplicaMutated` (hosted); live session seed/reconnect through per-type validation. | Hosted JSON Yjs with gate/wire entity validation and live peer presence. | Conflict/pending remote → shared `DocumentStatusPill` load/keep actions. | Generic JSON live reconciliation still does not provide conflict-free reordering or multi-user drag previews. | live JSON complete; advanced entity/order model deferred behind Phase 7 design |
@@ -765,16 +765,16 @@ Every known content-reload trigger and its required policy. "Current" is what
 the code does today; "Target" is the invariant-compliant behavior the shared
 controller must enforce.
 
-| Trigger | Sources today | Current behavior | Target policy |
-| --- | --- | --- | --- |
-| Initial load / tab open / path change | all views | authoritative first read | **force explicit reload** (establishes session version + baseline) |
-| `vault:file-modified` watcher (local) | Notes, Canvas, Kanban, Logic, SVG, PDF/image sidecars where applicable | route through the shared controller or view-specific live guard | clean+newer → **auto-apply** (pulse); dirty → **queue pending**; older/equal version → **ignore** |
-| `onReplicaMutated` (hosted) | Hosted document and sidecar views | route through the shared controller, path filter, and live-session guard | clean+newer → **auto-apply** (pulse); dirty → **queue pending**; live session active → **ignore**; stale cache (older seq/hash) → **ignore** |
-| Hosted vault metadata polling | `serverStore` | can churn vault identity | **ignore** for content-only timestamp churn (Phase 4) |
-| History/snapshot restore | Notes `forceReloadPath` (others TBD) | force reload | **force explicit reload** (user-initiated; must still protect unsaved local via confirm) |
-| Live session seed / reconnect | Notes, Canvas, Kanban, Logic | `onChange` applies; per-type guards | **auto-apply** (CRDT authoritative) behind per-type validation guards |
-| Offline cache refresh | replica read-through | may reload from cache | **ignore** unless it advances the active revision; feed file-tree/index only |
-| Server merged-content adoption (post-save) | Notes, Canvas, Kanban, Logic | adopt merged result | **auto-apply** (server merge is authoritative for that write) |
+| Trigger                                    | Sources today                                                          | Current behavior                                                         | Target policy                                                                                                                                |
+| ------------------------------------------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Initial load / tab open / path change      | all views                                                              | authoritative first read                                                 | **force explicit reload** (establishes session version + baseline)                                                                           |
+| `vault:file-modified` watcher (local)      | Notes, Canvas, Kanban, Logic, SVG, PDF/image sidecars where applicable | route through the shared controller or view-specific live guard          | clean+newer → **auto-apply** (pulse); dirty → **queue pending**; older/equal version → **ignore**                                            |
+| `onReplicaMutated` (hosted)                | Hosted document and sidecar views                                      | route through the shared controller, path filter, and live-session guard | clean+newer → **auto-apply** (pulse); dirty → **queue pending**; live session active → **ignore**; stale cache (older seq/hash) → **ignore** |
+| Hosted vault metadata polling              | `serverStore`                                                          | can churn vault identity                                                 | **ignore** for content-only timestamp churn (Phase 4)                                                                                        |
+| History/snapshot restore                   | Notes `forceReloadPath` (others TBD)                                   | force reload                                                             | **force explicit reload** (user-initiated; must still protect unsaved local via confirm)                                                     |
+| Live session seed / reconnect              | Notes, Canvas, Kanban, Logic                                           | `onChange` applies; per-type guards                                      | **auto-apply** (CRDT authoritative) behind per-type validation guards                                                                        |
+| Offline cache refresh                      | replica read-through                                                   | may reload from cache                                                    | **ignore** unless it advances the active revision; feed file-tree/index only                                                                 |
+| Server merged-content adoption (post-save) | Notes, Canvas, Kanban, Logic                                           | adopt merged result                                                      | **auto-apply** (server merge is authoritative for that write)                                                                                |
 
 Views with **no live session today** (SVG, PDF, Image) still route remote
 signals through the shared controller and safe REST/session path. Adding live
@@ -783,14 +783,14 @@ ad-hoc reload listeners.
 
 ### Save-Trigger Inventory
 
-| Save trigger | Views | Notes |
-| --- | --- | --- |
-| Debounced autosave | Notes (600 ms), Canvas (600 ms), Kanban (600 ms), Logic (600 ms, structural-signature-gated), PDF sidecar (400 ms local / 400 ms hosted), Image overlay (450 ms) | all document autosaves funnel through `runExclusiveSave` except sidecars/overlays |
-| Manual save | Notes, Logic (Save button), SVG (only save path) | — |
-| Toolbar / structural actions | Canvas, Kanban, Logic, SVG, Image | mutate in-memory state → mark dirty → trigger autosave (except SVG which requires manual save) |
-| Live CRDT persistence | Notes, Canvas, Kanban, Logic (hosted) | server relay persists; REST autosave is disabled while live |
-| Rename / title-derived move | Notes (H1 → filename) | writes then `renameMove` + tree refresh |
-| Sidecar writes | PDF (viewer state + annotations), Image (overlays), plus note-arrow/image-overlay sidecars | independent of the document-revision path |
+| Save trigger                 | Views                                                                                                                                                            | Notes                                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Debounced autosave           | Notes (600 ms), Canvas (600 ms), Kanban (600 ms), Logic (600 ms, structural-signature-gated), PDF sidecar (400 ms local / 400 ms hosted), Image overlay (450 ms) | all document autosaves funnel through `runExclusiveSave` except sidecars/overlays              |
+| Manual save                  | Notes, Logic (Save button), SVG (only save path)                                                                                                                 | —                                                                                              |
+| Toolbar / structural actions | Canvas, Kanban, Logic, SVG, Image                                                                                                                                | mutate in-memory state → mark dirty → trigger autosave (except SVG which requires manual save) |
+| Live CRDT persistence        | Notes, Canvas, Kanban, Logic (hosted)                                                                                                                            | server relay persists; REST autosave is disabled while live                                    |
+| Rename / title-derived move  | Notes (H1 → filename)                                                                                                                                            | writes then `renameMove` + tree refresh                                                        |
+| Sidecar writes               | PDF (viewer state + annotations), Image (overlays), plus note-arrow/image-overlay sidecars                                                                       | independent of the document-revision path                                                      |
 
 ### Acceptance Check
 

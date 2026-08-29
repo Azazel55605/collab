@@ -126,17 +126,17 @@ Do not reuse directly:
 
 ## Progress Tracker
 
-| Phase | Status | Goal |
-| --- | --- | --- |
-| 0. Feasibility spike | Complete | Prove Android Tauri mobile can run a Collab shell, call Rust, authenticate, and persist app data. |
-| 1. Shared client foundation | Complete | Extract enough auth/API/replica logic so desktop and Android do not fork core hosted behavior. |
-| 2. Android mobile shell | Complete | Build phone-first navigation, server access, hosted vault list, and settings/account screens. |
-| 3. Offline replica read path | Complete | Seed, cache, open, and browse hosted vault offline copies on Android. |
-| 4. Notes MVP | Complete | View, edit, save, queue offline, and sync markdown notes. |
-| 5. Kanban MVP | Complete | View and edit boards/cards through a mobile-first Kanban workflow. |
-| 6. Viewer-only rich files | Complete | Add PDF, image, canvas, and logic diagram viewers without edit affordances. |
-| 7. Android hardening and release prep | In progress | Device QA, lifecycle handling, signing, release packaging, and operational docs. |
-| 8. Later expansion | Deferred | Decide whether to add push/background sync, iOS, richer viewers, or mobile capture flows. |
+| Phase                                 | Status      | Goal                                                                                              |
+| ------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------- |
+| 0. Feasibility spike                  | Complete    | Prove Android Tauri mobile can run a Collab shell, call Rust, authenticate, and persist app data. |
+| 1. Shared client foundation           | Complete    | Extract enough auth/API/replica logic so desktop and Android do not fork core hosted behavior.    |
+| 2. Android mobile shell               | Complete    | Build phone-first navigation, server access, hosted vault list, and settings/account screens.     |
+| 3. Offline replica read path          | Complete    | Seed, cache, open, and browse hosted vault offline copies on Android.                             |
+| 4. Notes MVP                          | Complete    | View, edit, save, queue offline, and sync markdown notes.                                         |
+| 5. Kanban MVP                         | Complete    | View and edit boards/cards through a mobile-first Kanban workflow.                                |
+| 6. Viewer-only rich files             | Complete    | Add PDF, image, canvas, and logic diagram viewers without edit affordances.                       |
+| 7. Android hardening and release prep | In progress | Device QA, lifecycle handling, signing, release packaging, and operational docs.                  |
+| 8. Later expansion                    | Deferred    | Decide whether to add push/background sync, iOS, richer viewers, or mobile capture flows.         |
 
 ## Phase Details
 
@@ -312,9 +312,9 @@ Current implementation notes:
 - Verification: `pnpm mobile:build` (tsc + Vite) is clean and a new
   `pnpm mobile:test` Vitest suite (7 tests, `apps/mobile-android/vitest.config.ts`)
   covers the format/file-tree helpers and a shell render smoke test (login form
-  + bottom nav when no servers are saved; refresh-token session restore that
-  lists vaults and surfaces the viewer read-only affordance). On-device/emulator
-  QA across a device matrix is deferred to Phase 7.
+  - bottom nav when no servers are saved; refresh-token session restore that
+    lists vaults and surfaces the viewer read-only affordance). On-device/emulator
+    QA across a device matrix is deferred to Phase 7.
 
 Phase 2 is complete: the companion has a phone-first shell with hosted login,
 a saved-server list, reconnect/disconnect, session restore, a per-server hosted
@@ -355,7 +355,7 @@ Current implementation notes:
   rules, called from `commands/replica.rs`. The key is durable across reboots as
   required, since losing it would orphan all cached content. The low-level JNI
   plumbing shared by both secret stores was extracted into `src-tauri/src/
-  android_jni.rs` (`call_static_string`), and `server_token_store.rs` was
+android_jni.rs` (`call_static_string`), and `server_token_store.rs` was
   refactored onto it so the two stores do not fork the class-loading logic.
 - The mobile app drives the shared native `replica_*` commands directly through a
   new `lib/replica.ts`: `makeVaultAvailableOffline` seeds the manifest
@@ -560,7 +560,7 @@ Current implementation notes:
   the replica document cache (visible on reopen after restart) and replay
   automatically when the vault's server reconnects (`store.syncServer`). The
   header shows `Saving…` / `Saved` / `Queued to sync` / `Sync failed` / `Cached
-  board`, and a failed sync surfaces the same Retry/Discard recovery banner as
+board`, and a failed sync surfaces the same Retry/Discard recovery banner as
   notes.
 - Viewer-role vaults open boards fully read-only: no add-card control, no
   move/priority/tag/checklist/comment/delete affordances, inputs are

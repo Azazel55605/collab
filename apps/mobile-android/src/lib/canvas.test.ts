@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { HostedFileEntry } from '../mobileTauri';
+
+import { isCanvasFile, parseCanvasContent, readCanvasDocument } from './canvas';
+
 const invoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
-
-import type { HostedFileEntry } from '../mobileTauri';
-import { isCanvasFile, parseCanvasContent, readCanvasDocument } from './canvas';
 
 const SERVER = 'https://collab.example.com';
 const VAULT = 'v1';
@@ -80,7 +81,10 @@ describe('mobile canvas documents', () => {
   it('reads a canvas online and warms the replica cache', async () => {
     invoke.mockImplementation((command: string) => {
       if (command === 'hosted_vault_request') {
-        return Promise.resolve({ file: { ...CANVAS_FILE, currentRevision: { sequence: 4 } }, content: CONTENT });
+        return Promise.resolve({
+          file: { ...CANVAS_FILE, currentRevision: { sequence: 4 } },
+          content: CONTENT,
+        });
       }
       if (command === 'replica_cache_document') return Promise.resolve(null);
       return Promise.reject(new Error(`unhandled ${command}`));
@@ -89,7 +93,10 @@ describe('mobile canvas documents', () => {
     const loaded = await readCanvasDocument(SERVER, VAULT, CANVAS_FILE, true);
     expect(loaded.source).toBe('network');
     expect(loaded.canvas.nodes).toHaveLength(2);
-    expect(invoke).toHaveBeenCalledWith('replica_cache_document', expect.objectContaining({ fileId: 'canvas-1' }));
+    expect(invoke).toHaveBeenCalledWith(
+      'replica_cache_document',
+      expect.objectContaining({ fileId: 'canvas-1' }),
+    );
   });
 
   it('falls back to the cached canvas when offline', async () => {

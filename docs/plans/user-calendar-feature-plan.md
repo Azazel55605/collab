@@ -48,20 +48,20 @@ models.
 
 ## Progress Tracker
 
-| Phase | Status | Goal |
-| --- | --- | --- |
-| 0. Domain contract and interoperability spike | Complete | RFC 5545 selection, fixtures, bounded recurrence, and deterministic edit-scope operations are implemented. |
-| 1. Shared calendar domain and local profile store | Complete | Canonical model, native profile database, bounded recurrence queries, migrations, tombstones, and operation log are implemented. |
-| 2. Hosted server calendar domain | Complete | User-owned PostgreSQL storage, authenticated APIs, invitations, attachments, quotas, private aggregate usage, maintenance, and live database coverage are implemented. |
-| 3. Multi-server offline sync | Complete | Desktop and Android sync independent hosted replicas with durable cursors, queued/conflicted operations, lifecycle triggers, progress, and guarded cache removal. |
-| 4. Desktop calendar experience | Complete | Global Calendar navigation, everyday event/task workflows, hosted collaboration controls, typed attachments, defaults, and accessibility coverage are implemented. |
-| 5. Android calendar experience | Complete | Phone-first multi-server views, profile storage, offline editing/deletion, recurrence scopes, collaboration, attachments, management, and actionable recovery are implemented. |
-| 6. Cross-location calendar mirroring | Complete | Mirror groups, deterministic client bridging, tombstones, isolated retryable failures, global progress visibility, desktop/Android conflict resolution, and physical-device validation are complete. |
-| 7. Kanban assigned-task integration | Complete | Local and hosted assignment projection, generated read-only calendars, REST/live materialization, narrow date/completion/recurrence write-through, source lifecycle handling, and access-loss privacy cleanup are implemented and covered. |
-| 8. iCalendar import, export, and subscriptions | Complete | Desktop range/item export, desktop and Android bounded import/export, local and hosted read-only HTTPS subscriptions, scheduled conditional refresh, revocable publication links, safe extension preservation, provider/time-zone fixtures, and SSRF/parser hardening are implemented. |
-| 9. CalDAV and external two-way sync | Testing | Hosted discovery, collections, reports, sync tokens, ETags, writes/deletes, recurrence resources, revocable app passwords, and shared change-log convergence are implemented; maintained external-client interoperability testing remains. |
-| 10. Admin overview, privacy verification, and hardening | Complete | Aggregate-only administration, runtime quota/rate controls, usage warnings, subscription health, bounded recurrence, retention coverage, deterministic multi-server soak tests, physical-device validation, and restore drills are complete. |
-| 11. Reminder delivery and notifications | Complete | Shared native inbox/schedule persistence, bounded reminder reconciliation, desktop/Android delivery, hosted catch-up, preference controls, and packaged/physical-device validation are complete. |
+| Phase                                                   | Status   | Goal                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0. Domain contract and interoperability spike           | Complete | RFC 5545 selection, fixtures, bounded recurrence, and deterministic edit-scope operations are implemented.                                                                                                                                                                             |
+| 1. Shared calendar domain and local profile store       | Complete | Canonical model, native profile database, bounded recurrence queries, migrations, tombstones, and operation log are implemented.                                                                                                                                                       |
+| 2. Hosted server calendar domain                        | Complete | User-owned PostgreSQL storage, authenticated APIs, invitations, attachments, quotas, private aggregate usage, maintenance, and live database coverage are implemented.                                                                                                                 |
+| 3. Multi-server offline sync                            | Complete | Desktop and Android sync independent hosted replicas with durable cursors, queued/conflicted operations, lifecycle triggers, progress, and guarded cache removal.                                                                                                                      |
+| 4. Desktop calendar experience                          | Complete | Global Calendar navigation, everyday event/task workflows, hosted collaboration controls, typed attachments, defaults, and accessibility coverage are implemented.                                                                                                                     |
+| 5. Android calendar experience                          | Complete | Phone-first multi-server views, profile storage, offline editing/deletion, recurrence scopes, collaboration, attachments, management, and actionable recovery are implemented.                                                                                                         |
+| 6. Cross-location calendar mirroring                    | Complete | Mirror groups, deterministic client bridging, tombstones, isolated retryable failures, global progress visibility, desktop/Android conflict resolution, and physical-device validation are complete.                                                                                   |
+| 7. Kanban assigned-task integration                     | Complete | Local and hosted assignment projection, generated read-only calendars, REST/live materialization, narrow date/completion/recurrence write-through, source lifecycle handling, and access-loss privacy cleanup are implemented and covered.                                             |
+| 8. iCalendar import, export, and subscriptions          | Complete | Desktop range/item export, desktop and Android bounded import/export, local and hosted read-only HTTPS subscriptions, scheduled conditional refresh, revocable publication links, safe extension preservation, provider/time-zone fixtures, and SSRF/parser hardening are implemented. |
+| 9. CalDAV and external two-way sync                     | Testing  | Hosted discovery, collections, reports, sync tokens, ETags, writes/deletes, recurrence resources, revocable app passwords, and shared change-log convergence are implemented; maintained external-client interoperability testing remains.                                             |
+| 10. Admin overview, privacy verification, and hardening | Complete | Aggregate-only administration, runtime quota/rate controls, usage warnings, subscription health, bounded recurrence, retention coverage, deterministic multi-server soak tests, physical-device validation, and restore drills are complete.                                           |
+| 11. Reminder delivery and notifications                 | Complete | Shared native inbox/schedule persistence, bounded reminder reconciliation, desktop/Android delivery, hosted catch-up, preference controls, and packaged/physical-device validation are complete.                                                                                       |
 
 Phase 11 is detailed in the cross-platform
 [Notification System Plan](../archive/notification-system-plan.md), with lifecycle and
@@ -597,7 +597,7 @@ external-feed architecture and is not part of this plan.
 - Defaults: all-day is disabled for new events. Timed events start at the next
   sensible interval and use the configured default duration.
 - Recurrence picker: `Does not repeat`, `Every day`, `Every week`, `Every
-  month`, `Every year`, and `Custom`. Custom supports interval, selected
+month`, `Every year`, and `Custom`. Custom supports interval, selected
   weekdays, month/day rules, end date or occurrence count, and a readable
   summary. Editing or deleting a recurring item always asks for occurrence,
   this-and-following, or complete-series scope where applicable.
@@ -1327,11 +1327,11 @@ Estimated effort: 3-5 weeks.
 Tasks:
 
 - [x] Implement bounded desktop `.ics` import preview/application and
-  full-calendar export.
+      full-calendar export.
 - [x] Add selected-range and selected-item export plus Android import/export.
 - [x] Preserve supported safe unknown properties and broaden time-zone fixtures.
 - [x] Add local-profile external read-only subscriptions and conditional stale
-  refresh.
+      refresh.
 - [x] Add hosted external subscription APIs and refresh workers.
 - [x] Add revocable published Collab feed tokens.
 - [x] Add security limits, SSRF controls, parser fixtures, and round-trip tests.
@@ -1350,14 +1350,14 @@ Estimated effort: 4-7 weeks.
 Tasks:
 
 - [x] Implement hosted CalDAV discovery, collections, reports, sync tokens, ETags,
-  writes, deletes, and app-password lifecycle.
+      writes, deletes, and app-password lifecycle.
 - [x] Connect CalDAV mutations to the same operation/change-log core.
 - [x] Establish the outbound-connector boundary: hosted Collab CalDAV is the
-  two-way endpoint; local-only remote-account connectors wait for secure
-  background credential management.
+      two-way endpoint; local-only remote-account connectors wait for secure
+      background credential management.
 - [ ] Test against a maintained interoperability matrix including DAVx5,
-  Thunderbird, Apple Calendar, and at least one additional actively maintained
-  CalDAV client.
+      Thunderbird, Apple Calendar, and at least one additional actively maintained
+      CalDAV client.
 
 Acceptance criteria:
 
@@ -1373,17 +1373,17 @@ Estimated effort: 2-3 weeks after the earlier vertical slices.
 Tasks:
 
 - [x] Add aggregate admin API/view, runtime quota settings, usage warnings, and
-  operational subscription-worker health.
+      operational subscription-worker health.
 - [x] Add calendar-specific rate limits plus live retention coverage for
-  calendar operation records and abandoned attachment uploads.
+      calendar operation records and abandoned attachment uploads.
 - [x] Run privacy response assertions, bounded adversarial recurrence tests,
-  and deterministic repeated two-server offline/reconnect soak coverage.
+      and deterministic repeated two-server offline/reconnect soak coverage.
 - [x] Update `AGENTS.md`, `docs/desktop/codebase.md`, server protocol, backup,
-  security, load-testing, and mobile documentation.
+      security, load-testing, and mobile documentation.
 - [x] Complete a full deployment backup/restore drill and verify calendars,
-  change sequences, CalDAV mappings, and tombstones after restore.
+      change sequences, CalDAV mappings, and tombstones after restore.
 - [x] Complete multi-day physical desktop and Android lifecycle testing across
-  two independently hosted servers.
+      two independently hosted servers.
 
 Acceptance criteria:
 

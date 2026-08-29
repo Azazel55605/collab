@@ -1,10 +1,22 @@
-import { CalendarX2, ChevronRight, Cloud, KeyRound, LogOut, Pencil, Plus, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
-import { useBackDismiss } from '../lib/backStack';
+
+import {
+  CalendarX2,
+  ChevronRight,
+  Cloud,
+  KeyRound,
+  LogOut,
+  Pencil,
+  Plus,
+  RefreshCw,
+  ShieldAlert,
+  X,
+} from 'lucide-react';
 
 import { SyncActivityBanner } from '../components/SyncActivityBanner';
 import { Banner, EmptyState, Spinner, StatusDot } from '../components/ui';
-import { normalizeServerUrl, type KnownServer } from '../lib/servers';
+import { useBackDismiss } from '../lib/backStack';
+import { type KnownServer, normalizeServerUrl } from '../lib/servers';
 import { useMobileStore } from '../state/store';
 
 function errorMessage(reason: unknown): string {
@@ -28,7 +40,8 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [allowInvalid, setAllowInvalid] = useState(false);
-  const [offlineCopyMode, setOfflineCopyMode] = useState<NonNullable<KnownServer['offlineCopyMode']>>('inherit');
+  const [offlineCopyMode, setOfflineCopyMode] =
+    useState<NonNullable<KnownServer['offlineCopyMode']>>('inherit');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -208,7 +221,10 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
               <button
                 type="button"
                 className="ghost-button"
-                onClick={() => { setShowForm(false); setEditingServer(null); }}
+                onClick={() => {
+                  setShowForm(false);
+                  setEditingServer(null);
+                }}
                 disabled={busy}
               >
                 Cancel
@@ -261,13 +277,15 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
                       {restoring
                         ? 'Connecting…'
                         : online
-                        ? status?.user?.displayName || status?.user?.username || server.username
-                        : 'Disconnected'}
+                          ? status?.user?.displayName || status?.user?.username || server.username
+                          : 'Disconnected'}
                       {server.allowInvalidCertificates ? ' · untrusted TLS' : ''}
                       {server.offlineCopyMode === 'always' ? ' · offline copies' : ''}
                     </span>
                   </div>
-                  {online && !editing ? <ChevronRight size={18} aria-hidden className="row-chevron" /> : null}
+                  {online && !editing ? (
+                    <ChevronRight size={18} aria-hidden className="row-chevron" />
+                  ) : null}
                 </button>
                 <div className="row-actions">
                   {hasCalendarCache ? (
@@ -278,7 +296,12 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
                       title="Remove cached calendars"
                       disabled={isPending || editing}
                       onClick={() => {
-                        if (!window.confirm(`Remove cached calendars from ${key.replace(/^https?:\/\//, '')}? Server data is not changed.`)) return;
+                        if (
+                          !window.confirm(
+                            `Remove cached calendars from ${key.replace(/^https?:\/\//, '')}? Server data is not changed.`,
+                          )
+                        )
+                          return;
                         void withPending(key, () => removeCalendarCachesForServer(key));
                       }}
                     >
@@ -302,7 +325,7 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
                     className={`icon-button ${editing ? 'active' : ''}`}
                     aria-label={`Edit ${key}`}
                     disabled={isPending || restoring}
-                    onClick={() => editing ? setEditingServer(null) : beginEdit(server)}
+                    onClick={() => (editing ? setEditingServer(null) : beginEdit(server))}
                   >
                     <Pencil size={16} aria-hidden />
                   </button>
@@ -330,36 +353,81 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
                 </div>
               </div>
               {editing ? (
-                <form className="server-inline-editor" aria-label={`Edit ${key}`} onSubmit={handleConnect}>
+                <form
+                  className="server-inline-editor"
+                  aria-label={`Edit ${key}`}
+                  onSubmit={handleConnect}
+                >
                   <label className="field">
                     <span>Server URL</span>
-                    <input value={serverUrl} inputMode="url" autoCapitalize="none" autoCorrect="off" onChange={(event) => setServerUrl(event.target.value)} />
+                    <input
+                      value={serverUrl}
+                      inputMode="url"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      onChange={(event) => setServerUrl(event.target.value)}
+                    />
                   </label>
                   <label className="field">
                     <span>Username</span>
-                    <input value={username} autoCapitalize="none" autoCorrect="off" onChange={(event) => setUsername(event.target.value)} />
+                    <input
+                      value={username}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      onChange={(event) => setUsername(event.target.value)}
+                    />
                   </label>
                   <label className="field">
                     <span>Password</span>
-                    <input value={password} type="password" autoCapitalize="none" autoCorrect="off" placeholder="Required to apply changes" onChange={(event) => setPassword(event.target.value)} />
+                    <input
+                      value={password}
+                      type="password"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      placeholder="Required to apply changes"
+                      onChange={(event) => setPassword(event.target.value)}
+                    />
                   </label>
                   <label className="toggle-field compact-toggle">
-                    <input type="checkbox" checked={allowInvalid} onChange={(event) => setAllowInvalid(event.target.checked)} />
-                    <span><strong>Allow untrusted certificate</strong><em>Only for private, trusted deployments.</em></span>
+                    <input
+                      type="checkbox"
+                      checked={allowInvalid}
+                      onChange={(event) => setAllowInvalid(event.target.checked)}
+                    />
+                    <span>
+                      <strong>Allow untrusted certificate</strong>
+                      <em>Only for private, trusted deployments.</em>
+                    </span>
                   </label>
                   <fieldset className="server-offline-mode">
                     <legend>Automatic offline copies</legend>
                     <div className="segmented-control">
                       {(['inherit', 'always', 'never'] as const).map((mode) => (
-                        <button key={mode} type="button" className={offlineCopyMode === mode ? 'selected' : ''} onClick={() => setOfflineCopyMode(mode)}>
+                        <button
+                          key={mode}
+                          type="button"
+                          className={offlineCopyMode === mode ? 'selected' : ''}
+                          onClick={() => setOfflineCopyMode(mode)}
+                        >
                           {mode === 'inherit' ? 'Default' : mode === 'always' ? 'Always' : 'Never'}
                         </button>
                       ))}
                     </div>
                   </fieldset>
                   <div className="form-actions">
-                    <button type="button" className="ghost-button" disabled={busy} onClick={() => setEditingServer(null)}>Cancel</button>
-                    <button type="submit" className="primary-button" disabled={busy || !serverUrl.trim() || !username.trim() || !password}>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      disabled={busy}
+                      onClick={() => setEditingServer(null)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="primary-button"
+                      disabled={busy || !serverUrl.trim() || !username.trim() || !password}
+                    >
                       {busy ? <Spinner /> : <Pencil size={17} aria-hidden />} Apply changes
                     </button>
                   </div>
@@ -378,9 +446,13 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
       ) : null}
 
       {reauthServer ? (
-        <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) closeReauthentication();
-        }}>
+        <div
+          className="sheet-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeReauthentication();
+          }}
+        >
           <form
             className="sheet reauthentication-sheet"
             role="dialog"
@@ -393,7 +465,9 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
               <KeyRound size={20} aria-hidden />
               <div className="row-text">
                 <strong>Sign in again</strong>
-                <span>{reauthServer.username} on {normalizeServerUrl(reauthServer.serverUrl)}</span>
+                <span>
+                  {reauthServer.username} on {normalizeServerUrl(reauthServer.serverUrl)}
+                </span>
               </div>
               <button
                 type="button"
@@ -423,10 +497,19 @@ export function ServersScreen({ onOpenServer }: { onOpenServer: (serverUrl: stri
             </label>
             {reauthError ? <Banner tone="error">{reauthError}</Banner> : null}
             <div className="form-actions">
-              <button type="button" className="ghost-button" disabled={reauthBusy} onClick={closeReauthentication}>
+              <button
+                type="button"
+                className="ghost-button"
+                disabled={reauthBusy}
+                onClick={closeReauthentication}
+              >
                 Cancel
               </button>
-              <button type="submit" className="primary-button" disabled={reauthBusy || !reauthPassword}>
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={reauthBusy || !reauthPassword}
+              >
                 {reauthBusy ? <Spinner /> : <KeyRound size={18} aria-hidden />}
                 Sign in
               </button>

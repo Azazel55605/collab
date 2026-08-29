@@ -10,6 +10,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 import { resolveNodeTool } from './tauri-command.mjs';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');

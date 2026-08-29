@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import type { InkObject, InkScene } from '../../types/ink';
+
 import { alignObjects, distributeObjects } from './align';
 import { objectBounds } from './svg';
 
 /** Boxes are the clearest fixture here: their bounds are exact, not outlined. */
-function boxScene(boxes: Array<{ id: string; x: number; y: number; w: number; h: number }>): InkScene {
+function boxScene(
+  boxes: Array<{ id: string; x: number; y: number; w: number; h: number }>,
+): InkScene {
   const objects: Record<string, InkObject> = {};
   const objectOrder: string[] = [];
   for (const box of boxes) {

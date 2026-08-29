@@ -1,4 +1,5 @@
 import type { ComponentProps, ReactNode } from 'react';
+
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 
@@ -70,13 +71,20 @@ export function DocumentTopBar({
   secondaryClassName,
 }: DocumentTopBarProps) {
   return (
-    <div className={cn('shrink-0 border-b border-border/50 bg-background/85 backdrop-blur-xs-webkit', className)}>
+    <div
+      className={cn(
+        'shrink-0 border-b border-border/50 bg-background/85 backdrop-blur-xs-webkit',
+        className,
+      )}
+    >
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
         <div className="flex min-w-0 items-center gap-2.5">
           {icon && <div className="shrink-0 text-muted-foreground">{icon}</div>}
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-foreground">{title}</div>
-            {subtitle && <div className="truncate text-[11px] text-muted-foreground">{subtitle}</div>}
+            {subtitle && (
+              <div className="truncate text-[11px] text-muted-foreground">{subtitle}</div>
+            )}
           </div>
         </div>
         {meta && <div className="flex flex-wrap items-center gap-2">{meta}</div>}
@@ -85,7 +93,12 @@ export function DocumentTopBar({
       {secondary && (
         <div className="border-t border-border/35 bg-background/72 px-4 py-2.5">
           <div className="-mx-4 overflow-x-auto px-4 scrollbar-none">
-            <div className={cn('flex min-w-max items-center gap-2 whitespace-nowrap', secondaryClassName)}>
+            <div
+              className={cn(
+                'flex min-w-max items-center gap-2 whitespace-nowrap',
+                secondaryClassName,
+              )}
+            >
               {secondary}
             </div>
           </div>

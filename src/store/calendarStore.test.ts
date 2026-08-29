@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { tauriCommands } from '../lib/tauri';
-import { syncHostedCalendars } from '../lib/calendarSync';
+
 import { bridgeCalendarMirrors } from '../lib/calendarMirroring';
-import { useCalendarStore } from './calendarStore';
-import { useUiStore } from './uiStore';
+import { syncHostedCalendars } from '../lib/calendarSync';
+import { tauriCommands } from '../lib/tauri';
 import {
+  type CalendarTask,
   createCalendarDefinition,
   normalizeCalendarItem,
-  type CalendarTask,
 } from '../types/calendar';
+
+import { useCalendarStore } from './calendarStore';
+import { useUiStore } from './uiStore';
 
 vi.mock('../lib/tauri', () => ({
   tauriCommands: {
@@ -42,7 +44,8 @@ vi.mock('../lib/tauri', () => ({
 
 vi.mock('../lib/calendarSync', () => ({
   syncHostedCalendars: vi.fn(),
-  hostedCalendarOriginKey: (origin: { serverUrl: string; userId: string }) => `${origin.serverUrl}::${origin.userId}`,
+  hostedCalendarOriginKey: (origin: { serverUrl: string; userId: string }) =>
+    `${origin.serverUrl}::${origin.userId}`,
 }));
 
 vi.mock('../lib/calendarMirroring', () => ({
@@ -91,14 +94,21 @@ beforeEach(() => {
   vi.mocked(tauriCommands.calendarListFailedOperations).mockResolvedValue([]);
   vi.mocked(tauriCommands.calendarRetryOperation).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarDiscardOperation).mockResolvedValue(undefined);
-  vi.mocked(tauriCommands.calendarRemoveHostedCache).mockResolvedValue({ calendarsRemoved: 0, itemsRemoved: 0 });
+  vi.mocked(tauriCommands.calendarRemoveHostedCache).mockResolvedValue({
+    calendarsRemoved: 0,
+    itemsRemoved: 0,
+  });
   vi.mocked(tauriCommands.calendarListMirrorGroups).mockResolvedValue([]);
   vi.mocked(tauriCommands.calendarSaveMirrorGroup).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarDeleteMirrorGroup).mockResolvedValue(undefined);
   vi.mocked(tauriCommands.calendarListMirrorConflicts).mockResolvedValue([]);
   vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue({});
   vi.mocked(syncHostedCalendars).mockResolvedValue([]);
-  vi.mocked(bridgeCalendarMirrors).mockResolvedValue({ statuses: [], appliedOperations: 0, conflicts: [] });
+  vi.mocked(bridgeCalendarMirrors).mockResolvedValue({
+    statuses: [],
+    appliedOperations: 0,
+    conflicts: [],
+  });
 });
 
 describe('calendarStore', () => {
@@ -122,11 +132,9 @@ describe('calendarStore', () => {
     vi.mocked(tauriCommands.calendarList).mockResolvedValue([]);
     await useCalendarStore.getState().initialize('profile-1');
 
-    const created = await useCalendarStore.getState().createCalendar(
-      'Tokyo',
-      '#60a5fa',
-      { kind: 'local', profileId: 'profile-1' },
-    );
+    const created = await useCalendarStore
+      .getState()
+      .createCalendar('Tokyo', '#60a5fa', { kind: 'local', profileId: 'profile-1' });
 
     expect(created.defaultTimeZone).toBe('Asia/Tokyo');
   });
@@ -147,14 +155,16 @@ describe('calendarStore', () => {
     await useCalendarStore.getState().initialize('profile-1');
     const calendars = useCalendarStore.getState().calendars;
     useCalendarStore.setState({
-      syncResults: [{
-        originKey: 'https://calendar.example::user-1',
-        serverUrl: 'https://calendar.example',
-        appliedChanges: 0,
-        replayedOperations: 0,
-        failedOperations: 0,
-        completedAt: '2026-07-23T08:00:00.000Z',
-      }],
+      syncResults: [
+        {
+          originKey: 'https://calendar.example::user-1',
+          serverUrl: 'https://calendar.example',
+          appliedChanges: 0,
+          replayedOperations: 0,
+          failedOperations: 0,
+          completedAt: '2026-07-23T08:00:00.000Z',
+        },
+      ],
     });
 
     await useCalendarStore.getState().initialize('profile-1');
@@ -168,7 +178,11 @@ describe('calendarStore', () => {
     vi.mocked(tauriCommands.calendarList).mockResolvedValue([]);
     await useCalendarStore.getState().initialize('profile-1');
     let finish!: (value: []) => void;
-    vi.mocked(syncHostedCalendars).mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    vi.mocked(syncHostedCalendars).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
     const origins = [{ serverUrl: 'https://calendar.example', userId: 'user-1' }];
 
     const first = useCalendarStore.getState().syncHosted(origins);
@@ -218,9 +232,7 @@ describe('calendarStore', () => {
       color: '#60a5fa',
       defaultTimeZone: 'UTC',
     });
-    vi.mocked(tauriCommands.calendarList)
-      .mockResolvedValueOnce([hosted])
-      .mockResolvedValueOnce([]);
+    vi.mocked(tauriCommands.calendarList).mockResolvedValueOnce([hosted]).mockResolvedValueOnce([]);
     await useCalendarStore.getState().initialize('profile-1');
     await useCalendarStore.getState().removeHostedCache({
       serverUrl: 'https://calendar.example',
@@ -303,7 +315,9 @@ describe('calendarStore', () => {
     );
     expect(useCalendarStore.getState().items).toEqual([event]);
 
-    const updated = await useCalendarStore.getState().saveItem({ ...event, title: 'Updated planning' });
+    const updated = await useCalendarStore
+      .getState()
+      .saveItem({ ...event, title: 'Updated planning' });
     expect(updated).toMatchObject({ title: 'Updated planning', revision: 1 });
     expect(tauriCommands.calendarUpsertItem).toHaveBeenLastCalledWith(
       'profile-1',
@@ -334,22 +348,24 @@ describe('calendarStore', () => {
     });
     useCalendarStore.setState({ profileId: 'profile-1', calendars: [hosted] });
     vi.mocked(tauriCommands.hostedCalendarRequest).mockResolvedValue({});
-    const items = Array.from({ length: 501 }, (_, index) => normalizeCalendarItem({
-      id: `event-${index}`,
-      uid: `event-${index}@example.test`,
-      calendarId: hosted.id,
-      kind: 'event',
-      title: `Event ${index}`,
-      reminders: [],
-      attendees: [],
-      attachments: [],
-      start: { kind: 'date', date: '2026-07-27' },
-      end: { kind: 'date', date: '2026-07-28' },
-      availability: 'busy',
-      revision: 0,
-      createdAt: '2026-07-26T10:00:00Z',
-      updatedAt: '2026-07-26T10:00:00Z',
-    }));
+    const items = Array.from({ length: 501 }, (_, index) =>
+      normalizeCalendarItem({
+        id: `event-${index}`,
+        uid: `event-${index}@example.test`,
+        calendarId: hosted.id,
+        kind: 'event',
+        title: `Event ${index}`,
+        reminders: [],
+        attendees: [],
+        attachments: [],
+        start: { kind: 'date', date: '2026-07-27' },
+        end: { kind: 'date', date: '2026-07-28' },
+        availability: 'busy',
+        revision: 0,
+        createdAt: '2026-07-26T10:00:00Z',
+        updatedAt: '2026-07-26T10:00:00Z',
+      }),
+    );
 
     await useCalendarStore.getState().importItems(hosted.id, items);
 
@@ -359,8 +375,14 @@ describe('calendarStore', () => {
     expect(vi.mocked(tauriCommands.hostedCalendarRequest).mock.calls[0][3]).toMatchObject({
       operations: expect.arrayContaining([expect.objectContaining({ expectedRevision: 0 })]),
     });
-    expect((vi.mocked(tauriCommands.hostedCalendarRequest).mock.calls[0][3] as { operations: unknown[] }).operations).toHaveLength(500);
-    expect((vi.mocked(tauriCommands.hostedCalendarRequest).mock.calls[1][3] as { operations: unknown[] }).operations).toHaveLength(1);
+    expect(
+      (vi.mocked(tauriCommands.hostedCalendarRequest).mock.calls[0][3] as { operations: unknown[] })
+        .operations,
+    ).toHaveLength(500);
+    expect(
+      (vi.mocked(tauriCommands.hostedCalendarRequest).mock.calls[1][3] as { operations: unknown[] })
+        .operations,
+    ).toHaveLength(1);
     expect(tauriCommands.calendarAcknowledgeOperations).toHaveBeenCalledTimes(2);
   });
 
@@ -383,11 +405,9 @@ describe('calendarStore', () => {
       etag: '"revision-1"',
     });
 
-    const subscription = await useCalendarStore.getState().createSubscription(
-      'External',
-      '#22d3ee',
-      'https://calendar.example/feed.ics',
-    );
+    const subscription = await useCalendarStore
+      .getState()
+      .createSubscription('External', '#22d3ee', 'https://calendar.example/feed.ics');
 
     expect(tauriCommands.calendarReplaceSubscription).toHaveBeenCalledOnce();
     expect(tauriCommands.calendarReplaceSubscription).toHaveBeenCalledWith(
@@ -430,17 +450,15 @@ describe('calendarStore', () => {
         ].join('\r\n'),
       })
       .mockRejectedValueOnce(new Error('feed unavailable'));
-    const subscription = await useCalendarStore.getState().createSubscription(
-      'External',
-      '#22d3ee',
-      'https://calendar.example/feed.ics',
-    );
+    const subscription = await useCalendarStore
+      .getState()
+      .createSubscription('External', '#22d3ee', 'https://calendar.example/feed.ics');
     const itemsBeforeFailure = useCalendarStore.getState().sourceItems;
     vi.mocked(tauriCommands.calendarSaveSubscription).mockClear();
 
-    await expect(
-      useCalendarStore.getState().refreshSubscription(subscription.id),
-    ).rejects.toThrow('feed unavailable');
+    await expect(useCalendarStore.getState().refreshSubscription(subscription.id)).rejects.toThrow(
+      'feed unavailable',
+    );
 
     expect(useCalendarStore.getState().sourceItems).toBe(itemsBeforeFailure);
     expect(tauriCommands.calendarReplaceSubscription).toHaveBeenCalledTimes(1);
@@ -472,10 +490,12 @@ describe('calendarStore', () => {
     await useCalendarStore.getState().loadRange('2026-07-20', '2026-07-24');
     const occurrence = useCalendarStore.getState().items[1];
 
-    await useCalendarStore.getState().saveItem(
-      normalizeCalendarItem({ ...occurrence, title: 'Changed occurrence' }),
-      'occurrence',
-    );
+    await useCalendarStore
+      .getState()
+      .saveItem(
+        normalizeCalendarItem({ ...occurrence, title: 'Changed occurrence' }),
+        'occurrence',
+      );
 
     const upsertCalls = vi.mocked(tauriCommands.calendarUpsertItem).mock.calls;
     const saved = upsertCalls[upsertCalls.length - 1]?.[1];
@@ -604,14 +624,14 @@ describe('calendarStore', () => {
   it('creates hosted calendars and pushes their item operations', async () => {
     vi.mocked(tauriCommands.calendarList).mockResolvedValue([]);
     vi.mocked(tauriCommands.hostedCalendarRequest).mockImplementation(
-      async (_serverUrl, _method, path, body) => path === '/api/v1/calendars' ? body : [],
+      async (_serverUrl, _method, path, body) => (path === '/api/v1/calendars' ? body : []),
     );
     await useCalendarStore.getState().initialize('profile-1');
-    const hosted = await useCalendarStore.getState().createCalendar(
-      'Server calendar',
-      '#60a5fa',
-      { kind: 'hosted', serverUrl: 'https://calendar.example', userId: crypto.randomUUID() },
-    );
+    const hosted = await useCalendarStore.getState().createCalendar('Server calendar', '#60a5fa', {
+      kind: 'hosted',
+      serverUrl: 'https://calendar.example',
+      userId: crypto.randomUUID(),
+    });
 
     await useCalendarStore.getState().createEvent({
       calendarId: hosted.id,
@@ -631,7 +651,11 @@ describe('calendarStore', () => {
       'https://calendar.example',
       'POST',
       '/api/v1/calendars/operations',
-      { operations: [expect.objectContaining({ mutation: expect.objectContaining({ type: 'upsertItem' }) })] },
+      {
+        operations: [
+          expect.objectContaining({ mutation: expect.objectContaining({ type: 'upsertItem' }) }),
+        ],
+      },
     );
     expect(tauriCommands.calendarAcknowledgeOperations).toHaveBeenCalledOnce();
   });
@@ -692,7 +716,11 @@ describe('calendarStore', () => {
       'https://calendar.example',
       'POST',
       '/api/v1/calendars/operations',
-      { operations: [expect.objectContaining({ mutation: { type: 'updateCalendar', calendar: updated } })] },
+      {
+        operations: [
+          expect.objectContaining({ mutation: { type: 'updateCalendar', calendar: updated } }),
+        ],
+      },
     );
   });
 });

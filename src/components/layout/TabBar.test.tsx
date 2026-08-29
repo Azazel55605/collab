@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { DragProvider, useDragContext } from '../../contexts/DragContext';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
+
 import TabBar from './TabBar';
 
 describe('TabBar middle click', () => {
@@ -32,7 +33,9 @@ describe('TabBar middle click', () => {
 
     fireEvent.mouseDown(screen.getByText('a'), { button: 1 });
 
-    expect(useEditorStore.getState().openTabs.map((tab) => tab.relativePath)).toEqual(['Notes/b.md']);
+    expect(useEditorStore.getState().openTabs.map((tab) => tab.relativePath)).toEqual([
+      'Notes/b.md',
+    ]);
     expect(useEditorStore.getState().activeTabPath).toBe('Notes/b.md');
   });
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { formatTime, isSupportedTimeZone, useUiStore } from './uiStore';
 
 describe('calendar time formatting', () => {

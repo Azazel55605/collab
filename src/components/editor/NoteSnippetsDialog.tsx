@@ -1,16 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
+
 import { Plus, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { useVaultStore } from '../../store/vaultStore';
+import { cn } from '../../lib/utils';
 import { createVaultClient } from '../../lib/vaultClient';
 import { useNoteSnippetStore } from '../../store/noteSnippetStore';
+import { useVaultStore } from '../../store/vaultStore';
 import type { NoteSnippetDraft, NoteSnippetScope } from '../../types/noteSnippet';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
-import { cn } from '../../lib/utils';
 
 type Props = {
   open: boolean;
@@ -32,11 +40,15 @@ export function NoteSnippetsDialog({ open, onOpenChange, onInsert }: Props) {
   const { vault } = useVaultStore();
   // Vault-scoped snippets live on the local filesystem; hosted vaults only have
   // app-scoped snippets (a null vault path targets app scope).
-  const supportsLocalSnippets = vault ? createVaultClient(vault).capabilities.nativeFilesystem : false;
+  const supportsLocalSnippets = vault
+    ? createVaultClient(vault).capabilities.nativeFilesystem
+    : false;
   const snippetVaultPath = supportsLocalSnippets && vault ? vault.path : null;
   const { snippets, loadSnippets, saveSnippet, deleteSnippet, isLoading } = useNoteSnippetStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<NoteSnippetDraft>(createEmptyDraft(supportsLocalSnippets ? 'vault' : 'app'));
+  const [draft, setDraft] = useState<NoteSnippetDraft>(
+    createEmptyDraft(supportsLocalSnippets ? 'vault' : 'app'),
+  );
   const scopeOptions: NoteSnippetScope[] = supportsLocalSnippets ? ['vault', 'app'] : ['app'];
 
   useEffect(() => {
@@ -103,7 +115,8 @@ export function NoteSnippetsDialog({ open, onOpenChange, onInsert }: Props) {
         <DialogHeader className="px-5 pt-5 pb-0">
           <DialogTitle>Note Snippets</DialogTitle>
           <DialogDescription>
-            Create reusable markdown snippets with placeholders and insert them into the current note.
+            Create reusable markdown snippets with placeholders and insert them into the current
+            note.
           </DialogDescription>
         </DialogHeader>
 
@@ -152,7 +165,9 @@ export function NoteSnippetsDialog({ open, onOpenChange, onInsert }: Props) {
                       {snippet.category ? ` · ${snippet.category}` : ''}
                     </div>
                     {snippet.description && (
-                      <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground/85">{snippet.description}</div>
+                      <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground/85">
+                        {snippet.description}
+                      </div>
                     )}
                     <div className="mt-2 flex gap-2">
                       <Button
@@ -181,7 +196,9 @@ export function NoteSnippetsDialog({ open, onOpenChange, onInsert }: Props) {
                 <span className="text-xs font-medium text-muted-foreground">Name</span>
                 <Input
                   value={draft.name}
-                  onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))}
+                  onChange={(event) =>
+                    setDraft((value) => ({ ...value, name: event.target.value }))
+                  }
                   placeholder="Meeting notes"
                 />
               </label>
@@ -189,7 +206,9 @@ export function NoteSnippetsDialog({ open, onOpenChange, onInsert }: Props) {
                 <span className="text-xs font-medium text-muted-foreground">Category</span>
                 <Input
                   value={draft.category ?? ''}
-                  onChange={(event) => setDraft((value) => ({ ...value, category: event.target.value }))}
+                  onChange={(event) =>
+                    setDraft((value) => ({ ...value, category: event.target.value }))
+                  }
                   placeholder="Notes"
                 />
               </label>
@@ -200,7 +219,9 @@ export function NoteSnippetsDialog({ open, onOpenChange, onInsert }: Props) {
                 <span className="text-xs font-medium text-muted-foreground">Description</span>
                 <Input
                   value={draft.description ?? ''}
-                  onChange={(event) => setDraft((value) => ({ ...value, description: event.target.value }))}
+                  onChange={(event) =>
+                    setDraft((value) => ({ ...value, description: event.target.value }))
+                  }
                   placeholder="Reusable notes for recurring meetings"
                 />
               </label>
@@ -228,9 +249,7 @@ export function NoteSnippetsDialog({ open, onOpenChange, onInsert }: Props) {
             </div>
 
             <label className="mt-4 flex min-h-0 flex-1 flex-col gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">
-                Body
-              </span>
+              <span className="text-xs font-medium text-muted-foreground">Body</span>
               <Textarea
                 value={draft.body}
                 onChange={(event) => setDraft((value) => ({ ...value, body: event.target.value }))}
@@ -238,13 +257,19 @@ export function NoteSnippetsDialog({ open, onOpenChange, onInsert }: Props) {
                 placeholder="<placeholder:Title>\n<cursor>"
               />
               <div className="text-[11px] text-muted-foreground">
-                Use <code>&lt;placeholder:Label&gt;</code> for editable fields and <code>&lt;cursor&gt;</code> for the final cursor position.
+                Use <code>&lt;placeholder:Label&gt;</code> for editable fields and{' '}
+                <code>&lt;cursor&gt;</code> for the final cursor position.
               </div>
             </label>
 
             <DialogFooter className="mt-4 border-none bg-transparent px-0 pb-0">
               <div className="mr-auto flex gap-2">
-                <Button type="button" variant="outline" onClick={() => onInsert(draft.body)} disabled={!draft.body.trim()}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onInsert(draft.body)}
+                  disabled={!draft.body.trim()}
+                >
                   Insert draft
                 </Button>
                 {selectedSnippet && (
@@ -257,7 +282,11 @@ export function NoteSnippetsDialog({ open, onOpenChange, onInsert }: Props) {
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Close
               </Button>
-              <Button type="button" onClick={handleSave} disabled={!draft.name.trim() || !draft.body.trim()}>
+              <Button
+                type="button"
+                onClick={handleSave}
+                disabled={!draft.name.trim() || !draft.body.trim()}
+              >
                 <Save size={14} className="mr-1" />
                 Save snippet
               </Button>

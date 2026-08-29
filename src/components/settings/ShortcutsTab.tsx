@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
+
 import { ChevronDown, Search } from 'lucide-react';
-import { Input } from '../ui/input';
+
 import { cn } from '../../lib/utils';
+import { Input } from '../ui/input';
 
 // Read-only keyboard shortcut reference rendered in the Settings modal.
 
@@ -15,7 +17,7 @@ function Key({ children }: { children: string }) {
 
 interface ShortcutRow {
   label: string;
-  keys: string[][];   // outer = combos joined by "+", inner = individual tokens
+  keys: string[][]; // outer = combos joined by "+", inner = individual tokens
 }
 
 interface Group {
@@ -28,28 +30,34 @@ const GROUPS: Group[] = [
   {
     heading: 'Navigation',
     rows: [
-      { label: 'Toggle sidebar',  keys: [['Ctrl', 'Shift', 'B']] },
-      { label: 'Files view',      keys: [['Ctrl', '1']] },
-      { label: 'Graph view',      keys: [['Ctrl', '2']] },
-      { label: 'Kanban view',     keys: [['Ctrl', '3']] },
-      { label: 'Grid view',       keys: [['Ctrl', '4']] },
-      { label: 'Open Settings',   keys: [['Ctrl', 'Shift', 'S']] },
+      { label: 'Toggle sidebar', keys: [['Ctrl', 'Shift', 'B']] },
+      { label: 'Files view', keys: [['Ctrl', '1']] },
+      { label: 'Graph view', keys: [['Ctrl', '2']] },
+      { label: 'Kanban view', keys: [['Ctrl', '3']] },
+      { label: 'Grid view', keys: [['Ctrl', '4']] },
+      { label: 'Open Settings', keys: [['Ctrl', 'Shift', 'S']] },
     ],
   },
   {
     heading: 'Tabs',
     rows: [
-      { label: 'Close tab',       keys: [['Ctrl', 'W']] },
-      { label: 'Next tab',        keys: [['Ctrl', 'Tab']] },
-      { label: 'Previous tab',    keys: [['Ctrl', 'Shift', 'Tab']] },
+      { label: 'Close tab', keys: [['Ctrl', 'W']] },
+      { label: 'Next tab', keys: [['Ctrl', 'Tab']] },
+      { label: 'Previous tab', keys: [['Ctrl', 'Shift', 'Tab']] },
     ],
   },
   {
     heading: 'Search & Actions',
     note: 'Prefixes below are typed into the command bar after it is open; they are not global shortcuts.',
     rows: [
-      { label: 'Command bar',     keys: [['Ctrl', 'K'], ['Ctrl', 'P']] },
-      { label: 'New note',        keys: [['Ctrl', 'N']] },
+      {
+        label: 'Command bar',
+        keys: [
+          ['Ctrl', 'K'],
+          ['Ctrl', 'P'],
+        ],
+      },
+      { label: 'New note', keys: [['Ctrl', 'N']] },
       { label: 'Math prefix', keys: [['Type', '=']] },
       { label: 'Action prefix', keys: [['Type', '>']] },
       { label: 'Tag prefix', keys: [['Type', '#']] },
@@ -60,14 +68,14 @@ const GROUPS: Group[] = [
     heading: 'Editor',
     note: 'Only active when the editor is focused.',
     rows: [
-      { label: 'Save',            keys: [['Ctrl', 'S']] },
-      { label: 'Bold',            keys: [['Ctrl', 'B']] },
-      { label: 'Italic',          keys: [['Ctrl', 'I']] },
-      { label: 'Strikethrough',   keys: [['Ctrl', 'Shift', 'X']] },
-      { label: 'Undo',            keys: [['Ctrl', 'Z']] },
-      { label: 'Redo',            keys: [['Ctrl', 'Shift', 'Z']] },
-      { label: 'Indent',          keys: [['Tab']] },
-      { label: 'Dedent',          keys: [['Shift', 'Tab']] },
+      { label: 'Save', keys: [['Ctrl', 'S']] },
+      { label: 'Bold', keys: [['Ctrl', 'B']] },
+      { label: 'Italic', keys: [['Ctrl', 'I']] },
+      { label: 'Strikethrough', keys: [['Ctrl', 'Shift', 'X']] },
+      { label: 'Undo', keys: [['Ctrl', 'Z']] },
+      { label: 'Redo', keys: [['Ctrl', 'Shift', 'Z']] },
+      { label: 'Indent', keys: [['Tab']] },
+      { label: 'Dedent', keys: [['Shift', 'Tab']] },
       { label: 'Open icon picker', keys: [['Ctrl', 'Alt', 'S']] },
       { label: 'Open table editor', keys: [['Ctrl', 'Alt', 'T']] },
       { label: 'Open link editor', keys: [['Ctrl', 'Alt', 'L']] },
@@ -93,98 +101,98 @@ const GROUPS: Group[] = [
     heading: 'PDF Viewer',
     note: 'Only active when a PDF tab is open and an input field is not focused.',
     rows: [
-      { label: 'Single page mode',  keys: [['1']] },
-      { label: 'Long scroll mode',  keys: [['2']] },
+      { label: 'Single page mode', keys: [['1']] },
+      { label: 'Long scroll mode', keys: [['2']] },
       { label: 'Side by side mode', keys: [['3']] },
-      { label: 'Rotate page',       keys: [['R']] },
-      { label: 'Scroll up',         keys: [['Arrow Up']] },
-      { label: 'Scroll down',       keys: [['Arrow Down']] },
-      { label: 'Previous page',     keys: [['Arrow Left'], ['Page Up'], ['Shift', 'Space']] },
-      { label: 'Next page',         keys: [['Arrow Right'], ['Page Down'], ['Space']] },
-      { label: 'First page',        keys: [['Home']] },
-      { label: 'Last page',         keys: [['End']] },
-      { label: 'Zoom in',           keys: [['Ctrl', 'Arrow Up']] },
-      { label: 'Zoom out',          keys: [['Ctrl', 'Arrow Down']] },
-      { label: 'Reset zoom',        keys: [['Ctrl', '0'], ['0']] },
+      { label: 'Rotate page', keys: [['R']] },
+      { label: 'Scroll up', keys: [['Arrow Up']] },
+      { label: 'Scroll down', keys: [['Arrow Down']] },
+      { label: 'Previous page', keys: [['Arrow Left'], ['Page Up'], ['Shift', 'Space']] },
+      { label: 'Next page', keys: [['Arrow Right'], ['Page Down'], ['Space']] },
+      { label: 'First page', keys: [['Home']] },
+      { label: 'Last page', keys: [['End']] },
+      { label: 'Zoom in', keys: [['Ctrl', 'Arrow Up']] },
+      { label: 'Zoom out', keys: [['Ctrl', 'Arrow Down']] },
+      { label: 'Reset zoom', keys: [['Ctrl', '0'], ['0']] },
     ],
   },
   {
     heading: 'Image Viewer',
     note: 'Only active when an image tab is open and an input field or dialog is not focused.',
     rows: [
-      { label: 'View mode',          keys: [['1']] },
-      { label: 'Additive mode',      keys: [['2']] },
-      { label: 'Permanent mode',     keys: [['3']] },
-      { label: 'Select tool',        keys: [['S']] },
-      { label: 'Text tool',          keys: [['T']] },
-      { label: 'Arrow tool',         keys: [['A']] },
-      { label: 'Freehand tool',      keys: [['F']] },
-      { label: 'Rotate image',       keys: [['R']] },
-      { label: 'Crop',               keys: [['C']] },
-      { label: 'Toggle lock ratio',  keys: [['L']] },
-      { label: 'Delete selection',   keys: [['Delete'], ['Backspace']] },
+      { label: 'View mode', keys: [['1']] },
+      { label: 'Additive mode', keys: [['2']] },
+      { label: 'Permanent mode', keys: [['3']] },
+      { label: 'Select tool', keys: [['S']] },
+      { label: 'Text tool', keys: [['T']] },
+      { label: 'Arrow tool', keys: [['A']] },
+      { label: 'Freehand tool', keys: [['F']] },
+      { label: 'Rotate image', keys: [['R']] },
+      { label: 'Crop', keys: [['C']] },
+      { label: 'Toggle lock ratio', keys: [['L']] },
+      { label: 'Delete selection', keys: [['Delete'], ['Backspace']] },
       { label: 'Cancel crop / clear selection', keys: [['Escape']] },
-      { label: 'Scroll up',          keys: [['Arrow Up']] },
-      { label: 'Scroll down',        keys: [['Arrow Down']] },
-      { label: 'Zoom in',            keys: [['Ctrl', 'Arrow Up']] },
-      { label: 'Zoom out',           keys: [['Ctrl', 'Arrow Down']] },
-      { label: 'Reset zoom',         keys: [['Ctrl', '0'], ['0']] },
+      { label: 'Scroll up', keys: [['Arrow Up']] },
+      { label: 'Scroll down', keys: [['Arrow Down']] },
+      { label: 'Zoom in', keys: [['Ctrl', 'Arrow Up']] },
+      { label: 'Zoom out', keys: [['Ctrl', 'Arrow Down']] },
+      { label: 'Reset zoom', keys: [['Ctrl', '0'], ['0']] },
     ],
   },
   {
     heading: 'Kanban Board',
     note: 'Only active when a kanban board tab is open and an input field is not focused.',
     rows: [
-      { label: 'Board view',         keys: [['1'], ['B']] },
-      { label: 'Calendar view',      keys: [['2'], ['C']] },
-      { label: 'Timeline view',      keys: [['3'], ['T']] },
-      { label: 'Add column',         keys: [['N']] },
-      { label: 'Toggle archive',     keys: [['Shift', 'A']] },
-      { label: 'Scroll board left',  keys: [['Arrow Left']] },
+      { label: 'Board view', keys: [['1'], ['B']] },
+      { label: 'Calendar view', keys: [['2'], ['C']] },
+      { label: 'Timeline view', keys: [['3'], ['T']] },
+      { label: 'Add column', keys: [['N']] },
+      { label: 'Toggle archive', keys: [['Shift', 'A']] },
+      { label: 'Scroll board left', keys: [['Arrow Left']] },
       { label: 'Scroll board right', keys: [['Arrow Right']] },
       { label: 'Jump to board start', keys: [['Home']] },
-      { label: 'Jump to board end',   keys: [['End']] },
-      { label: 'Cancel new column',  keys: [['Escape']] },
+      { label: 'Jump to board end', keys: [['End']] },
+      { label: 'Cancel new column', keys: [['Escape']] },
     ],
   },
   {
     heading: 'Canvas',
     note: 'Only active when a canvas tab is open and an input field or picker is not focused.',
     rows: [
-      { label: 'Add note',           keys: [['N']] },
-      { label: 'Add file',           keys: [['F']] },
-      { label: 'Add text',           keys: [['T']] },
-      { label: 'Fit view',           keys: [['Shift', 'F']] },
-      { label: 'Pan up',             keys: [['Arrow Up']] },
-      { label: 'Pan down',           keys: [['Arrow Down']] },
-      { label: 'Pan left',           keys: [['Arrow Left']] },
-      { label: 'Pan right',          keys: [['Arrow Right']] },
-      { label: 'Delete selection',   keys: [['Delete'], ['Backspace']] },
-      { label: 'Close picker',       keys: [['Escape']] },
-      { label: 'Zoom in',            keys: [['Ctrl', 'Arrow Up']] },
-      { label: 'Zoom out',           keys: [['Ctrl', 'Arrow Down']] },
-      { label: 'Reset zoom',         keys: [['Ctrl', '0'], ['0']] },
+      { label: 'Add note', keys: [['N']] },
+      { label: 'Add file', keys: [['F']] },
+      { label: 'Add text', keys: [['T']] },
+      { label: 'Fit view', keys: [['Shift', 'F']] },
+      { label: 'Pan up', keys: [['Arrow Up']] },
+      { label: 'Pan down', keys: [['Arrow Down']] },
+      { label: 'Pan left', keys: [['Arrow Left']] },
+      { label: 'Pan right', keys: [['Arrow Right']] },
+      { label: 'Delete selection', keys: [['Delete'], ['Backspace']] },
+      { label: 'Close picker', keys: [['Escape']] },
+      { label: 'Zoom in', keys: [['Ctrl', 'Arrow Up']] },
+      { label: 'Zoom out', keys: [['Ctrl', 'Arrow Down']] },
+      { label: 'Reset zoom', keys: [['Ctrl', '0'], ['0']] },
     ],
   },
   {
     heading: 'Logic Diagrams',
     note: 'Only active when a logic diagram tab is open and an input field is not focused.',
     rows: [
-      { label: 'Add input',          keys: [['I']] },
-      { label: 'Add output',         keys: [['O']] },
-      { label: 'Add AND gate',       keys: [['A']] },
-      { label: 'Add NOT gate',       keys: [['N']] },
-      { label: 'Add XOR gate',       keys: [['X']] },
+      { label: 'Add input', keys: [['I']] },
+      { label: 'Add output', keys: [['O']] },
+      { label: 'Add AND gate', keys: [['A']] },
+      { label: 'Add NOT gate', keys: [['N']] },
+      { label: 'Add XOR gate', keys: [['X']] },
       { label: 'Add resistor (schematic)', keys: [['R']] },
-      { label: 'Select all',         keys: [['Ctrl', 'A']] },
-      { label: 'Group selection',    keys: [['Ctrl', 'G']] },
-      { label: 'Ungroup selection',  keys: [['Ctrl', 'Shift', 'G']] },
+      { label: 'Select all', keys: [['Ctrl', 'A']] },
+      { label: 'Group selection', keys: [['Ctrl', 'G']] },
+      { label: 'Ungroup selection', keys: [['Ctrl', 'Shift', 'G']] },
       { label: 'Rename selected group', keys: [['F2']] },
-      { label: 'Fit view',           keys: [['Shift', 'F']] },
-      { label: 'Delete selection',   keys: [['Delete'], ['Backspace']] },
-      { label: 'Zoom in',            keys: [['Ctrl', 'Arrow Up']] },
-      { label: 'Zoom out',           keys: [['Ctrl', 'Arrow Down']] },
-      { label: 'Reset zoom',         keys: [['Ctrl', '0'], ['0']] },
+      { label: 'Fit view', keys: [['Shift', 'F']] },
+      { label: 'Delete selection', keys: [['Delete'], ['Backspace']] },
+      { label: 'Zoom in', keys: [['Ctrl', 'Arrow Up']] },
+      { label: 'Zoom out', keys: [['Ctrl', 'Arrow Down']] },
+      { label: 'Reset zoom', keys: [['Ctrl', '0'], ['0']] },
     ],
   },
 ];
@@ -203,13 +211,18 @@ export default function ShortcutsTab() {
         const keyText = row.keys.map((combo) => combo.join(' ')).join(' ');
         return `${group.heading} ${row.label} ${keyText}`.toLowerCase().includes(normalizedQuery);
       }),
-    })).filter((group) => group.rows.length > 0 || group.heading.toLowerCase().includes(normalizedQuery));
+    })).filter(
+      (group) => group.rows.length > 0 || group.heading.toLowerCase().includes(normalizedQuery),
+    );
   }, [normalizedQuery]);
 
   return (
     <div className="space-y-6">
       <div className="relative">
-        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/70" />
+        <Search
+          size={14}
+          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/70"
+        />
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -261,13 +274,18 @@ export default function ShortcutsTab() {
                 {!isCollapsed && (
                   <div className="mt-2 overflow-hidden rounded-xl border border-border/35 bg-card/45 shadow-sm divide-y divide-border/25">
                     {group.rows.map((row) => (
-                      <div key={row.label} className="flex items-center justify-between px-3 py-2.5">
+                      <div
+                        key={row.label}
+                        className="flex items-center justify-between px-3 py-2.5"
+                      >
                         <span className="text-sm text-foreground/80">{row.label}</span>
                         <div className="flex items-center gap-2">
                           {row.keys.map((combo, ci) => (
                             <span key={ci} className="flex items-center gap-1">
                               {ci > 0 && (
-                                <span className="mx-0.5 text-[11px] text-muted-foreground/50">or</span>
+                                <span className="mx-0.5 text-[11px] text-muted-foreground/50">
+                                  or
+                                </span>
                               )}
                               {combo.map((token, ti) => (
                                 <span key={ti} className="flex items-center gap-0.5">

@@ -4,19 +4,19 @@
 
 All IDs are server-generated UUIDv7 values unless explicitly described otherwise.
 
-| Entity | Important fields |
-| --- | --- |
-| User | `id`, `username`, `displayName`, `status`, timestamps |
-| Session | `id`, `userId`, refresh-token family, expiry, revoked timestamp |
-| Vault | `id`, `name`, `ownerUserId`, `status`, `manifestSequence`, timestamps |
-| Membership | `vaultId`, `userId`, `role`, timestamps |
-| FileEntry | `id`, `vaultId`, `parentId`, `name`, `kind`, `documentType`, `state`, current revision, timestamps |
-| FileRevision | `id`, `fileId`, `sequence`, content/blob hash, size, creator, timestamp |
-| Snapshot | `id`, `fileId`, revision/materialized CRDT reference, label, creator, timestamp |
+| Entity              | Important fields                                                                                     |
+| ------------------- | ---------------------------------------------------------------------------------------------------- |
+| User                | `id`, `username`, `displayName`, `status`, timestamps                                                |
+| Session             | `id`, `userId`, refresh-token family, expiry, revoked timestamp                                      |
+| Vault               | `id`, `name`, `ownerUserId`, `status`, `manifestSequence`, timestamps                                |
+| Membership          | `vaultId`, `userId`, `role`, timestamps                                                              |
+| FileEntry           | `id`, `vaultId`, `parentId`, `name`, `kind`, `documentType`, `state`, current revision, timestamps   |
+| FileRevision        | `id`, `fileId`, `sequence`, content/blob hash, size, creator, timestamp                              |
+| Snapshot            | `id`, `fileId`, revision/materialized CRDT reference, label, creator, timestamp                      |
 | StructuralOperation | `id`, `clientOperationId`, `vaultId`, actor, base/result manifest sequence, type, payload, timestamp |
-| ActivityEvent | `id`, `vaultId`, actor, type, target IDs, sanitized metadata, timestamp |
-| CRDTDocument | `fileId`, protocol version, snapshot, update-tail position, materialized revision |
-| Blob | SHA-256 digest, size, media type, storage key, reference state |
+| ActivityEvent       | `id`, `vaultId`, actor, type, target IDs, sanitized metadata, timestamp                              |
+| CRDTDocument        | `fileId`, protocol version, snapshot, update-tail position, materialized revision                    |
+| Blob                | SHA-256 digest, size, media type, storage key, reference state                                       |
 
 Folders are explicit `FileEntry` records. Relative paths are derived by walking `parentId` relationships and applying the hosted path rules.
 
@@ -82,18 +82,18 @@ Trash preserves the file ID, revisions, original parent/name, actor, and deletio
 
 The owner is a distinguished user and always has administrative permissions. Ownership can only be transferred explicitly to an existing administrator.
 
-| Action | Viewer | Editor | Admin | Owner |
-| --- | --- | --- | --- | --- |
-| Read vault, files, history, and members | Yes | Yes | Yes | Yes |
-| Join presence and receive awareness | Yes | Yes | Yes | Yes |
-| Send chat messages | Yes | Yes | Yes | Yes |
-| Edit documents and sidecars | No | Yes | Yes | Yes |
-| Create, rename, move, trash, and restore | No | Yes | Yes | Yes |
-| Purge trash or clear history | No | No | Yes | Yes |
-| Import and export vaults | No | No | Yes | Yes |
-| Invite/remove viewers and editors | No | No | Yes | Yes |
-| Grant or remove admin role | No | No | No | Yes |
-| Archive/delete vault or transfer ownership | No | No | No | Yes |
+| Action                                     | Viewer | Editor | Admin | Owner |
+| ------------------------------------------ | ------ | ------ | ----- | ----- |
+| Read vault, files, history, and members    | Yes    | Yes    | Yes   | Yes   |
+| Join presence and receive awareness        | Yes    | Yes    | Yes   | Yes   |
+| Send chat messages                         | Yes    | Yes    | Yes   | Yes   |
+| Edit documents and sidecars                | No     | Yes    | Yes   | Yes   |
+| Create, rename, move, trash, and restore   | No     | Yes    | Yes   | Yes   |
+| Purge trash or clear history               | No     | No     | Yes   | Yes   |
+| Import and export vaults                   | No     | No     | Yes   | Yes   |
+| Invite/remove viewers and editors          | No     | No     | Yes   | Yes   |
+| Grant or remove admin role                 | No     | No     | No    | Yes   |
+| Archive/delete vault or transfer ownership | No     | No     | No    | Yes   |
 
 The server checks permissions for every REST mutation and every WebSocket subscription or update. UI checks are advisory only.
 

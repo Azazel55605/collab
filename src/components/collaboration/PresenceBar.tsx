@@ -19,9 +19,7 @@ export default function PresenceBar() {
           </TooltipTrigger>
           <TooltipContent>
             <p>{peer.userName}</p>
-            {peer.activeFile && (
-              <p className="text-xs opacity-70">editing {peer.activeFile}</p>
-            )}
+            {peer.activeFile && <p className="text-xs opacity-70">editing {peer.activeFile}</p>}
           </TooltipContent>
         </Tooltip>
       ))}

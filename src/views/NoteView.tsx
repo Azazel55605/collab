@@ -1,42 +1,40 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
 import { listen } from '@tauri-apps/api/event';
-import { useVaultStore } from '../store/vaultStore';
-import { useEditorStore } from '../store/editorStore';
-import type { NoteEditorViewState } from '../store/editorStore';
-import { useCollabIdentity } from '../lib/collabIdentity';
-import { MarkdownEditor, type MarkdownEditorHandle } from '../components/editor/MarkdownEditor';
-import { EditorToolbar } from '../components/editor/EditorToolbar';
-import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
-import {
-  addTagToContent,
-  ensureTagsLine,
-  setTagsInContent,
-} from '../lib/frontmatter';
-import { useUiStore } from '../store/uiStore';
-import { extractHttpUrls, prefetchWebPreviews } from '../lib/webPreviewCache';
+import { toast } from 'sonner';
+import { yCollab } from 'y-codemirror.next';
+
+import LivePeers from '../components/collaboration/LivePeers';
+import { EditorToolbar } from '../components/editor/EditorToolbar';
+import { MarkdownEditor, type MarkdownEditorHandle } from '../components/editor/MarkdownEditor';
+import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
+import { useCollabIdentity } from '../lib/collabIdentity';
+import { saveConflictedCopy } from '../lib/conflictedCopy';
 import { DOCUMENT_SNAPSHOT_INTERVAL_MS } from '../lib/documentSession';
 import {
   compareDocumentVersions,
-  useDocumentSessionController,
   type DocumentSessionController,
   type DocumentSessionSnapshot,
   type RemoteCandidate,
+  useDocumentSessionController,
 } from '../lib/documentSessionController';
-import { mergeText } from '../lib/textMerge';
-import { saveConflictedCopy } from '../lib/conflictedCopy';
-import { openLiveNoteSession, type LiveDocumentSession } from '../lib/liveDocumentSession';
-import { useLiveDocumentStatus } from '../lib/useLiveDocumentStatus';
-import { onReplicaMutated, replicaMutationAffectsPath } from '../lib/vaultReplica';
+import { addTagToContent, ensureTagsLine, setTagsInContent } from '../lib/frontmatter';
 import { useLivePeers } from '../lib/liveAwareness';
-import LivePeers from '../components/collaboration/LivePeers';
-import { yCollab } from 'y-codemirror.next';
-import { createVaultClient } from '../lib/vaultClient';
-import { isVaultReadOnly } from '../types/vault';
-import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
-import { useNoteSnippetStore } from '../store/noteSnippetStore';
+import { type LiveDocumentSession, openLiveNoteSession } from '../lib/liveDocumentSession';
 import { findSearchJumpRange } from '../lib/searchNavigation';
+import { mergeText } from '../lib/textMerge';
+import { useLiveDocumentStatus } from '../lib/useLiveDocumentStatus';
+import { createVaultClient } from '../lib/vaultClient';
+import { onReplicaMutated, replicaMutationAffectsPath } from '../lib/vaultReplica';
+import { extractHttpUrls, prefetchWebPreviews } from '../lib/webPreviewCache';
 import { useDocumentStatusRegistration } from '../store/documentStatusStore';
+import { useEditorStore } from '../store/editorStore';
+import type { NoteEditorViewState } from '../store/editorStore';
+import { useNoteSnippetStore } from '../store/noteSnippetStore';
+import { useUiStore } from '../store/uiStore';
+import { useVaultStore } from '../store/vaultStore';
+import { isVaultReadOnly } from '../types/vault';
 
 function extractFirstH1(content: string): string | null {
   for (const line of content.split('\n')) {
@@ -74,16 +72,14 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   const { userId: myUserId, userName: myUserName, userColor: myUserColor } = useCollabIdentity();
   const [content, setContent] = useState<string | null>(null);
   const [refreshPulse, setRefreshPulse] = useState(false);
-  const {
-    webPreviewsEnabled,
-    hoverWebLinkPreviewsEnabled,
-    backgroundWebPreviewPrefetchEnabled,
-  } = useUiStore();
+  const { webPreviewsEnabled, hoverWebLinkPreviewsEnabled, backgroundWebPreviewPrefetchEnabled } =
+    useUiStore();
   const loadSnippets = useNoteSnippetStore((state) => state.loadSnippets);
   const editorRef = useRef<MarkdownEditorHandle | null>(null);
   const refreshPulseTimerRef = useRef<number | null>(null);
   const client = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
-  const liveVaultKey = vault?.kind === 'hosted' ? `${vault.serverUrl}::${vault.hostedVaultId}` : null;
+  const liveVaultKey =
+    vault?.kind === 'hosted' ? `${vault.serverUrl}::${vault.hostedVaultId}` : null;
   const liveClient = useMemo(
     () => (vault?.kind === 'hosted' ? createVaultClient(vault) : null),
     [liveVaultKey],
@@ -155,12 +151,21 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
     read: async () => {
       if (!client) return null;
       const doc = await client.readDocument(relativePath);
-      return { content: doc.content, version: doc.version, source: doc.source && doc.source !== 'network' ? 'cache' : 'rest' };
+      return {
+        content: doc.content,
+        version: doc.version,
+        source: doc.source && doc.source !== 'network' ? 'cache' : 'rest',
+      };
     },
     write: async ({ content: toWrite, expectedVersion, baseContent }) => {
       // Viewers have no write access; never attempt a save the server would reject.
       if (!client || readOnly) return { version: expectedVersion ?? '' };
-      const result = await client.writeDocument(relativePath, toWrite, expectedVersion ?? undefined, baseContent);
+      const result = await client.writeDocument(
+        relativePath,
+        toWrite,
+        expectedVersion ?? undefined,
+        baseContent,
+      );
       if (result.conflict) {
         let theirVersion: string | null = null;
         try {
@@ -197,7 +202,8 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
     if (!client || !relativePath) return;
     let cancelled = false;
     setContent(null);
-    client.readDocument(relativePath)
+    client
+      .readDocument(relativePath)
       .then((doc) => {
         if (cancelled) return;
         controller.load(doc.content, doc.version, 'rest');
@@ -205,7 +211,9 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
       .catch((e) => {
         if (!cancelled) toast.error('Failed to open note: ' + e);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [client, controller, relativePath, vault?.path]);
 
   // Open a live collaboration session for hosted notes; fall back to REST when
@@ -253,19 +261,29 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
     if (!client) return;
     // Vault-scoped snippets are a native-filesystem concept; hosted vaults fall
     // back to app-scoped snippets only.
-    void loadSnippets(client.capabilities.nativeFilesystem ? vault?.path : null)
-      .catch(() => {
-        // Snippets are an optional authoring aid and must never prevent a note
-        // from opening when their backing store is unavailable.
-      });
+    void loadSnippets(client.capabilities.nativeFilesystem ? vault?.path : null).catch(() => {
+      // Snippets are an optional authoring aid and must never prevent a note
+      // from opening when their backing store is unavailable.
+    });
   }, [client, loadSnippets, vault?.path]);
 
   useEffect(() => {
-    if (!content || !webPreviewsEnabled || !hoverWebLinkPreviewsEnabled || !backgroundWebPreviewPrefetchEnabled) return;
+    if (
+      !content ||
+      !webPreviewsEnabled ||
+      !hoverWebLinkPreviewsEnabled ||
+      !backgroundWebPreviewPrefetchEnabled
+    )
+      return;
     const urls = extractHttpUrls(content);
     if (urls.length === 0) return;
     prefetchWebPreviews(urls);
-  }, [backgroundWebPreviewPrefetchEnabled, content, hoverWebLinkPreviewsEnabled, webPreviewsEnabled]);
+  }, [
+    backgroundWebPreviewPrefetchEnabled,
+    content,
+    hoverWebLinkPreviewsEnabled,
+    webPreviewsEnabled,
+  ]);
 
   // Command bar insert events
   useEffect(() => {
@@ -307,7 +325,8 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   useEffect(() => {
     if (forceReloadPath !== relativePath || !client) return;
     setForceReloadPath(null);
-    client.readDocument(relativePath)
+    client
+      .readDocument(relativePath)
       .then((doc) => controller.load(doc.content, doc.version, 'rest'))
       .catch((e) => toast.error('Failed to reload note: ' + e));
   }, [client, controller, forceReloadPath, relativePath, setForceReloadPath]);
@@ -348,22 +367,30 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
       const decision = await controller.handleExternalMutation('rest');
       if (decision === 'applied') pulseRefresh();
     });
-    return () => { unlisten.then((u) => u()); };
+    return () => {
+      unlisten.then((u) => u());
+    };
   }, [client, controller, relativePath, vault?.path]);
 
   // Hosted replica refresh: route through the same safe remote policy.
   useEffect(() => {
     if (!client || client.kind !== 'hosted') return;
-    return onReplicaMutated(async (event) => {
-      if (!replicaMutationAffectsPath(event, relativePath)) return;
-      const decision = await controller.handleExternalMutation('cache');
-      if (decision === 'applied') pulseRefresh();
-    }, { kinds: ['manifest'] });
+    return onReplicaMutated(
+      async (event) => {
+        if (!replicaMutationAffectsPath(event, relativePath)) return;
+        const decision = await controller.handleExternalMutation('cache');
+        if (decision === 'applied') pulseRefresh();
+      },
+      { kinds: ['manifest'] },
+    );
   }, [client, controller, relativePath]);
 
-  useEffect(() => () => {
-    if (refreshPulseTimerRef.current !== null) window.clearTimeout(refreshPulseTimerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (refreshPulseTimerRef.current !== null) window.clearTimeout(refreshPulseTimerRef.current);
+    },
+    [],
+  );
 
   // Bridge the controller's dirty/version state to the tab dirty indicator.
   // Live edits do not mark the tab dirty (the CRDT relay persists them).
@@ -398,28 +425,39 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
     if (!client || readOnly || liveSession) return;
     await controller.requestSave('manual');
     const snap = controller.getSnapshot();
-    if (!snap.conflicted && !snap.offlineQueued && snap.loadedVersion && shouldCreateSnapshot(snap.loadedVersion)) {
-      client.createSnapshot(relativePath, snap.lastSavedContent ?? '', myUserId, myUserName)
+    if (
+      !snap.conflicted &&
+      !snap.offlineQueued &&
+      snap.loadedVersion &&
+      shouldCreateSnapshot(snap.loadedVersion)
+    ) {
+      client
+        .createSnapshot(relativePath, snap.lastSavedContent ?? '', myUserId, myUserName)
         .catch(() => {});
     }
   };
 
-  const handleSaveAsNew = useCallback(async (localContent: string) => {
-    if (!client) return;
-    await saveConflictedCopy(client, relativePath, localContent);
-  }, [client, relativePath]);
+  const handleSaveAsNew = useCallback(
+    async (localContent: string) => {
+      if (!client) return;
+      await saveConflictedCopy(client, relativePath, localContent);
+    },
+    [client, relativePath],
+  );
 
-  const documentStatus = useMemo(() => (
-    content !== null
-      ? {
-          status: snapshot.status,
-          controller: controller as DocumentSessionController<unknown>,
-          snapshot: snapshot as DocumentSessionSnapshot<unknown>,
-          onSaveAsNew: handleSaveAsNew,
-          readOnly,
-        }
-      : null
-  ), [content, controller, handleSaveAsNew, readOnly, snapshot]);
+  const documentStatus = useMemo(
+    () =>
+      content !== null
+        ? {
+            status: snapshot.status,
+            controller: controller as DocumentSessionController<unknown>,
+            snapshot: snapshot as DocumentSessionSnapshot<unknown>,
+            onSaveAsNew: handleSaveAsNew,
+            readOnly,
+          }
+        : null,
+    [content, controller, handleSaveAsNew, readOnly, snapshot],
+  );
   useDocumentStatusRegistration(relativePath, documentStatus);
 
   if (content === null && !liveSession) {
@@ -436,8 +474,18 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
   const editorContent = liveSession ? liveSession.text.toString() : (content ?? '');
 
   return (
-    <div className={`flex flex-col h-full overflow-hidden app-document-ready ${refreshPulse ? 'app-refresh-pulse' : ''}`}>
-      {readOnly ? <ReadOnlyBanner /> : <EditorToolbar relativePath={relativePath} editorRef={editorRef} documentStatus={snapshot.status} />}
+    <div
+      className={`flex flex-col h-full overflow-hidden app-document-ready ${refreshPulse ? 'app-refresh-pulse' : ''}`}
+    >
+      {readOnly ? (
+        <ReadOnlyBanner />
+      ) : (
+        <EditorToolbar
+          relativePath={relativePath}
+          editorRef={editorRef}
+          documentStatus={snapshot.status}
+        />
+      )}
       {/* position:relative establishes the containing block for the absolutely-positioned
           CodeMirror container. This avoids flex % height resolution bugs in WebKitGTK
           where height:100% on a flex-1 child resolves to 0 (the flex-basis) rather than
@@ -459,7 +507,11 @@ export default function NoteView({ relativePath }: { relativePath: string }) {
           readOnly={readOnly}
           collabExtension={collabExtension}
           relativePath={relativePath}
-          initialViewState={revealEditorPath === relativePath || pendingSearchJump?.relativePath === relativePath ? null : initialViewState}
+          initialViewState={
+            revealEditorPath === relativePath || pendingSearchJump?.relativePath === relativePath
+              ? null
+              : initialViewState
+          }
           onViewStateChange={(viewState) => setNoteViewState(relativePath, viewState)}
         />
       </div>

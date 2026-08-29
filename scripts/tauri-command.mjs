@@ -32,7 +32,9 @@ function withAndroidNodeHeap(env = process.env) {
   const heapOption = '--max-old-space-size=8192';
   return {
     ...env,
-    NODE_OPTIONS: nodeOptions.includes('--max-old-space-size') ? nodeOptions : `${nodeOptions} ${heapOption}`.trim(),
+    NODE_OPTIONS: nodeOptions.includes('--max-old-space-size')
+      ? nodeOptions
+      : `${nodeOptions} ${heapOption}`.trim(),
   };
 }
 
@@ -92,7 +94,9 @@ function run(tool, commandArgs, env = process.env) {
 }
 
 export function createTauriBuildArgs(args, signingKey = process.env.TAURI_SIGNING_PRIVATE_KEY) {
-  const hasBuildConfigOverride = args.some((arg) => arg === '--config' || arg.startsWith('--config='));
+  const hasBuildConfigOverride = args.some(
+    (arg) => arg === '--config' || arg.startsWith('--config='),
+  );
   if (hasBuildConfigOverride) return args;
 
   const buildConfig = signingKey
@@ -106,12 +110,16 @@ function main(args) {
   const isAndroidReleaseBuild =
     args[0] === 'android' && args[1] === 'build' && !args.includes('--debug');
   console.log(`Syncing version manifests before tauri ${args.join(' ')}...`);
-  const syncVersions = spawnSync(process.execPath, [join(rootDir, 'scripts', 'sync-versions.mjs')], {
-    cwd: rootDir,
-    env: childEnv,
-    shell: false,
-    stdio: 'inherit',
-  });
+  const syncVersions = spawnSync(
+    process.execPath,
+    [join(rootDir, 'scripts', 'sync-versions.mjs')],
+    {
+      cwd: rootDir,
+      env: childEnv,
+      shell: false,
+      stdio: 'inherit',
+    },
+  );
   if (syncVersions.status !== 0 || syncVersions.error) {
     if (syncVersions.error) console.error(syncVersions.error.message);
     process.exit(syncVersions.status ?? 1);
@@ -119,12 +127,16 @@ function main(args) {
 
   if (args[0] === 'build') {
     console.log('Preparing OCR assets...');
-    const prepareOcr = spawnSync(process.execPath, [join(rootDir, 'scripts', 'prepare-ocr-assets.mjs')], {
-      cwd: rootDir,
-      env: childEnv,
-      shell: false,
-      stdio: 'inherit',
-    });
+    const prepareOcr = spawnSync(
+      process.execPath,
+      [join(rootDir, 'scripts', 'prepare-ocr-assets.mjs')],
+      {
+        cwd: rootDir,
+        env: childEnv,
+        shell: false,
+        stdio: 'inherit',
+      },
+    );
     if (prepareOcr.status !== 0 || prepareOcr.error) {
       if (prepareOcr.error) console.error(prepareOcr.error.message);
       process.exit(prepareOcr.status ?? 1);

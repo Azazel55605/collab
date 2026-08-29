@@ -1,6 +1,8 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+
 import type { ChatMessage, PresenceEntry } from '../types/collab';
 import type { HostedVaultMeta, VaultConfig, VaultMeta } from '../types/vault';
+
 import { tauriCommands } from './tauri';
 
 export type Unsubscribe = () => void;
@@ -55,19 +57,25 @@ export class FileSystemTransport implements CollabTransport {
 
   onPresenceChanged(cb: () => void): Unsubscribe {
     let unsub: UnlistenFn | undefined;
-    listen('collab:presence-changed', cb).then((u) => { unsub = u; });
+    listen('collab:presence-changed', cb).then((u) => {
+      unsub = u;
+    });
     return () => unsub?.();
   }
 
   onChatUpdated(cb: () => void): Unsubscribe {
     let unsub: UnlistenFn | undefined;
-    listen('collab:chat-updated', cb).then((u) => { unsub = u; });
+    listen('collab:chat-updated', cb).then((u) => {
+      unsub = u;
+    });
     return () => unsub?.();
   }
 
   onConfigChanged(cb: () => void): Unsubscribe {
     let unsub: UnlistenFn | undefined;
-    listen('collab:config-changed', cb).then((u) => { unsub = u; });
+    listen('collab:config-changed', cb).then((u) => {
+      unsub = u;
+    });
     return () => unsub?.();
   }
 }
@@ -123,7 +131,13 @@ export class HostedServerTransport implements CollabTransport {
   }
 
   readVaultConfig(): Promise<VaultConfig> {
-    return Promise.resolve({ id: this.vault.hostedVaultId, name: this.vault.name, knownUsers: [], owner: '', members: [] });
+    return Promise.resolve({
+      id: this.vault.hostedVaultId,
+      name: this.vault.name,
+      knownUsers: [],
+      owner: '',
+      members: [],
+    });
   }
 
   onPresenceChanged(cb: () => void): Unsubscribe {

@@ -1,16 +1,17 @@
 import {
-  calendarTimeValueKey,
   type CalendarAttachment,
   type CalendarDefinition,
   type CalendarItem,
   type CalendarMirrorAnchor,
   type CalendarMirrorConflict,
   type CalendarMirrorGroup,
-  type CalendarMirrorProgress,
   type CalendarMirrorGroupStatus,
   type CalendarMirrorMember,
+  type CalendarMirrorProgress,
   type CalendarOperation,
+  calendarTimeValueKey,
 } from '../types/calendar';
+
 import { hostedCalendarOriginKey } from './calendarSync';
 
 const ABSENT_FINGERPRINT = 'absent';
@@ -35,10 +36,28 @@ export interface CalendarMirrorPlan {
 export interface CalendarMirrorAdapter {
   calendarListMirrorGroups(profileId: string): Promise<CalendarMirrorGroup[]>;
   calendarListMirrorAnchors(profileId: string, groupId: string): Promise<CalendarMirrorAnchor[]>;
-  calendarListMirrorConflicts(profileId: string, groupId?: string, includeResolved?: boolean): Promise<CalendarMirrorConflict[]>;
-  calendarListMirrorItems(profileId: string, calendarIds: string[], limit?: number): Promise<CalendarItem[]>;
-  calendarUpsertItem(profileId: string, item: CalendarItem, operation: CalendarOperation): Promise<void>;
-  calendarDeleteItem(profileId: string, calendarId: string, itemId: string, deletedAt: string, operation: CalendarOperation): Promise<void>;
+  calendarListMirrorConflicts(
+    profileId: string,
+    groupId?: string,
+    includeResolved?: boolean,
+  ): Promise<CalendarMirrorConflict[]>;
+  calendarListMirrorItems(
+    profileId: string,
+    calendarIds: string[],
+    limit?: number,
+  ): Promise<CalendarItem[]>;
+  calendarUpsertItem(
+    profileId: string,
+    item: CalendarItem,
+    operation: CalendarOperation,
+  ): Promise<void>;
+  calendarDeleteItem(
+    profileId: string,
+    calendarId: string,
+    itemId: string,
+    deletedAt: string,
+    operation: CalendarOperation,
+  ): Promise<void>;
   calendarAcknowledgeOperations(profileId: string, clientOperationIds: string[]): Promise<void>;
   calendarSaveMirrorAnchors(profileId: string, anchors: CalendarMirrorAnchor[]): Promise<void>;
   calendarSaveMirrorConflict(profileId: string, conflict: CalendarMirrorConflict): Promise<void>;
@@ -145,7 +164,8 @@ export function validateCalendarMirrorGroup(
   calendars: CalendarDefinition[],
 ): void {
   if (group.schemaVersion !== 1) throw new Error('Unsupported mirror group schema version.');
-  if (!group.id.trim() || !group.name.trim()) throw new Error('Mirror groups require an ID and name.');
+  if (!group.id.trim() || !group.name.trim())
+    throw new Error('Mirror groups require an ID and name.');
   if (group.members.length < 2 || group.members.length > 8) {
     throw new Error('Mirror groups require between two and eight calendars.');
   }
@@ -156,14 +176,23 @@ export function validateCalendarMirrorGroup(
   for (const member of group.members) {
     const calendar = calendarById.get(member.calendarId);
     if (!calendar) throw new Error(`Mirror calendar ${member.calendarId} is unavailable.`);
-    if (calendar.readOnly || calendar.deletedAt || calendar.location.kind === 'subscription' || calendar.location.kind === 'kanban') {
+    if (
+      calendar.readOnly ||
+      calendar.deletedAt ||
+      calendar.location.kind === 'subscription' ||
+      calendar.location.kind === 'kanban'
+    ) {
       throw new Error(`${calendar.name} cannot be mirrored because it is read-only.`);
     }
     if (stableJson(calendar.location) !== stableJson(member.location)) {
       throw new Error(`${calendar.name} no longer matches its mirror location.`);
     }
     const locationKey = calendarMirrorLocationKey(member);
-    if (memberIds.has(member.id) || calendarIds.has(member.calendarId) || locations.has(locationKey)) {
+    if (
+      memberIds.has(member.id) ||
+      calendarIds.has(member.calendarId) ||
+      locations.has(locationKey)
+    ) {
       throw new Error('Each mirror member must use a unique ID, calendar, and location.');
     }
     memberIds.add(member.id);
@@ -177,10 +206,11 @@ function destinationAttendees(item: CalendarItem, member: CalendarMirrorMember) 
     return item.attendees.filter((attendee) => attendee.kind === 'email');
   }
   const destinationServerUrl = member.location.serverUrl.replace(/\/$/, '');
-  return item.attendees.filter((attendee) => (
-    attendee.kind === 'collabUser'
-    && attendee.serverUrl.replace(/\/$/, '') === destinationServerUrl
-  ));
+  return item.attendees.filter(
+    (attendee) =>
+      attendee.kind === 'collabUser' &&
+      attendee.serverUrl.replace(/\/$/, '') === destinationServerUrl,
+  );
 }
 
 function destinationItem(input: {
@@ -192,10 +222,11 @@ function destinationItem(input: {
   logicalItemKey: string;
   now: string;
 }): CalendarItem {
-  const { source, destination, destinationMember, destinationItems, groupId, logicalItemKey, now } = input;
+  const { source, destination, destinationMember, destinationItems, groupId, logicalItemKey, now } =
+    input;
   const recurrenceSeriesId = source.recurrenceId
-    ? destinationItems.get(`${source.uid}\u0000master`)?.id
-      ?? stableUuid(`${groupId}:${source.uid}\u0000master:${destinationMember.id}`)
+    ? (destinationItems.get(`${source.uid}\u0000master`)?.id ??
+      stableUuid(`${groupId}:${source.uid}\u0000master:${destinationMember.id}`))
     : undefined;
   return {
     ...source,
@@ -275,12 +306,21 @@ export function planCalendarMirrorGroup(input: {
     };
   }
   const missingMemberIds = group.members
-    .filter((member) => member.location.kind === 'hosted' && !input.connectedOriginKeys.has(calendarMirrorLocationKey(member)))
+    .filter(
+      (member) =>
+        member.location.kind === 'hosted' &&
+        !input.connectedOriginKeys.has(calendarMirrorLocationKey(member)),
+    )
     .map((member) => member.id);
   const unresolved = input.conflicts.filter((conflict) => conflict.status === 'unresolved');
   if (missingMemberIds.length > 0) {
     return {
-      status: { groupId: group.id, state: 'waiting', missingMemberIds, conflictCount: unresolved.length },
+      status: {
+        groupId: group.id,
+        state: 'waiting',
+        missingMemberIds,
+        conflictCount: unresolved.length,
+      },
       operations: [],
       anchors: [],
       conflicts: [],
@@ -298,17 +338,30 @@ export function planCalendarMirrorGroup(input: {
     logicalKeys.add(key);
     itemsByMember.get(member.id)?.set(key, item);
   }
-  const anchorByKey = new Map(anchors.map((anchor) => [`${anchor.logicalItemKey}\u0000${anchor.memberId}`, anchor]));
-  const existingConflictByKey = new Map(unresolved.map((conflict) => [conflict.logicalItemKey, conflict]));
+  const anchorByKey = new Map(
+    anchors.map((anchor) => [`${anchor.logicalItemKey}\u0000${anchor.memberId}`, anchor]),
+  );
+  const existingConflictByKey = new Map(
+    unresolved.map((conflict) => [conflict.logicalItemKey, conflict]),
+  );
   const operations: CalendarMirrorPlannedOperation[] = [];
   const nextAnchors: CalendarMirrorAnchor[] = [];
   const nextConflicts: CalendarMirrorConflict[] = [];
 
   for (const logicalItemKey of [...logicalKeys].sort()) {
     if (existingConflictByKey.has(logicalItemKey)) continue;
-    const currentItems = new Map(group.members.map((member) => [member.id, itemsByMember.get(member.id)?.get(logicalItemKey)]));
-    const fingerprints = new Map(group.members.map((member) => [member.id, calendarMirrorItemFingerprint(currentItems.get(member.id))]));
-    const hasAnyAnchor = group.members.some((member) => anchorByKey.has(`${logicalItemKey}\u0000${member.id}`));
+    const currentItems = new Map(
+      group.members.map((member) => [member.id, itemsByMember.get(member.id)?.get(logicalItemKey)]),
+    );
+    const fingerprints = new Map(
+      group.members.map((member) => [
+        member.id,
+        calendarMirrorItemFingerprint(currentItems.get(member.id)),
+      ]),
+    );
+    const hasAnyAnchor = group.members.some((member) =>
+      anchorByKey.has(`${logicalItemKey}\u0000${member.id}`),
+    );
     const changed = group.members.filter((member) => {
       const anchor = anchorByKey.get(`${logicalItemKey}\u0000${member.id}`);
       return hasAnyAnchor
@@ -318,15 +371,17 @@ export function planCalendarMirrorGroup(input: {
     if (changed.length === 0) continue;
     const changedFingerprints = new Set(changed.map((member) => fingerprints.get(member.id)));
     if (changedFingerprints.size > 1) {
-      nextConflicts.push(conflictFor({
-        group,
-        logicalItemKey,
-        members: group.members,
-        items: currentItems,
-        fingerprints,
-        existing: existingConflictByKey.get(logicalItemKey),
-        now,
-      }));
+      nextConflicts.push(
+        conflictFor({
+          group,
+          logicalItemKey,
+          members: group.members,
+          items: currentItems,
+          fingerprints,
+          existing: existingConflictByKey.get(logicalItemKey),
+          now,
+        }),
+      );
       continue;
     }
     const sourceMember = changed[0];
@@ -334,7 +389,11 @@ export function planCalendarMirrorGroup(input: {
     const sourceFingerprint = fingerprints.get(sourceMember.id) ?? ABSENT_FINGERPRINT;
     for (const destinationMember of group.members) {
       const destination = currentItems.get(destinationMember.id);
-      if (destinationMember.id === sourceMember.id || fingerprints.get(destinationMember.id) === sourceFingerprint) continue;
+      if (
+        destinationMember.id === sourceMember.id ||
+        fingerprints.get(destinationMember.id) === sourceFingerprint
+      )
+        continue;
       const sourceChangeId = `mirror:${group.id}:${stableHash(`${logicalItemKey}:${sourceFingerprint}`)}`;
       const clientOperationId = `mirror:${stableHash(`${sourceChangeId}:${destinationMember.id}`)}`;
       if (!source || source.deletedAt) {
@@ -349,7 +408,11 @@ export function planCalendarMirrorGroup(input: {
             deviceId,
             expectedRevision: destination.revision,
             sourceChangeId,
-            propagationLineage: [`mirror:${group.id}`, `member:${sourceMember.id}`, `member:${destinationMember.id}`],
+            propagationLineage: [
+              `mirror:${group.id}`,
+              `member:${sourceMember.id}`,
+              `member:${destinationMember.id}`,
+            ],
             mutation: {
               type: 'deleteItem',
               calendarId: destinationMember.calendarId,
@@ -380,7 +443,11 @@ export function planCalendarMirrorGroup(input: {
           deviceId,
           expectedRevision: destination?.revision ?? 0,
           sourceChangeId,
-          propagationLineage: [`mirror:${group.id}`, `member:${sourceMember.id}`, `member:${destinationMember.id}`],
+          propagationLineage: [
+            `mirror:${group.id}`,
+            `member:${sourceMember.id}`,
+            `member:${destinationMember.id}`,
+          ],
           mutation: { type: 'upsertItem', item: mirrored },
         },
       });
@@ -463,9 +530,10 @@ export async function bridgeCalendarMirrors(input: {
           phase: 'applying',
           processedOperations: groupAppliedOperations,
           totalOperations: plan.operations.length,
-          detail: planned.operation.mutation.type === 'upsertItem'
-            ? planned.operation.mutation.item.title
-            : 'Propagating deletion',
+          detail:
+            planned.operation.mutation.type === 'upsertItem'
+              ? planned.operation.mutation.item.title
+              : 'Propagating deletion',
         });
         if (planned.operation.mutation.type === 'deleteItem') {
           const mutation = planned.operation.mutation;
@@ -479,9 +547,13 @@ export async function bridgeCalendarMirrors(input: {
         } else if (planned.item) {
           await input.adapter.calendarUpsertItem(input.profileId, planned.item, planned.operation);
         }
-        const destination = group.members.find((member) => member.id === planned.destinationMemberId);
+        const destination = group.members.find(
+          (member) => member.id === planned.destinationMemberId,
+        );
         if (destination?.location.kind === 'local') {
-          await input.adapter.calendarAcknowledgeOperations(input.profileId, [planned.operation.clientOperationId]);
+          await input.adapter.calendarAcknowledgeOperations(input.profileId, [
+            planned.operation.clientOperationId,
+          ]);
         }
         groupAppliedOperations += 1;
         appliedOperations += 1;
@@ -490,28 +562,30 @@ export async function bridgeCalendarMirrors(input: {
         await input.adapter.calendarSaveMirrorAnchors(input.profileId, plan.anchors);
       }
       statuses.push(plan.status);
-      const phase = plan.status.state === 'waiting'
-        ? 'waiting'
-        : plan.status.state === 'conflict'
-          ? 'conflict'
-          : plan.status.state === 'disabled'
-            ? 'disabled'
-            : 'complete';
+      const phase =
+        plan.status.state === 'waiting'
+          ? 'waiting'
+          : plan.status.state === 'conflict'
+            ? 'conflict'
+            : plan.status.state === 'disabled'
+              ? 'disabled'
+              : 'complete';
       input.onProgress?.({
         groupId: group.id,
         groupName: group.name,
         phase,
         processedOperations: groupAppliedOperations,
         totalOperations: plan.operations.length,
-        detail: phase === 'waiting'
-          ? 'Waiting for every server'
-          : phase === 'conflict'
-            ? `${plan.status.conflictCount} conflict${plan.status.conflictCount === 1 ? '' : 's'} need attention`
-            : phase === 'disabled'
-              ? 'Mirror paused'
-              : groupAppliedOperations > 0
-                ? `Applied ${groupAppliedOperations} change${groupAppliedOperations === 1 ? '' : 's'}`
-                : 'Up to date',
+        detail:
+          phase === 'waiting'
+            ? 'Waiting for every server'
+            : phase === 'conflict'
+              ? `${plan.status.conflictCount} conflict${plan.status.conflictCount === 1 ? '' : 's'} need attention`
+              : phase === 'disabled'
+                ? 'Mirror paused'
+                : groupAppliedOperations > 0
+                  ? `Applied ${groupAppliedOperations} change${groupAppliedOperations === 1 ? '' : 's'}`
+                  : 'Up to date',
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -551,31 +625,41 @@ export async function resolveCalendarMirrorConflict(input: {
   if (input.conflict.groupId !== input.group.id || input.conflict.status !== 'unresolved') {
     throw new Error('Calendar mirror conflict is no longer unresolved.');
   }
-  const missing = input.group.members.filter((member) => (
-    member.location.kind === 'hosted'
-    && !input.connectedOriginKeys.has(calendarMirrorLocationKey(member))
-  ));
+  const missing = input.group.members.filter(
+    (member) =>
+      member.location.kind === 'hosted' &&
+      !input.connectedOriginKeys.has(calendarMirrorLocationKey(member)),
+  );
   if (missing.length > 0) {
     throw new Error('Connect every server in this mirror group before resolving the conflict.');
   }
   const chosenMember = input.group.members.find((member) => member.id === input.chosenMemberId);
-  const chosenVersion = input.conflict.versions.find((version) => version.memberId === input.chosenMemberId);
-  if (!chosenMember || !chosenVersion) throw new Error('The selected conflict version is unavailable.');
+  const chosenVersion = input.conflict.versions.find(
+    (version) => version.memberId === input.chosenMemberId,
+  );
+  if (!chosenMember || !chosenVersion)
+    throw new Error('The selected conflict version is unavailable.');
   const now = input.now ?? new Date().toISOString();
   const items = await input.adapter.calendarListMirrorItems(
     input.profileId,
     input.group.members.map((member) => member.calendarId),
     MAX_MIRROR_ITEMS_PER_PASS,
   );
-  const memberByCalendar = new Map(input.group.members.map((member) => [member.calendarId, member]));
-  const itemsByMember = new Map(input.group.members.map((member) => [member.id, new Map<string, CalendarItem>()]));
+  const memberByCalendar = new Map(
+    input.group.members.map((member) => [member.calendarId, member]),
+  );
+  const itemsByMember = new Map(
+    input.group.members.map((member) => [member.id, new Map<string, CalendarItem>()]),
+  );
   for (const item of items) {
     const member = memberByCalendar.get(item.calendarId);
     if (member) itemsByMember.get(member.id)?.set(calendarMirrorLogicalItemKey(item), item);
   }
   const selectedCurrent = itemsByMember.get(chosenMember.id)?.get(input.conflict.logicalItemKey);
   if (calendarMirrorItemFingerprint(selectedCurrent) !== chosenVersion.fingerprint) {
-    throw new Error('The selected calendar changed after this conflict was detected. Sync again before resolving it.');
+    throw new Error(
+      'The selected calendar changed after this conflict was detected. Sync again before resolving it.',
+    );
   }
   const source = chosenVersion.item;
   const sourceFingerprint = chosenVersion.fingerprint;
@@ -597,7 +681,11 @@ export async function resolveCalendarMirrorConflict(input: {
         deviceId: input.deviceId,
         expectedRevision: destination.revision,
         sourceChangeId,
-        propagationLineage: [`mirror:${input.group.id}`, `resolution:${input.conflict.id}`, `member:${member.id}`],
+        propagationLineage: [
+          `mirror:${input.group.id}`,
+          `resolution:${input.conflict.id}`,
+          `member:${member.id}`,
+        ],
         mutation: {
           type: 'deleteItem',
           calendarId: member.calendarId,
@@ -628,27 +716,35 @@ export async function resolveCalendarMirrorConflict(input: {
         deviceId: input.deviceId,
         expectedRevision: destination?.revision ?? 0,
         sourceChangeId,
-        propagationLineage: [`mirror:${input.group.id}`, `resolution:${input.conflict.id}`, `member:${member.id}`],
+        propagationLineage: [
+          `mirror:${input.group.id}`,
+          `resolution:${input.conflict.id}`,
+          `member:${member.id}`,
+        ],
         mutation: { type: 'upsertItem', item: mirrored },
       };
       await input.adapter.calendarUpsertItem(input.profileId, mirrored, operation);
       nextItems.set(member.id, mirrored);
     }
     if (member.location.kind === 'local') {
-      await input.adapter.calendarAcknowledgeOperations(input.profileId, [operation.clientOperationId]);
+      await input.adapter.calendarAcknowledgeOperations(input.profileId, [
+        operation.clientOperationId,
+      ]);
     }
     appliedOperations += 1;
   }
   await input.adapter.calendarSaveMirrorAnchors(
     input.profileId,
-    input.group.members.map((member) => anchorFor(
-      input.group.id,
-      input.conflict.logicalItemKey,
-      member,
-      nextItems.get(member.id),
-      sourceFingerprint,
-      now,
-    )),
+    input.group.members.map((member) =>
+      anchorFor(
+        input.group.id,
+        input.conflict.logicalItemKey,
+        member,
+        nextItems.get(member.id),
+        sourceFingerprint,
+        now,
+      ),
+    ),
   );
   const resolved: CalendarMirrorConflict = {
     ...input.conflict,

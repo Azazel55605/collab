@@ -11,12 +11,12 @@
  * export job. What lives here is every decision that can be made without one,
  * so the job is a thin wrapper rather than the place the rules live.
  */
-
 import type { InkBounds, InkPage, InkScene } from '../../types/ink';
+
+import { inkExportPalette, resolveInkColor } from './colors';
 import { paintPageBackground, paintScene } from './renderer';
 import type { InkRenderOptions, InkRenderTarget } from './renderer';
 import { sceneBounds } from './svg';
-import { inkExportPalette, resolveInkColor } from './colors';
 
 /**
  * Hard ceiling on an exported bitmap.
@@ -156,8 +156,8 @@ export function paintRasterExport(
   target.save();
   target.setTransform(1, 0, 0, 1, 0, 0);
   target.clearRect(0, 0, plan.width, plan.height);
-  const exportSurface = request.background
-    ?? (request.includePageBackground ? page?.background.color : undefined);
+  const exportSurface =
+    request.background ?? (request.includePageBackground ? page?.background.color : undefined);
   const colors = options.colors ?? inkExportPalette(exportSurface);
   if (request.background) {
     target.fillStyle = resolveInkColor(request.background, colors);

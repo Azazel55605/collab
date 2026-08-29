@@ -1,5 +1,5 @@
-import type { NoteFile } from '../types/vault';
 import type { PdfHighlight } from '../types/pdf';
+import type { NoteFile } from '../types/vault';
 
 export function flattenPdfFiles(nodes: NoteFile[]): NoteFile[] {
   const flattened: NoteFile[] = [];
@@ -15,13 +15,12 @@ export function flattenPdfFiles(nodes: NoteFile[]): NoteFile[] {
 }
 
 export function expandPdfHighlightRects(highlights: PdfHighlight[]) {
-  return highlights.reduce<Array<{ highlight: PdfHighlight; rect: PdfHighlight['rects'][number]; index: number }>>(
-    (entries, highlight) => {
-      highlight.rects.forEach((rect, index) => {
-        entries.push({ highlight, rect, index });
-      });
-      return entries;
-    },
-    [],
-  );
+  return highlights.reduce<
+    Array<{ highlight: PdfHighlight; rect: PdfHighlight['rects'][number]; index: number }>
+  >((entries, highlight) => {
+    highlight.rects.forEach((rect, index) => {
+      entries.push({ highlight, rect, index });
+    });
+    return entries;
+  }, []);
 }

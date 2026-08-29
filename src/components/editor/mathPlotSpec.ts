@@ -118,9 +118,8 @@ function stripEquationLeftHandSide(source: string, target: 'y' | 'z') {
   const cleaned = cleanupExpressionSource(source);
   const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const targetEquation = new RegExp(`^${escapedTarget}(?:\\s*\\([^)]*\\))?\\s*=\\s*(.+)$`);
-  const functionEquation = target === 'z'
-    ? /^f\s*\(\s*x\s*,\s*y\s*\)\s*=\s*(.+)$/
-    : /^f\s*\(\s*x\s*\)\s*=\s*(.+)$/;
+  const functionEquation =
+    target === 'z' ? /^f\s*\(\s*x\s*,\s*y\s*\)\s*=\s*(.+)$/ : /^f\s*\(\s*x\s*\)\s*=\s*(.+)$/;
   const targetMatch = cleaned.match(targetEquation);
   if (targetMatch) return cleanupExpressionSource(targetMatch[1]);
   const functionMatch = cleaned.match(functionEquation);
@@ -162,18 +161,21 @@ function parseSampleCount(value: string | undefined, fallback: number, max: numb
 function isPlaceholderExpression(value: string | undefined) {
   if (!value) return true;
   const normalized = value.trim().toLowerCase();
-  return normalized === 'expression'
-    || normalized === '<placeholder:expression>'
-    || normalized === '<placeholder:z>'
-    || normalized === '<placeholder:surface>';
+  return (
+    normalized === 'expression' ||
+    normalized === '<placeholder:expression>' ||
+    normalized === '<placeholder:z>' ||
+    normalized === '<placeholder:surface>'
+  );
 }
 
 function parse2DDirective(raw: string, source: string): MathPlot2DSpec | string {
   const assignments = parseAssignments(raw);
   const explicitExpression = assignments.get('y');
-  const expression = explicitExpression && !isPlaceholderExpression(explicitExpression)
-    ? stripEquationLeftHandSide(explicitExpression, 'y')
-    : inferEquationExpression(source, 'y');
+  const expression =
+    explicitExpression && !isPlaceholderExpression(explicitExpression)
+      ? stripEquationLeftHandSide(explicitExpression, 'y')
+      : inferEquationExpression(source, 'y');
   if (!expression) return '2D plot needs a y expression or inferable math body.';
   const x = assignments.get('x') ? parseRange(assignments.get('x') ?? '') : DEFAULT_2D_DOMAIN;
   if (!x) return '2D plot x range must look like x=-10..10.';
@@ -188,9 +190,10 @@ function parse2DDirective(raw: string, source: string): MathPlot2DSpec | string 
 function parse3DDirective(raw: string, source: string): MathPlot3DSpec | string {
   const assignments = parseAssignments(raw);
   const explicitExpression = assignments.get('z');
-  const expression = explicitExpression && !isPlaceholderExpression(explicitExpression)
-    ? stripEquationLeftHandSide(explicitExpression, 'z')
-    : inferEquationExpression(source, 'z');
+  const expression =
+    explicitExpression && !isPlaceholderExpression(explicitExpression)
+      ? stripEquationLeftHandSide(explicitExpression, 'z')
+      : inferEquationExpression(source, 'z');
   if (!expression) return '3D plot needs a z expression or inferable math body.';
   const x = assignments.get('x') ? parseRange(assignments.get('x') ?? '') : DEFAULT_3D_DOMAIN;
   const y = assignments.get('y') ? parseRange(assignments.get('y') ?? '') : DEFAULT_3D_DOMAIN;
@@ -264,9 +267,10 @@ export function samplePlot2D(spec: MathPlot2DSpec): Sampled2DPlot {
   const maxY = Math.max(...yValues);
   const pad = minY === maxY ? 1 : (maxY - minY) * 0.08;
 
-  const autoYDomain: MathPlotDomain = Number.isFinite(minY) && Number.isFinite(maxY)
-    ? { min: minY - pad, max: maxY + pad }
-    : { min: -1, max: 1 };
+  const autoYDomain: MathPlotDomain =
+    Number.isFinite(minY) && Number.isFinite(maxY)
+      ? { min: minY - pad, max: maxY + pad }
+      : { min: -1, max: 1 };
 
   return {
     spec,
@@ -320,8 +324,12 @@ export function samplePlot3D(spec: MathPlot3DSpec): Sampled3DPlot {
 export function buildDefaultPlotDirective(kind: MathPlotKind, source: string) {
   if (kind === '2d') {
     const expression = inferEquationExpression(source, 'y');
-    return expression ? '%plot2d x=-10..10, samples=600' : '%plot2d y=<placeholder:expression>, x=-10..10, samples=600';
+    return expression
+      ? '%plot2d x=-10..10, samples=600'
+      : '%plot2d y=<placeholder:expression>, x=-10..10, samples=600';
   }
   const expression = inferEquationExpression(source, 'z');
-  return expression ? '%plot3d x=-5..5, y=-5..5, samples=60' : '%plot3d z=<placeholder:expression>, x=-5..5, y=-5..5, samples=60';
+  return expression
+    ? '%plot3d x=-5..5, y=-5..5, samples=60'
+    : '%plot3d z=<placeholder:expression>, x=-5..5, y=-5..5, samples=60';
 }

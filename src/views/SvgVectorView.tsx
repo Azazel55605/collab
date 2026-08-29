@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+
 import { Minus, PenTool, Plus } from 'lucide-react';
-import { useEditorStore } from '../store/editorStore';
-import { useVaultStore } from '../store/vaultStore';
-import { cn } from '../lib/utils';
-import { Button } from '../components/ui/button';
+
+import {
+  type Dimensions,
+  EMPTY_SIZE,
+  fitWithin,
+  getWorkspaceDimensions,
+  scaleDimensions,
+} from '../components/image/ImageViewUtils';
+import { SvgEditStage, type SvgTool } from '../components/image/SvgEditStage';
+import { SvgPropertiesPanel } from '../components/image/SvgPropertiesPanel';
+import { SvgToolbar } from '../components/image/SvgToolbar';
+import { useSvgSession } from '../components/image/useSvgSession';
 import {
   DocumentTopBar,
   documentTopBarGroupClass,
@@ -11,20 +20,13 @@ import {
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
 import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
-import {
-  EMPTY_SIZE,
-  fitWithin,
-  getWorkspaceDimensions,
-  scaleDimensions,
-  type Dimensions,
-} from '../components/image/ImageViewUtils';
-import { SvgEditStage, type SvgTool } from '../components/image/SvgEditStage';
-import { SvgToolbar } from '../components/image/SvgToolbar';
-import { SvgPropertiesPanel } from '../components/image/SvgPropertiesPanel';
-import { useSvgSession } from '../components/image/useSvgSession';
+import { Button } from '../components/ui/button';
 import { findNode, removeNode, reorderNode, serializeScene, updateNode } from '../lib/svgDocument';
-import type { SvgNode, SvgScene } from '../types/svg';
+import { cn } from '../lib/utils';
 import { useDocumentStatusRegistration } from '../store/documentStatusStore';
+import { useEditorStore } from '../store/editorStore';
+import { useVaultStore } from '../store/vaultStore';
+import type { SvgNode, SvgScene } from '../types/svg';
 
 interface Props {
   relativePath: string | null;
@@ -80,11 +82,10 @@ export default function SvgVectorView({ relativePath }: Props) {
     markSaved,
   });
 
-  const documentStatus = useMemo(() => (
-    !readOnly
-      ? { status, onLoadRemote: loadRemote, onKeepLocal: keepLocal }
-      : null
-  ), [keepLocal, loadRemote, readOnly, status]);
+  const documentStatus = useMemo(
+    () => (!readOnly ? { status, onLoadRemote: loadRemote, onKeepLocal: keepLocal } : null),
+    [keepLocal, loadRemote, readOnly, status],
+  );
   useDocumentStatusRegistration(relativePath, documentStatus);
 
   const [mode, setMode] = useState<SvgMode>('view');
@@ -105,7 +106,9 @@ export default function SvgVectorView({ relativePath }: Props) {
     if (readOnly && mode === 'edit') setMode('view');
   }, [readOnly, mode]);
 
-  const intrinsic = scene ? { width: scene.viewBox.width, height: scene.viewBox.height } : EMPTY_SIZE;
+  const intrinsic = scene
+    ? { width: scene.viewBox.width, height: scene.viewBox.height }
+    : EMPTY_SIZE;
   const baseFitted = fitWithin(viewportSize, intrinsic);
   const displayDimensions = scaleDimensions(baseFitted, zoomPercent / 100);
   const workspaceDimensions = getWorkspaceDimensions(viewportSize, displayDimensions);
@@ -133,7 +136,9 @@ export default function SvgVectorView({ relativePath }: Props) {
     if (mode !== 'edit' || readOnly) return;
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      const typing = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      const typing =
+        target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
       if (typing) return;
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
         e.preventDefault();
@@ -167,7 +172,10 @@ export default function SvgVectorView({ relativePath }: Props) {
                   key={next}
                   size="sm"
                   variant="ghost"
-                  className={cn('h-8 px-2.5 text-xs app-motion-fast', mode === next && 'bg-accent text-accent-foreground')}
+                  className={cn(
+                    'h-8 px-2.5 text-xs app-motion-fast',
+                    mode === next && 'bg-accent text-accent-foreground',
+                  )}
                   disabled={next === 'edit' && readOnly}
                   onClick={() => setMode(next)}
                 >
@@ -177,7 +185,13 @@ export default function SvgVectorView({ relativePath }: Props) {
             </div>
 
             {mode === 'edit' && !readOnly && (
-              <SvgToolbar tool={tool} onToolChange={setTool} dirty={dirty} saving={saving} onSave={() => void save()} />
+              <SvgToolbar
+                tool={tool}
+                onToolChange={setTool}
+                dirty={dirty}
+                saving={saving}
+                onSave={() => void save()}
+              />
             )}
 
             <div className={documentTopBarGroupClass}>
@@ -218,7 +232,8 @@ export default function SvgVectorView({ relativePath }: Props) {
 
       {!readOnly && assetBacked && (
         <div className="shrink-0 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-[11px] text-amber-100/90">
-          This SVG was imported as an image asset, so vector edits can't be saved back to it. Re-import the file to edit and save it as a vector document.
+          This SVG was imported as an image asset, so vector edits can't be saved back to it.
+          Re-import the file to edit and save it as a vector document.
         </div>
       )}
 
@@ -237,7 +252,9 @@ export default function SvgVectorView({ relativePath }: Props) {
         )}
 
         {loading && (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading SVG…</div>
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+            Loading SVG…
+          </div>
         )}
 
         {!loading && error && (
@@ -266,7 +283,9 @@ export default function SvgVectorView({ relativePath }: Props) {
                 selectedId={selectedId}
                 readOnly={readOnly}
                 onSelect={setSelectedId}
-                onSceneChange={(updater) => setScene((current) => (current ? updater(current) : current))}
+                onSceneChange={(updater) =>
+                  setScene((current) => (current ? updater(current) : current))
+                }
                 onCreated={(id) => {
                   setSelectedId(id);
                   setTool('select');
@@ -283,7 +302,13 @@ export default function SvgVectorView({ relativePath }: Props) {
 }
 
 /** Non-interactive render of the current scene (view mode, reflects unsaved edits). */
-function SvgPreview({ scene, displayDimensions }: { scene: SvgScene; displayDimensions: Dimensions }) {
+function SvgPreview({
+  scene,
+  displayDimensions,
+}: {
+  scene: SvgScene;
+  displayDimensions: Dimensions;
+}) {
   const html = useMemo(() => serializeScene(scene), [scene]);
   return (
     <div

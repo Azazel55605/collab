@@ -1,11 +1,14 @@
+import { useState } from 'react';
+
 import { format } from 'date-fns';
 import { CalendarDays } from 'lucide-react';
-import { useState } from 'react';
+
+import { cn } from '../../lib/utils';
 import { formatDate, useUiStore } from '../../store/uiStore';
+
 import { Button } from './button';
 import { Calendar } from './calendar';
 import { Popover, PopoverContent, PopoverTrigger } from './popover';
-import { cn } from '../../lib/utils';
 
 type Props = {
   value: string;
@@ -30,9 +33,17 @@ export function DatePicker({ value, onChange, label, min, className }: Props) {
       {label && <span className="text-xs font-medium">{label}</span>}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button type="button" variant="outline" className="w-full justify-start gap-2 font-normal">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full justify-start gap-2 font-normal"
+          >
             <CalendarDays className="size-3.5 text-muted-foreground" />
-            {selected ? formatDate(selected, dateFormat) : <span className="text-muted-foreground">Pick a date</span>}
+            {selected ? (
+              formatDate(selected, dateFormat)
+            ) : (
+              <span className="text-muted-foreground">Pick a date</span>
+            )}
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-auto p-0" sideOffset={4}>

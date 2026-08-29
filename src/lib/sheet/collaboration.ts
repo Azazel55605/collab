@@ -1,9 +1,7 @@
 import type { SheetDocument } from '../../types/sheet';
 
 export type SheetCollaborationConflictKind =
-  | 'overlapping-edit'
-  | 'deleted-target'
-  | 'unsupported-schema';
+  'overlapping-edit' | 'deleted-target' | 'unsupported-schema';
 
 export interface SheetCollaborationConflict {
   kind: SheetCollaborationConflictKind;
@@ -42,16 +40,17 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function equal(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (Array.isArray(left) && Array.isArray(right)) {
-    return left.length === right.length
-      && left.every((value, index) => equal(value, right[index]));
+    return left.length === right.length && left.every((value, index) => equal(value, right[index]));
   }
   if (isObject(left) && isObject(right)) {
     const leftKeys = Object.keys(left);
     const rightKeys = Object.keys(right);
-    return leftKeys.length === rightKeys.length
-      && leftKeys.every(
+    return (
+      leftKeys.length === rightKeys.length &&
+      leftKeys.every(
         (key) => Object.prototype.hasOwnProperty.call(right, key) && equal(left[key], right[key]),
-      );
+      )
+    );
   }
   return false;
 }
@@ -61,8 +60,10 @@ function stableEntityId(value: unknown): string | null {
 }
 
 function uniqueStringArray(value: unknown[]): value is string[] {
-  return value.every((entry) => typeof entry === 'string')
-    && new Set(value as string[]).size === value.length;
+  return (
+    value.every((entry) => typeof entry === 'string') &&
+    new Set(value as string[]).size === value.length
+  );
 }
 
 function deterministicRank(id: string, order: string[]): number | null {
@@ -126,8 +127,8 @@ function mergeArray(
     return mergeStableIdentityOrder(base, local, remote);
   }
 
-  const allEntityArrays = [base, local, remote].every(
-    (array) => array.every((entry) => stableEntityId(entry) !== null),
+  const allEntityArrays = [base, local, remote].every((array) =>
+    array.every((entry) => stableEntityId(entry) !== null),
   );
   if (!allEntityArrays) {
     context.conflicts.push({ kind: 'overlapping-edit', path });
@@ -151,9 +152,12 @@ function mergeArray(
 
   return order.flatMap((id) => {
     const merged = mergePresence(
-      baseMap.has(id), baseMap.get(id),
-      localMap.has(id), localMap.get(id),
-      remoteMap.has(id), remoteMap.get(id),
+      baseMap.has(id),
+      baseMap.get(id),
+      localMap.has(id),
+      localMap.get(id),
+      remoteMap.has(id),
+      remoteMap.get(id),
       `${path}/${id}`,
       context,
     );
@@ -213,9 +217,12 @@ function mergeValue(
     const keys = new Set([...Object.keys(base), ...Object.keys(local), ...Object.keys(remote)]);
     for (const key of keys) {
       const value = mergePresence(
-        Object.prototype.hasOwnProperty.call(base, key), base[key],
-        Object.prototype.hasOwnProperty.call(local, key), local[key],
-        Object.prototype.hasOwnProperty.call(remote, key), remote[key],
+        Object.prototype.hasOwnProperty.call(base, key),
+        base[key],
+        Object.prototype.hasOwnProperty.call(local, key),
+        local[key],
+        Object.prototype.hasOwnProperty.call(remote, key),
+        remote[key],
         `${path}/${key}`,
         context,
       );
@@ -241,10 +248,10 @@ export function mergeSheetDocuments(
   remote: SheetDocument,
 ): SheetMergeResult {
   if (
-    base.schemaVersion !== local.schemaVersion
-    || base.schemaVersion !== remote.schemaVersion
-    || base.id !== local.id
-    || base.id !== remote.id
+    base.schemaVersion !== local.schemaVersion ||
+    base.schemaVersion !== remote.schemaVersion ||
+    base.id !== local.id ||
+    base.id !== remote.id
   ) {
     return {
       document: local,

@@ -1,21 +1,11 @@
 import { Eraser, MoveUpRight, Paintbrush, PencilLine, Type } from 'lucide-react';
 
-import type { ImageLineStyle, ImageOverlayTool } from '../../types/image';
 import { cn } from '../../lib/utils';
+import type { ImageLineStyle, ImageOverlayTool } from '../../types/image';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '../ui/popover';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 interface ImageAdditiveToolbarProps {
   tool: ImageOverlayTool;
@@ -65,17 +55,22 @@ export function ImageAdditiveToolbar({
   return (
     <>
       <div className="flex items-center gap-1 rounded-xl border border-border/60 bg-background/55 p-1">
-        {([
-          ['select', PencilLine, 'Select'],
-          ['text', Type, 'Text'],
-          ['arrow', MoveUpRight, 'Arrow'],
-          ['pen', Paintbrush, 'Freehand'],
-        ] as const).map(([nextTool, Icon, label]) => (
+        {(
+          [
+            ['select', PencilLine, 'Select'],
+            ['text', Type, 'Text'],
+            ['arrow', MoveUpRight, 'Arrow'],
+            ['pen', Paintbrush, 'Freehand'],
+          ] as const
+        ).map(([nextTool, Icon, label]) => (
           <Button
             key={nextTool}
             size="sm"
             variant="ghost"
-            className={cn('h-8 gap-1.5 px-2.5 text-xs app-motion-fast', tool === nextTool && 'bg-accent text-accent-foreground')}
+            className={cn(
+              'h-8 gap-1.5 px-2.5 text-xs app-motion-fast',
+              tool === nextTool && 'bg-accent text-accent-foreground',
+            )}
             onClick={() => onToolChange(nextTool)}
           >
             <Icon size={14} />
@@ -108,7 +103,8 @@ export function ImageAdditiveToolbar({
                   onClick={() => onColorSelect(swatch)}
                   className={cn(
                     'h-7 w-7 rounded-full border border-white/10 transition-transform hover:scale-110',
-                    activeColor === swatch && 'ring-2 ring-white/60 ring-offset-1 ring-offset-popover',
+                    activeColor === swatch &&
+                      'ring-2 ring-white/60 ring-offset-1 ring-offset-popover',
                   )}
                   style={{ backgroundColor: swatch }}
                   aria-label={`Select color ${swatch}`}
@@ -118,7 +114,9 @@ export function ImageAdditiveToolbar({
             <div className="flex items-center gap-2 border-t border-border/40 pt-2">
               <div
                 className="h-6 w-6 shrink-0 rounded-md border border-white/15"
-                style={{ backgroundColor: /^#[0-9a-f]{6}$/i.test(hexDraft) ? hexDraft : activeColor }}
+                style={{
+                  backgroundColor: /^#[0-9a-f]{6}$/i.test(hexDraft) ? hexDraft : activeColor,
+                }}
               />
               <Input
                 value={hexDraft}
@@ -154,7 +152,10 @@ export function ImageAdditiveToolbar({
       {lineStyle && (
         <label className="flex items-center gap-2 rounded-lg border border-border/50 bg-background/40 px-2 py-1 text-[11px]">
           <span>Line</span>
-          <Select value={lineStyle} onValueChange={(value) => onLineStyleChange(value as ImageLineStyle)}>
+          <Select
+            value={lineStyle}
+            onValueChange={(value) => onLineStyleChange(value as ImageLineStyle)}
+          >
             <SelectTrigger size="sm" className="h-7 bg-background/70 text-xs">
               <SelectValue />
             </SelectTrigger>
@@ -180,7 +181,12 @@ export function ImageAdditiveToolbar({
       </label>
 
       {hasSelectedItem && (
-        <Button size="sm" variant="ghost" className="h-8 text-destructive" onClick={onDeleteSelected}>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 text-destructive"
+          onClick={onDeleteSelected}
+        >
           <Eraser size={14} className="mr-1.5" />
           Delete selected
         </Button>

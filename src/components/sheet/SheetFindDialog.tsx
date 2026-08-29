@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+
 import { ArrowDown, ArrowUp, MapPin, Replace, ReplaceAll } from 'lucide-react';
 
 import { Button } from '../ui/button';
@@ -18,9 +19,21 @@ interface Props {
   readOnly?: boolean;
   resultLabel: string;
   onOpenChange: (open: boolean) => void;
-  onFind: (query: string, options: { matchCase: boolean; wholeCell: boolean }, direction: 'next' | 'previous') => void;
-  onReplace: (query: string, replacement: string, options: { matchCase: boolean; wholeCell: boolean }) => void;
-  onReplaceAll: (query: string, replacement: string, options: { matchCase: boolean; wholeCell: boolean }) => void;
+  onFind: (
+    query: string,
+    options: { matchCase: boolean; wholeCell: boolean },
+    direction: 'next' | 'previous',
+  ) => void;
+  onReplace: (
+    query: string,
+    replacement: string,
+    options: { matchCase: boolean; wholeCell: boolean },
+  ) => void;
+  onReplaceAll: (
+    query: string,
+    replacement: string,
+    options: { matchCase: boolean; wholeCell: boolean },
+  ) => void;
   onGoTo: (reference: string) => void;
 }
 
@@ -54,7 +67,9 @@ export default function SheetFindDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Find and replace</DialogTitle>
-          <DialogDescription>Search the current worksheet or jump to an A1 range.</DialogDescription>
+          <DialogDescription>
+            Search the current worksheet or jump to an A1 range.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3">
@@ -66,26 +81,47 @@ export default function SheetFindDialog({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter') onFind(query, options, event.shiftKey ? 'previous' : 'next');
+                if (event.key === 'Enter')
+                  onFind(query, options, event.shiftKey ? 'previous' : 'next');
               }}
             />
-            <Button type="button" size="icon" variant="outline" aria-label="Previous match" onClick={() => onFind(query, options, 'previous')}>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              aria-label="Previous match"
+              onClick={() => onFind(query, options, 'previous')}
+            >
               <ArrowUp />
             </Button>
-            <Button type="button" size="icon" variant="outline" aria-label="Next match" onClick={() => onFind(query, options, 'next')}>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              aria-label="Next match"
+              onClick={() => onFind(query, options, 'next')}
+            >
               <ArrowDown />
             </Button>
           </div>
           <div className="flex items-center gap-4 text-xs">
             <label className="flex items-center gap-2">
-              <Checkbox checked={matchCase} onCheckedChange={(checked) => setMatchCase(checked === true)} />
+              <Checkbox
+                checked={matchCase}
+                onCheckedChange={(checked) => setMatchCase(checked === true)}
+              />
               Match case
             </label>
             <label className="flex items-center gap-2">
-              <Checkbox checked={wholeCell} onCheckedChange={(checked) => setWholeCell(checked === true)} />
+              <Checkbox
+                checked={wholeCell}
+                onCheckedChange={(checked) => setWholeCell(checked === true)}
+              />
               Whole cell
             </label>
-            <span className="ml-auto text-muted-foreground" role="status">{resultLabel}</span>
+            <span className="ml-auto text-muted-foreground" role="status">
+              {resultLabel}
+            </span>
           </div>
           <div className="grid grid-cols-[1fr_auto_auto] gap-2">
             <Input
@@ -95,10 +131,24 @@ export default function SheetFindDialog({
               disabled={readOnly}
               onChange={(event) => setReplacement(event.target.value)}
             />
-            <Button type="button" size="icon" variant="outline" aria-label="Replace match" disabled={readOnly || !query} onClick={() => onReplace(query, replacement, options)}>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              aria-label="Replace match"
+              disabled={readOnly || !query}
+              onClick={() => onReplace(query, replacement, options)}
+            >
               <Replace />
             </Button>
-            <Button type="button" size="icon" variant="outline" aria-label="Replace all matches" disabled={readOnly || !query} onClick={() => onReplaceAll(query, replacement, options)}>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              aria-label="Replace all matches"
+              disabled={readOnly || !query}
+              onClick={() => onReplaceAll(query, replacement, options)}
+            >
               <ReplaceAll />
             </Button>
           </div>
@@ -112,7 +162,13 @@ export default function SheetFindDialog({
                 if (event.key === 'Enter') onGoTo(reference);
               }}
             />
-            <Button type="button" size="icon" variant="outline" aria-label="Go to range" onClick={() => onGoTo(reference)}>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              aria-label="Go to range"
+              onClick={() => onGoTo(reference)}
+            >
               <MapPin />
             </Button>
           </div>

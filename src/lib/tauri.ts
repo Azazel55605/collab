@@ -1,49 +1,22 @@
-import { invoke, Channel } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 
-export const getAppVersion = getVersion;
-import type {
-  VaultMeta,
-  NoteFile,
-  NoteContent,
-  WriteResult,
-  VaultConfig,
-  TrashEntry,
-  PathChangePreview,
-  FileReference,
-  HostedUploadPayload,
-  UserDirectoryEntry,
-} from '../types/vault';
-import type { NoteMetadata, SearchResult } from '../types/note';
-import type { PresenceEntry, ChatMessage, SnapshotMeta } from '../types/collab';
-import type { KanbanBoard } from '../types/kanban';
-import type { KanbanAutomationPreset, KanbanFilterPreset, KanbanTemplate, LogicComponentTemplate, TemplateSource } from '../types/template';
-import type { NoteSnippet, NoteSnippetDraft, NoteSnippetScope } from '../types/noteSnippet';
-import type { PdfSidecarState } from '../types/pdf';
 import type { UpdateInfo } from '../store/updateStore';
-import type { LogicDiagramDocument } from '../types/logicDiagram';
 import type {
-  SheetExportFormat,
-  SheetExportOptions,
-  SheetExportResult,
-  SheetImportOptions,
-  SheetImportResult,
-} from '../types/sheetConversion';
-import type { CalendarCleanupResult, CalendarDefinition, CalendarItem, CalendarMirrorAnchor, CalendarMirrorConflict, CalendarMirrorGroup, CalendarOperation, CalendarOperationFailure, CalendarRemoteChange, CalendarSubscription, CalendarSyncState } from '../types/calendar';
-import type {
-  ConsumedNotificationAction,
-  NotificationAction,
-  NotificationActionToken,
-  NotificationCategory,
-  NotificationEnvelope,
-  NotificationPermissionStatus,
-  NotificationPreferences,
-  NotificationRecord,
-  NotificationReconcileResult,
-  NotificationReconciliationRequest,
-} from '../types/notification';
+  CalendarCleanupResult,
+  CalendarDefinition,
+  CalendarItem,
+  CalendarMirrorAnchor,
+  CalendarMirrorConflict,
+  CalendarMirrorGroup,
+  CalendarOperation,
+  CalendarOperationFailure,
+  CalendarRemoteChange,
+  CalendarSubscription,
+  CalendarSyncState,
+} from '../types/calendar';
 import type {
   CircuitDcResult,
   CircuitJobOutcome,
@@ -52,6 +25,55 @@ import type {
   CircuitSweepChunk,
   CircuitTransientChunk,
 } from '../types/circuitRuntime';
+import type { ChatMessage, PresenceEntry, SnapshotMeta } from '../types/collab';
+import type { KanbanBoard } from '../types/kanban';
+import type { LogicDiagramDocument } from '../types/logicDiagram';
+import type { NoteMetadata, SearchResult } from '../types/note';
+import type { NoteSnippet, NoteSnippetDraft, NoteSnippetScope } from '../types/noteSnippet';
+import type {
+  ConsumedNotificationAction,
+  NotificationAction,
+  NotificationActionToken,
+  NotificationCategory,
+  NotificationEnvelope,
+  NotificationPermissionStatus,
+  NotificationPreferences,
+  NotificationReconcileResult,
+  NotificationReconciliationRequest,
+  NotificationRecord,
+} from '../types/notification';
+import type { PdfSidecarState } from '../types/pdf';
+import type {
+  SheetExportFormat,
+  SheetExportOptions,
+  SheetExportResult,
+  SheetImportOptions,
+  SheetImportResult,
+} from '../types/sheetConversion';
+import type {
+  SheetFormulaEvaluationRequest,
+  SheetFormulaEvaluationResponse,
+} from '../types/sheetFormula';
+import type {
+  KanbanAutomationPreset,
+  KanbanFilterPreset,
+  KanbanTemplate,
+  LogicComponentTemplate,
+  TemplateSource,
+} from '../types/template';
+import type {
+  FileReference,
+  HostedUploadPayload,
+  NoteContent,
+  NoteFile,
+  PathChangePreview,
+  TrashEntry,
+  UserDirectoryEntry,
+  VaultConfig,
+  VaultMeta,
+  WriteResult,
+} from '../types/vault';
+
 import type {
   CacheCleanupReport,
   CachedContentStatus,
@@ -63,10 +85,8 @@ import type {
   ReplicaSyncState,
   Tombstone,
 } from './vaultReplica';
-import type {
-  SheetFormulaEvaluationRequest,
-  SheetFormulaEvaluationResponse,
-} from '../types/sheetFormula';
+
+export const getAppVersion = getVersion;
 
 export { Channel };
 export type {
@@ -167,16 +187,9 @@ export interface BackgroundRuntimeProbe {
 }
 
 export type BackgroundJobKind =
-  | 'replica_sync'
-  | 'calendar_sync'
-  | 'notification_sync'
-  | 'maintenance';
+  'replica_sync' | 'calendar_sync' | 'notification_sync' | 'maintenance';
 export type BackgroundJobTrigger =
-  | 'foreground'
-  | 'periodic'
-  | 'push_invalidation'
-  | 'retry'
-  | 'user_initiated';
+  'foreground' | 'periodic' | 'push_invalidation' | 'retry' | 'user_initiated';
 export type BackgroundJobStatus =
   | 'queued'
   | 'running'
@@ -200,11 +213,7 @@ export interface BackgroundServerRegistration {
 
 export type BackgroundCloseBehavior = 'hide_to_tray' | 'quit';
 export type BackgroundSyncInterval =
-  | 'system_managed'
-  | 'fifteen_minutes'
-  | 'thirty_minutes'
-  | 'hourly'
-  | 'manual';
+  'system_managed' | 'fifteen_minutes' | 'thirty_minutes' | 'hourly' | 'manual';
 
 export interface BackgroundSettings {
   schemaVersion: number;
@@ -280,8 +289,7 @@ export interface BackgroundStatusSnapshot {
 export const tauriCommands = {
   backgroundRuntimeProbe: (trigger: string) =>
     invoke<BackgroundRuntimeProbe>('background_runtime_probe', { trigger }),
-  backgroundServerList: () =>
-    invoke<BackgroundServerRegistration[]>('background_server_list'),
+  backgroundServerList: () => invoke<BackgroundServerRegistration[]>('background_server_list'),
   backgroundServerReplace: (servers: BackgroundServerRegistration[]) =>
     invoke<BackgroundServerRegistration[]>('background_server_replace', { servers }),
   backgroundServerUpsert: (server: BackgroundServerRegistration) =>
@@ -296,16 +304,12 @@ export const tauriCommands = {
     invoke<BackgroundJobRecord[]>('background_job_list', { limit }),
   backgroundJobCancel: (jobId: string) =>
     invoke<BackgroundJobRecord>('background_job_cancel', { jobId }),
-  backgroundJobAggregate: () =>
-    invoke<BackgroundJobAggregate>('background_job_aggregate'),
-  backgroundStatusSnapshot: () =>
-    invoke<BackgroundStatusSnapshot>('background_status_snapshot'),
-  backgroundSettingsGet: () =>
-    invoke<BackgroundSettings>('background_settings_get'),
+  backgroundJobAggregate: () => invoke<BackgroundJobAggregate>('background_job_aggregate'),
+  backgroundStatusSnapshot: () => invoke<BackgroundStatusSnapshot>('background_status_snapshot'),
+  backgroundSettingsGet: () => invoke<BackgroundSettings>('background_settings_get'),
   backgroundSettingsSave: (settings: BackgroundSettings) =>
     invoke<BackgroundSettings>('background_settings_save', { settings }),
-  backgroundSyncRegistered: () =>
-    invoke<BackgroundJobRecord[]>('background_sync_registered'),
+  backgroundSyncRegistered: () => invoke<BackgroundJobRecord[]>('background_sync_registered'),
 
   // User calendar profile store
   calendarList: (profileId: string) => invoke<CalendarDefinition[]>('calendar_list', { profileId }),
@@ -328,10 +332,17 @@ export const tauriCommands = {
     invoke<void>('calendar_save_subscription', { profileId, subscription }),
   calendarDeleteSubscription: (profileId: string, subscriptionId: string) =>
     invoke<void>('calendar_delete_subscription', { profileId, subscriptionId }),
-  calendarSaveWithOperation: (profileId: string, calendar: CalendarDefinition, operation: CalendarOperation) =>
-    invoke<void>('calendar_save_with_operation', { profileId, calendar, operation }),
-  calendarDelete: (profileId: string, calendarId: string, deletedAt: string, operation: CalendarOperation) =>
-    invoke<void>('calendar_delete', { profileId, calendarId, deletedAt, operation }),
+  calendarSaveWithOperation: (
+    profileId: string,
+    calendar: CalendarDefinition,
+    operation: CalendarOperation,
+  ) => invoke<void>('calendar_save_with_operation', { profileId, calendar, operation }),
+  calendarDelete: (
+    profileId: string,
+    calendarId: string,
+    deletedAt: string,
+    operation: CalendarOperation,
+  ) => invoke<void>('calendar_delete', { profileId, calendarId, deletedAt, operation }),
   calendarCleanup: (profileId: string, retentionDays = 90) =>
     invoke<CalendarCleanupResult>('calendar_cleanup', { profileId, retentionDays }),
   calendarListItems: (
@@ -340,16 +351,21 @@ export const tauriCommands = {
     to: string,
     limit = 500,
     includeDeleted = false,
-  ) => invoke<CalendarItem[]>('calendar_list_items', { profileId, from, to, limit, includeDeleted }),
+  ) =>
+    invoke<CalendarItem[]>('calendar_list_items', { profileId, from, to, limit, includeDeleted }),
   calendarUpsertItem: (profileId: string, item: CalendarItem, operation: CalendarOperation) =>
     invoke<void>('calendar_upsert_item', { profileId, item, operation }),
-  calendarUpsertItems: (
-    profileId: string,
-    entries: Array<[CalendarItem, CalendarOperation]>,
-  ) => invoke<void>('calendar_upsert_items', { profileId, entries }),
+  calendarUpsertItems: (profileId: string, entries: Array<[CalendarItem, CalendarOperation]>) =>
+    invoke<void>('calendar_upsert_items', { profileId, entries }),
   calendarListCalendarItems: (profileId: string, calendarId: string, limit = 5_000) =>
     invoke<CalendarItem[]>('calendar_list_calendar_items', { profileId, calendarId, limit }),
-  calendarDeleteItem: (profileId: string, calendarId: string, itemId: string, deletedAt: string, operation: CalendarOperation) =>
+  calendarDeleteItem: (
+    profileId: string,
+    calendarId: string,
+    itemId: string,
+    deletedAt: string,
+    operation: CalendarOperation,
+  ) =>
     invoke<void>('calendar_delete_item', { profileId, calendarId, itemId, deletedAt, operation }),
   calendarSearchItems: (profileId: string, query: string, limit = 100) =>
     invoke<CalendarItem[]>('calendar_search_items', { profileId, query, limit }),
@@ -359,14 +375,27 @@ export const tauriCommands = {
     invoke<CalendarSyncState | null>('calendar_read_sync_state', { profileId, originKey }),
   calendarWriteSyncState: (profileId: string, state: CalendarSyncState) =>
     invoke<void>('calendar_write_sync_state', { profileId, state }),
-  calendarApplyRemoteChanges: (profileId: string, changes: CalendarRemoteChange[], state: CalendarSyncState) =>
-    invoke<void>('calendar_apply_remote_changes', { profileId, changes, state }),
+  calendarApplyRemoteChanges: (
+    profileId: string,
+    changes: CalendarRemoteChange[],
+    state: CalendarSyncState,
+  ) => invoke<void>('calendar_apply_remote_changes', { profileId, changes, state }),
   calendarListPendingOperations: (profileId: string) =>
     invoke<CalendarOperation[]>('calendar_list_pending_operations', { profileId }),
   calendarListFailedOperations: (profileId: string) =>
     invoke<CalendarOperationFailure[]>('calendar_list_failed_operations', { profileId }),
-  calendarMarkOperationFailed: (profileId: string, clientOperationId: string, error: string, attemptedAt: string) =>
-    invoke<void>('calendar_mark_operation_failed', { profileId, clientOperationId, error, attemptedAt }),
+  calendarMarkOperationFailed: (
+    profileId: string,
+    clientOperationId: string,
+    error: string,
+    attemptedAt: string,
+  ) =>
+    invoke<void>('calendar_mark_operation_failed', {
+      profileId,
+      clientOperationId,
+      error,
+      attemptedAt,
+    }),
   calendarRetryOperation: (profileId: string, clientOperationId: string) =>
     invoke<void>('calendar_retry_operation', { profileId, clientOperationId }),
   calendarDiscardOperation: (profileId: string, clientOperationId: string) =>
@@ -384,7 +413,11 @@ export const tauriCommands = {
   calendarSaveMirrorAnchors: (profileId: string, anchors: CalendarMirrorAnchor[]) =>
     invoke<void>('calendar_save_mirror_anchors', { profileId, anchors }),
   calendarListMirrorConflicts: (profileId: string, groupId?: string, includeResolved = false) =>
-    invoke<CalendarMirrorConflict[]>('calendar_list_mirror_conflicts', { profileId, groupId: groupId ?? null, includeResolved }),
+    invoke<CalendarMirrorConflict[]>('calendar_list_mirror_conflicts', {
+      profileId,
+      groupId: groupId ?? null,
+      includeResolved,
+    }),
   calendarSaveMirrorConflict: (profileId: string, conflict: CalendarMirrorConflict) =>
     invoke<void>('calendar_save_mirror_conflict', { profileId, conflict }),
   calendarListMirrorItems: (profileId: string, calendarIds: string[], limit = 5_000) =>
@@ -395,11 +428,12 @@ export const tauriCommands = {
     profileId: string,
     category: NotificationCategory,
     entries: NotificationEnvelope[],
-  ) => invoke<NotificationReconcileResult>('notification_reconcile', {
-    profileId,
-    category,
-    entries,
-  }),
+  ) =>
+    invoke<NotificationReconcileResult>('notification_reconcile', {
+      profileId,
+      category,
+      entries,
+    }),
   notificationCancelCategory: (profileId: string, category: NotificationCategory) =>
     invoke<number>('notification_cancel_category', { profileId, category }),
   notificationListInbox: (profileId: string, includeDismissed = false, limit = 200) =>
@@ -424,31 +458,42 @@ export const tauriCommands = {
     profileId: string,
     notificationId: string,
     action: NotificationAction,
-  ) => invoke<NotificationActionToken>('notification_create_action_token', {
-    profileId,
-    notificationId,
-    action,
-  }),
+  ) =>
+    invoke<NotificationActionToken>('notification_create_action_token', {
+      profileId,
+      notificationId,
+      action,
+    }),
   notificationConsumeActionToken: (profileId: string, token: string) =>
     invoke<ConsumedNotificationAction>('notification_consume_action_token', { profileId, token }),
   notificationCleanup: (profileId: string, retentionDays = 90) =>
     invoke<number>('notification_cleanup', { profileId, retentionDays }),
   notificationListReconciliationRequests: (profileId: string) =>
-    invoke<NotificationReconciliationRequest[]>(
-      'notification_list_reconciliation_requests',
-      { profileId },
-    ),
+    invoke<NotificationReconciliationRequest[]>('notification_list_reconciliation_requests', {
+      profileId,
+    }),
   notificationPermissionStatus: () =>
     invoke<NotificationPermissionStatus>('notification_permission_status'),
   notificationRequestPermission: () =>
     invoke<NotificationPermissionStatus>('notification_request_permission'),
-  notificationSendTest: () =>
-    invoke<void>('notification_send_test'),
+  notificationSendTest: () => invoke<void>('notification_send_test'),
 
   // Vault
   openVault: (path: string) => invoke<VaultMeta>('open_vault', { path }),
-  createVault: (path: string, name: string, ownerUserId?: string, ownerUserName?: string, ownerUserColor?: string) =>
-    invoke<VaultMeta>('create_vault', { path, name, ownerUserId: ownerUserId ?? null, ownerUserName: ownerUserName ?? null, ownerUserColor: ownerUserColor ?? null }),
+  createVault: (
+    path: string,
+    name: string,
+    ownerUserId?: string,
+    ownerUserName?: string,
+    ownerUserColor?: string,
+  ) =>
+    invoke<VaultMeta>('create_vault', {
+      path,
+      name,
+      ownerUserId: ownerUserId ?? null,
+      ownerUserName: ownerUserName ?? null,
+      ownerUserColor: ownerUserColor ?? null,
+    }),
   getRecentVaults: () => invoke<VaultMeta[]>('get_recent_vaults'),
   showOpenVaultDialog: async () => {
     const result = await open({
@@ -459,8 +504,10 @@ export const tauriCommands = {
     return typeof result === 'string' ? result : null;
   },
   removeRecentVault: (path: string) => invoke<void>('remove_recent_vault', { path }),
-  renameVault: (vaultPath: string, newName: string) => invoke<VaultMeta>('rename_vault', { vaultPath, newName }),
-  exportVault: (vaultPath: string, destPath: string) => invoke<void>('export_vault', { vaultPath, destPath }),
+  renameVault: (vaultPath: string, newName: string) =>
+    invoke<VaultMeta>('rename_vault', { vaultPath, newName }),
+  exportVault: (vaultPath: string, destPath: string) =>
+    invoke<void>('export_vault', { vaultPath, destPath }),
   /** Resolve a vault-relative path to its absolute filesystem path (local only). */
   resolveVaultFilePath: (vaultPath: string, relativePath: string) =>
     invoke<string>('resolve_vault_file_path', { vaultPath, relativePath }),
@@ -483,14 +530,19 @@ export const tauriCommands = {
     }),
 
   // Encryption
-  unlockVault: (vaultPath: string, password: string) => invoke<void>('unlock_vault', { vaultPath, password }),
-  enableVaultEncryption: (vaultPath: string, password: string) => invoke<void>('enable_vault_encryption', { vaultPath, password }),
-  disableVaultEncryption: (vaultPath: string, password: string) => invoke<void>('disable_vault_encryption', { vaultPath, password }),
-  changeVaultPassword: (vaultPath: string, oldPassword: string, newPassword: string) => invoke<void>('change_vault_password', { vaultPath, oldPassword, newPassword }),
+  unlockVault: (vaultPath: string, password: string) =>
+    invoke<void>('unlock_vault', { vaultPath, password }),
+  enableVaultEncryption: (vaultPath: string, password: string) =>
+    invoke<void>('enable_vault_encryption', { vaultPath, password }),
+  disableVaultEncryption: (vaultPath: string, password: string) =>
+    invoke<void>('disable_vault_encryption', { vaultPath, password }),
+  changeVaultPassword: (vaultPath: string, oldPassword: string, newPassword: string) =>
+    invoke<void>('change_vault_password', { vaultPath, oldPassword, newPassword }),
 
   // Files
   listVaultFiles: (vaultPath: string) => invoke<NoteFile[]>('list_vault_files', { vaultPath }),
-  readNote: (vaultPath: string, relativePath: string) => invoke<NoteContent>('read_note', { vaultPath, relativePath }),
+  readNote: (vaultPath: string, relativePath: string) =>
+    invoke<NoteContent>('read_note', { vaultPath, relativePath }),
   readNoteAssetDataUrl: (vaultPath: string, relativePath: string) =>
     invoke<string>('read_note_asset_data_url', { vaultPath, relativePath }),
   readImageOverlay: (vaultPath: string, imageRelativePath: string) =>
@@ -513,15 +565,20 @@ export const tauriCommands = {
     dataUrl: string,
     overwrite: boolean,
     suggestedFileName?: string,
-  ) => invoke<string>('save_generated_image', {
-    vaultPath,
-    sourceRelativePath,
-    dataUrl,
-    overwrite,
-    suggestedFileName: suggestedFileName ?? null,
-  }),
+  ) =>
+    invoke<string>('save_generated_image', {
+      vaultPath,
+      sourceRelativePath,
+      dataUrl,
+      overwrite,
+      suggestedFileName: suggestedFileName ?? null,
+    }),
   importAssetIntoVault: (vaultPath: string, sourcePath: string, targetFolder?: string) =>
-    invoke<string>('import_asset_into_vault', { vaultPath, sourcePath, targetFolder: targetFolder ?? null }),
+    invoke<string>('import_asset_into_vault', {
+      vaultPath,
+      sourcePath,
+      targetFolder: targetFolder ?? null,
+    }),
   readFileForUpload: (sourcePath: string) =>
     invoke<HostedUploadPayload>('read_file_for_upload', { sourcePath }),
   /** Multi-select desktop file picker filtered to the given extensions (for vault import). */
@@ -542,7 +599,13 @@ export const tauriCommands = {
     });
     return typeof result === 'string' ? result : null;
   },
-  writeNote: (vaultPath: string, relativePath: string, content: string, expectedHash?: string, baseContent?: string) =>
+  writeNote: (
+    vaultPath: string,
+    relativePath: string,
+    content: string,
+    expectedHash?: string,
+    baseContent?: string,
+  ) =>
     invoke<WriteResult>('write_note', {
       vaultPath,
       relativePath,
@@ -550,7 +613,8 @@ export const tauriCommands = {
       expectedHash: expectedHash ?? null,
       baseContent: baseContent ?? null,
     }),
-  createNote: (vaultPath: string, relativePath: string) => invoke<NoteFile>('create_note', { vaultPath, relativePath }),
+  createNote: (vaultPath: string, relativePath: string) =>
+    invoke<NoteFile>('create_note', { vaultPath, relativePath }),
   moveNoteToTrash: (
     vaultPath: string,
     relativePath: string,
@@ -565,21 +629,40 @@ export const tauriCommands = {
       deletedByUserName: deletedByUserName ?? null,
       removeReferences: removeReferences ?? null,
     }),
-  listTrashEntries: (vaultPath: string) => invoke<TrashEntry[]>('list_trash_entries', { vaultPath }),
+  listTrashEntries: (vaultPath: string) =>
+    invoke<TrashEntry[]>('list_trash_entries', { vaultPath }),
   restoreTrashedItem: (vaultPath: string, entryId: string, targetRelativePath?: string | null) =>
-    invoke<string>('restore_trashed_item', { vaultPath, entryId, targetRelativePath: targetRelativePath ?? null }),
+    invoke<string>('restore_trashed_item', {
+      vaultPath,
+      entryId,
+      targetRelativePath: targetRelativePath ?? null,
+    }),
   purgeTrashedItem: (vaultPath: string, entryId: string, removeReferences?: boolean) =>
-    invoke<void>('purge_trashed_item', { vaultPath, entryId, removeReferences: removeReferences ?? null }),
+    invoke<void>('purge_trashed_item', {
+      vaultPath,
+      entryId,
+      removeReferences: removeReferences ?? null,
+    }),
   purgeAllTrash: (vaultPath: string) => invoke<void>('purge_all_trash', { vaultPath }),
   previewRenameMove: (vaultPath: string, oldPath: string, newPath: string) =>
     invoke<PathChangePreview>('preview_rename_move', { vaultPath, oldPath, newPath }),
   listFileReferences: (vaultPath: string, relativePath: string) =>
     invoke<FileReference[]>('list_file_references', { vaultPath, relativePath }),
   deleteNote: (vaultPath: string, relativePath: string, removeReferences?: boolean) =>
-    invoke<void>('delete_note', { vaultPath, relativePath, removeReferences: removeReferences ?? null }),
+    invoke<void>('delete_note', {
+      vaultPath,
+      relativePath,
+      removeReferences: removeReferences ?? null,
+    }),
   renameNote: (vaultPath: string, oldPath: string, newPath: string, updateReferences?: boolean) =>
-    invoke<void>('rename_note', { vaultPath, oldPath, newPath, updateReferences: updateReferences ?? null }),
-  createFolder: (vaultPath: string, relativePath: string) => invoke<void>('create_folder', { vaultPath, relativePath }),
+    invoke<void>('rename_note', {
+      vaultPath,
+      oldPath,
+      newPath,
+      updateReferences: updateReferences ?? null,
+    }),
+  createFolder: (vaultPath: string, relativePath: string) =>
+    invoke<void>('create_folder', { vaultPath, relativePath }),
   fetchLinkPreview: (url: string) => invoke<LinkPreviewData>('fetch_link_preview', { url }),
   fetchCalendarFeed: (url: string, etag?: string, lastModified?: string) =>
     invoke<CalendarFeedResponse>('fetch_calendar_feed', {
@@ -588,13 +671,19 @@ export const tauriCommands = {
       lastModified: lastModified ?? null,
     }),
   listOcrLanguagePacks: () => invoke<OcrLanguagePack[]>('list_ocr_language_packs'),
-  installOcrLanguagePack: (code: string) => invoke<OcrLanguagePack>('install_ocr_language_pack', { code }),
-  removeOcrLanguagePack: (code: string) => invoke<OcrLanguagePack>('remove_ocr_language_pack', { code }),
-  readOcrLanguagePackData: (code: string) => invoke<OcrLanguagePackData>('read_ocr_language_pack_data', { code }),
+  installOcrLanguagePack: (code: string) =>
+    invoke<OcrLanguagePack>('install_ocr_language_pack', { code }),
+  removeOcrLanguagePack: (code: string) =>
+    invoke<OcrLanguagePack>('remove_ocr_language_pack', { code }),
+  readOcrLanguagePackData: (code: string) =>
+    invoke<OcrLanguagePackData>('read_ocr_language_pack_data', { code }),
   recognizeImageDataUrl: (dataUrl: string, language?: string) =>
     invoke<string>('recognize_image_data_url', { dataUrl, language: language ?? null }),
   recognizeImageDataUrlWords: (dataUrl: string, language?: string) =>
-    invoke<NativeOcrResult>('recognize_image_data_url_words', { dataUrl, language: language ?? null }),
+    invoke<NativeOcrResult>('recognize_image_data_url_words', {
+      dataUrl,
+      language: language ?? null,
+    }),
 
   // Kanban templates
   listKanbanTemplates: (vaultPath?: string | null) =>
@@ -604,37 +693,75 @@ export const tauriCommands = {
     source: TemplateSource,
     templateName: string,
     board: KanbanBoard,
-  ) => invoke<KanbanTemplate>('save_kanban_template', { vaultPath: vaultPath ?? null, source, templateName, board }),
-  deleteKanbanTemplate: (vaultPath: string | null | undefined, source: TemplateSource, templateName: string) =>
+  ) =>
+    invoke<KanbanTemplate>('save_kanban_template', {
+      vaultPath: vaultPath ?? null,
+      source,
+      templateName,
+      board,
+    }),
+  deleteKanbanTemplate: (
+    vaultPath: string | null | undefined,
+    source: TemplateSource,
+    templateName: string,
+  ) =>
     invoke<void>('delete_kanban_template', { vaultPath: vaultPath ?? null, source, templateName }),
   copyKanbanTemplate: (
     vaultPath: string | null | undefined,
     fromSource: TemplateSource,
     toSource: TemplateSource,
     templateName: string,
-  ) => invoke<KanbanTemplate>('copy_kanban_template', { vaultPath: vaultPath ?? null, fromSource, toSource, templateName }),
+  ) =>
+    invoke<KanbanTemplate>('copy_kanban_template', {
+      vaultPath: vaultPath ?? null,
+      fromSource,
+      toSource,
+      templateName,
+    }),
   importKanbanTemplateFromFile: (
     vaultPath: string | null | undefined,
     targetSource: TemplateSource,
     filePath: string,
-  ) => invoke<KanbanTemplate>('import_kanban_template_from_file', { vaultPath: vaultPath ?? null, targetSource, filePath }),
+  ) =>
+    invoke<KanbanTemplate>('import_kanban_template_from_file', {
+      vaultPath: vaultPath ?? null,
+      targetSource,
+      filePath,
+    }),
   exportKanbanTemplateToFile: (
     vaultPath: string | null | undefined,
     source: TemplateSource,
     templateName: string,
     filePath: string,
-  ) => invoke<void>('export_kanban_template_to_file', { vaultPath: vaultPath ?? null, source, templateName, filePath }),
+  ) =>
+    invoke<void>('export_kanban_template_to_file', {
+      vaultPath: vaultPath ?? null,
+      source,
+      templateName,
+      filePath,
+    }),
   applyKanbanTemplate: (
     vaultPath: string,
     source: TemplateSource,
     templateName: string,
     destinationRelativePath: string,
-  ) => invoke<NoteFile>('apply_kanban_template', { vaultPath, source, templateName, destinationRelativePath }),
+  ) =>
+    invoke<NoteFile>('apply_kanban_template', {
+      vaultPath,
+      source,
+      templateName,
+      destinationRelativePath,
+    }),
   createBlankKanbanTemplate: (
     vaultPath: string | null | undefined,
     source: TemplateSource,
     templateName: string,
-  ) => invoke<KanbanTemplate>('create_blank_kanban_template', { vaultPath: vaultPath ?? null, source, templateName }),
+  ) =>
+    invoke<KanbanTemplate>('create_blank_kanban_template', {
+      vaultPath: vaultPath ?? null,
+      source,
+      templateName,
+    }),
   listKanbanFilterPresets: (vaultPath?: string | null) =>
     invoke<KanbanFilterPreset[]>('list_kanban_filter_presets', { vaultPath: vaultPath ?? null }),
   saveKanbanFilterPreset: (
@@ -642,45 +769,85 @@ export const tauriCommands = {
     source: TemplateSource,
     presetName: string,
     spec: import('../types/kanban').KanbanFilterSpec,
-  ) => invoke<KanbanFilterPreset>('save_kanban_filter_preset', { vaultPath: vaultPath ?? null, source, presetName, spec }),
-  deleteKanbanFilterPreset: (vaultPath: string | null | undefined, source: TemplateSource, presetName: string) =>
-    invoke<void>('delete_kanban_filter_preset', { vaultPath: vaultPath ?? null, source, presetName }),
+  ) =>
+    invoke<KanbanFilterPreset>('save_kanban_filter_preset', {
+      vaultPath: vaultPath ?? null,
+      source,
+      presetName,
+      spec,
+    }),
+  deleteKanbanFilterPreset: (
+    vaultPath: string | null | undefined,
+    source: TemplateSource,
+    presetName: string,
+  ) =>
+    invoke<void>('delete_kanban_filter_preset', {
+      vaultPath: vaultPath ?? null,
+      source,
+      presetName,
+    }),
   copyKanbanFilterPreset: (
     vaultPath: string | null | undefined,
     fromSource: TemplateSource,
     toSource: TemplateSource,
     presetName: string,
-  ) => invoke<KanbanFilterPreset>('copy_kanban_filter_preset', { vaultPath: vaultPath ?? null, fromSource, toSource, presetName }),
+  ) =>
+    invoke<KanbanFilterPreset>('copy_kanban_filter_preset', {
+      vaultPath: vaultPath ?? null,
+      fromSource,
+      toSource,
+      presetName,
+    }),
   listKanbanAutomationPresets: (vaultPath?: string | null) =>
-    invoke<KanbanAutomationPreset[]>('list_kanban_automation_presets', { vaultPath: vaultPath ?? null }),
+    invoke<KanbanAutomationPreset[]>('list_kanban_automation_presets', {
+      vaultPath: vaultPath ?? null,
+    }),
   saveKanbanAutomationPreset: (
     vaultPath: string | null | undefined,
     source: TemplateSource,
     presetName: string,
     rule: import('../types/kanban').KanbanAutomationRule,
-  ) => invoke<KanbanAutomationPreset>('save_kanban_automation_preset', { vaultPath: vaultPath ?? null, source, presetName, rule }),
-  deleteKanbanAutomationPreset: (vaultPath: string | null | undefined, source: TemplateSource, presetName: string) =>
-    invoke<void>('delete_kanban_automation_preset', { vaultPath: vaultPath ?? null, source, presetName }),
+  ) =>
+    invoke<KanbanAutomationPreset>('save_kanban_automation_preset', {
+      vaultPath: vaultPath ?? null,
+      source,
+      presetName,
+      rule,
+    }),
+  deleteKanbanAutomationPreset: (
+    vaultPath: string | null | undefined,
+    source: TemplateSource,
+    presetName: string,
+  ) =>
+    invoke<void>('delete_kanban_automation_preset', {
+      vaultPath: vaultPath ?? null,
+      source,
+      presetName,
+    }),
   copyKanbanAutomationPreset: (
     vaultPath: string | null | undefined,
     fromSource: TemplateSource,
     toSource: TemplateSource,
     presetName: string,
-  ) => invoke<KanbanAutomationPreset>('copy_kanban_automation_preset', { vaultPath: vaultPath ?? null, fromSource, toSource, presetName }),
+  ) =>
+    invoke<KanbanAutomationPreset>('copy_kanban_automation_preset', {
+      vaultPath: vaultPath ?? null,
+      fromSource,
+      toSource,
+      presetName,
+    }),
   listNoteSnippets: (vaultPath?: string | null) =>
     invoke<NoteSnippet[]>('list_note_snippets', { vaultPath: vaultPath ?? null }),
-  saveNoteSnippet: (
-    vaultPath: string | null | undefined,
-    snippet: NoteSnippetDraft,
-  ) => invoke<NoteSnippet>('save_note_snippet', {
-    vaultPath: vaultPath ?? null,
-    scope: snippet.scope,
-    snippetId: snippet.id ?? null,
-    name: snippet.name,
-    description: snippet.description ?? null,
-    category: snippet.category ?? null,
-    body: snippet.body,
-  }),
+  saveNoteSnippet: (vaultPath: string | null | undefined, snippet: NoteSnippetDraft) =>
+    invoke<NoteSnippet>('save_note_snippet', {
+      vaultPath: vaultPath ?? null,
+      scope: snippet.scope,
+      snippetId: snippet.id ?? null,
+      name: snippet.name,
+      description: snippet.description ?? null,
+      category: snippet.category ?? null,
+      body: snippet.body,
+    }),
   deleteNoteSnippet: (
     vaultPath: string | null | undefined,
     scope: NoteSnippetScope,
@@ -711,8 +878,10 @@ export const tauriCommands = {
 
   // Index
   buildNoteIndex: (vaultPath: string) => invoke<NoteMetadata[]>('build_note_index', { vaultPath }),
-  getBacklinks: (vaultPath: string, relativePath: string) => invoke<string[]>('get_backlinks', { vaultPath, relativePath }),
-  searchNotes: (vaultPath: string, query: string) => invoke<SearchResult[]>('search_notes', { vaultPath, query }),
+  getBacklinks: (vaultPath: string, relativePath: string) =>
+    invoke<string[]>('get_backlinks', { vaultPath, relativePath }),
+  searchNotes: (vaultPath: string, query: string) =>
+    invoke<SearchResult[]>('search_notes', { vaultPath, query }),
 
   // Watcher
   watchVault: (vaultPath: string) => invoke<void>('watch_vault', { vaultPath }),
@@ -727,24 +896,20 @@ export const tauriCommands = {
     invoke<string>('circuit_start_dc_sweep', { document }),
   circuitStartTransient: (document: LogicDiagramDocument) =>
     invoke<string>('circuit_start_transient', { document }),
-  circuitJobStatus: (jobId: string) =>
-    invoke<CircuitJobStatus>('circuit_job_status', { jobId }),
-  circuitCancelJob: (jobId: string) =>
-    invoke<CircuitJobPhase>('circuit_cancel_job', { jobId }),
+  circuitJobStatus: (jobId: string) => invoke<CircuitJobStatus>('circuit_job_status', { jobId }),
+  circuitCancelJob: (jobId: string) => invoke<CircuitJobPhase>('circuit_cancel_job', { jobId }),
   circuitTakeJobResult: (jobId: string) =>
     invoke<CircuitJobOutcome | null>('circuit_take_job_result', { jobId }),
   circuitReadSweepChunk: (jobId: string, offset: number, limit: number) =>
     invoke<CircuitSweepChunk>('circuit_read_sweep_chunk', { jobId, offset, limit }),
   circuitReadTransientChunk: (jobId: string, offset: number, limit: number) =>
     invoke<CircuitTransientChunk>('circuit_read_transient_chunk', { jobId, offset, limit }),
-  circuitDiscardJob: (jobId: string) =>
-    invoke<void>('circuit_discard_job', { jobId }),
+  circuitDiscardJob: (jobId: string) => invoke<void>('circuit_discard_job', { jobId }),
 
   // Bounded incremental `.sheet` formula evaluation
   sheetFormulaEvaluate: (request: SheetFormulaEvaluationRequest) =>
     invoke<SheetFormulaEvaluationResponse>('sheet_formula_evaluate', { request }),
-  sheetFormulaRelease: (runtimeId: string) =>
-    invoke<void>('sheet_formula_release', { runtimeId }),
+  sheetFormulaRelease: (runtimeId: string) => invoke<void>('sheet_formula_release', { runtimeId }),
   /**
    * Converts an external `.xlsx`/`.csv` file into a new `.sheet` document.
    * The bytes are read and parsed natively, so an untrusted archive never
@@ -786,24 +951,69 @@ export const tauriCommands = {
   // Hosted server connection. The refresh token is kept in a per-platform
   // credential store; `persistAcrossReboots` only affects Linux (keyutils vs
   // Secret Service) — Windows/macOS always use their native durable keystore.
-  connectServer: (serverUrl: string, username: string, password: string, allowInvalidCertificates = false, persistAcrossReboots = false) =>
-    invoke<ServerConnectionStatus>('connect_server', { serverUrl, username, password, allowInvalidCertificates, persistAcrossReboots }),
-  reauthenticateServer: (serverUrl: string, username: string, password: string, allowInvalidCertificates = false, persistAcrossReboots = false) =>
-    invoke<ServerConnectionStatus>('reauthenticate_server', { serverUrl, username, password, allowInvalidCertificates, persistAcrossReboots }),
-  reconnectServer: (serverUrl: string, allowInvalidCertificates = false, persistAcrossReboots = false) =>
-    invoke<ServerConnectionStatus>('reconnect_server', { serverUrl, allowInvalidCertificates, persistAcrossReboots }),
+  connectServer: (
+    serverUrl: string,
+    username: string,
+    password: string,
+    allowInvalidCertificates = false,
+    persistAcrossReboots = false,
+  ) =>
+    invoke<ServerConnectionStatus>('connect_server', {
+      serverUrl,
+      username,
+      password,
+      allowInvalidCertificates,
+      persistAcrossReboots,
+    }),
+  reauthenticateServer: (
+    serverUrl: string,
+    username: string,
+    password: string,
+    allowInvalidCertificates = false,
+    persistAcrossReboots = false,
+  ) =>
+    invoke<ServerConnectionStatus>('reauthenticate_server', {
+      serverUrl,
+      username,
+      password,
+      allowInvalidCertificates,
+      persistAcrossReboots,
+    }),
+  reconnectServer: (
+    serverUrl: string,
+    allowInvalidCertificates = false,
+    persistAcrossReboots = false,
+  ) =>
+    invoke<ServerConnectionStatus>('reconnect_server', {
+      serverUrl,
+      allowInvalidCertificates,
+      persistAcrossReboots,
+    }),
   disconnectServer: (serverUrl: string) => invoke<void>('disconnect_server', { serverUrl }),
   /** One status per connected server; empty when no servers are connected. */
   serverConnectionStatuses: () => invoke<ServerConnectionStatus[]>('server_connection_statuses'),
-  serverHasSavedSession: (serverUrl: string) => invoke<boolean>('server_has_saved_session', { serverUrl }),
-  hostedVaultRequest: <T>(serverUrl: string, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown) =>
-    invoke<T>('hosted_vault_request', { serverUrl, method, path, body: body ?? null }),
-  hostedCalendarRequest: <T>(serverUrl: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown) =>
-    invoke<T>('hosted_calendar_request', { serverUrl, method, path, body: body ?? null }),
+  serverHasSavedSession: (serverUrl: string) =>
+    invoke<boolean>('server_has_saved_session', { serverUrl }),
+  hostedVaultRequest: <T>(
+    serverUrl: string,
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ) => invoke<T>('hosted_vault_request', { serverUrl, method, path, body: body ?? null }),
+  hostedCalendarRequest: <T>(
+    serverUrl: string,
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ) => invoke<T>('hosted_calendar_request', { serverUrl, method, path, body: body ?? null }),
   hostedVaultAssetDataUrl: (serverUrl: string, vaultId: string, fileId: string) =>
     invoke<string>('hosted_vault_asset_data_url', { serverUrl, vaultId, fileId }),
-  hostedVaultUploadFile: <T>(serverUrl: string, vaultId: string, parentId: string | null, sourcePath: string) =>
-    invoke<T>('hosted_vault_upload_file', { serverUrl, vaultId, parentId, sourcePath }),
+  hostedVaultUploadFile: <T>(
+    serverUrl: string,
+    vaultId: string,
+    parentId: string | null,
+    sourcePath: string,
+  ) => invoke<T>('hosted_vault_upload_file', { serverUrl, vaultId, parentId, sourcePath }),
   hostedUserDirectory: (serverUrl: string, query: string) =>
     invoke<UserDirectoryEntry[]>('hosted_user_directory', { serverUrl, query }),
   hostedVaultExportZip: (serverUrl: string, vaultId: string, destinationPath: string) =>
@@ -822,8 +1032,7 @@ export const tauriCommands = {
     invoke<number>('live_ws_connect', { serverUrl, websocketUrl, onEvent }),
   liveWsSend: (id: number, kind: 'text' | 'binary', data: string) =>
     invoke<void>('live_ws_send', { id, kind, data }),
-  liveWsClose: (id: number) =>
-    invoke<void>('live_ws_close', { id }),
+  liveWsClose: (id: number) => invoke<void>('live_ws_close', { id }),
 
   // Native hosted-vault replica store (offline sync)
   replicaSeed: (
@@ -834,15 +1043,16 @@ export const tauriCommands = {
     syncState: ReplicaSyncState,
     role?: string | null,
     capabilities?: string[],
-  ) => invoke<void>('replica_seed', {
-    serverUrl,
-    vaultId,
-    vaultName,
-    manifest,
-    syncState,
-    role: role ?? null,
-    capabilities: capabilities ?? [],
-  }),
+  ) =>
+    invoke<void>('replica_seed', {
+      serverUrl,
+      vaultId,
+      vaultName,
+      manifest,
+      syncState,
+      role: role ?? null,
+      capabilities: capabilities ?? [],
+    }),
   replicaList: () => invoke<ReplicaSummary[]>('replica_list'),
   replicaReadManifest: (serverUrl: string, vaultId: string) =>
     invoke<ReplicaManifest | null>('replica_read_manifest', { serverUrl, vaultId }),
@@ -866,13 +1076,14 @@ export const tauriCommands = {
     operationId: string,
     failureCode: string,
     failureMessage: string,
-  ) => invoke<void>('replica_record_operation_failure', {
-    serverUrl,
-    vaultId,
-    operationId,
-    failureCode,
-    failureMessage,
-  }),
+  ) =>
+    invoke<void>('replica_record_operation_failure', {
+      serverUrl,
+      vaultId,
+      operationId,
+      failureCode,
+      failureMessage,
+    }),
   replicaRemoveOperation: (serverUrl: string, vaultId: string, operationId: string) =>
     invoke<void>('replica_remove_operation', { serverUrl, vaultId, operationId }),
   replicaRecordTombstone: (serverUrl: string, vaultId: string, tombstone: Tombstone) =>
@@ -881,8 +1092,11 @@ export const tauriCommands = {
     invoke<Tombstone[]>('replica_list_tombstones', { serverUrl, vaultId }),
   replicaRemoveTombstone: (serverUrl: string, vaultId: string, fileId: string) =>
     invoke<void>('replica_remove_tombstone', { serverUrl, vaultId, fileId }),
-  replicaWriteLogicComponents: (serverUrl: string, vaultId: string, components: LogicComponentTemplate[]) =>
-    invoke<void>('replica_write_logic_components', { serverUrl, vaultId, components }),
+  replicaWriteLogicComponents: (
+    serverUrl: string,
+    vaultId: string,
+    components: LogicComponentTemplate[],
+  ) => invoke<void>('replica_write_logic_components', { serverUrl, vaultId, components }),
   replicaReadLogicComponents: (serverUrl: string, vaultId: string) =>
     invoke<LogicComponentTemplate[]>('replica_read_logic_components', { serverUrl, vaultId }),
   replicaCacheDocument: (serverUrl: string, vaultId: string, fileId: string, content: string) =>
@@ -899,9 +1113,20 @@ export const tauriCommands = {
     fileId: string,
     kind: 'document' | 'asset',
     expectedSha256?: string | null,
-  ) => invoke<CachedContentStatus>('replica_cached_content_status', { serverUrl, vaultId, fileId, kind, expectedSha256 }),
-  replicaCacheCrdtState: (serverUrl: string, vaultId: string, fileId: string, base64Content: string) =>
-    invoke<void>('replica_cache_crdt_state', { serverUrl, vaultId, fileId, base64Content }),
+  ) =>
+    invoke<CachedContentStatus>('replica_cached_content_status', {
+      serverUrl,
+      vaultId,
+      fileId,
+      kind,
+      expectedSha256,
+    }),
+  replicaCacheCrdtState: (
+    serverUrl: string,
+    vaultId: string,
+    fileId: string,
+    base64Content: string,
+  ) => invoke<void>('replica_cache_crdt_state', { serverUrl, vaultId, fileId, base64Content }),
   replicaReadCrdtState: (serverUrl: string, vaultId: string, fileId: string) =>
     invoke<string | null>('replica_read_crdt_state', { serverUrl, vaultId, fileId }),
   replicaClearCrdtState: (serverUrl: string, vaultId: string, fileId: string) =>
@@ -922,8 +1147,10 @@ export const tauriCommands = {
   // Collab — presence
   writePresence: (vaultPath: string, userId: string, entry: PresenceEntry) =>
     invoke<void>('write_presence', { vaultPath, userId, entry }),
-  readAllPresence: (vaultPath: string) => invoke<PresenceEntry[]>('read_all_presence', { vaultPath }),
-  clearPresence: (vaultPath: string, userId: string) => invoke<void>('clear_presence', { vaultPath, userId }),
+  readAllPresence: (vaultPath: string) =>
+    invoke<PresenceEntry[]>('read_all_presence', { vaultPath }),
+  clearPresence: (vaultPath: string, userId: string) =>
+    invoke<void>('clear_presence', { vaultPath, userId }),
 
   // Collab — vault config
   getVaultConfig: (vaultPath: string) => invoke<VaultConfig>('get_vault_config', { vaultPath }),
@@ -944,7 +1171,15 @@ export const tauriCommands = {
     authorId: string,
     authorName: string,
     label?: string,
-  ) => invoke<SnapshotMeta>('create_snapshot', { vaultPath, relativePath, content, authorId, authorName, label: label ?? null }),
+  ) =>
+    invoke<SnapshotMeta>('create_snapshot', {
+      vaultPath,
+      relativePath,
+      content,
+      authorId,
+      authorName,
+      label: label ?? null,
+    }),
   listSnapshots: (vaultPath: string, relativePath: string) =>
     invoke<SnapshotMeta[]>('list_snapshots', { vaultPath, relativePath }),
   readSnapshot: (vaultPath: string, relativePath: string, snapshotId: string) =>
@@ -959,6 +1194,12 @@ export const tauriCommands = {
     snapshotId: string,
     restoringUserId: string,
     restoringUserName: string,
-  ) => invoke<WriteResult>('restore_snapshot', { vaultPath, relativePath, snapshotId, restoringUserId, restoringUserName }),
-
+  ) =>
+    invoke<WriteResult>('restore_snapshot', {
+      vaultPath,
+      relativePath,
+      snapshotId,
+      restoringUserId,
+      restoringUserName,
+    }),
 };

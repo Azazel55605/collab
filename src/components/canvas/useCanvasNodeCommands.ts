@@ -1,9 +1,9 @@
 import { useCallback } from 'react';
 
 import type {
-  CanvasSymbolDefinition,
   CanvasEdge,
   CanvasNode,
+  CanvasSymbolDefinition,
   FileCanvasNode,
   NoteCanvasNode,
   PlanningCanvasNode,
@@ -12,11 +12,12 @@ import type {
   WebCanvasNode,
 } from '../../types/canvas';
 import type { NoteFile } from '../../types/vault';
+
 import type { CanvasPickerMode } from './CanvasPickerDialog';
 import {
   buildPlanningPreset,
-  getPlanningNodeDefaults,
   type CanvasPlanningPreset,
+  getPlanningNodeDefaults,
 } from './canvasPlanning';
 
 const DEFAULT_NODE_SIZE = { width: 300, height: 180 };
@@ -67,150 +68,178 @@ export function useCanvasNodeCommands({
     });
   }, [reactFlow, viewportRef]);
 
-  const handlePickerSelect = useCallback((file: NoteFile, pendingAutoConnect?: PendingAutoConnect | null) => {
-    const center = pickerInsertPosition ?? getViewportCenterPosition();
-    const id = crypto.randomUUID();
-    if (pickerMode === 'note') {
-      const node: NoteCanvasNode = {
-        id,
-        type: 'note',
-        relativePath: file.relativePath,
-        position: center,
-        width: DEFAULT_NODE_SIZE.width,
-        height: DEFAULT_NODE_SIZE.height,
-      };
-      addCanvasNode(node, pendingAutoConnect);
-    } else {
-      const node: FileCanvasNode = {
-        id,
-        type: 'file',
-        relativePath: file.relativePath,
-        position: center,
-        width: DEFAULT_NODE_SIZE.width,
-        height: DEFAULT_NODE_SIZE.height,
-      };
-      addCanvasNode(node, pendingAutoConnect);
-    }
-    setPickerMode(null);
-  }, [addCanvasNode, getViewportCenterPosition, pickerInsertPosition, pickerMode, setPickerMode]);
+  const handlePickerSelect = useCallback(
+    (file: NoteFile, pendingAutoConnect?: PendingAutoConnect | null) => {
+      const center = pickerInsertPosition ?? getViewportCenterPosition();
+      const id = crypto.randomUUID();
+      if (pickerMode === 'note') {
+        const node: NoteCanvasNode = {
+          id,
+          type: 'note',
+          relativePath: file.relativePath,
+          position: center,
+          width: DEFAULT_NODE_SIZE.width,
+          height: DEFAULT_NODE_SIZE.height,
+        };
+        addCanvasNode(node, pendingAutoConnect);
+      } else {
+        const node: FileCanvasNode = {
+          id,
+          type: 'file',
+          relativePath: file.relativePath,
+          position: center,
+          width: DEFAULT_NODE_SIZE.width,
+          height: DEFAULT_NODE_SIZE.height,
+        };
+        addCanvasNode(node, pendingAutoConnect);
+      }
+      setPickerMode(null);
+    },
+    [addCanvasNode, getViewportCenterPosition, pickerInsertPosition, pickerMode, setPickerMode],
+  );
 
-  const addTextNodeAt = useCallback((position?: { x: number; y: number }) => {
-    const center = position ?? getViewportCenterPosition();
-    const node: TextCanvasNode = {
-      id: crypto.randomUUID(),
-      type: 'text',
-      content: '',
-      position: center,
-      width: DEFAULT_TEXT_NODE_SIZE.width,
-      height: DEFAULT_TEXT_NODE_SIZE.height,
-    };
-    addCanvasNode(node);
-  }, [addCanvasNode, getViewportCenterPosition]);
+  const addTextNodeAt = useCallback(
+    (position?: { x: number; y: number }) => {
+      const center = position ?? getViewportCenterPosition();
+      const node: TextCanvasNode = {
+        id: crypto.randomUUID(),
+        type: 'text',
+        content: '',
+        position: center,
+        width: DEFAULT_TEXT_NODE_SIZE.width,
+        height: DEFAULT_TEXT_NODE_SIZE.height,
+      };
+      addCanvasNode(node);
+    },
+    [addCanvasNode, getViewportCenterPosition],
+  );
 
   const addTextNode = useCallback(() => {
     addTextNodeAt();
   }, [addTextNodeAt]);
 
-  const addWebNodeAt = useCallback((position?: { x: number; y: number }) => {
-    const center = position ?? getViewportCenterPosition();
-    const node: WebCanvasNode = {
-      id: crypto.randomUUID(),
-      type: 'web',
-      url: '',
-      displayModeOverride: null,
-      position: center,
-      width: 360,
-      height: 240,
-    };
-    addCanvasNode(node);
-  }, [addCanvasNode, getViewportCenterPosition]);
+  const addWebNodeAt = useCallback(
+    (position?: { x: number; y: number }) => {
+      const center = position ?? getViewportCenterPosition();
+      const node: WebCanvasNode = {
+        id: crypto.randomUUID(),
+        type: 'web',
+        url: '',
+        displayModeOverride: null,
+        position: center,
+        width: 360,
+        height: 240,
+      };
+      addCanvasNode(node);
+    },
+    [addCanvasNode, getViewportCenterPosition],
+  );
 
   const addWebNode = useCallback(() => {
     addWebNodeAt();
   }, [addWebNodeAt]);
 
-  const addSymbolNodeAt = useCallback((
-    symbol: CanvasSymbolDefinition,
-    position?: { x: number; y: number },
-    pendingAutoConnect?: PendingAutoConnect | null,
-  ) => {
-    const center = position ?? getViewportCenterPosition();
-    const node: SymbolCanvasNode = {
-      id: crypto.randomUUID(),
-      type: 'symbol',
-      glyph: symbol.glyph,
-      iconId: symbol.iconId,
-      iconLabel: symbol.iconLabel,
-      title: symbol.iconLabel,
-      position: center,
-      width: DEFAULT_SYMBOL_NODE_SIZE.width,
-      height: DEFAULT_SYMBOL_NODE_SIZE.height,
-    };
-    addCanvasNode(node, pendingAutoConnect);
-  }, [addCanvasNode, getViewportCenterPosition]);
+  const addSymbolNodeAt = useCallback(
+    (
+      symbol: CanvasSymbolDefinition,
+      position?: { x: number; y: number },
+      pendingAutoConnect?: PendingAutoConnect | null,
+    ) => {
+      const center = position ?? getViewportCenterPosition();
+      const node: SymbolCanvasNode = {
+        id: crypto.randomUUID(),
+        type: 'symbol',
+        glyph: symbol.glyph,
+        iconId: symbol.iconId,
+        iconLabel: symbol.iconLabel,
+        title: symbol.iconLabel,
+        position: center,
+        width: DEFAULT_SYMBOL_NODE_SIZE.width,
+        height: DEFAULT_SYMBOL_NODE_SIZE.height,
+      };
+      addCanvasNode(node, pendingAutoConnect);
+    },
+    [addCanvasNode, getViewportCenterPosition],
+  );
 
-  const addSymbolNode = useCallback((symbol: CanvasSymbolDefinition) => {
-    addSymbolNodeAt(symbol);
-  }, [addSymbolNodeAt]);
+  const addSymbolNode = useCallback(
+    (symbol: CanvasSymbolDefinition) => {
+      addSymbolNodeAt(symbol);
+    },
+    [addSymbolNodeAt],
+  );
 
-  const addPlanningNodeAt = useCallback((type: PlanningCanvasNode['type'], position?: { x: number; y: number }) => {
-    const center = position ?? getViewportCenterPosition();
-    const defaults = getPlanningNodeDefaults(type);
-    const node: PlanningCanvasNode = {
-      id: crypto.randomUUID(),
-      type,
-      title: defaults.title,
-      body: defaults.body,
-      planning: defaults.planning,
-      ...(defaults.orientation ? { orientation: defaults.orientation } : {}),
-      position: center,
-      width: defaults.width,
-      height: defaults.height,
-    } as PlanningCanvasNode;
-    addCanvasNode(node);
-  }, [addCanvasNode, getViewportCenterPosition]);
+  const addPlanningNodeAt = useCallback(
+    (type: PlanningCanvasNode['type'], position?: { x: number; y: number }) => {
+      const center = position ?? getViewportCenterPosition();
+      const defaults = getPlanningNodeDefaults(type);
+      const node: PlanningCanvasNode = {
+        id: crypto.randomUUID(),
+        type,
+        title: defaults.title,
+        body: defaults.body,
+        planning: defaults.planning,
+        ...(defaults.orientation ? { orientation: defaults.orientation } : {}),
+        position: center,
+        width: defaults.width,
+        height: defaults.height,
+      } as PlanningCanvasNode;
+      addCanvasNode(node);
+    },
+    [addCanvasNode, getViewportCenterPosition],
+  );
 
-  const addPlanningNode = useCallback((type: PlanningCanvasNode['type']) => {
-    addPlanningNodeAt(type);
-  }, [addPlanningNodeAt]);
+  const addPlanningNode = useCallback(
+    (type: PlanningCanvasNode['type']) => {
+      addPlanningNodeAt(type);
+    },
+    [addPlanningNodeAt],
+  );
 
-  const applyPlanningPreset = useCallback((preset: CanvasPlanningPreset) => {
-    const center = getViewportCenterPosition();
-    const { nodes, edges } = buildPlanningPreset(preset, center);
-    if (addCanvasNodes) addCanvasNodes(nodes);
-    else nodes.forEach((node) => addCanvasNode(node));
-    addCanvasEdges?.(edges);
-  }, [addCanvasEdges, addCanvasNode, addCanvasNodes, getViewportCenterPosition]);
+  const applyPlanningPreset = useCallback(
+    (preset: CanvasPlanningPreset) => {
+      const center = getViewportCenterPosition();
+      const { nodes, edges } = buildPlanningPreset(preset, center);
+      if (addCanvasNodes) addCanvasNodes(nodes);
+      else nodes.forEach((node) => addCanvasNode(node));
+      addCanvasEdges?.(edges);
+    },
+    [addCanvasEdges, addCanvasNode, addCanvasNodes, getViewportCenterPosition],
+  );
 
-  const handleDropOnCanvas = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const relativePath = event.dataTransfer.getData('text/plain');
-    if (!relativePath) return;
+  const handleDropOnCanvas = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const relativePath = event.dataTransfer.getData('text/plain');
+      if (!relativePath) return;
 
-    const file = allFiles.find((entry) => entry.relativePath === relativePath);
-    if (!file) return;
+      const file = allFiles.find((entry) => entry.relativePath === relativePath);
+      if (!file) return;
 
-    const position = reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    const node: CanvasNode = file.extension.toLowerCase() === 'md'
-      ? {
-          id: crypto.randomUUID(),
-          type: 'note',
-          relativePath: file.relativePath,
-          position,
-          width: DEFAULT_NODE_SIZE.width,
-          height: DEFAULT_NODE_SIZE.height,
-        }
-      : {
-          id: crypto.randomUUID(),
-          type: 'file',
-          relativePath: file.relativePath,
-          position,
-          width: DEFAULT_NODE_SIZE.width,
-          height: DEFAULT_NODE_SIZE.height,
-        };
+      const position = reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      const node: CanvasNode =
+        file.extension.toLowerCase() === 'md'
+          ? {
+              id: crypto.randomUUID(),
+              type: 'note',
+              relativePath: file.relativePath,
+              position,
+              width: DEFAULT_NODE_SIZE.width,
+              height: DEFAULT_NODE_SIZE.height,
+            }
+          : {
+              id: crypto.randomUUID(),
+              type: 'file',
+              relativePath: file.relativePath,
+              position,
+              width: DEFAULT_NODE_SIZE.width,
+              height: DEFAULT_NODE_SIZE.height,
+            };
 
-    addCanvasNode(node);
-  }, [addCanvasNode, allFiles, reactFlow]);
+      addCanvasNode(node);
+    },
+    [addCanvasNode, allFiles, reactFlow],
+  );
 
   return {
     addTextNode,

@@ -14,8 +14,8 @@
  * The index is **derived**. It is rebuilt from the scene after loading,
  * migration, or recovery, and is never persisted.
  */
-
 import type { InkBounds, InkObject, InkScene } from '../../types/ink';
+
 import { decodeSamples } from './codec';
 import { strokeHitTest } from './stroke';
 import { objectBounds } from './svg';
@@ -253,12 +253,7 @@ export function pointInPolygon(polygon: number[], x: number, y: number): boolean
 }
 
 /** Exact geometry test for one object. */
-export function objectHitTest(
-  object: InkObject,
-  x: number,
-  y: number,
-  slop: number,
-): boolean {
+export function objectHitTest(object: InkObject, x: number, y: number, slop: number): boolean {
   if (object.type === 'stroke') {
     return strokeHitTest(decodeSamples(object.samples), object.brush, x, y, slop);
   }
@@ -272,11 +267,7 @@ export function objectHitTest(
   );
 }
 
-function objectIntersectsPolygon(
-  object: InkObject,
-  polygon: number[],
-  bounds: InkBounds,
-): boolean {
+function objectIntersectsPolygon(object: InkObject, polygon: number[], bounds: InkBounds): boolean {
   if (object.type === 'stroke') {
     // Testing the actual samples matters here: a long diagonal stroke has a
     // huge bounding box, and accepting it on bounds alone would select strokes

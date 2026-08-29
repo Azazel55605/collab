@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { INK_PAGE_PRESETS } from '../../types/ink';
+
 import { createInkPage } from './document';
 import { buildInkScene, buildStroke } from './fixture';
-import type { InkRenderTarget } from './renderer';
 import {
   INK_MAX_EXPORT_EDGE,
   INK_MAX_EXPORT_PIXELS,
@@ -13,6 +13,7 @@ import {
   paintRasterExport,
   planRasterExport,
 } from './raster';
+import type { InkRenderTarget } from './renderer';
 
 class CountingTarget implements InkRenderTarget {
   fills = 0;
@@ -80,7 +81,12 @@ describe('planRasterExport', () => {
     // A user asking for 64x on a full page wants the biggest image they can
     // have, not an error.
     const plan = planRasterExport(scene(), {
-      bounds: { minX: 0, minY: 0, maxX: INK_PAGE_PRESETS.a4.width, maxY: INK_PAGE_PRESETS.a4.height },
+      bounds: {
+        minX: 0,
+        minY: 0,
+        maxX: INK_PAGE_PRESETS.a4.width,
+        maxY: INK_PAGE_PRESETS.a4.height,
+      },
       scale: 64,
     });
     expect(plan.clampedFrom).toBe(64);
@@ -176,7 +182,10 @@ describe('paintRasterExport', () => {
 
   it('includes the page background only on request', () => {
     const scene = buildInkScene({ strokes: 2, samplesPerStroke: 6 });
-    const page = { ...createInkPage('p', { background: { pattern: 'dotted', spacing: 2_000 } }), scene };
+    const page = {
+      ...createInkPage('p', { background: { pattern: 'dotted', spacing: 2_000 } }),
+      scene,
+    };
     const plan = planRasterExport(scene);
 
     const without = new CountingTarget();

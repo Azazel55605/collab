@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import type { InkObject, InkScene } from '../../types/ink';
+
+import { INK_COLOR_TOKENS, INK_DARK_PALETTE, INK_LIGHT_PALETTE } from './colors';
 import { buildInkScene, buildStroke } from './fixture';
 import { outlineStrokeWithPerfectFreehand } from './strokeAdapters';
-import { objectBounds, escapeXml, sceneBounds, sceneToSvg } from './svg';
-import { INK_COLOR_TOKENS, INK_DARK_PALETTE, INK_LIGHT_PALETTE } from './colors';
+import { escapeXml, objectBounds, sceneBounds, sceneToSvg } from './svg';
 
 function sceneWithLayers(): InkScene {
   const scene = buildInkScene({ strokes: 3, samplesPerStroke: 12, layers: 3 });
@@ -16,10 +17,15 @@ describe('sceneToSvg', () => {
     const scene = buildInkScene({ strokes: 1, samplesPerStroke: 6 });
     const stroke = scene.objects['stroke-1'];
     if (stroke?.type === 'stroke') {
-      scene.objects[stroke.id] = { ...stroke, brush: { ...stroke.brush, color: INK_COLOR_TOKENS.foreground } };
+      scene.objects[stroke.id] = {
+        ...stroke,
+        brush: { ...stroke.brush, color: INK_COLOR_TOKENS.foreground },
+      };
     }
     expect(sceneToSvg(scene)).toContain(`fill="${INK_LIGHT_PALETTE.foreground}"`);
-    expect(sceneToSvg(scene, { colors: INK_DARK_PALETTE })).toContain(`fill="${INK_DARK_PALETTE.foreground}"`);
+    expect(sceneToSvg(scene, { colors: INK_DARK_PALETTE })).toContain(
+      `fill="${INK_DARK_PALETTE.foreground}"`,
+    );
     expect(sceneToSvg(scene)).not.toContain(INK_COLOR_TOKENS.foreground);
   });
 
@@ -134,13 +140,34 @@ describe('sceneToSvg', () => {
   it('exports bundled stamps but omits non-exported guides', () => {
     const scene = buildInkScene({ strokes: 0 });
     scene.objects.stamp = {
-      id: 'stamp', type: 'stamp', layerId: 'layer-1', x: 0, y: 0,
-      width: 500, height: 500, symbolId: 'check', color: '#123456',
+      id: 'stamp',
+      type: 'stamp',
+      layerId: 'layer-1',
+      x: 0,
+      y: 0,
+      width: 500,
+      height: 500,
+      symbolId: 'check',
+      color: '#123456',
     };
     scene.objects.guide = {
-      id: 'guide', type: 'shape', layerId: 'layer-1', shape: 'line',
-      points: [0, 0, 1_000, 0], guide: true,
-      stroke: { kind: 'technical', color: '#8b7dff', opacity: 1, width: 32, thinning: 0, smoothing: 0, streamline: 0, taperStart: 0, taperEnd: 0 },
+      id: 'guide',
+      type: 'shape',
+      layerId: 'layer-1',
+      shape: 'line',
+      points: [0, 0, 1_000, 0],
+      guide: true,
+      stroke: {
+        kind: 'technical',
+        color: '#8b7dff',
+        opacity: 1,
+        width: 32,
+        thinning: 0,
+        smoothing: 0,
+        streamline: 0,
+        taperStart: 0,
+        taperEnd: 0,
+      },
     };
     scene.objectOrder.push('stamp', 'guide');
     const svg = sceneToSvg(scene);
@@ -190,9 +217,17 @@ describe('objectBounds', () => {
 
   it('includes the rotated footprint of box-backed objects', () => {
     const text: InkObject = {
-      id: 't', type: 'text', layerId: 'layer-1',
-      x: 100, y: 100, width: 200, height: 80,
-      text: 'hi', color: '#000', fontSize: 40, rotation: Math.PI / 2,
+      id: 't',
+      type: 'text',
+      layerId: 'layer-1',
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 80,
+      text: 'hi',
+      color: '#000',
+      fontSize: 40,
+      rotation: Math.PI / 2,
     };
     expect(objectBounds(text)).toMatchObject({ minX: 160, minY: 40, maxX: 240, maxY: 240 });
   });

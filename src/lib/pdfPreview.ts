@@ -1,4 +1,5 @@
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
+
 import { tauriCommands } from './tauri';
 import { LocalVaultClient, type VaultClient } from './vaultClient';
 
@@ -71,7 +72,9 @@ export async function loadPdfPreviewDataUrl(
   const sourceDataUrl = await client.readAssetDataUrl(relativePath);
   const renderedPreview = await deps.renderPdfPreviewFromDataUrl(sourceDataUrl);
   if (cacheVaultPath) {
-    void deps.writeCachedDocumentPreviewDataUrl(cacheVaultPath, relativePath, renderedPreview).catch(() => {});
+    void deps
+      .writeCachedDocumentPreviewDataUrl(cacheVaultPath, relativePath, renderedPreview)
+      .catch(() => {});
   }
   return renderedPreview;
 }
@@ -81,10 +84,9 @@ export async function getPdfPreviewDataUrl(client: VaultClient, relativePath: st
   const existing = inFlightVaultPreviewLoads.get(key);
   if (existing) return existing;
 
-  const promise = loadPdfPreviewDataUrl(client, relativePath)
-    .finally(() => {
-      inFlightVaultPreviewLoads.delete(key);
-    });
+  const promise = loadPdfPreviewDataUrl(client, relativePath).finally(() => {
+    inFlightVaultPreviewLoads.delete(key);
+  });
 
   inFlightVaultPreviewLoads.set(key, promise);
   return promise;

@@ -26,13 +26,15 @@ const item: CalendarItem = {
 
 describe('calendar reminder scheduler connector', () => {
   it('derives stable native scheduling entries', () => {
-    expect(calendarReminderEntries([item])).toEqual([expect.objectContaining({
-      scheduleId: 'event-1:0:2026-07-23T09:30:00.000Z',
-      itemId: 'event-1',
-      fireAt: '2026-07-23T09:30:00.000Z',
-      title: 'Planning',
-      body: 'Bring notes',
-    })]);
+    expect(calendarReminderEntries([item])).toEqual([
+      expect.objectContaining({
+        scheduleId: 'event-1:0:2026-07-23T09:30:00.000Z',
+        itemId: 'event-1',
+        fireAt: '2026-07-23T09:30:00.000Z',
+        title: 'Planning',
+        body: 'Bring notes',
+      }),
+    ]);
   });
 
   it('reconciles through the scheduler boundary with the active profile', async () => {

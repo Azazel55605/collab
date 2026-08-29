@@ -1,39 +1,62 @@
-import { Check, CloudOff, ChevronRight, Download, FilePlus2, FolderOpen, Home, Info, ListChecks, RefreshCw, Upload, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-
-import { Banner, CacheBadge, EmptyState, GlyphIcon, ReadOnlyBadge, Spinner } from '../components/ui';
 import {
-  fileGlyph,
-  formatBytes,
-  formatRelativeTime,
-  isReadOnlyRole,
-} from '../lib/format';
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+
+import {
+  Check,
+  ChevronRight,
+  CloudOff,
+  Download,
+  FilePlus2,
+  FolderOpen,
+  Home,
+  Info,
+  ListChecks,
+  RefreshCw,
+  Upload,
+  X,
+} from 'lucide-react';
+
+import {
+  Banner,
+  CacheBadge,
+  EmptyState,
+  GlyphIcon,
+  ReadOnlyBadge,
+  Spinner,
+} from '../components/ui';
+import { isRichViewableFile } from '../lib/assets';
 import { useBackDismiss } from '../lib/backStack';
 import { isCanvasFile } from '../lib/canvas';
+import { downloadEntireVault, downloadEntry, pickAndUploadFiles } from '../lib/fileTransfer';
+import { fileGlyph, formatBytes, formatRelativeTime, isReadOnlyRole } from '../lib/format';
+import { isInkFile } from '../lib/ink';
 import { isKanbanFile } from '../lib/kanban';
 import { isLogicFile } from '../lib/logic';
-import { isNoteFile } from '../lib/notes';
-import { isSheetFile } from '../lib/sheet';
-import { isInkFile } from '../lib/ink';
 import {
   NEW_DOCUMENT_TYPES,
   newDocumentBaseName,
   newDocumentFileName,
-  newDocumentType,
   type NewDocumentKind,
+  newDocumentType,
 } from '../lib/newDocument';
-import { isRichViewableFile } from '../lib/assets';
+import { isNoteFile } from '../lib/notes';
 import type { FileCacheState } from '../lib/replica';
+import { isSheetFile } from '../lib/sheet';
 import type { ThemePrefs } from '../lib/theme';
 import type { HostedFileEntry } from '../mobileTauri';
+import { createHostedDocument } from '../mobileTauri';
+import { useMobileStore } from '../state/store';
+
+import { InkScreen } from './InkScreen';
 import { KanbanScreen } from './KanbanScreen';
 import { NoteScreen } from './NoteScreen';
 import { RichFileViewerScreen } from './RichFileViewerScreen';
 import { SheetScreen } from './SheetScreen';
-import { InkScreen } from './InkScreen';
-import { useMobileStore } from '../state/store';
-import { createHostedDocument } from '../mobileTauri';
-import { downloadEntireVault, downloadEntry, pickAndUploadFiles } from '../lib/fileTransfer';
 
 const PAGE_SIZE = 60;
 const FOLDER_SCAN_BUDGET_MS = 7;
@@ -118,9 +141,9 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
       setNewDocumentName('');
       setCreateKind('note');
     } else if (
-      kind === 'capture-files'
-      && (selected.vault.capabilities.includes('file.create')
-        || selected.vault.capabilities.includes('file.uploadAsset'))
+      kind === 'capture-files' &&
+      (selected.vault.capabilities.includes('file.create') ||
+        selected.vault.capabilities.includes('file.uploadAsset'))
     ) {
       void handleUpload();
     }
@@ -137,8 +160,13 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
     await runTransfer(async () => {
       const result = await pickAndUploadFiles(selected!.serverUrl, selected!.vault, currentParent);
       await loadFiles();
-      setActionMessage(`${result.completed.length} uploaded${result.failed.length ? ` · ${result.failed.length} failed` : ''}`);
-      if (result.failed.length) setActionError(result.failed.map((failure) => `${failure.name}: ${failure.error}`).join('\n'));
+      setActionMessage(
+        `${result.completed.length} uploaded${result.failed.length ? ` · ${result.failed.length} failed` : ''}`,
+      );
+      if (result.failed.length)
+        setActionError(
+          result.failed.map((failure) => `${failure.name}: ${failure.error}`).join('\n'),
+        );
     });
   }
 
@@ -167,7 +195,8 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   function toggleEntrySelection(id: string) {
     setSelectedEntryIds((current) => {
       const next = new Set(current);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
@@ -212,7 +241,10 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
     if (!pending) return;
     window.clearTimeout(pending.timer);
     if (!pending.fired) longPressRef.current = null;
-    else window.setTimeout(() => { longPressRef.current = null; }, 0);
+    else
+      window.setTimeout(() => {
+        longPressRef.current = null;
+      }, 0);
   }
 
   async function handleBatchDownload() {
@@ -324,7 +356,12 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   }
 
   if (kanbanFile) {
-    return <KanbanScreen file={kanbanFile} initialCardId={activeSheet?.kind === 'kanban' ? activeSheet.cardId : undefined} />;
+    return (
+      <KanbanScreen
+        file={kanbanFile}
+        initialCardId={activeSheet?.kind === 'kanban' ? activeSheet.cardId : undefined}
+      />
+    );
   }
 
   if (drawingFile) {
@@ -343,31 +380,75 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
     <div className="screen">
       <header className="screen-header">
         <div>
-          <h1 className="truncate">{selectionMode ? `${selectedEntryIds.size} selected` : selected.vault.name}</h1>
-          <p>{selectionMode ? 'Tap more items to add them' : readOnly ? 'Read-only vault' : 'Browsing files'}</p>
+          <h1 className="truncate">
+            {selectionMode ? `${selectedEntryIds.size} selected` : selected.vault.name}
+          </h1>
+          <p>
+            {selectionMode
+              ? 'Tap more items to add them'
+              : readOnly
+                ? 'Read-only vault'
+                : 'Browsing files'}
+          </p>
         </div>
         <div className="header-side">
           {selectionMode ? (
             <>
-              <button type="button" className="icon-button" aria-label="Select all in folder" onClick={() => setSelectedEntryIds(new Set(entries.map((entry) => entry.id)))}>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Select all in folder"
+                onClick={() => setSelectedEntryIds(new Set(entries.map((entry) => entry.id)))}
+              >
                 <ListChecks size={16} aria-hidden />
               </button>
-              <button type="button" className="icon-button" aria-label="Download selected" disabled={transferBusy || !connected || !selected.vault.capabilities.includes('vault.read')} onClick={() => void handleBatchDownload()}>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Download selected"
+                disabled={
+                  transferBusy || !connected || !selected.vault.capabilities.includes('vault.read')
+                }
+                onClick={() => void handleBatchDownload()}
+              >
                 <Download size={16} aria-hidden />
               </button>
-              <button type="button" className="icon-button" aria-label="Clear selection" onClick={() => setSelectedEntryIds(new Set())}>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Clear selection"
+                onClick={() => setSelectedEntryIds(new Set())}
+              >
                 <X size={16} aria-hidden />
               </button>
             </>
           ) : null}
           {!selectionMode && readOnly ? <ReadOnlyBadge /> : null}
-          {!selectionMode && !readOnly && connected && selected.vault.capabilities.includes('file.create') ? (
-            <button type="button" className="icon-button" aria-label="Create" onClick={() => setShowCreateMenu(true)}>
+          {!selectionMode &&
+          !readOnly &&
+          connected &&
+          selected.vault.capabilities.includes('file.create') ? (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Create"
+              onClick={() => setShowCreateMenu(true)}
+            >
               <FilePlus2 size={16} aria-hidden />
             </button>
           ) : null}
-          {!selectionMode && !readOnly && connected && (selected.vault.capabilities.includes('file.create') || selected.vault.capabilities.includes('file.uploadAsset')) ? (
-            <button type="button" className="icon-button" aria-label="Upload files" disabled={transferBusy} onClick={() => void handleUpload()}>
+          {!selectionMode &&
+          !readOnly &&
+          connected &&
+          (selected.vault.capabilities.includes('file.create') ||
+            selected.vault.capabilities.includes('file.uploadAsset')) ? (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Upload files"
+              disabled={transferBusy}
+              onClick={() => void handleUpload()}
+            >
               <Upload size={16} aria-hidden />
             </button>
           ) : null}
@@ -377,20 +458,26 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
               className="icon-button"
               aria-label="Download entire vault"
               disabled={transferBusy}
-              onClick={() => void runTransfer(async () => { await downloadEntireVault(selected.serverUrl, selected.vault); })}
+              onClick={() =>
+                void runTransfer(async () => {
+                  await downloadEntireVault(selected.serverUrl, selected.vault);
+                })
+              }
             >
               <Download size={16} aria-hidden />
             </button>
           ) : null}
-          {!selectionMode ? <button
-            type="button"
-            className="icon-button"
-            aria-label="Refresh"
-            onClick={() => loadFiles()}
-            disabled={filesBusy}
-          >
-            {filesBusy ? <Spinner size={16} /> : <RefreshCw size={16} aria-hidden />}
-          </button> : null}
+          {!selectionMode ? (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Refresh"
+              onClick={() => loadFiles()}
+              disabled={filesBusy}
+            >
+              {filesBusy ? <Spinner size={16} /> : <RefreshCw size={16} aria-hidden />}
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -453,7 +540,10 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
                   onPointerMove={moveLongPress}
                   onPointerUp={endLongPress}
                   onPointerCancel={cancelLongPress}
-                  onContextMenu={(event) => { event.preventDefault(); if (!selectedEntry) toggleEntrySelection(entry.id); }}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    if (!selectedEntry) toggleEntrySelection(entry.id);
+                  }}
                   onClick={(event) => {
                     if (longPressRef.current?.id === entry.id && longPressRef.current.fired) {
                       event.preventDefault();
@@ -499,8 +589,14 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
                             .join(' · ')}
                     </span>
                   </div>
-                  {!isFolder && fileCache[entry.id] ? <CacheBadge state={fileCache[entry.id]} /> : null}
-                  {selectedEntry ? <Check size={18} aria-hidden className="row-selected-check" /> : <ChevronRight size={18} aria-hidden className="row-chevron" />}
+                  {!isFolder && fileCache[entry.id] ? (
+                    <CacheBadge state={fileCache[entry.id]} />
+                  ) : null}
+                  {selectedEntry ? (
+                    <Check size={18} aria-hidden className="row-selected-check" />
+                  ) : (
+                    <ChevronRight size={18} aria-hidden className="row-chevron" />
+                  )}
                 </button>
               </li>
             );
@@ -511,7 +607,9 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
       {visibleCount < entries.length ? (
         <div ref={sentinelRef} className="load-more">
           <Spinner size={16} />
-          <span>Loading more… ({visibleCount}/{entries.length})</span>
+          <span>
+            Loading more… ({visibleCount}/{entries.length})
+          </span>
         </div>
       ) : null}
 
@@ -525,11 +623,26 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
 
       {showCreateMenu ? (
         <div className="sheet-backdrop" onClick={() => setShowCreateMenu(false)}>
-          <div className="sheet" role="dialog" aria-label="Create" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="sheet"
+            role="dialog"
+            aria-label="Create"
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="sheet-handle" />
             <div className="sheet-head">
-              <div className="row-text"><strong>Create</strong><span>Added to the current folder</span></div>
-              <button type="button" className="icon-button" aria-label="Close" onClick={() => setShowCreateMenu(false)}><X size={18} /></button>
+              <div className="row-text">
+                <strong>Create</strong>
+                <span>Added to the current folder</span>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close"
+                onClick={() => setShowCreateMenu(false)}
+              >
+                <X size={18} />
+              </button>
             </div>
             <ul className="list" aria-label="Document types">
               {NEW_DOCUMENT_TYPES.map((type) => (
@@ -564,7 +677,10 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
           <form
             className="sheet"
             aria-label={`Create ${newDocumentType(createKind).label.toLowerCase()}`}
-            onSubmit={(event) => { event.preventDefault(); void handleCreateDocument(); }}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleCreateDocument();
+            }}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="sheet-handle" />
@@ -573,7 +689,14 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
                 <strong>New {newDocumentType(createKind).label.toLowerCase()}</strong>
                 <span>Created in the current folder</span>
               </div>
-              <button type="button" className="icon-button" aria-label="Close" onClick={() => setCreateKind(null)}><X size={18} /></button>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close"
+                onClick={() => setCreateKind(null)}
+              >
+                <X size={18} />
+              </button>
             </div>
             <label className="field">
               <span>Name</span>
@@ -584,7 +707,11 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
                 onChange={(event) => setNewDocumentName(event.target.value)}
               />
             </label>
-            <button className="primary-button" type="submit" disabled={transferBusy || !newDocumentName.trim()}>
+            <button
+              className="primary-button"
+              type="submit"
+              disabled={transferBusy || !newDocumentName.trim()}
+            >
               {transferBusy ? <Spinner size={16} /> : <FilePlus2 size={16} />}
               Create {newDocumentType(createKind).label.toLowerCase()}
             </button>
@@ -613,7 +740,12 @@ function FileDetailSheet({
   const glyph = fileGlyph(entry);
   return (
     <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" role="dialog" aria-label={entry.name} onClick={(e) => e.stopPropagation()}>
+      <div
+        className="sheet"
+        role="dialog"
+        aria-label={entry.name}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="sheet-handle" />
         <div className="sheet-head">
           <div className={`file-icon glyph-${glyph}`}>

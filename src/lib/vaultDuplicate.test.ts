@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { isTextDocumentPath, nextAvailableCopyPath } from './vaultDuplicate';
 import type { NoteFile } from '../types/vault';
+
+import { isTextDocumentPath, nextAvailableCopyPath } from './vaultDuplicate';
 
 function file(relativePath: string): NoteFile {
   return {
@@ -16,7 +17,15 @@ function file(relativePath: string): NoteFile {
 
 describe('isTextDocumentPath', () => {
   it('accepts text-backed document types and rejects binary assets', () => {
-    for (const path of ['a.md', 'a.canvas', 'a.kanban', 'a.logic', 'a.sheet', 'a.svg', 'Docs/B.SHEET']) {
+    for (const path of [
+      'a.md',
+      'a.canvas',
+      'a.kanban',
+      'a.logic',
+      'a.sheet',
+      'a.svg',
+      'Docs/B.SHEET',
+    ]) {
       expect(isTextDocumentPath(path)).toBe(true);
     }
     for (const path of ['a.png', 'a.pdf', 'a', 'a.zip']) {

@@ -44,21 +44,21 @@ Container Registry and run with a single production Compose file.
 
 ## Stack
 
-| Layer | Technology |
-| --- | --- |
-| Desktop shell | Tauri 2 |
-| Frontend | React 19, Vite, TypeScript |
-| Styling | Tailwind CSS v4, shadcn/ui, Radix UI |
-| Editor | CodeMirror 6 |
-| Canvas | `@xyflow/react` |
-| Kanban drag/drop | `dnd-kit` |
-| Graph view | D3 |
-| PDF rendering | `pdfjs-dist` |
-| State | Zustand |
-| Desktop backend | Rust, Tauri commands |
-| Collaboration server | Rust, Axum, SQLx, PostgreSQL |
-| Admin web | React 19, Vite |
-| Deployment | Docker Compose, Caddy |
+| Layer                | Technology                           |
+| -------------------- | ------------------------------------ |
+| Desktop shell        | Tauri 2                              |
+| Frontend             | React 19, Vite, TypeScript           |
+| Styling              | Tailwind CSS v4, shadcn/ui, Radix UI |
+| Editor               | CodeMirror 6                         |
+| Canvas               | `@xyflow/react`                      |
+| Kanban drag/drop     | `dnd-kit`                            |
+| Graph view           | D3                                   |
+| PDF rendering        | `pdfjs-dist`                         |
+| State                | Zustand                              |
+| Desktop backend      | Rust, Tauri commands                 |
+| Collaboration server | Rust, Axum, SQLx, PostgreSQL         |
+| Admin web            | React 19, Vite                       |
+| Deployment           | Docker Compose, Caddy                |
 
 ## Current Features
 
@@ -343,10 +343,10 @@ on `127.0.0.1:8787`.
 
 The repository ships two Compose files:
 
-| File | Use it for | Image |
-| --- | --- | --- |
+| File                 | Use it for                                             | Image                                        |
+| -------------------- | ------------------------------------------------------ | -------------------------------------------- |
 | `docker-compose.yml` | **Production / releases (recommended for most users)** | Pulls the published GHCR image; never builds |
-| `compose.yaml` | Self-building, local development, and testing | Builds the server from source |
+| `compose.yaml`       | Self-building, local development, and testing          | Builds the server from source                |
 
 Both bring up PostgreSQL, the collaboration server, and a Caddy gateway, share
 the same `.env` configuration, and use the same persistent volumes.

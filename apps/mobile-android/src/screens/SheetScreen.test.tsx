@@ -1,6 +1,14 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createEmptySheetDocument } from '../../../../src/lib/sheet/document';
+import { activeWorksheet, setCell } from '../../../../src/lib/sheet/operations';
+import { serializeSheet } from '../lib/sheet';
+import type { HostedFileEntry, HostedVault } from '../mobileTauri';
+import { useMobileStore } from '../state/store';
+
+import { SheetScreen } from './SheetScreen';
+
 const invoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
@@ -11,13 +19,6 @@ vi.mock('../lib/liveNote', () => ({
   openMobileLiveJsonSession: vi.fn(() => Promise.resolve(null)),
   openMobileLiveNoteSession: vi.fn(() => Promise.resolve(null)),
 }));
-
-import { createEmptySheetDocument } from '../../../../src/lib/sheet/document';
-import { activeWorksheet, setCell } from '../../../../src/lib/sheet/operations';
-import { serializeSheet } from '../lib/sheet';
-import type { HostedFileEntry, HostedVault } from '../mobileTauri';
-import { useMobileStore } from '../state/store';
-import { SheetScreen } from './SheetScreen';
 
 class ResizeObserverMock {
   observe() {}
@@ -62,8 +63,18 @@ function workbookContent(): string {
     worksheet: { rows: 4, columns: 3 },
   });
   const sheetId = activeWorksheet(document).id;
-  document = setCell(document, sheetId, { row: 0, column: 0 }, { value: 'Rent', valueType: 'text' });
-  document = setCell(document, sheetId, { row: 0, column: 1 }, { value: 1200, valueType: 'number' });
+  document = setCell(
+    document,
+    sheetId,
+    { row: 0, column: 0 },
+    { value: 'Rent', valueType: 'text' },
+  );
+  document = setCell(
+    document,
+    sheetId,
+    { row: 0, column: 1 },
+    { value: 1200, valueType: 'number' },
+  );
   document = setCell(document, sheetId, { row: 1, column: 1 }, { formula: '=B1*2' });
   return serializeSheet(document);
 }
@@ -83,14 +94,14 @@ function selectVault(connected: boolean, role: HostedVault['role'] = 'editor') {
     selected: { serverUrl: SERVER, vault: { ...vault, role } },
     statuses: connected
       ? {
-        [SERVER]: {
-          connected: true,
-          serverUrl: SERVER,
-          allowInvalidCertificates: false,
-          user: null,
-          accessExpiresAt: null,
-        },
-      }
+          [SERVER]: {
+            connected: true,
+            serverUrl: SERVER,
+            allowInvalidCertificates: false,
+            user: null,
+            accessExpiresAt: null,
+          },
+        }
       : {},
     files: [file],
     activeSheet: { kind: 'workbook', fileId: file.id },
@@ -254,12 +265,14 @@ describe('mobile workbook screen', () => {
     fireEvent.change(input, { target: { value: '99' } });
     fireEvent.click(screen.getByRole('button', { name: /Apply/ }));
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith(
-      'replica_enqueue_operation',
-      expect.objectContaining({
-        operation: expect.objectContaining({ kind: 'edit', fileId: file.id }),
-      }),
-    ));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        'replica_enqueue_operation',
+        expect.objectContaining({
+          operation: expect.objectContaining({ kind: 'edit', fileId: file.id }),
+        }),
+      ),
+    );
     expect(revisions).toHaveLength(0);
     expect(await screen.findByText(/Saved offline/i)).not.toBeNull();
   });

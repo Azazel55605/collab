@@ -1,12 +1,13 @@
-import type { VaultClient } from './vaultClient';
-import { tauriCommands } from './tauri';
+import { useSyncTransferStore } from '../store/syncTransferStore';
 import { parseLogicDiagramDocument } from '../types/logicDiagram';
-import { parseInkDocument } from './ink/document';
-import { inspectSheetDocumentText } from './sheet/document';
-import { importWorkbookFile } from './sheet/conversion';
 import type { SheetConversionReport } from '../types/sheetConversion';
 import type { NoteFile } from '../types/vault';
-import { useSyncTransferStore } from '../store/syncTransferStore';
+
+import { parseInkDocument } from './ink/document';
+import { importWorkbookFile } from './sheet/conversion';
+import { inspectSheetDocumentText } from './sheet/document';
+import { tauriCommands } from './tauri';
+import type { VaultClient } from './vaultClient';
 
 /**
  * External-file import for vaults. Adding documents/images/notes to a vault is
@@ -46,7 +47,17 @@ export const IMPORTABLE_EXTENSIONS = [
   ...IMPORT_WORKBOOK_CONVERSION_EXTENSIONS,
 ];
 
-export type ImportableCategory = 'image' | 'svg' | 'pdf' | 'markdown' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'workbookConversion';
+export type ImportableCategory =
+  | 'image'
+  | 'svg'
+  | 'pdf'
+  | 'markdown'
+  | 'canvas'
+  | 'kanban'
+  | 'logic'
+  | 'sheet'
+  | 'ink'
+  | 'workbookConversion';
 
 export function fileBaseName(sourcePath: string): string {
   const segments = sourcePath.split(/[/\\]/);
@@ -103,7 +114,10 @@ function joinVaultPath(folder: string | undefined, name: string): string {
  * written through the mode-agnostic `VaultClient` so the same path works for both
  * local and hosted vaults.
  */
-function validateStructuredDocument(text: string, category: 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink') {
+function validateStructuredDocument(
+  text: string,
+  category: 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink',
+) {
   if (category === 'logic') {
     parseLogicDiagramDocument(text);
     return;
@@ -146,7 +160,13 @@ async function importTextDocument(
 ): Promise<string> {
   const payload = await tauriCommands.readFileForUpload(sourcePath);
   const text = decodeUtf8Base64(payload.contentBase64);
-  if (category === 'canvas' || category === 'kanban' || category === 'logic' || category === 'sheet' || category === 'ink') {
+  if (
+    category === 'canvas' ||
+    category === 'kanban' ||
+    category === 'logic' ||
+    category === 'sheet' ||
+    category === 'ink'
+  ) {
     validateStructuredDocument(text, category);
   }
   const targetPath = joinVaultPath(targetFolder, payload.name);
@@ -172,16 +192,20 @@ export async function importExternalFilesIntoVault(
 ): Promise<VaultImportResult> {
   const result: VaultImportResult = { imported: [], failed: [], conversions: [] };
   const assetImporter = client.runtime.externalAssetImport;
-  const transferId = client.kind === 'hosted' && sourcePaths.length > 0
-    ? useSyncTransferStore.getState().begin({
-        vaultId: client.id,
-        vaultName: client.name,
-        direction: 'upload',
-        label: sourcePaths.length === 1 ? `Uploading ${fileBaseName(sourcePaths[0])}` : `Uploading ${sourcePaths.length} files`,
-        detail: sourcePaths.length === 1 ? fileBaseName(sourcePaths[0]) : null,
-        total: sourcePaths.length,
-      })
-    : null;
+  const transferId =
+    client.kind === 'hosted' && sourcePaths.length > 0
+      ? useSyncTransferStore.getState().begin({
+          vaultId: client.id,
+          vaultName: client.name,
+          direction: 'upload',
+          label:
+            sourcePaths.length === 1
+              ? `Uploading ${fileBaseName(sourcePaths[0])}`
+              : `Uploading ${sourcePaths.length} files`,
+          detail: sourcePaths.length === 1 ? fileBaseName(sourcePaths[0]) : null,
+          total: sourcePaths.length,
+        })
+      : null;
 
   for (const [index, sourcePath] of sourcePaths.entries()) {
     const name = fileBaseName(sourcePath);
@@ -194,7 +218,11 @@ export async function importExternalFilesIntoVault(
     }
     try {
       if (!category) {
-        result.failed.push({ name, error: 'Unsupported file type. Only images, PDFs, markdown, canvas, Kanban, logic, spreadsheet, and .xlsx/.csv files can be imported.' });
+        result.failed.push({
+          name,
+          error:
+            'Unsupported file type. Only images, PDFs, markdown, canvas, Kanban, logic, spreadsheet, and .xlsx/.csv files can be imported.',
+        });
         continue;
       }
       if (category === 'workbookConversion') {
@@ -212,8 +240,17 @@ export async function importExternalFilesIntoVault(
         });
         continue;
       }
-      if (category === 'markdown' || category === 'canvas' || category === 'kanban' || category === 'logic' || category === 'sheet' || category === 'ink') {
-        result.imported.push(await importTextDocument(client, sourcePath, options.targetFolder, category));
+      if (
+        category === 'markdown' ||
+        category === 'canvas' ||
+        category === 'kanban' ||
+        category === 'logic' ||
+        category === 'sheet' ||
+        category === 'ink'
+      ) {
+        result.imported.push(
+          await importTextDocument(client, sourcePath, options.targetFolder, category),
+        );
         continue;
       }
       if (category === 'svg') {
@@ -244,10 +281,12 @@ export async function importExternalFilesIntoVault(
       useSyncTransferStore.getState().fail(transferId, result.failed[0].error);
     } else {
       const suffix = result.failed.length > 0 ? `, ${result.failed.length} failed` : '';
-      useSyncTransferStore.getState().complete(
-        transferId,
-        `Uploaded ${result.imported.length} file${result.imported.length === 1 ? '' : 's'}${suffix}`,
-      );
+      useSyncTransferStore
+        .getState()
+        .complete(
+          transferId,
+          `Uploaded ${result.imported.length} file${result.imported.length === 1 ? '' : 's'}${suffix}`,
+        );
     }
   }
 

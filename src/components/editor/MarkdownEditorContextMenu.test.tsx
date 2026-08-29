@@ -29,11 +29,15 @@ function createMockView(text: string, from = 0, to = from) {
         return currentText.slice(start, end);
       },
     },
-    dispatch(payload: { changes?: { from: number; to?: number; insert?: string }; selection?: { anchor: number; head?: number } }) {
+    dispatch(payload: {
+      changes?: { from: number; to?: number; insert?: string };
+      selection?: { anchor: number; head?: number };
+    }) {
       if (payload.changes) {
         const changeTo = payload.changes.to ?? payload.changes.from;
         const insert = payload.changes.insert ?? '';
-        currentText = currentText.slice(0, payload.changes.from) + insert + currentText.slice(changeTo);
+        currentText =
+          currentText.slice(0, payload.changes.from) + insert + currentText.slice(changeTo);
       }
       if (payload.selection) {
         selection = {
@@ -55,7 +59,10 @@ function createMockView(text: string, from = 0, to = from) {
       selection: { main: { from: number; to: number; head: number } };
       sliceDoc: (start: number, end: number) => string;
     };
-    dispatch: (payload: { changes?: { from: number; to?: number; insert?: string }; selection?: { anchor: number; head?: number } }) => void;
+    dispatch: (payload: {
+      changes?: { from: number; to?: number; insert?: string };
+      selection?: { anchor: number; head?: number };
+    }) => void;
     focus: ReturnType<typeof vi.fn>;
     getText: () => string;
     getSelection: () => { from: number; to: number; head: number };
@@ -119,14 +126,17 @@ describe('MarkdownEditorContextMenu helpers', () => {
     const view = createMockView('hello', 0, 5);
     const preventDefault = vi.fn();
 
-    const handled = handleFormattingShortcutKeydown({
-      key: 'i',
-      ctrlKey: true,
-      metaKey: false,
-      altKey: false,
-      shiftKey: false,
-      preventDefault,
-    }, view as never);
+    const handled = handleFormattingShortcutKeydown(
+      {
+        key: 'i',
+        ctrlKey: true,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+        preventDefault,
+      },
+      view as never,
+    );
 
     expect(handled).toBe(true);
     expect(preventDefault).toHaveBeenCalledTimes(1);

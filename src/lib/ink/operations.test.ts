@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { INK_LIMITS } from '../../types/ink';
 import type { InkLayer, InkObject, InkScene } from '../../types/ink';
+
 import { createInkDocument, createInkPage } from './document';
 import { buildInkScene, buildStroke } from './fixture';
 import {
@@ -315,10 +316,10 @@ describe('page operations', () => {
   it('remaps every identity when duplicating a page', () => {
     // Two pages sharing an object id would be indistinguishable to the CRDT and
     // to the spatial index.
-    const initial = addPage(
-      document(),
-      { ...createInkPage('page-2'), scene: buildInkScene({ strokes: 3, samplesPerStroke: 6 }) },
-    ).result;
+    const initial = addPage(document(), {
+      ...createInkPage('page-2'),
+      scene: buildInkScene({ strokes: 3, samplesPerStroke: 6 }),
+    }).result;
     const grouped = onPage(initial, 'page-2', (target) =>
       groupObjects(target, ['stroke-1', 'stroke-2'], 'group-1'),
     ).result;
@@ -345,7 +346,12 @@ describe('page operations', () => {
 
   it('places a duplicate immediately after its source', () => {
     const initial = addPage(document(), createInkPage('page-2')).result;
-    const edit = duplicatePage(initial, 'page-1', 'copy', (kind, original) => `c-${kind}-${original}`);
+    const edit = duplicatePage(
+      initial,
+      'page-1',
+      'copy',
+      (kind, original) => `c-${kind}-${original}`,
+    );
     expect(edit.result.pageOrder).toEqual(['page-1', 'copy', 'page-2']);
   });
 });

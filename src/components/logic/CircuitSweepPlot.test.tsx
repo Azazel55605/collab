@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import type { CircuitSweepResult, CircuitTransientResult } from '../../types/circuitRuntime';
+
 import { CircuitSweepPlot, CircuitTransientPlot } from './CircuitSweepPlot';
 
 const RESULT: CircuitSweepResult = {
@@ -41,7 +42,17 @@ describe('CircuitSweepPlot', () => {
     const { container } = render(<CircuitSweepPlot result={RESULT} sourceLabel="Supply" />);
     const svg = screen.getByRole('img', { name: 'DC sweep plot' });
     Object.defineProperty(svg, 'getBoundingClientRect', {
-      value: () => ({ left: 0, top: 0, width: 760, height: 300, right: 760, bottom: 300, x: 0, y: 0, toJSON: () => ({}) }),
+      value: () => ({
+        left: 0,
+        top: 0,
+        width: 760,
+        height: 300,
+        right: 760,
+        bottom: 300,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }),
     });
 
     fireEvent.pointerMove(svg, { clientX: 380, clientY: 140 });

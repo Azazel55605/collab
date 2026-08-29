@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   ChevronLeft,
   ChevronRight,
@@ -12,42 +14,55 @@ import {
   Redo2,
   Save,
   Trash2,
-  Ungroup,
   Undo2,
+  Ungroup,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import LivePeers from '../components/collaboration/LivePeers';
+import InkCanvas from '../components/ink/InkCanvas';
+import InkSidePanel from '../components/ink/InkSidePanel';
+import InkTextDialog from '../components/ink/InkTextDialog';
+import type { InkTextDraft } from '../components/ink/InkTextDialog';
+import InkToolRail from '../components/ink/InkToolRail';
 import {
   DocumentTopBar,
   DocumentTopBarButton,
-  DocumentTopBarIconButton,
   documentTopBarGroupClass,
+  DocumentTopBarIconButton,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
 import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
-import InkCanvas from '../components/ink/InkCanvas';
-import InkToolRail from '../components/ink/InkToolRail';
-import InkSidePanel from '../components/ink/InkSidePanel';
-import InkTextDialog from '../components/ink/InkTextDialog';
-import LivePeers from '../components/collaboration/LivePeers';
-import type { InkTextDraft } from '../components/ink/InkTextDialog';
-import { useEditorStore } from '../store/editorStore';
-import { useDocumentStatusRegistration } from '../store/documentStatusStore';
-import { useVaultStore } from '../store/vaultStore';
-import { useUiStore } from '../store/uiStore';
-import { isVaultReadOnly } from '../types/vault';
-import { INK_LIMITS, INK_SCHEMA_VERSION, INK_UNITS_PER_PX } from '../types/ink';
-import type { InkBrushKind, InkDocument, InkSample, InkScene, InkText } from '../types/ink';
-import type { InkBrushPreset, InkImage, InkObjectLink, InkStamp, InkSwatch } from '../types/ink';
+import { useCollabIdentity } from '../lib/collabIdentity';
 import type {
   DocumentSessionController,
   DocumentSessionSnapshot,
 } from '../lib/documentSessionController';
+import {
+  createInkConnector,
+  createInkShape,
+  createInkStamp,
+  inkObjectColor,
+  recognizeInkShape,
+  recolorInkObject,
+  smoothInkStroke,
+  snapInkPoint,
+  snapPointToAngle,
+} from '../lib/ink/advancedTools';
+import { alignObjects, distributeObjects } from '../lib/ink/align';
+import type { InkAlignment, InkDistribution } from '../lib/ink/align';
+import { copySelection, duplicateSelection, pasteClipboard } from '../lib/ink/clipboard';
+import type { InkClipboard } from '../lib/ink/clipboard';
+import { encodeSamples } from '../lib/ink/codec';
+import { canonicalInkColor, inkPaletteForTheme } from '../lib/ink/colors';
 import { createInkPage, inkDocumentStats, isVaultRelativePath } from '../lib/ink/document';
 import { INK_DEFAULT_BRUSHES } from '../lib/ink/document';
+import { applyErase, planErase } from '../lib/ink/erase';
+import type { InkEraserMode } from '../lib/ink/erase';
+import { InkHistory } from '../lib/ink/history';
 import {
   addLayer,
   addObject,
@@ -66,51 +81,7 @@ import {
   updatePage,
 } from '../lib/ink/operations';
 import type { InkEdit } from '../lib/ink/operations';
-import { encodeSamples } from '../lib/ink/codec';
-import { applyErase, planErase } from '../lib/ink/erase';
-import type { InkEraserMode } from '../lib/ink/erase';
-import { InkHistory } from '../lib/ink/history';
-import { copySelection, duplicateSelection, pasteClipboard } from '../lib/ink/clipboard';
-import type { InkClipboard } from '../lib/ink/clipboard';
-import { alignObjects, distributeObjects } from '../lib/ink/align';
-import type { InkAlignment, InkDistribution } from '../lib/ink/align';
-import {
-  boundsToBounds,
-  composeAffine,
-  resizeBounds,
-  rotationAbout,
-  transformObject,
-  translation,
-} from '../lib/ink/transform';
 import { selectionFrame } from '../lib/ink/selectionFrame';
-import { canonicalInkColor, inkPaletteForTheme } from '../lib/ink/colors';
-import type { InkResizeHandle } from '../lib/ink/transform';
-import {
-  INK_DEFAULT_PEN_BUTTONS,
-  defaultToolState,
-  drawsBehindInk,
-  resolveInkCommand,
-} from '../lib/ink/tools';
-import type { InkCommand, InkToolId, InkToolState } from '../lib/ink/tools';
-import { useInkSession } from '../lib/ink/useInkSession';
-import {
-  createInkConnector,
-  createInkShape,
-  createInkStamp,
-  inkObjectColor,
-  recognizeInkShape,
-  recolorInkObject,
-  smoothInkStroke,
-  snapInkPoint,
-  snapPointToAngle,
-} from '../lib/ink/advancedTools';
-import { createVaultClient } from '../lib/vaultClient';
-import { tauriCommands } from '../lib/tauri';
-import { openUrl } from '@tauri-apps/plugin-opener';
-import { getVaultDocumentTabType, getVaultDocumentView } from '../lib/vaultLinks';
-import { useCollabIdentity } from '../lib/collabIdentity';
-import { useLivePeers } from '../lib/liveAwareness';
-import type { InkInteraction } from '../lib/liveAwareness';
 import {
   createInkTemplate,
   deleteInkTemplate,
@@ -120,6 +91,36 @@ import {
   saveInkTemplate,
   serializeInkTemplate,
 } from '../lib/ink/templates';
+import {
+  defaultToolState,
+  drawsBehindInk,
+  INK_DEFAULT_PEN_BUTTONS,
+  resolveInkCommand,
+} from '../lib/ink/tools';
+import type { InkCommand, InkToolId, InkToolState } from '../lib/ink/tools';
+import {
+  boundsToBounds,
+  composeAffine,
+  resizeBounds,
+  rotationAbout,
+  transformObject,
+  translation,
+} from '../lib/ink/transform';
+import type { InkResizeHandle } from '../lib/ink/transform';
+import { useInkSession } from '../lib/ink/useInkSession';
+import { useLivePeers } from '../lib/liveAwareness';
+import type { InkInteraction } from '../lib/liveAwareness';
+import { tauriCommands } from '../lib/tauri';
+import { createVaultClient } from '../lib/vaultClient';
+import { getVaultDocumentTabType, getVaultDocumentView } from '../lib/vaultLinks';
+import { useDocumentStatusRegistration } from '../store/documentStatusStore';
+import { useEditorStore } from '../store/editorStore';
+import { useUiStore } from '../store/uiStore';
+import { useVaultStore } from '../store/vaultStore';
+import { INK_LIMITS, INK_SCHEMA_VERSION, INK_UNITS_PER_PX } from '../types/ink';
+import type { InkBrushKind, InkDocument, InkSample, InkScene, InkText } from '../types/ink';
+import type { InkBrushPreset, InkImage, InkObjectLink, InkStamp, InkSwatch } from '../types/ink';
+import { isVaultReadOnly } from '../types/vault';
 
 interface InkViewProps {
   relativePath: string;
@@ -141,13 +142,15 @@ export default function InkView({ relativePath }: InkViewProps) {
   const { vault } = useVaultStore();
   const setActiveView = useUiStore((state) => state.setActiveView);
   const theme = useUiStore((state) => state.theme);
-  const { markDirty, setSavedHash, inkViewStates, setInkViewState, openTab, setActiveTab } = useEditorStore();
+  const { markDirty, setSavedHash, inkViewStates, setInkViewState, openTab, setActiveTab } =
+    useEditorStore();
   const { userId: myUserId, userName: myUserName, userColor: myUserColor } = useCollabIdentity();
   const vaultClient = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
   const readAssetDataUrl = useCallback(
-    (path: string) => vaultClient
-      ? vaultClient.readAssetDataUrl(path)
-      : Promise.reject(new Error('No vault is open.')),
+    (path: string) =>
+      vaultClient
+        ? vaultClient.readAssetDataUrl(path)
+        : Promise.reject(new Error('No vault is open.')),
     [vaultClient],
   );
   const markInkSaved = useCallback(
@@ -230,15 +233,16 @@ export default function InkView({ relativePath }: InkViewProps) {
 
   useEffect(() => {
     if (!session.liveSession || !activePageId) return;
-    const category = tool.tool === 'pen'
-      ? 'draw'
-      : tool.tool === 'eraser'
-        ? 'erase'
-        : tool.tool === 'select' || tool.tool === 'lasso'
-          ? 'select'
-          : tool.tool === 'pan' || tool.tool === 'loupe'
-            ? 'navigate'
-            : 'other';
+    const category =
+      tool.tool === 'pen'
+        ? 'draw'
+        : tool.tool === 'eraser'
+          ? 'erase'
+          : tool.tool === 'select' || tool.tool === 'lasso'
+            ? 'select'
+            : tool.tool === 'pan' || tool.tool === 'loupe'
+              ? 'navigate'
+              : 'other';
     if (awarenessTimerRef.current !== null) window.clearTimeout(awarenessTimerRef.current);
     awarenessTimerRef.current = null;
     pendingAwarenessRef.current = null;
@@ -250,40 +254,48 @@ export default function InkView({ relativePath }: InkViewProps) {
     });
   }, [activePageId, selectedIds, session.liveSession, tool.tool, viewport]);
 
-  const publishInkAwareness = useCallback((change: Pick<InkInteraction, 'cursor' | 'preview'>) => {
-    if (!session.liveSession || !activePageId) return;
-    const category: InkInteraction['tool'] = tool.tool === 'pen'
-      ? 'draw'
-      : tool.tool === 'eraser'
-        ? 'erase'
-        : tool.tool === 'select' || tool.tool === 'lasso'
-          ? 'select'
-          : tool.tool === 'pan' || tool.tool === 'loupe'
-            ? 'navigate'
-            : 'other';
-    pendingAwarenessRef.current = {
-      activePageId,
-      tool: category,
-      selectedIds: selectedIds.slice(0, 100),
-      viewport,
-      ...change,
-    };
-    const flush = () => {
-      awarenessTimerRef.current = null;
-      const pending = pendingAwarenessRef.current;
-      pendingAwarenessRef.current = null;
-      if (!pending) return;
-      lastAwarenessSentRef.current = performance.now();
-      session.liveSession?.awareness.setLocalStateField('ink', pending);
-    };
-    const remaining = 50 - (performance.now() - lastAwarenessSentRef.current);
-    if (remaining <= 0) flush();
-    else if (awarenessTimerRef.current === null) awarenessTimerRef.current = window.setTimeout(flush, remaining);
-  }, [activePageId, selectedIds, session.liveSession, tool.tool, viewport]);
+  const publishInkAwareness = useCallback(
+    (change: Pick<InkInteraction, 'cursor' | 'preview'>) => {
+      if (!session.liveSession || !activePageId) return;
+      const category: InkInteraction['tool'] =
+        tool.tool === 'pen'
+          ? 'draw'
+          : tool.tool === 'eraser'
+            ? 'erase'
+            : tool.tool === 'select' || tool.tool === 'lasso'
+              ? 'select'
+              : tool.tool === 'pan' || tool.tool === 'loupe'
+                ? 'navigate'
+                : 'other';
+      pendingAwarenessRef.current = {
+        activePageId,
+        tool: category,
+        selectedIds: selectedIds.slice(0, 100),
+        viewport,
+        ...change,
+      };
+      const flush = () => {
+        awarenessTimerRef.current = null;
+        const pending = pendingAwarenessRef.current;
+        pendingAwarenessRef.current = null;
+        if (!pending) return;
+        lastAwarenessSentRef.current = performance.now();
+        session.liveSession?.awareness.setLocalStateField('ink', pending);
+      };
+      const remaining = 50 - (performance.now() - lastAwarenessSentRef.current);
+      if (remaining <= 0) flush();
+      else if (awarenessTimerRef.current === null)
+        awarenessTimerRef.current = window.setTimeout(flush, remaining);
+    },
+    [activePageId, selectedIds, session.liveSession, tool.tool, viewport],
+  );
 
-  useEffect(() => () => {
-    if (awarenessTimerRef.current !== null) window.clearTimeout(awarenessTimerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (awarenessTimerRef.current !== null) window.clearTimeout(awarenessTimerRef.current);
+    },
+    [],
+  );
 
   const activeLayerId = useMemo(() => {
     if (!scene) return null;
@@ -404,7 +416,18 @@ export default function InkView({ relativePath }: InkViewProps) {
 
   const createAdvancedObject = useCallback(
     (
-      kind: 'shape' | 'connector' | 'text' | 'sticky' | 'image' | 'stamp' | 'equation' | 'ruler' | 'protractor' | 'compass' | 'guide',
+      kind:
+        | 'shape'
+        | 'connector'
+        | 'text'
+        | 'sticky'
+        | 'image'
+        | 'stamp'
+        | 'equation'
+        | 'ruler'
+        | 'protractor'
+        | 'compass'
+        | 'guide',
       rawFrom: { x: number; y: number },
       rawTo: { x: number; y: number },
       uniform: boolean,
@@ -427,15 +450,28 @@ export default function InkView({ relativePath }: InkViewProps) {
         void (async () => {
           const importer = vaultClient?.runtime?.externalAssetImport;
           if (!importer) return;
-          const paths = await tauriCommands.showOpenFilesDialog(['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg']);
+          const paths = await tauriCommands.showOpenFilesDialog([
+            'png',
+            'jpg',
+            'jpeg',
+            'webp',
+            'gif',
+            'svg',
+          ]);
           const sourcePath = paths?.[0];
           if (!sourcePath) return;
           try {
             const relativePath = await importer.import(sourcePath, 'Pictures');
             const object: InkImage = {
-              id: nextId('image'), type: 'image', layerId: activeLayerId,
-              x, y, width: Math.max(width, 6_400), height: Math.max(height, 4_800),
-              relativePath, createdAt: Date.now(),
+              id: nextId('image'),
+              type: 'image',
+              layerId: activeLayerId,
+              x,
+              y,
+              width: Math.max(width, 6_400),
+              height: Math.max(height, 4_800),
+              relativePath,
+              createdAt: Date.now(),
             };
             commitScene('Add image', (current) => addObject(current, object));
             setSelectedIds([object.id]);
@@ -448,8 +484,12 @@ export default function InkView({ relativePath }: InkViewProps) {
 
       if (kind === 'stamp') {
         const object: InkStamp = createInkStamp({
-          id: nextId('stamp'), layerId: activeLayerId, symbolId: tool.stampSymbolId,
-          from, to, color: tool.brush.color,
+          id: nextId('stamp'),
+          layerId: activeLayerId,
+          symbolId: tool.stampSymbolId,
+          from,
+          to,
+          color: tool.brush.color,
         });
         commitScene('Add stamp', (current) => addObject(current, object));
         setSelectedIds([object.id]);
@@ -459,15 +499,22 @@ export default function InkView({ relativePath }: InkViewProps) {
       if (kind === 'ruler' || kind === 'protractor' || kind === 'guide') {
         const end = kind === 'protractor' ? snapPointToAngle(from, to, 15) : to;
         const object = createInkShape({
-          id: nextId(kind), layerId: activeLayerId, kind: 'line', from, to: end,
+          id: nextId(kind),
+          layerId: activeLayerId,
+          kind: 'line',
+          from,
+          to: end,
           style: {
-            stroke: kind === 'guide'
-              ? { ...tool.brush, color: '#8b7dff', opacity: 0.75, width: 32, dash: 'dashed' }
-              : tool.brush,
+            stroke:
+              kind === 'guide'
+                ? { ...tool.brush, color: '#8b7dff', opacity: 0.75, width: 32, dash: 'dashed' }
+                : tool.brush,
           },
         });
         if (kind === 'guide') object.guide = true;
-        commitScene(kind === 'guide' ? 'Add guide' : 'Draw precise line', (current) => addObject(current, object));
+        commitScene(kind === 'guide' ? 'Add guide' : 'Draw precise line', (current) =>
+          addObject(current, object),
+        );
         setSelectedIds([object.id]);
         return;
       }
@@ -477,58 +524,85 @@ export default function InkView({ relativePath }: InkViewProps) {
         const radiusY = Math.abs(to.y - from.y);
         const radius = Math.max(radiusX, radiusY);
         const object = createInkShape({
-          id: nextId('compass'), layerId: activeLayerId, kind: 'ellipse',
+          id: nextId('compass'),
+          layerId: activeLayerId,
+          kind: 'ellipse',
           from: { x: from.x - radius, y: from.y - radius },
           to: { x: from.x + radius, y: from.y + radius },
-          style: { stroke: tool.brush }, uniform: true,
+          style: { stroke: tool.brush },
+          uniform: true,
         });
         commitScene('Draw circle', (current) => addObject(current, object));
         setSelectedIds([object.id]);
         return;
       }
 
-      const object = kind === 'connector'
-        ? createInkConnector({
-            id: nextId('connector'), layerId: activeLayerId, from, to,
-            stroke: tool.brush, arrowStart: tool.arrowStart, arrowEnd: tool.arrowEnd === 'none' ? 'arrow' : tool.arrowEnd,
-          })
-        : createInkShape({
-            id: nextId('shape'), layerId: activeLayerId, kind: tool.shapeKind,
-            from, to, uniform,
-            style: {
+      const object =
+        kind === 'connector'
+          ? createInkConnector({
+              id: nextId('connector'),
+              layerId: activeLayerId,
+              from,
+              to,
               stroke: tool.brush,
-              ...(tool.shapeFill ? { fill: tool.shapeFill, fillOpacity: tool.shapeFillOpacity } : {}),
               arrowStart: tool.arrowStart,
-              arrowEnd: tool.arrowEnd,
-            },
-          });
-      commitScene(kind === 'connector' ? 'Add connector' : 'Add shape', (current) => addObject(current, object));
+              arrowEnd: tool.arrowEnd === 'none' ? 'arrow' : tool.arrowEnd,
+            })
+          : createInkShape({
+              id: nextId('shape'),
+              layerId: activeLayerId,
+              kind: tool.shapeKind,
+              from,
+              to,
+              uniform,
+              style: {
+                stroke: tool.brush,
+                ...(tool.shapeFill
+                  ? { fill: tool.shapeFill, fillOpacity: tool.shapeFillOpacity }
+                  : {}),
+                arrowStart: tool.arrowStart,
+                arrowEnd: tool.arrowEnd,
+              },
+            });
+      commitScene(kind === 'connector' ? 'Add connector' : 'Add shape', (current) =>
+        addObject(current, object),
+      );
       setSelectedIds([object.id]);
     },
     [activeLayerId, commitScene, nextId, tool, vaultClient],
   );
 
-  const createTextFromDraft = useCallback((text: string) => {
-    if (!textDraft || !activeLayerId) return;
-    const object: InkText = {
-      id: nextId(textDraft.kind),
-      type: 'text',
-      layerId: activeLayerId,
-      x: textDraft.x,
-      y: textDraft.y,
-      width: textDraft.width,
-      height: textDraft.height,
-      text: text.slice(0, INK_LIMITS.textLength),
-      color: tool.brush.color,
-      fontSize: 768,
-      ...(textDraft.kind === 'sticky' ? { sticky: true, backgroundColor: '#fef3a7' } : {}),
-      ...(textDraft.kind === 'equation' ? { equation: true } : {}),
-      createdAt: Date.now(),
-    };
-    commitScene(textDraft.kind === 'sticky' ? 'Add sticky note' : textDraft.kind === 'equation' ? 'Add equation' : 'Add text', (current) => addObject(current, object));
-    setSelectedIds([object.id]);
-    setTextDraft(null);
-  }, [activeLayerId, commitScene, nextId, textDraft, tool.brush.color]);
+  const createTextFromDraft = useCallback(
+    (text: string) => {
+      if (!textDraft || !activeLayerId) return;
+      const object: InkText = {
+        id: nextId(textDraft.kind),
+        type: 'text',
+        layerId: activeLayerId,
+        x: textDraft.x,
+        y: textDraft.y,
+        width: textDraft.width,
+        height: textDraft.height,
+        text: text.slice(0, INK_LIMITS.textLength),
+        color: tool.brush.color,
+        fontSize: 768,
+        ...(textDraft.kind === 'sticky' ? { sticky: true, backgroundColor: '#fef3a7' } : {}),
+        ...(textDraft.kind === 'equation' ? { equation: true } : {}),
+        createdAt: Date.now(),
+      };
+      commitScene(
+        textDraft.kind === 'sticky'
+          ? 'Add sticky note'
+          : textDraft.kind === 'equation'
+            ? 'Add equation'
+            : 'Add text',
+        (current) => addObject(current, object),
+      );
+      setSelectedIds([object.id]);
+      setTextDraft(null);
+    },
+    [activeLayerId, commitScene, nextId, textDraft, tool.brush.color],
+  );
 
   const recognizeSelection = useCallback(() => {
     if (!scene || selectedIds.length !== 1) return;
@@ -549,7 +623,9 @@ export default function InkView({ relativePath }: InkViewProps) {
       const edits: Array<InkEdit<InkScene>> = [];
       for (const id of selectedIds) {
         if (result.objects[id]?.type !== 'stroke') continue;
-        const edit = updateObject(result, id, (object) => object.type === 'stroke' ? smoothInkStroke(object) : object);
+        const edit = updateObject(result, id, (object) =>
+          object.type === 'stroke' ? smoothInkStroke(object) : object,
+        );
         edits.push(edit);
         result = edit.result;
       }
@@ -557,72 +633,101 @@ export default function InkView({ relativePath }: InkViewProps) {
     });
   }, [commitScene, selectedIds]);
 
-  const recolorSelection = useCallback((color: string) => {
-    commitScene('Recolor selection', (current) => {
-      let result = current;
-      const edits: Array<InkEdit<InkScene>> = [];
-      for (const id of selectedIds) {
-        if (!result.objects[id]) continue;
-        const edit = updateObject(result, id, (object) => recolorInkObject(object, color));
-        edits.push(edit);
-        result = edit.result;
+  const recolorSelection = useCallback(
+    (color: string) => {
+      commitScene('Recolor selection', (current) => {
+        let result = current;
+        const edits: Array<InkEdit<InkScene>> = [];
+        for (const id of selectedIds) {
+          if (!result.objects[id]) continue;
+          const edit = updateObject(result, id, (object) => recolorInkObject(object, color));
+          edits.push(edit);
+          result = edit.result;
+        }
+        return { result, inverse: reverseAll(edits) };
+      });
+    },
+    [commitScene, selectedIds],
+  );
+
+  const updateSelectedText = useCallback(
+    (change: { text?: string; backgroundColor?: string }) => {
+      if (selectedIds.length !== 1) return;
+      commitScene('Edit text', (current) =>
+        updateObject(current, selectedIds[0], (object) =>
+          object.type === 'text'
+            ? {
+                ...object,
+                ...change,
+                text: (change.text ?? object.text).slice(0, INK_LIMITS.textLength),
+                updatedAt: Date.now(),
+              }
+            : object,
+        ),
+      );
+    },
+    [commitScene, selectedIds],
+  );
+
+  const eyedropObject = useCallback(
+    (objectId: string) => {
+      const object = scene?.objects[objectId];
+      if (!object) return;
+      const color = inkObjectColor(object);
+      if (color)
+        setTool((current) => ({
+          ...current,
+          brush: { ...current.brush, color: canonicalInkColor(color) },
+          tool: 'pen',
+        }));
+    },
+    [scene],
+  );
+
+  const activateObjectLink = useCallback(
+    (objectId: string) => {
+      const link = scene?.objects[objectId]?.link;
+      if (!link) return;
+      if (link.kind === 'url') {
+        void openUrl(link.target).catch((error) => toast.error((error as Error).message));
+        return;
       }
-      return { result, inverse: reverseAll(edits) };
-    });
-  }, [commitScene, selectedIds]);
+      const type = getVaultDocumentTabType(link.target);
+      const title =
+        link.target
+          .split('/')
+          .pop()
+          ?.replace(/\.[^.]+$/, '') ?? link.target;
+      openTab(link.target, title, type);
+      setActiveTab(link.target);
+      setActiveView(getVaultDocumentView(type));
+    },
+    [openTab, scene, setActiveTab, setActiveView],
+  );
 
-  const updateSelectedText = useCallback((change: { text?: string; backgroundColor?: string }) => {
-    if (selectedIds.length !== 1) return;
-    commitScene('Edit text', (current) => updateObject(current, selectedIds[0], (object) =>
-      object.type === 'text'
-        ? { ...object, ...change, text: (change.text ?? object.text).slice(0, INK_LIMITS.textLength), updatedAt: Date.now() }
-        : object,
-    ));
-  }, [commitScene, selectedIds]);
-
-  const eyedropObject = useCallback((objectId: string) => {
-    const object = scene?.objects[objectId];
-    if (!object) return;
-    const color = inkObjectColor(object);
-    if (color) setTool((current) => ({
-      ...current,
-      brush: { ...current.brush, color: canonicalInkColor(color) },
-      tool: 'pen',
-    }));
-  }, [scene]);
-
-  const activateObjectLink = useCallback((objectId: string) => {
-    const link = scene?.objects[objectId]?.link;
-    if (!link) return;
-    if (link.kind === 'url') {
-      void openUrl(link.target).catch((error) => toast.error((error as Error).message));
-      return;
-    }
-    const type = getVaultDocumentTabType(link.target);
-    const title = link.target.split('/').pop()?.replace(/\.[^.]+$/, '') ?? link.target;
-    openTab(link.target, title, type);
-    setActiveTab(link.target);
-    setActiveView(getVaultDocumentView(type));
-  }, [openTab, scene, setActiveTab, setActiveView]);
-
-  const setSelectedLink = useCallback((target: string | null) => {
-    if (selectedIds.length !== 1) return;
-    let link: InkObjectLink | undefined;
-    if (target) {
-      if (isVaultRelativePath(target)) link = { kind: 'vault', target };
-      else {
-        try {
-          const url = new URL(target);
-          if (url.protocol !== 'https:') throw new Error('Only HTTPS links are supported.');
-          link = { kind: 'url', target: url.toString() };
-        } catch {
-          toast.error('Use a vault-relative path or a valid HTTPS URL.');
-          return;
+  const setSelectedLink = useCallback(
+    (target: string | null) => {
+      if (selectedIds.length !== 1) return;
+      let link: InkObjectLink | undefined;
+      if (target) {
+        if (isVaultRelativePath(target)) link = { kind: 'vault', target };
+        else {
+          try {
+            const url = new URL(target);
+            if (url.protocol !== 'https:') throw new Error('Only HTTPS links are supported.');
+            link = { kind: 'url', target: url.toString() };
+          } catch {
+            toast.error('Use a vault-relative path or a valid HTTPS URL.');
+            return;
+          }
         }
       }
-    }
-    commitScene(target ? 'Set link' : 'Remove link', (current) => updateObject(current, selectedIds[0], (object) => ({ ...object, link })));
-  }, [commitScene, selectedIds]);
+      commitScene(target ? 'Set link' : 'Remove link', (current) =>
+        updateObject(current, selectedIds[0], (object) => ({ ...object, link })),
+      );
+    },
+    [commitScene, selectedIds],
+  );
 
   const erase = useCallback(
     (path: Array<{ x: number; y: number }>, radius: number) => {
@@ -707,11 +812,7 @@ export default function InkView({ relativePath }: InkViewProps) {
       if (selectedIds.length === 0 || !scene) return;
       const frame = selectionFrame(scene, selectedIds);
       if (!frame) return;
-      const transform = rotationAbout(
-        frame.centerX,
-        frame.centerY,
-        radians,
-      );
+      const transform = rotationAbout(frame.centerX, frame.centerY, radians);
       commitScene('Rotate', (current) => {
         const edits: Array<InkEdit<InkScene>> = [];
         let result = current;
@@ -769,7 +870,8 @@ export default function InkView({ relativePath }: InkViewProps) {
         const edit = duplicateSelection(current, selectedIds, activeLayerId, (_original, index) =>
           nextId(`copy-${index}`),
         );
-        if (!edit) return { result: current, inverse: (input) => ({ result: input, inverse: noop }) };
+        if (!edit)
+          return { result: current, inverse: (input) => ({ result: input, inverse: noop }) };
         pastedIds = edit.pastedIds;
         return edit;
       });
@@ -847,7 +949,12 @@ export default function InkView({ relativePath }: InkViewProps) {
       const template = current.pages[current.pageOrder[current.pageOrder.length - 1]];
       const created = createInkPage(id, { mode: template?.mode ?? 'fixed' });
       const sized = template
-        ? { ...created, width: template.width, height: template.height, background: template.background }
+        ? {
+            ...created,
+            width: template.width,
+            height: template.height,
+            background: template.background,
+          }
         : created;
       return addPage(current, sized, pageIndex + 1);
     });
@@ -962,16 +1069,31 @@ export default function InkView({ relativePath }: InkViewProps) {
         case 'tool.pan':
           setTool((current) => ({ ...current, tool: command.split('.')[1] as InkToolId }));
           return true;
-        case 'edit.undo': undo(); return true;
-        case 'edit.redo': redo(); return true;
-        case 'edit.delete': deleteSelection(); return true;
+        case 'edit.undo':
+          undo();
+          return true;
+        case 'edit.redo':
+          redo();
+          return true;
+        case 'edit.delete':
+          deleteSelection();
+          return true;
         case 'edit.selectAll':
           setSelectedIds(scene ? [...scene.objectOrder] : []);
           return true;
-        case 'edit.copy': copy(); return true;
-        case 'edit.cut': copy(); deleteSelection(); return true;
-        case 'edit.paste': paste(); return true;
-        case 'edit.duplicate': duplicate(); return true;
+        case 'edit.copy':
+          copy();
+          return true;
+        case 'edit.cut':
+          copy();
+          deleteSelection();
+          return true;
+        case 'edit.paste':
+          paste();
+          return true;
+        case 'edit.duplicate':
+          duplicate();
+          return true;
         case 'edit.group':
           if (selectedIds.length > 1) {
             commitScene('Group', (current) => groupObjects(current, selectedIds, nextId('group')));
@@ -990,18 +1112,48 @@ export default function InkView({ relativePath }: InkViewProps) {
         case 'order.back':
           commitScene('Send to back', (current) => reorderObjects(current, selectedIds, 'back'));
           return true;
-        case 'view.zoomIn': zoomBy(1); return true;
-        case 'view.zoomOut': zoomBy(-1); return true;
-        case 'view.fitPage': fitPage(); return true;
-        case 'view.focusMode': setFocusMode((current) => !current); return true;
-        case 'page.next': goToPage(pageIndex + 1); return true;
-        case 'page.previous': goToPage(pageIndex - 1); return true;
-        case 'document.save': void session.save(); return true;
+        case 'view.zoomIn':
+          zoomBy(1);
+          return true;
+        case 'view.zoomOut':
+          zoomBy(-1);
+          return true;
+        case 'view.fitPage':
+          fitPage();
+          return true;
+        case 'view.focusMode':
+          setFocusMode((current) => !current);
+          return true;
+        case 'page.next':
+          goToPage(pageIndex + 1);
+          return true;
+        case 'page.previous':
+          goToPage(pageIndex - 1);
+          return true;
+        case 'document.save':
+          void session.save();
+          return true;
         default:
           return false;
       }
     },
-    [commitScene, copy, deleteSelection, duplicate, fitPage, goToPage, nextId, pageIndex, paste, redo, scene, selectedIds, session, undo, zoomBy],
+    [
+      commitScene,
+      copy,
+      deleteSelection,
+      duplicate,
+      fitPage,
+      goToPage,
+      nextId,
+      pageIndex,
+      paste,
+      redo,
+      scene,
+      selectedIds,
+      session,
+      undo,
+      zoomBy,
+    ],
   );
 
   useEffect(() => {
@@ -1067,9 +1219,9 @@ export default function InkView({ relativePath }: InkViewProps) {
       {isVaultReadOnly(vault) && <ReadOnlyBanner />}
       {session.schemaSupport === 'newer' && (
         <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
-          This drawing was written by a newer version of Collab (schema{' '}
-          {session.schemaVersion} against {INK_SCHEMA_VERSION}). It is open read-only so
-          nothing that version stored is lost.
+          This drawing was written by a newer version of Collab (schema {session.schemaVersion}{' '}
+          against {INK_SCHEMA_VERSION}). It is open read-only so nothing that version stored is
+          lost.
         </div>
       )}
 
@@ -1079,7 +1231,7 @@ export default function InkView({ relativePath }: InkViewProps) {
           title={getDocumentBaseName(relativePath, 'Drawing')}
           subtitle={getDocumentFolderPath(relativePath)}
           meta={meta}
-          secondary={(
+          secondary={
             <>
               <div className={documentTopBarGroupClass}>
                 <DocumentTopBarIconButton
@@ -1179,12 +1331,16 @@ export default function InkView({ relativePath }: InkViewProps) {
                   onClick={() => void session.save()}
                   disabled={session.readOnly || !session.dirty}
                 >
-                  {session.saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                  {session.saving ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <Save size={13} />
+                  )}
                   Save
                 </DocumentTopBarButton>
               </div>
             </>
-          )}
+          }
         />
       )}
 
@@ -1287,10 +1443,12 @@ export default function InkView({ relativePath }: InkViewProps) {
             onUpdateSelectedText={updateSelectedText}
             onPageBackgroundChange={(change) => {
               if (!activePageId) return;
-              commit('Change page background', (current) => updatePage(current, activePageId, (currentPage) => ({
-                ...currentPage,
-                background: { ...currentPage.background, ...change },
-              })));
+              commit('Change page background', (current) =>
+                updatePage(current, activePageId, (currentPage) => ({
+                  ...currentPage,
+                  background: { ...currentPage.background, ...change },
+                })),
+              );
             }}
             onSelectBrushPreset={(preset) => {
               const { id, name: _name, ...brush } = preset;
@@ -1305,16 +1463,27 @@ export default function InkView({ relativePath }: InkViewProps) {
               const id = nextId('brush');
               commit('Save brush favourite', (current) => {
                 return setDocumentBrushes(current, {
-                    ...current.brushes,
-                    [id]: { ...tool.brush, id, name: `${tool.brush.kind} ${Object.keys(current.brushes).length + 1}` },
-                  });
+                  ...current.brushes,
+                  [id]: {
+                    ...tool.brush,
+                    id,
+                    name: `${tool.brush.kind} ${Object.keys(current.brushes).length + 1}`,
+                  },
+                });
               });
-              setTool((current) => ({ ...current, brushId: id, brush: { ...current.brush, presetId: id } }));
+              setTool((current) => ({
+                ...current,
+                brushId: id,
+                brush: { ...current.brush, presetId: id },
+              }));
             }}
             onAddSwatch={() => {
               const id = nextId('swatch');
               commit('Add swatch', (current) => {
-                return setDocumentSwatches(current, [...current.swatches, { id, color: tool.brush.color }]);
+                return setDocumentSwatches(current, [
+                  ...current.swatches,
+                  { id, color: tool.brush.color },
+                ]);
               });
             }}
             onSetSelectedLink={setSelectedLink}
@@ -1334,7 +1503,9 @@ export default function InkView({ relativePath }: InkViewProps) {
               if (!template || !document) return;
               const id = nextId('page');
               const templatePage = instantiateInkTemplate(template, id, nextId);
-              commit('Add page from template', (current) => addPage(current, templatePage, pageIndex + 1));
+              commit('Add page from template', (current) =>
+                addPage(current, templatePage, pageIndex + 1),
+              );
               setPageId(id);
             }}
             onDeleteTemplate={(templateId) => setTemplates(deleteInkTemplate(templateId))}
@@ -1344,7 +1515,11 @@ export default function InkView({ relativePath }: InkViewProps) {
                 if (!paths?.[0]) return;
                 const payload = await tauriCommands.readFileForUpload(paths[0]);
                 const imported = parseInkTemplate(base64ToUtf8(payload.contentBase64));
-                const template = { ...imported, id: nextId('template'), createdAt: new Date().toISOString() };
+                const template = {
+                  ...imported,
+                  id: nextId('template'),
+                  createdAt: new Date().toISOString(),
+                };
                 setTemplates(saveInkTemplate(template));
                 toast.success(`Imported drawing template “${template.name}”.`);
               } catch (error) {
@@ -1355,10 +1530,17 @@ export default function InkView({ relativePath }: InkViewProps) {
               const template = templates.find((entry) => entry.id === templateId);
               if (!template) return;
               try {
-                const safeName = template.name.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-|-$/g, '') || 'drawing-template';
-                const destination = await tauriCommands.showDownloadDialog(`${safeName}.ink-template.json`);
+                const safeName =
+                  template.name.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-|-$/g, '') ||
+                  'drawing-template';
+                const destination = await tauriCommands.showDownloadDialog(
+                  `${safeName}.ink-template.json`,
+                );
                 if (!destination) return;
-                await tauriCommands.writeDownloadedFile(destination, utf8ToBase64(serializeInkTemplate(template)));
+                await tauriCommands.writeDownloadedFile(
+                  destination,
+                  utf8ToBase64(serializeInkTemplate(template)),
+                );
                 toast.success('Drawing template exported.');
               } catch (error) {
                 toast.error((error as Error).message);
@@ -1369,7 +1551,9 @@ export default function InkView({ relativePath }: InkViewProps) {
       </div>
       <InkTextDialog
         draft={textDraft}
-        onOpenChange={(open) => { if (!open) setTextDraft(null); }}
+        onOpenChange={(open) => {
+          if (!open) setTextDraft(null);
+        }}
         onCreate={createTextFromDraft}
       />
     </div>

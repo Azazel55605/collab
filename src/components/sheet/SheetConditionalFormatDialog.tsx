@@ -1,11 +1,9 @@
 import { useState } from 'react';
+
 import { PaintBucket, Trash2 } from 'lucide-react';
 
-import type {
-  SheetConditionalFormat,
-  SheetConditionalFormatKind,
-} from '../../types/sheet';
 import type { SheetConditionalFormatDraft } from '../../lib/sheet/conditionalFormatting';
+import type { SheetConditionalFormat, SheetConditionalFormatKind } from '../../types/sheet';
 import { Button } from '../ui/button';
 import { ColorPicker } from '../ui/color-picker';
 import {
@@ -17,13 +15,7 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Input } from '../ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 const KIND_LABELS: Record<SheetConditionalFormatKind, string> = {
   comparison: 'Comparison',
@@ -72,9 +64,10 @@ export default function SheetConditionalFormatDialog({
     const draft: SheetConditionalFormatDraft = { kind };
     if (kind === 'comparison') {
       draft.operator = operator;
-      draft.values = operator === 'between'
-        ? [parsedValue(firstValue), parsedValue(secondValue)]
-        : [parsedValue(firstValue)];
+      draft.values =
+        operator === 'between'
+          ? [parsedValue(firstValue), parsedValue(secondValue)]
+          : [parsedValue(firstValue)];
       draft.style = { backgroundColor: color };
     } else if (kind === 'formula') {
       draft.formula = formula.trim();
@@ -95,7 +88,9 @@ export default function SheetConditionalFormatDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Conditional formatting</DialogTitle>
-          <DialogDescription>Format {selectionLabel} when its values match a rule.</DialogDescription>
+          <DialogDescription>
+            Format {selectionLabel} when its values match a rule.
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
           <Select value={kind} onValueChange={(value) => setKind(value as typeof kind)}>
@@ -113,8 +108,13 @@ export default function SheetConditionalFormatDialog({
 
           {kind === 'comparison' && (
             <div className="grid grid-cols-[1.2fr_1fr_1fr] gap-2">
-              <Select value={operator} onValueChange={(value) => setOperator(value as ComparisonOperator)}>
-                <SelectTrigger aria-label="Comparison operator"><SelectValue /></SelectTrigger>
+              <Select
+                value={operator}
+                onValueChange={(value) => setOperator(value as ComparisonOperator)}
+              >
+                <SelectTrigger aria-label="Comparison operator">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="equal">Equal to</SelectItem>
                   <SelectItem value="notEqual">Not equal to</SelectItem>
@@ -126,9 +126,17 @@ export default function SheetConditionalFormatDialog({
                   <SelectItem value="contains">Text contains</SelectItem>
                 </SelectContent>
               </Select>
-              <Input aria-label="Comparison value" value={firstValue} onChange={(event) => setFirstValue(event.target.value)} />
+              <Input
+                aria-label="Comparison value"
+                value={firstValue}
+                onChange={(event) => setFirstValue(event.target.value)}
+              />
               {operator === 'between' && (
-                <Input aria-label="Second comparison value" value={secondValue} onChange={(event) => setSecondValue(event.target.value)} />
+                <Input
+                  aria-label="Second comparison value"
+                  value={secondValue}
+                  onChange={(event) => setSecondValue(event.target.value)}
+                />
               )}
             </div>
           )}
@@ -143,19 +151,40 @@ export default function SheetConditionalFormatDialog({
 
           {kind === 'colorScale' ? (
             <div className="grid grid-cols-2 gap-3">
-              <ColorPicker label="Low values" value={scaleStart} onValueChange={setScaleStart} className="w-full" />
-              <ColorPicker label="High values" value={scaleEnd} onValueChange={setScaleEnd} className="w-full" />
+              <ColorPicker
+                label="Low values"
+                value={scaleStart}
+                onValueChange={setScaleStart}
+                className="w-full"
+              />
+              <ColorPicker
+                label="High values"
+                value={scaleEnd}
+                onValueChange={setScaleEnd}
+                className="w-full"
+              />
             </div>
           ) : (
-            <ColorPicker label="Cell fill" value={color} onValueChange={setColor} className="w-full" />
+            <ColorPicker
+              label="Cell fill"
+              value={color}
+              onValueChange={setColor}
+              className="w-full"
+            />
           )}
 
           {rules.length > 0 && (
             <div className="max-h-40 space-y-1 overflow-y-auto border-t border-border/60 pt-3">
               <div className="mb-1 text-xs font-medium">Worksheet rules</div>
               {rules.map((rule) => (
-                <div key={rule.id} className="flex items-center gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-xs">
-                  <span className="flex-1">{KIND_LABELS[rule.kind]} · {rule.ranges.length} range{rule.ranges.length === 1 ? '' : 's'}</span>
+                <div
+                  key={rule.id}
+                  className="flex items-center gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-xs"
+                >
+                  <span className="flex-1">
+                    {KIND_LABELS[rule.kind]} · {rule.ranges.length} range
+                    {rule.ranges.length === 1 ? '' : 's'}
+                  </span>
                   <Button
                     type="button"
                     size="icon-xs"
@@ -174,9 +203,11 @@ export default function SheetConditionalFormatDialog({
         <DialogFooter>
           <Button
             type="button"
-            disabled={readOnly
-              || (kind === 'comparison' && !firstValue.trim())
-              || (kind === 'formula' && !formula.trim().startsWith('='))}
+            disabled={
+              readOnly ||
+              (kind === 'comparison' && !firstValue.trim()) ||
+              (kind === 'formula' && !formula.trim().startsWith('='))
+            }
             onClick={apply}
           >
             <PaintBucket />

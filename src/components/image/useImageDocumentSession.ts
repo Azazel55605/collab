@@ -1,25 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 
-import { tauriCommands } from '../../lib/tauri';
 import {
-  useDocumentSessionController,
   type DocumentStatus,
   type RemoteCandidate,
+  useDocumentSessionController,
 } from '../../lib/documentSessionController';
+import { tauriCommands } from '../../lib/tauri';
 import { createVaultClient } from '../../lib/vaultClient';
-import type {
-  ImageOverlayDocument,
-  PermanentImageEdits,
-} from '../../types/image';
+import type { ImageOverlayDocument, PermanentImageEdits } from '../../types/image';
 import type { VaultMeta } from '../../types/vault';
-import {
-  createEmptyEdits,
-  EMPTY_SIZE,
-  isPermanentDirty,
-  type Dimensions,
-} from './ImageViewUtils';
+
+import { createEmptyEdits, type Dimensions, EMPTY_SIZE, isPermanentDirty } from './ImageViewUtils';
 
 function getImageOutputFolder(relativePath: string | null) {
   if (!relativePath) return 'Pictures';
@@ -52,7 +46,11 @@ interface UseImageDocumentSessionOptions {
   vault: VaultMeta | null;
   relativePath: string | null;
   refreshFileTree: () => Promise<void>;
-  openTab: (relativePath: string, title: string, type?: 'note' | 'image' | 'pdf' | 'canvas' | 'kanban' | 'graph' | 'settings') => void;
+  openTab: (
+    relativePath: string,
+    title: string,
+    type?: 'note' | 'image' | 'pdf' | 'canvas' | 'kanban' | 'graph' | 'settings',
+  ) => void;
   markDirty: (path: string) => void;
   markSaved: (path: string, hash: string) => void;
   mode: 'view' | 'additive' | 'permanent';
@@ -73,7 +71,11 @@ interface UseImageDocumentSessionOptions {
     edits: PermanentImageEdits,
     options?: { ignoreCrop?: boolean; ignoreResize?: boolean },
   ) => { canvas: HTMLCanvasElement; sourceSize: Dimensions };
-  renderCanvasToElement: (canvas: HTMLCanvasElement, target: HTMLCanvasElement, display: Dimensions) => void;
+  renderCanvasToElement: (
+    canvas: HTMLCanvasElement,
+    target: HTMLCanvasElement,
+    display: Dimensions,
+  ) => void;
   drawOverlayToCanvas: (
     ctx: CanvasRenderingContext2D,
     overlay: ImageOverlayDocument | null,
@@ -164,55 +166,67 @@ export function useImageDocumentSession({
   const hostedAssetImporter = vaultClient?.runtime.externalAssetImport ?? null;
   const vaultPath = vault?.path ?? null;
   const overlayFallbackDimensionsRef = useRef<Dimensions>(EMPTY_SIZE);
-  overlayFallbackDimensionsRef.current = dimensions
-    ?? (overlayDoc ? { width: overlayDoc.baseWidth, height: overlayDoc.baseHeight } : EMPTY_SIZE);
+  overlayFallbackDimensionsRef.current =
+    dimensions ??
+    (overlayDoc ? { width: overlayDoc.baseWidth, height: overlayDoc.baseHeight } : EMPTY_SIZE);
   const permanentDirty = useMemo(() => isPermanentDirty(permanentEdits), [permanentEdits]);
 
   const serializeOverlay = useCallback((doc: ImageOverlayDocument) => JSON.stringify(doc), []);
-  const parseOverlay = useCallback((content: string) => JSON.parse(content) as ImageOverlayDocument, []);
-  const applyOverlayDocument = useCallback((candidate: RemoteCandidate<ImageOverlayDocument>) => {
-    setOverlayDoc(candidate.document);
-    setPersistedOverlaySignature(candidate.content);
-    setOverlayLoaded(true);
-  }, [setOverlayDoc, setOverlayLoaded, setPersistedOverlaySignature]);
-  const readOverlayDocument = useCallback(async (fallbackDimensions?: Dimensions): Promise<{ content: string; version: string }> => {
-    const dimensionsForFallback = fallbackDimensions ?? overlayFallbackDimensionsRef.current;
-    if (!vaultPath || !relativePath) {
+  const parseOverlay = useCallback(
+    (content: string) => JSON.parse(content) as ImageOverlayDocument,
+    [],
+  );
+  const applyOverlayDocument = useCallback(
+    (candidate: RemoteCandidate<ImageOverlayDocument>) => {
+      setOverlayDoc(candidate.document);
+      setPersistedOverlaySignature(candidate.content);
+      setOverlayLoaded(true);
+    },
+    [setOverlayDoc, setOverlayLoaded, setPersistedOverlaySignature],
+  );
+  const readOverlayDocument = useCallback(
+    async (fallbackDimensions?: Dimensions): Promise<{ content: string; version: string }> => {
+      const dimensionsForFallback = fallbackDimensions ?? overlayFallbackDimensionsRef.current;
+      if (!vaultPath || !relativePath) {
+        const fallback = createEmptyOverlayDocument(dimensionsForFallback);
+        const content = JSON.stringify(fallback);
+        return { content, version: content };
+      }
+      const overlayContent = await tauriCommands.readImageOverlay(vaultPath, relativePath);
+      if (overlayContent) return { content: overlayContent, version: overlayContent };
       const fallback = createEmptyOverlayDocument(dimensionsForFallback);
       const content = JSON.stringify(fallback);
       return { content, version: content };
-    }
-    const overlayContent = await tauriCommands.readImageOverlay(vaultPath, relativePath);
-    if (overlayContent) return { content: overlayContent, version: overlayContent };
-    const fallback = createEmptyOverlayDocument(dimensionsForFallback);
-    const content = JSON.stringify(fallback);
-    return { content, version: content };
-  }, [createEmptyOverlayDocument, relativePath, vaultPath]);
+    },
+    [createEmptyOverlayDocument, relativePath, vaultPath],
+  );
 
-  const { controller: overlayController, snapshot: overlaySnapshot } = useDocumentSessionController<ImageOverlayDocument>({
-    serialize: serializeOverlay,
-    deserialize: parseOverlay,
-    applyDocument: applyOverlayDocument,
-    read: async () => {
-      if (!supportsImageEditing || !vaultPath || !relativePath) return null;
-      return readOverlayDocument();
-    },
-    write: async ({ content, expectedVersion }) => {
-      if (!supportsImageEditing || !vaultPath || !relativePath) return { version: expectedVersion ?? content };
-      const parsed = parseOverlay(content);
-      if (parsed.items.length === 0) {
-        await tauriCommands.deleteImageOverlay(vaultPath, relativePath);
-        const emptyContent = JSON.stringify(parsed);
-        setPersistedOverlaySignature('');
-        return { version: emptyContent, mergedContent: emptyContent };
-      }
-      const toPersist = JSON.stringify({ ...parsed, updatedAt: Date.now() });
-      await tauriCommands.writeImageOverlay(vaultPath, relativePath, toPersist);
-      setPersistedOverlaySignature(toPersist);
-      return { version: toPersist, mergedContent: toPersist };
-    },
-    autosaveDebounceMs: 450,
-  });
+  const { controller: overlayController, snapshot: overlaySnapshot } =
+    useDocumentSessionController<ImageOverlayDocument>({
+      serialize: serializeOverlay,
+      deserialize: parseOverlay,
+      applyDocument: applyOverlayDocument,
+      read: async () => {
+        if (!supportsImageEditing || !vaultPath || !relativePath) return null;
+        return readOverlayDocument();
+      },
+      write: async ({ content, expectedVersion }) => {
+        if (!supportsImageEditing || !vaultPath || !relativePath)
+          return { version: expectedVersion ?? content };
+        const parsed = parseOverlay(content);
+        if (parsed.items.length === 0) {
+          await tauriCommands.deleteImageOverlay(vaultPath, relativePath);
+          const emptyContent = JSON.stringify(parsed);
+          setPersistedOverlaySignature('');
+          return { version: emptyContent, mergedContent: emptyContent };
+        }
+        const toPersist = JSON.stringify({ ...parsed, updatedAt: Date.now() });
+        await tauriCommands.writeImageOverlay(vaultPath, relativePath, toPersist);
+        setPersistedOverlaySignature(toPersist);
+        return { version: toPersist, mergedContent: toPersist };
+      },
+      autosaveDebounceMs: 450,
+    });
 
   const overlayDirty = overlayLoaded && overlaySnapshot.dirty;
   const overlayStatus: DocumentStatus = overlaySnapshot.status;
@@ -252,7 +266,8 @@ export function useImageDocumentSession({
     setTextInteraction(null);
     setArrowInteraction(null);
 
-    vaultClient.readAssetDataUrl(relativePath)
+    vaultClient
+      .readAssetDataUrl(relativePath)
       .then(async (dataUrl) => {
         const decoded = await loadImage(dataUrl);
         if (cancelled) return;
@@ -342,19 +357,30 @@ export function useImageDocumentSession({
       return;
     }
 
-    setOverlayDoc((current) => current ? {
-      ...current,
-      baseWidth: dimensions.width,
-      baseHeight: dimensions.height,
-      updatedAt: Date.now(),
-    } : createEmptyOverlayDocument(dimensions));
+    setOverlayDoc((current) =>
+      current
+        ? {
+            ...current,
+            baseWidth: dimensions.width,
+            baseHeight: dimensions.height,
+            updatedAt: Date.now(),
+          }
+        : createEmptyOverlayDocument(dimensions),
+    );
   }, [createEmptyOverlayDocument, dimensions, overlayDoc, setOverlayDoc]);
 
   useEffect(() => {
     if (!relativePath) return;
     if (overlayDirty || permanentDirty) markDirty(relativePath);
     else markSaved(relativePath, `image:${overlaySnapshot.loadedVersion ?? ''}`);
-  }, [markDirty, markSaved, overlayDirty, permanentDirty, relativePath, overlaySnapshot.loadedVersion]);
+  }, [
+    markDirty,
+    markSaved,
+    overlayDirty,
+    permanentDirty,
+    relativePath,
+    overlaySnapshot.loadedVersion,
+  ]);
 
   useEffect(() => {
     if (!overlayLoaded || !overlayDoc || !supportsImageEditing) return;
@@ -378,7 +404,9 @@ export function useImageDocumentSession({
 
   useEffect(() => {
     if (!overlaySnapshot.conflicted) return;
-    toast.error('Image annotations changed elsewhere. Review the pending changes before editing further.');
+    toast.error(
+      'Image annotations changed elsewhere. Review the pending changes before editing further.',
+    );
   }, [overlaySnapshot.conflicted]);
 
   useEffect(() => {
@@ -400,126 +428,138 @@ export function useImageDocumentSession({
     renderCanvasToElement,
   ]);
 
-  const saveImageOutput = useCallback(async (overwrite: boolean) => {
-    if (!vault || !relativePath || !image || !saveIntent) return;
-    if (!supportsImageEditing && !hostedAssetImporter) {
-      toast.error('Saving edited images is not supported for this vault.');
-      return;
-    }
-    if (!supportsImageEditing && overwrite) {
-      toast.error('Overwriting hosted images is not yet supported. Save as a new file instead.');
-      return;
-    }
-
-    const renderCanvas = saveIntent === 'flatten'
-      ? (() => {
-          const canvas = document.createElement('canvas');
-          canvas.width = image.naturalWidth;
-          canvas.height = image.naturalHeight;
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(image, 0, 0);
-          if (ctx && overlayDoc) {
-            drawOverlayToCanvas(ctx, overlayDoc, {
-              width: image.naturalWidth,
-              height: image.naturalHeight,
-            });
-          }
-          return canvas;
-        })()
-      : buildPermanentCanvas(image, permanentEdits).canvas;
-
-    const targetMime = overwrite
-      ? getOutputMime(relativePath)
-      : (saveIntent === 'permanent' ? getOutputMime(relativePath) : 'image/png');
-    const dataUrl = renderCanvas.toDataURL(targetMime, targetMime === 'image/jpeg' ? 0.92 : undefined);
-
-    try {
-      setSaving(true);
-      const savedRelativePath = supportsImageEditing
-        ? await tauriCommands.saveGeneratedImage(
-            vault.path,
-            relativePath,
-            dataUrl,
-            overwrite,
-            overwrite ? undefined : getOutputFileName(relativePath, targetMime),
-          )
-        : await (async () => {
-            const targetFolder = getImageOutputFolder(relativePath);
-            const suggestedName = getUniqueImageOutputFileName(
-              await vaultClient!.listFiles(),
-              targetFolder,
-              getOutputFileName(relativePath, targetMime),
-            );
-            return hostedAssetImporter!.importData(dataUrl, suggestedName, targetFolder);
-          })();
-
-      if (saveIntent === 'flatten' && overwrite) {
-        await tauriCommands.deleteImageOverlay(vault.path, relativePath);
-        const emptyDoc = createEmptyOverlayDocument({
-          width: image.naturalWidth,
-          height: image.naturalHeight,
-        });
-        setOverlayDoc(emptyDoc);
-        setPersistedOverlaySignature('');
-        setSelectedItemId(null);
+  const saveImageOutput = useCallback(
+    async (overwrite: boolean) => {
+      if (!vault || !relativePath || !image || !saveIntent) return;
+      if (!supportsImageEditing && !hostedAssetImporter) {
+        toast.error('Saving edited images is not supported for this vault.');
+        return;
+      }
+      if (!supportsImageEditing && overwrite) {
+        toast.error('Overwriting hosted images is not yet supported. Save as a new file instead.');
+        return;
       }
 
-      if (saveIntent === 'permanent') {
-        setPermanentEdits(createEmptyEdits());
-        setCropMode(false);
-        setCropDraft(null);
+      const renderCanvas =
+        saveIntent === 'flatten'
+          ? (() => {
+              const canvas = document.createElement('canvas');
+              canvas.width = image.naturalWidth;
+              canvas.height = image.naturalHeight;
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(image, 0, 0);
+              if (ctx && overlayDoc) {
+                drawOverlayToCanvas(ctx, overlayDoc, {
+                  width: image.naturalWidth,
+                  height: image.naturalHeight,
+                });
+              }
+              return canvas;
+            })()
+          : buildPermanentCanvas(image, permanentEdits).canvas;
+
+      const targetMime = overwrite
+        ? getOutputMime(relativePath)
+        : saveIntent === 'permanent'
+          ? getOutputMime(relativePath)
+          : 'image/png';
+      const dataUrl = renderCanvas.toDataURL(
+        targetMime,
+        targetMime === 'image/jpeg' ? 0.92 : undefined,
+      );
+
+      try {
+        setSaving(true);
+        const savedRelativePath = supportsImageEditing
+          ? await tauriCommands.saveGeneratedImage(
+              vault.path,
+              relativePath,
+              dataUrl,
+              overwrite,
+              overwrite ? undefined : getOutputFileName(relativePath, targetMime),
+            )
+          : await (async () => {
+              const targetFolder = getImageOutputFolder(relativePath);
+              const suggestedName = getUniqueImageOutputFileName(
+                await vaultClient!.listFiles(),
+                targetFolder,
+                getOutputFileName(relativePath, targetMime),
+              );
+              return hostedAssetImporter!.importData(dataUrl, suggestedName, targetFolder);
+            })();
+
+        if (saveIntent === 'flatten' && overwrite) {
+          await tauriCommands.deleteImageOverlay(vault.path, relativePath);
+          const emptyDoc = createEmptyOverlayDocument({
+            width: image.naturalWidth,
+            height: image.naturalHeight,
+          });
+          setOverlayDoc(emptyDoc);
+          setPersistedOverlaySignature('');
+          setSelectedItemId(null);
+        }
+
+        if (saveIntent === 'permanent') {
+          setPermanentEdits(createEmptyEdits());
+          setCropMode(false);
+          setCropDraft(null);
+        }
+
+        await refreshFileTree();
+
+        if (overwrite) {
+          const refreshedDataUrl = await vaultClient!.readAssetDataUrl(savedRelativePath);
+          const refreshedImage = await loadImage(refreshedDataUrl);
+          setSrc(refreshedDataUrl);
+          setImage(refreshedImage);
+          setDimensions({
+            width: refreshedImage.naturalWidth,
+            height: refreshedImage.naturalHeight,
+          });
+        } else {
+          openTab(savedRelativePath, getBaseName(savedRelativePath), 'image');
+        }
+
+        toast.success(overwrite ? 'Image updated' : 'Edited image saved as a new file');
+        setSaveIntent(null);
+      } catch (saveError) {
+        toast.error(`Failed to save image: ${saveError}`);
+      } finally {
+        setSaving(false);
       }
-
-      await refreshFileTree();
-
-      if (overwrite) {
-        const refreshedDataUrl = await vaultClient!.readAssetDataUrl(savedRelativePath);
-        const refreshedImage = await loadImage(refreshedDataUrl);
-        setSrc(refreshedDataUrl);
-        setImage(refreshedImage);
-        setDimensions({ width: refreshedImage.naturalWidth, height: refreshedImage.naturalHeight });
-      } else {
-        openTab(savedRelativePath, getBaseName(savedRelativePath), 'image');
-      }
-
-      toast.success(overwrite ? 'Image updated' : 'Edited image saved as a new file');
-      setSaveIntent(null);
-    } catch (saveError) {
-      toast.error(`Failed to save image: ${saveError}`);
-    } finally {
-      setSaving(false);
-    }
-  }, [
-    buildPermanentCanvas,
-    createEmptyOverlayDocument,
-    drawOverlayToCanvas,
-    getBaseName,
-    getOutputFileName,
-    getOutputMime,
-    hostedAssetImporter,
-    image,
-    loadImage,
-    openTab,
-    overlayDoc,
-    permanentEdits,
-    refreshFileTree,
-    relativePath,
-    saveIntent,
-    setCropDraft,
-    setCropMode,
-    setDimensions,
-    setImage,
-    setOverlayDoc,
-    setPersistedOverlaySignature,
-    setPermanentEdits,
-    setSaveIntent,
-    setSaving,
-    setSelectedItemId,
-    setSrc,
-    supportsImageEditing,
-    vault,
-    vaultClient,
-  ]);
+    },
+    [
+      buildPermanentCanvas,
+      createEmptyOverlayDocument,
+      drawOverlayToCanvas,
+      getBaseName,
+      getOutputFileName,
+      getOutputMime,
+      hostedAssetImporter,
+      image,
+      loadImage,
+      openTab,
+      overlayDoc,
+      permanentEdits,
+      refreshFileTree,
+      relativePath,
+      saveIntent,
+      setCropDraft,
+      setCropMode,
+      setDimensions,
+      setImage,
+      setOverlayDoc,
+      setPersistedOverlaySignature,
+      setPermanentEdits,
+      setSaveIntent,
+      setSaving,
+      setSelectedItemId,
+      setSrc,
+      supportsImageEditing,
+      vault,
+      vaultClient,
+    ],
+  );
 
   return {
     overlayDirty,

@@ -1,13 +1,19 @@
-import * as Y from 'yjs';
 import {
   applyAwarenessUpdate,
   Awareness,
   encodeAwarenessUpdate,
   removeAwarenessStates,
 } from 'y-protocols/awareness';
-import { tauriCommands } from './tauri';
+import * as Y from 'yjs';
+
 import { isLiveCollabDebugEnabled, liveDebugPush } from './liveDebugLog';
-import { createLiveSocket, LIVE_SOCKET_OPEN, type LiveSocket, type LiveSocketMessage } from './liveSocket';
+import {
+  createLiveSocket,
+  LIVE_SOCKET_OPEN,
+  type LiveSocket,
+  type LiveSocketMessage,
+} from './liveSocket';
+import { tauriCommands } from './tauri';
 import type { VaultClient } from './vaultClient';
 
 /**
@@ -140,7 +146,13 @@ function liveLog(file: string, message: string, detail?: unknown): void {
   liveDebugPush(file, detail === undefined ? message : `${message} ${JSON.stringify(detail)}`);
 }
 function tagName(tag: number): string {
-  return tag === SYNC_STEP1 ? 'SYNC_STEP1' : tag === SYNC_UPDATE ? 'SYNC_UPDATE' : tag === AWARENESS ? 'AWARENESS' : `tag#${tag}`;
+  return tag === SYNC_STEP1
+    ? 'SYNC_STEP1'
+    : tag === SYNC_UPDATE
+      ? 'SYNC_UPDATE'
+      : tag === AWARENESS
+        ? 'AWARENESS'
+        : `tag#${tag}`;
 }
 
 export class WebSocketYProvider {
@@ -185,8 +197,12 @@ export class WebSocketYProvider {
       // CodeMirror/yCollab binding is actually feeding local edits into Y.Text
       // (sender) and whether received remote updates land in Y.Text (receiver).
       this.doc.on('update', (_u: Uint8Array, origin: unknown) => {
-        const kind = origin === REMOTE_ORIGIN ? 'remote' : origin === SEED_ORIGIN ? 'seed' : 'local';
-        liveLog(target.fileId, `doc update (${kind}) -> text len ${this.doc.getText(NOTE_TEXT_NAME).length}`);
+        const kind =
+          origin === REMOTE_ORIGIN ? 'remote' : origin === SEED_ORIGIN ? 'seed' : 'local';
+        liveLog(
+          target.fileId,
+          `doc update (${kind}) -> text len ${this.doc.getText(NOTE_TEXT_NAME).length}`,
+        );
       });
     }
   }
@@ -304,7 +320,10 @@ export class WebSocketYProvider {
       this.socket.send(frame(tag, this.fileIdBytes, payload));
       liveLog(this.target.fileId, `send ${tagName(tag)} (${payload.length}B)`);
     } else {
-      liveLog(this.target.fileId, `send ${tagName(tag)} DROPPED (socket ${this.socket?.readyState ?? 'null'})`);
+      liveLog(
+        this.target.fileId,
+        `send ${tagName(tag)} DROPPED (socket ${this.socket?.readyState ?? 'null'})`,
+      );
     }
   }
 
@@ -513,10 +532,7 @@ export class WebSocketYProvider {
 
   private scheduleReconnect() {
     if (this.destroyed || this.fatal || this.reconnectTimer) return;
-    const delay = Math.min(
-      RECONNECT_BASE_MS * 2 ** this.reconnectAttempts,
-      RECONNECT_MAX_MS,
-    );
+    const delay = Math.min(RECONNECT_BASE_MS * 2 ** this.reconnectAttempts, RECONNECT_MAX_MS);
     this.reconnectAttempts += 1;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;

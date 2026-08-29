@@ -1,23 +1,36 @@
-import { Bell, CalendarDays, Check, ChevronDown, CircleAlert, Clock3, Gift, MessageSquare, RefreshCw, Save, Send, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
+import {
+  Bell,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  CircleAlert,
+  Clock3,
+  Gift,
+  MessageSquare,
+  RefreshCw,
+  Save,
+  Send,
+  X,
+} from 'lucide-react';
+
+import { DEFAULT_NOTIFICATION_PREFERENCES } from '../../../../src/lib/notificationContract';
+import type { CalendarDefinition } from '../../../../src/types/calendar';
 import type {
   NotificationCategory,
   NotificationPermissionStatus,
   NotificationPreferences,
   NotificationRecord,
 } from '../../../../src/types/notification';
-import type { CalendarDefinition } from '../../../../src/types/calendar';
-import { DEFAULT_NOTIFICATION_PREFERENCES } from '../../../../src/lib/notificationContract';
-import { TimeField } from './TimeField';
 import { mobileCalendarProfileId } from '../lib/calendarSync';
-import { useMobileStore } from '../state/store';
 import {
+  type AndroidExactAlarmStatus,
+  listProfileCalendars,
   notificationAndroidExactAlarmStatus,
   notificationAndroidOpenExactAlarmSettings,
   notificationDismiss,
   notificationListInbox,
-  listProfileCalendars,
   notificationMarkRead,
   notificationPermissionStatus,
   notificationPreferencesGet,
@@ -27,8 +40,10 @@ import {
   notificationRetry,
   notificationSendTest,
   notificationSnooze,
-  type AndroidExactAlarmStatus,
 } from '../mobileTauri';
+import { useMobileStore } from '../state/store';
+
+import { TimeField } from './TimeField';
 
 const CATEGORY_LABELS: Array<[NotificationCategory, string]> = [
   ['calendar.reminder', 'Calendar reminders'],
@@ -65,20 +80,23 @@ export function NotificationSettingsSection() {
   const [exactAlarm, setExactAlarm] = useState<AndroidExactAlarmStatus | null>(null);
   const [records, setRecords] = useState<NotificationRecord[]>([]);
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
-  const [expandedScope, setExpandedScope] = useState<'servers' | 'vaults' | 'calendars' | null>(null);
+  const [expandedScope, setExpandedScope] = useState<'servers' | 'vaults' | 'calendars' | null>(
+    null,
+  );
   const [calendars, setCalendars] = useState<CalendarDefinition[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [nextPermission, nextExactAlarm, nextRecords, nextPreferences, nextCalendars] = await Promise.all([
-        notificationPermissionStatus(),
-        notificationAndroidExactAlarmStatus(),
-        notificationListInbox(profileId),
-        notificationPreferencesGet(profileId),
-        listProfileCalendars(profileId),
-      ]);
+      const [nextPermission, nextExactAlarm, nextRecords, nextPreferences, nextCalendars] =
+        await Promise.all([
+          notificationPermissionStatus(),
+          notificationAndroidExactAlarmStatus(),
+          notificationListInbox(profileId),
+          notificationPreferencesGet(profileId),
+          listProfileCalendars(profileId),
+        ]);
       setPermission(nextPermission);
       setExactAlarm(nextExactAlarm);
       setRecords(nextRecords);
@@ -116,7 +134,9 @@ export function NotificationSettingsSection() {
       setBusy(false);
     }
   };
-  const updatePreferences = (update: (current: NotificationPreferences) => NotificationPreferences) => {
+  const updatePreferences = (
+    update: (current: NotificationPreferences) => NotificationPreferences,
+  ) => {
     setPreferences((current) => update(current ?? DEFAULT_NOTIFICATION_PREFERENCES));
   };
   const toggleScope = (scopeKey: string) => {
@@ -132,23 +152,24 @@ export function NotificationSettingsSection() {
     label: server.username || server.serverUrl,
     description: server.username ? server.serverUrl : undefined,
   }));
-  const vaultSources = Object.entries(vaults).flatMap(([serverUrl, serverVaults]) => (
+  const vaultSources = Object.entries(vaults).flatMap(([serverUrl, serverVaults]) =>
     serverVaults.map((vault) => ({
       key: `vault:${vault.id}`,
       label: vault.name,
       description: serverUrl,
-    }))
-  ));
+    })),
+  );
   const calendarSources = calendars.map((calendar) => ({
     key: `calendar:${calendar.id}`,
     label: calendar.name,
-    description: calendar.location.kind === 'hosted'
-      ? calendar.location.serverUrl
-      : calendar.location.kind === 'local'
-        ? 'Local calendar'
-        : calendar.location.kind === 'subscription'
-          ? 'Subscribed calendar'
-          : 'Kanban tasks',
+    description:
+      calendar.location.kind === 'hosted'
+        ? calendar.location.serverUrl
+        : calendar.location.kind === 'local'
+          ? 'Local calendar'
+          : calendar.location.kind === 'subscription'
+            ? 'Subscribed calendar'
+            : 'Kanban tasks',
     color: calendar.color,
   }));
 
@@ -164,7 +185,9 @@ export function NotificationSettingsSection() {
             <strong>Notification permission</strong>
             <span>Required for reminders while Collab is closed.</span>
           </div>
-          <strong className="setting-value">{permission?.status.replace(/-/g, ' ') ?? 'Checking'}</strong>
+          <strong className="setting-value">
+            {permission?.status.replace(/-/g, ' ') ?? 'Checking'}
+          </strong>
         </div>
         {permission?.status !== 'granted' ? (
           <button
@@ -211,166 +234,220 @@ export function NotificationSettingsSection() {
             Open alarm settings
           </button>
         ) : null}
-        {preferences ? <>
-          <label className="toggle-row">
-            <span><strong>Notifications</strong><small>Control native delivery for this device profile.</small></span>
-            <input
-              type="checkbox"
-              checked={preferences.enabled}
-              onChange={() => updatePreferences((current) => ({ ...current, enabled: !current.enabled }))}
-            />
-          </label>
-          <div className="setting-row stacked">
-            <div><strong>Lock-screen privacy</strong><span>Limit content shown outside Collab.</span></div>
-            <div className="segmented-control" role="group" aria-label="Lock-screen privacy">
-              {([
-                ['full', 'Full'],
-                ['title-only', 'Title'],
-                ['hidden', 'Hidden'],
-              ] as const).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={preferences.lockScreenPrivacy === value ? 'selected' : ''}
-                  onClick={() => updatePreferences((current) => ({
-                    ...current,
-                    lockScreenPrivacy: value,
-                  }))}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <label className="toggle-row">
-            <span><strong>Group notification bursts</strong><small>Use summaries when several items become due together.</small></span>
-            <input
-              type="checkbox"
-              checked={preferences.batchNotifications}
-              onChange={() => updatePreferences((current) => ({
-                ...current,
-                batchNotifications: !current.batchNotifications,
-              }))}
-            />
-          </label>
-          {CATEGORY_LABELS.map(([category, label]) => (
-            <label className="toggle-row" key={category}>
-              <span><strong>{label}</strong></span>
-              <input
-                type="checkbox"
-                checked={preferences.categoryEnabled[category]}
-                onChange={() => updatePreferences((current) => ({
-                  ...current,
-                  categoryEnabled: {
-                    ...current.categoryEnabled,
-                    [category]: !current.categoryEnabled[category],
-                  },
-                }))}
-              />
-            </label>
-          ))}
-          <div className="setting-row stacked">
-            <div>
-              <strong>Notification sources</strong>
-              <span>Muted sources remain available in the notification inbox.</span>
-            </div>
-            <div className="mobile-notification-sources">
-              <MobileScopeGroup
-                id="servers"
-                label="Servers"
-                sources={serverSources}
-                preferences={preferences}
-                onToggle={toggleScope}
-                expanded={expandedScope === 'servers'}
-                onExpandedChange={() => setExpandedScope((current) => current === 'servers' ? null : 'servers')}
-              />
-              <MobileScopeGroup
-                id="vaults"
-                label="Vaults"
-                sources={vaultSources}
-                preferences={preferences}
-                onToggle={toggleScope}
-                expanded={expandedScope === 'vaults'}
-                onExpandedChange={() => setExpandedScope((current) => current === 'vaults' ? null : 'vaults')}
-              />
-              <MobileScopeGroup
-                id="calendars"
-                label="Calendars"
-                sources={calendarSources}
-                preferences={preferences}
-                onToggle={toggleScope}
-                expanded={expandedScope === 'calendars'}
-                onExpandedChange={() => setExpandedScope((current) => current === 'calendars' ? null : 'calendars')}
-              />
-            </div>
-          </div>
-          <label className="toggle-row">
-            <span><strong>Quiet hours</strong><small>Delay non-urgent native notifications.</small></span>
-            <input
-              type="checkbox"
-              checked={preferences.quietHours !== null}
-              onChange={() => updatePreferences((current) => ({
-                ...current,
-                quietHours: current.quietHours
-                  ? null
-                  : {
-                    startMinute: 22 * 60,
-                    endMinute: 7 * 60,
-                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-                  },
-              }))}
-            />
-          </label>
-          {preferences.quietHours ? <>
-            <div className="mobile-notification-quiet-times">
-              <label><span>Starts</span><TimeField
-                label="Quiet hours start"
-                format="system"
-                value={minuteToTime(preferences.quietHours.startMinute)}
-                onChange={(value) => updatePreferences((current) => ({
-                  ...current,
-                  quietHours: current.quietHours
-                    ? { ...current.quietHours, startMinute: timeToMinute(value) }
-                    : null,
-                }))}
-              /></label>
-              <label><span>Ends</span><TimeField
-                label="Quiet hours end"
-                format="system"
-                value={minuteToTime(preferences.quietHours.endMinute)}
-                onChange={(value) => updatePreferences((current) => ({
-                  ...current,
-                  quietHours: current.quietHours
-                    ? { ...current.quietHours, endMinute: timeToMinute(value) }
-                    : null,
-                }))}
-              /></label>
-            </div>
-            <p className="footnote">{preferences.quietHours.timeZone}</p>
+        {preferences ? (
+          <>
             <label className="toggle-row">
-              <span><strong>Allow time-sensitive notifications</strong><small>Urgent reminders may bypass quiet hours.</small></span>
+              <span>
+                <strong>Notifications</strong>
+                <small>Control native delivery for this device profile.</small>
+              </span>
               <input
                 type="checkbox"
-                checked={preferences.allowTimeSensitiveDuringQuietHours}
-                onChange={() => updatePreferences((current) => ({
-                  ...current,
-                  allowTimeSensitiveDuringQuietHours: !current.allowTimeSensitiveDuringQuietHours,
-                }))}
+                checked={preferences.enabled}
+                onChange={() =>
+                  updatePreferences((current) => ({ ...current, enabled: !current.enabled }))
+                }
               />
             </label>
-          </> : null}
-          <button
-            type="button"
-            className="primary-button"
-            disabled={busy}
-            onClick={() => void run(async () => {
-              setPreferences(await notificationPreferencesSave(profileId, preferences));
-            })}
-          >
-            <Save size={16} aria-hidden />
-            Save notification preferences
-          </button>
-        </> : null}
+            <div className="setting-row stacked">
+              <div>
+                <strong>Lock-screen privacy</strong>
+                <span>Limit content shown outside Collab.</span>
+              </div>
+              <div className="segmented-control" role="group" aria-label="Lock-screen privacy">
+                {(
+                  [
+                    ['full', 'Full'],
+                    ['title-only', 'Title'],
+                    ['hidden', 'Hidden'],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={preferences.lockScreenPrivacy === value ? 'selected' : ''}
+                    onClick={() =>
+                      updatePreferences((current) => ({
+                        ...current,
+                        lockScreenPrivacy: value,
+                      }))
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="toggle-row">
+              <span>
+                <strong>Group notification bursts</strong>
+                <small>Use summaries when several items become due together.</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={preferences.batchNotifications}
+                onChange={() =>
+                  updatePreferences((current) => ({
+                    ...current,
+                    batchNotifications: !current.batchNotifications,
+                  }))
+                }
+              />
+            </label>
+            {CATEGORY_LABELS.map(([category, label]) => (
+              <label className="toggle-row" key={category}>
+                <span>
+                  <strong>{label}</strong>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={preferences.categoryEnabled[category]}
+                  onChange={() =>
+                    updatePreferences((current) => ({
+                      ...current,
+                      categoryEnabled: {
+                        ...current.categoryEnabled,
+                        [category]: !current.categoryEnabled[category],
+                      },
+                    }))
+                  }
+                />
+              </label>
+            ))}
+            <div className="setting-row stacked">
+              <div>
+                <strong>Notification sources</strong>
+                <span>Muted sources remain available in the notification inbox.</span>
+              </div>
+              <div className="mobile-notification-sources">
+                <MobileScopeGroup
+                  id="servers"
+                  label="Servers"
+                  sources={serverSources}
+                  preferences={preferences}
+                  onToggle={toggleScope}
+                  expanded={expandedScope === 'servers'}
+                  onExpandedChange={() =>
+                    setExpandedScope((current) => (current === 'servers' ? null : 'servers'))
+                  }
+                />
+                <MobileScopeGroup
+                  id="vaults"
+                  label="Vaults"
+                  sources={vaultSources}
+                  preferences={preferences}
+                  onToggle={toggleScope}
+                  expanded={expandedScope === 'vaults'}
+                  onExpandedChange={() =>
+                    setExpandedScope((current) => (current === 'vaults' ? null : 'vaults'))
+                  }
+                />
+                <MobileScopeGroup
+                  id="calendars"
+                  label="Calendars"
+                  sources={calendarSources}
+                  preferences={preferences}
+                  onToggle={toggleScope}
+                  expanded={expandedScope === 'calendars'}
+                  onExpandedChange={() =>
+                    setExpandedScope((current) => (current === 'calendars' ? null : 'calendars'))
+                  }
+                />
+              </div>
+            </div>
+            <label className="toggle-row">
+              <span>
+                <strong>Quiet hours</strong>
+                <small>Delay non-urgent native notifications.</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={preferences.quietHours !== null}
+                onChange={() =>
+                  updatePreferences((current) => ({
+                    ...current,
+                    quietHours: current.quietHours
+                      ? null
+                      : {
+                          startMinute: 22 * 60,
+                          endMinute: 7 * 60,
+                          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+                        },
+                  }))
+                }
+              />
+            </label>
+            {preferences.quietHours ? (
+              <>
+                <div className="mobile-notification-quiet-times">
+                  <label>
+                    <span>Starts</span>
+                    <TimeField
+                      label="Quiet hours start"
+                      format="system"
+                      value={minuteToTime(preferences.quietHours.startMinute)}
+                      onChange={(value) =>
+                        updatePreferences((current) => ({
+                          ...current,
+                          quietHours: current.quietHours
+                            ? { ...current.quietHours, startMinute: timeToMinute(value) }
+                            : null,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>Ends</span>
+                    <TimeField
+                      label="Quiet hours end"
+                      format="system"
+                      value={minuteToTime(preferences.quietHours.endMinute)}
+                      onChange={(value) =>
+                        updatePreferences((current) => ({
+                          ...current,
+                          quietHours: current.quietHours
+                            ? { ...current.quietHours, endMinute: timeToMinute(value) }
+                            : null,
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+                <p className="footnote">{preferences.quietHours.timeZone}</p>
+                <label className="toggle-row">
+                  <span>
+                    <strong>Allow time-sensitive notifications</strong>
+                    <small>Urgent reminders may bypass quiet hours.</small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={preferences.allowTimeSensitiveDuringQuietHours}
+                    onChange={() =>
+                      updatePreferences((current) => ({
+                        ...current,
+                        allowTimeSensitiveDuringQuietHours:
+                          !current.allowTimeSensitiveDuringQuietHours,
+                      }))
+                    }
+                  />
+                </label>
+              </>
+            ) : null}
+            <button
+              type="button"
+              className="primary-button"
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  setPreferences(await notificationPreferencesSave(profileId, preferences));
+                })
+              }
+            >
+              <Save size={16} aria-hidden />
+              Save notification preferences
+            </button>
+          </>
+        ) : null}
         {error ? <p className="footnote error-text">{error}</p> : null}
       </section>
 
@@ -392,7 +469,11 @@ export function NotificationSettingsSection() {
                 <div>
                   <strong>{record.envelope.title}</strong>
                   {record.envelope.body ? <p>{record.envelope.body}</p> : null}
-                  <small>{new Date(record.envelope.scheduledAt ?? record.envelope.createdAt).toLocaleString()}</small>
+                  <small>
+                    {new Date(
+                      record.envelope.scheduledAt ?? record.envelope.createdAt,
+                    ).toLocaleString()}
+                  </small>
                 </div>
                 <div className="mobile-notification-actions">
                   {record.state === 'failed' ? (
@@ -400,7 +481,9 @@ export function NotificationSettingsSection() {
                       type="button"
                       className="icon-button"
                       aria-label={`Retry ${record.envelope.title}`}
-                      onClick={() => void run(() => notificationRetry(profileId, record.envelope.id))}
+                      onClick={() =>
+                        void run(() => notificationRetry(profileId, record.envelope.id))
+                      }
                     >
                       <RefreshCw size={16} />
                     </button>
@@ -410,7 +493,9 @@ export function NotificationSettingsSection() {
                       type="button"
                       className="icon-button"
                       aria-label={`Snooze ${record.envelope.title}`}
-                      onClick={() => void run(() => notificationSnooze(profileId, record.envelope.id, 10))}
+                      onClick={() =>
+                        void run(() => notificationSnooze(profileId, record.envelope.id, 10))
+                      }
                     >
                       <Clock3 size={16} />
                     </button>
@@ -420,7 +505,9 @@ export function NotificationSettingsSection() {
                       type="button"
                       className="icon-button"
                       aria-label={`Mark ${record.envelope.title} read`}
-                      onClick={() => void run(() => notificationMarkRead(profileId, record.envelope.id))}
+                      onClick={() =>
+                        void run(() => notificationMarkRead(profileId, record.envelope.id))
+                      }
                     >
                       <Check size={16} />
                     </button>
@@ -429,7 +516,9 @@ export function NotificationSettingsSection() {
                     type="button"
                     className="icon-button"
                     aria-label={`Dismiss ${record.envelope.title}`}
-                    onClick={() => void run(() => notificationDismiss(profileId, record.envelope.id))}
+                    onClick={() =>
+                      void run(() => notificationDismiss(profileId, record.envelope.id))
+                    }
                   >
                     <X size={16} />
                   </button>
@@ -460,45 +549,49 @@ function MobileScopeGroup({
   expanded: boolean;
   onExpandedChange: () => void;
 }) {
-  const mutedCount = sources.filter((source) => preferences.scopeEnabled[source.key] === false).length;
-  return <div className="mobile-notification-source-group">
-    <button
-      type="button"
-      className="mobile-notification-source-trigger"
-      aria-expanded={expanded}
-      aria-controls={`mobile-notification-source-${id}`}
-      onClick={onExpandedChange}
-    >
-      <span>
-        <strong>{label}</strong>
-        <small>
-          {sources.length === 0
-            ? `No ${label.toLowerCase()}`
-            : `${sources.length} ${sources.length === 1 ? 'source' : 'sources'}${mutedCount ? `, ${mutedCount} muted` : ''}`}
-        </small>
-      </span>
-      <ChevronDown aria-hidden="true" className={expanded ? 'expanded' : ''} />
-    </button>
-    {expanded && sources.length > 0 ? (
-      <div id={`mobile-notification-source-${id}`} className="mobile-notification-source-content">
-        {sources.map((source) => (
-          <label className="toggle-row" key={source.key}>
-            <span>
-              <strong>
-                {source.color ? <i style={{ backgroundColor: source.color }} /> : null}
-                {source.label}
-              </strong>
-              {source.description ? <small>{source.description}</small> : null}
-            </span>
-            <input
-              type="checkbox"
-              aria-label={`${source.label} notifications`}
-              checked={preferences.scopeEnabled[source.key] !== false}
-              onChange={() => onToggle(source.key)}
-            />
-          </label>
-        ))}
-      </div>
-    ) : null}
-  </div>;
+  const mutedCount = sources.filter(
+    (source) => preferences.scopeEnabled[source.key] === false,
+  ).length;
+  return (
+    <div className="mobile-notification-source-group">
+      <button
+        type="button"
+        className="mobile-notification-source-trigger"
+        aria-expanded={expanded}
+        aria-controls={`mobile-notification-source-${id}`}
+        onClick={onExpandedChange}
+      >
+        <span>
+          <strong>{label}</strong>
+          <small>
+            {sources.length === 0
+              ? `No ${label.toLowerCase()}`
+              : `${sources.length} ${sources.length === 1 ? 'source' : 'sources'}${mutedCount ? `, ${mutedCount} muted` : ''}`}
+          </small>
+        </span>
+        <ChevronDown aria-hidden="true" className={expanded ? 'expanded' : ''} />
+      </button>
+      {expanded && sources.length > 0 ? (
+        <div id={`mobile-notification-source-${id}`} className="mobile-notification-source-content">
+          {sources.map((source) => (
+            <label className="toggle-row" key={source.key}>
+              <span>
+                <strong>
+                  {source.color ? <i style={{ backgroundColor: source.color }} /> : null}
+                  {source.label}
+                </strong>
+                {source.description ? <small>{source.description}</small> : null}
+              </span>
+              <input
+                type="checkbox"
+                aria-label={`${source.label} notifications`}
+                checked={preferences.scopeEnabled[source.key] !== false}
+                onChange={() => onToggle(source.key)}
+              />
+            </label>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }

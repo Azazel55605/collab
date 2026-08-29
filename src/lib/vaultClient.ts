@@ -1,4 +1,5 @@
 import type { SnapshotMeta } from '../types/collab';
+import type { LogicComponentDefinition } from '../types/logicDiagram';
 import type { NoteMetadata, SearchResult } from '../types/note';
 import type { PdfSidecarState } from '../types/pdf';
 import type {
@@ -15,20 +16,20 @@ import type {
   UserDirectoryEntry,
   VaultMeta,
 } from '../types/vault';
-import type { LogicComponentDefinition } from '../types/logicDiagram';
 import { vaultCan, vaultKind } from '../types/vault';
+
 import { tauriCommands } from './tauri';
 import {
-  enqueuePendingOperation,
   emitReplicaMutated,
+  enqueuePendingOperation,
   isLikelyConnectivityError,
+  type PendingOpKind,
   readCachedLogicComponents,
   readCachedReplicaManifest,
+  type ReplicaManifest,
   syncReplicaManifestDelta,
   writeCachedLogicComponents,
   writeOptimisticReplicaManifest,
-  type PendingOpKind,
-  type ReplicaManifest,
 } from './vaultReplica';
 
 export type VaultClientKind = 'local' | 'hosted';
@@ -185,7 +186,12 @@ export interface VaultClient {
   ): Promise<SnapshotMeta>;
   listSnapshots(relativePath: string): Promise<SnapshotMeta[]>;
   readSnapshot(relativePath: string, snapshotId: string): Promise<string>;
-  restoreSnapshot(relativePath: string, snapshotId: string, authorId: string, authorName: string): Promise<VaultWriteResult>;
+  restoreSnapshot(
+    relativePath: string,
+    snapshotId: string,
+    authorId: string,
+    authorName: string,
+  ): Promise<VaultWriteResult>;
   deleteSnapshot(relativePath: string, snapshotId: string): Promise<void>;
   clearSnapshotHistory(relativePath: string): Promise<void>;
   /**
@@ -333,7 +339,9 @@ function asArray<T>(value: unknown): T[] {
  * tolerating missing collections. Server state never carries viewer state, so it
  * resolves to null and stays client-local.
  */
-function normalizeAnnotationState(state: Record<string, unknown> | null | undefined): PdfSidecarState {
+function normalizeAnnotationState(
+  state: Record<string, unknown> | null | undefined,
+): PdfSidecarState {
   return {
     bookmarks: asArray(state?.bookmarks),
     highlights: asArray(state?.highlights),
@@ -447,7 +455,9 @@ function asHostedManifest(manifest: ReplicaManifest): HostedManifest {
   return manifest as unknown as HostedManifest;
 }
 
-function pendingKindForOperation(operationType: 'rename' | 'move' | 'trash' | 'restore' | 'purge'): PendingOpKind {
+function pendingKindForOperation(
+  operationType: 'rename' | 'move' | 'trash' | 'restore' | 'purge',
+): PendingOpKind {
   return operationType === 'purge' ? 'delete' : operationType;
 }
 
@@ -477,7 +487,10 @@ export class HostedVaultClient implements VaultClient {
       logicComponents: {
         list: async () => {
           try {
-            const components = await this.request<LogicComponentDefinition[]>('GET', '/logic-components');
+            const components = await this.request<LogicComponentDefinition[]>(
+              'GET',
+              '/logic-components',
+            );
             await writeCachedLogicComponents(this.vault, components).catch(() => {});
             return components;
           } catch (error) {
@@ -487,28 +500,52 @@ export class HostedVaultClient implements VaultClient {
         },
         save: async (component) => {
           try {
-            const saved = await this.request<LogicComponentDefinition>('POST', '/logic-components', component);
+            const saved = await this.request<LogicComponentDefinition>(
+              'POST',
+              '/logic-components',
+              component,
+            );
             const cached = await readCachedLogicComponents(this.vault).catch(() => []);
-            await writeCachedLogicComponents(this.vault, [
-              ...cached.filter((candidate) => candidate.id !== saved.id && candidate.name.toLowerCase() !== saved.name.toLowerCase()),
-              saved,
-            ].sort((a, b) => a.name.localeCompare(b.name))).catch(() => {});
+            await writeCachedLogicComponents(
+              this.vault,
+              [
+                ...cached.filter(
+                  (candidate) =>
+                    candidate.id !== saved.id &&
+                    candidate.name.toLowerCase() !== saved.name.toLowerCase(),
+                ),
+                saved,
+              ].sort((a, b) => a.name.localeCompare(b.name)),
+            ).catch(() => {});
             return saved;
           } catch (error) {
             if (!isLikelyConnectivityError(error)) throw error;
             const cached = await readCachedLogicComponents(this.vault);
-            const existing = cached.find((candidate) => candidate.id === component.id || candidate.name.toLowerCase() === component.name.toLowerCase());
+            const existing = cached.find(
+              (candidate) =>
+                candidate.id === component.id ||
+                candidate.name.toLowerCase() === component.name.toLowerCase(),
+            );
             const saved = {
               ...component,
               id: existing?.id ?? component.id,
-              version: existing ? Math.max(existing.version + 1, component.version) : Math.max(1, component.version),
+              version: existing
+                ? Math.max(existing.version + 1, component.version)
+                : Math.max(1, component.version),
               createdAt: existing?.createdAt ?? component.createdAt,
               updatedAt: Date.now(),
             };
-            await writeCachedLogicComponents(this.vault, [
-              ...cached.filter((candidate) => candidate.id !== saved.id && candidate.name.toLowerCase() !== saved.name.toLowerCase()),
-              saved,
-            ].sort((a, b) => a.name.localeCompare(b.name)));
+            await writeCachedLogicComponents(
+              this.vault,
+              [
+                ...cached.filter(
+                  (candidate) =>
+                    candidate.id !== saved.id &&
+                    candidate.name.toLowerCase() !== saved.name.toLowerCase(),
+                ),
+                saved,
+              ].sort((a, b) => a.name.localeCompare(b.name)),
+            );
             const manifest = await readCachedReplicaManifest(this.vault);
             await enqueuePendingOperation(this.vault, {
               kind: 'logicComponentSave',
@@ -522,13 +559,22 @@ export class HostedVaultClient implements VaultClient {
         },
         delete: async (componentId) => {
           try {
-            await this.request<void>('DELETE', `/logic-components/${encodeURIComponent(componentId)}`);
+            await this.request<void>(
+              'DELETE',
+              `/logic-components/${encodeURIComponent(componentId)}`,
+            );
             const cached = await readCachedLogicComponents(this.vault).catch(() => []);
-            await writeCachedLogicComponents(this.vault, cached.filter((component) => component.id !== componentId)).catch(() => {});
+            await writeCachedLogicComponents(
+              this.vault,
+              cached.filter((component) => component.id !== componentId),
+            ).catch(() => {});
           } catch (error) {
             if (!isLikelyConnectivityError(error)) throw error;
             const cached = await readCachedLogicComponents(this.vault);
-            await writeCachedLogicComponents(this.vault, cached.filter((component) => component.id !== componentId));
+            await writeCachedLogicComponents(
+              this.vault,
+              cached.filter((component) => component.id !== componentId),
+            );
             const manifest = await readCachedReplicaManifest(this.vault);
             await enqueuePendingOperation(this.vault, {
               kind: 'logicComponentDelete',
@@ -552,13 +598,19 @@ export class HostedVaultClient implements VaultClient {
         },
         updateRole: (userId, role) => {
           this.requireMemberManagement();
-          return this.request<HostedVaultMember>('PATCH', `/members/${encodeURIComponent(userId)}`, {
-            role,
-          });
+          return this.request<HostedVaultMember>(
+            'PATCH',
+            `/members/${encodeURIComponent(userId)}`,
+            {
+              role,
+            },
+          );
         },
         remove: (userId) => {
           this.requireMemberManagement();
-          return this.request<void>('DELETE', `/members/${encodeURIComponent(userId)}`).then(() => {});
+          return this.request<void>('DELETE', `/members/${encodeURIComponent(userId)}`).then(
+            () => {},
+          );
         },
         listTemplates: () => {
           this.requireManagePermissions();
@@ -566,21 +618,33 @@ export class HostedVaultClient implements VaultClient {
         },
         setCapabilities: (userId, capabilities) => {
           this.requireManagePermissions();
-          return this.request<HostedVaultMember>('PATCH', `/members/${encodeURIComponent(userId)}`, {
-            capabilities,
-          });
+          return this.request<HostedVaultMember>(
+            'PATCH',
+            `/members/${encodeURIComponent(userId)}`,
+            {
+              capabilities,
+            },
+          );
         },
         setTemplate: (userId, templateId) => {
           this.requireManagePermissions();
-          return this.request<HostedVaultMember>('PATCH', `/members/${encodeURIComponent(userId)}`, {
-            templateId,
-          });
+          return this.request<HostedVaultMember>(
+            'PATCH',
+            `/members/${encodeURIComponent(userId)}`,
+            {
+              templateId,
+            },
+          );
         },
         resetToRoleDefault: (userId) => {
           this.requireManagePermissions();
-          return this.request<HostedVaultMember>('PATCH', `/members/${encodeURIComponent(userId)}`, {
-            resetToRoleDefault: true,
-          });
+          return this.request<HostedVaultMember>(
+            'PATCH',
+            `/members/${encodeURIComponent(userId)}`,
+            {
+              resetToRoleDefault: true,
+            },
+          );
         },
       },
     };
@@ -590,7 +654,11 @@ export class HostedVaultClient implements VaultClient {
     if (this.vault.role === 'admin') {
       this.runtime.archiveExport = {
         exportTo: (destinationPath) =>
-          tauriCommands.hostedVaultExportZip(this.vault.serverUrl, this.vault.hostedVaultId, destinationPath),
+          tauriCommands.hostedVaultExportZip(
+            this.vault.serverUrl,
+            this.vault.hostedVaultId,
+            destinationPath,
+          ),
       };
     }
   }
@@ -612,7 +680,12 @@ export class HostedVaultClient implements VaultClient {
     suffix: string,
     body?: unknown,
   ) {
-    return tauriCommands.hostedVaultRequest<T>(this.vault.serverUrl, method, this.path(suffix), body);
+    return tauriCommands.hostedVaultRequest<T>(
+      this.vault.serverUrl,
+      method,
+      this.path(suffix),
+      body,
+    );
   }
 
   private async manifest(): Promise<HostedManifest> {
@@ -650,8 +723,9 @@ export class HostedVaultClient implements VaultClient {
   }
 
   private async replicaSyncedManifest(): Promise<HostedManifest> {
-    const manifest = await syncReplicaManifestDelta(this.vault)
-      .catch(() => readCachedReplicaManifest(this.vault));
+    const manifest = await syncReplicaManifestDelta(this.vault).catch(() =>
+      readCachedReplicaManifest(this.vault),
+    );
     return manifest ? asHostedManifest(manifest) : this.manifest();
   }
 
@@ -667,7 +741,10 @@ export class HostedVaultClient implements VaultClient {
   private async shouldMaintainOfflineContentCache(): Promise<boolean> {
     if (!vaultCan(this.vault, 'vault.offlineCopy')) return false;
     try {
-      const syncState = await tauriCommands.replicaReadSyncState(this.vault.serverUrl, this.vault.hostedVaultId);
+      const syncState = await tauriCommands.replicaReadSyncState(
+        this.vault.serverUrl,
+        this.vault.hostedVaultId,
+      );
       return !!syncState.offlineAvailableAt;
     } catch {
       return false;
@@ -676,7 +753,9 @@ export class HostedVaultClient implements VaultClient {
 
   private async cacheDocumentForOfflineCopy(fileId: string, content: string): Promise<void> {
     if (!(await this.shouldMaintainOfflineContentCache())) return;
-    await tauriCommands.replicaCacheDocument(this.vault.serverUrl, this.vault.hostedVaultId, fileId, content).catch(() => {});
+    await tauriCommands
+      .replicaCacheDocument(this.vault.serverUrl, this.vault.hostedVaultId, fileId, content)
+      .catch(() => {});
   }
 
   private async readCurrentCachedDocument(file: HostedFileEntry): Promise<string | null> {
@@ -693,7 +772,11 @@ export class HostedVaultClient implements VaultClient {
       );
       if (!status.present || !status.matchesExpectedHash) return null;
     }
-    return tauriCommands.replicaReadCachedDocument(this.vault.serverUrl, this.vault.hostedVaultId, file.id);
+    return tauriCommands.replicaReadCachedDocument(
+      this.vault.serverUrl,
+      this.vault.hostedVaultId,
+      file.id,
+    );
   }
 
   private async updateCachedManifestFile(file: HostedFileEntry): Promise<void> {
@@ -713,7 +796,10 @@ export class HostedVaultClient implements VaultClient {
     ) {
       return;
     }
-    const syncState = await tauriCommands.replicaReadSyncState(this.vault.serverUrl, this.vault.hostedVaultId);
+    const syncState = await tauriCommands.replicaReadSyncState(
+      this.vault.serverUrl,
+      this.vault.hostedVaultId,
+    );
     await tauriCommands.replicaSeed(
       this.vault.serverUrl,
       this.vault.hostedVaultId,
@@ -761,13 +847,22 @@ export class HostedVaultClient implements VaultClient {
 
   private async cacheAssetForOfflineCopy(fileId: string, contentBase64: string): Promise<void> {
     if (!(await this.shouldMaintainOfflineContentCache())) return;
-    await tauriCommands.replicaCacheAsset(this.vault.serverUrl, this.vault.hostedVaultId, fileId, contentBase64).catch(() => {});
+    await tauriCommands
+      .replicaCacheAsset(this.vault.serverUrl, this.vault.hostedVaultId, fileId, contentBase64)
+      .catch(() => {});
   }
 
   private async cacheUploadedFileForOfflineCopy(fileId: string, sourcePath: string): Promise<void> {
     if (!(await this.shouldMaintainOfflineContentCache())) return;
     const payload = await tauriCommands.readFileForUpload(sourcePath);
-    await tauriCommands.replicaCacheAsset(this.vault.serverUrl, this.vault.hostedVaultId, fileId, payload.contentBase64).catch(() => {});
+    await tauriCommands
+      .replicaCacheAsset(
+        this.vault.serverUrl,
+        this.vault.hostedVaultId,
+        fileId,
+        payload.contentBase64,
+      )
+      .catch(() => {});
   }
 
   private async readCurrentCachedAsset(file: HostedFileEntry): Promise<string | null> {
@@ -782,11 +877,21 @@ export class HostedVaultClient implements VaultClient {
       expectedHash,
     );
     if (!status.present || !status.matchesExpectedHash) return null;
-    return tauriCommands.replicaReadCachedAsset(this.vault.serverUrl, this.vault.hostedVaultId, file.id);
+    return tauriCommands.replicaReadCachedAsset(
+      this.vault.serverUrl,
+      this.vault.hostedVaultId,
+      file.id,
+    );
   }
 
-  private findByPath(manifest: HostedManifest, relativePath: string, state: HostedFileState = 'active') {
-    const file = manifest.files.find((entry) => entry.relativePath === relativePath && entry.state === state);
+  private findByPath(
+    manifest: HostedManifest,
+    relativePath: string,
+    state: HostedFileState = 'active',
+  ) {
+    const file = manifest.files.find(
+      (entry) => entry.relativePath === relativePath && entry.state === state,
+    );
     if (!file) throw new Error(`Hosted vault item not found: ${relativePath}`);
     return file;
   }
@@ -794,7 +899,8 @@ export class HostedVaultClient implements VaultClient {
   private parentId(manifest: HostedManifest, parentPath: string): string | null {
     if (!parentPath) return null;
     const parent = this.findByPath(manifest, parentPath);
-    if (parent.kind !== 'folder') throw new Error(`Hosted vault destination is not a folder: ${parentPath}`);
+    if (parent.kind !== 'folder')
+      throw new Error(`Hosted vault destination is not a folder: ${parentPath}`);
     return parent.id;
   }
 
@@ -812,9 +918,7 @@ export class HostedVaultClient implements VaultClient {
     return entries
       .filter(
         (entry) =>
-          entry.state === 'active' &&
-          entry.kind === 'document' &&
-          extension(entry.name) === 'md',
+          entry.state === 'active' && entry.kind === 'document' && extension(entry.name) === 'md',
       )
       .map((entry) => ({
         relativePath: entry.relativePath,
@@ -850,17 +954,28 @@ export class HostedVaultClient implements VaultClient {
 
     const manifest = await this.onlineOrCachedManifest();
     const file = this.findByPath(manifest, relativePath);
-    const document = await this.request<HostedTextDocument>('GET', `/files/${file.id}`).catch(async (error) => {
-      if (!isLikelyConnectivityError(error)) throw error;
-      const cached = await tauriCommands.replicaReadCachedDocument(this.vault.serverUrl, this.vault.hostedVaultId, file.id);
-      if (cached === null) throw error;
-      return { file, content: cached };
-    });
+    const document = await this.request<HostedTextDocument>('GET', `/files/${file.id}`).catch(
+      async (error) => {
+        if (!isLikelyConnectivityError(error)) throw error;
+        const cached = await tauriCommands.replicaReadCachedDocument(
+          this.vault.serverUrl,
+          this.vault.hostedVaultId,
+          file.id,
+        );
+        if (cached === null) throw error;
+        return { file, content: cached };
+      },
+    );
     // Keep a full offline copy current after online reads. This is gated by the
     // explicit offline-copy capability/marker so plain viewers do not build up
     // durable local content caches merely by opening files.
     void this.cacheDocumentForOfflineCopy(file.id, document.content);
-    return this.vaultDocumentFromHosted(document.file, document.content, 'network', manifest.sequence);
+    return this.vaultDocumentFromHosted(
+      document.file,
+      document.content,
+      'network',
+      manifest.sequence,
+    );
   }
 
   async resolveLiveSession(relativePath: string): Promise<LiveSessionTarget | null> {
@@ -882,7 +997,8 @@ export class HostedVaultClient implements VaultClient {
     const manifest = await this.cachedOrOnlineManifest();
     const file = this.findByPath(manifest, relativePath);
     const currentSequence = file.currentRevision?.sequence ?? 0;
-    const expectedSequence = expectedVersion === undefined ? currentSequence : Number(expectedVersion);
+    const expectedSequence =
+      expectedVersion === undefined ? currentSequence : Number(expectedVersion);
     if (!Number.isInteger(expectedSequence) || expectedSequence < 0) {
       throw new Error('Hosted document versions must be revision sequence numbers.');
     }
@@ -897,8 +1013,18 @@ export class HostedVaultClient implements VaultClient {
       content,
     }).catch(async (error) => {
       if (!isLikelyConnectivityError(error)) throw error;
-      const nextManifest = this.optimisticManifestForEdit(manifest, file, content, expectedSequence + 1);
-      await tauriCommands.replicaCacheDocument(this.vault.serverUrl, this.vault.hostedVaultId, file.id, content);
+      const nextManifest = this.optimisticManifestForEdit(
+        manifest,
+        file,
+        content,
+        expectedSequence + 1,
+      );
+      await tauriCommands.replicaCacheDocument(
+        this.vault.serverUrl,
+        this.vault.hostedVaultId,
+        file.id,
+        content,
+      );
       await writeOptimisticReplicaManifest(this.vault, nextManifest as unknown as ReplicaManifest);
       await enqueuePendingOperation(this.vault, {
         kind: 'edit',
@@ -920,14 +1046,14 @@ export class HostedVaultClient implements VaultClient {
       };
     }
     void this.cacheDocumentForOfflineCopy(file.id, content);
-    void writeOptimisticReplicaManifest(
-      this.vault,
-      {
-        ...manifest,
-        sequence: Math.max(manifest.sequence, document.file.currentRevision?.sequence ?? manifest.sequence),
-        files: manifest.files.map((entry) => entry.id === file.id ? document.file : entry),
-      } as unknown as ReplicaManifest,
-    ).catch(() => {});
+    void writeOptimisticReplicaManifest(this.vault, {
+      ...manifest,
+      sequence: Math.max(
+        manifest.sequence,
+        document.file.currentRevision?.sequence ?? manifest.sequence,
+      ),
+      files: manifest.files.map((entry) => (entry.id === file.id ? document.file : entry)),
+    } as unknown as ReplicaManifest).catch(() => {});
     return { version: String(document.file.currentRevision?.sequence ?? expectedSequence + 1) };
   }
 
@@ -941,14 +1067,16 @@ export class HostedVaultClient implements VaultClient {
       documentType: documentTypeForPath(relativePath),
       content: '',
     } as const;
-    const file = await this.request<HostedFileEntry>('POST', '/files', payload).catch(async (error) => {
-      if (!isLikelyConnectivityError(error)) throw error;
-      return this.queueOfflineCreate(manifest, relativePath, payload);
-    });
-    void writeOptimisticReplicaManifest(
-      this.vault,
-      { ...manifest, files: [...manifest.files.filter((entry) => entry.id !== file.id), file] } as unknown as ReplicaManifest,
-    ).catch(() => {});
+    const file = await this.request<HostedFileEntry>('POST', '/files', payload).catch(
+      async (error) => {
+        if (!isLikelyConnectivityError(error)) throw error;
+        return this.queueOfflineCreate(manifest, relativePath, payload);
+      },
+    );
+    void writeOptimisticReplicaManifest(this.vault, {
+      ...manifest,
+      files: [...manifest.files.filter((entry) => entry.id !== file.id), file],
+    } as unknown as ReplicaManifest).catch(() => {});
     if (file.kind === 'document') {
       void this.cacheDocumentForOfflineCopy(file.id, payload.content);
     }
@@ -965,14 +1093,16 @@ export class HostedVaultClient implements VaultClient {
       documentType: null,
       content: '',
     } as const;
-    const file = await this.request<HostedFileEntry>('POST', '/files', payload).catch(async (error) => {
-      if (!isLikelyConnectivityError(error)) throw error;
-      return this.queueOfflineCreate(manifest, relativePath, payload);
-    });
-    void writeOptimisticReplicaManifest(
-      this.vault,
-      { ...manifest, files: [...manifest.files.filter((entry) => entry.id !== file.id), file] } as unknown as ReplicaManifest,
-    ).catch(() => {});
+    const file = await this.request<HostedFileEntry>('POST', '/files', payload).catch(
+      async (error) => {
+        if (!isLikelyConnectivityError(error)) throw error;
+        return this.queueOfflineCreate(manifest, relativePath, payload);
+      },
+    );
+    void writeOptimisticReplicaManifest(this.vault, {
+      ...manifest,
+      files: [...manifest.files.filter((entry) => entry.id !== file.id), file],
+    } as unknown as ReplicaManifest).catch(() => {});
   }
 
   private async queueOfflineCreate(
@@ -996,23 +1126,29 @@ export class HostedVaultClient implements VaultClient {
       kind: payload.kind,
       documentType: payload.documentType,
       state: 'active',
-      currentRevision: payload.kind === 'document'
-        ? {
-          id: offlineId('revision'),
-          sequence: 0,
-          contentHash: 'offline',
-          sizeBytes: payload.content.length,
-          createdByDisplayName: null,
-          createdAt: now,
-        }
-        : null,
+      currentRevision:
+        payload.kind === 'document'
+          ? {
+              id: offlineId('revision'),
+              sequence: 0,
+              contentHash: 'offline',
+              sizeBytes: payload.content.length,
+              createdByDisplayName: null,
+              createdAt: now,
+            }
+          : null,
       createdAt: now,
       updatedAt: now,
     };
     const nextManifest = { ...manifest, files: [...manifest.files, entry] };
     await writeOptimisticReplicaManifest(this.vault, nextManifest as unknown as ReplicaManifest);
     if (payload.kind === 'document') {
-      await tauriCommands.replicaCacheDocument(this.vault.serverUrl, this.vault.hostedVaultId, tempFileId, payload.content);
+      await tauriCommands.replicaCacheDocument(
+        this.vault.serverUrl,
+        this.vault.hostedVaultId,
+        tempFileId,
+        payload.content,
+      );
     }
     await enqueuePendingOperation(this.vault, {
       kind: 'create',
@@ -1050,7 +1186,8 @@ export class HostedVaultClient implements VaultClient {
     });
     return {
       oldRelativePath: preview.oldRelativePath,
-      newRelativePath: operation === 'move-and-rename' ? newPath : (preview.newRelativePath ?? newPath),
+      newRelativePath:
+        operation === 'move-and-rename' ? newPath : (preview.newRelativePath ?? newPath),
       itemKind: preview.itemKind === 'folder' ? 'folder' : 'file',
       operation,
       nestedItemCount: preview.nestedItemCount,
@@ -1066,7 +1203,9 @@ export class HostedVaultClient implements VaultClient {
     let currentPath = oldPath;
     if (operation === 'rename' || operation === 'move-and-rename') {
       await this.applyOperation(currentPath, 'rename', { name: destination.name });
-      currentPath = [...oldPath.split('/').slice(0, -1), destination.name].filter(Boolean).join('/');
+      currentPath = [...oldPath.split('/').slice(0, -1), destination.name]
+        .filter(Boolean)
+        .join('/');
     }
     if (operation === 'move' || operation === 'move-and-rename') {
       await this.applyOperation(currentPath, 'move', { parentPath: destination.parentPath });
@@ -1100,22 +1239,26 @@ export class HostedVaultClient implements VaultClient {
       operationType,
       targetFileId: target.id,
       name: options.name ?? null,
-      parentId: options.parentPath === undefined ? null : this.parentId(manifest, options.parentPath),
+      parentId:
+        options.parentPath === undefined ? null : this.parentId(manifest, options.parentPath),
       removeReferences: options.removeReferences ?? false,
     };
     try {
-      const result = await this.request<{ resultManifestSequence?: number }>('POST', '/operations', payload);
+      const result = await this.request<{ resultManifestSequence?: number }>(
+        'POST',
+        '/operations',
+        payload,
+      );
       const optimistic = this.optimisticManifestForOperation(manifest, target, operationType, {
         name: payload.name,
         parentId: payload.parentId,
       });
-      await writeOptimisticReplicaManifest(
-        this.vault,
-        {
-          ...optimistic,
-          sequence: result.resultManifestSequence ?? Math.max(manifest.sequence, payload.baseManifestSequence + 1),
-        } as unknown as ReplicaManifest,
-      ).catch(() => {});
+      await writeOptimisticReplicaManifest(this.vault, {
+        ...optimistic,
+        sequence:
+          result.resultManifestSequence ??
+          Math.max(manifest.sequence, payload.baseManifestSequence + 1),
+      } as unknown as ReplicaManifest).catch(() => {});
       return result;
     } catch (error) {
       if (allowManifestRetry && isLikelyManifestConflict(error)) {
@@ -1163,7 +1306,8 @@ export class HostedVaultClient implements VaultClient {
     const subtreeIds = new Set<string>();
     const collectSubtree = (fileId: string) => {
       subtreeIds.add(fileId);
-      for (const child of files.filter((entry) => entry.parentId === fileId)) collectSubtree(child.id);
+      for (const child of files.filter((entry) => entry.parentId === fileId))
+        collectSubtree(child.id);
     };
     collectSubtree(target.id);
     if (operationType === 'trash') {
@@ -1199,20 +1343,22 @@ export class HostedVaultClient implements VaultClient {
     sequence: number,
   ): HostedManifest {
     const now = new Date().toISOString();
-    const files = manifest.files.map((entry) => entry.id === target.id
-      ? {
-        ...entry,
-        currentRevision: {
-          id: offlineId('revision'),
-          sequence,
-          contentHash: 'offline',
-          sizeBytes: content.length,
-          createdByDisplayName: null,
-          createdAt: now,
-        },
-        updatedAt: now,
-      }
-      : { ...entry });
+    const files = manifest.files.map((entry) =>
+      entry.id === target.id
+        ? {
+            ...entry,
+            currentRevision: {
+              id: offlineId('revision'),
+              sequence,
+              contentHash: 'offline',
+              sizeBytes: content.length,
+              createdByDisplayName: null,
+              createdAt: now,
+            },
+            updatedAt: now,
+          }
+        : { ...entry },
+    );
     return { ...manifest, files };
   }
 
@@ -1248,7 +1394,10 @@ export class HostedVaultClient implements VaultClient {
       manifest.files.filter((entry) => entry.state === 'trashed').map((entry) => entry.id),
     );
     return manifest.files
-      .filter((entry) => entry.state === 'trashed' && (!entry.parentId || !trashedIds.has(entry.parentId)))
+      .filter(
+        (entry) =>
+          entry.state === 'trashed' && (!entry.parentId || !trashedIds.has(entry.parentId)),
+      )
       .map((entry) => ({
         id: entry.id,
         originalRelativePath: entry.relativePath,
@@ -1262,7 +1411,9 @@ export class HostedVaultClient implements VaultClient {
 
   async restoreTrash(entryId: string, targetRelativePath?: string): Promise<void> {
     const manifest = await this.onlineOrCachedManifest();
-    const target = manifest.files.find((entry) => entry.id === entryId && entry.state === 'trashed');
+    const target = manifest.files.find(
+      (entry) => entry.id === entryId && entry.state === 'trashed',
+    );
     if (!target) throw new Error(`Hosted trashed item not found: ${entryId}`);
     if (targetRelativePath && targetRelativePath !== target.relativePath) {
       throw new Error('Hosted trash items currently restore to their original path.');
@@ -1272,7 +1423,9 @@ export class HostedVaultClient implements VaultClient {
 
   async purgeTrash(entryId: string, removeReferences?: boolean): Promise<void> {
     const manifest = await this.onlineOrCachedManifest();
-    const target = manifest.files.find((entry) => entry.id === entryId && entry.state === 'trashed');
+    const target = manifest.files.find(
+      (entry) => entry.id === entryId && entry.state === 'trashed',
+    );
     if (!target) throw new Error(`Hosted trashed item not found: ${entryId}`);
     await this.applyOperation(target.relativePath, 'purge', { removeReferences });
   }
@@ -1284,7 +1437,10 @@ export class HostedVaultClient implements VaultClient {
   }
 
   async search(query: string): Promise<SearchResult[]> {
-    const results = await this.request<HostedSearchResult[]>('GET', `/search?q=${encodeURIComponent(query)}`);
+    const results = await this.request<HostedSearchResult[]>(
+      'GET',
+      `/search?q=${encodeURIComponent(query)}`,
+    );
     return results.map((result) => ({
       relativePath: result.relativePath,
       title: result.title,
@@ -1445,7 +1601,10 @@ export class HostedVaultClient implements VaultClient {
    * authenticated server gateway with a server-verified SHA-256 digest. Returns
    * the relative path of the created hosted asset.
    */
-  private async uploadExternalAsset(sourcePath: string, targetFolder = 'Pictures'): Promise<string> {
+  private async uploadExternalAsset(
+    sourcePath: string,
+    targetFolder = 'Pictures',
+  ): Promise<string> {
     const parentId = targetFolder ? await this.ensureFolder(targetFolder) : null;
     try {
       const file = await tauriCommands.hostedVaultUploadFile<HostedFileEntry>(
@@ -1455,12 +1614,17 @@ export class HostedVaultClient implements VaultClient {
         sourcePath,
       );
       void readCachedReplicaManifest(this.vault)
-        .then((manifest) => manifest
-          ? writeOptimisticReplicaManifest(this.vault, {
-            ...asHostedManifest(manifest),
-            files: [...asHostedManifest(manifest).files.filter((entry) => entry.id !== file.id), file],
-          } as unknown as ReplicaManifest)
-          : undefined)
+        .then((manifest) =>
+          manifest
+            ? writeOptimisticReplicaManifest(this.vault, {
+                ...asHostedManifest(manifest),
+                files: [
+                  ...asHostedManifest(manifest).files.filter((entry) => entry.id !== file.id),
+                  file,
+                ],
+              } as unknown as ReplicaManifest)
+            : undefined,
+        )
         .catch(() => {});
       void this.cacheUploadedFileForOfflineCopy(file.id, sourcePath).catch(() => {});
       return file.relativePath;
@@ -1480,7 +1644,11 @@ export class HostedVaultClient implements VaultClient {
     }
   }
 
-  private async uploadDataUrl(dataUrl: string, suggestedName: string, targetFolder = 'Pictures'): Promise<string> {
+  private async uploadDataUrl(
+    dataUrl: string,
+    suggestedName: string,
+    targetFolder = 'Pictures',
+  ): Promise<string> {
     const match = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl);
     if (!match) throw new Error('Only base64 data URLs can be uploaded to a hosted vault.');
     const [, mediaType, contentBase64] = match;
@@ -1500,7 +1668,14 @@ export class HostedVaultClient implements VaultClient {
     targetFolder: string,
   ): Promise<string> {
     const parentId = targetFolder ? await this.ensureFolder(targetFolder) : null;
-    return this.uploadAssetWithParent(parentId, name, mediaType, contentBase64, expectedHash, targetFolder);
+    return this.uploadAssetWithParent(
+      parentId,
+      name,
+      mediaType,
+      contentBase64,
+      expectedHash,
+      targetFolder,
+    );
   }
 
   private async uploadAssetWithParent(
@@ -1518,18 +1693,20 @@ export class HostedVaultClient implements VaultClient {
       contentBase64,
       expectedHash,
     };
-    const file = await this.request<HostedFileEntry>('POST', '/uploads', payload).catch(async (error) => {
-      if (!isLikelyConnectivityError(error)) throw error;
-      const manifest = await this.cachedManifest();
-      return this.queueOfflineAssetUpload(manifest, {
-        parentId,
-        name,
-        mediaType,
-        contentBase64,
-        expectedHash,
-        targetFolder,
-      });
-    });
+    const file = await this.request<HostedFileEntry>('POST', '/uploads', payload).catch(
+      async (error) => {
+        if (!isLikelyConnectivityError(error)) throw error;
+        const manifest = await this.cachedManifest();
+        return this.queueOfflineAssetUpload(manifest, {
+          parentId,
+          name,
+          mediaType,
+          contentBase64,
+          expectedHash,
+          targetFolder,
+        });
+      },
+    );
     void this.cacheAssetForOfflineCopy(file.id, contentBase64);
     return file.relativePath;
   }
@@ -1593,12 +1770,14 @@ export class HostedVaultClient implements VaultClient {
 
   private async ensureFolder(relativePath: string): Promise<string> {
     const existing = (await this.onlineOrCachedManifest()).files.find(
-      (entry) => entry.relativePath === relativePath && entry.kind === 'folder' && entry.state === 'active',
+      (entry) =>
+        entry.relativePath === relativePath && entry.kind === 'folder' && entry.state === 'active',
     );
     if (existing) return existing.id;
     await this.createFolder(relativePath);
     const created = (await this.onlineOrCachedManifest()).files.find(
-      (entry) => entry.relativePath === relativePath && entry.kind === 'folder' && entry.state === 'active',
+      (entry) =>
+        entry.relativePath === relativePath && entry.kind === 'folder' && entry.state === 'active',
     );
     if (!created) throw new Error(`Could not create hosted folder: ${relativePath}`);
     return created.id;
@@ -1755,7 +1934,14 @@ export class LocalVaultClient implements VaultClient {
     authorName: string,
     label?: string,
   ) {
-    return tauriCommands.createSnapshot(this.vault.path, relativePath, content, authorId, authorName, label);
+    return tauriCommands.createSnapshot(
+      this.vault.path,
+      relativePath,
+      content,
+      authorId,
+      authorName,
+      label,
+    );
   }
 
   listSnapshots(relativePath: string) {
@@ -1766,8 +1952,19 @@ export class LocalVaultClient implements VaultClient {
     return tauriCommands.readSnapshot(this.vault.path, relativePath, snapshotId);
   }
 
-  async restoreSnapshot(relativePath: string, snapshotId: string, authorId: string, authorName: string): Promise<VaultWriteResult> {
-    const result = await tauriCommands.restoreSnapshot(this.vault.path, relativePath, snapshotId, authorId, authorName);
+  async restoreSnapshot(
+    relativePath: string,
+    snapshotId: string,
+    authorId: string,
+    authorName: string,
+  ): Promise<VaultWriteResult> {
+    const result = await tauriCommands.restoreSnapshot(
+      this.vault.path,
+      relativePath,
+      snapshotId,
+      authorId,
+      authorName,
+    );
     return {
       version: result.hash,
       mergedContent: result.mergedContent,

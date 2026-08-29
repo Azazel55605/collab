@@ -1,11 +1,4 @@
 import {
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandSeparator,
-  CommandShortcut,
-} from '../ui/command';
-import {
   Calculator,
   CircuitBoard,
   Copy,
@@ -17,8 +10,6 @@ import {
   Type,
 } from 'lucide-react';
 
-import { evalMath, formatMathResult } from './mathEval';
-import { generateSnippets } from './snippets';
 import {
   formatNerdFontHexCode,
   groupNerdFontIcons,
@@ -26,14 +17,27 @@ import {
   searchNerdFontIcons,
 } from '../../lib/nerdFontIcons';
 import {
-  getTabType,
-  getViewForType,
-  type Mode,
-} from './commandBarUtils';
-import { ACTIONS, SETTINGS_SECTIONS, type RenderCtx } from './commandBarActions';
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandSeparator,
+  CommandShortcut,
+} from '../ui/command';
 
-function FileTypeIcon({ path, className = 'size-4 shrink-0 opacity-60' }: { path: string; className?: string }) {
-  if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|avif)$/i.test(path)) return <FileText className={className} />;
+import { ACTIONS, type RenderCtx, SETTINGS_SECTIONS } from './commandBarActions';
+import { getTabType, getViewForType, type Mode } from './commandBarUtils';
+import { evalMath, formatMathResult } from './mathEval';
+import { generateSnippets } from './snippets';
+
+function FileTypeIcon({
+  path,
+  className = 'size-4 shrink-0 opacity-60',
+}: {
+  path: string;
+  className?: string;
+}) {
+  if (/\.(png|jpg|jpeg|gif|webp|svg|bmp|ico|avif)$/i.test(path))
+    return <FileText className={className} />;
   if (/\.pdf$/i.test(path)) return <FileText className={className} />;
   if (path.endsWith('.logic')) return <CircuitBoard className={className} />;
   if (path.endsWith('.kanban')) return <LayoutDashboard className={className} />;
@@ -75,15 +79,12 @@ function renderSearch(mode: { type: 'search'; query: string }, ctx: RenderCtx) {
   }
 
   const q = mode.query.toLowerCase();
-  const settingMatches = SETTINGS_SECTIONS
-    .filter((section) =>
-      `${section.label} settings ${section.keywords.join(' ')}`.toLowerCase().includes(q)
-    )
-    .slice(0, 6);
+  const settingMatches = SETTINGS_SECTIONS.filter((section) =>
+    `${section.label} settings ${section.keywords.join(' ')}`.toLowerCase().includes(q),
+  ).slice(0, 6);
   const fileMatches = files
-    .filter((file) =>
-      file.name.toLowerCase().includes(q)
-      || file.relativePath.toLowerCase().includes(q)
+    .filter(
+      (file) => file.name.toLowerCase().includes(q) || file.relativePath.toLowerCase().includes(q),
     )
     .filter((file) => !searchResults.some((result) => result.relativePath === file.relativePath))
     .slice(0, 8);
@@ -103,7 +104,9 @@ function renderSearch(mode: { type: 'search'; query: string }, ctx: RenderCtx) {
               onSelect={() => {
                 ctx.openSettings();
                 window.setTimeout(() => {
-                  window.dispatchEvent(new CustomEvent('settings:open-tab', { detail: { tab: section.id } }));
+                  window.dispatchEvent(
+                    new CustomEvent('settings:open-tab', { detail: { tab: section.id } }),
+                  );
                 }, 0);
                 ctx.close();
               }}
@@ -116,7 +119,9 @@ function renderSearch(mode: { type: 'search'; query: string }, ctx: RenderCtx) {
           ))}
         </CommandGroup>
       )}
-      {settingMatches.length > 0 && (searchResults.length > 0 || fileMatches.length > 0) && <CommandSeparator />}
+      {settingMatches.length > 0 && (searchResults.length > 0 || fileMatches.length > 0) && (
+        <CommandSeparator />
+      )}
       {searchResults.length > 0 && (
         <CommandGroup heading="Notes">
           {searchResults.map((result) => {
@@ -126,14 +131,20 @@ function renderSearch(mode: { type: 'search'; query: string }, ctx: RenderCtx) {
                 key={result.relativePath}
                 value={result.relativePath + result.title}
                 onSelect={() => {
-                  ctx.setPendingSearchJump({ relativePath: result.relativePath, query: mode.query });
+                  ctx.setPendingSearchJump({
+                    relativePath: result.relativePath,
+                    query: mode.query,
+                  });
                   ctx.openTab(result.relativePath, result.title, type);
                   ctx.setActiveView(getViewForType(type));
                   ctx.close();
                 }}
                 className="items-start gap-2"
               >
-                <FileTypeIcon path={result.relativePath} className="size-4 shrink-0 opacity-60 mt-0.5" />
+                <FileTypeIcon
+                  path={result.relativePath}
+                  className="size-4 shrink-0 opacity-60 mt-0.5"
+                />
                 <div className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate text-sm">{result.title}</span>
                   {result.excerpt && (
@@ -158,7 +169,11 @@ function renderSearch(mode: { type: 'search'; query: string }, ctx: RenderCtx) {
                 key={file.relativePath}
                 value={file.relativePath + file.name}
                 onSelect={() => {
-                  if (type === 'note') ctx.setPendingSearchJump({ relativePath: file.relativePath, query: mode.query });
+                  if (type === 'note')
+                    ctx.setPendingSearchJump({
+                      relativePath: file.relativePath,
+                      query: mode.query,
+                    });
                   ctx.openTab(file.relativePath, file.name, type);
                   ctx.setActiveView(getViewForType(type));
                   ctx.close();
@@ -183,7 +198,8 @@ function renderMath(mode: { type: 'math'; expr: string }) {
   if (!mode.expr) {
     return (
       <CommandEmpty className="text-muted-foreground">
-        Type an expression — e.g. <span className="font-mono">=2^10</span> or <span className="font-mono">=sqrt(144)</span>
+        Type an expression — e.g. <span className="font-mono">=2^10</span> or{' '}
+        <span className="font-mono">=sqrt(144)</span>
       </CommandEmpty>
     );
   }
@@ -196,11 +212,15 @@ function renderMath(mode: { type: 'math'; expr: string }) {
     <CommandGroup heading="Result">
       <CommandItem
         value="math-result"
-        onSelect={() => { navigator.clipboard.writeText(display); }}
+        onSelect={() => {
+          navigator.clipboard.writeText(display);
+        }}
         className="gap-2"
       >
         <Calculator className="size-4 shrink-0 text-primary" />
-        <span className="font-mono text-sm font-medium">{mode.expr.trim()} = {display}</span>
+        <span className="font-mono text-sm font-medium">
+          {mode.expr.trim()} = {display}
+        </span>
         <CommandShortcut className="flex items-center gap-1">
           <Copy className="size-3" /> copy
         </CommandShortcut>
@@ -212,15 +232,17 @@ function renderMath(mode: { type: 'math'; expr: string }) {
 function renderTag(mode: { type: 'tag'; tag: string }, ctx: RenderCtx) {
   const { notes } = ctx;
   const q = mode.tag.toLowerCase();
-  const allTags = [...new Set(notes.reduce<string[]>((tags, note) => {
-    tags.push(...note.tags);
-    return tags;
-  }, []))];
-  const matchingTags = allTags
-    .filter((tag) => !q || tag.toLowerCase().includes(q))
-    .slice(0, 5);
+  const allTags = [
+    ...new Set(
+      notes.reduce<string[]>((tags, note) => {
+        tags.push(...note.tags);
+        return tags;
+      }, []),
+    ),
+  ];
+  const matchingTags = allTags.filter((tag) => !q || tag.toLowerCase().includes(q)).slice(0, 5);
   const matchingNotes = notes.filter((note) =>
-    note.tags.some((tag) => !q || tag.toLowerCase().includes(q))
+    note.tags.some((tag) => !q || tag.toLowerCase().includes(q)),
   );
 
   if (!matchingTags.length && !matchingNotes.length) {
@@ -266,11 +288,17 @@ function renderTag(mode: { type: 'tag'; tag: string }, ctx: RenderCtx) {
                 <FileTypeIcon path={note.relativePath} />
                 <span className="truncate flex-1">{note.title}</span>
                 <div className="flex shrink-0 gap-1">
-                  {note.tags.filter((tag) => !q || tag.toLowerCase().includes(q)).slice(0, 2).map((tag) => (
-                    <span key={tag} className="rounded bg-primary/15 px-1 text-[10px] text-primary">
-                      {tag}
-                    </span>
-                  ))}
+                  {note.tags
+                    .filter((tag) => !q || tag.toLowerCase().includes(q))
+                    .slice(0, 2)
+                    .map((tag) => (
+                      <span
+                        key={tag}
+                        className="rounded bg-primary/15 px-1 text-[10px] text-primary"
+                      >
+                        {tag}
+                      </span>
+                    ))}
                 </div>
               </CommandItem>
             );
@@ -286,7 +314,12 @@ function renderFileType(mode: { type: 'fileType'; ext: string }, ctx: RenderCtx)
   if (!filtered.length) {
     return <CommandEmpty>No {mode.ext} files found.</CommandEmpty>;
   }
-  const labels: Record<string, string> = { md: 'Notes', kanban: 'Kanban Boards', canvas: 'Canvases', pdf: 'PDFs' };
+  const labels: Record<string, string> = {
+    md: 'Notes',
+    kanban: 'Kanban Boards',
+    canvas: 'Canvases',
+    pdf: 'PDFs',
+  };
   return (
     <CommandGroup heading={labels[mode.ext] ?? mode.ext}>
       {filtered.map((file) => {
@@ -304,7 +337,9 @@ function renderFileType(mode: { type: 'fileType'; ext: string }, ctx: RenderCtx)
           >
             <FileTypeIcon path={file.relativePath} />
             <span className="truncate flex-1">{file.name}</span>
-            <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50">{file.relativePath}</span>
+            <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50">
+              {file.relativePath}
+            </span>
           </CommandItem>
         );
       })}
@@ -315,10 +350,10 @@ function renderFileType(mode: { type: 'fileType'; ext: string }, ctx: RenderCtx)
 function renderNameSearch(mode: { type: 'nameSearch'; query: string }, ctx: RenderCtx) {
   const q = mode.query.toLowerCase();
   const filtered = q
-    ? ctx.files.filter((file) =>
-      file.name.toLowerCase().includes(q)
-      || file.relativePath.toLowerCase().includes(q)
-    )
+    ? ctx.files.filter(
+        (file) =>
+          file.name.toLowerCase().includes(q) || file.relativePath.toLowerCase().includes(q),
+      )
     : [...ctx.files].sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 8);
 
   if (!filtered.length) {
@@ -350,8 +385,11 @@ function renderNameSearch(mode: { type: 'nameSearch'; query: string }, ctx: Rend
 
 function renderActions(mode: { type: 'action'; query: string }, ctx: RenderCtx) {
   const q = mode.query.toLowerCase();
-  const matched = ACTIONS.filter((action) =>
-    !q || action.keywords.some((keyword) => keyword.includes(q)) || action.label.toLowerCase().includes(q)
+  const matched = ACTIONS.filter(
+    (action) =>
+      !q ||
+      action.keywords.some((keyword) => keyword.includes(q)) ||
+      action.label.toLowerCase().includes(q),
   );
   if (!matched.length) {
     return <CommandEmpty>No actions matching "{mode.query}"</CommandEmpty>;
@@ -375,11 +413,7 @@ function renderActions(mode: { type: 'action'; query: string }, ctx: RenderCtx) 
 
 function renderInsert(mode: { type: 'insert'; query: string }, ctx: RenderCtx) {
   if (ctx.activeView !== 'editor') {
-    return (
-      <CommandEmpty>
-        Open a note first to insert snippets.
-      </CommandEmpty>
-    );
+    return <CommandEmpty>Open a note first to insert snippets.</CommandEmpty>;
   }
   if (isNerdFontIconQuery(mode.query)) {
     const icons = searchNerdFontIcons(mode.query, 120);
@@ -395,7 +429,9 @@ function renderInsert(mode: { type: 'insert'; query: string }, ctx: RenderCtx) {
                 key={entry.id}
                 value={`icon-${entry.id}`}
                 onSelect={() => {
-                  window.dispatchEvent(new CustomEvent('cmdbar:insert', { detail: { text: entry.glyph } }));
+                  window.dispatchEvent(
+                    new CustomEvent('cmdbar:insert', { detail: { text: entry.glyph } }),
+                  );
                   ctx.close();
                 }}
                 className="gap-3"
@@ -411,7 +447,9 @@ function renderInsert(mode: { type: 'insert'; query: string }, ctx: RenderCtx) {
                   <span className="block truncate">{entry.nameLabel}</span>
                   <span className="block truncate text-xs text-muted-foreground">{entry.id}</span>
                 </span>
-                <CommandShortcut className="tracking-normal">{formatNerdFontHexCode(entry.hexCode)}</CommandShortcut>
+                <CommandShortcut className="tracking-normal">
+                  {formatNerdFontHexCode(entry.hexCode)}
+                </CommandShortcut>
               </CommandItem>
             ))}
           </CommandGroup>
@@ -421,7 +459,11 @@ function renderInsert(mode: { type: 'insert'; query: string }, ctx: RenderCtx) {
   }
   const snippets = generateSnippets(mode.query, ctx.dateFormat);
   if (!snippets.length) {
-    return <CommandEmpty>No snippets matching "{mode.query}". Try <span className="font-mono">/</span> to browse.</CommandEmpty>;
+    return (
+      <CommandEmpty>
+        No snippets matching "{mode.query}". Try <span className="font-mono">/</span> to browse.
+      </CommandEmpty>
+    );
   }
   return (
     <CommandGroup heading={mode.query ? 'Insert' : 'Available snippets'}>
@@ -430,7 +472,9 @@ function renderInsert(mode: { type: 'insert'; query: string }, ctx: RenderCtx) {
           key={index}
           value={'snippet-' + snippet.label}
           onSelect={() => {
-            window.dispatchEvent(new CustomEvent('cmdbar:insert', { detail: { text: snippet.text } }));
+            window.dispatchEvent(
+              new CustomEvent('cmdbar:insert', { detail: { text: snippet.text } }),
+            );
             ctx.close();
           }}
           className="gap-2"

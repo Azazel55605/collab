@@ -1,6 +1,8 @@
 import { type FormEvent, useEffect, useState } from 'react';
+
 import { KeyRound, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+
 import type { KnownServer } from '../../lib/hostedServers';
 import { useServerStore } from '../../store/serverStore';
 import { Button } from '../ui/button';
@@ -74,8 +76,8 @@ export function ReauthenticateServerDialog({
               Sign in again
             </DialogTitle>
             <DialogDescription>
-              Reauthenticate {server?.username ? `${server.username} on ` : ''}{server?.serverUrl}.
-              Your saved server settings and offline copies will be kept.
+              Reauthenticate {server?.username ? `${server.username} on ` : ''}
+              {server?.serverUrl}. Your saved server settings and offline copies will be kept.
             </DialogDescription>
           </DialogHeader>
           <label className="space-y-1.5">
@@ -90,9 +92,18 @@ export function ReauthenticateServerDialog({
               required
             />
           </label>
-          {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
+          {error ? (
+            <p role="alert" className="text-xs text-destructive">
+              {error}
+            </p>
+          ) : null}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={busy}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleOpenChange(false)}
+              disabled={busy}
+            >
               Cancel
             </Button>
             <Button type="submit" disabled={busy || !password}>

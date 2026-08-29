@@ -1,18 +1,28 @@
+import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
+
 import { Check, Pipette } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 
 import {
   clampColorChannel,
   hexToHsva,
+  type HsvaColor,
   hsvaToHex,
   normalizeHex,
-  type HsvaColor,
 } from '../../../../src/lib/color';
 
 const PRESETS = [
-  '#ffffff', '#e5e7eb', '#94a3b8', '#1f2933',
-  '#7c3aed', '#2563eb', '#0e7490', '#1a7f37',
-  '#b7791f', '#ea580c', '#c0392b', '#be185d',
+  '#ffffff',
+  '#e5e7eb',
+  '#94a3b8',
+  '#1f2933',
+  '#7c3aed',
+  '#2563eb',
+  '#0e7490',
+  '#1a7f37',
+  '#b7791f',
+  '#ea580c',
+  '#c0392b',
+  '#be185d',
 ];
 
 export function ColorPicker({
@@ -58,20 +68,29 @@ export function ColorPicker({
   const updateHue = (clientX: number) => {
     const bounds = hueRef.current?.getBoundingClientRect();
     if (!bounds) return;
-    emit({ ...color, h: clampColorChannel(((clientX - bounds.left) / bounds.width) * 360, 0, 360) });
+    emit({
+      ...color,
+      h: clampColorChannel(((clientX - bounds.left) / bounds.width) * 360, 0, 360),
+    });
   };
 
   const adjust = (event: KeyboardEvent, channel: 'plane' | 'hue') => {
     const step = event.shiftKey ? 10 : 1;
     let next = color;
     if (channel === 'hue') {
-      if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') next = { ...color, h: color.h - step };
-      else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') next = { ...color, h: color.h + step };
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowDown')
+        next = { ...color, h: color.h - step };
+      else if (event.key === 'ArrowRight' || event.key === 'ArrowUp')
+        next = { ...color, h: color.h + step };
       else return;
-    } else if (event.key === 'ArrowLeft') next = { ...color, s: clampColorChannel(color.s - step, 0, 100) };
-    else if (event.key === 'ArrowRight') next = { ...color, s: clampColorChannel(color.s + step, 0, 100) };
-    else if (event.key === 'ArrowUp') next = { ...color, v: clampColorChannel(color.v + step, 0, 100) };
-    else if (event.key === 'ArrowDown') next = { ...color, v: clampColorChannel(color.v - step, 0, 100) };
+    } else if (event.key === 'ArrowLeft')
+      next = { ...color, s: clampColorChannel(color.s - step, 0, 100) };
+    else if (event.key === 'ArrowRight')
+      next = { ...color, s: clampColorChannel(color.s + step, 0, 100) };
+    else if (event.key === 'ArrowUp')
+      next = { ...color, v: clampColorChannel(color.v + step, 0, 100) };
+    else if (event.key === 'ArrowDown')
+      next = { ...color, v: clampColorChannel(color.v - step, 0, 100) };
     else return;
     event.preventDefault();
     emit(next);
@@ -113,18 +132,22 @@ export function ColorPicker({
             aria-valuetext={`${Math.round(color.s)}% saturation, ${Math.round(color.v)}% brightness`}
             style={{
               backgroundColor: `hsl(${color.h} 100% 50%)`,
-              backgroundImage: 'linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent)',
+              backgroundImage:
+                'linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent)',
             }}
             onPointerDown={(event) => {
               event.currentTarget.setPointerCapture(event.pointerId);
               updatePlane(event.clientX, event.clientY);
             }}
             onPointerMove={(event) => {
-              if (event.currentTarget.hasPointerCapture(event.pointerId)) updatePlane(event.clientX, event.clientY);
+              if (event.currentTarget.hasPointerCapture(event.pointerId))
+                updatePlane(event.clientX, event.clientY);
             }}
             onKeyDown={(event) => adjust(event, 'plane')}
           >
-            <span style={{ left: `${color.s}%`, top: `${100 - color.v}%`, backgroundColor: selected }} />
+            <span
+              style={{ left: `${color.s}%`, top: `${100 - color.v}%`, backgroundColor: selected }}
+            />
           </div>
           <div
             ref={hueRef}

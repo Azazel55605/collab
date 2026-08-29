@@ -6,16 +6,16 @@ Add a phased diagramming feature for university-oriented logic-gate overviews fi
 
 ## Progress Tracker
 
-| Phase | Status | Goal |
-| --- | --- | --- |
-| 0. Product shaping | Complete | Locked document format, source/export intent, and local groundwork. |
-| 1. Static logic diagram editor | Complete | Create editable logic-gate diagrams as vault documents. |
-| 2. Boolean interaction | Complete | Add toggleable inputs and live gate evaluation. |
-| 3. Note insertion/export | Complete | Export editable-source-linked graphics into notes. |
-| 4. Diagram polish and reuse | Complete | Add templates, library improvements, and better authoring flow. |
-| 5. Electronic component diagrams | Complete | Add static resistor/transistor/etc. schematic symbols. |
-| 5.1 Digital simulation tools | Complete | Add sequenced clock sources and dynamic value tables. |
-| 6. Full circuit simulation | In progress | Build first-party analog and mixed-signal simulation in Rust. |
+| Phase                            | Status      | Goal                                                                |
+| -------------------------------- | ----------- | ------------------------------------------------------------------- |
+| 0. Product shaping               | Complete    | Locked document format, source/export intent, and local groundwork. |
+| 1. Static logic diagram editor   | Complete    | Create editable logic-gate diagrams as vault documents.             |
+| 2. Boolean interaction           | Complete    | Add toggleable inputs and live gate evaluation.                     |
+| 3. Note insertion/export         | Complete    | Export editable-source-linked graphics into notes.                  |
+| 4. Diagram polish and reuse      | Complete    | Add templates, library improvements, and better authoring flow.     |
+| 5. Electronic component diagrams | Complete    | Add static resistor/transistor/etc. schematic symbols.              |
+| 5.1 Digital simulation tools     | Complete    | Add sequenced clock sources and dynamic value tables.               |
+| 6. Full circuit simulation       | In progress | Build first-party analog and mixed-signal simulation in Rust.       |
 
 ## Phase Details
 

@@ -3,11 +3,12 @@ import { Sparkles } from 'lucide-react';
 import type { AnimationSpeed } from '../../store/uiStore';
 import { ANIMATION_SPEED_OPTIONS, SCALE_OPTIONS } from '../../store/uiStore';
 import { Separator } from '../ui/separator';
+
 import { OptionRow, PillSelect, SectionLabel, ToggleSwitch } from './settingsControls';
 
 type Props = {
   scale: number;
-  setScale: (scale: typeof SCALE_OPTIONS[number]) => void;
+  setScale: (scale: (typeof SCALE_OPTIONS)[number]) => void;
   animationsEnabled: boolean;
   setAnimationsEnabled: (enabled: boolean) => void;
   animationSpeed: AnimationSpeed;
@@ -25,13 +26,10 @@ export default function SettingsDisplaySection({
   return (
     <div>
       <SectionLabel>Interface Scale</SectionLabel>
-      <OptionRow
-        label="UI scale"
-        description="Zoom the entire interface for HiDPI displays"
-      >
+      <OptionRow label="UI scale" description="Zoom the entire interface for HiDPI displays">
         <PillSelect
           options={SCALE_OPTIONS}
-          value={scale as typeof SCALE_OPTIONS[number]}
+          value={scale as (typeof SCALE_OPTIONS)[number]}
           onChange={setScale}
           getLabel={(value) => `${value}%`}
         />

@@ -1,7 +1,4 @@
-export function subscribeMediaQueryChange(
-  query: MediaQueryList,
-  listener: () => void,
-) {
+export function subscribeMediaQueryChange(query: MediaQueryList, listener: () => void) {
   if (typeof query.addEventListener === 'function') {
     query.addEventListener('change', listener);
     return () => query.removeEventListener('change', listener);

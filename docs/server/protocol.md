@@ -90,6 +90,7 @@ Authentication and administration:
 Bootstrap-status responses use `Cache-Control: no-store` so browsers and
 gateways cannot replay the initial first-run result after an administrator has
 been created or the server has restarted.
+
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/native/login`
 - `POST /api/v1/auth/refresh`
@@ -309,13 +310,13 @@ Connection (implemented in Phase 5):
 
 Two frame shapes travel over the socket:
 
-* **JSON text frames** carry control messages, tagged by `type`:
+- **JSON text frames** carry control messages, tagged by `type`:
 
   ```json
   { "type": "document.subscribe", "fileId": "019..." }
   ```
 
-* **Binary frames** carry CRDT and awareness traffic with a fixed header:
+- **Binary frames** carry CRDT and awareness traffic with a fixed header:
   `[tag: u8][fileId: 16-byte UUID][payload]`. Payloads are Yjs v1 encoded bytes
   (a state vector for `SYNC_STEP1`, an update for `SYNC_UPDATE`, or a
   y-protocols awareness update for `AWARENESS`), wire-compatible with the

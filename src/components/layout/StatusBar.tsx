@@ -1,19 +1,21 @@
+import { BookOpen, Download, Hash, RefreshCw } from 'lucide-react';
+
+import { cn } from '../../lib/utils';
+import { useDocumentStatusStore } from '../../store/documentStatusStore';
 import { useEditorStore } from '../../store/editorStore';
-import { useVaultStore } from '../../store/vaultStore';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useUiStore } from '../../store/uiStore';
 import { useUpdateStore } from '../../store/updateStore';
-import { useDocumentStatusStore } from '../../store/documentStatusStore';
+import { useVaultStore } from '../../store/vaultStore';
 import PresenceBar from '../collaboration/PresenceBar';
+import NotificationCenter from '../notifications/NotificationCenter';
+import { Progress } from '../ui/progress';
+
+import CalendarSyncStatusIndicator from './CalendarSyncStatusIndicator';
+import { DocumentReconciler } from './DocumentReconciler';
+import { DocumentStatusPill } from './DocumentStatusPill';
 import HostedConnectionStatus from './HostedConnectionStatus';
 import SyncStatusIndicator from './SyncStatusIndicator';
-import CalendarSyncStatusIndicator from './CalendarSyncStatusIndicator';
-import NotificationCenter from '../notifications/NotificationCenter';
-import { DocumentStatusPill } from './DocumentStatusPill';
-import { DocumentReconciler } from './DocumentReconciler';
-import { Progress } from '../ui/progress';
-import { BookOpen, Hash, Download, RefreshCw } from 'lucide-react';
-import { cn } from '../../lib/utils';
 
 export default function StatusBar() {
   const { activeTabPath, openTabs } = useEditorStore();
@@ -28,8 +30,8 @@ export default function StatusBar() {
 
   const { status, downloadProgress, updaterSupported } = useUpdateStore();
   const isDownloading = status === 'downloading';
-  const isInstalling  = status === 'installing';
-  const isAvailable   = updaterSupported && status === 'available';
+  const isInstalling = status === 'installing';
+  const isAvailable = updaterSupported && status === 'available';
 
   return (
     <div className="flex items-center justify-between h-[22px] px-3 border-t border-border/40 bg-sidebar/60 backdrop-blur-sm-webkit text-[11px] text-muted-foreground shrink-0 select-none">
@@ -98,7 +100,9 @@ export default function StatusBar() {
         <SyncStatusIndicator />
         <CalendarSyncStatusIndicator />
         <NotificationCenter />
-        {activeDocumentStatus && activeDocumentStatus.controller && activeDocumentStatus.snapshot ? (
+        {activeDocumentStatus &&
+        activeDocumentStatus.controller &&
+        activeDocumentStatus.snapshot ? (
           <DocumentReconciler
             controller={activeDocumentStatus.controller}
             snapshot={activeDocumentStatus.snapshot}

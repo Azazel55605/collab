@@ -1,5 +1,6 @@
 import { cn } from '../../lib/utils';
 import { Separator } from '../ui/separator';
+
 import { OptionRow, SectionLabel, ToggleSwitch } from './settingsControls';
 
 type Props = {
@@ -96,7 +97,9 @@ export default function SettingsGeneralSection({
       >
         <ToggleSwitch
           checked={backgroundWebPreviewPrefetchEnabled}
-          onToggle={() => setBackgroundWebPreviewPrefetchEnabled(!backgroundWebPreviewPrefetchEnabled)}
+          onToggle={() =>
+            setBackgroundWebPreviewPrefetchEnabled(!backgroundWebPreviewPrefetchEnabled)
+          }
           disabled={!webPreviewsEnabled || !hoverWebLinkPreviewsEnabled}
           animated
         />
@@ -109,10 +112,7 @@ export default function SettingsGeneralSection({
         label="Confirm before deleting"
         description="Show a confirmation dialog before permanently deleting notes or folders"
       >
-        <ToggleSwitch
-          checked={confirmDelete}
-          onToggle={() => setConfirmDelete(!confirmDelete)}
-        />
+        <ToggleSwitch checked={confirmDelete} onToggle={() => setConfirmDelete(!confirmDelete)} />
       </OptionRow>
 
       <Separator className="bg-border/40 my-4" />
@@ -129,7 +129,11 @@ export default function SettingsGeneralSection({
         />
       </OptionRow>
 
-      <div className={cn('mt-3 rounded-xl border border-border/35 bg-card/55 p-3 text-xs text-muted-foreground shadow-sm')}>
+      <div
+        className={cn(
+          'mt-3 rounded-xl border border-border/35 bg-card/55 p-3 text-xs text-muted-foreground shadow-sm',
+        )}
+      >
         {webPreviewsEnabled
           ? 'Web previews are enabled globally. Hover previews and background prefetch can be tuned independently.'
           : 'Web previews are disabled globally, so canvas web cards and link hover previews will not fetch metadata.'}

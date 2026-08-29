@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import type { LogicComponentDefinition, LogicDiagramNode, LogicDiagramWire } from '../../types/logicDiagram';
-import { clockSignalAt, evaluateLogicDiagram, componentInputHandle, componentOutputHandle } from './logicDiagramEvaluator';
+import type {
+  LogicComponentDefinition,
+  LogicDiagramNode,
+  LogicDiagramWire,
+} from '../../types/logicDiagram';
+
+import {
+  clockSignalAt,
+  componentInputHandle,
+  componentOutputHandle,
+  evaluateLogicDiagram,
+} from './logicDiagramEvaluator';
 
 function input(id: string, value: boolean): LogicDiagramNode {
   return { id, kind: 'input', position: { x: 0, y: 0 }, value };
@@ -51,9 +61,11 @@ describe('logic diagram evaluator', () => {
     expect(clockSignalAt(clock, 500)).toBe(false);
     expect(clockSignalAt(clock, 1000)).toBe(true);
 
-    const result = evaluateLogicDiagram([
-      { id: 'clock', kind: 'clock', position: { x: 0, y: 0 }, clock },
-    ], [], { clockElapsedMs: 750 });
+    const result = evaluateLogicDiagram(
+      [{ id: 'clock', kind: 'clock', position: { x: 0, y: 0 }, clock }],
+      [],
+      { clockElapsedMs: 750 },
+    );
     expect(result.nodeValues.clock).toBe(false);
   });
   it('evaluates basic supported gates', () => {
@@ -159,10 +171,7 @@ describe('logic diagram evaluator', () => {
       input('b', false),
       { id: 'and', kind: 'and', position: { x: 0, y: 0 } },
     ];
-    const wires = [
-      wire('a-and', 'a', 'and', 'in-a'),
-      wire('b-and', 'b', 'and', 'in-a'),
-    ];
+    const wires = [wire('a-and', 'a', 'and', 'in-a'), wire('b-and', 'b', 'and', 'in-a')];
 
     const result = evaluateLogicDiagram(nodes, wires);
 
@@ -178,10 +187,7 @@ describe('logic diagram evaluator', () => {
       { id: 'not-a', kind: 'not', position: { x: 0, y: 0 } },
       { id: 'not-b', kind: 'not', position: { x: 0, y: 0 } },
     ];
-    const wires = [
-      wire('a-b', 'not-a', 'not-b'),
-      wire('b-a', 'not-b', 'not-a'),
-    ];
+    const wires = [wire('a-b', 'not-a', 'not-b'), wire('b-a', 'not-b', 'not-a')];
 
     const result = evaluateLogicDiagram(nodes, wires);
 
@@ -205,10 +211,34 @@ describe('logic diagram evaluator', () => {
       { id: 'carry', kind: 'output', position: { x: 0, y: 0 } },
     ];
     const wires: LogicDiagramWire[] = [
-      { id: 'a-ha', source: 'a', target: 'ha', sourceHandle: 'out', targetHandle: componentInputHandle('a') },
-      { id: 'b-ha', source: 'b', target: 'ha', sourceHandle: 'out', targetHandle: componentInputHandle('b') },
-      { id: 'ha-sum', source: 'ha', target: 'sum', sourceHandle: componentOutputHandle('sum'), targetHandle: 'in' },
-      { id: 'ha-carry', source: 'ha', target: 'carry', sourceHandle: componentOutputHandle('carry'), targetHandle: 'in' },
+      {
+        id: 'a-ha',
+        source: 'a',
+        target: 'ha',
+        sourceHandle: 'out',
+        targetHandle: componentInputHandle('a'),
+      },
+      {
+        id: 'b-ha',
+        source: 'b',
+        target: 'ha',
+        sourceHandle: 'out',
+        targetHandle: componentInputHandle('b'),
+      },
+      {
+        id: 'ha-sum',
+        source: 'ha',
+        target: 'sum',
+        sourceHandle: componentOutputHandle('sum'),
+        targetHandle: 'in',
+      },
+      {
+        id: 'ha-carry',
+        source: 'ha',
+        target: 'carry',
+        sourceHandle: componentOutputHandle('carry'),
+        targetHandle: 'in',
+      },
     ];
 
     const result = evaluateLogicDiagram(nodes, wires);
@@ -228,7 +258,9 @@ describe('logic diagram evaluator', () => {
     const latest = {
       ...halfAdderComponent(2),
       ports: snapshot.ports,
-      nodes: snapshot.nodes.map((node) => node.id === 'and' ? { ...node, kind: 'or' as const } : node),
+      nodes: snapshot.nodes.map((node) =>
+        node.id === 'and' ? { ...node, kind: 'or' as const } : node,
+      ),
     };
     const nodes: LogicDiagramNode[] = [
       input('a', true),
@@ -242,13 +274,33 @@ describe('logic diagram evaluator', () => {
       { id: 'carry', kind: 'output', position: { x: 0, y: 0 } },
     ];
     const wires: LogicDiagramWire[] = [
-      { id: 'a-ha', source: 'a', target: 'ha', sourceHandle: 'out', targetHandle: componentInputHandle('a') },
-      { id: 'b-ha', source: 'b', target: 'ha', sourceHandle: 'out', targetHandle: componentInputHandle('b') },
-      { id: 'ha-carry', source: 'ha', target: 'carry', sourceHandle: componentOutputHandle('carry'), targetHandle: 'in' },
+      {
+        id: 'a-ha',
+        source: 'a',
+        target: 'ha',
+        sourceHandle: 'out',
+        targetHandle: componentInputHandle('a'),
+      },
+      {
+        id: 'b-ha',
+        source: 'b',
+        target: 'ha',
+        sourceHandle: 'out',
+        targetHandle: componentInputHandle('b'),
+      },
+      {
+        id: 'ha-carry',
+        source: 'ha',
+        target: 'carry',
+        sourceHandle: componentOutputHandle('carry'),
+        targetHandle: 'in',
+      },
     ];
 
     expect(evaluateLogicDiagram(nodes, wires).nodeValues.carry).toBe(false);
-    expect(evaluateLogicDiagram(nodes, wires, { components: [latest] }).nodeValues.carry).toBe(true);
+    expect(evaluateLogicDiagram(nodes, wires, { components: [latest] }).nodeValues.carry).toBe(
+      true,
+    );
   });
 
   it('falls back to cached linked component definitions when the library entry is missing', () => {
@@ -266,9 +318,27 @@ describe('logic diagram evaluator', () => {
       { id: 'sum', kind: 'output', position: { x: 0, y: 0 } },
     ];
     const wires: LogicDiagramWire[] = [
-      { id: 'a-ha', source: 'a', target: 'ha', sourceHandle: 'out', targetHandle: componentInputHandle('a') },
-      { id: 'b-ha', source: 'b', target: 'ha', sourceHandle: 'out', targetHandle: componentInputHandle('b') },
-      { id: 'ha-sum', source: 'ha', target: 'sum', sourceHandle: componentOutputHandle('sum'), targetHandle: 'in' },
+      {
+        id: 'a-ha',
+        source: 'a',
+        target: 'ha',
+        sourceHandle: 'out',
+        targetHandle: componentInputHandle('a'),
+      },
+      {
+        id: 'b-ha',
+        source: 'b',
+        target: 'ha',
+        sourceHandle: 'out',
+        targetHandle: componentInputHandle('b'),
+      },
+      {
+        id: 'ha-sum',
+        source: 'ha',
+        target: 'sum',
+        sourceHandle: componentOutputHandle('sum'),
+        targetHandle: 'in',
+      },
     ];
 
     const result = evaluateLogicDiagram(nodes, wires);

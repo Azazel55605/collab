@@ -10,7 +10,6 @@
  * The desktop hook reads its timezone from `uiStore`; mobile has no such store,
  * so the device timezone is used for the app-timezone-bound `TODAY`/`NOW`.
  */
-
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { buildSheetFormulaRequest } from '../../../../src/lib/sheet/useSheetFormulaEngine';
@@ -57,11 +56,12 @@ export function useMobileSheetFormula(document: SheetDocument | null): MobileShe
 
   const request = useMemo(() => {
     if (!document) return null;
-    const hasFormula = document.worksheets.some((worksheet) => (
-      Object.values(worksheet.cells).some((cell) => Boolean(cell.formula))
-      || worksheet.conditionalFormats?.some((rule) => rule.kind === 'formula')
-      || worksheet.validations?.some((rule) => rule.kind === 'custom')
-    ));
+    const hasFormula = document.worksheets.some(
+      (worksheet) =>
+        Object.values(worksheet.cells).some((cell) => Boolean(cell.formula)) ||
+        worksheet.conditionalFormats?.some((rule) => rule.kind === 'formula') ||
+        worksheet.validations?.some((rule) => rule.kind === 'custom'),
+    );
     if (!hasFormula) return null;
     return buildSheetFormulaRequest(document, idRef.current, deviceTimeZone());
   }, [document]);
@@ -78,10 +78,12 @@ export function useMobileSheetFormula(document: SheetDocument | null): MobileShe
         .then((response) => {
           if (sequenceRef.current !== sequence) return;
           setState({
-            values: new Map(response.cells.map((cell) => [
-              sheetFormulaResultKey(cell.worksheetId, cell.rowId, cell.columnId),
-              cell.value,
-            ])),
+            values: new Map(
+              response.cells.map((cell) => [
+                sheetFormulaResultKey(cell.worksheetId, cell.rowId, cell.columnId),
+                cell.value,
+              ]),
+            ),
             recalculated: response.recalculated,
             calculating: false,
             error: null,

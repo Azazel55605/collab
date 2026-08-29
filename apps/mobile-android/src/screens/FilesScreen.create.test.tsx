@@ -1,14 +1,15 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const invoke = vi.fn();
-vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
-vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
-
 import { loadPrefs } from '../lib/theme';
 import type { HostedFileEntry, HostedVault } from '../mobileTauri';
 import { useMobileStore } from '../state/store';
+
 import { FilesScreen } from './FilesScreen';
+
+const invoke = vi.fn();
+vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
 
 const SERVER = 'https://server.test';
 
@@ -119,25 +120,27 @@ describe('FilesScreen creation', () => {
     ['Board', 'Roadmap', 'Roadmap.kanban', 'kanban'],
     ['Spreadsheet', 'Budget', 'Budget.sheet', 'sheet'],
     ['Drawing', 'Ideas', 'Ideas.ink', 'ink'],
-  ])('creates a %s with the right extension and document type', async (
-    label, typed, expectedName, expectedType,
-  ) => {
-    const created: Created[] = [];
-    mockServer(created);
-    render(<FilesScreen prefs={loadPrefs()} />);
+  ])(
+    'creates a %s with the right extension and document type',
+    async (label, typed, expectedName, expectedType) => {
+      const created: Created[] = [];
+      mockServer(created);
+      render(<FilesScreen prefs={loadPrefs()} />);
 
-    await chooseType(label);
-    const form = await screen.findByRole('dialog', { name: new RegExp(`Create ${label}`, 'i') })
-      .catch(() => screen.getByLabelText(`Create ${label.toLowerCase()}`));
-    fireEvent.change(within(form as HTMLElement).getByLabelText('Name'), {
-      target: { value: typed },
-    });
-    fireEvent.submit(form as HTMLElement);
+      await chooseType(label);
+      const form = await screen
+        .findByRole('dialog', { name: new RegExp(`Create ${label}`, 'i') })
+        .catch(() => screen.getByLabelText(`Create ${label.toLowerCase()}`));
+      fireEvent.change(within(form as HTMLElement).getByLabelText('Name'), {
+        target: { value: typed },
+      });
+      fireEvent.submit(form as HTMLElement);
 
-    await waitFor(() => expect(created).toHaveLength(1));
-    expect(created[0].name).toBe(expectedName);
-    expect(created[0].documentType).toBe(expectedType);
-  });
+      await waitFor(() => expect(created).toHaveLength(1));
+      expect(created[0].name).toBe(expectedName);
+      expect(created[0].documentType).toBe(expectedType);
+    },
+  );
 
   it('gives each new document content its own editor can open', async () => {
     const created: Created[] = [];
@@ -165,9 +168,7 @@ describe('FilesScreen creation', () => {
     fireEvent.change(within(form).getByLabelText('Name'), { target: { value: 'Budget' } });
     fireEvent.submit(form);
 
-    await waitFor(() =>
-      expect(useMobileStore.getState().activeSheet?.kind).toBe('workbook'),
-    );
+    await waitFor(() => expect(useMobileStore.getState().activeSheet?.kind).toBe('workbook'));
   });
 
   it('hides creation entirely without the capability', () => {

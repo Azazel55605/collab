@@ -14,20 +14,93 @@ export interface SchematicSymbolDefinition {
 }
 
 const SYMBOLS: Record<ElectronicComponentKind, SchematicSymbolDefinition> = {
-  resistor: { kind: 'resistor', label: 'Resistor', inputHandles: ['terminal-a'], outputHandles: ['terminal-b'], width: 120, height: 72 },
-  capacitor: { kind: 'capacitor', label: 'Capacitor', inputHandles: ['terminal-a'], outputHandles: ['terminal-b'], width: 120, height: 72 },
-  inductor: { kind: 'inductor', label: 'Inductor', inputHandles: ['terminal-a'], outputHandles: ['terminal-b'], width: 120, height: 72 },
-  diode: { kind: 'diode', label: 'Diode', inputHandles: ['anode'], outputHandles: ['cathode'], width: 120, height: 72 },
-  led: { kind: 'led', label: 'LED', inputHandles: ['anode'], outputHandles: ['cathode'], width: 120, height: 72 },
-  transistor: { kind: 'transistor', label: 'NPN transistor', inputHandles: ['base'], outputHandles: ['collector', 'emitter'], width: 120, height: 88 },
-  switch: { kind: 'switch', label: 'Switch', inputHandles: ['terminal-a'], outputHandles: ['terminal-b'], width: 120, height: 72 },
-  ground: { kind: 'ground', label: 'Ground', inputHandles: ['terminal'], outputHandles: [], width: 96, height: 72 },
-  junction: { kind: 'junction', label: 'Junction', inputHandles: ['terminal'], outputHandles: [], width: 24, height: 24 },
-  'voltage-source': { kind: 'voltage-source', label: 'Voltage source', inputHandles: ['negative'], outputHandles: ['positive'], width: 120, height: 80 },
+  resistor: {
+    kind: 'resistor',
+    label: 'Resistor',
+    inputHandles: ['terminal-a'],
+    outputHandles: ['terminal-b'],
+    width: 120,
+    height: 72,
+  },
+  capacitor: {
+    kind: 'capacitor',
+    label: 'Capacitor',
+    inputHandles: ['terminal-a'],
+    outputHandles: ['terminal-b'],
+    width: 120,
+    height: 72,
+  },
+  inductor: {
+    kind: 'inductor',
+    label: 'Inductor',
+    inputHandles: ['terminal-a'],
+    outputHandles: ['terminal-b'],
+    width: 120,
+    height: 72,
+  },
+  diode: {
+    kind: 'diode',
+    label: 'Diode',
+    inputHandles: ['anode'],
+    outputHandles: ['cathode'],
+    width: 120,
+    height: 72,
+  },
+  led: {
+    kind: 'led',
+    label: 'LED',
+    inputHandles: ['anode'],
+    outputHandles: ['cathode'],
+    width: 120,
+    height: 72,
+  },
+  transistor: {
+    kind: 'transistor',
+    label: 'NPN transistor',
+    inputHandles: ['base'],
+    outputHandles: ['collector', 'emitter'],
+    width: 120,
+    height: 88,
+  },
+  switch: {
+    kind: 'switch',
+    label: 'Switch',
+    inputHandles: ['terminal-a'],
+    outputHandles: ['terminal-b'],
+    width: 120,
+    height: 72,
+  },
+  ground: {
+    kind: 'ground',
+    label: 'Ground',
+    inputHandles: ['terminal'],
+    outputHandles: [],
+    width: 96,
+    height: 72,
+  },
+  junction: {
+    kind: 'junction',
+    label: 'Junction',
+    inputHandles: ['terminal'],
+    outputHandles: [],
+    width: 24,
+    height: 24,
+  },
+  'voltage-source': {
+    kind: 'voltage-source',
+    label: 'Voltage source',
+    inputHandles: ['negative'],
+    outputHandles: ['positive'],
+    width: 120,
+    height: 80,
+  },
 };
 
 export const SCHEMATIC_SYMBOL_CHOICES = Object.values(SYMBOLS);
-export const SCHEMATIC_SYMBOL_SETS: Record<SchematicSymbolSet, { label: string; description: string }> = {
+export const SCHEMATIC_SYMBOL_SETS: Record<
+  SchematicSymbolSet,
+  { label: string; description: string }
+> = {
   ansi: {
     label: 'ANSI / IEEE',
     description: 'American notation with the zigzag resistor symbol.',
@@ -47,7 +120,10 @@ export function getSchematicTerminals(kind: ElectronicComponentKind) {
   return [...symbol.inputHandles, ...symbol.outputHandles];
 }
 
-export function schematicSymbolDimensions(kind: ElectronicComponentKind, rotation: SchematicRotation = 0) {
+export function schematicSymbolDimensions(
+  kind: ElectronicComponentKind,
+  rotation: SchematicRotation = 0,
+) {
   const symbol = getSchematicSymbol(kind);
   return rotation === 90 || rotation === 270
     ? { width: symbol.height, height: symbol.width }
@@ -88,10 +164,14 @@ export function schematicTerminalPoint(
   const symbol = getSchematicSymbol(kind);
   const point = unrotatedTerminalPoint(kind, handleId);
   switch (rotation) {
-    case 90: return { x: symbol.height - point.y, y: point.x };
-    case 180: return { x: symbol.width - point.x, y: symbol.height - point.y };
-    case 270: return { x: point.y, y: symbol.width - point.x };
-    default: return point;
+    case 90:
+      return { x: symbol.height - point.y, y: point.x };
+    case 180:
+      return { x: symbol.width - point.x, y: symbol.height - point.y };
+    case 270:
+      return { x: point.y, y: symbol.width - point.x };
+    default:
+      return point;
   }
 }
 
@@ -111,10 +191,14 @@ export function schematicTerminalSide(
 
 export function schematicSymbolTransform(rotation: SchematicRotation = 0) {
   switch (rotation) {
-    case 90: return 'translate(72 0) rotate(90)';
-    case 180: return 'translate(100 72) rotate(180)';
-    case 270: return 'translate(0 100) rotate(270)';
-    default: return '';
+    case 90:
+      return 'translate(72 0) rotate(90)';
+    case 180:
+      return 'translate(100 72) rotate(180)';
+    case 270:
+      return 'translate(0 100) rotate(270)';
+    default:
+      return '';
   }
 }
 

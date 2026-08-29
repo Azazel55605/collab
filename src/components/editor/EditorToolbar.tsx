@@ -1,50 +1,72 @@
+import { type MouseEvent, type RefObject, useEffect, useState } from 'react';
+
+import { open } from '@tauri-apps/plugin-dialog';
 import {
   Bold,
-  Italic,
-  Strikethrough,
+  Calculator,
+  CheckSquare,
   Code,
   FileCode,
-  Link2,
-  Quote,
-  List,
-  ListOrdered,
-  CheckSquare,
-  Minus,
-  Table,
-  Calculator,
+  FileText,
+  Hash,
   Heading1,
   Heading2,
   Heading3,
-  Hash,
-  Image,
   Highlighter,
-  Tags,
-  FileText,
-  NotebookPen,
+  Image,
+  Italic,
+  Link2,
+  List,
+  ListOrdered,
   MessageSquareQuote,
-  ScrollText,
+  Minus,
+  NotebookPen,
   Printer,
+  Quote,
+  ScrollText,
+  Strikethrough,
+  Table,
+  Tags,
 } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
-import { useEffect, useState, type MouseEvent, type RefObject } from 'react';
-import type { MarkdownEditorHandle } from './MarkdownEditor';
+
+import type { DocumentStatus } from '../../lib/documentSessionController';
+import {
+  EDITOR_TOOLBAR_ACTION_EVENT,
+  type EditorToolbarAction,
+} from '../../lib/editorToolbarActions';
+import { requestNotePdfExport } from '../../lib/notePdfExport';
+import { DocumentStatusPill } from '../layout/DocumentStatusPill';
 import {
   DocumentTopBar,
   documentTopBarGroupClass,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../layout/DocumentTopBar';
-import { DocumentStatusPill } from '../layout/DocumentStatusPill';
-import type { DocumentStatus } from '../../lib/documentSessionController';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
-import { Input } from '../ui/input';
 import { Button } from '../ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
+import { Input } from '../ui/input';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+
+import { CodeBlockEditorDialog } from './CodeBlockEditorDialog';
+import { renderMarkdownCodeBlock } from './codeBlockUtils';
+import type { MarkdownEditorHandle } from './MarkdownEditor';
+import { MathBlockEditorDialog } from './MathBlockEditorDialog';
+import { NerdFontIconPicker } from './NerdFontIconPicker';
+import { buildCalloutSnippet } from './noteAuthoring';
+import { NoteSnippetsDialog } from './NoteSnippetsDialog';
 import { TableEditorDialog } from './TableEditorDialog';
 import {
   createEmptyTable,
+  type MarkdownTableModel,
   parseMarkdownTable,
   renderMarkdownTable,
-  type MarkdownTableModel,
 } from './tableMarkdown';
 import {
   createEmptyTaskList,
@@ -52,15 +74,6 @@ import {
   TaskListEditorDialog,
   type TaskListItemDraft,
 } from './TaskListEditorDialog';
-import { MathBlockEditorDialog } from './MathBlockEditorDialog';
-import { CodeBlockEditorDialog } from './CodeBlockEditorDialog';
-import { NerdFontIconPicker } from './NerdFontIconPicker';
-import { NoteSnippetsDialog } from './NoteSnippetsDialog';
-import { open } from '@tauri-apps/plugin-dialog';
-import { renderMarkdownCodeBlock } from './codeBlockUtils';
-import { EDITOR_TOOLBAR_ACTION_EVENT, type EditorToolbarAction } from '../../lib/editorToolbarActions';
-import { buildCalloutSnippet } from './noteAuthoring';
-import { requestNotePdfExport } from '../../lib/notePdfExport';
 
 interface EditorToolbarProps {
   relativePath: string;
@@ -110,31 +123,65 @@ interface ImageDialogProps {
 }
 
 const INLINE: InlineBtn[] = [
-  { icon: <Bold size={13} />,        label: 'Bold (Ctrl+B)',   before: '**', after: '**', placeholder: 'bold text' },
-  { icon: <Italic size={13} />,      label: 'Italic (Ctrl+I)', before: '_',  after: '_',  placeholder: 'italic text' },
-  { icon: <Strikethrough size={13}/>, label: 'Strikethrough (Ctrl+Shift+X)',  before: '~~', after: '~~', placeholder: 'text' },
-  { icon: <Highlighter size={13} />, label: 'Highlight',       before: '==', after: '==', placeholder: 'highlighted' },
-  { icon: <Code size={13} />,        label: 'Inline Code',     before: '`',  after: '`',  placeholder: 'code' },
-  { icon: <Calculator size={13} />,  label: 'Inline Math',     before: '$',  after: '$',  placeholder: 'x^2' },
+  {
+    icon: <Bold size={13} />,
+    label: 'Bold (Ctrl+B)',
+    before: '**',
+    after: '**',
+    placeholder: 'bold text',
+  },
+  {
+    icon: <Italic size={13} />,
+    label: 'Italic (Ctrl+I)',
+    before: '_',
+    after: '_',
+    placeholder: 'italic text',
+  },
+  {
+    icon: <Strikethrough size={13} />,
+    label: 'Strikethrough (Ctrl+Shift+X)',
+    before: '~~',
+    after: '~~',
+    placeholder: 'text',
+  },
+  {
+    icon: <Highlighter size={13} />,
+    label: 'Highlight',
+    before: '==',
+    after: '==',
+    placeholder: 'highlighted',
+  },
+  { icon: <Code size={13} />, label: 'Inline Code', before: '`', after: '`', placeholder: 'code' },
+  {
+    icon: <Calculator size={13} />,
+    label: 'Inline Math',
+    before: '$',
+    after: '$',
+    placeholder: 'x^2',
+  },
 ];
 
 const BLOCK: BlockBtn[] = [
-  { icon: <Heading1 size={13} />,    label: 'Heading 1',    prefix: '# ' },
-  { icon: <Heading2 size={13} />,    label: 'Heading 2',    prefix: '## ' },
-  { icon: <Heading3 size={13} />,    label: 'Heading 3',    prefix: '### ' },
-  { icon: <Quote size={13} />,       label: 'Blockquote',   prefix: '> ' },
-  { icon: <List size={13} />,        label: 'Bullet List',  prefix: '- ' },
+  { icon: <Heading1 size={13} />, label: 'Heading 1', prefix: '# ' },
+  { icon: <Heading2 size={13} />, label: 'Heading 2', prefix: '## ' },
+  { icon: <Heading3 size={13} />, label: 'Heading 3', prefix: '### ' },
+  { icon: <Quote size={13} />, label: 'Blockquote', prefix: '> ' },
+  { icon: <List size={13} />, label: 'Bullet List', prefix: '- ' },
   { icon: <ListOrdered size={13} />, label: 'Ordered List', prefix: '1. ' },
-  { icon: <CheckSquare size={13} />, label: 'Task List',    prefix: '- [ ] ' },
+  { icon: <CheckSquare size={13} />, label: 'Task List', prefix: '- [ ] ' },
 ];
 
 const INSERT: InsertBtn[] = [
-  { icon: <Link2 size={13} />,   label: 'Link',          text: '[link text](url)' },
-  { icon: <Image size={13} />,   label: 'Image',         text: '![alt text](url)' },
-  { icon: <Table size={13} />,   label: 'Table',         text: '| Col 1 | Col 2 | Col 3 |\n| --- | --- | --- |\n| Cell | Cell | Cell |' },
-  { icon: <Minus size={13} />,   label: 'Horizontal Rule', text: '\n---\n' },
-  { icon: <Hash size={13} />,    label: 'Math Block',    text: '$$\n<cursor>\n$$' },
-  { icon: <FileCode size={13} />, label: 'Code Block',    text: '```\n<cursor>\n```' },
+  { icon: <Link2 size={13} />, label: 'Link', text: '[link text](url)' },
+  { icon: <Image size={13} />, label: 'Image', text: '![alt text](url)' },
+  {
+    icon: <Table size={13} />,
+    label: 'Table',
+    text: '| Col 1 | Col 2 | Col 3 |\n| --- | --- | --- |\n| Cell | Cell | Cell |',
+  },
+  { icon: <Minus size={13} />, label: 'Horizontal Rule', text: '\n---\n' },
+  { icon: <Hash size={13} />, label: 'Math Block', text: '$$\n<cursor>\n$$' },
+  { icon: <FileCode size={13} />, label: 'Code Block', text: '```\n<cursor>\n```' },
 ];
 
 function TagsBtn() {
@@ -154,7 +201,15 @@ function TagsBtn() {
   );
 }
 
-function TBtn({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+function TBtn({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -310,7 +365,9 @@ export function EditorToolbar({ relativePath, editorRef, documentStatus }: Edito
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
   const [tableDialogMode, setTableDialogMode] = useState<'insert' | 'edit'>('insert');
   const [tableModel, setTableModel] = useState<MarkdownTableModel>(createEmptyTable());
-  const [tableReplaceRange, setTableReplaceRange] = useState<{ from: number; to: number } | null>(null);
+  const [tableReplaceRange, setTableReplaceRange] = useState<{ from: number; to: number } | null>(
+    null,
+  );
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkText, setLinkText] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
@@ -322,12 +379,16 @@ export function EditorToolbar({ relativePath, editorRef, documentStatus }: Edito
   const [mathDialogOpen, setMathDialogOpen] = useState(false);
   const [mathDialogMode, setMathDialogMode] = useState<'insert' | 'edit'>('insert');
   const [mathSource, setMathSource] = useState('');
-  const [mathReplaceRange, setMathReplaceRange] = useState<{ from: number; to: number } | null>(null);
+  const [mathReplaceRange, setMathReplaceRange] = useState<{ from: number; to: number } | null>(
+    null,
+  );
   const [codeDialogOpen, setCodeDialogOpen] = useState(false);
   const [codeDialogMode, setCodeDialogMode] = useState<'insert' | 'edit'>('insert');
   const [codeLanguage, setCodeLanguage] = useState('');
   const [codeContent, setCodeContent] = useState('');
-  const [codeReplaceRange, setCodeReplaceRange] = useState<{ from: number; to: number } | null>(null);
+  const [codeReplaceRange, setCodeReplaceRange] = useState<{ from: number; to: number } | null>(
+    null,
+  );
   const [snippetsDialogOpen, setSnippetsDialogOpen] = useState(false);
 
   useEffect(() => {
@@ -456,7 +517,12 @@ export function EditorToolbar({ relativePath, editorRef, documentStatus }: Edito
     const result = await open({
       multiple: false,
       title: 'Select Image',
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'] }],
+      filters: [
+        {
+          name: 'Images',
+          extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'],
+        },
+      ],
     });
     if (typeof result === 'string') {
       setImagePath(result);
@@ -520,12 +586,12 @@ export function EditorToolbar({ relativePath, editorRef, documentStatus }: Edito
             </div>
 
             <div className={documentTopBarGroupClass}>
-              {BLOCK.map((b) => (
+              {BLOCK.map((b) =>
                 b.label === 'Task List' ? (
                   <ToolBtn
                     key={b.label}
                     icon={b.icon}
-                      label="Task List (Shift-click for visual editor, Ctrl+Alt+K)"
+                    label="Task List (Shift-click for visual editor, Ctrl+Alt+K)"
                     onClick={(event) => {
                       if (event.shiftKey) {
                         openTaskListDialog();
@@ -541,12 +607,12 @@ export function EditorToolbar({ relativePath, editorRef, documentStatus }: Edito
                     label={b.label}
                     onClick={() => ed()?.insertLine(b.prefix)}
                   />
-                )
-              ))}
+                ),
+              )}
             </div>
 
             <div className={documentTopBarGroupClass}>
-              {INSERT.map((b) => (
+              {INSERT.map((b) =>
                 b.label === 'Table' ? (
                   <ToolBtn
                     key={b.label}
@@ -619,8 +685,8 @@ export function EditorToolbar({ relativePath, editorRef, documentStatus }: Edito
                     label={b.label}
                     onClick={() => ed()?.insertSnippet(b.text)}
                   />
-                )
-              ))}
+                ),
+              )}
               <NerdFontIconPicker onInsert={(glyph) => ed()?.insertSnippet(glyph)} />
             </div>
 

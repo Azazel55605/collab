@@ -1,24 +1,27 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import SyncStatusIndicator from './SyncStatusIndicator';
-import { useVaultStore } from '../../store/vaultStore';
-import { useServerStore } from '../../store/serverStore';
-import { useSyncStore } from '../../store/syncStore';
 import { tauriCommands } from '../../lib/tauri';
 import {
-  listPendingOperationRecoveries,
-  retryPendingOperation,
   discardPendingOperation,
-  syncReplicaManifestDelta,
+  listPendingOperationRecoveries,
   type PendingOperation,
   type PendingOperationRecovery,
+  retryPendingOperation,
+  syncReplicaManifestDelta,
 } from '../../lib/vaultReplica';
-import type { HostedVaultMeta, LocalVaultMeta } from '../../types/vault';
+import { useServerStore } from '../../store/serverStore';
+import { useSyncStore } from '../../store/syncStore';
 import { useSyncTransferStore } from '../../store/syncTransferStore';
+import { useVaultStore } from '../../store/vaultStore';
+import type { HostedVaultMeta, LocalVaultMeta } from '../../types/vault';
+
+import SyncStatusIndicator from './SyncStatusIndicator';
 
 const toastError = vi.fn();
-vi.mock('sonner', () => ({ toast: { error: (...args: unknown[]) => toastError(...args), success: vi.fn() } }));
+vi.mock('sonner', () => ({
+  toast: { error: (...args: unknown[]) => toastError(...args), success: vi.fn() },
+}));
 
 vi.mock('../../lib/tauri', () => ({
   tauriCommands: {
@@ -89,7 +92,12 @@ beforeEach(() => {
   useSyncStore.getState().clear();
   useSyncTransferStore.getState().reset();
   useServerStore.setState({
-    connections: { [hostedVault.serverUrl]: { status: { connected: true, serverUrl: hostedVault.serverUrl }, hostedVaults: [] } },
+    connections: {
+      [hostedVault.serverUrl]: {
+        status: { connected: true, serverUrl: hostedVault.serverUrl },
+        hostedVaults: [],
+      },
+    },
   } as never);
   vi.mocked(tauriCommands.replicaReadSyncState).mockResolvedValue({
     manifestSequence: 3,
@@ -153,11 +161,16 @@ describe('SyncStatusIndicator', () => {
 
     fireEvent.click(await screen.findByText('Access revoked'));
     // Sync now is disabled when access is lost.
-    expect((await screen.findByRole('button', { name: /Sync now/ })).hasAttribute('disabled')).toBe(true);
+    expect((await screen.findByRole('button', { name: /Sync now/ })).hasAttribute('disabled')).toBe(
+      true,
+    );
 
     fireEvent.click(screen.getByRole('button', { name: /Remove offline copy/ }));
     await waitFor(() =>
-      expect(tauriCommands.replicaDelete).toHaveBeenCalledWith(hostedVault.serverUrl, hostedVault.hostedVaultId),
+      expect(tauriCommands.replicaDelete).toHaveBeenCalledWith(
+        hostedVault.serverUrl,
+        hostedVault.hostedVaultId,
+      ),
     );
   });
 
@@ -183,10 +196,17 @@ describe('SyncStatusIndicator', () => {
     expect(syncReplicaManifestDelta).not.toHaveBeenCalled();
 
     useServerStore.setState({
-    connections: { [hostedVault.serverUrl]: { status: { connected: true, serverUrl: hostedVault.serverUrl }, hostedVaults: [] } },
-  } as never);
+      connections: {
+        [hostedVault.serverUrl]: {
+          status: { connected: true, serverUrl: hostedVault.serverUrl },
+          hostedVaults: [],
+        },
+      },
+    } as never);
 
-    await waitFor(() => expect(syncReplicaManifestDelta).toHaveBeenCalledWith(hostedVault, expect.any(Function)));
+    await waitFor(() =>
+      expect(syncReplicaManifestDelta).toHaveBeenCalledWith(hostedVault, expect.any(Function)),
+    );
   });
 
   it('shows active transfer progress and recent completion in the sync menu', async () => {

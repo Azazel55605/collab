@@ -1,22 +1,18 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import TrashPanel from './TrashPanel';
 import { TooltipProvider } from '../ui/tooltip';
 
-const {
-  listTrashEntries,
-  restoreTrashedItem,
-  purgeTrashedItem,
-  purgeAllTrash,
-  refreshFileTree,
-} = vi.hoisted(() => ({
-  listTrashEntries: vi.fn(),
-  restoreTrashedItem: vi.fn(),
-  purgeTrashedItem: vi.fn(),
-  purgeAllTrash: vi.fn(),
-  refreshFileTree: vi.fn(async () => {}),
-}));
+import TrashPanel from './TrashPanel';
+
+const { listTrashEntries, restoreTrashedItem, purgeTrashedItem, purgeAllTrash, refreshFileTree } =
+  vi.hoisted(() => ({
+    listTrashEntries: vi.fn(),
+    restoreTrashedItem: vi.fn(),
+    purgeTrashedItem: vi.fn(),
+    purgeAllTrash: vi.fn(),
+    refreshFileTree: vi.fn(async () => {}),
+  }));
 
 vi.mock('../../lib/tauri', () => ({
   tauriCommands: {

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { TableEditorDialog, moveTableColumn, moveTableRow } from './TableEditorDialog';
+import { moveTableColumn, moveTableRow, TableEditorDialog } from './TableEditorDialog';
 import type { MarkdownTableModel } from './tableMarkdown';
 
 const MODEL: MarkdownTableModel = {
@@ -67,14 +67,16 @@ describe('TableEditorDialog', () => {
     fireEvent.drop(dropTarget!, { dataTransfer });
     fireEvent.click(screen.getByRole('button', { name: 'Update table' }));
 
-    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
-      headers: ['Role', 'Team', 'Name'],
-      aligns: ['center', 'right', 'left'],
-      rows: [
-        ['Owner', 'Core', 'Alpha'],
-        ['Editor', 'Docs', 'Beta'],
-      ],
-    }));
+    expect(onApply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: ['Role', 'Team', 'Name'],
+        aligns: ['center', 'right', 'left'],
+        rows: [
+          ['Owner', 'Core', 'Alpha'],
+          ['Editor', 'Docs', 'Beta'],
+        ],
+      }),
+    );
   });
 
   it('reorders rows by drag and drop before applying', () => {
@@ -99,12 +101,14 @@ describe('TableEditorDialog', () => {
     fireEvent.drop(dropTarget!, { dataTransfer });
     fireEvent.click(screen.getByRole('button', { name: 'Update table' }));
 
-    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
-      rows: [
-        ['Beta', 'Editor', 'Docs'],
-        ['Alpha', 'Owner', 'Core'],
-      ],
-    }));
+    expect(onApply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rows: [
+          ['Beta', 'Editor', 'Docs'],
+          ['Alpha', 'Owner', 'Core'],
+        ],
+      }),
+    );
   });
 
   it('deletes a specific column directly from the header controls', () => {
@@ -122,14 +126,16 @@ describe('TableEditorDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete column 2' }));
     fireEvent.click(screen.getByRole('button', { name: 'Update table' }));
 
-    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
-      headers: ['Name', 'Team'],
-      aligns: ['left', 'right'],
-      rows: [
-        ['Alpha', 'Core'],
-        ['Beta', 'Docs'],
-      ],
-    }));
+    expect(onApply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: ['Name', 'Team'],
+        aligns: ['left', 'right'],
+        rows: [
+          ['Alpha', 'Core'],
+          ['Beta', 'Docs'],
+        ],
+      }),
+    );
   });
 
   it('deletes a specific row directly from the row controls', () => {
@@ -147,10 +153,10 @@ describe('TableEditorDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete row 1' }));
     fireEvent.click(screen.getByRole('button', { name: 'Update table' }));
 
-    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
-      rows: [
-        ['Beta', 'Editor', 'Docs'],
-      ],
-    }));
+    expect(onApply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rows: [['Beta', 'Editor', 'Docs']],
+      }),
+    );
   });
 });

@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const metadataResult = spawnSync(
-  'cargo',
-  ['metadata', '--format-version', '1', '--no-deps'],
-  { cwd: root, encoding: 'utf8' },
-);
+const metadataResult = spawnSync('cargo', ['metadata', '--format-version', '1', '--no-deps'], {
+  cwd: root,
+  encoding: 'utf8',
+});
 
 if (metadataResult.status !== 0) {
   process.stderr.write(metadataResult.stderr || 'cargo metadata failed\n');
@@ -19,9 +18,7 @@ if (metadataResult.status !== 0) {
 const metadata = JSON.parse(metadataResult.stdout);
 const workspaceIds = new Set(metadata.workspace_members);
 const packages = new Map(
-  metadata.packages
-    .filter((pkg) => workspaceIds.has(pkg.id))
-    .map((pkg) => [pkg.name, pkg]),
+  metadata.packages.filter((pkg) => workspaceIds.has(pkg.id)).map((pkg) => [pkg.name, pkg]),
 );
 
 const allowedWorkspaceEdges = new Map([
@@ -36,29 +33,35 @@ const allowedWorkspaceEdges = new Map([
   ['collab-calendar', new Set()],
   ['collab-circuit', new Set()],
   ['collab-sheet', new Set()],
-  ['collab-server', new Set([
-    'collab-calendar',
-    'collab-core',
-    'collab-documents',
-    'collab-live',
-    'collab-net-policy',
-    'collab-protocol',
-    'collab-vault-domain',
-    'collab-archive',
-  ])],
-  ['collab', new Set([
-    'collab-calendar',
-    'collab-circuit',
-    'collab-core',
-    'collab-documents',
-    'collab-live',
-    'collab-net-policy',
-    'collab-protocol',
-    'collab-replica',
-    'collab-sheet',
-    'collab-vault-domain',
-    'collab-archive',
-  ])],
+  [
+    'collab-server',
+    new Set([
+      'collab-calendar',
+      'collab-core',
+      'collab-documents',
+      'collab-live',
+      'collab-net-policy',
+      'collab-protocol',
+      'collab-vault-domain',
+      'collab-archive',
+    ]),
+  ],
+  [
+    'collab',
+    new Set([
+      'collab-calendar',
+      'collab-circuit',
+      'collab-core',
+      'collab-documents',
+      'collab-live',
+      'collab-net-policy',
+      'collab-protocol',
+      'collab-replica',
+      'collab-sheet',
+      'collab-vault-domain',
+      'collab-archive',
+    ]),
+  ],
 ]);
 
 const domainCrates = new Set([
@@ -123,9 +126,9 @@ for (const [name, pkg] of packages) {
       errors.push(`${name} must not depend on adapter framework ${dependencyName}`);
     }
     if (
-      domainCrates.has(name)
-      && persistenceFrameworks.has(dependencyName)
-      && !persistenceExceptions.has(name)
+      domainCrates.has(name) &&
+      persistenceFrameworks.has(dependencyName) &&
+      !persistenceExceptions.has(name)
     ) {
       errors.push(`${name} must not depend on persistence framework ${dependencyName}`);
     }

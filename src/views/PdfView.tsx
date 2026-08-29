@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
 import { listen } from '@tauri-apps/api/event';
-import { getDocument, GlobalWorkerOptions, PixelsPerInch, RenderingCancelledException, TextLayer } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
   Bookmark,
   BookmarkPlus,
@@ -29,11 +28,24 @@ import {
   Rows3,
   Trash2,
 } from 'lucide-react';
+import {
+  getDocument,
+  GlobalWorkerOptions,
+  PixelsPerInch,
+  RenderingCancelledException,
+  TextLayer,
+} from 'pdfjs-dist/legacy/build/pdf.mjs';
+import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { toast } from 'sonner';
 
+import {
+  DocumentTopBar,
+  documentTopBarGroupClass,
+  getDocumentBaseName,
+  getDocumentFolderPath,
+} from '../components/layout/DocumentTopBar';
+import { type PdfSendTarget, PdfSendTargetDialog } from '../components/pdf/PdfSendTargetDialog';
 import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Textarea } from '../components/ui/textarea';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,29 +58,30 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
-import { cn } from '../lib/utils';
-import { tauriCommands } from '../lib/tauri';
-import { readOcrCache, writeOcrCache } from '../lib/ocrCache';
-import { createVaultClient } from '../lib/vaultClient';
-import type { VaultPdfAnnotations } from '../lib/vaultClient';
+import { Input } from '../components/ui/input';
+import { Textarea } from '../components/ui/textarea';
 import {
   compareDocumentVersions,
-  useDocumentSessionController,
   type RemoteCandidate,
+  useDocumentSessionController,
 } from '../lib/documentSessionController';
+import { readOcrCache, writeOcrCache } from '../lib/ocrCache';
+import {
+  appendMarkdownBlock,
+  appendPdfQuoteTextNode,
+  appendPdfSnapshotFileNode,
+  buildPdfQuoteMarkdown,
+  buildPdfSnapshotMarkdown,
+} from '../lib/pdfWorkspace';
+import { tauriCommands } from '../lib/tauri';
+import { cn } from '../lib/utils';
+import { createVaultClient } from '../lib/vaultClient';
+import type { VaultPdfAnnotations } from '../lib/vaultClient';
 import { onReplicaMutated, replicaMutationAffectsPath } from '../lib/vaultReplica';
-import { vaultCan } from '../types/vault';
+import { useDocumentStatusRegistration } from '../store/documentStatusStore';
 import { useEditorStore } from '../store/editorStore';
 import { useUiStore } from '../store/uiStore';
 import { useVaultStore } from '../store/vaultStore';
-import { enqueuePdfRender } from './pdfRenderQueue';
-import type { LayoutMode, ZoomMode } from './pdfViewTypes';
-import {
-  DocumentTopBar,
-  documentTopBarGroupClass,
-  getDocumentBaseName,
-  getDocumentFolderPath,
-} from '../components/layout/DocumentTopBar';
 import type { CanvasData } from '../types/canvas';
 import type {
   PdfBookmark,
@@ -78,22 +91,17 @@ import type {
   PdfSidecarState,
   PdfTextAnnotation,
 } from '../types/pdf';
+import { vaultCan } from '../types/vault';
+
+import { enqueuePdfRender } from './pdfRenderQueue';
 import {
-  appendMarkdownBlock,
-  appendPdfQuoteTextNode,
-  appendPdfSnapshotFileNode,
-  buildPdfQuoteMarkdown,
-  buildPdfSnapshotMarkdown,
-} from '../lib/pdfWorkspace';
-import { useDocumentStatusRegistration } from '../store/documentStatusStore';
-import { PdfSendTargetDialog, type PdfSendTarget } from '../components/pdf/PdfSendTargetDialog';
-import { expandPdfHighlightRects, flattenPdfFiles } from './pdfViewUtils';
-import {
-  buildPdfViewerState,
   buildPdfPageRenderCacheKey,
-  resolvePdfBookmarksOpen,
+  buildPdfViewerState,
   type PdfPageRenderCacheEntry,
+  resolvePdfBookmarksOpen,
 } from './pdfViewSession';
+import type { LayoutMode, ZoomMode } from './pdfViewTypes';
+import { expandPdfHighlightRects, flattenPdfFiles } from './pdfViewUtils';
 
 const workerUrl = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString();
 GlobalWorkerOptions.workerSrc = workerUrl;
@@ -120,7 +128,11 @@ function textContentToPlainText(textContent: { items?: unknown[] }): string {
     chunks.push(textItem.str);
     chunks.push(textItem.hasEOL ? '\n' : ' ');
   }
-  return chunks.join('').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return chunks
+    .join('')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 async function renderPdfPageForOcr(
@@ -132,9 +144,10 @@ async function renderPdfPageForOcr(
   const page = await documentProxy.getPage(pageNumber);
   const requestedViewport = page.getViewport({ scale, rotation });
   const requestedPixels = requestedViewport.width * requestedViewport.height;
-  const safeScale = requestedPixels > OCR_MAX_CANVAS_PIXELS
-    ? scale * Math.sqrt(OCR_MAX_CANVAS_PIXELS / requestedPixels)
-    : scale;
+  const safeScale =
+    requestedPixels > OCR_MAX_CANVAS_PIXELS
+      ? scale * Math.sqrt(OCR_MAX_CANVAS_PIXELS / requestedPixels)
+      : scale;
   const viewport = page.getViewport({ scale: safeScale, rotation });
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.ceil(viewport.width));
@@ -154,8 +167,14 @@ function cropRenderedPdfRegion(
   const scaleY = canvas.height / Math.max(surfaceSize.height, 1);
   const cropLeft = Math.max(0, Math.round(region.left * scaleX));
   const cropTop = Math.max(0, Math.round(region.top * scaleY));
-  const cropWidth = Math.max(1, Math.min(Math.round(region.width * scaleX), canvas.width - cropLeft));
-  const cropHeight = Math.max(1, Math.min(Math.round(region.height * scaleY), canvas.height - cropTop));
+  const cropWidth = Math.max(
+    1,
+    Math.min(Math.round(region.width * scaleX), canvas.width - cropLeft),
+  );
+  const cropHeight = Math.max(
+    1,
+    Math.min(Math.round(region.height * scaleY), canvas.height - cropTop),
+  );
   const cropCanvas = document.createElement('canvas');
   cropCanvas.width = cropWidth;
   cropCanvas.height = cropHeight;
@@ -174,8 +193,17 @@ interface SelectableOcrWord {
 }
 
 function normalizeOcrWords(
-  result: { words?: Array<{ text: string; x0: number; y0: number; x1: number; y1: number }>; sourceWidth?: number; sourceHeight?: number },
-  offset: { left: number; top: number; width: number; height: number } = { left: 0, top: 0, width: 1, height: 1 },
+  result: {
+    words?: Array<{ text: string; x0: number; y0: number; x1: number; y1: number }>;
+    sourceWidth?: number;
+    sourceHeight?: number;
+  },
+  offset: { left: number; top: number; width: number; height: number } = {
+    left: 0,
+    top: 0,
+    width: 1,
+    height: 1,
+  },
 ): SelectableOcrWord[] {
   const sourceWidth = Math.max(result.sourceWidth ?? 0, 1);
   const sourceHeight = Math.max(result.sourceHeight ?? 0, 1);
@@ -193,16 +221,48 @@ function normalizeOcrWords(
 const PDF_CSS_SCALE = PixelsPerInch.PDF_TO_CSS_UNITS;
 const DEFAULT_HIGHLIGHT_COLOR = '#facc15';
 const PDF_TEXT_ANNOTATION_STYLES = [
-  { id: 'sun', label: 'Sun', backgroundColor: '#fef3c7', textColor: '#713f12', borderColor: '#f59e0b' },
-  { id: 'sky', label: 'Sky', backgroundColor: '#dbeafe', textColor: '#1e3a8a', borderColor: '#3b82f6' },
-  { id: 'rose', label: 'Rose', backgroundColor: '#ffe4e6', textColor: '#881337', borderColor: '#f43f5e' },
-  { id: 'mint', label: 'Mint', backgroundColor: '#dcfce7', textColor: '#14532d', borderColor: '#22c55e' },
-  { id: 'slate', label: 'Slate', backgroundColor: '#1e293b', textColor: '#f8fafc', borderColor: '#475569' },
+  {
+    id: 'sun',
+    label: 'Sun',
+    backgroundColor: '#fef3c7',
+    textColor: '#713f12',
+    borderColor: '#f59e0b',
+  },
+  {
+    id: 'sky',
+    label: 'Sky',
+    backgroundColor: '#dbeafe',
+    textColor: '#1e3a8a',
+    borderColor: '#3b82f6',
+  },
+  {
+    id: 'rose',
+    label: 'Rose',
+    backgroundColor: '#ffe4e6',
+    textColor: '#881337',
+    borderColor: '#f43f5e',
+  },
+  {
+    id: 'mint',
+    label: 'Mint',
+    backgroundColor: '#dcfce7',
+    textColor: '#14532d',
+    borderColor: '#22c55e',
+  },
+  {
+    id: 'slate',
+    label: 'Slate',
+    backgroundColor: '#1e293b',
+    textColor: '#f8fafc',
+    borderColor: '#475569',
+  },
 ] as const;
 
 function getPdfTextAnnotationPalette(annotation: PdfTextAnnotation) {
   const backgroundColor = annotation.backgroundColor ?? annotation.color ?? '#fef3c7';
-  const preset = PDF_TEXT_ANNOTATION_STYLES.find((entry) => entry.backgroundColor === backgroundColor);
+  const preset = PDF_TEXT_ANNOTATION_STYLES.find(
+    (entry) => entry.backgroundColor === backgroundColor,
+  );
   return {
     backgroundColor,
     textColor: annotation.textColor ?? preset?.textColor ?? '#111827',
@@ -260,7 +320,11 @@ interface PdfOcrOverlay {
 
 type PdfOcrRegenerateAction =
   | { kind: 'page'; page: number }
-  | { kind: 'region'; page: number; region: { left: number; top: number; width: number; height: number } };
+  | {
+      kind: 'region';
+      page: number;
+      region: { left: number; top: number; width: number; height: number };
+    };
 
 type PendingSendAction =
   | { mode: 'quote'; page: number; text: string }
@@ -341,7 +405,11 @@ interface PdfPageCanvasProps {
   observerRoot: HTMLDivElement | null;
   estimatedSize: { width: number; height: number } | null;
   onMeasured: (pageNumber: number, width: number, height: number) => void;
-  registerSurface: (pageNumber: number, container: HTMLDivElement | null, canvas: HTMLCanvasElement | null) => void;
+  registerSurface: (
+    pageNumber: number,
+    container: HTMLDivElement | null,
+    canvas: HTMLCanvasElement | null,
+  ) => void;
   highlights: PdfHighlight[];
   textAnnotations: PdfTextAnnotation[];
   selectedHighlightId: string | null;
@@ -391,8 +459,12 @@ function PdfPageCanvas({
   const [hasRendered, setHasRendered] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [isNearViewport, setIsNearViewport] = useState(eager);
-  const placeholderWidth = estimatedSize ? Math.max(120, scale * estimatedSize.width * PDF_CSS_SCALE) : 360;
-  const placeholderHeight = estimatedSize ? Math.max(160, scale * estimatedSize.height * PDF_CSS_SCALE) : 480;
+  const placeholderWidth = estimatedSize
+    ? Math.max(120, scale * estimatedSize.width * PDF_CSS_SCALE)
+    : 360;
+  const placeholderHeight = estimatedSize
+    ? Math.max(160, scale * estimatedSize.height * PDF_CSS_SCALE)
+    : 480;
   const [displaySize, setDisplaySize] = useState<{ width: number; height: number } | null>(null);
   const [renderSize, setRenderSize] = useState<{ width: number; height: number } | null>(null);
   const cacheKey = useMemo(
@@ -601,14 +673,24 @@ function PdfPageCanvas({
       textLayerTaskRef.current?.cancel();
       textLayerTaskRef.current = null;
     };
-  }, [cacheKey, documentProxy, onMeasured, pageNumber, registerSurface, rotation, scale, shouldRender]);
+  }, [
+    cacheKey,
+    documentProxy,
+    onMeasured,
+    pageNumber,
+    registerSurface,
+    rotation,
+    scale,
+    shouldRender,
+  ]);
 
   const visibleWidth = displaySize?.width ?? placeholderWidth;
   const visibleHeight = displaySize?.height ?? placeholderHeight;
   const renderWidth = renderSize?.width ?? visibleWidth;
   const renderHeight = renderSize?.height ?? visibleHeight;
   const shrinkFactor = renderWidth > 0 ? visibleWidth / renderWidth : 1;
-  const activeRegionRect = regionSelection?.page === pageNumber ? selectionToRegionRect(regionSelection) : null;
+  const activeRegionRect =
+    regionSelection?.page === pageNumber ? selectionToRegionRect(regionSelection) : null;
 
   return (
     <div
@@ -639,7 +721,10 @@ function PdfPageCanvas({
       </div>
 
       {ocrWords.length > 0 && (
-        <div className="pointer-events-none absolute inset-0 z-[2] select-text" aria-label="OCR text layer">
+        <div
+          className="pointer-events-none absolute inset-0 z-[2] select-text"
+          aria-label="OCR text layer"
+        >
           {ocrWords.map((word, index) => (
             <span
               key={`${word.text}-${index}`}
@@ -678,42 +763,42 @@ function PdfPageCanvas({
             onClick={() => onHighlightClick(highlight)}
           />
         ))}
-        {textAnnotations.map((annotation) => (
+        {textAnnotations.map((annotation) =>
           (() => {
             const palette = getPdfTextAnnotationPalette(annotation);
             return (
-          <button
-            key={annotation.id}
-            type="button"
-            className={cn(
-              'pointer-events-auto absolute overflow-hidden rounded-md border px-2 py-1 text-left shadow-sm transition-colors',
-              selectedTextAnnotationId === annotation.id
-                ? 'ring-2 ring-white/35'
-                : '',
-            )}
-            style={{
-              left: `${annotation.left * 100}%`,
-              top: `${annotation.top * 100}%`,
-              width: `${annotation.width * 100}%`,
-              height: `${annotation.height * 100}%`,
-              backgroundColor: palette.backgroundColor,
-              color: palette.textColor,
-              borderColor: palette.borderColor,
-            }}
-            onPointerDown={(event) => onTextAnnotationPointerDown(annotation, event, 'move')}
-            onClick={() => onTextAnnotationClick(annotation)}
-          >
-            <div className="line-clamp-6 text-[11px] leading-snug">
-              {annotation.text || 'Text box'}
-            </div>
-            <span
-              className="absolute bottom-0.5 right-0.5 h-3.5 w-3.5 cursor-se-resize rounded-sm border border-black/10 bg-black/10"
-              onPointerDown={(event) => onTextAnnotationPointerDown(annotation, event, 'resize')}
-            />
-          </button>
+              <button
+                key={annotation.id}
+                type="button"
+                className={cn(
+                  'pointer-events-auto absolute overflow-hidden rounded-md border px-2 py-1 text-left shadow-sm transition-colors',
+                  selectedTextAnnotationId === annotation.id ? 'ring-2 ring-white/35' : '',
+                )}
+                style={{
+                  left: `${annotation.left * 100}%`,
+                  top: `${annotation.top * 100}%`,
+                  width: `${annotation.width * 100}%`,
+                  height: `${annotation.height * 100}%`,
+                  backgroundColor: palette.backgroundColor,
+                  color: palette.textColor,
+                  borderColor: palette.borderColor,
+                }}
+                onPointerDown={(event) => onTextAnnotationPointerDown(annotation, event, 'move')}
+                onClick={() => onTextAnnotationClick(annotation)}
+              >
+                <div className="line-clamp-6 text-[11px] leading-snug">
+                  {annotation.text || 'Text box'}
+                </div>
+                <span
+                  className="absolute bottom-0.5 right-0.5 h-3.5 w-3.5 cursor-se-resize rounded-sm border border-black/10 bg-black/10"
+                  onPointerDown={(event) =>
+                    onTextAnnotationPointerDown(annotation, event, 'resize')
+                  }
+                />
+              </button>
             );
-          })()
-        ))}
+          })(),
+        )}
         {activeRegionRect && (
           <div
             className="absolute border-2 border-primary bg-primary/15"
@@ -803,10 +888,13 @@ export default function PdfView({ relativePath }: Props) {
   const [selectedHighlightId, setSelectedHighlightId] = useState<string | null>(null);
   const [selectedTextAnnotationId, setSelectedTextAnnotationId] = useState<string | null>(null);
   const [selectedPageCommentId, setSelectedPageCommentId] = useState<string | null>(null);
-  const [annotationManipulation, setAnnotationManipulation] = useState<AnnotationManipulationState | null>(null);
+  const [annotationManipulation, setAnnotationManipulation] =
+    useState<AnnotationManipulationState | null>(null);
   const [bookmarksOpen, setBookmarksOpen] = useState(true);
   const [regionSelection, setRegionSelection] = useState<RegionSelectionState | null>(null);
-  const [interactionMode, setInteractionMode] = useState<'none' | 'snapshot' | 'annotation' | 'ocr'>('none');
+  const [interactionMode, setInteractionMode] = useState<
+    'none' | 'snapshot' | 'annotation' | 'ocr'
+  >('none');
   const [pendingSendAction, setPendingSendAction] = useState<PendingSendAction | null>(null);
   const [ocrOpen, setOcrOpen] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
@@ -817,12 +905,16 @@ export default function PdfView({ relativePath }: Props) {
   const [ocrProgress, setOcrProgress] = useState<{ progress: number; status: string } | null>(null);
   const [ocrCached, setOcrCached] = useState(false);
   const [ocrOverlay, setOcrOverlay] = useState<PdfOcrOverlay | null>(null);
-  const [ocrRegenerateAction, setOcrRegenerateAction] = useState<PdfOcrRegenerateAction | null>(null);
+  const [ocrRegenerateAction, setOcrRegenerateAction] = useState<PdfOcrRegenerateAction | null>(
+    null,
+  );
   const ocrRenderScale = useUiStore((state) => state.ocrRenderScale);
   const ocrOverlayVisible = useUiStore((state) => state.ocrOverlayVisible);
   const setOcrOverlayVisible = useUiStore((state) => state.setOcrOverlayVisible);
   const documentCacheKey = useMemo(() => {
-    const maybeFingerprints = (documentProxy as PDFDocumentProxy & { fingerprints?: string[] } | null)?.fingerprints;
+    const maybeFingerprints = (
+      documentProxy as (PDFDocumentProxy & { fingerprints?: string[] }) | null
+    )?.fingerprints;
     return maybeFingerprints?.[0] ?? relativePath;
   }, [documentProxy, relativePath]);
   const latestViewerStateRef = useRef(
@@ -836,92 +928,127 @@ export default function PdfView({ relativePath }: Props) {
     }),
   );
 
-  const normalizePdfState = useCallback((state: PdfSidecarState): PdfSidecarState => ({
-    ...EMPTY_PDF_STATE,
-    ...state,
-    textAnnotations: state.textAnnotations ?? [],
-    pageComments: state.pageComments ?? [],
-  }), []);
+  const normalizePdfState = useCallback(
+    (state: PdfSidecarState): PdfSidecarState => ({
+      ...EMPTY_PDF_STATE,
+      ...state,
+      textAnnotations: state.textAnnotations ?? [],
+      pageComments: state.pageComments ?? [],
+    }),
+    [],
+  );
 
-  const serializePdfSession = useCallback((state: PdfSidecarState) => {
-    const normalized = normalizePdfState(state);
-    if (vault?.kind === 'hosted') {
+  const serializePdfSession = useCallback(
+    (state: PdfSidecarState) => {
+      const normalized = normalizePdfState(state);
+      if (vault?.kind === 'hosted') {
+        return JSON.stringify({
+          bookmarks: normalized.bookmarks,
+          highlights: normalized.highlights,
+          textAnnotations: normalized.textAnnotations,
+          pageComments: normalized.pageComments,
+        });
+      }
       return JSON.stringify({
-        bookmarks: normalized.bookmarks,
-        highlights: normalized.highlights,
-        textAnnotations: normalized.textAnnotations,
-        pageComments: normalized.pageComments,
+        ...normalized,
+        viewerState: normalized.viewerState ?? latestViewerStateRef.current,
       });
-    }
-    return JSON.stringify({
-      ...normalized,
-      viewerState: normalized.viewerState ?? latestViewerStateRef.current,
-    });
-  }, [normalizePdfState, vault?.kind]);
+    },
+    [normalizePdfState, vault?.kind],
+  );
 
-  const deserializePdfSession = useCallback((content: string): PdfSidecarState => {
-    return normalizePdfState(JSON.parse(content) as PdfSidecarState);
-  }, [normalizePdfState]);
+  const deserializePdfSession = useCallback(
+    (content: string): PdfSidecarState => {
+      return normalizePdfState(JSON.parse(content) as PdfSidecarState);
+    },
+    [normalizePdfState],
+  );
 
-  const applyPdfSession = useCallback((candidate: RemoteCandidate<PdfSidecarState>) => {
-    const sidecar = normalizePdfState(candidate.document);
-    setPdfState(sidecar);
-    setBookmarksOpen(resolvePdfBookmarksOpen(sidecar.viewerState));
-    if (sidecar.viewerState?.lastPage && pageCount > 0) {
-      const nextPage = Math.min(Math.max(sidecar.viewerState.lastPage, 1), pageCount);
-      setPageNumber(nextPage);
-      setPageInput(String(nextPage));
-    }
-    if (sidecar.viewerState?.lastZoomMode === 'custom' || sidecar.viewerState?.lastZoomMode === 'fit-width' || sidecar.viewerState?.lastZoomMode === 'fit-height' || sidecar.viewerState?.lastZoomMode === 'fit-page') {
-      setZoomMode(sidecar.viewerState.lastZoomMode);
-    }
-    if (typeof sidecar.viewerState?.lastZoom === 'number') {
-      setZoom(clampZoom(sidecar.viewerState.lastZoom));
-    }
-    if (sidecar.viewerState?.lastLayoutMode === 'single' || sidecar.viewerState?.lastLayoutMode === 'scroll' || sidecar.viewerState?.lastLayoutMode === 'spread') {
-      setLayoutMode(sidecar.viewerState.lastLayoutMode);
-    }
-    if (typeof sidecar.viewerState?.lastRotation === 'number') {
-      setRotation(sidecar.viewerState.lastRotation);
-    }
-  }, [normalizePdfState, pageCount]);
+  const applyPdfSession = useCallback(
+    (candidate: RemoteCandidate<PdfSidecarState>) => {
+      const sidecar = normalizePdfState(candidate.document);
+      setPdfState(sidecar);
+      setBookmarksOpen(resolvePdfBookmarksOpen(sidecar.viewerState));
+      if (sidecar.viewerState?.lastPage && pageCount > 0) {
+        const nextPage = Math.min(Math.max(sidecar.viewerState.lastPage, 1), pageCount);
+        setPageNumber(nextPage);
+        setPageInput(String(nextPage));
+      }
+      if (
+        sidecar.viewerState?.lastZoomMode === 'custom' ||
+        sidecar.viewerState?.lastZoomMode === 'fit-width' ||
+        sidecar.viewerState?.lastZoomMode === 'fit-height' ||
+        sidecar.viewerState?.lastZoomMode === 'fit-page'
+      ) {
+        setZoomMode(sidecar.viewerState.lastZoomMode);
+      }
+      if (typeof sidecar.viewerState?.lastZoom === 'number') {
+        setZoom(clampZoom(sidecar.viewerState.lastZoom));
+      }
+      if (
+        sidecar.viewerState?.lastLayoutMode === 'single' ||
+        sidecar.viewerState?.lastLayoutMode === 'scroll' ||
+        sidecar.viewerState?.lastLayoutMode === 'spread'
+      ) {
+        setLayoutMode(sidecar.viewerState.lastLayoutMode);
+      }
+      if (typeof sidecar.viewerState?.lastRotation === 'number') {
+        setRotation(sidecar.viewerState.lastRotation);
+      }
+    },
+    [normalizePdfState, pageCount],
+  );
 
-  const readPdfSession = useCallback(async (): Promise<{ content: string; version: string | null }> => {
-    if (!vault || !relativePath) return { content: serializePdfSession(EMPTY_PDF_STATE), version: null };
+  const readPdfSession = useCallback(async (): Promise<{
+    content: string;
+    version: string | null;
+  }> => {
+    if (!vault || !relativePath)
+      return { content: serializePdfSession(EMPTY_PDF_STATE), version: null };
     const annotations = await createVaultClient(vault).readPdfAnnotations(relativePath);
     const state = normalizePdfState(annotations.state);
     const content = serializePdfSession(state);
-    return { content, version: annotations.version === null ? content : String(annotations.version) };
+    return {
+      content,
+      version: annotations.version === null ? content : String(annotations.version),
+    };
   }, [normalizePdfState, relativePath, serializePdfSession, vault]);
 
-  const { controller: pdfSessionController, snapshot: pdfSessionSnapshot } = useDocumentSessionController<PdfSidecarState>({
-    serialize: serializePdfSession,
-    deserialize: deserializePdfSession,
-    applyDocument: applyPdfSession,
-    read: readPdfSession,
-    write: async ({ content, expectedVersion }) => {
-      if (!vault || !relativePath) return { version: expectedVersion ?? content };
-      const state = deserializePdfSession(content);
-      if (vault.kind === 'hosted') {
-        const parsedVersion = expectedVersion == null ? null : Number(expectedVersion);
-        const result = await createVaultClient(vault).writePdfAnnotations(
-          relativePath,
-          state,
-          Number.isFinite(parsedVersion) ? parsedVersion : null,
-        );
-        const nextContent = serializePdfSession(result.state);
-        return { version: result.version === null ? nextContent : String(result.version), mergedContent: nextContent };
-      }
-      await tauriCommands.writePdfSidecarState(vault.path, relativePath, {
-        ...state,
-        viewerState: latestViewerStateRef.current,
-      });
-      const nextContent = serializePdfSession({ ...state, viewerState: latestViewerStateRef.current });
-      return { version: nextContent, mergedContent: nextContent };
-    },
-    autosaveDebounceMs: vault?.kind === 'hosted' ? 400 : 250,
-    compareVersions: compareDocumentVersions,
-  });
+  const { controller: pdfSessionController, snapshot: pdfSessionSnapshot } =
+    useDocumentSessionController<PdfSidecarState>({
+      serialize: serializePdfSession,
+      deserialize: deserializePdfSession,
+      applyDocument: applyPdfSession,
+      read: readPdfSession,
+      write: async ({ content, expectedVersion }) => {
+        if (!vault || !relativePath) return { version: expectedVersion ?? content };
+        const state = deserializePdfSession(content);
+        if (vault.kind === 'hosted') {
+          const parsedVersion = expectedVersion == null ? null : Number(expectedVersion);
+          const result = await createVaultClient(vault).writePdfAnnotations(
+            relativePath,
+            state,
+            Number.isFinite(parsedVersion) ? parsedVersion : null,
+          );
+          const nextContent = serializePdfSession(result.state);
+          return {
+            version: result.version === null ? nextContent : String(result.version),
+            mergedContent: nextContent,
+          };
+        }
+        await tauriCommands.writePdfSidecarState(vault.path, relativePath, {
+          ...state,
+          viewerState: latestViewerStateRef.current,
+        });
+        const nextContent = serializePdfSession({
+          ...state,
+          viewerState: latestViewerStateRef.current,
+        });
+        return { version: nextContent, mergedContent: nextContent };
+      },
+      autosaveDebounceMs: vault?.kind === 'hosted' ? 400 : 250,
+      compareVersions: compareDocumentVersions,
+    });
 
   const loadRemotePdfSession = useCallback(() => {
     if (pdfSessionSnapshot.conflicted) pdfSessionController.resolveConflict('load-remote');
@@ -933,22 +1060,39 @@ export default function PdfView({ relativePath }: Props) {
     else pdfSessionController.discardRemoteCandidate();
   }, [pdfSessionController, pdfSessionSnapshot.conflicted]);
 
-  const documentStatus = useMemo(() => ({
-    status: pdfSessionSnapshot.status,
-    onLoadRemote: loadRemotePdfSession,
-    onKeepLocal: keepLocalPdfSession,
-  }), [keepLocalPdfSession, loadRemotePdfSession, pdfSessionSnapshot.status]);
+  const documentStatus = useMemo(
+    () => ({
+      status: pdfSessionSnapshot.status,
+      onLoadRemote: loadRemotePdfSession,
+      onKeepLocal: keepLocalPdfSession,
+    }),
+    [keepLocalPdfSession, loadRemotePdfSession, pdfSessionSnapshot.status],
+  );
   useDocumentStatusRegistration(relativePath, documentStatus);
 
-  const allFiles = useMemo(() => flattenPdfFiles(fileTree).filter((node) => !node.isFolder), [fileTree]);
-  const availableNotes = useMemo(() => allFiles.filter((file) => file.extension.toLowerCase() === 'md'), [allFiles]);
+  const allFiles = useMemo(
+    () => flattenPdfFiles(fileTree).filter((node) => !node.isFolder),
+    [fileTree],
+  );
+  const availableNotes = useMemo(
+    () => allFiles.filter((file) => file.extension.toLowerCase() === 'md'),
+    [allFiles],
+  );
   const currentNotePath = useMemo(() => {
-    const active = openTabs.find((tab) => tab.relativePath === activeTabPath && tab.type === 'note');
-    return active?.relativePath ?? openTabs.find((tab) => tab.type === 'note')?.relativePath ?? null;
+    const active = openTabs.find(
+      (tab) => tab.relativePath === activeTabPath && tab.type === 'note',
+    );
+    return (
+      active?.relativePath ?? openTabs.find((tab) => tab.type === 'note')?.relativePath ?? null
+    );
   }, [activeTabPath, openTabs]);
   const currentCanvasPath = useMemo(() => {
-    const active = openTabs.find((tab) => tab.relativePath === activeTabPath && tab.type === 'canvas');
-    return active?.relativePath ?? openTabs.find((tab) => tab.type === 'canvas')?.relativePath ?? null;
+    const active = openTabs.find(
+      (tab) => tab.relativePath === activeTabPath && tab.type === 'canvas',
+    );
+    return (
+      active?.relativePath ?? openTabs.find((tab) => tab.type === 'canvas')?.relativePath ?? null
+    );
   }, [activeTabPath, openTabs]);
 
   useEffect(() => {
@@ -1028,13 +1172,22 @@ export default function PdfView({ relativePath }: Props) {
         setPageCount(pdf.numPages);
         setPageNumber(initialPage);
         setPageInput(String(initialPage));
-        if (sidecar.viewerState?.lastZoomMode === 'custom' || sidecar.viewerState?.lastZoomMode === 'fit-width' || sidecar.viewerState?.lastZoomMode === 'fit-height' || sidecar.viewerState?.lastZoomMode === 'fit-page') {
+        if (
+          sidecar.viewerState?.lastZoomMode === 'custom' ||
+          sidecar.viewerState?.lastZoomMode === 'fit-width' ||
+          sidecar.viewerState?.lastZoomMode === 'fit-height' ||
+          sidecar.viewerState?.lastZoomMode === 'fit-page'
+        ) {
           setZoomMode(sidecar.viewerState.lastZoomMode);
         }
         if (typeof sidecar.viewerState?.lastZoom === 'number') {
           setZoom(clampZoom(sidecar.viewerState.lastZoom));
         }
-        if (sidecar.viewerState?.lastLayoutMode === 'single' || sidecar.viewerState?.lastLayoutMode === 'scroll' || sidecar.viewerState?.lastLayoutMode === 'spread') {
+        if (
+          sidecar.viewerState?.lastLayoutMode === 'single' ||
+          sidecar.viewerState?.lastLayoutMode === 'scroll' ||
+          sidecar.viewerState?.lastLayoutMode === 'spread'
+        ) {
           setLayoutMode(sidecar.viewerState.lastLayoutMode);
         }
         if (typeof sidecar.viewerState?.lastRotation === 'number') {
@@ -1053,7 +1206,14 @@ export default function PdfView({ relativePath }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [normalizePdfState, pdfSessionController, relativePath, serializePdfSession, supportsSidecars, vault?.path]);
+  }, [
+    normalizePdfState,
+    pdfSessionController,
+    relativePath,
+    serializePdfSession,
+    supportsSidecars,
+    vault?.path,
+  ]);
 
   useEffect(() => {
     if (!vault || !relativePath || !sidecarLoaded) return;
@@ -1069,7 +1229,19 @@ export default function PdfView({ relativePath }: Props) {
       ...pdfState,
       viewerState: latestViewerStateRef.current,
     });
-  }, [bookmarksOpen, layoutMode, pageNumber, pdfSessionController, pdfState, relativePath, rotation, sidecarLoaded, vault, zoom, zoomMode]);
+  }, [
+    bookmarksOpen,
+    layoutMode,
+    pageNumber,
+    pdfSessionController,
+    pdfState,
+    relativePath,
+    rotation,
+    sidecarLoaded,
+    vault,
+    zoom,
+    zoomMode,
+  ]);
 
   useEffect(() => {
     if (!vault || !supportsSidecars || !relativePath) return;
@@ -1088,24 +1260,30 @@ export default function PdfView({ relativePath }: Props) {
 
   useEffect(() => {
     if (!vault || vault.kind !== 'hosted' || !relativePath) return;
-    return onReplicaMutated(async (event) => {
-      if (!replicaMutationAffectsPath(event, relativePath)) return;
-      await pdfSessionController.handleExternalMutation('cache');
-    }, { kinds: ['manifest'] });
+    return onReplicaMutated(
+      async (event) => {
+        if (!replicaMutationAffectsPath(event, relativePath)) return;
+        await pdfSessionController.handleExternalMutation('cache');
+      },
+      { kinds: ['manifest'] },
+    );
   }, [pdfSessionController, relativePath, vault]);
 
   useEffect(() => {
     if (!pdfSessionSnapshot.conflicted) return;
-    toast.error('PDF annotations changed elsewhere. Review the pending changes before editing further.');
+    toast.error(
+      'PDF annotations changed elsewhere. Review the pending changes before editing further.',
+    );
   }, [pdfSessionSnapshot.conflicted]);
 
   const activePageSize = pageSizes[pageNumber] ?? pageSizes[1] ?? null;
   const rotatedPageSize = useMemo(
-    () => (activePageSize
-      ? rotation % 180 === 0
-        ? activePageSize
-        : { width: activePageSize.height, height: activePageSize.width }
-      : null),
+    () =>
+      activePageSize
+        ? rotation % 180 === 0
+          ? activePageSize
+          : { width: activePageSize.height, height: activePageSize.width }
+        : null,
     [activePageSize, rotation],
   );
 
@@ -1114,7 +1292,10 @@ export default function PdfView({ relativePath }: Props) {
       return zoom;
     }
 
-    const availableWidth = Math.max(120, containerSize.width - WORKSPACE_PADDING * 2 - (bookmarksOpen ? 300 : 0));
+    const availableWidth = Math.max(
+      120,
+      containerSize.width - WORKSPACE_PADDING * 2 - (bookmarksOpen ? 300 : 0),
+    );
     const availableHeight = Math.max(120, containerSize.height - WORKSPACE_PADDING * 2);
 
     const columnCount = layoutMode === 'spread' ? 2 : 1;
@@ -1127,7 +1308,15 @@ export default function PdfView({ relativePath }: Props) {
     if (zoomMode === 'fit-height') return fitHeightScale;
     if (zoomMode === 'fit-page') return fitPageScale;
     return zoom;
-  }, [bookmarksOpen, containerSize.height, containerSize.width, layoutMode, rotatedPageSize, zoom, zoomMode]);
+  }, [
+    bookmarksOpen,
+    containerSize.height,
+    containerSize.width,
+    layoutMode,
+    rotatedPageSize,
+    zoom,
+    zoomMode,
+  ]);
 
   const renderedPages = useMemo(() => {
     if (!documentProxy) return [] as number[];
@@ -1146,33 +1335,42 @@ export default function PdfView({ relativePath }: Props) {
     const scaledPageWidth = rotatedPageSize.width * effectiveScale * PDF_CSS_SCALE;
     const scaledPageHeight = rotatedPageSize.height * effectiveScale * PDF_CSS_SCALE;
     const pageTotal = Math.max(1, renderedPages.length);
-    const contentWidth = layoutMode === 'spread'
-      ? scaledPageWidth * 2 + PAGE_GAP
-      : scaledPageWidth;
-    const contentHeight = layoutMode === 'scroll'
-      ? scaledPageHeight * pageTotal + PAGE_GAP * Math.max(0, pageTotal - 1)
-      : scaledPageHeight;
+    const contentWidth = layoutMode === 'spread' ? scaledPageWidth * 2 + PAGE_GAP : scaledPageWidth;
+    const contentHeight =
+      layoutMode === 'scroll'
+        ? scaledPageHeight * pageTotal + PAGE_GAP * Math.max(0, pageTotal - 1)
+        : scaledPageHeight;
 
     return {
       width: Math.max(containerSize.width, contentWidth + WORKSPACE_PADDING * 2),
       height: Math.max(containerSize.height, contentHeight + WORKSPACE_PADDING * 2),
     };
-  }, [containerSize.height, containerSize.width, effectiveScale, layoutMode, renderedPages.length, rotatedPageSize]);
+  }, [
+    containerSize.height,
+    containerSize.width,
+    effectiveScale,
+    layoutMode,
+    renderedPages.length,
+    rotatedPageSize,
+  ]);
 
-  const zoomLabel = zoomMode === 'custom'
-    ? `${Math.round(effectiveScale * 100)}%`
-    : zoomMode === 'fit-width'
-    ? 'Fit width'
-    : zoomMode === 'fit-height'
-    ? 'Fit height'
-    : 'Fit page';
+  const zoomLabel =
+    zoomMode === 'custom'
+      ? `${Math.round(effectiveScale * 100)}%`
+      : zoomMode === 'fit-width'
+        ? 'Fit width'
+        : zoomMode === 'fit-height'
+          ? 'Fit height'
+          : 'Fit page';
 
   const selectedHighlight = useMemo(
     () => pdfState.highlights.find((highlight) => highlight.id === selectedHighlightId) ?? null,
     [pdfState.highlights, selectedHighlightId],
   );
   const selectedTextAnnotation = useMemo(
-    () => pdfState.textAnnotations.find((annotation) => annotation.id === selectedTextAnnotationId) ?? null,
+    () =>
+      pdfState.textAnnotations.find((annotation) => annotation.id === selectedTextAnnotationId) ??
+      null,
     [pdfState.textAnnotations, selectedTextAnnotationId],
   );
   const setCustomZoom = (nextZoom: number) => {
@@ -1196,10 +1394,13 @@ export default function PdfView({ relativePath }: Props) {
     });
   }, []);
 
-  const registerSurface = useCallback((nextPage: number, container: HTMLDivElement | null, canvas: HTMLCanvasElement | null) => {
-    pageRefs.current[nextPage] = container;
-    pageCanvasRefs.current[nextPage] = canvas;
-  }, []);
+  const registerSurface = useCallback(
+    (nextPage: number, container: HTMLDivElement | null, canvas: HTMLCanvasElement | null) => {
+      pageRefs.current[nextPage] = container;
+      pageCanvasRefs.current[nextPage] = canvas;
+    },
+    [],
+  );
 
   const scrollToPage = (nextPage: number) => {
     const element = pageRefs.current[nextPage];
@@ -1241,186 +1442,216 @@ export default function PdfView({ relativePath }: Props) {
     setBookmarksOpen(true);
   }, [canAnnotate, pageNumber, updatePdfState]);
 
-  const updateBookmarkLabel = useCallback((bookmarkId: string, label: string) => {
-    if (!canAnnotate) return;
-    updatePdfState((current) => ({
-      ...current,
-      bookmarks: current.bookmarks.map((bookmark) => (
-        bookmark.id === bookmarkId
-          ? { ...bookmark, label, updatedAt: getTimestamp() }
-          : bookmark
-      )),
-    }));
-  }, [canAnnotate, updatePdfState]);
+  const updateBookmarkLabel = useCallback(
+    (bookmarkId: string, label: string) => {
+      if (!canAnnotate) return;
+      updatePdfState((current) => ({
+        ...current,
+        bookmarks: current.bookmarks.map((bookmark) =>
+          bookmark.id === bookmarkId ? { ...bookmark, label, updatedAt: getTimestamp() } : bookmark,
+        ),
+      }));
+    },
+    [canAnnotate, updatePdfState],
+  );
 
-  const removeBookmark = useCallback((bookmarkId: string) => {
-    if (!canAnnotate) return;
-    updatePdfState((current) => ({
-      ...current,
-      bookmarks: current.bookmarks.filter((bookmark) => bookmark.id !== bookmarkId),
-    }));
-  }, [canAnnotate, updatePdfState]);
+  const removeBookmark = useCallback(
+    (bookmarkId: string) => {
+      if (!canAnnotate) return;
+      updatePdfState((current) => ({
+        ...current,
+        bookmarks: current.bookmarks.filter((bookmark) => bookmark.id !== bookmarkId),
+      }));
+    },
+    [canAnnotate, updatePdfState],
+  );
 
-  const createHighlight = useCallback((withNote: boolean) => {
-    if (!canAnnotate) return;
-    if (!selectionAction) return;
-    const timestamp = getTimestamp();
-    const highlight: PdfHighlight = {
-      id: crypto.randomUUID(),
-      page: selectionAction.page,
-      text: selectionAction.text,
-      rects: selectionAction.rects,
-      color: DEFAULT_HIGHLIGHT_COLOR,
-      note: withNote ? '' : null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    updatePdfState((current) => ({
-      ...current,
-      highlights: [...current.highlights, highlight],
-    }));
-    setSelectedHighlightId(highlight.id);
-    setSelectionAction(null);
-    window.getSelection()?.removeAllRanges();
-  }, [canAnnotate, selectionAction, updatePdfState]);
+  const createHighlight = useCallback(
+    (withNote: boolean) => {
+      if (!canAnnotate) return;
+      if (!selectionAction) return;
+      const timestamp = getTimestamp();
+      const highlight: PdfHighlight = {
+        id: crypto.randomUUID(),
+        page: selectionAction.page,
+        text: selectionAction.text,
+        rects: selectionAction.rects,
+        color: DEFAULT_HIGHLIGHT_COLOR,
+        note: withNote ? '' : null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      updatePdfState((current) => ({
+        ...current,
+        highlights: [...current.highlights, highlight],
+      }));
+      setSelectedHighlightId(highlight.id);
+      setSelectionAction(null);
+      window.getSelection()?.removeAllRanges();
+    },
+    [canAnnotate, selectionAction, updatePdfState],
+  );
 
-  const updateHighlightNote = useCallback((highlightId: string, note: string) => {
-    if (!canAnnotate) return;
-    updatePdfState((current) => ({
-      ...current,
-      highlights: current.highlights.map((highlight) => (
-        highlight.id === highlightId
-          ? { ...highlight, note, updatedAt: getTimestamp() }
-          : highlight
-      )),
-    }));
-  }, [canAnnotate, updatePdfState]);
+  const updateHighlightNote = useCallback(
+    (highlightId: string, note: string) => {
+      if (!canAnnotate) return;
+      updatePdfState((current) => ({
+        ...current,
+        highlights: current.highlights.map((highlight) =>
+          highlight.id === highlightId
+            ? { ...highlight, note, updatedAt: getTimestamp() }
+            : highlight,
+        ),
+      }));
+    },
+    [canAnnotate, updatePdfState],
+  );
 
-  const removeHighlight = useCallback((highlightId: string) => {
-    if (!canAnnotate) return;
-    updatePdfState((current) => ({
-      ...current,
-      highlights: current.highlights.filter((highlight) => highlight.id !== highlightId),
-    }));
-    if (selectedHighlightId === highlightId) {
-      setSelectedHighlightId(null);
-    }
-  }, [canAnnotate, selectedHighlightId, updatePdfState]);
+  const removeHighlight = useCallback(
+    (highlightId: string) => {
+      if (!canAnnotate) return;
+      updatePdfState((current) => ({
+        ...current,
+        highlights: current.highlights.filter((highlight) => highlight.id !== highlightId),
+      }));
+      if (selectedHighlightId === highlightId) {
+        setSelectedHighlightId(null);
+      }
+    },
+    [canAnnotate, selectedHighlightId, updatePdfState],
+  );
 
-  const createTextAnnotation = useCallback((selection: RegionSelectionState) => {
-    if (!canAnnotate) return;
-    const rect = selectionToRegionRect(selection);
-    const surface = pageRefs.current[selection.page];
-    if (!rect || !surface) return;
-    const bounds = surface.getBoundingClientRect();
-    if (!bounds.width || !bounds.height || rect.width < 16 || rect.height < 16) return;
-    const timestamp = getTimestamp();
-    const annotation: PdfTextAnnotation = {
-      id: crypto.randomUUID(),
-      page: selection.page,
-      text: '',
-      left: rect.left / bounds.width,
-      top: rect.top / bounds.height,
-      width: rect.width / bounds.width,
-      height: rect.height / bounds.height,
-      color: PDF_TEXT_ANNOTATION_STYLES[0].borderColor,
-      backgroundColor: PDF_TEXT_ANNOTATION_STYLES[0].backgroundColor,
-      textColor: PDF_TEXT_ANNOTATION_STYLES[0].textColor,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    updatePdfState((current) => ({
-      ...current,
-      textAnnotations: [...current.textAnnotations, annotation],
-    }));
-    setSelectedTextAnnotationId(annotation.id);
-  }, [canAnnotate, updatePdfState]);
+  const createTextAnnotation = useCallback(
+    (selection: RegionSelectionState) => {
+      if (!canAnnotate) return;
+      const rect = selectionToRegionRect(selection);
+      const surface = pageRefs.current[selection.page];
+      if (!rect || !surface) return;
+      const bounds = surface.getBoundingClientRect();
+      if (!bounds.width || !bounds.height || rect.width < 16 || rect.height < 16) return;
+      const timestamp = getTimestamp();
+      const annotation: PdfTextAnnotation = {
+        id: crypto.randomUUID(),
+        page: selection.page,
+        text: '',
+        left: rect.left / bounds.width,
+        top: rect.top / bounds.height,
+        width: rect.width / bounds.width,
+        height: rect.height / bounds.height,
+        color: PDF_TEXT_ANNOTATION_STYLES[0].borderColor,
+        backgroundColor: PDF_TEXT_ANNOTATION_STYLES[0].backgroundColor,
+        textColor: PDF_TEXT_ANNOTATION_STYLES[0].textColor,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      updatePdfState((current) => ({
+        ...current,
+        textAnnotations: [...current.textAnnotations, annotation],
+      }));
+      setSelectedTextAnnotationId(annotation.id);
+    },
+    [canAnnotate, updatePdfState],
+  );
 
-  const updateTextAnnotation = useCallback((annotationId: string, text: string) => {
-    if (!canAnnotate) return;
-    updatePdfState((current) => ({
-      ...current,
-      textAnnotations: current.textAnnotations.map((annotation) => (
-        annotation.id === annotationId
-          ? { ...annotation, text, updatedAt: getTimestamp() }
-          : annotation
-      )),
-    }));
-  }, [canAnnotate, updatePdfState]);
+  const updateTextAnnotation = useCallback(
+    (annotationId: string, text: string) => {
+      if (!canAnnotate) return;
+      updatePdfState((current) => ({
+        ...current,
+        textAnnotations: current.textAnnotations.map((annotation) =>
+          annotation.id === annotationId
+            ? { ...annotation, text, updatedAt: getTimestamp() }
+            : annotation,
+        ),
+      }));
+    },
+    [canAnnotate, updatePdfState],
+  );
 
-  const updateTextAnnotationPalette = useCallback((
-    annotationId: string,
-    palette: { backgroundColor: string; textColor: string; borderColor: string },
-  ) => {
-    if (!canAnnotate) return;
-    updatePdfState((current) => ({
-      ...current,
-      textAnnotations: current.textAnnotations.map((annotation) => (
-        annotation.id === annotationId
-          ? {
-              ...annotation,
-              color: palette.borderColor,
-              backgroundColor: palette.backgroundColor,
-              textColor: palette.textColor,
-              updatedAt: getTimestamp(),
-            }
-          : annotation
-      )),
-    }));
-  }, [canAnnotate, updatePdfState]);
+  const updateTextAnnotationPalette = useCallback(
+    (
+      annotationId: string,
+      palette: { backgroundColor: string; textColor: string; borderColor: string },
+    ) => {
+      if (!canAnnotate) return;
+      updatePdfState((current) => ({
+        ...current,
+        textAnnotations: current.textAnnotations.map((annotation) =>
+          annotation.id === annotationId
+            ? {
+                ...annotation,
+                color: palette.borderColor,
+                backgroundColor: palette.backgroundColor,
+                textColor: palette.textColor,
+                updatedAt: getTimestamp(),
+              }
+            : annotation,
+        ),
+      }));
+    },
+    [canAnnotate, updatePdfState],
+  );
 
-  const removeTextAnnotation = useCallback((annotationId: string) => {
-    if (!canAnnotate) return;
-    updatePdfState((current) => ({
-      ...current,
-      textAnnotations: current.textAnnotations.filter((annotation) => annotation.id !== annotationId),
-    }));
-    if (selectedTextAnnotationId === annotationId) {
-      setSelectedTextAnnotationId(null);
-    }
-  }, [canAnnotate, selectedTextAnnotationId, updatePdfState]);
+  const removeTextAnnotation = useCallback(
+    (annotationId: string) => {
+      if (!canAnnotate) return;
+      updatePdfState((current) => ({
+        ...current,
+        textAnnotations: current.textAnnotations.filter(
+          (annotation) => annotation.id !== annotationId,
+        ),
+      }));
+      if (selectedTextAnnotationId === annotationId) {
+        setSelectedTextAnnotationId(null);
+      }
+    },
+    [canAnnotate, selectedTextAnnotationId, updatePdfState],
+  );
 
-  const updateTextAnnotationFrame = useCallback((
-    annotationId: string,
-    frame: Pick<PdfTextAnnotation, 'left' | 'top' | 'width' | 'height'>,
-  ) => {
-    if (!canAnnotate) return;
-    updatePdfState((current) => ({
-      ...current,
-      textAnnotations: current.textAnnotations.map((annotation) => (
-        annotation.id === annotationId
-          ? {
-              ...annotation,
-              ...frame,
-              updatedAt: getTimestamp(),
-            }
-          : annotation
-      )),
-    }));
-  }, [canAnnotate, updatePdfState]);
+  const updateTextAnnotationFrame = useCallback(
+    (annotationId: string, frame: Pick<PdfTextAnnotation, 'left' | 'top' | 'width' | 'height'>) => {
+      if (!canAnnotate) return;
+      updatePdfState((current) => ({
+        ...current,
+        textAnnotations: current.textAnnotations.map((annotation) =>
+          annotation.id === annotationId
+            ? {
+                ...annotation,
+                ...frame,
+                updatedAt: getTimestamp(),
+              }
+            : annotation,
+        ),
+      }));
+    },
+    [canAnnotate, updatePdfState],
+  );
 
-  const handleTextAnnotationPointerDown = useCallback((
-    annotation: PdfTextAnnotation,
-    event: React.PointerEvent<HTMLElement>,
-    mode: 'move' | 'resize',
-  ) => {
-    if (!canAnnotate) return;
-    if (interactionMode !== 'none') return;
-    event.preventDefault();
-    event.stopPropagation();
-    setSelectedTextAnnotationId(annotation.id);
-    setAnnotationManipulation({
-      annotationId: annotation.id,
-      page: annotation.page,
-      mode,
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      originLeft: annotation.left,
-      originTop: annotation.top,
-      originWidth: annotation.width,
-      originHeight: annotation.height,
-    });
-  }, [canAnnotate, interactionMode]);
+  const handleTextAnnotationPointerDown = useCallback(
+    (
+      annotation: PdfTextAnnotation,
+      event: React.PointerEvent<HTMLElement>,
+      mode: 'move' | 'resize',
+    ) => {
+      if (!canAnnotate) return;
+      if (interactionMode !== 'none') return;
+      event.preventDefault();
+      event.stopPropagation();
+      setSelectedTextAnnotationId(annotation.id);
+      setAnnotationManipulation({
+        annotationId: annotation.id,
+        page: annotation.page,
+        mode,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        originLeft: annotation.left,
+        originTop: annotation.top,
+        originWidth: annotation.width,
+        originHeight: annotation.height,
+      });
+    },
+    [canAnnotate, interactionMode],
+  );
 
   const addPageCommentForCurrentPage = useCallback(() => {
     if (!canComment) return;
@@ -1434,110 +1665,145 @@ export default function PdfView({ relativePath }: Props) {
     };
     updatePdfState((current) => ({
       ...current,
-      pageComments: [...current.pageComments, comment].sort((left, right) => left.page - right.page),
+      pageComments: [...current.pageComments, comment].sort(
+        (left, right) => left.page - right.page,
+      ),
     }));
     setBookmarksOpen(true);
     setSelectedPageCommentId(comment.id);
   }, [canComment, pageNumber, updatePdfState]);
 
-  const updatePageComment = useCallback((commentId: string, content: string) => {
-    if (!canComment) return;
-    updatePdfState((current) => ({
-      ...current,
-      pageComments: current.pageComments.map((comment) => (
-        comment.id === commentId
-          ? { ...comment, content, updatedAt: getTimestamp() }
-          : comment
-      )),
-    }));
-  }, [canComment, updatePdfState]);
+  const updatePageComment = useCallback(
+    (commentId: string, content: string) => {
+      if (!canComment) return;
+      updatePdfState((current) => ({
+        ...current,
+        pageComments: current.pageComments.map((comment) =>
+          comment.id === commentId ? { ...comment, content, updatedAt: getTimestamp() } : comment,
+        ),
+      }));
+    },
+    [canComment, updatePdfState],
+  );
 
-  const removePageComment = useCallback((commentId: string) => {
-    if (!canComment) return;
-    updatePdfState((current) => ({
-      ...current,
-      pageComments: current.pageComments.filter((comment) => comment.id !== commentId),
-    }));
-    if (selectedPageCommentId === commentId) {
-      setSelectedPageCommentId(null);
-    }
-  }, [canComment, selectedPageCommentId, updatePdfState]);
-
-  const appendToNote = useCallback(async (targetPath: string, block: string) => {
-    if (!vault) return;
-    const targetOpenTab = openTabs.find((tab) => tab.relativePath === targetPath && tab.type === 'note');
-    if (targetOpenTab?.isDirty) {
-      toast.error('Save the target note before inserting PDF content.');
-      return;
-    }
-
-    const client = createVaultClient(vault);
-    const note = await client.readDocument(targetPath);
-    const nextContent = appendMarkdownBlock(note.content, block);
-    await client.writeDocument(targetPath, nextContent, note.version);
-    if (targetOpenTab) {
-      setActiveTab(targetPath);
-    } else {
-      const title = targetPath.split('/').pop()?.replace(/\.md$/i, '') ?? targetPath;
-      openEditorTab(targetPath, title, 'note');
-    }
-    setForceReloadPath(targetPath);
-    setRevealEditorPath(targetPath);
-    toast.success(`Inserted into ${targetPath}`);
-  }, [openEditorTab, openTabs, setActiveTab, setForceReloadPath, setRevealEditorPath, vault]);
-
-  const appendToCanvas = useCallback(async (targetPath: string, mutate: (canvas: CanvasData) => CanvasData) => {
-    if (!vault) return;
-    const openTab = openTabs.find((tab) => tab.relativePath === targetPath && tab.type === 'canvas');
-    if (openTab?.isDirty) {
-      toast.error('Save the target canvas before inserting PDF content.');
-      return;
-    }
-
-    const client = createVaultClient(vault);
-    const canvasDoc = await client.readDocument(targetPath);
-    const currentCanvas = canvasDoc.content.trim()
-      ? (JSON.parse(canvasDoc.content) as CanvasData)
-      : { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
-    const nextCanvas = mutate(currentCanvas);
-    await client.writeDocument(targetPath, JSON.stringify(nextCanvas, null, 2), canvasDoc.version);
-    toast.success(`Inserted into ${targetPath}`);
-  }, [openTabs, vault]);
-
-  const handleSendTargetConfirm = useCallback(async (target: PdfSendTarget) => {
-    if (!pendingSendAction || !vault) return;
-
-    try {
-      if (pendingSendAction.mode === 'quote') {
-        const markdown = buildPdfQuoteMarkdown(relativePath, pendingSendAction.page, pendingSendAction.text);
-        if (target.kind === 'canvas-current') {
-          await appendToCanvas(target.relativePath, (canvas) =>
-            appendPdfQuoteTextNode(canvas, `${pendingSendAction.text}\n\nSource: ${relativePath} (page ${pendingSendAction.page})`),
-          );
-        } else {
-          await appendToNote(target.relativePath, markdown);
-        }
-      } else {
-        const suggestedName = `${getDocumentBaseName(relativePath, 'pdf')}-page-${pendingSendAction.page}-snapshot.png`;
-        const savedRelativePath = await tauriCommands.saveGeneratedImage(
-          vault.path,
-          relativePath,
-          pendingSendAction.dataUrl,
-          false,
-          suggestedName,
-        );
-        if (target.kind === 'canvas-current') {
-          await appendToCanvas(target.relativePath, (canvas) => appendPdfSnapshotFileNode(canvas, savedRelativePath));
-        } else {
-          await appendToNote(target.relativePath, buildPdfSnapshotMarkdown(relativePath, pendingSendAction.page, savedRelativePath));
-        }
+  const removePageComment = useCallback(
+    (commentId: string) => {
+      if (!canComment) return;
+      updatePdfState((current) => ({
+        ...current,
+        pageComments: current.pageComments.filter((comment) => comment.id !== commentId),
+      }));
+      if (selectedPageCommentId === commentId) {
+        setSelectedPageCommentId(null);
       }
-    } catch (actionError) {
-      toast.error(`Failed to send PDF ${pendingSendAction.mode}: ${String(actionError)}`);
-    } finally {
-      setPendingSendAction(null);
-    }
-  }, [appendToCanvas, appendToNote, pendingSendAction, relativePath, vault]);
+    },
+    [canComment, selectedPageCommentId, updatePdfState],
+  );
+
+  const appendToNote = useCallback(
+    async (targetPath: string, block: string) => {
+      if (!vault) return;
+      const targetOpenTab = openTabs.find(
+        (tab) => tab.relativePath === targetPath && tab.type === 'note',
+      );
+      if (targetOpenTab?.isDirty) {
+        toast.error('Save the target note before inserting PDF content.');
+        return;
+      }
+
+      const client = createVaultClient(vault);
+      const note = await client.readDocument(targetPath);
+      const nextContent = appendMarkdownBlock(note.content, block);
+      await client.writeDocument(targetPath, nextContent, note.version);
+      if (targetOpenTab) {
+        setActiveTab(targetPath);
+      } else {
+        const title = targetPath.split('/').pop()?.replace(/\.md$/i, '') ?? targetPath;
+        openEditorTab(targetPath, title, 'note');
+      }
+      setForceReloadPath(targetPath);
+      setRevealEditorPath(targetPath);
+      toast.success(`Inserted into ${targetPath}`);
+    },
+    [openEditorTab, openTabs, setActiveTab, setForceReloadPath, setRevealEditorPath, vault],
+  );
+
+  const appendToCanvas = useCallback(
+    async (targetPath: string, mutate: (canvas: CanvasData) => CanvasData) => {
+      if (!vault) return;
+      const openTab = openTabs.find(
+        (tab) => tab.relativePath === targetPath && tab.type === 'canvas',
+      );
+      if (openTab?.isDirty) {
+        toast.error('Save the target canvas before inserting PDF content.');
+        return;
+      }
+
+      const client = createVaultClient(vault);
+      const canvasDoc = await client.readDocument(targetPath);
+      const currentCanvas = canvasDoc.content.trim()
+        ? (JSON.parse(canvasDoc.content) as CanvasData)
+        : { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
+      const nextCanvas = mutate(currentCanvas);
+      await client.writeDocument(
+        targetPath,
+        JSON.stringify(nextCanvas, null, 2),
+        canvasDoc.version,
+      );
+      toast.success(`Inserted into ${targetPath}`);
+    },
+    [openTabs, vault],
+  );
+
+  const handleSendTargetConfirm = useCallback(
+    async (target: PdfSendTarget) => {
+      if (!pendingSendAction || !vault) return;
+
+      try {
+        if (pendingSendAction.mode === 'quote') {
+          const markdown = buildPdfQuoteMarkdown(
+            relativePath,
+            pendingSendAction.page,
+            pendingSendAction.text,
+          );
+          if (target.kind === 'canvas-current') {
+            await appendToCanvas(target.relativePath, (canvas) =>
+              appendPdfQuoteTextNode(
+                canvas,
+                `${pendingSendAction.text}\n\nSource: ${relativePath} (page ${pendingSendAction.page})`,
+              ),
+            );
+          } else {
+            await appendToNote(target.relativePath, markdown);
+          }
+        } else {
+          const suggestedName = `${getDocumentBaseName(relativePath, 'pdf')}-page-${pendingSendAction.page}-snapshot.png`;
+          const savedRelativePath = await tauriCommands.saveGeneratedImage(
+            vault.path,
+            relativePath,
+            pendingSendAction.dataUrl,
+            false,
+            suggestedName,
+          );
+          if (target.kind === 'canvas-current') {
+            await appendToCanvas(target.relativePath, (canvas) =>
+              appendPdfSnapshotFileNode(canvas, savedRelativePath),
+            );
+          } else {
+            await appendToNote(
+              target.relativePath,
+              buildPdfSnapshotMarkdown(relativePath, pendingSendAction.page, savedRelativePath),
+            );
+          }
+        }
+      } catch (actionError) {
+        toast.error(`Failed to send PDF ${pendingSendAction.mode}: ${String(actionError)}`);
+      } finally {
+        setPendingSendAction(null);
+      }
+    },
+    [appendToCanvas, appendToNote, pendingSendAction, relativePath, vault],
+  );
 
   const captureFullPageSnapshot = useCallback((targetPage: number) => {
     const canvas = pageCanvasRefs.current[targetPage];
@@ -1552,158 +1818,179 @@ export default function PdfView({ relativePath }: Props) {
     });
   }, []);
 
-  const runPageOcr = useCallback(async (targetPage: number, force = false) => {
-    setOcrOpen(true);
-    setOcrLoading(true);
-    setOcrPage(targetPage);
-    setOcrText('');
-    setOcrConfidence(null);
-    setOcrResultMode('ocr');
-    setOcrCached(false);
-    setOcrOverlay(null);
-    setOcrRegenerateAction({ kind: 'page', page: targetPage });
-    setOcrProgress({ progress: 0, status: 'Checking PDF text' });
-    try {
-      const pdfTextCacheScope = {
-        kind: 'pdf-page-text',
-        relativePath,
-        documentCacheKey,
-        page: targetPage,
-      };
-      if (!force) {
-        const cachedPdfText = await readOcrCache(pdfTextCacheScope);
-        if (cachedPdfText) {
-          setOcrText(cachedPdfText.text);
-          setOcrConfidence(cachedPdfText.confidence);
-          setOcrResultMode('pdf-text');
-          setOcrCached(true);
-          setOcrProgress(null);
+  const runPageOcr = useCallback(
+    async (targetPage: number, force = false) => {
+      setOcrOpen(true);
+      setOcrLoading(true);
+      setOcrPage(targetPage);
+      setOcrText('');
+      setOcrConfidence(null);
+      setOcrResultMode('ocr');
+      setOcrCached(false);
+      setOcrOverlay(null);
+      setOcrRegenerateAction({ kind: 'page', page: targetPage });
+      setOcrProgress({ progress: 0, status: 'Checking PDF text' });
+      try {
+        const pdfTextCacheScope = {
+          kind: 'pdf-page-text',
+          relativePath,
+          documentCacheKey,
+          page: targetPage,
+        };
+        if (!force) {
+          const cachedPdfText = await readOcrCache(pdfTextCacheScope);
+          if (cachedPdfText) {
+            setOcrText(cachedPdfText.text);
+            setOcrConfidence(cachedPdfText.confidence);
+            setOcrResultMode('pdf-text');
+            setOcrCached(true);
+            setOcrProgress(null);
+            return;
+          }
+        }
+
+        if (documentProxy) {
+          const page = await documentProxy.getPage(targetPage);
+          const textContent = await page.getTextContent();
+          const embeddedText = textContentToPlainText(textContent);
+          if (embeddedText.length > 0) {
+            const result = { text: embeddedText, confidence: null };
+            await writeOcrCache(pdfTextCacheScope, result, 'pdf-text').catch(() => undefined);
+            setOcrText(result.text);
+            setOcrConfidence(null);
+            setOcrResultMode('pdf-text');
+            setOcrCached(false);
+            setOcrProgress(null);
+            return;
+          }
+        }
+
+        if (!documentProxy) {
+          toast.error('PDF document is not ready for OCR yet.');
           return;
         }
+        setOcrProgress({ progress: 0, status: `Rendering page at ${ocrRenderScale}x` });
+        const canvas = await enqueuePdfRender(() =>
+          renderPdfPageForOcr(documentProxy, targetPage, ocrRenderScale, rotation),
+        );
+        setOcrProgress({ progress: 0, status: 'Preparing OCR' });
+        const { recognizeImageText } = await import('../lib/ocr');
+        const result = await recognizeImageText(
+          canvas,
+          (progress, status) => {
+            setOcrProgress({ progress, status });
+          },
+          {
+            force,
+            cacheScope: {
+              kind: 'pdf-page-ocr',
+              relativePath,
+              documentCacheKey,
+              page: targetPage,
+              rotation,
+              renderScale: ocrRenderScale,
+            },
+          },
+        );
+        setOcrText(result.text);
+        setOcrConfidence(result.confidence);
+        setOcrResultMode('ocr');
+        setOcrCached(result.cached === true);
+        setOcrOverlay({ page: targetPage, words: normalizeOcrWords(result) });
+        setOcrProgress(null);
+      } catch (reason) {
+        setOcrText('');
+        setOcrConfidence(null);
+        setOcrResultMode('ocr');
+        setOcrCached(false);
+        setOcrOverlay(null);
+        setOcrProgress(null);
+        toast.error(`OCR failed: ${String(reason)}`);
+      } finally {
+        setOcrLoading(false);
       }
+    },
+    [documentCacheKey, documentProxy, ocrRenderScale, relativePath, rotation],
+  );
 
-      if (documentProxy) {
-        const page = await documentProxy.getPage(targetPage);
-        const textContent = await page.getTextContent();
-        const embeddedText = textContentToPlainText(textContent);
-        if (embeddedText.length > 0) {
-          const result = { text: embeddedText, confidence: null };
-          await writeOcrCache(pdfTextCacheScope, result, 'pdf-text').catch(() => undefined);
-          setOcrText(result.text);
-          setOcrConfidence(null);
-          setOcrResultMode('pdf-text');
-          setOcrCached(false);
-          setOcrProgress(null);
-          return;
-        }
-      }
-
-      if (!documentProxy) {
-        toast.error('PDF document is not ready for OCR yet.');
+  const runRegionOcr = useCallback(
+    async (
+      targetPage: number,
+      region: { left: number; top: number; width: number; height: number },
+      force = false,
+    ) => {
+      const surface = pageRefs.current[targetPage];
+      if (!surface || !documentProxy) {
+        toast.error('That PDF page is not ready for region OCR yet.');
         return;
       }
-      setOcrProgress({ progress: 0, status: `Rendering page at ${ocrRenderScale}x` });
-      const canvas = await enqueuePdfRender(() => renderPdfPageForOcr(documentProxy, targetPage, ocrRenderScale, rotation));
-      setOcrProgress({ progress: 0, status: 'Preparing OCR' });
-      const { recognizeImageText } = await import('../lib/ocr');
-      const result = await recognizeImageText(canvas, (progress, status) => {
-        setOcrProgress({ progress, status });
-      }, {
-        force,
-        cacheScope: {
-          kind: 'pdf-page-ocr',
-          relativePath,
-          documentCacheKey,
-          page: targetPage,
-          rotation,
-          renderScale: ocrRenderScale,
-        },
-      });
-      setOcrText(result.text);
-      setOcrConfidence(result.confidence);
-      setOcrResultMode('ocr');
-      setOcrCached(result.cached === true);
-      setOcrOverlay({ page: targetPage, words: normalizeOcrWords(result) });
-      setOcrProgress(null);
-    } catch (reason) {
+      const surfaceRect = surface.getBoundingClientRect();
+      const normalizedRegion = {
+        left: Number((region.left / Math.max(surfaceRect.width, 1)).toFixed(5)),
+        top: Number((region.top / Math.max(surfaceRect.height, 1)).toFixed(5)),
+        width: Number((region.width / Math.max(surfaceRect.width, 1)).toFixed(5)),
+        height: Number((region.height / Math.max(surfaceRect.height, 1)).toFixed(5)),
+      };
+
+      setOcrOpen(true);
+      setOcrLoading(true);
+      setOcrPage(targetPage);
       setOcrText('');
       setOcrConfidence(null);
       setOcrResultMode('ocr');
       setOcrCached(false);
       setOcrOverlay(null);
-      setOcrProgress(null);
-      toast.error(`OCR failed: ${String(reason)}`);
-    } finally {
-      setOcrLoading(false);
-    }
-  }, [documentCacheKey, documentProxy, ocrRenderScale, relativePath, rotation]);
-
-  const runRegionOcr = useCallback(async (
-    targetPage: number,
-    region: { left: number; top: number; width: number; height: number },
-    force = false,
-  ) => {
-    const surface = pageRefs.current[targetPage];
-    if (!surface || !documentProxy) {
-      toast.error('That PDF page is not ready for region OCR yet.');
-      return;
-    }
-    const surfaceRect = surface.getBoundingClientRect();
-    const normalizedRegion = {
-      left: Number((region.left / Math.max(surfaceRect.width, 1)).toFixed(5)),
-      top: Number((region.top / Math.max(surfaceRect.height, 1)).toFixed(5)),
-      width: Number((region.width / Math.max(surfaceRect.width, 1)).toFixed(5)),
-      height: Number((region.height / Math.max(surfaceRect.height, 1)).toFixed(5)),
-    };
-
-    setOcrOpen(true);
-    setOcrLoading(true);
-    setOcrPage(targetPage);
-    setOcrText('');
-    setOcrConfidence(null);
-    setOcrResultMode('ocr');
-    setOcrCached(false);
-    setOcrOverlay(null);
-    setOcrRegenerateAction({ kind: 'region', page: targetPage, region });
-    setOcrProgress({ progress: 0, status: `Rendering region at ${ocrRenderScale}x` });
-    try {
-      const renderedPage = await enqueuePdfRender(() => renderPdfPageForOcr(documentProxy, targetPage, ocrRenderScale, rotation));
-      const canvas = cropRenderedPdfRegion(renderedPage, region, { width: surfaceRect.width, height: surfaceRect.height });
-      setOcrProgress({ progress: 0, status: 'Preparing OCR' });
-      const { recognizeImageText } = await import('../lib/ocr');
-      const result = await recognizeImageText(canvas, (progress, status) => {
-        setOcrProgress({ progress, status });
-      }, {
-        force,
-        cacheScope: {
-          kind: 'pdf-region-ocr',
-          relativePath,
-          documentCacheKey,
-          page: targetPage,
-          rotation,
-          renderScale: ocrRenderScale,
-          regionLeft: normalizedRegion.left,
-          regionTop: normalizedRegion.top,
-          regionWidth: normalizedRegion.width,
-          regionHeight: normalizedRegion.height,
-        },
-      });
-      setOcrText(result.text);
-      setOcrConfidence(result.confidence);
-      setOcrCached(result.cached === true);
-      setOcrOverlay({ page: targetPage, words: normalizeOcrWords(result, normalizedRegion) });
-      setOcrProgress(null);
-    } catch (reason) {
-      setOcrText('');
-      setOcrConfidence(null);
-      setOcrCached(false);
-      setOcrOverlay(null);
-      setOcrProgress(null);
-      toast.error(`Region OCR failed: ${String(reason)}`);
-    } finally {
-      setOcrLoading(false);
-    }
-  }, [documentCacheKey, documentProxy, ocrRenderScale, relativePath, rotation]);
+      setOcrRegenerateAction({ kind: 'region', page: targetPage, region });
+      setOcrProgress({ progress: 0, status: `Rendering region at ${ocrRenderScale}x` });
+      try {
+        const renderedPage = await enqueuePdfRender(() =>
+          renderPdfPageForOcr(documentProxy, targetPage, ocrRenderScale, rotation),
+        );
+        const canvas = cropRenderedPdfRegion(renderedPage, region, {
+          width: surfaceRect.width,
+          height: surfaceRect.height,
+        });
+        setOcrProgress({ progress: 0, status: 'Preparing OCR' });
+        const { recognizeImageText } = await import('../lib/ocr');
+        const result = await recognizeImageText(
+          canvas,
+          (progress, status) => {
+            setOcrProgress({ progress, status });
+          },
+          {
+            force,
+            cacheScope: {
+              kind: 'pdf-region-ocr',
+              relativePath,
+              documentCacheKey,
+              page: targetPage,
+              rotation,
+              renderScale: ocrRenderScale,
+              regionLeft: normalizedRegion.left,
+              regionTop: normalizedRegion.top,
+              regionWidth: normalizedRegion.width,
+              regionHeight: normalizedRegion.height,
+            },
+          },
+        );
+        setOcrText(result.text);
+        setOcrConfidence(result.confidence);
+        setOcrCached(result.cached === true);
+        setOcrOverlay({ page: targetPage, words: normalizeOcrWords(result, normalizedRegion) });
+        setOcrProgress(null);
+      } catch (reason) {
+        setOcrText('');
+        setOcrConfidence(null);
+        setOcrCached(false);
+        setOcrOverlay(null);
+        setOcrProgress(null);
+        toast.error(`Region OCR failed: ${String(reason)}`);
+      } finally {
+        setOcrLoading(false);
+      }
+    },
+    [documentCacheKey, documentProxy, ocrRenderScale, relativePath, rotation],
+  );
 
   const copyOcrText = useCallback(async () => {
     if (!ocrText) return;
@@ -1723,48 +2010,51 @@ export default function PdfView({ relativePath }: Props) {
     void runRegionOcr(ocrRegenerateAction.page, ocrRegenerateAction.region, true);
   }, [ocrPage, ocrRegenerateAction, pageNumber, runPageOcr, runRegionOcr]);
 
-  const captureRegionSnapshot = useCallback((targetPage: number, region: { left: number; top: number; width: number; height: number }) => {
-    const canvas = pageCanvasRefs.current[targetPage];
-    const surface = pageRefs.current[targetPage];
-    if (!canvas || !surface) {
-      toast.error('That PDF page is not ready for region snapshots yet.');
-      return;
-    }
+  const captureRegionSnapshot = useCallback(
+    (targetPage: number, region: { left: number; top: number; width: number; height: number }) => {
+      const canvas = pageCanvasRefs.current[targetPage];
+      const surface = pageRefs.current[targetPage];
+      if (!canvas || !surface) {
+        toast.error('That PDF page is not ready for region snapshots yet.');
+        return;
+      }
 
-    const surfaceRect = surface.getBoundingClientRect();
-    const scaleX = canvas.width / Math.max(surfaceRect.width, 1);
-    const scaleY = canvas.height / Math.max(surfaceRect.height, 1);
-    const cropWidth = Math.max(1, Math.round(region.width * scaleX));
-    const cropHeight = Math.max(1, Math.round(region.height * scaleY));
-    const cropLeft = Math.max(0, Math.round(region.left * scaleX));
-    const cropTop = Math.max(0, Math.round(region.top * scaleY));
-    const cropCanvas = document.createElement('canvas');
-    cropCanvas.width = cropWidth;
-    cropCanvas.height = cropHeight;
-    const context = cropCanvas.getContext('2d');
-    if (!context) {
-      toast.error('Failed to prepare region snapshot.');
-      return;
-    }
+      const surfaceRect = surface.getBoundingClientRect();
+      const scaleX = canvas.width / Math.max(surfaceRect.width, 1);
+      const scaleY = canvas.height / Math.max(surfaceRect.height, 1);
+      const cropWidth = Math.max(1, Math.round(region.width * scaleX));
+      const cropHeight = Math.max(1, Math.round(region.height * scaleY));
+      const cropLeft = Math.max(0, Math.round(region.left * scaleX));
+      const cropTop = Math.max(0, Math.round(region.top * scaleY));
+      const cropCanvas = document.createElement('canvas');
+      cropCanvas.width = cropWidth;
+      cropCanvas.height = cropHeight;
+      const context = cropCanvas.getContext('2d');
+      if (!context) {
+        toast.error('Failed to prepare region snapshot.');
+        return;
+      }
 
-    context.drawImage(
-      canvas,
-      cropLeft,
-      cropTop,
-      Math.min(cropWidth, canvas.width - cropLeft),
-      Math.min(cropHeight, canvas.height - cropTop),
-      0,
-      0,
-      cropWidth,
-      cropHeight,
-    );
+      context.drawImage(
+        canvas,
+        cropLeft,
+        cropTop,
+        Math.min(cropWidth, canvas.width - cropLeft),
+        Math.min(cropHeight, canvas.height - cropTop),
+        0,
+        0,
+        cropWidth,
+        cropHeight,
+      );
 
-    setPendingSendAction({
-      mode: 'snapshot',
-      page: targetPage,
-      dataUrl: cropCanvas.toDataURL('image/png'),
-    });
-  }, []);
+      setPendingSendAction({
+        mode: 'snapshot',
+        page: targetPage,
+        dataUrl: cropCanvas.toDataURL('image/png'),
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -1819,11 +2109,13 @@ export default function PdfView({ relativePath }: Props) {
     const viewport = viewportRef.current;
     if (!viewport) return;
 
-    const isEventInsidePdf = (target: EventTarget | null) => target instanceof Node && viewport.contains(target);
-    const isEditableTarget = (target: EventTarget | null) => (
-      target instanceof HTMLElement
-      && target.matches('input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"]')
-    );
+    const isEventInsidePdf = (target: EventTarget | null) =>
+      target instanceof Node && viewport.contains(target);
+    const isEditableTarget = (target: EventTarget | null) =>
+      target instanceof HTMLElement &&
+      target.matches(
+        'input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"]',
+      );
 
     const handleKeyDown = (event: KeyboardEvent) => {
       const ctrl = event.ctrlKey || event.metaKey;
@@ -1927,9 +2219,10 @@ export default function PdfView({ relativePath }: Props) {
 
     const handleGestureChange = (event: Event) => {
       if (!isEventInsidePdf(event.target)) return;
-      const scale = 'scale' in event && typeof (event as WebKitGestureEvent).scale === 'number'
-        ? (event as WebKitGestureEvent).scale
-        : null;
+      const scale =
+        'scale' in event && typeof (event as WebKitGestureEvent).scale === 'number'
+          ? (event as WebKitGestureEvent).scale
+          : null;
       if (!scale || scale <= 0) return;
 
       event.preventDefault();
@@ -1944,10 +2237,16 @@ export default function PdfView({ relativePath }: Props) {
     document.addEventListener('gesturechange', handleGestureChange, { capture: true });
 
     return () => {
-      document.removeEventListener('keydown', handleKeyDown, { capture: true } as EventListenerOptions);
+      document.removeEventListener('keydown', handleKeyDown, {
+        capture: true,
+      } as EventListenerOptions);
       document.removeEventListener('wheel', handleWheel, { capture: true } as EventListenerOptions);
-      document.removeEventListener('gesturestart', handleGestureStart, { capture: true } as EventListenerOptions);
-      document.removeEventListener('gesturechange', handleGestureChange, { capture: true } as EventListenerOptions);
+      document.removeEventListener('gesturestart', handleGestureStart, {
+        capture: true,
+      } as EventListenerOptions);
+      document.removeEventListener('gesturechange', handleGestureChange, {
+        capture: true,
+      } as EventListenerOptions);
     };
   }, [effectiveScale, layoutMode, pageCount, pageNumber]);
 
@@ -1961,8 +2260,14 @@ export default function PdfView({ relativePath }: Props) {
           return;
         }
         const range = selection.getRangeAt(0);
-        const startElement = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
-        const endElement = range.endContainer instanceof Element ? range.endContainer : range.endContainer.parentElement;
+        const startElement =
+          range.startContainer instanceof Element
+            ? range.startContainer
+            : range.startContainer.parentElement;
+        const endElement =
+          range.endContainer instanceof Element
+            ? range.endContainer
+            : range.endContainer.parentElement;
         if (!startElement || !endElement) {
           setSelectionAction(null);
           return;
@@ -1990,8 +2295,12 @@ export default function PdfView({ relativePath }: Props) {
           .map((rect) => ({
             left: (Math.max(rect.left, pageRect.left) - pageRect.left) / pageRect.width,
             top: (Math.max(rect.top, pageRect.top) - pageRect.top) / pageRect.height,
-            width: (Math.min(rect.right, pageRect.right) - Math.max(rect.left, pageRect.left)) / pageRect.width,
-            height: (Math.min(rect.bottom, pageRect.bottom) - Math.max(rect.top, pageRect.top)) / pageRect.height,
+            width:
+              (Math.min(rect.right, pageRect.right) - Math.max(rect.left, pageRect.left)) /
+              pageRect.width,
+            height:
+              (Math.min(rect.bottom, pageRect.bottom) - Math.max(rect.top, pageRect.top)) /
+              pageRect.height,
           }))
           .filter((rect) => rect.width > 0.001 && rect.height > 0.001);
 
@@ -2021,11 +2330,15 @@ export default function PdfView({ relativePath }: Props) {
       const surface = pageRefs.current[regionSelection.page];
       if (!surface) return;
       const rect = surface.getBoundingClientRect();
-      setRegionSelection((current) => current ? {
-        ...current,
-        currentX: Math.min(Math.max(event.clientX - rect.left, 0), rect.width),
-        currentY: Math.min(Math.max(event.clientY - rect.top, 0), rect.height),
-      } : current);
+      setRegionSelection((current) =>
+        current
+          ? {
+              ...current,
+              currentX: Math.min(Math.max(event.clientX - rect.left, 0), rect.width),
+              currentY: Math.min(Math.max(event.clientY - rect.top, 0), rect.height),
+            }
+          : current,
+      );
     };
 
     const handlePointerUp = () => {
@@ -2067,8 +2380,14 @@ export default function PdfView({ relativePath }: Props) {
       const minHeight = Math.min(0.5, 32 / bounds.height);
 
       if (annotationManipulation.mode === 'move') {
-        const nextLeft = Math.min(Math.max(0, annotationManipulation.originLeft + deltaX), Math.max(0, 1 - annotationManipulation.originWidth));
-        const nextTop = Math.min(Math.max(0, annotationManipulation.originTop + deltaY), Math.max(0, 1 - annotationManipulation.originHeight));
+        const nextLeft = Math.min(
+          Math.max(0, annotationManipulation.originLeft + deltaX),
+          Math.max(0, 1 - annotationManipulation.originWidth),
+        );
+        const nextTop = Math.min(
+          Math.max(0, annotationManipulation.originTop + deltaY),
+          Math.max(0, 1 - annotationManipulation.originHeight),
+        );
         updateTextAnnotationFrame(annotationManipulation.annotationId, {
           left: nextLeft,
           top: nextTop,
@@ -2107,22 +2426,28 @@ export default function PdfView({ relativePath }: Props) {
     };
   }, [annotationManipulation, updateTextAnnotationFrame]);
 
-  const handleWorkspacePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (interactionMode === 'none') return;
-    const target = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-pdf-page]') : null;
-    if (!target) return;
-    const page = Number.parseInt(target.dataset.pdfPage ?? '1', 10) || 1;
-    const rect = target.getBoundingClientRect();
-    setRegionSelection({
-      page,
-      mode: interactionMode,
-      startX: Math.min(Math.max(event.clientX - rect.left, 0), rect.width),
-      startY: Math.min(Math.max(event.clientY - rect.top, 0), rect.height),
-      currentX: Math.min(Math.max(event.clientX - rect.left, 0), rect.width),
-      currentY: Math.min(Math.max(event.clientY - rect.top, 0), rect.height),
-    });
-    event.preventDefault();
-  }, [interactionMode]);
+  const handleWorkspacePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (interactionMode === 'none') return;
+      const target =
+        event.target instanceof Element
+          ? event.target.closest<HTMLElement>('[data-pdf-page]')
+          : null;
+      if (!target) return;
+      const page = Number.parseInt(target.dataset.pdfPage ?? '1', 10) || 1;
+      const rect = target.getBoundingClientRect();
+      setRegionSelection({
+        page,
+        mode: interactionMode,
+        startX: Math.min(Math.max(event.clientX - rect.left, 0), rect.width),
+        startY: Math.min(Math.max(event.clientY - rect.top, 0), rect.height),
+        currentX: Math.min(Math.max(event.clientX - rect.left, 0), rect.width),
+        currentY: Math.min(Math.max(event.clientY - rect.top, 0), rect.height),
+      });
+      event.preventDefault();
+    },
+    [interactionMode],
+  );
 
   if (loading) {
     return (
@@ -2137,7 +2462,9 @@ export default function PdfView({ relativePath }: Props) {
       <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground app-fade-scale-in">
         <FileText size={36} className="opacity-40" />
         <div className="text-base font-medium">Unable to open PDF</div>
-        <div className="max-w-md text-center text-sm opacity-70">{error ?? 'Unknown PDF error'}</div>
+        <div className="max-w-md text-center text-sm opacity-70">
+          {error ?? 'Unknown PDF error'}
+        </div>
       </div>
     );
   }
@@ -2326,16 +2653,24 @@ export default function PdfView({ relativePath }: Props) {
             </div>
 
             <div className={documentTopBarGroupClass}>
-              <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs" onClick={addBookmarkForCurrentPage}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5 text-xs"
+                onClick={addBookmarkForCurrentPage}
+              >
                 <BookmarkPlus size={14} />
                 Bookmark
               </Button>
               <Button
                 size="sm"
                 variant="ghost"
-                className={cn('h-8 gap-1.5 px-2.5 text-xs', interactionMode === 'snapshot' && 'bg-accent text-accent-foreground')}
+                className={cn(
+                  'h-8 gap-1.5 px-2.5 text-xs',
+                  interactionMode === 'snapshot' && 'bg-accent text-accent-foreground',
+                )}
                 onClick={() => {
-                  setInteractionMode((current) => current === 'snapshot' ? 'none' : 'snapshot');
+                  setInteractionMode((current) => (current === 'snapshot' ? 'none' : 'snapshot'));
                   setRegionSelection(null);
                 }}
               >
@@ -2345,23 +2680,36 @@ export default function PdfView({ relativePath }: Props) {
               <Button
                 size="sm"
                 variant="ghost"
-                className={cn('h-8 gap-1.5 px-2.5 text-xs', interactionMode === 'annotation' && 'bg-accent text-accent-foreground')}
+                className={cn(
+                  'h-8 gap-1.5 px-2.5 text-xs',
+                  interactionMode === 'annotation' && 'bg-accent text-accent-foreground',
+                )}
                 onClick={() => {
-                  setInteractionMode((current) => current === 'annotation' ? 'none' : 'annotation');
+                  setInteractionMode((current) =>
+                    current === 'annotation' ? 'none' : 'annotation',
+                  );
                   setRegionSelection(null);
                 }}
               >
                 <MessageSquare size={14} />
                 Text box
               </Button>
-              <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => captureFullPageSnapshot(pageNumber)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5 text-xs"
+                onClick={() => captureFullPageSnapshot(pageNumber)}
+              >
                 <ImagePlus size={14} />
                 Snapshot page
               </Button>
               <Button
                 size="sm"
                 variant="ghost"
-                className={cn('h-8 gap-1.5 px-2.5 text-xs', ocrOpen && 'bg-accent text-accent-foreground')}
+                className={cn(
+                  'h-8 gap-1.5 px-2.5 text-xs',
+                  ocrOpen && 'bg-accent text-accent-foreground',
+                )}
                 disabled={ocrLoading}
                 onClick={() => {
                   if (ocrText && ocrPage === pageNumber) {
@@ -2371,10 +2719,19 @@ export default function PdfView({ relativePath }: Props) {
                   void runPageOcr(pageNumber);
                 }}
               >
-                {ocrLoading ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+                {ocrLoading ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <FileText size={14} />
+                )}
                 OCR page
               </Button>
-              <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs" onClick={addPageCommentForCurrentPage}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5 text-xs"
+                onClick={addPageCommentForCurrentPage}
+              >
                 <MessageSquare size={14} />
                 Page comment
               </Button>
@@ -2394,12 +2751,18 @@ export default function PdfView({ relativePath }: Props) {
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs">
+                      {layoutMode === 'scroll' ? (
+                        <Rows3 size={14} />
+                      ) : layoutMode === 'spread' ? (
+                        <Columns2 size={14} />
+                      ) : (
+                        <FileText size={14} />
+                      )}
                       {layoutMode === 'scroll'
-                        ? <Rows3 size={14} />
+                        ? 'Long scroll'
                         : layoutMode === 'spread'
-                          ? <Columns2 size={14} />
-                          : <FileText size={14} />}
-                      {layoutMode === 'scroll' ? 'Long scroll' : layoutMode === 'spread' ? 'Side by side' : 'Single page'}
+                          ? 'Side by side'
+                          : 'Single page'}
                       <ChevronDown size={13} className="opacity-60" />
                     </Button>
                   </DropdownMenuTrigger>
@@ -2453,18 +2816,40 @@ export default function PdfView({ relativePath }: Props) {
                       variant="ghost"
                       className={cn('size-8', ocrOverlayVisible && 'text-primary')}
                       onClick={() => setOcrOverlayVisible(!ocrOverlayVisible)}
-                      title={ocrOverlayVisible ? 'Hide text boxes on page' : 'Show text boxes on page'}
+                      title={
+                        ocrOverlayVisible ? 'Hide text boxes on page' : 'Show text boxes on page'
+                      }
                     >
                       {ocrOverlayVisible ? <Eye size={14} /> : <EyeOff size={14} />}
                     </Button>
                   )}
-                  <Button size="icon" variant="ghost" className="size-8" disabled={ocrLoading} onClick={regenerateOcr} title="Regenerate OCR">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-8"
+                    disabled={ocrLoading}
+                    onClick={regenerateOcr}
+                    title="Regenerate OCR"
+                  >
                     <RefreshCw size={14} />
                   </Button>
-                  <Button size="icon" variant="ghost" className="size-8" disabled={!ocrText} onClick={() => void copyOcrText()} title="Copy recognized text">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-8"
+                    disabled={!ocrText}
+                    onClick={() => void copyOcrText()}
+                    title="Copy recognized text"
+                  >
                     <Copy size={14} />
                   </Button>
-                  <Button size="icon" variant="ghost" className="size-8" onClick={() => setOcrOpen(false)} title="Close OCR panel">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-8"
+                    onClick={() => setOcrOpen(false)}
+                    title="Close OCR panel"
+                  >
                     <PanelRightClose size={14} />
                   </Button>
                 </div>
@@ -2472,9 +2857,12 @@ export default function PdfView({ relativePath }: Props) {
               <Button
                 size="sm"
                 variant="outline"
-                className={cn('mb-2 h-8 w-full gap-1.5 text-xs', interactionMode === 'ocr' && 'border-primary text-primary')}
+                className={cn(
+                  'mb-2 h-8 w-full gap-1.5 text-xs',
+                  interactionMode === 'ocr' && 'border-primary text-primary',
+                )}
                 onClick={() => {
-                  setInteractionMode((current) => current === 'ocr' ? 'none' : 'ocr');
+                  setInteractionMode((current) => (current === 'ocr' ? 'none' : 'ocr'));
                   setRegionSelection(null);
                 }}
                 title="OCR a selected region of the page"
@@ -2484,7 +2872,10 @@ export default function PdfView({ relativePath }: Props) {
               </Button>
               {ocrLoading && (
                 <div className="h-1 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full bg-primary transition-all" style={{ width: `${Math.round((ocrProgress?.progress ?? 0) * 100)}%` }} />
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${Math.round((ocrProgress?.progress ?? 0) * 100)}%` }}
+                  />
                 </div>
               )}
               {!ocrLoading && (
@@ -2506,11 +2897,23 @@ export default function PdfView({ relativePath }: Props) {
                 transform: 'translate(-50%, -100%)',
               }}
             >
-              <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2 text-xs" onMouseDown={(event) => event.preventDefault()} onClick={() => createHighlight(false)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2 text-xs"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => createHighlight(false)}
+              >
                 <Highlighter size={14} />
                 Highlight
               </Button>
-              <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2 text-xs" onMouseDown={(event) => event.preventDefault()} onClick={() => createHighlight(true)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2 text-xs"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => createHighlight(true)}
+              >
                 <Bookmark size={14} />
                 Add note
               </Button>
@@ -2519,7 +2922,13 @@ export default function PdfView({ relativePath }: Props) {
                 variant="ghost"
                 className="h-8 gap-1.5 px-2 text-xs"
                 onMouseDown={(event) => event.preventDefault()}
-                onClick={() => setPendingSendAction({ mode: 'quote', page: selectionAction.page, text: selectionAction.text })}
+                onClick={() =>
+                  setPendingSendAction({
+                    mode: 'quote',
+                    page: selectionAction.page,
+                    text: selectionAction.text,
+                  })
+                }
               >
                 <MessageSquareQuote size={14} />
                 Quote
@@ -2534,7 +2943,12 @@ export default function PdfView({ relativePath }: Props) {
                   <div className="text-sm font-medium">Highlight note</div>
                   <div className="text-xs text-muted-foreground">Page {selectedHighlight.page}</div>
                 </div>
-                <Button size="icon" variant="ghost" className="size-8" onClick={() => setSelectedHighlightId(null)}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-8"
+                  onClick={() => setSelectedHighlightId(null)}
+                >
                   <PanelRightClose size={14} />
                 </Button>
               </div>
@@ -2548,7 +2962,12 @@ export default function PdfView({ relativePath }: Props) {
                 className="min-h-[110px]"
               />
               <div className="mt-3 flex justify-end">
-                <Button size="sm" variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" onClick={() => removeHighlight(selectedHighlight.id)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="gap-1.5 text-destructive hover:text-destructive"
+                  onClick={() => removeHighlight(selectedHighlight.id)}
+                >
                   <Trash2 size={14} />
                   Remove highlight
                 </Button>
@@ -2561,15 +2980,24 @@ export default function PdfView({ relativePath }: Props) {
               <div className="mb-2 flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-medium">Text annotation</div>
-                  <div className="text-xs text-muted-foreground">Page {selectedTextAnnotation.page}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Page {selectedTextAnnotation.page}
+                  </div>
                 </div>
-                <Button size="icon" variant="ghost" className="size-8" onClick={() => setSelectedTextAnnotationId(null)}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-8"
+                  onClick={() => setSelectedTextAnnotationId(null)}
+                >
                   <PanelRightClose size={14} />
                 </Button>
               </div>
               <Textarea
                 value={selectedTextAnnotation.text}
-                onChange={(event) => updateTextAnnotation(selectedTextAnnotation.id, event.target.value)}
+                onChange={(event) =>
+                  updateTextAnnotation(selectedTextAnnotation.id, event.target.value)
+                }
                 placeholder="Write inside this PDF text box…"
                 className="min-h-[140px]"
               />
@@ -2578,12 +3006,16 @@ export default function PdfView({ relativePath }: Props) {
                 <div className="flex flex-wrap gap-2">
                   {PDF_TEXT_ANNOTATION_STYLES.map((style) => {
                     const palette = getPdfTextAnnotationPalette(selectedTextAnnotation);
-                    const isActive = palette.backgroundColor === style.backgroundColor && palette.textColor === style.textColor;
+                    const isActive =
+                      palette.backgroundColor === style.backgroundColor &&
+                      palette.textColor === style.textColor;
                     return (
                       <button
                         key={style.id}
                         type="button"
-                        onClick={() => updateTextAnnotationPalette(selectedTextAnnotation.id, style)}
+                        onClick={() =>
+                          updateTextAnnotationPalette(selectedTextAnnotation.id, style)
+                        }
                         className={cn(
                           'rounded-md border px-2.5 py-1.5 text-xs transition-colors',
                           isActive && 'ring-2 ring-primary/35',
@@ -2601,7 +3033,12 @@ export default function PdfView({ relativePath }: Props) {
                 </div>
               </div>
               <div className="mt-3 flex justify-end">
-                <Button size="sm" variant="ghost" className="gap-1.5 text-destructive hover:text-destructive" onClick={() => removeTextAnnotation(selectedTextAnnotation.id)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="gap-1.5 text-destructive hover:text-destructive"
+                  onClick={() => removeTextAnnotation(selectedTextAnnotation.id)}
+                >
                   <Trash2 size={14} />
                   Remove text box
                 </Button>
@@ -2615,9 +3052,16 @@ export default function PdfView({ relativePath }: Props) {
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-medium">Bookmarks</div>
-                <div className="text-xs text-muted-foreground">{pdfState.bookmarks.length} saved</div>
+                <div className="text-xs text-muted-foreground">
+                  {pdfState.bookmarks.length} saved
+                </div>
               </div>
-              <Button size="icon" variant="ghost" className="size-8" onClick={() => setBookmarksOpen(false)}>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-8"
+                onClick={() => setBookmarksOpen(false)}
+              >
                 <PanelRightClose size={14} />
               </Button>
             </div>
@@ -2628,7 +3072,10 @@ export default function PdfView({ relativePath }: Props) {
                 </div>
               ) : (
                 pdfState.bookmarks.map((bookmark) => (
-                  <div key={bookmark.id} className="rounded-xl border border-border/50 bg-muted/20 p-2.5">
+                  <div
+                    key={bookmark.id}
+                    className="rounded-xl border border-border/50 bg-muted/20 p-2.5"
+                  >
                     <button
                       type="button"
                       className="flex w-full items-center justify-between gap-3 text-left"
@@ -2646,7 +3093,12 @@ export default function PdfView({ relativePath }: Props) {
                       placeholder={`Page ${bookmark.page}`}
                     />
                     <div className="mt-2 flex justify-end">
-                      <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs text-destructive hover:text-destructive" onClick={() => removeBookmark(bookmark.id)}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 gap-1 text-xs text-destructive hover:text-destructive"
+                        onClick={() => removeBookmark(bookmark.id)}
+                      >
                         <Trash2 size={12} />
                         Remove
                       </Button>
@@ -2660,9 +3112,16 @@ export default function PdfView({ relativePath }: Props) {
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-medium">Page comments</div>
-                  <div className="text-xs text-muted-foreground">{pdfState.pageComments.length} saved</div>
+                  <div className="text-xs text-muted-foreground">
+                    {pdfState.pageComments.length} saved
+                  </div>
                 </div>
-                <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={addPageCommentForCurrentPage}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1 text-xs"
+                  onClick={addPageCommentForCurrentPage}
+                >
                   <MessageSquare size={12} />
                   Add
                 </Button>
@@ -2674,7 +3133,10 @@ export default function PdfView({ relativePath }: Props) {
                   </div>
                 ) : (
                   pdfState.pageComments.map((comment) => (
-                    <div key={comment.id} className="rounded-xl border border-border/50 bg-muted/20 p-2.5">
+                    <div
+                      key={comment.id}
+                      className="rounded-xl border border-border/50 bg-muted/20 p-2.5"
+                    >
                       <button
                         type="button"
                         className="mb-2 flex w-full items-center justify-between gap-3 text-left"
@@ -2692,10 +3154,18 @@ export default function PdfView({ relativePath }: Props) {
                         value={comment.content}
                         onChange={(event) => updatePageComment(comment.id, event.target.value)}
                         placeholder={`Comment for page ${comment.page}`}
-                        className={cn('min-h-[96px] text-xs', selectedPageCommentId === comment.id && 'ring-1 ring-primary/30')}
+                        className={cn(
+                          'min-h-[96px] text-xs',
+                          selectedPageCommentId === comment.id && 'ring-1 ring-primary/30',
+                        )}
                       />
                       <div className="mt-2 flex justify-end">
-                        <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs text-destructive hover:text-destructive" onClick={() => removePageComment(comment.id)}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 gap-1 text-xs text-destructive hover:text-destructive"
+                          onClick={() => removePageComment(comment.id)}
+                        >
                           <Trash2 size={12} />
                           Remove
                         </Button>
@@ -2742,7 +3212,11 @@ export default function PdfView({ relativePath }: Props) {
                 layoutMode === 'scroll' && 'flex flex-col items-center gap-5',
                 layoutMode === 'spread' && 'grid items-start justify-center gap-5',
               )}
-              style={layoutMode === 'spread' ? { gridTemplateColumns: 'repeat(2, max-content)' } : undefined}
+              style={
+                layoutMode === 'spread'
+                  ? { gridTemplateColumns: 'repeat(2, max-content)' }
+                  : undefined
+              }
             >
               {renderedPages.map((renderedPage) => (
                 <PdfPageCanvas
@@ -2758,8 +3232,12 @@ export default function PdfView({ relativePath }: Props) {
                   estimatedSize={pageSizes[renderedPage] ?? activePageSize}
                   onMeasured={handleMeasured}
                   registerSurface={registerSurface}
-                  highlights={pdfState.highlights.filter((highlight) => highlight.page === renderedPage)}
-                  textAnnotations={pdfState.textAnnotations.filter((annotation) => annotation.page === renderedPage)}
+                  highlights={pdfState.highlights.filter(
+                    (highlight) => highlight.page === renderedPage,
+                  )}
+                  textAnnotations={pdfState.textAnnotations.filter(
+                    (annotation) => annotation.page === renderedPage,
+                  )}
                   selectedHighlightId={selectedHighlightId}
                   selectedTextAnnotationId={selectedTextAnnotationId}
                   onHighlightClick={(highlight) => setSelectedHighlightId(highlight.id)}
@@ -2767,7 +3245,9 @@ export default function PdfView({ relativePath }: Props) {
                   onTextAnnotationPointerDown={handleTextAnnotationPointerDown}
                   regionSelection={regionSelection}
                   interactionMode={interactionMode}
-                  ocrWords={ocrOverlayVisible && ocrOverlay?.page === renderedPage ? ocrOverlay.words : []}
+                  ocrWords={
+                    ocrOverlayVisible && ocrOverlay?.page === renderedPage ? ocrOverlay.words : []
+                  }
                 />
               ))}
             </div>

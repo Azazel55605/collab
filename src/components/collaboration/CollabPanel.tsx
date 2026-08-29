@@ -1,7 +1,8 @@
-import { PeerList } from './presence/PeerList';
+import { type CollabTab, useUiStore } from '../../store/uiStore';
+
 import { ChatPanel } from './chat/ChatPanel';
 import { HistoryPanel } from './history/HistoryPanel';
-import { useUiStore, type CollabTab } from '../../store/uiStore';
+import { PeerList } from './presence/PeerList';
 
 const TABS: { id: CollabTab; label: string }[] = [
   { id: 'peers', label: 'Peers' },

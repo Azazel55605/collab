@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { buildNotePdfExportRoute, NOTE_PDF_EXPORT_EVENT, requestNotePdfExport } from './notePdfExport';
+import {
+  buildNotePdfExportRoute,
+  NOTE_PDF_EXPORT_EVENT,
+  requestNotePdfExport,
+} from './notePdfExport';
 
 describe('notePdfExport', () => {
   beforeEach(() => {

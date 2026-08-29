@@ -11,7 +11,6 @@
  * A page holding ten thousand strokes cannot be redrawn between two pointer
  * events, so an edit must repaint only the tiles its bounds touch.
  */
-
 import { INK_LIMITS } from '../../types/ink';
 import type { InkBounds } from '../../types/ink';
 
@@ -70,10 +69,7 @@ function floorDiv(value: number, divisor: number): number {
  * Returned in row-major order so painting follows a predictable path and two
  * callers computing the same region get the same list.
  */
-export function tilesForBounds(
-  bounds: InkBounds,
-  tileSize = INK_TILE_SIZE,
-): InkTileKey[] {
+export function tilesForBounds(bounds: InkBounds, tileSize = INK_TILE_SIZE): InkTileKey[] {
   if (bounds.maxX < bounds.minX || bounds.maxY < bounds.minY) return [];
   const firstCol = floorDiv(bounds.minX, tileSize);
   const lastCol = floorDiv(bounds.maxX, tileSize);

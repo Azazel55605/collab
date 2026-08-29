@@ -15,7 +15,9 @@ export function hasPrimaryModifier(event: Pick<EditorShortcutEventLike, 'ctrlKey
   return event.ctrlKey || event.metaKey;
 }
 
-export function getEditorShortcutKey(event: Pick<EditorShortcutEventLike, 'key' | 'code' | 'ctrlKey' | 'metaKey' | 'altKey'>) {
+export function getEditorShortcutKey(
+  event: Pick<EditorShortcutEventLike, 'key' | 'code' | 'ctrlKey' | 'metaKey' | 'altKey'>,
+) {
   if (asciiLetterOrDigit.test(event.key)) return event.key.toLowerCase();
 
   if (event.altKey && hasPrimaryModifier(event) && event.code) {

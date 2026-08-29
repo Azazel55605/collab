@@ -1,17 +1,21 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ChatPanel } from './ChatPanel';
+import { tauriCommands } from '../../../lib/tauri';
 import { useCollabStore } from '../../../store/collabStore';
 import { useServerStore } from '../../../store/serverStore';
 import { useVaultStore } from '../../../store/vaultStore';
 import type { HostedVaultMeta, LocalVaultMeta } from '../../../types/vault';
 
-vi.mock('../../../lib/tauri', () => ({
-  tauriCommands: { sendChatMessage: vi.fn(), readChatMessages: vi.fn(), hostedVaultRequest: vi.fn() },
-}));
+import { ChatPanel } from './ChatPanel';
 
-import { tauriCommands } from '../../../lib/tauri';
+vi.mock('../../../lib/tauri', () => ({
+  tauriCommands: {
+    sendChatMessage: vi.fn(),
+    readChatMessages: vi.fn(),
+    hostedVaultRequest: vi.fn(),
+  },
+}));
 
 const localVault: LocalVaultMeta = {
   kind: 'local',
@@ -90,33 +94,40 @@ describe('ChatPanel', () => {
   it('treats echoed hosted messages from the authenticated server user as self', () => {
     useVaultStore.setState({ vault: hostedVault } as never);
     useServerStore.setState({
-      connections: { 'https://collab.example.test': { hostedVaults: [], status: {
-        connected: true,
-        serverUrl: 'https://collab.example.test',
-        allowInvalidCertificates: false,
-        user: {
-          id: 'server-user-1',
-          username: 'admin',
-          displayName: 'Hosted Admin',
-          role: 'admin',
-          status: 'active',
-          createdAt: '2026-06-17T00:00:00Z',
-          lastLoginAt: null,
-          activeSessions: 1,
-          isPrimaryAdmin: true,
+      connections: {
+        'https://collab.example.test': {
+          hostedVaults: [],
+          status: {
+            connected: true,
+            serverUrl: 'https://collab.example.test',
+            allowInvalidCertificates: false,
+            user: {
+              id: 'server-user-1',
+              username: 'admin',
+              displayName: 'Hosted Admin',
+              role: 'admin',
+              status: 'active',
+              createdAt: '2026-06-17T00:00:00Z',
+              lastLoginAt: null,
+              activeSessions: 1,
+              isPrimaryAdmin: true,
+            },
+            accessExpiresAt: '2999-01-01T00:00:00Z',
+          },
         },
-        accessExpiresAt: '2999-01-01T00:00:00Z',
-      } } },
+      },
     } as never);
     useCollabStore.setState({
-      chatMessages: [{
-        id: 'message-1',
-        userId: 'server-user-1',
-        userName: 'Hosted Admin',
-        userColor: '#8b5cf6',
-        content: 'Still me after polling',
-        timestamp: 1,
-      }],
+      chatMessages: [
+        {
+          id: 'message-1',
+          userId: 'server-user-1',
+          userName: 'Hosted Admin',
+          userColor: '#8b5cf6',
+          content: 'Still me after polling',
+          timestamp: 1,
+        },
+      ],
     } as never);
 
     render(<ChatPanel />);

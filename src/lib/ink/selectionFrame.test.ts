@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { InkConnector, InkShape } from '../../types/ink';
+
 import { createInkScene } from './document';
 import { selectionFrame } from './selectionFrame';
 
@@ -19,8 +20,13 @@ const stroke = {
 describe('selectionFrame', () => {
   it('aligns legacy line objects that do not yet have rotation metadata', () => {
     const guide: InkShape = {
-      id: 'legacy-guide', type: 'shape', shape: 'line', layerId: 'layer-1', guide: true,
-      points: [0, 0, 1_000, 1_000], stroke,
+      id: 'legacy-guide',
+      type: 'shape',
+      shape: 'line',
+      layerId: 'layer-1',
+      guide: true,
+      points: [0, 0, 1_000, 1_000],
+      stroke,
     };
     const scene = createInkScene();
     scene.objects['legacy-guide'] = guide;
@@ -33,8 +39,14 @@ describe('selectionFrame', () => {
 
   it('keeps a rotated guide aligned with its local axes', () => {
     const guide: InkShape = {
-      id: 'guide', type: 'shape', shape: 'line', layerId: 'layer-1', guide: true,
-      points: [0, 0, 0, 1_000], stroke, rotation: Math.PI / 2,
+      id: 'guide',
+      type: 'shape',
+      shape: 'line',
+      layerId: 'layer-1',
+      guide: true,
+      points: [0, 0, 0, 1_000],
+      stroke,
+      rotation: Math.PI / 2,
     };
     const scene = createInkScene();
     scene.objects.guide = guide;
@@ -47,9 +59,14 @@ describe('selectionFrame', () => {
 
   it('keeps a rotated connector aligned with its local axes', () => {
     const connector: InkConnector = {
-      id: 'connector', type: 'connector', layerId: 'layer-1',
-      from: { x: 0, y: 0 }, to: { x: 0, y: 1_000 },
-      routing: 'straight', stroke, rotation: Math.PI / 2,
+      id: 'connector',
+      type: 'connector',
+      layerId: 'layer-1',
+      from: { x: 0, y: 0 },
+      to: { x: 0, y: 1_000 },
+      routing: 'straight',
+      stroke,
+      rotation: Math.PI / 2,
     };
     const scene = createInkScene();
     scene.objects.connector = connector;

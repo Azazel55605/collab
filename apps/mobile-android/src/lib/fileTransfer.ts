@@ -1,5 +1,5 @@
-import { parseLogicDiagramDocument } from '../../../../src/types/logicDiagram';
 import { parseSheetDocument } from '../../../../src/lib/sheet/document';
+import { parseLogicDiagramDocument } from '../../../../src/types/logicDiagram';
 import type { HostedFileEntry, HostedVault } from '../mobileTauri';
 import {
   createHostedDocument,
@@ -12,8 +12,22 @@ import {
 } from '../mobileTauri';
 
 export const MOBILE_UPLOAD_EXTENSIONS = [
-  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'avif',
-  'svg', 'pdf', 'md', 'markdown', 'canvas', 'kanban', 'logic', 'sheet',
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'bmp',
+  'ico',
+  'avif',
+  'svg',
+  'pdf',
+  'md',
+  'markdown',
+  'canvas',
+  'kanban',
+  'logic',
+  'sheet',
 ];
 
 function extension(name: string): string {
@@ -71,7 +85,8 @@ export async function pickAndUploadFiles(
     const fallbackName = sourcePath.split(/[/\\]/).pop() ?? sourcePath;
     try {
       const ext = extension(fallbackName);
-      const binary = ext === 'pdf' || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'avif'].includes(ext);
+      const binary =
+        ext === 'pdf' || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'avif'].includes(ext);
       if (binary) {
         if (!vault.capabilities.includes('file.uploadAsset')) {
           throw new Error('You do not have permission to upload assets.');
@@ -86,16 +101,21 @@ export async function pickAndUploadFiles(
       const content = decodeUtf8Base64(payload.contentBase64);
       const payloadExt = extension(payload.name);
       validateTextDocument(content, payloadExt);
-      result.completed.push(await createHostedDocument(
-        serverUrl,
-        vault.id,
-        parentId,
-        payload.name,
-        documentTypeForExtension(payloadExt),
-        content,
-      ));
+      result.completed.push(
+        await createHostedDocument(
+          serverUrl,
+          vault.id,
+          parentId,
+          payload.name,
+          documentTypeForExtension(payloadExt),
+          content,
+        ),
+      );
     } catch (error) {
-      result.failed.push({ name: fallbackName, error: error instanceof Error ? error.message : String(error) });
+      result.failed.push({
+        name: fallbackName,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
   return result;

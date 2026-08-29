@@ -71,52 +71,66 @@ describe('livePreview task checkbox toggles', () => {
   it('keeps inline math active inside bold text', () => {
     const items = collectInlinePreviewDebugItems('**value $x+1$ now**');
 
-    expect(items).toContainEqual(expect.objectContaining({
-      from: 2,
-      to: 17,
-      kind: 'mark',
-      className: 'cm-lp-strong',
-    }));
-    expect(items).toContainEqual(expect.objectContaining({
-      from: 8,
-      to: 13,
-      kind: 'widget',
-      widget: 'MathWidget',
-    }));
+    expect(items).toContainEqual(
+      expect.objectContaining({
+        from: 2,
+        to: 17,
+        kind: 'mark',
+        className: 'cm-lp-strong',
+      }),
+    );
+    expect(items).toContainEqual(
+      expect.objectContaining({
+        from: 8,
+        to: 13,
+        kind: 'widget',
+        widget: 'MathWidget',
+      }),
+    );
   });
 
   it('does not recursively parse markdown formatting inside inline math', () => {
     const items = collectInlinePreviewDebugItems('before $x_i + **y**$ after');
 
-    expect(items).toContainEqual(expect.objectContaining({
-      from: 7,
-      to: 20,
-      kind: 'widget',
-      widget: 'MathWidget',
-    }));
-    expect(items).not.toContainEqual(expect.objectContaining({
-      className: 'cm-lp-em',
-    }));
-    expect(items).not.toContainEqual(expect.objectContaining({
-      className: 'cm-lp-strong',
-    }));
+    expect(items).toContainEqual(
+      expect.objectContaining({
+        from: 7,
+        to: 20,
+        kind: 'widget',
+        widget: 'MathWidget',
+      }),
+    );
+    expect(items).not.toContainEqual(
+      expect.objectContaining({
+        className: 'cm-lp-em',
+      }),
+    );
+    expect(items).not.toContainEqual(
+      expect.objectContaining({
+        className: 'cm-lp-strong',
+      }),
+    );
   });
 
   it('keeps outer formatting while excluding nested parsing inside inline math', () => {
     const items = collectInlinePreviewDebugItems('**value $x_i + **y**$ now**');
 
-    expect(items).toContainEqual(expect.objectContaining({
-      from: 2,
-      to: 25,
-      kind: 'mark',
-      className: 'cm-lp-strong',
-    }));
-    expect(items).toContainEqual(expect.objectContaining({
-      from: 8,
-      to: 21,
-      kind: 'widget',
-      widget: 'MathWidget',
-    }));
+    expect(items).toContainEqual(
+      expect.objectContaining({
+        from: 2,
+        to: 25,
+        kind: 'mark',
+        className: 'cm-lp-strong',
+      }),
+    );
+    expect(items).toContainEqual(
+      expect.objectContaining({
+        from: 8,
+        to: 21,
+        kind: 'widget',
+        widget: 'MathWidget',
+      }),
+    );
   });
 
   it('keeps emphasis markers inside inline code raw', () => {
@@ -132,14 +146,7 @@ describe('livePreview task checkbox toggles', () => {
     const parent = document.createElement('div');
     document.body.appendChild(parent);
     const state = EditorState.create({
-      doc: [
-        'Cursor stays here.',
-        '',
-        '```mermaid',
-        'flowchart LR',
-        'A --> B',
-        '```',
-      ].join('\n'),
+      doc: ['Cursor stays here.', '', '```mermaid', 'flowchart LR', 'A --> B', '```'].join('\n'),
       selection: { anchor: 0 },
       extensions: [createLivePreviewPlugin('Note.md')],
     });

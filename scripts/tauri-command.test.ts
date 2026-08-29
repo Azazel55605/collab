@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import {
   androidApkOutputPaths,
   createTauriBuildArgs,
@@ -58,16 +59,20 @@ describe('tauri command wrapper', () => {
   });
 
   it('uses compact line-table debug info for Android dev builds', () => {
-    expect(withAndroidBuildDefaults(['android', 'build', '--debug'], {}))
-      .toMatchObject({ CARGO_PROFILE_DEV_DEBUG: '1' });
-    expect(withAndroidBuildDefaults(['android', 'android-studio-script', '--target', 'x86_64'], {}))
-      .toMatchObject({ CARGO_PROFILE_DEV_DEBUG: '1' });
+    expect(withAndroidBuildDefaults(['android', 'build', '--debug'], {})).toMatchObject({
+      CARGO_PROFILE_DEV_DEBUG: '1',
+    });
+    expect(
+      withAndroidBuildDefaults(['android', 'android-studio-script', '--target', 'x86_64'], {}),
+    ).toMatchObject({ CARGO_PROFILE_DEV_DEBUG: '1' });
   });
 
   it('preserves explicit Rust debug settings and release defaults', () => {
-    expect(withAndroidBuildDefaults(['android', 'dev'], { CARGO_PROFILE_DEV_DEBUG: '2' }))
-      .toMatchObject({ CARGO_PROFILE_DEV_DEBUG: '2' });
-    expect(withAndroidBuildDefaults(['android', 'build'], {})).not
-      .toHaveProperty('CARGO_PROFILE_DEV_DEBUG');
+    expect(
+      withAndroidBuildDefaults(['android', 'dev'], { CARGO_PROFILE_DEV_DEBUG: '2' }),
+    ).toMatchObject({ CARGO_PROFILE_DEV_DEBUG: '2' });
+    expect(withAndroidBuildDefaults(['android', 'build'], {})).not.toHaveProperty(
+      'CARGO_PROFILE_DEV_DEBUG',
+    );
   });
 });

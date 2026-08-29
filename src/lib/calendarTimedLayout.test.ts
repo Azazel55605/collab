@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+
+import type { CalendarEvent, CalendarTask } from '../types/calendar';
+
 import {
   calendarTimedRangeForDay,
   layoutCalendarTimedItems,
@@ -8,7 +11,6 @@ import {
   snapCalendarEndMinute,
   snapCalendarMinute,
 } from './calendarTimedLayout';
-import type { CalendarEvent, CalendarTask } from '../types/calendar';
 
 function event(id: string, start: string, end: string): CalendarEvent {
   return {
@@ -43,17 +45,22 @@ describe('calendar timed layout', () => {
   });
 
   it('assigns overlapping entries to separate columns', () => {
-    const entries = layoutCalendarTimedItems([
-      event('first', localTime(23, 9), localTime(23, 11)),
-      event('second', localTime(23, 9, 30), localTime(23, 10, 30)),
-      event('third', localTime(23, 10, 30), localTime(23, 12)),
-    ], '2026-07-23');
+    const entries = layoutCalendarTimedItems(
+      [
+        event('first', localTime(23, 9), localTime(23, 11)),
+        event('second', localTime(23, 9, 30), localTime(23, 10, 30)),
+        event('third', localTime(23, 10, 30), localTime(23, 12)),
+      ],
+      '2026-07-23',
+    );
 
-    expect(entries.map(({ item, column, columnCount }) => ({
-      id: item.id,
-      column,
-      columnCount,
-    }))).toEqual([
+    expect(
+      entries.map(({ item, column, columnCount }) => ({
+        id: item.id,
+        column,
+        columnCount,
+      })),
+    ).toEqual([
       { id: 'first', column: 0, columnCount: 2 },
       { id: 'second', column: 1, columnCount: 2 },
       { id: 'third', column: 1, columnCount: 2 },
@@ -61,11 +68,14 @@ describe('calendar timed layout', () => {
   });
 
   it('starts a new width cluster after overlapping entries end', () => {
-    const entries = layoutCalendarTimedItems([
-      event('first', localTime(23, 9), localTime(23, 10)),
-      event('second', localTime(23, 9, 15), localTime(23, 9, 45)),
-      event('later', localTime(23, 10), localTime(23, 11)),
-    ], '2026-07-23');
+    const entries = layoutCalendarTimedItems(
+      [
+        event('first', localTime(23, 9), localTime(23, 10)),
+        event('second', localTime(23, 9, 15), localTime(23, 9, 45)),
+        event('later', localTime(23, 10), localTime(23, 11)),
+      ],
+      '2026-07-23',
+    );
 
     expect(entries.find((entry) => entry.item.id === 'later')).toMatchObject({
       column: 0,
@@ -88,8 +98,10 @@ describe('calendar timed layout', () => {
     expect(new Date(moved.start.kind === 'dateTime' ? moved.start.dateTime : 0)).toEqual(
       new Date(2026, 6, 24, 14, 15),
     );
-    expect(Date.parse(moved.end.kind === 'dateTime' ? moved.end.dateTime : '')
-      - Date.parse(moved.start.kind === 'dateTime' ? moved.start.dateTime : '')).toBe(90 * 60_000);
+    expect(
+      Date.parse(moved.end.kind === 'dateTime' ? moved.end.dateTime : '') -
+        Date.parse(moved.start.kind === 'dateTime' ? moved.start.dateTime : ''),
+    ).toBe(90 * 60_000);
   });
 
   it('moves a due-only task without inventing a start', () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import {
   applyCalendarPatchToKanban,
   calendarTaskToKanbanPatch,
@@ -6,37 +7,43 @@ import {
 } from './kanbanCalendarProjection';
 
 const board = {
-  columns: [{
-    id: 'todo',
-    title: 'Todo',
-    cards: [{
-      id: 'assigned',
-      title: 'Assigned task',
-      description: 'Source-owned details',
-      assignees: ['profile-1'],
-      tags: [],
-      comments: [],
-      checklist: [],
-      startDate: '2026-07-24',
-      dueDate: '2026-07-25',
-      recurrence: { enabled: true, mode: 'weekly' as const, interval: 2, weekdays: [1, 4] },
-    }, {
-      id: 'other-user',
-      title: 'Private task',
-      assignees: ['profile-2'],
-      tags: [],
-      comments: [],
-      checklist: [],
-    }, {
-      id: 'archived',
-      title: 'Archived task',
-      assignees: ['profile-1'],
-      tags: [],
-      comments: [],
-      checklist: [],
-      archived: true,
-    }],
-  }],
+  columns: [
+    {
+      id: 'todo',
+      title: 'Todo',
+      cards: [
+        {
+          id: 'assigned',
+          title: 'Assigned task',
+          description: 'Source-owned details',
+          assignees: ['profile-1'],
+          tags: [],
+          comments: [],
+          checklist: [],
+          startDate: '2026-07-24',
+          dueDate: '2026-07-25',
+          recurrence: { enabled: true, mode: 'weekly' as const, interval: 2, weekdays: [1, 4] },
+        },
+        {
+          id: 'other-user',
+          title: 'Private task',
+          assignees: ['profile-2'],
+          tags: [],
+          comments: [],
+          checklist: [],
+        },
+        {
+          id: 'archived',
+          title: 'Archived task',
+          assignees: ['profile-1'],
+          tags: [],
+          comments: [],
+          checklist: [],
+          archived: true,
+        },
+      ],
+    },
+  ],
 };
 
 describe('Kanban calendar projection', () => {
@@ -46,24 +53,28 @@ describe('Kanban calendar projection', () => {
       originKey: 'local-vault:/vault',
       vaultName: 'Project',
       now: '2026-07-24T08:00:00.000Z',
-      sources: [{
-        fileId: 'Board.kanban',
-        path: 'Board.kanban',
-        sourceRevision: 12,
-        content: JSON.stringify(board),
-      }],
+      sources: [
+        {
+          fileId: 'Board.kanban',
+          path: 'Board.kanban',
+          sourceRevision: 12,
+          content: JSON.stringify(board),
+        },
+      ],
     });
     const second = projectLocalKanbanCalendar({
       profileId: 'profile-1',
       originKey: 'local-vault:/vault',
       vaultName: 'Project',
       now: '2026-07-24T09:00:00.000Z',
-      sources: [{
-        fileId: 'Board.kanban',
-        path: 'Board.kanban',
-        sourceRevision: 12,
-        content: JSON.stringify(board),
-      }],
+      sources: [
+        {
+          fileId: 'Board.kanban',
+          path: 'Board.kanban',
+          sourceRevision: 12,
+          content: JSON.stringify(board),
+        },
+      ],
     });
 
     expect(first.calendar).toMatchObject({
@@ -93,12 +104,14 @@ describe('Kanban calendar projection', () => {
       originKey: 'local-vault:/vault',
       vaultName: 'Project',
       now: '2026-07-24T08:00:00.000Z',
-      sources: [{
-        fileId: 'Board.kanban',
-        path: 'Board.kanban',
-        sourceRevision: 12,
-        content: JSON.stringify(board),
-      }],
+      sources: [
+        {
+          fileId: 'Board.kanban',
+          path: 'Board.kanban',
+          sourceRevision: 12,
+          content: JSON.stringify(board),
+        },
+      ],
     });
     const edited = {
       ...projection.items[0],

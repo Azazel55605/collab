@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { createEmptySheetDocument } from './document';
 import {
   applySheetConditionalFormat,
   createConditionalFormatEvaluator,
   removeSheetConditionalFormat,
 } from './conditionalFormatting';
+import { createEmptySheetDocument } from './document';
 import { activeWorksheet, deleteTracks, duplicateWorksheet, setCell } from './operations';
 import { createSelection, extendSelection } from './selection';
 
@@ -16,10 +16,15 @@ function fixture() {
   });
   const worksheet = activeWorksheet(document);
   [1, 2, 2, 4].forEach((value, row) => {
-    document = setCell(document, worksheet.id, { row, column: 0 }, {
-      value,
-      valueType: 'number',
-    });
+    document = setCell(
+      document,
+      worksheet.id,
+      { row, column: 0 },
+      {
+        value,
+        valueType: 'number',
+      },
+    );
   });
   return document;
 }
@@ -45,8 +50,9 @@ describe('sheet conditional formatting', () => {
       backgroundColor: '#fee2e2',
       bold: true,
     });
-    expect(formatted.cells[`${formatted.rowOrder[1]}:${formatted.columnOrder[0]}`].styleId)
-      .toBeUndefined();
+    expect(
+      formatted.cells[`${formatted.rowOrder[1]}:${formatted.columnOrder[0]}`].styleId,
+    ).toBeUndefined();
   });
 
   it('distinguishes duplicate and unique non-blank values', () => {

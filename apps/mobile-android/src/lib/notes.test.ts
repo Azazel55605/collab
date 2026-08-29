@@ -1,10 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const invoke = vi.fn();
-vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
-
 import type { HostedFileEntry } from '../mobileTauri';
-import { DEFAULT_PREFS } from './theme';
+
 import {
   isNoteFile,
   readNoteDocument,
@@ -13,6 +10,10 @@ import {
   resolveVaultLink,
   saveNoteDocument,
 } from './notes';
+import { DEFAULT_PREFS } from './theme';
+
+const invoke = vi.fn();
+vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 
 const SERVER = 'https://collab.example.com';
 const VAULT = 'v1';
@@ -144,12 +145,14 @@ describe('mobile note helpers', () => {
   });
 
   it('preserves Mermaid fences for the shared asynchronous renderer', () => {
-    const rendered = renderMarkdownDocument([
-      '```mermaid title="Widget sync"',
-      'flowchart LR',
-      'S["Foreground sync"] --> P["Snapshot"]',
-      '```',
-    ].join('\n'));
+    const rendered = renderMarkdownDocument(
+      [
+        '```mermaid title="Widget sync"',
+        'flowchart LR',
+        'S["Foreground sync"] --> P["Snapshot"]',
+        '```',
+      ].join('\n'),
+    );
 
     expect(rendered.html).toContain('class="md-mermaid-source"');
     expect(rendered.html).toContain('class="language-mermaid"');

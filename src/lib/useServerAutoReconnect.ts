@@ -1,7 +1,11 @@
 import { useEffect } from 'react';
 
-import { isEffectivelyConnected, shouldRefreshServerSession, useServerStore } from '../store/serverStore';
 import { listKnownServers } from '../lib/hostedServers';
+import {
+  isEffectivelyConnected,
+  shouldRefreshServerSession,
+  useServerStore,
+} from '../store/serverStore';
 import { useSyncStore } from '../store/syncStore';
 
 /** How often to retry a dropped/expired server session while disconnected. */
@@ -50,10 +54,13 @@ export function useServerAutoReconnect(): void {
           // Rising edge: a connection to this server just came back (from any
           // source). Push all of that server's queued offline edits.
           if (connectionRestored) {
-            void useSyncStore.getState().syncAllForServer(serverUrl).catch(() => {
-              // Background sync failures are surfaced through the sync store.
-              // They must not become a global unhandled-rejection overlay.
-            });
+            void useSyncStore
+              .getState()
+              .syncAllForServer(serverUrl)
+              .catch(() => {
+                // Background sync failures are surfaced through the sync store.
+                // They must not become a global unhandled-rejection overlay.
+              });
           }
           wasConnected.set(serverUrl, connected);
           if (!connected) nextInventoryAt.delete(serverUrl);
@@ -65,23 +72,25 @@ export function useServerAutoReconnect(): void {
           // much slower so focus/store events cannot amplify REST traffic.
           const now = Date.now();
           if (
-            connected
-            && !refreshingInventories.has(serverUrl)
-            && (connectionRestored || now >= (nextInventoryAt.get(serverUrl) ?? 0))
+            connected &&
+            !refreshingInventories.has(serverUrl) &&
+            (connectionRestored || now >= (nextInventoryAt.get(serverUrl) ?? 0))
           ) {
             refreshingInventories.add(serverUrl);
             nextInventoryAt.set(serverUrl, now + SERVER_INVENTORY_REFRESH_INTERVAL_MS);
             try {
               await useServerStore.getState().loadHostedVaults(serverUrl, { quiet: true });
             } catch (error) {
-              const rateLimited = String(error).toLowerCase().includes('too many requests')
-                || String(error).toLowerCase().includes('rate_limited')
-                || String(error).toLowerCase().includes('rate limited');
+              const rateLimited =
+                String(error).toLowerCase().includes('too many requests') ||
+                String(error).toLowerCase().includes('rate_limited') ||
+                String(error).toLowerCase().includes('rate limited');
               nextInventoryAt.set(
                 serverUrl,
-                Date.now() + (rateLimited
-                  ? SERVER_INVENTORY_REFRESH_INTERVAL_MS
-                  : SERVER_INVENTORY_RETRY_INTERVAL_MS),
+                Date.now() +
+                  (rateLimited
+                    ? SERVER_INVENTORY_REFRESH_INTERVAL_MS
+                    : SERVER_INVENTORY_RETRY_INTERVAL_MS),
               );
             } finally {
               refreshingInventories.delete(serverUrl);

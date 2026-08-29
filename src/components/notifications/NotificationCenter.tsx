@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+
 import { listen } from '@tauri-apps/api/event';
 import {
   Bell,
@@ -12,6 +13,7 @@ import {
   Settings,
   X,
 } from 'lucide-react';
+
 import { tauriCommands } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
 import { useCollabStore } from '../../store/collabStore';
@@ -47,11 +49,13 @@ function kindIcon(record: NotificationRecord) {
 function relativeTime(value: string): string {
   const deltaMinutes = Math.round((Date.parse(value) - Date.now()) / 60_000);
   if (Math.abs(deltaMinutes) < 1) return 'now';
-  if (Math.abs(deltaMinutes) < 60) return `${Math.abs(deltaMinutes)}m ${deltaMinutes < 0 ? 'ago' : 'from now'}`;
+  if (Math.abs(deltaMinutes) < 60)
+    return `${Math.abs(deltaMinutes)}m ${deltaMinutes < 0 ? 'ago' : 'from now'}`;
   const hours = Math.round(Math.abs(deltaMinutes) / 60);
   if (hours < 24) return `${hours}h ${deltaMinutes < 0 ? 'ago' : 'from now'}`;
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
-    .format(new Date(value));
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(
+    new Date(value),
+  );
 }
 
 export default function NotificationCenter() {
@@ -124,21 +128,24 @@ export default function NotificationCenter() {
     if (destination.kind === 'calendar-item' || destination.kind === 'calendar-invitations') {
       setActiveView('calendar');
       window.setTimeout(() => {
-        window.dispatchEvent(new CustomEvent('calendar:open-notification', { detail: destination }));
+        window.dispatchEvent(
+          new CustomEvent('calendar:open-notification', { detail: destination }),
+        );
       }, 0);
     } else if (destination.kind === 'vault-chat') {
       const current = useVaultStore.getState().vault;
-      let targetAvailable = current?.kind === 'hosted'
-        && current.hostedVaultId === destination.vaultId;
+      let targetAvailable =
+        current?.kind === 'hosted' && current.hostedVaultId === destination.vaultId;
       if (current?.kind !== 'hosted' || current.hostedVaultId !== destination.vaultId) {
         const match = Object.entries(useServerStore.getState().connections)
           .flatMap(([serverUrl, connection]) =>
-            connection.hostedVaults.map((vault) => ({ serverUrl, vault })))
+            connection.hostedVaults.map((vault) => ({ serverUrl, vault })),
+          )
           .find(({ vault }) => vault.id === destination.vaultId);
         if (match) {
-          await useVaultStore.getState().openHostedVault(
-            hostedVaultMeta(match.serverUrl, match.vault),
-          );
+          await useVaultStore
+            .getState()
+            .openHostedVault(hostedVaultMeta(match.serverUrl, match.vault));
           targetAvailable = true;
         }
       }
@@ -151,9 +158,13 @@ export default function NotificationCenter() {
     } else if (destination.kind === 'settings') {
       openSettings();
       window.setTimeout(() => {
-        window.dispatchEvent(new CustomEvent('settings:open-tab', {
-          detail: { tab: destination.section === 'notifications' ? 'notifications' : destination.section },
-        }));
+        window.dispatchEvent(
+          new CustomEvent('settings:open-tab', {
+            detail: {
+              tab: destination.section === 'notifications' ? 'notifications' : destination.section,
+            },
+          }),
+        );
       }, 0);
     }
     setOpen(false);
@@ -162,18 +173,23 @@ export default function NotificationCenter() {
   const openNotificationSettings = () => {
     openSettings();
     window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('settings:open-tab', {
-        detail: { tab: 'notifications' },
-      }));
+      window.dispatchEvent(
+        new CustomEvent('settings:open-tab', {
+          detail: { tab: 'notifications' },
+        }),
+      );
     }, 0);
     setOpen(false);
   };
 
   return (
-    <Popover open={open} onOpenChange={(next) => {
-      setOpen(next);
-      if (next) void refresh();
-    }}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) void refresh();
+      }}
+    >
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -194,9 +210,17 @@ export default function NotificationCenter() {
           <div className="flex items-center gap-2">
             <Bell size={14} />
             <span className="text-sm font-semibold">Notifications</span>
-            {unread > 0 && <span className="text-[10px] text-muted-foreground">{unread} unread</span>}
+            {unread > 0 && (
+              <span className="text-[10px] text-muted-foreground">{unread} unread</span>
+            )}
           </div>
-          <Button variant="ghost" size="icon" className="size-7" onClick={openNotificationSettings} title="Notification settings">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={openNotificationSettings}
+            title="Notification settings"
+          >
             <Settings size={13} />
           </Button>
         </div>
@@ -210,57 +234,93 @@ export default function NotificationCenter() {
               <Bell size={18} />
               <span className="text-xs">No notifications</span>
             </div>
-          ) : records.map((record) => {
-            const timestamp = record.envelope.scheduledAt ?? record.envelope.createdAt;
-            return (
-              <div
-                key={record.envelope.id}
-                className={cn(
-                  'group border-b border-border/40 px-3 py-2.5 last:border-b-0',
-                  !record.readAt && 'bg-primary/[0.04]',
-                )}
-              >
-                <button type="button" className="flex w-full gap-2.5 text-left" onClick={() => void openRecord(record)}>
-                  <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
-                    {kindIcon(record)}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-medium">{record.envelope.title}</span>
-                    {record.envelope.body && (
-                      <span className="mt-0.5 line-clamp-2 block text-[11px] leading-4 text-muted-foreground">
-                        {record.envelope.body}
-                      </span>
-                    )}
-                    <span className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground/70">
-                      <Clock3 size={9} />
-                      {relativeTime(timestamp)}
-                      {record.state === 'failed' && <span className="text-destructive">Delivery failed</span>}
+          ) : (
+            records.map((record) => {
+              const timestamp = record.envelope.scheduledAt ?? record.envelope.createdAt;
+              return (
+                <div
+                  key={record.envelope.id}
+                  className={cn(
+                    'group border-b border-border/40 px-3 py-2.5 last:border-b-0',
+                    !record.readAt && 'bg-primary/[0.04]',
+                  )}
+                >
+                  <button
+                    type="button"
+                    className="flex w-full gap-2.5 text-left"
+                    onClick={() => void openRecord(record)}
+                  >
+                    <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
+                      {kindIcon(record)}
                     </span>
-                  </span>
-                </button>
-                <div className="mt-1.5 flex justify-end gap-1">
-                  {record.state === 'failed' && (
-                    <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => void tauriCommands.notificationRetry(profileId, record.envelope.id).then(refresh)}>
-                      <RefreshCw size={10} /> Retry
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-medium">
+                        {record.envelope.title}
+                      </span>
+                      {record.envelope.body && (
+                        <span className="mt-0.5 line-clamp-2 block text-[11px] leading-4 text-muted-foreground">
+                          {record.envelope.body}
+                        </span>
+                      )}
+                      <span className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground/70">
+                        <Clock3 size={9} />
+                        {relativeTime(timestamp)}
+                        {record.state === 'failed' && (
+                          <span className="text-destructive">Delivery failed</span>
+                        )}
+                      </span>
+                    </span>
+                  </button>
+                  <div className="mt-1.5 flex justify-end gap-1">
+                    {record.state === 'failed' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[10px]"
+                        onClick={() =>
+                          void tauriCommands
+                            .notificationRetry(profileId, record.envelope.id)
+                            .then(refresh)
+                        }
+                      >
+                        <RefreshCw size={10} /> Retry
+                      </Button>
+                    )}
+                    {record.envelope.category === 'calendar.reminder' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[10px]"
+                        onClick={() => void snooze(record)}
+                      >
+                        <Clock3 size={10} /> 10 min
+                      </Button>
+                    )}
+                    {!record.readAt && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-6"
+                        onClick={() => void markRead(record)}
+                        title="Mark read"
+                      >
+                        <Check size={11} />
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6"
+                      onClick={() => void dismiss(record)}
+                      title="Dismiss"
+                    >
+                      <X size={11} />
                     </Button>
-                  )}
-                  {record.envelope.category === 'calendar.reminder' && (
-                    <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => void snooze(record)}>
-                      <Clock3 size={10} /> 10 min
-                    </Button>
-                  )}
-                  {!record.readAt && (
-                    <Button variant="ghost" size="icon" className="size-6" onClick={() => void markRead(record)} title="Mark read">
-                      <Check size={11} />
-                    </Button>
-                  )}
-                  <Button variant="ghost" size="icon" className="size-6" onClick={() => void dismiss(record)} title="Dismiss">
-                    <X size={11} />
-                  </Button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       </PopoverContent>
     </Popover>

@@ -66,7 +66,11 @@ export async function readOcrCache(scope: OcrCacheScope): Promise<CachedOcrResul
   }
 }
 
-export async function writeOcrCache(scope: OcrCacheScope, result: OcrResult, resultMode: CachedOcrResult['resultMode']): Promise<void> {
+export async function writeOcrCache(
+  scope: OcrCacheScope,
+  result: OcrResult,
+  resultMode: CachedOcrResult['resultMode'],
+): Promise<void> {
   const key = await buildOcrCacheKey(scope);
   const db = await openOcrCache();
   try {
@@ -81,8 +85,10 @@ export async function writeOcrCache(scope: OcrCacheScope, result: OcrResult, res
         key,
       );
       transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error ?? new Error('Could not write OCR result cache'));
-      transaction.onabort = () => reject(transaction.error ?? new Error('Could not write OCR result cache'));
+      transaction.onerror = () =>
+        reject(transaction.error ?? new Error('Could not write OCR result cache'));
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error('Could not write OCR result cache'));
     });
   } finally {
     db.close();
@@ -96,8 +102,10 @@ export async function clearOcrResultCache(): Promise<void> {
       const transaction = db.transaction(OCR_RESULT_CACHE_STORE, 'readwrite');
       transaction.objectStore(OCR_RESULT_CACHE_STORE).clear();
       transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error ?? new Error('Could not clear OCR result cache'));
-      transaction.onabort = () => reject(transaction.error ?? new Error('Could not clear OCR result cache'));
+      transaction.onerror = () =>
+        reject(transaction.error ?? new Error('Could not clear OCR result cache'));
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error('Could not clear OCR result cache'));
     });
   } finally {
     db.close();

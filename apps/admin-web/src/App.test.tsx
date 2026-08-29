@@ -1,7 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { App, fileToBase64, isSelectedFile } from './App';
+
 import { serverApi } from './api';
+import { App, fileToBase64, isSelectedFile } from './App';
 
 vi.mock('./api', () => ({
   serverApi: {
@@ -110,7 +111,9 @@ const localStorageMock = {
   setItem: (key: string, value: string) => storedValues.set(key, value),
   removeItem: (key: string) => storedValues.delete(key),
   key: (index: number) => [...storedValues.keys()][index] ?? null,
-  get length() { return storedValues.size; },
+  get length() {
+    return storedValues.size;
+  },
 };
 
 const unlockedBackupLocks = {
@@ -138,7 +141,13 @@ describe('admin application', () => {
       activeSessions: 1,
       pendingInvitations: 0,
       hostedVaults: 0,
-      storage: { databaseBytes: 1024, blobBytes: 0, warningThresholdBytes: 10 * 1024 * 1024 * 1024, storedContentBytes: 512, quotaBytes: 0 },
+      storage: {
+        databaseBytes: 1024,
+        blobBytes: 0,
+        warningThresholdBytes: 10 * 1024 * 1024 * 1024,
+        storedContentBytes: 512,
+        quotaBytes: 0,
+      },
       liveCollaboration: {
         activeConnections: 2,
         loadedRooms: 3,
@@ -199,7 +208,13 @@ describe('admin application', () => {
         revisionHistoryLimit: setting(0, 'COLLAB_REVISION_HISTORY_LIMIT'),
         revisionStorageTargetBytes: setting(0, 'COLLAB_REVISION_STORAGE_TARGET_BYTES'),
       },
-      backup: { scheduleEnabled: false, intervalSeconds: 86_400, retentionDays: 14, exportDir: null, locks: unlockedBackupLocks },
+      backup: {
+        scheduleEnabled: false,
+        intervalSeconds: 86_400,
+        retentionDays: 14,
+        exportDir: null,
+        locks: unlockedBackupLocks,
+      },
       maintenance: { enabled: false, message: null, updatedAt: null },
     });
     vi.mocked(serverApi.updateSettings).mockResolvedValue({
@@ -219,8 +234,18 @@ describe('admin application', () => {
         revisionHistoryLimit: setting(0, 'COLLAB_REVISION_HISTORY_LIMIT'),
         revisionStorageTargetBytes: setting(0, 'COLLAB_REVISION_STORAGE_TARGET_BYTES'),
       },
-      backup: { scheduleEnabled: false, intervalSeconds: 86_400, retentionDays: 14, exportDir: null, locks: unlockedBackupLocks },
-      maintenance: { enabled: true, message: 'Short upgrade window', updatedAt: '2026-06-19T09:00:00Z' },
+      backup: {
+        scheduleEnabled: false,
+        intervalSeconds: 86_400,
+        retentionDays: 14,
+        exportDir: null,
+        locks: unlockedBackupLocks,
+      },
+      maintenance: {
+        enabled: true,
+        message: 'Short upgrade window',
+        updatedAt: '2026-06-19T09:00:00Z',
+      },
     });
     vi.mocked(serverApi.liveDebug).mockResolvedValue({ enabled: false });
     vi.mocked(serverApi.setLiveDebug).mockResolvedValue({ enabled: true });
@@ -230,18 +255,31 @@ describe('admin application', () => {
       backupCommandConfigured: false,
       restoreCommandConfigured: false,
       schedule: { enabled: false, intervalSeconds: 86_400, retentionDays: 14, mode: 'manual' },
-      exportTarget: { configured: false, path: null, writable: false, message: 'No external export target configured.' },
-      settings: { scheduleEnabled: false, intervalSeconds: 86_400, retentionDays: 14, exportDir: null, locks: unlockedBackupLocks },
-      backups: [{
-        name: 'collab-backup-20260618T111501Z',
-        createdAt: '2026-06-18T11:15:01Z',
-        sizeBytes: 2048,
-        hasPostgresDump: true,
-        hasBlobArchive: true,
-        hasManifest: true,
-        hasConfig: true,
-        hasChecksums: true,
-      }],
+      exportTarget: {
+        configured: false,
+        path: null,
+        writable: false,
+        message: 'No external export target configured.',
+      },
+      settings: {
+        scheduleEnabled: false,
+        intervalSeconds: 86_400,
+        retentionDays: 14,
+        exportDir: null,
+        locks: unlockedBackupLocks,
+      },
+      backups: [
+        {
+          name: 'collab-backup-20260618T111501Z',
+          createdAt: '2026-06-18T11:15:01Z',
+          sizeBytes: 2048,
+          hasPostgresDump: true,
+          hasBlobArchive: true,
+          hasManifest: true,
+          hasConfig: true,
+          hasChecksums: true,
+        },
+      ],
     });
     vi.mocked(serverApi.vaults).mockResolvedValue([]);
     vi.mocked(serverApi.vaultStorage).mockResolvedValue({
@@ -254,7 +292,11 @@ describe('admin application', () => {
       revisionCount: 0,
       snapshotCount: 0,
     });
-    vi.mocked(serverApi.vaultFiles).mockResolvedValue({ vaultId: 'vault-1', sequence: 0, files: [] });
+    vi.mocked(serverApi.vaultFiles).mockResolvedValue({
+      vaultId: 'vault-1',
+      sequence: 0,
+      files: [],
+    });
     vi.mocked(serverApi.vaultChat).mockResolvedValue([]);
     vi.mocked(serverApi.fileRevisions).mockResolvedValue([]);
     vi.mocked(serverApi.templates).mockResolvedValue([]);
@@ -274,7 +316,9 @@ describe('admin application', () => {
   it('shows the one-time bootstrap screen when no administrator exists', async () => {
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: true });
     render(<App />);
-    expect(await screen.findByRole('heading', { name: 'Create the first administrator' })).toBeTruthy();
+    expect(
+      await screen.findByRole('heading', { name: 'Create the first administrator' }),
+    ).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Create administrator' })).toBeTruthy();
   });
 
@@ -282,9 +326,13 @@ describe('admin application', () => {
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: true });
     vi.mocked(serverApi.bootstrap).mockResolvedValue({ user: admin, csrfToken: 'csrf' });
     render(<App />);
-    fireEvent.change(await screen.findByLabelText('Display name'), { target: { value: 'Admin User' } });
+    fireEvent.change(await screen.findByLabelText('Display name'), {
+      target: { value: 'Admin User' },
+    });
     fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'admin' } });
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse battery staple' } });
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'correct horse battery staple' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Create administrator' }));
     expect(await screen.findByRole('heading', { name: 'Server dashboard' })).toBeTruthy();
     expect(serverApi.bootstrap).toHaveBeenCalled();
@@ -323,65 +371,127 @@ describe('admin application', () => {
       backupDir: '/backups',
       backupCommandConfigured: false,
       restoreCommandConfigured: false,
-      schedule: { enabled: true, intervalSeconds: 86_400, retentionDays: 14, mode: 'server-scheduler' },
-      exportTarget: { configured: true, path: '/backup-export', writable: true, message: 'Backups are copied to this mounted export target after creation.' },
-      settings: { scheduleEnabled: true, intervalSeconds: 86_400, retentionDays: 14, exportDir: '/backup-export', locks: unlockedBackupLocks },
-      backups: [{
-        name: 'collab-backup-20260618T111501Z',
-        createdAt: '2026-06-18T11:15:01Z',
-        sizeBytes: 2048,
-        hasPostgresDump: true,
-        hasBlobArchive: true,
-        hasManifest: true,
-        hasConfig: true,
-        hasChecksums: true,
-      }],
+      schedule: {
+        enabled: true,
+        intervalSeconds: 86_400,
+        retentionDays: 14,
+        mode: 'server-scheduler',
+      },
+      exportTarget: {
+        configured: true,
+        path: '/backup-export',
+        writable: true,
+        message: 'Backups are copied to this mounted export target after creation.',
+      },
+      settings: {
+        scheduleEnabled: true,
+        intervalSeconds: 86_400,
+        retentionDays: 14,
+        exportDir: '/backup-export',
+        locks: unlockedBackupLocks,
+      },
+      backups: [
+        {
+          name: 'collab-backup-20260618T111501Z',
+          createdAt: '2026-06-18T11:15:01Z',
+          sizeBytes: 2048,
+          hasPostgresDump: true,
+          hasBlobArchive: true,
+          hasManifest: true,
+          hasConfig: true,
+          hasChecksums: true,
+        },
+      ],
     });
     vi.mocked(serverApi.verifyBackup).mockResolvedValue({
       name: 'collab-backup-20260618T111501Z',
       ok: true,
       checkedAt: '2026-06-18T11:16:00Z',
       artifacts: [
-        { path: 'postgres.dump', expectedSha256: 'a'.repeat(64), actualSha256: 'a'.repeat(64), ok: true, error: null },
+        {
+          path: 'postgres.dump',
+          expectedSha256: 'a'.repeat(64),
+          actualSha256: 'a'.repeat(64),
+          ok: true,
+          error: null,
+        },
       ],
     });
-    vi.mocked(serverApi.exportBackup).mockResolvedValue(new Blob(['backup archive'], { type: 'application/gzip' }));
+    vi.mocked(serverApi.exportBackup).mockResolvedValue(
+      new Blob(['backup archive'], { type: 'application/gzip' }),
+    );
     vi.mocked(serverApi.importBackup).mockResolvedValue({
       backupDir: '/backups',
       backupCommandConfigured: false,
       restoreCommandConfigured: false,
-      schedule: { enabled: true, intervalSeconds: 86_400, retentionDays: 14, mode: 'server-scheduler' },
-      exportTarget: { configured: true, path: '/backup-export', writable: true, message: 'Backups are copied to this mounted export target after creation.' },
-      settings: { scheduleEnabled: true, intervalSeconds: 86_400, retentionDays: 14, exportDir: '/backup-export', locks: unlockedBackupLocks },
-      backups: [{
-        name: 'collab-backup-20260619T111501Z',
-        createdAt: '2026-06-19T11:15:01Z',
-        sizeBytes: 4096,
-        hasPostgresDump: true,
-        hasBlobArchive: true,
-        hasManifest: true,
-        hasConfig: true,
-        hasChecksums: true,
-      }],
+      schedule: {
+        enabled: true,
+        intervalSeconds: 86_400,
+        retentionDays: 14,
+        mode: 'server-scheduler',
+      },
+      exportTarget: {
+        configured: true,
+        path: '/backup-export',
+        writable: true,
+        message: 'Backups are copied to this mounted export target after creation.',
+      },
+      settings: {
+        scheduleEnabled: true,
+        intervalSeconds: 86_400,
+        retentionDays: 14,
+        exportDir: '/backup-export',
+        locks: unlockedBackupLocks,
+      },
+      backups: [
+        {
+          name: 'collab-backup-20260619T111501Z',
+          createdAt: '2026-06-19T11:15:01Z',
+          sizeBytes: 4096,
+          hasPostgresDump: true,
+          hasBlobArchive: true,
+          hasManifest: true,
+          hasConfig: true,
+          hasChecksums: true,
+        },
+      ],
     });
     vi.mocked(serverApi.deleteBackup).mockResolvedValue(undefined);
     vi.mocked(serverApi.updateBackupSettings).mockResolvedValue({
       backupDir: '/backups',
       backupCommandConfigured: false,
       restoreCommandConfigured: false,
-      schedule: { enabled: true, intervalSeconds: 43_200, retentionDays: 7, mode: 'server-scheduler' },
-      exportTarget: { configured: true, path: '/backup-export', writable: true, message: 'Backups are copied to this mounted export target after creation.' },
-      settings: { scheduleEnabled: true, intervalSeconds: 43_200, retentionDays: 7, exportDir: '/backup-export', locks: unlockedBackupLocks },
-      backups: [{
-        name: 'collab-backup-20260618T111501Z',
-        createdAt: '2026-06-18T11:15:01Z',
-        sizeBytes: 2048,
-        hasPostgresDump: true,
-        hasBlobArchive: true,
-        hasManifest: true,
-        hasConfig: true,
-        hasChecksums: true,
-      }],
+      schedule: {
+        enabled: true,
+        intervalSeconds: 43_200,
+        retentionDays: 7,
+        mode: 'server-scheduler',
+      },
+      exportTarget: {
+        configured: true,
+        path: '/backup-export',
+        writable: true,
+        message: 'Backups are copied to this mounted export target after creation.',
+      },
+      settings: {
+        scheduleEnabled: true,
+        intervalSeconds: 43_200,
+        retentionDays: 7,
+        exportDir: '/backup-export',
+        locks: unlockedBackupLocks,
+      },
+      backups: [
+        {
+          name: 'collab-backup-20260618T111501Z',
+          createdAt: '2026-06-18T11:15:01Z',
+          sizeBytes: 2048,
+          hasPostgresDump: true,
+          hasBlobArchive: true,
+          hasManifest: true,
+          hasConfig: true,
+          hasChecksums: true,
+        },
+      ],
     });
 
     render(<App />);
@@ -389,42 +499,59 @@ describe('admin application', () => {
     expect(await screen.findByRole('heading', { name: 'Backups' })).toBeTruthy();
     expect(screen.getByText('collab-backup-20260618T111501Z')).toBeTruthy();
     expect(screen.getByText('Server-managed backups run every 1d.')).toBeTruthy();
-    expect(screen.getByText('Backups are copied to this mounted export target after creation.')).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Run backup' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      screen.getByText('Backups are copied to this mounted export target after creation.'),
+    ).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Run backup' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Save backup settings' }));
-    await waitFor(() => expect(serverApi.updateBackupSettings).toHaveBeenCalledWith({
-      scheduleEnabled: true,
-      intervalSeconds: 86_400,
-      retentionDays: 14,
-      exportDir: '/backup-export',
-    }));
+    await waitFor(() =>
+      expect(serverApi.updateBackupSettings).toHaveBeenCalledWith({
+        scheduleEnabled: true,
+        intervalSeconds: 86_400,
+        retentionDays: 14,
+        exportDir: '/backup-export',
+      }),
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
-    await waitFor(() => expect(serverApi.verifyBackup).toHaveBeenCalledWith('collab-backup-20260618T111501Z'));
+    await waitFor(() =>
+      expect(serverApi.verifyBackup).toHaveBeenCalledWith('collab-backup-20260618T111501Z'),
+    );
     expect(await screen.findByText('Verified')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
-    await waitFor(() => expect(serverApi.exportBackup).toHaveBeenCalledWith(
-      'collab-backup-20260618T111501Z',
-      expect.any(Function),
-    ));
+    await waitFor(() =>
+      expect(serverApi.exportBackup).toHaveBeenCalledWith(
+        'collab-backup-20260618T111501Z',
+        expect.any(Function),
+      ),
+    );
 
-    const importInput = document.querySelector('input[type="file"][accept*=".tar.gz"]') as HTMLInputElement;
-    const archive = new window.File([new Uint8Array([31, 139])], 'collab-backup-20260619T111501Z.tar.gz', { type: 'application/gzip' });
+    const importInput = document.querySelector(
+      'input[type="file"][accept*=".tar.gz"]',
+    ) as HTMLInputElement;
+    const archive = new window.File(
+      [new Uint8Array([31, 139])],
+      'collab-backup-20260619T111501Z.tar.gz',
+      { type: 'application/gzip' },
+    );
     fireEvent.change(importInput, { target: { files: [archive] } });
     // The archive is handed over as the File itself, not base64: encoding it in
     // the tab needed several copies of the whole backup live at once and blew
     // the engine's string limit on anything large.
-    await waitFor(() => expect(serverApi.importBackup).toHaveBeenCalledWith(
-      archive,
-      expect.any(Function),
-    ));
+    await waitFor(() =>
+      expect(serverApi.importBackup).toHaveBeenCalledWith(archive, expect.any(Function)),
+    );
     expect(await screen.findByText('collab-backup-20260619T111501Z')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Delete backup' }));
-    await waitFor(() => expect(serverApi.deleteBackup).toHaveBeenCalledWith('collab-backup-20260619T111501Z'));
+    await waitFor(() =>
+      expect(serverApi.deleteBackup).toHaveBeenCalledWith('collab-backup-20260619T111501Z'),
+    );
   });
 
   it('reports progress while a backup runs and restores the idle controls after', async () => {
@@ -434,17 +561,39 @@ describe('admin application', () => {
       backupDir: '/backups',
       backupCommandConfigured: true,
       restoreCommandConfigured: false,
-      schedule: { enabled: false, intervalSeconds: 86_400, retentionDays: 14, mode: 'server-scheduler' },
-      exportTarget: { configured: false, path: null, writable: false, message: 'No export target configured.' },
-      settings: { scheduleEnabled: false, intervalSeconds: 86_400, retentionDays: 14, exportDir: null, locks: unlockedBackupLocks },
+      schedule: {
+        enabled: false,
+        intervalSeconds: 86_400,
+        retentionDays: 14,
+        mode: 'server-scheduler',
+      },
+      exportTarget: {
+        configured: false,
+        path: null,
+        writable: false,
+        message: 'No export target configured.',
+      },
+      settings: {
+        scheduleEnabled: false,
+        intervalSeconds: 86_400,
+        retentionDays: 14,
+        exportDir: null,
+        locks: unlockedBackupLocks,
+      },
       backups: [],
     });
     // A backup the caller controls the completion of, so the running state is
     // observable rather than a race.
-    let finishBackup: (result: { status: string; message: string; output: string | null }) => void = () => {};
-    vi.mocked(serverApi.runBackup).mockReturnValue(new Promise((resolve) => {
-      finishBackup = resolve;
-    }));
+    let finishBackup: (result: {
+      status: string;
+      message: string;
+      output: string | null;
+    }) => void = () => {};
+    vi.mocked(serverApi.runBackup).mockReturnValue(
+      new Promise((resolve) => {
+        finishBackup = resolve;
+      }),
+    );
 
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: /Backups/ }));
@@ -458,7 +607,9 @@ describe('admin application', () => {
     const activity = await screen.findByRole('status');
     expect(activity.textContent).toContain('Running backup');
     // The action is disabled while it runs so a second run cannot be started.
-    expect((await screen.findByRole('button', { name: /Running backup/ })).hasAttribute('disabled')).toBe(true);
+    expect(
+      (await screen.findByRole('button', { name: /Running backup/ })).hasAttribute('disabled'),
+    ).toBe(true);
 
     await act(async () => {
       finishBackup({ status: 'ok', message: 'Backup complete.', output: null });
@@ -471,21 +622,41 @@ describe('admin application', () => {
   it('shortens long file paths in the storage breakdown and keeps the full path on hover', async () => {
     const longPath = 'Projects/2026/Quarter-3/Reports/Regional/Europe/quarterly-summary.md';
     const currentRevision = {
-      id: 'revision-1', sequence: 1, contentHash: 'hash-1', sizeBytes: 4096,
-      createdByDisplayName: 'Owner', createdAt: '2026-06-10T00:00:00Z',
+      id: 'revision-1',
+      sequence: 1,
+      contentHash: 'hash-1',
+      sizeBytes: 4096,
+      createdByDisplayName: 'Owner',
+      createdAt: '2026-06-10T00:00:00Z',
     };
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
-    vi.mocked(serverApi.vaults).mockResolvedValue([{
-      id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Admin User',
-      status: 'active' as const, members: 1, storageBytes: 4096,
-      updatedAt: '2026-06-10T00:00:00Z',
-    }]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([
+      {
+        id: 'vault-1',
+        name: 'Team Vault',
+        ownerDisplayName: 'Admin User',
+        status: 'active' as const,
+        members: 1,
+        storageBytes: 4096,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
+    ]);
     vi.mocked(serverApi.vaultDetail).mockResolvedValue({
-      id: 'vault-1', name: 'Team Vault', ownerUserId: 'admin-1', ownerUsername: 'admin',
-      ownerDisplayName: 'Admin User', status: 'active' as const, manifestSequence: 1, members: 1,
-      activeFiles: 1, trashedFiles: 0, storageBytes: 4096, requireOfflineCopy: false,
-      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+      id: 'vault-1',
+      name: 'Team Vault',
+      ownerUserId: 'admin-1',
+      ownerUsername: 'admin',
+      ownerDisplayName: 'Admin User',
+      status: 'active' as const,
+      manifestSequence: 1,
+      members: 1,
+      activeFiles: 1,
+      trashedFiles: 0,
+      storageBytes: 4096,
+      requireOfflineCopy: false,
+      createdAt: '2026-06-09T00:00:00Z',
+      updatedAt: '2026-06-10T00:00:00Z',
     });
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
     vi.mocked(serverApi.vaultMembers).mockResolvedValue([]);
@@ -494,11 +665,20 @@ describe('admin application', () => {
     vi.mocked(serverApi.vaultFiles).mockResolvedValue({
       vaultId: 'vault-1',
       sequence: 1,
-      files: [{
-        id: 'file-1', parentId: null, name: 'quarterly-summary.md', relativePath: longPath,
-        kind: 'document', documentType: 'note', state: 'active', currentRevision,
-        createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
-      }],
+      files: [
+        {
+          id: 'file-1',
+          parentId: null,
+          name: 'quarterly-summary.md',
+          relativePath: longPath,
+          kind: 'document',
+          documentType: 'note',
+          state: 'active',
+          currentRevision,
+          createdAt: '2026-06-09T00:00:00Z',
+          updatedAt: '2026-06-10T00:00:00Z',
+        },
+      ],
     });
 
     render(<App />);
@@ -517,21 +697,42 @@ describe('admin application', () => {
 
   it('bulk-deletes selected files sequentially against the advancing manifest', async () => {
     const revision = {
-      id: 'revision-1', sequence: 1, contentHash: 'hash-1', sizeBytes: 100,
-      createdByDisplayName: 'Owner', createdAt: '2026-06-10T00:00:00Z',
+      id: 'revision-1',
+      sequence: 1,
+      contentHash: 'hash-1',
+      sizeBytes: 100,
+      createdByDisplayName: 'Owner',
+      createdAt: '2026-06-10T00:00:00Z',
     };
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
-    vi.mocked(serverApi.vaults).mockResolvedValue([{
-      id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Admin User',
-      status: 'active' as const, members: 1, storageBytes: 300, updatedAt: '2026-06-10T00:00:00Z',
-    }]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([
+      {
+        id: 'vault-1',
+        name: 'Team Vault',
+        ownerDisplayName: 'Admin User',
+        status: 'active' as const,
+        members: 1,
+        storageBytes: 300,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
+    ]);
     vi.mocked(serverApi.vaultDetail).mockResolvedValue({
-      id: 'vault-1', name: 'Team Vault', ownerUserId: 'admin-1', ownerUsername: 'admin',
-      ownerDisplayName: 'Admin User', status: 'active' as const, manifestSequence: 7, members: 1,
-      activeFiles: 2, trashedFiles: 0, storageBytes: 300, requireOfflineCopy: false,
-      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+      id: 'vault-1',
+      name: 'Team Vault',
+      ownerUserId: 'admin-1',
+      ownerUsername: 'admin',
+      ownerDisplayName: 'Admin User',
+      status: 'active' as const,
+      manifestSequence: 7,
+      members: 1,
+      activeFiles: 2,
+      trashedFiles: 0,
+      storageBytes: 300,
+      requireOfflineCopy: false,
+      createdAt: '2026-06-09T00:00:00Z',
+      updatedAt: '2026-06-10T00:00:00Z',
     });
     vi.mocked(serverApi.vaultMembers).mockResolvedValue([]);
     vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
@@ -540,8 +741,30 @@ describe('admin application', () => {
       vaultId: 'vault-1',
       sequence: 7,
       files: [
-        { id: 'file-a', parentId: null, name: 'a.md', relativePath: 'a.md', kind: 'document', documentType: 'note', state: 'active', currentRevision: revision, createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
-        { id: 'file-b', parentId: null, name: 'b.md', relativePath: 'b.md', kind: 'document', documentType: 'note', state: 'active', currentRevision: revision, createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
+        {
+          id: 'file-a',
+          parentId: null,
+          name: 'a.md',
+          relativePath: 'a.md',
+          kind: 'document',
+          documentType: 'note',
+          state: 'active',
+          currentRevision: revision,
+          createdAt: '2026-06-09T00:00:00Z',
+          updatedAt: '2026-06-10T00:00:00Z',
+        },
+        {
+          id: 'file-b',
+          parentId: null,
+          name: 'b.md',
+          relativePath: 'b.md',
+          kind: 'document',
+          documentType: 'note',
+          state: 'active',
+          currentRevision: revision,
+          createdAt: '2026-06-09T00:00:00Z',
+          updatedAt: '2026-06-10T00:00:00Z',
+        },
       ],
     });
     let sequence = 7;
@@ -559,14 +782,23 @@ describe('admin application', () => {
     expect(await screen.findByText('2 selected')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /Delete permanently/ }));
-    const confirm = (await screen.findByText('Permanently delete 2 entries?')).closest<HTMLElement>('.ui-dialog')!;
+    const confirm = (await screen.findByText('Permanently delete 2 entries?')).closest<HTMLElement>(
+      '.ui-dialog',
+    )!;
     fireEvent.click(within(confirm).getByRole('button', { name: 'Delete permanently' }));
 
     await waitFor(() => expect(vi.mocked(serverApi.moveFile).mock.calls).toHaveLength(4));
-    const payloads = vi.mocked(serverApi.moveFile).mock.calls.map(([, payload]) => payload as Record<string, unknown>);
+    const payloads = vi
+      .mocked(serverApi.moveFile)
+      .mock.calls.map(([, payload]) => payload as Record<string, unknown>);
     // Purge requires the entry to already be trashed, so each file takes both
     // operations in order.
-    expect(payloads.map((payload) => payload.operationType)).toEqual(['trash', 'purge', 'trash', 'purge']);
+    expect(payloads.map((payload) => payload.operationType)).toEqual([
+      'trash',
+      'purge',
+      'trash',
+      'purge',
+    ]);
     // Every mutation advances the manifest, so each call must carry the sequence
     // the previous one returned rather than the stale one the page loaded with.
     expect(payloads.map((payload) => payload.baseManifestSequence)).toEqual([7, 8, 9, 10]);
@@ -574,21 +806,42 @@ describe('admin application', () => {
 
   it('lists only unsupported files for cleanup and acts on the chosen subset', async () => {
     const revision = (sizeBytes: number) => ({
-      id: 'revision-1', sequence: 1, contentHash: 'hash-1', sizeBytes,
-      createdByDisplayName: 'Owner', createdAt: '2026-06-10T00:00:00Z',
+      id: 'revision-1',
+      sequence: 1,
+      contentHash: 'hash-1',
+      sizeBytes,
+      createdByDisplayName: 'Owner',
+      createdAt: '2026-06-10T00:00:00Z',
     });
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
-    vi.mocked(serverApi.vaults).mockResolvedValue([{
-      id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Admin User',
-      status: 'active' as const, members: 1, storageBytes: 300, updatedAt: '2026-06-10T00:00:00Z',
-    }]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([
+      {
+        id: 'vault-1',
+        name: 'Team Vault',
+        ownerDisplayName: 'Admin User',
+        status: 'active' as const,
+        members: 1,
+        storageBytes: 300,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
+    ]);
     vi.mocked(serverApi.vaultDetail).mockResolvedValue({
-      id: 'vault-1', name: 'Team Vault', ownerUserId: 'admin-1', ownerUsername: 'admin',
-      ownerDisplayName: 'Admin User', status: 'active' as const, manifestSequence: 3, members: 1,
-      activeFiles: 3, trashedFiles: 0, storageBytes: 300, requireOfflineCopy: false,
-      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+      id: 'vault-1',
+      name: 'Team Vault',
+      ownerUserId: 'admin-1',
+      ownerUsername: 'admin',
+      ownerDisplayName: 'Admin User',
+      status: 'active' as const,
+      manifestSequence: 3,
+      members: 1,
+      activeFiles: 3,
+      trashedFiles: 0,
+      storageBytes: 300,
+      requireOfflineCopy: false,
+      createdAt: '2026-06-09T00:00:00Z',
+      updatedAt: '2026-06-10T00:00:00Z',
     });
     vi.mocked(serverApi.vaultMembers).mockResolvedValue([]);
     vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
@@ -597,9 +850,42 @@ describe('admin application', () => {
       vaultId: 'vault-1',
       sequence: 3,
       files: [
-        { id: 'file-note', parentId: null, name: 'notes.md', relativePath: 'notes.md', kind: 'document', documentType: 'note', state: 'active', currentRevision: revision(10), createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
-        { id: 'file-zip', parentId: null, name: 'backup.zip', relativePath: 'backup.zip', kind: 'asset', documentType: null, state: 'active', currentRevision: revision(5_000), createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
-        { id: 'file-mp4', parentId: null, name: 'clip.mp4', relativePath: 'clip.mp4', kind: 'asset', documentType: null, state: 'active', currentRevision: revision(9_000), createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
+        {
+          id: 'file-note',
+          parentId: null,
+          name: 'notes.md',
+          relativePath: 'notes.md',
+          kind: 'document',
+          documentType: 'note',
+          state: 'active',
+          currentRevision: revision(10),
+          createdAt: '2026-06-09T00:00:00Z',
+          updatedAt: '2026-06-10T00:00:00Z',
+        },
+        {
+          id: 'file-zip',
+          parentId: null,
+          name: 'backup.zip',
+          relativePath: 'backup.zip',
+          kind: 'asset',
+          documentType: null,
+          state: 'active',
+          currentRevision: revision(5_000),
+          createdAt: '2026-06-09T00:00:00Z',
+          updatedAt: '2026-06-10T00:00:00Z',
+        },
+        {
+          id: 'file-mp4',
+          parentId: null,
+          name: 'clip.mp4',
+          relativePath: 'clip.mp4',
+          kind: 'asset',
+          documentType: null,
+          state: 'active',
+          currentRevision: revision(9_000),
+          createdAt: '2026-06-09T00:00:00Z',
+          updatedAt: '2026-06-10T00:00:00Z',
+        },
       ],
     });
     let sequence = 3;
@@ -615,7 +901,9 @@ describe('admin application', () => {
 
     // Only the two unopenable assets count; the note is not offered for cleanup.
     fireEvent.click(await screen.findByRole('button', { name: 'Unsupported files (2)' }));
-    const dialog = (await screen.findByText('Unsupported files')).closest<HTMLElement>('.ui-dialog')!;
+    const dialog = (await screen.findByText('Unsupported files')).closest<HTMLElement>(
+      '.ui-dialog',
+    )!;
     expect(within(dialog).getByRole('checkbox', { name: 'Select backup.zip' })).toBeTruthy();
     expect(within(dialog).getByRole('checkbox', { name: 'Select clip.mp4' })).toBeTruthy();
     expect(within(dialog).queryByRole('checkbox', { name: 'Select notes.md' })).toBeNull();
@@ -628,7 +916,9 @@ describe('admin application', () => {
     // possible rather than the scrolling itself.
     const body = dialog.querySelector('.files-modal-body');
     expect(body).toBeTruthy();
-    expect(body!.contains(within(dialog).getByRole('checkbox', { name: 'Select clip.mp4' }))).toBe(true);
+    expect(body!.contains(within(dialog).getByRole('checkbox', { name: 'Select clip.mp4' }))).toBe(
+      true,
+    );
     // The selection summary and the actions stay pinned outside that region so
     // they remain reachable however long the list gets.
     expect(dialog.querySelector('.bulk-bar')!.closest('.files-modal-body')).toBeNull();
@@ -638,7 +928,9 @@ describe('admin application', () => {
     fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Select backup.zip' }));
     expect(within(dialog).getByText('1 of 2 selected')).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: /Move to trash/ }));
-    const confirm = (await screen.findByText('Move 1 unsupported file to trash?')).closest<HTMLElement>('.ui-dialog')!;
+    const confirm = (
+      await screen.findByText('Move 1 unsupported file to trash?')
+    ).closest<HTMLElement>('.ui-dialog')!;
     fireEvent.click(within(confirm).getByRole('button', { name: 'Move to trash' }));
 
     await waitFor(() => expect(vi.mocked(serverApi.moveFile).mock.calls).toHaveLength(1));
@@ -648,27 +940,56 @@ describe('admin application', () => {
 
   it('empties the trash and bulk-restores selected trashed entries', async () => {
     const revision = {
-      id: 'revision-1', sequence: 1, contentHash: 'hash-1', sizeBytes: 40,
-      createdByDisplayName: 'Owner', createdAt: '2026-06-10T00:00:00Z',
+      id: 'revision-1',
+      sequence: 1,
+      contentHash: 'hash-1',
+      sizeBytes: 40,
+      createdByDisplayName: 'Owner',
+      createdAt: '2026-06-10T00:00:00Z',
     };
     const trashed = (id: string, name: string) => ({
-      id, parentId: null, name, relativePath: name, kind: 'document' as const,
-      documentType: 'note' as const, state: 'trashed' as const, currentRevision: revision,
-      trashedByDisplayName: 'Owner', trashedAt: '2026-06-11T00:00:00Z',
-      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-11T00:00:00Z',
+      id,
+      parentId: null,
+      name,
+      relativePath: name,
+      kind: 'document' as const,
+      documentType: 'note' as const,
+      state: 'trashed' as const,
+      currentRevision: revision,
+      trashedByDisplayName: 'Owner',
+      trashedAt: '2026-06-11T00:00:00Z',
+      createdAt: '2026-06-09T00:00:00Z',
+      updatedAt: '2026-06-11T00:00:00Z',
     });
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
-    vi.mocked(serverApi.vaults).mockResolvedValue([{
-      id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Admin User',
-      status: 'active' as const, members: 1, storageBytes: 80, updatedAt: '2026-06-10T00:00:00Z',
-    }]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([
+      {
+        id: 'vault-1',
+        name: 'Team Vault',
+        ownerDisplayName: 'Admin User',
+        status: 'active' as const,
+        members: 1,
+        storageBytes: 80,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
+    ]);
     vi.mocked(serverApi.vaultDetail).mockResolvedValue({
-      id: 'vault-1', name: 'Team Vault', ownerUserId: 'admin-1', ownerUsername: 'admin',
-      ownerDisplayName: 'Admin User', status: 'active' as const, manifestSequence: 2, members: 1,
-      activeFiles: 0, trashedFiles: 2, storageBytes: 80, requireOfflineCopy: false,
-      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+      id: 'vault-1',
+      name: 'Team Vault',
+      ownerUserId: 'admin-1',
+      ownerUsername: 'admin',
+      ownerDisplayName: 'Admin User',
+      status: 'active' as const,
+      manifestSequence: 2,
+      members: 1,
+      activeFiles: 0,
+      trashedFiles: 2,
+      storageBytes: 80,
+      requireOfflineCopy: false,
+      createdAt: '2026-06-09T00:00:00Z',
+      updatedAt: '2026-06-10T00:00:00Z',
     });
     vi.mocked(serverApi.vaultMembers).mockResolvedValue([]);
     vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
@@ -696,12 +1017,15 @@ describe('admin application', () => {
     fireEvent.click(within(bulkBar).getByRole('button', { name: /Restore/ }));
     await waitFor(() => expect(vi.mocked(serverApi.moveFile).mock.calls).toHaveLength(1));
     expect(vi.mocked(serverApi.moveFile).mock.calls[0][1]).toMatchObject({
-      operationType: 'restore', targetFileId: 'gone-1',
+      operationType: 'restore',
+      targetFileId: 'gone-1',
     });
 
     vi.mocked(serverApi.moveFile).mockClear();
     fireEvent.click(await screen.findByRole('button', { name: /Empty trash/ }));
-    const confirm = (await screen.findByText('Empty the trash?')).closest<HTMLElement>('.ui-dialog')!;
+    const confirm = (await screen.findByText('Empty the trash?')).closest<HTMLElement>(
+      '.ui-dialog',
+    )!;
     fireEvent.click(within(confirm).getByRole('button', { name: 'Empty trash' }));
 
     // Every trashed root is purged; subtrees go with their root.
@@ -716,7 +1040,9 @@ describe('admin application', () => {
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue({ ...admin, role: 'member' });
     render(<App />);
-    expect(await screen.findByRole('heading', { name: 'Administrator access required' })).toBeTruthy();
+    expect(
+      await screen.findByRole('heading', { name: 'Administrator access required' }),
+    ).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Server dashboard' })).toBeNull();
   });
 
@@ -732,15 +1058,17 @@ describe('admin application', () => {
   it('shows canonical hosted-vault status in the administration inventory', async () => {
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
-    vi.mocked(serverApi.vaults).mockResolvedValue([{
-      id: 'vault-1',
-      name: 'Archived Vault',
-      ownerDisplayName: 'Admin User',
-      status: 'archived',
-      members: 2,
-      storageBytes: 1024,
-      updatedAt: '2026-06-10T00:00:00Z',
-    }]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([
+      {
+        id: 'vault-1',
+        name: 'Archived Vault',
+        ownerDisplayName: 'Admin User',
+        status: 'archived',
+        members: 2,
+        storageBytes: 1024,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
+    ]);
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Vaults' }));
     const inventory = (await screen.findByText('1 hosted vaults')).closest<HTMLElement>('.panel')!;
@@ -781,14 +1109,42 @@ describe('admin application', () => {
     vi.mocked(serverApi.vaults).mockResolvedValue([vaultSummary]);
     vi.mocked(serverApi.vaultDetail).mockResolvedValue(vaultDetail);
     vi.mocked(serverApi.vaultMembers).mockResolvedValue([
-      { userId: 'admin-1', username: 'admin', displayName: 'Admin User', role: 'admin', owner: true, createdAt: '2026-06-09T00:00:00Z' },
-      { userId: 'member-1', username: 'member', displayName: 'Member User', role: 'editor', owner: false, createdAt: '2026-06-09T00:00:00Z' },
+      {
+        userId: 'admin-1',
+        username: 'admin',
+        displayName: 'Admin User',
+        role: 'admin',
+        owner: true,
+        createdAt: '2026-06-09T00:00:00Z',
+      },
+      {
+        userId: 'member-1',
+        username: 'member',
+        displayName: 'Member User',
+        role: 'editor',
+        owner: false,
+        createdAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.vaultActivity).mockResolvedValue([
-      { id: 'event-1', actorDisplayName: 'Admin User', eventType: 'vault.created', targetType: 'vault', targetId: 'vault-1', createdAt: '2026-06-09T00:00:00Z' },
+      {
+        id: 'event-1',
+        actorDisplayName: 'Admin User',
+        eventType: 'vault.created',
+        targetType: 'vault',
+        targetId: 'vault-1',
+        createdAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.vaultChat).mockResolvedValue([
-      { id: 'chat-1', userId: 'member-1', userName: 'Member User', userColor: '#8b5cf6', content: 'Can everyone see this?', timestamp: Date.parse('2026-06-10T12:00:00Z') },
+      {
+        id: 'chat-1',
+        userId: 'member-1',
+        userName: 'Member User',
+        userColor: '#8b5cf6',
+        content: 'Can everyone see this?',
+        timestamp: Date.parse('2026-06-10T12:00:00Z'),
+      },
     ]);
     vi.mocked(serverApi.updateVault).mockResolvedValue({ ...vaultDetail, status: 'archived' });
 
@@ -805,10 +1161,16 @@ describe('admin application', () => {
     expect(await screen.findByText('vault created')).toBeTruthy();
 
     expect(screen.queryByRole('button', { name: 'Role for member' })).toBeNull();
-    expect(screen.getByText('Membership determines who can receive direct vault access. Configure effective permissions under Access grants.')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Membership determines who can receive direct vault access. Configure effective permissions under Access grants.',
+      ),
+    ).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Archive vault' }));
-    await waitFor(() => expect(serverApi.updateVault).toHaveBeenCalledWith('vault-1', { status: 'archived' }));
+    await waitFor(() =>
+      expect(serverApi.updateVault).toHaveBeenCalledWith('vault-1', { status: 'archived' }),
+    );
   });
 
   it('creates and renames hosted vaults from the web interface', async () => {
@@ -843,7 +1205,14 @@ describe('admin application', () => {
     vi.mocked(serverApi.createVault).mockResolvedValue({ id: 'vault-2' });
     vi.mocked(serverApi.vaultDetail).mockResolvedValue(vaultDetail);
     vi.mocked(serverApi.vaultMembers).mockResolvedValue([
-      { userId: 'admin-1', username: 'admin', displayName: 'Admin User', role: 'admin', owner: true, createdAt: '2026-06-09T00:00:00Z' },
+      {
+        userId: 'admin-1',
+        username: 'admin',
+        displayName: 'Admin User',
+        role: 'admin',
+        owner: true,
+        createdAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
     vi.mocked(serverApi.updateVault).mockResolvedValue({ ...vaultDetail, name: 'Renamed Vault' });
@@ -851,16 +1220,24 @@ describe('admin application', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Vaults' }));
     fireEvent.click(await screen.findByRole('button', { name: /New vault/ }));
-    fireEvent.change(await screen.findByLabelText('Vault name'), { target: { value: 'Fresh Vault' } });
+    fireEvent.change(await screen.findByLabelText('Vault name'), {
+      target: { value: 'Fresh Vault' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Create vault' }));
-    await waitFor(() => expect(serverApi.createVault).toHaveBeenCalledWith({ name: 'Fresh Vault' }));
+    await waitFor(() =>
+      expect(serverApi.createVault).toHaveBeenCalledWith({ name: 'Fresh Vault' }),
+    );
 
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Team Vault' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Rename' }));
     const renameDialog = await screen.findByRole('dialog', { name: 'Rename vault' });
-    fireEvent.change(within(renameDialog).getByLabelText('Vault name'), { target: { value: 'Renamed Vault' } });
+    fireEvent.change(within(renameDialog).getByLabelText('Vault name'), {
+      target: { value: 'Renamed Vault' },
+    });
     fireEvent.click(within(renameDialog).getByRole('button', { name: 'Rename' }));
-    await waitFor(() => expect(serverApi.updateVault).toHaveBeenCalledWith('vault-1', { name: 'Renamed Vault' }));
+    await waitFor(() =>
+      expect(serverApi.updateVault).toHaveBeenCalledWith('vault-1', { name: 'Renamed Vault' }),
+    );
   });
 
   it('toggles the hosted-vault offline-copy policy from vault settings', async () => {
@@ -896,17 +1273,29 @@ describe('admin application', () => {
     vi.mocked(serverApi.vaults).mockResolvedValue([vaultSummary]);
     vi.mocked(serverApi.vaultDetail).mockResolvedValue(vaultDetail);
     vi.mocked(serverApi.vaultMembers).mockResolvedValue([
-      { userId: 'admin-1', username: 'admin', displayName: 'Admin User', role: 'admin', owner: true, createdAt: '2026-06-09T00:00:00Z' },
+      {
+        userId: 'admin-1',
+        username: 'admin',
+        displayName: 'Admin User',
+        role: 'admin',
+        owner: true,
+        createdAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
-    vi.mocked(serverApi.updateVault).mockResolvedValue({ ...vaultDetail, requireOfflineCopy: true });
+    vi.mocked(serverApi.updateVault).mockResolvedValue({
+      ...vaultDetail,
+      requireOfflineCopy: true,
+    });
 
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Vaults' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Team Vault' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Require offline copy' }));
 
-    await waitFor(() => expect(serverApi.updateVault).toHaveBeenCalledWith('vault-1', { requireOfflineCopy: true }));
+    await waitFor(() =>
+      expect(serverApi.updateVault).toHaveBeenCalledWith('vault-1', { requireOfflineCopy: true }),
+    );
   });
 
   it('shows storage accounting and exports hosted vaults from the web interface', async () => {
@@ -918,23 +1307,52 @@ describe('admin application', () => {
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
-    vi.mocked(serverApi.vaults).mockResolvedValue([{
-      id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Admin User', status: 'active',
-      members: 1, storageBytes: 4096, updatedAt: '2026-06-10T00:00:00Z',
-    }]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([
+      {
+        id: 'vault-1',
+        name: 'Team Vault',
+        ownerDisplayName: 'Admin User',
+        status: 'active',
+        members: 1,
+        storageBytes: 4096,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
+    ]);
     vi.mocked(serverApi.vaultDetail).mockResolvedValue({
-      id: 'vault-1', name: 'Team Vault', ownerUserId: 'admin-1', ownerUsername: 'admin',
-      ownerDisplayName: 'Admin User', status: 'active', manifestSequence: 2, members: 1,
-      activeFiles: 1, trashedFiles: 0, storageBytes: 4096,
-      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+      id: 'vault-1',
+      name: 'Team Vault',
+      ownerUserId: 'admin-1',
+      ownerUsername: 'admin',
+      ownerDisplayName: 'Admin User',
+      status: 'active',
+      manifestSequence: 2,
+      members: 1,
+      activeFiles: 1,
+      trashedFiles: 0,
+      storageBytes: 4096,
+      createdAt: '2026-06-09T00:00:00Z',
+      updatedAt: '2026-06-10T00:00:00Z',
     });
     vi.mocked(serverApi.vaultMembers).mockResolvedValue([
-      { userId: 'admin-1', username: 'admin', displayName: 'Admin User', role: 'admin', owner: true, createdAt: '2026-06-09T00:00:00Z' },
+      {
+        userId: 'admin-1',
+        username: 'admin',
+        displayName: 'Admin User',
+        role: 'admin',
+        owner: true,
+        createdAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
     vi.mocked(serverApi.vaultStorage).mockResolvedValue({
-      activeBytes: 1024, trashBytes: 0, retainedRevisionBytes: 4096, uniqueBlobBytes: 2048,
-      activeFiles: 1, trashedFiles: 0, revisionCount: 4, snapshotCount: 1,
+      activeBytes: 1024,
+      trashBytes: 0,
+      retainedRevisionBytes: 4096,
+      uniqueBlobBytes: 2048,
+      activeFiles: 1,
+      trashedFiles: 0,
+      revisionCount: 4,
+      snapshotCount: 1,
     });
     vi.mocked(serverApi.exportVault).mockResolvedValue(new Blob(['zip']));
 
@@ -954,22 +1372,66 @@ describe('admin application', () => {
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
-    vi.mocked(serverApi.vaults).mockResolvedValue([{
-      id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Admin User', status: 'active',
-      members: 1, storageBytes: 0, updatedAt: '2026-06-10T00:00:00Z',
-    }]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([
+      {
+        id: 'vault-1',
+        name: 'Team Vault',
+        ownerDisplayName: 'Admin User',
+        status: 'active',
+        members: 1,
+        storageBytes: 0,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
+    ]);
     vi.mocked(serverApi.vaultDetail).mockResolvedValue({
-      id: 'vault-1', name: 'Team Vault', ownerUserId: 'admin-1', ownerUsername: 'admin',
-      ownerDisplayName: 'Admin User', status: 'active', manifestSequence: 5, members: 1,
-      activeFiles: 0, trashedFiles: 0, storageBytes: 0,
-      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+      id: 'vault-1',
+      name: 'Team Vault',
+      ownerUserId: 'admin-1',
+      ownerUsername: 'admin',
+      ownerDisplayName: 'Admin User',
+      status: 'active',
+      manifestSequence: 5,
+      members: 1,
+      activeFiles: 0,
+      trashedFiles: 0,
+      storageBytes: 0,
+      createdAt: '2026-06-09T00:00:00Z',
+      updatedAt: '2026-06-10T00:00:00Z',
     });
     vi.mocked(serverApi.vaultMembers).mockResolvedValue([]);
     vi.mocked(serverApi.vaultActivity).mockResolvedValue([
-      { id: 'e1', actorDisplayName: 'Admin User', eventType: 'file.created', targetType: 'file', targetId: 'f1', createdAt: '2026-06-10T05:00:00Z' },
-      { id: 'e2', actorDisplayName: 'Admin User', eventType: 'file.moved', targetType: 'file', targetId: 'f2', createdAt: '2026-06-10T04:00:00Z' },
-      { id: 'e3', actorDisplayName: 'Admin User', eventType: 'member.added', targetType: 'member', targetId: 'm1', createdAt: '2026-06-10T03:00:00Z' },
-      { id: 'e4', actorDisplayName: 'Admin User', eventType: 'vault.created', targetType: 'vault', targetId: 'vault-1', createdAt: '2026-06-09T00:00:00Z' },
+      {
+        id: 'e1',
+        actorDisplayName: 'Admin User',
+        eventType: 'file.created',
+        targetType: 'file',
+        targetId: 'f1',
+        createdAt: '2026-06-10T05:00:00Z',
+      },
+      {
+        id: 'e2',
+        actorDisplayName: 'Admin User',
+        eventType: 'file.moved',
+        targetType: 'file',
+        targetId: 'f2',
+        createdAt: '2026-06-10T04:00:00Z',
+      },
+      {
+        id: 'e3',
+        actorDisplayName: 'Admin User',
+        eventType: 'member.added',
+        targetType: 'member',
+        targetId: 'm1',
+        createdAt: '2026-06-10T03:00:00Z',
+      },
+      {
+        id: 'e4',
+        actorDisplayName: 'Admin User',
+        eventType: 'vault.created',
+        targetType: 'vault',
+        targetId: 'vault-1',
+        createdAt: '2026-06-09T00:00:00Z',
+      },
     ]);
 
     render(<App />);
@@ -993,22 +1455,48 @@ describe('admin application', () => {
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
-    vi.mocked(serverApi.vaults).mockResolvedValue([{
-      id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Admin User', status: 'active',
-      members: 1, storageBytes: 0, updatedAt: '2026-06-10T00:00:00Z',
-    }]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([
+      {
+        id: 'vault-1',
+        name: 'Team Vault',
+        ownerDisplayName: 'Admin User',
+        status: 'active',
+        members: 1,
+        storageBytes: 0,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
+    ]);
     vi.mocked(serverApi.vaultDetail).mockResolvedValue({
-      id: 'vault-1', name: 'Team Vault', ownerUserId: 'admin-1', ownerUsername: 'admin',
-      ownerDisplayName: 'Admin User', status: 'active', manifestSequence: 0, members: 1,
-      activeFiles: 0, trashedFiles: 0, storageBytes: 0,
-      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+      id: 'vault-1',
+      name: 'Team Vault',
+      ownerUserId: 'admin-1',
+      ownerUsername: 'admin',
+      ownerDisplayName: 'Admin User',
+      status: 'active',
+      manifestSequence: 0,
+      members: 1,
+      activeFiles: 0,
+      trashedFiles: 0,
+      storageBytes: 0,
+      createdAt: '2026-06-09T00:00:00Z',
+      updatedAt: '2026-06-10T00:00:00Z',
     });
     vi.mocked(serverApi.vaultMembers).mockResolvedValue([
-      { userId: 'admin-1', username: 'admin', displayName: 'Admin User', role: 'admin', owner: true, createdAt: '2026-06-09T00:00:00Z' },
+      {
+        userId: 'admin-1',
+        username: 'admin',
+        displayName: 'Admin User',
+        role: 'admin',
+        owner: true,
+        createdAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
     vi.mocked(serverApi.importVault).mockResolvedValue({
-      importedFiles: 1, importedFolders: 0, importedBytes: 2, resultManifestSequence: 1,
+      importedFiles: 1,
+      importedFolders: 0,
+      importedBytes: 2,
+      resultManifestSequence: 1,
     });
 
     const { container } = render(<App />);
@@ -1018,7 +1506,9 @@ describe('admin application', () => {
     const importButton = await screen.findByRole('button', { name: /Import ZIP into empty vault/ });
     expect(importButton).toBeTruthy();
 
-    const archive = new window.File([new Uint8Array([80, 75])], 'vault.zip', { type: 'application/zip' });
+    const archive = new window.File([new Uint8Array([80, 75])], 'vault.zip', {
+      type: 'application/zip',
+    });
     Object.defineProperty(archive, 'arrayBuffer', {
       value: () => Promise.resolve(new Uint8Array([80, 75]).buffer),
     });
@@ -1029,7 +1519,9 @@ describe('admin application', () => {
   });
 
   it('validates and encodes selected ZIP browser files', async () => {
-    const archive = new window.File([new Uint8Array([80, 75])], 'vault.zip', { type: 'application/zip' });
+    const archive = new window.File([new Uint8Array([80, 75])], 'vault.zip', {
+      type: 'application/zip',
+    });
     Object.defineProperty(archive, 'arrayBuffer', {
       value: vi.fn().mockResolvedValue(new Uint8Array([80, 75]).buffer),
     });
@@ -1045,26 +1537,84 @@ describe('admin application', () => {
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
-    vi.mocked(serverApi.vaults).mockResolvedValue([{
-      id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Other Owner', status: 'active',
-      members: 1, storageBytes: 12, updatedAt: '2026-06-10T00:00:00Z',
-    }]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([
+      {
+        id: 'vault-1',
+        name: 'Team Vault',
+        ownerDisplayName: 'Other Owner',
+        status: 'active',
+        members: 1,
+        storageBytes: 12,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
+    ]);
     vi.mocked(serverApi.vaultDetail).mockResolvedValue({
-      id: 'vault-1', name: 'Team Vault', ownerUserId: 'owner-1', ownerUsername: 'owner',
-      ownerDisplayName: 'Other Owner', status: 'active', manifestSequence: 4, members: 1,
-      activeFiles: 2, trashedFiles: 1, storageBytes: 12,
-      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+      id: 'vault-1',
+      name: 'Team Vault',
+      ownerUserId: 'owner-1',
+      ownerUsername: 'owner',
+      ownerDisplayName: 'Other Owner',
+      status: 'active',
+      manifestSequence: 4,
+      members: 1,
+      activeFiles: 2,
+      trashedFiles: 1,
+      storageBytes: 12,
+      createdAt: '2026-06-09T00:00:00Z',
+      updatedAt: '2026-06-10T00:00:00Z',
     });
     vi.mocked(serverApi.vaultMembers).mockResolvedValue([]);
     vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
-    const currentRevision = { id: 'revision-2', sequence: 2, contentHash: 'hash-2', sizeBytes: 12, createdByDisplayName: 'Owner', createdAt: '2026-06-10T00:00:00Z' };
+    const currentRevision = {
+      id: 'revision-2',
+      sequence: 2,
+      contentHash: 'hash-2',
+      sizeBytes: 12,
+      createdByDisplayName: 'Owner',
+      createdAt: '2026-06-10T00:00:00Z',
+    };
     vi.mocked(serverApi.vaultFiles).mockResolvedValue({
       vaultId: 'vault-1',
       sequence: 4,
       files: [
-        { id: 'folder-1', parentId: null, name: 'Notes', relativePath: 'Notes', kind: 'folder', documentType: null, state: 'active', currentRevision: null, createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
-        { id: 'file-1', parentId: 'folder-1', name: 'Test.md', relativePath: 'Notes/Test.md', kind: 'document', documentType: 'note', state: 'active', currentRevision, createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
-        { id: 'trash-1', parentId: null, name: 'Deleted.canvas', relativePath: 'Deleted.canvas', kind: 'document', documentType: 'canvas', state: 'trashed', currentRevision, trashedByDisplayName: 'Owner', trashedAt: '2026-06-11T00:00:00Z', createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-11T00:00:00Z' },
+        {
+          id: 'folder-1',
+          parentId: null,
+          name: 'Notes',
+          relativePath: 'Notes',
+          kind: 'folder',
+          documentType: null,
+          state: 'active',
+          currentRevision: null,
+          createdAt: '2026-06-09T00:00:00Z',
+          updatedAt: '2026-06-10T00:00:00Z',
+        },
+        {
+          id: 'file-1',
+          parentId: 'folder-1',
+          name: 'Test.md',
+          relativePath: 'Notes/Test.md',
+          kind: 'document',
+          documentType: 'note',
+          state: 'active',
+          currentRevision,
+          createdAt: '2026-06-09T00:00:00Z',
+          updatedAt: '2026-06-10T00:00:00Z',
+        },
+        {
+          id: 'trash-1',
+          parentId: null,
+          name: 'Deleted.canvas',
+          relativePath: 'Deleted.canvas',
+          kind: 'document',
+          documentType: 'canvas',
+          state: 'trashed',
+          currentRevision,
+          trashedByDisplayName: 'Owner',
+          trashedAt: '2026-06-11T00:00:00Z',
+          createdAt: '2026-06-09T00:00:00Z',
+          updatedAt: '2026-06-11T00:00:00Z',
+        },
       ],
     });
     vi.mocked(serverApi.fileRevisions).mockResolvedValue([
@@ -1106,7 +1656,9 @@ describe('admin application', () => {
     // Folders download as ZIP archives.
     vi.mocked(serverApi.downloadFolder).mockResolvedValue(new Blob(['zip']));
     fireEvent.click(await screen.findByRole('button', { name: 'Download Notes' }));
-    await waitFor(() => expect(serverApi.downloadFolder).toHaveBeenCalledWith('vault-1', 'folder-1'));
+    await waitFor(() =>
+      expect(serverApi.downloadFolder).toHaveBeenCalledWith('vault-1', 'folder-1'),
+    );
 
     // Moving is drag-and-drop: drag the file onto the Vault root breadcrumb.
     fireEvent.click(screen.getByRole('button', { name: 'Notes' }));
@@ -1116,28 +1668,56 @@ describe('admin application', () => {
     const vaultRootCrumb = screen.getByRole('button', { name: 'Vault root' });
     fireEvent.dragOver(vaultRootCrumb);
     fireEvent.drop(vaultRootCrumb);
-    await waitFor(() => expect(serverApi.moveFile).toHaveBeenCalledWith('vault-1', expect.objectContaining({
-      operationType: 'move', targetFileId: 'file-1', parentId: null,
-    })));
+    await waitFor(() =>
+      expect(serverApi.moveFile).toHaveBeenCalledWith(
+        'vault-1',
+        expect.objectContaining({
+          operationType: 'move',
+          targetFileId: 'file-1',
+          parentId: null,
+        }),
+      ),
+    );
 
     // History is a dropdown menu instead of a separate panel.
     fireEvent.click(await screen.findByRole('button', { name: 'History Notes/Test.md' }));
     expect(await screen.findByText('Revision 1')).toBeTruthy();
     fireEvent.click(screen.getAllByRole('button', { name: 'Restore' })[1]);
-    await waitFor(() => expect(serverApi.restoreFileRevision).toHaveBeenCalledWith('vault-1', 'file-1', 'revision-1', 2));
+    await waitFor(() =>
+      expect(serverApi.restoreFileRevision).toHaveBeenCalledWith(
+        'vault-1',
+        'file-1',
+        'revision-1',
+        2,
+      ),
+    );
 
     fireEvent.click(screen.getByRole('tab', { name: 'Trash (1)' }));
     fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
-    await waitFor(() => expect(serverApi.moveFile).toHaveBeenCalledWith('vault-1', expect.objectContaining({
-      operationType: 'restore', targetFileId: 'trash-1',
-    })));
+    await waitFor(() =>
+      expect(serverApi.moveFile).toHaveBeenCalledWith(
+        'vault-1',
+        expect.objectContaining({
+          operationType: 'restore',
+          targetFileId: 'trash-1',
+        }),
+      ),
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }));
-    const purgeDialog = await screen.findByRole('dialog', { name: 'Permanently delete Deleted.canvas?' });
+    const purgeDialog = await screen.findByRole('dialog', {
+      name: 'Permanently delete Deleted.canvas?',
+    });
     fireEvent.click(within(purgeDialog).getByRole('button', { name: 'Delete permanently' }));
-    await waitFor(() => expect(serverApi.moveFile).toHaveBeenCalledWith('vault-1', expect.objectContaining({
-      operationType: 'purge', targetFileId: 'trash-1',
-    })));
+    await waitFor(() =>
+      expect(serverApi.moveFile).toHaveBeenCalledWith(
+        'vault-1',
+        expect.objectContaining({
+          operationType: 'purge',
+          targetFileId: 'trash-1',
+        }),
+      ),
+    );
   });
 
   it('adds vault members and protects owner and pending-delete vaults', async () => {
@@ -1146,15 +1726,17 @@ describe('admin application', () => {
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin, activeMember, extraUser]);
-    vi.mocked(serverApi.vaults).mockResolvedValue([{
-      id: 'vault-1',
-      name: 'Frozen Vault',
-      ownerDisplayName: 'Admin User',
-      status: 'pending_delete',
-      members: 1,
-      storageBytes: 0,
-      updatedAt: '2026-06-10T00:00:00Z',
-    }]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([
+      {
+        id: 'vault-1',
+        name: 'Frozen Vault',
+        ownerDisplayName: 'Admin User',
+        status: 'pending_delete',
+        members: 1,
+        storageBytes: 0,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
+    ]);
     vi.mocked(serverApi.vaultDetail).mockResolvedValue({
       id: 'vault-1',
       name: 'Frozen Vault',
@@ -1171,7 +1753,14 @@ describe('admin application', () => {
       updatedAt: '2026-06-10T00:00:00Z',
     });
     vi.mocked(serverApi.vaultMembers).mockResolvedValue([
-      { userId: 'admin-1', username: 'admin', displayName: 'Admin User', role: 'admin', owner: true, createdAt: '2026-06-09T00:00:00Z' },
+      {
+        userId: 'admin-1',
+        username: 'admin',
+        displayName: 'Admin User',
+        role: 'admin',
+        owner: true,
+        createdAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
 
@@ -1183,16 +1772,25 @@ describe('admin application', () => {
     expect(screen.getByRole('button', { name: 'Restore vault' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Delete vault' })).toBeNull();
     expect(screen.queryByLabelText('Add member user')).toBeNull();
-    expect((screen.getByRole('button', { name: 'Remove' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Remove' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 
   it('force-deletes a vault marked for deletion from the inventory', async () => {
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
-    vi.mocked(serverApi.vaults).mockResolvedValue([{
-      id: 'vault-1', name: 'Doomed Vault', ownerDisplayName: 'Admin User', status: 'pending_delete',
-      members: 1, storageBytes: 0, updatedAt: '2026-06-10T00:00:00Z',
-    }]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([
+      {
+        id: 'vault-1',
+        name: 'Doomed Vault',
+        ownerDisplayName: 'Admin User',
+        status: 'pending_delete',
+        members: 1,
+        storageBytes: 0,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
+    ]);
     vi.mocked(serverApi.forceDeleteVault).mockResolvedValue(undefined);
 
     render(<App />);
@@ -1208,7 +1806,15 @@ describe('admin application', () => {
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
     vi.mocked(serverApi.userActivity).mockResolvedValue([
-      { id: 'event-1', actorDisplayName: 'Admin User', action: 'user.login', result: 'success', targetType: 'user', targetId: 'admin-1', createdAt: '2026-06-10T00:00:00Z' },
+      {
+        id: 'event-1',
+        actorDisplayName: 'Admin User',
+        action: 'user.login',
+        result: 'success',
+        targetType: 'user',
+        targetId: 'admin-1',
+        createdAt: '2026-06-10T00:00:00Z',
+      },
     ]);
 
     render(<App />);
@@ -1251,26 +1857,30 @@ describe('admin application', () => {
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
     vi.mocked(serverApi.invitations)
-      .mockResolvedValueOnce([{
-        id: 'invite-1',
-        username: 'alice',
-        displayName: 'Alice',
-        role: 'member',
-        createdAt: '2026-06-09T00:00:00Z',
-        expiresAt: '2099-06-12T00:00:00Z',
-        acceptedAt: null,
-        revokedAt: null,
-      }])
-      .mockResolvedValueOnce([{
-        id: 'invite-1',
-        username: 'alice',
-        displayName: 'Alice',
-        role: 'member',
-        createdAt: '2026-06-09T00:00:00Z',
-        expiresAt: '2099-06-12T00:00:00Z',
-        acceptedAt: null,
-        revokedAt: '2026-06-10T00:00:00Z',
-      }]);
+      .mockResolvedValueOnce([
+        {
+          id: 'invite-1',
+          username: 'alice',
+          displayName: 'Alice',
+          role: 'member',
+          createdAt: '2026-06-09T00:00:00Z',
+          expiresAt: '2099-06-12T00:00:00Z',
+          acceptedAt: null,
+          revokedAt: null,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 'invite-1',
+          username: 'alice',
+          displayName: 'Alice',
+          role: 'member',
+          createdAt: '2026-06-09T00:00:00Z',
+          expiresAt: '2099-06-12T00:00:00Z',
+          acceptedAt: null,
+          revokedAt: '2026-06-10T00:00:00Z',
+        },
+      ]);
     vi.mocked(serverApi.revokeInvitation).mockResolvedValue(undefined);
 
     render(<App />);
@@ -1291,7 +1901,9 @@ describe('admin application', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Users' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Re-enable' }));
-    await waitFor(() => expect(serverApi.updateUser).toHaveBeenCalledWith('member-1', { disabled: false }));
+    await waitFor(() =>
+      expect(serverApi.updateUser).toHaveBeenCalledWith('member-1', { disabled: false }),
+    );
 
     const deleteButtons = screen.getAllByRole('button', { name: 'Delete account' });
     expect((deleteButtons[0] as HTMLButtonElement).disabled).toBe(true);
@@ -1328,7 +1940,9 @@ describe('admin application', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Make admin' }));
     const dialog = await screen.findByRole('dialog', { name: 'Promote member to administrator?' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Make administrator' }));
-    await waitFor(() => expect(serverApi.updateUser).toHaveBeenCalledWith('member-1', { role: 'admin' }));
+    await waitFor(() =>
+      expect(serverApi.updateUser).toHaveBeenCalledWith('member-1', { role: 'admin' }),
+    );
   });
 
   it('searches the hosted vault inventory', async () => {
@@ -1336,8 +1950,24 @@ describe('admin application', () => {
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
     vi.mocked(serverApi.vaults).mockResolvedValue([
-      { id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Alice', status: 'active', members: 1, storageBytes: 0, updatedAt: '2026-06-10T00:00:00Z' },
-      { id: 'vault-2', name: 'Design Space', ownerDisplayName: 'Bob', status: 'active', members: 2, storageBytes: 0, updatedAt: '2026-06-10T00:00:00Z' },
+      {
+        id: 'vault-1',
+        name: 'Team Vault',
+        ownerDisplayName: 'Alice',
+        status: 'active',
+        members: 1,
+        storageBytes: 0,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
+      {
+        id: 'vault-2',
+        name: 'Design Space',
+        ownerDisplayName: 'Bob',
+        status: 'active',
+        members: 2,
+        storageBytes: 0,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
     ]);
 
     render(<App />);
@@ -1353,15 +1983,33 @@ describe('admin application', () => {
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
     vi.mocked(serverApi.vaults).mockResolvedValue([
-      { id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Alice', status: 'active', members: 1, storageBytes: 3072, updatedAt: '2026-06-10T00:00:00Z' },
-      { id: 'vault-2', name: 'Design Space', ownerDisplayName: 'Bob', status: 'active', members: 2, storageBytes: 1024, updatedAt: '2026-06-10T00:00:00Z' },
+      {
+        id: 'vault-1',
+        name: 'Team Vault',
+        ownerDisplayName: 'Alice',
+        status: 'active',
+        members: 1,
+        storageBytes: 3072,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
+      {
+        id: 'vault-2',
+        name: 'Design Space',
+        ownerDisplayName: 'Bob',
+        status: 'active',
+        members: 2,
+        storageBytes: 1024,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
     ]);
 
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Vaults' }));
     const chart = (await screen.findByText('Storage by vault')).closest<HTMLElement>('.panel')!;
     // The donut summarizes the total across the two vaults.
-    expect(within(chart).getByRole('img', { name: 'Storage by vault: 4.0 KB across 2 vaults' })).toBeTruthy();
+    expect(
+      within(chart).getByRole('img', { name: 'Storage by vault: 4.0 KB across 2 vaults' }),
+    ).toBeTruthy();
     // The legend lists each vault with its size and share (3072 / 4096 = 75%).
     const teamEntry = within(chart).getByText('Team Vault').closest('li')!;
     expect(within(teamEntry).getByText('3.0 KB · 75.0%')).toBeTruthy();
@@ -1373,15 +2021,31 @@ describe('admin application', () => {
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
-    vi.mocked(serverApi.vaults).mockResolvedValue([{
-      id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Other Owner', status: 'active',
-      members: 1, storageBytes: 3072, updatedAt: '2026-06-10T00:00:00Z',
-    }]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([
+      {
+        id: 'vault-1',
+        name: 'Team Vault',
+        ownerDisplayName: 'Other Owner',
+        status: 'active',
+        members: 1,
+        storageBytes: 3072,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
+    ]);
     vi.mocked(serverApi.vaultDetail).mockResolvedValue({
-      id: 'vault-1', name: 'Team Vault', ownerUserId: 'owner-1', ownerUsername: 'owner',
-      ownerDisplayName: 'Other Owner', status: 'active', manifestSequence: 4, members: 1,
-      activeFiles: 2, trashedFiles: 0, storageBytes: 3072,
-      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+      id: 'vault-1',
+      name: 'Team Vault',
+      ownerUserId: 'owner-1',
+      ownerUsername: 'owner',
+      ownerDisplayName: 'Other Owner',
+      status: 'active',
+      manifestSequence: 4,
+      members: 1,
+      activeFiles: 2,
+      trashedFiles: 0,
+      storageBytes: 3072,
+      createdAt: '2026-06-09T00:00:00Z',
+      updatedAt: '2026-06-10T00:00:00Z',
     });
     vi.mocked(serverApi.vaultMembers).mockResolvedValue([]);
     vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
@@ -1389,8 +2053,44 @@ describe('admin application', () => {
       vaultId: 'vault-1',
       sequence: 4,
       files: [
-        { id: 'file-1', parentId: null, name: 'Big.md', relativePath: 'Big.md', kind: 'document', documentType: 'note', state: 'active', currentRevision: { id: 'r1', sequence: 1, contentHash: 'h1', sizeBytes: 2048, createdByDisplayName: 'Owner', createdAt: '2026-06-10T00:00:00Z' }, createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
-        { id: 'file-2', parentId: null, name: 'Small.md', relativePath: 'Small.md', kind: 'document', documentType: 'note', state: 'active', currentRevision: { id: 'r2', sequence: 1, contentHash: 'h2', sizeBytes: 1024, createdByDisplayName: 'Owner', createdAt: '2026-06-10T00:00:00Z' }, createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
+        {
+          id: 'file-1',
+          parentId: null,
+          name: 'Big.md',
+          relativePath: 'Big.md',
+          kind: 'document',
+          documentType: 'note',
+          state: 'active',
+          currentRevision: {
+            id: 'r1',
+            sequence: 1,
+            contentHash: 'h1',
+            sizeBytes: 2048,
+            createdByDisplayName: 'Owner',
+            createdAt: '2026-06-10T00:00:00Z',
+          },
+          createdAt: '2026-06-09T00:00:00Z',
+          updatedAt: '2026-06-10T00:00:00Z',
+        },
+        {
+          id: 'file-2',
+          parentId: null,
+          name: 'Small.md',
+          relativePath: 'Small.md',
+          kind: 'document',
+          documentType: 'note',
+          state: 'active',
+          currentRevision: {
+            id: 'r2',
+            sequence: 1,
+            contentHash: 'h2',
+            sizeBytes: 1024,
+            createdByDisplayName: 'Owner',
+            createdAt: '2026-06-10T00:00:00Z',
+          },
+          createdAt: '2026-06-09T00:00:00Z',
+          updatedAt: '2026-06-10T00:00:00Z',
+        },
       ],
     });
 
@@ -1406,8 +2106,24 @@ describe('admin application', () => {
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.auditEvents).mockResolvedValue([
-      { id: 'e1', actorDisplayName: 'Admin User', action: 'user.login', result: 'success', targetType: 'user', targetId: 'admin-1', createdAt: '2026-06-10T00:00:00Z' },
-      { id: 'e2', actorDisplayName: 'Admin User', action: 'admin.user.update', result: 'failure', targetType: 'user', targetId: 'member-1', createdAt: '2026-06-10T01:00:00Z' },
+      {
+        id: 'e1',
+        actorDisplayName: 'Admin User',
+        action: 'user.login',
+        result: 'success',
+        targetType: 'user',
+        targetId: 'admin-1',
+        createdAt: '2026-06-10T00:00:00Z',
+      },
+      {
+        id: 'e2',
+        actorDisplayName: 'Admin User',
+        action: 'admin.user.update',
+        result: 'failure',
+        targetType: 'user',
+        targetId: 'member-1',
+        createdAt: '2026-06-10T01:00:00Z',
+      },
     ]);
 
     render(<App />);
@@ -1433,25 +2149,70 @@ describe('admin application', () => {
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
-    vi.mocked(serverApi.vaults).mockResolvedValue([{
-      id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Other Owner', status: 'active',
-      members: 1, storageBytes: 12, updatedAt: '2026-06-10T00:00:00Z',
-    }]);
+    vi.mocked(serverApi.vaults).mockResolvedValue([
+      {
+        id: 'vault-1',
+        name: 'Team Vault',
+        ownerDisplayName: 'Other Owner',
+        status: 'active',
+        members: 1,
+        storageBytes: 12,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
+    ]);
     vi.mocked(serverApi.vaultDetail).mockResolvedValue({
-      id: 'vault-1', name: 'Team Vault', ownerUserId: 'owner-1', ownerUsername: 'owner',
-      ownerDisplayName: 'Other Owner', status: 'active', manifestSequence: 4, members: 1,
-      activeFiles: 2, trashedFiles: 0, storageBytes: 2048,
-      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+      id: 'vault-1',
+      name: 'Team Vault',
+      ownerUserId: 'owner-1',
+      ownerUsername: 'owner',
+      ownerDisplayName: 'Other Owner',
+      status: 'active',
+      manifestSequence: 4,
+      members: 1,
+      activeFiles: 2,
+      trashedFiles: 0,
+      storageBytes: 2048,
+      createdAt: '2026-06-09T00:00:00Z',
+      updatedAt: '2026-06-10T00:00:00Z',
     });
     vi.mocked(serverApi.vaultMembers).mockResolvedValue([]);
     vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
-    const currentRevision = { id: 'revision-2', sequence: 2, contentHash: 'hash-2', sizeBytes: 2048, createdByDisplayName: 'Owner', createdAt: '2026-06-10T00:00:00Z' };
+    const currentRevision = {
+      id: 'revision-2',
+      sequence: 2,
+      contentHash: 'hash-2',
+      sizeBytes: 2048,
+      createdByDisplayName: 'Owner',
+      createdAt: '2026-06-10T00:00:00Z',
+    };
     vi.mocked(serverApi.vaultFiles).mockResolvedValue({
       vaultId: 'vault-1',
       sequence: 4,
       files: [
-        { id: 'folder-1', parentId: null, name: 'Notes', relativePath: 'Notes', kind: 'folder', documentType: null, state: 'active', currentRevision: null, createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
-        { id: 'file-1', parentId: 'folder-1', name: 'Test.md', relativePath: 'Notes/Test.md', kind: 'document', documentType: 'note', state: 'active', currentRevision, createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z' },
+        {
+          id: 'folder-1',
+          parentId: null,
+          name: 'Notes',
+          relativePath: 'Notes',
+          kind: 'folder',
+          documentType: null,
+          state: 'active',
+          currentRevision: null,
+          createdAt: '2026-06-09T00:00:00Z',
+          updatedAt: '2026-06-10T00:00:00Z',
+        },
+        {
+          id: 'file-1',
+          parentId: 'folder-1',
+          name: 'Test.md',
+          relativePath: 'Notes/Test.md',
+          kind: 'document',
+          documentType: 'note',
+          state: 'active',
+          currentRevision,
+          createdAt: '2026-06-09T00:00:00Z',
+          updatedAt: '2026-06-10T00:00:00Z',
+        },
       ],
     });
     vi.mocked(serverApi.moveFile).mockResolvedValue({ resultManifestSequence: 5 });
@@ -1473,9 +2234,15 @@ describe('admin application', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete Notes/Test.md' }));
     const dialog = await screen.findByRole('dialog', { name: 'Move Test.md to trash?' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Move to trash' }));
-    await waitFor(() => expect(serverApi.moveFile).toHaveBeenCalledWith('vault-1', expect.objectContaining({
-      operationType: 'trash', targetFileId: 'file-1',
-    })));
+    await waitFor(() =>
+      expect(serverApi.moveFile).toHaveBeenCalledWith(
+        'vault-1',
+        expect.objectContaining({
+          operationType: 'trash',
+          targetFileId: 'file-1',
+        }),
+      ),
+    );
   });
 
   it('persists administration appearance settings', async () => {
@@ -1521,7 +2288,13 @@ describe('admin application', () => {
         revisionHistoryLimit: setting(0, 'COLLAB_REVISION_HISTORY_LIMIT'),
         revisionStorageTargetBytes: setting(0, 'COLLAB_REVISION_STORAGE_TARGET_BYTES'),
       },
-      backup: { scheduleEnabled: false, intervalSeconds: 86_400, retentionDays: 14, exportDir: null, locks: { ...unlockedBackupLocks, exportDir: true } },
+      backup: {
+        scheduleEnabled: false,
+        intervalSeconds: 86_400,
+        retentionDays: 14,
+        exportDir: null,
+        locks: { ...unlockedBackupLocks, exportDir: true },
+      },
       maintenance: { enabled: false, message: null, updatedAt: null },
     });
     render(<App />);
@@ -1531,26 +2304,40 @@ describe('admin application', () => {
     expect(await screen.findByText('Locked by COLLAB_BACKUP_EXPORT_DIR')).toBeTruthy();
     // Byte settings round-trip to human-readable binary units.
     expect((screen.getByLabelText('Max file size') as HTMLInputElement).value).toBe('256 MiB');
-    expect((screen.getByLabelText('Storage warning size') as HTMLInputElement).value).toBe('10 GiB');
+    expect((screen.getByLabelText('Storage warning size') as HTMLInputElement).value).toBe(
+      '10 GiB',
+    );
     fireEvent.change(screen.getByLabelText('Session TTL hours'), { target: { value: '24' } });
-    fireEvent.change(screen.getByLabelText('Storage quota (0 = unlimited)'), { target: { value: '12 GiB' } });
-    fireEvent.change(screen.getByLabelText('Calendar quota per user (0 = unlimited)'), { target: { value: '2 GiB' } });
-    fireEvent.change(screen.getByLabelText('Calendar requests per minute (0 = unlimited)'), { target: { value: '240' } });
+    fireEvent.change(screen.getByLabelText('Storage quota (0 = unlimited)'), {
+      target: { value: '12 GiB' },
+    });
+    fireEvent.change(screen.getByLabelText('Calendar quota per user (0 = unlimited)'), {
+      target: { value: '2 GiB' },
+    });
+    fireEvent.change(screen.getByLabelText('Calendar requests per minute (0 = unlimited)'), {
+      target: { value: '240' },
+    });
     fireEvent.click(screen.getByRole('switch', { name: 'Maintenance mode' }));
-    fireEvent.change(screen.getByLabelText('Maintenance message'), { target: { value: 'Short upgrade window' } });
+    fireEvent.change(screen.getByLabelText('Maintenance message'), {
+      target: { value: 'Short upgrade window' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Save server settings' }));
 
     // Byte fields submit the raw human-readable string; the server parses it.
-    await waitFor(() => expect(serverApi.updateSettings).toHaveBeenCalledWith(expect.objectContaining({
-      runtime: expect.objectContaining({
-        sessionTtlHours: 24,
-        storageQuotaBytes: '12 GiB',
-        calendarQuotaBytes: '2 GiB',
-        calendarRateLimitPerMinute: 240,
-        maxFileBytes: '256 MiB',
-      }),
-      maintenance: { enabled: true, message: 'Short upgrade window' },
-    })));
+    await waitFor(() =>
+      expect(serverApi.updateSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runtime: expect.objectContaining({
+            sessionTtlHours: 24,
+            storageQuotaBytes: '12 GiB',
+            calendarQuotaBytes: '2 GiB',
+            calendarRateLimitPerMinute: 240,
+            maxFileBytes: '256 MiB',
+          }),
+          maintenance: { enabled: true, message: 'Short upgrade window' },
+        }),
+      ),
+    );
 
     // Running maintenance on demand reports the reclaimed counts.
     vi.mocked(serverApi.runMaintenance).mockResolvedValue({
@@ -1573,7 +2360,9 @@ describe('admin application', () => {
       pushGatewayConfigured: true,
     });
     fireEvent.click(screen.getByRole('button', { name: 'Send test notification' }));
-    expect(await screen.findByText(/Test notification created. Queued for 1 registered device/)).toBeTruthy();
+    expect(
+      await screen.findByText(/Test notification created. Queued for 1 registered device/),
+    ).toBeTruthy();
     expect(serverApi.sendNotificationTest).toHaveBeenCalled();
   });
 
@@ -1585,16 +2374,43 @@ describe('admin application', () => {
       { ...disabledMember, status: 'active' as const },
     ]);
     vi.mocked(serverApi.groups).mockResolvedValue([
-      { id: 'group-1', name: 'Reviewers', description: 'QA reviewers', memberCount: 1, createdAt: '2026-06-09T00:00:00Z' },
+      {
+        id: 'group-1',
+        name: 'Reviewers',
+        description: 'QA reviewers',
+        memberCount: 1,
+        createdAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.groupMembers).mockResolvedValue([
-      { userId: 'member-1', username: 'member', displayName: 'Member User', addedAt: '2026-06-09T00:00:00Z' },
+      {
+        userId: 'member-1',
+        username: 'member',
+        displayName: 'Member User',
+        addedAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.vaults).mockResolvedValue([
-      { id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Admin User', status: 'active', members: 2, storageBytes: 0, updatedAt: '2026-06-10T00:00:00Z' },
+      {
+        id: 'vault-1',
+        name: 'Team Vault',
+        ownerDisplayName: 'Admin User',
+        status: 'active',
+        members: 2,
+        storageBytes: 0,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.vaultGrants).mockResolvedValue([
-      { subjectType: 'group', subjectId: 'group-1', subjectName: 'Reviewers', templateId: 't1', templateName: 'reviewer', capabilities: ['vault.read'], createdAt: '2026-06-09T00:00:00Z' },
+      {
+        subjectType: 'group',
+        subjectId: 'group-1',
+        subjectName: 'Reviewers',
+        templateId: 't1',
+        templateName: 'reviewer',
+        capabilities: ['vault.read'],
+        createdAt: '2026-06-09T00:00:00Z',
+      },
     ]);
 
     render(<App />);
@@ -1621,10 +2437,24 @@ describe('admin application', () => {
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
     vi.mocked(serverApi.templates).mockResolvedValue([
-      { id: 'builtin-viewer', name: 'viewer', description: 'Read only', isBuiltin: true, capabilities: ['vault.read'], createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-09T00:00:00Z' },
+      {
+        id: 'builtin-viewer',
+        name: 'viewer',
+        description: 'Read only',
+        isBuiltin: true,
+        capabilities: ['vault.read'],
+        createdAt: '2026-06-09T00:00:00Z',
+        updatedAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.createTemplate).mockResolvedValue({
-      id: 'tpl-new', name: 'PDF reviewer', description: null, isBuiltin: false, capabilities: ['vault.read', 'pdf.comment'], createdAt: '2026-06-11T00:00:00Z', updatedAt: '2026-06-11T00:00:00Z',
+      id: 'tpl-new',
+      name: 'PDF reviewer',
+      description: null,
+      isBuiltin: false,
+      capabilities: ['vault.read', 'pdf.comment'],
+      createdAt: '2026-06-11T00:00:00Z',
+      updatedAt: '2026-06-11T00:00:00Z',
     });
 
     render(<App />);
@@ -1640,28 +2470,41 @@ describe('admin application', () => {
     fireEvent.click(within(dialog).getByLabelText('pdf.comment'));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create template' }));
 
-    await waitFor(() => expect(serverApi.createTemplate).toHaveBeenCalledWith({
-      name: 'PDF reviewer',
-      description: null,
-      capabilities: ['vault.read', 'pdf.comment'],
-    }));
+    await waitFor(() =>
+      expect(serverApi.createTemplate).toHaveBeenCalledWith({
+        name: 'PDF reviewer',
+        description: null,
+        capabilities: ['vault.read', 'pdf.comment'],
+      }),
+    );
   });
 
   it('edits a user display name and username from the admin users page', async () => {
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
-    vi.mocked(serverApi.updateUser).mockResolvedValue({ ...admin, displayName: 'Renamed Admin', username: 'admin2' });
+    vi.mocked(serverApi.updateUser).mockResolvedValue({
+      ...admin,
+      displayName: 'Renamed Admin',
+      username: 'admin2',
+    });
 
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Users' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
     const dialog = await screen.findByRole('dialog', { name: 'Edit admin' });
-    fireEvent.change(within(dialog).getByLabelText('Display name'), { target: { value: 'Renamed Admin' } });
+    fireEvent.change(within(dialog).getByLabelText('Display name'), {
+      target: { value: 'Renamed Admin' },
+    });
     fireEvent.change(within(dialog).getByLabelText('Username'), { target: { value: 'admin2' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
 
-    await waitFor(() => expect(serverApi.updateUser).toHaveBeenCalledWith('admin-1', { displayName: 'Renamed Admin', username: 'admin2' }));
+    await waitFor(() =>
+      expect(serverApi.updateUser).toHaveBeenCalledWith('admin-1', {
+        displayName: 'Renamed Admin',
+        username: 'admin2',
+      }),
+    );
   });
 
   it('adds a user to a group from the permissions users tab', async () => {
@@ -1669,7 +2512,13 @@ describe('admin application', () => {
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
     vi.mocked(serverApi.groups).mockResolvedValue([
-      { id: 'group-1', name: 'Reviewers', description: null, memberCount: 0, createdAt: '2026-06-09T00:00:00Z' },
+      {
+        id: 'group-1',
+        name: 'Reviewers',
+        description: null,
+        memberCount: 0,
+        createdAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.addGroupMember).mockResolvedValue(undefined);
 
@@ -1680,7 +2529,9 @@ describe('admin application', () => {
     await waitFor(() => expect(document.querySelector('.user-pick')).not.toBeNull());
     fireEvent.click(document.querySelector('.user-pick') as HTMLElement);
     fireEvent.click(await screen.findByRole('button', { name: 'Add' }));
-    await waitFor(() => expect(serverApi.addGroupMember).toHaveBeenCalledWith('group-1', 'admin-1'));
+    await waitFor(() =>
+      expect(serverApi.addGroupMember).toHaveBeenCalledWith('group-1', 'admin-1'),
+    );
   });
 
   it('updates the signed-in account profile from the account dialog', async () => {
@@ -1692,9 +2543,13 @@ describe('admin application', () => {
     await screen.findByRole('heading', { name: 'Server dashboard' });
     fireEvent.click(screen.getByRole('button', { name: 'Account settings' }));
     const dialog = await screen.findByRole('dialog', { name: 'Your account' });
-    fireEvent.change(within(dialog).getByLabelText('Display name'), { target: { value: 'My New Name' } });
+    fireEvent.change(within(dialog).getByLabelText('Display name'), {
+      target: { value: 'My New Name' },
+    });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save profile' }));
-    await waitFor(() => expect(serverApi.updateSelf).toHaveBeenCalledWith({ displayName: 'My New Name' }));
+    await waitFor(() =>
+      expect(serverApi.updateSelf).toHaveBeenCalledWith({ displayName: 'My New Name' }),
+    );
   });
 
   it('grants a group access to a vault from the permissions groups tab', async () => {
@@ -1702,16 +2557,44 @@ describe('admin application', () => {
     vi.mocked(serverApi.me).mockResolvedValue(admin);
     vi.mocked(serverApi.users).mockResolvedValue([admin]);
     vi.mocked(serverApi.groups).mockResolvedValue([
-      { id: 'group-1', name: 'Reviewers', description: null, memberCount: 0, createdAt: '2026-06-09T00:00:00Z' },
+      {
+        id: 'group-1',
+        name: 'Reviewers',
+        description: null,
+        memberCount: 0,
+        createdAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.templates).mockResolvedValue([
-      { id: 'tpl-1', name: 'reviewer', description: null, isBuiltin: false, capabilities: ['vault.read'], createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-09T00:00:00Z' },
+      {
+        id: 'tpl-1',
+        name: 'reviewer',
+        description: null,
+        isBuiltin: false,
+        capabilities: ['vault.read'],
+        createdAt: '2026-06-09T00:00:00Z',
+        updatedAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.vaults).mockResolvedValue([
-      { id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Admin User', status: 'active', members: 1, storageBytes: 0, updatedAt: '2026-06-10T00:00:00Z' },
+      {
+        id: 'vault-1',
+        name: 'Team Vault',
+        ownerDisplayName: 'Admin User',
+        status: 'active',
+        members: 1,
+        storageBytes: 0,
+        updatedAt: '2026-06-10T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.putVaultGrant).mockResolvedValue({
-      subjectType: 'group', subjectId: 'group-1', subjectName: 'Reviewers', templateId: 'tpl-1', templateName: 'reviewer', capabilities: ['vault.read'], createdAt: '2026-06-11T00:00:00Z',
+      subjectType: 'group',
+      subjectId: 'group-1',
+      subjectName: 'Reviewers',
+      templateId: 'tpl-1',
+      templateName: 'reviewer',
+      capabilities: ['vault.read'],
+      createdAt: '2026-06-11T00:00:00Z',
     });
 
     render(<App />);
@@ -1724,15 +2607,37 @@ describe('admin application', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Grant source' }));
     fireEvent.click(within(dialog).getByRole('option', { name: 'Template' }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
-    await waitFor(() => expect(serverApi.putVaultGrant).toHaveBeenCalledWith('vault-1', 'group', 'group-1', { templateId: 'tpl-1' }));
+    await waitFor(() =>
+      expect(serverApi.putVaultGrant).toHaveBeenCalledWith('vault-1', 'group', 'group-1', {
+        templateId: 'tpl-1',
+      }),
+    );
   });
 
   it('grants a group custom capabilities from the vault detail view', async () => {
-    const vaultSummary = { id: 'vault-1', name: 'Team Vault', ownerDisplayName: 'Admin User', status: 'active' as const, members: 1, storageBytes: 0, updatedAt: '2026-06-10T00:00:00Z' };
+    const vaultSummary = {
+      id: 'vault-1',
+      name: 'Team Vault',
+      ownerDisplayName: 'Admin User',
+      status: 'active' as const,
+      members: 1,
+      storageBytes: 0,
+      updatedAt: '2026-06-10T00:00:00Z',
+    };
     const vaultDetail = {
-      id: 'vault-1', name: 'Team Vault', ownerUserId: 'admin-1', ownerUsername: 'admin', ownerDisplayName: 'Admin User',
-      status: 'active' as const, manifestSequence: 0, members: 1, activeFiles: 0, trashedFiles: 0, storageBytes: 0,
-      createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+      id: 'vault-1',
+      name: 'Team Vault',
+      ownerUserId: 'admin-1',
+      ownerUsername: 'admin',
+      ownerDisplayName: 'Admin User',
+      status: 'active' as const,
+      manifestSequence: 0,
+      members: 1,
+      activeFiles: 0,
+      trashedFiles: 0,
+      storageBytes: 0,
+      createdAt: '2026-06-09T00:00:00Z',
+      updatedAt: '2026-06-10T00:00:00Z',
     };
     vi.mocked(serverApi.bootstrapStatus).mockResolvedValue({ required: false });
     vi.mocked(serverApi.me).mockResolvedValue(admin);
@@ -1740,17 +2645,44 @@ describe('admin application', () => {
     vi.mocked(serverApi.vaults).mockResolvedValue([vaultSummary]);
     vi.mocked(serverApi.vaultDetail).mockResolvedValue(vaultDetail);
     vi.mocked(serverApi.vaultMembers).mockResolvedValue([
-      { userId: 'admin-1', username: 'admin', displayName: 'Admin User', role: 'admin', owner: true, createdAt: '2026-06-09T00:00:00Z' },
+      {
+        userId: 'admin-1',
+        username: 'admin',
+        displayName: 'Admin User',
+        role: 'admin',
+        owner: true,
+        createdAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.vaultActivity).mockResolvedValue([]);
     vi.mocked(serverApi.groups).mockResolvedValue([
-      { id: 'group-1', name: 'Reviewers', description: null, memberCount: 0, createdAt: '2026-06-09T00:00:00Z' },
+      {
+        id: 'group-1',
+        name: 'Reviewers',
+        description: null,
+        memberCount: 0,
+        createdAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.templates).mockResolvedValue([
-      { id: 'tpl-1', name: 'reviewer', description: null, isBuiltin: false, capabilities: ['vault.read', 'kanban.card.move'], createdAt: '2026-06-09T00:00:00Z', updatedAt: '2026-06-09T00:00:00Z' },
+      {
+        id: 'tpl-1',
+        name: 'reviewer',
+        description: null,
+        isBuiltin: false,
+        capabilities: ['vault.read', 'kanban.card.move'],
+        createdAt: '2026-06-09T00:00:00Z',
+        updatedAt: '2026-06-09T00:00:00Z',
+      },
     ]);
     vi.mocked(serverApi.putVaultGrant).mockResolvedValue({
-      subjectType: 'group', subjectId: 'group-1', subjectName: 'Reviewers', templateId: 'tpl-1', templateName: 'reviewer', capabilities: ['vault.read', 'kanban.card.move'], createdAt: '2026-06-11T00:00:00Z',
+      subjectType: 'group',
+      subjectId: 'group-1',
+      subjectName: 'Reviewers',
+      templateId: 'tpl-1',
+      templateName: 'reviewer',
+      capabilities: ['vault.read', 'kanban.card.move'],
+      createdAt: '2026-06-11T00:00:00Z',
     });
 
     render(<App />);
@@ -1764,8 +2696,10 @@ describe('admin application', () => {
     fireEvent.click(within(dialog).getByRole('checkbox', { name: 'kanban.card.move' }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
 
-    await waitFor(() => expect(serverApi.putVaultGrant).toHaveBeenCalledWith('vault-1', 'group', 'group-1', {
-      capabilities: ['vault.read', 'kanban.card.move'],
-    }));
+    await waitFor(() =>
+      expect(serverApi.putVaultGrant).toHaveBeenCalledWith('vault-1', 'group', 'group-1', {
+        capabilities: ['vault.read', 'kanban.card.move'],
+      }),
+    );
   });
 });

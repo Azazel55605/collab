@@ -1,7 +1,18 @@
 import {
+  type CSSProperties,
+  type ReactNode,
+  type TouchEvent as ReactTouchEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+
+import {
+  Archive,
   ArrowLeft,
   ArrowRight,
-  Archive,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
@@ -19,61 +30,53 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-  type TouchEvent as ReactTouchEvent,
-} from 'react';
 
-import { Banner, ReadOnlyBadge, Spinner } from '../components/ui';
-import { DateField } from '../components/DateField';
+import { userColorForId } from '../../../../src/lib/userColor';
+import { getCardDueStatus, type KanbanDueStatus } from '../../../../src/types/kanban';
 import { ColorPicker } from '../components/ColorPicker';
+import { DateField } from '../components/DateField';
+import { Banner, ReadOnlyBadge, Spinner } from '../components/ui';
 import { useBackDismiss } from '../lib/backStack';
 import { isReadOnlyRole } from '../lib/format';
 import {
   addCardToColumn,
-  addColumn,
   addChecklistItem,
+  addColumn,
   addComment,
   addTag,
+  type CardSortField,
   checklistProgress,
   collectBoardTags,
+  type CommentAuthor,
   createCard,
   createColumn,
   findCard,
-  moveColumn,
+  type KanbanBoard,
+  type KanbanCard,
+  type KanbanColumn,
+  type KanbanPriority,
   moveCardToColumn,
+  moveColumn,
   parseBoardContent,
   readKanbanDocument,
   removeCard,
-  removeColumn,
   removeChecklistItem,
+  removeColumn,
   removeTag,
   saveKanbanDocument,
-  setCardArchived,
   serializeBoard,
+  setCardArchived,
   toggleCardDone,
   toggleChecklistItem,
   updateCard,
   updateColumn,
   viewCards,
-  type CardSortField,
-  type CommentAuthor,
-  type KanbanBoard,
-  type KanbanCard,
-  type KanbanColumn,
-  type KanbanPriority,
 } from '../lib/kanban';
 import {
-  openMobileLiveJsonSession,
   type JsonObject,
   type LiveStatus,
   type MobileLiveJsonSession,
+  openMobileLiveJsonSession,
 } from '../lib/liveNote';
 import {
   describePendingFailure,
@@ -83,10 +86,8 @@ import {
   pendingEditsForFile,
   retryPendingOperation,
 } from '../lib/sync';
-import { replicaCacheDocument, type HostedFileEntry, type PendingOperation } from '../mobileTauri';
+import { type HostedFileEntry, type PendingOperation, replicaCacheDocument } from '../mobileTauri';
 import { useMobileStore } from '../state/store';
-import { getCardDueStatus, type KanbanDueStatus } from '../../../../src/types/kanban';
-import { userColorForId } from '../../../../src/lib/userColor';
 
 const PRIORITIES: Array<{ value: KanbanPriority | 'none'; label: string }> = [
   { value: 'none', label: 'None' },
@@ -95,7 +96,11 @@ const PRIORITIES: Array<{ value: KanbanPriority | 'none'; label: string }> = [
   { value: 'high', label: 'High' },
 ];
 
-const PRIORITY_LABEL: Record<KanbanPriority, string> = { low: 'Low', medium: 'Medium', high: 'High' };
+const PRIORITY_LABEL: Record<KanbanPriority, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+};
 
 const DUE_LABEL: Record<KanbanDueStatus, string> = {
   overdue: 'Overdue',
@@ -137,7 +142,13 @@ function formatTime(ts: number): string {
   });
 }
 
-export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; initialCardId?: string }) {
+export function KanbanScreen({
+  file,
+  initialCardId,
+}: {
+  file: HostedFileEntry;
+  initialCardId?: string;
+}) {
   const selected = useMobileStore((s) => s.selected);
   const statuses = useMobileStore((s) => s.statuses);
   const closeSheet = useMobileStore((s) => s.closeSheet);
@@ -219,7 +230,10 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
   }, [statuses, serverUrl]);
 
   const liveActive = !!liveSession;
-  const dirty = useMemo(() => !liveActive && serializeBoard(board) !== savedContent, [board, liveActive, savedContent]);
+  const dirty = useMemo(
+    () => !liveActive && serializeBoard(board) !== savedContent,
+    [board, liveActive, savedContent],
+  );
   const pendingFailed = pending?.status === 'failed';
   const statusLabel = pendingFailed
     ? 'Sync failed'
@@ -229,13 +243,13 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
         ? liveStatus === 'connected'
           ? 'Live'
           : 'Live offline'
-      : saving
-        ? 'Saving…'
-        : source === 'cache'
-          ? 'Cached board'
-          : dirty
-            ? 'Unsaved changes'
-            : 'Saved';
+        : saving
+          ? 'Saving…'
+          : source === 'cache'
+            ? 'Cached board'
+            : dirty
+              ? 'Unsaved changes'
+              : 'Saved';
 
   useEffect(() => {
     mountedRef.current = true;
@@ -335,9 +349,14 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
         });
 
         const initialJson = session.readJson();
-        if (Object.keys(initialJson).length > 0) applyLiveBoard(boardFromJson(initialJson), 'network');
+        if (Object.keys(initialJson).length > 0)
+          applyLiveBoard(boardFromJson(initialJson), 'network');
         offChange = session.onChange((json) => {
-          if (!cancelled) applyLiveBoard(boardFromJson(json), session.getStatus() === 'connected' ? 'network' : 'cache');
+          if (!cancelled)
+            applyLiveBoard(
+              boardFromJson(json),
+              session.getStatus() === 'connected' ? 'network' : 'cache',
+            );
         });
       })
       .catch(() => {
@@ -382,7 +401,12 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
     try {
       if (connectedRef.current) {
         try {
-          const document = await saveKanbanDocument(serverUrl, vaultId, fileRef.current, boardRef.current);
+          const document = await saveKanbanDocument(
+            serverUrl,
+            vaultId,
+            fileRef.current,
+            boardRef.current,
+          );
           fileRef.current = document.file;
           markSaved(content);
           if (mountedRef.current) {
@@ -454,7 +478,12 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
 
   // ── Recovery ────────────────────────────────────────────────────────────────
   const reloadBoard = useCallback(async () => {
-    const loaded = await readKanbanDocument(serverUrl, vaultId, fileRef.current, connectedRef.current);
+    const loaded = await readKanbanDocument(
+      serverUrl,
+      vaultId,
+      fileRef.current,
+      connectedRef.current,
+    );
     if (!mountedRef.current) return;
     setCurrentFile(loaded.file);
     fileRef.current = loaded.file;
@@ -511,7 +540,7 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
   );
   const activeColumn = columns[activeIndex] ?? columns[0] ?? null;
   const activeColumnId = activeColumn?.id ?? null;
-  const openCard = openCardId ? findCard(board, openCardId)?.card ?? null : null;
+  const openCard = openCardId ? (findCard(board, openCardId)?.card ?? null) : null;
 
   // All distinct tags used anywhere on the board, for tag suggestions.
   const boardTags = useMemo(() => collectBoardTags(board), [board]);
@@ -600,7 +629,15 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
               aria-expanded={showViewMenu}
               onClick={() => setShowViewMenu((value) => !value)}
             >
-              {view === 'calendar' ? <CalendarDays size={17} aria-hidden /> : view === 'timeline' ? <GanttChart size={17} aria-hidden /> : view === 'archive' ? <Archive size={17} aria-hidden /> : <Columns3 size={17} aria-hidden />}
+              {view === 'calendar' ? (
+                <CalendarDays size={17} aria-hidden />
+              ) : view === 'timeline' ? (
+                <GanttChart size={17} aria-hidden />
+              ) : view === 'archive' ? (
+                <Archive size={17} aria-hidden />
+              ) : (
+                <Columns3 size={17} aria-hidden />
+              )}
             </button>
           ) : null}
         </div>
@@ -611,14 +648,29 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
 
       {showViewMenu ? (
         <div className="kanban-view-menu" role="menu" aria-label="Kanban view">
-          {([
-            ['board', 'Board', Columns3],
-            ['calendar', 'Calendar', CalendarDays],
-            ['timeline', 'Timeline', GanttChart],
-            ['archive', 'Archive', Archive],
-          ] as const).map(([value, label, Icon]) => (
-            <button key={value} type="button" role="menuitemradio" aria-checked={view === value} className={view === value ? 'active' : ''} onClick={() => { setView(value); setShowViewMenu(false); setShowTools(false); }}>
-              <Icon size={16} aria-hidden /><span>{label}</span>{view === value ? <CheckCircle2 size={15} aria-hidden /> : null}
+          {(
+            [
+              ['board', 'Board', Columns3],
+              ['calendar', 'Calendar', CalendarDays],
+              ['timeline', 'Timeline', GanttChart],
+              ['archive', 'Archive', Archive],
+            ] as const
+          ).map(([value, label, Icon]) => (
+            <button
+              key={value}
+              type="button"
+              role="menuitemradio"
+              aria-checked={view === value}
+              className={view === value ? 'active' : ''}
+              onClick={() => {
+                setView(value);
+                setShowViewMenu(false);
+                setShowTools(false);
+              }}
+            >
+              <Icon size={16} aria-hidden />
+              <span>{label}</span>
+              {view === value ? <CheckCircle2 size={15} aria-hidden /> : null}
             </button>
           ))}
         </div>
@@ -631,11 +683,21 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
             <span>{describePendingFailure(pending!)}</span>
           </div>
           <div className="sync-recovery-actions">
-            <button type="button" className="text-button" onClick={() => void retrySync()} disabled={recovering || !connected}>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => void retrySync()}
+              disabled={recovering || !connected}
+            >
               {recovering ? <Spinner size={14} /> : <RefreshCw size={14} aria-hidden />}
               Retry
             </button>
-            <button type="button" className="text-button destructive" onClick={() => void discardQueued()} disabled={recovering}>
+            <button
+              type="button"
+              className="text-button destructive"
+              onClick={() => void discardQueued()}
+              disabled={recovering}
+            >
               <Trash2 size={14} aria-hidden />
               Discard
             </button>
@@ -656,19 +718,31 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
           </div>
           <div className="sync-recovery-actions">
             {connected ? (
-              <button type="button" className="text-button" onClick={() => void retrySync()} disabled={recovering}>
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => void retrySync()}
+                disabled={recovering}
+              >
                 {recovering ? <Spinner size={14} /> : <RefreshCw size={14} aria-hidden />}
                 Sync now
               </button>
             ) : null}
-            <button type="button" className="text-button destructive" onClick={() => void discardQueued()} disabled={recovering}>
+            <button
+              type="button"
+              className="text-button destructive"
+              onClick={() => void discardQueued()}
+              disabled={recovering}
+            >
               <Trash2 size={14} aria-hidden />
               Discard
             </button>
           </div>
         </div>
       ) : source === 'cache' ? (
-        <Banner tone="info">Showing cached content. Changes you make will sync when you reconnect.</Banner>
+        <Banner tone="info">
+          Showing cached content. Changes you make will sync when you reconnect.
+        </Banner>
       ) : null}
 
       {busy ? (
@@ -685,7 +759,11 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
       ) : columns.length === 0 ? (
         <div className="kanban-empty">
           <span>This board has no columns yet.</span>
-          {!readOnly ? <button type="button" className="primary-button" onClick={() => setShowAddColumn(true)}><Plus size={16} /> Add column</button> : null}
+          {!readOnly ? (
+            <button type="button" className="primary-button" onClick={() => setShowAddColumn(true)}>
+              <Plus size={16} /> Add column
+            </button>
+          ) : null}
         </div>
       ) : (
         <>
@@ -699,14 +777,16 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
                   type="button"
                   className={`kanban-column-chip ${isActive ? 'active' : ''}`}
                   style={
-                    column.color
-                      ? ({ '--column-color': column.color } as CSSProperties)
-                      : undefined
+                    column.color ? ({ '--column-color': column.color } as CSSProperties) : undefined
                   }
                   onClick={() => setSelectedColumnId(column.id)}
                 >
                   {column.color ? (
-                    <span className="kanban-column-dot" style={{ background: column.color }} aria-hidden />
+                    <span
+                      className="kanban-column-dot"
+                      style={{ background: column.color }}
+                      aria-hidden
+                    />
                   ) : null}
                   <span className="truncate">{column.title}</span>
                   <span className="kanban-column-count">{count}</span>
@@ -715,10 +795,21 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
             })}
             {!readOnly ? (
               <>
-                <button type="button" className="kanban-column-chip kanban-column-add" aria-label="Add column" onClick={() => setShowAddColumn(true)}>
+                <button
+                  type="button"
+                  className="kanban-column-chip kanban-column-add"
+                  aria-label="Add column"
+                  onClick={() => setShowAddColumn(true)}
+                >
                   <Plus size={15} aria-hidden />
                 </button>
-                <button type="button" className="kanban-column-chip kanban-column-add" aria-label={`Edit ${activeColumn?.title ?? 'column'}`} disabled={!activeColumn} onClick={() => activeColumn && setEditingColumnId(activeColumn.id)}>
+                <button
+                  type="button"
+                  className="kanban-column-chip kanban-column-add"
+                  aria-label={`Edit ${activeColumn?.title ?? 'column'}`}
+                  disabled={!activeColumn}
+                  onClick={() => activeColumn && setEditingColumnId(activeColumn.id)}
+                >
                   <Pencil size={15} aria-hidden />
                 </button>
               </>
@@ -736,7 +827,11 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
                   onChange={(e) => setFilterQuery(e.target.value)}
                 />
                 {filterQuery ? (
-                  <button type="button" aria-label="Clear filter" onClick={() => setFilterQuery('')}>
+                  <button
+                    type="button"
+                    aria-label="Clear filter"
+                    onClick={() => setFilterQuery('')}
+                  >
                     <X size={14} aria-hidden />
                   </button>
                 ) : null}
@@ -757,56 +852,69 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
           ) : null}
 
           {!readOnly ? (
-            <button type="button" className="kanban-add-card" onClick={handleAddCard} disabled={!activeColumnId}>
+            <button
+              type="button"
+              className="kanban-add-card"
+              onClick={handleAddCard}
+              disabled={!activeColumnId}
+            >
               <Plus size={16} aria-hidden />
               Add card to {activeColumn?.title ?? 'column'}
             </button>
           ) : null}
 
-          <div className="kanban-scroll" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+          <div
+            className="kanban-scroll"
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+          >
             <div className="kanban-pager">
-            {/* Only the active column is rendered so the pane height always
+              {/* Only the active column is rendered so the pane height always
                 matches the current column (no dead scroll on short columns). The
                 key remounts the pane on column change, replaying the slide. */}
-            <div
-              key={activeColumnId ?? 'none'}
-              className={`kanban-pane ${slideDir === 1 ? 'from-right' : 'from-left'}`}
-            >
-              {(() => {
-                const paneCards = viewCards(
-                  (activeColumn?.cards ?? []).filter((card) => !card.archived),
-                  filterQuery,
-                  sortField,
-                );
-                if (paneCards.length === 0) {
-                  return (
-                    <div className="kanban-empty">
-                      <span>{filterQuery ? 'No cards match your filter.' : 'No cards in this column.'}</span>
-                    </div>
+              <div
+                key={activeColumnId ?? 'none'}
+                className={`kanban-pane ${slideDir === 1 ? 'from-right' : 'from-left'}`}
+              >
+                {(() => {
+                  const paneCards = viewCards(
+                    (activeColumn?.cards ?? []).filter((card) => !card.archived),
+                    filterQuery,
+                    sortField,
                   );
-                }
-                return (
-                  <ul className="list kanban-card-list">
-                    {paneCards.map((card) => (
-                      <li className="list-row" key={card.id}>
-                        <button
-                          type="button"
-                          className="row-main kanban-card-row"
-                          onClick={() => setOpenCardId(card.id)}
-                        >
-                          <div className="kanban-card-main">
-                            <div className="kanban-card-title-row">
-                              <strong className={card.isDone ? 'kanban-card-done' : ''}>{card.title}</strong>
+                  if (paneCards.length === 0) {
+                    return (
+                      <div className="kanban-empty">
+                        <span>
+                          {filterQuery ? 'No cards match your filter.' : 'No cards in this column.'}
+                        </span>
+                      </div>
+                    );
+                  }
+                  return (
+                    <ul className="list kanban-card-list">
+                      {paneCards.map((card) => (
+                        <li className="list-row" key={card.id}>
+                          <button
+                            type="button"
+                            className="row-main kanban-card-row"
+                            onClick={() => setOpenCardId(card.id)}
+                          >
+                            <div className="kanban-card-main">
+                              <div className="kanban-card-title-row">
+                                <strong className={card.isDone ? 'kanban-card-done' : ''}>
+                                  {card.title}
+                                </strong>
+                              </div>
+                              <CardMeta card={card} />
                             </div>
-                            <CardMeta card={card} />
-                          </div>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                );
-              })()}
-            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })()}
+              </div>
             </div>
           </div>
 
@@ -820,7 +928,9 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
                   aria-selected={index === activeIndex}
                   aria-label={column.title}
                   className={`kanban-dot ${index === activeIndex ? 'active' : ''}`}
-                  style={column.color ? ({ '--column-color': column.color } as CSSProperties) : undefined}
+                  style={
+                    column.color ? ({ '--column-color': column.color } as CSSProperties) : undefined
+                  }
                   onClick={() => goToColumn(index)}
                 />
               ))}
@@ -843,17 +953,49 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
             commitBoard(removeCard(board, openCard.id));
             setOpenCardId(null);
           }}
-          onArchive={() => commitBoard(setCardArchived(board, openCard.id, !openCard.archived, author))}
+          onArchive={() =>
+            commitBoard(setCardArchived(board, openCard.id, !openCard.archived, author))
+          }
         />
       ) : null}
 
       {showAddColumn ? (
         <div className="sheet-backdrop" onClick={() => setShowAddColumn(false)}>
-          <form className="sheet" aria-label="Add column" onSubmit={(event) => { event.preventDefault(); handleAddColumn(); }} onClick={(event) => event.stopPropagation()}>
+          <form
+            className="sheet"
+            aria-label="Add column"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleAddColumn();
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="sheet-handle" />
-            <div className="sheet-head"><div className="row-text"><strong>Add column</strong><span>Create a new board stage</span></div><button type="button" className="icon-button" aria-label="Close" onClick={() => setShowAddColumn(false)}><X size={18} /></button></div>
-            <label className="field"><span>Title</span><input autoFocus value={newColumnTitle} onChange={(event) => setNewColumnTitle(event.target.value)} /></label>
-            <button type="submit" className="primary-button" disabled={!newColumnTitle.trim()}><Plus size={16} /> Add column</button>
+            <div className="sheet-head">
+              <div className="row-text">
+                <strong>Add column</strong>
+                <span>Create a new board stage</span>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close"
+                onClick={() => setShowAddColumn(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <label className="field">
+              <span>Title</span>
+              <input
+                autoFocus
+                value={newColumnTitle}
+                onChange={(event) => setNewColumnTitle(event.target.value)}
+              />
+            </label>
+            <button type="submit" className="primary-button" disabled={!newColumnTitle.trim()}>
+              <Plus size={16} /> Add column
+            </button>
           </form>
         </div>
       ) : null}
@@ -864,7 +1006,9 @@ export function KanbanScreen({ file, initialCardId }: { file: HostedFileEntry; i
           index={columns.findIndex((column) => column.id === editingColumnId)}
           total={columns.length}
           onClose={() => setEditingColumnId(null)}
-          onChange={(patch) => commitBoard(updateColumn(board, editingColumnId, (column) => ({ ...column, ...patch })))}
+          onChange={(patch) =>
+            commitBoard(updateColumn(board, editingColumnId, (column) => ({ ...column, ...patch })))
+          }
           onMove={(offset) => {
             commitBoard(moveColumn(board, editingColumnId, offset));
           }}
@@ -905,7 +1049,13 @@ function cardDateRange(card: KanbanCard): { start: string; end: string } | null 
   return start <= end ? { start, end } : { start: end, end: start };
 }
 
-export function MobileCalendarView({ board, onOpenCard }: { board: KanbanBoard; onOpenCard: (id: string) => void }) {
+export function MobileCalendarView({
+  board,
+  onOpenCard,
+}: {
+  board: KanbanBoard;
+  onOpenCard: (id: string) => void;
+}) {
   const today = useMemo(() => new Date(), []);
   const [month, setMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [selectedDay, setSelectedDay] = useState<string | null>(() => dateOnlyKey(today));
@@ -922,93 +1072,231 @@ export function MobileCalendarView({ board, onOpenCard }: { board: KanbanBoard; 
       return { day, key: dateOnlyKey(new Date(month.getFullYear(), month.getMonth(), day)) };
     }),
   ];
-  const cardsForDay = (key: string) => cards.filter(({ card }) => {
-    const range = cardDateRange(card)!;
-    return range.start <= key && key <= range.end;
-  });
+  const cardsForDay = (key: string) =>
+    cards.filter(({ card }) => {
+      const range = cardDateRange(card)!;
+      return range.start <= key && key <= range.end;
+    });
   const selectedCards = selectedDay ? cardsForDay(selectedDay) : [];
   const monthLabel = month.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 
   return (
     <div className="mobile-board-calendar">
       <div className="mobile-calendar-toolbar">
-        <button type="button" className="icon-button" aria-label="Previous month" onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}><ChevronLeft size={17} /></button>
-        <button type="button" className="mobile-calendar-title" aria-label="Return to the current month" onClick={() => { setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); setSelectedDay(dateOnlyKey(today)); }}>{monthLabel}</button>
-        <button type="button" className="icon-button" aria-label="Next month" onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}><ChevronRight size={17} /></button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Previous month"
+          onClick={() =>
+            setMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))
+          }
+        >
+          <ChevronLeft size={17} />
+        </button>
+        <button
+          type="button"
+          className="mobile-calendar-title"
+          aria-label="Return to the current month"
+          onClick={() => {
+            setMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+            setSelectedDay(dateOnlyKey(today));
+          }}
+        >
+          {monthLabel}
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Next month"
+          onClick={() =>
+            setMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))
+          }
+        >
+          <ChevronRight size={17} />
+        </button>
       </div>
       <div className="mobile-calendar-weekdays">
-        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+          <span key={day}>{day}</span>
+        ))}
       </div>
       <div className="mobile-calendar-grid">
-        {cells.map((cell, index) => cell ? (() => {
-          const assigned = cardsForDay(cell.key);
-          return (
-            <button key={cell.key} type="button" className={`mobile-calendar-day ${cell.key === dateOnlyKey(today) ? 'today' : ''} ${selectedDay === cell.key ? 'selected' : ''}`} onClick={() => setSelectedDay(cell.key)}>
-              <span>{cell.day}</span>
-              <span className="mobile-calendar-dots" aria-label={`${assigned.length} tasks`}>
-                {assigned.slice(0, 3).map(({ card, column }) => <i key={card.id} style={{ background: column.color ?? 'var(--primary)' }} />)}
-                {assigned.length > 3 ? <em>+{assigned.length - 3}</em> : null}
-              </span>
-            </button>
-          );
-        })() : <span className="mobile-calendar-blank" key={`blank-${index}`} />)}
+        {cells.map((cell, index) =>
+          cell ? (
+            (() => {
+              const assigned = cardsForDay(cell.key);
+              return (
+                <button
+                  key={cell.key}
+                  type="button"
+                  className={`mobile-calendar-day ${cell.key === dateOnlyKey(today) ? 'today' : ''} ${selectedDay === cell.key ? 'selected' : ''}`}
+                  onClick={() => setSelectedDay(cell.key)}
+                >
+                  <span>{cell.day}</span>
+                  <span className="mobile-calendar-dots" aria-label={`${assigned.length} tasks`}>
+                    {assigned.slice(0, 3).map(({ card, column }) => (
+                      <i key={card.id} style={{ background: column.color ?? 'var(--primary)' }} />
+                    ))}
+                    {assigned.length > 3 ? <em>+{assigned.length - 3}</em> : null}
+                  </span>
+                </button>
+              );
+            })()
+          ) : (
+            <span className="mobile-calendar-blank" key={`blank-${index}`} />
+          ),
+        )}
       </div>
       <div className="mobile-calendar-agenda">
-        <h2>{selectedDay ? parseDateOnly(selectedDay).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) : 'Tasks'}</h2>
-        {selectedCards.length ? selectedCards.map(({ card, column }) => (
-          <button key={card.id} type="button" className="kanban-view-card" onClick={() => onOpenCard(card.id)}>
-            <span className="mobile-calendar-task-color" style={{ background: column.color ?? 'var(--primary)' }} />
-            <strong>{card.title}</strong>
-            <span>{column.title}</span>
-          </button>
-        )) : <p>No tasks assigned to this day.</p>}
+        <h2>
+          {selectedDay
+            ? parseDateOnly(selectedDay).toLocaleDateString(undefined, {
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric',
+              })
+            : 'Tasks'}
+        </h2>
+        {selectedCards.length ? (
+          selectedCards.map(({ card, column }) => (
+            <button
+              key={card.id}
+              type="button"
+              className="kanban-view-card"
+              onClick={() => onOpenCard(card.id)}
+            >
+              <span
+                className="mobile-calendar-task-color"
+                style={{ background: column.color ?? 'var(--primary)' }}
+              />
+              <strong>{card.title}</strong>
+              <span>{column.title}</span>
+            </button>
+          ))
+        ) : (
+          <p>No tasks assigned to this day.</p>
+        )}
       </div>
     </div>
   );
 }
 
-export function MobileTimelineView({ board, onOpenCard }: { board: KanbanBoard; onOpenCard: (id: string) => void }) {
+export function MobileTimelineView({
+  board,
+  onOpenCard,
+}: {
+  board: KanbanBoard;
+  onOpenCard: (id: string) => void;
+}) {
   const today = useMemo(() => new Date(), []);
   const [rangeStart, setRangeStart] = useState(() => addDays(today, -7));
   const rangeEnd = addDays(rangeStart, TIMELINE_DAYS - 1);
   const days = Array.from({ length: TIMELINE_DAYS }, (_, index) => addDays(rangeStart, index));
-  const allCards = boardCards(board)
-    .filter(({ card, column }) => !card.archived && !column.hideFromTimeline && cardDateRange(card));
+  const allCards = boardCards(board).filter(
+    ({ card, column }) => !card.archived && !column.hideFromTimeline && cardDateRange(card),
+  );
   const cards = allCards
     .filter(({ card }) => {
       const range = cardDateRange(card)!;
       return parseDateOnly(range.start) <= rangeEnd && parseDateOnly(range.end) >= rangeStart;
     })
-    .sort((left, right) => cardDateRange(left.card)!.start.localeCompare(cardDateRange(right.card)!.start));
-  if (allCards.length === 0) return <div className="kanban-empty"><span>No cards are scheduled on the timeline.</span></div>;
+    .sort((left, right) =>
+      cardDateRange(left.card)!.start.localeCompare(cardDateRange(right.card)!.start),
+    );
+  if (allCards.length === 0)
+    return (
+      <div className="kanban-empty">
+        <span>No cards are scheduled on the timeline.</span>
+      </div>
+    );
   const trackWidth = TIMELINE_DAYS * TIMELINE_DAY_WIDTH;
   const todayIndex = dayDifference(rangeStart, today);
   return (
     <div className="mobile-board-timeline">
       <div className="mobile-timeline-toolbar">
-        <button type="button" className="icon-button" aria-label="Earlier dates" onClick={() => setRangeStart((current) => addDays(current, -21))}><ChevronLeft size={17} /></button>
-        <button type="button" aria-label="Return timeline to today" onClick={() => setRangeStart(addDays(today, -7))}>{rangeStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - {rangeEnd.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</button>
-        <button type="button" className="icon-button" aria-label="Later dates" onClick={() => setRangeStart((current) => addDays(current, 21))}><ChevronRight size={17} /></button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Earlier dates"
+          onClick={() => setRangeStart((current) => addDays(current, -21))}
+        >
+          <ChevronLeft size={17} />
+        </button>
+        <button
+          type="button"
+          aria-label="Return timeline to today"
+          onClick={() => setRangeStart(addDays(today, -7))}
+        >
+          {rangeStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} -{' '}
+          {rangeEnd.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Later dates"
+          onClick={() => setRangeStart((current) => addDays(current, 21))}
+        >
+          <ChevronRight size={17} />
+        </button>
       </div>
       <div className="mobile-timeline-scroll">
-        <div className="mobile-timeline-content" style={{ '--timeline-track-width': `${trackWidth}px` } as CSSProperties}>
+        <div
+          className="mobile-timeline-content"
+          style={{ '--timeline-track-width': `${trackWidth}px` } as CSSProperties}
+        >
           <div className="mobile-timeline-header">
             <span className="mobile-timeline-label">Task</span>
             <div className="mobile-timeline-days">
-              {days.map((day) => <span key={dateOnlyKey(day)} className={dateOnlyKey(day) === dateOnlyKey(today) ? 'today' : ''}><small>{day.toLocaleDateString(undefined, { weekday: 'narrow' })}</small>{day.getDate()}</span>)}
+              {days.map((day) => (
+                <span
+                  key={dateOnlyKey(day)}
+                  className={dateOnlyKey(day) === dateOnlyKey(today) ? 'today' : ''}
+                >
+                  <small>{day.toLocaleDateString(undefined, { weekday: 'narrow' })}</small>
+                  {day.getDate()}
+                </span>
+              ))}
             </div>
           </div>
-          {cards.length === 0 ? <div className="mobile-timeline-window-empty">No tasks in this date range.</div> : null}
+          {cards.length === 0 ? (
+            <div className="mobile-timeline-window-empty">No tasks in this date range.</div>
+          ) : null}
           {cards.map(({ card, column }) => {
             const range = cardDateRange(card)!;
             const startIndex = Math.max(0, dayDifference(rangeStart, parseDateOnly(range.start)));
-            const endIndex = Math.min(TIMELINE_DAYS - 1, dayDifference(rangeStart, parseDateOnly(range.end)));
+            const endIndex = Math.min(
+              TIMELINE_DAYS - 1,
+              dayDifference(rangeStart, parseDateOnly(range.end)),
+            );
             return (
-              <button key={card.id} type="button" className="mobile-timeline-row" onClick={() => onOpenCard(card.id)}>
-                <span className="mobile-timeline-label"><i style={{ background: column.color ?? 'var(--primary)' }} /><strong>{card.title}</strong><small>{column.title}</small></span>
+              <button
+                key={card.id}
+                type="button"
+                className="mobile-timeline-row"
+                onClick={() => onOpenCard(card.id)}
+              >
+                <span className="mobile-timeline-label">
+                  <i style={{ background: column.color ?? 'var(--primary)' }} />
+                  <strong>{card.title}</strong>
+                  <small>{column.title}</small>
+                </span>
                 <span className="mobile-timeline-track">
-                  {todayIndex >= 0 && todayIndex < TIMELINE_DAYS ? <i className="mobile-timeline-today" style={{ left: `${todayIndex * TIMELINE_DAY_WIDTH + TIMELINE_DAY_WIDTH / 2}px` }} /> : null}
-                  <span className="mobile-timeline-bar" style={{ left: `${startIndex * TIMELINE_DAY_WIDTH + 3}px`, width: `${Math.max(1, endIndex - startIndex + 1) * TIMELINE_DAY_WIDTH - 6}px`, background: column.color ?? 'var(--primary)' }} />
+                  {todayIndex >= 0 && todayIndex < TIMELINE_DAYS ? (
+                    <i
+                      className="mobile-timeline-today"
+                      style={{
+                        left: `${todayIndex * TIMELINE_DAY_WIDTH + TIMELINE_DAY_WIDTH / 2}px`,
+                      }}
+                    />
+                  ) : null}
+                  <span
+                    className="mobile-timeline-bar"
+                    style={{
+                      left: `${startIndex * TIMELINE_DAY_WIDTH + 3}px`,
+                      width: `${Math.max(1, endIndex - startIndex + 1) * TIMELINE_DAY_WIDTH - 6}px`,
+                      background: column.color ?? 'var(--primary)',
+                    }}
+                  />
                 </span>
               </button>
             );
@@ -1019,17 +1307,36 @@ export function MobileTimelineView({ board, onOpenCard }: { board: KanbanBoard; 
   );
 }
 
-function MobileArchiveView({ board, onOpenCard }: { board: KanbanBoard; onOpenCard: (id: string) => void }) {
+function MobileArchiveView({
+  board,
+  onOpenCard,
+}: {
+  board: KanbanBoard;
+  onOpenCard: (id: string) => void;
+}) {
   const cards = boardCards(board)
     .filter(({ card }) => card.archived)
     .sort((left, right) => (right.card.archivedAt ?? 0) - (left.card.archivedAt ?? 0));
-  if (cards.length === 0) return <div className="kanban-empty"><span>Archive is empty.</span></div>;
+  if (cards.length === 0)
+    return (
+      <div className="kanban-empty">
+        <span>Archive is empty.</span>
+      </div>
+    );
   return (
     <div className="kanban-mobile-view">
       {cards.map(({ card, column }) => (
-        <button key={card.id} type="button" className="kanban-view-card" onClick={() => onOpenCard(card.id)}>
+        <button
+          key={card.id}
+          type="button"
+          className="kanban-view-card"
+          onClick={() => onOpenCard(card.id)}
+        >
           <strong>{card.title}</strong>
-          <span>{column.title}{card.archivedByUserName ? ` · by ${card.archivedByUserName}` : ''}</span>
+          <span>
+            {column.title}
+            {card.archivedByUserName ? ` · by ${card.archivedByUserName}` : ''}
+          </span>
           {card.archivedAt ? <time>{new Date(card.archivedAt).toLocaleString()}</time> : null}
         </button>
       ))}
@@ -1057,21 +1364,80 @@ function ColumnEditSheet({
   if (!column) return null;
   return (
     <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" role="dialog" aria-label={`Edit ${column.title}`} onClick={(event) => event.stopPropagation()}>
+      <div
+        className="sheet"
+        role="dialog"
+        aria-label={`Edit ${column.title}`}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="sheet-handle" />
-        <div className="sheet-head"><div className="row-text"><strong>Edit column</strong><span>{column.cards.length} cards</span></div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}><X size={18} /></button></div>
-        <label className="field"><span>Title</span><input value={column.title} onChange={(event) => onChange({ title: event.target.value })} /></label>
+        <div className="sheet-head">
+          <div className="row-text">
+            <strong>Edit column</strong>
+            <span>{column.cards.length} cards</span>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        <label className="field">
+          <span>Title</span>
+          <input
+            value={column.title}
+            onChange={(event) => onChange({ title: event.target.value })}
+          />
+        </label>
         <label className="field">
           <span>Color</span>
-          <ColorPicker label="Column color" value={column.color ?? '#64748b'} onValueChange={(color) => onChange({ color })} />
+          <ColorPicker
+            label="Column color"
+            value={column.color ?? '#64748b'}
+            onValueChange={(color) => onChange({ color })}
+          />
         </label>
-        <label className="toggle-row"><span><strong>Auto-complete moved cards</strong><small>Cards moved here are marked done.</small></span><input type="checkbox" checked={column.autoComplete ?? false} onChange={(event) => onChange({ autoComplete: event.target.checked })} /></label>
-        <label className="toggle-row"><span><strong>Hide from timeline</strong><small>Exclude this column from the timeline view.</small></span><input type="checkbox" checked={column.hideFromTimeline ?? false} onChange={(event) => onChange({ hideFromTimeline: event.target.checked })} /></label>
+        <label className="toggle-row">
+          <span>
+            <strong>Auto-complete moved cards</strong>
+            <small>Cards moved here are marked done.</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={column.autoComplete ?? false}
+            onChange={(event) => onChange({ autoComplete: event.target.checked })}
+          />
+        </label>
+        <label className="toggle-row">
+          <span>
+            <strong>Hide from timeline</strong>
+            <small>Exclude this column from the timeline view.</small>
+          </span>
+          <input
+            type="checkbox"
+            checked={column.hideFromTimeline ?? false}
+            onChange={(event) => onChange({ hideFromTimeline: event.target.checked })}
+          />
+        </label>
         <div className="column-order-actions">
-          <button type="button" className="ghost-button" disabled={index <= 0} onClick={() => onMove(-1)}><ArrowLeft size={15} /> Move left</button>
-          <button type="button" className="ghost-button" disabled={index < 0 || index >= total - 1} onClick={() => onMove(1)}>Move right <ArrowRight size={15} /></button>
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={index <= 0}
+            onClick={() => onMove(-1)}
+          >
+            <ArrowLeft size={15} /> Move left
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={index < 0 || index >= total - 1}
+            onClick={() => onMove(1)}
+          >
+            Move right <ArrowRight size={15} />
+          </button>
         </div>
-        <button type="button" className="kanban-delete" onClick={onDelete}><Trash2 size={15} /> Delete column</button>
+        <button type="button" className="kanban-delete" onClick={onDelete}>
+          <Trash2 size={15} /> Delete column
+        </button>
       </div>
     </div>
   );
@@ -1094,7 +1460,10 @@ function CardMeta({ card }: { card: KanbanCard }) {
     });
   }
   if (due !== 'none') {
-    bits.push({ key: 'due', node: <span className={`kanban-chip due-${due}`}>{DUE_LABEL[due]}</span> });
+    bits.push({
+      key: 'due',
+      node: <span className={`kanban-chip due-${due}`}>{DUE_LABEL[due]}</span>,
+    });
   }
   if (checklist.total > 0) {
     bits.push({
@@ -1120,7 +1489,13 @@ function CardMeta({ card }: { card: KanbanCard }) {
     bits.push({ key: `tag-${tag}`, node: <span className="kanban-tag">{tag}</span> });
   }
   if (bits.length === 0) return null;
-  return <div className="kanban-card-meta">{bits.map((bit) => <span key={bit.key}>{bit.node}</span>)}</div>;
+  return (
+    <div className="kanban-card-meta">
+      {bits.map((bit) => (
+        <span key={bit.key}>{bit.node}</span>
+      ))}
+    </div>
+  );
 }
 
 function CardDetailSheet({
@@ -1160,11 +1535,17 @@ function CardDetailSheet({
       .slice(0, 12);
   }, [boardTags, card.tags, tagDraft]);
 
-  const set = (patch: (value: KanbanCard) => KanbanCard) => onChange(updateCard(board, card.id, patch));
+  const set = (patch: (value: KanbanCard) => KanbanCard) =>
+    onChange(updateCard(board, card.id, patch));
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet kanban-card-sheet" role="dialog" aria-label={card.title} onClick={(e) => e.stopPropagation()}>
+      <div
+        className="sheet kanban-card-sheet"
+        role="dialog"
+        aria-label={card.title}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="sheet-handle" />
         <div className="sheet-head">
           <div className="row-text">
@@ -1209,13 +1590,19 @@ function CardDetailSheet({
                     type="button"
                     className={`kanban-move-chip ${column.id === columnId ? 'active' : ''}`}
                     style={
-                      column.color ? ({ '--column-color': column.color } as CSSProperties) : undefined
+                      column.color
+                        ? ({ '--column-color': column.color } as CSSProperties)
+                        : undefined
                     }
                     disabled={readOnly}
                     onClick={() => onChange(moveCardToColumn(board, card.id, column.id))}
                   >
                     {column.color ? (
-                      <span className="kanban-column-dot" style={{ background: column.color }} aria-hidden />
+                      <span
+                        className="kanban-column-dot"
+                        style={{ background: column.color }}
+                        aria-hidden
+                      />
                     ) : null}
                     {column.title}
                   </button>
@@ -1284,7 +1671,11 @@ function CardDetailSheet({
             disabled={readOnly}
             onClick={() => onChange(toggleCardDone(board, card.id, !card.isDone))}
           >
-            {card.isDone ? <CheckCircle2 size={18} aria-hidden /> : <Circle size={18} aria-hidden />}
+            {card.isDone ? (
+              <CheckCircle2 size={18} aria-hidden />
+            ) : (
+              <Circle size={18} aria-hidden />
+            )}
             {card.isDone ? 'Marked done' : 'Mark done'}
           </button>
 
@@ -1296,7 +1687,11 @@ function CardDetailSheet({
                 <span className="kanban-tag editable" key={tag}>
                   {tag}
                   {!readOnly ? (
-                    <button type="button" aria-label={`Remove ${tag}`} onClick={() => onChange(removeTag(board, card.id, tag))}>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${tag}`}
+                      onClick={() => onChange(removeTag(board, card.id, tag))}
+                    >
                       <X size={11} aria-hidden />
                     </button>
                   ) : null}
@@ -1320,7 +1715,12 @@ function CardDetailSheet({
                     value={tagDraft}
                     onChange={(e) => setTagDraft(e.target.value)}
                   />
-                  <button type="submit" className="icon-button" aria-label="Add tag" disabled={!tagDraft.trim()}>
+                  <button
+                    type="submit"
+                    className="icon-button"
+                    aria-label="Add tag"
+                    disabled={!tagDraft.trim()}
+                  >
                     <Plus size={16} aria-hidden />
                   </button>
                 </form>
@@ -1360,7 +1760,9 @@ function CardDetailSheet({
                       type="checkbox"
                       checked={item.checked}
                       disabled={readOnly}
-                      onChange={(e) => onChange(toggleChecklistItem(board, card.id, item.id, e.target.checked))}
+                      onChange={(e) =>
+                        onChange(toggleChecklistItem(board, card.id, item.id, e.target.checked))
+                      }
                     />
                     <span className={item.checked ? 'checked' : ''}>{item.text}</span>
                   </label>
@@ -1391,7 +1793,12 @@ function CardDetailSheet({
                   value={checklistDraft}
                   onChange={(e) => setChecklistDraft(e.target.value)}
                 />
-                <button type="submit" className="icon-button" aria-label="Add item" disabled={!checklistDraft.trim()}>
+                <button
+                  type="submit"
+                  className="icon-button"
+                  aria-label="Add item"
+                  disabled={!checklistDraft.trim()}
+                >
                   <Plus size={16} aria-hidden />
                 </button>
               </form>
@@ -1413,7 +1820,9 @@ function CardDetailSheet({
                   <p>{comment.content}</p>
                 </li>
               ))}
-              {card.comments.length === 0 ? <span className="kanban-muted">No comments yet</span> : null}
+              {card.comments.length === 0 ? (
+                <span className="kanban-muted">No comments yet</span>
+              ) : null}
             </ul>
             {!readOnly ? (
               <form
@@ -1430,7 +1839,12 @@ function CardDetailSheet({
                   value={commentDraft}
                   onChange={(e) => setCommentDraft(e.target.value)}
                 />
-                <button type="submit" className="icon-button" aria-label="Add comment" disabled={!commentDraft.trim()}>
+                <button
+                  type="submit"
+                  className="icon-button"
+                  aria-label="Add comment"
+                  disabled={!commentDraft.trim()}
+                >
                   <Plus size={16} aria-hidden />
                 </button>
               </form>

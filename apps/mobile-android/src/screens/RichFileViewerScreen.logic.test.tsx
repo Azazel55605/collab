@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LogicDiagramDocument } from '../../../../src/types/logicDiagram';
 
+import { LogicMobileViewer } from './RichFileViewerScreen';
+
 const circuitMocks = vi.hoisted(() => ({
   start: vi.fn(),
   sweepStart: vi.fn(),
@@ -53,8 +55,6 @@ vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
   getDocument: vi.fn(),
 }));
 
-import { LogicMobileViewer } from './RichFileViewerScreen';
-
 class ResizeObserverMock {
   observe() {}
   disconnect() {}
@@ -79,13 +79,15 @@ const LOGIC: LogicDiagramDocument = {
     },
     { id: 'ground', kind: 'ground', position: { x: 240, y: 0 } },
   ],
-  wires: [{
-    id: 'wire-1',
-    source: 'v1',
-    target: 'ground',
-    sourceHandle: 'positive',
-    targetHandle: 'terminal',
-  }],
+  wires: [
+    {
+      id: 'wire-1',
+      source: 'v1',
+      target: 'ground',
+      sourceHandle: 'positive',
+      targetHandle: 'terminal',
+    },
+  ],
   viewport: { x: 0, y: 0, zoom: 1 },
 };
 
@@ -147,7 +149,15 @@ describe('mobile schematic simulation', () => {
       ...LOGIC,
       simulation: {
         analysis: 'dc-sweep',
-        probes: [{ id: 'output', kind: 'node-voltage', nodeId: 'v1', handleId: 'positive', label: 'Output' }],
+        probes: [
+          {
+            id: 'output',
+            kind: 'node-voltage',
+            nodeId: 'v1',
+            handleId: 'positive',
+            label: 'Output',
+          },
+        ],
         dcSweep: { sourceNodeId: 'v1', start: 0, stop: 5, sampleCount: 3 },
       },
     };
@@ -160,7 +170,9 @@ describe('mobile schematic simulation', () => {
         sourceMap: {
           terminals: [],
           wires: [],
-          probes: [{ probeId: 'output', label: 'Output', kind: 'node-voltage', electricalNode: 'net1' }],
+          probes: [
+            { probeId: 'output', label: 'Output', kind: 'node-voltage', electricalNode: 'net1' },
+          ],
         },
       },
     });
@@ -196,11 +208,30 @@ describe('mobile schematic simulation', () => {
       ...LOGIC,
       simulation: {
         analysis: 'transient',
-        probes: [{ id: 'output', kind: 'node-voltage', nodeId: 'v1', handleId: 'positive', label: 'Output' }],
+        probes: [
+          {
+            id: 'output',
+            kind: 'node-voltage',
+            nodeId: 'v1',
+            handleId: 'positive',
+            label: 'Output',
+          },
+        ],
         transient: {
           durationSeconds: 0.002,
           maxTimeStepSeconds: 0.001,
-          sourceWaveforms: { v1: { kind: 'pulse', lowValue: 0, highValue: 5, delaySeconds: 0.001, riseSeconds: 0, fallSeconds: 0, pulseWidthSeconds: 0.005, periodSeconds: 0.01 } },
+          sourceWaveforms: {
+            v1: {
+              kind: 'pulse',
+              lowValue: 0,
+              highValue: 5,
+              delaySeconds: 0.001,
+              riseSeconds: 0,
+              fallSeconds: 0,
+              pulseWidthSeconds: 0.005,
+              periodSeconds: 0.01,
+            },
+          },
         },
       },
     };
@@ -212,7 +243,9 @@ describe('mobile schematic simulation', () => {
         sourceMap: {
           terminals: [],
           wires: [],
-          probes: [{ probeId: 'output', label: 'Output', kind: 'node-voltage', electricalNode: 'net1' }],
+          probes: [
+            { probeId: 'output', label: 'Output', kind: 'node-voltage', electricalNode: 'net1' },
+          ],
         },
       },
     });
@@ -261,11 +294,11 @@ describe('mobile schematic simulation', () => {
   });
 
   it('keeps the cancel control active until the native job acknowledges cancellation', async () => {
-    circuitMocks.status.mockImplementation(async () => (
+    circuitMocks.status.mockImplementation(async () =>
       circuitMocks.cancel.mock.calls.length > 0
         ? { phase: 'cancelled', stage: null, elapsedMillis: 4 }
-        : { phase: 'running', stage: 'solving', elapsedMillis: 2 }
-    ));
+        : { phase: 'running', stage: 'solving', elapsedMillis: 2 },
+    );
     circuitMocks.take.mockResolvedValue({ state: 'cancelled' });
 
     render(
@@ -307,8 +340,9 @@ describe('mobile schematic simulation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save value' }));
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
-    expect(save.mock.calls[0][0].nodes.find((node: { id: string }) => node.id === 'v1').electrical)
-      .toEqual({ voltageVolts: 12 });
+    expect(
+      save.mock.calls[0][0].nodes.find((node: { id: string }) => node.id === 'v1').electrical,
+    ).toEqual({ voltageVolts: 12 });
     expect(screen.queryByText(/position/i)).toBeNull();
   });
 

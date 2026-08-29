@@ -5,8 +5,8 @@ automated scans currently surface but that is **not yet resolved by an upgrade**
 along with the reasoning for each accepted risk. It is the human-readable
 companion to the machine-readable ignore list in
 [`.cargo/audit.toml`](../../.cargo/audit.toml): every advisory ignored there must
-have a corresponding entry here explaining *why* and *what would let us drop the
-ignore*.
+have a corresponding entry here explaining _why_ and _what would let us drop the
+ignore_.
 
 Keep the two in sync. When you add or remove an entry in `.cargo/audit.toml`,
 update the matching row below in the same change.

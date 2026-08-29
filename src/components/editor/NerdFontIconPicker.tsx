@@ -1,11 +1,13 @@
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react';
+
 import { Shapes } from 'lucide-react';
+
+import { EDITOR_TOOLBAR_ACTION_EVENT } from '../../lib/editorToolbarActions';
 import {
   formatNerdFontHexCode,
   groupNerdFontIcons,
   searchNerdFontIcons,
 } from '../../lib/nerdFontIcons';
-import { EDITOR_TOOLBAR_ACTION_EVENT } from '../../lib/editorToolbarActions';
 import {
   Command,
   CommandEmpty,
@@ -106,9 +108,13 @@ export function NerdFontIconPicker({ onInsert }: NerdFontIconPickerProps) {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate">{entry.nameLabel}</span>
-                      <span className="block truncate text-xs text-muted-foreground">{entry.id}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {entry.id}
+                      </span>
                     </span>
-                    <CommandShortcut className="tracking-normal">{formatNerdFontHexCode(entry.hexCode)}</CommandShortcut>
+                    <CommandShortcut className="tracking-normal">
+                      {formatNerdFontHexCode(entry.hexCode)}
+                    </CommandShortcut>
                   </CommandItem>
                 ))}
               </CommandGroup>

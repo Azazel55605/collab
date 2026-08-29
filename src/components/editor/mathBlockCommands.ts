@@ -1,10 +1,14 @@
 import { EditorSelection, type Extension } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 
-import { insertSnippetTemplate } from './snippetEngine';
-import { analyzeMathInput, solveMathInput, type MathSolveMode } from './mathSolver';
+import {
+  type EditorShortcutEventLike,
+  getEditorShortcutKey,
+  hasPrimaryModifier,
+} from './editorShortcutKeys';
 import { buildDefaultPlotDirective, type MathPlotKind } from './mathPlotSpec';
-import { getEditorShortcutKey, hasPrimaryModifier, type EditorShortcutEventLike } from './editorShortcutKeys';
+import { analyzeMathInput, type MathSolveMode, solveMathInput } from './mathSolver';
+import { insertSnippetTemplate } from './snippetEngine';
 
 export type MathBlockRange = {
   from: number;
@@ -50,8 +54,12 @@ export function getMathBlockAtPosition(view: EditorView, position: number): Math
 
     const startLine = view.state.doc.line(startLineNumber);
     const endLine = view.state.doc.line(endLineNumber);
-    const innerFrom = startLineNumber < endLineNumber ? view.state.doc.line(startLineNumber + 1).from : startLine.to;
-    const innerTo = endLineNumber > startLineNumber ? view.state.doc.line(endLineNumber - 1).to : startLine.to;
+    const innerFrom =
+      startLineNumber < endLineNumber
+        ? view.state.doc.line(startLineNumber + 1).from
+        : startLine.to;
+    const innerTo =
+      endLineNumber > startLineNumber ? view.state.doc.line(endLineNumber - 1).to : startLine.to;
 
     return {
       from: startLine.from,
@@ -140,10 +148,7 @@ function getAnchorRectAtPosition(view: EditorView, position: number) {
   }
 }
 
-function insertMathTemplate(
-  view: EditorView,
-  buildTemplate: (selected: string) => string,
-) {
+function insertMathTemplate(view: EditorView, buildTemplate: (selected: string) => string) {
   const block = getActiveMathBlock(view);
   if (!block) return false;
 
@@ -154,60 +159,60 @@ function insertMathTemplate(
 }
 
 export function insertMathFraction(view: EditorView) {
-  return insertMathTemplate(view, (selected) => (
+  return insertMathTemplate(view, (selected) =>
     selected
       ? `\\frac{${selected}}{<placeholder:denominator>}<cursor>`
-      : '\\frac{<placeholder:numerator>}{<placeholder:denominator>}<cursor>'
-  ));
+      : '\\frac{<placeholder:numerator>}{<placeholder:denominator>}<cursor>',
+  );
 }
 
 export function insertMathRoot(view: EditorView) {
-  return insertMathTemplate(view, (selected) => (
-    selected
-      ? `\\sqrt{${selected}}<cursor>`
-      : '\\sqrt{<placeholder:radicand>}<cursor>'
-  ));
+  return insertMathTemplate(view, (selected) =>
+    selected ? `\\sqrt{${selected}}<cursor>` : '\\sqrt{<placeholder:radicand>}<cursor>',
+  );
 }
 
 export function insertMathSuperscript(view: EditorView) {
-  return insertMathTemplate(view, (selected) => (
+  return insertMathTemplate(view, (selected) =>
     selected
       ? `{${selected}}^{<placeholder:power>}<cursor>`
-      : '<placeholder:base>^{<placeholder:power>}<cursor>'
-  ));
+      : '<placeholder:base>^{<placeholder:power>}<cursor>',
+  );
 }
 
 export function insertMathSubscript(view: EditorView) {
-  return insertMathTemplate(view, (selected) => (
+  return insertMathTemplate(view, (selected) =>
     selected
       ? `{${selected}}_{<placeholder:index>}<cursor>`
-      : '<placeholder:base>_{<placeholder:index>}<cursor>'
-  ));
+      : '<placeholder:base>_{<placeholder:index>}<cursor>',
+  );
 }
 
 export function insertMathSum(view: EditorView) {
-  return insertMathTemplate(view, (selected) => (
+  return insertMathTemplate(view, (selected) =>
     selected
       ? `\\sum_{<placeholder:i=1>}^{<placeholder:n>} ${selected}<cursor>`
-      : '\\sum_{<placeholder:i=1>}^{<placeholder:n>} <placeholder:expression><cursor>'
-  ));
+      : '\\sum_{<placeholder:i=1>}^{<placeholder:n>} <placeholder:expression><cursor>',
+  );
 }
 
 export function insertMathIntegral(view: EditorView) {
-  return insertMathTemplate(view, (selected) => (
+  return insertMathTemplate(view, (selected) =>
     selected
       ? `\\int_{<placeholder:a>}^{<placeholder:b>} ${selected}\\, d<placeholder:x><cursor>`
-      : '\\int_{<placeholder:a>}^{<placeholder:b>} <placeholder:integrand>\\, d<placeholder:x><cursor>'
-  ));
+      : '\\int_{<placeholder:a>}^{<placeholder:b>} <placeholder:integrand>\\, d<placeholder:x><cursor>',
+  );
 }
 
 export function insertMathMatrix(view: EditorView) {
-  return insertMathTemplate(view, () => (
-    '\\begin{bmatrix}\n'
-    + '<placeholder:a_{11}> & <placeholder:a_{12}> \\\\\n'
-    + '<placeholder:a_{21}> & <placeholder:a_{22}>\n'
-    + '\\end{bmatrix}<cursor>'
-  ));
+  return insertMathTemplate(
+    view,
+    () =>
+      '\\begin{bmatrix}\n' +
+      '<placeholder:a_{11}> & <placeholder:a_{12}> \\\\\n' +
+      '<placeholder:a_{21}> & <placeholder:a_{22}>\n' +
+      '\\end{bmatrix}<cursor>',
+  );
 }
 
 export function insertOrUpdateMathPlotDirective(view: EditorView, kind: MathPlotKind) {
@@ -260,26 +265,29 @@ export function solveActiveMathInput(view: EditorView, mode: MathSolveMode = 'ex
 
   const analysis = analyzeMathInput(source);
   if (analysis.kind === 'equation' && !analysis.defaultVariable && analysis.variables.length > 1) {
-    window.dispatchEvent(new CustomEvent<MathSolverActionDetail>(MATH_SOLVER_ACTION_EVENT, {
-      detail: {
-        source,
-        mode,
-        variables: analysis.variables,
-        range,
-        anchorRect: getAnchorRectAtPosition(view, range.to),
-      },
-    }));
+    window.dispatchEvent(
+      new CustomEvent<MathSolverActionDetail>(MATH_SOLVER_ACTION_EVENT, {
+        detail: {
+          source,
+          mode,
+          variables: analysis.variables,
+          range,
+          anchorRect: getAnchorRectAtPosition(view, range.to),
+        },
+      }),
+    );
     return true;
   }
 
   const result = solveMathInput(source, mode);
   if (!result) return true;
 
-  const insert = result.kind === 'equation'
-    ? `\n\\Rightarrow ${result.latex}`
-    : mode === 'approximate'
-      ? ` \\approx ${result.latex}`
-      : ` = ${result.latex}`;
+  const insert =
+    result.kind === 'equation'
+      ? `\n\\Rightarrow ${result.latex}`
+      : mode === 'approximate'
+        ? ` \\approx ${result.latex}`
+        : ` = ${result.latex}`;
   view.dispatch({
     changes: { from: range.to, insert },
     selection: { anchor: range.to + insert.length },
@@ -289,10 +297,7 @@ export function solveActiveMathInput(view: EditorView, mode: MathSolveMode = 'ex
   return true;
 }
 
-export function handleMathBlockShortcutKeydown(
-  event: EditorShortcutEventLike,
-  view: EditorView,
-) {
+export function handleMathBlockShortcutKeydown(event: EditorShortcutEventLike, view: EditorView) {
   if (!hasPrimaryModifier(event)) return false;
 
   const key = getEditorShortcutKey(event);

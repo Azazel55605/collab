@@ -1,11 +1,14 @@
 import { cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { tauriCommands } from '../../lib/tauri';
 import { useCollabStore } from '../../store/collabStore';
 import { useEditorStore } from '../../store/editorStore';
+import { useServerStore } from '../../store/serverStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
-import { useServerStore } from '../../store/serverStore';
+
+import { CollabProvider } from './CollabProvider';
 
 const transportMocks = vi.hoisted(() => ({
   broadcastPresence: vi.fn(async () => {}),
@@ -13,7 +16,13 @@ const transportMocks = vi.hoisted(() => ({
   clearPresence: vi.fn(async () => {}),
   sendChatMessage: vi.fn(async () => {}),
   readChatMessages: vi.fn(async () => []),
-  readVaultConfig: vi.fn(async () => ({ id: 'config-1', name: 'Vault', knownUsers: [], owner: 'user-1', members: [] })),
+  readVaultConfig: vi.fn(async () => ({
+    id: 'config-1',
+    name: 'Vault',
+    knownUsers: [],
+    owner: 'user-1',
+    members: [],
+  })),
   onPresenceChanged: vi.fn(() => () => {}),
   onChatUpdated: vi.fn(() => () => {}),
   onConfigChanged: vi.fn(() => () => {}),
@@ -26,7 +35,13 @@ vi.mock('@tauri-apps/api/event', () => ({
 vi.mock('../../lib/tauri', () => ({
   getAppVersion: vi.fn(async () => '1.2.3'),
   tauriCommands: {
-    registerKnownUser: vi.fn(async () => ({ id: 'config-1', name: 'Vault', knownUsers: [], owner: 'user-1', members: [] })),
+    registerKnownUser: vi.fn(async () => ({
+      id: 'config-1',
+      name: 'Vault',
+      knownUsers: [],
+      owner: 'user-1',
+      members: [],
+    })),
   },
 }));
 
@@ -58,15 +73,18 @@ vi.mock('sonner', () => ({
   },
 }));
 
-import { CollabProvider } from './CollabProvider';
-import { tauriCommands } from '../../lib/tauri';
-
 describe('CollabProvider presence lifecycle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
     useVaultStore.setState({
-      vault: { id: 'vault-1', path: '/vault', name: 'Vault', isEncrypted: false, lastOpened: Date.now() },
+      vault: {
+        id: 'vault-1',
+        path: '/vault',
+        name: 'Vault',
+        isEncrypted: false,
+        lastOpened: Date.now(),
+      },
       isVaultLocked: false,
       fileTree: [],
       recentVaults: [],
@@ -171,19 +189,24 @@ describe('CollabProvider presence lifecycle', () => {
       },
     });
     useServerStore.setState({
-      connections: { 'https://collab.example.test': { hostedVaults: [], status: {
-        connected: true,
-        serverUrl: 'https://collab.example.test',
-        allowInvalidCertificates: false,
-        user: {
-          id: 'server-user-1',
-          username: 'server-user',
-          displayName: 'Server User',
-          role: 'member',
-          status: 'active',
+      connections: {
+        'https://collab.example.test': {
+          hostedVaults: [],
+          status: {
+            connected: true,
+            serverUrl: 'https://collab.example.test',
+            allowInvalidCertificates: false,
+            user: {
+              id: 'server-user-1',
+              username: 'server-user',
+              displayName: 'Server User',
+              role: 'member',
+              status: 'active',
+            },
+            accessExpiresAt: '2026-06-17T12:00:00Z',
+          },
         },
-        accessExpiresAt: '2026-06-17T12:00:00Z',
-      } } },
+      },
     } as never);
 
     render(
@@ -194,11 +217,13 @@ describe('CollabProvider presence lifecycle', () => {
 
     expect(tauriCommands.registerKnownUser).not.toHaveBeenCalled();
     await waitFor(() => {
-      expect(transportMocks.broadcastPresence).toHaveBeenCalledWith(expect.objectContaining({
-        userId: 'server-user-1',
-        userName: 'Server User',
-        activeFile: 'Notes/a.md',
-      }));
+      expect(transportMocks.broadcastPresence).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'server-user-1',
+          userName: 'Server User',
+          activeFile: 'Notes/a.md',
+        }),
+      );
     });
   });
 });

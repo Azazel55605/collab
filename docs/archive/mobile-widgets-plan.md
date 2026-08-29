@@ -169,20 +169,19 @@ vault name in a privacy-reduced mode.
 
 ## Progress Tracker
 
-| Phase | Status | Goal |
-| --- | --- | --- |
-| 0. Contract and Android feasibility | Complete | Glance packaging, responsive rendering, bounded Rust/JNI snapshot publication, cold/warm destinations, stock-launcher emulator checks, and the physical-device matrix pass. |
-| 1. Shared snapshot and configuration foundation | Complete | The bounded Rust/native store, JNI bridge, Android configuration activity, Settings management, privacy reduction, cleanup/tombstones, idempotence, coalesced publisher hooks, and physical-device lifecycle paths are validated. |
-| 2. Calendar agenda widget | Complete | The cached native calendar projection, responsive agenda rendering, source freshness, privacy-aware rows, exact header/item/add destinations, live reconfiguration, and launcher refresh behavior are validated. |
-| 3. Lifecycle, refresh, and management | Complete | Event-driven refresh, stale-aware launcher updates, per-profile WorkManager fallback, lifecycle cleanup, manual refresh, and privacy-safe diagnostics are implemented; physical-device lifecycle validation remains. |
-| 4. Month, birthday, and countdown widgets | Complete | Native month, birthday, and explicit countdown providers reuse the calendar snapshot, privacy, configuration, destination, and refresh boundaries; automated checks and physical launcher validation pass. |
-| 5. Tasks widget and confirmed actions | Complete | The shared task projection, opaque calendar/Kanban destinations, opt-in confirmed completion, and the idempotent native pending-operation write-through are implemented; physical launcher validation remains. |
-| 6. Quick capture and vault shortcuts | Complete | Capture tiles and pinned/recent vault shortcuts are implemented as deep-link-only surfaces over bounded replica metadata, with a recovery path for missing targets; photo capture is deferred and physical launcher validation remains. |
-| 7. Sync status widget | Complete | Expose privacy-safe native ledger rollups and a coalesced manual-sync action. |
-| 8. Hardening and release | Complete | Complete automated, launcher, upgrade, privacy, battery, accessibility, and physical-device validation. |
+| Phase                                           | Status   | Goal                                                                                                                                                                                                                                    |
+| ----------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0. Contract and Android feasibility             | Complete | Glance packaging, responsive rendering, bounded Rust/JNI snapshot publication, cold/warm destinations, stock-launcher emulator checks, and the physical-device matrix pass.                                                             |
+| 1. Shared snapshot and configuration foundation | Complete | The bounded Rust/native store, JNI bridge, Android configuration activity, Settings management, privacy reduction, cleanup/tombstones, idempotence, coalesced publisher hooks, and physical-device lifecycle paths are validated.       |
+| 2. Calendar agenda widget                       | Complete | The cached native calendar projection, responsive agenda rendering, source freshness, privacy-aware rows, exact header/item/add destinations, live reconfiguration, and launcher refresh behavior are validated.                        |
+| 3. Lifecycle, refresh, and management           | Complete | Event-driven refresh, stale-aware launcher updates, per-profile WorkManager fallback, lifecycle cleanup, manual refresh, and privacy-safe diagnostics are implemented; physical-device lifecycle validation remains.                    |
+| 4. Month, birthday, and countdown widgets       | Complete | Native month, birthday, and explicit countdown providers reuse the calendar snapshot, privacy, configuration, destination, and refresh boundaries; automated checks and physical launcher validation pass.                              |
+| 5. Tasks widget and confirmed actions           | Complete | The shared task projection, opaque calendar/Kanban destinations, opt-in confirmed completion, and the idempotent native pending-operation write-through are implemented; physical launcher validation remains.                          |
+| 6. Quick capture and vault shortcuts            | Complete | Capture tiles and pinned/recent vault shortcuts are implemented as deep-link-only surfaces over bounded replica metadata, with a recovery path for missing targets; photo capture is deferred and physical launcher validation remains. |
+| 7. Sync status widget                           | Complete | Expose privacy-safe native ledger rollups and a coalesced manual-sync action.                                                                                                                                                           |
+| 8. Hardening and release                        | Complete | Complete automated, launcher, upgrade, privacy, battery, accessibility, and physical-device validation.                                                                                                                                 |
 
 ## Phase 0: Contract And Android Feasibility# SOUL.md — Offensive Bias
-
 
 ### Implementation Status
 
@@ -754,7 +753,7 @@ causes were found and fixed; the measurements and remaining limits are below.
   backoff swallowed every later boot, time-change, and launcher-update request
   until it finally ran. Refresh work now uses `REPLACE`: a refresh wants the
   newest data, so the later request must win. `KEEP` remains correct for the
-  *sync* coordinator chain, where repeated taps should join the queued run —
+  _sync_ coordinator chain, where repeated taps should join the queued run —
   the two must not be confused.
 - **Every publication re-rendered every widget, twice.** `requestAgendaUpdate`
   called `updateAll` on all eight widget classes regardless of whether any were

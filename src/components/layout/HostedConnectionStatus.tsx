@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { toast } from 'sonner';
+
 import { Cloud, CloudOff, RefreshCw } from 'lucide-react';
-import { useVaultStore } from '../../store/vaultStore';
-import { useServerStore, isServerSessionExpired } from '../../store/serverStore';
+import { toast } from 'sonner';
+
 import { knownServerFor } from '../../lib/hostedServers';
 import { cn } from '../../lib/utils';
+import { isServerSessionExpired, useServerStore } from '../../store/serverStore';
+import { useVaultStore } from '../../store/vaultStore';
 import { ReauthenticateServerDialog } from '../server/ReauthenticateServerDialog';
 
 type ConnectionState = 'online' | 'expired' | 'offline';
@@ -17,7 +19,9 @@ type ConnectionState = 'online' | 'expired' | 'offline';
 export default function HostedConnectionStatus() {
   const vault = useVaultStore((state) => state.vault);
   const serverUrl = vault?.kind === 'hosted' ? vault.serverUrl : null;
-  const status = useServerStore((state) => (serverUrl ? state.connections[serverUrl]?.status ?? null : null));
+  const status = useServerStore((state) =>
+    serverUrl ? (state.connections[serverUrl]?.status ?? null) : null,
+  );
   const reconnect = useServerStore((state) => state.reconnect);
   const [busy, setBusy] = useState(false);
   const [showReauthentication, setShowReauthentication] = useState(false);
@@ -51,7 +55,9 @@ export default function HostedConnectionStatus() {
     } catch (reason) {
       if (knownServerFor(vault.serverUrl)) {
         setShowReauthentication(true);
-        toast.error('The saved session could not be restored. Enter your password to sign in again.');
+        toast.error(
+          'The saved session could not be restored. Enter your password to sign in again.',
+        );
       } else {
         toast.error(`Reconnect failed: ${reason}`);
       }
@@ -62,7 +68,11 @@ export default function HostedConnectionStatus() {
 
   if (state === 'online') {
     return (
-      <span key={state} className="flex items-center gap-1 text-emerald-500/80 app-chip-change" title={`Connected to ${vault.serverUrl}`}>
+      <span
+        key={state}
+        className="flex items-center gap-1 text-emerald-500/80 app-chip-change"
+        title={`Connected to ${vault.serverUrl}`}
+      >
         <Cloud size={11} />
         <span className="text-[10px]">Online</span>
       </span>
@@ -79,12 +89,11 @@ export default function HostedConnectionStatus() {
         title={`${label} — reconnect to ${vault.serverUrl}`}
         className="flex items-center gap-1 text-amber-500/90 hover:text-amber-400 transition-colors app-motion-fast disabled:opacity-60"
       >
-        <span key={`${state}:${busy ? 'busy' : 'idle'}`} className="flex items-center gap-1 app-chip-change">
-          {busy ? (
-            <RefreshCw size={11} className="app-spin-soft" />
-          ) : (
-            <CloudOff size={11} />
-          )}
+        <span
+          key={`${state}:${busy ? 'busy' : 'idle'}`}
+          className="flex items-center gap-1 app-chip-change"
+        >
+          {busy ? <RefreshCw size={11} className="app-spin-soft" /> : <CloudOff size={11} />}
           <span className="text-[10px]">{busy ? 'Reconnecting…' : label}</span>
           {!busy && <RefreshCw size={9} className={cn('opacity-70')} />}
         </span>

@@ -1,19 +1,27 @@
-import { useRef, useEffect, useState, useCallback, useLayoutEffect } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+
 import {
   DndContext,
+  type DragEndEvent,
+  DragOverlay,
+  type DragStartEvent,
   PointerSensor,
   useSensor,
   useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
-  DragOverlay,
 } from '@dnd-kit/core';
 import { GripVertical } from 'lucide-react';
-import { useGridStore, selectActiveWorkspace, GRID_LAYOUTS, LAYOUT_ORDER, type GridLayoutId } from '../store/gridStore';
-import { useUiStore } from '../store/uiStore';
+
 import GridCell from '../components/grid/GridCell';
 import GridLayoutPicker from '../components/grid/GridLayoutPicker';
 import WorkspaceBar from '../components/grid/WorkspaceBar';
+import {
+  GRID_LAYOUTS,
+  type GridLayoutId,
+  LAYOUT_ORDER,
+  selectActiveWorkspace,
+  useGridStore,
+} from '../store/gridStore';
+import { useUiStore } from '../store/uiStore';
 
 // ─── Layout fallback when container is too narrow ────────────────────────────
 function resolveLayout(desiredId: GridLayoutId, containerWidth: number): GridLayoutId {
@@ -62,32 +70,38 @@ export default function GridView() {
     return 240;
   }, [animationsEnabled, animationSpeed]);
 
-  const handleLayoutChange = useCallback((id: GridLayoutId) => {
-    if (id === activeWs.layoutId) return;
-    if (!animationsEnabled) {
-      store.setLayout(id);
-      return;
-    }
+  const handleLayoutChange = useCallback(
+    (id: GridLayoutId) => {
+      if (id === activeWs.layoutId) return;
+      if (!animationsEnabled) {
+        store.setLayout(id);
+        return;
+      }
 
-    const currentLayout = GRID_LAYOUTS[resolveLayout(activeWs.layoutId, containerWidth)];
-    const fromRects = new Map<string, DOMRect>();
-    for (const cell of activeWs.cells.slice(0, currentLayout.cellCount)) {
-      const node = cellRefs.current.get(cell.id);
-      if (node) fromRects.set(cell.id, node.getBoundingClientRect());
-    }
+      const currentLayout = GRID_LAYOUTS[resolveLayout(activeWs.layoutId, containerWidth)];
+      const fromRects = new Map<string, DOMRect>();
+      for (const cell of activeWs.cells.slice(0, currentLayout.cellCount)) {
+        const node = cellRefs.current.get(cell.id);
+        if (node) fromRects.set(cell.id, node.getBoundingClientRect());
+      }
 
-    layoutAnimationRef.current = { fromRects, targetLayout: id };
-    setPendingLayout(id);
-    setFading(true);
-  }, [activeWs.cells, activeWs.layoutId, animationsEnabled, containerWidth, store]);
+      layoutAnimationRef.current = { fromRects, targetLayout: id };
+      setPendingLayout(id);
+      setFading(true);
+    },
+    [activeWs.cells, activeWs.layoutId, animationsEnabled, containerWidth, store],
+  );
 
   useEffect(() => {
     if (!fading || !pendingLayout) return;
-    const t = setTimeout(() => {
-      store.setLayout(pendingLayout);
-      setPendingLayout(null);
-      setFading(false);
-    }, animationsEnabled ? Math.round(getMotionDuration() * 0.45) : 0);
+    const t = setTimeout(
+      () => {
+        store.setLayout(pendingLayout);
+        setPendingLayout(null);
+        setFading(false);
+      },
+      animationsEnabled ? Math.round(getMotionDuration() * 0.45) : 0,
+    );
     return () => clearTimeout(t);
   }, [animationsEnabled, fading, getMotionDuration, pendingLayout, store]);
 
@@ -162,9 +176,7 @@ export default function GridView() {
   }, []);
 
   // ── dnd-kit setup ─────────────────────────────────────────────────────────
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
-  );
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
@@ -189,10 +201,14 @@ export default function GridView() {
   const effectiveLayout = GRID_LAYOUTS[effectiveId];
   const visibleCells = activeWs.cells.slice(0, effectiveLayout.cellCount);
 
-  const activeCell = activeDragId
-    ? activeWs.cells.find((c) => c.id === activeDragId)
-    : null;
-  const dropDuration = !animationsEnabled ? 0 : animationSpeed === 'slow' ? 240 : animationSpeed === 'fast' ? 140 : 180;
+  const activeCell = activeDragId ? activeWs.cells.find((c) => c.id === activeDragId) : null;
+  const dropDuration = !animationsEnabled
+    ? 0
+    : animationSpeed === 'slow'
+      ? 240
+      : animationSpeed === 'fast'
+        ? 140
+        : 180;
   const registerCellRef = useCallback((cellId: string, node: HTMLDivElement | null) => {
     if (node) cellRefs.current.set(cellId, node);
     else cellRefs.current.delete(cellId);
@@ -229,8 +245,16 @@ export default function GridView() {
       </div>
 
       {/* Floating drag ghost */}
-      <DragOverlay dropAnimation={dropDuration > 0 ? { duration: dropDuration, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' } : null}>
-        {activeCell ? <DragGhost title={activeCell.content.title || activeCell.content.type} /> : null}
+      <DragOverlay
+        dropAnimation={
+          dropDuration > 0
+            ? { duration: dropDuration, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }
+            : null
+        }
+      >
+        {activeCell ? (
+          <DragGhost title={activeCell.content.title || activeCell.content.type} />
+        ) : null}
       </DragOverlay>
     </DndContext>
   );

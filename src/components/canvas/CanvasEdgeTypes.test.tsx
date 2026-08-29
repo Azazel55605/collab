@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import { Position } from '@xyflow/react';
+import { describe, expect, it } from 'vitest';
 
 import {
   buildCanvasEdgeLayout,
@@ -13,9 +13,12 @@ import {
 
 describe('CanvasEdgeTypes', () => {
   it('ignores transient live nodes without positions when building edge layout', () => {
-    expect(() => buildCanvasEdgeLayout([
-      { id: 'partial-live-node' },
-    ] as Parameters<typeof buildCanvasEdgeLayout>[0], [])).not.toThrow();
+    expect(() =>
+      buildCanvasEdgeLayout(
+        [{ id: 'partial-live-node' }] as Parameters<typeof buildCanvasEdgeLayout>[0],
+        [],
+      ),
+    ).not.toThrow();
   });
 
   it('fills edge defaults for a new connection', () => {
@@ -469,9 +472,7 @@ describe('CanvasEdgeTypes', () => {
       labelY: 0,
     });
 
-    expect(path).toBe(
-      'M 200 300 L 200 180 L 384 180',
-    );
+    expect(path).toBe('M 200 300 L 200 180 L 384 180');
   });
 
   it('places orthogonal labels on the main routed segment instead of the raw midpoint', () => {

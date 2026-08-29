@@ -1,17 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+
 import { Check, X } from 'lucide-react';
 
-import { Input } from '../ui/input';
-import type { SheetNamedRange } from '../../types/sheet';
 import { formatA1 } from '../../lib/sheet/address';
+import { formulaAutocompleteContext, SHEET_FUNCTIONS } from '../../lib/sheet/formulaFunctions';
 import { normalizeRange, selectedCellCount, type SheetSelection } from '../../lib/sheet/selection';
-import {
-  formulaAutocompleteContext,
-  SHEET_FUNCTIONS,
-} from '../../lib/sheet/formulaFunctions';
-import SheetFormulaIntellisense, {
-  type SheetFormulaSuggestion,
-} from './SheetFormulaIntellisense';
+import type { SheetNamedRange } from '../../types/sheet';
+import { Input } from '../ui/input';
+
+import SheetFormulaIntellisense, { type SheetFormulaSuggestion } from './SheetFormulaIntellisense';
 
 interface Props {
   selection: SheetSelection;
@@ -64,16 +61,13 @@ export default function SheetFormulaBar({
   const [selectedSuggestion, setSelectedSuggestion] = useState(0);
   const formulaInputRef = useRef<HTMLInputElement>(null);
   const pendingProgrammaticCursorRef = useRef<number | null>(null);
-  const autocomplete = useMemo(
-    () => formulaAutocompleteContext(value, cursor),
-    [cursor, value],
-  );
+  const autocomplete = useMemo(() => formulaAutocompleteContext(value, cursor), [cursor, value]);
   const suggestions = useMemo(() => {
     if (!formulaFocused || !suggestionsOpen || !autocomplete) return [];
     const query = autocomplete.query.toLocaleUpperCase();
-    const functions: SheetFormulaSuggestion[] = SHEET_FUNCTIONS
-      .filter((definition) => definition.name.startsWith(query))
-      .map((definition) => ({ ...definition, kind: 'function' }));
+    const functions: SheetFormulaSuggestion[] = SHEET_FUNCTIONS.filter((definition) =>
+      definition.name.startsWith(query),
+    ).map((definition) => ({ ...definition, kind: 'function' }));
     const names: SheetFormulaSuggestion[] = namedRanges
       .filter((namedRange) => namedRange.name.toLocaleUpperCase().startsWith(query))
       .map((namedRange) => ({
@@ -81,8 +75,7 @@ export default function SheetFormulaBar({
         signature: namedRange.scopeWorksheetId ? 'Worksheet named range' : 'Workbook named range',
         kind: 'named-range',
       }));
-    return [...functions, ...names]
-      .slice(0, 8);
+    return [...functions, ...names].slice(0, 8);
   }, [autocomplete, formulaFocused, namedRanges, suggestionsOpen]);
 
   useEffect(() => {

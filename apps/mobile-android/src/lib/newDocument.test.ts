@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import { inspectInkContent } from './ink';
-import { inspectSheetContent } from './sheet';
 import { parseBoardContent } from './kanban';
 import {
   NEW_DOCUMENT_TYPES,
@@ -9,17 +8,13 @@ import {
   newDocumentFileName,
   newDocumentType,
 } from './newDocument';
+import { inspectSheetContent } from './sheet';
 
 describe('NEW_DOCUMENT_TYPES', () => {
   it('offers exactly the types with a fully editable mobile screen', () => {
     // Creating a document the app can then only stare at is worse than not
     // offering it: `.canvas` and `.logic` open read-only on mobile.
-    expect(NEW_DOCUMENT_TYPES.map((type) => type.kind)).toEqual([
-      'note',
-      'kanban',
-      'sheet',
-      'ink',
-    ]);
+    expect(NEW_DOCUMENT_TYPES.map((type) => type.kind)).toEqual(['note', 'kanban', 'sheet', 'ink']);
   });
 
   it('gives every type a distinct extension and hosted document type', () => {
@@ -50,11 +45,7 @@ describe('initial content', () => {
     expect(newDocumentType('note').initialContent('Notes')).toBe('');
 
     const board = parseBoardContent(newDocumentType('kanban').initialContent('Board'));
-    expect(board.columns.map((column) => column.title)).toEqual([
-      'To do',
-      'In progress',
-      'Done',
-    ]);
+    expect(board.columns.map((column) => column.title)).toEqual(['To do', 'In progress', 'Done']);
 
     const workbook = inspectSheetContent(
       newDocumentType('sheet').initialContent('Budget'),

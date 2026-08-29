@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
-import { createEmptySheetDocument } from './document';
 import {
   clearSheetTableFilters,
   createSheetTable,
+  removeDuplicateSheetRows,
   removeSheetTable,
   setSheetTableColumnFilter,
   sortSheetTable,
+  splitSheetTextToColumns,
   tableAtPosition,
+  trimSheetText,
   uniqueTableColumnColors,
   uniqueTableColumnValues,
-  removeDuplicateSheetRows,
-  splitSheetTextToColumns,
-  trimSheetText,
 } from './dataTools';
+import { createEmptySheetDocument } from './document';
 import { activeWorksheet, getCell, setCell } from './operations';
 import { createSelection, extendSelection } from './selection';
 import { applyStyleToSelection } from './styles';
@@ -30,16 +30,20 @@ function fixture() {
     ['Alpha', 20, 'A'],
     ['Gamma', 5, 'A'],
   ] as const;
-  values.forEach((row, rowIndex) => row.forEach((value, columnIndex) => {
-    document = setCell(document, worksheet.id, { row: rowIndex, column: columnIndex }, {
-      value,
-      valueType: typeof value === 'number' ? 'number' : 'text',
-    });
-  }));
-  const selection = extendSelection(
-    createSelection({ row: 0, column: 0 }),
-    { row: 3, column: 2 },
+  values.forEach((row, rowIndex) =>
+    row.forEach((value, columnIndex) => {
+      document = setCell(
+        document,
+        worksheet.id,
+        { row: rowIndex, column: columnIndex },
+        {
+          value,
+          valueType: typeof value === 'number' ? 'number' : 'text',
+        },
+      );
+    }),
   );
+  const selection = extendSelection(createSelection({ row: 0, column: 0 }), { row: 3, column: 2 });
   return createSheetTable(document, worksheet.id, selection, 'Results');
 }
 
@@ -64,12 +68,10 @@ describe('structured sheet tables', () => {
   it('rejects overlapping tables', () => {
     const document = fixture();
     const worksheet = activeWorksheet(document);
-    const overlap = extendSelection(
-      createSelection({ row: 2, column: 1 }),
-      { row: 5, column: 3 },
+    const overlap = extendSelection(createSelection({ row: 2, column: 1 }), { row: 5, column: 3 });
+    expect(() => createSheetTable(document, worksheet.id, overlap, 'Overlap')).toThrowError(
+      /cannot overlap/i,
     );
-    expect(() => createSheetTable(document, worksheet.id, overlap, 'Overlap'))
-      .toThrowError(/cannot overlap/i);
   });
 });
 
@@ -80,22 +82,27 @@ describe('bounded cleanup tools', () => {
     });
     let worksheet = activeWorksheet(document);
     for (const [row, value] of ['  A, 1 ', 'A, 1', 'B, 2'].entries()) {
-      document = setCell(document, worksheet.id, { row, column: 0 }, {
-        value,
-        valueType: 'text',
-      });
+      document = setCell(
+        document,
+        worksheet.id,
+        { row, column: 0 },
+        {
+          value,
+          valueType: 'text',
+        },
+      );
     }
-    const selection = extendSelection(
-      createSelection({ row: 0, column: 0 }),
-      { row: 2, column: 0 },
-    );
+    const selection = extendSelection(createSelection({ row: 0, column: 0 }), {
+      row: 2,
+      column: 0,
+    });
     document = trimSheetText(document, worksheet.id, selection);
     document = splitSheetTextToColumns(document, worksheet.id, selection);
     worksheet = activeWorksheet(document);
-    const twoColumns = extendSelection(
-      createSelection({ row: 0, column: 0 }),
-      { row: 2, column: 1 },
-    );
+    const twoColumns = extendSelection(createSelection({ row: 0, column: 0 }), {
+      row: 2,
+      column: 1,
+    });
     document = removeDuplicateSheetRows(document, worksheet.id, twoColumns);
     worksheet = activeWorksheet(document);
     expect(getCell(worksheet, { row: 0, column: 0 })?.value).toBe('A');
@@ -144,13 +151,10 @@ describe('table sorting and filtering', () => {
     };
 
     const groupColumn = table.columns[2].columnId;
-    document = setSheetTableColumnFilter(
-      document,
-      worksheet.id,
-      table.id,
-      groupColumn,
-      { columnId: groupColumn, includeValues: ['A'] },
-    );
+    document = setSheetTableColumnFilter(document, worksheet.id, table.id, groupColumn, {
+      columnId: groupColumn,
+      includeValues: ['A'],
+    });
     worksheet = activeWorksheet(document);
     expect(worksheet.rows?.[worksheet.rowOrder[1]]?.filterHidden).toBe(true);
     expect(worksheet.rows?.[worksheet.rowOrder[2]]?.filterHidden).toBeUndefined();
@@ -195,18 +199,33 @@ describe('table sorting and filtering', () => {
     worksheet = activeWorksheet(document);
     expect(worksheet.rows?.[worksheet.rowOrder[3]]?.filterHidden).toBe(true);
 
-    document = setCell(document, worksheet.id, { row: 1, column: 2 }, {
-      value: '2026-07-01',
-      valueType: 'date',
-    });
-    document = setCell(document, worksheet.id, { row: 2, column: 2 }, {
-      value: '2026-07-15',
-      valueType: 'date',
-    });
-    document = setCell(document, worksheet.id, { row: 3, column: 2 }, {
-      value: '',
-      valueType: 'text',
-    });
+    document = setCell(
+      document,
+      worksheet.id,
+      { row: 1, column: 2 },
+      {
+        value: '2026-07-01',
+        valueType: 'date',
+      },
+    );
+    document = setCell(
+      document,
+      worksheet.id,
+      { row: 2, column: 2 },
+      {
+        value: '2026-07-15',
+        valueType: 'date',
+      },
+    );
+    document = setCell(
+      document,
+      worksheet.id,
+      { row: 3, column: 2 },
+      {
+        value: '',
+        valueType: 'text',
+      },
+    );
     document = setSheetTableColumnFilter(
       document,
       worksheet.id,
@@ -234,8 +253,10 @@ describe('table sorting and filtering', () => {
       { backgroundColor: '#ff0000', color: '#ffffff' },
     );
     worksheet = activeWorksheet(document);
-    expect(uniqueTableColumnColors(document, worksheet, table, table.columns[0].columnId))
-      .toEqual({ backgroundColors: ['#ff0000'], textColors: ['#ffffff'] });
+    expect(uniqueTableColumnColors(document, worksheet, table, table.columns[0].columnId)).toEqual({
+      backgroundColors: ['#ff0000'],
+      textColors: ['#ffffff'],
+    });
 
     document = setSheetTableColumnFilter(
       document,

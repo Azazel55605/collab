@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { INK_LIMITS } from '../../types/ink';
+
 import {
   INK_TILE_MAX_PIXELS,
   INK_TILE_SIZE,
@@ -105,11 +106,7 @@ describe('tilesToEvict', () => {
     // Evicting a visible tile only forces an immediate repaint, so it is worse
     // than briefly exceeding the budget.
     const budget = tileBytes(INK_TILE_MAX_PIXELS);
-    const evicted = tilesToEvict(
-      [entry(0, 1), entry(1, 2)],
-      [{ col: 0, row: 0 }],
-      budget,
-    );
+    const evicted = tilesToEvict([entry(0, 1), entry(1, 2)], [{ col: 0, row: 0 }], budget);
     expect(evicted).toEqual([{ col: 1, row: 0 }]);
   });
 
@@ -146,7 +143,10 @@ describe('InkDirtyTiles', () => {
     dirty.markBounds({ minX: 0, minY: 0, maxX: 100, maxY: 100 });
     dirty.markBounds({ minX: INK_TILE_SIZE * 9, minY: 0, maxX: INK_TILE_SIZE * 9 + 10, maxY: 10 });
 
-    const repaint = dirty.take([{ col: 0, row: 0 }, { col: 1, row: 0 }]);
+    const repaint = dirty.take([
+      { col: 0, row: 0 },
+      { col: 1, row: 0 },
+    ]);
     expect(repaint).toEqual([{ col: 0, row: 0 }]);
     // The offscreen tile stays dirty so it repaints when it scrolls into view.
     expect(dirty.has({ col: 9, row: 0 })).toBe(true);

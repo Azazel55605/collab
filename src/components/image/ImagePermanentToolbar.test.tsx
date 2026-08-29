@@ -69,6 +69,8 @@ describe('ImagePermanentToolbar', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: /save changes/i }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: /save changes/i }).hasAttribute('disabled')).toBe(
+      true,
+    );
   });
 });

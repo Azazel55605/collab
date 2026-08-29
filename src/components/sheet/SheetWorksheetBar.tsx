@@ -1,6 +1,9 @@
 import { useState } from 'react';
+
 import { Copy, Eye, EyeOff, Plus, Trash2 } from 'lucide-react';
 
+import { cn } from '../../lib/utils';
+import type { SheetDocument } from '../../types/sheet';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -9,8 +12,6 @@ import {
   ContextMenuTrigger,
 } from '../ui/context-menu';
 import { Input } from '../ui/input';
-import { cn } from '../../lib/utils';
-import type { SheetDocument } from '../../types/sheet';
 
 interface Props {
   document: SheetDocument;
@@ -139,7 +140,10 @@ export default function SheetWorksheetBar({
               <ContextMenuItem disabled={readOnly} onClick={() => onDuplicate(worksheet.id)}>
                 <Copy size={12} /> Duplicate
               </ContextMenuItem>
-              <ContextMenuItem disabled={readOnly} onClick={() => onToggleHidden(worksheet.id, true)}>
+              <ContextMenuItem
+                disabled={readOnly}
+                onClick={() => onToggleHidden(worksheet.id, true)}
+              >
                 <EyeOff size={12} /> Hide
               </ContextMenuItem>
               <ContextMenuSeparator />

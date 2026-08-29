@@ -16,7 +16,7 @@ export async function saveConflictedCopy(
   relativePath: string,
   content: string,
 ): Promise<string> {
-  const existing = new Set((await safeListPaths(client)));
+  const existing = new Set(await safeListPaths(client));
   const target = uniqueConflictedPath(relativePath, existing);
   await client.createDocument(target);
   await client.writeDocument(target, content);

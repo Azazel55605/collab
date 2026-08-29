@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+
 import type { NoteMetadata } from '../types/note';
 
 interface NoteIndexState {

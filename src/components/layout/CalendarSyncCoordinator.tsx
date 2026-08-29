@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useMemo } from 'react';
+
 import { listen } from '@tauri-apps/api/event';
+
+import { type HostedCalendarOrigin, normalizeHostedCalendarOrigins } from '../../lib/calendarSync';
+import { projectLocalKanbanCalendar } from '../../lib/kanbanCalendarProjection';
+import { tauriCommands } from '../../lib/tauri';
+import { createVaultClient } from '../../lib/vaultClient';
 import { useCalendarStore } from '../../store/calendarStore';
 import { useCollabStore } from '../../store/collabStore';
 import { useServerStore } from '../../store/serverStore';
 import { useVaultStore } from '../../store/vaultStore';
-import {
-  normalizeHostedCalendarOrigins,
-  type HostedCalendarOrigin,
-} from '../../lib/calendarSync';
-import { createVaultClient } from '../../lib/vaultClient';
-import { projectLocalKanbanCalendar } from '../../lib/kanbanCalendarProjection';
-import { tauriCommands } from '../../lib/tauri';
 import type { NoteFile } from '../../types/vault';
 
 const BACKGROUND_SYNC_INTERVAL_MS = 60_000;
@@ -25,8 +24,9 @@ export async function syncLocalKanbanProjection(
 ): Promise<void> {
   if (vault.kind === 'hosted') return;
   const client = createVaultClient(vault);
-  const files = flattenFiles(await client.listFiles())
-    .filter((file) => !file.isFolder && file.relativePath.toLowerCase().endsWith('.kanban'));
+  const files = flattenFiles(await client.listFiles()).filter(
+    (file) => !file.isFolder && file.relativePath.toLowerCase().endsWith('.kanban'),
+  );
   const sources = [];
   for (const file of files) {
     try {
@@ -54,13 +54,17 @@ export async function syncLocalKanbanProjection(
   );
   const calendars = await tauriCommands.calendarList(profileId);
   useCalendarStore.setState((state) => {
-    const activeIds = calendars.filter((calendar) => !calendar.archived).map((calendar) => calendar.id);
+    const activeIds = calendars
+      .filter((calendar) => !calendar.archived)
+      .map((calendar) => calendar.id);
     return {
       calendars,
-      visibleCalendarIds: Array.from(new Set([
-        ...state.visibleCalendarIds.filter((id) => activeIds.includes(id)),
-        ...activeIds.filter((id) => !state.calendars.some((calendar) => calendar.id === id)),
-      ])),
+      visibleCalendarIds: Array.from(
+        new Set([
+          ...state.visibleCalendarIds.filter((id) => activeIds.includes(id)),
+          ...activeIds.filter((id) => !state.calendars.some((calendar) => calendar.id === id)),
+        ]),
+      ),
     };
   });
   const { range, loadRange } = useCalendarStore.getState();
@@ -75,16 +79,17 @@ export default function CalendarSyncCoordinator() {
   const vault = useVaultStore((state) => state.vault);
   const initialize = useCalendarStore((state) => state.initialize);
   const syncHosted = useCalendarStore((state) => state.syncHosted);
-  const originsJson = JSON.stringify(normalizeHostedCalendarOrigins(Object.values(connections).flatMap((connection) => {
-    const { status } = connection;
-    return status.connected && status.serverUrl && status.user
-      ? [{ serverUrl: status.serverUrl, userId: status.user.id }]
-      : [];
-  })));
-  const origins = useMemo(
-    () => JSON.parse(originsJson) as HostedCalendarOrigin[],
-    [originsJson],
+  const originsJson = JSON.stringify(
+    normalizeHostedCalendarOrigins(
+      Object.values(connections).flatMap((connection) => {
+        const { status } = connection;
+        return status.connected && status.serverUrl && status.user
+          ? [{ serverUrl: status.serverUrl, userId: status.user.id }]
+          : [];
+      }),
+    ),
   );
+  const origins = useMemo(() => JSON.parse(originsJson) as HostedCalendarOrigin[], [originsJson]);
 
   const sync = useCallback(async () => {
     if (!profileId) return;

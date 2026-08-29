@@ -85,11 +85,12 @@ export const NERD_FONT_ICONS: NerdFontIconEntry[] = (Object.entries(mappings) as
       nameWords: nameLabel.toLowerCase().split(/\s+/).filter(Boolean),
     };
   })
-  .sort((left, right) => (
-    left.categoryLabel.localeCompare(right.categoryLabel) ||
-    left.nameLabel.localeCompare(right.nameLabel) ||
-    left.id.localeCompare(right.id)
-  ));
+  .sort(
+    (left, right) =>
+      left.categoryLabel.localeCompare(right.categoryLabel) ||
+      left.nameLabel.localeCompare(right.nameLabel) ||
+      left.id.localeCompare(right.id),
+  );
 
 export function formatNerdFontHexCode(hexCode: number) {
   return `U+${hexCode.toString(16).toUpperCase()}`;
@@ -126,7 +127,10 @@ export function completeNerdFontIconQuery(query: string) {
 const SEARCH_CACHE = new Map<string, NerdFontIconEntry[]>();
 
 export function searchNerdFontIcons(rawQuery: string, limit = 240) {
-  const query = rawQuery.trim().replace(/^(?:icon|icons|glyph|glyphs|symbol|symbols|nf)\s*/i, '').toLowerCase();
+  const query = rawQuery
+    .trim()
+    .replace(/^(?:icon|icons|glyph|glyphs|symbol|symbols|nf)\s*/i, '')
+    .toLowerCase();
   if (!query) return NERD_FONT_ICONS.slice(0, limit);
   const cacheKey = `${limit}:${query}`;
   const cached = SEARCH_CACHE.get(cacheKey);

@@ -16,18 +16,20 @@ describe('useCanvasNodeCommands', () => {
       } as unknown as HTMLDivElement,
     };
 
-    const { result } = renderHook(() => useCanvasNodeCommands({
-      reactFlow: {
-        screenToFlowPosition: ({ x, y }) => ({ x, y }),
-      },
-      viewportRef,
-      pickerMode: null,
-      setPickerMode: vi.fn(),
-      allFiles: [],
-      addCanvasNode,
-      addCanvasNodes: vi.fn(),
-      addCanvasEdges: vi.fn(),
-    }));
+    const { result } = renderHook(() =>
+      useCanvasNodeCommands({
+        reactFlow: {
+          screenToFlowPosition: ({ x, y }) => ({ x, y }),
+        },
+        viewportRef,
+        pickerMode: null,
+        setPickerMode: vi.fn(),
+        allFiles: [],
+        addCanvasNode,
+        addCanvasNodes: vi.fn(),
+        addCanvasEdges: vi.fn(),
+      }),
+    );
 
     result.current.addTextNode();
 
@@ -45,22 +47,24 @@ describe('useCanvasNodeCommands', () => {
     const addCanvasNode = vi.fn();
     const setPickerMode = vi.fn();
 
-    const { result } = renderHook(() => useCanvasNodeCommands({
-      reactFlow: {
-        screenToFlowPosition: ({ x, y }) => ({ x, y }),
-      },
-      viewportRef: {
-        current: {
-          getBoundingClientRect: () => ({ left: 0, top: 0, width: 200, height: 100 }),
-        } as unknown as HTMLDivElement,
-      },
-      pickerMode: 'note',
-      setPickerMode,
-      allFiles: [],
-      addCanvasNode,
-      addCanvasNodes: vi.fn(),
-      addCanvasEdges: vi.fn(),
-    }));
+    const { result } = renderHook(() =>
+      useCanvasNodeCommands({
+        reactFlow: {
+          screenToFlowPosition: ({ x, y }) => ({ x, y }),
+        },
+        viewportRef: {
+          current: {
+            getBoundingClientRect: () => ({ left: 0, top: 0, width: 200, height: 100 }),
+          } as unknown as HTMLDivElement,
+        },
+        pickerMode: 'note',
+        setPickerMode,
+        allFiles: [],
+        addCanvasNode,
+        addCanvasNodes: vi.fn(),
+        addCanvasEdges: vi.fn(),
+      }),
+    );
 
     result.current.handlePickerSelect({
       name: 'alpha.md',
@@ -71,39 +75,46 @@ describe('useCanvasNodeCommands', () => {
       size: 0,
     });
 
-    expect(addCanvasNode).toHaveBeenCalledWith({
-      id: '11111111-1111-1111-1111-111111111111',
-      type: 'note',
-      relativePath: 'Notes/alpha.md',
-      position: { x: 100, y: 50 },
-      width: 300,
-      height: 180,
-    }, undefined);
+    expect(addCanvasNode).toHaveBeenCalledWith(
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        type: 'note',
+        relativePath: 'Notes/alpha.md',
+        position: { x: 100, y: 50 },
+        width: 300,
+        height: 180,
+      },
+      undefined,
+    );
     expect(setPickerMode).toHaveBeenCalledWith(null);
   });
 
   it('creates a dropped file node from drag data', () => {
     const addCanvasNode = vi.fn();
 
-    const { result } = renderHook(() => useCanvasNodeCommands({
-      reactFlow: {
-        screenToFlowPosition: ({ x, y }) => ({ x: x + 5, y: y + 7 }),
-      },
-      viewportRef: { current: null },
-      pickerMode: null,
-      setPickerMode: vi.fn(),
-      allFiles: [{
-        name: 'diagram.png',
-        relativePath: 'Assets/diagram.png',
-        isFolder: false,
-        extension: 'png',
-        modifiedAt: 0,
-        size: 0,
-      }],
-      addCanvasNode,
-      addCanvasNodes: vi.fn(),
-      addCanvasEdges: vi.fn(),
-    }));
+    const { result } = renderHook(() =>
+      useCanvasNodeCommands({
+        reactFlow: {
+          screenToFlowPosition: ({ x, y }) => ({ x: x + 5, y: y + 7 }),
+        },
+        viewportRef: { current: null },
+        pickerMode: null,
+        setPickerMode: vi.fn(),
+        allFiles: [
+          {
+            name: 'diagram.png',
+            relativePath: 'Assets/diagram.png',
+            isFolder: false,
+            extension: 'png',
+            modifiedAt: 0,
+            size: 0,
+          },
+        ],
+        addCanvasNode,
+        addCanvasNodes: vi.fn(),
+        addCanvasEdges: vi.fn(),
+      }),
+    );
 
     const preventDefault = vi.fn();
     result.current.handleDropOnCanvas({
@@ -129,53 +140,59 @@ describe('useCanvasNodeCommands', () => {
   it('creates a planning node with defaults', () => {
     const addCanvasNode = vi.fn();
 
-    const { result } = renderHook(() => useCanvasNodeCommands({
-      reactFlow: {
-        screenToFlowPosition: ({ x, y }) => ({ x, y }),
-      },
-      viewportRef: {
-        current: {
-          getBoundingClientRect: () => ({ left: 0, top: 0, width: 300, height: 200 }),
-        } as unknown as HTMLDivElement,
-      },
-      pickerMode: null,
-      setPickerMode: vi.fn(),
-      allFiles: [],
-      addCanvasNode,
-      addCanvasNodes: vi.fn(),
-      addCanvasEdges: vi.fn(),
-    }));
+    const { result } = renderHook(() =>
+      useCanvasNodeCommands({
+        reactFlow: {
+          screenToFlowPosition: ({ x, y }) => ({ x, y }),
+        },
+        viewportRef: {
+          current: {
+            getBoundingClientRect: () => ({ left: 0, top: 0, width: 300, height: 200 }),
+          } as unknown as HTMLDivElement,
+        },
+        pickerMode: null,
+        setPickerMode: vi.fn(),
+        allFiles: [],
+        addCanvasNode,
+        addCanvasNodes: vi.fn(),
+        addCanvasEdges: vi.fn(),
+      }),
+    );
 
     result.current.addPlanningNode('decision');
 
-    expect(addCanvasNode).toHaveBeenCalledWith(expect.objectContaining({
-      id: '11111111-1111-1111-1111-111111111111',
-      type: 'decision',
-      title: 'Decision',
-      width: 280,
-      height: 180,
-    }));
+    expect(addCanvasNode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: '11111111-1111-1111-1111-111111111111',
+        type: 'decision',
+        title: 'Decision',
+        width: 280,
+        height: 180,
+      }),
+    );
   });
 
   it('creates a symbol node from the selected icon', () => {
     const addCanvasNode = vi.fn();
 
-    const { result } = renderHook(() => useCanvasNodeCommands({
-      reactFlow: {
-        screenToFlowPosition: ({ x, y }) => ({ x, y }),
-      },
-      viewportRef: {
-        current: {
-          getBoundingClientRect: () => ({ left: 0, top: 0, width: 320, height: 220 }),
-        } as unknown as HTMLDivElement,
-      },
-      pickerMode: null,
-      setPickerMode: vi.fn(),
-      allFiles: [],
-      addCanvasNode,
-      addCanvasNodes: vi.fn(),
-      addCanvasEdges: vi.fn(),
-    }));
+    const { result } = renderHook(() =>
+      useCanvasNodeCommands({
+        reactFlow: {
+          screenToFlowPosition: ({ x, y }) => ({ x, y }),
+        },
+        viewportRef: {
+          current: {
+            getBoundingClientRect: () => ({ left: 0, top: 0, width: 320, height: 220 }),
+          } as unknown as HTMLDivElement,
+        },
+        pickerMode: null,
+        setPickerMode: vi.fn(),
+        allFiles: [],
+        addCanvasNode,
+        addCanvasNodes: vi.fn(),
+        addCanvasEdges: vi.fn(),
+      }),
+    );
 
     result.current.addSymbolNodeAt({
       glyph: '󰘧',
@@ -183,16 +200,19 @@ describe('useCanvasNodeCommands', () => {
       iconLabel: 'Star Four Points',
     });
 
-    expect(addCanvasNode).toHaveBeenCalledWith({
-      id: '11111111-1111-1111-1111-111111111111',
-      type: 'symbol',
-      glyph: '󰘧',
-      iconId: 'nf-md-star_four_points',
-      iconLabel: 'Star Four Points',
-      title: 'Star Four Points',
-      position: { x: 160, y: 110 },
-      width: 180,
-      height: 180,
-    }, undefined);
+    expect(addCanvasNode).toHaveBeenCalledWith(
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        type: 'symbol',
+        glyph: '󰘧',
+        iconId: 'nf-md-star_four_points',
+        iconLabel: 'Star Four Points',
+        title: 'Star Four Points',
+        position: { x: 160, y: 110 },
+        width: 180,
+        height: 180,
+      },
+      undefined,
+    );
   });
 });

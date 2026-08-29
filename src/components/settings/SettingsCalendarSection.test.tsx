@@ -44,6 +44,8 @@ describe('SettingsCalendarSection', () => {
     fireEvent.click(screen.getByRole('button', { name: '24 hour' }));
     expect(setTimeFormat).toHaveBeenCalledWith('24-hour');
 
-    expect(screen.getByRole('combobox', { name: 'Default calendar time zone' }).textContent).toContain('Europe/Berlin');
+    expect(
+      screen.getByRole('combobox', { name: 'Default calendar time zone' }).textContent,
+    ).toContain('Europe/Berlin');
   });
 });

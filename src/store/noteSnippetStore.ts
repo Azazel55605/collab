@@ -7,7 +7,10 @@ interface NoteSnippetState {
   snippets: NoteSnippet[];
   isLoading: boolean;
   loadSnippets: (vaultPath?: string | null) => Promise<void>;
-  saveSnippet: (vaultPath: string | null | undefined, snippet: NoteSnippetDraft) => Promise<NoteSnippet>;
+  saveSnippet: (
+    vaultPath: string | null | undefined,
+    snippet: NoteSnippetDraft,
+  ) => Promise<NoteSnippet>;
   deleteSnippet: (vaultPath: string | null | undefined, snippet: NoteSnippet) => Promise<void>;
 }
 
@@ -23,7 +26,10 @@ export const useNoteSnippetStore = create<NoteSnippetState>((set) => ({
       // Hosted vaults intentionally request app-scoped snippets without a
       // filesystem path. Older native backends rejected that app-only listing
       // while trying to resolve the unavailable vault scope.
-      if (vaultPath == null && String(error).includes('Vault path is required for vault note snippets')) {
+      if (
+        vaultPath == null &&
+        String(error).includes('Vault path is required for vault note snippets')
+      ) {
         set({ snippets: [] });
         return;
       }

@@ -1,11 +1,12 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { addObject } from '../../lib/ink/operations';
 import { createInkPage } from '../../lib/ink/document';
 import { FIXTURE_BRUSH } from '../../lib/ink/fixture';
+import { addObject } from '../../lib/ink/operations';
 import { defaultToolState, INK_DEFAULT_PEN_BUTTONS } from '../../lib/ink/tools';
 import type { InkShape } from '../../types/ink';
+
 import InkCanvas from './InkCanvas';
 
 function selectedPage() {
@@ -52,7 +53,14 @@ function renderCanvas(onRotateSelection = vi.fn(), page = selectedPage()) {
 
 beforeEach(() => {
   Element.prototype.getBoundingClientRect = vi.fn(() => ({
-    x: 0, y: 0, top: 0, left: 0, right: 1_000, bottom: 800, width: 1_000, height: 800,
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: 1_000,
+    bottom: 800,
+    width: 1_000,
+    height: 800,
     toJSON: () => ({}),
   })) as unknown as typeof Element.prototype.getBoundingClientRect;
   Element.prototype.hasPointerCapture = vi.fn(() => false);
@@ -82,10 +90,18 @@ describe('InkCanvas selection affordances', () => {
     const startX = Number(handle.getAttribute('cx'));
     const startY = Number(handle.getAttribute('cy'));
     fireEvent.pointerDown(host, {
-      pointerId: 9, pointerType: 'mouse', buttons: 1, clientX: startX, clientY: startY,
+      pointerId: 9,
+      pointerType: 'mouse',
+      buttons: 1,
+      clientX: startX,
+      clientY: startY,
     });
     fireEvent.pointerMove(host, {
-      pointerId: 9, pointerType: 'mouse', buttons: 1, clientX: startX + 40, clientY: startY + 28,
+      pointerId: 9,
+      pointerType: 'mouse',
+      buttons: 1,
+      clientX: startX + 40,
+      clientY: startY + 28,
     });
     expect(onRotateSelection).toHaveBeenCalled();
     expect(host.style.cursor).toBe('grabbing');
@@ -102,7 +118,10 @@ describe('InkCanvas selection affordances', () => {
     renderCanvas(vi.fn(), page);
     const outline = document.querySelector('[data-testid="ink-selection"] polygon');
     expect(outline).not.toBeNull();
-    const points = outline!.getAttribute('points')!.split(' ').map((pair) => pair.split(',').map(Number));
+    const points = outline!
+      .getAttribute('points')!
+      .split(' ')
+      .map((pair) => pair.split(',').map(Number));
     expect(points[0][1]).not.toBeCloseTo(points[1][1]);
     expect(points[1][0]).not.toBeCloseTo(points[2][0]);
   });

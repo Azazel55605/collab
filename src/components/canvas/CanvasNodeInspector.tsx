@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
+
 import { format } from 'date-fns';
 import { Box, Calendar, Tag, Trash2, Users } from 'lucide-react';
 
+import { formatDate } from '../../store/uiStore';
 import type {
   CanvasNodePriority,
   CanvasPlanningMetadata,
@@ -10,15 +12,15 @@ import type {
   PlanningCanvasNode,
 } from '../../types/canvas';
 import type { KnownUser } from '../../types/vault';
-import { formatDate } from '../../store/uiStore';
 import { Button } from '../ui/button';
+import { Calendar as CalendarUI } from '../ui/calendar';
 import { Input } from '../ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
-import { Calendar as CalendarUI } from '../ui/calendar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Textarea } from '../ui/textarea';
-import { getPlanningNodeLabel } from './canvasPlanning';
+
 import { supportsLinkedPath, supportsPlanningMetadata } from './canvasDiagramUtils';
+import { getPlanningNodeLabel } from './canvasPlanning';
 
 interface CanvasNodeInspectorProps {
   selectedNode: {
@@ -50,8 +52,10 @@ interface CanvasNodeInspectorProps {
 
 const statusOptions: CanvasPlanningStatus[] = ['not_started', 'in_progress', 'blocked', 'done'];
 const priorityOptions: CanvasNodePriority[] = ['low', 'medium', 'high', 'critical'];
-const canvasInspectorSelectTriggerClassName = 'h-8 w-full rounded-xl border-border/60 bg-background/80 text-xs shadow-none';
-const canvasInspectorSelectContentClassName = 'min-w-[var(--radix-select-trigger-width)] rounded-xl ring-1 ring-border/60';
+const canvasInspectorSelectTriggerClassName =
+  'h-8 w-full rounded-xl border-border/60 bg-background/80 text-xs shadow-none';
+const canvasInspectorSelectContentClassName =
+  'min-w-[var(--radix-select-trigger-width)] rounded-xl ring-1 ring-border/60';
 
 export function CanvasNodeInspector({
   selectedNode,
@@ -68,10 +72,12 @@ export function CanvasNodeInspector({
   onDeleteSelected,
 }: CanvasNodeInspectorProps) {
   const kind = selectedNode?.type;
-  const isPlanningNode = !!kind && !['noteCard', 'fileCard', 'textCard', 'webCard', 'symbolCard'].includes(kind);
+  const isPlanningNode =
+    !!kind && !['noteCard', 'fileCard', 'textCard', 'webCard', 'symbolCard'].includes(kind);
   const isSymbolNode = kind === 'symbolCard';
   const isFileBackedNode = kind === 'noteCard' || kind === 'fileCard';
-  const isDescriptivePlanningNode = isPlanningNode && kind !== 'junctionCard' && kind !== 'crossingCard';
+  const isDescriptivePlanningNode =
+    isPlanningNode && kind !== 'junctionCard' && kind !== 'crossingCard';
   const planningKind = kind?.replace(/Card$/, '') as PlanningCanvasNode['type'] | undefined;
   const planning = selectedNode?.planning ?? {};
   const [dueDateOpen, setDueDateOpen] = useState(false);
@@ -79,10 +85,11 @@ export function CanvasNodeInspector({
   const [tagInputFocused, setTagInputFocused] = useState(false);
   const selectedTags = planning.tags ?? [];
   const suggestedTags = useMemo(
-    () => availableTags
-      .filter((tag) => !selectedTags.includes(tag))
-      .filter((tag) => !tagInput || tag.toLowerCase().includes(tagInput.toLowerCase()))
-      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
+    () =>
+      availableTags
+        .filter((tag) => !selectedTags.includes(tag))
+        .filter((tag) => !tagInput || tag.toLowerCase().includes(tagInput.toLowerCase()))
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
     [availableTags, selectedTags, tagInput],
   );
 
@@ -146,7 +153,9 @@ export function CanvasNodeInspector({
           ) : isFileBackedNode ? (
             <div className="rounded-xl border border-border/60 bg-card/45 px-3 py-2 text-xs">
               <div className="font-medium text-foreground">{selectedNode.title}</div>
-              <div className="truncate text-muted-foreground">{selectedNode.relativePath ?? selectedNode.subtitle}</div>
+              <div className="truncate text-muted-foreground">
+                {selectedNode.relativePath ?? selectedNode.subtitle}
+              </div>
             </div>
           ) : kind === 'textCard' || kind === 'webCard' ? null : (
             <Input
@@ -160,15 +169,23 @@ export function CanvasNodeInspector({
             <Textarea
               value={selectedNode.content ?? ''}
               onChange={(event) => onBodyChange(event.target.value)}
-              placeholder={isFileBackedNode ? 'Add a canvas-local description' : 'Description, branch notes, or supporting context'}
+              placeholder={
+                isFileBackedNode
+                  ? 'Add a canvas-local description'
+                  : 'Description, branch notes, or supporting context'
+              }
               className="min-h-24 resize-y text-sm"
             />
           ) : null}
           {isPlanningNode ? (
             <>
               <div className="rounded-xl border border-border/60 bg-card/45 px-3 py-2 text-xs">
-                <div className="font-medium text-foreground">{planningKind ? getPlanningNodeLabel(planningKind) : 'Planning node'}</div>
-                <div className="text-muted-foreground">Planning metadata stays local to this canvas for v1.</div>
+                <div className="font-medium text-foreground">
+                  {planningKind ? getPlanningNodeLabel(planningKind) : 'Planning node'}
+                </div>
+                <div className="text-muted-foreground">
+                  Planning metadata stays local to this canvas for v1.
+                </div>
               </div>
               {planningKind && supportsLinkedPath(planningKind) ? (
                 <div className="flex gap-2">
@@ -178,7 +195,13 @@ export function CanvasNodeInspector({
                     placeholder="Optional linked vault path"
                     className="h-8"
                   />
-                  <Button type="button" size="sm" variant="outline" className="shrink-0" onClick={onPickLinkedPath}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    onClick={onPickLinkedPath}
+                  >
                     Select file
                   </Button>
                 </div>
@@ -187,15 +210,23 @@ export function CanvasNodeInspector({
                 <>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="rounded-xl border border-border/60 bg-card/45 p-2">
-                      <div className="mb-1 text-[11px] font-medium text-muted-foreground">Status</div>
+                      <div className="mb-1 text-[11px] font-medium text-muted-foreground">
+                        Status
+                      </div>
                       <Select
                         value={planning.status ?? 'not_started'}
-                        onValueChange={(value) => onPlanningChange({ ...planning, status: value as CanvasPlanningStatus })}
+                        onValueChange={(value) =>
+                          onPlanningChange({ ...planning, status: value as CanvasPlanningStatus })
+                        }
                       >
                         <SelectTrigger size="sm" className={canvasInspectorSelectTriggerClassName}>
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent align="end" position="popper" className={canvasInspectorSelectContentClassName}>
+                        <SelectContent
+                          align="end"
+                          position="popper"
+                          className={canvasInspectorSelectContentClassName}
+                        >
                           {statusOptions.map((status) => (
                             <SelectItem key={status} value={status}>
                               {status.replace(/_/g, ' ')}
@@ -205,15 +236,23 @@ export function CanvasNodeInspector({
                       </Select>
                     </div>
                     <div className="rounded-xl border border-border/60 bg-card/45 p-2">
-                      <div className="mb-1 text-[11px] font-medium text-muted-foreground">Priority</div>
+                      <div className="mb-1 text-[11px] font-medium text-muted-foreground">
+                        Priority
+                      </div>
                       <Select
                         value={planning.priority ?? 'medium'}
-                        onValueChange={(value) => onPlanningChange({ ...planning, priority: value as CanvasNodePriority })}
+                        onValueChange={(value) =>
+                          onPlanningChange({ ...planning, priority: value as CanvasNodePriority })
+                        }
                       >
                         <SelectTrigger size="sm" className={canvasInspectorSelectTriggerClassName}>
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent align="end" position="popper" className={canvasInspectorSelectContentClassName}>
+                        <SelectContent
+                          align="end"
+                          position="popper"
+                          className={canvasInspectorSelectContentClassName}
+                        >
                           {priorityOptions.map((priority) => (
                             <SelectItem key={priority} value={priority}>
                               <span className="flex items-center gap-2">
@@ -242,17 +281,29 @@ export function CanvasNodeInspector({
                       </div>
                       <Select
                         value={planning.ownerLabel ?? '__none__'}
-                        onValueChange={(value) => onPlanningChange({ ...planning, ownerLabel: value === '__none__' ? undefined : value })}
+                        onValueChange={(value) =>
+                          onPlanningChange({
+                            ...planning,
+                            ownerLabel: value === '__none__' ? undefined : value,
+                          })
+                        }
                       >
                         <SelectTrigger size="sm" className={canvasInspectorSelectTriggerClassName}>
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent align="end" position="popper" className={canvasInspectorSelectContentClassName}>
+                        <SelectContent
+                          align="end"
+                          position="popper"
+                          className={canvasInspectorSelectContentClassName}
+                        >
                           <SelectItem value="__none__">No owner</SelectItem>
                           {knownUsers.map((user) => (
                             <SelectItem key={user.userId} value={user.userName}>
                               <span className="flex items-center gap-2">
-                                <span className="inline-block size-2 rounded-full" style={{ backgroundColor: user.userColor }} />
+                                <span
+                                  className="inline-block size-2 rounded-full"
+                                  style={{ backgroundColor: user.userColor }}
+                                />
                                 {user.userName}
                               </span>
                             </SelectItem>
@@ -280,9 +331,16 @@ export function CanvasNodeInspector({
                         <PopoverContent align="end" className="w-auto p-0" sideOffset={4}>
                           <CalendarUI
                             mode="single"
-                            selected={planning.dueDate ? new Date(`${planning.dueDate}T12:00:00`) : undefined}
+                            selected={
+                              planning.dueDate
+                                ? new Date(`${planning.dueDate}T12:00:00`)
+                                : undefined
+                            }
                             onSelect={(date) => {
-                              onPlanningChange({ ...planning, dueDate: date ? format(date, 'yyyy-MM-dd') : undefined });
+                              onPlanningChange({
+                                ...planning,
+                                dueDate: date ? format(date, 'yyyy-MM-dd') : undefined,
+                              });
                               setDueDateOpen(false);
                             }}
                           />
@@ -293,7 +351,9 @@ export function CanvasNodeInspector({
                   <div className="grid grid-cols-2 gap-2">
                     <Input
                       value={planning.milestoneLabel ?? ''}
-                      onChange={(event) => onPlanningChange({ ...planning, milestoneLabel: event.target.value })}
+                      onChange={(event) =>
+                        onPlanningChange({ ...planning, milestoneLabel: event.target.value })
+                      }
                       placeholder="Milestone label"
                       className="h-8"
                     />
@@ -352,12 +412,23 @@ export function CanvasNodeInspector({
               ) : null}
               {kind === 'swimlaneCard' ? (
                 <div className="rounded-xl border border-border/60 bg-card/45 p-2">
-                  <div className="mb-1 text-[11px] font-medium text-muted-foreground">Orientation</div>
-                  <Select value={selectedNode.orientation ?? 'horizontal'} onValueChange={(value) => onOrientationChange(value as CanvasSwimlaneOrientation)}>
+                  <div className="mb-1 text-[11px] font-medium text-muted-foreground">
+                    Orientation
+                  </div>
+                  <Select
+                    value={selectedNode.orientation ?? 'horizontal'}
+                    onValueChange={(value) =>
+                      onOrientationChange(value as CanvasSwimlaneOrientation)
+                    }
+                  >
                     <SelectTrigger size="sm" className={canvasInspectorSelectTriggerClassName}>
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent align="end" position="popper" className={canvasInspectorSelectContentClassName}>
+                    <SelectContent
+                      align="end"
+                      position="popper"
+                      className={canvasInspectorSelectContentClassName}
+                    >
                       <SelectItem value="horizontal">Horizontal</SelectItem>
                       <SelectItem value="vertical">Vertical</SelectItem>
                     </SelectContent>
@@ -366,7 +437,12 @@ export function CanvasNodeInspector({
               ) : null}
             </>
           ) : null}
-          <Button size="sm" variant="outline" className="gap-2 self-start" onClick={onDeleteSelected}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-2 self-start"
+            onClick={onDeleteSelected}
+          >
             <Trash2 size={14} />
             Delete selected
           </Button>

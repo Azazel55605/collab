@@ -34,20 +34,20 @@ limits below are what it was built against and remain authoritative.
 
 ## Decisions
 
-| Decision | Outcome |
-| --- | --- |
-| Extension | `.ink` |
-| Media type | `application/vnd.collab.ink+json` |
-| Document kind | `collab-ink` |
-| Initial schema version | `1` |
-| Coordinate unit | Integer **ink units**, 1/64 pt (`INK_UNITS_PER_POINT = 64`) |
-| Sample storage | Structure-of-arrays, delta-encoded, inside the JSON document |
-| Input boundary | Pointer Events, via `src/lib/ink/pointer.ts` |
-| Stroke outliner | **First-party** (`outlineStroke`); `perfect-freehand` kept behind the adapter as the alternative |
-| Renderer | First-party tiled Canvas 2D with a DOM overlay; no third-party ink or whiteboard component |
-| Domain location | `src/lib/ink/` and `src/types/ink.ts`, not a workspace package |
-| Annotation model | The same `InkScene`, anchored to an immutable source surface |
-| Collaboration unit | One completed stroke is one transaction; unfinished strokes travel through awareness only |
+| Decision               | Outcome                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------ |
+| Extension              | `.ink`                                                                                           |
+| Media type             | `application/vnd.collab.ink+json`                                                                |
+| Document kind          | `collab-ink`                                                                                     |
+| Initial schema version | `1`                                                                                              |
+| Coordinate unit        | Integer **ink units**, 1/64 pt (`INK_UNITS_PER_POINT = 64`)                                      |
+| Sample storage         | Structure-of-arrays, delta-encoded, inside the JSON document                                     |
+| Input boundary         | Pointer Events, via `src/lib/ink/pointer.ts`                                                     |
+| Stroke outliner        | **First-party** (`outlineStroke`); `perfect-freehand` kept behind the adapter as the alternative |
+| Renderer               | First-party tiled Canvas 2D with a DOM overlay; no third-party ink or whiteboard component       |
+| Domain location        | `src/lib/ink/` and `src/types/ink.ts`, not a workspace package                                   |
+| Annotation model       | The same `InkScene`, anchored to an immutable source surface                                     |
+| Collaboration unit     | One completed stroke is one transaction; unfinished strokes travel through awareness only        |
 
 ### Why an integer ink unit and not CSS pixels
 
@@ -59,7 +59,7 @@ fractional CSS pixels before we see it — so the grid is invisible while keepin
 every stored coordinate a small integer that delta-encodes well.
 
 The world is bounded at ±2^24 units (~92 m) and a fixed page at 200 in per side,
-matching PDF's own ceiling. An infinite canvas is *bounded*: unbounded
+matching PDF's own ceiling. An infinite canvas is _bounded_: unbounded
 coordinates would defeat the tile model, the spatial index, and every allocation
 bound downstream.
 
@@ -79,14 +79,14 @@ debug it — and the delta arrays already recover most of the difference.
 
 Both were implemented and measured against the same fixtures.
 
-| | First-party `outlineStroke` | `perfect-freehand` 1.2.3 |
-| --- | --- | --- |
-| Licence | n/a | MIT, zero dependencies |
-| Bundle | none | 4,532 B raw / 2,009 B gzipped (ESM) |
-| Outline one 40-sample stroke | **4.9 µs** | 11.1 µs |
-| Outline points emitted | 94 | 116 |
-| Deterministic | yes | yes |
-| Taper, dash, and highlighter needs | native | partial |
+|                                    | First-party `outlineStroke` | `perfect-freehand` 1.2.3            |
+| ---------------------------------- | --------------------------- | ----------------------------------- |
+| Licence                            | n/a                         | MIT, zero dependencies              |
+| Bundle                             | none                        | 4,532 B raw / 2,009 B gzipped (ESM) |
+| Outline one 40-sample stroke       | **4.9 µs**                  | 11.1 µs                             |
+| Outline points emitted             | 94                          | 116                                 |
+| Deterministic                      | yes                         | yes                                 |
+| Taper, dash, and highlighter needs | native                      | partial                             |
 
 First-party wins on cost and is already written, so it is the default. The
 dependency stays as a **devDependency**, imported only by `strokeAdapters.ts`
@@ -111,13 +111,13 @@ stays in `src/lib/ink/`. Revisit only if the mobile build boundary changes.
 
 ## Quantization
 
-| Channel | Stored as | Rationale |
-| --- | --- | --- |
-| x, y | Integer ink units, delta-encoded | 1/64 pt is below observable input resolution |
-| pressure | Integer 0..4095, delta-encoded | 4096 levels; error is at most 1/8190 of range |
-| tiltX, tiltY | Integer degrees, -90..90 | Already integer in the Pointer Events spec |
-| twist | Integer degrees, 0..359 | Already integer in the spec |
-| elapsed | Integer ms since stroke start | Stroke-relative so the deltas stay small |
+| Channel      | Stored as                        | Rationale                                     |
+| ------------ | -------------------------------- | --------------------------------------------- |
+| x, y         | Integer ink units, delta-encoded | 1/64 pt is below observable input resolution  |
+| pressure     | Integer 0..4095, delta-encoded   | 4096 levels; error is at most 1/8190 of range |
+| tiltX, tiltY | Integer degrees, -90..90         | Already integer in the Pointer Events spec    |
+| twist        | Integer degrees, 0..359          | Already integer in the spec                   |
+| elapsed      | Integer ms since stroke start    | Stroke-relative so the deltas stay small      |
 
 **An unreported channel stays absent.** "No pressure data" and "pressure was
 exactly half" must render differently, so nothing is defaulted in. Zero pressure
@@ -137,26 +137,26 @@ actually produces, which is the measurement that would justify revisiting it.
 Mirrored from `INK_LIMITS` in `src/types/ink.ts`. A document exceeding a limit
 is rejected with a specific error — never silently truncated.
 
-| Limit | Value |
-| --- | --- |
-| Document size | 64 MiB |
-| Pages per document | 500 |
-| Layers per page | 50 |
-| Objects per page | 50,000 |
-| Objects per document | 500,000 |
-| Samples per committed stroke | 4,096 |
-| Samples per document | 20,000,000 |
-| Stroke segment duration | 30 s |
-| Group nesting depth | 8 |
-| Text length | 16,384 characters |
-| Decoded image pixels / bytes | 40,000,000 / 16 MiB |
-| World half-extent | 16,777,216 units (~92 m) |
-| Fixed page side | 200 in |
-| Zoom range | 0.05x - 64x |
-| Tile edge | 8,192 units (128 pt) |
-| Tile backing store | 512 px per side, 96 MiB cache budget |
-| Transaction size | 64 KiB |
-| Awareness preview | 2 KiB at 20 Hz |
+| Limit                        | Value                                |
+| ---------------------------- | ------------------------------------ |
+| Document size                | 64 MiB                               |
+| Pages per document           | 500                                  |
+| Layers per page              | 50                                   |
+| Objects per page             | 50,000                               |
+| Objects per document         | 500,000                              |
+| Samples per committed stroke | 4,096                                |
+| Samples per document         | 20,000,000                           |
+| Stroke segment duration      | 30 s                                 |
+| Group nesting depth          | 8                                    |
+| Text length                  | 16,384 characters                    |
+| Decoded image pixels / bytes | 40,000,000 / 16 MiB                  |
+| World half-extent            | 16,777,216 units (~92 m)             |
+| Fixed page side              | 200 in                               |
+| Zoom range                   | 0.05x - 64x                          |
+| Tile edge                    | 8,192 units (128 pt)                 |
+| Tile backing store           | 512 px per side, 96 MiB cache budget |
+| Transaction size             | 64 KiB                               |
+| Awareness preview            | 2 KiB at 20 Hz                       |
 
 Reaching the sample or duration ceiling **splits the stroke into linked
 continuation segments** rather than stopping the pen. Segments share a
@@ -172,10 +172,10 @@ never authoritative and strokes are never permanent DOM nodes.
 The tile model is the part Phase 0 had to justify with numbers, and the
 measurement is unambiguous. On a page carrying 10,000 strokes:
 
-| | Strokes | Outline cost |
-| --- | --- | --- |
-| One third of an A4 page (20 tiles) | 4,028 | **31.0 ms** |
-| One tile | 352 | **2.5 ms** |
+|                                    | Strokes | Outline cost |
+| ---------------------------------- | ------- | ------------ |
+| One third of an A4 page (20 tiles) | 4,028   | **31.0 ms**  |
+| One tile                           | 352     | **2.5 ms**   |
 
 A renderer that redrew the visible region on every edit would spend nearly two
 frames per stroke and could not keep up with a pen. Repainting only the tiles an
@@ -218,44 +218,44 @@ Vitest). Fixture: one page, 10,000 strokes, 40 samples each, 4 layers. These are
 the reference points Phase 10 enforces; re-measure per platform rather than
 treating them as portable guarantees.
 
-| Operation | Measurement |
-| --- | --- |
-| Capture a 400-sample stroke (normalize, streamline, simplify, quantize) | 0.50 ms |
-| — resulting sample count | 400 → 59 |
-| Outline one 40-sample stroke | 4.9 µs |
-| Outline a viewport (20 tiles, 4,028 strokes) | 31.0 ms |
-| Outline one dirty tile (352 strokes) | 2.5 ms |
-| Rebuild all 10,000 stroke bounds | 14.3 ms |
-| `JSON.stringify` the page | 53.5 ms → **7.72 MiB** |
-| `JSON.parse` plus decode every sample | 165.3 ms |
-| Hit test via tile narrowing (240 candidates of 10,000) | 2.4 ms |
-| Deterministic SVG export | 606 ms → 15.68 MiB |
+| Operation                                                               | Measurement            |
+| ----------------------------------------------------------------------- | ---------------------- |
+| Capture a 400-sample stroke (normalize, streamline, simplify, quantize) | 0.50 ms                |
+| — resulting sample count                                                | 400 → 59               |
+| Outline one 40-sample stroke                                            | 4.9 µs                 |
+| Outline a viewport (20 tiles, 4,028 strokes)                            | 31.0 ms                |
+| Outline one dirty tile (352 strokes)                                    | 2.5 ms                 |
+| Rebuild all 10,000 stroke bounds                                        | 14.3 ms                |
+| `JSON.stringify` the page                                               | 53.5 ms → **7.72 MiB** |
+| `JSON.parse` plus decode every sample                                   | 165.3 ms               |
+| Hit test via tile narrowing (240 candidates of 10,000)                  | 2.4 ms                 |
+| Deterministic SVG export                                                | 606 ms → 15.68 MiB     |
 
 Storage, measured separately:
 
-| Measurement | Value |
-| --- | --- |
-| Delta encoding vs one object per sample | **3.95-4.24x smaller** |
-| Stored cost per sample (position, pressure, time) | 12.2-12.7 B |
-| A 100-reading stroke after capture and encoding | 30 samples, 478 B |
+| Measurement                                       | Value                  |
+| ------------------------------------------------- | ---------------------- |
+| Delta encoding vs one object per sample           | **3.95-4.24x smaller** |
+| Stored cost per sample (position, pressure, time) | 12.2-12.7 B            |
+| A 100-reading stroke after capture and encoding   | 30 samples, 478 B      |
 
 ### Phase 10 budgets
 
 Mirrored in `src/lib/ink/budgets.ts`, scalable with `COLLAB_INK_BUDGET_SCALE`
 for slow runners and emulators. Byte budgets are not scaled.
 
-| Budget | Ceiling |
-| --- | --- |
-| Capture one completed stroke | 4 ms |
-| Outline one stroke | 2 ms |
-| Repaint one dirty tile | 8 ms |
-| Outline a whole viewport (cold, on open or zoom) | 120 ms |
-| Resolve viewport and dirty tiles | 4 ms |
-| Open a 10,000-stroke page (parse + decode) | 1.5 s |
-| Serialize a 10,000-stroke page | 750 ms |
-| Hit test through the index | 8 ms |
-| SVG export of a 10,000-stroke page | 3 s |
-| Stored bytes for a 10,000-stroke page | 24 MiB |
+| Budget                                           | Ceiling |
+| ------------------------------------------------ | ------- |
+| Capture one completed stroke                     | 4 ms    |
+| Outline one stroke                               | 2 ms    |
+| Repaint one dirty tile                           | 8 ms    |
+| Outline a whole viewport (cold, on open or zoom) | 120 ms  |
+| Resolve viewport and dirty tiles                 | 4 ms    |
+| Open a 10,000-stroke page (parse + decode)       | 1.5 s   |
+| Serialize a 10,000-stroke page                   | 750 ms  |
+| Hit test through the index                       | 8 ms    |
+| SVG export of a 10,000-stroke page               | 3 s     |
+| Stored bytes for a 10,000-stroke page            | 24 MiB  |
 
 ## Export
 
@@ -299,35 +299,35 @@ Frozen in the schema and enforced from Phase 1 validation onward:
 
 ## Risks And Mitigations
 
-| Risk | Mitigation |
-| --- | --- |
-| The first-party outliner may simply look worse than `perfect-freehand` under a real pen | The adapter seam is proven by test, the dependency is already installed, and switching is one line. This is an explicit Phase 3 decision, not a closed one. |
-| Palm rejection is application-level and best-effort | Documented as such. OS and digitizer rejection remain authoritative where available. `InkContactArbiter` covers the platforms that deliver the contact anyway, including retiring a palm that landed *before* the pen. |
-| Android WebView pressure and tilt fidelity is unverified | This is the open exit-gate item. `tools/ink-input-probe.html` measures it per device; the quantization range can be revisited if a device reports more than 4096 usable levels. |
+| Risk                                                                                     | Mitigation                                                                                                                                                                                                                          |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The first-party outliner may simply look worse than `perfect-freehand` under a real pen  | The adapter seam is proven by test, the dependency is already installed, and switching is one line. This is an explicit Phase 3 decision, not a closed one.                                                                         |
+| Palm rejection is application-level and best-effort                                      | Documented as such. OS and digitizer rejection remain authoritative where available. `InkContactArbiter` covers the platforms that deliver the contact anyway, including retiring a palm that landed _before_ the pen.              |
+| Android WebView pressure and tilt fidelity is unverified                                 | This is the open exit-gate item. `tools/ink-input-probe.html` measures it per device; the quantization range can be revisited if a device reports more than 4096 usable levels.                                                     |
 | A 10,000-stroke page is 7.7 MiB of JSON, and hosted documents carry it through revisions | Inside the 24 MiB budget and the 64 MiB limit, but revision compaction pressure is real. Phase 6 must confirm hosted materialization and the offline replica handle this size; the existing revision-history limit already applies. |
-| SVG export of a full page is 606 ms and 15.7 MiB | Above a frame and above a comfortable inline asset. Phase 7 runs heavy exports in a bounded job with progress and cancellation, which the plan already requires. |
-| Three pen implementations exist today (image overlay, PDF sidecar, ink) | Phases 8 and 9 migrate the first two onto `InkScene`. The annotation container is already frozen here so those migrations target a fixed shape rather than a moving one. |
-| JSON is not the densest possible encoding | Accepted deliberately for CRDT, diff, and debuggability. Revisit only with a measured document that exceeds the budget. |
+| SVG export of a full page is 606 ms and 15.7 MiB                                         | Above a frame and above a comfortable inline asset. Phase 7 runs heavy exports in a bounded job with progress and cancellation, which the plan already requires.                                                                    |
+| Three pen implementations exist today (image overlay, PDF sidecar, ink)                  | Phases 8 and 9 migrate the first two onto `InkScene`. The annotation container is already frozen here so those migrations target a fixed shape rather than a moving one.                                                            |
+| JSON is not the densest possible encoding                                                | Accepted deliberately for CRDT, diff, and debuggability. Revisit only with a measured document that exceeds the budget.                                                                                                             |
 
 ## Exit Gate Assessment
 
-The plan's gate: *the same fixture must draw, reopen, zoom, export, and preserve
-pressure faithfully on desktop and Android without frame-long UI stalls.*
+The plan's gate: _the same fixture must draw, reopen, zoom, export, and preserve
+pressure faithfully on desktop and Android without frame-long UI stalls._
 
-| Exit-gate requirement | Status |
-| --- | --- |
-| Freeze extension, MIME, schema, units, page modes, channels, quantization, limits | **Met** — `src/types/ink.ts` |
-| Compare first-party stroke generation with an isolated `perfect-freehand` adapter | **Met** — both implemented, measured, seam proven by test |
-| Tiled Canvas 2D rendering with ≥10,000 representative strokes | **Met at model level** — see below |
-| Deterministic PNG and SVG output from the scene, not the viewport | **SVG met**; PNG deferred to Phase 7 with the same scene walk |
+| Exit-gate requirement                                                                 | Status                                                                        |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Freeze extension, MIME, schema, units, page modes, channels, quantization, limits     | **Met** — `src/types/ink.ts`                                                  |
+| Compare first-party stroke generation with an isolated `perfect-freehand` adapter     | **Met** — both implemented, measured, seam proven by test                     |
+| Tiled Canvas 2D rendering with ≥10,000 representative strokes                         | **Met at model level** — see below                                            |
+| Deterministic PNG and SVG output from the scene, not the viewport                     | **SVG met**; PNG deferred to Phase 7 with the same scene walk                 |
 | Simplification stays inside a documented visual tolerance and materially reduces size | **Met** — deviation ≤ 24 units + rounding, 400 → 59 samples, 4x encoding gain |
-| One completed stroke maps to one bounded collaboration transaction | **Met** — proven against real Yjs |
-| Record latency, memory, bundle, and licence findings | **Met** — see Measured Baselines and the outliner table |
-| Capture Pointer Events from real pens, tablets, touch, mouse, and touchpad | **Not met — open** |
+| One completed stroke maps to one bounded collaboration transaction                    | **Met** — proven against real Yjs                                             |
+| Record latency, memory, bundle, and licence findings                                  | **Met** — see Measured Baselines and the outliner table                       |
+| Capture Pointer Events from real pens, tablets, touch, mouse, and touchpad            | **Not met — open**                                                            |
 
 ### What is proven by model, not by pixels
 
-There is no canvas in Phase 0. The tiling proof is a measurement of the *work* a
+There is no canvas in Phase 0. The tiling proof is a measurement of the _work_ a
 tiled renderer does versus an untiled one — stroke outlining, tile resolution,
 dirty-region tracking, eviction — not of GPU paint, compositing, or text
 shaping. Frame-time validation against a real canvas belongs to Phase 3 and is

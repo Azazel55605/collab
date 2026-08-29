@@ -1,28 +1,44 @@
 import { useEffect, useState } from 'react';
-import { getAppVersion } from '../../lib/tauri';
-import { useUpdateStore } from '../../store/updateStore';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { cn } from '../../lib/utils';
-import { RefreshCw, Download, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
-import { Progress } from '../ui/progress';
+
 import { formatDistanceToNow } from 'date-fns';
+import { AlertCircle, CheckCircle, Download, Loader2, RefreshCw } from 'lucide-react';
+
+import { getAppVersion } from '../../lib/tauri';
+import { cn } from '../../lib/utils';
+import { useUpdateStore } from '../../store/updateStore';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Progress } from '../ui/progress';
 
 function fmtBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  if (bytes >= 1024)        return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${bytes} B`;
 }
 
 export default function AboutTab() {
   const [appVersion, setAppVersion] = useState<string>('…');
   const {
-    status, updaterConfigured, updaterSupported, updaterSupportMessage, updateInfo, downloadProgress, downloadedBytes, totalBytes, downloadSpeed,
-    error, lastChecked, ensureUpdaterConfigured, checkForUpdate, startDownload,
+    status,
+    updaterConfigured,
+    updaterSupported,
+    updaterSupportMessage,
+    updateInfo,
+    downloadProgress,
+    downloadedBytes,
+    totalBytes,
+    downloadSpeed,
+    error,
+    lastChecked,
+    ensureUpdaterConfigured,
+    checkForUpdate,
+    startDownload,
   } = useUpdateStore();
 
   useEffect(() => {
-    getAppVersion().then(setAppVersion).catch(() => setAppVersion('?'));
+    getAppVersion()
+      .then(setAppVersion)
+      .catch(() => setAppVersion('?'));
   }, []);
 
   useEffect(() => {
@@ -53,8 +69,7 @@ export default function AboutTab() {
         return (
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-sm font-medium text-primary">
-              <Download size={14} />
-              v{updateInfo?.version} is available
+              <Download size={14} />v{updateInfo?.version} is available
             </div>
             {updateInfo?.notes && (
               <p className="text-[12px] text-muted-foreground leading-relaxed pl-5">
@@ -64,7 +79,7 @@ export default function AboutTab() {
           </div>
         );
       case 'downloading': {
-        const pct   = downloadProgress ?? 0;
+        const pct = downloadProgress ?? 0;
         const speed = downloadSpeed != null && downloadSpeed > 0 ? downloadSpeed : null;
         return (
           <div className="space-y-2">
@@ -102,11 +117,13 @@ export default function AboutTab() {
           <div className="flex items-start gap-2 text-sm text-destructive">
             <AlertCircle size={14} className="mt-0.5 shrink-0" />
             <span>
-              {error?.includes('os error') || error?.includes('network') || error?.includes('connect')
+              {error?.includes('os error') ||
+              error?.includes('network') ||
+              error?.includes('connect')
                 ? 'Could not reach the update server. Check your connection.'
                 : error?.includes('signature') || error?.includes('verify')
-                ? 'Update verification failed. The download could not be trusted.'
-                : (error ?? 'An unexpected error occurred.')}
+                  ? 'Update verification failed. The download could not be trusted.'
+                  : (error ?? 'An unexpected error occurred.')}
             </span>
           </div>
         );
@@ -134,7 +151,9 @@ export default function AboutTab() {
             <AlertCircle size={14} className="mt-0.5 shrink-0" />
             <span>{updaterSupportMessage ?? 'In-app updates are unavailable in this build.'}</span>
           </div>
-        ) : renderStatus()}
+        ) : (
+          renderStatus()
+        )}
       </div>
 
       {/* Actions */}

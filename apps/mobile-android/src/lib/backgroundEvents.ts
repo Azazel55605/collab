@@ -1,5 +1,6 @@
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { listen } from '@tauri-apps/api/event';
+
 import type { BackgroundStatusSnapshot } from '../../../../src/lib/tauri';
 
 /**
@@ -48,12 +49,15 @@ export function listenToBackgroundEvents(handlers: BackgroundEventHandlers): () 
   };
 
   if (handlers.onStatus) {
-    void register(BACKGROUND_STATUS_EVENT, handlers.onStatus as (payload: never) => void)
-      .catch(() => {});
+    void register(BACKGROUND_STATUS_EVENT, handlers.onStatus as (payload: never) => void).catch(
+      () => {},
+    );
   }
   if (handlers.onVaultSynced) {
-    void register(BACKGROUND_VAULT_SYNCED_EVENT, handlers.onVaultSynced as (payload: never) => void)
-      .catch(() => {});
+    void register(
+      BACKGROUND_VAULT_SYNCED_EVENT,
+      handlers.onVaultSynced as (payload: never) => void,
+    ).catch(() => {});
   }
 
   return () => {

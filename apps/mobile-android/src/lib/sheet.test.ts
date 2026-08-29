@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const invoke = vi.fn();
-vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
-
 import { createEmptySheetDocument } from '../../../../src/lib/sheet/document';
 import { activeWorksheet, setCell } from '../../../../src/lib/sheet/operations';
 import type { HostedFileEntry } from '../mobileTauri';
+
 import {
   clampSheetScale,
   inspectSheetContent,
@@ -17,6 +15,9 @@ import {
   SHEET_MOBILE_SCALE,
   workbookName,
 } from './sheet';
+
+const invoke = vi.fn();
+vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 
 const SERVER = 'https://collab.example.com';
 const VAULT = 'v1';
@@ -41,8 +42,18 @@ function workbook() {
     worksheet: { rows: 6, columns: 4 },
   });
   const sheetId = activeWorksheet(document).id;
-  document = setCell(document, sheetId, { row: 0, column: 0 }, { value: 'Rent', valueType: 'text' });
-  document = setCell(document, sheetId, { row: 0, column: 1 }, { value: 1200, valueType: 'number' });
+  document = setCell(
+    document,
+    sheetId,
+    { row: 0, column: 0 },
+    { value: 'Rent', valueType: 'text' },
+  );
+  document = setCell(
+    document,
+    sheetId,
+    { row: 0, column: 1 },
+    { value: 1200, valueType: 'number' },
+  );
   document = setCell(document, sheetId, { row: 1, column: 1 }, { formula: '=B1*2' });
   return document;
 }
@@ -57,13 +68,22 @@ describe('mobile sheet documents', () => {
   it('recognizes workbooks by document type and extension', () => {
     expect(isSheetFile(SHEET_FILE)).toBe(true);
     expect(isSheetFile({ ...SHEET_FILE, documentType: null })).toBe(true);
-    expect(isSheetFile({
-      ...SHEET_FILE,
-      name: 'Q3',
-      relativePath: 'Finance/Q3.sheet',
-      documentType: null,
-    })).toBe(true);
-    expect(isSheetFile({ ...SHEET_FILE, name: 'Note.md', relativePath: 'Note.md', documentType: 'note' })).toBe(false);
+    expect(
+      isSheetFile({
+        ...SHEET_FILE,
+        name: 'Q3',
+        relativePath: 'Finance/Q3.sheet',
+        documentType: null,
+      }),
+    ).toBe(true);
+    expect(
+      isSheetFile({
+        ...SHEET_FILE,
+        name: 'Note.md',
+        relativePath: 'Note.md',
+        documentType: 'note',
+      }),
+    ).toBe(false);
     expect(isSheetFile({ ...SHEET_FILE, kind: 'asset' })).toBe(false);
   });
 
@@ -152,11 +172,14 @@ describe('mobile sheet documents', () => {
 
     const saved = await saveSheetWorkbook(SERVER, VAULT, SHEET_FILE, workbook());
     expect(saved.file.revisionSequence).toBe(4);
-    expect(invoke).toHaveBeenCalledWith('hosted_vault_request', expect.objectContaining({
-      method: 'POST',
-      path: `/api/v1/vaults/${VAULT}/files/${SHEET_FILE.id}/revisions`,
-      body: expect.objectContaining({ expectedRevisionSequence: 3 }),
-    }));
+    expect(invoke).toHaveBeenCalledWith(
+      'hosted_vault_request',
+      expect.objectContaining({
+        method: 'POST',
+        path: `/api/v1/vaults/${VAULT}/files/${SHEET_FILE.id}/revisions`,
+        body: expect.objectContaining({ expectedRevisionSequence: 3 }),
+      }),
+    );
   });
 
   it('bounds the pinch scale so a cell stays tappable and readable', () => {

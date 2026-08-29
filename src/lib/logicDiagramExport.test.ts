@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
+import type { LogicDiagramDocument } from '../types/logicDiagram';
+
 import {
   buildLogicDiagramSvg,
   buildLogicDiagramSvgDataUrl,
   extractLogicDiagramExportSource,
 } from './logicDiagramExport';
-import type { LogicDiagramDocument } from '../types/logicDiagram';
 
 const diagram: LogicDiagramDocument = {
   schemaVersion: 1,
@@ -40,7 +41,15 @@ describe('logicDiagramExport', () => {
         { id: 'source', kind: 'voltage-source', position: { x: 0, y: 0 } },
         { id: 'r1', kind: 'resistor', label: 'R1 1k', position: { x: 180, y: 0 }, rotation: 90 },
       ],
-      wires: [{ id: 'wire', source: 'source', target: 'r1', sourceHandle: 'positive', targetHandle: 'terminal-a' }],
+      wires: [
+        {
+          id: 'wire',
+          source: 'source',
+          target: 'r1',
+          sourceHandle: 'positive',
+          targetHandle: 'terminal-a',
+        },
+      ],
     };
 
     const svg = buildLogicDiagramSvg(schematic, 'Diagrams/amplifier.logic');
@@ -56,7 +65,14 @@ describe('logicDiagramExport', () => {
       schemaVersion: 6,
       kind: 'logic-diagram',
       diagramMode: 'schematic',
-      nodes: [{ id: 'r1', kind: 'resistor', position: { x: 0, y: 0 }, electrical: { resistanceOhms: 1000 } }],
+      nodes: [
+        {
+          id: 'r1',
+          kind: 'resistor',
+          position: { x: 0, y: 0 },
+          electrical: { resistanceOhms: 1000 },
+        },
+      ],
       wires: [],
       viewport: { x: 0, y: 0, zoom: 1 },
     };

@@ -1,0 +1,30 @@
+node_modules
+dist
+dist-mobile
+coverage
+*.tsbuildinfo
+
+# Lockfiles are generated and must stay byte-identical to what the package
+# manager and Cargo write.
+pnpm-lock.yaml
+Cargo.lock
+
+# Rust and Tauri build output, plus the generated Android project.
+target
+src-tauri/target
+src-tauri/gen
+
+# Generated and downloaded assets.
+public/ocr-assets
+
+# Flatpak build trees.
+.flatpak-builder
+flatpak-build
+flatpak-repo
+
+# Local server state.
+server-data
+
+# SVGs have no Prettier parser and are hand-crafted brand assets; leave them
+# untouched.
+*.svg

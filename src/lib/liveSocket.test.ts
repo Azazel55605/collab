@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createLiveSocket, LIVE_SOCKET_CLOSED, LIVE_SOCKET_OPEN } from './liveSocket';
+
 const mocks = vi.hoisted(() => {
   class FakeChannel<T> {
     static instances: FakeChannel<unknown>[] = [];
@@ -27,8 +29,6 @@ vi.mock('./tauri', () => ({
     liveWsClose: mocks.liveWsClose,
   },
 }));
-
-import { createLiveSocket, LIVE_SOCKET_OPEN, LIVE_SOCKET_CLOSED } from './liveSocket';
 
 function enableTauri() {
   (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {};

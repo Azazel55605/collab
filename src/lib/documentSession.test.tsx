@@ -31,9 +31,13 @@ describe('useDocumentSessionState', () => {
     const now = 1_000_000;
 
     expect(result.current.shouldCreateSnapshot('hash-1', now)).toBe(true);
-    expect(result.current.shouldCreateSnapshot('hash-1', now + DOCUMENT_SNAPSHOT_INTERVAL_MS + 1)).toBe(false);
+    expect(
+      result.current.shouldCreateSnapshot('hash-1', now + DOCUMENT_SNAPSHOT_INTERVAL_MS + 1),
+    ).toBe(false);
     expect(result.current.shouldCreateSnapshot('hash-2', now + 1)).toBe(false);
-    expect(result.current.shouldCreateSnapshot('hash-2', now + DOCUMENT_SNAPSHOT_INTERVAL_MS + 1)).toBe(true);
+    expect(
+      result.current.shouldCreateSnapshot('hash-2', now + DOCUMENT_SNAPSHOT_INTERVAL_MS + 1),
+    ).toBe(true);
   });
 
   describe('runExclusiveSave', () => {
@@ -47,7 +51,10 @@ describe('useDocumentSessionState', () => {
         new Promise<void>((resolve) => {
           inFlight += 1;
           maxConcurrent = Math.max(maxConcurrent, inFlight);
-          release.push(() => { inFlight -= 1; resolve(); });
+          release.push(() => {
+            inFlight -= 1;
+            resolve();
+          });
         });
 
       const first = result.current.runExclusiveSave(makeSave());
@@ -55,7 +62,7 @@ describe('useDocumentSessionState', () => {
       result.current.runExclusiveSave(makeSave());
       expect(release).toHaveLength(1);
 
-      release[0]();           // finish the first save → the coalesced one starts
+      release[0](); // finish the first save → the coalesced one starts
       await flush();
       expect(release).toHaveLength(2);
       release[1]();
@@ -69,12 +76,19 @@ describe('useDocumentSessionState', () => {
       const order: string[] = [];
       let releaseFirst!: () => void;
 
-      const firstSave = () => new Promise<void>((resolve) => {
-        order.push('first');
-        releaseFirst = resolve;
-      });
-      const staleSave = () => { order.push('stale'); return Promise.resolve(); };
-      const latestSave = () => { order.push('latest'); return Promise.resolve(); };
+      const firstSave = () =>
+        new Promise<void>((resolve) => {
+          order.push('first');
+          releaseFirst = resolve;
+        });
+      const staleSave = () => {
+        order.push('stale');
+        return Promise.resolve();
+      };
+      const latestSave = () => {
+        order.push('latest');
+        return Promise.resolve();
+      };
 
       const run = result.current.runExclusiveSave(firstSave);
       // Two requests arrive during the in-flight first save; only the last should run.

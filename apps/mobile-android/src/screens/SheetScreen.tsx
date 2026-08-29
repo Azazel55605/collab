@@ -12,6 +12,9 @@
  * formula runtime. The load/save lifecycle follows the same live-when-connected,
  * REST-with-offline-queue path as the note, Kanban, and logic screens.
  */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { flushSync } from 'react-dom';
 
 import {
   ArrowLeft,
@@ -33,41 +36,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
 
-import { Banner, ReadOnlyBadge, Spinner } from '../components/ui';
-import { SheetTouchGrid } from '../components/SheetTouchGrid';
-import { useBackDismiss } from '../lib/backStack';
-import { isReadOnlyRole } from '../lib/format';
-import {
-  clampSheetScale,
-  inspectSheetContent,
-  isSheetFile,
-  readSheetWorkbook,
-  saveSheetWorkbook,
-  serializeSheet,
-  SHEET_MOBILE_SCALE,
-  workbookName,
-  type SheetDocument,
-} from '../lib/sheet';
-import { useMobileSheetFormula } from '../lib/sheetFormula';
-import {
-  openMobileLiveJsonSession,
-  type JsonObject,
-  type LiveStatus,
-  type MobileLiveJsonSession,
-} from '../lib/liveNote';
-import {
-  describePendingFailure,
-  discardPendingOperation,
-  enqueueDocumentEdit,
-  isLikelyConnectivityError,
-  pendingEditsForFile,
-  retryPendingOperation,
-} from '../lib/sync';
-import { replicaCacheDocument, type HostedFileEntry, type PendingOperation } from '../mobileTauri';
-import { useMobileStore } from '../state/store';
 import { formatA1, type SheetPosition } from '../../../../src/lib/sheet/address';
 import {
   formatCellEditText,
@@ -76,11 +45,20 @@ import {
   type SheetDisplayFormatOptions,
 } from '../../../../src/lib/sheet/cellValue';
 import {
+  clearSheetTableFilters,
+  setSheetTableColumnFilter,
+  tableAtPosition,
+  uniqueTableColumnValues,
+} from '../../../../src/lib/sheet/dataTools';
+import { enforceSheetMutationPolicies } from '../../../../src/lib/sheet/mutationPolicy';
+import {
   activeWorksheet as activeWorksheetOf,
   getCell,
   setActiveWorksheet,
   summarizeSelection,
 } from '../../../../src/lib/sheet/operations';
+import { clearCells } from '../../../../src/lib/sheet/operations';
+import { findPopulatedSheetMatches, nextSheetMatch } from '../../../../src/lib/sheet/search';
 import {
   createSelection,
   normalizeRange,
@@ -89,20 +67,40 @@ import {
 } from '../../../../src/lib/sheet/selection';
 import { applyStyleToSelection } from '../../../../src/lib/sheet/styles';
 import { setValidatedCell, validationAt } from '../../../../src/lib/sheet/validation';
-import { enforceSheetMutationPolicies } from '../../../../src/lib/sheet/mutationPolicy';
-import {
-  clearSheetTableFilters,
-  setSheetTableColumnFilter,
-  tableAtPosition,
-  uniqueTableColumnValues,
-} from '../../../../src/lib/sheet/dataTools';
-import { clearCells } from '../../../../src/lib/sheet/operations';
-import {
-  findPopulatedSheetMatches,
-  nextSheetMatch,
-} from '../../../../src/lib/sheet/search';
-import { sheetFormulaResultKey } from '../../../../src/types/sheetFormula';
 import type { SheetColumnFilter } from '../../../../src/types/sheet';
+import { sheetFormulaResultKey } from '../../../../src/types/sheetFormula';
+import { SheetTouchGrid } from '../components/SheetTouchGrid';
+import { Banner, ReadOnlyBadge, Spinner } from '../components/ui';
+import { useBackDismiss } from '../lib/backStack';
+import { isReadOnlyRole } from '../lib/format';
+import {
+  type JsonObject,
+  type LiveStatus,
+  type MobileLiveJsonSession,
+  openMobileLiveJsonSession,
+} from '../lib/liveNote';
+import {
+  clampSheetScale,
+  inspectSheetContent,
+  isSheetFile,
+  readSheetWorkbook,
+  saveSheetWorkbook,
+  serializeSheet,
+  SHEET_MOBILE_SCALE,
+  type SheetDocument,
+  workbookName,
+} from '../lib/sheet';
+import { useMobileSheetFormula } from '../lib/sheetFormula';
+import {
+  describePendingFailure,
+  discardPendingOperation,
+  enqueueDocumentEdit,
+  isLikelyConnectivityError,
+  pendingEditsForFile,
+  retryPendingOperation,
+} from '../lib/sync';
+import { type HostedFileEntry, type PendingOperation, replicaCacheDocument } from '../mobileTauri';
+import { useMobileStore } from '../state/store';
 
 const SAVE_DEBOUNCE_MS = 600;
 /** How long a just-opened panel ignores the tap's synthesized ghost click. */
@@ -131,7 +129,9 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
   const [schemaNewer, setSchemaNewer] = useState(false);
   const [repairs, setRepairs] = useState<string[]>([]);
   const [currentFile, setCurrentFile] = useState(file);
-  const [selection, setSelection] = useState<SheetSelection>(() => createSelection({ row: 0, column: 0 }));
+  const [selection, setSelection] = useState<SheetSelection>(() =>
+    createSelection({ row: 0, column: 0 }),
+  );
   const [scale, setScale] = useState<number>(SHEET_MOBILE_SCALE.default);
   const [panel, setPanel] = useState<ActivePanel>('none');
   const [editorText, setEditorText] = useState('');
@@ -334,20 +334,23 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
   }, [liveSession, selection, worksheet]);
 
   // ── Save ───────────────────────────────────────────────────────────────────
-  const queueOffline = useCallback(async (content: string) => {
-    const operation = await enqueueDocumentEdit(
-      serverUrl,
-      vaultId,
-      fileRef.current,
-      content,
-      manifestSequence,
-    );
-    markSaved(content);
-    if (!mountedRef.current) return;
-    setSource('cache');
-    setPending(operation);
-    setMessage('Saved offline. This workbook will sync when you reconnect.');
-  }, [manifestSequence, markSaved, serverUrl, vaultId]);
+  const queueOffline = useCallback(
+    async (content: string) => {
+      const operation = await enqueueDocumentEdit(
+        serverUrl,
+        vaultId,
+        fileRef.current,
+        content,
+        manifestSequence,
+      );
+      markSaved(content);
+      if (!mountedRef.current) return;
+      setSource('cache');
+      setPending(operation);
+      setMessage('Saved offline. This workbook will sync when you reconnect.');
+    },
+    [manifestSequence, markSaved, serverUrl, vaultId],
+  );
 
   const flushSave = useCallback(async () => {
     const current = documentRef.current;
@@ -394,63 +397,69 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
     }, SAVE_DEBOUNCE_MS);
   }, [flushSave]);
 
-  useEffect(() => () => {
-    if (saveTimerRef.current !== null) {
-      window.clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-    const latest = documentRef.current;
-    if (latest && serializeSheet(latest) !== savedContentRef.current) void flushSave();
-  }, [flushSave]);
+  useEffect(
+    () => () => {
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      const latest = documentRef.current;
+      if (latest && serializeSheet(latest) !== savedContentRef.current) void flushSave();
+    },
+    [flushSave],
+  );
 
   /**
    * Apply a workbook mutation. Every edit goes through the shared mutation
    * policy so protected ranges and strict validations are enforced exactly as
    * they are on desktop, then persists live or through the debounced REST save.
    */
-  const mutate = useCallback((
-    updater: (current: SheetDocument, worksheetId: string) => SheetDocument,
-  ) => {
-    const current = documentRef.current;
-    if (!current || readOnlyRef.current) return;
-    const target = activeWorksheetOf(current);
-    let next: SheetDocument;
-    try {
-      const enforced = enforceSheetMutationPolicies(
-        current,
-        updater(current, target.id),
-        formula.values,
-      );
-      next = enforced.document;
-      if (enforced.warnings.length > 0) setMessage(enforced.warnings[0]);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-      return;
-    }
-    if (next === current) return;
-    setDocument(next);
-    documentRef.current = next;
-    setError(null);
-    const content = serializeSheet(next);
-    const live = liveSessionRef.current;
-    if (live) {
-      live.writeJson(JSON.parse(content) as JsonObject);
-      markSaved(content);
-      setSource(live.getStatus() === 'connected' ? 'network' : 'cache');
-      void replicaCacheDocument(serverUrl, vaultId, fileRef.current.id, content).catch(() => {});
-      return;
-    }
-    scheduleSave();
-  }, [formula.values, markSaved, scheduleSave, serverUrl, vaultId]);
+  const mutate = useCallback(
+    (updater: (current: SheetDocument, worksheetId: string) => SheetDocument) => {
+      const current = documentRef.current;
+      if (!current || readOnlyRef.current) return;
+      const target = activeWorksheetOf(current);
+      let next: SheetDocument;
+      try {
+        const enforced = enforceSheetMutationPolicies(
+          current,
+          updater(current, target.id),
+          formula.values,
+        );
+        next = enforced.document;
+        if (enforced.warnings.length > 0) setMessage(enforced.warnings[0]);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+        return;
+      }
+      if (next === current) return;
+      setDocument(next);
+      documentRef.current = next;
+      setError(null);
+      const content = serializeSheet(next);
+      const live = liveSessionRef.current;
+      if (live) {
+        live.writeJson(JSON.parse(content) as JsonObject);
+        markSaved(content);
+        setSource(live.getStatus() === 'connected' ? 'network' : 'cache');
+        void replicaCacheDocument(serverUrl, vaultId, fileRef.current.id, content).catch(() => {});
+        return;
+      }
+      scheduleSave();
+    },
+    [formula.values, markSaved, scheduleSave, serverUrl, vaultId],
+  );
 
   // ── Derived cell state ─────────────────────────────────────────────────────
   const activeCell = worksheet ? getCell(worksheet, selection.active) : undefined;
   const activeComputed = worksheet
-    ? formula.values.get(sheetFormulaResultKey(
-      worksheet.id,
-      worksheet.rowOrder[selection.active.row] ?? '',
-      worksheet.columnOrder[selection.active.column] ?? '',
-    ))
+    ? formula.values.get(
+        sheetFormulaResultKey(
+          worksheet.id,
+          worksheet.rowOrder[selection.active.row] ?? '',
+          worksheet.columnOrder[selection.active.column] ?? '',
+        ),
+      )
     : undefined;
   const activeValidation = worksheet ? validationAt(worksheet, selection.active) : null;
   const activeTable = worksheet ? tableAtPosition(worksheet, selection.active) : null;
@@ -494,15 +503,18 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
    * silently leaves the keyboard closed. `flushSync` commits the panel first so
    * the input exists and is visible, then focus still counts as user-initiated.
    */
-  const openEditor = useCallback((position: SheetPosition) => {
-    if (readOnly || !worksheet) return;
-    flushSync(() => {
-      setEditorText(formatCellEditText(getCell(worksheet, position)));
-      panelOpenedAtRef.current = Date.now();
-      setPanel('editor');
-    });
-    editorInputRef.current?.focus();
-  }, [readOnly, worksheet]);
+  const openEditor = useCallback(
+    (position: SheetPosition) => {
+      if (readOnly || !worksheet) return;
+      flushSync(() => {
+        setEditorText(formatCellEditText(getCell(worksheet, position)));
+        panelOpenedAtRef.current = Date.now();
+        setPanel('editor');
+      });
+      editorInputRef.current?.focus();
+    },
+    [readOnly, worksheet],
+  );
 
   const commitEditor = useCallback(() => {
     const position = selection.active;
@@ -516,24 +528,32 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
   }, [editorText, mutate, selection.active]);
 
   const dirty = !liveSession && document !== null && serializeSheet(document) !== savedContent;
-  const statusLabel = pending?.status === 'failed'
-    ? 'Sync failed'
-    : pending
-      ? 'Queued to sync'
-      : liveSession
-        ? liveStatus === 'connected' ? 'Live' : 'Live offline'
-        : saving
-          ? 'Saving…'
-          : formula.calculating
-            ? 'Calculating…'
-            : source === 'cache'
-              ? 'Cached workbook'
-              : dirty
-                ? 'Unsaved changes'
-                : 'Saved';
+  const statusLabel =
+    pending?.status === 'failed'
+      ? 'Sync failed'
+      : pending
+        ? 'Queued to sync'
+        : liveSession
+          ? liveStatus === 'connected'
+            ? 'Live'
+            : 'Live offline'
+          : saving
+            ? 'Saving…'
+            : formula.calculating
+              ? 'Calculating…'
+              : source === 'cache'
+                ? 'Cached workbook'
+                : dirty
+                  ? 'Unsaved changes'
+                  : 'Saved';
 
   const reload = useCallback(async () => {
-    const loaded = await readSheetWorkbook(serverUrl, vaultId, fileRef.current, connectedRef.current);
+    const loaded = await readSheetWorkbook(
+      serverUrl,
+      vaultId,
+      fileRef.current,
+      connectedRef.current,
+    );
     if (!mountedRef.current) return;
     setCurrentFile(loaded.file);
     fileRef.current = loaded.file;
@@ -629,8 +649,8 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
 
       {schemaNewer ? (
         <Banner tone="info">
-          This workbook uses a newer schema than this app build. It is open read-only so no
-          fields are lost.
+          This workbook uses a newer schema than this app build. It is open read-only so no fields
+          are lost.
         </Banner>
       ) : null}
       {repairs.length > 0 ? <Banner tone="info">{repairs[0]}</Banner> : null}
@@ -651,10 +671,20 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
               : 'This workbook has an offline change waiting to sync.'}
           </span>
           <div className="workbook-pending-actions">
-            <button type="button" className="workbook-chip" disabled={recovering} onClick={() => void retrySync()}>
+            <button
+              type="button"
+              className="workbook-chip"
+              disabled={recovering}
+              onClick={() => void retrySync()}
+            >
               {recovering ? <Spinner size={14} /> : <RefreshCw size={14} aria-hidden />} Retry
             </button>
-            <button type="button" className="workbook-chip" disabled={recovering} onClick={() => void discardQueued()}>
+            <button
+              type="button"
+              className="workbook-chip"
+              disabled={recovering}
+              onClick={() => void discardQueued()}
+            >
               <Trash2 size={14} aria-hidden /> Discard
             </button>
           </div>
@@ -722,7 +752,11 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
               onClick={() => setShowWorksheets((current) => !current)}
             >
               <Table2 size={14} aria-hidden /> {worksheet.name}
-              {showWorksheets ? <ChevronDown size={13} aria-hidden /> : <ChevronUp size={13} aria-hidden />}
+              {showWorksheets ? (
+                <ChevronDown size={13} aria-hidden />
+              ) : (
+                <ChevronUp size={13} aria-hidden />
+              )}
             </button>
             {summary && summary.selected > 1 ? (
               <span className="workbook-summary">
@@ -744,23 +778,25 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
 
           {showWorksheets ? (
             <nav className="workbook-worksheets" aria-label="Worksheets">
-              {document.worksheets.filter((candidate) => !candidate.hidden).map((candidate) => (
-                <button
-                  type="button"
-                  key={candidate.id}
-                  className={`workbook-chip ${candidate.id === worksheet.id ? 'active' : ''}`}
-                  onClick={() => {
-                    // Switching worksheets is view state, but the active
-                    // worksheet is part of the document, so it goes through
-                    // the normal mutation path.
-                    mutate((current) => setActiveWorksheet(current, candidate.id));
-                    setSelection(createSelection({ row: 0, column: 0 }));
-                    setShowWorksheets(false);
-                  }}
-                >
-                  {candidate.name}
-                </button>
-              ))}
+              {document.worksheets
+                .filter((candidate) => !candidate.hidden)
+                .map((candidate) => (
+                  <button
+                    type="button"
+                    key={candidate.id}
+                    className={`workbook-chip ${candidate.id === worksheet.id ? 'active' : ''}`}
+                    onClick={() => {
+                      // Switching worksheets is view state, but the active
+                      // worksheet is part of the document, so it goes through
+                      // the normal mutation path.
+                      mutate((current) => setActiveWorksheet(current, candidate.id));
+                      setSelection(createSelection({ row: 0, column: 0 }));
+                      setShowWorksheets(false);
+                    }}
+                  >
+                    {candidate.name}
+                  </button>
+                ))}
             </nav>
           ) : null}
         </>
@@ -768,14 +804,24 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
 
       {panel === 'search' && worksheet ? (
         <div className="sheet-backdrop" onClick={dismissPanel}>
-          <div className="sheet" role="dialog" aria-label="Find in workbook" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="sheet"
+            role="dialog"
+            aria-label="Find in workbook"
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="sheet-handle" />
             <div className="sheet-head">
               <div className="row-text">
                 <strong>Find</strong>
                 <span>{query.trim() ? `${matches.length} matches` : 'Search populated cells'}</span>
               </div>
-              <button type="button" className="icon-button" aria-label="Close" onClick={() => setPanel('none')}>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close"
+                onClick={() => setPanel('none')}
+              >
                 <X size={18} aria-hidden />
               </button>
             </div>
@@ -833,7 +879,12 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
                 <strong>{formatA1(selection.active)}</strong>
                 <span>{activeValidation ? 'Validated cell' : 'Value or formula'}</span>
               </div>
-              <button type="button" className="icon-button" aria-label="Close" onClick={() => setPanel('none')}>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close"
+                onClick={() => setPanel('none')}
+              >
                 <X size={18} aria-hidden />
               </button>
             </div>
@@ -875,7 +926,9 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
               />
             </label>
             {activeValidation?.message ? (
-              <div className="sheet-note"><span>{activeValidation.message}</span></div>
+              <div className="sheet-note">
+                <span>{activeValidation.message}</span>
+              </div>
             ) : null}
             <button className="primary-button" type="submit">
               <Check size={16} aria-hidden /> Apply
@@ -896,14 +949,24 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
 
       {panel === 'format' && worksheet ? (
         <div className="sheet-backdrop" onClick={dismissPanel}>
-          <div className="sheet" role="dialog" aria-label="Cell formatting" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="sheet"
+            role="dialog"
+            aria-label="Cell formatting"
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="sheet-handle" />
             <div className="sheet-head">
               <div className="row-text">
                 <strong>Formatting</strong>
                 <span>{formatA1(selection.active)}</span>
               </div>
-              <button type="button" className="icon-button" aria-label="Close" onClick={() => setPanel('none')}>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close"
+                onClick={() => setPanel('none')}
+              >
                 <X size={18} aria-hidden />
               </button>
             </div>
@@ -912,9 +975,11 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
                 type="button"
                 className="workbook-chip"
                 aria-label="Bold"
-                onClick={() => mutate((current, worksheetId) => (
-                  applyStyleToSelection(current, worksheetId, selection, { bold: true })
-                ))}
+                onClick={() =>
+                  mutate((current, worksheetId) =>
+                    applyStyleToSelection(current, worksheetId, selection, { bold: true }),
+                  )
+                }
               >
                 <Bold size={14} aria-hidden /> Bold
               </button>
@@ -922,9 +987,11 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
                 type="button"
                 className="workbook-chip"
                 aria-label="Italic"
-                onClick={() => mutate((current, worksheetId) => (
-                  applyStyleToSelection(current, worksheetId, selection, { italic: true })
-                ))}
+                onClick={() =>
+                  mutate((current, worksheetId) =>
+                    applyStyleToSelection(current, worksheetId, selection, { italic: true }),
+                  )
+                }
               >
                 <Italic size={14} aria-hidden /> Italic
               </button>
@@ -932,11 +999,13 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
                 type="button"
                 className="workbook-chip"
                 aria-label="Percent"
-                onClick={() => mutate((current, worksheetId) => (
-                  applyStyleToSelection(current, worksheetId, selection, {
-                    numberFormat: { kind: 'percent', decimals: 1 },
-                  })
-                ))}
+                onClick={() =>
+                  mutate((current, worksheetId) =>
+                    applyStyleToSelection(current, worksheetId, selection, {
+                      numberFormat: { kind: 'percent', decimals: 1 },
+                    }),
+                  )
+                }
               >
                 <Percent size={14} aria-hidden /> Percent
               </button>
@@ -946,18 +1015,20 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
                   key={align}
                   className="workbook-chip"
                   aria-label={`Align ${align}`}
-                  onClick={() => mutate((current, worksheetId) => (
-                    applyStyleToSelection(current, worksheetId, selection, { horizontalAlign: align })
-                  ))}
+                  onClick={() =>
+                    mutate((current, worksheetId) =>
+                      applyStyleToSelection(current, worksheetId, selection, {
+                        horizontalAlign: align,
+                      }),
+                    )
+                  }
                 >
                   {align}
                 </button>
               ))}
             </div>
             <div className="sheet-note">
-              <span>
-                Structural editing, charts, and protection stay on the desktop app.
-              </span>
+              <span>Structural editing, charts, and protection stay on the desktop app.</span>
             </div>
           </div>
         </div>
@@ -965,14 +1036,24 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
 
       {panel === 'filter' && worksheet && activeTable ? (
         <div className="sheet-backdrop" onClick={dismissPanel}>
-          <div className="sheet" role="dialog" aria-label="Filter column" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="sheet"
+            role="dialog"
+            aria-label="Filter column"
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="sheet-handle" />
             <div className="sheet-head">
               <div className="row-text">
                 <strong>Filter</strong>
                 <span>{activeTable.name}</span>
               </div>
-              <button type="button" className="icon-button" aria-label="Close" onClick={() => setPanel('none')}>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close"
+                onClick={() => setPanel('none')}
+              >
                 <X size={18} aria-hidden />
               </button>
             </div>
@@ -985,18 +1066,21 @@ export function SheetScreen({ file }: { file: HostedFileEntry }) {
                 formula.values,
               )}
               current={worksheet.filters?.columnFilters?.find(
-                (candidate) => candidate.columnId === worksheet.columnOrder[selection.active.column],
+                (candidate) =>
+                  candidate.columnId === worksheet.columnOrder[selection.active.column],
               )}
               onApply={(filter) => {
                 const columnId = worksheet.columnOrder[selection.active.column] ?? '';
-                mutate((current, worksheetId) => setSheetTableColumnFilter(
-                  current,
-                  worksheetId,
-                  activeTable.id,
-                  columnId,
-                  filter,
-                  formula.values,
-                ));
+                mutate((current, worksheetId) =>
+                  setSheetTableColumnFilter(
+                    current,
+                    worksheetId,
+                    activeTable.id,
+                    columnId,
+                    filter,
+                    formula.values,
+                  ),
+                );
               }}
               onClearAll={() => {
                 mutate((current, worksheetId) => clearSheetTableFilters(current, worksheetId));
@@ -1024,9 +1108,8 @@ function FilterOptions({
   onClearAll: () => void;
 }) {
   const included = current?.includeValues;
-  const isIncluded = (value: string | number | boolean | null) => (
-    !included || included.some((candidate) => candidate === value)
-  );
+  const isIncluded = (value: string | number | boolean | null) =>
+    !included || included.some((candidate) => candidate === value);
 
   return (
     <>
@@ -1045,9 +1128,7 @@ function FilterOptions({
                 const next = active
                   ? base.filter((candidate) => candidate !== value)
                   : [...base, value];
-                onApply(
-                  next.length === values.length ? null : { columnId, includeValues: next },
-                );
+                onApply(next.length === values.length ? null : { columnId, includeValues: next });
               }}
             >
               {active ? <Check size={13} aria-hidden /> : null} {label}

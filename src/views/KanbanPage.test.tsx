@@ -5,8 +5,11 @@ import { useCollabStore } from '../store/collabStore';
 import { useEditorStore } from '../store/editorStore';
 import { useVaultStore } from '../store/vaultStore';
 
+import KanbanPage, { useKanbanContext } from './KanbanPage';
+
 const kanbanEvents = vi.hoisted(() => ({
-  fileModifiedHandler: null as null | ((event: { payload: { path: string } }) => void | Promise<void>),
+  fileModifiedHandler: null as
+    null | ((event: { payload: { path: string } }) => void | Promise<void>),
 }));
 
 const tauriMocks = vi.hoisted(() => ({
@@ -17,16 +20,21 @@ const tauriMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@tauri-apps/api/event', () => ({
-  listen: vi.fn(async (eventName: string, handler: (event: { payload: { path: string } }) => void | Promise<void>) => {
-    if (eventName === 'vault:file-modified') {
-      kanbanEvents.fileModifiedHandler = handler;
-    }
-    return () => {
+  listen: vi.fn(
+    async (
+      eventName: string,
+      handler: (event: { payload: { path: string } }) => void | Promise<void>,
+    ) => {
       if (eventName === 'vault:file-modified') {
-        kanbanEvents.fileModifiedHandler = null;
+        kanbanEvents.fileModifiedHandler = handler;
       }
-    };
-  }),
+      return () => {
+        if (eventName === 'vault:file-modified') {
+          kanbanEvents.fileModifiedHandler = null;
+        }
+      };
+    },
+  ),
 }));
 
 vi.mock('../lib/tauri', () => ({
@@ -40,11 +48,15 @@ vi.mock('../lib/tauri', () => ({
 
 vi.mock('../components/collaboration/CollabProvider', () => ({
   useCollabContext: () => ({
-    readVaultConfig: vi.fn(async () => ({ id: 'config-1', name: 'Vault', knownUsers: [], owner: 'user-1', members: [] })),
+    readVaultConfig: vi.fn(async () => ({
+      id: 'config-1',
+      name: 'Vault',
+      knownUsers: [],
+      owner: 'user-1',
+      members: [],
+    })),
   }),
 }));
-
-import KanbanPage, { useKanbanContext } from './KanbanPage';
 
 function wait(ms: number) {
   return new Promise((resolve) => {
@@ -98,7 +110,13 @@ describe('KanbanPage save behavior', () => {
     kanbanEvents.fileModifiedHandler = null;
 
     useVaultStore.setState({
-      vault: { id: 'vault-1', path: '/vault', name: 'Vault', isEncrypted: false, lastOpened: Date.now() },
+      vault: {
+        id: 'vault-1',
+        path: '/vault',
+        name: 'Vault',
+        isEncrypted: false,
+        lastOpened: Date.now(),
+      },
       isVaultLocked: false,
       fileTree: [],
       recentVaults: [],
@@ -114,7 +132,15 @@ describe('KanbanPage save behavior', () => {
 
     useEditorStore.setState({
       sessionVaultPath: '/vault',
-      openTabs: [{ relativePath: 'Boards/test.kanban', title: 'test', isDirty: false, savedHash: null, type: 'kanban' }],
+      openTabs: [
+        {
+          relativePath: 'Boards/test.kanban',
+          title: 'test',
+          isDirty: false,
+          savedHash: null,
+          type: 'kanban',
+        },
+      ],
       activeTabPath: 'Boards/test.kanban',
       forceReloadPath: null,
     });
@@ -158,9 +184,12 @@ describe('KanbanPage save behavior', () => {
 
     // The controller latches the conflict and pauses autosave; the shared status
     // surfaces it for review instead of the legacy modal dialog.
-    await waitFor(() => {
-      expect(screen.getByTestId('session-status').textContent).toBe('conflict');
-    }, { timeout: 2000 });
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('session-status').textContent).toBe('conflict');
+      },
+      { timeout: 2000 },
+    );
     expect(tauriMocks.createSnapshot).not.toHaveBeenCalled();
   });
 
@@ -216,7 +245,22 @@ describe('KanbanPage save behavior', () => {
       })
       .mockResolvedValueOnce({
         content: JSON.stringify({
-          columns: [{ id: 'col-1', title: 'To Do', cards: [{ id: 'card-2', title: 'Remote card', assignees: [], tags: [], comments: [], checklist: [] }] }],
+          columns: [
+            {
+              id: 'col-1',
+              title: 'To Do',
+              cards: [
+                {
+                  id: 'card-2',
+                  title: 'Remote card',
+                  assignees: [],
+                  tags: [],
+                  comments: [],
+                  checklist: [],
+                },
+              ],
+            },
+          ],
         }),
         hash: 'hash-2',
         modifiedAt: 2,

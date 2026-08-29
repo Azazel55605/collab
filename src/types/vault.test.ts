@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isVaultReadOnly, vaultCan, type HostedVaultMeta, type LocalVaultMeta } from './vault';
+import { type HostedVaultMeta, isVaultReadOnly, type LocalVaultMeta, vaultCan } from './vault';
 
 const localVault: LocalVaultMeta = {
   kind: 'local',
@@ -52,7 +52,10 @@ describe('vaultCan', () => {
     expect(vaultCan(commenter, 'pdf.annotate')).toBe(false);
     expect(vaultCan(commenter, 'vault.offlineCopy')).toBe(false);
 
-    const annotator = { ...hostedVault('editor'), capabilities: ['pdf.comment', 'pdf.annotate', 'vault.offlineCopy'] };
+    const annotator = {
+      ...hostedVault('editor'),
+      capabilities: ['pdf.comment', 'pdf.annotate', 'vault.offlineCopy'],
+    };
     expect(vaultCan(annotator, 'pdf.annotate')).toBe(true);
     expect(vaultCan(annotator, 'vault.offlineCopy')).toBe(true);
   });

@@ -16,7 +16,9 @@ describe('MarkdownEditor link helpers', () => {
     const openExternal = vi.fn().mockResolvedValue(undefined);
     const onInvalidLink = vi.fn();
 
-    expect(openNonVaultMarkdownPreviewLink('https://example.com', { openExternal, onInvalidLink })).toBe(true);
+    expect(
+      openNonVaultMarkdownPreviewLink('https://example.com', { openExternal, onInvalidLink }),
+    ).toBe(true);
     expect(openExternal).toHaveBeenCalledWith('https://example.com');
     expect(onInvalidLink).not.toHaveBeenCalled();
   });

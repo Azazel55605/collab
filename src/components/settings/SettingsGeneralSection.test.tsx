@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 import SettingsGeneralSection from './SettingsGeneralSection';
 
 function getSwitchForLabel(label: string) {
-  return screen.getByText(label).closest('[aria-disabled]')?.querySelector('[role="switch"]') as HTMLElement;
+  return screen
+    .getByText(label)
+    .closest('[aria-disabled]')
+    ?.querySelector('[role="switch"]') as HTMLElement;
 }
 
 describe('SettingsGeneralSection', () => {
@@ -96,8 +99,12 @@ describe('SettingsGeneralSection', () => {
       />,
     );
 
-    expect(screen.getByText('Hover previews for links').closest('[aria-disabled="true"]')).not.toBeNull();
-    expect(screen.getByText('Background prefetch for open documents').closest('[aria-disabled="true"]')).not.toBeNull();
+    expect(
+      screen.getByText('Hover previews for links').closest('[aria-disabled="true"]'),
+    ).not.toBeNull();
+    expect(
+      screen.getByText('Background prefetch for open documents').closest('[aria-disabled="true"]'),
+    ).not.toBeNull();
   });
 
   it('shows file tree previews under the broader previews section', () => {

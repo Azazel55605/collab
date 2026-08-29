@@ -9,16 +9,14 @@ import type {
 } from '../../types/sheet';
 import type { SheetFormulaValueMap } from '../../types/sheetFormula';
 import { sheetFormulaResultKey } from '../../types/sheetFormula';
+
 import type { SheetPosition } from './address';
 import { createSheetConditionalFormatId, SheetDocumentError } from './document';
+import { conditionalFormulaExpressionId, ruleFormulaValue } from './formulaRules';
 import { getCell } from './operations';
 import { normalizeRange, type SheetSelection } from './selection';
 import { pruneUnusedSheetStyles, registerSheetStyle } from './styles';
 import { stableRangeFromSelection } from './validation';
-import {
-  conditionalFormulaExpressionId,
-  ruleFormulaValue,
-} from './formulaRules';
 
 const MAX_CONDITIONAL_FORMAT_CELLS = 100_000;
 
@@ -34,8 +32,7 @@ export interface SheetConditionalFormatDraft {
 function cellCount(selection: SheetSelection): number {
   return selection.ranges.reduce((total, range) => {
     const rectangle = normalizeRange(range);
-    return total
-      + (rectangle.bottom - rectangle.top + 1) * (rectangle.right - rectangle.left + 1);
+    return total + (rectangle.bottom - rectangle.top + 1) * (rectangle.right - rectangle.left + 1);
   }, 0);
 }
 
@@ -89,11 +86,11 @@ export function applySheetConditionalFormat(
   };
   return {
     ...registered.document,
-    worksheets: registered.document.worksheets.map((candidate) => (
+    worksheets: registered.document.worksheets.map((candidate) =>
       candidate.id === worksheetId
         ? { ...candidate, conditionalFormats: [...(candidate.conditionalFormats ?? []), rule] }
-        : candidate
-    )),
+        : candidate,
+    ),
   };
 }
 
@@ -109,7 +106,8 @@ export function removeSheetConditionalFormat(
       const conditionalFormats = (worksheet.conditionalFormats ?? []).filter(
         (format) => format.id !== formatId,
       );
-      if (conditionalFormats.length === (worksheet.conditionalFormats?.length ?? 0)) return worksheet;
+      if (conditionalFormats.length === (worksheet.conditionalFormats?.length ?? 0))
+        return worksheet;
       const updated = { ...worksheet };
       if (conditionalFormats.length > 0) updated.conditionalFormats = conditionalFormats;
       else delete updated.conditionalFormats;
@@ -143,23 +141,23 @@ function valueAt(
 ): string | number | boolean | null {
   const rowId = worksheet.rowOrder[position.row];
   const columnId = worksheet.columnOrder[position.column];
-  const computed = rowId && columnId
-    ? computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
-    : undefined;
+  const computed =
+    rowId && columnId
+      ? computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
+      : undefined;
   if (computed?.type === 'number' || computed?.type === 'text' || computed?.type === 'boolean') {
     return computed.value;
   }
   return getCell(worksheet, position)?.value ?? null;
 }
 
-function compare(
-  value: string | number | boolean | null,
-  rule: SheetConditionalFormat,
-): boolean {
+function compare(value: string | number | boolean | null, rule: SheetConditionalFormat): boolean {
   const first = rule.values?.[0];
   const second = rule.values?.[1];
   if (rule.operator === 'contains') {
-    return String(value ?? '').toLocaleLowerCase().includes(String(first ?? '').toLocaleLowerCase());
+    return String(value ?? '')
+      .toLocaleLowerCase()
+      .includes(String(first ?? '').toLocaleLowerCase());
   }
   const left = typeof value === 'number' ? value : String(value ?? '');
   const right = typeof left === 'number' ? Number(first) : String(first ?? '');
@@ -184,10 +182,10 @@ function parseHex(color: string): [number, number, number] | null {
   const match = /^#([0-9a-f]{6})$/i.exec(color);
   return match
     ? [
-      Number.parseInt(match[1].slice(0, 2), 16),
-      Number.parseInt(match[1].slice(2, 4), 16),
-      Number.parseInt(match[1].slice(4, 6), 16),
-    ]
+        Number.parseInt(match[1].slice(0, 2), 16),
+        Number.parseInt(match[1].slice(2, 4), 16),
+        Number.parseInt(match[1].slice(4, 6), 16),
+      ]
     : null;
 }
 
@@ -195,7 +193,8 @@ function interpolateColor(from: string, to: string, amount: number): string {
   const start = parseHex(from);
   const end = parseHex(to);
   if (!start || !end) return amount < 0.5 ? from : to;
-  const channel = (index: number) => Math.round(start[index] + (end[index] - start[index]) * amount);
+  const channel = (index: number) =>
+    Math.round(start[index] + (end[index] - start[index]) * amount);
   return `rgb(${channel(0)}, ${channel(1)}, ${channel(2)})`;
 }
 
@@ -220,7 +219,11 @@ export function createConditionalFormatEvaluator(
     const counts = new Map<string, number>();
     let minimum: number | undefined;
     let maximum: number | undefined;
-    if (rule.kind === 'duplicateValues' || rule.kind === 'uniqueValues' || rule.kind === 'colorScale') {
+    if (
+      rule.kind === 'duplicateValues' ||
+      rule.kind === 'uniqueValues' ||
+      rule.kind === 'colorScale'
+    ) {
       let visited = 0;
       for (const rectangle of rectangles) {
         for (let row = rectangle.top; row <= rectangle.bottom; row += 1) {
@@ -246,10 +249,16 @@ export function createConditionalFormatEvaluator(
   return (position) => {
     let result: SheetStyle = {};
     for (const item of prepared) {
-      if (!item.rectangles.some((rectangle) => (
-        position.row >= rectangle.top && position.row <= rectangle.bottom
-        && position.column >= rectangle.left && position.column <= rectangle.right
-      ))) continue;
+      if (
+        !item.rectangles.some(
+          (rectangle) =>
+            position.row >= rectangle.top &&
+            position.row <= rectangle.bottom &&
+            position.column >= rectangle.left &&
+            position.column <= rectangle.right,
+        )
+      )
+        continue;
       const value = valueAt(worksheet, position, computedValues);
       let matches = false;
       if (item.rule.kind === 'comparison') matches = compare(value, item.rule);
@@ -259,9 +268,10 @@ export function createConditionalFormatEvaluator(
           worksheet,
           conditionalFormulaExpressionId(item.rule.id, worksheet, position),
         );
-        matches = computed?.type === 'boolean'
-          ? computed.value
-          : computed?.type === 'number' && computed.value !== 0;
+        matches =
+          computed?.type === 'boolean'
+            ? computed.value
+            : computed?.type === 'number' && computed.value !== 0;
       }
       if (item.rule.kind === 'duplicateValues' || item.rule.kind === 'uniqueValues') {
         const count = item.counts.get(valueKey(value) ?? '') ?? 0;
@@ -272,10 +282,14 @@ export function createConditionalFormatEvaluator(
         const first = stops[0];
         const last = stops[stops.length - 1];
         if (first && last && item.minimum !== undefined && item.maximum !== undefined) {
-          const amount = item.maximum === item.minimum
-            ? 0.5
-            : Math.max(0, Math.min(1, (value - item.minimum) / (item.maximum - item.minimum)));
-          result = { ...result, backgroundColor: interpolateColor(first.color, last.color, amount) };
+          const amount =
+            item.maximum === item.minimum
+              ? 0.5
+              : Math.max(0, Math.min(1, (value - item.minimum) / (item.maximum - item.minimum)));
+          result = {
+            ...result,
+            backgroundColor: interpolateColor(first.color, last.color, amount),
+          };
         }
       } else if (matches && item.rule.styleId && styles[item.rule.styleId]) {
         result = { ...result, ...styles[item.rule.styleId] };

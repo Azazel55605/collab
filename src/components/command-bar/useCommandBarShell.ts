@@ -7,6 +7,7 @@ import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
 import type { SearchResult } from '../../types/note';
+
 import type { RenderCtx } from './commandBarActions';
 import { detectMode, flattenFiles } from './commandBarUtils';
 import { completeInsertQuery } from './snippets';
@@ -14,7 +15,9 @@ import { completeInsertQuery } from './snippets';
 type CommandBarShortcutEvent = Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'key' | 'metaKey'>;
 
 export function isCommandBarToggleShortcut(event: CommandBarShortcutEvent) {
-  return (event.ctrlKey || event.metaKey) && !event.altKey && (event.key === 'k' || event.key === 'p');
+  return (
+    (event.ctrlKey || event.metaKey) && !event.altKey && (event.key === 'k' || event.key === 'p')
+  );
 }
 
 export function useCommandBarShell() {
@@ -76,9 +79,10 @@ export function useCommandBarShell() {
 
   const mode = detectMode(input);
   const files = flattenFiles(fileTree);
-  const insertCompletion = mode.type === 'insert'
-    ? (completeInsertQuery(mode.query) ?? completeNerdFontIconQuery(mode.query))
-    : null;
+  const insertCompletion =
+    mode.type === 'insert'
+      ? (completeInsertQuery(mode.query) ?? completeNerdFontIconQuery(mode.query))
+      : null;
 
   const ctx: RenderCtx = {
     notes,

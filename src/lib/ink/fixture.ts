@@ -7,7 +7,6 @@
  * stay deterministic — no `Math.random`, no clock reads. The pseudo-random
  * source below is seeded and reproducible.
  */
-
 import {
   INK_DOCUMENT_KIND,
   INK_PAGE_PRESETS,
@@ -22,6 +21,7 @@ import type {
   InkScene,
   InkStroke,
 } from '../../types/ink';
+
 import { encodeSamples } from './codec';
 import { strokeBounds } from './stroke';
 
@@ -91,8 +91,7 @@ export function buildStrokeSamples(options: InkStrokeFixtureOptions): InkSample[
       // Press on entering the stroke, ease off leaving it.
       const curve = Math.sin(Math.PI * progress) * 0.65 + 0.3;
       sample.pressure = Math.round(
-        Math.min(1, Math.max(0, curve + (random() - 0.5) * 0.05)) *
-          INK_SAMPLE_RANGES.pressureMax,
+        Math.min(1, Math.max(0, curve + (random() - 0.5) * 0.05)) * INK_SAMPLE_RANGES.pressureMax,
       );
     }
     if (options.tilt) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { SHEET_DOCUMENT_KIND, SHEET_LIMITS, SHEET_SCHEMA_VERSION } from '../../types/sheet';
+
 import { SheetAddressIndex } from './address';
 import { createWorkbookFixture } from './fixture';
 import { buildColumnMetrics, buildRowMetrics, computeViewport } from './viewport';
@@ -27,8 +28,9 @@ describe('workbook fixtures', () => {
 
   it('is deterministic', () => {
     const options = { rows: 50, columns: 20, populatedRows: 10, populatedColumns: 10 };
-    expect(JSON.stringify(createWorkbookFixture(options)))
-      .toBe(JSON.stringify(createWorkbookFixture(options)));
+    expect(JSON.stringify(createWorkbookFixture(options))).toBe(
+      JSON.stringify(createWorkbookFixture(options)),
+    );
   });
 });
 
@@ -54,7 +56,9 @@ describe('sparse workbook at Phase 0 scale', () => {
     expect(populated).toBe(100_000);
     expect(populated).toBeLessThanOrEqual(SHEET_LIMITS.populatedCellsPerWorksheet);
     // The logical grid is far larger than the populated region.
-    expect(worksheet.rowOrder.length * worksheet.columnOrder.length).toBeGreaterThan(populated * 100);
+    expect(worksheet.rowOrder.length * worksheet.columnOrder.length).toBeGreaterThan(
+      populated * 100,
+    );
     expect(buildElapsed).toBeLessThan(3_000);
 
     const serializeStarted = performance.now();

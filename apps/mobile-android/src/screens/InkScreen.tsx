@@ -14,6 +14,7 @@
  * and workbook screens, with the shared Ink CRDT taking over while a live
  * document session is available.
  */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ArrowLeft,
@@ -31,60 +32,59 @@ import {
   Undo2,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { Banner, ReadOnlyBadge, Spinner } from '../components/ui';
+import { encodeSamples } from '../../../../src/lib/ink/codec';
+import { inkColorLabel, inkPaletteForTheme, resolveInkColor } from '../../../../src/lib/ink/colors';
+import {
+  createInkPage,
+  INK_DEFAULT_BRUSHES,
+  inkDocumentStats,
+} from '../../../../src/lib/ink/document';
+import { applyErase, planErase } from '../../../../src/lib/ink/erase';
+import type { InkEraserMode } from '../../../../src/lib/ink/erase';
+import { InkHistory } from '../../../../src/lib/ink/history';
+import { addObject, addPage, onPage } from '../../../../src/lib/ink/operations';
+import type { InkEdit } from '../../../../src/lib/ink/operations';
+import type { InkInputSettings } from '../../../../src/lib/ink/pointer';
+import {
+  defaultToolState,
+  drawsBehindInk,
+  INK_BRUSH_ORDER,
+  INK_BRUSH_WIDTHS,
+  INK_DEFAULT_SWATCHES,
+  INK_ERASER_SIZES,
+} from '../../../../src/lib/ink/tools';
+import type { InkToolState } from '../../../../src/lib/ink/tools';
+import { type InkInteraction, useLivePeers } from '../../../../src/lib/liveAwareness';
+import { userColorForId } from '../../../../src/lib/userColor';
+import { INK_UNITS_PER_PX } from '../../../../src/types/ink';
+import type { InkBrushKind, InkSample, InkScene } from '../../../../src/types/ink';
 import { InkTouchCanvas } from '../components/InkTouchCanvas';
+import { Banner, ReadOnlyBadge, Spinner } from '../components/ui';
 import { useBackDismiss } from '../lib/backStack';
 import { isReadOnlyRole } from '../lib/format';
 import {
   clampInkScale,
   drawingName,
   INK_MOBILE_SCALE,
+  type InkDocument,
   inspectInkContent,
   loadInkViewState,
   readInkDrawing,
   saveInkDrawing,
   saveInkViewState,
   serializeInk,
-  type InkDocument,
 } from '../lib/ink';
 import {
-  openMobileLiveJsonSession,
   type JsonObject,
   type LiveStatus,
   type MobileLiveJsonSession,
+  openMobileLiveJsonSession,
 } from '../lib/liveNote';
-import {
-  enqueueDocumentEdit,
-  isLikelyConnectivityError,
-  pendingEditsForFile,
-} from '../lib/sync';
-import { replicaCacheDocument, type HostedFileEntry, type PendingOperation } from '../mobileTauri';
-import { useMobileStore } from '../state/store';
-import { INK_UNITS_PER_PX } from '../../../../src/types/ink';
-import type { InkBrushKind, InkSample, InkScene } from '../../../../src/types/ink';
-import { INK_DEFAULT_BRUSHES, createInkPage, inkDocumentStats } from '../../../../src/lib/ink/document';
-import { encodeSamples } from '../../../../src/lib/ink/codec';
-import { addObject, addPage, onPage } from '../../../../src/lib/ink/operations';
-import type { InkEdit } from '../../../../src/lib/ink/operations';
-import { applyErase, planErase } from '../../../../src/lib/ink/erase';
-import type { InkEraserMode } from '../../../../src/lib/ink/erase';
-import { InkHistory } from '../../../../src/lib/ink/history';
-import {
-  INK_BRUSH_ORDER,
-  INK_BRUSH_WIDTHS,
-  INK_DEFAULT_SWATCHES,
-  INK_ERASER_SIZES,
-  defaultToolState,
-  drawsBehindInk,
-} from '../../../../src/lib/ink/tools';
-import type { InkToolState } from '../../../../src/lib/ink/tools';
-import type { InkInputSettings } from '../../../../src/lib/ink/pointer';
-import { useLivePeers, type InkInteraction } from '../../../../src/lib/liveAwareness';
-import { userColorForId } from '../../../../src/lib/userColor';
-import { inkColorLabel, inkPaletteForTheme, resolveInkColor } from '../../../../src/lib/ink/colors';
+import { enqueueDocumentEdit, isLikelyConnectivityError, pendingEditsForFile } from '../lib/sync';
 import type { Theme } from '../lib/theme';
+import { type HostedFileEntry, type PendingOperation, replicaCacheDocument } from '../mobileTauri';
+import { useMobileStore } from '../state/store';
 
 const SAVE_DEBOUNCE_MS = 600;
 
@@ -291,7 +291,15 @@ export function InkScreen({ file, theme = 'dark' }: { file: HostedFileEntry; the
       setLiveSession(null);
       setLiveStatus(null);
     };
-  }, [file.id, markSaved, schemaNewer, selected?.serverUrl, selected?.vault.id, serverUrl, vaultId]);
+  }, [
+    file.id,
+    markSaved,
+    schemaNewer,
+    selected?.serverUrl,
+    selected?.vault.id,
+    serverUrl,
+    vaultId,
+  ]);
 
   const activePageId = useMemo(() => {
     if (!document) return null;
@@ -518,23 +526,25 @@ export function InkScreen({ file, theme = 'dark' }: { file: HostedFileEntry; the
       const template = target.pages[target.pageOrder[target.pageOrder.length - 1]];
       const created = createInkPage(id, { mode: template?.mode ?? 'fixed' });
       const sized = template
-        ? { ...created, width: template.width, height: template.height, background: template.background }
+        ? {
+            ...created,
+            width: template.width,
+            height: template.height,
+            background: template.background,
+          }
         : created;
       return addPage(target, sized, pageIndex + 1);
     });
     setPageId(id);
   }, [commit, nextId, pageIndex]);
 
-  const goToPage = useCallback(
-    (index: number) => {
-      const current = documentRef.current;
-      const next = current?.pageOrder[index];
-      if (!next) return;
-      setPageId(next);
-      setViewport((state) => ({ ...state, originX: 0, originY: 0 }));
-    },
-    [],
-  );
+  const goToPage = useCallback((index: number) => {
+    const current = documentRef.current;
+    const next = current?.pageOrder[index];
+    if (!next) return;
+    setPageId(next);
+    setViewport((state) => ({ ...state, originX: 0, originY: 0 }));
+  }, []);
 
   const fitPage = useCallback(() => {
     if (!page) return;
@@ -654,8 +664,8 @@ export function InkScreen({ file, theme = 'dark' }: { file: HostedFileEntry; the
 
       {schemaNewer && (
         <Banner tone="info">
-          This drawing was made with a newer version of Collab. It is open read-only so nothing
-          it stored is lost.
+          This drawing was made with a newer version of Collab. It is open read-only so nothing it
+          stored is lost.
         </Banner>
       )}
       {repairs.length > 0 && (
@@ -790,7 +800,11 @@ export function InkScreen({ file, theme = 'dark' }: { file: HostedFileEntry; the
             className="sheet"
             role="dialog"
             aria-label={
-              panel === 'brush' ? 'Pen options' : panel === 'eraser' ? 'Eraser options' : 'Layers and pages'
+              panel === 'brush'
+                ? 'Pen options'
+                : panel === 'eraser'
+                  ? 'Eraser options'
+                  : 'Layers and pages'
             }
             onClick={(event) => event.stopPropagation()}
           >

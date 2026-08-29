@@ -7,7 +7,6 @@
  * renderer-free means the canvas layer, the overlay, and the keyboard handler
  * all read the same source of truth.
  */
-
 import type { SheetPosition } from './address';
 
 export type SheetSelectionKind = 'cells' | 'rows' | 'columns' | 'all';
@@ -60,10 +59,12 @@ export function normalizeRange(range: SheetSelectionRange): SheetRectangle {
 }
 
 export function rectangleContains(rectangle: SheetRectangle, position: SheetPosition): boolean {
-  return position.row >= rectangle.top
-    && position.row <= rectangle.bottom
-    && position.column >= rectangle.left
-    && position.column <= rectangle.right;
+  return (
+    position.row >= rectangle.top &&
+    position.row <= rectangle.bottom &&
+    position.column >= rectangle.left &&
+    position.column <= rectangle.right
+  );
 }
 
 export function createSelection(position: SheetPosition): SheetSelection {
@@ -96,20 +97,27 @@ export function extendSelection(
   selection: SheetSelection,
   position: SheetPosition,
 ): SheetSelection {
-  const ranges = selection.ranges.length > 0 ? [...selection.ranges] : [{ anchor: position, focus: position }];
+  const ranges =
+    selection.ranges.length > 0 ? [...selection.ranges] : [{ anchor: position, focus: position }];
   const last = ranges[ranges.length - 1];
   ranges[ranges.length - 1] = { anchor: last.anchor, focus: position };
-  return { ranges, active: selection.active, kind: selection.kind === 'all' ? 'cells' : selection.kind };
+  return {
+    ranges,
+    active: selection.active,
+    kind: selection.kind === 'all' ? 'cells' : selection.kind,
+  };
 }
 
 export function selectRows(from: number, to: number, bounds: SheetGridBounds): SheetSelection {
   const top = Math.min(from, to);
   const bottom = Math.max(from, to);
   return {
-    ranges: [{
-      anchor: { row: top, column: 0 },
-      focus: { row: bottom, column: Math.max(0, bounds.columnCount - 1) },
-    }],
+    ranges: [
+      {
+        anchor: { row: top, column: 0 },
+        focus: { row: bottom, column: Math.max(0, bounds.columnCount - 1) },
+      },
+    ],
     active: { row: top, column: 0 },
     kind: 'rows',
   };
@@ -119,10 +127,12 @@ export function selectColumns(from: number, to: number, bounds: SheetGridBounds)
   const left = Math.min(from, to);
   const right = Math.max(from, to);
   return {
-    ranges: [{
-      anchor: { row: 0, column: left },
-      focus: { row: Math.max(0, bounds.rowCount - 1), column: right },
-    }],
+    ranges: [
+      {
+        anchor: { row: 0, column: left },
+        focus: { row: Math.max(0, bounds.rowCount - 1), column: right },
+      },
+    ],
     active: { row: 0, column: left },
     kind: 'columns',
   };
@@ -130,13 +140,15 @@ export function selectColumns(from: number, to: number, bounds: SheetGridBounds)
 
 export function selectAll(bounds: SheetGridBounds): SheetSelection {
   return {
-    ranges: [{
-      anchor: { row: 0, column: 0 },
-      focus: {
-        row: Math.max(0, bounds.rowCount - 1),
-        column: Math.max(0, bounds.columnCount - 1),
+    ranges: [
+      {
+        anchor: { row: 0, column: 0 },
+        focus: {
+          row: Math.max(0, bounds.rowCount - 1),
+          column: Math.max(0, bounds.columnCount - 1),
+        },
       },
-    }],
+    ],
     active: { row: 0, column: 0 },
     kind: 'all',
   };
@@ -215,10 +227,11 @@ function jumpTarget(
   isPopulated: (position: SheetPosition) => boolean,
 ): SheetPosition {
   const delta = DELTAS[direction];
-  const inBounds = (position: SheetPosition) => position.row >= 0
-    && position.row < bounds.rowCount
-    && position.column >= 0
-    && position.column < bounds.columnCount;
+  const inBounds = (position: SheetPosition) =>
+    position.row >= 0 &&
+    position.row < bounds.rowCount &&
+    position.column >= 0 &&
+    position.column < bounds.columnCount;
 
   const step = (position: SheetPosition) => ({
     row: position.row + delta.row,
@@ -265,10 +278,13 @@ export function moveSelection(
   } else {
     const delta = DELTAS[direction];
     const distance = options.distance ?? 1;
-    target = clampPosition({
-      row: origin.row + delta.row * distance,
-      column: origin.column + delta.column * distance,
-    }, bounds);
+    target = clampPosition(
+      {
+        row: origin.row + delta.row * distance,
+        column: origin.column + delta.column * distance,
+      },
+      bounds,
+    );
   }
 
   if (options.extend) return extendSelection(selection, target);
@@ -286,10 +302,13 @@ export function moveToEdge(
     ? (selection.ranges[selection.ranges.length - 1]?.focus ?? selection.active)
     : selection.active;
   const target = clampPosition(
-    edge === 'row-start' ? { row: origin.row, column: 0 }
-      : edge === 'row-end' ? { row: origin.row, column: bounds.columnCount - 1 }
-      : edge === 'grid-start' ? { row: 0, column: 0 }
-      : { row: bounds.rowCount - 1, column: bounds.columnCount - 1 },
+    edge === 'row-start'
+      ? { row: origin.row, column: 0 }
+      : edge === 'row-end'
+        ? { row: origin.row, column: bounds.columnCount - 1 }
+        : edge === 'grid-start'
+          ? { row: 0, column: 0 }
+          : { row: bounds.rowCount - 1, column: bounds.columnCount - 1 },
     bounds,
   );
   return extend ? extendSelection(selection, target) : createSelection(target);
@@ -305,8 +324,8 @@ export function advanceAfterCommit(
   bounds: SheetGridBounds,
 ): SheetSelection {
   const rectangle = selection.ranges.length === 1 ? normalizeRange(selection.ranges[0]) : null;
-  const multiCell = rectangle
-    && (rectangle.top !== rectangle.bottom || rectangle.left !== rectangle.right);
+  const multiCell =
+    rectangle && (rectangle.top !== rectangle.bottom || rectangle.left !== rectangle.right);
 
   if (!multiCell) return moveSelection(selection, direction, bounds);
 

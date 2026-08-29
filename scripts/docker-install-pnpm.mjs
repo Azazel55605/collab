@@ -1,6 +1,6 @@
 import { createWriteStream } from 'node:fs';
-import { setTimeout as delay } from 'node:timers/promises';
 import https from 'node:https';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const version = process.argv[2] ?? '10.33.0';
 const outputPath = process.argv[3] ?? '/tmp/pnpm.tgz';

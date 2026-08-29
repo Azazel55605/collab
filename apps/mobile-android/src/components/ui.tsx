@@ -1,19 +1,20 @@
+import type { ReactNode } from 'react';
+
 import {
+  CircuitBoard,
   File as FileIcon,
   FileText,
   Folder,
   Image as ImageIcon,
   KanbanSquare,
   Loader2,
-  CircuitBoard,
   PenLine,
   Shapes,
   Table2,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
 
+import { type FileGlyph, ROLE_LABEL } from '../lib/format';
 import type { MemberRole } from '../mobileTauri';
-import { ROLE_LABEL, type FileGlyph } from '../lib/format';
 
 export function Spinner({ size = 18 }: { size?: number }) {
   return <Loader2 className="spin" size={size} aria-hidden />;

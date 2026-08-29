@@ -1,13 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { SheetChartKind } from '../../types/sheet';
-import { createEmptySheetDocument } from './document';
-import {
-  deleteTracks,
-  setCell,
-  upsertSheetChart,
-} from './operations';
-import { createSelection } from './selection';
+
 import {
   buildSheetChartSvg,
   chartAccessibilitySummary,
@@ -16,6 +10,9 @@ import {
   pivotSheetSummary,
   stableRangeFromSelection,
 } from './analysis';
+import { createEmptySheetDocument } from './document';
+import { deleteTracks, setCell, upsertSheetChart } from './operations';
+import { createSelection } from './selection';
 
 function fixture() {
   let document = createEmptySheetDocument('Analysis', {
@@ -29,12 +26,19 @@ function fixture() {
     ['North', 'B', 20],
     ['South', 'A', 30],
   ] as const;
-  rows.forEach((row, rowIndex) => row.forEach((value, column) => {
-    document = setCell(document, 'ws1', { row: rowIndex, column }, {
-      value,
-      valueType: typeof value === 'number' ? 'number' : 'text',
-    });
-  }));
+  rows.forEach((row, rowIndex) =>
+    row.forEach((value, column) => {
+      document = setCell(
+        document,
+        'ws1',
+        { row: rowIndex, column },
+        {
+          value,
+          valueType: typeof value === 'number' ? 'number' : 'text',
+        },
+      );
+    }),
+  );
   return document;
 }
 
@@ -47,7 +51,13 @@ describe('sheet charts and analysis', () => {
       ranges: [{ anchor: { row: 0, column: 0 }, focus: { row: 3, column: 2 } }],
     };
     const kinds: SheetChartKind[] = [
-      'column', 'bar', 'line', 'area', 'pie', 'scatter', 'sparkline',
+      'column',
+      'bar',
+      'line',
+      'area',
+      'pie',
+      'scatter',
+      'sparkline',
     ];
     for (const kind of kinds) {
       const chart = createChartFromSelection(worksheet, selection, kind, `${kind} chart`);
@@ -70,8 +80,9 @@ describe('sheet charts and analysis', () => {
     const originalRange = document.worksheets[0].charts![0].series[0].valuesRange;
 
     document = deleteTracks(document, worksheet.id, 'row', 1, 1);
-    expect(document.worksheets[0].charts![0].series[0].valuesRange.startRowId)
-      .toBe(originalRange.startRowId);
+    expect(document.worksheets[0].charts![0].series[0].valuesRange.startRowId).toBe(
+      originalRange.startRowId,
+    );
 
     const anchorRow = document.worksheets[0].rowOrder.indexOf(chart.anchor.rowId);
     document = deleteTracks(document, worksheet.id, 'row', anchorRow, 1);
@@ -91,11 +102,13 @@ describe('sheet charts and analysis', () => {
       worksheet.columnOrder[0],
       worksheet.columnOrder[2],
     );
-    expect(grouped).toContainEqual(expect.objectContaining({
-      group: 'North',
-      count: 2,
-      sum: 30,
-    }));
+    expect(grouped).toContainEqual(
+      expect.objectContaining({
+        group: 'North',
+        count: 2,
+        sum: 30,
+      }),
+    );
     const pivot = pivotSheetSummary(
       worksheet,
       range,

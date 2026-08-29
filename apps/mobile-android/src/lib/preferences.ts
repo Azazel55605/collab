@@ -20,9 +20,9 @@ export function setAlwaysCreateOfflineCopy(enabled: boolean): void {
 
 export function shouldAlwaysCreateOfflineCopy(serverUrl: string): boolean {
   const normalized = normalizeServerUrl(serverUrl);
-  const mode = listKnownServers().find(
-    (server) => normalizeServerUrl(server.serverUrl) === normalized,
-  )?.offlineCopyMode ?? 'inherit';
+  const mode =
+    listKnownServers().find((server) => normalizeServerUrl(server.serverUrl) === normalized)
+      ?.offlineCopyMode ?? 'inherit';
   if (mode === 'always') return true;
   if (mode === 'never') return false;
   return alwaysCreateOfflineCopy();

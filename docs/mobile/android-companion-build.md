@@ -15,8 +15,7 @@ Android app uses the mobile-specific Vite entrypoint in
 
 2. Install **JDK 17 or JDK 21** and make sure `JAVA_HOME` points at it before
    running Android builds. The Android Gradle tooling used by the generated
-   Tauri project does not currently work with newer Java releases such as JDK
-   26.
+   Tauri project does not currently work with newer Java releases such as JDK 26.
 
 3. Install Android Studio or the Android command-line tools.
 

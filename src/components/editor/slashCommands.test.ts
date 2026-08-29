@@ -2,9 +2,10 @@ import { CompletionContext } from '@codemirror/autocomplete';
 import { EditorState } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 
-import { createSlashCommandSource } from './slashCommands';
 import { useNoteSnippetStore } from '../../store/noteSnippetStore';
 import { useVaultStore } from '../../store/vaultStore';
+
+import { createSlashCommandSource } from './slashCommands';
 
 describe('slashCommands', () => {
   it('offers base slash commands in normal text', async () => {
@@ -12,7 +13,9 @@ describe('slashCommands', () => {
     const state = EditorState.create({ doc: '/cal' });
     const result = await source(new CompletionContext(state, 4, true));
 
-    expect(result?.options.some((option: { label: string }) => option.label === 'Callout: Note')).toBe(true);
+    expect(
+      result?.options.some((option: { label: string }) => option.label === 'Callout: Note'),
+    ).toBe(true);
   });
 
   it('includes stored note snippets in the slash menu', async () => {
@@ -35,7 +38,11 @@ describe('slashCommands', () => {
     const state = EditorState.create({ doc: '/meet' });
     const result = await source(new CompletionContext(state, 5, true));
 
-    expect(result?.options.some((option: { label: string }) => option.label === 'Snippet: Meeting Notes')).toBe(true);
+    expect(
+      result?.options.some(
+        (option: { label: string }) => option.label === 'Snippet: Meeting Notes',
+      ),
+    ).toBe(true);
   });
 
   it('does not open inside fenced code blocks', async () => {
@@ -74,6 +81,8 @@ describe('slashCommands', () => {
     const state = EditorState.create({ doc: '/spec' });
     const result = await source(new CompletionContext(state, 5, true));
 
-    expect(result?.options.some((option: { label: string }) => option.label === 'Link: spec.pdf')).toBe(true);
+    expect(
+      result?.options.some((option: { label: string }) => option.label === 'Link: spec.pdf'),
+    ).toBe(true);
   });
 });

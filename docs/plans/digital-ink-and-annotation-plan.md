@@ -700,20 +700,20 @@ Target behaviors:
 
 ## Progress Tracker
 
-| Phase | Status | Goal |
-| --- | --- | --- |
-| 0. Contract and input/renderer proofs | Complete, device gate open | Freeze `.ink`, prove cross-device capture, low-latency pressure rendering, bounded storage, and deterministic export. |
-| 1. Shared ink domain | Complete | Implement the schema, migrations, operations, spatial index, stroke adapter, renderer, and export scene. |
-| 2. Native `.ink` lifecycle | Complete | Add New Drawing creation, vault routing, tabs, revisions, snapshots, references, status, and local/hosted persistence. |
-| 3. Core desktop editor | Complete | Deliver pens, erasers, selection, transforms, pages, layers, history, clipboard, and drawing-tablet operation. |
-| 4. Mobile and tablet editor | Complete | Deliver adaptive touch/pen UI, gestures, palm policy, rotation/process recovery, and physical-device validation. |
-| 5. Advanced tools | Complete | Deliver geometry, reversible recognition, text/stickies, vault-backed images/SVG, safe links, stamps/equations, precision tools/guides, backgrounds, portable templates, favourites/swatches, and cleanup. |
-| 6. Hosted collaboration and offline merge | Testing | Add `LiveDocumentKind::Ink`, final-stroke transactions, ephemeral previews, awareness, replica merge, and recovery. Automated coverage passes; physical desktop/Android multi-client recovery validation remains. |
-| 7. Export and note integration | Not started | Add PNG/SVG/PDF export, source-linked note embeds, stable re-export, progress, and cancellation. |
-| 8. PDF annotation integration | Not started | Migrate PDF sidecars and add shared ink tools, live/offline editing, and flattened annotated-PDF export. |
-| 9. Image and shared-view annotations | Not started | Migrate image overlays and add capability-driven annotation surfaces for images, decks, and future viewers. |
-| 10. Accessibility, performance, and release hardening | Not started | Validate large files, keyboard alternatives, devices, packaging, migrations, malformed content, and collaboration soak. |
-| 11. Optional recognition and interchange | Deferred | Evaluate handwriting/math recognition and optional InkML interchange without changing the native source model. |
+| Phase                                                 | Status                     | Goal                                                                                                                                                                                                              |
+| ----------------------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0. Contract and input/renderer proofs                 | Complete, device gate open | Freeze `.ink`, prove cross-device capture, low-latency pressure rendering, bounded storage, and deterministic export.                                                                                             |
+| 1. Shared ink domain                                  | Complete                   | Implement the schema, migrations, operations, spatial index, stroke adapter, renderer, and export scene.                                                                                                          |
+| 2. Native `.ink` lifecycle                            | Complete                   | Add New Drawing creation, vault routing, tabs, revisions, snapshots, references, status, and local/hosted persistence.                                                                                            |
+| 3. Core desktop editor                                | Complete                   | Deliver pens, erasers, selection, transforms, pages, layers, history, clipboard, and drawing-tablet operation.                                                                                                    |
+| 4. Mobile and tablet editor                           | Complete                   | Deliver adaptive touch/pen UI, gestures, palm policy, rotation/process recovery, and physical-device validation.                                                                                                  |
+| 5. Advanced tools                                     | Complete                   | Deliver geometry, reversible recognition, text/stickies, vault-backed images/SVG, safe links, stamps/equations, precision tools/guides, backgrounds, portable templates, favourites/swatches, and cleanup.        |
+| 6. Hosted collaboration and offline merge             | Testing                    | Add `LiveDocumentKind::Ink`, final-stroke transactions, ephemeral previews, awareness, replica merge, and recovery. Automated coverage passes; physical desktop/Android multi-client recovery validation remains. |
+| 7. Export and note integration                        | Not started                | Add PNG/SVG/PDF export, source-linked note embeds, stable re-export, progress, and cancellation.                                                                                                                  |
+| 8. PDF annotation integration                         | Not started                | Migrate PDF sidecars and add shared ink tools, live/offline editing, and flattened annotated-PDF export.                                                                                                          |
+| 9. Image and shared-view annotations                  | Not started                | Migrate image overlays and add capability-driven annotation surfaces for images, decks, and future viewers.                                                                                                       |
+| 10. Accessibility, performance, and release hardening | Not started                | Validate large files, keyboard alternatives, devices, packaging, migrations, malformed content, and collaboration soak.                                                                                           |
+| 11. Optional recognition and interchange              | Deferred                   | Evaluate handwriting/math recognition and optional InkML interchange without changing the native source model.                                                                                                    |
 
 ## Phase Details
 
@@ -876,7 +876,7 @@ gate.
       deliberately bounded to **drawing** — selection, transforms, grouping,
       alignment, and clipboard stay desktop capabilities, because they need
       precision a fingertip does not have.
-- [x] Pen-versus-touch arbitration and palm rejection through the *shared*
+- [x] Pen-versus-touch arbitration and palm rejection through the _shared_
       `InkContactArbiter`, so the policy is identical to desktop and tested
       once. One finger pans, two pinch, the pen draws; finger drawing is an
       explicit setting for devices with no pen.
@@ -928,19 +928,19 @@ drops malformed advanced objects before they reach rendering.
 ### Phase 6: Hosted Collaboration And Offline Merge
 
 - [x] Add `LiveDocumentKind::Ink` across frontend, `collab-live`, server,
-  classification, materialization, replica, and recovery.
+      classification, materialization, replica, and recovery.
 - [x] Implement stable map/order CRDT structures and `Y.Text` text objects.
 - [x] Commit final strokes/semantic edits as bounded transactions.
 - [x] Send unfinished stroke previews through throttled awareness only.
 - [x] Add remote cursors, selections, active page, and peer colors.
 - [x] Validate concurrent add/erase/transform/reorder/text scenarios.
 - [x] Cover offline replica hydration/reconnect, role enforcement, revision
-  materialization, and canonical recovery through the shared live-document
-  infrastructure and Ink-specific materialization tests.
+      materialization, and canonical recovery through the shared live-document
+      infrastructure and Ink-specific materialization tests.
 - [ ] Complete the physical desktop/Android multi-client run: edit both online,
-  restart one client offline, reconnect and inspect the merged drawing, verify a
-  viewer receives but cannot write, then restore a snapshot and confirm both
-  clients converge without losing pages, objects, order, or editable text.
+      restart one client offline, reconnect and inspect the merged drawing, verify a
+      viewer receives but cannot write, then restore a snapshot and confirm both
+      clients converge without losing pages, objects, order, or editable text.
 
 ### Phase 7: Export And Note Integration
 

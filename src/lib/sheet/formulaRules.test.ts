@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { sheetFormulaResultKey } from '../../types/sheetFormula';
-import { applySheetConditionalFormat, createConditionalFormatEvaluator } from './conditionalFormatting';
-import { createEmptySheetDocument } from './document';
+
 import {
-  buildSheetRuleFormulaInputs,
-  conditionalFormulaExpressionId,
-} from './formulaRules';
+  applySheetConditionalFormat,
+  createConditionalFormatEvaluator,
+} from './conditionalFormatting';
+import { createEmptySheetDocument } from './document';
+import { buildSheetRuleFormulaInputs, conditionalFormulaExpressionId } from './formulaRules';
 import { activeWorksheet, setCell } from './operations';
 import { createSelection, extendSelection } from './selection';
 
@@ -33,10 +34,15 @@ describe('sheet rule formula runtime', () => {
   it('uses native boolean results to resolve formula formatting', () => {
     let document = createEmptySheetDocument('Rules', { worksheet: { rows: 2, columns: 1 } });
     let worksheet = activeWorksheet(document);
-    document = setCell(document, worksheet.id, { row: 0, column: 0 }, {
-      value: 2,
-      valueType: 'number',
-    });
+    document = setCell(
+      document,
+      worksheet.id,
+      { row: 0, column: 0 },
+      {
+        value: 2,
+        valueType: 'number',
+      },
+    );
     document = applySheetConditionalFormat(
       document,
       worksheet.id,
@@ -46,13 +52,21 @@ describe('sheet rule formula runtime', () => {
     worksheet = activeWorksheet(document);
     const rule = worksheet.conditionalFormats![0];
     const expressionId = conditionalFormulaExpressionId(rule.id, worksheet, { row: 0, column: 0 });
-    const values = new Map([[
-      sheetFormulaResultKey(`__collab_rules__:${worksheet.id}`, expressionId, 'result'),
-      { type: 'boolean' as const, value: true },
-    ]]);
-    expect(createConditionalFormatEvaluator(document.styles, worksheet, values)({
-      row: 0,
-      column: 0,
-    }).bold).toBe(true);
+    const values = new Map([
+      [
+        sheetFormulaResultKey(`__collab_rules__:${worksheet.id}`, expressionId, 'result'),
+        { type: 'boolean' as const, value: true },
+      ],
+    ]);
+    expect(
+      createConditionalFormatEvaluator(
+        document.styles,
+        worksheet,
+        values,
+      )({
+        row: 0,
+        column: 0,
+      }).bold,
+    ).toBe(true);
   });
 });

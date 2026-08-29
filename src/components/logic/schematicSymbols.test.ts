@@ -15,7 +15,16 @@ import {
 describe('schematic symbols', () => {
   it('provides the Phase 5 static component library', () => {
     expect(SCHEMATIC_SYMBOL_CHOICES.map((symbol) => symbol.kind)).toEqual([
-      'resistor', 'capacitor', 'inductor', 'diode', 'led', 'transistor', 'switch', 'ground', 'junction', 'voltage-source',
+      'resistor',
+      'capacitor',
+      'inductor',
+      'diode',
+      'led',
+      'transistor',
+      'switch',
+      'ground',
+      'junction',
+      'voltage-source',
     ]);
   });
 
@@ -24,7 +33,10 @@ describe('schematic symbols', () => {
       inputHandles: ['base'],
       outputHandles: ['collector', 'emitter'],
     });
-    expect(getSchematicSymbol('ground')).toMatchObject({ inputHandles: ['terminal'], outputHandles: [] });
+    expect(getSchematicSymbol('ground')).toMatchObject({
+      inputHandles: ['terminal'],
+      outputHandles: [],
+    });
     expect(getSchematicSymbol('junction')).toMatchObject({
       inputHandles: ['terminal'],
       outputHandles: [],

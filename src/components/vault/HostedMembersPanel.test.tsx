@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useVaultStore } from '../../store/vaultStore';
-import type { HostedVaultMeta, HostedVaultMember } from '../../types/vault';
+import type { HostedVaultMember, HostedVaultMeta } from '../../types/vault';
+
 import { HostedMembersPanel } from './HostedMembersPanel';
 
 const membersCapability = {
@@ -86,7 +87,15 @@ describe('HostedMembersPanel', () => {
     membersCapability.updateRole.mockResolvedValue(undefined);
     membersCapability.remove.mockResolvedValue(undefined);
     membersCapability.listTemplates.mockResolvedValue([
-      { id: 'tpl-1', name: 'reviewer', description: null, isBuiltin: false, capabilities: ['vault.read'], createdAt: '', updatedAt: '' },
+      {
+        id: 'tpl-1',
+        name: 'reviewer',
+        description: null,
+        isBuiltin: false,
+        capabilities: ['vault.read'],
+        createdAt: '',
+        updatedAt: '',
+      },
     ]);
     membersCapability.setCapabilities.mockResolvedValue(editor);
     membersCapability.setTemplate.mockResolvedValue(editor);
@@ -121,9 +130,7 @@ describe('HostedMembersPanel', () => {
     expect(await screen.findByText('Bob')).not.toBeNull();
     expect(screen.queryByText('Add member')).toBeNull();
     expect(screen.queryByLabelText('Remove Bob')).toBeNull();
-    expect(
-      screen.getByText(/do not currently have vault\.managePermissions/),
-    ).not.toBeNull();
+    expect(screen.getByText(/do not currently have vault\.managePermissions/)).not.toBeNull();
     expect(screen.queryByLabelText('Edit permissions for Bob')).toBeNull();
   });
 
@@ -166,7 +173,10 @@ describe('HostedMembersPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save permissions/ }));
 
     await waitFor(() =>
-      expect(membersCapability.setCapabilities).toHaveBeenCalledWith('user-2', ['vault.read', 'note.edit']),
+      expect(membersCapability.setCapabilities).toHaveBeenCalledWith('user-2', [
+        'vault.read',
+        'note.edit',
+      ]),
     );
   });
 
@@ -182,7 +192,9 @@ describe('HostedMembersPanel', () => {
     fireEvent.click(await screen.findByText(/reviewer/));
     fireEvent.click(screen.getByRole('button', { name: /Save permissions/ }));
 
-    await waitFor(() => expect(membersCapability.setTemplate).toHaveBeenCalledWith('user-2', 'tpl-1'));
+    await waitFor(() =>
+      expect(membersCapability.setTemplate).toHaveBeenCalledWith('user-2', 'tpl-1'),
+    );
   });
 
   it('resets a member to the role default through the editor', async () => {
@@ -194,7 +206,9 @@ describe('HostedMembersPanel', () => {
     // The dialog defaults to "Role default" because Bob has no override.
     fireEvent.click(await screen.findByRole('button', { name: /Save permissions/ }));
 
-    await waitFor(() => expect(membersCapability.resetToRoleDefault).toHaveBeenCalledWith('user-2'));
+    await waitFor(() =>
+      expect(membersCapability.resetToRoleDefault).toHaveBeenCalledWith('user-2'),
+    );
   });
 
   it('prevents an admin from removing their own management permissions', async () => {

@@ -1,21 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { syncRollup, useSyncStore } from './syncStore';
 import { tauriCommands } from '../lib/tauri';
 import {
   discardPendingOperation,
   listHostedVaultReplicas,
   listPendingOperationRecoveries,
   makeHostedVaultAvailableOffline,
-  retryPendingOperation,
-  syncReplicaManifestDelta,
   type PendingOperation,
   type PendingOperationRecovery,
   type ReplicaSummary,
+  retryPendingOperation,
+  syncReplicaManifestDelta,
 } from '../lib/vaultReplica';
 import type { HostedVaultMeta, HostedVaultSummary } from '../types/vault';
-import { useVaultStore } from './vaultStore';
+
+import { syncRollup, useSyncStore } from './syncStore';
 import { useSyncTransferStore } from './syncTransferStore';
+import { useVaultStore } from './vaultStore';
 
 vi.mock('../lib/tauri', () => ({
   tauriCommands: {
@@ -32,7 +33,9 @@ vi.mock('../lib/vaultReplica', async (importOriginal) => {
     listPendingOperationRecoveries: vi.fn(),
     retryPendingOperation: vi.fn().mockResolvedValue(undefined),
     discardPendingOperation: vi.fn().mockResolvedValue(undefined),
-    makeHostedVaultAvailableOffline: vi.fn().mockResolvedValue({ documentsCached: 1, assetsCached: 2, skipped: 0 }),
+    makeHostedVaultAvailableOffline: vi
+      .fn()
+      .mockResolvedValue({ documentsCached: 1, assetsCached: 2, skipped: 0 }),
     syncReplicaManifestDelta: vi.fn().mockResolvedValue({}),
     listHostedVaultReplicas: vi.fn().mockResolvedValue([]),
     // Use the real classifier/derivation/connectivity helpers.
@@ -106,10 +109,23 @@ beforeEach(() => {
 
 describe('syncRollup', () => {
   it('prioritizes conflicts over syncing, pending, and synced', () => {
-    expect(syncRollup({ isSyncing: true, status: 'syncing', pending: [pending('a')], failed: [recovery('b')] })).toBe('conflicts');
-    expect(syncRollup({ isSyncing: true, status: 'idle', pending: [pending('a')], failed: [] })).toBe('syncing');
-    expect(syncRollup({ isSyncing: false, status: 'offline', pending: [pending('a')], failed: [] })).toBe('pending');
-    expect(syncRollup({ isSyncing: false, status: 'idle', pending: [], failed: [] })).toBe('synced');
+    expect(
+      syncRollup({
+        isSyncing: true,
+        status: 'syncing',
+        pending: [pending('a')],
+        failed: [recovery('b')],
+      }),
+    ).toBe('conflicts');
+    expect(
+      syncRollup({ isSyncing: true, status: 'idle', pending: [pending('a')], failed: [] }),
+    ).toBe('syncing');
+    expect(
+      syncRollup({ isSyncing: false, status: 'offline', pending: [pending('a')], failed: [] }),
+    ).toBe('pending');
+    expect(syncRollup({ isSyncing: false, status: 'idle', pending: [], failed: [] })).toBe(
+      'synced',
+    );
   });
 });
 
@@ -210,11 +226,13 @@ describe('syncStore', () => {
       },
     ]);
 
-    await useSyncStore.getState().refreshOfflineCopiesForServer('https://a.test', [
-      hostedSummary('stale', 8),
-      hostedSummary('current', 8),
-      hostedSummary('manifest-only', 8),
-    ]);
+    await useSyncStore
+      .getState()
+      .refreshOfflineCopiesForServer('https://a.test', [
+        hostedSummary('stale', 8),
+        hostedSummary('current', 8),
+        hostedSummary('manifest-only', 8),
+      ]);
 
     expect(syncReplicaManifestDelta).toHaveBeenCalledTimes(1);
     expect(syncReplicaManifestDelta).toHaveBeenCalledWith(
@@ -229,18 +247,20 @@ describe('syncStore', () => {
 
   it('does not refresh archived or unrelated-server offline copies', async () => {
     useVaultStore.setState({ vault: null } as never);
-    vi.mocked(listHostedVaultReplicas).mockResolvedValue([{
-      serverUrl: 'https://b.test',
-      vaultId: 'archived',
-      vaultName: 'Archived',
-      manifestSequence: 1,
-      lastSyncedAt: null,
-      offlineAvailableAt: '2026-06-18T00:05:00Z',
-      status: 'idle',
-      pendingCount: 0,
-      updatedAt: '2026-06-18T00:00:00Z',
-      capabilities: ['vault.read', 'vault.offlineCopy'],
-    }]);
+    vi.mocked(listHostedVaultReplicas).mockResolvedValue([
+      {
+        serverUrl: 'https://b.test',
+        vaultId: 'archived',
+        vaultName: 'Archived',
+        manifestSequence: 1,
+        lastSyncedAt: null,
+        offlineAvailableAt: '2026-06-18T00:05:00Z',
+        status: 'idle',
+        pendingCount: 0,
+        updatedAt: '2026-06-18T00:00:00Z',
+        capabilities: ['vault.read', 'vault.offlineCopy'],
+      },
+    ]);
     const archived = { ...hostedSummary('archived', 8), status: 'archived' as const };
 
     await useSyncStore.getState().refreshOfflineCopiesForServer('https://a.test', [archived]);
@@ -295,7 +315,9 @@ describe('syncStore', () => {
   });
 
   it('derives revoked access from a permission-denied replay failure', async () => {
-    vi.mocked(tauriCommands.replicaListPendingOperations).mockResolvedValue([pending('c', 'failed')]);
+    vi.mocked(tauriCommands.replicaListPendingOperations).mockResolvedValue([
+      pending('c', 'failed'),
+    ]);
     vi.mocked(listPendingOperationRecoveries).mockResolvedValue([
       {
         operation: pending('c', 'failed'),

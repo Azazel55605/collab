@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useEditorStore } from '../../store/editorStore';
+import { useUiStore } from '../../store/uiStore';
+import { useVaultStore } from '../../store/vaultStore';
+
 import {
-  getClipboardFileUriPaths,
   getClipboardEventImageSources,
+  getClipboardFileUriPaths,
   getClipboardHtmlImageSources,
   handleEditorDocumentLinkMouseDown,
   handleEditorImageShiftClick,
@@ -11,9 +15,6 @@ import {
   importDroppedImagesIntoEditor,
   resolveHoverPreviewState,
 } from './useMarkdownEditorIntegrations';
-import { useEditorStore } from '../../store/editorStore';
-import { useUiStore } from '../../store/uiStore';
-import { useVaultStore } from '../../store/vaultStore';
 
 describe('useMarkdownEditorIntegrations helpers', () => {
   beforeEach(() => {
@@ -121,7 +122,9 @@ describe('useMarkdownEditorIntegrations helpers', () => {
   it('imports dropped images into the editor and focuses it', async () => {
     const dispatch = vi.fn();
     const focus = vi.fn();
-    const importAsset = vi.fn(async (sourcePath: string) => `Pictures/${sourcePath.split('/').pop()}`);
+    const importAsset = vi.fn(
+      async (sourcePath: string) => `Pictures/${sourcePath.split('/').pop()}`,
+    );
     const view = {
       dispatch,
       focus,
@@ -177,7 +180,9 @@ describe('useMarkdownEditorIntegrations helpers', () => {
 
   it('extracts embedded data-url images from clipboard html', () => {
     expect(
-      getClipboardHtmlImageSources('<p><img src="data:image/png;base64,abc123" /><img src="https://example.com/a.png" /></p>'),
+      getClipboardHtmlImageSources(
+        '<p><img src="data:image/png;base64,abc123" /><img src="https://example.com/a.png" /></p>',
+      ),
     ).toEqual([
       {
         kind: 'dataUrl',
@@ -198,7 +203,8 @@ describe('useMarkdownEditorIntegrations helpers', () => {
       dispatch,
       focus,
     } as unknown as import('@codemirror/view').EditorView;
-    const expectedInsert = '![Notes/a.md](Pictures/clipboard-image.png)\n![Notes/a.md](Pictures/clipboard-image-2.webp)';
+    const expectedInsert =
+      '![Notes/a.md](Pictures/clipboard-image.png)\n![Notes/a.md](Pictures/clipboard-image-2.webp)';
 
     const success = await importClipboardImagesIntoEditor({
       clipboardImages: [
@@ -217,7 +223,8 @@ describe('useMarkdownEditorIntegrations helpers', () => {
       view,
       importData,
       currentDocumentRelativePath: 'Notes/a.md',
-      buildImageMarkdown: (relativePath, currentDocumentRelativePath) => `![${currentDocumentRelativePath}](${relativePath})`,
+      buildImageMarkdown: (relativePath, currentDocumentRelativePath) =>
+        `![${currentDocumentRelativePath}](${relativePath})`,
     });
 
     expect(success).toBe(true);
@@ -245,10 +252,7 @@ describe('useMarkdownEditorIntegrations helpers', () => {
   });
 
   it('deduplicates repeated native drops at the same position', () => {
-    vi.spyOn(Date, 'now')
-      .mockReturnValueOnce(1000)
-      .mockReturnValueOnce(1100)
-      .mockReturnValue(2000);
+    vi.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValueOnce(1100).mockReturnValue(2000);
 
     const importDroppedImages = vi.fn();
     const editorDom = document.createElement('div');
@@ -264,35 +268,41 @@ describe('useMarkdownEditorIntegrations helpers', () => {
       },
     } as unknown as import('@codemirror/view').EditorView;
 
-    expect(handleNativeEditorDrop({
-      paths: ['a.png'],
-      clientX: 20,
-      clientY: 20,
-      editorDom,
-      view,
-      stateRef,
-      importDroppedImages,
-    })).toBe(true);
+    expect(
+      handleNativeEditorDrop({
+        paths: ['a.png'],
+        clientX: 20,
+        clientY: 20,
+        editorDom,
+        view,
+        stateRef,
+        importDroppedImages,
+      }),
+    ).toBe(true);
 
-    expect(handleNativeEditorDrop({
-      paths: ['a.png'],
-      clientX: 20,
-      clientY: 20,
-      editorDom,
-      view,
-      stateRef,
-      importDroppedImages,
-    })).toBe(false);
+    expect(
+      handleNativeEditorDrop({
+        paths: ['a.png'],
+        clientX: 20,
+        clientY: 20,
+        editorDom,
+        view,
+        stateRef,
+        importDroppedImages,
+      }),
+    ).toBe(false);
 
-    expect(handleNativeEditorDrop({
-      paths: ['a.png'],
-      clientX: 40,
-      clientY: 40,
-      editorDom,
-      view,
-      stateRef,
-      importDroppedImages,
-    })).toBe(true);
+    expect(
+      handleNativeEditorDrop({
+        paths: ['a.png'],
+        clientX: 40,
+        clientY: 40,
+        editorDom,
+        view,
+        stateRef,
+        importDroppedImages,
+      }),
+    ).toBe(true);
 
     expect(importDroppedImages).toHaveBeenCalledTimes(2);
     expect(importDroppedImages).toHaveBeenCalledWith(['a.png'], 7);

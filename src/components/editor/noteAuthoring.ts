@@ -1,7 +1,8 @@
 import type { EditorView } from '@codemirror/view';
 
-import { insertSnippetTemplate } from './snippetEngine';
 import type { NoteSnippet } from '../../types/noteSnippet';
+
+import { insertSnippetTemplate } from './snippetEngine';
 
 const CALLOUT_TITLES: Record<'note' | 'tip' | 'warning' | 'danger' | 'info', string> = {
   note: 'Note',

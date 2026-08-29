@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
+import { type CalendarItem, normalizeCalendarItem } from '../types/calendar';
+
 import { planRecurringEdit, splitRecurrence } from './calendarRecurringEdit';
-import { normalizeCalendarItem, type CalendarItem } from '../types/calendar';
 
 const now = '2026-07-22T12:00:00.000Z';
 
@@ -87,11 +88,9 @@ describe('recurring edit planner', () => {
   });
 
   it('splits count-limited rules deterministically for following edits', () => {
-    expect(splitRecurrence(
-      { rrule: 'FREQ=WEEKLY;COUNT=6' },
-      { kind: 'date', date: '2026-04-05' },
-      2,
-    )).toEqual({
+    expect(
+      splitRecurrence({ rrule: 'FREQ=WEEKLY;COUNT=6' }, { kind: 'date', date: '2026-04-05' }, 2),
+    ).toEqual({
       previous: { rrule: 'FREQ=WEEKLY;COUNT=2', rdates: undefined, exdates: undefined },
       following: { rrule: 'FREQ=WEEKLY;COUNT=4', rdates: undefined, exdates: undefined },
     });

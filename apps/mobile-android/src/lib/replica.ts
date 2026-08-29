@@ -5,17 +5,16 @@
  * when the server is unreachable, report per-file cache status, and remove an
  * offline copy. Phase 3 is read-only — no pending-operation queueing yet.
  */
-
 import type { HostedVault } from '../mobileTauri';
 import {
-  HostedFileEntry,
   hostedAssetDataUrl,
+  HostedFileEntry,
   hostedRequest,
   parseFileEntries,
   RawHostedManifest,
   replicaCacheAsset,
-  replicaCacheDocument,
   replicaCachedContentStatus,
+  replicaCacheDocument,
   replicaDelete,
   replicaReadManifest,
   replicaReadSyncState,
@@ -45,11 +44,7 @@ function nowIso(): string {
 }
 
 async function fetchManifest(serverUrl: string, vaultId: string): Promise<RawHostedManifest> {
-  return hostedRequest<RawHostedManifest>(
-    serverUrl,
-    'GET',
-    `/api/v1/vaults/${vaultId}/manifest`,
-  );
+  return hostedRequest<RawHostedManifest>(serverUrl, 'GET', `/api/v1/vaults/${vaultId}/manifest`);
 }
 
 async function cacheFileBody(

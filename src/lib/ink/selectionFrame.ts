@@ -1,4 +1,5 @@
 import type { InkBounds, InkObject, InkScene } from '../../types/ink';
+
 import { boundsOf, expandSelection } from './operations';
 import { selectionRotationOf } from './transform';
 

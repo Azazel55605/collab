@@ -1,4 +1,5 @@
 import type { BackgroundStatusSnapshot } from '../../../../src/lib/tauri';
+
 import { Spinner } from './ui';
 
 /**

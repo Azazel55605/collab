@@ -1,17 +1,11 @@
-import { EditorState, Compartment, type Extension } from '@codemirror/state';
 import {
   autocompletion,
-  completionKeymap,
   closeBrackets,
   closeBracketsKeymap,
+  completionKeymap,
   type CompletionSource,
 } from '@codemirror/autocomplete';
-import {
-  defaultKeymap,
-  history,
-  historyKeymap,
-  indentLess,
-} from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentLess } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import {
   bracketMatching,
@@ -20,7 +14,8 @@ import {
   syntaxHighlighting,
 } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
-import { search, searchKeymap, highlightSelectionMatches } from '@codemirror/search';
+import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
+import { Compartment, EditorState, type Extension } from '@codemirror/state';
 import {
   drawSelection,
   dropCursor,
@@ -32,9 +27,10 @@ import {
 } from '@codemirror/view';
 import { GFM } from '@lezer/markdown';
 
-import { asciiArrowLigatures, handleTabKey } from './indentationPlugins';
-import { useVaultStore } from '../../store/vaultStore';
 import { getVaultWikilinkAutocompleteItems } from '../../lib/vaultLinks';
+import { useVaultStore } from '../../store/vaultStore';
+
+import { asciiArrowLigatures, handleTabKey } from './indentationPlugins';
 import { createMarkdownSearchPanel } from './MarkdownSearchPanel';
 import { createMathBlockShortcutExtension } from './mathBlockCommands';
 
@@ -127,7 +123,10 @@ export function createMarkdownEditorState({
   readOnly = false,
   extraExtensions = [],
 }: CreateMarkdownEditorStateOptions) {
-  const initialCompartmentExtensions = buildMarkdownEditorInitialExtensions(compartments, compartmentExtensions);
+  const initialCompartmentExtensions = buildMarkdownEditorInitialExtensions(
+    compartments,
+    compartmentExtensions,
+  );
   // `readOnly` blocks document transactions; `editable.of(false)` also drops the
   // contenteditable affordance and caret so a viewer cannot type into the note.
   const readOnlyExtension = readOnly
@@ -185,7 +184,11 @@ export function createMarkdownEditorState({
         search({ createPanel: createMarkdownSearchPanel, top: true }),
         history(),
         markdown({ base: markdownLanguage, extensions: GFM }),
-        keymap.of([{ key: 'Tab', run: handleTabKey, shift: indentLess }, ...defaultKeymap, ...historyKeymap]),
+        keymap.of([
+          { key: 'Tab', run: handleTabKey, shift: indentLess },
+          ...defaultKeymap,
+          ...historyKeymap,
+        ]),
         ...initialCompartmentExtensions,
         saveKeymap,
         updateListener,
@@ -203,8 +206,8 @@ export function createMarkdownWikiAutocompleteOverride() {
       const before = context.matchBefore(/\[\[[^\]]*$/);
       if (!before) return null;
       const from = before.from + 2;
-      const options = getVaultWikilinkAutocompleteItems(useVaultStore.getState().fileTree)
-        .map((item) => ({
+      const options = getVaultWikilinkAutocompleteItems(useVaultStore.getState().fileTree).map(
+        (item) => ({
           label: item.label,
           detail: item.detail,
           type: item.type,
@@ -217,7 +220,8 @@ export function createMarkdownWikiAutocompleteOverride() {
               selection: { anchor: applyFrom + insert.length },
             });
           },
-        }));
+        }),
+      );
       return {
         from,
         options,

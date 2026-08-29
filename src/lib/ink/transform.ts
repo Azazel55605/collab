@@ -10,9 +10,9 @@
  * Baking costs a rewrite of the sample arrays per transform. The arrays are
  * small integers, so this remains bounded during interactive transforms.
  */
-
 import { INK_LIMITS } from '../../types/ink';
 import type { InkBounds, InkObject, InkSample } from '../../types/ink';
+
 import { decodeSamples, encodeSamples } from './codec';
 
 /** A 2D affine map, applied as `[x', y'] = [a·x + c·y + e, b·x + d·y + f]`. */
@@ -73,11 +73,7 @@ export function composeAffine(first: InkAffine, second: InkAffine): InkAffine {
   };
 }
 
-export function applyAffine(
-  transform: InkAffine,
-  x: number,
-  y: number,
-): { x: number; y: number } {
+export function applyAffine(transform: InkAffine, x: number, y: number): { x: number; y: number } {
   return {
     x: transform.a * x + transform.c * y + transform.e,
     y: transform.b * x + transform.d * y + transform.f,
@@ -129,10 +125,7 @@ export function selectionRotationOf(object: InkObject): number {
     centerY /= count;
     return Math.atan2(object.points[1] - centerY, object.points[0] - centerX);
   }
-  return Math.atan2(
-    object.points[3] - object.points[1],
-    object.points[2] - object.points[0],
-  );
+  return Math.atan2(object.points[3] - object.points[1], object.points[2] - object.points[0]);
 }
 
 function clampCoordinate(value: number): number {
@@ -215,9 +208,10 @@ export function transformObject(object: InkObject, transform: InkAffine): InkObj
       };
       const width = Math.max(0, Math.hypot(widthVector.x, widthVector.y));
       const height = Math.max(0, Math.hypot(heightVector.x, heightVector.y));
-      const rotation = width > 0
-        ? Math.atan2(widthVector.y, widthVector.x)
-        : previousRotation + similarityRotation(transform);
+      const rotation =
+        width > 0
+          ? Math.atan2(widthVector.y, widthVector.x)
+          : previousRotation + similarityRotation(transform);
       const next = {
         ...object,
         x: clampCoordinate(center.x - width / 2),
@@ -258,10 +252,7 @@ export function boundsToBounds(from: InkBounds, to: InkBounds): InkAffine {
 }
 
 /** Which handle of a selection box a resize is dragging. */
-export type InkResizeHandle =
-  | 'nw' | 'n' | 'ne'
-  | 'w' | 'e'
-  | 'sw' | 's' | 'se';
+export type InkResizeHandle = 'nw' | 'n' | 'ne' | 'w' | 'e' | 'sw' | 's' | 'se';
 
 /**
  * The bounds a resize drag produces.
@@ -287,10 +278,7 @@ export function resizeBounds(
     const width = bounds.maxX - bounds.minX;
     const height = bounds.maxY - bounds.minY;
     if (width > 0 && height > 0) {
-      const ratio = Math.max(
-        Math.abs(maxX - minX) / width,
-        Math.abs(maxY - minY) / height,
-      );
+      const ratio = Math.max(Math.abs(maxX - minX) / width, Math.abs(maxY - minY) / height);
       const nextWidth = width * ratio;
       const nextHeight = height * ratio;
       if (handle.includes('w')) minX = maxX - nextWidth;

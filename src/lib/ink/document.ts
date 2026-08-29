@@ -20,7 +20,6 @@
  * The bounded structural counterpart on the Rust side is
  * `crates/collab-documents/src/ink.rs`; keep the limits in step.
  */
-
 import {
   INK_DOCUMENT_KIND,
   INK_LIMITS,
@@ -29,10 +28,10 @@ import {
   INK_SCHEMA_VERSION,
 } from '../../types/ink';
 import type {
+  InkArrowhead,
   InkBrushKind,
   InkBrushParameters,
   InkBrushPreset,
-  InkArrowhead,
   InkConnector,
   InkDocument,
   InkLayer,
@@ -46,8 +45,9 @@ import type {
   InkStroke,
   InkSwatch,
 } from '../../types/ink';
-import { INK_COLOR_TOKENS } from './colors';
+
 import { sampleCount } from './codec';
+import { INK_COLOR_TOKENS } from './colors';
 
 export type InkDocumentErrorCode =
   | 'invalid-json'
@@ -123,9 +123,7 @@ function isValidId(value: unknown): value is string {
 /** A finite number inside the world bounds. */
 function isDrawableCoordinate(value: unknown): value is number {
   return (
-    typeof value === 'number' &&
-    Number.isFinite(value) &&
-    Math.abs(value) <= INK_LIMITS.worldExtent
+    typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= INK_LIMITS.worldExtent
   );
 }
 
@@ -161,24 +159,9 @@ const KNOWN_DOCUMENT_FIELDS = new Set([
   'metadata',
 ]);
 
-const KNOWN_PAGE_FIELDS = new Set([
-  'id',
-  'name',
-  'mode',
-  'width',
-  'height',
-  'background',
-  'scene',
-]);
+const KNOWN_PAGE_FIELDS = new Set(['id', 'name', 'mode', 'width', 'height', 'background', 'scene']);
 
-const KNOWN_LAYER_FIELDS = new Set([
-  'id',
-  'name',
-  'visible',
-  'locked',
-  'opacity',
-  'exported',
-]);
+const KNOWN_LAYER_FIELDS = new Set(['id', 'name', 'visible', 'locked', 'opacity', 'exported']);
 
 /** Copies fields this build does not know, so a newer file round-trips. */
 function preserveUnknown(
@@ -351,9 +334,7 @@ function normalizeBrush(value: unknown, warnings: string[], context: string): In
   const source = isObject(value) ? value : {};
   if (!isObject(value)) warnings.push(`${context}: brush was missing; used the default`);
 
-  const kind = BRUSH_KINDS.has(source.kind as string)
-    ? (source.kind as InkBrushKind)
-    : 'ballpoint';
+  const kind = BRUSH_KINDS.has(source.kind as string) ? (source.kind as InkBrushKind) : 'ballpoint';
 
   const brush: InkBrushParameters = {
     kind,
@@ -437,11 +418,7 @@ function normalizeSamples(
   return channels;
 }
 
-function normalizeObject(
-  value: unknown,
-  warnings: string[],
-  context: string,
-): InkObject | null {
+function normalizeObject(value: unknown, warnings: string[], context: string): InkObject | null {
   if (!isObject(value)) return null;
   const type = value.type;
   if (typeof type !== 'string' || !OBJECT_TYPES.has(type)) {
@@ -496,10 +473,7 @@ function normalizeObject(
           `${context}: text object '${value.id}' exceeds the ${INK_LIMITS.textLength}-character limit`,
         );
       }
-      if (
-        !isDrawableCoordinate(value.x) ||
-        !isDrawableCoordinate(value.y)
-      ) {
+      if (!isDrawableCoordinate(value.x) || !isDrawableCoordinate(value.y)) {
         warnings.push(`${context}: dropped text '${value.id}' with unusable geometry`);
         return null;
       }
@@ -544,26 +518,25 @@ function normalizeObject(
         width: Math.max(0, numberOr(value.width, 0)),
         height: Math.max(0, numberOr(value.height, 0)),
         relativePath,
-        ...(typeof value.opacity === 'number'
-          ? { opacity: clamp(value.opacity, 0, 1) }
-          : {}),
+        ...(typeof value.opacity === 'number' ? { opacity: clamp(value.opacity, 0, 1) } : {}),
       };
     }
     case 'group': {
-      const childIds = Array.isArray(value.childIds)
-        ? value.childIds.filter(isValidId)
-        : [];
+      const childIds = Array.isArray(value.childIds) ? value.childIds.filter(isValidId) : [];
       return { ...base, type: 'group', childIds };
     }
     case 'shape': {
-      const points = Array.isArray(value.points) && value.points.every(isDrawableCoordinate)
-        ? value.points as number[]
-        : [];
+      const points =
+        Array.isArray(value.points) && value.points.every(isDrawableCoordinate)
+          ? (value.points as number[])
+          : [];
       if (points.length < 4 || points.length % 2 !== 0) {
         warnings.push(`${context}: dropped shape '${value.id}' with unusable geometry`);
         return null;
       }
-      const shape = SHAPE_KINDS.has(value.shape as InkShapeKind) ? value.shape as InkShapeKind : 'line';
+      const shape = SHAPE_KINDS.has(value.shape as InkShapeKind)
+        ? (value.shape as InkShapeKind)
+        : 'line';
       return {
         ...base,
         type: 'shape',
@@ -571,12 +544,18 @@ function normalizeObject(
         points,
         stroke: normalizeBrush(value.stroke, warnings, `${context}: shape '${value.id}'`),
         ...(typeof value.fill === 'string' ? { fill: value.fill } : {}),
-        ...(typeof value.fillOpacity === 'number' ? { fillOpacity: clamp(value.fillOpacity, 0, 1) } : {}),
+        ...(typeof value.fillOpacity === 'number'
+          ? { fillOpacity: clamp(value.fillOpacity, 0, 1) }
+          : {}),
         ...(isArrowhead(value.arrowStart) ? { arrowStart: value.arrowStart } : {}),
         ...(isArrowhead(value.arrowEnd) ? { arrowEnd: value.arrowEnd } : {}),
-        ...(typeof value.sourceStrokeId === 'string' ? { sourceStrokeId: value.sourceStrokeId } : {}),
+        ...(typeof value.sourceStrokeId === 'string'
+          ? { sourceStrokeId: value.sourceStrokeId }
+          : {}),
         ...(value.guide === true ? { guide: true } : {}),
-        ...(typeof value.rotation === 'number' && Number.isFinite(value.rotation) ? { rotation: value.rotation } : {}),
+        ...(typeof value.rotation === 'number' && Number.isFinite(value.rotation)
+          ? { rotation: value.rotation }
+          : {}),
       };
     }
     case 'connector': {
@@ -589,16 +568,25 @@ function normalizeObject(
         type: 'connector',
         from: normalizeInkEndpoint(value.from),
         to: normalizeInkEndpoint(value.to),
-        routing: value.routing === 'orthogonal' || value.routing === 'curved' ? value.routing : 'straight',
+        routing:
+          value.routing === 'orthogonal' || value.routing === 'curved' ? value.routing : 'straight',
         stroke: normalizeBrush(value.stroke, warnings, `${context}: connector '${value.id}'`),
         ...(isArrowhead(value.arrowStart) ? { arrowStart: value.arrowStart } : {}),
         ...(isArrowhead(value.arrowEnd) ? { arrowEnd: value.arrowEnd } : {}),
-        ...(typeof value.label === 'string' ? { label: value.label.slice(0, INK_LIMITS.textLength) } : {}),
-        ...(typeof value.rotation === 'number' && Number.isFinite(value.rotation) ? { rotation: value.rotation } : {}),
+        ...(typeof value.label === 'string'
+          ? { label: value.label.slice(0, INK_LIMITS.textLength) }
+          : {}),
+        ...(typeof value.rotation === 'number' && Number.isFinite(value.rotation)
+          ? { rotation: value.rotation }
+          : {}),
       };
     }
     case 'stamp': {
-      if (!isDrawableCoordinate(value.x) || !isDrawableCoordinate(value.y) || typeof value.symbolId !== 'string') {
+      if (
+        !isDrawableCoordinate(value.x) ||
+        !isDrawableCoordinate(value.y) ||
+        typeof value.symbolId !== 'string'
+      ) {
         warnings.push(`${context}: dropped stamp '${value.id}' with unusable geometry`);
         return null;
       }
@@ -618,7 +606,15 @@ function normalizeObject(
 }
 
 const SHAPE_KINDS = new Set<InkShapeKind>([
-  'line', 'polyline', 'rectangle', 'ellipse', 'triangle', 'diamond', 'polygon', 'star', 'arc',
+  'line',
+  'polyline',
+  'rectangle',
+  'ellipse',
+  'triangle',
+  'diamond',
+  'polygon',
+  'star',
+  'arc',
 ]);
 
 function isArrowhead(value: unknown): value is InkArrowhead {
@@ -771,8 +767,7 @@ function normalizeBackground(value: unknown): InkPageBackground {
 function normalizePage(value: unknown, id: string, warnings: string[]): InkPage {
   const source = isObject(value) ? value : {};
   const mode = source.mode === 'infinite' ? 'infinite' : 'fixed';
-  const maxExtent =
-    mode === 'fixed' ? INK_LIMITS.fixedPageExtent : INK_LIMITS.worldExtent;
+  const maxExtent = mode === 'fixed' ? INK_LIMITS.fixedPageExtent : INK_LIMITS.worldExtent;
 
   const page: InkPage = {
     id,
@@ -802,10 +797,7 @@ function normalizeSwatches(value: unknown): InkSwatch[] {
   return swatches;
 }
 
-function normalizeBrushes(
-  value: unknown,
-  warnings: string[],
-): Record<string, InkBrushPreset> {
+function normalizeBrushes(value: unknown, warnings: string[]): Record<string, InkBrushPreset> {
   const source = isObject(value) ? value : {};
   const brushes: Record<string, InkBrushPreset> = {};
   let count = 0;
@@ -839,11 +831,7 @@ export function normalizeInkDocument(value: unknown): InkDocumentInspection {
     );
   }
   const schemaVersion = value.schemaVersion;
-  if (
-    typeof schemaVersion !== 'number' ||
-    !Number.isInteger(schemaVersion) ||
-    schemaVersion < 1
-  ) {
+  if (typeof schemaVersion !== 'number' || !Number.isInteger(schemaVersion) || schemaVersion < 1) {
     throw new InkDocumentError(
       'invalid-schema-version',
       'Ink document must declare a positive integer schemaVersion',

@@ -14,15 +14,13 @@
  * Android recreating the process. The two clients must never fork the ink
  * model.
  */
-
-import { INK_LIMITS } from '../../../../src/types/ink';
-import type { InkDocument } from '../../../../src/types/ink';
 import {
+  type InkSchemaSupport,
   normalizeInkDocument,
   serializeInkDocument,
-  type InkSchemaSupport,
 } from '../../../../src/lib/ink/document';
-import { fileEntryExtension } from './format';
+import { INK_LIMITS } from '../../../../src/types/ink';
+import type { InkDocument } from '../../../../src/types/ink';
 import {
   type HostedFileEntry,
   type HostedTextDocument,
@@ -31,6 +29,8 @@ import {
   replicaReadCachedDocument,
   writeHostedDocument,
 } from '../mobileTauri';
+
+import { fileEntryExtension } from './format';
 
 export type { InkDocument };
 

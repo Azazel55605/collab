@@ -1,30 +1,32 @@
 import { useEffect } from 'react';
-import { Files, Search, Tag, Layout, LayoutDashboard } from 'lucide-react';
+
+import { Files, Layout, LayoutDashboard, Search, Tag } from 'lucide-react';
+
 import { cn } from '../../lib/utils';
-import { useUiStore, type SidebarPanel } from '../../store/uiStore';
+import { type SidebarPanel, useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
+import { CollabPanel } from '../collaboration/CollabPanel';
+import BoardsPanel from '../vault/BoardsPanel';
 import FileTree from '../vault/FileTree';
 import SearchPanel from '../vault/SearchPanel';
 import TagsPanel from '../vault/TagsPanel';
-import BoardsPanel from '../vault/BoardsPanel';
-import { CollabPanel } from '../collaboration/CollabPanel';
 
 const EDITOR_TABS: { id: SidebarPanel; icon: React.ReactNode; label: string }[] = [
-  { id: 'files',  icon: <Files  size={13} />, label: 'Files'  },
+  { id: 'files', icon: <Files size={13} />, label: 'Files' },
   { id: 'search', icon: <Search size={13} />, label: 'Search' },
-  { id: 'tags',   icon: <Tag    size={13} />, label: 'Tags'   },
+  { id: 'tags', icon: <Tag size={13} />, label: 'Tags' },
 ];
 
 const CANVAS_TABS: { id: SidebarPanel; icon: React.ReactNode; label: string }[] = [
-  { id: 'canvas-boards', icon: <Layout  size={13} />, label: 'Boards' },
-  { id: 'files',         icon: <Files   size={13} />, label: 'Files'  },
-  { id: 'search',        icon: <Search  size={13} />, label: 'Search' },
+  { id: 'canvas-boards', icon: <Layout size={13} />, label: 'Boards' },
+  { id: 'files', icon: <Files size={13} />, label: 'Files' },
+  { id: 'search', icon: <Search size={13} />, label: 'Search' },
 ];
 
 const KANBAN_TABS: { id: SidebarPanel; icon: React.ReactNode; label: string }[] = [
   { id: 'kanban-boards', icon: <LayoutDashboard size={13} />, label: 'Boards' },
-  { id: 'files',         icon: <Files           size={13} />, label: 'Files'  },
-  { id: 'search',        icon: <Search          size={13} />, label: 'Search' },
+  { id: 'files', icon: <Files size={13} />, label: 'Files' },
+  { id: 'search', icon: <Search size={13} />, label: 'Search' },
 ];
 
 export default function Sidebar() {
@@ -64,9 +66,7 @@ export default function Sidebar() {
   }
 
   const tabs =
-    activeView === 'canvas' ? CANVAS_TABS :
-    activeView === 'kanban' ? KANBAN_TABS :
-    EDITOR_TABS;
+    activeView === 'canvas' ? CANVAS_TABS : activeView === 'kanban' ? KANBAN_TABS : EDITOR_TABS;
 
   return (
     <div className="flex flex-col h-full bg-sidebar">
@@ -92,7 +92,7 @@ export default function Sidebar() {
               'flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-all duration-150 flex-1 justify-center',
               sidebarPanel === tab.id
                 ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent/40',
             )}
           >
             {tab.icon}
@@ -103,9 +103,9 @@ export default function Sidebar() {
 
       {/* Panel content */}
       <div key={sidebarPanel} className="flex-1 overflow-hidden app-sidebar-panel-enter">
-        {sidebarPanel === 'files'         && <FileTree />}
-        {sidebarPanel === 'search'        && <SearchPanel />}
-        {sidebarPanel === 'tags'          && <TagsPanel />}
+        {sidebarPanel === 'files' && <FileTree />}
+        {sidebarPanel === 'search' && <SearchPanel />}
+        {sidebarPanel === 'tags' && <TagsPanel />}
         {sidebarPanel === 'canvas-boards' && <BoardsPanel kind="canvas" />}
         {sidebarPanel === 'kanban-boards' && <BoardsPanel kind="kanban" />}
       </div>

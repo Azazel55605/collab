@@ -1,11 +1,12 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 import { invoke } from '@tauri-apps/api/core';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { WidgetSettingsSection } from './WidgetSettingsSection';
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 const configuration = {
   schemaVersion: 1,
@@ -40,7 +41,8 @@ describe('mobile widget settings', () => {
       if (command === 'widget_active_profile_set') return Promise.resolve(undefined);
       if (command === 'widget_configuration_list') return Promise.resolve([configuration]);
       if (command === 'widget_diagnostics_list') return Promise.resolve([diagnostics]);
-      if (command === 'widget_refresh') return Promise.resolve([{ ...diagnostics, updateCause: 'manual' }]);
+      if (command === 'widget_refresh')
+        return Promise.resolve([{ ...diagnostics, updateCause: 'manual' }]);
       if (command === 'calendar_list') {
         return Promise.resolve([
           { id: 'calendar-a', name: 'Personal', archived: false, deletedAt: null },
@@ -94,7 +96,9 @@ describe('mobile widget settings', () => {
         const next = (args as { configuration: typeof configuration }).configuration;
         savedPrivacy.push(next.privacy);
         if (savedPrivacy.length === 1) {
-          return new Promise((resolve) => { resolveFirstSave = resolve; });
+          return new Promise((resolve) => {
+            resolveFirstSave = resolve;
+          });
         }
         return Promise.resolve(next);
       }
@@ -147,15 +151,17 @@ describe('mobile widget settings', () => {
       if (command === 'widget_diagnostics_list') return Promise.resolve([diagnostics]);
       if (command === 'calendar_list') return Promise.resolve([]);
       if (command === 'calendar_list_items') {
-        return Promise.resolve([{
-          id: 'event-1',
-          uid: 'event-1',
-          calendarId: 'calendar-a',
-          kind: 'event',
-          title: 'Release day',
-          start: { kind: 'date', date: '2026-08-20' },
-          end: { kind: 'date', date: '2026-08-21' },
-        }]);
+        return Promise.resolve([
+          {
+            id: 'event-1',
+            uid: 'event-1',
+            calendarId: 'calendar-a',
+            kind: 'event',
+            title: 'Release day',
+            start: { kind: 'date', date: '2026-08-20' },
+            end: { kind: 'date', date: '2026-08-21' },
+          },
+        ]);
       }
       if (command === 'widget_configuration_save') {
         return Promise.resolve((args as { configuration: typeof countdown }).configuration);
@@ -196,21 +202,23 @@ describe('mobile widget settings', () => {
         if (command === 'widget_diagnostics_list') return Promise.resolve([diagnostics]);
         if (command === 'calendar_list') return Promise.resolve([]);
         if (command === 'calendar_list_items') {
-          return Promise.resolve([{
-            id: 'task-1',
-            uid: 'task-1',
-            calendarId: 'calendar-kanban',
-            kind: 'task',
-            title: 'Review the board',
-            status: 'needs-action',
-            sourceBinding: {
-              kind: 'kanban',
-              vaultId: 'vault-1',
-              fileId: 'file-1',
-              cardId: 'card-1',
-              path: 'Boards/Team.kanban',
+          return Promise.resolve([
+            {
+              id: 'task-1',
+              uid: 'task-1',
+              calendarId: 'calendar-kanban',
+              kind: 'task',
+              title: 'Review the board',
+              status: 'needs-action',
+              sourceBinding: {
+                kind: 'kanban',
+                vaultId: 'vault-1',
+                fileId: 'file-1',
+                cardId: 'card-1',
+                path: 'Boards/Team.kanban',
+              },
             },
-          }]);
+          ]);
         }
         if (command === 'widget_configuration_save') {
           return Promise.resolve((args as { configuration: typeof tasks }).configuration);

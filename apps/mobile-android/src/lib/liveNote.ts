@@ -1,16 +1,21 @@
 import { Channel } from '@tauri-apps/api/core';
+import {
+  applyAwarenessUpdate,
+  Awareness,
+  encodeAwarenessUpdate,
+  removeAwarenessStates,
+} from 'y-protocols/awareness';
 import * as Y from 'yjs';
-import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness';
 
 import {
   hostedWsTicket,
   liveWsClose,
   liveWsConnect,
+  type LiveWsEvent,
   liveWsSend,
   replicaCacheCrdtState,
   replicaClearCrdtState,
   replicaReadCrdtState,
-  type LiveWsEvent,
 } from '../mobileTauri';
 
 const SYNC_STEP1 = 1;
@@ -34,12 +39,7 @@ const LOCAL_JSON_ORIGIN = Symbol('mobile-live-json-local');
 export type LiveStatus = 'connecting' | 'connected' | 'disconnected';
 export type MobileLiveDocumentKind = 'note' | 'kanban' | 'canvas' | 'logic' | 'sheet' | 'ink';
 export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
 export interface MobileLiveNoteSession {
@@ -107,8 +107,12 @@ function stableEqual(a: unknown, b: unknown): boolean {
   if (isPlainObject(a) && isPlainObject(b)) {
     const aKeys = Object.keys(a);
     const bKeys = Object.keys(b);
-    return aKeys.length === bKeys.length
-      && aKeys.every((key) => Object.prototype.hasOwnProperty.call(b, key) && stableEqual(a[key], b[key]));
+    return (
+      aKeys.length === bKeys.length &&
+      aKeys.every(
+        (key) => Object.prototype.hasOwnProperty.call(b, key) && stableEqual(a[key], b[key]),
+      )
+    );
   }
   return false;
 }
@@ -130,10 +134,11 @@ function reconcileText(text: Y.Text, next: string) {
   while (prefix < limit && current[prefix] === next[prefix]) prefix += 1;
   let suffix = 0;
   while (
-    suffix < current.length - prefix
-    && suffix < next.length - prefix
-    && current[current.length - 1 - suffix] === next[next.length - 1 - suffix]
-  ) suffix += 1;
+    suffix < current.length - prefix &&
+    suffix < next.length - prefix &&
+    current[current.length - 1 - suffix] === next[next.length - 1 - suffix]
+  )
+    suffix += 1;
   const remove = current.length - prefix - suffix;
   if (remove > 0) text.delete(prefix, remove);
   const insert = next.slice(prefix, next.length - suffix);
@@ -164,7 +169,10 @@ function reconcileArray(yarr: Y.Array<unknown>, arr: JsonValue[], ink = false) {
   if (!idKeyed) {
     if (!stableEqual(yToJson(yarr), arr)) {
       if (yarr.length > 0) yarr.delete(0, yarr.length);
-      yarr.insert(0, arr.map((item) => toShared(item, ink)));
+      yarr.insert(
+        0,
+        arr.map((item) => toShared(item, ink)),
+      );
     }
     return;
   }
@@ -395,7 +403,13 @@ class MobileLiveProvider implements MobileLiveNoteSession {
     this.initialSyncPending = false;
 
     socket.onopen = () => {
-      socket.send(JSON.stringify({ type: 'authenticate', ticket: ticket.ticket, protocolVersion: PROTOCOL_VERSION }));
+      socket.send(
+        JSON.stringify({
+          type: 'authenticate',
+          ticket: ticket.ticket,
+          protocolVersion: PROTOCOL_VERSION,
+        }),
+      );
     };
     socket.onmessage = (event) => this.handleMessage(event);
     socket.onerror = () => {};
@@ -418,7 +432,10 @@ class MobileLiveProvider implements MobileLiveNoteSession {
         return;
       }
       if (control.type === 'ready') {
-        if (typeof control.protocolVersion === 'number' && control.protocolVersion !== PROTOCOL_VERSION) {
+        if (
+          typeof control.protocolVersion === 'number' &&
+          control.protocolVersion !== PROTOCOL_VERSION
+        ) {
           this.subscribedCallback?.(false);
           this.destroy();
           return;
@@ -483,7 +500,8 @@ class MobileLiveProvider implements MobileLiveNoteSession {
   ) => {
     if (origin === REMOTE_AWARENESS_ORIGIN) return;
     const clients = [...changes.added, ...changes.updated, ...changes.removed];
-    if (clients.length > 0) this.sendBinary(AWARENESS, encodeAwarenessUpdate(this.awareness, clients));
+    if (clients.length > 0)
+      this.sendBinary(AWARENESS, encodeAwarenessUpdate(this.awareness, clients));
   };
 
   private sendLocalAwareness() {
@@ -667,6 +685,10 @@ export async function openMobileLiveJsonSession(
   };
 }
 
-export function clearMobileLiveNoteState(serverUrl: string, vaultId: string, fileId: string): Promise<void> {
+export function clearMobileLiveNoteState(
+  serverUrl: string,
+  vaultId: string,
+  fileId: string,
+): Promise<void> {
   return replicaClearCrdtState(serverUrl, vaultId, fileId);
 }

@@ -1,6 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { useCollabStore } from '../../store/collabStore';
 import type { NotificationRecord } from '../../types/notification';
+
+import NotificationCenter from './NotificationCenter';
 
 const mocks = vi.hoisted(() => ({
   listInbox: vi.fn(),
@@ -23,9 +27,6 @@ vi.mock('../../lib/tauri', () => ({
     notificationRetry: mocks.retry,
   },
 }));
-
-import { useCollabStore } from '../../store/collabStore';
-import NotificationCenter from './NotificationCenter';
 
 const record: NotificationRecord = {
   envelope: {

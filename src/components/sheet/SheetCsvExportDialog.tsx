@@ -1,4 +1,5 @@
 import { useState } from 'react';
+
 import { AlertTriangle } from 'lucide-react';
 
 import type { SheetDocument } from '../../types/sheet';
@@ -13,13 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 /**
  * CSV export options.
@@ -80,7 +75,9 @@ export default function SheetCsvExportDialog({
 
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <label htmlFor="csv-worksheet" className="text-xs font-medium">Worksheet</label>
+            <label htmlFor="csv-worksheet" className="text-xs font-medium">
+              Worksheet
+            </label>
             <Select value={effectiveWorksheetId} onValueChange={setWorksheetId}>
               <SelectTrigger id="csv-worksheet">
                 <SelectValue placeholder="Choose a worksheet" />
@@ -104,7 +101,9 @@ export default function SheetCsvExportDialog({
 
           {selectionRange && (
             <div className="space-y-1.5">
-              <label htmlFor="csv-scope" className="text-xs font-medium">Cells</label>
+              <label htmlFor="csv-scope" className="text-xs font-medium">
+                Cells
+              </label>
               <Select
                 value={scope}
                 onValueChange={(value) => setScope(value as 'worksheet' | 'selection')}
@@ -121,7 +120,9 @@ export default function SheetCsvExportDialog({
           )}
 
           <div className="space-y-1.5">
-            <label htmlFor="csv-delimiter" className="text-xs font-medium">Delimiter</label>
+            <label htmlFor="csv-delimiter" className="text-xs font-medium">
+              Delimiter
+            </label>
             <Select value={delimiter} onValueChange={setDelimiter}>
               <SelectTrigger id="csv-delimiter">
                 <SelectValue />
@@ -176,8 +177,8 @@ export default function SheetCsvExportDialog({
             >
               <AlertTriangle size={14} className="mt-0.5 shrink-0 text-destructive" />
               <span>
-                Anyone who opens this file in a spreadsheet application will run those fields.
-                Only do this when you are sending the file to someone who expects live formulas.
+                Anyone who opens this file in a spreadsheet application will run those fields. Only
+                do this when you are sending the file to someone who expects live formulas.
               </span>
             </div>
           )}

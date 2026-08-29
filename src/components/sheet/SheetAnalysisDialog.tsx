@@ -1,13 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+
 import { BarChart3, Download, Plus, Trash2 } from 'lucide-react';
 
-import type {
-  SheetChart,
-  SheetChartKind,
-  SheetWorksheet,
-} from '../../types/sheet';
-import type { SheetFormulaValueMap } from '../../types/sheetFormula';
-import type { SheetSelection } from '../../lib/sheet/selection';
+import { columnLabel } from '../../lib/sheet/address';
 import {
   buildSheetChartSvg,
   createChartFromSelection,
@@ -15,7 +10,9 @@ import {
   pivotSheetSummary,
   stableRangeFromSelection,
 } from '../../lib/sheet/analysis';
-import { columnLabel } from '../../lib/sheet/address';
+import type { SheetSelection } from '../../lib/sheet/selection';
+import type { SheetChart, SheetChartKind, SheetWorksheet } from '../../types/sheet';
+import type { SheetFormulaValueMap } from '../../types/sheetFormula';
 import { Button } from '../ui/button';
 import {
   Dialog,
@@ -26,13 +23,7 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Input } from '../ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 interface Props {
   open: boolean;
@@ -98,23 +89,20 @@ export default function SheetAnalysisDialog({
   }, [open, rangeColumns]);
 
   const charts = worksheet.charts ?? [];
-  const summary = useMemo(() => (
-    range && groupColumn && valueColumn
-      ? groupedSheetSummary(worksheet, range, groupColumn, valueColumn, computedValues)
-      : []
-  ), [computedValues, groupColumn, range, valueColumn, worksheet]);
-  const pivot = useMemo(() => (
-    range && groupColumn && pivotColumn && valueColumn
-      ? pivotSheetSummary(
-        worksheet,
-        range,
-        groupColumn,
-        pivotColumn,
-        valueColumn,
-        computedValues,
-      )
-      : { rows: [], columns: [], values: new Map<string, number>() }
-  ), [computedValues, groupColumn, pivotColumn, range, valueColumn, worksheet]);
+  const summary = useMemo(
+    () =>
+      range && groupColumn && valueColumn
+        ? groupedSheetSummary(worksheet, range, groupColumn, valueColumn, computedValues)
+        : [],
+    [computedValues, groupColumn, range, valueColumn, worksheet],
+  );
+  const pivot = useMemo(
+    () =>
+      range && groupColumn && pivotColumn && valueColumn
+        ? pivotSheetSummary(worksheet, range, groupColumn, pivotColumn, valueColumn, computedValues)
+        : { rows: [], columns: [], values: new Map<string, number>() },
+    [computedValues, groupColumn, pivotColumn, range, valueColumn, worksheet],
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -135,7 +123,11 @@ export default function SheetAnalysisDialog({
                 size="sm"
                 onClick={() => setMode(item)}
               >
-                {item === 'charts' ? 'Charts' : item === 'summary' ? 'Grouped summary' : 'Pivot summary'}
+                {item === 'charts'
+                  ? 'Charts'
+                  : item === 'summary'
+                    ? 'Grouped summary'
+                    : 'Pivot summary'}
               </Button>
             ))}
           </div>
@@ -151,22 +143,23 @@ export default function SheetAnalysisDialog({
                   onChange={(event) => setTitle(event.target.value)}
                 />
                 <Select value={kind} onValueChange={(value) => setKind(value as SheetChartKind)}>
-                  <SelectTrigger className="w-full" aria-label="Chart type"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-full" aria-label="Chart type">
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     {CHART_KINDS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <Button
                   type="button"
                   disabled={readOnly || !range}
-                  onClick={() => onUpsertChart(createChartFromSelection(
-                    worksheet,
-                    selection,
-                    kind,
-                    title,
-                  ))}
+                  onClick={() =>
+                    onUpsertChart(createChartFromSelection(worksheet, selection, kind, title))
+                  }
                 >
                   <Plus data-icon="inline-start" />
                   Add from selection
@@ -180,86 +173,123 @@ export default function SheetAnalysisDialog({
                   <div className="grid min-h-56 place-items-center rounded-md border border-dashed border-border text-xs text-muted-foreground">
                     No charts on {worksheet.name}.
                   </div>
-                ) : charts.map((chart) => {
-                  const svg = buildSheetChartSvg(worksheet, chart, computedValues);
-                  return (
-                    <section key={chart.id} className="rounded-md border border-border bg-background p-2">
-                      <div className="mb-2 flex items-center gap-2">
-                        <BarChart3 size={14} className="text-primary" />
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium">
-                          {chart.title || `${chart.kind} chart`}
-                        </span>
-                        <Button
-                          type="button"
-                          size="icon-xs"
-                          variant="ghost"
-                          aria-label={`Export ${chart.title || chart.kind} chart`}
-                          onClick={() => onExportChart(chart)}
-                        >
-                          <Download />
-                        </Button>
-                        <Button
-                          type="button"
-                          size="icon-xs"
-                          variant="ghost"
-                          disabled={readOnly}
-                          aria-label={`Remove ${chart.title || chart.kind} chart`}
-                          onClick={() => onRemoveChart(chart.id)}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
-                      <div
-                        className="max-w-full overflow-auto rounded-sm bg-white"
-                        dangerouslySetInnerHTML={{ __html: svg }}
-                      />
-                    </section>
-                  );
-                })}
+                ) : (
+                  charts.map((chart) => {
+                    const svg = buildSheetChartSvg(worksheet, chart, computedValues);
+                    return (
+                      <section
+                        key={chart.id}
+                        className="rounded-md border border-border bg-background p-2"
+                      >
+                        <div className="mb-2 flex items-center gap-2">
+                          <BarChart3 size={14} className="text-primary" />
+                          <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                            {chart.title || `${chart.kind} chart`}
+                          </span>
+                          <Button
+                            type="button"
+                            size="icon-xs"
+                            variant="ghost"
+                            aria-label={`Export ${chart.title || chart.kind} chart`}
+                            onClick={() => onExportChart(chart)}
+                          >
+                            <Download />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon-xs"
+                            variant="ghost"
+                            disabled={readOnly}
+                            aria-label={`Remove ${chart.title || chart.kind} chart`}
+                            onClick={() => onRemoveChart(chart.id)}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </div>
+                        <div
+                          className="max-w-full overflow-auto rounded-sm bg-white"
+                          dangerouslySetInnerHTML={{ __html: svg }}
+                        />
+                      </section>
+                    );
+                  })
+                )}
               </div>
             </div>
           ) : (
             <div className="flex min-h-0 flex-col gap-3">
               <div className="grid gap-2 sm:grid-cols-3">
-                <ColumnSelect label="Group rows by" value={groupColumn} columns={rangeColumns} onChange={setGroupColumn} />
+                <ColumnSelect
+                  label="Group rows by"
+                  value={groupColumn}
+                  columns={rangeColumns}
+                  onChange={setGroupColumn}
+                />
                 {mode === 'pivot' && (
-                  <ColumnSelect label="Columns by" value={pivotColumn} columns={rangeColumns} onChange={setPivotColumn} />
+                  <ColumnSelect
+                    label="Columns by"
+                    value={pivotColumn}
+                    columns={rangeColumns}
+                    onChange={setPivotColumn}
+                  />
                 )}
-                <ColumnSelect label="Sum values from" value={valueColumn} columns={rangeColumns} onChange={setValueColumn} />
+                <ColumnSelect
+                  label="Sum values from"
+                  value={valueColumn}
+                  columns={rangeColumns}
+                  onChange={setValueColumn}
+                />
               </div>
               <div className="max-h-[50vh] overflow-auto rounded-md border border-border">
                 {mode === 'summary' ? (
                   <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-muted"><tr>
-                      <th className="p-2 text-left">Group</th><th>Count</th><th>Sum</th><th>Average</th><th>Min</th><th>Max</th>
-                    </tr></thead>
-                    <tbody>{summary.map((row) => (
-                      <tr key={row.group} className="border-t border-border">
-                        <th className="p-2 text-left font-medium">{row.group}</th>
-                        <td className="text-center">{row.count}</td>
-                        <td className="text-center">{row.sum}</td>
-                        <td className="text-center">{row.average ?? '—'}</td>
-                        <td className="text-center">{row.min ?? '—'}</td>
-                        <td className="text-center">{row.max ?? '—'}</td>
+                    <thead className="sticky top-0 bg-muted">
+                      <tr>
+                        <th className="p-2 text-left">Group</th>
+                        <th>Count</th>
+                        <th>Sum</th>
+                        <th>Average</th>
+                        <th>Min</th>
+                        <th>Max</th>
                       </tr>
-                    ))}</tbody>
+                    </thead>
+                    <tbody>
+                      {summary.map((row) => (
+                        <tr key={row.group} className="border-t border-border">
+                          <th className="p-2 text-left font-medium">{row.group}</th>
+                          <td className="text-center">{row.count}</td>
+                          <td className="text-center">{row.sum}</td>
+                          <td className="text-center">{row.average ?? '—'}</td>
+                          <td className="text-center">{row.min ?? '—'}</td>
+                          <td className="text-center">{row.max ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
                   </table>
                 ) : (
                   <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-muted"><tr>
-                      <th className="p-2 text-left">Group</th>
-                      {pivot.columns.map((column) => <th key={column} className="px-2">{column}</th>)}
-                    </tr></thead>
-                    <tbody>{pivot.rows.map((row) => (
-                      <tr key={row} className="border-t border-border">
-                        <th className="p-2 text-left font-medium">{row}</th>
+                    <thead className="sticky top-0 bg-muted">
+                      <tr>
+                        <th className="p-2 text-left">Group</th>
                         {pivot.columns.map((column) => (
-                          <td key={column} className="px-2 text-center">
-                            {pivot.values.get(`${row}\u0000${column}`) ?? '—'}
-                          </td>
+                          <th key={column} className="px-2">
+                            {column}
+                          </th>
                         ))}
                       </tr>
-                    ))}</tbody>
+                    </thead>
+                    <tbody>
+                      {pivot.rows.map((row) => (
+                        <tr key={row} className="border-t border-border">
+                          <th className="p-2 text-left font-medium">{row}</th>
+                          {pivot.columns.map((column) => (
+                            <td key={column} className="px-2 text-center">
+                              {pivot.values.get(`${row}\u0000${column}`) ?? '—'}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
                   </table>
                 )}
               </div>
@@ -287,10 +317,14 @@ function ColumnSelect({
     <label className="flex flex-col gap-1 text-xs font-medium">
       {label}
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+        <SelectTrigger className="w-full">
+          <SelectValue />
+        </SelectTrigger>
         <SelectContent>
           {columns.map((column) => (
-            <SelectItem key={column.id} value={column.id}>Column {column.label}</SelectItem>
+            <SelectItem key={column.id} value={column.id}>
+              Column {column.label}
+            </SelectItem>
           ))}
         </SelectContent>
       </Select>

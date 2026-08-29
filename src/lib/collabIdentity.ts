@@ -1,9 +1,10 @@
+import { useCollabStore } from '../store/collabStore';
 import { useServerStore } from '../store/serverStore';
 import { useVaultStore } from '../store/vaultStore';
-import { useCollabStore } from '../store/collabStore';
 import { vaultKind, type VaultMeta } from '../types/vault';
-import { userColorForId } from './userColor';
+
 import type { ServerConnectionStatus } from './tauri';
+import { userColorForId } from './userColor';
 
 export { userColorForId };
 
@@ -56,7 +57,7 @@ export function serverIdentityForVault(
 export function useCollabIdentity(): CollabIdentity {
   const vault = useVaultStore((state) => state.vault);
   const status = useServerStore((state) =>
-    vault?.kind === 'hosted' ? state.connections[vault.serverUrl]?.status ?? null : null,
+    vault?.kind === 'hosted' ? (state.connections[vault.serverUrl]?.status ?? null) : null,
   );
   const userId = useCollabStore((state) => state.myUserId);
   const userName = useCollabStore((state) => state.myUserName);

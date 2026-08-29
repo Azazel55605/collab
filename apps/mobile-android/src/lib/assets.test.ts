@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { HostedFileEntry } from '../mobileTauri';
+
 import {
   base64DataUrl,
   dataUrlToBase64,

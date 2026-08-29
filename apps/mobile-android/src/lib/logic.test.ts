@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { HostedFileEntry } from '../mobileTauri';
+
+import { isLogicFile, parseLogicContent, readLogicDocument, saveLogicDocument } from './logic';
+
 const invoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
-
-import type { HostedFileEntry } from '../mobileTauri';
-import { isLogicFile, parseLogicContent, readLogicDocument, saveLogicDocument } from './logic';
 
 const SERVER = 'https://collab.example.com';
 const VAULT = 'v1';
@@ -47,7 +48,14 @@ describe('mobile logic documents', () => {
   it('recognizes logic documents by extension', () => {
     expect(isLogicFile(LOGIC_FILE)).toBe(true);
     expect(isLogicFile({ ...LOGIC_FILE, name: 'Sketch.logic' })).toBe(true);
-    expect(isLogicFile({ ...LOGIC_FILE, name: 'Sketch', relativePath: 'Diagrams/Sketch.logic', documentType: 'note' })).toBe(true);
+    expect(
+      isLogicFile({
+        ...LOGIC_FILE,
+        name: 'Sketch',
+        relativePath: 'Diagrams/Sketch.logic',
+        documentType: 'note',
+      }),
+    ).toBe(true);
     expect(isLogicFile({ ...LOGIC_FILE, name: 'Note.md', relativePath: 'Note.md' })).toBe(false);
     expect(isLogicFile({ ...LOGIC_FILE, kind: 'asset', name: 'x.logic' })).toBe(false);
   });
@@ -61,12 +69,14 @@ describe('mobile logic documents', () => {
   });
 
   it('preserves rotated schematic symbols for the mobile viewer', () => {
-    const parsed = parseLogicContent(JSON.stringify({
-      kind: 'logic-diagram',
-      diagramMode: 'schematic',
-      nodes: [{ id: 'r1', kind: 'resistor', position: { x: 0, y: 0 }, rotation: 270 }],
-      wires: [],
-    }));
+    const parsed = parseLogicContent(
+      JSON.stringify({
+        kind: 'logic-diagram',
+        diagramMode: 'schematic',
+        nodes: [{ id: 'r1', kind: 'resistor', position: { x: 0, y: 0 }, rotation: 270 }],
+        wires: [],
+      }),
+    );
 
     expect(parsed.nodes[0]).toMatchObject({ kind: 'resistor', rotation: 270 });
   });
@@ -74,7 +84,10 @@ describe('mobile logic documents', () => {
   it('reads logic online and warms the replica cache', async () => {
     invoke.mockImplementation((command: string) => {
       if (command === 'hosted_vault_request') {
-        return Promise.resolve({ file: { ...LOGIC_FILE, currentRevision: { sequence: 4 } }, content: CONTENT });
+        return Promise.resolve({
+          file: { ...LOGIC_FILE, currentRevision: { sequence: 4 } },
+          content: CONTENT,
+        });
       }
       if (command === 'replica_cache_document') return Promise.resolve(null);
       return Promise.reject(new Error(`unhandled ${command}`));
@@ -83,7 +96,10 @@ describe('mobile logic documents', () => {
     const loaded = await readLogicDocument(SERVER, VAULT, LOGIC_FILE, true);
     expect(loaded.source).toBe('network');
     expect(loaded.logic.nodes).toHaveLength(4);
-    expect(invoke).toHaveBeenCalledWith('replica_cache_document', expect.objectContaining({ fileId: 'logic-1' }));
+    expect(invoke).toHaveBeenCalledWith(
+      'replica_cache_document',
+      expect.objectContaining({ fileId: 'logic-1' }),
+    );
   });
 
   it('falls back to the cached logic diagram when offline', async () => {
@@ -116,14 +132,20 @@ describe('mobile logic documents', () => {
     const saved = await saveLogicDocument(SERVER, VAULT, LOGIC_FILE, logic);
 
     expect(saved.file.revisionSequence).toBe(5);
-    expect(invoke).toHaveBeenCalledWith('hosted_vault_request', expect.objectContaining({
-      method: 'POST',
-      path: `/api/v1/vaults/${VAULT}/files/${LOGIC_FILE.id}/revisions`,
-      body: expect.objectContaining({ expectedRevisionSequence: 4 }),
-    }));
-    expect(invoke).toHaveBeenCalledWith('replica_cache_document', expect.objectContaining({
-      fileId: LOGIC_FILE.id,
-      content: expect.stringContaining('"schemaVersion": 6'),
-    }));
+    expect(invoke).toHaveBeenCalledWith(
+      'hosted_vault_request',
+      expect.objectContaining({
+        method: 'POST',
+        path: `/api/v1/vaults/${VAULT}/files/${LOGIC_FILE.id}/revisions`,
+        body: expect.objectContaining({ expectedRevisionSequence: 4 }),
+      }),
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      'replica_cache_document',
+      expect.objectContaining({
+        fileId: LOGIC_FILE.id,
+        content: expect.stringContaining('"schemaVersion": 6'),
+      }),
+    );
   });
 });

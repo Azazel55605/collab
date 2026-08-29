@@ -10,9 +10,9 @@
  * Object ids are regenerated on paste. Two copies sharing an id would be
  * indistinguishable to the spatial index and to the CRDT.
  */
-
 import { INK_LIMITS } from '../../types/ink';
 import type { InkObject, InkScene } from '../../types/ink';
+
 import { addObject, expandSelection } from './operations';
 import type { InkEdit } from './operations';
 import { boundsOf } from './operations';
@@ -38,9 +38,7 @@ export const INK_PASTE_OFFSET = 640;
  * remapped anyway, and flattening keeps the payload honest about what it holds.
  */
 export function copySelection(scene: InkScene, objectIds: string[]): InkClipboard | null {
-  const ids = expandSelection(scene, objectIds).filter(
-    (id) => scene.objects[id]?.type !== 'group',
-  );
+  const ids = expandSelection(scene, objectIds).filter((id) => scene.objects[id]?.type !== 'group');
   if (ids.length === 0) return null;
 
   const bounds = boundsOf(scene, ids);

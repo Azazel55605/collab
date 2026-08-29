@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { tauriCommands, type LinkPreviewData } from './tauri';
+
+import { type LinkPreviewData, tauriCommands } from './tauri';
 
 export interface WebPreviewCacheEntry {
   status: 'idle' | 'loading' | 'loaded' | 'error';
@@ -76,7 +77,8 @@ export async function requestWebPreview(url: string): Promise<LinkPreviewData> {
   });
   emit(normalizedUrl);
 
-  const promise = tauriCommands.fetchLinkPreview(normalizedUrl)
+  const promise = tauriCommands
+    .fetchLinkPreview(normalizedUrl)
     .then((data) => {
       cache.set(normalizedUrl, { status: 'loaded', data, error: null });
       inflight.delete(normalizedUrl);
@@ -125,9 +127,11 @@ export function extractHttpUrls(text: string) {
 
 export function useWebPreview(url: string | null | undefined, enabled: boolean) {
   const normalizedUrl = useMemo(() => normalizeWebPreviewUrl(url ?? ''), [url]);
-  const [entry, setEntry] = useState<WebPreviewCacheEntry>(() => (
-    normalizedUrl ? getCachedWebPreview(normalizedUrl) : { status: 'idle', data: null, error: null }
-  ));
+  const [entry, setEntry] = useState<WebPreviewCacheEntry>(() =>
+    normalizedUrl
+      ? getCachedWebPreview(normalizedUrl)
+      : { status: 'idle', data: null, error: null },
+  );
 
   useEffect(() => {
     if (!enabled || !normalizedUrl) {

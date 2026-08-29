@@ -56,8 +56,12 @@ describe('vault entry compatibility', () => {
 
   it('lists only active non-folder entries, largest first', () => {
     const revision = (sizeBytes: number) => ({
-      id: 'r', sequence: 1, contentHash: 'h', sizeBytes,
-      createdByDisplayName: 'Owner', createdAt: '2026-06-10T00:00:00Z',
+      id: 'r',
+      sequence: 1,
+      contentHash: 'h',
+      sizeBytes,
+      createdByDisplayName: 'Owner',
+      createdAt: '2026-06-10T00:00:00Z',
     });
     const files = [
       entry({ name: 'small.zip', currentRevision: revision(10) }),
@@ -84,7 +88,9 @@ describe('vault entry compatibility', () => {
     expect(result.map((file) => file.id)).toEqual(['folder', 'loose']);
 
     // Without the ancestor selected, the descendant survives on its own.
-    expect(dedupeNestedSelection(files, new Set(['child'])).map((file) => file.id)).toEqual(['child']);
+    expect(dedupeNestedSelection(files, new Set(['child'])).map((file) => file.id)).toEqual([
+      'child',
+    ]);
   });
 
   it('does not loop on a cyclic parent chain', () => {

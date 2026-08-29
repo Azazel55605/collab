@@ -1,4 +1,5 @@
-import { useId, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
+import { type MouseEvent, useId, useLayoutEffect, useRef, useState } from 'react';
+
 import * as d3 from 'd3';
 
 import type { MathPlot2DSpec } from './mathPlotSpec';
@@ -30,7 +31,8 @@ export function MathPlot2D({ spec, variant = 'inline', onShiftClick }: MathPlot2
     const node = plotRef.current;
     if (!node) return;
     const measure = (width: number, height: number) => {
-      if (width > 0 && height > 0) setSize({ width: Math.round(width), height: Math.round(height) });
+      if (width > 0 && height > 0)
+        setSize({ width: Math.round(width), height: Math.round(height) });
     };
     // Seed synchronously to avoid a first-frame aspect flash, then track changes.
     const rect = node.getBoundingClientRect();
@@ -54,13 +56,16 @@ export function MathPlot2D({ spec, variant = 'inline', onShiftClick }: MathPlot2
   }
 
   const { width, height } = size;
-  const xScale = d3.scaleLinear()
+  const xScale = d3
+    .scaleLinear()
     .domain([spec.x.min, spec.x.max])
     .range([margin.left, width - margin.right]);
-  const yScale = d3.scaleLinear()
+  const yScale = d3
+    .scaleLinear()
     .domain([sampled.yDomain.min, sampled.yDomain.max])
     .range([height - margin.bottom, margin.top]);
-  const line = d3.line<{ x: number; y: number }>()
+  const line = d3
+    .line<{ x: number; y: number }>()
     .x((point) => xScale(point.x))
     .y((point) => yScale(point.y));
   const xTicks = xScale.ticks(7);
@@ -91,37 +96,98 @@ export function MathPlot2D({ spec, variant = 'inline', onShiftClick }: MathPlot2
       )}
       <div
         ref={plotRef}
-        className={
-          isModal
-            ? 'h-[540px] w-full'
-            : 'w-full resize-y overflow-hidden rounded-md'
-        }
+        className={isModal ? 'h-[540px] w-full' : 'w-full resize-y overflow-hidden rounded-md'}
         style={isModal ? undefined : { height: INLINE_INITIAL_HEIGHT, minHeight: MIN_PLOT_HEIGHT }}
       >
-        <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="block h-full w-full">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="none"
+          className="block h-full w-full"
+        >
           <defs>
             <clipPath id={clipId}>
-              <rect x={margin.left} y={margin.top} width={width - margin.left - margin.right} height={height - margin.top - margin.bottom} />
+              <rect
+                x={margin.left}
+                y={margin.top}
+                width={width - margin.left - margin.right}
+                height={height - margin.top - margin.bottom}
+              />
             </clipPath>
           </defs>
-          <rect x={margin.left} y={margin.top} width={width - margin.left - margin.right} height={height - margin.top - margin.bottom} rx={6} className="fill-muted/15" />
+          <rect
+            x={margin.left}
+            y={margin.top}
+            width={width - margin.left - margin.right}
+            height={height - margin.top - margin.bottom}
+            rx={6}
+            className="fill-muted/15"
+          />
           {xTicks.map((tick) => (
             <g key={`x-${tick}`}>
-              <line x1={xScale(tick)} x2={xScale(tick)} y1={margin.top} y2={height - margin.bottom} className="stroke-border/40" />
-              <text x={xScale(tick)} y={height - 12} textAnchor="middle" className="fill-muted-foreground text-[10px]">{tick}</text>
+              <line
+                x1={xScale(tick)}
+                x2={xScale(tick)}
+                y1={margin.top}
+                y2={height - margin.bottom}
+                className="stroke-border/40"
+              />
+              <text
+                x={xScale(tick)}
+                y={height - 12}
+                textAnchor="middle"
+                className="fill-muted-foreground text-[10px]"
+              >
+                {tick}
+              </text>
             </g>
           ))}
           {yTicks.map((tick) => (
             <g key={`y-${tick}`}>
-              <line x1={margin.left} x2={width - margin.right} y1={yScale(tick)} y2={yScale(tick)} className="stroke-border/40" />
-              <text x={margin.left - 8} y={yScale(tick) + 3} textAnchor="end" className="fill-muted-foreground text-[10px]">{Number.parseFloat(tick.toPrecision(3))}</text>
+              <line
+                x1={margin.left}
+                x2={width - margin.right}
+                y1={yScale(tick)}
+                y2={yScale(tick)}
+                className="stroke-border/40"
+              />
+              <text
+                x={margin.left - 8}
+                y={yScale(tick) + 3}
+                textAnchor="end"
+                className="fill-muted-foreground text-[10px]"
+              >
+                {Number.parseFloat(tick.toPrecision(3))}
+              </text>
             </g>
           ))}
-          {zeroX !== null && <line x1={zeroX} x2={zeroX} y1={margin.top} y2={height - margin.bottom} className="stroke-foreground/35" />}
-          {zeroY !== null && <line x1={margin.left} x2={width - margin.right} y1={zeroY} y2={zeroY} className="stroke-foreground/35" />}
+          {zeroX !== null && (
+            <line
+              x1={zeroX}
+              x2={zeroX}
+              y1={margin.top}
+              y2={height - margin.bottom}
+              className="stroke-foreground/35"
+            />
+          )}
+          {zeroY !== null && (
+            <line
+              x1={margin.left}
+              x2={width - margin.right}
+              y1={zeroY}
+              y2={zeroY}
+              className="stroke-foreground/35"
+            />
+          )}
           <g clipPath={`url(#${clipId})`}>
             {sampled.segments.map((segment, index) => (
-              <path key={index} d={line(segment) ?? undefined} className="fill-none stroke-primary" strokeWidth={2.4} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+              <path
+                key={index}
+                d={line(segment) ?? undefined}
+                className="fill-none stroke-primary"
+                strokeWidth={2.4}
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
             ))}
           </g>
         </svg>

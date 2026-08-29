@@ -10,9 +10,11 @@ import type {
   ImageTextOverlay,
   PermanentImageEdits,
 } from '../../types/image';
+
 import {
   clamp,
   createEmptyEdits,
+  type Dimensions,
   getCropBounds,
   getRelativePoint,
   getTextHeight,
@@ -20,7 +22,6 @@ import {
   getTextMinWidth,
   getTextWidth,
   normalizeCropRect,
-  type Dimensions,
   type Point,
 } from './ImageViewUtils';
 
@@ -160,7 +161,10 @@ export function useImageInteractions({
 
   const applyCrop = useCallback(() => {
     if (!cropDraft) return;
-    setPermanentEdits((current) => ({ ...current, crop: normalizeCropRect(cropDraft, rotatedDimensions) }));
+    setPermanentEdits((current) => ({
+      ...current,
+      crop: normalizeCropRect(cropDraft, rotatedDimensions),
+    }));
     setCropMode(false);
   }, [cropDraft, rotatedDimensions, setCropMode, setPermanentEdits]);
 
@@ -174,11 +178,13 @@ export function useImageInteractions({
     const viewport = viewportRef.current;
     if (!viewport) return;
 
-    const isEventInsideImageView = (target: EventTarget | null) => target instanceof Node && viewport.contains(target);
-    const isEditableTarget = (target: EventTarget | null) => (
-      target instanceof HTMLElement
-      && target.matches('input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"], [role="combobox"]')
-    );
+    const isEventInsideImageView = (target: EventTarget | null) =>
+      target instanceof Node && viewport.contains(target);
+    const isEditableTarget = (target: EventTarget | null) =>
+      target instanceof HTMLElement &&
+      target.matches(
+        'input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"], [role="combobox"]',
+      );
 
     const handleKeyDown = (event: KeyboardEvent) => {
       const ctrl = event.ctrlKey || event.metaKey;
@@ -256,7 +262,7 @@ export function useImageInteractions({
           setMode('permanent');
           setPermanentEdits((current) => ({
             ...current,
-            rotation: (((current.rotation + 90) % 360) as PermanentImageEdits['rotation']),
+            rotation: ((current.rotation + 90) % 360) as PermanentImageEdits['rotation'],
           }));
           break;
         case 'c':
@@ -268,7 +274,10 @@ export function useImageInteractions({
         case 'L':
           if (mode === 'permanent') {
             event.preventDefault();
-            setPermanentEdits((current) => ({ ...current, lockAspectRatio: !current.lockAspectRatio }));
+            setPermanentEdits((current) => ({
+              ...current,
+              lockAspectRatio: !current.lockAspectRatio,
+            }));
           }
           break;
         case 'Delete':
@@ -308,7 +317,9 @@ export function useImageInteractions({
 
     document.addEventListener('keydown', handleKeyDown, { capture: true });
     return () => {
-      document.removeEventListener('keydown', handleKeyDown, { capture: true } as EventListenerOptions);
+      document.removeEventListener('keydown', handleKeyDown, {
+        capture: true,
+      } as EventListenerOptions);
     };
   }, [
     beginCrop,
@@ -327,91 +338,97 @@ export function useImageInteractions({
     viewportRef,
   ]);
 
-  const handleOverlayPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (!overlayDoc || !dimensions) return;
-    if (tool === 'select') {
-      setSelectedItemId(null);
-      return;
-    }
+  const handleOverlayPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!overlayDoc || !dimensions) return;
+      if (tool === 'select') {
+        setSelectedItemId(null);
+        return;
+      }
 
-    const rect = event.currentTarget.getBoundingClientRect();
-    const point = getRelativePoint(event, rect);
+      const rect = event.currentTarget.getBoundingClientRect();
+      const point = getRelativePoint(event, rect);
 
-    if (tool === 'text') {
-      const initialWidth = Math.max(0.24, getTextMinWidth(additiveDisplayDimensions));
-      const initialHeight = Math.max(0.14, getTextMinHeight(additiveDisplayDimensions));
-      const item: ImageTextOverlay = {
+      if (tool === 'text') {
+        const initialWidth = Math.max(0.24, getTextMinWidth(additiveDisplayDimensions));
+        const initialHeight = Math.max(0.14, getTextMinHeight(additiveDisplayDimensions));
+        const item: ImageTextOverlay = {
+          id: createId(),
+          type: 'text',
+          x: clamp(point.x, 0, 1 - initialWidth),
+          y: clamp(point.y, 0, 1 - initialHeight),
+          width: initialWidth,
+          height: initialHeight,
+          text: '',
+          color: overlayColor,
+          fontSize,
+        };
+        setOverlayItems((items) => [...items, item]);
+        setSelectedItemId(item.id);
+        setEditingTextId(item.id);
+        return;
+      }
+
+      if (tool === 'arrow') {
+        const item: ImageArrowOverlay = {
+          id: createId(),
+          type: 'arrow',
+          start: point,
+          end: point,
+          color: overlayColor,
+          strokeWidth,
+          lineStyle,
+        };
+        setDraftArrow(item);
+        return;
+      }
+
+      const stroke: ImagePenOverlay = {
         id: createId(),
-        type: 'text',
-        x: clamp(point.x, 0, 1 - initialWidth),
-        y: clamp(point.y, 0, 1 - initialHeight),
-        width: initialWidth,
-        height: initialHeight,
-        text: '',
-        color: overlayColor,
-        fontSize,
-      };
-      setOverlayItems((items) => [...items, item]);
-      setSelectedItemId(item.id);
-      setEditingTextId(item.id);
-      return;
-    }
-
-    if (tool === 'arrow') {
-      const item: ImageArrowOverlay = {
-        id: createId(),
-        type: 'arrow',
-        start: point,
-        end: point,
+        type: 'pen',
+        points: [point],
         color: overlayColor,
         strokeWidth,
-        lineStyle,
       };
-      setDraftArrow(item);
-      return;
-    }
-
-    const stroke: ImagePenOverlay = {
-      id: createId(),
-      type: 'pen',
-      points: [point],
-      color: overlayColor,
+      setDraftStroke(stroke);
+    },
+    [
+      additiveDisplayDimensions,
+      createId,
+      dimensions,
+      fontSize,
+      lineStyle,
+      overlayColor,
+      overlayDoc,
+      setDraftArrow,
+      setDraftStroke,
+      setEditingTextId,
+      setOverlayItems,
+      setSelectedItemId,
       strokeWidth,
-    };
-    setDraftStroke(stroke);
-  }, [
-    additiveDisplayDimensions,
-    createId,
-    dimensions,
-    fontSize,
-    lineStyle,
-    overlayColor,
-    overlayDoc,
-    setDraftArrow,
-    setDraftStroke,
-    setEditingTextId,
-    setOverlayItems,
-    setSelectedItemId,
-    strokeWidth,
-    tool,
-  ]);
+      tool,
+    ],
+  );
 
-  const handleOverlayPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (draftArrow) {
-      setDraftArrow({
-        ...draftArrow,
-        end: getRelativePoint(event, rect),
-      });
-    }
+  const handleOverlayPointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      if (draftArrow) {
+        setDraftArrow({
+          ...draftArrow,
+          end: getRelativePoint(event, rect),
+        });
+      }
 
-    if (draftStroke) {
-      setDraftStroke({
-        ...draftStroke,
-        points: [...draftStroke.points, getRelativePoint(event, rect)],
-      });
-    }
-  }, [draftArrow, draftStroke, setDraftArrow, setDraftStroke]);
+      if (draftStroke) {
+        setDraftStroke({
+          ...draftStroke,
+          points: [...draftStroke.points, getRelativePoint(event, rect)],
+        });
+      }
+    },
+    [draftArrow, draftStroke, setDraftArrow, setDraftStroke],
+  );
 
   const finishOverlayDraft = useCallback(() => {
     if (draftArrow) {
@@ -426,41 +443,54 @@ export function useImageInteractions({
     }
   }, [draftArrow, draftStroke, setDraftArrow, setDraftStroke, setOverlayItems, setSelectedItemId]);
 
-  const handleCropPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (!cropMode) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const point = getRelativePoint(event, rect);
-    setCropDragStart(point);
-    setCropInteraction({ mode: 'draw', startPointer: point });
-    setCropDraft({
-      x: point.x * rotatedDimensions.width,
-      y: point.y * rotatedDimensions.height,
-      width: 1,
-      height: 1,
-    });
-  }, [cropMode, rotatedDimensions, setCropDraft, setCropDragStart, setCropInteraction]);
+  const handleCropPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!cropMode) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      const point = getRelativePoint(event, rect);
+      setCropDragStart(point);
+      setCropInteraction({ mode: 'draw', startPointer: point });
+      setCropDraft({
+        x: point.x * rotatedDimensions.width,
+        y: point.y * rotatedDimensions.height,
+        width: 1,
+        height: 1,
+      });
+    },
+    [cropMode, rotatedDimensions, setCropDraft, setCropDragStart, setCropInteraction],
+  );
 
-  const handleCropPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (!cropMode || !cropDragStart) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const point = getRelativePoint(event, rect);
-    const startX = cropDragStart.x * rotatedDimensions.width;
-    const startY = cropDragStart.y * rotatedDimensions.height;
-    const endX = point.x * rotatedDimensions.width;
-    const endY = point.y * rotatedDimensions.height;
-    setCropDraft(normalizeCropRect({
-      x: Math.min(startX, endX),
-      y: Math.min(startY, endY),
-      width: Math.abs(endX - startX),
-      height: Math.abs(endY - startY),
-    }, rotatedDimensions));
-  }, [cropDragStart, cropMode, rotatedDimensions, setCropDraft]);
+  const handleCropPointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!cropMode || !cropDragStart) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      const point = getRelativePoint(event, rect);
+      const startX = cropDragStart.x * rotatedDimensions.width;
+      const startY = cropDragStart.y * rotatedDimensions.height;
+      const endX = point.x * rotatedDimensions.width;
+      const endY = point.y * rotatedDimensions.height;
+      setCropDraft(
+        normalizeCropRect(
+          {
+            x: Math.min(startX, endX),
+            y: Math.min(startY, endY),
+            width: Math.abs(endX - startX),
+            height: Math.abs(endY - startY),
+          },
+          rotatedDimensions,
+        ),
+      );
+    },
+    [cropDragStart, cropMode, rotatedDimensions, setCropDraft],
+  );
 
   useEffect(() => {
     if (!cropMode || !cropInteraction) return;
 
     const handleMove = (event: PointerEvent) => {
-      const stage = viewportRef.current?.querySelector('[data-image-stage="crop"]') as HTMLDivElement | null;
+      const stage = viewportRef.current?.querySelector(
+        '[data-image-stage="crop"]',
+      ) as HTMLDivElement | null;
       if (!stage) return;
       const rect = stage.getBoundingClientRect();
       const point = getRelativePoint(event, rect);
@@ -470,12 +500,17 @@ export function useImageInteractions({
         const startY = cropInteraction.startPointer.y * rotatedDimensions.height;
         const endX = point.x * rotatedDimensions.width;
         const endY = point.y * rotatedDimensions.height;
-        setCropDraft(normalizeCropRect({
-          x: Math.min(startX, endX),
-          y: Math.min(startY, endY),
-          width: Math.abs(endX - startX),
-          height: Math.abs(endY - startY),
-        }, rotatedDimensions));
+        setCropDraft(
+          normalizeCropRect(
+            {
+              x: Math.min(startX, endX),
+              y: Math.min(startY, endY),
+              width: Math.abs(endX - startX),
+              height: Math.abs(endY - startY),
+            },
+            rotatedDimensions,
+          ),
+        );
         return;
       }
 
@@ -505,12 +540,17 @@ export function useImageInteractions({
         nextHeight = clamp(startRect.height + deltaY, minSize, rotatedDimensions.height - nextY);
       }
 
-      setCropDraft(normalizeCropRect({
-        x: nextX,
-        y: nextY,
-        width: nextWidth,
-        height: nextHeight,
-      }, rotatedDimensions));
+      setCropDraft(
+        normalizeCropRect(
+          {
+            x: nextX,
+            y: nextY,
+            width: nextWidth,
+            height: nextHeight,
+          },
+          rotatedDimensions,
+        ),
+      );
     };
 
     const handleUp = () => {
@@ -524,29 +564,42 @@ export function useImageInteractions({
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleUp);
     };
-  }, [cropInteraction, cropMode, rotatedDimensions, setCropDraft, setCropDragStart, setCropInteraction, viewportRef]);
+  }, [
+    cropInteraction,
+    cropMode,
+    rotatedDimensions,
+    setCropDraft,
+    setCropDragStart,
+    setCropInteraction,
+    viewportRef,
+  ]);
 
-  const handleResizeChange = useCallback((dimension: 'width' | 'height', value: string) => {
-    const parsed = Number.parseInt(value, 10);
-    const next = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-    const source = getCropBounds(currentDimensions, permanentEdits);
-    const aspect = source.width / source.height;
+  const handleResizeChange = useCallback(
+    (dimension: 'width' | 'height', value: string) => {
+      const parsed = Number.parseInt(value, 10);
+      const next = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+      const source = getCropBounds(currentDimensions, permanentEdits);
+      const aspect = source.width / source.height;
 
-    setPermanentEdits((current) => {
-      if (dimension === 'width') {
+      setPermanentEdits((current) => {
+        if (dimension === 'width') {
+          return {
+            ...current,
+            resizeWidth: next,
+            resizeHeight:
+              current.lockAspectRatio && next ? Math.round(next / aspect) : current.resizeHeight,
+          };
+        }
         return {
           ...current,
-          resizeWidth: next,
-          resizeHeight: current.lockAspectRatio && next ? Math.round(next / aspect) : current.resizeHeight,
+          resizeHeight: next,
+          resizeWidth:
+            current.lockAspectRatio && next ? Math.round(next * aspect) : current.resizeWidth,
         };
-      }
-      return {
-        ...current,
-        resizeHeight: next,
-        resizeWidth: current.lockAspectRatio && next ? Math.round(next * aspect) : current.resizeWidth,
-      };
-    });
-  }, [currentDimensions, permanentEdits, setPermanentEdits]);
+      });
+    },
+    [currentDimensions, permanentEdits, setPermanentEdits],
+  );
 
   useEffect(() => {
     if (!editingTextId) return;
@@ -561,56 +614,76 @@ export function useImageInteractions({
     if (!textInteraction) return;
 
     const handleMove = (event: PointerEvent) => {
-      const stage = viewportRef.current?.querySelector('[data-image-stage="additive"]') as HTMLDivElement | null;
+      const stage = viewportRef.current?.querySelector(
+        '[data-image-stage="additive"]',
+      ) as HTMLDivElement | null;
       if (!stage) return;
       const rect = stage.getBoundingClientRect();
       const pointer = getRelativePoint(event, rect);
 
-      setOverlayItems((items) => items.map((item) => {
-        if (item.id !== textInteraction.id || item.type !== 'text') return item;
-        if (textInteraction.mode === 'move') {
+      setOverlayItems((items) =>
+        items.map((item) => {
+          if (item.id !== textInteraction.id || item.type !== 'text') return item;
+          if (textInteraction.mode === 'move') {
+            const deltaX = pointer.x - textInteraction.startPointer.x;
+            const deltaY = pointer.y - textInteraction.startPointer.y;
+            return {
+              ...item,
+              x: clamp(textInteraction.startX + deltaX, 0, 1 - getTextWidth(item)),
+              y: clamp(textInteraction.startY + deltaY, 0, 1 - getTextHeight(item)),
+            };
+          }
           const deltaX = pointer.x - textInteraction.startPointer.x;
           const deltaY = pointer.y - textInteraction.startPointer.y;
+          const minWidth = getTextMinWidth(additiveDisplayDimensions);
+          const minHeight = getTextMinHeight(additiveDisplayDimensions);
+          let nextX = textInteraction.startX;
+          let nextY = textInteraction.startY;
+          let nextWidth = textInteraction.startWidth;
+          let nextHeight = textInteraction.startHeight;
+
+          if (textInteraction.edges.right) {
+            nextWidth = clamp(textInteraction.startWidth + deltaX, minWidth, 1 - nextX);
+          }
+          if (textInteraction.edges.bottom) {
+            nextHeight = clamp(textInteraction.startHeight + deltaY, minHeight, 1 - nextY);
+          }
+          if (textInteraction.edges.left) {
+            const proposedX = clamp(
+              textInteraction.startX + deltaX,
+              0,
+              textInteraction.startX + textInteraction.startWidth - minWidth,
+            );
+            nextWidth = clamp(
+              textInteraction.startWidth + (textInteraction.startX - proposedX),
+              minWidth,
+              1,
+            );
+            nextX = proposedX;
+          }
+          if (textInteraction.edges.top) {
+            const proposedY = clamp(
+              textInteraction.startY + deltaY,
+              0,
+              textInteraction.startY + textInteraction.startHeight - minHeight,
+            );
+            nextHeight = clamp(
+              textInteraction.startHeight + (textInteraction.startY - proposedY),
+              minHeight,
+              1,
+            );
+            nextY = proposedY;
+          }
+
           return {
             ...item,
-            x: clamp(textInteraction.startX + deltaX, 0, 1 - getTextWidth(item)),
-            y: clamp(textInteraction.startY + deltaY, 0, 1 - getTextHeight(item)),
+            x: clamp(nextX, 0, 1 - nextWidth),
+            y: clamp(nextY, 0, 1 - nextHeight),
+            width: clamp(nextWidth, minWidth, 1 - clamp(nextX, 0, 1 - nextWidth)),
+            height: clamp(nextHeight, minHeight, 1 - clamp(nextY, 0, 1 - nextHeight)),
           };
-        }
-        const deltaX = pointer.x - textInteraction.startPointer.x;
-        const deltaY = pointer.y - textInteraction.startPointer.y;
-        const minWidth = getTextMinWidth(additiveDisplayDimensions);
-        const minHeight = getTextMinHeight(additiveDisplayDimensions);
-        let nextX = textInteraction.startX;
-        let nextY = textInteraction.startY;
-        let nextWidth = textInteraction.startWidth;
-        let nextHeight = textInteraction.startHeight;
-
-        if (textInteraction.edges.right) {
-          nextWidth = clamp(textInteraction.startWidth + deltaX, minWidth, 1 - nextX);
-        }
-        if (textInteraction.edges.bottom) {
-          nextHeight = clamp(textInteraction.startHeight + deltaY, minHeight, 1 - nextY);
-        }
-        if (textInteraction.edges.left) {
-          const proposedX = clamp(textInteraction.startX + deltaX, 0, textInteraction.startX + textInteraction.startWidth - minWidth);
-          nextWidth = clamp(textInteraction.startWidth + (textInteraction.startX - proposedX), minWidth, 1);
-          nextX = proposedX;
-        }
-        if (textInteraction.edges.top) {
-          const proposedY = clamp(textInteraction.startY + deltaY, 0, textInteraction.startY + textInteraction.startHeight - minHeight);
-          nextHeight = clamp(textInteraction.startHeight + (textInteraction.startY - proposedY), minHeight, 1);
-          nextY = proposedY;
-        }
-
-        return {
-          ...item,
-          x: clamp(nextX, 0, 1 - nextWidth),
-          y: clamp(nextY, 0, 1 - nextHeight),
-          width: clamp(nextWidth, minWidth, 1 - clamp(nextX, 0, 1 - nextWidth)),
-          height: clamp(nextHeight, minHeight, 1 - clamp(nextY, 0, 1 - nextHeight)),
-        };
-      }));
+        }),
+      );
     };
 
     const handleUp = () => setTextInteraction(null);
@@ -621,51 +694,83 @@ export function useImageInteractions({
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleUp);
     };
-  }, [additiveDisplayDimensions, setOverlayItems, setTextInteraction, textInteraction, viewportRef]);
+  }, [
+    additiveDisplayDimensions,
+    setOverlayItems,
+    setTextInteraction,
+    textInteraction,
+    viewportRef,
+  ]);
 
   useEffect(() => {
     if (!arrowInteraction) return;
 
     const handleMove = (event: PointerEvent) => {
-      const stage = viewportRef.current?.querySelector('[data-image-stage="additive"]') as HTMLDivElement | null;
+      const stage = viewportRef.current?.querySelector(
+        '[data-image-stage="additive"]',
+      ) as HTMLDivElement | null;
       if (!stage) return;
       const rect = stage.getBoundingClientRect();
       const pointer = getRelativePoint(event, rect);
       const deltaX = pointer.x - arrowInteraction.startPointer.x;
       const deltaY = pointer.y - arrowInteraction.startPointer.y;
 
-      setOverlayItems((items) => items.map((item) => {
-        if (item.id !== arrowInteraction.id || item.type !== 'arrow') return item;
-        if (arrowInteraction.mode === 'move') {
-          const nextStart = {
-            x: clamp(arrowInteraction.startStart.x + deltaX, 0, 1),
-            y: clamp(arrowInteraction.startStart.y + deltaY, 0, 1),
-          };
-          const nextEnd = {
-            x: clamp(arrowInteraction.startEnd.x + deltaX, 0, 1),
-            y: clamp(arrowInteraction.startEnd.y + deltaY, 0, 1),
-          };
-          const correctionX =
-            (arrowInteraction.startStart.x + deltaX < 0 ? -(arrowInteraction.startStart.x + deltaX) : 0) ||
-            (arrowInteraction.startEnd.x + deltaX > 1 ? 1 - (arrowInteraction.startEnd.x + deltaX) : 0) ||
-            (arrowInteraction.startEnd.x + deltaX < 0 ? -(arrowInteraction.startEnd.x + deltaX) : 0) ||
-            (arrowInteraction.startStart.x + deltaX > 1 ? 1 - (arrowInteraction.startStart.x + deltaX) : 0);
-          const correctionY =
-            (arrowInteraction.startStart.y + deltaY < 0 ? -(arrowInteraction.startStart.y + deltaY) : 0) ||
-            (arrowInteraction.startEnd.y + deltaY > 1 ? 1 - (arrowInteraction.startEnd.y + deltaY) : 0) ||
-            (arrowInteraction.startEnd.y + deltaY < 0 ? -(arrowInteraction.startEnd.y + deltaY) : 0) ||
-            (arrowInteraction.startStart.y + deltaY > 1 ? 1 - (arrowInteraction.startStart.y + deltaY) : 0);
-          return {
-            ...item,
-            start: { x: clamp(nextStart.x + correctionX, 0, 1), y: clamp(nextStart.y + correctionY, 0, 1) },
-            end: { x: clamp(nextEnd.x + correctionX, 0, 1), y: clamp(nextEnd.y + correctionY, 0, 1) },
-          };
-        }
+      setOverlayItems((items) =>
+        items.map((item) => {
+          if (item.id !== arrowInteraction.id || item.type !== 'arrow') return item;
+          if (arrowInteraction.mode === 'move') {
+            const nextStart = {
+              x: clamp(arrowInteraction.startStart.x + deltaX, 0, 1),
+              y: clamp(arrowInteraction.startStart.y + deltaY, 0, 1),
+            };
+            const nextEnd = {
+              x: clamp(arrowInteraction.startEnd.x + deltaX, 0, 1),
+              y: clamp(arrowInteraction.startEnd.y + deltaY, 0, 1),
+            };
+            const correctionX =
+              (arrowInteraction.startStart.x + deltaX < 0
+                ? -(arrowInteraction.startStart.x + deltaX)
+                : 0) ||
+              (arrowInteraction.startEnd.x + deltaX > 1
+                ? 1 - (arrowInteraction.startEnd.x + deltaX)
+                : 0) ||
+              (arrowInteraction.startEnd.x + deltaX < 0
+                ? -(arrowInteraction.startEnd.x + deltaX)
+                : 0) ||
+              (arrowInteraction.startStart.x + deltaX > 1
+                ? 1 - (arrowInteraction.startStart.x + deltaX)
+                : 0);
+            const correctionY =
+              (arrowInteraction.startStart.y + deltaY < 0
+                ? -(arrowInteraction.startStart.y + deltaY)
+                : 0) ||
+              (arrowInteraction.startEnd.y + deltaY > 1
+                ? 1 - (arrowInteraction.startEnd.y + deltaY)
+                : 0) ||
+              (arrowInteraction.startEnd.y + deltaY < 0
+                ? -(arrowInteraction.startEnd.y + deltaY)
+                : 0) ||
+              (arrowInteraction.startStart.y + deltaY > 1
+                ? 1 - (arrowInteraction.startStart.y + deltaY)
+                : 0);
+            return {
+              ...item,
+              start: {
+                x: clamp(nextStart.x + correctionX, 0, 1),
+                y: clamp(nextStart.y + correctionY, 0, 1),
+              },
+              end: {
+                x: clamp(nextEnd.x + correctionX, 0, 1),
+                y: clamp(nextEnd.y + correctionY, 0, 1),
+              },
+            };
+          }
 
-        return arrowInteraction.mode === 'start'
-          ? { ...item, start: pointer }
-          : { ...item, end: pointer };
-      }));
+          return arrowInteraction.mode === 'start'
+            ? { ...item, start: pointer }
+            : { ...item, end: pointer };
+        }),
+      );
     };
 
     const handleUp = () => setArrowInteraction(null);

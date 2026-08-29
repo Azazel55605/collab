@@ -1,12 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const invoke = vi.fn();
-vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
-
-import { CalendarScreen } from './CalendarScreen';
-import { DEFAULT_PREFS } from '../lib/theme';
-import { useMobileStore } from '../state/store';
 import { calendarMirrorItemFingerprint } from '../../../../src/lib/calendarMirroring';
 import type {
   CalendarDefinition,
@@ -14,6 +8,13 @@ import type {
   CalendarMirrorGroup,
   CalendarOperationFailure,
 } from '../../../../src/types/calendar';
+import { DEFAULT_PREFS } from '../lib/theme';
+import { useMobileStore } from '../state/store';
+
+import { CalendarScreen } from './CalendarScreen';
+
+const invoke = vi.fn();
+vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 
 const calendar: CalendarDefinition = {
   schemaVersion: 1,
@@ -53,7 +54,8 @@ describe('mobile Calendar screen', () => {
     invoke.mockImplementation((command: string) => {
       if (command === 'calendar_list') return Promise.resolve([calendar]);
       if (command === 'calendar_list_items') return Promise.resolve([]);
-      if (command === 'calendar_upsert_item' || command === 'calendar_acknowledge_operations') return Promise.resolve();
+      if (command === 'calendar_upsert_item' || command === 'calendar_acknowledge_operations')
+        return Promise.resolve();
       return Promise.reject(new Error(`unhandled command ${command}`));
     });
   });
@@ -63,22 +65,31 @@ describe('mobile Calendar screen', () => {
     await screen.findByRole('button', { name: /Personal/ });
 
     fireEvent.click(screen.getByRole('button', { name: 'New calendar item' }));
-    expect(screen.getByRole('switch', { name: 'All day' }).getAttribute('aria-checked')).toBe('false');
-    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'Mobile planning' } });
+    expect(screen.getByRole('switch', { name: 'All day' }).getAttribute('aria-checked')).toBe(
+      'false',
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), {
+      target: { value: 'Mobile planning' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('calendar_upsert_item', expect.objectContaining({
-      item: expect.objectContaining({
-        kind: 'event',
-        title: 'Mobile planning',
-        start: expect.objectContaining({ kind: 'dateTime' }),
-        end: expect.objectContaining({ kind: 'dateTime' }),
-        reminders: [{ kind: 'relative', minutesBefore: 10 }],
-      }),
-      operation: expect.objectContaining({
-        mutation: expect.objectContaining({ type: 'upsertItem' }),
-      }),
-    })));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        'calendar_upsert_item',
+        expect.objectContaining({
+          item: expect.objectContaining({
+            kind: 'event',
+            title: 'Mobile planning',
+            start: expect.objectContaining({ kind: 'dateTime' }),
+            end: expect.objectContaining({ kind: 'dateTime' }),
+            reminders: [{ kind: 'relative', minutesBefore: 10 }],
+          }),
+          operation: expect.objectContaining({
+            mutation: expect.objectContaining({ type: 'upsertItem' }),
+          }),
+        }),
+      ),
+    );
     expect(invoke).toHaveBeenCalledWith('calendar_acknowledge_operations', expect.any(Object));
   });
 
@@ -93,14 +104,22 @@ describe('mobile Calendar screen', () => {
     nextMonth.setMonth(nextMonth.getMonth() + 1, 1);
     fireEvent.touchStart(content!, { touches: [{ clientX: 280, clientY: 260 }] });
     fireEvent.touchEnd(content!, { changedTouches: [{ clientX: 70, clientY: 262 }] });
-    expect(await screen.findAllByText(new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(nextMonth))).not.toHaveLength(0);
+    expect(
+      await screen.findAllByText(
+        new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(nextMonth),
+      ),
+    ).not.toHaveLength(0);
 
     fireEvent.click(screen.getByRole('button', { name: 'Today' }));
-    const currentDay = document.querySelector<HTMLButtonElement>('.calendar-mobile-grid [aria-current="date"]');
+    const currentDay = document.querySelector<HTMLButtonElement>(
+      '.calendar-mobile-grid [aria-current="date"]',
+    );
     expect(currentDay).toBeTruthy();
     fireEvent.click(currentDay!);
 
-    await waitFor(() => expect(document.querySelector('.mobile-calendar-content.view-day')).toBeTruthy());
+    await waitFor(() =>
+      expect(document.querySelector('.mobile-calendar-content.view-day')).toBeTruthy(),
+    );
     const dayContent = document.querySelector('.mobile-calendar-content.view-day');
     expect(dayContent).toBeTruthy();
     fireEvent.touchStart(dayContent!, { touches: [{ clientX: 280, clientY: 260 }] });
@@ -115,23 +134,27 @@ describe('mobile Calendar screen', () => {
     const nextDay = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
     invoke.mockImplementation((command: string) => {
       if (command === 'calendar_list') return Promise.resolve([calendar]);
-      if (command === 'calendar_list_items') return Promise.resolve([{
-        id: 'event-1',
-        uid: 'event-1@collab.test',
-        calendarId: calendar.id,
-        kind: 'event',
-        title: 'Planning review with the team',
-        start: { kind: 'date', date: day },
-        end: { kind: 'date', date: nextDay },
-        availability: 'busy',
-        reminders: [],
-        attendees: [],
-        attachments: [],
-        revision: 0,
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      }]);
-      if (command === 'calendar_upsert_item' || command === 'calendar_acknowledge_operations') return Promise.resolve();
+      if (command === 'calendar_list_items')
+        return Promise.resolve([
+          {
+            id: 'event-1',
+            uid: 'event-1@collab.test',
+            calendarId: calendar.id,
+            kind: 'event',
+            title: 'Planning review with the team',
+            start: { kind: 'date', date: day },
+            end: { kind: 'date', date: nextDay },
+            availability: 'busy',
+            reminders: [],
+            attendees: [],
+            attachments: [],
+            revision: 0,
+            createdAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+          },
+        ]);
+      if (command === 'calendar_upsert_item' || command === 'calendar_acknowledge_operations')
+        return Promise.resolve();
       return Promise.reject(new Error(`unhandled command ${command}`));
     });
 
@@ -152,51 +175,52 @@ describe('mobile Calendar screen', () => {
     const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     invoke.mockImplementation((command: string) => {
       if (command === 'calendar_list') return Promise.resolve([calendar]);
-      if (command === 'calendar_list_items') return Promise.resolve([
-        {
-          id: 'event-span',
-          uid: 'event-span@collab.test',
-          calendarId: calendar.id,
-          kind: 'event',
-          title: 'Offsite',
-          // A timed event covering three days must appear on all three.
-          start: { kind: 'dateTime', dateTime: `${month}-10T09:00:00.000Z`, timeZone: 'UTC' },
-          end: { kind: 'dateTime', dateTime: `${month}-12T17:00:00.000Z`, timeZone: 'UTC' },
-          availability: 'busy',
-          reminders: [],
-          attendees: [],
-          attachments: [],
-          revision: 0,
-          createdAt: now.toISOString(),
-          updatedAt: now.toISOString(),
-        },
-        {
-          id: 'birthday-1',
-          uid: 'birthday-1@collab.test',
-          calendarId: calendar.id,
-          kind: 'birthday',
-          title: 'Sam',
-          // Birthdays match on month and day, ignoring the stored year.
-          date: `1990-${month.slice(5)}-15`,
-          reminders: [],
-          revision: 0,
-          createdAt: now.toISOString(),
-          updatedAt: now.toISOString(),
-        },
-        {
-          id: 'task-1',
-          uid: 'task-1@collab.test',
-          calendarId: calendar.id,
-          kind: 'task',
-          title: 'File report',
-          due: { kind: 'date', date: `${month}-20` },
-          completed: false,
-          reminders: [],
-          revision: 0,
-          createdAt: now.toISOString(),
-          updatedAt: now.toISOString(),
-        },
-      ]);
+      if (command === 'calendar_list_items')
+        return Promise.resolve([
+          {
+            id: 'event-span',
+            uid: 'event-span@collab.test',
+            calendarId: calendar.id,
+            kind: 'event',
+            title: 'Offsite',
+            // A timed event covering three days must appear on all three.
+            start: { kind: 'dateTime', dateTime: `${month}-10T09:00:00.000Z`, timeZone: 'UTC' },
+            end: { kind: 'dateTime', dateTime: `${month}-12T17:00:00.000Z`, timeZone: 'UTC' },
+            availability: 'busy',
+            reminders: [],
+            attendees: [],
+            attachments: [],
+            revision: 0,
+            createdAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+          },
+          {
+            id: 'birthday-1',
+            uid: 'birthday-1@collab.test',
+            calendarId: calendar.id,
+            kind: 'birthday',
+            title: 'Sam',
+            // Birthdays match on month and day, ignoring the stored year.
+            date: `1990-${month.slice(5)}-15`,
+            reminders: [],
+            revision: 0,
+            createdAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+          },
+          {
+            id: 'task-1',
+            uid: 'task-1@collab.test',
+            calendarId: calendar.id,
+            kind: 'task',
+            title: 'File report',
+            due: { kind: 'date', date: `${month}-20` },
+            completed: false,
+            reminders: [],
+            revision: 0,
+            createdAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+          },
+        ]);
       if (command === 'calendar_acknowledge_operations') return Promise.resolve();
       return Promise.reject(new Error(`unhandled command ${command}`));
     });
@@ -216,22 +240,25 @@ describe('mobile Calendar screen', () => {
     const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 10, 30);
     invoke.mockImplementation((command: string) => {
       if (command === 'calendar_list') return Promise.resolve([calendar]);
-      if (command === 'calendar_list_items') return Promise.resolve([{
-        id: 'timed-event-1',
-        uid: 'timed-event-1@collab.test',
-        calendarId: calendar.id,
-        kind: 'event',
-        title: 'Timeline planning',
-        start: { kind: 'dateTime', dateTime: start.toISOString(), timeZone: 'UTC' },
-        end: { kind: 'dateTime', dateTime: end.toISOString(), timeZone: 'UTC' },
-        availability: 'busy',
-        reminders: [],
-        attendees: [],
-        attachments: [],
-        revision: 0,
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      }]);
+      if (command === 'calendar_list_items')
+        return Promise.resolve([
+          {
+            id: 'timed-event-1',
+            uid: 'timed-event-1@collab.test',
+            calendarId: calendar.id,
+            kind: 'event',
+            title: 'Timeline planning',
+            start: { kind: 'dateTime', dateTime: start.toISOString(), timeZone: 'UTC' },
+            end: { kind: 'dateTime', dateTime: end.toISOString(), timeZone: 'UTC' },
+            availability: 'busy',
+            reminders: [],
+            attendees: [],
+            attachments: [],
+            revision: 0,
+            createdAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+          },
+        ]);
       return Promise.reject(new Error(`unhandled command ${command}`));
     });
 
@@ -245,17 +272,27 @@ describe('mobile Calendar screen', () => {
 
     const slots = screen.getAllByRole('button', { name: /Create event on .* at/ });
     fireEvent.click(slots[19]);
-    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'Created from timeline' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), {
+      target: { value: 'Created from timeline' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('calendar_upsert_item', expect.objectContaining({
-      item: expect.objectContaining({ title: 'Created from timeline' }),
-    })));
-    const createCall = invoke.mock.calls.find(([command, args]) => (
-      command === 'calendar_upsert_item'
-      && (args as { item?: { title?: string } }).item?.title === 'Created from timeline'
-    ));
-    const createdItem = (createCall?.[1] as { item: { start: { dateTime: string }; end: { dateTime: string } } }).item;
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        'calendar_upsert_item',
+        expect.objectContaining({
+          item: expect.objectContaining({ title: 'Created from timeline' }),
+        }),
+      ),
+    );
+    const createCall = invoke.mock.calls.find(
+      ([command, args]) =>
+        command === 'calendar_upsert_item' &&
+        (args as { item?: { title?: string } }).item?.title === 'Created from timeline',
+    );
+    const createdItem = (
+      createCall?.[1] as { item: { start: { dateTime: string }; end: { dateTime: string } } }
+    ).item;
     expect(new Date(createdItem.start.dateTime).getHours()).toBe(9);
     expect(new Date(createdItem.start.dateTime).getMinutes()).toBe(30);
     expect(new Date(createdItem.end.dateTime).getHours()).toBe(10);
@@ -273,17 +310,27 @@ describe('mobile Calendar screen', () => {
     expect(slots).toHaveLength(144);
 
     fireEvent.click(slots[48 + 19]);
-    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'Second day planning' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), {
+      target: { value: 'Second day planning' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('calendar_upsert_item', expect.objectContaining({
-      item: expect.objectContaining({ title: 'Second day planning' }),
-    })));
-    const createCall = invoke.mock.calls.find(([command, args]) => (
-      command === 'calendar_upsert_item'
-      && (args as { item?: { title?: string } }).item?.title === 'Second day planning'
-    ));
-    const createdStart = new Date((createCall?.[1] as { item: { start: { dateTime: string } } }).item.start.dateTime);
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        'calendar_upsert_item',
+        expect.objectContaining({
+          item: expect.objectContaining({ title: 'Second day planning' }),
+        }),
+      ),
+    );
+    const createCall = invoke.mock.calls.find(
+      ([command, args]) =>
+        command === 'calendar_upsert_item' &&
+        (args as { item?: { title?: string } }).item?.title === 'Second day planning',
+    );
+    const createdStart = new Date(
+      (createCall?.[1] as { item: { start: { dateTime: string } } }).item.start.dateTime,
+    );
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     expect(createdStart.getFullYear()).toBe(tomorrow.getFullYear());
@@ -300,7 +347,7 @@ describe('mobile Calendar screen', () => {
       if (command === 'calendar_list_items') return Promise.resolve([]);
       if (command === 'calendar_save' && args.calendar) {
         const saved = args.calendar;
-        definitions = [...definitions.filter(entry => entry.id !== saved.id), saved];
+        definitions = [...definitions.filter((entry) => entry.id !== saved.id), saved];
         return Promise.resolve();
       }
       return Promise.reject(new Error(`unhandled command ${command}`));
@@ -310,12 +357,16 @@ describe('mobile Calendar screen', () => {
     await screen.findByRole('button', { name: /Personal/ });
     fireEvent.click(screen.getByRole('button', { name: 'Manage calendars' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add calendar' }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Calendar name' }), { target: { value: 'Work' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Calendar name' }), {
+      target: { value: 'Work' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 
     const editWork = await screen.findByRole('button', { name: 'Edit Work' });
     fireEvent.click(editWork);
-    fireEvent.change(screen.getByRole('textbox', { name: 'Calendar name' }), { target: { value: 'Work projects' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Calendar name' }), {
+      target: { value: 'Work projects' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     const archive = await screen.findByRole('button', { name: 'Archive Work projects' });
@@ -338,39 +389,56 @@ describe('mobile Calendar screen', () => {
         },
       },
     });
-    invoke.mockImplementation((command: string, args: { calendar?: CalendarDefinition; body?: CalendarDefinition }) => {
-      if (command === 'calendar_list') return Promise.resolve(definitions);
-      if (command === 'calendar_list_items') return Promise.resolve([]);
-      if (command === 'hosted_calendar_request' && args.body) {
-        return Promise.resolve({ ...args.body, id: 'hosted-calendar-1', globalId: 'hosted-global-1' });
-      }
-      if (command === 'calendar_save' && args.calendar) {
-        definitions = [...definitions, args.calendar];
-        return Promise.resolve();
-      }
-      return Promise.reject(new Error(`unhandled command ${command}`));
-    });
+    invoke.mockImplementation(
+      (command: string, args: { calendar?: CalendarDefinition; body?: CalendarDefinition }) => {
+        if (command === 'calendar_list') return Promise.resolve(definitions);
+        if (command === 'calendar_list_items') return Promise.resolve([]);
+        if (command === 'hosted_calendar_request' && args.body) {
+          return Promise.resolve({
+            ...args.body,
+            id: 'hosted-calendar-1',
+            globalId: 'hosted-global-1',
+          });
+        }
+        if (command === 'calendar_save' && args.calendar) {
+          definitions = [...definitions, args.calendar];
+          return Promise.resolve();
+        }
+        return Promise.reject(new Error(`unhandled command ${command}`));
+      },
+    );
 
     render(<CalendarScreen prefs={DEFAULT_PREFS} />);
     await screen.findByRole('button', { name: /Personal/ });
     fireEvent.click(screen.getByRole('button', { name: 'Manage calendars' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add calendar' }));
     fireEvent.click(screen.getByRole('button', { name: /Server.*collab\.example\.com/ }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Calendar name' }), { target: { value: 'Hosted work' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Calendar name' }), {
+      target: { value: 'Hosted work' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 
     expect(await screen.findByRole('button', { name: 'Edit Hosted work' })).toBeTruthy();
-    expect(invoke).toHaveBeenCalledWith('hosted_calendar_request', expect.objectContaining({
-      serverUrl: 'https://collab.example.com',
-      method: 'POST',
-      path: '/api/v1/calendars',
-    }));
-    expect(invoke).toHaveBeenCalledWith('calendar_save', expect.objectContaining({
-      calendar: expect.objectContaining({
-        id: 'hosted-calendar-1',
-        location: expect.objectContaining({ kind: 'hosted', serverUrl: 'https://collab.example.com' }),
+    expect(invoke).toHaveBeenCalledWith(
+      'hosted_calendar_request',
+      expect.objectContaining({
+        serverUrl: 'https://collab.example.com',
+        method: 'POST',
+        path: '/api/v1/calendars',
       }),
-    }));
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      'calendar_save',
+      expect.objectContaining({
+        calendar: expect.objectContaining({
+          id: 'hosted-calendar-1',
+          location: expect.objectContaining({
+            kind: 'hosted',
+            serverUrl: 'https://collab.example.com',
+          }),
+        }),
+      }),
+    );
   });
 
   it('resolves a preserved mirror conflict from calendar management', async () => {
@@ -388,8 +456,21 @@ describe('mobile Calendar screen', () => {
       name: 'Personal mirror',
       enabled: true,
       members: [
-        { id: 'local-member', calendarId: calendar.id, location: calendar.location as Extract<CalendarDefinition['location'], { kind: 'local' }>, addedAt: calendar.createdAt },
-        { id: 'hosted-member', calendarId: hostedCalendar.id, location: hostedCalendar.location as Extract<CalendarDefinition['location'], { kind: 'hosted' }>, addedAt: calendar.createdAt },
+        {
+          id: 'local-member',
+          calendarId: calendar.id,
+          location: calendar.location as Extract<CalendarDefinition['location'], { kind: 'local' }>,
+          addedAt: calendar.createdAt,
+        },
+        {
+          id: 'hosted-member',
+          calendarId: hostedCalendar.id,
+          location: hostedCalendar.location as Extract<
+            CalendarDefinition['location'],
+            { kind: 'hosted' }
+          >,
+          addedAt: calendar.createdAt,
+        },
       ],
       createdAt: calendar.createdAt,
       updatedAt: calendar.updatedAt,
@@ -410,15 +491,28 @@ describe('mobile Calendar screen', () => {
       createdAt: calendar.createdAt,
       updatedAt: calendar.updatedAt,
     };
-    const hosted = { ...source, id: 'hosted-item', calendarId: hostedCalendar.id, title: 'Hosted version' };
+    const hosted = {
+      ...source,
+      id: 'hosted-item',
+      calendarId: hostedCalendar.id,
+      title: 'Hosted version',
+    };
     const conflict = {
       id: 'mirror-conflict-1',
       groupId: group.id,
       logicalItemKey: `${source.uid}\u0000master`,
       status: 'unresolved' as const,
       versions: [
-        { memberId: 'local-member', fingerprint: calendarMirrorItemFingerprint(source), item: source },
-        { memberId: 'hosted-member', fingerprint: calendarMirrorItemFingerprint(hosted), item: hosted },
+        {
+          memberId: 'local-member',
+          fingerprint: calendarMirrorItemFingerprint(source),
+          item: source,
+        },
+        {
+          memberId: 'hosted-member',
+          fingerprint: calendarMirrorItemFingerprint(hosted),
+          item: hosted,
+        },
       ],
       detectedAt: calendar.updatedAt,
     };
@@ -437,24 +531,28 @@ describe('mobile Calendar screen', () => {
           },
         },
       },
-      calendarMirrorStatuses: [{
-        groupId: group.id,
-        state: 'conflict',
-        missingMemberIds: [],
-        conflictCount: 1,
-      }],
+      calendarMirrorStatuses: [
+        {
+          groupId: group.id,
+          state: 'conflict',
+          missingMemberIds: [],
+          conflictCount: 1,
+        },
+      ],
       calendarMirrorConflicts: [conflict],
       syncCalendars,
     });
     invoke.mockImplementation((command: string) => {
       if (command === 'calendar_list') return Promise.resolve([calendar, hostedCalendar]);
-      if (command === 'calendar_list_items' || command === 'calendar_list_mirror_items') return Promise.resolve([source, hosted]);
+      if (command === 'calendar_list_items' || command === 'calendar_list_mirror_items')
+        return Promise.resolve([source, hosted]);
       if (command === 'calendar_list_mirror_groups') return Promise.resolve([group]);
       if (
-        command === 'calendar_upsert_item'
-        || command === 'calendar_save_mirror_anchors'
-        || command === 'calendar_save_mirror_conflict'
-      ) return Promise.resolve();
+        command === 'calendar_upsert_item' ||
+        command === 'calendar_save_mirror_anchors' ||
+        command === 'calendar_save_mirror_conflict'
+      )
+        return Promise.resolve();
       return Promise.reject(new Error(`unhandled command ${command}`));
     });
 
@@ -464,12 +562,14 @@ describe('mobile Calendar screen', () => {
     const manager = await screen.findByRole('dialog', { name: 'Manage calendars' });
     fireEvent.click(await within(manager).findByRole('button', { name: /Keep local version/ }));
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith(
-      'calendar_save_mirror_conflict',
-      expect.objectContaining({
-        conflict: expect.objectContaining({ id: conflict.id, status: 'resolved' }),
-      }),
-    ));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        'calendar_save_mirror_conflict',
+        expect.objectContaining({
+          conflict: expect.objectContaining({ id: conflict.id, status: 'resolved' }),
+        }),
+      ),
+    );
     expect(syncCalendars).toHaveBeenCalled();
   });
 
@@ -483,7 +583,11 @@ describe('mobile Calendar screen', () => {
       kind: 'event',
       title: 'Daily standup',
       start: { kind: 'dateTime', dateTime: today.toISOString(), timeZone: 'UTC' },
-      end: { kind: 'dateTime', dateTime: new Date(today.getTime() + 30 * 60_000).toISOString(), timeZone: 'UTC' },
+      end: {
+        kind: 'dateTime',
+        dateTime: new Date(today.getTime() + 30 * 60_000).toISOString(),
+        timeZone: 'UTC',
+      },
       availability: 'busy',
       recurrence: { rrule: 'FREQ=DAILY;COUNT=3' },
       reminders: [],
@@ -496,23 +600,31 @@ describe('mobile Calendar screen', () => {
     invoke.mockImplementation((command: string) => {
       if (command === 'calendar_list') return Promise.resolve([calendar]);
       if (command === 'calendar_list_items') return Promise.resolve([master]);
-      if (command === 'calendar_upsert_item' || command === 'calendar_acknowledge_operations') return Promise.resolve();
+      if (command === 'calendar_upsert_item' || command === 'calendar_acknowledge_operations')
+        return Promise.resolve();
       return Promise.reject(new Error(`unhandled command ${command}`));
     });
 
     render(<CalendarScreen prefs={DEFAULT_PREFS} />);
     const entries = await screen.findAllByRole('button', { name: /Daily standup/ });
     fireEvent.click(entries[1]);
-    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'Moved standup' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), {
+      target: { value: 'Moved standup' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('calendar_upsert_item', expect.objectContaining({
-      item: expect.objectContaining({
-        title: 'Moved standup',
-        recurrenceId: expect.objectContaining({ kind: 'dateTime' }),
-        recurrenceSeriesId: 'series-1',
-      }),
-    })));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        'calendar_upsert_item',
+        expect.objectContaining({
+          item: expect.objectContaining({
+            title: 'Moved standup',
+            recurrenceId: expect.objectContaining({ kind: 'dateTime' }),
+            recurrenceSeriesId: 'series-1',
+          }),
+        }),
+      ),
+    );
   });
 
   it('offers retry and discard actions for failed calendar operations', async () => {
@@ -545,15 +657,25 @@ describe('mobile Calendar screen', () => {
     fireEvent.click(screen.getByRole('button', { name: /calendar change.*Review/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('calendar_retry_operation', {
-      profileId: expect.any(String),
-      clientOperationId: 'failed-op',
-    }));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('calendar_retry_operation', {
+        profileId: expect.any(String),
+        clientOperationId: 'failed-op',
+      }),
+    );
     expect(syncCalendars).toHaveBeenCalled();
   });
 
   it('adds a hosted attendee and responds to server invitations', async () => {
-    const hosted = { ...calendar, id: 'hosted-calendar', location: { kind: 'hosted' as const, serverUrl: 'https://collab.example.com', userId: 'user-1' } };
+    const hosted = {
+      ...calendar,
+      id: 'hosted-calendar',
+      location: {
+        kind: 'hosted' as const,
+        serverUrl: 'https://collab.example.com',
+        userId: 'user-1',
+      },
+    };
     useMobileStore.setState({
       statuses: {
         'https://collab.example.com': {
@@ -568,37 +690,58 @@ describe('mobile Calendar screen', () => {
     invoke.mockImplementation((command: string, args: { path?: string }) => {
       if (command === 'calendar_list') return Promise.resolve([hosted]);
       if (command === 'calendar_list_items') return Promise.resolve([]);
-      if (command === 'hosted_user_directory') return Promise.resolve([{ userId: 'user-2', username: 'grace', displayName: 'Grace' }]);
+      if (command === 'hosted_user_directory')
+        return Promise.resolve([{ userId: 'user-2', username: 'grace', displayName: 'Grace' }]);
       if (command === 'calendar_upsert_item') return Promise.resolve();
-      if (command === 'hosted_calendar_request' && args.path === '/api/v1/calendars/invitations') return Promise.resolve([{
-        id: 'invitation-1',
-        organizerUserId: 'user-2',
-        attendeeUserId: 'user-1',
-        attendeeId: 'attendee-1',
-        response: 'needs-action',
-        item: { id: 'invited-event', title: 'Server planning', kind: 'event' },
-      }]);
-      if (command === 'hosted_calendar_request' && args.path?.endsWith('/response')) return Promise.resolve({});
+      if (command === 'hosted_calendar_request' && args.path === '/api/v1/calendars/invitations')
+        return Promise.resolve([
+          {
+            id: 'invitation-1',
+            organizerUserId: 'user-2',
+            attendeeUserId: 'user-1',
+            attendeeId: 'attendee-1',
+            response: 'needs-action',
+            item: { id: 'invited-event', title: 'Server planning', kind: 'event' },
+          },
+        ]);
+      if (command === 'hosted_calendar_request' && args.path?.endsWith('/response'))
+        return Promise.resolve({});
       return Promise.reject(new Error(`unhandled command ${command}`));
     });
 
     render(<CalendarScreen prefs={DEFAULT_PREFS} />);
     await screen.findByRole('button', { name: /Personal/ });
     fireEvent.click(screen.getByRole('button', { name: 'New calendar item' }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'Hosted meeting' } });
-    fireEvent.change(screen.getByRole('textbox', { name: 'Search server users' }), { target: { value: 'gr' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), {
+      target: { value: 'Hosted meeting' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search server users' }), {
+      target: { value: 'gr' },
+    });
     fireEvent.click(await screen.findByRole('button', { name: /Grace.*grace/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('calendar_upsert_item', expect.objectContaining({
-      item: expect.objectContaining({ attendees: [expect.objectContaining({ userId: 'user-2' })] }),
-    })));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        'calendar_upsert_item',
+        expect.objectContaining({
+          item: expect.objectContaining({
+            attendees: [expect.objectContaining({ userId: 'user-2' })],
+          }),
+        }),
+      ),
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Calendar invitations' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Accept' }));
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('hosted_calendar_request', expect.objectContaining({
-      path: '/api/v1/calendars/invitations/invitation-1/response',
-      body: { response: 'accepted' },
-    })));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        'hosted_calendar_request',
+        expect.objectContaining({
+          path: '/api/v1/calendars/invitations/invitation-1/response',
+          body: { response: 'accepted' },
+        }),
+      ),
+    );
   });
 
   it('opens an attached Kanban task at its actual card', async () => {
@@ -613,14 +756,51 @@ describe('mobile Calendar screen', () => {
       availability: 'busy',
       reminders: [],
       attendees: [],
-      attachments: [{ id: 'attachment-1', kind: 'kanbanTask', name: 'Ship release', serverUrl: 'https://collab.example.com', vaultId: 'vault-1', fileId: 'board-1', cardId: 'card-7' }],
+      attachments: [
+        {
+          id: 'attachment-1',
+          kind: 'kanbanTask',
+          name: 'Ship release',
+          serverUrl: 'https://collab.example.com',
+          vaultId: 'vault-1',
+          fileId: 'board-1',
+          cardId: 'card-7',
+        },
+      ],
       revision: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     useMobileStore.setState({
-      selected: { serverUrl: 'https://collab.example.com', vault: { id: 'vault-1', name: 'Work', role: 'editor', status: 'active', members: 1, storageBytes: 0, manifestSequence: 1, updatedAt: null, capabilities: [] } },
-      files: [{ id: 'board-1', parentId: null, name: 'Roadmap.kanban', relativePath: 'Roadmap.kanban', kind: 'document', documentType: 'kanban', state: 'active', updatedAt: null, sizeBytes: null, contentHash: null, revisionSequence: 1 }],
+      selected: {
+        serverUrl: 'https://collab.example.com',
+        vault: {
+          id: 'vault-1',
+          name: 'Work',
+          role: 'editor',
+          status: 'active',
+          members: 1,
+          storageBytes: 0,
+          manifestSequence: 1,
+          updatedAt: null,
+          capabilities: [],
+        },
+      },
+      files: [
+        {
+          id: 'board-1',
+          parentId: null,
+          name: 'Roadmap.kanban',
+          relativePath: 'Roadmap.kanban',
+          kind: 'document',
+          documentType: 'kanban',
+          state: 'active',
+          updatedAt: null,
+          sizeBytes: null,
+          contentHash: null,
+          revisionSequence: 1,
+        },
+      ],
     });
     invoke.mockImplementation((command: string) => {
       if (command === 'calendar_list') return Promise.resolve([calendar]);
@@ -633,7 +813,11 @@ describe('mobile Calendar screen', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Ship releaseKanban task$/ }));
 
     expect(useMobileStore.getState().tab).toBe('files');
-    expect(useMobileStore.getState().activeSheet).toEqual({ kind: 'kanban', fileId: 'board-1', cardId: 'card-7' });
+    expect(useMobileStore.getState().activeSheet).toEqual({
+      kind: 'kanban',
+      fileId: 'board-1',
+      cardId: 'card-7',
+    });
   });
 
   it('writes generated hosted task completion through to its Kanban card', async () => {
@@ -680,18 +864,20 @@ describe('mobile Calendar screen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'completed' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith(
-      'hosted_vault_request',
-      expect.objectContaining({
-        serverUrl: 'https://collab.example',
-        method: 'POST',
-        path: '/api/v1/vaults/vault-1/files/board-1/kanban-cards/card-1/calendar',
-        body: expect.objectContaining({
-          expectedSourceRevision: 7,
-          completed: true,
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        'hosted_vault_request',
+        expect.objectContaining({
+          serverUrl: 'https://collab.example',
+          method: 'POST',
+          path: '/api/v1/vaults/vault-1/files/board-1/kanban-cards/card-1/calendar',
+          body: expect.objectContaining({
+            expectedSourceRevision: 7,
+            completed: true,
+          }),
         }),
-      }),
-    ));
+      ),
+    );
     expect(invoke).not.toHaveBeenCalledWith('calendar_upsert_item', expect.anything());
   });
 });

@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { KanbanBoard, KanbanCard } from '../../types/kanban';
+
 import { CardDialogSidebar } from './CardDialogSidebar';
 
 const DRAFT: KanbanCard = {
@@ -15,9 +16,7 @@ const DRAFT: KanbanCard = {
 };
 
 const BOARD: KanbanBoard = {
-  columns: [
-    { id: 'todo', title: 'Todo', cards: [] },
-  ],
+  columns: [{ id: 'todo', title: 'Todo', cards: [] }],
 };
 
 describe('CardDialogSidebar', () => {
@@ -135,7 +134,15 @@ describe('CardDialogSidebar', () => {
         moveToColumn={vi.fn()}
         toggleArchive={vi.fn()}
         deleteCard={vi.fn()}
-        caps={{ addCard: false, editContent: false, move: true, comment: false, archive: false, deleteCard: false, columnManage: false }}
+        caps={{
+          addCard: false,
+          editContent: false,
+          move: true,
+          comment: false,
+          archive: false,
+          deleteCard: false,
+          columnManage: false,
+        }}
       />,
     );
 

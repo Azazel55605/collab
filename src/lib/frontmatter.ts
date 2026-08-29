@@ -6,8 +6,8 @@
 const FM_RE = /^---\r?\n([\s\S]*?)\r?\n---/;
 
 interface ParsedFrontmatter {
-  yaml: string;   // raw YAML between the --- delimiters
-  body: string;   // everything after the closing ---  (includes leading newline if any)
+  yaml: string; // raw YAML between the --- delimiters
+  body: string; // everything after the closing ---  (includes leading newline if any)
 }
 
 function parse(content: string): ParsedFrontmatter | null {
@@ -60,9 +60,7 @@ export function removeFrontmatterField(content: string, field: string): string {
   const fm = parse(content);
   if (!fm) return content;
 
-  const newLines = fm.yaml
-    .split('\n')
-    .filter((line) => !new RegExp(`^${field}:`, 'i').test(line));
+  const newLines = fm.yaml.split('\n').filter((line) => !new RegExp(`^${field}:`, 'i').test(line));
 
   return serializeFrontmatterLines(newLines, fm.body);
 }
@@ -80,7 +78,7 @@ export function getTagsFromContent(content: string): string[] {
     if (inlineMatch) {
       return inlineMatch[1]
         .split(',')
-        .map(t => t.trim().replace(/^['"]|['"]$/g, ''))
+        .map((t) => t.trim().replace(/^['"]|['"]$/g, ''))
         .filter(Boolean);
     }
     const blockMatch = line.match(/^tags:\s*$/);
@@ -144,7 +142,10 @@ export function addTagToContent(content: string, tag: string): string {
 /** Remove a tag from the content. */
 export function removeTagFromContent(content: string, tag: string): string {
   const current = getTagsFromContent(content);
-  return setTagsInContent(content, current.filter(t => t !== tag));
+  return setTagsInContent(
+    content,
+    current.filter((t) => t !== tag),
+  );
 }
 
 /**
@@ -156,6 +157,6 @@ export function removeTagFromContent(content: string, tag: string): string {
 export function ensureTagsLine(content: string): string {
   const fm = parse(content);
   if (!fm) return `---\ntags: []\n---\n${content}`;
-  if (/^tags:/im.test(fm.yaml)) return content;           // already present
+  if (/^tags:/im.test(fm.yaml)) return content; // already present
   return `---\n${fm.yaml}\ntags: []\n---${fm.body}`;
 }

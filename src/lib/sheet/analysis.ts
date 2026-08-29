@@ -1,15 +1,11 @@
 import { scaleBand, scaleLinear } from 'd3';
 
-import type {
-  SheetChart,
-  SheetChartKind,
-  SheetRange,
-  SheetWorksheet,
-} from '../../types/sheet';
+import type { SheetChart, SheetChartKind, SheetRange, SheetWorksheet } from '../../types/sheet';
 import type { SheetFormulaValueMap } from '../../types/sheetFormula';
 import { sheetFormulaResultKey } from '../../types/sheetFormula';
-import { createSheetChartId, createSheetChartSeriesId } from './document';
+
 import { formatCellDisplay, numericValueOf } from './cellValue';
+import { createSheetChartId, createSheetChartSeriesId } from './document';
 import { getCell } from './operations';
 import { normalizeRange, type SheetSelection } from './selection';
 
@@ -42,10 +38,12 @@ export function stableRangeFromSelection(
   worksheet: SheetWorksheet,
   selection: SheetSelection,
 ): SheetRange | null {
-  const rectangle = normalizeRange(selection.ranges[0] ?? {
-    anchor: selection.active,
-    focus: selection.active,
-  });
+  const rectangle = normalizeRange(
+    selection.ranges[0] ?? {
+      anchor: selection.active,
+      focus: selection.active,
+    },
+  );
   const startRowId = worksheet.rowOrder[rectangle.top];
   const endRowId = worksheet.rowOrder[rectangle.bottom];
   const startColumnId = worksheet.columnOrder[rectangle.left];
@@ -110,35 +108,35 @@ export function createChartFromSelection(
   if (!indexes) throw new Error('The selected chart range no longer exists.');
   const hasCategoryColumn = indexes.right > indexes.left;
   const firstSeriesColumn = hasCategoryColumn ? indexes.left + 1 : indexes.left;
-  const series = Array.from(
-    { length: indexes.right - firstSeriesColumn + 1 },
-    (_, offset) => {
-      const column = firstSeriesColumn + offset;
-      const columnId = worksheet.columnOrder[column];
-      const header = getCell(worksheet, { row: indexes.top, column });
-      return {
-        id: createSheetChartSeriesId(),
-        name: typeof header?.value === 'string' && header.value.trim()
+  const series = Array.from({ length: indexes.right - firstSeriesColumn + 1 }, (_, offset) => {
+    const column = firstSeriesColumn + offset;
+    const columnId = worksheet.columnOrder[column];
+    const header = getCell(worksheet, { row: indexes.top, column });
+    return {
+      id: createSheetChartSeriesId(),
+      name:
+        typeof header?.value === 'string' && header.value.trim()
           ? header.value.trim()
           : `Series ${offset + 1}`,
-        valuesRange: {
-          startRowId: worksheet.rowOrder[indexes.top],
-          endRowId: worksheet.rowOrder[indexes.bottom],
-          startColumnId: columnId,
-          endColumnId: columnId,
-        },
-        ...(hasCategoryColumn ? {
-          categoriesRange: {
-            startRowId: worksheet.rowOrder[indexes.top],
-            endRowId: worksheet.rowOrder[indexes.bottom],
-            startColumnId: worksheet.columnOrder[indexes.left],
-            endColumnId: worksheet.columnOrder[indexes.left],
-          },
-        } : {}),
-        color: CHART_COLORS[offset % CHART_COLORS.length],
-      };
-    },
-  );
+      valuesRange: {
+        startRowId: worksheet.rowOrder[indexes.top],
+        endRowId: worksheet.rowOrder[indexes.bottom],
+        startColumnId: columnId,
+        endColumnId: columnId,
+      },
+      ...(hasCategoryColumn
+        ? {
+            categoriesRange: {
+              startRowId: worksheet.rowOrder[indexes.top],
+              endRowId: worksheet.rowOrder[indexes.bottom],
+              startColumnId: worksheet.columnOrder[indexes.left],
+              endColumnId: worksheet.columnOrder[indexes.left],
+            },
+          }
+        : {}),
+      color: CHART_COLORS[offset % CHART_COLORS.length],
+    };
+  });
   return {
     id: createSheetChartId(),
     kind,
@@ -177,20 +175,23 @@ export function chartDatasets(
       const category = categories
         ? cellLabel(worksheet, categories.top + offset, categories.left, computedValues)
         : String(offset + 1);
-      const x = chart.kind === 'scatter' && categories
-        ? numericValueOf(
-          getCell(worksheet, { row: categories.top + offset, column: categories.left }),
-          computedValue(worksheet, categories.top + offset, categories.left, computedValues),
-        ) ?? offset + 1
-        : undefined;
+      const x =
+        chart.kind === 'scatter' && categories
+          ? (numericValueOf(
+              getCell(worksheet, { row: categories.top + offset, column: categories.left }),
+              computedValue(worksheet, categories.top + offset, categories.left, computedValues),
+            ) ?? offset + 1)
+          : undefined;
       points.push({ category: category || String(offset + 1), value: numeric, x });
     }
-    return [{
-      id: series.id,
-      name: series.name || `Series ${seriesIndex + 1}`,
-      color: safeChartColor(series.color, CHART_COLORS[seriesIndex % CHART_COLORS.length]),
-      points,
-    }];
+    return [
+      {
+        id: series.id,
+        name: series.name || `Series ${seriesIndex + 1}`,
+        color: safeChartColor(series.color, CHART_COLORS[seriesIndex % CHART_COLORS.length]),
+        points,
+      },
+    ];
   });
 }
 
@@ -208,9 +209,17 @@ export function chartAccessibilitySummary(
 }
 
 function escapeXml(value: string) {
-  return value.replace(/[&<>"']/g, (character) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;',
-  })[character] ?? character);
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&apos;',
+      })[character] ?? character,
+  );
 }
 
 export function buildSheetChartSvg(
@@ -223,15 +232,21 @@ export function buildSheetChartSvg(
   const datasets = chartDatasets(worksheet, chart, computedValues);
   const all = datasets.flatMap((dataset) => dataset.points.map((point) => point.value));
   const summary = chartAccessibilitySummary(worksheet, chart, computedValues);
-  const margin = chart.kind === 'sparkline'
-    ? { top: 10, right: 10, bottom: 10, left: 10 }
-    : { top: chart.title ? 38 : 18, right: 20, bottom: 38, left: 48 };
+  const margin =
+    chart.kind === 'sparkline'
+      ? { top: 10, right: 10, bottom: 10, left: 10 }
+      : { top: chart.title ? 38 : 18, right: 20, bottom: 38, left: 48 };
   const innerWidth = Math.max(1, width - margin.left - margin.right);
   const innerHeight = Math.max(1, height - margin.top - margin.bottom);
   const max = Math.max(0, ...all);
   const min = Math.min(0, ...all);
-  const y = scaleLinear().domain([min, max === min ? min + 1 : max]).nice().range([innerHeight, 0]);
-  const categories = [...new Set(datasets.flatMap((dataset) => dataset.points.map((point) => point.category)))];
+  const y = scaleLinear()
+    .domain([min, max === min ? min + 1 : max])
+    .nice()
+    .range([innerHeight, 0]);
+  const categories = [
+    ...new Set(datasets.flatMap((dataset) => dataset.points.map((point) => point.category))),
+  ];
   const x = scaleBand<string>().domain(categories).range([0, innerWidth]).padding(0.18);
   const categoryY = scaleBand<string>().domain(categories).range([0, innerHeight]).padding(0.18);
   let content = '';
@@ -243,60 +258,78 @@ export function buildSheetChartSvg(
     const radius = Math.min(innerWidth, innerHeight) / 2;
     const cx = margin.left + innerWidth / 2;
     const cy = margin.top + innerHeight / 2;
-    content = values.map((point, index) => {
-      const next = angle + (Math.max(0, point.value) / total) * Math.PI * 2;
-      const large = next - angle > Math.PI ? 1 : 0;
-      const x1 = cx + Math.cos(angle) * radius;
-      const y1 = cy + Math.sin(angle) * radius;
-      const x2 = cx + Math.cos(next) * radius;
-      const y2 = cy + Math.sin(next) * radius;
-      const path = `<path d="M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${large} 1 ${x2} ${y2} Z" fill="${CHART_COLORS[index % CHART_COLORS.length]}"><title>${escapeXml(point.category)}: ${point.value}</title></path>`;
-      angle = next;
-      return path;
-    }).join('');
+    content = values
+      .map((point, index) => {
+        const next = angle + (Math.max(0, point.value) / total) * Math.PI * 2;
+        const large = next - angle > Math.PI ? 1 : 0;
+        const x1 = cx + Math.cos(angle) * radius;
+        const y1 = cy + Math.sin(angle) * radius;
+        const x2 = cx + Math.cos(next) * radius;
+        const y2 = cy + Math.sin(next) * radius;
+        const path = `<path d="M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${large} 1 ${x2} ${y2} Z" fill="${CHART_COLORS[index % CHART_COLORS.length]}"><title>${escapeXml(point.category)}: ${point.value}</title></path>`;
+        angle = next;
+        return path;
+      })
+      .join('');
   } else if (chart.kind === 'column' || chart.kind === 'bar') {
     const groupWidth = Math.max(1, x.bandwidth());
-    content = datasets.flatMap((dataset, seriesIndex) => dataset.points.map((point) => {
-      const slot = groupWidth / Math.max(1, datasets.length);
-      const px = margin.left + (x(point.category) ?? 0) + seriesIndex * slot;
-      const py = margin.top + y(Math.max(0, point.value));
-      const baseline = margin.top + y(Math.min(0, point.value));
-      if (chart.kind === 'bar') {
-        const horizontal = scaleLinear().domain([min, max === min ? min + 1 : max]).range([0, innerWidth]);
-        const origin = horizontal(0);
-        const value = horizontal(point.value);
-        const barSlot = Math.max(1, categoryY.bandwidth()) / Math.max(1, datasets.length);
-        return `<rect x="${margin.left + Math.min(origin, value)}" y="${margin.top + (categoryY(point.category) ?? 0) + seriesIndex * barSlot}" width="${Math.abs(value - origin)}" height="${Math.max(2, barSlot - 2)}" fill="${dataset.color}"><title>${escapeXml(point.category)}: ${point.value}</title></rect>`;
-      }
-      return `<rect x="${px}" y="${Math.min(py, baseline)}" width="${Math.max(2, slot - 2)}" height="${Math.max(1, Math.abs(baseline - py))}" fill="${dataset.color}"><title>${escapeXml(point.category)}: ${point.value}</title></rect>`;
-    })).join('');
+    content = datasets
+      .flatMap((dataset, seriesIndex) =>
+        dataset.points.map((point) => {
+          const slot = groupWidth / Math.max(1, datasets.length);
+          const px = margin.left + (x(point.category) ?? 0) + seriesIndex * slot;
+          const py = margin.top + y(Math.max(0, point.value));
+          const baseline = margin.top + y(Math.min(0, point.value));
+          if (chart.kind === 'bar') {
+            const horizontal = scaleLinear()
+              .domain([min, max === min ? min + 1 : max])
+              .range([0, innerWidth]);
+            const origin = horizontal(0);
+            const value = horizontal(point.value);
+            const barSlot = Math.max(1, categoryY.bandwidth()) / Math.max(1, datasets.length);
+            return `<rect x="${margin.left + Math.min(origin, value)}" y="${margin.top + (categoryY(point.category) ?? 0) + seriesIndex * barSlot}" width="${Math.abs(value - origin)}" height="${Math.max(2, barSlot - 2)}" fill="${dataset.color}"><title>${escapeXml(point.category)}: ${point.value}</title></rect>`;
+          }
+          return `<rect x="${px}" y="${Math.min(py, baseline)}" width="${Math.max(2, slot - 2)}" height="${Math.max(1, Math.abs(baseline - py))}" fill="${dataset.color}"><title>${escapeXml(point.category)}: ${point.value}</title></rect>`;
+        }),
+      )
+      .join('');
   } else {
-    content = datasets.map((dataset) => {
-      const points = dataset.points.map((point) => {
-        const px = chart.kind === 'scatter'
-          ? scaleLinear()
-            .domain([
-              Math.min(...dataset.points.map((candidate) => candidate.x ?? 0)),
-              Math.max(...dataset.points.map((candidate) => candidate.x ?? 0)) || 1,
-            ])
-            .range([0, innerWidth])(point.x ?? 0)
-          : (x(point.category) ?? 0) + x.bandwidth() / 2;
-        return [margin.left + px, margin.top + y(point.value)] as const;
-      });
-      const path = points.map(([px, py], index) => `${index === 0 ? 'M' : 'L'} ${px} ${py}`).join(' ');
-      if (chart.kind === 'area') {
-        const baseline = margin.top + y(0);
-        const first = points[0];
-      const last = points[points.length - 1];
-        return first && last
-          ? `<path d="${path} L ${last[0]} ${baseline} L ${first[0]} ${baseline} Z" fill="${dataset.color}" fill-opacity=".22"/><path d="${path}" fill="none" stroke="${dataset.color}" stroke-width="2"/>`
-          : '';
-      }
-      const dots = chart.kind === 'scatter'
-        ? points.map(([px, py]) => `<circle cx="${px}" cy="${py}" r="3.5" fill="${dataset.color}"/>`).join('')
-        : '';
-      return `<path d="${path}" fill="none" stroke="${dataset.color}" stroke-width="${chart.kind === 'sparkline' ? 2.5 : 2}"/>${dots}`;
-    }).join('');
+    content = datasets
+      .map((dataset) => {
+        const points = dataset.points.map((point) => {
+          const px =
+            chart.kind === 'scatter'
+              ? scaleLinear()
+                  .domain([
+                    Math.min(...dataset.points.map((candidate) => candidate.x ?? 0)),
+                    Math.max(...dataset.points.map((candidate) => candidate.x ?? 0)) || 1,
+                  ])
+                  .range([0, innerWidth])(point.x ?? 0)
+              : (x(point.category) ?? 0) + x.bandwidth() / 2;
+          return [margin.left + px, margin.top + y(point.value)] as const;
+        });
+        const path = points
+          .map(([px, py], index) => `${index === 0 ? 'M' : 'L'} ${px} ${py}`)
+          .join(' ');
+        if (chart.kind === 'area') {
+          const baseline = margin.top + y(0);
+          const first = points[0];
+          const last = points[points.length - 1];
+          return first && last
+            ? `<path d="${path} L ${last[0]} ${baseline} L ${first[0]} ${baseline} Z" fill="${dataset.color}" fill-opacity=".22"/><path d="${path}" fill="none" stroke="${dataset.color}" stroke-width="2"/>`
+            : '';
+        }
+        const dots =
+          chart.kind === 'scatter'
+            ? points
+                .map(
+                  ([px, py]) => `<circle cx="${px}" cy="${py}" r="3.5" fill="${dataset.color}"/>`,
+                )
+                .join('')
+            : '';
+        return `<path d="${path}" fill="none" stroke="${dataset.color}" stroke-width="${chart.kind === 'sparkline' ? 2.5 : 2}"/>${dots}`;
+      })
+      .join('');
   }
 
   const title = chart.title
@@ -315,10 +348,20 @@ export function groupedSheetSummary(
   const indexes = rangeIndexes(worksheet, range);
   const groupColumn = worksheet.columnOrder.indexOf(groupColumnId);
   const valueColumn = worksheet.columnOrder.indexOf(valueColumnId);
-  if (!indexes || groupColumn < indexes.left || groupColumn > indexes.right
-    || valueColumn < indexes.left || valueColumn > indexes.right) return [];
+  if (
+    !indexes ||
+    groupColumn < indexes.left ||
+    groupColumn > indexes.right ||
+    valueColumn < indexes.left ||
+    valueColumn > indexes.right
+  )
+    return [];
   const groups = new Map<string, number[]>();
-  for (let row = indexes.top; row <= Math.min(indexes.bottom, indexes.top + MAX_ANALYSIS_ROWS - 1); row += 1) {
+  for (
+    let row = indexes.top;
+    row <= Math.min(indexes.bottom, indexes.top + MAX_ANALYSIS_ROWS - 1);
+    row += 1
+  ) {
     const group = cellLabel(worksheet, row, groupColumn, computedValues) || '(blank)';
     const value = numericValueOf(
       getCell(worksheet, { row, column: valueColumn }),
@@ -332,9 +375,8 @@ export function groupedSheetSummary(
     group,
     count: values.length,
     sum: values.reduce((sum, value) => sum + value, 0),
-    average: values.length > 0
-      ? values.reduce((sum, value) => sum + value, 0) / values.length
-      : null,
+    average:
+      values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : null,
     min: values.length > 0 ? Math.min(...values) : null,
     max: values.length > 0 ? Math.max(...values) : null,
   }));
@@ -352,13 +394,22 @@ export function pivotSheetSummary(
   const rowColumn = worksheet.columnOrder.indexOf(rowColumnId);
   const columnColumn = worksheet.columnOrder.indexOf(columnColumnId);
   const valueColumn = worksheet.columnOrder.indexOf(valueColumnId);
-  if (!indexes || [rowColumn, columnColumn, valueColumn].some((index) => index < indexes.left || index > indexes.right)) {
+  if (
+    !indexes ||
+    [rowColumn, columnColumn, valueColumn].some(
+      (index) => index < indexes.left || index > indexes.right,
+    )
+  ) {
     return { rows: [], columns: [], values: new Map<string, number>() };
   }
   const rows = new Set<string>();
   const columns = new Set<string>();
   const values = new Map<string, number>();
-  for (let row = indexes.top; row <= Math.min(indexes.bottom, indexes.top + MAX_ANALYSIS_ROWS - 1); row += 1) {
+  for (
+    let row = indexes.top;
+    row <= Math.min(indexes.bottom, indexes.top + MAX_ANALYSIS_ROWS - 1);
+    row += 1
+  ) {
     const rowLabel = cellLabel(worksheet, row, rowColumn, computedValues) || '(blank)';
     const columnLabel = cellLabel(worksheet, row, columnColumn, computedValues) || '(blank)';
     const numeric = numericValueOf(

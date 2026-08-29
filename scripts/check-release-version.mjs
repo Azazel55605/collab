@@ -21,13 +21,20 @@ for (let index = 0; index < args.length; index += 1) {
 }
 
 if (!tag) {
-  console.error('Usage: node scripts/check-release-version.mjs [--target all|server|desktop|mobile|admin-web] v<major>.<minor>.<patch>');
+  console.error(
+    'Usage: node scripts/check-release-version.mjs [--target all|server|desktop|mobile|admin-web] v<major>.<minor>.<patch>',
+  );
   process.exit(64);
 }
 
-const tagMatch = /^(?:(server|desktop|mobile|admin-web)-)?v((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?)$/.exec(tag);
+const tagMatch =
+  /^(?:(server|desktop|mobile|admin-web)-)?v((0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?)$/.exec(
+    tag,
+  );
 if (!tagMatch) {
-  console.error(`Release tag must be v<major>.<minor>.<patch> or <target>-v<major>.<minor>.<patch>: ${tag}`);
+  console.error(
+    `Release tag must be v<major>.<minor>.<patch> or <target>-v<major>.<minor>.<patch>: ${tag}`,
+  );
   process.exit(1);
 }
 if (target === 'all' && tagMatch[1]) {
@@ -60,9 +67,7 @@ const allVersions = {
     ['package.json', packageVersion('package.json')],
     ['src-tauri/Cargo.toml', cargoVersion('src-tauri/Cargo.toml')],
   ]),
-  mobile: new Map([
-    ['versions.json mobile.versionName', manifest.mobile?.versionName],
-  ]),
+  mobile: new Map([['versions.json mobile.versionName', manifest.mobile?.versionName]]),
   'admin-web': new Map([
     ['versions.json adminWeb', manifest.adminWeb],
     ['apps/admin-web/package.json', packageVersion('apps/admin-web/package.json')],
@@ -75,7 +80,9 @@ if (target === 'all') {
 
 const versions = allVersions[target];
 if (!versions) {
-  console.error(`Unknown release target "${target}". Expected all, server, desktop, mobile, or admin-web.`);
+  console.error(
+    `Unknown release target "${target}". Expected all, server, desktop, mobile, or admin-web.`,
+  );
   process.exit(64);
 }
 

@@ -1,6 +1,6 @@
 import { HighlightStyle } from '@codemirror/language';
-import { tags } from '@lezer/highlight';
 import { EditorView } from '@codemirror/view';
+import { tags } from '@lezer/highlight';
 
 export function buildMarkdownEditorTheme(dark: boolean, fontFamily: string, fontSize: number) {
   return EditorView.theme(
@@ -59,7 +59,8 @@ export function buildMarkdownEditorTheme(dark: boolean, fontFamily: string, font
         padding: '0 8px 0 4px',
         minWidth: '2.5em',
         textAlign: 'right',
-        fontFamily: "ui-monospace, 'SFMono-Regular', 'Cascadia Mono', 'Cascadia Code', 'JetBrains Mono', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+        fontFamily:
+          "ui-monospace, 'SFMono-Regular', 'Cascadia Mono', 'Cascadia Code', 'JetBrains Mono', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
       },
       '.cm-indent-marker': {
         color: 'var(--muted-foreground)',
@@ -74,12 +75,30 @@ export function buildMarkdownEditorTheme(dark: boolean, fontFamily: string, font
       '.cm-indent-marker-tab': {
         textAlign: 'left',
       },
-      '.cm-indent-guide-depth-0': { boxShadow: 'inset 2px 0 0 oklch(from var(--primary) l c h / 0.38)', backgroundColor: 'oklch(from var(--primary) l c h / 0.06)' },
-      '.cm-indent-guide-depth-1': { boxShadow: 'inset 2px 0 0 oklch(0.82 0.17 210 / 0.42)', backgroundColor: 'oklch(0.82 0.17 210 / 0.06)' },
-      '.cm-indent-guide-depth-2': { boxShadow: 'inset 2px 0 0 oklch(0.86 0.15 160 / 0.42)', backgroundColor: 'oklch(0.86 0.15 160 / 0.06)' },
-      '.cm-indent-guide-depth-3': { boxShadow: 'inset 2px 0 0 oklch(0.83 0.19 40 / 0.42)', backgroundColor: 'oklch(0.83 0.19 40 / 0.06)' },
-      '.cm-indent-guide-depth-4': { boxShadow: 'inset 2px 0 0 oklch(0.80 0.20 320 / 0.42)', backgroundColor: 'oklch(0.80 0.20 320 / 0.06)' },
-      '.cm-indent-guide-depth-5': { boxShadow: 'inset 2px 0 0 oklch(0.88 0.12 80 / 0.42)', backgroundColor: 'oklch(0.88 0.12 80 / 0.06)' },
+      '.cm-indent-guide-depth-0': {
+        boxShadow: 'inset 2px 0 0 oklch(from var(--primary) l c h / 0.38)',
+        backgroundColor: 'oklch(from var(--primary) l c h / 0.06)',
+      },
+      '.cm-indent-guide-depth-1': {
+        boxShadow: 'inset 2px 0 0 oklch(0.82 0.17 210 / 0.42)',
+        backgroundColor: 'oklch(0.82 0.17 210 / 0.06)',
+      },
+      '.cm-indent-guide-depth-2': {
+        boxShadow: 'inset 2px 0 0 oklch(0.86 0.15 160 / 0.42)',
+        backgroundColor: 'oklch(0.86 0.15 160 / 0.06)',
+      },
+      '.cm-indent-guide-depth-3': {
+        boxShadow: 'inset 2px 0 0 oklch(0.83 0.19 40 / 0.42)',
+        backgroundColor: 'oklch(0.83 0.19 40 / 0.06)',
+      },
+      '.cm-indent-guide-depth-4': {
+        boxShadow: 'inset 2px 0 0 oklch(0.80 0.20 320 / 0.42)',
+        backgroundColor: 'oklch(0.80 0.20 320 / 0.06)',
+      },
+      '.cm-indent-guide-depth-5': {
+        boxShadow: 'inset 2px 0 0 oklch(0.88 0.12 80 / 0.42)',
+        backgroundColor: 'oklch(0.88 0.12 80 / 0.06)',
+      },
       '.cm-ascii-arrow-ligature': {
         display: 'inline-block',
         width: '2ch',
@@ -183,55 +202,57 @@ export function buildMarkdownEditorTheme(dark: boolean, fontFamily: string, font
 }
 
 export function buildMarkdownHighlightStyle(dark: boolean) {
-  const p = dark ? {
-    keyword: '#c678dd',
-    control: '#e06c75',
-    string: '#98c379',
-    number: '#d19a66',
-    bool: '#d19a66',
-    nil: '#d19a66',
-    type: '#e5c07b',
-    fn: '#61afef',
-    prop: '#abb2bf',
-    variable: '#abb2bf',
-    definition: '#e06c75',
-    operator: '#56b6c2',
-    punctuation: '#abb2bf',
-    comment: '#5c6370',
-    meta: '#5c6370',
-    tag: '#e06c75',
-    attr: '#d19a66',
-    attrVal: '#98c379',
-    invalid: '#f44747',
-    heading: '#e5c07b',
-    link: '#61afef',
-    url: '#56b6c2',
-    code: '#abb2bf',
-  } : {
-    keyword: '#a626a4',
-    control: '#a626a4',
-    string: '#50a14f',
-    number: '#986801',
-    bool: '#986801',
-    nil: '#986801',
-    type: '#c18401',
-    fn: '#4078f2',
-    prop: '#383a42',
-    variable: '#383a42',
-    definition: '#e45649',
-    operator: '#0184bc',
-    punctuation: '#383a42',
-    comment: '#a0a1a7',
-    meta: '#a0a1a7',
-    tag: '#e45649',
-    attr: '#986801',
-    attrVal: '#50a14f',
-    invalid: '#ca1243',
-    heading: '#c18401',
-    link: '#4078f2',
-    url: '#0184bc',
-    code: '#383a42',
-  };
+  const p = dark
+    ? {
+        keyword: '#c678dd',
+        control: '#e06c75',
+        string: '#98c379',
+        number: '#d19a66',
+        bool: '#d19a66',
+        nil: '#d19a66',
+        type: '#e5c07b',
+        fn: '#61afef',
+        prop: '#abb2bf',
+        variable: '#abb2bf',
+        definition: '#e06c75',
+        operator: '#56b6c2',
+        punctuation: '#abb2bf',
+        comment: '#5c6370',
+        meta: '#5c6370',
+        tag: '#e06c75',
+        attr: '#d19a66',
+        attrVal: '#98c379',
+        invalid: '#f44747',
+        heading: '#e5c07b',
+        link: '#61afef',
+        url: '#56b6c2',
+        code: '#abb2bf',
+      }
+    : {
+        keyword: '#a626a4',
+        control: '#a626a4',
+        string: '#50a14f',
+        number: '#986801',
+        bool: '#986801',
+        nil: '#986801',
+        type: '#c18401',
+        fn: '#4078f2',
+        prop: '#383a42',
+        variable: '#383a42',
+        definition: '#e45649',
+        operator: '#0184bc',
+        punctuation: '#383a42',
+        comment: '#a0a1a7',
+        meta: '#a0a1a7',
+        tag: '#e45649',
+        attr: '#986801',
+        attrVal: '#50a14f',
+        invalid: '#ca1243',
+        heading: '#c18401',
+        link: '#4078f2',
+        url: '#0184bc',
+        code: '#383a42',
+      };
 
   return HighlightStyle.define([
     { tag: tags.comment, color: p.comment, fontStyle: 'italic' },

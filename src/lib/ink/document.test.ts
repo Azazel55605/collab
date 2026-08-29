@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { INK_DOCUMENT_KIND, INK_LIMITS, INK_SCHEMA_VERSION } from '../../types/ink';
+
 import {
-  InkDocumentError,
   createInkDocument,
   createInkPage,
+  InkDocumentError,
   inkDocumentStats,
   isVaultRelativePath,
   migrateInkDocument,
@@ -13,9 +14,9 @@ import {
   serializeInkDocument,
 } from './document';
 import {
-  MALFORMED_INK_CASES,
   geometryEdgeCaseDocument,
   largeInkDocument,
+  MALFORMED_INK_CASES,
   newerSchemaInkDocument,
   wellFormedInkDocument,
 } from './fixtureShapes';
@@ -139,9 +140,7 @@ describe('normalizeInkDocument', () => {
       relativePath: 'Pictures/diagram.png',
     };
     (source.pages as any)['page-1'].scene.objectOrder.push('i1');
-    expect(
-      normalizeInkDocument(source).document.pages['page-1'].scene.objects.i1,
-    ).toBeDefined();
+    expect(normalizeInkDocument(source).document.pages['page-1'].scene.objects.i1).toBeDefined();
   });
 
   it('clamps brush values into range rather than rejecting the stroke', () => {
@@ -160,27 +159,74 @@ describe('normalizeInkDocument', () => {
     const source = wellFormedInkDocument();
     const scene = (source.pages as any)['page-1'].scene;
     scene.objects.shape = {
-      id: 'shape', type: 'shape', layerId: 'layer-1', shape: 'rectangle',
+      id: 'shape',
+      type: 'shape',
+      layerId: 'layer-1',
+      shape: 'rectangle',
       points: [0, 0, 100, 0, 100, 100, 0, 100],
-      stroke: { kind: 'technical', color: '#123', opacity: 2, width: 64, thinning: 0, smoothing: 0, streamline: 0, taperStart: 0, taperEnd: 0 },
-      fill: '#fff', fillOpacity: 2, arrowEnd: 'arrow', rotation: Math.PI / 4,
+      stroke: {
+        kind: 'technical',
+        color: '#123',
+        opacity: 2,
+        width: 64,
+        thinning: 0,
+        smoothing: 0,
+        streamline: 0,
+        taperStart: 0,
+        taperEnd: 0,
+      },
+      fill: '#fff',
+      fillOpacity: 2,
+      arrowEnd: 'arrow',
+      rotation: Math.PI / 4,
     };
     scene.objects.connector = {
-      id: 'connector', type: 'connector', layerId: 'layer-1',
-      from: { x: 0, y: 0 }, to: { x: 100, y: 100 }, routing: 'orthogonal',
-      stroke: scene.objects.shape.stroke, arrowEnd: 'arrow', rotation: Math.PI / 3,
+      id: 'connector',
+      type: 'connector',
+      layerId: 'layer-1',
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'orthogonal',
+      stroke: scene.objects.shape.stroke,
+      arrowEnd: 'arrow',
+      rotation: Math.PI / 3,
     };
     scene.objects.sticky = {
-      id: 'sticky', type: 'text', layerId: 'layer-1', x: 0, y: 0,
-      width: 100, height: 100, text: 'note', color: '#000', fontSize: 24,
-      sticky: true, backgroundColor: '#ff0', align: 'center',
+      id: 'sticky',
+      type: 'text',
+      layerId: 'layer-1',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      text: 'note',
+      color: '#000',
+      fontSize: 24,
+      sticky: true,
+      backgroundColor: '#ff0',
+      align: 'center',
     };
     scene.objectOrder.push('shape', 'connector', 'sticky');
 
     const normalized = normalizeInkDocument(source).document.pages['page-1'].scene;
-    expect(normalized.objects.shape).toMatchObject({ type: 'shape', fillOpacity: 1, arrowEnd: 'arrow', rotation: Math.PI / 4 });
-    expect(normalized.objects.connector).toMatchObject({ type: 'connector', routing: 'orthogonal', arrowEnd: 'arrow', rotation: Math.PI / 3 });
-    expect(normalized.objects.sticky).toMatchObject({ type: 'text', sticky: true, backgroundColor: '#ff0', align: 'center' });
+    expect(normalized.objects.shape).toMatchObject({
+      type: 'shape',
+      fillOpacity: 1,
+      arrowEnd: 'arrow',
+      rotation: Math.PI / 4,
+    });
+    expect(normalized.objects.connector).toMatchObject({
+      type: 'connector',
+      routing: 'orthogonal',
+      arrowEnd: 'arrow',
+      rotation: Math.PI / 3,
+    });
+    expect(normalized.objects.sticky).toMatchObject({
+      type: 'text',
+      sticky: true,
+      backgroundColor: '#ff0',
+      align: 'center',
+    });
   });
 
   it('keeps safe object links and equations while dropping unsafe links', () => {
@@ -188,15 +234,26 @@ describe('normalizeInkDocument', () => {
     const scene = (source.pages as any)['page-1'].scene;
     scene.objects.s1.link = { kind: 'url', target: 'javascript:alert(1)' };
     scene.objects.equation = {
-      id: 'equation', type: 'text', layerId: 'layer-1', x: 0, y: 0,
-      width: 100, height: 50, text: 'x^2', color: '#000', fontSize: 24,
-      equation: true, link: { kind: 'vault', target: 'Notes/Math.md' },
+      id: 'equation',
+      type: 'text',
+      layerId: 'layer-1',
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 50,
+      text: 'x^2',
+      color: '#000',
+      fontSize: 24,
+      equation: true,
+      link: { kind: 'vault', target: 'Notes/Math.md' },
     };
     scene.objectOrder.push('equation');
     const normalized = normalizeInkDocument(source).document.pages['page-1'].scene;
     expect(normalized.objects.s1.link).toBeUndefined();
     expect(normalized.objects.equation).toMatchObject({
-      type: 'text', equation: true, link: { kind: 'vault', target: 'Notes/Math.md' },
+      type: 'text',
+      equation: true,
+      link: { kind: 'vault', target: 'Notes/Math.md' },
     });
   });
 
@@ -228,7 +285,10 @@ describe('newer schema versions', () => {
 
 describe('parseInkDocument', () => {
   it('parses serialized output back to an equal document', () => {
-    const document = createInkDocument({ name: 'Round trip', timestamp: '2026-01-01T00:00:00.000Z' });
+    const document = createInkDocument({
+      name: 'Round trip',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    });
     const { document: parsed } = parseInkDocument(serializeInkDocument(document));
     expect(parsed).toEqual(document);
   });
