@@ -7,14 +7,12 @@ import type {
   SheetWorksheet,
 } from '../../types/sheet';
 import type { SheetFormulaValueMap } from '../../types/sheetFormula';
+
 import type { SheetPosition } from './address';
-import { SheetDocumentError, createSheetValidationId } from './document';
+import { createSheetValidationId, SheetDocumentError } from './document';
+import { ruleFormulaValue, validationFormulaExpressionId } from './formulaRules';
 import { getCell, setCell } from './operations';
 import { normalizeRange, selectedPositions, type SheetSelection } from './selection';
-import {
-  ruleFormulaValue,
-  validationFormulaExpressionId,
-} from './formulaRules';
 
 export type SheetValidationDraft = Omit<SheetValidation, 'id'>;
 
@@ -69,27 +67,30 @@ export function applySheetValidation(
     ...compactValidation(draft),
     ...(draft.kind === 'custom'
       ? {
-        anchor: {
-          rowId: worksheet.rowOrder[selection.active.row],
-          columnId: worksheet.columnOrder[selection.active.column],
-        },
-      }
+          anchor: {
+            rowId: worksheet.rowOrder[selection.active.row],
+            columnId: worksheet.columnOrder[selection.active.column],
+          },
+        }
       : {}),
   };
   let next = {
     ...document,
-    worksheets: document.worksheets.map((candidate) => (
+    worksheets: document.worksheets.map((candidate) =>
       candidate.id === worksheetId
         ? { ...candidate, validations: [...(candidate.validations ?? []), validation] }
-        : candidate
-    )),
+        : candidate,
+    ),
   };
   for (const position of positions) {
     const current = getCell(
       next.worksheets.find((candidate) => candidate.id === worksheetId)!,
       position,
     );
-    next = setCell(next, worksheetId, position, { ...(current ?? {}), validationId: validation.id });
+    next = setCell(next, worksheetId, position, {
+      ...(current ?? {}),
+      validationId: validation.id,
+    });
   }
   return pruneUnusedValidations(next, worksheetId);
 }
@@ -114,12 +115,15 @@ export function clearSheetValidation(
     if (Object.keys(next).length > 0) cells[key] = next;
     else delete cells[key];
   }
-  return pruneUnusedValidations({
-    ...document,
-    worksheets: document.worksheets.map((candidate) => (
-      candidate.id === worksheetId ? { ...candidate, cells } : candidate
-    )),
-  }, worksheetId);
+  return pruneUnusedValidations(
+    {
+      ...document,
+      worksheets: document.worksheets.map((candidate) =>
+        candidate.id === worksheetId ? { ...candidate, cells } : candidate,
+      ),
+    },
+    worksheetId,
+  );
 }
 
 function pruneUnusedValidations(document: SheetDocument, worksheetId: string): SheetDocument {
@@ -168,7 +172,8 @@ export function validateCellAgainstValidation(
   position?: SheetPosition,
   computedValues?: SheetFormulaValueMap,
 ): SheetValidationResult {
-  if (!cell || (cell.value === undefined && !cell.formula) || cell.value === '') return { valid: true };
+  if (!cell || (cell.value === undefined && !cell.formula) || cell.value === '')
+    return { valid: true };
   if (validation.kind === 'custom') {
     if (!position) return { valid: true, deferred: true };
     const result = ruleFormulaValue(
@@ -177,9 +182,8 @@ export function validateCellAgainstValidation(
       validationFormulaExpressionId(validation.id, worksheet, position),
     );
     if (!result) return { valid: true, deferred: true };
-    const valid = result.type === 'boolean'
-      ? result.value
-      : result.type === 'number' && result.value !== 0;
+    const valid =
+      result.type === 'boolean' ? result.value : result.type === 'number' && result.value !== 0;
     return valid ? { valid: true } : failure(validation, 'The custom formula rejected this value.');
   }
   if (cell.formula) return { valid: true };
@@ -190,7 +194,8 @@ export function validateCellAgainstValidation(
       : failure(validation, 'Choose a value from the validation list.');
   }
   if (validation.kind === 'range') {
-    return validation.sourceRange && valuesInRange(worksheet, validation.sourceRange).includes(String(value))
+    return validation.sourceRange &&
+      valuesInRange(worksheet, validation.sourceRange).includes(String(value))
       ? { valid: true }
       : failure(validation, 'Choose a value from the validation range.');
   }

@@ -1,19 +1,42 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { CanvasToolbar } from './CanvasToolbar';
+
 vi.mock('../ui/button', () => ({
-  Button: ({ children, onClick, title, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" onClick={onClick} title={title} {...props}>{children}</button>
+  Button: ({
+    children,
+    onClick,
+    title,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button type="button" onClick={onClick} title={title} {...props}>
+      {children}
+    </button>
   ),
 }));
 
 vi.mock('../layout/DocumentTopBar', () => ({
   documentTopBarGroupClass: 'toolbar-group',
-  DocumentTopBarButton: ({ children, onClick, title, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" onClick={onClick} title={title} {...props}>{children}</button>
+  DocumentTopBarButton: ({
+    children,
+    onClick,
+    title,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button type="button" onClick={onClick} title={title} {...props}>
+      {children}
+    </button>
   ),
-  DocumentTopBarIconButton: ({ children, onClick, title, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" onClick={onClick} title={title} {...props}>{children}</button>
+  DocumentTopBarIconButton: ({
+    children,
+    onClick,
+    title,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button type="button" onClick={onClick} title={title} {...props}>
+      {children}
+    </button>
   ),
 }));
 
@@ -21,14 +44,20 @@ vi.mock('../ui/dropdown-menu', () => ({
   DropdownMenu: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   DropdownMenuContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  DropdownMenuItem: ({ children, onSelect }: { children: React.ReactNode; onSelect?: () => void }) => (
-    <button type="button" onClick={onSelect}>{children}</button>
+  DropdownMenuItem: ({
+    children,
+    onSelect,
+  }: {
+    children: React.ReactNode;
+    onSelect?: () => void;
+  }) => (
+    <button type="button" onClick={onSelect}>
+      {children}
+    </button>
   ),
   DropdownMenuLabel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DropdownMenuSeparator: () => null,
 }));
-
-import { CanvasToolbar } from './CanvasToolbar';
 
 describe('CanvasToolbar', () => {
   afterEach(() => {

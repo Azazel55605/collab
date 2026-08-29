@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { transferPercent } from './App';
 import { serverApi } from './api';
+import { transferPercent } from './App';
 import {
   downloadWithProgress,
   transferErrorMessage,
-  uploadWithProgress,
   type TransferProgress,
+  uploadWithProgress,
 } from './transfer';
 
 /** Minimal stand-in for the parts of XMLHttpRequest the uploader uses. */

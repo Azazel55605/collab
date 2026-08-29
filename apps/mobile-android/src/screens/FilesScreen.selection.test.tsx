@@ -1,13 +1,14 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
-
 import { loadPrefs } from '../lib/theme';
 import type { HostedFileEntry, HostedVault } from '../mobileTauri';
 import { useMobileStore } from '../state/store';
+
 import { FilesScreen } from './FilesScreen';
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
 
 const vault: HostedVault = {
   id: 'vault-1',
@@ -64,10 +65,14 @@ describe('mobile file selection', () => {
     });
 
     render(<FilesScreen prefs={loadPrefs()} />);
-    await act(async () => { vi.runOnlyPendingTimers(); });
+    await act(async () => {
+      vi.runOnlyPendingTimers();
+    });
     const first = screen.getByRole('button', { name: /one\.md/i });
     fireEvent.pointerDown(first, { pointerType: 'touch', clientX: 10, clientY: 10 });
-    await act(async () => { vi.advanceTimersByTime(450); });
+    await act(async () => {
+      vi.advanceTimersByTime(450);
+    });
 
     expect(screen.getByText('1 selected')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /two\.md/i }));

@@ -1,14 +1,15 @@
-import type { LogicDiagramDocument } from '../types/logicDiagram';
 import type {
   CircuitJobOutcome,
   CircuitTransientChunk,
   CircuitTransientResult,
   CircuitTransientSummary,
 } from '../types/circuitRuntime';
+import type { LogicDiagramDocument } from '../types/logicDiagram';
+
 import {
-  runCircuitJob,
   type CircuitJobClient,
   type CircuitJobRunOptions,
+  runCircuitJob,
 } from './circuitJobRunner';
 
 const TRANSIENT_CHUNK_SIZE = 512;
@@ -19,9 +20,7 @@ export interface CircuitTransientJobClient extends CircuitJobClient {
 }
 
 function outputKey(output: CircuitTransientSummary['outputs'][number]): string {
-  return output.kind === 'node-voltage'
-    ? `node:${output.node}`
-    : `component:${output.component}`;
+  return output.kind === 'node-voltage' ? `node:${output.node}` : `component:${output.component}`;
 }
 
 export async function runCircuitTransientJob(
@@ -42,7 +41,9 @@ export async function runCircuitTransientJob(
 
   const summary = outcome.summary;
   const timeSeconds: number[] = [];
-  const valuesByOutput = new Map(summary.outputs.map((output) => [outputKey(output), [] as number[]]));
+  const valuesByOutput = new Map(
+    summary.outputs.map((output) => [outputKey(output), [] as number[]]),
+  );
   let offset = 0;
 
   try {

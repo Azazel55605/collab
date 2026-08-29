@@ -1,5 +1,5 @@
-import type { LogicDiagramDocument } from '../types/logicDiagram';
 import type { CircuitJobOutcome, CircuitJobPhase, CircuitJobStatus } from '../types/circuitRuntime';
+import type { LogicDiagramDocument } from '../types/logicDiagram';
 
 export interface CircuitJobClient {
   start(document: LogicDiagramDocument): Promise<string>;

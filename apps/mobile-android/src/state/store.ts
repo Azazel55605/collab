@@ -1,27 +1,36 @@
 import { create } from 'zustand';
 
+import type {
+  CalendarOriginSyncResult,
+  CalendarSyncProgress,
+} from '../../../../src/lib/calendarSync';
+import type { BackgroundStatusSnapshot } from '../../../../src/lib/tauri';
+import type {
+  CalendarMirrorConflict,
+  CalendarMirrorGroupStatus,
+  CalendarMirrorProgress,
+  CalendarOperationFailure,
+} from '../../../../src/types/calendar';
+import { listenToBackgroundEvents } from '../lib/backgroundEvents';
+import type { VaultSyncedEvent } from '../lib/backgroundEvents';
+import { runTopBackDismiss } from '../lib/backStack';
 import {
-  connectServer,
-  backgroundJobGet,
-  backgroundJobList,
-  backgroundStatusSnapshot,
-  backgroundJobRun,
-  cancelAndroidBackgroundProfile,
-  disconnectServer,
-  HostedFileEntry,
-  HostedVault,
-  listHostedVaults,
-  listVaultFiles,
-  loadConnectionStatuses,
-  reauthenticateServer,
-  reconnectServer,
-  reconcileAndroidBackground,
-  replicaList,
-  ReplicaSummary,
-  serverHasSavedSession,
-  ServerConnectionStatus,
-} from '../mobileTauri';
-import type { BackgroundJobRecord } from '../mobileTauri';
+  listMobileCalendarCacheOrigins,
+  mobileCalendarProfileId,
+  removeMobileCalendarCache,
+  syncMobileCalendars,
+} from '../lib/calendarSync';
+import { shouldAlwaysCreateOfflineCopy } from '../lib/preferences';
+import {
+  FileCacheState,
+  fileCacheState,
+  makeVaultAvailableOffline,
+  OfflineProgress,
+  readReplicaFiles,
+  refreshVaultOfflineContents,
+  removeOfflineCopy,
+  replicaKey,
+} from '../lib/replica';
 import {
   KnownServer,
   listKnownServers,
@@ -30,33 +39,27 @@ import {
   upsertKnownServer,
 } from '../lib/servers';
 import {
-  FileCacheState,
-  fileCacheState,
-  makeVaultAvailableOffline,
-  OfflineProgress,
-  readReplicaFiles,
-  removeOfflineCopy,
-  replicaKey,
-  refreshVaultOfflineContents,
-} from '../lib/replica';
-import { runTopBackDismiss } from '../lib/backStack';
-import { listenToBackgroundEvents } from '../lib/backgroundEvents';
-import type { VaultSyncedEvent } from '../lib/backgroundEvents';
-import type { BackgroundStatusSnapshot } from '../../../../src/lib/tauri';
-import { shouldAlwaysCreateOfflineCopy } from '../lib/preferences';
-import {
-  listMobileCalendarCacheOrigins,
-  mobileCalendarProfileId,
-  removeMobileCalendarCache,
-  syncMobileCalendars,
-} from '../lib/calendarSync';
-import type {
-  CalendarMirrorConflict,
-  CalendarMirrorGroupStatus,
-  CalendarMirrorProgress,
-  CalendarOperationFailure,
-} from '../../../../src/types/calendar';
-import type { CalendarOriginSyncResult, CalendarSyncProgress } from '../../../../src/lib/calendarSync';
+  backgroundJobGet,
+  backgroundJobList,
+  backgroundJobRun,
+  backgroundStatusSnapshot,
+  cancelAndroidBackgroundProfile,
+  connectServer,
+  disconnectServer,
+  HostedFileEntry,
+  HostedVault,
+  listHostedVaults,
+  listVaultFiles,
+  loadConnectionStatuses,
+  reauthenticateServer,
+  reconcileAndroidBackground,
+  reconnectServer,
+  replicaList,
+  ReplicaSummary,
+  ServerConnectionStatus,
+  serverHasSavedSession,
+} from '../mobileTauri';
+import type { BackgroundJobRecord } from '../mobileTauri';
 
 export interface SelectedVault {
   serverUrl: string;
@@ -226,8 +229,7 @@ export const useMobileStore = create<MobileState>((set, get) => ({
 
   setTab: (tab) => set({ tab }),
   enterFolder: (crumb) => set((state) => ({ folderTrail: [...state.folderTrail, crumb] })),
-  folderJumpTo: (index) =>
-    set((state) => ({ folderTrail: state.folderTrail.slice(0, index + 1) })),
+  folderJumpTo: (index) => set((state) => ({ folderTrail: state.folderTrail.slice(0, index + 1) })),
   openSheet: (sheet) => set({ activeSheet: sheet }),
   closeSheet: () => set({ activeSheet: null }),
 
@@ -291,13 +293,15 @@ export const useMobileStore = create<MobileState>((set, get) => ({
         // on every event would undo the point of pushing these at all.
         const selected = get().selected;
         if (
-          !selected
-          || selected.vault.id !== event.vaultId
-          || normalizeServerUrl(selected.serverUrl) !== normalizeServerUrl(event.serverUrl)
+          !selected ||
+          selected.vault.id !== event.vaultId ||
+          normalizeServerUrl(selected.serverUrl) !== normalizeServerUrl(event.serverUrl)
         ) {
           return;
         }
-        void get().loadFiles().catch(() => {});
+        void get()
+          .loadFiles()
+          .catch(() => {});
       },
     });
   },
@@ -356,18 +360,28 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     await get().refreshStatuses();
     // Load offline replicas first so a reconnected server can immediately replay
     // any writes queued while it was offline, then preload vault inventories.
-    await get().loadReplicas().catch(() => {});
+    await get()
+      .loadReplicas()
+      .catch(() => {});
     const calendarCacheOrigins = await listMobileCalendarCacheOrigins().catch(() => []);
     set({ calendarCacheOrigins });
     await Promise.all([
       ...Object.keys(get().statuses).map((serverUrl) =>
-        get().loadVaults(serverUrl).catch(() => {}),
+        get()
+          .loadVaults(serverUrl)
+          .catch(() => {}),
       ),
       ...Object.keys(get().statuses).map((serverUrl) =>
-        get().syncServer(serverUrl).catch(() => {}),
+        get()
+          .syncServer(serverUrl)
+          .catch(() => {}),
       ),
-      get().syncCalendars().catch(() => {}),
-      get().refreshBackgroundJobs().catch(() => {}),
+      get()
+        .syncCalendars()
+        .catch(() => {}),
+      get()
+        .refreshBackgroundJobs()
+        .catch(() => {}),
     ]);
     await reconcileAndroidBackground(mobileCalendarProfileId()).catch(() => {});
     set({ restored: true });
@@ -410,20 +424,26 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     }
     // Refresh pending counts, and re-read the open vault so replayed edits and
     // any resulting server state are reflected.
-    await get().loadReplicas().catch(() => {});
-    await get().refreshBackgroundJobs().catch(() => {});
+    await get()
+      .loadReplicas()
+      .catch(() => {});
+    await get()
+      .refreshBackgroundJobs()
+      .catch(() => {});
     const selected = get().selected;
     if (selected && normalizeServerUrl(selected.serverUrl) === normalized) {
-      await get().loadFiles().catch(() => {});
+      await get()
+        .loadFiles()
+        .catch(() => {});
     }
   },
 
   syncCalendars: async () => {
-    const origins = Object.values(get().statuses).flatMap((status) => (
+    const origins = Object.values(get().statuses).flatMap((status) =>
       status.connected && status.serverUrl && status.user
         ? [{ serverUrl: normalizeServerUrl(status.serverUrl), userId: status.user.id }]
-        : []
-    ));
+        : [],
+    );
     if (origins.length === 0 || get().calendarSyncing) return;
     set({ calendarSyncing: true });
     try {
@@ -474,7 +494,9 @@ export const useMobileStore = create<MobileState>((set, get) => ({
 
     const refreshed = new Set<string>();
     for (const normalized of servers) {
-      const vaultsById = new Map((get().vaults[normalized] ?? []).map((vault) => [vault.id, vault]));
+      const vaultsById = new Map(
+        (get().vaults[normalized] ?? []).map((vault) => [vault.id, vault]),
+      );
       const replicas = Object.values(get().replicas).filter(
         (replica) => normalizeServerUrl(replica.serverUrl) === normalized,
       );
@@ -505,12 +527,16 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     }
 
     if (refreshed.size === 0) return;
-    await get().loadReplicas().catch(() => {});
+    await get()
+      .loadReplicas()
+      .catch(() => {});
 
     const selected = get().selected;
     if (!selected || !refreshed.has(replicaKey(selected.serverUrl, selected.vault.id))) return;
     set({ fileCache: {} });
-    await get().refreshCacheStatus(get().files).catch(() => {});
+    await get()
+      .refreshCacheStatus(get().files)
+      .catch(() => {});
   },
 
   connect: async (serverUrl, username, password, opts) => {
@@ -525,41 +551,63 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     });
     set({ servers: listKnownServers() });
     await get().refreshStatuses();
-    await get().loadReplicas().catch(() => {});
+    await get()
+      .loadReplicas()
+      .catch(() => {});
     await get().loadVaults(normalized);
-    await get().syncServer(normalized).catch(() => {});
-    await get().syncCalendars().catch(() => {});
+    await get()
+      .syncServer(normalized)
+      .catch(() => {});
+    await get()
+      .syncCalendars()
+      .catch(() => {});
     await reconcileAndroidBackground(mobileCalendarProfileId()).catch(() => {});
   },
 
   reauthenticate: async (serverUrl, password) => {
     const normalized = normalizeServerUrl(serverUrl);
-    const server = get().servers.find((entry) => normalizeServerUrl(entry.serverUrl) === normalized);
+    const server = get().servers.find(
+      (entry) => normalizeServerUrl(entry.serverUrl) === normalized,
+    );
     if (!server) throw new Error('This server is not saved. Add it again to sign in.');
     await reauthenticateServer(normalized, server.username, password, {
       allowInvalidCertificates: server.allowInvalidCertificates,
       persistAcrossReboots: server.persistAcrossReboots,
     });
     await get().refreshStatuses();
-    await get().loadReplicas().catch(() => {});
+    await get()
+      .loadReplicas()
+      .catch(() => {});
     await get().loadVaults(normalized);
-    await get().syncServer(normalized).catch(() => {});
-    await get().syncCalendars().catch(() => {});
+    await get()
+      .syncServer(normalized)
+      .catch(() => {});
+    await get()
+      .syncCalendars()
+      .catch(() => {});
     await reconcileAndroidBackground(mobileCalendarProfileId()).catch(() => {});
   },
 
   reconnect: async (serverUrl) => {
     const normalized = normalizeServerUrl(serverUrl);
-    const server = get().servers.find((entry) => normalizeServerUrl(entry.serverUrl) === normalized);
+    const server = get().servers.find(
+      (entry) => normalizeServerUrl(entry.serverUrl) === normalized,
+    );
     await reconnectServer(normalized, {
       allowInvalidCertificates: server?.allowInvalidCertificates ?? false,
       persistAcrossReboots: server?.persistAcrossReboots ?? true,
     });
     await get().refreshStatuses();
-    await get().loadReplicas().catch(() => {});
+    await get()
+      .loadReplicas()
+      .catch(() => {});
     await get().loadVaults(normalized);
-    await get().syncServer(normalized).catch(() => {});
-    await get().syncCalendars().catch(() => {});
+    await get()
+      .syncServer(normalized)
+      .catch(() => {});
+    await get()
+      .syncCalendars()
+      .catch(() => {});
     await reconcileAndroidBackground(mobileCalendarProfileId()).catch(() => {});
   },
 
@@ -590,7 +638,9 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     try {
       const vaults = await listHostedVaults(normalized);
       set((state) => ({ vaults: { ...state.vaults, [normalized]: vaults } }));
-      void get().refreshOfflineCopies(normalized).catch(() => {});
+      void get()
+        .refreshOfflineCopies(normalized)
+        .catch(() => {});
     } finally {
       set((state) => ({ vaultsBusy: { ...state.vaultsBusy, [normalized]: false } }));
     }
@@ -616,7 +666,9 @@ export const useMobileStore = create<MobileState>((set, get) => ({
       !get().replicas[key] &&
       !get().offlineBusy[key]
     ) {
-      void get().makeOffline(normalized, vault).catch(() => {});
+      void get()
+        .makeOffline(normalized, vault)
+        .catch(() => {});
     }
   },
 
@@ -727,7 +779,10 @@ export const useMobileStore = create<MobileState>((set, get) => ({
       });
       await get().loadReplicas();
       // Refresh cache badges if this is the open vault.
-      if (get().selected && replicaKey(get().selected!.serverUrl, get().selected!.vault.id) === key) {
+      if (
+        get().selected &&
+        replicaKey(get().selected!.serverUrl, get().selected!.vault.id) === key
+      ) {
         await get().refreshCacheStatus(get().files);
       }
     } catch (reason) {

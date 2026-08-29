@@ -6,7 +6,17 @@ export interface OpenTab {
   title: string;
   isDirty: boolean;
   savedHash: string | null;
-  type: 'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'graph' | 'settings' | 'image' | 'pdf';
+  type:
+    | 'note'
+    | 'canvas'
+    | 'kanban'
+    | 'logic'
+    | 'sheet'
+    | 'ink'
+    | 'graph'
+    | 'settings'
+    | 'image'
+    | 'pdf';
 }
 
 export interface NoteEditorViewState {
@@ -81,18 +91,14 @@ interface EditorState {
   setInkViewState: (relativePath: string, viewState: InkViewState) => void;
 }
 
-function remapViewStates<T>(
-  viewStates: Record<string, T>,
-  oldPath: string,
-  newPath: string,
-) {
+function remapViewStates<T>(viewStates: Record<string, T>, oldPath: string, newPath: string) {
   return Object.fromEntries(
     Object.entries(viewStates).map(([path, viewState]) => [
       path === oldPath
         ? newPath
         : path.startsWith(`${oldPath}/`)
-        ? `${newPath}${path.slice(oldPath.length)}`
-        : path,
+          ? `${newPath}${path.slice(oldPath.length)}`
+          : path,
       viewState,
     ]),
   );
@@ -101,161 +107,165 @@ function remapViewStates<T>(
 export const useEditorStore = create<EditorState>()(
   persist(
     (set, get) => ({
-  sessionVaultPath: null,
-  openTabs: [],
-  activeTabPath: null,
-  forceReloadPath: null,
-  revealEditorPath: null,
-  pendingSearchJump: null,
-  pendingSheetJump: null,
-  noteViewStates: {},
-  sheetViewStates: {},
-  inkViewStates: {},
+      sessionVaultPath: null,
+      openTabs: [],
+      activeTabPath: null,
+      forceReloadPath: null,
+      revealEditorPath: null,
+      pendingSearchJump: null,
+      pendingSheetJump: null,
+      noteViewStates: {},
+      sheetViewStates: {},
+      inkViewStates: {},
 
-  setSessionVaultPath: (sessionVaultPath) => set({ sessionVaultPath }),
+      setSessionVaultPath: (sessionVaultPath) => set({ sessionVaultPath }),
 
-  resetSession: (vaultPath = null) => set({
-    sessionVaultPath: vaultPath,
-    openTabs: [],
-    activeTabPath: null,
-    forceReloadPath: null,
-    revealEditorPath: null,
-    pendingSearchJump: null,
-    pendingSheetJump: null,
-    noteViewStates: {},
-    sheetViewStates: {},
-    inkViewStates: {},
-  }),
+      resetSession: (vaultPath = null) =>
+        set({
+          sessionVaultPath: vaultPath,
+          openTabs: [],
+          activeTabPath: null,
+          forceReloadPath: null,
+          revealEditorPath: null,
+          pendingSearchJump: null,
+          pendingSheetJump: null,
+          noteViewStates: {},
+          sheetViewStates: {},
+          inkViewStates: {},
+        }),
 
-  openTab: (relativePath, title, type = 'note') => {
-    const { openTabs } = get();
-    if (!openTabs.find((t) => t.relativePath === relativePath)) {
-      set({
-        openTabs: [...openTabs, { relativePath, title, isDirty: false, savedHash: null, type }],
-      });
-    }
-    set({ activeTabPath: relativePath });
-  },
+      openTab: (relativePath, title, type = 'note') => {
+        const { openTabs } = get();
+        if (!openTabs.find((t) => t.relativePath === relativePath)) {
+          set({
+            openTabs: [...openTabs, { relativePath, title, isDirty: false, savedHash: null, type }],
+          });
+        }
+        set({ activeTabPath: relativePath });
+      },
 
-  closeTab: (relativePath) => {
-    const { openTabs, activeTabPath } = get();
-    const newTabs = openTabs.filter((t) => t.relativePath !== relativePath);
-    const newActive =
-      activeTabPath === relativePath
-        ? newTabs.length > 0
-          ? newTabs[newTabs.length - 1].relativePath
-          : null
-        : activeTabPath;
-    set({ openTabs: newTabs, activeTabPath: newActive });
-  },
+      closeTab: (relativePath) => {
+        const { openTabs, activeTabPath } = get();
+        const newTabs = openTabs.filter((t) => t.relativePath !== relativePath);
+        const newActive =
+          activeTabPath === relativePath
+            ? newTabs.length > 0
+              ? newTabs[newTabs.length - 1].relativePath
+              : null
+            : activeTabPath;
+        set({ openTabs: newTabs, activeTabPath: newActive });
+      },
 
-  setActiveTab: (relativePath) => set({ activeTabPath: relativePath }),
+      setActiveTab: (relativePath) => set({ activeTabPath: relativePath }),
 
-  markDirty: (relativePath) => {
-    set((state) => {
-      let changed = false;
-      const openTabs = state.openTabs.map((tab) => {
-        if (tab.relativePath !== relativePath || tab.isDirty) return tab;
-        changed = true;
-        return { ...tab, isDirty: true };
-      });
-      return changed ? { openTabs } : state;
-    });
-  },
+      markDirty: (relativePath) => {
+        set((state) => {
+          let changed = false;
+          const openTabs = state.openTabs.map((tab) => {
+            if (tab.relativePath !== relativePath || tab.isDirty) return tab;
+            changed = true;
+            return { ...tab, isDirty: true };
+          });
+          return changed ? { openTabs } : state;
+        });
+      },
 
-  markSaved: (relativePath, hash) => {
-    set((state) => {
-      let changed = false;
-      const openTabs = state.openTabs.map((tab) => {
-        if (tab.relativePath !== relativePath) return tab;
-        if (!tab.isDirty && tab.savedHash === hash) return tab;
-        changed = true;
-        return { ...tab, isDirty: false, savedHash: hash };
-      });
-      return changed ? { openTabs } : state;
-    });
-  },
+      markSaved: (relativePath, hash) => {
+        set((state) => {
+          let changed = false;
+          const openTabs = state.openTabs.map((tab) => {
+            if (tab.relativePath !== relativePath) return tab;
+            if (!tab.isDirty && tab.savedHash === hash) return tab;
+            changed = true;
+            return { ...tab, isDirty: false, savedHash: hash };
+          });
+          return changed ? { openTabs } : state;
+        });
+      },
 
-  setSavedHash: (relativePath, hash) => {
-    set((state) => {
-      let changed = false;
-      const openTabs = state.openTabs.map((tab) => {
-        if (tab.relativePath !== relativePath || tab.savedHash === hash) return tab;
-        changed = true;
-        return { ...tab, savedHash: hash };
-      });
-      return changed ? { openTabs } : state;
-    });
-  },
+      setSavedHash: (relativePath, hash) => {
+        set((state) => {
+          let changed = false;
+          const openTabs = state.openTabs.map((tab) => {
+            if (tab.relativePath !== relativePath || tab.savedHash === hash) return tab;
+            changed = true;
+            return { ...tab, savedHash: hash };
+          });
+          return changed ? { openTabs } : state;
+        });
+      },
 
-  updateTabTitle: (relativePath, title) => {
-    set((state) => ({
-      openTabs: state.openTabs.map((t) =>
-        t.relativePath === relativePath ? { ...t, title } : t
-      ),
-    }));
-  },
+      updateTabTitle: (relativePath, title) => {
+        set((state) => ({
+          openTabs: state.openTabs.map((t) =>
+            t.relativePath === relativePath ? { ...t, title } : t,
+          ),
+        }));
+      },
 
-  renameTab: (oldPath, newPath, newTitle) => {
-    set((state) => ({
-      openTabs: state.openTabs.map((t) =>
-        t.relativePath === oldPath
-          ? { ...t, relativePath: newPath, title: newTitle }
-          : t.relativePath.startsWith(`${oldPath}/`)
-          ? { ...t, relativePath: `${newPath}${t.relativePath.slice(oldPath.length)}` }
-          : t
-      ),
-      activeTabPath:
-        state.activeTabPath === oldPath
-          ? newPath
-          : state.activeTabPath?.startsWith(`${oldPath}/`)
-          ? `${newPath}${state.activeTabPath.slice(oldPath.length)}`
-          : state.activeTabPath,
-      noteViewStates: remapViewStates(state.noteViewStates, oldPath, newPath),
-      sheetViewStates: remapViewStates(state.sheetViewStates, oldPath, newPath),
-    inkViewStates: remapViewStates(state.inkViewStates, oldPath, newPath),
-    }));
-  },
+      renameTab: (oldPath, newPath, newTitle) => {
+        set((state) => ({
+          openTabs: state.openTabs.map((t) =>
+            t.relativePath === oldPath
+              ? { ...t, relativePath: newPath, title: newTitle }
+              : t.relativePath.startsWith(`${oldPath}/`)
+                ? { ...t, relativePath: `${newPath}${t.relativePath.slice(oldPath.length)}` }
+                : t,
+          ),
+          activeTabPath:
+            state.activeTabPath === oldPath
+              ? newPath
+              : state.activeTabPath?.startsWith(`${oldPath}/`)
+                ? `${newPath}${state.activeTabPath.slice(oldPath.length)}`
+                : state.activeTabPath,
+          noteViewStates: remapViewStates(state.noteViewStates, oldPath, newPath),
+          sheetViewStates: remapViewStates(state.sheetViewStates, oldPath, newPath),
+          inkViewStates: remapViewStates(state.inkViewStates, oldPath, newPath),
+        }));
+      },
 
-  reorderTabs: (fromPath, toPath, before) => {
-    set((state) => {
-      const tabs = [...state.openTabs];
-      const fromIdx = tabs.findIndex(t => t.relativePath === fromPath);
-      let   toIdx   = tabs.findIndex(t => t.relativePath === toPath);
-      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return state;
-      const [tab] = tabs.splice(fromIdx, 1);
-      // Recalculate toIdx after splice
-      toIdx = tabs.findIndex(t => t.relativePath === toPath);
-      tabs.splice(before ? toIdx : toIdx + 1, 0, tab);
-      return { openTabs: tabs };
-    });
-  },
+      reorderTabs: (fromPath, toPath, before) => {
+        set((state) => {
+          const tabs = [...state.openTabs];
+          const fromIdx = tabs.findIndex((t) => t.relativePath === fromPath);
+          let toIdx = tabs.findIndex((t) => t.relativePath === toPath);
+          if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return state;
+          const [tab] = tabs.splice(fromIdx, 1);
+          // Recalculate toIdx after splice
+          toIdx = tabs.findIndex((t) => t.relativePath === toPath);
+          tabs.splice(before ? toIdx : toIdx + 1, 0, tab);
+          return { openTabs: tabs };
+        });
+      },
 
-  setForceReloadPath: (forceReloadPath) => set({ forceReloadPath }),
-  setRevealEditorPath: (revealEditorPath) => set({ revealEditorPath }),
-  setPendingSearchJump: (pendingSearchJump) => set({ pendingSearchJump }),
-  setPendingSheetJump: (pendingSheetJump) => set({ pendingSheetJump }),
-  setNoteViewState: (relativePath, viewState) => set((state) => ({
-    noteViewStates: {
-      ...state.noteViewStates,
-      [relativePath]: viewState,
-    },
-  })),
+      setForceReloadPath: (forceReloadPath) => set({ forceReloadPath }),
+      setRevealEditorPath: (revealEditorPath) => set({ revealEditorPath }),
+      setPendingSearchJump: (pendingSearchJump) => set({ pendingSearchJump }),
+      setPendingSheetJump: (pendingSheetJump) => set({ pendingSheetJump }),
+      setNoteViewState: (relativePath, viewState) =>
+        set((state) => ({
+          noteViewStates: {
+            ...state.noteViewStates,
+            [relativePath]: viewState,
+          },
+        })),
 
-  setSheetViewState: (relativePath, viewState) => set((state) => ({
-    sheetViewStates: {
-      ...state.sheetViewStates,
-      [relativePath]: viewState,
-    },
-  })),
+      setSheetViewState: (relativePath, viewState) =>
+        set((state) => ({
+          sheetViewStates: {
+            ...state.sheetViewStates,
+            [relativePath]: viewState,
+          },
+        })),
 
-  setInkViewState: (relativePath, viewState) => set((state) => ({
-    inkViewStates: {
-      ...state.inkViewStates,
-      [relativePath]: viewState,
-    },
-  })),
-}),
+      setInkViewState: (relativePath, viewState) =>
+        set((state) => ({
+          inkViewStates: {
+            ...state.inkViewStates,
+            [relativePath]: viewState,
+          },
+        })),
+    }),
     {
       name: 'editor-storage',
       partialize: (state) => ({
@@ -266,6 +276,6 @@ export const useEditorStore = create<EditorState>()(
         sheetViewStates: state.sheetViewStates,
         inkViewStates: state.inkViewStates,
       }),
-    }
-  )
+    },
+  ),
 );

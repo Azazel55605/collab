@@ -1,13 +1,14 @@
+import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
-import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
+import * as Y from 'yjs';
+
 import {
   buildKanbanCardEditors,
   dedupePeersByUser,
+  type LivePeer,
   readRemotePeers,
   useLivePeers,
-  type LivePeer,
 } from './liveAwareness';
 
 function makeAwarenessPair() {
@@ -54,8 +55,16 @@ describe('dedupePeersByUser', () => {
 describe('buildKanbanCardEditors', () => {
   it('maps each open card to its editing peer and ignores peers with no open card', () => {
     const peers: LivePeer[] = [
-      { clientId: 1, user: { id: 'a', name: 'Ann', color: '#f00' }, kanban: { editingCardId: 'c1' } },
-      { clientId: 2, user: { id: 'b', name: 'Bob', color: '#0f0' }, kanban: { editingCardId: null } },
+      {
+        clientId: 1,
+        user: { id: 'a', name: 'Ann', color: '#f00' },
+        kanban: { editingCardId: 'c1' },
+      },
+      {
+        clientId: 2,
+        user: { id: 'b', name: 'Bob', color: '#0f0' },
+        kanban: { editingCardId: null },
+      },
       { clientId: 3, user: { id: 'c', name: 'Cy', color: '#00f' } },
     ];
     const map = buildKanbanCardEditors(peers);
@@ -65,8 +74,16 @@ describe('buildKanbanCardEditors', () => {
 
   it('last peer wins when two report the same card', () => {
     const peers: LivePeer[] = [
-      { clientId: 1, user: { id: 'a', name: 'Ann', color: '#f00' }, kanban: { editingCardId: 'c1' } },
-      { clientId: 2, user: { id: 'b', name: 'Bob', color: '#0f0' }, kanban: { editingCardId: 'c1' } },
+      {
+        clientId: 1,
+        user: { id: 'a', name: 'Ann', color: '#f00' },
+        kanban: { editingCardId: 'c1' },
+      },
+      {
+        clientId: 2,
+        user: { id: 'b', name: 'Bob', color: '#0f0' },
+        kanban: { editingCardId: 'c1' },
+      },
     ];
     expect(buildKanbanCardEditors(peers).get('c1')?.name).toBe('Bob');
   });
@@ -83,7 +100,12 @@ describe('useLivePeers', () => {
     const { result } = renderHook(() => useLivePeers({ awareness: local }));
     expect(result.current).toEqual([]);
 
-    act(() => inject(local, 200, { user: { id: 'a', name: 'Ann', color: '#f00' }, kanban: { editingCardId: 'c1' } }));
+    act(() =>
+      inject(local, 200, {
+        user: { id: 'a', name: 'Ann', color: '#f00' },
+        kanban: { editingCardId: 'c1' },
+      }),
+    );
     expect(result.current).toHaveLength(1);
     expect(result.current[0].kanban?.editingCardId).toBe('c1');
   });

@@ -1,29 +1,45 @@
-import { useState, useRef, useMemo, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+
 import { ChevronLeft, ChevronRight, GanttChart } from 'lucide-react';
+
 import { cn } from '../../lib/utils';
-import { useKanbanContext } from '../../views/KanbanPage';
-import { useUiStore, formatDate } from '../../store/uiStore';
+import { formatDate, useUiStore } from '../../store/uiStore';
 import type { KanbanCard } from '../../types/kanban';
-import CardDialog from './CardDialog';
+import { useKanbanContext } from '../../views/KanbanPage';
 import { Button } from '../ui/button';
+
+import CardDialog from './CardDialog';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const DAY_W       = 38;  // px per day column
-const ROW_H       = 32;  // px per card row
-const GROUP_H     = 28;  // px per column-group header
-const HDR_MONTH_H = 20;  // px — month label row
-const HDR_DAY_H   = 26;  // px — day number row
-const SIDEBAR_W   = 210; // px
-const HANDLE_W    = 6;   // px — resize grip width
-const NUM_DAYS    = 90;  // days to render
+const DAY_W = 38; // px per day column
+const ROW_H = 32; // px per card row
+const GROUP_H = 28; // px per column-group header
+const HDR_MONTH_H = 20; // px — month label row
+const HDR_DAY_H = 26; // px — day number row
+const SIDEBAR_W = 210; // px
+const HANDLE_W = 6; // px — resize grip width
+const NUM_DAYS = 90; // days to render
 
-const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTH_SHORT = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
 
 const PRIORITY_COLORS = {
-  high:   'bg-red-300',
+  high: 'bg-red-300',
   medium: 'bg-yellow-300',
-  low:    'bg-green-300',
+  low: 'bg-green-300',
 } as const;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -75,21 +91,21 @@ export default function TimelineView() {
 
   const today = useMemo(() => toDateOnly(Date.now()), []);
 
-  const [rangeStart,      setRangeStart]      = useState(() => addDays(today, -7));
-  const [filterUser,      setFilterUser]      = useState<string | null>(null);
-  const [openCard,        setOpenCard]        = useState<{ card: KanbanCard; columnId: string } | null>(null);
+  const [rangeStart, setRangeStart] = useState(() => addDays(today, -7));
+  const [filterUser, setFilterUser] = useState<string | null>(null);
+  const [openCard, setOpenCard] = useState<{ card: KanbanCard; columnId: string } | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   // Drag state: ref for mutation, state for re-renders
-  const dragRef     = useRef<DragRef | null>(null);
-  const previewRef  = useRef<DragPreview | null>(null);
+  const dragRef = useRef<DragRef | null>(null);
+  const previewRef = useRef<DragPreview | null>(null);
   const wasMovedRef = useRef(false); // tracks whether the pointer actually moved during drag
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
 
   // Scroll sync refs
   const headerScrollRef = useRef<HTMLDivElement>(null);
-  const sidebarRef      = useRef<HTMLDivElement>(null);
-  const bodyRef         = useRef<HTMLDivElement>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   // Scroll to show today on first render
   useEffect(() => {
@@ -107,32 +123,37 @@ export default function TimelineView() {
   }
 
   function toggleGroup(colId: string) {
-    setCollapsedGroups(prev => {
+    setCollapsedGroups((prev) => {
       const next = new Set(prev);
-      if (next.has(colId)) next.delete(colId); else next.add(colId);
+      if (next.has(colId)) next.delete(colId);
+      else next.add(colId);
       return next;
     });
   }
 
   // Active users
-  const flatCards = useMemo(() =>
-    board.columns.reduce<Array<{ card: KanbanCard; columnId: string }>>((cards, col) => {
-      if (col.hideFromTimeline) return cards;
-      col.cards.forEach((card) => {
-        if (card.startDate || card.dueDate) {
-          cards.push({ card, columnId: col.id });
-        }
-      });
-      return cards;
-    }, []),
-  [board]);
+  const flatCards = useMemo(
+    () =>
+      board.columns.reduce<Array<{ card: KanbanCard; columnId: string }>>((cards, col) => {
+        if (col.hideFromTimeline) return cards;
+        col.cards.forEach((card) => {
+          if (card.startDate || card.dueDate) {
+            cards.push({ card, columnId: col.id });
+          }
+        });
+        return cards;
+      }, []),
+    [board],
+  );
 
   const activeUsers = useMemo(() => {
-    const ids = new Set(flatCards.reduce<string[]>((assignees, { card }) => {
-      assignees.push(...card.assignees);
-      return assignees;
-    }, []));
-    return knownUsers.filter(u => ids.has(u.userId));
+    const ids = new Set(
+      flatCards.reduce<string[]>((assignees, { card }) => {
+        assignees.push(...card.assignees);
+        return assignees;
+      }, []),
+    );
+    return knownUsers.filter((u) => ids.has(u.userId));
   }, [flatCards, knownUsers]);
 
   // Days array and derived info
@@ -168,7 +189,7 @@ export default function TimelineView() {
 
   function effStart(card: KanbanCard): Date {
     if (card.startDate) return parseLocal(card.startDate);
-    if (card.dueDate)   return parseLocal(card.dueDate);
+    if (card.dueDate) return parseLocal(card.dueDate);
     return today;
   }
   function effEnd(card: KanbanCard): Date {
@@ -180,7 +201,7 @@ export default function TimelineView() {
     if (dragPreview?.cardId === card.id) {
       return {
         start: parseLocal(dragPreview.startDate),
-        end:   parseLocal(dragPreview.dueDate),
+        end: parseLocal(dragPreview.dueDate),
       };
     }
     return { start: effStart(card), end: effEnd(card) };
@@ -201,10 +222,14 @@ export default function TimelineView() {
     const ee = effEnd(card);
     wasMovedRef.current = false;
     dragRef.current = {
-      type, cardId: card.id, columnId,
+      type,
+      cardId: card.id,
+      columnId,
       startX: e.clientX,
-      origEffStart: es, origEffEnd: ee,
-      origStartDate: card.startDate, origDueDate: card.dueDate,
+      origEffStart: es,
+      origEffEnd: ee,
+      origStartDate: card.startDate,
+      origDueDate: card.dueDate,
     };
     const preview = { cardId: card.id, startDate: dateToStr(es), dueDate: dateToStr(ee) };
     previewRef.current = preview;
@@ -217,12 +242,12 @@ export default function TimelineView() {
     const delta = Math.round((e.clientX - d.startX) / DAY_W);
     if (delta !== 0) wasMovedRef.current = true;
 
-    let s  = d.origEffStart;
+    let s = d.origEffStart;
     let en = d.origEffEnd;
 
     if (d.type === 'move') {
-      s  = addDays(d.origEffStart, delta);
-      en = addDays(d.origEffEnd,   delta);
+      s = addDays(d.origEffStart, delta);
+      en = addDays(d.origEffEnd, delta);
     } else if (d.type === 'left') {
       s = addDays(d.origEffStart, delta);
       if (s > en) s = en;
@@ -239,7 +264,7 @@ export default function TimelineView() {
   function endDrag(card: KanbanCard, columnId: string) {
     const d = dragRef.current;
     const p = previewRef.current;
-    dragRef.current    = null;
+    dragRef.current = null;
     previewRef.current = null;
     setDragPreview(null);
     if (!d || !p) return;
@@ -252,26 +277,32 @@ export default function TimelineView() {
 
     // Only write if actually changed
     const origStart = d.origStartDate ?? dateToStr(d.origEffStart);
-    const origEnd   = d.origDueDate   ?? dateToStr(d.origEffEnd);
+    const origEnd = d.origDueDate ?? dateToStr(d.origEffEnd);
     if (p.startDate === origStart && p.dueDate === origEnd) return;
 
-    updateBoard(prev => ({
+    updateBoard((prev) => ({
       ...prev,
-      columns: prev.columns.map(col =>
-        col.id !== columnId ? col : {
-          ...col,
-          cards: col.cards.map(c => c.id !== card.id ? c : {
-            ...c,
-            startDate: p.startDate,
-            dueDate:   p.dueDate,
-          }),
-        }
+      columns: prev.columns.map((col) =>
+        col.id !== columnId
+          ? col
+          : {
+              ...col,
+              cards: col.cards.map((c) =>
+                c.id !== card.id
+                  ? c
+                  : {
+                      ...c,
+                      startDate: p.startDate,
+                      dueDate: p.dueDate,
+                    },
+              ),
+            },
       ),
     }));
   }
 
   function cancelDrag() {
-    dragRef.current    = null;
+    dragRef.current = null;
     previewRef.current = null;
     setDragPreview(null);
   }
@@ -279,26 +310,23 @@ export default function TimelineView() {
   // ── Render ───────────────────────────────────────────────────────────────────
 
   const visibleGroups = board.columns
-    .filter(col => !col.hideFromTimeline)
-    .map(col => {
-      const datedCards = col.cards.filter(c => !c.archived && (c.startDate || c.dueDate));
+    .filter((col) => !col.hideFromTimeline)
+    .map((col) => {
+      const datedCards = col.cards.filter((c) => !c.archived && (c.startDate || c.dueDate));
       return {
         col,
-        cards: filterUser
-          ? datedCards.filter(c => c.assignees.includes(filterUser))
-          : datedCards,
+        cards: filterUser ? datedCards.filter((c) => c.assignees.includes(filterUser)) : datedCards,
       };
     })
-    .filter(g => g.cards.length > 0);
+    .filter((g) => g.cards.length > 0);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-
       {/* ── Nav header ────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-border/30 shrink-0 flex-wrap">
         <div className="flex items-center gap-1">
           <Button
-            onClick={() => setRangeStart(s => addDays(s, -30))}
+            onClick={() => setRangeStart((s) => addDays(s, -30))}
             variant="ghost"
             size="icon"
             className="h-7 w-7 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -306,7 +334,7 @@ export default function TimelineView() {
             <ChevronLeft size={14} />
           </Button>
           <Button
-            onClick={() => setRangeStart(s => addDays(s, 30))}
+            onClick={() => setRangeStart((s) => addDays(s, 30))}
             variant="ghost"
             size="icon"
             className="h-7 w-7 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -324,17 +352,18 @@ export default function TimelineView() {
         </div>
 
         <span className="text-xs text-muted-foreground">
-          {formatDate(rangeStart, dateFormat)} – {formatDate(addDays(rangeStart, NUM_DAYS - 1), dateFormat)}
+          {formatDate(rangeStart, dateFormat)} –{' '}
+          {formatDate(addDays(rangeStart, NUM_DAYS - 1), dateFormat)}
         </span>
 
         {/* Assignee filter */}
         {activeUsers.length > 0 && (
           <div className="flex items-center gap-1.5 ml-auto">
             <span className="text-[11px] text-muted-foreground/60 mr-1">Filter:</span>
-            {activeUsers.map(u => (
+            {activeUsers.map((u) => (
               <button
                 key={u.userId}
-                onClick={() => setFilterUser(f => f === u.userId ? null : u.userId)}
+                onClick={() => setFilterUser((f) => (f === u.userId ? null : u.userId))}
                 title={u.userName}
                 className={cn(
                   'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white transition-all',
@@ -363,11 +392,16 @@ export default function TimelineView() {
 
       {/* ── Main layout ───────────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
-
         {/* ── Left sidebar ──────────────────────────────────────────────── */}
-        <div className="flex flex-col shrink-0 border-r border-border/30" style={{ width: SIDEBAR_W }}>
+        <div
+          className="flex flex-col shrink-0 border-r border-border/30"
+          style={{ width: SIDEBAR_W }}
+        >
           {/* Corner spacer aligned with header */}
-          <div className="shrink-0 border-b border-border/30 bg-muted/10" style={{ height: hdrH }} />
+          <div
+            className="shrink-0 border-b border-border/30 bg-muted/10"
+            style={{ height: hdrH }}
+          />
 
           {/* Card labels — scroll synced with body */}
           <div ref={sidebarRef} className="flex-1 overflow-hidden">
@@ -383,45 +417,65 @@ export default function TimelineView() {
                   >
                     <ChevronRight
                       size={11}
-                      className={cn('shrink-0 text-muted-foreground/50 transition-transform', !isCollapsed && 'rotate-90')}
+                      className={cn(
+                        'shrink-0 text-muted-foreground/50 transition-transform',
+                        !isCollapsed && 'rotate-90',
+                      )}
                     />
-                    <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: col.color ?? '#64748b' }} />
+                    <div
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: col.color ?? '#64748b' }}
+                    />
                     <span className="truncate flex-1">{col.title}</span>
-                    <span className="text-muted-foreground/50 text-[10px] shrink-0">{cards.length}</span>
+                    <span className="text-muted-foreground/50 text-[10px] shrink-0">
+                      {cards.length}
+                    </span>
                   </div>
                   {/* Card labels — hidden when collapsed */}
-                  {!isCollapsed && cards.map(card => {
-                    const firstAssignee = knownUsers.find(u => card.assignees.includes(u.userId));
-                    return (
-                      <div
-                        key={card.id}
-                        className="flex items-center gap-1.5 px-2 border-b border-border/10 cursor-pointer hover:bg-accent/20 transition-colors"
-                        style={{ height: ROW_H }}
-                        onClick={() => setOpenCard({ card, columnId: col.id })}
-                      >
-                        {/* Priority dot */}
-                        {card.priority && (
-                          <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', PRIORITY_COLORS[card.priority])} />
-                        )}
-                        <span className={cn(
-                          'text-xs truncate flex-1',
-                          card.isDone ? 'line-through text-muted-foreground/40' : 'text-foreground/80',
-                        )}>
-                          {card.title}
-                        </span>
-                        {/* Assignee initial */}
-                        {firstAssignee && (
-                          <div
-                            className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white shrink-0"
-                            style={{ backgroundColor: firstAssignee.userColor }}
-                            title={firstAssignee.userName}
+                  {!isCollapsed &&
+                    cards.map((card) => {
+                      const firstAssignee = knownUsers.find((u) =>
+                        card.assignees.includes(u.userId),
+                      );
+                      return (
+                        <div
+                          key={card.id}
+                          className="flex items-center gap-1.5 px-2 border-b border-border/10 cursor-pointer hover:bg-accent/20 transition-colors"
+                          style={{ height: ROW_H }}
+                          onClick={() => setOpenCard({ card, columnId: col.id })}
+                        >
+                          {/* Priority dot */}
+                          {card.priority && (
+                            <div
+                              className={cn(
+                                'w-1.5 h-1.5 rounded-full shrink-0',
+                                PRIORITY_COLORS[card.priority],
+                              )}
+                            />
+                          )}
+                          <span
+                            className={cn(
+                              'text-xs truncate flex-1',
+                              card.isDone
+                                ? 'line-through text-muted-foreground/40'
+                                : 'text-foreground/80',
+                            )}
                           >
-                            {firstAssignee.userName[0]?.toUpperCase()}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                            {card.title}
+                          </span>
+                          {/* Assignee initial */}
+                          {firstAssignee && (
+                            <div
+                              className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white shrink-0"
+                              style={{ backgroundColor: firstAssignee.userColor }}
+                              title={firstAssignee.userName}
+                            >
+                              {firstAssignee.userName[0]?.toUpperCase()}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               );
             })}
@@ -430,7 +484,6 @@ export default function TimelineView() {
 
         {/* ── Right: header + bar grid ───────────────────────────────────── */}
         <div className="flex flex-col flex-1 overflow-hidden">
-
           {/* Day header — scrolls X only, synced with body */}
           <div
             ref={headerScrollRef}
@@ -440,7 +493,7 @@ export default function TimelineView() {
             <div style={{ width: totalWidth }}>
               {/* Month row */}
               <div className="flex border-b border-border/20" style={{ height: HDR_MONTH_H }}>
-                {monthSpans.map(span => (
+                {monthSpans.map((span) => (
                   <div
                     key={span.label}
                     className="shrink-0 flex items-center px-2 text-[11px] font-semibold text-muted-foreground border-r border-border/20"
@@ -453,7 +506,7 @@ export default function TimelineView() {
               {/* Day numbers row */}
               <div className="flex" style={{ height: HDR_DAY_H }}>
                 {days.map((day, i) => {
-                  const isToday   = i === todayCol;
+                  const isToday = i === todayCol;
                   const isWeekend = day.getDay() === 0 || day.getDay() === 6;
                   const isWeekStart = weekStart === 1 ? day.getDay() === 1 : day.getDay() === 0;
                   return (
@@ -461,10 +514,13 @@ export default function TimelineView() {
                       key={i}
                       className={cn(
                         'shrink-0 flex items-center justify-center text-[11px] border-r border-border/10',
-                        isToday    ? 'bg-primary/15 text-primary font-bold' :
-                        isWeekend  ? 'text-muted-foreground/30' :
-                        isWeekStart? 'text-muted-foreground/70' :
-                                     'text-muted-foreground/40',
+                        isToday
+                          ? 'bg-primary/15 text-primary font-bold'
+                          : isWeekend
+                            ? 'text-muted-foreground/30'
+                            : isWeekStart
+                              ? 'text-muted-foreground/70'
+                              : 'text-muted-foreground/40',
                       )}
                       style={{ width: DAY_W }}
                     >
@@ -477,14 +533,10 @@ export default function TimelineView() {
           </div>
 
           {/* Bar grid — scrolls both axes */}
-          <div
-            ref={bodyRef}
-            className="flex-1 overflow-auto"
-            onScroll={onBodyScroll}
-          >
+          <div ref={bodyRef} className="flex-1 overflow-auto" onScroll={onBodyScroll}>
             <div style={{ width: totalWidth }}>
               {visibleGroups.map(({ col, cards }) => {
-                const colColor    = col.color ?? '#64748b';
+                const colColor = col.color ?? '#64748b';
                 const isCollapsed = collapsedGroups.has(col.id);
                 return (
                   <div key={col.id}>
@@ -503,132 +555,150 @@ export default function TimelineView() {
                     </div>
 
                     {/* Card rows — hidden when collapsed */}
-                    {!isCollapsed && cards.map(card => {
-                      const { start, end } = barDates(card);
-                      const startCol = diffDays(rangeStart, start);
-                      const endCol   = diffDays(rangeStart, end);
-                      const cStart   = Math.max(0, startCol);
-                      const cEnd     = Math.min(NUM_DAYS - 1, endCol);
-                      const visible  = cEnd >= 0 && cStart < NUM_DAYS && cEnd >= cStart;
+                    {!isCollapsed &&
+                      cards.map((card) => {
+                        const { start, end } = barDates(card);
+                        const startCol = diffDays(rangeStart, start);
+                        const endCol = diffDays(rangeStart, end);
+                        const cStart = Math.max(0, startCol);
+                        const cEnd = Math.min(NUM_DAYS - 1, endCol);
+                        const visible = cEnd >= 0 && cStart < NUM_DAYS && cEnd >= cStart;
 
-                      const firstAssignee = knownUsers.find(u => card.assignees.includes(u.userId));
-                      const barColor      = firstAssignee?.userColor ?? colColor;
-                      const isDragging    = dragPreview?.cardId === card.id;
+                        const firstAssignee = knownUsers.find((u) =>
+                          card.assignees.includes(u.userId),
+                        );
+                        const barColor = firstAssignee?.userColor ?? colColor;
+                        const isDragging = dragPreview?.cardId === card.id;
 
-                      const barLeft  = cStart * DAY_W + 2;
-                      const barWidth = Math.max(HANDLE_W * 2 + 6, (cEnd - cStart + 1) * DAY_W - 4);
-                      const barTop   = Math.round((ROW_H - 20) / 2);
+                        const barLeft = cStart * DAY_W + 2;
+                        const barWidth = Math.max(
+                          HANDLE_W * 2 + 6,
+                          (cEnd - cStart + 1) * DAY_W - 4,
+                        );
+                        const barTop = Math.round((ROW_H - 20) / 2);
 
-                      const showPriority = card.priority && barWidth > HANDLE_W * 2 + 16;
-                      const innerPadLeft = HANDLE_W + 3 + (showPriority ? 10 : 0);
+                        const showPriority = card.priority && barWidth > HANDLE_W * 2 + 16;
+                        const innerPadLeft = HANDLE_W + 3 + (showPriority ? 10 : 0);
 
-                      return (
-                        <div
-                          key={card.id}
-                          className="relative border-b border-border/10 hover:bg-muted/5"
-                          style={{ height: ROW_H, width: totalWidth }}
-                        >
-                          {/* Today column highlight */}
-                          {todayCol >= 0 && todayCol < NUM_DAYS && (
-                            <div
-                              className="absolute inset-y-0 bg-primary/8 pointer-events-none"
-                              style={{ left: todayCol * DAY_W, width: DAY_W }}
-                            />
-                          )}
-
-                          {/* Today line */}
-                          {todayCol >= 0 && todayCol < NUM_DAYS && (
-                            <div
-                              className="absolute inset-y-0 w-px bg-primary/30 pointer-events-none"
-                              style={{ left: todayCol * DAY_W + Math.round(DAY_W / 2) }}
-                            />
-                          )}
-
-                          {/* Card bar */}
-                          {visible && (
-                            <div
-                              className={cn(
-                                'absolute flex items-center rounded overflow-hidden select-none transition-shadow',
-                                isDragging ? 'shadow-lg' : '',
-                                card.isDone && 'opacity-40',
-                              )}
-                              style={{
-                                left:   barLeft,
-                                width:  barWidth,
-                                top:    barTop,
-                                height: 20,
-                                backgroundColor: barColor,
-                                opacity: card.isDone ? 0.4 : (isDragging ? 0.95 : 0.85),
-                              }}
-                            >
-                              {/* Left resize handle */}
+                        return (
+                          <div
+                            key={card.id}
+                            className="relative border-b border-border/10 hover:bg-muted/5"
+                            style={{ height: ROW_H, width: totalWidth }}
+                          >
+                            {/* Today column highlight */}
+                            {todayCol >= 0 && todayCol < NUM_DAYS && (
                               <div
-                                className="absolute left-0 top-0 h-full flex items-center justify-center hover:bg-black/20 rounded-l z-10"
-                                style={{ width: HANDLE_W, cursor: 'ew-resize' }}
-                                onPointerDown={e => initDrag(e, card, col.id, 'left')}
-                                onPointerMove={moveDrag}
-                                onPointerUp={() => endDrag(card, col.id)}
-                                onPointerCancel={cancelDrag}
-                              >
-                                <div className="w-0.5 h-3 rounded-full bg-white/40" />
-                              </div>
+                                className="absolute inset-y-0 bg-primary/8 pointer-events-none"
+                                style={{ left: todayCol * DAY_W, width: DAY_W }}
+                              />
+                            )}
 
-                              {/* Priority dot */}
-                              {showPriority && (
-                                <div
-                                  className={cn('absolute w-1.5 h-1.5 rounded-full pointer-events-none', PRIORITY_COLORS[card.priority!])}
-                                  style={{ left: HANDLE_W + 3, top: '50%', transform: 'translateY(-50%)' }}
-                                />
-                              )}
-
-                              {/* Center — move + title */}
+                            {/* Today line */}
+                            {todayCol >= 0 && todayCol < NUM_DAYS && (
                               <div
-                                className="absolute inset-0 flex items-center overflow-hidden"
-                                style={{ paddingLeft: innerPadLeft, paddingRight: HANDLE_W + (barWidth > 60 && firstAssignee ? 22 : 3), cursor: isDragging ? 'grabbing' : 'grab' }}
-                                onPointerDown={e => initDrag(e, card, col.id, 'move')}
-                                onPointerMove={moveDrag}
-                                onPointerUp={() => endDrag(card, col.id)}
-                                onPointerCancel={cancelDrag}
-                              >
-                                {barWidth > HANDLE_W * 2 + 30 && (
-                                  <span className="text-[10px] font-medium text-white/90 truncate leading-none">
-                                    {card.title}
-                                  </span>
+                                className="absolute inset-y-0 w-px bg-primary/30 pointer-events-none"
+                                style={{ left: todayCol * DAY_W + Math.round(DAY_W / 2) }}
+                              />
+                            )}
+
+                            {/* Card bar */}
+                            {visible && (
+                              <div
+                                className={cn(
+                                  'absolute flex items-center rounded overflow-hidden select-none transition-shadow',
+                                  isDragging ? 'shadow-lg' : '',
+                                  card.isDone && 'opacity-40',
                                 )}
-                              </div>
-
-                              {/* Assignee avatar */}
-                              {barWidth > 60 && firstAssignee && (
-                                <div
-                                  className="absolute w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white border border-white/30 pointer-events-none"
-                                  style={{
-                                    right: HANDLE_W + 4,
-                                    top: '50%',
-                                    transform: 'translateY(-50%)',
-                                    backgroundColor: firstAssignee.userColor,
-                                  }}
-                                  title={firstAssignee.userName}
-                                >
-                                  {firstAssignee.userName[0]?.toUpperCase()}
-                                </div>
-                              )}
-
-                              {/* Right resize handle */}
-                              <div
-                                className="absolute right-0 top-0 h-full flex items-center justify-center hover:bg-black/20 rounded-r z-10"
-                                style={{ width: HANDLE_W, cursor: 'ew-resize' }}
-                                onPointerDown={e => initDrag(e, card, col.id, 'right')}
-                                onPointerMove={moveDrag}
-                                onPointerUp={() => endDrag(card, col.id)}
-                                onPointerCancel={cancelDrag}
+                                style={{
+                                  left: barLeft,
+                                  width: barWidth,
+                                  top: barTop,
+                                  height: 20,
+                                  backgroundColor: barColor,
+                                  opacity: card.isDone ? 0.4 : isDragging ? 0.95 : 0.85,
+                                }}
                               >
-                                <div className="w-0.5 h-3 rounded-full bg-white/40" />
+                                {/* Left resize handle */}
+                                <div
+                                  className="absolute left-0 top-0 h-full flex items-center justify-center hover:bg-black/20 rounded-l z-10"
+                                  style={{ width: HANDLE_W, cursor: 'ew-resize' }}
+                                  onPointerDown={(e) => initDrag(e, card, col.id, 'left')}
+                                  onPointerMove={moveDrag}
+                                  onPointerUp={() => endDrag(card, col.id)}
+                                  onPointerCancel={cancelDrag}
+                                >
+                                  <div className="w-0.5 h-3 rounded-full bg-white/40" />
+                                </div>
+
+                                {/* Priority dot */}
+                                {showPriority && (
+                                  <div
+                                    className={cn(
+                                      'absolute w-1.5 h-1.5 rounded-full pointer-events-none',
+                                      PRIORITY_COLORS[card.priority!],
+                                    )}
+                                    style={{
+                                      left: HANDLE_W + 3,
+                                      top: '50%',
+                                      transform: 'translateY(-50%)',
+                                    }}
+                                  />
+                                )}
+
+                                {/* Center — move + title */}
+                                <div
+                                  className="absolute inset-0 flex items-center overflow-hidden"
+                                  style={{
+                                    paddingLeft: innerPadLeft,
+                                    paddingRight:
+                                      HANDLE_W + (barWidth > 60 && firstAssignee ? 22 : 3),
+                                    cursor: isDragging ? 'grabbing' : 'grab',
+                                  }}
+                                  onPointerDown={(e) => initDrag(e, card, col.id, 'move')}
+                                  onPointerMove={moveDrag}
+                                  onPointerUp={() => endDrag(card, col.id)}
+                                  onPointerCancel={cancelDrag}
+                                >
+                                  {barWidth > HANDLE_W * 2 + 30 && (
+                                    <span className="text-[10px] font-medium text-white/90 truncate leading-none">
+                                      {card.title}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Assignee avatar */}
+                                {barWidth > 60 && firstAssignee && (
+                                  <div
+                                    className="absolute w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white border border-white/30 pointer-events-none"
+                                    style={{
+                                      right: HANDLE_W + 4,
+                                      top: '50%',
+                                      transform: 'translateY(-50%)',
+                                      backgroundColor: firstAssignee.userColor,
+                                    }}
+                                    title={firstAssignee.userName}
+                                  >
+                                    {firstAssignee.userName[0]?.toUpperCase()}
+                                  </div>
+                                )}
+
+                                {/* Right resize handle */}
+                                <div
+                                  className="absolute right-0 top-0 h-full flex items-center justify-center hover:bg-black/20 rounded-r z-10"
+                                  style={{ width: HANDLE_W, cursor: 'ew-resize' }}
+                                  onPointerDown={(e) => initDrag(e, card, col.id, 'right')}
+                                  onPointerMove={moveDrag}
+                                  onPointerUp={() => endDrag(card, col.id)}
+                                  onPointerCancel={cancelDrag}
+                                >
+                                  <div className="w-0.5 h-3 rounded-full bg-white/40" />
+                                </div>
                               </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                            )}
+                          </div>
+                        );
+                      })}
                   </div>
                 );
               })}

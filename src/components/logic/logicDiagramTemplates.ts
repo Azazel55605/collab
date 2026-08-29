@@ -1,4 +1,8 @@
-import type { LogicDiagramDocument, LogicDiagramNode, LogicDiagramWire } from '../../types/logicDiagram';
+import type {
+  LogicDiagramDocument,
+  LogicDiagramNode,
+  LogicDiagramWire,
+} from '../../types/logicDiagram';
 import { LOGIC_DIAGRAM_SCHEMA_VERSION } from '../../types/logicDiagram';
 
 export interface LogicDiagramTemplate {
@@ -36,7 +40,11 @@ function wire(
   return { id, source, target, sourceHandle, targetHandle, label };
 }
 
-function doc(title: string, nodes: LogicDiagramNode[], wires: LogicDiagramWire[]): LogicDiagramDocument {
+function doc(
+  title: string,
+  nodes: LogicDiagramNode[],
+  wires: LogicDiagramWire[],
+): LogicDiagramDocument {
   return {
     schemaVersion: LOGIC_DIAGRAM_SCHEMA_VERSION,
     kind: 'logic-diagram',
@@ -89,7 +97,7 @@ function fullAdderDocument(): LogicDiagramDocument {
   const xor2 = nodeId('xor'); // (A XOR B) XOR Cin → Sum
   const and1 = nodeId('and'); // A AND B
   const and2 = nodeId('and'); // Cin AND (A XOR B)
-  const or1 = nodeId('or');   // Cout
+  const or1 = nodeId('or'); // Cout
   const sum = nodeId('out');
   const cout = nodeId('out');
 
@@ -135,10 +143,10 @@ function multiplexerDocument(): LogicDiagramDocument {
   const a = nodeId('in');
   const b = nodeId('in');
   const s = nodeId('in');
-  const notS = nodeId('not');    // ¬S
-  const and1 = nodeId('and');    // A AND ¬S
-  const and2 = nodeId('and');    // B AND S
-  const or1 = nodeId('or');      // Y
+  const notS = nodeId('not'); // ¬S
+  const and1 = nodeId('and'); // A AND ¬S
+  const and2 = nodeId('and'); // B AND S
+  const or1 = nodeId('or'); // Y
   const y = nodeId('out');
 
   const nodes: LogicDiagramNode[] = [

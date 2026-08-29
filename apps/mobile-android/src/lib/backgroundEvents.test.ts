@@ -9,7 +9,10 @@ const listen = vi.fn(async (event: string, handler: Handler) => {
   handlers.set(event, [...(handlers.get(event) ?? []), handler]);
   return () => {
     unlistened.push(event);
-    handlers.set(event, (handlers.get(event) ?? []).filter((entry) => entry !== handler));
+    handlers.set(
+      event,
+      (handlers.get(event) ?? []).filter((entry) => entry !== handler),
+    );
   };
 });
 

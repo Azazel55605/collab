@@ -1,15 +1,10 @@
-import { create } from 'zustand';
 import { listen } from '@tauri-apps/api/event';
+import { create } from 'zustand';
+
 import { tauriCommands } from '../lib/tauri';
 
 export type UpdateStatus =
-  | 'idle'
-  | 'checking'
-  | 'available'
-  | 'up_to_date'
-  | 'downloading'
-  | 'installing'
-  | 'error';
+  'idle' | 'checking' | 'available' | 'up_to_date' | 'downloading' | 'installing' | 'error';
 
 export interface UpdateInfo {
   available: boolean;
@@ -91,7 +86,11 @@ export const useUpdateStore = create<UpdateState>()((set, get) => ({
     if (!(await get().ensureUpdaterConfigured())) {
       return;
     }
-    if (get().status === 'checking' || get().status === 'downloading' || get().status === 'installing') {
+    if (
+      get().status === 'checking' ||
+      get().status === 'downloading' ||
+      get().status === 'installing'
+    ) {
       return;
     }
     set({ status: 'checking', error: null });
@@ -112,7 +111,14 @@ export const useUpdateStore = create<UpdateState>()((set, get) => ({
     const { updateInfo } = get();
     if (!updateInfo?.available) return;
 
-    set({ status: 'downloading', downloadProgress: 0, downloadedBytes: 0, totalBytes: null, downloadSpeed: null, error: null });
+    set({
+      status: 'downloading',
+      downloadProgress: 0,
+      downloadedBytes: 0,
+      totalBytes: null,
+      downloadSpeed: null,
+      error: null,
+    });
 
     // Rolling window of { bytes, time } for speed calculation
     let speedSamples: Array<{ bytes: number; time: number }> = [];
@@ -129,11 +135,12 @@ export const useUpdateStore = create<UpdateState>()((set, get) => ({
 
         // Keep only samples from the last 2 seconds for speed
         speedSamples.push({ bytes: chunk, time: now });
-        speedSamples = speedSamples.filter(s => now - s.time < 2000);
+        speedSamples = speedSamples.filter((s) => now - s.time < 2000);
         const windowBytes = speedSamples.reduce((s, x) => s + x.bytes, 0);
-        const windowSec   = speedSamples.length > 1
-          ? (speedSamples[speedSamples.length - 1].time - speedSamples[0].time) / 1000
-          : 1;
+        const windowSec =
+          speedSamples.length > 1
+            ? (speedSamples[speedSamples.length - 1].time - speedSamples[0].time) / 1000
+            : 1;
         const speed = windowSec > 0 ? windowBytes / windowSec : 0;
 
         set({
@@ -142,7 +149,7 @@ export const useUpdateStore = create<UpdateState>()((set, get) => ({
           downloadProgress: contentLength ? Math.round((downloaded / contentLength) * 100) : null,
           downloadSpeed: speed,
         });
-      }
+      },
     );
 
     try {
@@ -156,14 +163,15 @@ export const useUpdateStore = create<UpdateState>()((set, get) => ({
     }
   },
 
-  reset: () => set({
-    status: 'idle',
-    updateInfo: null,
-    downloadProgress: null,
-    downloadedBytes: null,
-    totalBytes: null,
-    downloadSpeed: null,
-    error: null,
-    lastChecked: null,
-  }),
+  reset: () =>
+    set({
+      status: 'idle',
+      updateInfo: null,
+      downloadProgress: null,
+      downloadedBytes: null,
+      totalBytes: null,
+      downloadSpeed: null,
+      error: null,
+      lastChecked: null,
+    }),
 }));

@@ -8,6 +8,7 @@ import type {
 } from '../../types/logicDiagram';
 import { isLogicGateKind } from '../../types/logicDiagram';
 import { isElectronicComponentKind } from '../../types/logicDiagram';
+
 import { getSchematicSymbol } from './schematicSymbols';
 
 export type LogicSignal = boolean | undefined;
@@ -34,7 +35,7 @@ export function clockSignalAt(clock: LogicClockConfig | undefined, elapsedMs: nu
   const periodMs = Math.max(100, clock?.periodMs ?? 1000);
   const dutyCycle = Math.min(0.95, Math.max(0.05, clock?.dutyCycle ?? 0.5));
   const phaseMs = Math.max(0, clock?.phaseMs ?? 0);
-  const position = ((elapsedMs + phaseMs) % periodMs + periodMs) % periodMs;
+  const position = (((elapsedMs + phaseMs) % periodMs) + periodMs) % periodMs;
   return position < periodMs * dutyCycle;
 }
 
@@ -46,24 +47,34 @@ export function componentOutputHandle(portId: string) {
   return `out:${portId}`;
 }
 
-export function getLogicInputHandles(kind: LogicDiagramNode['kind'], component?: LogicComponentInstance) {
+export function getLogicInputHandles(
+  kind: LogicDiagramNode['kind'],
+  component?: LogicComponentInstance,
+) {
   if (isElectronicComponentKind(kind)) return getSchematicSymbol(kind).inputHandles;
   if (kind === 'component') {
-    return component?.definition.ports
-      .filter((port) => port.direction === 'input')
-      .map((port) => componentInputHandle(port.id)) ?? [];
+    return (
+      component?.definition.ports
+        .filter((port) => port.direction === 'input')
+        .map((port) => componentInputHandle(port.id)) ?? []
+    );
   }
   if (!isLogicGateKind(kind) || kind === 'input' || kind === 'clock' || kind === 'group') return [];
   if (kind === 'not' || kind === 'output') return ['in'];
   return ['in-a', 'in-b'];
 }
 
-export function getLogicOutputHandles(kind: LogicDiagramNode['kind'], component?: LogicComponentInstance) {
+export function getLogicOutputHandles(
+  kind: LogicDiagramNode['kind'],
+  component?: LogicComponentInstance,
+) {
   if (isElectronicComponentKind(kind)) return getSchematicSymbol(kind).outputHandles;
   if (kind === 'component') {
-    return component?.definition.ports
-      .filter((port) => port.direction === 'output')
-      .map((port) => componentOutputHandle(port.id)) ?? [];
+    return (
+      component?.definition.ports
+        .filter((port) => port.direction === 'output')
+        .map((port) => componentOutputHandle(port.id)) ?? []
+    );
   }
   if (!isLogicGateKind(kind) || kind === 'output' || kind === 'group') return [];
   return ['out'];
@@ -82,9 +93,7 @@ function normalizeTargetHandle(wire: LogicDiagramWire, target: LogicDiagramNode)
 
 function normalizeSourceHandle(wire: LogicDiagramWire, source: LogicDiagramNode) {
   const handles = getLogicOutputHandles(source.kind, source.component);
-  return wire.sourceHandle && handles.includes(wire.sourceHandle)
-    ? wire.sourceHandle
-    : handles[0];
+  return wire.sourceHandle && handles.includes(wire.sourceHandle) ? wire.sourceHandle : handles[0];
 }
 
 function evaluateGate(kind: LogicGateKind, inputs: LogicSignal[]) {
@@ -118,7 +127,9 @@ export function evaluateLogicDiagram(
   wires: LogicDiagramWire[],
   options: LogicEvaluationOptions = {},
 ): LogicEvaluationResult {
-  const libraryById = new Map((options.components ?? []).map((component) => [component.id, component]));
+  const libraryById = new Map(
+    (options.components ?? []).map((component) => [component.id, component]),
+  );
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const incomingByNode = new Map<string, LogicDiagramWire[]>();
   for (const wire of wires) {
@@ -163,11 +174,12 @@ export function evaluateLogicDiagram(
     visiting.add(nodeId);
 
     if (node.kind === 'input' || node.kind === 'clock') {
-      const value = typeof node.value === 'boolean'
-        ? node.value
-        : node.kind === 'clock'
-          ? clockSignalAt(node.clock, options.clockElapsedMs ?? 0)
-          : undefined;
+      const value =
+        typeof node.value === 'boolean'
+          ? node.value
+          : node.kind === 'clock'
+            ? clockSignalAt(node.clock, options.clockElapsedMs ?? 0)
+            : undefined;
       nodeValues[node.id] = value;
       nodeOutputs[node.id] = { out: value };
     } else if (node.kind === 'component') {
@@ -222,9 +234,10 @@ export function evaluateLogicDiagram(
   const evaluateComponentNode = (node: LogicDiagramNode): Record<string, LogicSignal> => {
     const instance = node.component;
     if (!instance) return {};
-    const linkedDefinition = instance.mode === 'linked' && instance.componentId
-      ? libraryById.get(instance.componentId)
-      : null;
+    const linkedDefinition =
+      instance.mode === 'linked' && instance.componentId
+        ? libraryById.get(instance.componentId)
+        : null;
     const definition = linkedDefinition ?? instance.definition;
     if (instance.mode === 'linked' && instance.componentId && !linkedDefinition) {
       warnOnce({
@@ -237,7 +250,9 @@ export function evaluateLogicDiagram(
     const externalInputs: Record<string, LogicSignal> = {};
     for (const port of definition.ports.filter((candidate) => candidate.direction === 'input')) {
       const handleId = componentInputHandle(port.id);
-      const incoming = (incomingByNode.get(node.id) ?? []).filter((wire) => normalizeTargetHandle(wire, node) === handleId);
+      const incoming = (incomingByNode.get(node.id) ?? []).filter(
+        (wire) => normalizeTargetHandle(wire, node) === handleId,
+      );
       if (incoming.length === 0) {
         warnOnce({
           code: 'missing-input',
@@ -266,11 +281,11 @@ export function evaluateLogicDiagram(
       externalInputs[port.sourceNodeId] = value;
     }
 
-    const internalNodes = definition.nodes.map((internalNode) => (
+    const internalNodes = definition.nodes.map((internalNode) =>
       internalNode.kind === 'input'
         ? { ...internalNode, value: externalInputs[internalNode.id] }
-        : internalNode
-    ));
+        : internalNode,
+    );
     const internal = evaluateLogicDiagram(internalNodes, definition.wires, options);
     for (const warning of internal.warnings) {
       warnOnce({
@@ -293,7 +308,9 @@ export function evaluateLogicDiagram(
     if (!(wire.id in wireValues)) {
       const source = nodeById.get(wire.source);
       const sourceHandle = source ? normalizeSourceHandle(wire, source) : undefined;
-      wireValues[wire.id] = cycleNodes.has(wire.source) ? undefined : evaluateNodeOutput(wire.source, sourceHandle);
+      wireValues[wire.id] = cycleNodes.has(wire.source)
+        ? undefined
+        : evaluateNodeOutput(wire.source, sourceHandle);
     }
   }
 

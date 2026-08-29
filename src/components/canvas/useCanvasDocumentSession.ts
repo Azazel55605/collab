@@ -1,25 +1,31 @@
-import { listen } from '@tauri-apps/api/event';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { listen } from '@tauri-apps/api/event';
 import type { Node as FlowNode, Viewport } from '@xyflow/react';
 
-import { createVaultClient } from '../../lib/vaultClient';
+import { saveConflictedCopy } from '../../lib/conflictedCopy';
 import { DOCUMENT_SNAPSHOT_INTERVAL_MS } from '../../lib/documentSession';
 import {
   compareDocumentVersions,
-  useDocumentSessionController,
   type DocumentSessionController,
   type DocumentSessionSnapshot,
   type DocumentStatus,
   type RemoteCandidate,
+  useDocumentSessionController,
 } from '../../lib/documentSessionController';
-import { saveConflictedCopy } from '../../lib/conflictedCopy';
-import { openLiveJsonSession, type LiveJsonSession, type JsonObject } from '../../lib/liveJsonDocument';
-import { onReplicaMutated, replicaMutationAffectsPath } from '../../lib/vaultReplica';
+import {
+  type JsonObject,
+  type LiveJsonSession,
+  openLiveJsonSession,
+} from '../../lib/liveJsonDocument';
 import { useLiveDocumentStatus } from '../../lib/useLiveDocumentStatus';
+import { createVaultClient } from '../../lib/vaultClient';
+import { onReplicaMutated, replicaMutationAffectsPath } from '../../lib/vaultReplica';
 import type { CanvasData, CanvasEdge } from '../../types/canvas';
 import type { VaultMeta } from '../../types/vault';
-import type { CanvasNodeData } from './CanvasNodeTypes';
+
 import type { CanvasFlowEdge } from './CanvasEdgeTypes';
+import type { CanvasNodeData } from './CanvasNodeTypes';
 
 const SAVE_DEBOUNCE_MS = 600;
 const LIVE_WRITE_DEBOUNCE_MS = 300;
@@ -44,32 +50,36 @@ const EMPTY_CANVAS: CanvasData = {
 export function sanitizeLoadedCanvasData(canvas: CanvasData) {
   const inputNodes = Array.isArray(canvas?.nodes) ? canvas.nodes : [];
   const inputEdges = Array.isArray(canvas?.edges) ? canvas.edges : [];
-  const nodes = inputNodes.filter((node) => (
-    !!node
-    && typeof node.id === 'string'
-    && typeof node.type === 'string'
-    && !!node.position
-    && Number.isFinite(node.position.x)
-    && Number.isFinite(node.position.y)
-  ));
+  const nodes = inputNodes.filter(
+    (node) =>
+      !!node &&
+      typeof node.id === 'string' &&
+      typeof node.type === 'string' &&
+      !!node.position &&
+      Number.isFinite(node.position.x) &&
+      Number.isFinite(node.position.y),
+  );
   const nodeIds = new Set(nodes.map((node) => node.id));
-  const edges = inputEdges.filter((edge) => (
-    !!edge
-    && typeof edge.id === 'string'
-    && typeof edge.source === 'string'
-    && typeof edge.target === 'string'
-    && nodeIds.has(edge.source)
-    && nodeIds.has(edge.target)
-  ));
-  const viewport = canvas?.viewport
-    && Number.isFinite(canvas.viewport.x)
-    && Number.isFinite(canvas.viewport.y)
-    && Number.isFinite(canvas.viewport.zoom)
-    ? canvas.viewport
-    : EMPTY_CANVAS.viewport;
-  const changed = nodes.length !== inputNodes.length
-    || edges.length !== inputEdges.length
-    || viewport !== canvas?.viewport;
+  const edges = inputEdges.filter(
+    (edge) =>
+      !!edge &&
+      typeof edge.id === 'string' &&
+      typeof edge.source === 'string' &&
+      typeof edge.target === 'string' &&
+      nodeIds.has(edge.source) &&
+      nodeIds.has(edge.target),
+  );
+  const viewport =
+    canvas?.viewport &&
+    Number.isFinite(canvas.viewport.x) &&
+    Number.isFinite(canvas.viewport.y) &&
+    Number.isFinite(canvas.viewport.zoom)
+      ? canvas.viewport
+      : EMPTY_CANVAS.viewport;
+  const changed =
+    nodes.length !== inputNodes.length ||
+    edges.length !== inputEdges.length ||
+    viewport !== canvas?.viewport;
 
   if (!changed) {
     return { canvas, changed: false };
@@ -187,39 +197,53 @@ export function useCanvasDocumentSession({
   }, []);
 
   // Applies a canvas document (remote live change or seed) to the editor state.
-  const applyCanvas = useCallback((canvas: CanvasData) => {
-    const sanitized = sanitizeLoadedCanvasData(canvas).canvas;
-    resetPreviewState();
-    setViewport(sanitized.viewport ?? EMPTY_CANVAS.viewport);
-    setNodes(buildFlowNode(sanitized));
-    setEdges((sanitized.edges ?? []).map(toFlowEdge));
-    pendingViewportRef.current = sanitized.viewport ?? EMPTY_CANVAS.viewport;
-    setLoadRevision((prev) => prev + 1);
-  }, [buildFlowNode, resetPreviewState, setEdges, setNodes, setViewport, toFlowEdge]);
+  const applyCanvas = useCallback(
+    (canvas: CanvasData) => {
+      const sanitized = sanitizeLoadedCanvasData(canvas).canvas;
+      resetPreviewState();
+      setViewport(sanitized.viewport ?? EMPTY_CANVAS.viewport);
+      setNodes(buildFlowNode(sanitized));
+      setEdges((sanitized.edges ?? []).map(toFlowEdge));
+      pendingViewportRef.current = sanitized.viewport ?? EMPTY_CANVAS.viewport;
+      setLoadRevision((prev) => prev + 1);
+    },
+    [buildFlowNode, resetPreviewState, setEdges, setNodes, setViewport, toFlowEdge],
+  );
 
-  const applyLiveCanvas = useCallback((canvas: CanvasData) => {
-    const sanitized = sanitizeLoadedCanvasData(canvas).canvas;
-    liveHydratedRef.current = false;
-    // Compare hydration against the exact ReactFlow round-trip because flow
-    // conversion normalizes defaults and object key order.
-    expectedLiveCanvasRef.current = JSON.stringify(canvasToJson({
-      nodes: buildFlowNode(sanitized).map(fromFlowNode),
-      edges: sanitized.edges.map(toFlowEdge).map(fromFlowEdge),
-      viewport: sanitized.viewport,
-    }));
-    applyCanvas(sanitized);
-  }, [applyCanvas, buildFlowNode, fromFlowEdge, fromFlowNode, toFlowEdge]);
+  const applyLiveCanvas = useCallback(
+    (canvas: CanvasData) => {
+      const sanitized = sanitizeLoadedCanvasData(canvas).canvas;
+      liveHydratedRef.current = false;
+      // Compare hydration against the exact ReactFlow round-trip because flow
+      // conversion normalizes defaults and object key order.
+      expectedLiveCanvasRef.current = JSON.stringify(
+        canvasToJson({
+          nodes: buildFlowNode(sanitized).map(fromFlowNode),
+          edges: sanitized.edges.map(toFlowEdge).map(fromFlowEdge),
+          viewport: sanitized.viewport,
+        }),
+      );
+      applyCanvas(sanitized);
+    },
+    [applyCanvas, buildFlowNode, fromFlowEdge, fromFlowNode, toFlowEdge],
+  );
 
   // Canonical serialized form of a canvas as it round-trips through the flow
   // editor. Used as the controller baseline so re-applying loaded content and the
   // first local-change mark produce byte-identical content (no spurious dirty).
-  const roundTripCanonical = useCallback((canvas: CanvasData): string => (
-    JSON.stringify(canvasToJson({
-      nodes: buildFlowNode(canvas).map(fromFlowNode),
-      edges: canvas.edges.map(toFlowEdge).map(fromFlowEdge),
-      viewport: canvas.viewport,
-    }), null, 2)
-  ), [buildFlowNode, fromFlowEdge, fromFlowNode, toFlowEdge]);
+  const roundTripCanonical = useCallback(
+    (canvas: CanvasData): string =>
+      JSON.stringify(
+        canvasToJson({
+          nodes: buildFlowNode(canvas).map(fromFlowNode),
+          edges: canvas.edges.map(toFlowEdge).map(fromFlowEdge),
+          viewport: canvas.viewport,
+        }),
+        null,
+        2,
+      ),
+    [buildFlowNode, fromFlowEdge, fromFlowNode, toFlowEdge],
+  );
 
   const parseCanvasContent = useCallback((content: string): CanvasData => {
     if (!content.trim()) return EMPTY_CANVAS;
@@ -238,14 +262,17 @@ export function useCanvasDocumentSession({
 
   // Adopt a controller document (initial load, safe remote apply, or backend
   // merge) into the editor and re-baseline the live-guard reference.
-  const applyCanvasDocument = useCallback((candidate: RemoteCandidate<CanvasData>) => {
-    if (!isMountedRef.current) return;
-    restCanvasRef.current = candidate.document;
-    firstMarkAfterApplyRef.current = true;
-    applyCanvas(candidate.document);
-    setRestLoadedPath(relativePath);
-    if (relativePath) setSavedHash(relativePath, candidate.version ?? '');
-  }, [applyCanvas, isMountedRef, relativePath, setSavedHash]);
+  const applyCanvasDocument = useCallback(
+    (candidate: RemoteCandidate<CanvasData>) => {
+      if (!isMountedRef.current) return;
+      restCanvasRef.current = candidate.document;
+      firstMarkAfterApplyRef.current = true;
+      applyCanvas(candidate.document);
+      setRestLoadedPath(relativePath);
+      if (relativePath) setSavedHash(relativePath, candidate.version ?? '');
+    },
+    [applyCanvas, isMountedRef, relativePath, setSavedHash],
+  );
 
   const { controller, snapshot } = useDocumentSessionController<CanvasData>({
     serialize: (canvas) => JSON.stringify(canvasToJson(canvas), null, 2),
@@ -262,7 +289,12 @@ export function useCanvasDocumentSession({
     },
     write: async ({ content, expectedVersion, baseContent }) => {
       if (!client || !relativePath || readOnly) return { version: expectedVersion ?? '' };
-      const result = await client.writeDocument(relativePath, content, expectedVersion ?? undefined, baseContent);
+      const result = await client.writeDocument(
+        relativePath,
+        content,
+        expectedVersion ?? undefined,
+        baseContent,
+      );
       if (result.conflict) {
         let theirVersion: string | null = null;
         try {
@@ -322,7 +354,10 @@ export function useCanvasDocumentSession({
           }
         }
       } else if (!readOnly) {
-        const result = await client.writeDocument(relativePath, JSON.stringify(EMPTY_CANVAS, null, 2));
+        const result = await client.writeDocument(
+          relativePath,
+          JSON.stringify(EMPTY_CANVAS, null, 2),
+        );
         currentVersion = result.version;
       }
 
@@ -344,11 +379,11 @@ export function useCanvasDocumentSession({
   // unavailable. Remote changes flow in through `onChange`.
   useEffect(() => {
     if (
-      !LIVE_CANVAS_ENABLED
-      || !client
-      || !relativePath
-      || !client.resolveLiveSession
-      || restLoadedPath !== relativePath
+      !LIVE_CANVAS_ENABLED ||
+      !client ||
+      !relativePath ||
+      !client.resolveLiveSession ||
+      restLoadedPath !== relativePath
     ) {
       liveHydratedRef.current = false;
       expectedLiveCanvasRef.current = null;
@@ -370,7 +405,8 @@ export function useCanvasDocumentSession({
           const liveCanvas = sanitizeLoadedCanvasData(initial as unknown as CanvasData).canvas;
           const restCanvas = restCanvasRef.current;
           const liveNodeIds = new Set(liveCanvas.nodes.map((node) => node.id));
-          const lostRestNodes = restCanvas?.nodes.some((node) => !liveNodeIds.has(node.id)) ?? false;
+          const lostRestNodes =
+            restCanvas?.nodes.some((node) => !liveNodeIds.has(node.id)) ?? false;
           if (lostRestNodes) {
             // A live room must not replace the current canonical revision with a
             // suspiciously sparse state. This recovers rooms damaged by the
@@ -491,7 +527,19 @@ export function useCanvasDocumentSession({
       edges: edges.map(fromFlowEdge),
       viewport,
     });
-  }, [controller, edges, fromFlowEdge, fromFlowNode, liveSession, nodes, readOnly, relativePath, restLoadedPath, vault, viewport]);
+  }, [
+    controller,
+    edges,
+    fromFlowEdge,
+    fromFlowNode,
+    liveSession,
+    nodes,
+    readOnly,
+    relativePath,
+    restLoadedPath,
+    vault,
+    viewport,
+  ]);
 
   // Pause/resume the controller autosave for transient interactions (drag, etc.).
   useEffect(() => {
@@ -528,22 +576,39 @@ export function useCanvasDocumentSession({
   // Hosted replica refresh: route through the same safe remote policy.
   useEffect(() => {
     if (!client || client.kind !== 'hosted' || !relativePath) return;
-    return onReplicaMutated((event) => {
-      if (!replicaMutationAffectsPath(event, relativePath)) return;
-      void controller.handleExternalMutation('cache').then((decision) => {
-        if (decision === 'applied') pulseRefresh();
-      });
-    }, { kinds: ['manifest'] });
+    return onReplicaMutated(
+      (event) => {
+        if (!replicaMutationAffectsPath(event, relativePath)) return;
+        void controller.handleExternalMutation('cache').then((decision) => {
+          if (decision === 'applied') pulseRefresh();
+        });
+      },
+      { kinds: ['manifest'] },
+    );
   }, [client, controller, pulseRefresh, relativePath]);
 
-  useEffect(() => () => {
-    if (refreshPulseTimerRef.current !== null) window.clearTimeout(refreshPulseTimerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (refreshPulseTimerRef.current !== null) window.clearTimeout(refreshPulseTimerRef.current);
+    },
+    [],
+  );
 
-  const onSaveAsNew = useCallback(async (localContent: string) => {
-    if (!client || !relativePath) return;
-    await saveConflictedCopy(client, relativePath, localContent);
-  }, [client, relativePath]);
+  const onSaveAsNew = useCallback(
+    async (localContent: string) => {
+      if (!client || !relativePath) return;
+      await saveConflictedCopy(client, relativePath, localContent);
+    },
+    [client, relativePath],
+  );
 
-  return { liveSession, isLoading, refreshPulse, sessionStatus: snapshot.status, controller, snapshot, onSaveAsNew };
+  return {
+    liveSession,
+    isLoading,
+    refreshPulse,
+    sessionStatus: snapshot.status,
+    controller,
+    snapshot,
+    onSaveAsNew,
+  };
 }

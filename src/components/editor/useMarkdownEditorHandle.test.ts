@@ -32,11 +32,15 @@ function createMockView(text: string, from = 0, to = from) {
         return currentText.slice(start, end);
       },
     },
-    dispatch(payload: { changes?: { from: number; to?: number; insert?: string }; selection?: { anchor: number; head?: number } }) {
+    dispatch(payload: {
+      changes?: { from: number; to?: number; insert?: string };
+      selection?: { anchor: number; head?: number };
+    }) {
       if (payload.changes) {
         const changeTo = payload.changes.to ?? payload.changes.from;
         const insert = payload.changes.insert ?? '';
-        currentText = currentText.slice(0, payload.changes.from) + insert + currentText.slice(changeTo);
+        currentText =
+          currentText.slice(0, payload.changes.from) + insert + currentText.slice(changeTo);
         this.state.doc.length = currentText.length;
       }
       if (payload.selection) {
@@ -62,12 +66,15 @@ function createMockView(text: string, from = 0, to = from) {
   };
 
   return view as unknown as {
-      state: {
+    state: {
       doc: { length: number; lineAt: (pos: number) => { from: number; to: number; text: string } };
       selection: { main: { anchor?: number; from: number; to: number; head: number } };
       sliceDoc: (start: number, end: number) => string;
     };
-    dispatch: (payload: { changes: { from: number; to?: number; insert?: string }; selection?: { anchor: number; head?: number } }) => void;
+    dispatch: (payload: {
+      changes: { from: number; to?: number; insert?: string };
+      selection?: { anchor: number; head?: number };
+    }) => void;
     scrollDOM: { scrollTop: number };
     focus: ReturnType<typeof vi.fn>;
     getText: () => string;

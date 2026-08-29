@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
+import { createContext, type ReactNode, useCallback, useContext, useRef, useState } from 'react';
 
 export interface DraggingTabInfo {
   relativePath: string;
@@ -73,65 +73,71 @@ export function DragProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const setDraggingTab = useCallback((tab: DraggingTabInfo | null) => {
-    setDraggingTabState(tab);
-    if (!tab) emitPointer(null);
-  }, [emitPointer]);
+  const setDraggingTab = useCallback(
+    (tab: DraggingTabInfo | null) => {
+      setDraggingTabState(tab);
+      if (!tab) emitPointer(null);
+    },
+    [emitPointer],
+  );
 
-  const startTabDrag = useCallback((tab: DraggingTabInfo, event: React.PointerEvent) => {
-    // Only left-button drags; ignore middle/right (close, context menu).
-    if (event.button !== 0) return;
-    const startX = event.clientX;
-    const startY = event.clientY;
-    let started = false;
+  const startTabDrag = useCallback(
+    (tab: DraggingTabInfo, event: React.PointerEvent) => {
+      // Only left-button drags; ignore middle/right (close, context menu).
+      if (event.button !== 0) return;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      let started = false;
 
-    const restoreSelection = () => {
-      document.body.style.userSelect = '';
-      document.body.style.cursor = '';
-    };
+      const restoreSelection = () => {
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+      };
 
-    const cleanup = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onCancel);
-    };
+      const cleanup = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onCancel);
+      };
 
-    const onMove = (e: PointerEvent) => {
-      const point = { x: e.clientX, y: e.clientY };
-      if (!started) {
-        if (Math.hypot(e.clientX - startX, e.clientY - startY) < DRAG_THRESHOLD) return;
-        started = true;
-        document.body.style.userSelect = 'none';
-        document.body.style.cursor = 'grabbing';
-        setDraggingTabState(tab);
-      }
-      emitPointer(point);
-    };
-
-    const onUp = (e: PointerEvent) => {
-      cleanup();
-      if (started) {
+      const onMove = (e: PointerEvent) => {
         const point = { x: e.clientX, y: e.clientY };
-        for (const resolver of dropResolvers.current) {
-          if (resolver(point)) break;
+        if (!started) {
+          if (Math.hypot(e.clientX - startX, e.clientY - startY) < DRAG_THRESHOLD) return;
+          started = true;
+          document.body.style.userSelect = 'none';
+          document.body.style.cursor = 'grabbing';
+          setDraggingTabState(tab);
         }
-      }
-      restoreSelection();
-      setDraggingTabState(null);
-      emitPointer(null);
-    };
+        emitPointer(point);
+      };
 
-    const onCancel = () => {
-      cleanup();
-      restoreSelection();
-      setDraggingTabState(null);
-      emitPointer(null);
-    };
+      const onUp = (e: PointerEvent) => {
+        cleanup();
+        if (started) {
+          const point = { x: e.clientX, y: e.clientY };
+          for (const resolver of dropResolvers.current) {
+            if (resolver(point)) break;
+          }
+        }
+        restoreSelection();
+        setDraggingTabState(null);
+        emitPointer(null);
+      };
 
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onCancel);
-  }, [emitPointer]);
+      const onCancel = () => {
+        cleanup();
+        restoreSelection();
+        setDraggingTabState(null);
+        emitPointer(null);
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onCancel);
+    },
+    [emitPointer],
+  );
 
   return (
     <DragContext.Provider

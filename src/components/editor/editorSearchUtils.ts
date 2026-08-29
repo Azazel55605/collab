@@ -1,5 +1,5 @@
-import type { EditorState, SelectionRange } from '@codemirror/state';
 import { SearchQuery } from '@codemirror/search';
+import type { EditorState, SelectionRange } from '@codemirror/state';
 
 export interface SearchMatchStats {
   total: number;

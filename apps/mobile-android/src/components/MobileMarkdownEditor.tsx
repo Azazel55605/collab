@@ -1,7 +1,10 @@
+import { useEffect, useMemo, useRef } from 'react';
+
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentLess } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language';
+import { HighlightStyle } from '@codemirror/language';
 import { EditorState, type Extension } from '@codemirror/state';
 import {
   drawSelection,
@@ -13,9 +16,7 @@ import {
   type ViewUpdate,
 } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
-import { HighlightStyle } from '@codemirror/language';
 import { GFM } from '@lezer/markdown';
-import { useEffect, useMemo, useRef } from 'react';
 
 import { createColorPreviewExtension } from '../../../../src/components/editor/colorPreview';
 import {

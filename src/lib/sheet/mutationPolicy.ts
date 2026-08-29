@@ -1,6 +1,7 @@
 import type { SheetCell, SheetDocument } from '../../types/sheet';
-import type { SheetFormulaValueMap } from '../../types/sheetFormula';
 import { sheetCellKey } from '../../types/sheet';
+import type { SheetFormulaValueMap } from '../../types/sheetFormula';
+
 import { SheetDocumentError } from './document';
 import { assertProtectedRangesUnchanged } from './protectedRanges';
 import { validateCellAgainstValidation } from './validation';
@@ -40,9 +41,7 @@ export function enforceSheetMutationPolicies(
         column: target.columnOrder.indexOf(columnId),
       };
       if (position.row < 0 || position.column < 0) continue;
-      const repaired = candidate
-        ? { ...candidate, validationId }
-        : { validationId };
+      const repaired = candidate ? { ...candidate, validationId } : { validationId };
       const result = validateCellAgainstValidation(
         target,
         validation,
@@ -51,7 +50,10 @@ export function enforceSheetMutationPolicies(
         validation.kind === 'custom' ? undefined : computedValues,
       );
       if (!result.valid && validation.strict !== false) {
-        throw new SheetDocumentError('invalid-structure', result.message ?? 'The value is not valid.');
+        throw new SheetDocumentError(
+          'invalid-structure',
+          result.message ?? 'The value is not valid.',
+        );
       }
       if (!result.valid && result.message) warnings.push(result.message);
       cells[sheetCellKey(rowId, columnId)] = repaired;
@@ -60,9 +62,9 @@ export function enforceSheetMutationPolicies(
     if (changed) {
       document = {
         ...document,
-        worksheets: document.worksheets.map((worksheet) => (
-          worksheet.id === target.id ? { ...target, cells } : worksheet
-        )),
+        worksheets: document.worksheets.map((worksheet) =>
+          worksheet.id === target.id ? { ...target, cells } : worksheet,
+        ),
       };
     }
   }

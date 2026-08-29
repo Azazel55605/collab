@@ -8,16 +8,15 @@
  * desktop `src/types/kanban.ts` so the two clients never fork the document
  * model; only a small set of touch-friendly mutation helpers live here.
  */
-
 import {
-  normalizeKanbanBoard,
-  setCardDoneState,
   type ChecklistItem,
   type KanbanBoard,
   type KanbanCard,
-  type KanbanComment,
   type KanbanColumn,
+  type KanbanComment,
   type KanbanPriority,
+  normalizeKanbanBoard,
+  setCardDoneState,
 } from '../../../../src/types/kanban';
 import {
   HostedFileEntry,
@@ -28,14 +27,7 @@ import {
   writeHostedDocument,
 } from '../mobileTauri';
 
-export type {
-  ChecklistItem,
-  KanbanBoard,
-  KanbanCard,
-  KanbanColumn,
-  KanbanComment,
-  KanbanPriority,
-};
+export type { ChecklistItem, KanbanBoard, KanbanCard, KanbanColumn, KanbanComment, KanbanPriority };
 
 export function isKanbanFile(file: HostedFileEntry): boolean {
   if (file.kind !== 'document') return false;
@@ -113,7 +105,13 @@ export async function saveKanbanDocument(
 ): Promise<HostedTextDocument> {
   const content = serializeBoard(board);
   const expectedRevisionSequence = file.revisionSequence ?? 0;
-  const document = await writeHostedDocument(serverUrl, vaultId, file.id, expectedRevisionSequence, content);
+  const document = await writeHostedDocument(
+    serverUrl,
+    vaultId,
+    file.id,
+    expectedRevisionSequence,
+    content,
+  );
   void replicaCacheDocument(serverUrl, vaultId, file.id, document.content).catch(() => {});
   return document;
 }
@@ -163,7 +161,7 @@ export function updateColumn(
 ): KanbanBoard {
   return {
     ...board,
-    columns: board.columns.map((column) => column.id === columnId ? patch(column) : column),
+    columns: board.columns.map((column) => (column.id === columnId ? patch(column) : column)),
   };
 }
 
@@ -204,7 +202,11 @@ export function setCardArchived(
 }
 
 /** Append a new card to a column. */
-export function addCardToColumn(board: KanbanBoard, columnId: string, card: KanbanCard): KanbanBoard {
+export function addCardToColumn(
+  board: KanbanBoard,
+  columnId: string,
+  card: KanbanCard,
+): KanbanBoard {
   return {
     ...board,
     columns: board.columns.map((column) =>
@@ -243,7 +245,11 @@ export function removeCard(board: KanbanBoard, cardId: string): KanbanBoard {
 }
 
 /** Move a card to the end of another column (no-op if already there). */
-export function moveCardToColumn(board: KanbanBoard, cardId: string, targetColumnId: string): KanbanBoard {
+export function moveCardToColumn(
+  board: KanbanBoard,
+  cardId: string,
+  targetColumnId: string,
+): KanbanBoard {
   const located = findCard(board, cardId);
   if (!located || located.columnId === targetColumnId) return board;
   const { card } = located;
@@ -288,7 +294,11 @@ export function addChecklistItem(board: KanbanBoard, cardId: string, text: strin
   return updateCard(board, cardId, (card) => ({ ...card, checklist: [...card.checklist, item] }));
 }
 
-export function removeChecklistItem(board: KanbanBoard, cardId: string, itemId: string): KanbanBoard {
+export function removeChecklistItem(
+  board: KanbanBoard,
+  cardId: string,
+  itemId: string,
+): KanbanBoard {
   return updateCard(board, cardId, (card) => ({
     ...card,
     checklist: card.checklist.filter((item) => item.id !== itemId),
@@ -347,7 +357,12 @@ export function checklistProgress(card: KanbanCard): { done: number; total: numb
 
 export type CardSortField = 'manual' | 'title' | 'priority' | 'due' | 'created';
 
-const PRIORITY_RANK: Record<KanbanPriority | 'none', number> = { high: 3, medium: 2, low: 1, none: 0 };
+const PRIORITY_RANK: Record<KanbanPriority | 'none', number> = {
+  high: 3,
+  medium: 2,
+  low: 1,
+  none: 0,
+};
 
 /** Distinct tags used across every card on the board, sorted alphabetically. */
 export function collectBoardTags(board: KanbanBoard): string[] {

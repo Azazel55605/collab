@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Awareness } from 'y-protocols/awareness';
 
 import { DocumentSessionController } from './documentSessionController';
-import { useLiveDocumentStatus } from './useLiveDocumentStatus';
 import type { LiveDocumentHandle, LiveStatus } from './liveDocumentSession';
+import { useLiveDocumentStatus } from './useLiveDocumentStatus';
 
 function controller() {
   return new DocumentSessionController<string>({
@@ -61,10 +61,9 @@ describe('useLiveDocumentStatus', () => {
   it('clears live state when the session is removed for REST fallback', () => {
     const doc = controller();
     const live = liveHandle('connected');
-    const { rerender } = renderHook(
-      ({ session }) => useLiveDocumentStatus(doc, session),
-      { initialProps: { session: live.handle as LiveDocumentHandle | null } },
-    );
+    const { rerender } = renderHook(({ session }) => useLiveDocumentStatus(doc, session), {
+      initialProps: { session: live.handle as LiveDocumentHandle | null },
+    });
 
     rerender({ session: null });
 

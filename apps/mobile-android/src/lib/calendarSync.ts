@@ -1,19 +1,19 @@
 import {
   bridgeCalendarMirrors,
-  resolveCalendarMirrorConflict,
   type CalendarMirrorAdapter,
+  resolveCalendarMirrorConflict,
 } from '../../../../src/lib/calendarMirroring';
 import {
-  hostedCalendarOriginKey,
-  syncHostedCalendars,
   type CalendarOriginSyncResult,
   type CalendarSyncAdapter,
   type CalendarSyncProgress,
   type HostedCalendarOrigin,
+  hostedCalendarOriginKey,
+  syncHostedCalendars,
 } from '../../../../src/lib/calendarSync';
 import type {
-  CalendarMirrorGroup,
   CalendarMirrorConflict,
+  CalendarMirrorGroup,
   CalendarMirrorGroupStatus,
   CalendarMirrorProgress,
   CalendarOperationFailure,
@@ -23,6 +23,7 @@ import {
   applyProfileCalendarRemoteChanges,
   backgroundJobGet,
   backgroundJobRun,
+  deleteProfileCalendarItem,
   hostedCalendarRequest,
   listProfileCalendarFailedOperations,
   listProfileCalendarMirrorAnchors,
@@ -37,7 +38,6 @@ import {
   saveProfileCalendar,
   saveProfileCalendarMirrorAnchors,
   saveProfileCalendarMirrorConflict,
-  deleteProfileCalendarItem,
   upsertProfileCalendarItem,
   writeProfileCalendarSyncState,
 } from '../mobileTauri';
@@ -147,20 +147,25 @@ export async function resolveMobileCalendarMirrorConflict(
 
 export async function listMobileCalendarCacheOrigins(): Promise<HostedCalendarOrigin[]> {
   const calendars = await listProfileCalendars(mobileCalendarProfileId());
-  return Array.from(new Map(calendars.flatMap((calendar) => (
-    calendar.location.kind === 'hosted'
-      ? [[`${calendar.location.serverUrl}::${calendar.location.userId}`, {
-          serverUrl: calendar.location.serverUrl,
-          userId: calendar.location.userId,
-        }] as const]
-      : []
-  ))).values());
+  return Array.from(
+    new Map(
+      calendars.flatMap((calendar) =>
+        calendar.location.kind === 'hosted'
+          ? [
+              [
+                `${calendar.location.serverUrl}::${calendar.location.userId}`,
+                {
+                  serverUrl: calendar.location.serverUrl,
+                  userId: calendar.location.userId,
+                },
+              ] as const,
+            ]
+          : [],
+      ),
+    ).values(),
+  );
 }
 
 export async function removeMobileCalendarCache(origin: HostedCalendarOrigin): Promise<void> {
-  await removeHostedCalendarCache(
-    mobileCalendarProfileId(),
-    origin.serverUrl,
-    origin.userId,
-  );
+  await removeHostedCalendarCache(mobileCalendarProfileId(), origin.serverUrl, origin.userId);
 }

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+
 import { BadgeCheck, Trash2 } from 'lucide-react';
 
-import type { SheetValidation, SheetValidationKind, SheetWorksheet } from '../../types/sheet';
-import type { SheetValidationDraft } from '../../lib/sheet/validation';
 import { parseA1Range } from '../../lib/sheet/address';
+import type { SheetValidationDraft } from '../../lib/sheet/validation';
+import type { SheetValidation, SheetValidationKind, SheetWorksheet } from '../../types/sheet';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import { DatePicker } from '../ui/date-picker';
@@ -16,13 +17,7 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Input } from '../ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Textarea } from '../ui/textarea';
 
 interface Props {
@@ -96,11 +91,12 @@ export default function SheetValidationDialog({
       ? { startRowId, endRowId, startColumnId, endColumnId }
       : null;
   }, [source, worksheet]);
-  const valid = kind !== 'list' || options.split(',').some((option) => option.trim())
-    ? kind !== 'range' || Boolean(sourceRange)
-      ? kind !== 'custom' || formula.trim().startsWith('=')
-      : false
-    : false;
+  const valid =
+    kind !== 'list' || options.split(',').some((option) => option.trim())
+      ? kind !== 'range' || Boolean(sourceRange)
+        ? kind !== 'custom' || formula.trim().startsWith('=')
+        : false
+      : false;
 
   const submit = () => {
     const draft: SheetValidationDraft = {
@@ -109,7 +105,14 @@ export default function SheetValidationDialog({
       message: message.trim() || undefined,
     };
     if (kind === 'list') {
-      draft.options = [...new Set(options.split(',').map((option) => option.trim()).filter(Boolean))];
+      draft.options = [
+        ...new Set(
+          options
+            .split(',')
+            .map((option) => option.trim())
+            .filter(Boolean),
+        ),
+      ];
     }
     if (kind === 'range' && sourceRange) draft.sourceRange = sourceRange;
     if (kind === 'number' || kind === 'text') {
@@ -152,37 +155,63 @@ export default function SheetValidationDialog({
           {kind === 'list' && (
             <label className="grid gap-1 text-xs font-medium">
               Allowed values
-              <Textarea value={options} rows={3} placeholder="Open, In progress, Done" onChange={(event) => setOptions(event.target.value)} />
+              <Textarea
+                value={options}
+                rows={3}
+                placeholder="Open, In progress, Done"
+                onChange={(event) => setOptions(event.target.value)}
+              />
             </label>
           )}
           {kind === 'range' && (
             <label className="grid gap-1 text-xs font-medium">
               Source range
-              <Input value={source} placeholder="A1:A10" onChange={(event) => setSource(event.target.value)} />
+              <Input
+                value={source}
+                placeholder="A1:A10"
+                onChange={(event) => setSource(event.target.value)}
+              />
             </label>
           )}
           {(kind === 'number' || kind === 'text') && (
             <div className="grid grid-cols-2 gap-2">
               <label className="grid gap-1 text-xs font-medium">
                 {kind === 'text' ? 'Minimum length' : 'Minimum'}
-                <Input type="number" value={minimum} onChange={(event) => setMinimum(event.target.value)} />
+                <Input
+                  type="number"
+                  value={minimum}
+                  onChange={(event) => setMinimum(event.target.value)}
+                />
               </label>
               <label className="grid gap-1 text-xs font-medium">
                 {kind === 'text' ? 'Maximum length' : 'Maximum'}
-                <Input type="number" value={maximum} onChange={(event) => setMaximum(event.target.value)} />
+                <Input
+                  type="number"
+                  value={maximum}
+                  onChange={(event) => setMaximum(event.target.value)}
+                />
               </label>
             </div>
           )}
           {kind === 'date' && (
             <div className="grid grid-cols-2 gap-2">
               <DatePicker label="Earliest" value={minimum} onChange={setMinimum} />
-              <DatePicker label="Latest" value={maximum} min={minimum || undefined} onChange={setMaximum} />
+              <DatePicker
+                label="Latest"
+                value={maximum}
+                min={minimum || undefined}
+                onChange={setMaximum}
+              />
             </div>
           )}
           {kind === 'custom' && (
             <label className="grid gap-1 text-xs font-medium">
               Formula
-              <Input value={formula} placeholder="=A1&gt;0" onChange={(event) => setFormula(event.target.value)} />
+              <Input
+                value={formula}
+                placeholder="=A1&gt;0"
+                onChange={(event) => setFormula(event.target.value)}
+              />
             </label>
           )}
           <label className="flex items-center gap-2 text-xs">
@@ -191,15 +220,24 @@ export default function SheetValidationDialog({
           </label>
           <label className="grid gap-1 text-xs font-medium">
             Message
-            <Input value={message} placeholder="Explain the expected value" onChange={(event) => setMessage(event.target.value)} />
+            <Input
+              value={message}
+              placeholder="Explain the expected value"
+              onChange={(event) => setMessage(event.target.value)}
+            />
           </label>
         </div>
         <DialogFooter>
           {activeValidation && (
-            <Button type="button" variant="destructive" disabled={readOnly} onClick={() => {
-              onClear();
-              onOpenChange(false);
-            }}>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={readOnly}
+              onClick={() => {
+                onClear();
+                onOpenChange(false);
+              }}
+            >
               <Trash2 />
               Clear
             </Button>

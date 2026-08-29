@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { SHEET_DOCUMENT_KIND, SHEET_LIMITS, SHEET_SCHEMA_VERSION } from '../../types/sheet';
+
 import {
-  SheetDocumentError,
   addWorksheet,
   countFormulaCells,
   countPopulatedCells,
@@ -13,6 +13,7 @@ import {
   removeWorksheet,
   renameWorksheet,
   serializeSheetDocument,
+  SheetDocumentError,
 } from './document';
 
 function baseWorkbook() {
@@ -24,16 +25,18 @@ function baseWorkbook() {
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     activeWorksheetId: 'ws1',
-    worksheets: [{
-      id: 'ws1',
-      name: 'Sheet1',
-      rowOrder: ['r1', 'r2'],
-      columnOrder: ['c1', 'c2'],
-      cells: {
-        'r1:c1': { value: 1, valueType: 'number' },
-        'r2:c2': { formula: '=A1+1' },
+    worksheets: [
+      {
+        id: 'ws1',
+        name: 'Sheet1',
+        rowOrder: ['r1', 'r2'],
+        columnOrder: ['c1', 'c2'],
+        cells: {
+          'r1:c1': { value: 1, valueType: 'number' },
+          'r2:c2': { formula: '=A1+1' },
+        },
       },
-    }],
+    ],
     styles: {},
   };
 }
@@ -62,7 +65,9 @@ describe('createEmptySheetDocument', () => {
 describe('round trips', () => {
   it('survives serialize -> parse unchanged', () => {
     const document = createEmptySheetDocument('Budget', { timestamp: '2026-01-01T00:00:00.000Z' });
-    document.worksheets[0].cells[`${document.worksheets[0].rowOrder[0]}:${document.worksheets[0].columnOrder[0]}`] = {
+    document.worksheets[0].cells[
+      `${document.worksheets[0].rowOrder[0]}:${document.worksheets[0].columnOrder[0]}`
+    ] = {
       value: 'hello',
       valueType: 'text',
     };
@@ -82,17 +87,24 @@ describe('round trips', () => {
     const raw = baseWorkbook() as Record<string, unknown>;
     raw.futureTopLevel = { keep: true };
     (raw.worksheets as Record<string, unknown>[])[0].futureWorksheet = 42;
-    ((raw.worksheets as Record<string, unknown>[])[0].cells as Record<string, Record<string, unknown>>)['r1:c1'].futureCell = 'x';
+    (
+      (raw.worksheets as Record<string, unknown>[])[0].cells as Record<
+        string,
+        Record<string, unknown>
+      >
+    )['r1:c1'].futureCell = 'x';
 
     const { document } = normalizeSheetDocument(raw);
     expect((document as unknown as Record<string, unknown>).futureTopLevel).toEqual({ keep: true });
     expect((document.worksheets[0] as unknown as Record<string, unknown>).futureWorksheet).toBe(42);
-    expect((document.worksheets[0].cells['r1:c1'] as unknown as Record<string, unknown>).futureCell).toBe('x');
+    expect(
+      (document.worksheets[0].cells['r1:c1'] as unknown as Record<string, unknown>).futureCell,
+    ).toBe('x');
   });
 
   it('round-trips structured tables, filters, and derived row visibility', () => {
     const raw = baseWorkbook();
-    const worksheet = raw.worksheets[0] as typeof raw.worksheets[0] & Record<string, unknown>;
+    const worksheet = raw.worksheets[0] as (typeof raw.worksheets)[0] & Record<string, unknown>;
     worksheet.rows = { r2: { id: 'r2', hidden: true, filterHidden: true } };
     worksheet.columns = { c1: { id: 'c1', filterHidden: true } };
     const tableRange = {
@@ -101,16 +113,18 @@ describe('round trips', () => {
       startColumnId: 'c1',
       endColumnId: 'c2',
     };
-    worksheet.tables = [{
-      id: 'table1',
-      name: 'Records',
-      hasHeaderRow: true,
-      range: tableRange,
-      columns: [
-        { id: 'tableColumn1', name: 'Name', columnId: 'c1' },
-        { id: 'tableColumn2', name: 'Score', columnId: 'c2' },
-      ],
-    }];
+    worksheet.tables = [
+      {
+        id: 'table1',
+        name: 'Records',
+        hasHeaderRow: true,
+        range: tableRange,
+        columns: [
+          { id: 'tableColumn1', name: 'Name', columnId: 'c1' },
+          { id: 'tableColumn2', name: 'Score', columnId: 'c2' },
+        ],
+      },
+    ];
     worksheet.filters = {
       range: tableRange,
       columnFilters: [{ columnId: 'c2', numberMin: 10 }],
@@ -124,8 +138,9 @@ describe('round trips', () => {
       hidden: true,
       filterHidden: true,
     });
-    expect((reparsed.worksheets[0].columns?.c1 as Record<string, unknown> | undefined)?.filterHidden)
-      .toBeUndefined();
+    expect(
+      (reparsed.worksheets[0].columns?.c1 as Record<string, unknown> | undefined)?.filterHidden,
+    ).toBeUndefined();
   });
 });
 
@@ -133,8 +148,9 @@ describe('malformed input', () => {
   it('rejects non-JSON, non-objects, and the wrong document kind', () => {
     expect(() => inspectSheetDocumentText('{oops')).toThrow(SheetDocumentError);
     expect(() => inspectSheetDocumentText('[]')).toThrowError(/JSON object/);
-    expect(() => inspectSheetDocumentText('{"kind":"logic-diagram","schemaVersion":1}'))
-      .toThrowError(/collab-sheet/);
+    expect(() =>
+      inspectSheetDocumentText('{"kind":"logic-diagram","schemaVersion":1}'),
+    ).toThrowError(/collab-sheet/);
   });
 
   it('rejects a missing or invalid schema version', () => {
@@ -142,8 +158,9 @@ describe('malformed input', () => {
     delete raw.schemaVersion;
     expect(() => normalizeSheetDocument(raw)).toThrowError(/schemaVersion/);
 
-    expect(() => normalizeSheetDocument({ ...baseWorkbook(), schemaVersion: 1.5 }))
-      .toThrowError(/schemaVersion/);
+    expect(() => normalizeSheetDocument({ ...baseWorkbook(), schemaVersion: 1.5 })).toThrowError(
+      /schemaVersion/,
+    );
   });
 
   it('repairs rather than discards a workbook with broken identities', () => {
@@ -214,7 +231,10 @@ describe('malformed input', () => {
   });
 
   it('repoints an activeWorksheetId that does not resolve', () => {
-    const { document } = normalizeSheetDocument({ ...baseWorkbook(), activeWorksheetId: 'missing' });
+    const { document } = normalizeSheetDocument({
+      ...baseWorkbook(),
+      activeWorksheetId: 'missing',
+    });
     expect(document.activeWorksheetId).toBe(document.worksheets[0].id);
   });
 
@@ -278,23 +298,28 @@ describe('malformed input', () => {
   it('normalizes protected ranges and custom validation anchors', () => {
     const raw = baseWorkbook() as Record<string, unknown>;
     const worksheet = (raw.worksheets as Record<string, unknown>[])[0];
-    worksheet.validations = [{
-      id: 'validation1',
-      kind: 'custom',
-      formula: '=A1>0',
-      anchor: { rowId: 'r1', columnId: 'c1' },
-    }];
-    (worksheet.cells as Record<string, Record<string, unknown>>)['r1:c1'].validationId = 'validation1';
-    worksheet.protectedRanges = [{
-      id: 'protected1',
-      name: 'Totals',
-      range: {
-        startRowId: 'r1',
-        endRowId: 'r2',
-        startColumnId: 'c1',
-        endColumnId: 'c2',
+    worksheet.validations = [
+      {
+        id: 'validation1',
+        kind: 'custom',
+        formula: '=A1>0',
+        anchor: { rowId: 'r1', columnId: 'c1' },
       },
-    }];
+    ];
+    (worksheet.cells as Record<string, Record<string, unknown>>)['r1:c1'].validationId =
+      'validation1';
+    worksheet.protectedRanges = [
+      {
+        id: 'protected1',
+        name: 'Totals',
+        range: {
+          startRowId: 'r1',
+          endRowId: 'r2',
+          startColumnId: 'c1',
+          endColumnId: 'c2',
+        },
+      },
+    ];
     const { document } = normalizeSheetDocument(raw);
     expect(document.worksheets[0].validations?.[0].anchor).toEqual({
       rowId: 'r1',
@@ -306,15 +331,19 @@ describe('malformed input', () => {
 
 describe('limits', () => {
   it('rejects a workbook with too many worksheets', () => {
-    const worksheets = Array.from({ length: SHEET_LIMITS.worksheetsPerWorkbook + 1 }, (_, index) => ({
-      id: `ws${index}`,
-      name: `Sheet${index}`,
-      rowOrder: ['r1'],
-      columnOrder: ['c1'],
-      cells: {},
-    }));
-    expect(() => normalizeSheetDocument({ ...baseWorkbook(), worksheets, activeWorksheetId: 'ws0' }))
-      .toThrowError(/more than 200 worksheets/);
+    const worksheets = Array.from(
+      { length: SHEET_LIMITS.worksheetsPerWorkbook + 1 },
+      (_, index) => ({
+        id: `ws${index}`,
+        name: `Sheet${index}`,
+        rowOrder: ['r1'],
+        columnOrder: ['c1'],
+        cells: {},
+      }),
+    );
+    expect(() =>
+      normalizeSheetDocument({ ...baseWorkbook(), worksheets, activeWorksheetId: 'ws0' }),
+    ).toThrowError(/more than 200 worksheets/);
   });
 
   it('rejects a worksheet with too many rows', () => {
@@ -355,8 +384,12 @@ describe('worksheet operations', () => {
     let document = addWorksheet(createEmptySheetDocument('Book'), 'Data');
     document = renameWorksheet(document, document.worksheets[0].id, 'Summary');
     expect(document.worksheets[0].name).toBe('Summary');
-    expect(() => renameWorksheet(document, document.worksheets[0].id, 'Data')).toThrowError(/already has/);
-    expect(() => renameWorksheet(document, document.worksheets[0].id, '   ')).toThrowError(/cannot be empty/);
+    expect(() => renameWorksheet(document, document.worksheets[0].id, 'Data')).toThrowError(
+      /already has/,
+    );
+    expect(() => renameWorksheet(document, document.worksheets[0].id, '   ')).toThrowError(
+      /cannot be empty/,
+    );
   });
 
   it('removes a worksheet, repoints the active one, and keeps at least one', () => {
@@ -371,17 +404,19 @@ describe('worksheet operations', () => {
   it('drops named ranges belonging to a removed worksheet', () => {
     let document = addWorksheet(createEmptySheetDocument('Book'), 'Data');
     const target = document.worksheets[1];
-    document.namedRanges = [{
-      id: 'n1',
-      name: 'Totals',
-      worksheetId: target.id,
-      range: {
-        startRowId: target.rowOrder[0],
-        startColumnId: target.columnOrder[0],
-        endRowId: target.rowOrder[0],
-        endColumnId: target.columnOrder[0],
+    document.namedRanges = [
+      {
+        id: 'n1',
+        name: 'Totals',
+        worksheetId: target.id,
+        range: {
+          startRowId: target.rowOrder[0],
+          startColumnId: target.columnOrder[0],
+          endRowId: target.rowOrder[0],
+          endColumnId: target.columnOrder[0],
+        },
       },
-    }];
+    ];
     document = removeWorksheet(document, target.id);
     expect(document.namedRanges).toBeUndefined();
   });
@@ -390,18 +425,20 @@ describe('worksheet operations', () => {
     let document = addWorksheet(createEmptySheetDocument('Book'), 'Data');
     const source = document.worksheets[0];
     const scopedTo = document.worksheets[1];
-    document.namedRanges = [{
-      id: 'n1',
-      name: 'LocalInput',
-      worksheetId: source.id,
-      scopeWorksheetId: scopedTo.id,
-      range: {
-        startRowId: source.rowOrder[0],
-        startColumnId: source.columnOrder[0],
-        endRowId: source.rowOrder[0],
-        endColumnId: source.columnOrder[0],
+    document.namedRanges = [
+      {
+        id: 'n1',
+        name: 'LocalInput',
+        worksheetId: source.id,
+        scopeWorksheetId: scopedTo.id,
+        range: {
+          startRowId: source.rowOrder[0],
+          startColumnId: source.columnOrder[0],
+          endRowId: source.rowOrder[0],
+          endColumnId: source.columnOrder[0],
+        },
       },
-    }];
+    ];
     document = removeWorksheet(document, scopedTo.id);
     expect(document.namedRanges).toBeUndefined();
   });

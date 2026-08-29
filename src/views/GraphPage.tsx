@@ -1,8 +1,9 @@
 import { memo, useCallback } from 'react';
-import { useNoteIndexStore } from '../store/noteIndexStore';
-import { useEditorStore } from '../store/editorStore';
-import { useUiStore } from '../store/uiStore';
+
 import GraphView from '../components/graph/GraphView';
+import { useEditorStore } from '../store/editorStore';
+import { useNoteIndexStore } from '../store/noteIndexStore';
+import { useUiStore } from '../store/uiStore';
 
 interface Props {
   /** Override node-click behaviour — grid cells use this to load the note into the same cell */
@@ -14,10 +15,13 @@ function GraphPage({ onNodeClick }: Props = {}) {
   const openTab = useEditorStore((state) => state.openTab);
   const setActiveView = useUiStore((state) => state.setActiveView);
 
-  const defaultNodeClick = useCallback((relativePath: string, title: string) => {
-    openTab(relativePath, title, 'note');
-    setActiveView('editor');
-  }, [openTab, setActiveView]);
+  const defaultNodeClick = useCallback(
+    (relativePath: string, title: string) => {
+      openTab(relativePath, title, 'note');
+      setActiveView('editor');
+    },
+    [openTab, setActiveView],
+  );
 
   const handleNodeClick = onNodeClick ?? defaultNodeClick;
 

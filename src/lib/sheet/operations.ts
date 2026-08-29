@@ -8,7 +8,6 @@
  * Structural operations rewrite formula references from the stable row/column
  * identities before and after the mutation.
  */
-
 import { SHEET_LIMITS, sheetCellKey } from '../../types/sheet';
 import type {
   SheetCell,
@@ -26,8 +25,10 @@ import type {
 } from '../../types/sheet';
 import type { SheetFormulaValueMap } from '../../types/sheetFormula';
 import { sheetFormulaResultKey } from '../../types/sheetFormula';
+
+import type { SheetPosition } from './address';
+import { numericValueOf } from './cellValue';
 import {
-  SheetDocumentError,
   createSheetColumnId,
   createSheetConditionalFormatId,
   createSheetNamedRangeId,
@@ -37,11 +38,10 @@ import {
   createSheetTableId,
   createSheetValidationId,
   createSheetWorksheetId,
+  SheetDocumentError,
 } from './document';
-import type { SheetPosition } from './address';
-import { normalizeRange, selectedPositions, type SheetSelection } from './selection';
-import { numericValueOf } from './cellValue';
 import { rewriteDocumentFormulaReferences } from './formulaReferences';
+import { normalizeRange, selectedPositions, type SheetSelection } from './selection';
 
 function mapWorksheet(
   document: SheetDocument,
@@ -243,9 +243,10 @@ export function upsertSheetChart(
     }
     return {
       ...worksheet,
-      charts: index < 0
-        ? [...charts, chart]
-        : charts.map((candidate) => candidate.id === chart.id ? chart : candidate),
+      charts:
+        index < 0
+          ? [...charts, chart]
+          : charts.map((candidate) => (candidate.id === chart.id ? chart : candidate)),
     };
   });
 }
@@ -265,10 +266,7 @@ export function removeSheetChart(
   });
 }
 
-export function getCell(
-  worksheet: SheetWorksheet,
-  position: SheetPosition,
-): SheetCell | undefined {
+export function getCell(worksheet: SheetWorksheet, position: SheetPosition): SheetCell | undefined {
   const rowId = worksheet.rowOrder[position.row];
   const columnId = worksheet.columnOrder[position.column];
   if (!rowId || !columnId) return undefined;
@@ -314,9 +312,7 @@ function axisOrder(worksheet: SheetWorksheet, axis: Axis): string[] {
 }
 
 function withAxisOrder(worksheet: SheetWorksheet, axis: Axis, order: string[]): SheetWorksheet {
-  return axis === 'row'
-    ? { ...worksheet, rowOrder: order }
-    : { ...worksheet, columnOrder: order };
+  return axis === 'row' ? { ...worksheet, rowOrder: order } : { ...worksheet, columnOrder: order };
 }
 
 function axisLimit(axis: Axis): number {
@@ -348,10 +344,10 @@ function shrinkRange(
   return axis === 'row'
     ? { ...range, startRowId: surviving[0], endRowId: surviving[surviving.length - 1] }
     : {
-      ...range,
-      startColumnId: surviving[0],
-      endColumnId: surviving[surviving.length - 1],
-    };
+        ...range,
+        startColumnId: surviving[0],
+        endColumnId: surviving[surviving.length - 1],
+      };
 }
 
 function clearFilterHiddenRows(worksheet: SheetWorksheet): SheetWorksheet {
@@ -375,7 +371,11 @@ function clearFilterHiddenRows(worksheet: SheetWorksheet): SheetWorksheet {
 }
 
 /** Drops cells and track properties, then repairs structures referencing removed IDs. */
-function pruneReferences(worksheet: SheetWorksheet, removed: Set<string>, axis: Axis): SheetWorksheet {
+function pruneReferences(
+  worksheet: SheetWorksheet,
+  removed: Set<string>,
+  axis: Axis,
+): SheetWorksheet {
   if (removed.size === 0) return worksheet;
 
   const cells: Record<string, SheetCell> = {};
@@ -392,20 +392,18 @@ function pruneReferences(worksheet: SheetWorksheet, removed: Set<string>, axis: 
   const trackKey = axis === 'row' ? 'rows' : 'columns';
   const tracks = worksheet[trackKey];
   if (tracks) {
-    const kept = Object.fromEntries(
-      Object.entries(tracks).filter(([id]) => !removed.has(id)),
-    );
+    const kept = Object.fromEntries(Object.entries(tracks).filter(([id]) => !removed.has(id)));
     const mutable = next as unknown as Record<string, unknown>;
     if (Object.keys(kept).length > 0) mutable[trackKey] = kept;
     else delete mutable[trackKey];
   }
 
   if (worksheet.mergedRanges) {
-    const kept = worksheet.mergedRanges.filter((range) => (
+    const kept = worksheet.mergedRanges.filter((range) =>
       axis === 'row'
         ? !removed.has(range.startRowId) && !removed.has(range.endRowId)
-        : !removed.has(range.startColumnId) && !removed.has(range.endColumnId)
-    ));
+        : !removed.has(range.startColumnId) && !removed.has(range.endColumnId),
+    );
     if (kept.length > 0) next.mergedRanges = kept;
     else delete next.mergedRanges;
   }
@@ -414,9 +412,10 @@ function pruneReferences(worksheet: SheetWorksheet, removed: Set<string>, axis: 
     const tables = worksheet.tables.flatMap((table): SheetTable[] => {
       const range = shrinkRange(worksheet, table.range, removed, axis);
       if (!range) return [];
-      const columns = axis === 'column'
-        ? table.columns.filter((column) => !removed.has(column.columnId))
-        : table.columns;
+      const columns =
+        axis === 'column'
+          ? table.columns.filter((column) => !removed.has(column.columnId))
+          : table.columns;
       if (columns.length === 0) return [];
       return [{ ...table, range, columns }];
     });
@@ -426,8 +425,9 @@ function pruneReferences(worksheet: SheetWorksheet, removed: Set<string>, axis: 
 
   if (worksheet.filters?.range) {
     const range = shrinkRange(worksheet, worksheet.filters.range, removed, axis);
-    const removedFilteredColumn = axis === 'column'
-      && (worksheet.filters.columnFilters ?? []).some((filter) => removed.has(filter.columnId));
+    const removedFilteredColumn =
+      axis === 'column' &&
+      (worksheet.filters.columnFilters ?? []).some((filter) => removed.has(filter.columnId));
     if (!range || removedFilteredColumn) {
       delete next.filters;
       return clearFilterHiddenRows(next);
@@ -501,11 +501,13 @@ function pruneReferences(worksheet: SheetWorksheet, removed: Set<string>, axis: 
           ? shrinkRange(worksheet, item.categoriesRange, removed, axis)
           : undefined;
         if (!valuesRange || (item.categoriesRange && !categoriesRange)) return [];
-        return [{
-          ...item,
-          valuesRange,
-          ...(categoriesRange ? { categoriesRange } : {}),
-        }];
+        return [
+          {
+            ...item,
+            valuesRange,
+            ...(categoriesRange ? { categoriesRange } : {}),
+          },
+        ];
       });
       return series.length > 0 ? [{ ...chart, series }] : [];
     });
@@ -578,10 +580,8 @@ export function deleteTracks(
   });
   const dataConnections = (document.dataConnections ?? []).flatMap((connection) => {
     if (connection.targetWorksheetId !== worksheetId) return [connection];
-    if (
-      axis === 'column'
-      && connection.columns.some((column) => removed.has(column.columnId))
-    ) return [];
+    if (axis === 'column' && connection.columns.some((column) => removed.has(column.columnId)))
+      return [];
     const targetRange = shrinkRange(source, connection.targetRange, removed, axis);
     return targetRange ? [{ ...connection, targetRange }] : [];
   });
@@ -639,11 +639,11 @@ export function resizeTrack(
     const id = axisOrder(worksheet, axis)[index];
     if (!id) return worksheet;
     const clamped = Math.max(axis === 'row' ? 8 : 24, Math.round(size));
-    return updateTrack(worksheet, axis, id, (track) => (
+    return updateTrack(worksheet, axis, id, (track) =>
       axis === 'row'
         ? { ...(track as SheetRow), height: clamped }
-        : { ...(track as SheetColumn), width: clamped }
-    ));
+        : { ...(track as SheetColumn), width: clamped },
+    );
   });
 }
 
@@ -694,7 +694,8 @@ export function autoSizeColumn(
   for (const rowId of worksheet.rowOrder) {
     const cell = worksheet.cells[sheetCellKey(rowId, columnId)];
     if (!cell) continue;
-    const text = cell.formula ?? (cell.value === undefined || cell.value === null ? '' : String(cell.value));
+    const text =
+      cell.formula ?? (cell.value === undefined || cell.value === null ? '' : String(cell.value));
     if (!text) continue;
     widest = Math.max(widest, measure(text));
   }
@@ -743,8 +744,12 @@ export function mergedRangeAt(
   for (const range of worksheet.mergedRanges ?? []) {
     const rectangle = rangeRectangle(worksheet, range);
     if (!rectangle) continue;
-    if (position.row >= rectangle.top && position.row <= rectangle.bottom
-      && position.column >= rectangle.left && position.column <= rectangle.right) {
+    if (
+      position.row >= rectangle.top &&
+      position.row <= rectangle.bottom &&
+      position.column >= rectangle.left &&
+      position.column <= rectangle.right
+    ) {
       return range;
     }
   }
@@ -765,7 +770,10 @@ export function mergeSelection(
   if (!worksheet) return document;
   const range = rangeFromSelection(worksheet, selection);
   if (!range) {
-    throw new SheetDocumentError('invalid-structure', 'Select a single rectangular range to merge.');
+    throw new SheetDocumentError(
+      'invalid-structure',
+      'Select a single rectangular range to merge.',
+    );
   }
   const rectangle = rangeRectangle(worksheet, range)!;
   if (rectangle.top === rectangle.bottom && rectangle.left === rectangle.right) {
@@ -775,10 +783,16 @@ export function mergeSelection(
   for (const existing of worksheet.mergedRanges ?? []) {
     const other = rangeRectangle(worksheet, existing);
     if (!other) continue;
-    const overlaps = rectangle.top <= other.bottom && rectangle.bottom >= other.top
-      && rectangle.left <= other.right && rectangle.right >= other.left;
+    const overlaps =
+      rectangle.top <= other.bottom &&
+      rectangle.bottom >= other.top &&
+      rectangle.left <= other.right &&
+      rectangle.right >= other.left;
     if (overlaps) {
-      throw new SheetDocumentError('invalid-structure', 'That range overlaps an existing merged range.');
+      throw new SheetDocumentError(
+        'invalid-structure',
+        'That range overlaps an existing merged range.',
+      );
     }
   }
 
@@ -813,10 +827,13 @@ export function unmergeSelection(
     const kept = worksheet.mergedRanges.filter((range) => {
       const rectangle = rangeRectangle(worksheet, range);
       if (!rectangle) return false;
-      return !positions.some((position) => (
-        position.row >= rectangle.top && position.row <= rectangle.bottom
-        && position.column >= rectangle.left && position.column <= rectangle.right
-      ));
+      return !positions.some(
+        (position) =>
+          position.row >= rectangle.top &&
+          position.row <= rectangle.bottom &&
+          position.column >= rectangle.left &&
+          position.column <= rectangle.right,
+      );
     });
     if (kept.length === worksheet.mergedRanges.length) return worksheet;
     const next = { ...worksheet };
@@ -910,9 +927,9 @@ export function duplicateWorksheet(document: SheetDocument, worksheetId: string)
         startColumnId: columnMap.get(range.startColumnId),
         endColumnId: columnMap.get(range.endColumnId),
       }))
-      .filter((range): range is SheetRange => Boolean(
-        range.startRowId && range.endRowId && range.startColumnId && range.endColumnId,
-      ));
+      .filter((range): range is SheetRange =>
+        Boolean(range.startRowId && range.endRowId && range.startColumnId && range.endColumnId),
+      );
     if (merged.length > 0) copy.mergedRanges = merged;
     else delete copy.mergedRanges;
   }
@@ -924,17 +941,17 @@ export function duplicateWorksheet(document: SheetDocument, worksheetId: string)
       const startColumnId = columnMap.get(table.range.startColumnId);
       const endColumnId = columnMap.get(table.range.endColumnId);
       if (!startRowId || !endRowId || !startColumnId || !endColumnId) return [];
-      return [{
-        ...table,
-        id: createSheetTableId(),
-        range: { startRowId, endRowId, startColumnId, endColumnId },
-        columns: table.columns.flatMap((column) => {
-          const columnId = columnMap.get(column.columnId);
-          return columnId
-            ? [{ ...column, id: createSheetTableColumnId(), columnId }]
-            : [];
-        }),
-      }];
+      return [
+        {
+          ...table,
+          id: createSheetTableId(),
+          range: { startRowId, endRowId, startColumnId, endColumnId },
+          columns: table.columns.flatMap((column) => {
+            const columnId = columnMap.get(column.columnId);
+            return columnId ? [{ ...column, id: createSheetTableColumnId(), columnId }] : [];
+          }),
+        },
+      ];
     });
     if (tables.length > 0) copy.tables = tables;
     else delete copy.tables;
@@ -970,9 +987,9 @@ export function duplicateWorksheet(document: SheetDocument, worksheetId: string)
       validationMap.set(validation.id, id);
       const anchor = validation.anchor
         ? {
-          rowId: rowMap.get(validation.anchor.rowId)!,
-          columnId: columnMap.get(validation.anchor.columnId)!,
-        }
+            rowId: rowMap.get(validation.anchor.rowId)!,
+            columnId: columnMap.get(validation.anchor.columnId)!,
+          }
         : undefined;
       if (!validation.sourceRange) return [{ ...validation, id, anchor }];
       const startRowId = rowMap.get(validation.sourceRange.startRowId);
@@ -980,12 +997,14 @@ export function duplicateWorksheet(document: SheetDocument, worksheetId: string)
       const startColumnId = columnMap.get(validation.sourceRange.startColumnId);
       const endColumnId = columnMap.get(validation.sourceRange.endColumnId);
       return startRowId && endRowId && startColumnId && endColumnId
-        ? [{
-          ...validation,
-          id,
-          anchor,
-          sourceRange: { startRowId, endRowId, startColumnId, endColumnId },
-        }]
+        ? [
+            {
+              ...validation,
+              id,
+              anchor,
+              sourceRange: { startRowId, endRowId, startColumnId, endColumnId },
+            },
+          ]
         : [];
     });
     if (validations.length > 0) copy.validations = validations;
@@ -1040,24 +1059,27 @@ export function duplicateWorksheet(document: SheetDocument, worksheetId: string)
   const index = document.worksheets.findIndex((worksheet) => worksheet.id === worksheetId);
   const worksheets = [...document.worksheets];
   worksheets.splice(index + 1, 0, copy);
-  const duplicatedNames = (document.namedRanges ?? []).flatMap((namedRange) => (
+  const duplicatedNames = (document.namedRanges ?? []).flatMap((namedRange) =>
     namedRange.scopeWorksheetId === source.id
-      ? [{
-        ...namedRange,
-        id: createSheetNamedRangeId(),
-        worksheetId: namedRange.worksheetId === source.id ? copy.id : namedRange.worksheetId,
-        range: namedRange.worksheetId === source.id
-          ? {
-            startRowId: rowMap.get(namedRange.range.startRowId)!,
-            endRowId: rowMap.get(namedRange.range.endRowId)!,
-            startColumnId: columnMap.get(namedRange.range.startColumnId)!,
-            endColumnId: columnMap.get(namedRange.range.endColumnId)!,
-          }
-          : namedRange.range,
-        scopeWorksheetId: copy.id,
-      }]
-      : []
-  ));
+      ? [
+          {
+            ...namedRange,
+            id: createSheetNamedRangeId(),
+            worksheetId: namedRange.worksheetId === source.id ? copy.id : namedRange.worksheetId,
+            range:
+              namedRange.worksheetId === source.id
+                ? {
+                    startRowId: rowMap.get(namedRange.range.startRowId)!,
+                    endRowId: rowMap.get(namedRange.range.endRowId)!,
+                    startColumnId: columnMap.get(namedRange.range.startColumnId)!,
+                    endColumnId: columnMap.get(namedRange.range.endColumnId)!,
+                  }
+                : namedRange.range,
+            scopeWorksheetId: copy.id,
+          },
+        ]
+      : [],
+  );
   return {
     ...document,
     worksheets,
@@ -1152,9 +1174,10 @@ export function summarizeSelection(
     filled += 1;
     const rowId = worksheet.rowOrder[position.row];
     const columnId = worksheet.columnOrder[position.column];
-    const computed = rowId && columnId
-      ? computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
-      : undefined;
+    const computed =
+      rowId && columnId
+        ? computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
+        : undefined;
     const value = numericValueOf(cell, computed);
     if (value === null) continue;
     numeric += 1;

@@ -99,13 +99,7 @@ export const INK_LIMITS = {
 /** A page is either a bounded sheet or a bounded region of an endless surface. */
 export type InkPageMode = 'fixed' | 'infinite';
 
-export type InkBackgroundPattern =
-  | 'blank'
-  | 'ruled'
-  | 'grid'
-  | 'dotted'
-  | 'staff'
-  | 'storyboard';
+export type InkBackgroundPattern = 'blank' | 'ruled' | 'grid' | 'dotted' | 'staff' | 'storyboard';
 
 export interface InkPageBackground {
   pattern: InkBackgroundPattern;
@@ -163,13 +157,7 @@ export interface InkSample {
 }
 
 export type InkBrushKind =
-  | 'ballpoint'
-  | 'fountain'
-  | 'technical'
-  | 'pencil'
-  | 'marker'
-  | 'brush'
-  | 'highlighter';
+  'ballpoint' | 'fountain' | 'technical' | 'pencil' | 'marker' | 'brush' | 'highlighter';
 
 export type InkDashStyle = 'solid' | 'dashed' | 'dotted';
 
@@ -220,9 +208,7 @@ export interface InkBounds {
 /** 2D affine transform, row-major `[a, b, c, d, e, f]`. */
 export type InkTransform = [number, number, number, number, number, number];
 
-export type InkObjectLink =
-  | { kind: 'vault'; target: string }
-  | { kind: 'url'; target: string };
+export type InkObjectLink = { kind: 'vault'; target: string } | { kind: 'url'; target: string };
 
 interface InkObjectBase {
   id: string;
@@ -353,13 +339,7 @@ export interface InkGroup extends InkObjectBase {
 }
 
 export type InkObject =
-  | InkStroke
-  | InkShape
-  | InkConnector
-  | InkText
-  | InkImage
-  | InkStamp
-  | InkGroup;
+  InkStroke | InkShape | InkConnector | InkText | InkImage | InkStamp | InkGroup;
 
 /**
  * The renderable content of one surface.

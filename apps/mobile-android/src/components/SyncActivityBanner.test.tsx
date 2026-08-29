@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import type { BackgroundStatusSnapshot } from '../../../../src/lib/tauri';
+
 import { SyncActivityBanner, syncActivityDetail, syncProgressLabel } from './SyncActivityBanner';
 
 function status(

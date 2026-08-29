@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { INK_UNITS_PER_PX } from '../../types/ink';
+
 import {
   INK_DEFAULT_INPUT_SETTINGS,
   INK_PALM_CONTACT_PX,
@@ -47,7 +48,11 @@ describe('toInkUnits', () => {
   });
 
   it('does not divide by zero at a degenerate zoom', () => {
-    expect(Number.isFinite(toInkUnits({ offsetX: 1, offsetY: 1 }, { originX: 0, originY: 0, zoom: 0 }).x)).toBe(true);
+    expect(
+      Number.isFinite(
+        toInkUnits({ offsetX: 1, offsetY: 1 }, { originX: 0, originY: 0, zoom: 0 }).x,
+      ),
+    ).toBe(true);
   });
 });
 
@@ -82,11 +87,7 @@ describe('readingFromEvent', () => {
   it('does not record mouse pressure as pressure', () => {
     // A mouse reports 0.5 while a button is down. That is a constant, not a
     // measurement, and storing it would make every mouse stroke look pressured.
-    const reading = readingFromEvent(
-      event({ pointerType: 'mouse', pressure: 0.5 }),
-      transform,
-      0,
-    );
+    const reading = readingFromEvent(event({ pointerType: 'mouse', pressure: 0.5 }), transform, 0);
     expect(reading.pressure).toBeUndefined();
   });
 
@@ -199,9 +200,9 @@ describe('InkContactArbiter', () => {
     arbiter.down(event({ pointerId: 1, pointerType: 'pen', timeStamp: 0 }));
     arbiter.up(event({ pointerId: 1, pointerType: 'pen', timeStamp: 10 }));
 
-    expect(
-      arbiter.down(event({ pointerId: 2, pointerType: 'touch', timeStamp: 100 })),
-    ).toBe('reject');
+    expect(arbiter.down(event({ pointerId: 2, pointerType: 'touch', timeStamp: 100 }))).toBe(
+      'reject',
+    );
     expect(
       arbiter.down(
         event({ pointerId: 3, pointerType: 'touch', timeStamp: 10 + INK_PALM_WINDOW_MS + 1 }),

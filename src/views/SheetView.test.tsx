@@ -1,12 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createEmptySheetDocument, serializeSheetDocument } from '../lib/sheet/document';
+import { setCell } from '../lib/sheet/operations';
 import { useEditorStore } from '../store/editorStore';
 import { useVaultStore } from '../store/vaultStore';
 import { SHEET_DEFAULTS, SHEET_SCHEMA_VERSION } from '../types/sheet';
-import { createEmptySheetDocument, serializeSheetDocument } from '../lib/sheet/document';
-import { setCell } from '../lib/sheet/operations';
 import type { VaultMeta } from '../types/vault';
+
+import SheetView from './SheetView';
 
 const clientMocks = vi.hoisted(() => ({
   readDocument: vi.fn(),
@@ -50,8 +52,6 @@ vi.mock('../lib/tauri', async (importOriginal) => {
 const toastMocks = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn(), info: vi.fn() }));
 vi.mock('sonner', () => ({ toast: toastMocks }));
 
-import SheetView from './SheetView';
-
 const LOCAL_VAULT: VaultMeta = {
   id: 'vault-1',
   path: '/vault',
@@ -82,16 +82,30 @@ function workbookContent(withCells = true) {
   });
   if (withCells) {
     const worksheetId = document.worksheets[0].id;
-    document = setCell(document, worksheetId, { row: 0, column: 0 }, { value: 10, valueType: 'number' });
-    document = setCell(document, worksheetId, { row: 1, column: 0 }, { value: 20, valueType: 'number' });
+    document = setCell(
+      document,
+      worksheetId,
+      { row: 0, column: 0 },
+      { value: 10, valueType: 'number' },
+    );
+    document = setCell(
+      document,
+      worksheetId,
+      { row: 1, column: 0 },
+      { value: 20, valueType: 'number' },
+    );
   }
   return serializeSheetDocument(document);
 }
 
 function pointFor(row: number, column: number) {
   return {
-    clientX: SHEET_DEFAULTS.headerWidth + column * SHEET_DEFAULTS.columnWidth + SHEET_DEFAULTS.columnWidth / 2,
-    clientY: SHEET_DEFAULTS.headerHeight + row * SHEET_DEFAULTS.rowHeight + SHEET_DEFAULTS.rowHeight / 2,
+    clientX:
+      SHEET_DEFAULTS.headerWidth +
+      column * SHEET_DEFAULTS.columnWidth +
+      SHEET_DEFAULTS.columnWidth / 2,
+    clientY:
+      SHEET_DEFAULTS.headerHeight + row * SHEET_DEFAULTS.rowHeight + SHEET_DEFAULTS.rowHeight / 2,
   };
 }
 
@@ -117,13 +131,22 @@ beforeEach(() => {
   tauriMocks.writeDownloadedFile.mockResolvedValue(undefined);
   setVault(LOCAL_VAULT);
   useEditorStore.setState({
-    openTabs: [{ relativePath: PATH, title: 'Budget', isDirty: false, savedHash: null, type: 'sheet' }],
+    openTabs: [
+      { relativePath: PATH, title: 'Budget', isDirty: false, savedHash: null, type: 'sheet' },
+    ],
     activeTabPath: PATH,
     sheetViewStates: {},
   } as never);
 
   Element.prototype.getBoundingClientRect = vi.fn(() => ({
-    x: 0, y: 0, top: 0, left: 0, right: 1000, bottom: 800, width: 1000, height: 800,
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: 1000,
+    bottom: 800,
+    width: 1000,
+    height: 800,
     toJSON: () => ({}),
   })) as unknown as typeof Element.prototype.getBoundingClientRect;
 });
@@ -206,21 +229,27 @@ describe('SheetView editor', () => {
 
     const written = await writtenDocument();
     const worksheet = written.worksheets[0];
-    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`])
-      .toMatchObject({ value: 10, link: 'Notes/Budget.md' });
+    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`]).toMatchObject({
+      value: 10,
+      link: 'Notes/Budget.md',
+    });
   });
 
   it('copies and pastes through the grid clipboard events', async () => {
     await openWorkbook();
     const clipboard = new Map<string, string>();
     const clipboardData = {
-      setData: vi.fn((type: string, value: string) => { clipboard.set(type, value); }),
+      setData: vi.fn((type: string, value: string) => {
+        clipboard.set(type, value);
+      }),
       getData: vi.fn((type: string) => clipboard.get(type) ?? ''),
     };
 
     fireEvent.copy(screen.getByTestId('sheet-grid'), { clipboardData });
     expect(clipboard.get('text/plain')).toBe('10');
-    expect(clipboard.get('application/vnd.collab.sheet-selection+json')).toContain('collab-sheet-selection');
+    expect(clipboard.get('application/vnd.collab.sheet-selection+json')).toContain(
+      'collab-sheet-selection',
+    );
 
     fireEvent.pointerDown(screen.getByTestId('sheet-cell-surface'), {
       button: 0,
@@ -231,8 +260,10 @@ describe('SheetView editor', () => {
 
     const written = await writtenDocument();
     const worksheet = written.worksheets[0];
-    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[1]}`])
-      .toMatchObject({ value: 10, valueType: 'number' });
+    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[1]}`]).toMatchObject({
+      value: 10,
+      valueType: 'number',
+    });
   });
 
   it('finds, replaces, and navigates to A1 ranges', async () => {
@@ -272,8 +303,10 @@ describe('SheetView editor', () => {
 
     const written = await writtenDocument();
     const worksheet = written.worksheets[0];
-    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`])
-      .toMatchObject({ value: 10, note: 'Verify this total' });
+    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`]).toMatchObject({
+      value: 10,
+      note: 'Verify this total',
+    });
   });
 
   it('exports the active range as a self-contained SVG', async () => {
@@ -286,10 +319,11 @@ describe('SheetView editor', () => {
 
     await waitFor(() => expect(tauriMocks.writeDownloadedFile).toHaveBeenCalled());
     expect(tauriMocks.showDownloadDialog).toHaveBeenCalledWith('Budget-A1-A1.svg');
-    const svg = new TextDecoder().decode(Uint8Array.from(
-      atob(tauriMocks.writeDownloadedFile.mock.calls[0][1]),
-      (character) => character.charCodeAt(0),
-    ));
+    const svg = new TextDecoder().decode(
+      Uint8Array.from(atob(tauriMocks.writeDownloadedFile.mock.calls[0][1]), (character) =>
+        character.charCodeAt(0),
+      ),
+    );
     expect(svg).toContain('<svg');
     expect(svg).toContain('>10</text>');
   });
@@ -323,8 +357,9 @@ describe('SheetView editor', () => {
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
     const written = await writtenDocument();
     const worksheet = written.worksheets[0];
-    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`])
-      .toEqual({ formula: '=SUM(A1:A2)' });
+    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`]).toEqual({
+      formula: '=SUM(A1:A2)',
+    });
   });
 
   it('offers keyboard formula IntelliSense and inserts a dragged cell range', async () => {
@@ -370,8 +405,7 @@ describe('SheetView editor', () => {
     fireEvent.pointerMove(surface, pointFor(1, 0));
     fireEvent.pointerUp(surface, pointFor(1, 0));
 
-    expect((screen.getByLabelText('Formula bar') as HTMLInputElement).value)
-      .toBe('=SUM(A1:A2');
+    expect((screen.getByLabelText('Formula bar') as HTMLInputElement).value).toBe('=SUM(A1:A2');
   });
 
   it('navigates to a reference typed into the name box', async () => {
@@ -430,10 +464,12 @@ describe('SheetView editor', () => {
       hasHeaderRow: false,
     });
     expect(worksheet.tables[0].columns).toHaveLength(1);
-    expect(worksheet.filters.sortRules).toEqual([{
-      columnId: worksheet.columnOrder[0],
-      direction: 'descending',
-    }]);
+    expect(worksheet.filters.sortRules).toEqual([
+      {
+        columnId: worksheet.columnOrder[0],
+        direction: 'descending',
+      },
+    ]);
     expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`].value).toBe(20);
     expect(worksheet.cells[`${worksheet.rowOrder[1]}:${worksheet.columnOrder[0]}`].value).toBe(10);
   });
@@ -459,8 +495,9 @@ describe('SheetView editor', () => {
     const worksheet = written.worksheets[0];
     expect(worksheet.validations).toHaveLength(1);
     expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`].value).toBe(10);
-    expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`].validationId)
-      .toBe(worksheet.validations[0].id);
+    expect(
+      worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`].validationId,
+    ).toBe(worksheet.validations[0].id);
   });
 
   it('adds a conditional formatting rule for the selected range', async () => {
@@ -525,8 +562,9 @@ describe('SheetView editor', () => {
     fireEvent.focus(nameBox);
     fireEvent.change(nameBox, { target: { value: 'Revenue' } });
     fireEvent.keyDown(nameBox, { key: 'Enter' });
-    expect(screen.getByRole('status', { name: 'Selection summary' }).textContent)
-      .toContain('Sum: 30');
+    expect(screen.getByRole('status', { name: 'Selection summary' }).textContent).toContain(
+      'Sum: 30',
+    );
 
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
     const written = await writtenDocument();
@@ -571,7 +609,9 @@ describe('SheetView editor', () => {
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
     const written = await writtenDocument();
     expect(written.worksheets[0].frozen).toEqual({ rows: 2, columns: 1 });
-    expect(screen.getByRole('status', { name: 'Selection summary' }).textContent).toContain('Frozen: 2R × 1C');
+    expect(screen.getByRole('status', { name: 'Selection summary' }).textContent).toContain(
+      'Frozen: 2R × 1C',
+    );
   });
 
   it('merges a selected range and reports an invalid merge instead of throwing', async () => {
@@ -607,7 +647,10 @@ describe('SheetView editor', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
     const written = await writtenDocument();
-    expect(written.worksheets.map((sheet: { name: string }) => sheet.name)).toEqual(['Sheet1', 'Data']);
+    expect(written.worksheets.map((sheet: { name: string }) => sheet.name)).toEqual([
+      'Sheet1',
+      'Data',
+    ]);
   });
 
   it('switches the active worksheet and shows its own grid', async () => {
@@ -617,16 +660,23 @@ describe('SheetView editor', () => {
     await screen.findByRole('tab', { name: 'Sheet2' });
 
     const strip = screen.getByRole('tablist', { name: 'Worksheets' });
-    expect(within(strip).getByRole('tab', { name: 'Sheet2' }).getAttribute('aria-selected')).toBe('true');
+    expect(within(strip).getByRole('tab', { name: 'Sheet2' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
 
     fireEvent.click(within(strip).getByRole('tab', { name: 'Sheet1' }));
-    expect(within(strip).getByRole('tab', { name: 'Sheet1' }).getAttribute('aria-selected')).toBe('true');
+    expect(within(strip).getByRole('tab', { name: 'Sheet1' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
   });
 
   it('persists per-tab selection and worksheet state', async () => {
     await openWorkbook();
 
-    fireEvent.pointerDown(screen.getByTestId('sheet-cell-surface'), { button: 0, ...pointFor(3, 2) });
+    fireEvent.pointerDown(screen.getByTestId('sheet-cell-surface'), {
+      button: 0,
+      ...pointFor(3, 2),
+    });
 
     await waitFor(() => {
       const state = useEditorStore.getState().sheetViewStates[PATH];
@@ -639,7 +689,13 @@ describe('SheetView editor', () => {
   it('restores a persisted selection when the tab is reopened', async () => {
     useEditorStore.setState({
       sheetViewStates: {
-        [PATH]: { activeWorksheetId: 'ws1', scrollTop: 0, scrollLeft: 0, activeRow: 4, activeColumn: 3 },
+        [PATH]: {
+          activeWorksheetId: 'ws1',
+          scrollTop: 0,
+          scrollLeft: 0,
+          activeRow: 4,
+          activeColumn: 3,
+        },
       },
     } as never);
 
@@ -660,7 +716,9 @@ describe('SheetView editor', () => {
     // The grid still renders: a workbook from a newer client is readable, it
     // just may not be rewritten by this build.
     expect(screen.getByTestId('sheet-grid')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /insert rows/i }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: /insert rows/i }).hasAttribute('disabled')).toBe(
+      true,
+    );
 
     fireEvent.keyDown(screen.getByTestId('sheet-grid'), { key: '5' });
     expect(screen.queryByRole('textbox', { name: 'Cell editor' })).toBeNull();
@@ -690,7 +748,9 @@ describe('SheetView editor', () => {
     await openWorkbook();
 
     expect(screen.getByText(/viewer access/i)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /insert rows/i }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: /insert rows/i }).hasAttribute('disabled')).toBe(
+      true,
+    );
     expect(screen.getByRole('button', { name: /^merge$/i }).hasAttribute('disabled')).toBe(true);
 
     fireEvent.keyDown(screen.getByTestId('sheet-grid'), { key: '5' });

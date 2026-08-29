@@ -87,18 +87,18 @@ git diff --check
 
 Run every row against a packaged build, not only `tauri dev`.
 
-| Scenario | Linux GNOME | Linux KDE | Hyprland | Windows | macOS |
-| --- | --- | --- | --- | --- | --- |
-| Opt-in leaves current close behavior unchanged until saved | [ ] | [ ] | [ ] | [ ] | [ ] |
-| Close hides to tray and tray Open restores/focuses | [ ] | [ ] | [ ] | [ ] | [ ] |
-| Sync now, pause, resume, and recent status work | [ ] | [ ] | [ ] | [ ] | [ ] |
-| Sleep/resume performs one catch-up without a sync loop | [ ] | [ ] | [ ] | [ ] | [ ] |
-| Network loss/recovery preserves queued work | [ ] | [ ] | [ ] | [ ] | [ ] |
-| Reauthentication recovers without removing the server | [ ] | [ ] | [ ] | [ ] | [ ] |
-| Removing a server or replica cancels only matching work | [ ] | [ ] | [ ] | [ ] | [ ] |
-| Start-at-login and explicit Quit behave correctly | [ ] | [ ] | [ ] | [ ] | [ ] |
-| Saving background settings with autostart already disabled succeeds | [ ] | [ ] | [ ] | [ ] | [ ] |
-| Upgrade preserves settings and readable job history | [ ] | [ ] | [ ] | [ ] | [ ] |
+| Scenario                                                            | Linux GNOME | Linux KDE | Hyprland | Windows | macOS |
+| ------------------------------------------------------------------- | ----------- | --------- | -------- | ------- | ----- |
+| Opt-in leaves current close behavior unchanged until saved          | [ ]         | [ ]       | [ ]      | [ ]     | [ ]   |
+| Close hides to tray and tray Open restores/focuses                  | [ ]         | [ ]       | [ ]      | [ ]     | [ ]   |
+| Sync now, pause, resume, and recent status work                     | [ ]         | [ ]       | [ ]      | [ ]     | [ ]   |
+| Sleep/resume performs one catch-up without a sync loop              | [ ]         | [ ]       | [ ]      | [ ]     | [ ]   |
+| Network loss/recovery preserves queued work                         | [ ]         | [ ]       | [ ]      | [ ]     | [ ]   |
+| Reauthentication recovers without removing the server               | [ ]         | [ ]       | [ ]      | [ ]     | [ ]   |
+| Removing a server or replica cancels only matching work             | [ ]         | [ ]       | [ ]      | [ ]     | [ ]   |
+| Start-at-login and explicit Quit behave correctly                   | [ ]         | [ ]       | [ ]      | [ ]     | [ ]   |
+| Saving background settings with autostart already disabled succeeds | [ ]         | [ ]       | [ ]      | [ ]     | [ ]   |
+| Upgrade preserves settings and readable job history                 | [ ]         | [ ]       | [ ]      | [ ]     | [ ]   |
 
 For Flatpak, repeat tray visibility, restore, and autostart checks inside the
 sandbox. Do not add permissions solely to make a development shell behave like
@@ -109,20 +109,20 @@ a packaged desktop.
 Test at least one stock Android device/emulator and one OEM device with
 aggressive battery management where available.
 
-| Scenario | Stock Android | OEM device |
-| --- | --- | --- |
-| Activity dismissed while periodic sync remains eligible | [ ] | [ ] |
-| Process death followed by WorkManager recreation | [ ] | [ ] |
-| Reboot and package upgrade preserve scheduled work | [ ] | [ ] |
-| Doze delays work and later catch-up succeeds once | [ ] | [ ] |
-| Metered/unmetered and roaming policies are honored | [ ] | [ ] |
-| Charging, low-battery, and low-storage constraints are honored | [ ] | [ ] |
-| Offline edits replay after network recovery | [ ] | [ ] |
-| Expired credentials show reauthentication without logging out other servers | [ ] | [ ] |
-| Removing one server/replica leaves unrelated work intact | [ ] | [ ] |
-| Force-stop blocks work until Collab is launched again | [ ] | [ ] |
-| Verify background sync runs WorkManager and shows one completion notification | [ ] | [ ] |
-| Denied notification permission opens Android app notification settings | [ ] | [ ] |
+| Scenario                                                                      | Stock Android | OEM device |
+| ----------------------------------------------------------------------------- | ------------- | ---------- |
+| Activity dismissed while periodic sync remains eligible                       | [ ]           | [ ]        |
+| Process death followed by WorkManager recreation                              | [ ]           | [ ]        |
+| Reboot and package upgrade preserve scheduled work                            | [ ]           | [ ]        |
+| Doze delays work and later catch-up succeeds once                             | [ ]           | [ ]        |
+| Metered/unmetered and roaming policies are honored                            | [ ]           | [ ]        |
+| Charging, low-battery, and low-storage constraints are honored                | [ ]           | [ ]        |
+| Offline edits replay after network recovery                                   | [ ]           | [ ]        |
+| Expired credentials show reauthentication without logging out other servers   | [ ]           | [ ]        |
+| Removing one server/replica leaves unrelated work intact                      | [ ]           | [ ]        |
+| Force-stop blocks work until Collab is launched again                         | [ ]           | [ ]        |
+| Verify background sync runs WorkManager and shows one completion notification | [ ]           | [ ]        |
+| Denied notification permission opens Android app notification settings        | [ ]           | [ ]        |
 
 Useful commands:
 

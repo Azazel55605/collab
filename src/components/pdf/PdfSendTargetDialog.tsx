@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { cn } from '../../lib/utils';
+import type { NoteFile } from '../../types/vault';
 import { Button } from '../ui/button';
 import {
   Dialog,
@@ -10,8 +12,6 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { cn } from '../../lib/utils';
-import type { NoteFile } from '../../types/vault';
 
 export type PdfSendTarget =
   | { kind: 'note-current'; relativePath: string }
@@ -44,7 +44,9 @@ export function PdfSendTargetDialog({
 
   useEffect(() => {
     if (!open) return;
-    setTargetKind(currentNotePath ? 'note-current' : currentCanvasPath ? 'canvas-current' : 'note-other');
+    setTargetKind(
+      currentNotePath ? 'note-current' : currentCanvasPath ? 'canvas-current' : 'note-other',
+    );
     setNotePath(availableNotes[0]?.relativePath ?? '');
   }, [availableNotes, currentCanvasPath, currentNotePath, open]);
 
@@ -68,15 +70,21 @@ export function PdfSendTargetDialog({
     }
   };
 
-  const targetOptionClass = (selected: boolean) => cn(
-    'w-full rounded-xl border px-3 py-2.5 text-left text-sm transition-colors app-motion-fast',
-    selected
-      ? 'border-primary/45 bg-primary/10 text-foreground shadow-sm shadow-primary/10'
-      : 'border-border/60 bg-card/35 text-muted-foreground hover:border-border hover:bg-accent/35 hover:text-foreground',
-  );
+  const targetOptionClass = (selected: boolean) =>
+    cn(
+      'w-full rounded-xl border px-3 py-2.5 text-left text-sm transition-colors app-motion-fast',
+      selected
+        ? 'border-primary/45 bg-primary/10 text-foreground shadow-sm shadow-primary/10'
+        : 'border-border/60 bg-card/35 text-muted-foreground hover:border-border hover:bg-accent/35 hover:text-foreground',
+    );
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{mode === 'quote' ? 'Send quote' : 'Send snapshot'}</DialogTitle>
@@ -139,8 +147,12 @@ export function PdfSendTargetDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={!canSubmit}>Insert</Button>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={!canSubmit}>
+            Insert
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

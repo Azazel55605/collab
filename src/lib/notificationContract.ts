@@ -1,6 +1,6 @@
 import {
-  NOTIFICATION_CONTRACT_VERSION,
   type ForegroundNotificationDecision,
+  NOTIFICATION_CONTRACT_VERSION,
   type NotificationAction,
   type NotificationCategory,
   type NotificationChannel,
@@ -35,11 +35,7 @@ interface NotificationKindPolicy {
 }
 
 const OPEN_DISMISS = new Set<NotificationAction['kind']>(['open', 'dismiss']);
-const REMINDER_ACTIONS = new Set<NotificationAction['kind']>([
-  'open',
-  'dismiss',
-  'snooze',
-]);
+const REMINDER_ACTIONS = new Set<NotificationAction['kind']>(['open', 'dismiss', 'snooze']);
 
 export const NOTIFICATION_KIND_POLICIES: Record<NotificationKind, NotificationKindPolicy> = {
   'calendar.event-reminder': {
@@ -68,10 +64,7 @@ export const NOTIFICATION_KIND_POLICIES: Record<NotificationKind, NotificationKi
     channel: 'calendar',
     defaultPrivacy: 'title-only',
     hiddenTitle: 'Calendar invitation',
-    allowedActions: new Set([
-      ...OPEN_DISMISS,
-      'calendar.invitation.respond',
-    ]),
+    allowedActions: new Set([...OPEN_DISMISS, 'calendar.invitation.respond']),
   },
   'calendar.invitation-update': {
     category: 'calendar.invitation',
@@ -148,22 +141,14 @@ function requireRecord(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function requireString(
-  value: unknown,
-  label: string,
-  maxLength: number,
-): string {
+function requireString(value: unknown, label: string, maxLength: number): string {
   if (typeof value !== 'string' || !value.trim() || value.length > maxLength) {
     throw new Error(`${label} must be a non-empty string of at most ${maxLength} characters.`);
   }
   return value;
 }
 
-function optionalString(
-  value: unknown,
-  label: string,
-  maxLength: number,
-): string | undefined {
+function optionalString(value: unknown, label: string, maxLength: number): string | undefined {
   if (value === undefined) return undefined;
   return requireString(value, label, maxLength);
 }
@@ -186,12 +171,12 @@ function optionalServerUrl(value: unknown): string | undefined {
   try {
     const parsed = new URL(serverUrl);
     if (
-      !['http:', 'https:'].includes(parsed.protocol)
-      || parsed.username
-      || parsed.password
-      || parsed.pathname !== '/'
-      || parsed.search
-      || parsed.hash
+      !['http:', 'https:'].includes(parsed.protocol) ||
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== '/' ||
+      parsed.search ||
+      parsed.hash
     ) {
       throw new Error();
     }
@@ -259,12 +244,12 @@ function validateDestination(value: unknown): NotificationDestination {
   }
 }
 
-function validateAction(
-  value: unknown,
-  policy: NotificationKindPolicy,
-): NotificationAction {
+function validateAction(value: unknown, policy: NotificationKindPolicy): NotificationAction {
   const action = requireRecord(value, 'Notification action');
-  if (typeof action.kind !== 'string' || !policy.allowedActions.has(action.kind as NotificationAction['kind'])) {
+  if (
+    typeof action.kind !== 'string' ||
+    !policy.allowedActions.has(action.kind as NotificationAction['kind'])
+  ) {
     throw new Error('Notification action is not allowed for this notification kind.');
   }
   switch (action.kind) {
@@ -314,7 +299,11 @@ export function validateNotificationEnvelope(value: unknown): NotificationEnvelo
   if (input.category !== policy.category || input.channel !== policy.channel) {
     throw new Error('Notification category/channel does not match its kind.');
   }
-  const accountKey = requireString(input.accountKey, 'Notification account key', MAX_ACCOUNT_KEY_LENGTH);
+  const accountKey = requireString(
+    input.accountKey,
+    'Notification account key',
+    MAX_ACCOUNT_KEY_LENGTH,
+  );
   const serverUrl = optionalServerUrl(input.serverUrl);
   const sourceId = requireString(input.sourceId, 'Notification source ID', MAX_SOURCE_ID_LENGTH);
   const occurrenceKey = optionalString(
@@ -385,9 +374,7 @@ export function validateNotificationEnvelope(value: unknown): NotificationEnvelo
   };
 }
 
-export function defaultPrivacyForNotification(
-  kind: NotificationKind,
-): NotificationPrivacyLevel {
+export function defaultPrivacyForNotification(kind: NotificationKind): NotificationPrivacyLevel {
   return NOTIFICATION_KIND_POLICIES[kind].defaultPrivacy;
 }
 
@@ -401,9 +388,10 @@ export function presentNotification(
     'title-only': 1,
     full: 2,
   };
-  const privacy = privacyRank[requestedPrivacy] < privacyRank[notification.privacy]
-    ? requestedPrivacy
-    : notification.privacy;
+  const privacy =
+    privacyRank[requestedPrivacy] < privacyRank[notification.privacy]
+      ? requestedPrivacy
+      : notification.privacy;
   if (privacy === 'hidden') {
     return {
       title: policy.hiddenTitle,
@@ -448,9 +436,9 @@ export function decideForegroundNotificationDelivery(
 ): ForegroundNotificationDecision {
   if (!context.appVisible) return 'native';
   if (
-    context.activeDestination
-    && notificationDestinationKey(context.activeDestination)
-      === notificationDestinationKey(notification.destination)
+    context.activeDestination &&
+    notificationDestinationKey(context.activeDestination) ===
+      notificationDestinationKey(notification.destination)
   ) {
     return 'suppress';
   }
@@ -486,9 +474,9 @@ export function validatePushInvalidation(value: unknown): NotificationPushInvali
   const invalidationId = requireString(input.invalidationId, 'Push invalidation ID', 256);
   const cursor = optionalString(input.cursor, 'Push cursor', 256);
   if (
-    !PUSH_ACCOUNT_KEY.test(accountKey)
-    || !PUSH_OPAQUE_VALUE.test(invalidationId)
-    || (cursor && !PUSH_OPAQUE_VALUE.test(cursor))
+    !PUSH_ACCOUNT_KEY.test(accountKey) ||
+    !PUSH_OPAQUE_VALUE.test(invalidationId) ||
+    (cursor && !PUSH_OPAQUE_VALUE.test(cursor))
   ) {
     throw new Error('Push invalidation identifiers must be opaque.');
   }

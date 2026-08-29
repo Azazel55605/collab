@@ -1,19 +1,16 @@
 import {
-  createCalendarDefinition,
-  normalizeCalendarItem,
   type CalendarDefinition,
   type CalendarRecurrence,
   type CalendarTask,
   type CalendarTimeValue,
+  createCalendarDefinition,
+  normalizeCalendarItem,
 } from '../types/calendar';
-import {
-  normalizeKanbanBoard,
-  type KanbanBoard,
-  type KanbanRecurrenceRule,
-} from '../types/kanban';
+import { type KanbanBoard, type KanbanRecurrenceRule, normalizeKanbanBoard } from '../types/kanban';
+import type { VaultMeta } from '../types/vault';
+
 import { tauriCommands } from './tauri';
 import { createVaultClient } from './vaultClient';
-import type { VaultMeta } from '../types/vault';
 
 export interface LocalKanbanProjectionSource {
   fileId: string;
@@ -36,28 +33,37 @@ export interface KanbanCalendarPatch {
 
 const WEEKDAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 
-function recurrenceFromKanban(rule: KanbanRecurrenceRule | null | undefined): CalendarRecurrence | undefined {
+function recurrenceFromKanban(
+  rule: KanbanRecurrenceRule | null | undefined,
+): CalendarRecurrence | undefined {
   if (!rule?.enabled) return undefined;
   const interval = Math.max(1, Math.min(365, Math.trunc(rule.interval ?? 1)));
   if (rule.mode === 'weekly') {
     const days = (rule.weekdays ?? [])
       .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
       .map((day) => WEEKDAYS[day]);
-    return { rrule: `FREQ=WEEKLY;INTERVAL=${interval}${days.length ? `;BYDAY=${days.join(',')}` : ''}` };
+    return {
+      rrule: `FREQ=WEEKLY;INTERVAL=${interval}${days.length ? `;BYDAY=${days.join(',')}` : ''}`,
+    };
   }
   if (rule.mode === 'monthly') return { rrule: `FREQ=MONTHLY;INTERVAL=${interval}` };
   return { rrule: `FREQ=DAILY;INTERVAL=${interval}` };
 }
 
-function recurrenceToKanban(recurrence: CalendarRecurrence | undefined): KanbanRecurrenceRule | undefined {
+function recurrenceToKanban(
+  recurrence: CalendarRecurrence | undefined,
+): KanbanRecurrenceRule | undefined {
   if (!recurrence) return undefined;
-  const parts = new Map(recurrence.rrule.split(';').flatMap((entry) => {
-    const [key, value] = entry.split('=', 2);
-    return key && value ? [[key.toUpperCase(), value.toUpperCase()] as const] : [];
-  }));
+  const parts = new Map(
+    recurrence.rrule.split(';').flatMap((entry) => {
+      const [key, value] = entry.split('=', 2);
+      return key && value ? [[key.toUpperCase(), value.toUpperCase()] as const] : [];
+    }),
+  );
   const interval = Math.max(1, Number.parseInt(parts.get('INTERVAL') ?? '1', 10) || 1);
   const frequency = parts.get('FREQ');
-  if (frequency === 'DAILY') return { enabled: true, mode: interval === 1 ? 'daily' : 'interval', interval };
+  if (frequency === 'DAILY')
+    return { enabled: true, mode: interval === 1 ? 'daily' : 'interval', interval };
   if (frequency === 'MONTHLY') return { enabled: true, mode: 'monthly', interval };
   if (frequency === 'WEEKLY') {
     const weekdays = (parts.get('BYDAY') ?? '').split(',').flatMap((day) => {
@@ -113,7 +119,8 @@ export function projectLocalKanbanCalendar(input: {
     location: { kind: 'kanban', originKey: input.originKey },
     name: `Assigned tasks · ${input.vaultName}`,
     color: '#a78bfa',
-    defaultTimeZone: input.defaultTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC',
+    defaultTimeZone:
+      input.defaultTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC',
     now,
   });
   calendar.revision = latestRevision;
@@ -126,44 +133,50 @@ export function projectLocalKanbanCalendar(input: {
     } catch {
       return [];
     }
-    return board.columns.flatMap((column) => column.cards.flatMap((card) => {
-      if (card.archived || !card.assignees.includes(input.profileId)) return [];
-      const id = `${calendarId}-${stableSegment(`${source.fileId}\0${card.id}`)}`;
-      return [normalizeCalendarItem({
-        id,
-        uid: `kanban:${input.originKey}:${source.fileId}:${card.id}`,
-        calendarId,
-        kind: 'task',
-        title: card.title.trim() || 'Untitled task',
-        description: card.description,
-        reminders: [],
-        attendees: [],
-        attachments: [{
-          id: `kanban:${source.fileId}:${card.id}`,
-          kind: 'kanbanTask',
-          name: card.title.trim() || 'Open Kanban task',
-          fileId: source.fileId,
-          cardId: card.id,
-          path: source.path,
-        }],
-        sourceBinding: {
-          kind: 'kanban',
-          fileId: source.fileId,
-          cardId: card.id,
-          path: source.path,
-          sourceRevision: Math.max(0, Math.trunc(source.sourceRevision)),
-        },
-        start: dateValue(card.startDate),
-        due: dateValue(card.dueDate),
-        recurrence: recurrenceFromKanban(card.recurrence),
-        priority: card.priority,
-        status: card.isDone ? 'completed' : 'needs-action',
-        completedAt: card.isDone ? timestamp(card.completedAt, now) : undefined,
-        revision: Math.max(0, Math.trunc(source.sourceRevision)),
-        createdAt: timestamp(card.createdAt, now),
-        updatedAt: now,
-      }) as CalendarTask];
-    }));
+    return board.columns.flatMap((column) =>
+      column.cards.flatMap((card) => {
+        if (card.archived || !card.assignees.includes(input.profileId)) return [];
+        const id = `${calendarId}-${stableSegment(`${source.fileId}\0${card.id}`)}`;
+        return [
+          normalizeCalendarItem({
+            id,
+            uid: `kanban:${input.originKey}:${source.fileId}:${card.id}`,
+            calendarId,
+            kind: 'task',
+            title: card.title.trim() || 'Untitled task',
+            description: card.description,
+            reminders: [],
+            attendees: [],
+            attachments: [
+              {
+                id: `kanban:${source.fileId}:${card.id}`,
+                kind: 'kanbanTask',
+                name: card.title.trim() || 'Open Kanban task',
+                fileId: source.fileId,
+                cardId: card.id,
+                path: source.path,
+              },
+            ],
+            sourceBinding: {
+              kind: 'kanban',
+              fileId: source.fileId,
+              cardId: card.id,
+              path: source.path,
+              sourceRevision: Math.max(0, Math.trunc(source.sourceRevision)),
+            },
+            start: dateValue(card.startDate),
+            due: dateValue(card.dueDate),
+            recurrence: recurrenceFromKanban(card.recurrence),
+            priority: card.priority,
+            status: card.isDone ? 'completed' : 'needs-action',
+            completedAt: card.isDone ? timestamp(card.completedAt, now) : undefined,
+            revision: Math.max(0, Math.trunc(source.sourceRevision)),
+            createdAt: timestamp(card.createdAt, now),
+            updatedAt: now,
+          }) as CalendarTask,
+        ];
+      }),
+    );
   });
   return { calendar, items };
 }
@@ -194,7 +207,7 @@ export function applyCalendarPatchToKanban(
         startDate: patch.startDate,
         dueDate: patch.dueDate,
         isDone: patch.completed,
-        completedAt: patch.completed ? card.completedAt ?? Date.now() : null,
+        completedAt: patch.completed ? (card.completedAt ?? Date.now()) : null,
         recurrence: patch.recurrence ?? null,
       };
     }),
@@ -226,11 +239,16 @@ export async function writeThroughKanbanCalendarTask(
       throw new Error('Open the source vault before editing this Kanban task.');
     }
     const client = createVaultClient(activeVault);
-    const source = (await client.listFiles()).flatMap(function flatten(file): typeof file[] {
-      return [file, ...(file.children ?? []).flatMap(flatten)];
-    }).find((file) => file.relativePath === binding.path);
+    const source = (await client.listFiles())
+      .flatMap(function flatten(file): (typeof file)[] {
+        return [file, ...(file.children ?? []).flatMap(flatten)];
+      })
+      .find((file) => file.relativePath === binding.path);
     if (!source || source.isFolder) throw new Error('The linked Kanban board is unavailable.');
-    if (binding.sourceRevision != null && Math.trunc(source.modifiedAt) !== binding.sourceRevision) {
+    if (
+      binding.sourceRevision != null &&
+      Math.trunc(source.modifiedAt) !== binding.sourceRevision
+    ) {
       throw new Error('The Kanban task changed. Refresh Calendar before editing it.');
     }
     const document = await client.readDocument(binding.path);
@@ -248,7 +266,8 @@ export async function writeThroughKanbanCalendarTask(
     start: edited.start,
     due: edited.due,
     status: edited.status === 'completed' ? 'completed' : 'needs-action',
-    completedAt: edited.status === 'completed' ? edited.completedAt ?? new Date().toISOString() : undefined,
+    completedAt:
+      edited.status === 'completed' ? (edited.completedAt ?? new Date().toISOString()) : undefined,
     recurrence: edited.recurrence,
     revision: original.revision + 1,
     updatedAt: new Date().toISOString(),

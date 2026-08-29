@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { NoteFile } from '../../types/vault';
+
 import {
   detectMode,
   flattenFiles,

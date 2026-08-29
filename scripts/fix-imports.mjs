@@ -17,7 +17,6 @@
  * aliases they ship with. Rewriting them would be undone by the next
  * regeneration, and the Android bundle does not import them.
  */
-
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -2,6 +2,7 @@ import { SHEET_DEFAULTS } from '../../types/sheet';
 import type { SheetDocument, SheetStyle, SheetWorksheet } from '../../types/sheet';
 import type { SheetFormulaValueMap } from '../../types/sheetFormula';
 import { sheetFormulaResultKey } from '../../types/sheetFormula';
+
 import { columnLabel } from './address';
 import { formatCellDisplay, type SheetDisplayFormatOptions } from './cellValue';
 import { getCell } from './operations';
@@ -63,8 +64,13 @@ function mergedRectangle(
       left: Math.min(left, right),
       right: Math.max(left, right),
     };
-    if (row >= rectangle.top && row <= rectangle.bottom
-      && column >= rectangle.left && column <= rectangle.right) return rectangle;
+    if (
+      row >= rectangle.top &&
+      row <= rectangle.bottom &&
+      column >= rectangle.left &&
+      column <= rectangle.right
+    )
+      return rectangle;
   }
   return null;
 }
@@ -83,13 +89,14 @@ function layoutCells(worksheet: SheetWorksheet, rectangle: SheetRectangle) {
     for (let column = rectangle.left; column <= rectangle.right; column += 1) {
       const merge = mergedRectangle(worksheet, row, column);
       if (merge && (row !== merge.top || column !== merge.left)) continue;
-      const boundedMerge = merge
-        && merge.top >= rectangle.top
-        && merge.left >= rectangle.left
-        && merge.bottom <= rectangle.bottom
-        && merge.right <= rectangle.right
-        ? merge
-        : null;
+      const boundedMerge =
+        merge &&
+        merge.top >= rectangle.top &&
+        merge.left >= rectangle.left &&
+        merge.bottom <= rectangle.bottom &&
+        merge.right <= rectangle.right
+          ? merge
+          : null;
       const bottom = boundedMerge?.bottom ?? row;
       const right = boundedMerge?.right ?? column;
       const localRow = row - rectangle.top;
@@ -121,15 +128,11 @@ function cellText(
 ): string {
   const rowId = worksheet.rowOrder[position.row];
   const columnId = worksheet.columnOrder[position.column];
-  const computed = rowId && columnId
-    ? options.computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
-    : undefined;
-  return formatCellDisplay(
-    getCell(worksheet, position),
-    computed,
-    style,
-    options.displayFormat,
-  );
+  const computed =
+    rowId && columnId
+      ? options.computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
+      : undefined;
+  return formatCellDisplay(getCell(worksheet, position), computed, style, options.displayFormat);
 }
 
 function textAnchor(style: SheetStyle): 'start' | 'middle' | 'end' {
@@ -148,23 +151,27 @@ export function buildSheetRangeSvg(
   const rectangle = exportRectangle(selection);
   const layout = layoutCells(worksheet, rectangle);
   const headerHeight = options.title ? 34 : 0;
-  const body = layout.cells.map((cell, index) => {
-    const position = { row: cell.row, column: cell.column };
-    const style = resolveCellStyle(document.styles, worksheet, position);
-    const value = cellText(worksheet, position, style, options);
-    const anchor = textAnchor(style);
-    const indent = Math.max(0, Math.min(20, style.indent ?? 0)) * 8;
-    const textX = anchor === 'end'
-      ? cell.x + cell.width - 6 - indent
-      : anchor === 'middle'
-        ? cell.x + cell.width / 2
-        : cell.x + 6 + indent;
-    const fontSize = Math.max(8, Math.min(72, style.fontSize ?? 13));
-    const maxCharacters = Math.max(1, Math.floor((cell.width - 12) / (fontSize * 0.55)));
-    const clipped = value.length > maxCharacters ? `${value.slice(0, Math.max(1, maxCharacters - 1))}…` : value;
-    const cellValue = getCell(worksheet, position);
-    return `<g><rect x="${cell.x}" y="${cell.y + headerHeight}" width="${cell.width}" height="${cell.height}" fill="${escapeXml(style.backgroundColor ?? '#ffffff')}" stroke="#cbd5e1"/><clipPath id="cell-${index}"><rect x="${cell.x + 2}" y="${cell.y + headerHeight + 2}" width="${Math.max(0, cell.width - 4)}" height="${Math.max(0, cell.height - 4)}"/></clipPath><text x="${textX}" y="${cell.y + headerHeight + cell.height / 2}" text-anchor="${anchor}" dominant-baseline="middle" clip-path="url(#cell-${index})" fill="${escapeXml(style.color ?? '#111827')}" font-family="${escapeXml(style.fontFamily ?? 'system-ui, sans-serif')}" font-size="${fontSize}" font-weight="${style.bold ? 700 : 400}" font-style="${style.italic ? 'italic' : 'normal'}" text-decoration="${[style.underline && 'underline', style.strikethrough && 'line-through'].filter(Boolean).join(' ')}">${escapeXml(clipped)}</text>${cellValue?.note ? `<path d="M ${cell.x + cell.width - 8} ${cell.y + headerHeight + 1} H ${cell.x + cell.width - 1} V ${cell.y + headerHeight + 8} Z" fill="#f59e0b"/>` : ''}</g>`;
-  }).join('');
+  const body = layout.cells
+    .map((cell, index) => {
+      const position = { row: cell.row, column: cell.column };
+      const style = resolveCellStyle(document.styles, worksheet, position);
+      const value = cellText(worksheet, position, style, options);
+      const anchor = textAnchor(style);
+      const indent = Math.max(0, Math.min(20, style.indent ?? 0)) * 8;
+      const textX =
+        anchor === 'end'
+          ? cell.x + cell.width - 6 - indent
+          : anchor === 'middle'
+            ? cell.x + cell.width / 2
+            : cell.x + 6 + indent;
+      const fontSize = Math.max(8, Math.min(72, style.fontSize ?? 13));
+      const maxCharacters = Math.max(1, Math.floor((cell.width - 12) / (fontSize * 0.55)));
+      const clipped =
+        value.length > maxCharacters ? `${value.slice(0, Math.max(1, maxCharacters - 1))}…` : value;
+      const cellValue = getCell(worksheet, position);
+      return `<g><rect x="${cell.x}" y="${cell.y + headerHeight}" width="${cell.width}" height="${cell.height}" fill="${escapeXml(style.backgroundColor ?? '#ffffff')}" stroke="#cbd5e1"/><clipPath id="cell-${index}"><rect x="${cell.x + 2}" y="${cell.y + headerHeight + 2}" width="${Math.max(0, cell.width - 4)}" height="${Math.max(0, cell.height - 4)}"/></clipPath><text x="${textX}" y="${cell.y + headerHeight + cell.height / 2}" text-anchor="${anchor}" dominant-baseline="middle" clip-path="url(#cell-${index})" fill="${escapeXml(style.color ?? '#111827')}" font-family="${escapeXml(style.fontFamily ?? 'system-ui, sans-serif')}" font-size="${fontSize}" font-weight="${style.bold ? 700 : 400}" font-style="${style.italic ? 'italic' : 'normal'}" text-decoration="${[style.underline && 'underline', style.strikethrough && 'line-through'].filter(Boolean).join(' ')}">${escapeXml(clipped)}</text>${cellValue?.note ? `<path d="M ${cell.x + cell.width - 8} ${cell.y + headerHeight + 1} H ${cell.x + cell.width - 1} V ${cell.y + headerHeight + 8} Z" fill="#f59e0b"/>` : ''}</g>`;
+    })
+    .join('');
   const title = options.title
     ? `<rect width="${layout.width}" height="${headerHeight}" fill="#f8fafc"/><text x="8" y="21" font-family="system-ui,sans-serif" font-size="14" font-weight="600" fill="#111827">${escapeXml(options.title)}</text>`
     : '';
@@ -185,7 +192,9 @@ function htmlStyle(style: SheetStyle): string {
     `vertical-align:${style.verticalAlign ?? 'middle'}`,
     style.wrap ? 'white-space:normal' : 'white-space:nowrap',
     `padding-left:${6 + Math.max(0, Math.min(20, style.indent ?? 0)) * 8}px`,
-  ].filter(Boolean).join(';');
+  ]
+    .filter(Boolean)
+    .join(';');
 }
 
 /** Builds a complete print document for an iframe without exposing app chrome. */
@@ -205,11 +214,13 @@ export function buildSheetRangePrintHtml(
   }
   const rows: string[] = [];
   for (let row = rectangle.top; row <= rectangle.bottom; row += 1) {
-    const cells = (byRow.get(row) ?? []).map((cell) => {
-      const position = { row: cell.row, column: cell.column };
-      const style = resolveCellStyle(document.styles, worksheet, position);
-      return `<td${cell.rowSpan > 1 ? ` rowspan="${cell.rowSpan}"` : ''}${cell.columnSpan > 1 ? ` colspan="${cell.columnSpan}"` : ''} style="${escapeXml(htmlStyle(style))}">${escapeXml(cellText(worksheet, position, style, options))}</td>`;
-    }).join('');
+    const cells = (byRow.get(row) ?? [])
+      .map((cell) => {
+        const position = { row: cell.row, column: cell.column };
+        const style = resolveCellStyle(document.styles, worksheet, position);
+        return `<td${cell.rowSpan > 1 ? ` rowspan="${cell.rowSpan}"` : ''}${cell.columnSpan > 1 ? ` colspan="${cell.columnSpan}"` : ''} style="${escapeXml(htmlStyle(style))}">${escapeXml(cellText(worksheet, position, style, options))}</td>`;
+      })
+      .join('');
     rows.push(`<tr style="height:${rowHeight(worksheet, row)}px">${cells}</tr>`);
   }
   const columns = Array.from(
@@ -236,9 +247,10 @@ export async function sheetSvgToPngBase64(svg: string): Promise<string> {
     if (!context) throw new Error('Canvas export is not available in this runtime.');
     context.drawImage(image, 0, 0);
     const blob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((result) => (
-        result ? resolve(result) : reject(new Error('PNG encoding failed.'))
-      ), 'image/png');
+      canvas.toBlob(
+        (result) => (result ? resolve(result) : reject(new Error('PNG encoding failed.'))),
+        'image/png',
+      );
     });
     const bytes = new Uint8Array(await blob.arrayBuffer());
     let binary = '';

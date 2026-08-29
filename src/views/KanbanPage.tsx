@@ -1,32 +1,51 @@
-import { useEffect, useCallback, useMemo, useRef, useState, createContext, useContext } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+
 import { listen } from '@tauri-apps/api/event';
 import { LayoutDashboard, Loader2 } from 'lucide-react';
-import { createVaultClient } from '../lib/vaultClient';
-import { useVaultStore } from '../store/vaultStore';
-import { useCollabStore } from '../store/collabStore';
-import { useCollabIdentity } from '../lib/collabIdentity';
-import { normalizeKanbanBoard, runKanbanAutomations, type KanbanBoard } from '../types/kanban';
-import { isVaultReadOnly, vaultCan, type KnownUser } from '../types/vault';
+
+import { useCollabContext } from '../components/collaboration/CollabProvider';
 import KanbanBoardView from '../components/kanban/KanbanBoard';
 import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
-import { useEditorStore } from '../store/editorStore';
+import { useCollabIdentity } from '../lib/collabIdentity';
+import { saveConflictedCopy } from '../lib/conflictedCopy';
 import { DOCUMENT_SNAPSHOT_INTERVAL_MS } from '../lib/documentSession';
 import {
   compareDocumentVersions,
-  useDocumentSessionController,
   type DocumentSessionController,
   type DocumentSessionSnapshot,
   type DocumentStatus,
   type RemoteCandidate,
+  useDocumentSessionController,
 } from '../lib/documentSessionController';
-import { saveConflictedCopy } from '../lib/conflictedCopy';
-import { openLiveJsonSession, type LiveJsonSession, type JsonObject } from '../lib/liveJsonDocument';
-import { onReplicaMutated, replicaMutationAffectsPath } from '../lib/vaultReplica';
-import { useCollabContext } from '../components/collaboration/CollabProvider';
-import { buildKanbanCardEditors, useLivePeers, type LivePeer, type LiveAwarenessUser } from '../lib/liveAwareness';
-import { useKanbanStore } from '../store/kanbanStore';
-import { useDocumentStatusRegistration } from '../store/documentStatusStore';
+import {
+  buildKanbanCardEditors,
+  type LiveAwarenessUser,
+  type LivePeer,
+  useLivePeers,
+} from '../lib/liveAwareness';
+import {
+  type JsonObject,
+  type LiveJsonSession,
+  openLiveJsonSession,
+} from '../lib/liveJsonDocument';
 import { useLiveDocumentStatus } from '../lib/useLiveDocumentStatus';
+import { createVaultClient } from '../lib/vaultClient';
+import { onReplicaMutated, replicaMutationAffectsPath } from '../lib/vaultReplica';
+import { useCollabStore } from '../store/collabStore';
+import { useDocumentStatusRegistration } from '../store/documentStatusStore';
+import { useEditorStore } from '../store/editorStore';
+import { useKanbanStore } from '../store/kanbanStore';
+import { useVaultStore } from '../store/vaultStore';
+import { type KanbanBoard, normalizeKanbanBoard, runKanbanAutomations } from '../types/kanban';
+import { isVaultReadOnly, type KnownUser, vaultCan } from '../types/vault';
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
@@ -93,9 +112,9 @@ export function useKanbanContext(): KanbanCtx {
 function makeDefaultBoard(): KanbanBoard {
   return normalizeKanbanBoard({
     columns: [
-      { id: crypto.randomUUID(), title: 'To Do',       cards: [] },
+      { id: crypto.randomUUID(), title: 'To Do', cards: [] },
       { id: crypto.randomUUID(), title: 'In Progress', cards: [] },
-      { id: crypto.randomUUID(), title: 'Done',        cards: [] },
+      { id: crypto.randomUUID(), title: 'Done', cards: [] },
     ],
   });
 }
@@ -129,7 +148,8 @@ function parseBoardContent(content: string): KanbanBoard {
 export default function KanbanPage({ relativePath }: { relativePath: string | null }) {
   const { vault } = useVaultStore();
   const client = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
-  const liveVaultKey = vault?.kind === 'hosted' ? `${vault.serverUrl}::${vault.hostedVaultId}` : null;
+  const liveVaultKey =
+    vault?.kind === 'hosted' ? `${vault.serverUrl}::${vault.hostedVaultId}` : null;
   const liveClient = useMemo(
     () => (vault?.kind === 'hosted' ? createVaultClient(vault) : null),
     [liveVaultKey],
@@ -139,21 +159,24 @@ export default function KanbanPage({ relativePath }: { relativePath: string | nu
   // hold all. Hosted writes also require baseline file.write, which the viewer
   // role already reflects, so an editor-or-better resolves these from their
   // effective kanban capabilities.
-  const caps = useMemo<KanbanCapabilities>(() => ({
-    addCard: vaultCan(vault, 'kanban.card.create'),
-    editContent: vaultCan(vault, 'kanban.card.editContent'),
-    move: vaultCan(vault, 'kanban.card.move'),
-    comment: vaultCan(vault, 'kanban.card.comment'),
-    archive: vaultCan(vault, 'kanban.card.archive'),
-    deleteCard: vaultCan(vault, 'kanban.card.delete'),
-    columnManage: vaultCan(vault, 'kanban.column.manage'),
-  }), [vault]);
+  const caps = useMemo<KanbanCapabilities>(
+    () => ({
+      addCard: vaultCan(vault, 'kanban.card.create'),
+      editContent: vaultCan(vault, 'kanban.card.editContent'),
+      move: vaultCan(vault, 'kanban.card.move'),
+      comment: vaultCan(vault, 'kanban.card.comment'),
+      archive: vaultCan(vault, 'kanban.card.archive'),
+      deleteCard: vaultCan(vault, 'kanban.card.delete'),
+      columnManage: vaultCan(vault, 'kanban.column.manage'),
+    }),
+    [vault],
+  );
   const { markDirty, markSaved, setSavedHash } = useEditorStore();
   const { peers } = useCollabStore();
   // Snapshot authorship follows the effective identity (server-authoritative for hosted).
   const { userId: myUserId, userName: myUserName, userColor: myUserColor } = useCollabIdentity();
   const collabTransport = useCollabContext();
-  const [board, setBoard]           = useState<KanbanBoard>({ columns: [] });
+  const [board, setBoard] = useState<KanbanBoard>({ columns: [] });
   const [knownUsers, setKnownUsers] = useState<KnownUser[]>([]);
   // Live co-editing session for hosted boards; null = REST optimistic-write path.
   const [liveSession, setLiveSession] = useState<LiveJsonSession | null>(null);
@@ -164,7 +187,7 @@ export default function KanbanPage({ relativePath }: { relativePath: string | nu
   // the freshest state (including just-applied remote changes).
   const boardRef = useRef(board);
   boardRef.current = board;
-  const isMountedRef    = useRef(true);
+  const isMountedRef = useRef(true);
   const refreshPulseTimerRef = useRef<number | null>(null);
 
   // Periodic collaboration snapshot throttle (successful REST saves only).
@@ -188,13 +211,16 @@ export default function KanbanPage({ relativePath }: { relativePath: string | nu
 
   // Adopt a controller document (initial load, safe remote apply, or backend
   // merge) into the board, applying open-time automations for display.
-  const applyBoard = useCallback((candidate: RemoteCandidate<KanbanBoard>) => {
-    if (!isMountedRef.current) return;
-    const next = displayBoard(candidate.document);
-    boardRef.current = next;
-    setBoard(next);
-    if (relativePath) setSavedHash(relativePath, candidate.version ?? '');
-  }, [relativePath, setSavedHash]);
+  const applyBoard = useCallback(
+    (candidate: RemoteCandidate<KanbanBoard>) => {
+      if (!isMountedRef.current) return;
+      const next = displayBoard(candidate.document);
+      boardRef.current = next;
+      setBoard(next);
+      if (relativePath) setSavedHash(relativePath, candidate.version ?? '');
+    },
+    [relativePath, setSavedHash],
+  );
 
   const { controller, snapshot } = useDocumentSessionController<KanbanBoard>({
     serialize: serializeBoardRaw,
@@ -214,7 +240,12 @@ export default function KanbanPage({ relativePath }: { relativePath: string | nu
       // Apply save-time automations before persisting (matches the legacy path).
       const automated = runKanbanAutomations(parseBoardContent(content), 'onBoardSave');
       const automatedContent = JSON.stringify(automated, null, 2);
-      const result = await client.writeDocument(relativePath, automatedContent, expectedVersion ?? undefined, baseContent);
+      const result = await client.writeDocument(
+        relativePath,
+        automatedContent,
+        expectedVersion ?? undefined,
+        baseContent,
+      );
       if (result.conflict) {
         let theirVersion: string | null = null;
         try {
@@ -225,7 +256,9 @@ export default function KanbanPage({ relativePath }: { relativePath: string | nu
         return {
           version: expectedVersion ?? '',
           conflict: {
-            theirContent: serializeBoardRaw(displayBoard(parseBoardContent(result.conflict.theirContent))),
+            theirContent: serializeBoardRaw(
+              displayBoard(parseBoardContent(result.conflict.theirContent)),
+            ),
             baseContent,
             theirVersion,
           },
@@ -245,46 +278,56 @@ export default function KanbanPage({ relativePath }: { relativePath: string | nu
     autosaveDebounceMs: 600,
   });
 
-  const updateBoard = useCallback((updater: (b: KanbanBoard) => KanbanBoard) => {
-    // Viewers cannot modify the board; drop every mutation so no write is attempted.
-    if (readOnly) return;
-    // Derive from the latest board (which includes remote merges) and avoid
-    // mutating inside a setState updater so a double-invoked updater cannot apply
-    // the edit twice.
-    const next = updater(boardRef.current);
-    if (next === boardRef.current) return;
-    boardRef.current = next;
-    setBoard(next);
-    if (liveSessionRef.current) {
-      // Live session: apply the edit to the shared CRDT structure; the server persists.
-      liveSessionRef.current.writeJson(boardToJson(next));
-    } else {
-      // REST fallback: the controller debounces the autosave and serializes writes.
-      controller.markLocalChange(next);
-    }
-  }, [controller, readOnly]);
-
-  const loadBoard = useCallback(async (isInitial = false): Promise<void> => {
-    if (!client || !relativePath) return;
-    if (isInitial) setIsLoadingBoard(true);
-    try {
-      const { content, version } = await client.readDocument(relativePath);
-      if (!isMountedRef.current || liveSessionRef.current) return;
-      if (content.trim()) {
-        const displayed = displayBoard(normalizeKanbanBoard(JSON.parse(content) as KanbanBoard));
-        controller.load(serializeBoardRaw(displayed), version, 'rest');
-      } else if (isInitial && !readOnly) {
-        const def = makeDefaultBoard();
-        const result = await client.writeDocument(relativePath, JSON.stringify(def, null, 2), undefined);
-        if (!isMountedRef.current) return;
-        controller.load(serializeBoardRaw(displayBoard(def)), result.version, 'rest');
+  const updateBoard = useCallback(
+    (updater: (b: KanbanBoard) => KanbanBoard) => {
+      // Viewers cannot modify the board; drop every mutation so no write is attempted.
+      if (readOnly) return;
+      // Derive from the latest board (which includes remote merges) and avoid
+      // mutating inside a setState updater so a double-invoked updater cannot apply
+      // the edit twice.
+      const next = updater(boardRef.current);
+      if (next === boardRef.current) return;
+      boardRef.current = next;
+      setBoard(next);
+      if (liveSessionRef.current) {
+        // Live session: apply the edit to the shared CRDT structure; the server persists.
+        liveSessionRef.current.writeJson(boardToJson(next));
+      } else {
+        // REST fallback: the controller debounces the autosave and serializes writes.
+        controller.markLocalChange(next);
       }
-    } catch {
-      // Best-effort; the current board state remains usable.
-    } finally {
-      if (isMountedRef.current && !liveSessionRef.current) setIsLoadingBoard(false);
-    }
-  }, [client, controller, readOnly, relativePath]);
+    },
+    [controller, readOnly],
+  );
+
+  const loadBoard = useCallback(
+    async (isInitial = false): Promise<void> => {
+      if (!client || !relativePath) return;
+      if (isInitial) setIsLoadingBoard(true);
+      try {
+        const { content, version } = await client.readDocument(relativePath);
+        if (!isMountedRef.current || liveSessionRef.current) return;
+        if (content.trim()) {
+          const displayed = displayBoard(normalizeKanbanBoard(JSON.parse(content) as KanbanBoard));
+          controller.load(serializeBoardRaw(displayed), version, 'rest');
+        } else if (isInitial && !readOnly) {
+          const def = makeDefaultBoard();
+          const result = await client.writeDocument(
+            relativePath,
+            JSON.stringify(def, null, 2),
+            undefined,
+          );
+          if (!isMountedRef.current) return;
+          controller.load(serializeBoardRaw(displayBoard(def)), result.version, 'rest');
+        }
+      } catch {
+        // Best-effort; the current board state remains usable.
+      } finally {
+        if (isMountedRef.current && !liveSessionRef.current) setIsLoadingBoard(false);
+      }
+    },
+    [client, controller, readOnly, relativePath],
+  );
 
   useEffect(() => {
     loadBoard(true);
@@ -305,18 +348,24 @@ export default function KanbanPage({ relativePath }: { relativePath: string | nu
     refreshPulseTimerRef.current = window.setTimeout(() => setRefreshPulse(false), 420);
   }, []);
 
-  const onSaveAsNew = useCallback(async (localContent: string) => {
-    if (!client || !relativePath) return;
-    await saveConflictedCopy(client, relativePath, localContent);
-  }, [client, relativePath]);
+  const onSaveAsNew = useCallback(
+    async (localContent: string) => {
+      if (!client || !relativePath) return;
+      await saveConflictedCopy(client, relativePath, localContent);
+    },
+    [client, relativePath],
+  );
 
-  const documentStatus = useMemo(() => ({
-    status: snapshot.status,
-    controller: controller as DocumentSessionController<unknown>,
-    snapshot: snapshot as DocumentSessionSnapshot<unknown>,
-    onSaveAsNew,
-    readOnly,
-  }), [controller, onSaveAsNew, readOnly, snapshot]);
+  const documentStatus = useMemo(
+    () => ({
+      status: snapshot.status,
+      controller: controller as DocumentSessionController<unknown>,
+      snapshot: snapshot as DocumentSessionSnapshot<unknown>,
+      onSaveAsNew,
+      readOnly,
+    }),
+    [controller, onSaveAsNew, readOnly, snapshot],
+  );
   useDocumentStatusRegistration(relativePath, documentStatus);
 
   // Open a live co-editing session for hosted boards; fall back to REST when
@@ -339,7 +388,10 @@ export default function KanbanPage({ relativePath }: { relativePath: string | nu
         opened = session;
         const initial = session.readJson();
         if (initial && Object.keys(initial).length > 0) {
-          const next = runKanbanAutomations(normalizeKanbanBoard(initial as unknown as KanbanBoard), 'onBoardOpen');
+          const next = runKanbanAutomations(
+            normalizeKanbanBoard(initial as unknown as KanbanBoard),
+            'onBoardOpen',
+          );
           boardRef.current = next;
           setBoard(next);
         } else {
@@ -353,7 +405,10 @@ export default function KanbanPage({ relativePath }: { relativePath: string | nu
         }
         off = session.onChange((json) => {
           if (cancelled) return;
-          const next = runKanbanAutomations(normalizeKanbanBoard(json as unknown as KanbanBoard), 'onBoardOpen');
+          const next = runKanbanAutomations(
+            normalizeKanbanBoard(json as unknown as KanbanBoard),
+            'onBoardOpen',
+          );
           boardRef.current = next;
           setBoard(next);
         });
@@ -411,27 +466,37 @@ export default function KanbanPage({ relativePath }: { relativePath: string | nu
       void controller.handleExternalMutation('rest').then((decision) => {
         if (decision === 'applied') pulseRefresh();
       });
-    }).then(u => { unsub = u; });
-    return () => { unsub?.(); };
+    }).then((u) => {
+      unsub = u;
+    });
+    return () => {
+      unsub?.();
+    };
   }, [client, controller, pulseRefresh, relativePath]);
 
   // Hosted replica refresh: route through the same safe remote policy.
   useEffect(() => {
     if (!client || client.kind !== 'hosted' || !relativePath) return;
-    return onReplicaMutated((event) => {
-      if (!replicaMutationAffectsPath(event, relativePath)) return;
-      void controller.handleExternalMutation('cache').then((decision) => {
-        if (decision === 'applied') pulseRefresh();
-      });
-    }, { kinds: ['manifest'] });
+    return onReplicaMutated(
+      (event) => {
+        if (!replicaMutationAffectsPath(event, relativePath)) return;
+        void controller.handleExternalMutation('cache').then((decision) => {
+          if (decision === 'applied') pulseRefresh();
+        });
+      },
+      { kinds: ['manifest'] },
+    );
   }, [client, controller, pulseRefresh, relativePath]);
 
   // ── Known users (for assignee picker) ────────────────────────────────────
 
   useEffect(() => {
     if (!vault || !collabTransport) return;
-    collabTransport.readVaultConfig()
-      .then(config => { if (isMountedRef.current) setKnownUsers(config.knownUsers ?? []); })
+    collabTransport
+      .readVaultConfig()
+      .then((config) => {
+        if (isMountedRef.current) setKnownUsers(config.knownUsers ?? []);
+      })
       .catch(() => {});
   }, [collabTransport, vault?.path, peers.length]);
 
@@ -459,8 +524,22 @@ export default function KanbanPage({ relativePath }: { relativePath: string | nu
   }
 
   return (
-    <KanbanContext.Provider value={{ board, updateBoard, knownUsers, relativePath, readOnly, caps, livePeers, remoteCardEditors, sessionStatus: snapshot.status }}>
-      <div className={`h-full min-h-0 app-document-ready ${refreshPulse ? 'app-refresh-pulse' : ''}`}>
+    <KanbanContext.Provider
+      value={{
+        board,
+        updateBoard,
+        knownUsers,
+        relativePath,
+        readOnly,
+        caps,
+        livePeers,
+        remoteCardEditors,
+        sessionStatus: snapshot.status,
+      }}
+    >
+      <div
+        className={`h-full min-h-0 app-document-ready ${refreshPulse ? 'app-refresh-pulse' : ''}`}
+      >
         {readOnly && <ReadOnlyBanner />}
         <KanbanBoardView />
       </div>

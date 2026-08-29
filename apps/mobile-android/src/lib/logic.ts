@@ -1,6 +1,5 @@
 import type { LogicDiagramDocument } from '../../../../src/types/logicDiagram';
 import { parseLogicDiagramDocument } from '../../../../src/types/logicDiagram';
-import { fileEntryExtension } from './format';
 import {
   type HostedFileEntry,
   type HostedTextDocument,
@@ -10,6 +9,8 @@ import {
   writeHostedDocument,
 } from '../mobileTauri';
 
+import { fileEntryExtension } from './format';
+
 export type { LogicDiagramDocument };
 
 export function isLogicFile(file: HostedFileEntry): boolean {
@@ -18,7 +19,8 @@ export function isLogicFile(file: HostedFileEntry): boolean {
 }
 
 export function parseLogicContent(content: string): LogicDiagramDocument {
-  if (!content.trim()) return parseLogicDiagramDocument('{"kind":"logic-diagram","nodes":[],"wires":[]}');
+  if (!content.trim())
+    return parseLogicDiagramDocument('{"kind":"logic-diagram","nodes":[],"wires":[]}');
   return parseLogicDiagramDocument(content);
 }
 

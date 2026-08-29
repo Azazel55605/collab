@@ -1,5 +1,14 @@
-import { Check, ChevronRight, Cloud, CloudDownload, CloudOff, Library, RefreshCw } from 'lucide-react';
 import { useMemo, useState } from 'react';
+
+import {
+  Check,
+  ChevronRight,
+  Cloud,
+  CloudDownload,
+  CloudOff,
+  Library,
+  RefreshCw,
+} from 'lucide-react';
 
 import { SyncActivityBanner } from '../components/SyncActivityBanner';
 import {

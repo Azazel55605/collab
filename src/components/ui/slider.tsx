@@ -1,12 +1,10 @@
 import * as React from 'react';
+
 import { Slider as SliderPrimitive } from 'radix-ui';
 
 import { cn } from '@/lib/utils';
 
-function Slider({
-  className,
-  ...props
-}: React.ComponentProps<typeof SliderPrimitive.Root>) {
+function Slider({ className, ...props }: React.ComponentProps<typeof SliderPrimitive.Root>) {
   return (
     <SliderPrimitive.Root
       data-slot="slider"

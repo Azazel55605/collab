@@ -16,42 +16,33 @@
  * Defensive design: any exception inside buildDecorations is caught and
  * returns an empty set — the editor never crashes due to this plugin.
  */
+import * as React from 'react';
 
-import {
-  Decoration,
-  DecorationSet,
-  EditorView,
-  WidgetType,
-} from '@codemirror/view';
-import { StateField, RangeSetBuilder, EditorState } from '@codemirror/state';
+import { createRoot, type Root } from 'react-dom/client';
+
 import { LanguageDescription } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
-import {
-  isMermaidLanguage,
-  renderMermaidInto,
-  type MermaidRenderJob,
-} from '../../lib/mermaidRenderer';
+import { EditorState, RangeSetBuilder, StateField } from '@codemirror/state';
+import { Decoration, DecorationSet, EditorView, WidgetType } from '@codemirror/view';
 import { classHighlighter, highlightCode } from '@lezer/highlight';
+import DOMPurify from 'dompurify';
+import katex from 'katex';
 import MarkdownIt from 'markdown-it';
 // @ts-ignore – no bundled types
-import texmath from 'markdown-it-texmath';
+import mark from 'markdown-it-mark';
 // @ts-ignore – no bundled types
 import sub from 'markdown-it-sub';
 // @ts-ignore – no bundled types
 import sup from 'markdown-it-sup';
 // @ts-ignore – no bundled types
-import mark from 'markdown-it-mark';
-import DOMPurify from 'dompurify';
-import * as React from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import katex from 'katex';
+import texmath from 'markdown-it-texmath';
 import {
   siC,
   siCplusplus,
   siCss,
   siDotnet,
-  siGo,
   siGnubash,
+  siGo,
   siHtml5,
   siJavascript,
   siJson,
@@ -67,16 +58,31 @@ import {
   siTypescript,
   siYaml,
 } from 'simple-icons';
-import { Checkbox } from '../ui/checkbox';
-import { resolveNoteAssetTarget, isLikelyImagePath, type NoteAssetTarget } from '../../lib/noteAssets';
-import { useVaultStore } from '../../store/vaultStore';
+
+import {
+  isMermaidLanguage,
+  type MermaidRenderJob,
+  renderMermaidInto,
+} from '../../lib/mermaidRenderer';
+import {
+  isLikelyImagePath,
+  type NoteAssetTarget,
+  resolveNoteAssetTarget,
+} from '../../lib/noteAssets';
 import { createVaultClient } from '../../lib/vaultClient';
+import { useVaultStore } from '../../store/vaultStore';
+import { Checkbox } from '../ui/checkbox';
+
 import { MathPlot2D } from './MathPlot2D';
 import { MathPlot3D } from './MathPlot3D';
 import { openMathPlotModal } from './MathPlotModal';
 import { parseMathPlots } from './mathPlotSpec';
 
-export function buildTaskCheckboxToggleChange(markerFrom: number, markerTo: number, checked: boolean) {
+export function buildTaskCheckboxToggleChange(
+  markerFrom: number,
+  markerTo: number,
+  checked: boolean,
+) {
   return {
     changes: {
       from: markerFrom,
@@ -142,9 +148,16 @@ function createInlineTableCellFragment(value: string) {
 // ─── Widgets ──────────────────────────────────────────────────────────────────
 
 class MathWidget extends WidgetType {
-  constructor(readonly src: string, readonly display: boolean) { super(); }
+  constructor(
+    readonly src: string,
+    readonly display: boolean,
+  ) {
+    super();
+  }
 
-  eq(o: MathWidget) { return o.src === this.src && o.display === this.display; }
+  eq(o: MathWidget) {
+    return o.src === this.src && o.display === this.display;
+  }
 
   toDOM() {
     const el = document.createElement(this.display ? 'div' : 'span');
@@ -183,30 +196,43 @@ class MathWidget extends WidgetType {
 }
 
 function MathPlotPreviewStack({ parsed }: { parsed: ReturnType<typeof parseMathPlots> }) {
-  return (
-    React.createElement('div', { className: 'mt-3 space-y-3 text-left' },
-      ...parsed.errors.map((error, index) => React.createElement(
+  return React.createElement(
+    'div',
+    { className: 'mt-3 space-y-3 text-left' },
+    ...parsed.errors.map((error, index) =>
+      React.createElement(
         'div',
         {
           key: `error-${index}`,
-          className: 'rounded-md border border-destructive/35 bg-destructive/8 px-3 py-2 text-xs text-destructive',
+          className:
+            'rounded-md border border-destructive/35 bg-destructive/8 px-3 py-2 text-xs text-destructive',
         },
         error,
-      )),
-      ...parsed.plots.map((plot, index) => (
-        plot.kind === '2d'
-          ? React.createElement(MathPlot2D, { key: `plot-${index}`, spec: plot, onShiftClick: () => openMathPlotModal(plot) })
-          : React.createElement(MathPlot3D, { key: `plot-${index}`, spec: plot, onShiftClick: () => openMathPlotModal(plot) })
-      )),
-    )
+      ),
+    ),
+    ...parsed.plots.map((plot, index) =>
+      plot.kind === '2d'
+        ? React.createElement(MathPlot2D, {
+            key: `plot-${index}`,
+            spec: plot,
+            onShiftClick: () => openMathPlotModal(plot),
+          })
+        : React.createElement(MathPlot3D, {
+            key: `plot-${index}`,
+            spec: plot,
+            onShiftClick: () => openMathPlotModal(plot),
+          }),
+    ),
   );
 }
 
 function getCodeLanguageIcon(language: string) {
   const key = language.trim().toLowerCase();
 
-  if (['javascript', 'js', 'jsx'].includes(key)) return { kind: 'svg' as const, icon: siJavascript };
-  if (['typescript', 'ts', 'tsx'].includes(key)) return { kind: 'svg' as const, icon: siTypescript };
+  if (['javascript', 'js', 'jsx'].includes(key))
+    return { kind: 'svg' as const, icon: siJavascript };
+  if (['typescript', 'ts', 'tsx'].includes(key))
+    return { kind: 'svg' as const, icon: siTypescript };
   if (['php'].includes(key)) return { kind: 'svg' as const, icon: siPhp };
   if (['sql'].includes(key)) return { kind: 'text' as const, label: 'SQL' };
   if (['json'].includes(key)) return { kind: 'svg' as const, icon: siJson };
@@ -227,7 +253,8 @@ function getCodeLanguageIcon(language: string) {
   if (['html'].includes(key)) return { kind: 'svg' as const, icon: siHtml5 };
   if (['css'].includes(key)) return { kind: 'svg' as const, icon: siCss };
   if (['scss', 'sass'].includes(key)) return { kind: 'svg' as const, icon: siSass };
-  if (['bash', 'sh', 'shell', 'zsh'].includes(key)) return { kind: 'svg' as const, icon: siGnubash };
+  if (['bash', 'sh', 'shell', 'zsh'].includes(key))
+    return { kind: 'svg' as const, icon: siGnubash };
 
   return { kind: 'text' as const, label: '</>' };
 }
@@ -254,7 +281,9 @@ class CodeBlockWidget extends WidgetType {
     readonly code: string,
     readonly language: string,
     readonly sourceLineCount: number,
-  ) { super(); }
+  ) {
+    super();
+  }
 
   eq(o: CodeBlockWidget) {
     return (
@@ -327,7 +356,9 @@ class CodeBlockWidget extends WidgetType {
     if (this.language) {
       const label = document.createElement('div');
       label.className = 'cm-lp-code-block-lang';
-      const badge = createCodeLanguageIconElement(this.language.split(/\s+/, 1)[0] ?? this.language);
+      const badge = createCodeLanguageIconElement(
+        this.language.split(/\s+/, 1)[0] ?? this.language,
+      );
       const text = document.createElement('span');
       text.textContent = this.language;
 
@@ -367,23 +398,31 @@ class CodeBlockWidget extends WidgetType {
     mermaidWidgetJobs.delete(dom);
   }
 
-  ignoreEvent() { return false; }
+  ignoreEvent() {
+    return false;
+  }
 }
 
 // ─── Table helpers ────────────────────────────────────────────────────────────
 
 function parseTableCells(line: string): string[] {
-  return line.split('|').slice(1, -1).map(c => c.trim());
+  return line
+    .split('|')
+    .slice(1, -1)
+    .map((c) => c.trim());
 }
 
 function parseAlignments(line: string): Array<'left' | 'center' | 'right' | ''> {
-  return line.split('|').slice(1, -1).map(c => {
-    const s = c.trim();
-    if (s.startsWith(':') && s.endsWith(':')) return 'center';
-    if (s.endsWith(':')) return 'right';
-    if (s.startsWith(':')) return 'left';
-    return '';
-  });
+  return line
+    .split('|')
+    .slice(1, -1)
+    .map((c) => {
+      const s = c.trim();
+      if (s.startsWith(':') && s.endsWith(':')) return 'center';
+      if (s.endsWith(':')) return 'right';
+      if (s.startsWith(':')) return 'left';
+      return '';
+    });
 }
 
 class TableWidget extends WidgetType {
@@ -391,12 +430,15 @@ class TableWidget extends WidgetType {
     readonly headers: string[],
     readonly rows: string[][],
     readonly aligns: Array<'left' | 'center' | 'right' | ''>,
-  ) { super(); }
+  ) {
+    super();
+  }
 
   eq(o: TableWidget) {
     return (
       this.headers.join('\x00') === o.headers.join('\x00') &&
-      this.rows.map(r => r.join('\x00')).join('\n') === o.rows.map(r => r.join('\x00')).join('\n')
+      this.rows.map((r) => r.join('\x00')).join('\n') ===
+        o.rows.map((r) => r.join('\x00')).join('\n')
     );
   }
 
@@ -439,7 +481,9 @@ class TableWidget extends WidgetType {
     return wrap;
   }
 
-  ignoreEvent() { return false; }
+  ignoreEvent() {
+    return false;
+  }
 }
 
 class TaskCheckboxWidget extends WidgetType {
@@ -449,7 +493,9 @@ class TaskCheckboxWidget extends WidgetType {
     readonly suffix: string,
     readonly markerFrom: number,
     readonly markerTo: number,
-  ) { super(); }
+  ) {
+    super();
+  }
 
   eq(o: TaskCheckboxWidget) {
     return (
@@ -517,17 +563,25 @@ class TaskCheckboxWidget extends WidgetType {
     (dom as HTMLElement & { __cmReactRoot?: Root }).__cmReactRoot?.unmount();
   }
 
-  ignoreEvent() { return false; }
+  ignoreEvent() {
+    return false;
+  }
 }
 
 class ImageWidget extends WidgetType {
   constructor(
     readonly target: NoteAssetTarget,
     readonly alt: string,
-  ) { super(); }
+  ) {
+    super();
+  }
 
   eq(o: ImageWidget) {
-    return o.target.kind === this.target.kind && o.target.value === this.target.value && o.alt === this.alt;
+    return (
+      o.target.kind === this.target.kind &&
+      o.target.value === this.target.value &&
+      o.alt === this.alt
+    );
   }
 
   toDOM() {
@@ -554,7 +608,8 @@ class ImageWidget extends WidgetType {
     const vault = useVaultStore.getState().vault;
     if (!vault) return wrap;
 
-    void createVaultClient(vault).readAssetDataUrl(this.target.value)
+    void createVaultClient(vault)
+      .readAssetDataUrl(this.target.value)
       .then((src) => {
         if (!src || !img.isConnected) return;
         img.src = src;
@@ -569,9 +624,10 @@ class ImageWidget extends WidgetType {
     return wrap;
   }
 
-  ignoreEvent() { return false; }
+  ignoreEvent() {
+    return false;
+  }
 }
-
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -627,7 +683,12 @@ function inlineMathRanges(
   const ranges: Array<{ from: number; to: number }> = [];
   let i = start;
   while (i < end) {
-    if (text[i] !== '$' || text[i - 1] === '$' || text[i + 1] === '$' || insideAnyRange(i, protectedRanges)) {
+    if (
+      text[i] !== '$' ||
+      text[i - 1] === '$' ||
+      text[i + 1] === '$' ||
+      insideAnyRange(i, protectedRanges)
+    ) {
       i += 1;
       continue;
     }
@@ -635,7 +696,12 @@ function inlineMathRanges(
     let close = i + 1;
     while (close < end) {
       if (text[close] === '\n') break;
-      if (text[close] === '$' && text[close - 1] !== '$' && text[close + 1] !== '$' && !insideAnyRange(close, protectedRanges)) {
+      if (
+        text[close] === '$' &&
+        text[close - 1] !== '$' &&
+        text[close + 1] !== '$' &&
+        !insideAnyRange(close, protectedRanges)
+      ) {
         ranges.push({ from: i, to: close + 1 });
         i = close + 1;
         break;
@@ -723,11 +789,13 @@ function findFormattedSpans(
 function resolveSpanOverlaps(spans: FormatSpan[]): FormatSpan[] {
   const selected: FormatSpan[] = [];
   for (const span of [...spans].sort((a, b) => {
-    const width = (b.to - b.from) - (a.to - a.from);
+    const width = b.to - b.from - (a.to - a.from);
     if (width !== 0) return width;
     return a.from - b.from;
   })) {
-    if (selected.some((existing) => rangesOverlap(span.from, span.to, existing.from, existing.to))) {
+    if (
+      selected.some((existing) => rangesOverlap(span.from, span.to, existing.from, existing.to))
+    ) {
       continue;
     }
     selected.push(span);
@@ -758,17 +826,42 @@ function processInline(
   const inlineCodeRanges = codeRanges(text, 0, len);
   const inlineMathProtectedRanges = inlineMathRanges(text, 0, len, inlineCodeRanges);
 
-  const occupy = (s: number, e: number) => { for (let i = s; i < e; i++) used[i] = 1; };
-  const free   = (s: number, e: number) => { for (let i = s; i < e; i++) { if (used[i]) return false; } return true; };
+  const occupy = (s: number, e: number) => {
+    for (let i = s; i < e; i++) used[i] = 1;
+  };
+  const free = (s: number, e: number) => {
+    for (let i = s; i < e; i++) {
+      if (used[i]) return false;
+    }
+    return true;
+  };
 
   const push = (item: Item) => {
     out.push(item);
     if (item.debug) debug?.push(item.debug);
   };
 
-  const hide   = (s: number, e: number): Item => ({ from: base + s, to: base + e, deco: Decoration.replace({}), excl: true, debug: { kind: 'hide' } });
-  const mark   = (s: number, e: number, cls: string, attrs?: Record<string, string>): Item => ({ from: base + s, to: base + e, deco: Decoration.mark({ class: cls, attributes: attrs }), excl: false, debug: { kind: 'mark', className: cls } });
-  const widget = (s: number, e: number, w: WidgetType): Item => ({ from: base + s, to: base + e, deco: Decoration.replace({ widget: w }), excl: true, debug: { kind: 'widget', widget: w.constructor.name } });
+  const hide = (s: number, e: number): Item => ({
+    from: base + s,
+    to: base + e,
+    deco: Decoration.replace({}),
+    excl: true,
+    debug: { kind: 'hide' },
+  });
+  const mark = (s: number, e: number, cls: string, attrs?: Record<string, string>): Item => ({
+    from: base + s,
+    to: base + e,
+    deco: Decoration.mark({ class: cls, attributes: attrs }),
+    excl: false,
+    debug: { kind: 'mark', className: cls },
+  });
+  const widget = (s: number, e: number, w: WidgetType): Item => ({
+    from: base + s,
+    to: base + e,
+    deco: Decoration.replace({ widget: w }),
+    excl: true,
+    debug: { kind: 'widget', widget: w.constructor.name },
+  });
 
   function run(re: RegExp, handle: (m: RegExpExecArray, s: number, e: number) => Item[] | null) {
     re.lastIndex = 0;
@@ -782,12 +875,17 @@ function processInline(
       // Cursor inside → show raw
       if (cursor > docS && cursor < docE) continue;
       const result = handle(m, s, e);
-      if (result) { occupy(s, e); for (const it of result) push(it); }
+      if (result) {
+        occupy(s, e);
+        for (const it of result) push(it);
+      }
     }
   }
 
   function processInlineWithin(start: number, end: number) {
-    const spans = resolveSpanOverlaps(findFormattedSpans(text, start, end, inlineMathProtectedRanges));
+    const spans = resolveSpanOverlaps(
+      findFormattedSpans(text, start, end, inlineMathProtectedRanges),
+    );
     for (const span of spans) {
       const docS = base + span.from;
       const docE = base + span.to;
@@ -803,19 +901,29 @@ function processInline(
 
   // ── Inline code — highest priority so backticks protect inner content ────
   run(/`([^`\n]+?)`/g, (_, s, e) => [
-    hide(s, s + 1), mark(s + 1, e - 1, 'cm-lp-icode'), hide(e - 1, e),
+    hide(s, s + 1),
+    mark(s + 1, e - 1, 'cm-lp-icode'),
+    hide(e - 1, e),
   ]);
 
   // ── Images ![alt](path) and ![[path]] ───────────────────────────────────
   run(/!\[([^\]\n]*?)\]\(([^)\n]*?)\)/g, (m, s, e) => {
-    const target = resolveNoteAssetTarget(m[2], noteRelativePath, useVaultStore.getState().fileTree);
+    const target = resolveNoteAssetTarget(
+      m[2],
+      noteRelativePath,
+      useVaultStore.getState().fileTree,
+    );
     if (!target) return null;
     return [widget(s, e, new ImageWidget(target, m[1]))];
   });
   run(/!\[\[([^\]|]+?)(\|([^\]]+?))?\]\]/g, (m, s, e) => {
     const path = m[1];
     if (!isLikelyImagePath(path)) return null;
-    const target = resolveNoteAssetTarget(path, noteRelativePath, useVaultStore.getState().fileTree);
+    const target = resolveNoteAssetTarget(
+      path,
+      noteRelativePath,
+      useVaultStore.getState().fileTree,
+    );
     if (!target) return null;
     const alt = m[3] ?? path.split('/').pop() ?? path;
     return [widget(s, e, new ImageWidget(target, alt))];
@@ -834,22 +942,30 @@ function processInline(
 
   // ── Wikilinks [[Path]] or [[Path|Label]] ─────────────────────────────────
   run(/\[\[([^\]|]+?)(\|([^\]]+?))?\]\]/g, (m, s, e) => {
-    const path  = m[1];
+    const path = m[1];
     const label = m[3];
     if (label) {
       const labelStart = s + 2 + path.length + 1; // skip [[path|
-      return [hide(s, labelStart), mark(labelStart, e - 2, 'cm-lp-wikilink', { 'data-path': path }), hide(e - 2, e)];
+      return [
+        hide(s, labelStart),
+        mark(labelStart, e - 2, 'cm-lp-wikilink', { 'data-path': path }),
+        hide(e - 2, e),
+      ];
     }
-    return [hide(s, s + 2), mark(s + 2, e - 2, 'cm-lp-wikilink', { 'data-path': path }), hide(e - 2, e)];
+    return [
+      hide(s, s + 2),
+      mark(s + 2, e - 2, 'cm-lp-wikilink', { 'data-path': path }),
+      hide(e - 2, e),
+    ];
   });
 
   // ── Links [text](url) ────────────────────────────────────────────────────
   // Skip ![ images by checking preceding char (no lookbehind — WebKitGTK compat)
   run(/\[([^\]\n]+?)\]\(([^)\n]*?)\)/g, (m, s, e) => {
     if (text[s - 1] === '!') return null;
-    const url    = m[2];
-    const textS  = s + 1;
-    const textE  = textS + m[1].length;
+    const url = m[2];
+    const textS = s + 1;
+    const textE = textS + m[1].length;
     return [hide(s, textS), mark(textS, textE, 'cm-lp-link', { 'data-url': url }), hide(textE, e)];
   });
 }
@@ -869,7 +985,7 @@ export function collectInlinePreviewDebugItems(text: string) {
 // ─── Core decoration builder ──────────────────────────────────────────────────
 
 function _build(state: EditorState, noteRelativePath: string): DecorationSet {
-  const doc    = state.doc;
+  const doc = state.doc;
   const cursor = state.selection.main.head;
   const cursorLn = doc.lineAt(cursor).number;
 
@@ -880,38 +996,51 @@ function _build(state: EditorState, noteRelativePath: string): DecorationSet {
   let frontmatterEndLn = 0;
   if (doc.lines >= 3 && doc.line(1).text.trim() === '---') {
     for (let i = 2; i <= doc.lines; i++) {
-      if (doc.line(i).text.trim() === '---') { frontmatterEndLn = i; break; }
+      if (doc.line(i).text.trim() === '---') {
+        frontmatterEndLn = i;
+        break;
+      }
     }
   }
 
   // Multi-line block state
-  let inMath   = false, mathFrom = 0, mathSrc = '', mathHit = false;
-  let inFence  = false, fenceFrom = 0, fenceSrc = '', fenceHit = false, fenceLang = '', fenceLineCount = 0;
+  let inMath = false,
+    mathFrom = 0,
+    mathSrc = '',
+    mathHit = false;
+  let inFence = false,
+    fenceFrom = 0,
+    fenceSrc = '',
+    fenceHit = false,
+    fenceLang = '',
+    fenceLineCount = 0;
   let tableLines: Array<{ from: number; to: number; ln: number; text: string }> = [];
   let tableHit = false;
 
   const flushTable = () => {
     if (!tableLines.length) return;
     if (!tableHit && tableLines.length >= 2) {
-      const texts = tableLines.map(tl => tl.text);
+      const texts = tableLines.map((tl) => tl.text);
       const headers = parseTableCells(texts[0]);
       const aligns = parseAlignments(texts[1]);
       const rows = texts.slice(2).map(parseTableCells);
       const from = tableLines[0].from;
       const to = tableLines[tableLines.length - 1].to;
       items.push({
-        from, to,
+        from,
+        to,
         deco: Decoration.replace({ widget: new TableWidget(headers, rows, aligns), block: true }),
         excl: true,
       });
     }
-    tableLines = []; tableHit = false;
+    tableLines = [];
+    tableHit = false;
   };
 
   for (let ln = 1; ln <= doc.lines; ln++) {
-    const line  = doc.line(ln);
+    const line = doc.line(ln);
     const { from, to, text } = line;
-    const here  = ln === cursorLn;
+    const here = ln === cursorLn;
 
     // ── Skip frontmatter lines ─────────────────────────────────────────────
     if (frontmatterEndLn > 0 && ln <= frontmatterEndLn) continue;
@@ -919,24 +1048,32 @@ function _build(state: EditorState, noteRelativePath: string): DecorationSet {
     // ── Display math block  $$ ... $$ ──────────────────────────────────────
     if (text.trim() === '$$') {
       if (!inMath) {
-        inMath = true; mathFrom = from; mathSrc = ''; mathHit = here;
+        inMath = true;
+        mathFrom = from;
+        mathSrc = '';
+        mathHit = here;
       } else {
         if (here) mathHit = true;
         if (!mathHit && mathSrc.trim()) {
           items.push({
-            from: mathFrom, to,
+            from: mathFrom,
+            to,
             deco: Decoration.replace({ widget: new MathWidget(mathSrc, true), block: true }),
             excl: true,
           });
         }
-        inMath = false; mathHit = false; mathSrc = '';
+        inMath = false;
+        mathHit = false;
+        mathSrc = '';
       }
-      flushTable(); continue;
+      flushTable();
+      continue;
     }
     if (inMath) {
       if (here) mathHit = true;
       mathSrc += (mathSrc ? '\n' : '') + text;
-      flushTable(); continue;
+      flushTable();
+      continue;
     }
 
     // ── Code fence ─────────────────────────────────────────────────────────
@@ -967,13 +1104,15 @@ function _build(state: EditorState, noteRelativePath: string): DecorationSet {
         fenceLang = '';
         fenceLineCount = 0;
       }
-      flushTable(); continue;
+      flushTable();
+      continue;
     }
     if (inFence) {
       if (here) fenceHit = true;
       fenceSrc += (fenceSrc ? '\n' : '') + text;
       fenceLineCount += 1;
-      flushTable(); continue;
+      flushTable();
+      continue;
     }
 
     // ── Table rows ──────────────────────────────────────────────────────────
@@ -999,7 +1138,12 @@ function _build(state: EditorState, noteRelativePath: string): DecorationSet {
         // Decoration.replace({block:true}) collapses to zero height in
         // WebKitGTK because CM6 measures the widget before CSS loads;
         // the CSS-driven ::after approach is completely reliable.
-        items.push({ from, to: from, deco: Decoration.line({ class: 'cm-lp-hr-line' }), excl: false });
+        items.push({
+          from,
+          to: from,
+          deco: Decoration.line({ class: 'cm-lp-hr-line' }),
+          excl: false,
+        });
         items.push({ from, to, deco: Decoration.replace({}), excl: true });
       }
       continue;
@@ -1009,7 +1153,12 @@ function _build(state: EditorState, noteRelativePath: string): DecorationSet {
     const hm = text.match(/^(#{1,6}) (.+)/);
     if (hm) {
       const level = hm[1].length;
-      items.push({ from, to: from, deco: Decoration.line({ class: `cm-lp-h${level}` }), excl: false });
+      items.push({
+        from,
+        to: from,
+        deco: Decoration.line({ class: `cm-lp-h${level}` }),
+        excl: false,
+      });
       if (!here) {
         const prefixEnd = from + level + 1;
         items.push({ from, to: prefixEnd, deco: Decoration.replace({}), excl: true });
@@ -1036,12 +1185,23 @@ function _build(state: EditorState, noteRelativePath: string): DecorationSet {
       const suffix = taskMatch[3] ?? '';
       const markerFrom = from + prefix.length;
       const markerTo = markerFrom + marker.length;
-      items.push({ from, to: from, deco: Decoration.line({ class: 'cm-lp-task-line' }), excl: false });
+      items.push({
+        from,
+        to: from,
+        deco: Decoration.line({ class: 'cm-lp-task-line' }),
+        excl: false,
+      });
       items.push({
         from,
         to,
         deco: Decoration.replace({
-          widget: new TaskCheckboxWidget(prefix, marker.toLowerCase() === '[x]', suffix, markerFrom, markerTo),
+          widget: new TaskCheckboxWidget(
+            prefix,
+            marker.toLowerCase() === '[x]',
+            suffix,
+            markerFrom,
+            markerTo,
+          ),
         }),
         excl: true,
       });

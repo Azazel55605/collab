@@ -1,18 +1,44 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FolderOpen, Plus, Clock, ArrowRight, Server, RefreshCw, Check, KeyRound, LogIn, LogOut, ChevronDown, WifiOff, Trash2 } from 'lucide-react';
+
+import {
+  ArrowRight,
+  Check,
+  ChevronDown,
+  Clock,
+  FolderOpen,
+  KeyRound,
+  LogIn,
+  LogOut,
+  Plus,
+  RefreshCw,
+  Server,
+  Trash2,
+  WifiOff,
+} from 'lucide-react';
+import { toast } from 'sonner';
+
+import { type KnownServer, listKnownServers } from '../../lib/hostedServers';
+import { tauriCommands } from '../../lib/tauri';
+import {
+  deleteHostedVaultReplica,
+  listHostedVaultReplicas,
+  type ReplicaSummary,
+} from '../../lib/vaultReplica';
+import { isEffectivelyConnected, useServerStore } from '../../store/serverStore';
+import { useVaultStore } from '../../store/vaultStore';
+import {
+  hostedVaultMeta,
+  type HostedVaultMeta,
+  type HostedVaultSummary,
+  type MemberRole,
+  vaultKind,
+} from '../../types/vault';
+import { HostedLoginForm } from '../server/HostedLoginForm';
+import { ReauthenticateServerDialog } from '../server/ReauthenticateServerDialog';
 import { AppLogo } from '../ui/AppLogo';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Separator } from '../ui/separator';
-import { useVaultStore } from '../../store/vaultStore';
-import { useServerStore, isEffectivelyConnected } from '../../store/serverStore';
-import { tauriCommands } from '../../lib/tauri';
-import { hostedVaultMeta, vaultKind, type HostedVaultMeta, type HostedVaultSummary, type MemberRole } from '../../types/vault';
-import { deleteHostedVaultReplica, listHostedVaultReplicas, type ReplicaSummary } from '../../lib/vaultReplica';
-import { HostedLoginForm } from '../server/HostedLoginForm';
-import { ReauthenticateServerDialog } from '../server/ReauthenticateServerDialog';
-import { listKnownServers, type KnownServer } from '../../lib/hostedServers';
-import { toast } from 'sonner';
 
 export default function VaultPicker() {
   const { openVault, openHostedVault, loadRecentVaults, recentVaults, isLoading } = useVaultStore();
@@ -38,10 +64,14 @@ export default function VaultPicker() {
     const connectedUrls = new Set(connectedServers.map(({ status }) => status.serverUrl));
     return listKnownServers().filter((server) => !connectedUrls.has(server.serverUrl));
   }, [connectedServers]);
-  const localRecentVaults = recentVaults.filter((vault) => vaultKind(vault) === 'local').slice(0, 5);
+  const localRecentVaults = recentVaults
+    .filter((vault) => vaultKind(vault) === 'local')
+    .slice(0, 5);
 
   const refreshOfflineReplicas = () => {
-    listHostedVaultReplicas().then(setOfflineReplicas).catch(() => setOfflineReplicas([]));
+    listHostedVaultReplicas()
+      .then(setOfflineReplicas)
+      .catch(() => setOfflineReplicas([]));
   };
 
   useEffect(() => {
@@ -54,13 +84,18 @@ export default function VaultPicker() {
     () =>
       new Set(
         connectedServers.flatMap((c) =>
-          c.hostedVaults.filter((v) => v.status === 'active').map((v) => `${c.status.serverUrl}|${v.id}`),
+          c.hostedVaults
+            .filter((v) => v.status === 'active')
+            .map((v) => `${c.status.serverUrl}|${v.id}`),
         ),
       ),
     [connectedServers],
   );
   const offlineOnlyReplicas = useMemo(
-    () => offlineReplicas.filter((replica) => !activeHostedKeys.has(`${replica.serverUrl}|${replica.vaultId}`)),
+    () =>
+      offlineReplicas.filter(
+        (replica) => !activeHostedKeys.has(`${replica.serverUrl}|${replica.vaultId}`),
+      ),
     [offlineReplicas, activeHostedKeys],
   );
   const offlineReplicasByServer = useMemo(() => {
@@ -90,9 +125,10 @@ export default function VaultPicker() {
   };
 
   const removeOfflineReplica = async (replica: ReplicaSummary) => {
-    const pendingText = replica.pendingCount > 0
-      ? `\n\nThis offline copy has ${replica.pendingCount} pending local change${replica.pendingCount === 1 ? '' : 's'} that will be discarded.`
-      : '';
+    const pendingText =
+      replica.pendingCount > 0
+        ? `\n\nThis offline copy has ${replica.pendingCount} pending local change${replica.pendingCount === 1 ? '' : 's'} that will be discarded.`
+        : '';
     const confirmed = window.confirm(
       `Remove the offline copy of "${replica.vaultName}" from ${replica.serverUrl}?${pendingText}`,
     );
@@ -205,186 +241,236 @@ export default function VaultPicker() {
             </div>
 
             <div className="space-y-3">
-            {disconnectedServers.map((server) => (
-              <div
-                key={server.serverUrl}
-                className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-card/30 px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-xs font-medium">{server.username || 'Saved server'}</p>
-                  <p className="truncate text-[10px] text-muted-foreground">{server.serverUrl} · disconnected</p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 shrink-0 gap-1.5 text-xs"
-                  onClick={() => setReauthServer(server)}
+              {disconnectedServers.map((server) => (
+                <div
+                  key={server.serverUrl}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-card/30 px-3 py-2"
                 >
-                  <KeyRound size={12} />
-                  Sign in again
-                </Button>
-              </div>
-            ))}
-            {connectedServers.map(({ status, hostedVaults }) => {
-              const serverUrl = status.serverUrl!;
-              const activeHostedVaults = hostedVaults.filter((vault) => vault.status === 'active');
-              const canCreateHosted = isEffectivelyConnected(status);
-              return (
-                <div key={serverUrl} className="space-y-2">
-                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-card/30 px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-medium">{status.user?.displayName}</p>
-                      <p className="truncate text-[10px] text-muted-foreground">{serverUrl}</p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {canCreateHosted && (
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-medium">
+                      {server.username || 'Saved server'}
+                    </p>
+                    <p className="truncate text-[10px] text-muted-foreground">
+                      {server.serverUrl} · disconnected
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 shrink-0 gap-1.5 text-xs"
+                    onClick={() => setReauthServer(server)}
+                  >
+                    <KeyRound size={12} />
+                    Sign in again
+                  </Button>
+                </div>
+              ))}
+              {connectedServers.map(({ status, hostedVaults }) => {
+                const serverUrl = status.serverUrl!;
+                const activeHostedVaults = hostedVaults.filter(
+                  (vault) => vault.status === 'active',
+                );
+                const canCreateHosted = isEffectivelyConnected(status);
+                return (
+                  <div key={serverUrl} className="space-y-2">
+                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-card/30 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium">{status.user?.displayName}</p>
+                        <p className="truncate text-[10px] text-muted-foreground">{serverUrl}</p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {canCreateHosted && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-7"
+                            onClick={() => {
+                              setCreatingForServer((value) =>
+                                value === serverUrl ? null : serverUrl,
+                              );
+                              setHostedName('');
+                            }}
+                            title="New hosted vault"
+                          >
+                            <Plus size={13} />
+                          </Button>
+                        )}
                         <Button
                           size="icon"
                           variant="ghost"
                           className="size-7"
-                          onClick={() => { setCreatingForServer((value) => (value === serverUrl ? null : serverUrl)); setHostedName(''); }}
-                          title="New hosted vault"
+                          disabled={isServerLoading}
+                          onClick={() =>
+                            loadHostedVaults(serverUrl).catch((reason) =>
+                              toast.error(String(reason)),
+                            )
+                          }
+                          title="Refresh hosted vaults"
                         >
-                          <Plus size={13} />
+                          <RefreshCw
+                            size={12}
+                            className={isServerLoading ? 'animate-spin' : undefined}
+                          />
                         </Button>
-                      )}
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="size-7"
-                        disabled={isServerLoading}
-                        onClick={() => loadHostedVaults(serverUrl).catch((reason) => toast.error(String(reason)))}
-                        title="Refresh hosted vaults"
-                      >
-                        <RefreshCw size={12} className={isServerLoading ? 'animate-spin' : undefined} />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="size-7"
-                        onClick={() => handleDisconnect(serverUrl)}
-                        title="Log out of server"
-                      >
-                        <LogOut size={13} />
-                      </Button>
-                    </div>
-                  </div>
-                  {creatingForServer === serverUrl && canCreateHosted && (
-                    <div className="flex items-center gap-2 rounded-lg border border-border/40 bg-card/30 px-2 py-2">
-                      <Input
-                        autoFocus
-                        value={hostedName}
-                        onChange={(e) => setHostedName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleCreateHosted(serverUrl);
-                          if (e.key === 'Escape') { setCreatingForServer(null); setHostedName(''); }
-                        }}
-                        placeholder="New hosted vault name"
-                        className="h-7 text-sm"
-                      />
-                      <Button size="sm" className="h-7 gap-1 text-xs" disabled={hostedBusy || !hostedName.trim()} onClick={() => handleCreateHosted(serverUrl)}>
-                        <Check size={12} />
-                        {hostedBusy ? 'Creating…' : 'Create'}
-                      </Button>
-                    </div>
-                  )}
-                  {activeHostedVaults.map((vault) => (
-                    <button
-                      key={vault.id}
-                      onClick={() => openHosted(serverUrl, vault)}
-                      disabled={isLoading || isServerLoading}
-                      className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition-all app-motion-base hover:border-primary/25 hover:bg-primary/5"
-                    >
-                      <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10">
-                        <Server size={12} className="text-primary" />
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-7"
+                          onClick={() => handleDisconnect(serverUrl)}
+                          title="Log out of server"
+                        >
+                          <LogOut size={13} />
+                        </Button>
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium text-foreground">{vault.name}</div>
-                        <div className="truncate text-[11px] text-muted-foreground">
-                          {vault.role} · {vault.members} members · {vault.ownerDisplayName}
+                    </div>
+                    {creatingForServer === serverUrl && canCreateHosted && (
+                      <div className="flex items-center gap-2 rounded-lg border border-border/40 bg-card/30 px-2 py-2">
+                        <Input
+                          autoFocus
+                          value={hostedName}
+                          onChange={(e) => setHostedName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleCreateHosted(serverUrl);
+                            if (e.key === 'Escape') {
+                              setCreatingForServer(null);
+                              setHostedName('');
+                            }
+                          }}
+                          placeholder="New hosted vault name"
+                          className="h-7 text-sm"
+                        />
+                        <Button
+                          size="sm"
+                          className="h-7 gap-1 text-xs"
+                          disabled={hostedBusy || !hostedName.trim()}
+                          onClick={() => handleCreateHosted(serverUrl)}
+                        >
+                          <Check size={12} />
+                          {hostedBusy ? 'Creating…' : 'Create'}
+                        </Button>
+                      </div>
+                    )}
+                    {activeHostedVaults.map((vault) => (
+                      <button
+                        key={vault.id}
+                        onClick={() => openHosted(serverUrl, vault)}
+                        disabled={isLoading || isServerLoading}
+                        className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition-all app-motion-base hover:border-primary/25 hover:bg-primary/5"
+                      >
+                        <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10">
+                          <Server size={12} className="text-primary" />
                         </div>
-                      </div>
-                      <ArrowRight size={13} className="shrink-0 text-muted-foreground opacity-0 transition-all app-motion-base group-hover:translate-x-0.5 group-hover:opacity-60" />
-                    </button>
-                  ))}
-                  {!isServerLoading && activeHostedVaults.length === 0 && (
-                    <p className="py-2 text-center text-xs text-muted-foreground">No active hosted vaults on this server.</p>
-                  )}
-                </div>
-              );
-            })}
-            {error && <p className="text-xs text-destructive">{error}</p>}
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium text-foreground">
+                            {vault.name}
+                          </div>
+                          <div className="truncate text-[11px] text-muted-foreground">
+                            {vault.role} · {vault.members} members · {vault.ownerDisplayName}
+                          </div>
+                        </div>
+                        <ArrowRight
+                          size={13}
+                          className="shrink-0 text-muted-foreground opacity-0 transition-all app-motion-base group-hover:translate-x-0.5 group-hover:opacity-60"
+                        />
+                      </button>
+                    ))}
+                    {!isServerLoading && activeHostedVaults.length === 0 && (
+                      <p className="py-2 text-center text-xs text-muted-foreground">
+                        No active hosted vaults on this server.
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+              {error && <p className="text-xs text-destructive">{error}</p>}
 
-            {showLogin ? (
-              <div className="space-y-3 rounded-lg border border-border/40 bg-card/30 p-3">
-                <HostedLoginForm onConnected={() => setShowLogin(false)} />
-                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowLogin(false)}>Cancel</Button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowLogin(true)}
-                className="flex w-full items-center gap-3 rounded-lg border border-dashed border-border/60 px-3 py-3 text-left transition-colors hover:border-primary/30 hover:bg-primary/5"
-              >
-                <LogIn size={14} className="text-muted-foreground" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium">{connectedServers.length === 0 ? 'Connect a Collab server' : 'Add another server'}</p>
-                  <p className="text-[11px] text-muted-foreground">Sign in to open hosted vaults.</p>
+              {showLogin ? (
+                <div className="space-y-3 rounded-lg border border-border/40 bg-card/30 p-3">
+                  <HostedLoginForm onConnected={() => setShowLogin(false)} />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs"
+                    onClick={() => setShowLogin(false)}
+                  >
+                    Cancel
+                  </Button>
                 </div>
-                <ChevronDown size={14} className="text-muted-foreground" />
-              </button>
-            )}
-          </div>
+              ) : (
+                <button
+                  onClick={() => setShowLogin(true)}
+                  className="flex w-full items-center gap-3 rounded-lg border border-dashed border-border/60 px-3 py-3 text-left transition-colors hover:border-primary/30 hover:bg-primary/5"
+                >
+                  <LogIn size={14} className="text-muted-foreground" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">
+                      {connectedServers.length === 0
+                        ? 'Connect a Collab server'
+                        : 'Add another server'}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Sign in to open hosted vaults.
+                    </p>
+                  </div>
+                  <ChevronDown size={14} className="text-muted-foreground" />
+                </button>
+              )}
+            </div>
 
             {offlineReplicasByServer.length > 0 && (
               <div className="mt-3 space-y-3">
-              {offlineReplicasByServer.map(([serverUrl, replicas]) => (
-                <div key={serverUrl} className="space-y-1">
-                  <div className="flex items-center gap-1.5 px-1 text-[10px] uppercase tracking-widest text-muted-foreground">
-                    <WifiOff size={10} />
-                    Offline copies · {serverUrl}
-                  </div>
-                  {replicas.map((replica) => (
-                    <div
-                      key={`${replica.serverUrl}|${replica.vaultId}`}
-                      className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition-all app-motion-base hover:border-amber-500/25 hover:bg-amber-500/5"
-                    >
-                      <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-amber-500/20 bg-amber-500/10">
-                        <WifiOff size={12} className="text-amber-400" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium text-foreground">{replica.vaultName}</div>
-                        <div className="truncate text-[11px] text-muted-foreground">
-                          offline copy · {replicaRole(replica)} · {replica.pendingCount} pending
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => openOfflineReplica(replica)}
-                        disabled={isLoading}
-                        className="flex h-7 items-center gap-1 rounded px-2 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
-                        title="Open offline copy"
-                      >
-                        Open <ArrowRight size={11} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeOfflineReplica(replica)}
-                        disabled={isLoading}
-                        className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                        title="Remove offline copy"
-                        aria-label={`Remove offline copy ${replica.vaultName}`}
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                {offlineReplicasByServer.map(([serverUrl, replicas]) => (
+                  <div key={serverUrl} className="space-y-1">
+                    <div className="flex items-center gap-1.5 px-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+                      <WifiOff size={10} />
+                      Offline copies · {serverUrl}
                     </div>
-                  ))}
-                </div>
-              ))}
+                    {replicas.map((replica) => (
+                      <div
+                        key={`${replica.serverUrl}|${replica.vaultId}`}
+                        className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition-all app-motion-base hover:border-amber-500/25 hover:bg-amber-500/5"
+                      >
+                        <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-amber-500/20 bg-amber-500/10">
+                          <WifiOff size={12} className="text-amber-400" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium text-foreground">
+                            {replica.vaultName}
+                          </div>
+                          <div className="truncate text-[11px] text-muted-foreground">
+                            offline copy · {replicaRole(replica)} · {replica.pendingCount} pending
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openOfflineReplica(replica)}
+                          disabled={isLoading}
+                          className="flex h-7 items-center gap-1 rounded px-2 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
+                          title="Open offline copy"
+                        >
+                          Open <ArrowRight size={11} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeOfflineReplica(replica)}
+                          disabled={isLoading}
+                          className="flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                          title="Remove offline copy"
+                          aria-label={`Remove offline copy ${replica.vaultName}`}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ))}
               </div>
             )}
             <ReauthenticateServerDialog
               server={reauthServer}
-              onOpenChange={(open) => { if (!open) setReauthServer(null); }}
+              onOpenChange={(open) => {
+                if (!open) setReauthServer(null);
+              }}
             />
 
             {localRecentVaults.length > 0 && (
@@ -411,7 +497,9 @@ export default function VaultPicker() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium text-foreground">{v.name}</div>
-                        <div className="truncate text-[11px] text-muted-foreground opacity-70">{v.path}</div>
+                        <div className="truncate text-[11px] text-muted-foreground opacity-70">
+                          {v.path}
+                        </div>
                       </div>
                       <ArrowRight
                         size={13}

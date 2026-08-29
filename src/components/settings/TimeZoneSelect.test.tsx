@@ -26,7 +26,11 @@ describe('supportedTimeZones', () => {
 
   it('contains wheel scrolling inside its list viewport', async () => {
     const parentWheel = vi.fn();
-    const { container } = render(<div onWheel={parentWheel}><TimeZoneSelect value="UTC" onValueChange={vi.fn()} /></div>);
+    const { container } = render(
+      <div onWheel={parentWheel}>
+        <TimeZoneSelect value="UTC" onValueChange={vi.fn()} />
+      </div>,
+    );
 
     fireEvent.click(screen.getByRole('combobox', { name: 'Default calendar time zone' }));
     const list = document.querySelector<HTMLElement>('[data-slot="command-list"]');

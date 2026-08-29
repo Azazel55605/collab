@@ -1,17 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { isMermaidLanguage, mermaidCompatibleColor, renderMermaidBlocks } from './mermaidRenderer';
+
 const mermaidMocks = vi.hoisted(() => ({
   initialize: vi.fn(),
   render: vi.fn(async (_id: string, source: string) => ({
     svg: `<svg viewBox="0 0 320 120"><script>alert(1)</script><text>${source}</text></svg>`,
   })),
 }));
-
-import {
-  isMermaidLanguage,
-  mermaidCompatibleColor,
-  renderMermaidBlocks,
-} from './mermaidRenderer';
 
 describe('mermaidRenderer', () => {
   beforeEach(() => {
@@ -33,10 +29,10 @@ describe('mermaidRenderer', () => {
   it('converts Collab OKLCH theme colors to Mermaid-compatible colors', () => {
     expect(mermaidCompatibleColor('oklch(1 0 0)', '#000000')).toBe('#ffffff');
     expect(mermaidCompatibleColor('oklch(0 0 0)', '#ffffff')).toBe('#000000');
-    expect(mermaidCompatibleColor('oklch(1 0 0 / 11%)', '#000000'))
-      .toBe('rgba(255, 255, 255, 0.11)');
-    expect(mermaidCompatibleColor('oklch(0.67 0.22 293)', '#a78bfa'))
-      .toMatch(/^#[0-9a-f]{6}$/);
+    expect(mermaidCompatibleColor('oklch(1 0 0 / 11%)', '#000000')).toBe(
+      'rgba(255, 255, 255, 0.11)',
+    );
+    expect(mermaidCompatibleColor('oklch(0.67 0.22 293)', '#a78bfa')).toMatch(/^#[0-9a-f]{6}$/);
   });
 
   it('renders fenced sources as sanitized accessible SVGs', async () => {
@@ -51,11 +47,13 @@ describe('mermaidRenderer', () => {
     const job = renderMermaidBlocks(root);
     await job.ready;
 
-    expect(mermaidMocks.initialize).toHaveBeenCalledWith(expect.objectContaining({
-      securityLevel: 'strict',
-      maxEdges: 500,
-      maxTextSize: 50_000,
-    }));
+    expect(mermaidMocks.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        securityLevel: 'strict',
+        maxEdges: 500,
+        maxTextSize: 50_000,
+      }),
+    );
     expect(mermaidMocks.render).toHaveBeenCalledWith(
       expect.stringMatching(/^collab-mermaid-/),
       'flowchart LR\nA --> B',

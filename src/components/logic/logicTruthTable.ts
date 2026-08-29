@@ -3,8 +3,9 @@ import type {
   LogicDiagramNode,
   LogicDiagramWire,
 } from '../../types/logicDiagram';
-import { logicNodeLabel } from './logicDiagramFlow';
+
 import { evaluateLogicDiagram, type LogicSignal } from './logicDiagramEvaluator';
+import { logicNodeLabel } from './logicDiagramFlow';
 
 export const DEFAULT_TRUTH_TABLE_INPUT_LIMIT = 10;
 
@@ -38,7 +39,10 @@ function orderedNodes(nodes: LogicDiagramNode[], kinds: LogicDiagramNode['kind']
   return nodes
     .filter((node) => accepted.has(node.kind))
     .slice()
-    .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y || a.id.localeCompare(b.id));
+    .sort(
+      (a, b) =>
+        a.position.x - b.position.x || a.position.y - b.position.y || a.id.localeCompare(b.id),
+    );
 }
 
 export function generateLogicTruthTable(
@@ -46,10 +50,15 @@ export function generateLogicTruthTable(
   wires: LogicDiagramWire[],
   options: TruthTableOptions = {},
 ): LogicTruthTable {
-  const inputSources = options.inputNodes ?? orderedNodes(nodes, ['input', 'clock'])
-    .map((node) => ({ id: node.id, label: logicNodeLabel(node) }));
-  const outputSources = options.outputNodes ?? orderedNodes(nodes, ['output'])
-    .map((node) => ({ id: node.id, label: logicNodeLabel(node) }));
+  const inputSources =
+    options.inputNodes ??
+    orderedNodes(nodes, ['input', 'clock']).map((node) => ({
+      id: node.id,
+      label: logicNodeLabel(node),
+    }));
+  const outputSources =
+    options.outputNodes ??
+    orderedNodes(nodes, ['output']).map((node) => ({ id: node.id, label: logicNodeLabel(node) }));
   const inputs = inputSources.map((source) => ({ ...source, direction: 'input' as const }));
   const outputs = outputSources.map((source) => ({ ...source, direction: 'output' as const }));
   const inputLimit = options.inputLimit ?? DEFAULT_TRUTH_TABLE_INPUT_LIMIT;
@@ -72,15 +81,19 @@ export function generateLogicTruthTable(
       rowInputs[inputs[columnIndex].id] = ((rowIndex >> bit) & 1) === 1;
     }
     const evaluation = evaluateLogicDiagram(
-      nodes.map((node) => Object.prototype.hasOwnProperty.call(rowInputs, node.id)
-        ? { ...node, value: rowInputs[node.id] }
-        : node),
+      nodes.map((node) =>
+        Object.prototype.hasOwnProperty.call(rowInputs, node.id)
+          ? { ...node, value: rowInputs[node.id] }
+          : node,
+      ),
       wires,
       { components: options.components },
     );
     rows.push({
       inputs: rowInputs,
-      outputs: Object.fromEntries(outputs.map((output) => [output.id, evaluation.nodeValues[output.id]])),
+      outputs: Object.fromEntries(
+        outputs.map((output) => [output.id, evaluation.nodeValues[output.id]]),
+      ),
     });
   }
 

@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { createCalendarDefinition, normalizeCalendarItem } from '../types/calendar';
+
 import { tauriCommands } from '../lib/tauri';
+import { createCalendarDefinition, normalizeCalendarItem } from '../types/calendar';
+
 import {
   CalendarCalDavDialog,
   CalendarRail,
@@ -59,7 +61,15 @@ describe('calendar item editor', () => {
       title: 'Review board',
       reminders: [],
       attendees: [],
-      attachments: [{ id: 'attachment-1', kind: 'kanbanTask', name: 'Planning card', fileId: 'board-1', cardId: 'card-1' }],
+      attachments: [
+        {
+          id: 'attachment-1',
+          kind: 'kanbanTask',
+          name: 'Planning card',
+          fileId: 'board-1',
+          cardId: 'card-1',
+        },
+      ],
       start: { kind: 'date', date: '2026-07-23' },
       due: { kind: 'date', date: '2026-07-24' },
       status: 'in-progress',
@@ -69,13 +79,15 @@ describe('calendar item editor', () => {
       updatedAt: '2026-07-23T08:00:00.000Z',
     });
     const onSave = vi.fn().mockImplementation(async (item) => item);
-    render(<ItemEditorDialog
-      request={{ date: '2026-07-23', kind: 'task', item: task }}
-      onOpenChange={vi.fn()}
-      calendars={[calendar]}
-      saving={false}
-      onSave={onSave}
-    />);
+    render(
+      <ItemEditorDialog
+        request={{ date: '2026-07-23', kind: 'task', item: task }}
+        onOpenChange={vi.fn()}
+        calendars={[calendar]}
+        saving={false}
+        onSave={onSave}
+      />,
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -101,38 +113,44 @@ describe('calendar management', () => {
   it('keeps archived calendars recoverable from the calendar rail', () => {
     const archived = { ...localCalendar, id: 'calendar-2', name: 'Archive', archived: true };
     const onArchive = vi.fn();
-    render(<CalendarRail
-      calendars={[localCalendar, archived]}
-      subscriptions={[]}
-      visibleIds={[localCalendar.id]}
-      saving={false}
-      mirrorAttention={false}
-      onVisible={vi.fn()}
-      onAdd={vi.fn()}
-      onSubscribe={vi.fn()}
-      onMirrors={vi.fn()}
-      onEdit={vi.fn()}
-      onImport={vi.fn()}
-      onExport={vi.fn()}
-      onPublish={vi.fn()}
-      onRefreshSubscription={vi.fn()}
-      onDeleteSubscription={vi.fn()}
-      onArchive={onArchive}
-    />);
+    render(
+      <CalendarRail
+        calendars={[localCalendar, archived]}
+        subscriptions={[]}
+        visibleIds={[localCalendar.id]}
+        saving={false}
+        mirrorAttention={false}
+        onVisible={vi.fn()}
+        onAdd={vi.fn()}
+        onSubscribe={vi.fn()}
+        onMirrors={vi.fn()}
+        onEdit={vi.fn()}
+        onImport={vi.fn()}
+        onExport={vi.fn()}
+        onPublish={vi.fn()}
+        onRefreshSubscription={vi.fn()}
+        onDeleteSubscription={vi.fn()}
+        onArchive={onArchive}
+      />,
+    );
 
-    expect((screen.getByRole('checkbox', { name: 'Personal' }) as HTMLButtonElement).dataset.state).toBe('checked');
+    expect(
+      (screen.getByRole('checkbox', { name: 'Personal' }) as HTMLButtonElement).dataset.state,
+    ).toBe('checked');
     fireEvent.click(screen.getByRole('button', { name: 'Restore Archive' }));
     expect(onArchive).toHaveBeenCalledWith(archived, false);
   });
 
   it('edits calendar identity without duplicating application time-zone settings', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
-    render(<CalendarSettingsDialog
-      calendar={localCalendar}
-      saving={false}
-      onOpenChange={vi.fn()}
-      onSave={onSave}
-    />);
+    render(
+      <CalendarSettingsDialog
+        calendar={localCalendar}
+        saving={false}
+        onOpenChange={vi.fn()}
+        onSave={onSave}
+      />,
+    );
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), {
       target: { value: 'Private' },
@@ -141,10 +159,12 @@ describe('calendar management', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Calendar accent color' }));
     fireEvent.click(screen.getByRole('radio', { name: 'Calendar accent color #60a5fa' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(localCalendar.id, {
-      name: 'Private',
-      color: '#60a5fa',
-    }));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(localCalendar.id, {
+        name: 'Private',
+        color: '#60a5fa',
+      }),
+    );
   });
 
   it('shows bounded search results with calendar origin context', () => {
@@ -163,16 +183,18 @@ describe('calendar management', () => {
       updatedAt: '2026-07-23T08:00:00.000Z',
     });
     const onOpenItem = vi.fn();
-    render(<CalendarSearch
-      open
-      onOpenChange={vi.fn()}
-      query="plan"
-      onQueryChange={vi.fn()}
-      results={[result]}
-      searching={false}
-      calendarById={new Map([[localCalendar.id, localCalendar]])}
-      onOpenItem={onOpenItem}
-    />);
+    render(
+      <CalendarSearch
+        open
+        onOpenChange={vi.fn()}
+        query="plan"
+        onQueryChange={vi.fn()}
+        results={[result]}
+        searching={false}
+        calendarById={new Map([[localCalendar.id, localCalendar]])}
+        onOpenItem={onOpenItem}
+      />,
+    );
 
     fireEvent.click(screen.getByRole('button', { name: /Planning/ }));
     expect(onOpenItem).toHaveBeenCalledWith(result);
@@ -180,7 +202,8 @@ describe('calendar management', () => {
   });
 
   it('creates and revokes one-time CalDAV app passwords', async () => {
-    const request = vi.spyOn(tauriCommands, 'hostedCalendarRequest')
+    const request = vi
+      .spyOn(tauriCommands, 'hostedCalendarRequest')
       .mockImplementation(async (_serverUrl, method, path) => {
         if (method === 'GET') return [] as never;
         if (method === 'POST') {
@@ -196,17 +219,21 @@ describe('calendar management', () => {
         if (method === 'DELETE' && path.endsWith('/credential-1')) return undefined as never;
         throw new Error(`Unexpected request ${method} ${path}`);
       });
-    render(<CalendarCalDavDialog
-      open
-      onOpenChange={vi.fn()}
-      origins={[{ serverUrl: 'https://calendar.example', userId: 'user-1', username: 'alice' }]}
-    />);
+    render(
+      <CalendarCalDavDialog
+        open
+        onOpenChange={vi.fn()}
+        origins={[{ serverUrl: 'https://calendar.example', userId: 'user-1', username: 'alice' }]}
+      />,
+    );
 
-    await waitFor(() => expect(request).toHaveBeenCalledWith(
-      'https://calendar.example',
-      'GET',
-      '/api/v1/calendars/caldav-credentials',
-    ));
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        'https://calendar.example',
+        'GET',
+        '/api/v1/calendars/caldav-credentials',
+      ),
+    );
     fireEvent.change(screen.getByRole('textbox', { name: 'CalDAV credential name' }), {
       target: { value: 'DAVx5' },
     });
@@ -215,11 +242,13 @@ describe('calendar management', () => {
     expect(await screen.findByDisplayValue('credential-1.secret')).toBeTruthy();
     expect(screen.getByDisplayValue('https://calendar.example/caldav/')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Revoke DAVx5' }));
-    await waitFor(() => expect(request).toHaveBeenCalledWith(
-      'https://calendar.example',
-      'DELETE',
-      '/api/v1/calendars/caldav-credentials/credential-1',
-    ));
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        'https://calendar.example',
+        'DELETE',
+        '/api/v1/calendars/caldav-credentials/credential-1',
+      ),
+    );
     request.mockRestore();
   });
 });

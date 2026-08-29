@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveNoteAssetTarget } from './noteAssets';
 import type { NoteFile } from '../types/vault';
+
+import { resolveNoteAssetTarget } from './noteAssets';
 
 const FILES: NoteFile[] = [
   {
@@ -44,7 +45,9 @@ const FILES: NoteFile[] = [
 
 describe('resolveNoteAssetTarget', () => {
   it('prefers an exact vault file match for wrapped image paths with spaces', () => {
-    expect(resolveNoteAssetTarget('<Pictures/Transformierte Struktur.png>', 'Notes/demo.md', FILES)).toEqual({
+    expect(
+      resolveNoteAssetTarget('<Pictures/Transformierte Struktur.png>', 'Notes/demo.md', FILES),
+    ).toEqual({
       kind: 'vault',
       value: 'Pictures/Transformierte Struktur.png',
     });

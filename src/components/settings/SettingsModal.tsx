@@ -1,49 +1,131 @@
-import { useState, useEffect } from 'react';
-import { getAppVersion } from '../../lib/tauri';
+import { useEffect, useState } from 'react';
+
 import {
-  useUiStore,
-} from '../../store/uiStore';
+  Bell,
+  CalendarDays,
+  CircuitBoard,
+  Info,
+  Keyboard,
+  Languages,
+  Layout,
+  Monitor,
+  Palette,
+  RefreshCw,
+  Search,
+  Server,
+  SlidersHorizontal,
+  Type,
+  User,
+} from 'lucide-react';
+import { toast } from 'sonner';
+
+import { getAppVersion } from '../../lib/tauri';
+import { cn } from '../../lib/utils';
 import { useCollabStore } from '../../store/collabStore';
+import { useUiStore } from '../../store/uiStore';
+import { useUpdateStore } from '../../store/updateStore';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { cn } from '../../lib/utils';
-import { Palette, Type, User, Monitor, Info, CalendarDays, Keyboard, Search, SlidersHorizontal, Layout, Server, Languages, CircuitBoard, RefreshCw, Bell } from 'lucide-react';
-import { toast } from 'sonner';
+
 import AboutTab from './AboutTab';
-import ShortcutsTab from './ShortcutsTab';
 import SettingsAppearanceSection from './SettingsAppearanceSection';
+import SettingsBackgroundSection from './SettingsBackgroundSection';
 import SettingsCalendarSection from './SettingsCalendarSection';
 import SettingsCanvasSection from './SettingsCanvasSection';
 import SettingsDisplaySection from './SettingsDisplaySection';
-import SettingsGeneralSection from './SettingsGeneralSection';
-import SettingsProfileSection from './SettingsProfileSection';
 import SettingsEditorSection from './SettingsEditorSection';
-import SettingsOcrSection from './SettingsOcrSection';
-import SettingsServerSection from './SettingsServerSection';
+import SettingsGeneralSection from './SettingsGeneralSection';
 import SettingsLogicSection from './SettingsLogicSection';
-import SettingsBackgroundSection from './SettingsBackgroundSection';
 import SettingsNotificationsSection from './SettingsNotificationsSection';
-import { useUpdateStore } from '../../store/updateStore';
+import SettingsOcrSection from './SettingsOcrSection';
+import SettingsProfileSection from './SettingsProfileSection';
+import SettingsServerSection from './SettingsServerSection';
+import ShortcutsTab from './ShortcutsTab';
 
 // ─── Tabs sidebar ─────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'general',    label: 'General',    icon: <SlidersHorizontal size={15} />, keywords: ['startup', 'session', 'files', 'delete', 'behavior'] },
-  { id: 'background', label: 'Background', icon: <RefreshCw size={15} />, keywords: ['tray', 'startup', 'autostart', 'sync', 'close', 'login'] },
-  { id: 'notifications', label: 'Notifications', icon: <Bell size={15} />, keywords: ['alerts', 'reminders', 'permission', 'inbox', 'desktop'] },
-  { id: 'appearance', label: 'Appearance', icon: <Palette size={15} />, keywords: ['theme', 'accent', 'color', 'look'] },
-  { id: 'editor',     label: 'Editor',     icon: <Type size={15} />, keywords: ['font', 'typing', 'notes', 'indent', 'color preview'] },
-  { id: 'display',    label: 'Display',    icon: <Monitor size={15} />, keywords: ['scale', 'motion', 'animation', 'ui'] },
-  { id: 'canvas',     label: 'Canvas',     icon: <Layout size={15} />, keywords: ['canvas', 'web card', 'embed', 'preview', 'links'] },
-  { id: 'logic',      label: 'Logic & circuits', icon: <CircuitBoard size={15} />, keywords: ['logic', 'circuit', 'schematic', 'symbols', 'ansi', 'iec', 'din', 'german'] },
-  { id: 'ocr',        label: 'OCR',        icon: <Languages size={15} />, keywords: ['ocr', 'text recognition', 'language', 'tesseract', 'pdf', 'image'] },
-  { id: 'calendar',   label: 'Calendar',   icon: <CalendarDays size={15} />, keywords: ['date', 'week', 'format'] },
-  { id: 'profile',    label: 'Profile',    icon: <User size={15} />, keywords: ['name', 'identity', 'presence', 'user'] },
-  { id: 'server',     label: 'Server',     icon: <Server size={15} />, keywords: ['hosted', 'login', 'connection', 'account'] },
-  { id: 'shortcuts',  label: 'Shortcuts',  icon: <Keyboard size={15} />, keywords: ['keyboard', 'hotkeys', 'bindings'] },
-  { id: 'about',      label: 'About',      icon: <Info size={15} />, keywords: ['version', 'update', 'app'] },
+  {
+    id: 'general',
+    label: 'General',
+    icon: <SlidersHorizontal size={15} />,
+    keywords: ['startup', 'session', 'files', 'delete', 'behavior'],
+  },
+  {
+    id: 'background',
+    label: 'Background',
+    icon: <RefreshCw size={15} />,
+    keywords: ['tray', 'startup', 'autostart', 'sync', 'close', 'login'],
+  },
+  {
+    id: 'notifications',
+    label: 'Notifications',
+    icon: <Bell size={15} />,
+    keywords: ['alerts', 'reminders', 'permission', 'inbox', 'desktop'],
+  },
+  {
+    id: 'appearance',
+    label: 'Appearance',
+    icon: <Palette size={15} />,
+    keywords: ['theme', 'accent', 'color', 'look'],
+  },
+  {
+    id: 'editor',
+    label: 'Editor',
+    icon: <Type size={15} />,
+    keywords: ['font', 'typing', 'notes', 'indent', 'color preview'],
+  },
+  {
+    id: 'display',
+    label: 'Display',
+    icon: <Monitor size={15} />,
+    keywords: ['scale', 'motion', 'animation', 'ui'],
+  },
+  {
+    id: 'canvas',
+    label: 'Canvas',
+    icon: <Layout size={15} />,
+    keywords: ['canvas', 'web card', 'embed', 'preview', 'links'],
+  },
+  {
+    id: 'logic',
+    label: 'Logic & circuits',
+    icon: <CircuitBoard size={15} />,
+    keywords: ['logic', 'circuit', 'schematic', 'symbols', 'ansi', 'iec', 'din', 'german'],
+  },
+  {
+    id: 'ocr',
+    label: 'OCR',
+    icon: <Languages size={15} />,
+    keywords: ['ocr', 'text recognition', 'language', 'tesseract', 'pdf', 'image'],
+  },
+  {
+    id: 'calendar',
+    label: 'Calendar',
+    icon: <CalendarDays size={15} />,
+    keywords: ['date', 'week', 'format'],
+  },
+  {
+    id: 'profile',
+    label: 'Profile',
+    icon: <User size={15} />,
+    keywords: ['name', 'identity', 'presence', 'user'],
+  },
+  {
+    id: 'server',
+    label: 'Server',
+    icon: <Server size={15} />,
+    keywords: ['hosted', 'login', 'connection', 'account'],
+  },
+  {
+    id: 'shortcuts',
+    label: 'Shortcuts',
+    icon: <Keyboard size={15} />,
+    keywords: ['keyboard', 'hotkeys', 'bindings'],
+  },
+  { id: 'about', label: 'About', icon: <Info size={15} />, keywords: ['version', 'update', 'app'] },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -53,47 +135,88 @@ type TabId = (typeof TABS)[number]['id'];
 export default function SettingsModal() {
   const {
     closeSettings,
-    theme, setTheme,
-    accentColor, setAccentColor,
-    interfaceFont, setInterfaceFont,
-    interfaceFontSize, setInterfaceFontSize,
-    editorFont, setEditorFont,
-    editorFontSize, setEditorFontSize,
-    indentStyle, setIndentStyle,
-    tabWidth, setTabWidth,
-    showIndentMarkers, setShowIndentMarkers,
-    showColoredIndents, setShowColoredIndents,
-    showInlineColorPreviews, setShowInlineColorPreviews,
-    colorPreviewShowSwatch, setColorPreviewShowSwatch,
-    colorPreviewTintText, setColorPreviewTintText,
-    colorPreviewFormats, setColorPreviewFormatEnabled,
-    restorePreviousSession, setRestorePreviousSession,
-    scale, setScale,
-    dateFormat, setDateFormat,
-    weekStart, setWeekStart,
-    timeFormat, setTimeFormat,
-    calendarDefaultTimeZone, setCalendarDefaultTimeZone,
-    calendarDefaultDurationMinutes, setCalendarDefaultDurationMinutes,
-    calendarWorkingHoursStart, setCalendarWorkingHoursStart,
-    calendarWorkingHoursEnd, setCalendarWorkingHoursEnd,
-    calendarDefaultReminderMinutes, setCalendarDefaultReminderMinutes,
-    calendarHideWeekends, setCalendarHideWeekends,
-    calendarShowDeclined, setCalendarShowDeclined,
-    confirmDelete, setConfirmDelete,
-    animationsEnabled, setAnimationsEnabled,
-    animationSpeed, setAnimationSpeed,
-    canvasWebCardDefaultMode, setCanvasWebCardDefaultMode,
-    canvasWebCardAutoLoad, setCanvasWebCardAutoLoad,
-    webPreviewsEnabled, setWebPreviewsEnabled,
-    hoverWebLinkPreviewsEnabled, setHoverWebLinkPreviewsEnabled,
-    backgroundWebPreviewPrefetchEnabled, setBackgroundWebPreviewPrefetchEnabled,
-    fileTreeHoverPreviewsEnabled, setFileTreeHoverPreviewsEnabled,
-    liveCollabDebug, setLiveCollabDebug,
-    ocrLanguage, setOcrLanguage,
-    ocrModelSource, setOcrModelSource,
-    ocrRenderScale, setOcrRenderScale,
-    ocrPreprocessingMode, setOcrPreprocessingMode,
-    schematicSymbolSet, setSchematicSymbolSet,
+    theme,
+    setTheme,
+    accentColor,
+    setAccentColor,
+    interfaceFont,
+    setInterfaceFont,
+    interfaceFontSize,
+    setInterfaceFontSize,
+    editorFont,
+    setEditorFont,
+    editorFontSize,
+    setEditorFontSize,
+    indentStyle,
+    setIndentStyle,
+    tabWidth,
+    setTabWidth,
+    showIndentMarkers,
+    setShowIndentMarkers,
+    showColoredIndents,
+    setShowColoredIndents,
+    showInlineColorPreviews,
+    setShowInlineColorPreviews,
+    colorPreviewShowSwatch,
+    setColorPreviewShowSwatch,
+    colorPreviewTintText,
+    setColorPreviewTintText,
+    colorPreviewFormats,
+    setColorPreviewFormatEnabled,
+    restorePreviousSession,
+    setRestorePreviousSession,
+    scale,
+    setScale,
+    dateFormat,
+    setDateFormat,
+    weekStart,
+    setWeekStart,
+    timeFormat,
+    setTimeFormat,
+    calendarDefaultTimeZone,
+    setCalendarDefaultTimeZone,
+    calendarDefaultDurationMinutes,
+    setCalendarDefaultDurationMinutes,
+    calendarWorkingHoursStart,
+    setCalendarWorkingHoursStart,
+    calendarWorkingHoursEnd,
+    setCalendarWorkingHoursEnd,
+    calendarDefaultReminderMinutes,
+    setCalendarDefaultReminderMinutes,
+    calendarHideWeekends,
+    setCalendarHideWeekends,
+    calendarShowDeclined,
+    setCalendarShowDeclined,
+    confirmDelete,
+    setConfirmDelete,
+    animationsEnabled,
+    setAnimationsEnabled,
+    animationSpeed,
+    setAnimationSpeed,
+    canvasWebCardDefaultMode,
+    setCanvasWebCardDefaultMode,
+    canvasWebCardAutoLoad,
+    setCanvasWebCardAutoLoad,
+    webPreviewsEnabled,
+    setWebPreviewsEnabled,
+    hoverWebLinkPreviewsEnabled,
+    setHoverWebLinkPreviewsEnabled,
+    backgroundWebPreviewPrefetchEnabled,
+    setBackgroundWebPreviewPrefetchEnabled,
+    fileTreeHoverPreviewsEnabled,
+    setFileTreeHoverPreviewsEnabled,
+    liveCollabDebug,
+    setLiveCollabDebug,
+    ocrLanguage,
+    setOcrLanguage,
+    ocrModelSource,
+    setOcrModelSource,
+    ocrRenderScale,
+    setOcrRenderScale,
+    ocrPreprocessingMode,
+    setOcrPreprocessingMode,
+    schematicSymbolSet,
+    setSchematicSymbolSet,
   } = useUiStore();
 
   const { myUserName, myUserColor, myUserId, setMyProfile } = useCollabStore();
@@ -103,7 +226,11 @@ export default function SettingsModal() {
   const [showColorPreviewFormats, setShowColorPreviewFormats] = useState(false);
   const [name, setName] = useState(myUserName);
   const [appVersion, setAppVersion] = useState<string>('…');
-  useEffect(() => { getAppVersion().then(setAppVersion).catch(() => setAppVersion('?')); }, []);
+  useEffect(() => {
+    getAppVersion()
+      .then(setAppVersion)
+      .catch(() => setAppVersion('?'));
+  }, []);
   useEffect(() => {
     const handler = (event: Event) => {
       const requestedTab = (event as CustomEvent<{ tab?: TabId }>).detail?.tab;
@@ -140,7 +267,10 @@ export default function SettingsModal() {
           {/* Sidebar nav */}
           <nav className="w-48 shrink-0 border-r border-border/40 p-2 flex flex-col gap-0.5">
             <div className="relative mb-2">
-              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/70" />
+              <Search
+                size={14}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/70"
+              />
               <Input
                 value={settingsQuery}
                 onChange={(event) => setSettingsQuery(event.target.value)}
@@ -157,7 +287,7 @@ export default function SettingsModal() {
                   'relative flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all text-left app-motion-base',
                   activeTab === tab.id
                     ? 'bg-primary/15 text-primary font-medium'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
                 )}
               >
                 {tab.icon}
@@ -177,7 +307,6 @@ export default function SettingsModal() {
 
           {/* Content */}
           <div key={activeTab} className="flex-1 overflow-y-auto p-5 space-y-1 app-fade-slide-in">
-
             {/* ── General ── */}
             {activeTab === 'general' && (
               <SettingsGeneralSection
@@ -333,14 +462,15 @@ export default function SettingsModal() {
 
             {/* ── Shortcuts ── */}
             {activeTab === 'shortcuts' && <ShortcutsTab />}
-
           </div>
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-3 border-t border-border/40 bg-muted/10">
           <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="text-[10px] font-mono">collab v{appVersion}</Badge>
+            <Badge variant="secondary" className="text-[10px] font-mono">
+              collab v{appVersion}
+            </Badge>
           </div>
           <Button size="sm" variant="outline" onClick={closeSettings} className="h-7 text-xs">
             Close

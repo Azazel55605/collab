@@ -1,4 +1,8 @@
 import {
+  type CSSProperties,
+  type ClipboardEvent as ReactClipboardEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useId,
@@ -6,45 +10,26 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
-  type ClipboardEvent as ReactClipboardEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
 } from 'react';
+
 import { Paperclip } from 'lucide-react';
 
-import { SHEET_DEFAULTS } from '../../types/sheet';
-import type {
-  SheetDocument,
-  SheetNamedRange,
-  SheetStyle,
-  SheetWorksheet,
-} from '../../types/sheet';
-import {
-  sheetFormulaResultKey,
-  type SheetFormulaComputedValue,
-  type SheetFormulaValueMap,
-} from '../../types/sheetFormula';
-import { columnLabel } from '../../lib/sheet/address';
-import type { SheetPosition } from '../../lib/sheet/address';
 import {
   describeSheetCell,
   describeSheetSelection,
   sheetActiveCellDomId,
 } from '../../lib/sheet/accessibility';
+import { columnLabel } from '../../lib/sheet/address';
+import type { SheetPosition } from '../../lib/sheet/address';
 import {
   cellAlignment,
   formatCellDisplay,
   type SheetDisplayFormatOptions,
 } from '../../lib/sheet/cellValue';
-import {
-  formulaAutocompleteContext,
-  SHEET_FUNCTIONS,
-} from '../../lib/sheet/formulaFunctions';
-import { getCell, mergedRangeAt } from '../../lib/sheet/operations';
-import { resolveCellStyle } from '../../lib/sheet/styles';
-import { tableRectangle } from '../../lib/sheet/dataTools';
 import { createConditionalFormatEvaluator } from '../../lib/sheet/conditionalFormatting';
+import { tableRectangle } from '../../lib/sheet/dataTools';
+import { formulaAutocompleteContext, SHEET_FUNCTIONS } from '../../lib/sheet/formulaFunctions';
+import { getCell, mergedRangeAt } from '../../lib/sheet/operations';
 import {
   addSelectionRange,
   createSelection,
@@ -59,20 +44,27 @@ import {
   selectRows,
   type SheetSelection,
 } from '../../lib/sheet/selection';
+import { resolveCellStyle } from '../../lib/sheet/styles';
 import {
   buildColumnMetrics,
   buildRowMetrics,
   computeViewport,
+  type SheetAxisMetrics,
   trackAtPaneOffset,
   trackOffset,
   trackPaneOffset,
   trackSize,
-  type SheetAxisMetrics,
 } from '../../lib/sheet/viewport';
 import { cn } from '../../lib/utils';
-import SheetFormulaIntellisense, {
-  type SheetFormulaSuggestion,
-} from './SheetFormulaIntellisense';
+import { SHEET_DEFAULTS } from '../../types/sheet';
+import type { SheetDocument, SheetNamedRange, SheetStyle, SheetWorksheet } from '../../types/sheet';
+import {
+  type SheetFormulaComputedValue,
+  sheetFormulaResultKey,
+  type SheetFormulaValueMap,
+} from '../../types/sheetFormula';
+
+import SheetFormulaIntellisense, { type SheetFormulaSuggestion } from './SheetFormulaIntellisense';
 
 /**
  * Virtualized spreadsheet grid: a canvas cell layer under a DOM overlay.
@@ -236,9 +228,10 @@ function drawStyledCellText(
   const fontSize = Math.max(8, Math.min(72, style.fontSize ?? 13));
   const fontFamily = style.fontFamily || theme.font.replace(/^.*?px\s+/, '');
   context.font = `${style.italic ? 'italic ' : ''}${style.bold ? '700 ' : ''}${fontSize}px ${fontFamily}`;
-  context.fillStyle = computed?.type === 'error'
-    ? SHEET_INDICATOR_COLORS.error
-    : style.color ?? (cell?.formula ? theme.mutedText : theme.text);
+  context.fillStyle =
+    computed?.type === 'error'
+      ? SHEET_INDICATOR_COLORS.error
+      : (style.color ?? (cell?.formula ? theme.mutedText : theme.text));
   context.save();
   context.beginPath();
   context.rect(x + 1, y + 1, width - 2, height - 2);
@@ -247,21 +240,21 @@ function drawStyledCellText(
   const align = style.horizontalAlign ?? cellAlignment(cell, computed);
   context.textAlign = align;
   const indent = Math.max(0, Math.min(20, style.indent ?? 0)) * 8;
-  const textX = align === 'right'
-    ? x + width - 6 - indent
-    : align === 'center'
-      ? x + width / 2
-      : x + 6 + indent;
+  const textX =
+    align === 'right'
+      ? x + width - 6 - indent
+      : align === 'center'
+        ? x + width / 2
+        : x + 6 + indent;
   const lines: string[] = [];
   if (style.wrap && text.length > 0) {
     const available = Math.max(8, width - 12 - indent);
     const words = text.split(/\s+/);
     let line = '';
-    const measure = (candidate: string) => (
+    const measure = (candidate: string) =>
       typeof context.measureText === 'function'
         ? context.measureText(candidate).width
-        : candidate.length * fontSize * 0.55
-    );
+        : candidate.length * fontSize * 0.55;
     for (const word of words) {
       const candidate = line ? `${line} ${word}` : word;
       if (line && measure(candidate) > available) {
@@ -279,19 +272,22 @@ function drawStyledCellText(
   const lineHeight = fontSize + 2;
   const visibleLines = lines.slice(0, Math.max(1, Math.floor((height - 4) / lineHeight)));
   const blockHeight = visibleLines.length * lineHeight;
-  const firstY = style.verticalAlign === 'top'
-    ? y + 3 + lineHeight / 2
-    : style.verticalAlign === 'bottom'
-      ? y + height - 3 - blockHeight + lineHeight / 2
-      : y + (height - blockHeight) / 2 + lineHeight / 2;
+  const firstY =
+    style.verticalAlign === 'top'
+      ? y + 3 + lineHeight / 2
+      : style.verticalAlign === 'bottom'
+        ? y + height - 3 - blockHeight + lineHeight / 2
+        : y + (height - blockHeight) / 2 + lineHeight / 2;
   visibleLines.forEach((line, index) => {
     const lineY = firstY + index * lineHeight;
     context.fillText(line, textX, lineY);
     if (style.underline || style.strikethrough) {
-      const textWidth = typeof context.measureText === 'function'
-        ? context.measureText(line).width
-        : line.length * fontSize * 0.55;
-      const left = align === 'right' ? textX - textWidth : align === 'center' ? textX - textWidth / 2 : textX;
+      const textWidth =
+        typeof context.measureText === 'function'
+          ? context.measureText(line).width
+          : line.length * fontSize * 0.55;
+      const left =
+        align === 'right' ? textX - textWidth : align === 'center' ? textX - textWidth / 2 : textX;
       context.strokeStyle = context.fillStyle as string;
       context.lineWidth = 1;
       if (style.underline) {
@@ -361,7 +357,9 @@ function drawStyledBorders(
     context.strokeStyle = border.color ?? SHEET_INDICATOR_COLORS.defaultBorder;
     context.lineWidth = border.style === 'thick' ? 3 : border.style === 'medium' ? 2 : 1;
     if (typeof context.setLineDash === 'function') {
-      context.setLineDash(border.style === 'dashed' ? [5, 3] : border.style === 'dotted' ? [1, 2] : []);
+      context.setLineDash(
+        border.style === 'dashed' ? [5, 3] : border.style === 'dotted' ? [1, 2] : [],
+      );
     }
     context.beginPath();
     context.moveTo(fromX, fromY);
@@ -385,20 +383,28 @@ function mergeRectangles(worksheet: SheetWorksheet): MergeRectangle[] {
     const startColumn = worksheet.columnOrder.indexOf(range.startColumnId);
     const endColumn = worksheet.columnOrder.indexOf(range.endColumnId);
     if (startRow < 0 || endRow < 0 || startColumn < 0 || endColumn < 0) return [];
-    return [{
-      top: Math.min(startRow, endRow),
-      bottom: Math.max(startRow, endRow),
-      left: Math.min(startColumn, endColumn),
-      right: Math.max(startColumn, endColumn),
-    }];
+    return [
+      {
+        top: Math.min(startRow, endRow),
+        bottom: Math.max(startRow, endRow),
+        left: Math.min(startColumn, endColumn),
+        right: Math.max(startColumn, endColumn),
+      },
+    ];
   });
 }
 
-function rectangleContainsPosition(rectangle: MergeRectangle, row: number, column: number): boolean {
-  return row >= rectangle.top
-    && row <= rectangle.bottom
-    && column >= rectangle.left
-    && column <= rectangle.right;
+function rectangleContainsPosition(
+  rectangle: MergeRectangle,
+  row: number,
+  column: number,
+): boolean {
+  return (
+    row >= rectangle.top &&
+    row <= rectangle.bottom &&
+    column >= rectangle.left &&
+    column <= rectangle.right
+  );
 }
 
 function paneTrackOffset(
@@ -441,10 +447,12 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
 
   const rowIndices: number[] = [];
   for (let index = 0; index < viewport.rows.frozen; index += 1) rowIndices.push(index);
-  for (let index = viewport.rows.start; index < viewport.rows.end; index += 1) rowIndices.push(index);
+  for (let index = viewport.rows.start; index < viewport.rows.end; index += 1)
+    rowIndices.push(index);
   const columnIndices: number[] = [];
   for (let index = 0; index < viewport.columns.frozen; index += 1) columnIndices.push(index);
-  for (let index = viewport.columns.start; index < viewport.columns.end; index += 1) columnIndices.push(index);
+  for (let index = viewport.columns.start; index < viewport.columns.end; index += 1)
+    columnIndices.push(index);
   const merges = mergeRectangles(worksheet);
   const tables = (worksheet.tables ?? []).flatMap((table) => {
     const rectangle = tableRectangle(worksheet, table);
@@ -458,10 +466,13 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
   const styleAt = (row: number, column: number): SheetStyle => {
     const explicit = resolveCellStyle(options.styles, worksheet, { row, column });
     const conditional = conditionalStyleAt({ row, column });
-    const table = tables.find(({ rectangle }) => (
-      row >= rectangle.top && row <= rectangle.bottom
-      && column >= rectangle.left && column <= rectangle.right
-    ));
+    const table = tables.find(
+      ({ rectangle }) =>
+        row >= rectangle.top &&
+        row <= rectangle.bottom &&
+        column >= rectangle.left &&
+        column <= rectangle.right,
+    );
     if (!table) return { ...explicit, ...conditional };
     const header = table.table.hasHeaderRow && row === table.rectangle.top;
     return {
@@ -507,15 +518,17 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
       const cellKey = `${rowId}:${columnId}`;
       const highlight = options.formulaHighlights?.get(cellKey);
       if (highlight) {
-        context.fillStyle = highlight === 'precedent'
-          ? SHEET_SURFACE_TINTS.formulaPrecedent
-          : SHEET_SURFACE_TINTS.formulaDependent;
+        context.fillStyle =
+          highlight === 'precedent'
+            ? SHEET_SURFACE_TINTS.formulaPrecedent
+            : SHEET_SURFACE_TINTS.formulaDependent;
         context.fillRect(x + 1, y + 1, columnWidth - 1, rowHeight - 1);
       }
       painted += 1;
-      const computed = rowId && columnId
-        ? options.computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
-        : undefined;
+      const computed =
+        rowId && columnId
+          ? options.computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
+          : undefined;
       drawStyledBorders(context, style, x, y, columnWidth, rowHeight);
       const text = formatCellDisplay(cell, computed, style, options.displayFormat);
       if (text) {
@@ -539,39 +552,44 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
   // Merged ranges are painted after ordinary cells so one outer rectangle
   // replaces all internal cell lines. Only the top-left cell owns content.
   for (const merge of merges) {
-    const intersectsViewport = rowIndices.some(
-      (row) => row >= merge.top && row <= merge.bottom,
-    ) && columnIndices.some(
-      (column) => column >= merge.left && column <= merge.right,
-    );
+    const intersectsViewport =
+      rowIndices.some((row) => row >= merge.top && row <= merge.bottom) &&
+      columnIndices.some((column) => column >= merge.left && column <= merge.right);
     if (!intersectsViewport) continue;
 
     const x = paneTrackOffset(columns, merge.left, options.scrollLeft, options.frozenColumns);
     const y = paneTrackOffset(rows, merge.top, options.scrollTop, options.frozenRows);
     const width = rectangleTrackSize(columns, merge.left, merge.right);
     const height = rectangleTrackSize(rows, merge.top, merge.bottom);
-    if (width <= 0 || height <= 0 || x >= options.width || y >= options.height
-      || x + width <= 0 || y + height <= 0) {
+    if (
+      width <= 0 ||
+      height <= 0 ||
+      x >= options.width ||
+      y >= options.height ||
+      x + width <= 0 ||
+      y + height <= 0
+    ) {
       continue;
     }
 
     const rowId = worksheet.rowOrder[merge.top];
     const columnId = worksheet.columnOrder[merge.left];
     const cell = getCell(worksheet, { row: merge.top, column: merge.left });
-    const computed = rowId && columnId
-      ? options.computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
-      : undefined;
-    const highlight = rowId && columnId
-      ? options.formulaHighlights?.get(`${rowId}:${columnId}`)
-      : undefined;
+    const computed =
+      rowId && columnId
+        ? options.computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
+        : undefined;
+    const highlight =
+      rowId && columnId ? options.formulaHighlights?.get(`${rowId}:${columnId}`) : undefined;
     const style = styleAt(merge.top, merge.left);
 
     context.fillStyle = style.backgroundColor ?? theme.background;
     context.fillRect(x, y, width, height);
     if (highlight) {
-      context.fillStyle = highlight === 'precedent'
-        ? SHEET_SURFACE_TINTS.formulaPrecedent
-        : SHEET_SURFACE_TINTS.formulaDependent;
+      context.fillStyle =
+        highlight === 'precedent'
+          ? SHEET_SURFACE_TINTS.formulaPrecedent
+          : SHEET_SURFACE_TINTS.formulaDependent;
       context.fillRect(x + 1, y + 1, width - 1, height - 1);
     }
     context.strokeStyle = theme.gridLine;
@@ -598,7 +616,9 @@ function paintCells(context: CanvasRenderingContext2D, options: PaintOptions): n
     context.stroke();
   }
   if (options.frozenColumns > 0) {
-    const x = trackPaneOffset(columns, options.frozenColumns, options.scrollLeft, options.frozenColumns) ?? 0;
+    const x =
+      trackPaneOffset(columns, options.frozenColumns, options.scrollLeft, options.frozenColumns) ??
+      0;
     context.beginPath();
     context.moveTo(Math.floor(x) + 0.5, 0);
     context.lineTo(Math.floor(x) + 0.5, options.height);
@@ -646,15 +666,19 @@ export default function SheetGrid({
   const pendingEditorCursorRef = useRef<number | null>(null);
   const dragRef = useRef<'select' | 'formula-reference' | null>(null);
   const formulaReferenceRef = useRef<{ anchor: SheetPosition; focus: SheetPosition } | null>(null);
-  const [formulaReferenceRange, setFormulaReferenceRange] = useState<
-    { anchor: SheetPosition; focus: SheetPosition } | null
-  >(null);
+  const [formulaReferenceRange, setFormulaReferenceRange] = useState<{
+    anchor: SheetPosition;
+    focus: SheetPosition;
+  } | null>(null);
   const [editorCursor, setEditorCursor] = useState(0);
   const [editorSuggestionsOpen, setEditorSuggestionsOpen] = useState(true);
   const [selectedEditorSuggestion, setSelectedEditorSuggestion] = useState(0);
-  const resizeRef = useRef<
-    { axis: 'row' | 'column'; index: number; origin: number; size: number } | null
-  >(null);
+  const resizeRef = useRef<{
+    axis: 'row' | 'column';
+    index: number;
+    origin: number;
+    size: number;
+  } | null>(null);
   const fillTargetRef = useRef<SheetPosition | null>(null);
   const [fillTarget, setFillTarget] = useState<SheetPosition | null>(null);
 
@@ -680,16 +704,20 @@ export default function SheetGrid({
     [rows.count, columns.count],
   );
 
-  const viewport = useMemo(() => computeViewport({
-    rows,
-    columns,
-    scrollTop: scroll.top,
-    scrollLeft: scroll.left,
-    viewportHeight: paneHeight,
-    viewportWidth: paneWidth,
-    frozenRows,
-    frozenColumns,
-  }), [rows, columns, scroll.top, scroll.left, paneHeight, paneWidth, frozenRows, frozenColumns]);
+  const viewport = useMemo(
+    () =>
+      computeViewport({
+        rows,
+        columns,
+        scrollTop: scroll.top,
+        scrollLeft: scroll.left,
+        viewportHeight: paneHeight,
+        viewportWidth: paneWidth,
+        frozenRows,
+        frozenColumns,
+      }),
+    [rows, columns, scroll.top, scroll.left, paneHeight, paneWidth, frozenRows, frozenColumns],
+  );
 
   // ── Painting ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -728,7 +756,8 @@ export default function SheetGrid({
       formulaHighlights,
       theme: {
         text: canvasStyles.getPropertyValue('color') || SHEET_INDICATOR_COLORS.fallbackText,
-        mutedText: canvasStyles.getPropertyValue('color') || SHEET_INDICATOR_COLORS.fallbackMutedText,
+        mutedText:
+          canvasStyles.getPropertyValue('color') || SHEET_INDICATOR_COLORS.fallbackMutedText,
         gridLine: SHEET_GRID_LINES.cell,
         frozenLine: SHEET_GRID_LINES.frozen,
         background: 'transparent',
@@ -770,51 +799,60 @@ export default function SheetGrid({
   }, []);
 
   // ── Hit testing ────────────────────────────────────────────────────────────
-  const positionFromEvent = useCallback((clientX: number, clientY: number): SheetPosition | null => {
-    const pane = paneRef.current;
-    if (!pane) return null;
-    const rect = pane.getBoundingClientRect();
-    const x = clientX - rect.left - headerWidth;
-    const y = clientY - rect.top - headerHeight;
-    if (x < 0 || y < 0) return null;
-    const position = {
-      row: trackAtPaneOffset(rows, y, scroll.top, frozenRows),
-      column: trackAtPaneOffset(columns, x, scroll.left, frozenColumns),
-    };
-    const merge = mergedRangeAt(worksheet, position);
-    if (!merge) return position;
-    const row = Math.min(
-      worksheet.rowOrder.indexOf(merge.startRowId),
-      worksheet.rowOrder.indexOf(merge.endRowId),
-    );
-    const column = Math.min(
-      worksheet.columnOrder.indexOf(merge.startColumnId),
-      worksheet.columnOrder.indexOf(merge.endColumnId),
-    );
-    return row >= 0 && column >= 0 ? { row, column } : position;
-  }, [
-    columns,
-    frozenColumns,
-    frozenRows,
-    headerHeight,
-    headerWidth,
-    rows,
-    scroll.left,
-    scroll.top,
-    worksheet,
-  ]);
+  const positionFromEvent = useCallback(
+    (clientX: number, clientY: number): SheetPosition | null => {
+      const pane = paneRef.current;
+      if (!pane) return null;
+      const rect = pane.getBoundingClientRect();
+      const x = clientX - rect.left - headerWidth;
+      const y = clientY - rect.top - headerHeight;
+      if (x < 0 || y < 0) return null;
+      const position = {
+        row: trackAtPaneOffset(rows, y, scroll.top, frozenRows),
+        column: trackAtPaneOffset(columns, x, scroll.left, frozenColumns),
+      };
+      const merge = mergedRangeAt(worksheet, position);
+      if (!merge) return position;
+      const row = Math.min(
+        worksheet.rowOrder.indexOf(merge.startRowId),
+        worksheet.rowOrder.indexOf(merge.endRowId),
+      );
+      const column = Math.min(
+        worksheet.columnOrder.indexOf(merge.startColumnId),
+        worksheet.columnOrder.indexOf(merge.endColumnId),
+      );
+      return row >= 0 && column >= 0 ? { row, column } : position;
+    },
+    [
+      columns,
+      frozenColumns,
+      frozenRows,
+      headerHeight,
+      headerWidth,
+      rows,
+      scroll.left,
+      scroll.top,
+      worksheet,
+    ],
+  );
 
-  const commitEditing = useCallback((advance: 'down' | 'right' | null) => {
-    if (!editing) return;
-    onCommit(editing.position, editing.text);
-    onEditingChange(null);
-    if (advance) onSelectionChange(moveSelection(selection, advance, bounds));
-  }, [bounds, editing, onCommit, onEditingChange, onSelectionChange, selection]);
+  const commitEditing = useCallback(
+    (advance: 'down' | 'right' | null) => {
+      if (!editing) return;
+      onCommit(editing.position, editing.text);
+      onEditingChange(null);
+      if (advance) onSelectionChange(moveSelection(selection, advance, bounds));
+    },
+    [bounds, editing, onCommit, onEditingChange, onSelectionChange, selection],
+  );
 
-  const beginEditing = useCallback((position: SheetPosition, text: string) => {
-    if (readOnly) return;
-    onEditingChange({ position, text, source: 'grid' });
-  }, [onEditingChange, readOnly]);
+  const beginEditing = useCallback(
+    (position: SheetPosition, text: string) => {
+      if (readOnly) return;
+      onEditingChange({ position, text, source: 'grid' });
+    },
+    [onEditingChange, readOnly],
+  );
 
   useEffect(() => {
     if (!editing || editing.source === 'formula-bar') return;
@@ -836,17 +874,16 @@ export default function SheetGrid({
   }, [editing?.source]);
 
   const editorAutocomplete = useMemo(
-    () => editing?.source === 'grid'
-      ? formulaAutocompleteContext(editing.text, editorCursor)
-      : null,
+    () =>
+      editing?.source === 'grid' ? formulaAutocompleteContext(editing.text, editorCursor) : null,
     [editing, editorCursor],
   );
   const editorSuggestions = useMemo(() => {
     if (!editorSuggestionsOpen || !editorAutocomplete) return [];
     const query = editorAutocomplete.query.toLocaleUpperCase();
-    const functions: SheetFormulaSuggestion[] = SHEET_FUNCTIONS
-      .filter((definition) => definition.name.startsWith(query))
-      .map((definition) => ({ ...definition, kind: 'function' }));
+    const functions: SheetFormulaSuggestion[] = SHEET_FUNCTIONS.filter((definition) =>
+      definition.name.startsWith(query),
+    ).map((definition) => ({ ...definition, kind: 'function' }));
     const names: SheetFormulaSuggestion[] = namedRanges
       .filter((namedRange) => namedRange.name.toLocaleUpperCase().startsWith(query))
       .map((namedRange) => ({
@@ -854,8 +891,7 @@ export default function SheetGrid({
         signature: namedRange.scopeWorksheetId ? 'Worksheet named range' : 'Workbook named range',
         kind: 'named-range',
       }));
-    return [...functions, ...names]
-      .slice(0, 8);
+    return [...functions, ...names].slice(0, 8);
   }, [editorAutocomplete, editorSuggestionsOpen, namedRanges]);
 
   useEffect(() => {
@@ -871,81 +907,81 @@ export default function SheetGrid({
     });
   }, []);
 
-  const chooseEditorSuggestion = useCallback((index: number) => {
-    const definition = editorSuggestions[index];
-    if (!definition || !editing || !editorAutocomplete) return;
-    const suffix = definition.kind === 'function' ? '(' : '';
-    const next = `${editing.text.slice(0, editorAutocomplete.start)}${definition.name}${suffix}${editing.text.slice(editorAutocomplete.end)}`;
-    const cursor = editorAutocomplete.start + definition.name.length + suffix.length;
-    onEditingChange({ ...editing, text: next, source: 'grid' });
-    setEditorSuggestionsOpen(false);
-    placeEditorCursor(cursor);
-    editorRef.current?.focus();
-  }, [
-    editing,
-    editorAutocomplete,
-    editorSuggestions,
-    onEditingChange,
-    placeEditorCursor,
-  ]);
+  const chooseEditorSuggestion = useCallback(
+    (index: number) => {
+      const definition = editorSuggestions[index];
+      if (!definition || !editing || !editorAutocomplete) return;
+      const suffix = definition.kind === 'function' ? '(' : '';
+      const next = `${editing.text.slice(0, editorAutocomplete.start)}${definition.name}${suffix}${editing.text.slice(editorAutocomplete.end)}`;
+      const cursor = editorAutocomplete.start + definition.name.length + suffix.length;
+      onEditingChange({ ...editing, text: next, source: 'grid' });
+      setEditorSuggestionsOpen(false);
+      placeEditorCursor(cursor);
+      editorRef.current?.focus();
+    },
+    [editing, editorAutocomplete, editorSuggestions, onEditingChange, placeEditorCursor],
+  );
 
   // ── Pointer interaction ────────────────────────────────────────────────────
-  const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    const position = positionFromEvent(event.clientX, event.clientY);
-    if (!position) return;
+  const handlePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      const position = positionFromEvent(event.clientX, event.clientY);
+      if (!position) return;
 
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    if (formulaReferenceMode) {
-      const range = { anchor: position, focus: position };
-      formulaReferenceRef.current = range;
-      setFormulaReferenceRange(range);
-      dragRef.current = 'formula-reference';
-      event.preventDefault();
-      return;
-    }
-    if (editing) commitEditing(null);
-    dragRef.current = 'select';
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      if (formulaReferenceMode) {
+        const range = { anchor: position, focus: position };
+        formulaReferenceRef.current = range;
+        setFormulaReferenceRange(range);
+        dragRef.current = 'formula-reference';
+        event.preventDefault();
+        return;
+      }
+      if (editing) commitEditing(null);
+      dragRef.current = 'select';
 
-    if (event.shiftKey) onSelectionChange(extendSelection(selection, position));
-    else if (event.ctrlKey || event.metaKey) onSelectionChange(addSelectionRange(selection, position));
-    else onSelectionChange(createSelection(position));
-  }, [
-    commitEditing,
-    editing,
-    formulaReferenceMode,
-    onSelectionChange,
-    positionFromEvent,
-    selection,
-  ]);
+      if (event.shiftKey) onSelectionChange(extendSelection(selection, position));
+      else if (event.ctrlKey || event.metaKey)
+        onSelectionChange(addSelectionRange(selection, position));
+      else onSelectionChange(createSelection(position));
+    },
+    [commitEditing, editing, formulaReferenceMode, onSelectionChange, positionFromEvent, selection],
+  );
 
-  const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragRef.current) return;
-    const position = positionFromEvent(event.clientX, event.clientY);
-    if (!position) return;
-    if (dragRef.current === 'formula-reference') {
-      const current = formulaReferenceRef.current;
-      if (!current) return;
-      const range = { anchor: current.anchor, focus: position };
-      formulaReferenceRef.current = range;
-      setFormulaReferenceRange(range);
-      return;
-    }
-    onSelectionChange(extendSelection(selection, position));
-  }, [onSelectionChange, positionFromEvent, selection]);
+  const handlePointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!dragRef.current) return;
+      const position = positionFromEvent(event.clientX, event.clientY);
+      if (!position) return;
+      if (dragRef.current === 'formula-reference') {
+        const current = formulaReferenceRef.current;
+        if (!current) return;
+        const range = { anchor: current.anchor, focus: position };
+        formulaReferenceRef.current = range;
+        setFormulaReferenceRange(range);
+        return;
+      }
+      onSelectionChange(extendSelection(selection, position));
+    },
+    [onSelectionChange, positionFromEvent, selection],
+  );
 
-  const endDrag = useCallback((event?: ReactPointerEvent<HTMLDivElement>) => {
-    if (dragRef.current === 'formula-reference' && formulaReferenceRef.current) {
-      const focus = event ? positionFromEvent(event.clientX, event.clientY) : null;
-      const completed = focus
-        ? { anchor: formulaReferenceRef.current.anchor, focus }
-        : formulaReferenceRef.current;
-      onFormulaReferenceCommit?.(completed);
-      formulaReferenceRef.current = null;
-      setFormulaReferenceRange(null);
-    }
-    dragRef.current = null;
-  }, [onFormulaReferenceCommit, positionFromEvent]);
+  const endDrag = useCallback(
+    (event?: ReactPointerEvent<HTMLDivElement>) => {
+      if (dragRef.current === 'formula-reference' && formulaReferenceRef.current) {
+        const focus = event ? positionFromEvent(event.clientX, event.clientY) : null;
+        const completed = focus
+          ? { anchor: formulaReferenceRef.current.anchor, focus }
+          : formulaReferenceRef.current;
+        onFormulaReferenceCommit?.(completed);
+        formulaReferenceRef.current = null;
+        setFormulaReferenceRange(null);
+      }
+      dragRef.current = null;
+    },
+    [onFormulaReferenceCommit, positionFromEvent],
+  );
 
   const cancelDrag = useCallback(() => {
     formulaReferenceRef.current = null;
@@ -953,13 +989,20 @@ export default function SheetGrid({
     dragRef.current = null;
   }, []);
 
-  const handleDoubleClick = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const position = positionFromEvent(event.clientX, event.clientY);
-    if (!position) return;
-    onSelectionChange(createSelection(position));
-    const cell = getCell(worksheet, position);
-    beginEditing(position, cell?.formula ?? (cell?.value === undefined || cell?.value === null ? '' : String(cell.value)));
-  }, [beginEditing, onSelectionChange, positionFromEvent, worksheet]);
+  const handleDoubleClick = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const position = positionFromEvent(event.clientX, event.clientY);
+      if (!position) return;
+      onSelectionChange(createSelection(position));
+      const cell = getCell(worksheet, position);
+      beginEditing(
+        position,
+        cell?.formula ??
+          (cell?.value === undefined || cell?.value === null ? '' : String(cell.value)),
+      );
+    },
+    [beginEditing, onSelectionChange, positionFromEvent, worksheet],
+  );
 
   // ── Keyboard interaction ───────────────────────────────────────────────────
   const isPopulated = useCallback(
@@ -969,231 +1012,259 @@ export default function SheetGrid({
 
   const pageDistance = Math.max(1, Math.floor(paneHeight / SHEET_DEFAULTS.rowHeight) - 1);
 
-  const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (editing) return;
-    const extend = event.shiftKey;
-    const jump = event.ctrlKey || event.metaKey;
+  const handleKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (editing) return;
+      const extend = event.shiftKey;
+      const jump = event.ctrlKey || event.metaKey;
 
-    if (jump && event.key.toLowerCase() === 'z') {
-      event.preventDefault();
-      if (event.shiftKey) onRedo?.();
-      else onUndo?.();
-      return;
-    }
-    if (jump && event.key.toLowerCase() === 'y') {
-      event.preventDefault();
-      onRedo?.();
-      return;
-    }
-    if (jump && event.key.toLowerCase() === 'f') {
-      event.preventDefault();
-      onFind?.();
-      return;
-    }
+      if (jump && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) onRedo?.();
+        else onUndo?.();
+        return;
+      }
+      if (jump && event.key.toLowerCase() === 'y') {
+        event.preventDefault();
+        onRedo?.();
+        return;
+      }
+      if (jump && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        onFind?.();
+        return;
+      }
 
-    switch (event.key) {
-      case 'ArrowUp':
-      case 'ArrowDown':
-      case 'ArrowLeft':
-      case 'ArrowRight': {
-        event.preventDefault();
-        const direction = event.key === 'ArrowUp' ? 'up'
-          : event.key === 'ArrowDown' ? 'down'
-          : event.key === 'ArrowLeft' ? 'left'
-          : 'right';
-        onSelectionChange(moveSelection(selection, direction, bounds, { extend, jump, isPopulated }));
-        return;
+      switch (event.key) {
+        case 'ArrowUp':
+        case 'ArrowDown':
+        case 'ArrowLeft':
+        case 'ArrowRight': {
+          event.preventDefault();
+          const direction =
+            event.key === 'ArrowUp'
+              ? 'up'
+              : event.key === 'ArrowDown'
+                ? 'down'
+                : event.key === 'ArrowLeft'
+                  ? 'left'
+                  : 'right';
+          onSelectionChange(
+            moveSelection(selection, direction, bounds, { extend, jump, isPopulated }),
+          );
+          return;
+        }
+        case 'PageUp':
+        case 'PageDown': {
+          event.preventDefault();
+          onSelectionChange(
+            moveSelection(selection, event.key === 'PageUp' ? 'up' : 'down', bounds, {
+              extend,
+              distance: pageDistance,
+            }),
+          );
+          return;
+        }
+        case 'Home': {
+          event.preventDefault();
+          onSelectionChange(
+            moveToEdge(selection, jump ? 'grid-start' : 'row-start', bounds, extend),
+          );
+          return;
+        }
+        case 'End': {
+          event.preventDefault();
+          onSelectionChange(moveToEdge(selection, jump ? 'grid-end' : 'row-end', bounds, extend));
+          return;
+        }
+        case 'Tab': {
+          event.preventDefault();
+          onSelectionChange(moveSelection(selection, extend ? 'left' : 'right', bounds));
+          return;
+        }
+        case 'Enter': {
+          event.preventDefault();
+          if (readOnly) return;
+          const cell = getCell(worksheet, selection.active);
+          beginEditing(
+            selection.active,
+            cell?.formula ??
+              (cell?.value === undefined || cell?.value === null ? '' : String(cell.value)),
+          );
+          return;
+        }
+        case 'F2': {
+          event.preventDefault();
+          if (readOnly) return;
+          const cell = getCell(worksheet, selection.active);
+          beginEditing(
+            selection.active,
+            cell?.formula ??
+              (cell?.value === undefined || cell?.value === null ? '' : String(cell.value)),
+          );
+          return;
+        }
+        case 'Delete':
+        case 'Backspace': {
+          event.preventDefault();
+          if (!readOnly) onClearSelection();
+          return;
+        }
+        case 'Escape': {
+          onSelectionChange(createSelection(selection.active));
+          return;
+        }
+        default:
+          break;
       }
-      case 'PageUp':
-      case 'PageDown': {
-        event.preventDefault();
-        onSelectionChange(moveSelection(
-          selection,
-          event.key === 'PageUp' ? 'up' : 'down',
-          bounds,
-          { extend, distance: pageDistance },
-        ));
-        return;
-      }
-      case 'Home': {
-        event.preventDefault();
-        onSelectionChange(moveToEdge(selection, jump ? 'grid-start' : 'row-start', bounds, extend));
-        return;
-      }
-      case 'End': {
-        event.preventDefault();
-        onSelectionChange(moveToEdge(selection, jump ? 'grid-end' : 'row-end', bounds, extend));
-        return;
-      }
-      case 'Tab': {
-        event.preventDefault();
-        onSelectionChange(moveSelection(selection, extend ? 'left' : 'right', bounds));
-        return;
-      }
-      case 'Enter': {
-        event.preventDefault();
-        if (readOnly) return;
-        const cell = getCell(worksheet, selection.active);
-        beginEditing(
-          selection.active,
-          cell?.formula ?? (cell?.value === undefined || cell?.value === null ? '' : String(cell.value)),
-        );
-        return;
-      }
-      case 'F2': {
-        event.preventDefault();
-        if (readOnly) return;
-        const cell = getCell(worksheet, selection.active);
-        beginEditing(
-          selection.active,
-          cell?.formula ?? (cell?.value === undefined || cell?.value === null ? '' : String(cell.value)),
-        );
-        return;
-      }
-      case 'Delete':
-      case 'Backspace': {
-        event.preventDefault();
-        if (!readOnly) onClearSelection();
-        return;
-      }
-      case 'Escape': {
-        onSelectionChange(createSelection(selection.active));
-        return;
-      }
-      default:
-        break;
-    }
 
-    if (jump && (event.key === 'a' || event.key === 'A')) {
-      event.preventDefault();
-      onSelectionChange(selectAll(bounds));
-      return;
-    }
+      if (jump && (event.key === 'a' || event.key === 'A')) {
+        event.preventDefault();
+        onSelectionChange(selectAll(bounds));
+        return;
+      }
 
-    // Any printable character starts an edit with that character, the way a
-    // spreadsheet does — no need to press Enter first.
-    if (!readOnly && !jump && !event.altKey && event.key.length === 1) {
-      event.preventDefault();
-      beginEditing(selection.active, event.key);
-    }
-  }, [
-    beginEditing, bounds, editing, isPopulated, onClearSelection, onFind, onRedo,
-    onSelectionChange, onUndo, pageDistance, readOnly, selection, worksheet,
-  ]);
+      // Any printable character starts an edit with that character, the way a
+      // spreadsheet does — no need to press Enter first.
+      if (!readOnly && !jump && !event.altKey && event.key.length === 1) {
+        event.preventDefault();
+        beginEditing(selection.active, event.key);
+      }
+    },
+    [
+      beginEditing,
+      bounds,
+      editing,
+      isPopulated,
+      onClearSelection,
+      onFind,
+      onRedo,
+      onSelectionChange,
+      onUndo,
+      pageDistance,
+      readOnly,
+      selection,
+      worksheet,
+    ],
+  );
 
   // ── Header resize ──────────────────────────────────────────────────────────
-  const startResize = useCallback((
-    event: ReactPointerEvent<HTMLElement>,
-    axis: 'row' | 'column',
-    index: number,
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const metrics = axis === 'row' ? rows : columns;
-    resizeRef.current = {
-      axis,
-      index,
-      origin: axis === 'row' ? event.clientY : event.clientX,
-      size: trackSize(metrics, index),
-    };
+  const startResize = useCallback(
+    (event: ReactPointerEvent<HTMLElement>, axis: 'row' | 'column', index: number) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const metrics = axis === 'row' ? rows : columns;
+      resizeRef.current = {
+        axis,
+        index,
+        origin: axis === 'row' ? event.clientY : event.clientX,
+        size: trackSize(metrics, index),
+      };
 
-    const move = (moveEvent: PointerEvent) => {
-      const state = resizeRef.current;
-      if (!state) return;
-      const delta = (state.axis === 'row' ? moveEvent.clientY : moveEvent.clientX) - state.origin;
-      const minimum = state.axis === 'row' ? MIN_ROW_HEIGHT : MIN_COLUMN_WIDTH;
-      onResizeTrack(state.axis, state.index, Math.max(minimum, state.size + delta));
-    };
-    const up = () => {
-      resizeRef.current = null;
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }, [columns, onResizeTrack, rows]);
+      const move = (moveEvent: PointerEvent) => {
+        const state = resizeRef.current;
+        if (!state) return;
+        const delta = (state.axis === 'row' ? moveEvent.clientY : moveEvent.clientX) - state.origin;
+        const minimum = state.axis === 'row' ? MIN_ROW_HEIGHT : MIN_COLUMN_WIDTH;
+        onResizeTrack(state.axis, state.index, Math.max(minimum, state.size + delta));
+      };
+      const up = () => {
+        resizeRef.current = null;
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    },
+    [columns, onResizeTrack, rows],
+  );
 
-  const startFill = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (readOnly || !onFillSelection) return;
-    event.preventDefault();
-    event.stopPropagation();
-    fillTargetRef.current = null;
-    setFillTarget(null);
-
-    const move = (moveEvent: PointerEvent) => {
-      const target = positionFromEvent(moveEvent.clientX, moveEvent.clientY);
-      if (!target) return;
-      fillTargetRef.current = target;
-      setFillTarget(target);
-    };
-    const up = (upEvent: PointerEvent) => {
-      const target = positionFromEvent(upEvent.clientX, upEvent.clientY) ?? fillTargetRef.current;
+  const startFill = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (readOnly || !onFillSelection) return;
+      event.preventDefault();
+      event.stopPropagation();
       fillTargetRef.current = null;
       setFillTarget(null);
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      if (target) onFillSelection(target);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }, [onFillSelection, positionFromEvent, readOnly]);
+
+      const move = (moveEvent: PointerEvent) => {
+        const target = positionFromEvent(moveEvent.clientX, moveEvent.clientY);
+        if (!target) return;
+        fillTargetRef.current = target;
+        setFillTarget(target);
+      };
+      const up = (upEvent: PointerEvent) => {
+        const target = positionFromEvent(upEvent.clientX, upEvent.clientY) ?? fillTargetRef.current;
+        fillTargetRef.current = null;
+        setFillTarget(null);
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        if (target) onFillSelection(target);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    },
+    [onFillSelection, positionFromEvent, readOnly],
+  );
 
   // ── Overlay geometry ───────────────────────────────────────────────────────
   const visibleRows = useMemo(() => {
     const indices: number[] = [];
     for (let index = 0; index < viewport.rows.frozen; index += 1) indices.push(index);
-    for (let index = viewport.rows.start; index < viewport.rows.end; index += 1) indices.push(index);
+    for (let index = viewport.rows.start; index < viewport.rows.end; index += 1)
+      indices.push(index);
     return indices;
   }, [viewport.rows]);
 
   const visibleColumns = useMemo(() => {
     const indices: number[] = [];
     for (let index = 0; index < viewport.columns.frozen; index += 1) indices.push(index);
-    for (let index = viewport.columns.start; index < viewport.columns.end; index += 1) indices.push(index);
+    for (let index = viewport.columns.start; index < viewport.columns.end; index += 1)
+      indices.push(index);
     return indices;
   }, [viewport.columns]);
 
-  const rectangleStyle = useCallback((
-    top: number,
-    left: number,
-    bottom: number,
-    right: number,
-  ): CSSProperties | null => {
-    const y = trackPaneOffset(rows, top, scroll.top, frozenRows);
-    const x = trackPaneOffset(columns, left, scroll.left, frozenColumns);
-    if (y === null || x === null) return null;
-    let height = 0;
-    for (let index = top; index <= bottom; index += 1) height += trackSize(rows, index);
-    let width = 0;
-    for (let index = left; index <= right; index += 1) width += trackSize(columns, index);
-    return {
-      top: y + headerHeight,
-      left: x + headerWidth,
-      width,
-      height,
-    };
-  }, [columns, frozenColumns, frozenRows, headerHeight, headerWidth, rows, scroll.left, scroll.top]);
+  const rectangleStyle = useCallback(
+    (top: number, left: number, bottom: number, right: number): CSSProperties | null => {
+      const y = trackPaneOffset(rows, top, scroll.top, frozenRows);
+      const x = trackPaneOffset(columns, left, scroll.left, frozenColumns);
+      if (y === null || x === null) return null;
+      let height = 0;
+      for (let index = top; index <= bottom; index += 1) height += trackSize(rows, index);
+      let width = 0;
+      for (let index = left; index <= right; index += 1) width += trackSize(columns, index);
+      return {
+        top: y + headerHeight,
+        left: x + headerWidth,
+        width,
+        height,
+      };
+    },
+    [columns, frozenColumns, frozenRows, headerHeight, headerWidth, rows, scroll.left, scroll.top],
+  );
 
   const activeMerge = mergedRangeAt(worksheet, selection.active);
-  const fillSourceRectangle = selection.kind === 'cells' && selection.ranges.length > 0
-    ? normalizeRange(selection.ranges[selection.ranges.length - 1])
-    : null;
+  const fillSourceRectangle =
+    selection.kind === 'cells' && selection.ranges.length > 0
+      ? normalizeRange(selection.ranges[selection.ranges.length - 1])
+      : null;
   const fillSourceStyle = fillSourceRectangle
     ? rectangleStyle(
-      fillSourceRectangle.top,
-      fillSourceRectangle.left,
-      fillSourceRectangle.bottom,
-      fillSourceRectangle.right,
-    )
+        fillSourceRectangle.top,
+        fillSourceRectangle.left,
+        fillSourceRectangle.bottom,
+        fillSourceRectangle.right,
+      )
     : null;
-  const fillPreviewStyle = fillTarget && fillSourceRectangle
-    ? rectangleStyle(
-      Math.min(fillSourceRectangle.top, fillTarget.row),
-      Math.min(fillSourceRectangle.left, fillTarget.column),
-      Math.max(fillSourceRectangle.bottom, fillTarget.row),
-      Math.max(fillSourceRectangle.right, fillTarget.column),
-    )
-    : null;
+  const fillPreviewStyle =
+    fillTarget && fillSourceRectangle
+      ? rectangleStyle(
+          Math.min(fillSourceRectangle.top, fillTarget.row),
+          Math.min(fillSourceRectangle.left, fillTarget.column),
+          Math.max(fillSourceRectangle.bottom, fillTarget.row),
+          Math.max(fillSourceRectangle.right, fillTarget.column),
+        )
+      : null;
   const activeStyle = useMemo(() => {
     if (activeMerge) {
       const top = worksheet.rowOrder.indexOf(activeMerge.startRowId);
@@ -1201,10 +1272,20 @@ export default function SheetGrid({
       const left = worksheet.columnOrder.indexOf(activeMerge.startColumnId);
       const right = worksheet.columnOrder.indexOf(activeMerge.endColumnId);
       if (top >= 0 && bottom >= 0 && left >= 0 && right >= 0) {
-        return rectangleStyle(Math.min(top, bottom), Math.min(left, right), Math.max(top, bottom), Math.max(left, right));
+        return rectangleStyle(
+          Math.min(top, bottom),
+          Math.min(left, right),
+          Math.max(top, bottom),
+          Math.max(left, right),
+        );
       }
     }
-    return rectangleStyle(selection.active.row, selection.active.column, selection.active.row, selection.active.column);
+    return rectangleStyle(
+      selection.active.row,
+      selection.active.column,
+      selection.active.row,
+      selection.active.column,
+    );
   }, [activeMerge, rectangleStyle, selection.active, worksheet.columnOrder, worksheet.rowOrder]);
 
   // ── Screen-reader semantics ────────────────────────────────────────────────
@@ -1220,9 +1301,10 @@ export default function SheetGrid({
     return describeSheetCell({
       worksheet,
       position: selection.active,
-      computed: rowId && columnId
-        ? computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
-        : undefined,
+      computed:
+        rowId && columnId
+          ? computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
+          : undefined,
       style: resolveCellStyle(styles, worksheet, selection.active),
       displayFormat,
     });
@@ -1232,44 +1314,49 @@ export default function SheetGrid({
   useEffect(() => {
     const rowId = worksheet.rowOrder[selection.active.row];
     const columnId = worksheet.columnOrder[selection.active.column];
-    setAnnouncement(describeSheetSelection({
-      worksheet,
-      selection,
-      position: selection.active,
-      computed: rowId && columnId
-        ? computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
-        : undefined,
-      style: resolveCellStyle(styles, worksheet, selection.active),
-      displayFormat,
-      readOnly,
-    }));
+    setAnnouncement(
+      describeSheetSelection({
+        worksheet,
+        selection,
+        position: selection.active,
+        computed:
+          rowId && columnId
+            ? computedValues?.get(sheetFormulaResultKey(worksheet.id, rowId, columnId))
+            : undefined,
+        style: resolveCellStyle(styles, worksheet, selection.active),
+        displayFormat,
+        readOnly,
+      }),
+    );
   }, [computedValues, displayFormat, readOnly, selection, styles, worksheet]);
 
-  const editorStyle = useMemo(() => (
-    editing
-      ? (() => {
-        const merge = mergedRangeAt(worksheet, editing.position);
-        if (!merge) {
-          return rectangleStyle(
-            editing.position.row,
-            editing.position.column,
-            editing.position.row,
-            editing.position.column,
-          );
-        }
-        const top = worksheet.rowOrder.indexOf(merge.startRowId);
-        const bottom = worksheet.rowOrder.indexOf(merge.endRowId);
-        const left = worksheet.columnOrder.indexOf(merge.startColumnId);
-        const right = worksheet.columnOrder.indexOf(merge.endColumnId);
-        return rectangleStyle(
-          Math.min(top, bottom),
-          Math.min(left, right),
-          Math.max(top, bottom),
-          Math.max(left, right),
-        );
-      })()
-      : null
-  ), [editing, rectangleStyle, worksheet]);
+  const editorStyle = useMemo(
+    () =>
+      editing
+        ? (() => {
+            const merge = mergedRangeAt(worksheet, editing.position);
+            if (!merge) {
+              return rectangleStyle(
+                editing.position.row,
+                editing.position.column,
+                editing.position.row,
+                editing.position.column,
+              );
+            }
+            const top = worksheet.rowOrder.indexOf(merge.startRowId);
+            const bottom = worksheet.rowOrder.indexOf(merge.endRowId);
+            const left = worksheet.columnOrder.indexOf(merge.startColumnId);
+            const right = worksheet.columnOrder.indexOf(merge.endColumnId);
+            return rectangleStyle(
+              Math.min(top, bottom),
+              Math.min(left, right),
+              Math.max(top, bottom),
+              Math.max(left, right),
+            );
+          })()
+        : null,
+    [editing, rectangleStyle, worksheet],
+  );
   const editorIntellisenseStyle = useMemo<CSSProperties | undefined>(() => {
     if (!editorStyle || editing?.source !== 'grid' || !editing.text.startsWith('=')) {
       return undefined;
@@ -1284,9 +1371,7 @@ export default function SheetGrid({
       Math.max(headerWidth, size.width - width),
     );
     const belowTop = editorTop + editorHeight + 2;
-    const top = size.height - belowTop >= 150
-      ? belowTop
-      : Math.max(headerHeight, editorTop - 220);
+    const top = size.height - belowTop >= 150 ? belowTop : Math.max(headerHeight, editorTop - 220);
     return { top, left, width };
   }, [editing, editorStyle, headerHeight, headerWidth, size.height, size.width]);
 
@@ -1322,7 +1407,12 @@ export default function SheetGrid({
           {activeDescription}
         </span>
       </div>
-      <div role="status" aria-live="polite" className="sr-only" data-testid="sheet-grid-announcement">
+      <div
+        role="status"
+        aria-live="polite"
+        className="sr-only"
+        data-testid="sheet-grid-announcement"
+      >
         {announcement}
       </div>
 
@@ -1377,7 +1467,9 @@ export default function SheetGrid({
                   aria-label={columnLabel(index)}
                   onPointerDown={(event) => {
                     if (event.shiftKey) {
-                      onSelectionChange(extendSelection(selection, { row: bounds.rowCount - 1, column: index }));
+                      onSelectionChange(
+                        extendSelection(selection, { row: bounds.rowCount - 1, column: index }),
+                      );
                     } else {
                       onSelectionChange(selectColumns(index, index, bounds));
                     }
@@ -1419,7 +1511,9 @@ export default function SheetGrid({
                   aria-label={`Row ${index + 1}`}
                   onPointerDown={(event) => {
                     if (event.shiftKey) {
-                      onSelectionChange(extendSelection(selection, { row: index, column: bounds.columnCount - 1 }));
+                      onSelectionChange(
+                        extendSelection(selection, { row: index, column: bounds.columnCount - 1 }),
+                      );
                     } else {
                       onSelectionChange(selectRows(index, index, bounds));
                     }
@@ -1458,7 +1552,12 @@ export default function SheetGrid({
 
           {selection.ranges.map((range, index) => {
             const rectangle = normalizeRange(range);
-            const style = rectangleStyle(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right);
+            const style = rectangleStyle(
+              rectangle.top,
+              rectangle.left,
+              rectangle.bottom,
+              rectangle.right,
+            );
             if (!style) return null;
             return (
               <div
@@ -1497,49 +1596,57 @@ export default function SheetGrid({
             );
           })()}
 
-          {remoteSelections.flatMap((peer) => peer.ranges.map((range, index) => {
-            const rectangle = normalizeRange(range);
-            const style = rectangleStyle(rectangle.top, rectangle.left, rectangle.bottom, rectangle.right);
-            if (!style) return null;
-            return (
-              <div
-                key={`${peer.clientId}:${index}`}
-                aria-hidden
-                className="pointer-events-none absolute border-2"
-                style={{
-                  ...style,
-                  borderColor: peer.color,
-                  backgroundColor: `${peer.color}18`,
-                }}
-              >
-                {index === 0 && (
-                  <span
-                    className="absolute left-[-2px] top-[-19px] max-w-32 truncate px-1 py-0.5 text-[9px] font-medium text-white"
-                    style={{ backgroundColor: peer.color }}
-                  >
-                    {peer.name}
-                  </span>
-                )}
-              </div>
-            );
-          }))}
+          {remoteSelections.flatMap((peer) =>
+            peer.ranges.map((range, index) => {
+              const rectangle = normalizeRange(range);
+              const style = rectangleStyle(
+                rectangle.top,
+                rectangle.left,
+                rectangle.bottom,
+                rectangle.right,
+              );
+              if (!style) return null;
+              return (
+                <div
+                  key={`${peer.clientId}:${index}`}
+                  aria-hidden
+                  className="pointer-events-none absolute border-2"
+                  style={{
+                    ...style,
+                    borderColor: peer.color,
+                    backgroundColor: `${peer.color}18`,
+                  }}
+                >
+                  {index === 0 && (
+                    <span
+                      className="absolute left-[-2px] top-[-19px] max-w-32 truncate px-1 py-0.5 text-[9px] font-medium text-white"
+                      style={{ backgroundColor: peer.color }}
+                    >
+                      {peer.name}
+                    </span>
+                  )}
+                </div>
+              );
+            }),
+          )}
 
-          {formulaReferenceRange && (() => {
-            const rectangle = normalizeRange(formulaReferenceRange);
-            const style = rectangleStyle(
-              rectangle.top,
-              rectangle.left,
-              rectangle.bottom,
-              rectangle.right,
-            );
-            return style ? (
-              <div
-                aria-hidden
-                className="pointer-events-none absolute border-2 border-cyan-400 bg-cyan-400/10"
-                style={style}
-              />
-            ) : null;
-          })()}
+          {formulaReferenceRange &&
+            (() => {
+              const rectangle = normalizeRange(formulaReferenceRange);
+              const style = rectangleStyle(
+                rectangle.top,
+                rectangle.left,
+                rectangle.bottom,
+                rectangle.right,
+              );
+              return style ? (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute border-2 border-cyan-400 bg-cyan-400/10"
+                  style={style}
+                />
+              ) : null;
+            })()}
 
           {activeStyle && !editing && (
             <div
@@ -1583,9 +1690,9 @@ export default function SheetGrid({
                 }}
                 onSelect={(event) => {
                   setEditorCursor(
-                    pendingEditorCursorRef.current
-                      ?? event.currentTarget.selectionStart
-                      ?? editing.text.length,
+                    pendingEditorCursorRef.current ??
+                      event.currentTarget.selectionStart ??
+                      editing.text.length,
                   );
                 }}
                 onChange={(event) => {
@@ -1603,13 +1710,12 @@ export default function SheetGrid({
                   } else if (editorSuggestions.length > 0 && event.key === 'ArrowUp') {
                     event.preventDefault();
                     setSelectedEditorSuggestion(
-                      (current) => (
-                        current - 1 + editorSuggestions.length
-                      ) % editorSuggestions.length,
+                      (current) =>
+                        (current - 1 + editorSuggestions.length) % editorSuggestions.length,
                     );
                   } else if (
-                    editorSuggestions.length > 0
-                    && (event.key === 'Enter' || event.key === 'Tab')
+                    editorSuggestions.length > 0 &&
+                    (event.key === 'Enter' || event.key === 'Tab')
                   ) {
                     event.preventDefault();
                     chooseEditorSuggestion(selectedEditorSuggestion);

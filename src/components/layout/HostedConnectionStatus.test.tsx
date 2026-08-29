@@ -1,11 +1,12 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import HostedConnectionStatus from './HostedConnectionStatus';
-import { useVaultStore } from '../../store/vaultStore';
-import { useServerStore } from '../../store/serverStore';
-import type { HostedVaultMeta, LocalVaultMeta } from '../../types/vault';
 import type { ServerConnectionStatus } from '../../lib/tauri';
+import { useServerStore } from '../../store/serverStore';
+import { useVaultStore } from '../../store/vaultStore';
+import type { HostedVaultMeta, LocalVaultMeta } from '../../types/vault';
+
+import HostedConnectionStatus from './HostedConnectionStatus';
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
@@ -40,11 +41,15 @@ const connected: ServerConnectionStatus = {
 
 const reconnect = vi.fn().mockResolvedValue(undefined);
 
-function setState(vault: HostedVaultMeta | LocalVaultMeta | null, status: ServerConnectionStatus | null) {
+function setState(
+  vault: HostedVaultMeta | LocalVaultMeta | null,
+  status: ServerConnectionStatus | null,
+) {
   useVaultStore.setState({ vault } as never);
-  const connections = status?.connected && status.serverUrl
-    ? { [status.serverUrl]: { status, hostedVaults: [] } }
-    : {};
+  const connections =
+    status?.connected && status.serverUrl
+      ? { [status.serverUrl]: { status, hostedVaults: [] } }
+      : {};
   useServerStore.setState({ connections, reconnect } as never);
 }
 
@@ -88,9 +93,22 @@ describe('HostedConnectionStatus', () => {
   it('uses the saved untrusted-certificate preference when reconnecting from a disconnected status', async () => {
     localStorage.setItem(
       'collab-hosted-servers',
-      JSON.stringify([{ serverUrl: 'https://collab.example.test', username: '', allowInvalidCertificates: true, persistAcrossReboots: false }]),
+      JSON.stringify([
+        {
+          serverUrl: 'https://collab.example.test',
+          username: '',
+          allowInvalidCertificates: true,
+          persistAcrossReboots: false,
+        },
+      ]),
     );
-    setState(hostedVault, { ...connected, connected: false, serverUrl: null, user: null, allowInvalidCertificates: false });
+    setState(hostedVault, {
+      ...connected,
+      connected: false,
+      serverUrl: null,
+      user: null,
+      allowInvalidCertificates: false,
+    });
     render(<HostedConnectionStatus />);
     fireEvent.click(screen.getByText('Offline'));
     await waitFor(() => {

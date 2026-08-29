@@ -32,7 +32,9 @@ describe('useCanvasViewportControls', () => {
     const onDuplicateSelection = vi.fn();
     render(<Harness onDuplicateSelection={onDuplicateSelection} />);
 
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true }));
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true }),
+    );
 
     expect(onDuplicateSelection).toHaveBeenCalledTimes(1);
   });

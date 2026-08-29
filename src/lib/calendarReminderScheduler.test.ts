@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { CalendarEvent, CalendarReminderScheduler } from '../types/calendar';
+
 import {
   calendarReminderEntries,
   expandReminderHorizon,
-  reminderEnvelope,
   reconcileCalendarReminders,
+  reminderEnvelope,
 } from './calendarReminderScheduler';
 
 const event: CalendarEvent = {
@@ -36,16 +37,18 @@ const event: CalendarEvent = {
 
 describe('calendar reminder scheduler contract', () => {
   it('includes the item kind and calendar identity required for notification routing', () => {
-    expect(calendarReminderEntries([event])).toEqual([{
-      scheduleId: 'item-1:0:2026-08-01T09:45:00.000Z',
-      profileId: '',
-      calendarId: 'calendar-1',
-      itemId: 'item-1',
-      itemKind: 'event',
-      fireAt: '2026-08-01T09:45:00.000Z',
-      title: 'Project review',
-      body: 'Bring release notes.',
-    }]);
+    expect(calendarReminderEntries([event])).toEqual([
+      {
+        scheduleId: 'item-1:0:2026-08-01T09:45:00.000Z',
+        profileId: '',
+        calendarId: 'calendar-1',
+        itemId: 'item-1',
+        itemKind: 'event',
+        fireAt: '2026-08-01T09:45:00.000Z',
+        title: 'Project review',
+        body: 'Bring release notes.',
+      },
+    ]);
   });
 
   it('reconciles stable reminder entries under the selected profile', async () => {
@@ -56,14 +59,13 @@ describe('calendar reminder scheduler contract', () => {
 
     await reconcileCalendarReminders(scheduler, 'profile-1', [event]);
 
-    expect(scheduler.reconcileProfile).toHaveBeenCalledWith(
-      'profile-1',
-      [expect.objectContaining({
+    expect(scheduler.reconcileProfile).toHaveBeenCalledWith('profile-1', [
+      expect.objectContaining({
         profileId: 'profile-1',
         calendarId: 'calendar-1',
         itemKind: 'event',
-      })],
-    );
+      }),
+    ]);
   });
 
   it('builds a validated task-aware native notification envelope', () => {
@@ -101,17 +103,17 @@ describe('calendar reminder scheduler contract', () => {
       recurrence: { rrule: 'FREQ=DAILY;COUNT=3' },
     };
 
-    const expanded = expandReminderHorizon(
-      [recurring],
-      Date.parse('2026-07-31T00:00:00Z'),
-    );
+    const expanded = expandReminderHorizon([recurring], Date.parse('2026-07-31T00:00:00Z'));
 
     expect(expanded.map((item) => item.recurrenceId)).toEqual([
       { kind: 'dateTime', dateTime: '2026-08-01T10:00:00.000Z', timeZone: 'UTC' },
       { kind: 'dateTime', dateTime: '2026-08-02T10:00:00.000Z', timeZone: 'UTC' },
       { kind: 'dateTime', dateTime: '2026-08-03T10:00:00.000Z', timeZone: 'UTC' },
     ]);
-    expect(calendarReminderEntries(expanded).map((entry) => entry.itemId))
-      .toEqual(['item-1', 'item-1', 'item-1']);
+    expect(calendarReminderEntries(expanded).map((entry) => entry.itemId)).toEqual([
+      'item-1',
+      'item-1',
+      'item-1',
+    ]);
   });
 });

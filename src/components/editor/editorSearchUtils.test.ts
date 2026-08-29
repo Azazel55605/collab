@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { EditorSelection, EditorState } from '@codemirror/state';
 import { SearchQuery } from '@codemirror/search';
+import { EditorSelection, EditorState } from '@codemirror/state';
+import { describe, expect, it } from 'vitest';
 
 import { getSearchMatchStats } from './editorSearchUtils';
 

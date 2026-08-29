@@ -12,7 +12,6 @@
  * a stroke loses its samples, so the inverse has to capture them at the moment
  * of the erase. Local undo/redo (Phase 3) is a stack of these inverses.
  */
-
 import { INK_LIMITS } from '../../types/ink';
 import type {
   InkBounds,
@@ -23,6 +22,7 @@ import type {
   InkPage,
   InkScene,
 } from '../../types/ink';
+
 import { objectBounds } from './svg';
 
 /** A reversible edit. Applying `inverse` to the result restores the input. */
@@ -38,11 +38,7 @@ export type InkOperation<T> = (input: T) => InkEdit<T>;
  * ---------------------------------------------------------------------- */
 
 /** Inserts an object at the top of the paint order, or at `index`. */
-export function addObject(
-  scene: InkScene,
-  object: InkObject,
-  index?: number,
-): InkEdit<InkScene> {
+export function addObject(scene: InkScene, object: InkObject, index?: number): InkEdit<InkScene> {
   if (scene.objects[object.id]) {
     throw new Error(`ink: object '${object.id}' already exists`);
   }
@@ -420,11 +416,7 @@ export function updateLayer(
   };
 }
 
-export function reorderLayer(
-  scene: InkScene,
-  layerId: string,
-  toIndex: number,
-): InkEdit<InkScene> {
+export function reorderLayer(scene: InkScene, layerId: string, toIndex: number): InkEdit<InkScene> {
   const from = scene.layerOrder.indexOf(layerId);
   if (from < 0) return { result: scene, inverse: (input) => ({ result: input, inverse: noop }) };
 

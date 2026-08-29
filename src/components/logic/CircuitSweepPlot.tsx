@@ -1,16 +1,26 @@
-import { useEffect, useId, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
+import {
+  type PointerEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type WheelEvent,
+} from 'react';
+
 import { RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
 
-import type {
-  CircuitSweepOutput,
-  CircuitSweepResult,
-  CircuitTransientResult,
-} from '../../types/circuitRuntime';
 import {
   circuitSweepOutputKey,
   circuitSweepTraceLabel,
   circuitSweepTraceUnit,
 } from '../../lib/circuitSweepExport';
+import type {
+  CircuitSweepOutput,
+  CircuitSweepResult,
+  CircuitTransientResult,
+} from '../../types/circuitRuntime';
+
 import './CircuitSweepPlot.css';
 
 const TRACE_COLORS = ['#22d3ee', '#fbbf24', '#a78bfa', '#fb7185', '#34d399', '#fb923c'];
@@ -73,10 +83,20 @@ function CircuitSeriesPlot({
 }) {
   const clipId = useId().replace(/:/g, '');
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const panRef = useRef<{ pointerId: number; clientX: number; range: { start: number; end: number } } | null>(null);
-  const traceKeys = useMemo(() => result.traces.map((trace) => circuitSweepOutputKey(trace.output)), [result.traces]);
+  const panRef = useRef<{
+    pointerId: number;
+    clientX: number;
+    range: { start: number; end: number };
+  } | null>(null);
+  const traceKeys = useMemo(
+    () => result.traces.map((trace) => circuitSweepOutputKey(trace.output)),
+    [result.traces],
+  );
   const [visibleKeys, setVisibleKeys] = useState<string[]>(traceKeys);
-  const [viewRange, setViewRange] = useState(() => ({ start: 0, end: Math.max(1, result.sampleCount - 1) }));
+  const [viewRange, setViewRange] = useState(() => ({
+    start: 0,
+    end: Math.max(1, result.sampleCount - 1),
+  }));
   const [cursorIndex, setCursorIndex] = useState<number | null>(null);
 
   useEffect(() => {
@@ -88,9 +108,15 @@ function CircuitSeriesPlot({
   const visible = useMemo(() => new Set(visibleKeys), [visibleKeys]);
   const range = boundedRange(viewRange.start, viewRange.end, result.sampleCount);
   const [xMin, xMax] = finiteExtent(axisValues.slice(range.start, range.end + 1));
-  const visibleTraces = result.traces.filter((trace) => visible.has(circuitSweepOutputKey(trace.output)));
-  const voltageValues = visibleTraces.flatMap((trace) => trace.output.kind === 'node-voltage' ? trace.values.slice(range.start, range.end + 1) : []);
-  const currentValues = visibleTraces.flatMap((trace) => trace.output.kind === 'component-current' ? trace.values.slice(range.start, range.end + 1) : []);
+  const visibleTraces = result.traces.filter((trace) =>
+    visible.has(circuitSweepOutputKey(trace.output)),
+  );
+  const voltageValues = visibleTraces.flatMap((trace) =>
+    trace.output.kind === 'node-voltage' ? trace.values.slice(range.start, range.end + 1) : [],
+  );
+  const currentValues = visibleTraces.flatMap((trace) =>
+    trace.output.kind === 'component-current' ? trace.values.slice(range.start, range.end + 1) : [],
+  );
   const hasVoltage = voltageValues.length > 0;
   const hasCurrent = currentValues.length > 0;
   const hasDualScale = hasVoltage && hasCurrent;
@@ -101,18 +127,20 @@ function CircuitSeriesPlot({
   const plotWidth = PLOT_WIDTH - marginLeft - marginRight;
   const plotHeight = PLOT_HEIGHT - MARGIN_TOP - MARGIN_BOTTOM;
   const x = (value: number) => marginLeft + ((value - xMin) / (xMax - xMin)) * plotWidth;
-  const scaleY = (value: number, min: number, max: number) => MARGIN_TOP + (1 - ((value - min) / (max - min))) * plotHeight;
-  const y = (value: number, output: CircuitSweepOutput) => (
+  const scaleY = (value: number, min: number, max: number) =>
+    MARGIN_TOP + (1 - (value - min) / (max - min)) * plotHeight;
+  const y = (value: number, output: CircuitSweepOutput) =>
     hasDualScale && output.kind === 'component-current'
       ? scaleY(value, currentMin, currentMax)
-      : scaleY(value, primaryMin, primaryMax)
-  );
+      : scaleY(value, primaryMin, primaryMax);
   const indices = renderIndices(range.start, range.end);
   const ticks = Array.from({ length: 5 }, (_, index) => index / 4);
   const isZoomed = range.start > 0 || range.end < result.sampleCount - 1;
 
   useEffect(() => {
-    setCursorIndex((current) => current === null ? null : Math.max(range.start, Math.min(range.end, current)));
+    setCursorIndex((current) =>
+      current === null ? null : Math.max(range.start, Math.min(range.end, current)),
+    );
   }, [range.end, range.start]);
 
   const indexAtClientX = (clientX: number) => {
@@ -120,12 +148,19 @@ function CircuitSeriesPlot({
     if (!bounds || bounds.width <= 0) return null;
     const svgX = ((clientX - bounds.left) / bounds.width) * PLOT_WIDTH;
     const fraction = Math.max(0, Math.min(1, (svgX - marginLeft) / plotWidth));
-    return Math.max(range.start, Math.min(range.end, Math.round(range.start + fraction * (range.end - range.start))));
+    return Math.max(
+      range.start,
+      Math.min(range.end, Math.round(range.start + fraction * (range.end - range.start))),
+    );
   };
 
-  const zoomAt = (factor: number, anchorIndex = cursorIndex ?? Math.round((range.start + range.end) / 2)) => {
+  const zoomAt = (
+    factor: number,
+    anchorIndex = cursorIndex ?? Math.round((range.start + range.end) / 2),
+  ) => {
     const currentSpan = range.end - range.start;
-    const scaledSpan = factor < 1 ? Math.floor(currentSpan * factor) : Math.ceil(currentSpan * factor);
+    const scaledSpan =
+      factor < 1 ? Math.floor(currentSpan * factor) : Math.ceil(currentSpan * factor);
     const nextSpan = Math.max(1, Math.min(result.sampleCount - 1, scaledSpan));
     const anchorFraction = currentSpan > 0 ? (anchorIndex - range.start) / currentSpan : 0.5;
     const nextStart = Math.round(anchorIndex - nextSpan * anchorFraction);
@@ -145,7 +180,9 @@ function CircuitSeriesPlot({
     const pan = panRef.current;
     const bounds = svgRef.current?.getBoundingClientRect();
     if (!pan || pan.pointerId !== event.pointerId || !isZoomed || !bounds) return;
-    const delta = Math.round(-((event.clientX - pan.clientX) / bounds.width) * (pan.range.end - pan.range.start));
+    const delta = Math.round(
+      -((event.clientX - pan.clientX) / bounds.width) * (pan.range.end - pan.range.start),
+    );
     setViewRange(boundedRange(pan.range.start + delta, pan.range.end + delta, result.sampleCount));
   };
 
@@ -174,11 +211,13 @@ function CircuitSeriesPlot({
               <input
                 type="checkbox"
                 checked={visible.has(key)}
-                onChange={(event) => setVisibleKeys((current) => (
-                  event.target.checked
-                    ? [...current, key]
-                    : current.filter((candidate) => candidate !== key)
-                ))}
+                onChange={(event) =>
+                  setVisibleKeys((current) =>
+                    event.target.checked
+                      ? [...current, key]
+                      : current.filter((candidate) => candidate !== key),
+                  )
+                }
               />
               <span style={{ backgroundColor: TRACE_COLORS[index % TRACE_COLORS.length] }} />
               {circuitSweepTraceLabel(result, trace.output)}
@@ -188,19 +227,38 @@ function CircuitSeriesPlot({
         })}
       </div>
       <div className="circuit-sweep-tools" aria-label={`${controlLabel} controls`}>
-        <button type="button" title="Zoom out" aria-label={`Zoom out ${controlLabel}`} onClick={() => zoomAt(1.28)} disabled={!isZoomed}>
+        <button
+          type="button"
+          title="Zoom out"
+          aria-label={`Zoom out ${controlLabel}`}
+          onClick={() => zoomAt(1.28)}
+          disabled={!isZoomed}
+        >
           <ZoomOut size={14} aria-hidden />
         </button>
-        <button type="button" title="Reset view" aria-label={`Reset ${controlLabel} view`} onClick={() => {
-          setViewRange({ start: 0, end: Math.max(1, result.sampleCount - 1) });
-          setCursorIndex(null);
-        }} disabled={!isZoomed && cursorIndex === null}>
+        <button
+          type="button"
+          title="Reset view"
+          aria-label={`Reset ${controlLabel} view`}
+          onClick={() => {
+            setViewRange({ start: 0, end: Math.max(1, result.sampleCount - 1) });
+            setCursorIndex(null);
+          }}
+          disabled={!isZoomed && cursorIndex === null}
+        >
           <RotateCcw size={14} aria-hidden />
         </button>
-        <button type="button" title="Zoom in" aria-label={`Zoom in ${controlLabel}`} onClick={() => zoomAt(0.78)}>
+        <button
+          type="button"
+          title="Zoom in"
+          aria-label={`Zoom in ${controlLabel}`}
+          onClick={() => zoomAt(0.78)}
+        >
           <ZoomIn size={14} aria-hidden />
         </button>
-        <span>{range.end - range.start + 1} / {result.sampleCount} samples</span>
+        <span>
+          {range.end - range.start + 1} / {result.sampleCount} samples
+        </span>
       </div>
       <div className="circuit-sweep-chart">
         <svg
@@ -224,12 +282,28 @@ function CircuitSeriesPlot({
             const value = primaryMax - fraction * (primaryMax - primaryMin);
             return (
               <g key={`y-${fraction}`}>
-                <line className="circuit-sweep-grid-line" x1={marginLeft} x2={PLOT_WIDTH - marginRight} y1={tickY} y2={tickY} />
-                <text className="circuit-sweep-axis-label" x={marginLeft - 10} y={tickY + 4} textAnchor="end">
+                <line
+                  className="circuit-sweep-grid-line"
+                  x1={marginLeft}
+                  x2={PLOT_WIDTH - marginRight}
+                  y1={tickY}
+                  y2={tickY}
+                />
+                <text
+                  className="circuit-sweep-axis-label"
+                  x={marginLeft - 10}
+                  y={tickY + 4}
+                  textAnchor="end"
+                >
                   {formatAxis(value)} {hasVoltage ? 'V' : 'A'}
                 </text>
                 {hasDualScale ? (
-                  <text className="circuit-sweep-axis-label" x={PLOT_WIDTH - marginRight + 10} y={tickY + 4} textAnchor="start">
+                  <text
+                    className="circuit-sweep-axis-label"
+                    x={PLOT_WIDTH - marginRight + 10}
+                    y={tickY + 4}
+                    textAnchor="start"
+                  >
                     {formatAxis(currentMax - fraction * (currentMax - currentMin))} A
                   </text>
                 ) : null}
@@ -241,8 +315,21 @@ function CircuitSeriesPlot({
             const value = xMin + fraction * (xMax - xMin);
             return (
               <g key={`x-${fraction}`}>
-                <line className="circuit-sweep-grid-line" x1={tickX} x2={tickX} y1={MARGIN_TOP} y2={PLOT_HEIGHT - MARGIN_BOTTOM} />
-                <text className="circuit-sweep-axis-label" x={tickX} y={PLOT_HEIGHT - 17} textAnchor="middle">{formatAxis(value)}</text>
+                <line
+                  className="circuit-sweep-grid-line"
+                  x1={tickX}
+                  x2={tickX}
+                  y1={MARGIN_TOP}
+                  y2={PLOT_HEIGHT - MARGIN_BOTTOM}
+                />
+                <text
+                  className="circuit-sweep-axis-label"
+                  x={tickX}
+                  y={PLOT_HEIGHT - 17}
+                  textAnchor="middle"
+                >
+                  {formatAxis(value)}
+                </text>
               </g>
             );
           })}
@@ -251,14 +338,35 @@ function CircuitSeriesPlot({
               const key = circuitSweepOutputKey(trace.output);
               if (!visible.has(key)) return null;
               const points = indices
-                .filter((index) => Number.isFinite(trace.values[index]) && Number.isFinite(axisValues[index]))
-                .map((index) => `${x(axisValues[index]).toFixed(2)},${y(trace.values[index], trace.output).toFixed(2)}`)
+                .filter(
+                  (index) =>
+                    Number.isFinite(trace.values[index]) && Number.isFinite(axisValues[index]),
+                )
+                .map(
+                  (index) =>
+                    `${x(axisValues[index]).toFixed(2)},${y(trace.values[index], trace.output).toFixed(2)}`,
+                )
                 .join(' ');
-              return <polyline key={key} points={points} fill="none" stroke={TRACE_COLORS[traceIndex % TRACE_COLORS.length]} strokeWidth="2.25" vectorEffect="non-scaling-stroke" />;
+              return (
+                <polyline
+                  key={key}
+                  points={points}
+                  fill="none"
+                  stroke={TRACE_COLORS[traceIndex % TRACE_COLORS.length]}
+                  strokeWidth="2.25"
+                  vectorEffect="non-scaling-stroke"
+                />
+              );
             })}
             {cursorX !== null && cursorIndex !== null ? (
               <>
-                <line className="circuit-sweep-cursor-line" x1={cursorX} x2={cursorX} y1={MARGIN_TOP} y2={PLOT_HEIGHT - MARGIN_BOTTOM} />
+                <line
+                  className="circuit-sweep-cursor-line"
+                  x1={cursorX}
+                  x2={cursorX}
+                  y1={MARGIN_TOP}
+                  y2={PLOT_HEIGHT - MARGIN_BOTTOM}
+                />
                 {visibleTraces.map((trace) => (
                   <circle
                     key={`cursor-${circuitSweepOutputKey(trace.output)}`}
@@ -273,18 +381,27 @@ function CircuitSeriesPlot({
               </>
             ) : null}
           </g>
-          <text className="circuit-sweep-axis-title" x={marginLeft + plotWidth / 2} y={PLOT_HEIGHT - 2} textAnchor="middle">
+          <text
+            className="circuit-sweep-axis-title"
+            x={marginLeft + plotWidth / 2}
+            y={PLOT_HEIGHT - 2}
+            textAnchor="middle"
+          >
             {axisTitle}
           </text>
         </svg>
       </div>
       {cursorIndex !== null ? (
         <div className="circuit-sweep-cursor-readout" aria-live="polite">
-          <strong>{cursorLabel}: {formatAxis(axisValues[cursorIndex])}</strong>
+          <strong>
+            {cursorLabel}: {formatAxis(axisValues[cursorIndex])}
+          </strong>
           {visibleTraces.map((trace) => (
             <span key={circuitSweepOutputKey(trace.output)}>
               {circuitSweepTraceLabel(result, trace.output)}
-              <code>{formatAxis(trace.values[cursorIndex])} {circuitSweepTraceUnit(trace.output)}</code>
+              <code>
+                {formatAxis(trace.values[cursorIndex])} {circuitSweepTraceUnit(trace.output)}
+              </code>
             </span>
           ))}
         </div>

@@ -10,9 +10,9 @@
  * Kept beside the fixtures rather than inline in a test so Phases 2-9 test
  * against the same corpus instead of each inventing its own bad input.
  */
-
 import { INK_DOCUMENT_KIND, INK_LIMITS, INK_SCHEMA_VERSION } from '../../types/ink';
 import type { InkDocument } from '../../types/ink';
+
 import { buildInkScene } from './fixture';
 
 /** A document that should normalize cleanly, as the baseline to mutate. */
@@ -44,7 +44,7 @@ export function wellFormedInkDocument(): Record<string, unknown> {
           },
           layerOrder: ['layer-1'],
           objects: {
-            's1': {
+            s1: {
               id: 's1',
               type: 'stroke',
               layerId: 'layer-1',
@@ -355,11 +355,13 @@ export function geometryEdgeCaseDocument(): Record<string, unknown> {
 }
 
 /** A document at the scale Phase 10 has to stay usable at. */
-export function largeInkDocument(options: {
-  pages?: number;
-  strokesPerPage?: number;
-  samplesPerStroke?: number;
-} = {}): InkDocument {
+export function largeInkDocument(
+  options: {
+    pages?: number;
+    strokesPerPage?: number;
+    samplesPerStroke?: number;
+  } = {},
+): InkDocument {
   const pageCount = options.pages ?? 20;
   const pages: Record<string, any> = {};
   const pageOrder: string[] = [];

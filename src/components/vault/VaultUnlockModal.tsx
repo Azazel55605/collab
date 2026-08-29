@@ -1,9 +1,11 @@
 import { useRef, useState } from 'react';
-import { Lock, Eye, EyeOff, Vault, LogOut } from 'lucide-react';
+
+import { Eye, EyeOff, Lock, LogOut, Vault } from 'lucide-react';
+import { toast } from 'sonner';
+
+import { useVaultStore } from '../../store/vaultStore';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { useVaultStore } from '../../store/vaultStore';
-import { toast } from 'sonner';
 
 export default function VaultUnlockModal() {
   const { vault, unlockVault, closeVault } = useVaultStore();
@@ -56,7 +58,9 @@ export default function VaultUnlockModal() {
               placeholder="Enter vault password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submit();
+              }}
               autoFocus
               disabled={busy}
               className="h-11 pr-10 text-sm"

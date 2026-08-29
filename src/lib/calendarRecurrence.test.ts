@@ -1,12 +1,13 @@
 import ICAL from 'ical.js';
 import { describe, expect, it } from 'vitest';
 
-import { expandRecurringItem } from './calendarRecurrence';
 import {
+  type CalendarItem,
   MAX_CALENDAR_RECURRENCE_DATES,
   normalizeCalendarItem,
-  type CalendarItem,
 } from '../types/calendar';
+
+import { expandRecurringItem } from './calendarRecurrence';
 
 const createdAt = '2026-01-01T00:00:00Z';
 
@@ -40,13 +41,13 @@ describe('calendar recurrence', () => {
       10,
     );
 
-    expect(instances.map((instance) => instance.kind === 'event' && instance.start.kind === 'dateTime'
-      ? instance.start.dateTime
-      : null)).toEqual([
-      '2026-03-22T08:00:00.000Z',
-      '2026-03-29T07:00:00.000Z',
-      '2026-04-05T07:00:00.000Z',
-    ]);
+    expect(
+      instances.map((instance) =>
+        instance.kind === 'event' && instance.start.kind === 'dateTime'
+          ? instance.start.dateTime
+          : null,
+      ),
+    ).toEqual(['2026-03-22T08:00:00.000Z', '2026-03-29T07:00:00.000Z', '2026-04-05T07:00:00.000Z']);
   });
 
   it('preserves exclusive all-day ranges without shifting dates', () => {
@@ -63,11 +64,19 @@ describe('calendar recurrence', () => {
       10,
     );
 
-    expect(instances.map((instance) => instance.kind === 'event'
-      ? [instance.start, instance.end]
-      : null)).toEqual([
-      [{ kind: 'date', date: '2026-07-20' }, { kind: 'date', date: '2026-07-22' }],
-      [{ kind: 'date', date: '2026-07-27' }, { kind: 'date', date: '2026-07-29' }],
+    expect(
+      instances.map((instance) =>
+        instance.kind === 'event' ? [instance.start, instance.end] : null,
+      ),
+    ).toEqual([
+      [
+        { kind: 'date', date: '2026-07-20' },
+        { kind: 'date', date: '2026-07-22' },
+      ],
+      [
+        { kind: 'date', date: '2026-07-27' },
+        { kind: 'date', date: '2026-07-29' },
+      ],
     ]);
   });
 
@@ -103,12 +112,14 @@ describe('calendar recurrence', () => {
       recurrence: { rrule: 'FREQ=DAILY' },
     });
 
-    expect(expandRecurringItem(
-      item,
-      Date.parse('2026-01-01T00:00:00Z'),
-      Date.parse('2030-01-01T00:00:00Z'),
-      25,
-    )).toHaveLength(25);
+    expect(
+      expandRecurringItem(
+        item,
+        Date.parse('2026-01-01T00:00:00Z'),
+        Date.parse('2030-01-01T00:00:00Z'),
+        25,
+      ),
+    ).toHaveLength(25);
   });
 
   it('keeps adversarial recurrence ranges bounded and ordered', () => {
@@ -136,19 +147,23 @@ describe('calendar recurrence', () => {
       kind: 'date',
       date: `2026-01-${String((index % 28) + 1).padStart(2, '0')}`,
     }));
-    expect(() => event({
-      start: { kind: 'date', date: '2026-01-01' },
-      end: { kind: 'date', date: '2026-01-02' },
-      recurrence: { rrule: 'FREQ=DAILY', rdates: values },
-    })).toThrow(/cannot exceed/i);
+    expect(() =>
+      event({
+        start: { kind: 'date', date: '2026-01-01' },
+        end: { kind: 'date', date: '2026-01-02' },
+        recurrence: { rrule: 'FREQ=DAILY', rdates: values },
+      }),
+    ).toThrow(/cannot exceed/i);
   });
 
   it('rejects malformed recurrence rules during domain normalization', () => {
-    expect(() => event({
-      start: { kind: 'date', date: '2026-01-01' },
-      end: { kind: 'date', date: '2026-01-02' },
-      recurrence: { rrule: 'FREQ=NOT-A-FREQUENCY' },
-    })).toThrow(/RFC 5545/i);
+    expect(() =>
+      event({
+        start: { kind: 'date', date: '2026-01-01' },
+        end: { kind: 'date', date: '2026-01-02' },
+        recurrence: { rrule: 'FREQ=NOT-A-FREQUENCY' },
+      }),
+    ).toThrow(/RFC 5545/i);
   });
 
   it('parses and serializes the interoperability fixture without losing recurrence data', () => {
@@ -190,9 +205,11 @@ describe('calendar recurrence', () => {
     ].join('\r\n');
     const calendar = new ICAL.Component(ICAL.parse(duplicateUidSource));
 
-    expect(calendar.getAllSubcomponents('vevent').map((component) => (
-      component.getFirstPropertyValue('uid')
-    ))).toEqual(['duplicate@collab.local', 'duplicate@collab.local']);
+    expect(
+      calendar
+        .getAllSubcomponents('vevent')
+        .map((component) => component.getFirstPropertyValue('uid')),
+    ).toEqual(['duplicate@collab.local', 'duplicate@collab.local']);
     expect(() => ICAL.parse('BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:broken')).toThrow();
   });
 });

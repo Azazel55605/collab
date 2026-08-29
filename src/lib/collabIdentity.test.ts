@@ -1,11 +1,12 @@
-import { beforeEach, describe, expect, it } from 'vitest';
 import { renderHook } from '@testing-library/react';
+import { beforeEach, describe, expect, it } from 'vitest';
 
-import { serverIdentityForVault, userColorForId, useCollabIdentity } from './collabIdentity';
-import { useVaultStore } from '../store/vaultStore';
-import { useServerStore } from '../store/serverStore';
 import { useCollabStore } from '../store/collabStore';
+import { useServerStore } from '../store/serverStore';
+import { useVaultStore } from '../store/vaultStore';
 import type { HostedVaultMeta, LocalVaultMeta } from '../types/vault';
+
+import { serverIdentityForVault, useCollabIdentity, userColorForId } from './collabIdentity';
 import type { ServerConnectionStatus } from './tauri';
 
 const hostedVault: HostedVaultMeta = {
@@ -33,7 +34,13 @@ const connectedStatus: ServerConnectionStatus = {
   connected: true,
   serverUrl: 'https://collab.example.test',
   allowInvalidCertificates: false,
-  user: { id: 'server-user-9', username: 'alice', displayName: 'Alice Server', role: 'member', status: 'active' },
+  user: {
+    id: 'server-user-9',
+    username: 'alice',
+    displayName: 'Alice Server',
+    role: 'member',
+    status: 'active',
+  },
   accessExpiresAt: '2026-06-11T12:00:00Z',
 };
 
@@ -63,12 +70,17 @@ describe('serverIdentityForVault', () => {
 
   it('returns null when the connected server does not match the vault server', () => {
     expect(
-      serverIdentityForVault(hostedVault, { ...connectedStatus, serverUrl: 'https://other.example.test' }),
+      serverIdentityForVault(hostedVault, {
+        ...connectedStatus,
+        serverUrl: 'https://other.example.test',
+      }),
     ).toBeNull();
   });
 
   it('returns null when not connected', () => {
-    expect(serverIdentityForVault(hostedVault, { ...connectedStatus, connected: false })).toBeNull();
+    expect(
+      serverIdentityForVault(hostedVault, { ...connectedStatus, connected: false }),
+    ).toBeNull();
   });
 
   it('returns null when no vault is open', () => {
@@ -99,7 +111,9 @@ describe('useCollabIdentity', () => {
 
   it('uses the local identity for local vaults even while connected', () => {
     useVaultStore.setState({ vault: localVault } as never);
-    useServerStore.setState({ connections: { [connectedStatus.serverUrl!]: { status: connectedStatus, hostedVaults: [] } } } as never);
+    useServerStore.setState({
+      connections: { [connectedStatus.serverUrl!]: { status: connectedStatus, hostedVaults: [] } },
+    } as never);
     const { result } = renderHook(() => useCollabIdentity());
     expect(result.current.source).toBe('local');
     expect(result.current.userId).toBe('local-uuid');
@@ -107,7 +121,9 @@ describe('useCollabIdentity', () => {
 
   it('uses the server identity for the matching hosted vault', () => {
     useVaultStore.setState({ vault: hostedVault } as never);
-    useServerStore.setState({ connections: { [connectedStatus.serverUrl!]: { status: connectedStatus, hostedVaults: [] } } } as never);
+    useServerStore.setState({
+      connections: { [connectedStatus.serverUrl!]: { status: connectedStatus, hostedVaults: [] } },
+    } as never);
     const { result } = renderHook(() => useCollabIdentity());
     expect(result.current.source).toBe('server');
     expect(result.current.userId).toBe('server-user-9');

@@ -28,17 +28,17 @@ machine the baselines were recorded on.
 
 ### What each suite covers
 
-| Suite | Gate |
-| --- | --- |
-| `src/lib/sheet/performance.test.ts` | First open, save serialization, scroll frame cost, and a 10,000-cell paste against the Phase 9 budgets |
-| `src/lib/sheet/fixtureShapes.test.ts` | Sparse, dense, wide, tall, deeply dependent, and highly formatted workbooks round-trip; corrupted workbooks are rejected or repaired with a report |
-| `src/lib/sheet/recovery.test.ts` | Autosave/reload, crash recovery, schema upgrade, and revision conflict |
-| `src/components/sheet/SheetGridAccessibility.test.tsx` | Screen-reader grid semantics, focus, and keyboard-only operation |
-| `src/components/sheet/SheetGridTheme.test.ts` | Contrast, zoom, and reduced motion |
-| `crates/collab-sheet/tests/formula_proof.rs` | Function baseline, cycles, bounded recalculation, and the 100,000-cell scale proof |
-| `crates/collab-sheet/tests/conversion_proof.rs` | `.xlsx` import fidelity, hostile-archive rejection, and the semantic export/re-import round trip |
-| `src/lib/sheet/conversion.test.ts`, `src/types/sheetConversion.test.ts` | Import routing into the vault, computed-value export, and report presentation |
-| `src/components/sheet/SheetCsvExportDialog.test.tsx` | CSV scope, worksheet loss disclosure, and the formula-injection opt-in |
+| Suite                                                                   | Gate                                                                                                                                               |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/sheet/performance.test.ts`                                     | First open, save serialization, scroll frame cost, and a 10,000-cell paste against the Phase 9 budgets                                             |
+| `src/lib/sheet/fixtureShapes.test.ts`                                   | Sparse, dense, wide, tall, deeply dependent, and highly formatted workbooks round-trip; corrupted workbooks are rejected or repaired with a report |
+| `src/lib/sheet/recovery.test.ts`                                        | Autosave/reload, crash recovery, schema upgrade, and revision conflict                                                                             |
+| `src/components/sheet/SheetGridAccessibility.test.tsx`                  | Screen-reader grid semantics, focus, and keyboard-only operation                                                                                   |
+| `src/components/sheet/SheetGridTheme.test.ts`                           | Contrast, zoom, and reduced motion                                                                                                                 |
+| `crates/collab-sheet/tests/formula_proof.rs`                            | Function baseline, cycles, bounded recalculation, and the 100,000-cell scale proof                                                                 |
+| `crates/collab-sheet/tests/conversion_proof.rs`                         | `.xlsx` import fidelity, hostile-archive rejection, and the semantic export/re-import round trip                                                   |
+| `src/lib/sheet/conversion.test.ts`, `src/types/sheetConversion.test.ts` | Import routing into the vault, computed-value export, and report presentation                                                                      |
+| `src/components/sheet/SheetCsvExportDialog.test.tsx`                    | CSV scope, worksheet loss disclosure, and the formula-injection opt-in                                                                             |
 
 ### Budget scaling on slow machines
 
@@ -53,12 +53,12 @@ the scale in the matrix below. Memory budgets are never scaled.
 Fill in per release. `Automated` means the suites above ran green on that
 platform; `Manual` means the interactive checklist below was walked.
 
-| Platform | Automated | Manual | Budget scale | Notes |
-| --- | --- | --- | --- | --- |
-| Linux (x86-64, WebKitGTK) | ✅ | ⬜ | 1 | Reference platform for the recorded baselines |
-| Windows (x86-64, WebView2) | ⬜ | ⬜ | | |
-| macOS (Apple silicon, WKWebView) | ⬜ | ⬜ | | |
-| Android (arm64, Android WebView) | ⬜ | ⬜ | | Mobile editing is bounded — see below |
+| Platform                         | Automated | Manual | Budget scale | Notes                                         |
+| -------------------------------- | --------- | ------ | ------------ | --------------------------------------------- |
+| Linux (x86-64, WebKitGTK)        | ✅        | ⬜     | 1            | Reference platform for the recorded baselines |
+| Windows (x86-64, WebView2)       | ⬜        | ⬜     |              |                                               |
+| macOS (Apple silicon, WKWebView) | ⬜        | ⬜     |              |                                               |
+| Android (arm64, Android WebView) | ⬜        | ⬜     |              | Mobile editing is bounded — see below         |
 
 ### Manual checklist per desktop platform
 
@@ -175,17 +175,17 @@ turns that off.
 
 `crates/collab-sheet/tests/conversion_proof.rs` builds its fixtures inline, so
 the XML each test asserts against is visible next to the assertion. That proves
-the reader against the shapes those applications *document*; it does not prove
+the reader against the shapes those applications _document_; it does not prove
 it against what they actually emit. Before release, run the import against real
 files and record the result:
 
-| Source application | Import opens | Values correct | Formulas correct | Styles reasonable | Report honest |
-| --- | --- | --- | --- | --- | --- |
-| Excel (desktop) | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| Excel (web) | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| LibreOffice Calc | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| Google Sheets export | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| Numbers export | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| Source application   | Import opens | Values correct | Formulas correct | Styles reasonable | Report honest |
+| -------------------- | ------------ | -------------- | ---------------- | ----------------- | ------------- |
+| Excel (desktop)      | ⬜           | ⬜             | ⬜               | ⬜                | ⬜            |
+| Excel (web)          | ⬜           | ⬜             | ⬜               | ⬜                | ⬜            |
+| LibreOffice Calc     | ⬜           | ⬜             | ⬜               | ⬜                | ⬜            |
+| Google Sheets export | ⬜           | ⬜             | ⬜               | ⬜                | ⬜            |
+| Numbers export       | ⬜           | ⬜             | ⬜               | ⬜                | ⬜            |
 
 Each file should include dates, a non-English locale, formulas (including a
 shared formula group), styles, merged cells, hidden rows and sheets, a chart,

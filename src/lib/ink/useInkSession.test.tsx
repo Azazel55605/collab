@@ -1,11 +1,13 @@
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { VaultMeta } from '../../types/vault';
 import type { InkDocument } from '../../types/ink';
+import type { VaultMeta } from '../../types/vault';
+
 import { createInkDocument, serializeInkDocument } from './document';
-import { addPage } from './operations';
 import { createInkPage } from './document';
+import { addPage } from './operations';
+import { type InkSession, useInkSession } from './useInkSession';
 
 const clientMocks = vi.hoisted(() => ({
   readDocument: vi.fn(),
@@ -32,8 +34,6 @@ vi.mock('../vaultReplica', () => ({
 
 const conflictedCopy = vi.hoisted(() => ({ saveConflictedCopy: vi.fn() }));
 vi.mock('../conflictedCopy', () => conflictedCopy);
-
-import { useInkSession, type InkSession } from './useInkSession';
 
 const LOCAL_VAULT: VaultMeta = {
   id: 'vault-1',
@@ -70,9 +70,7 @@ function mountSession(vault: VaultMeta = LOCAL_VAULT) {
 }
 
 function content(name = 'Ideas') {
-  return serializeInkDocument(
-    createInkDocument({ name, timestamp: '2026-01-01T00:00:00.000Z' }),
-  );
+  return serializeInkDocument(createInkDocument({ name, timestamp: '2026-01-01T00:00:00.000Z' }));
 }
 
 beforeEach(() => {
@@ -97,8 +95,8 @@ describe('useInkSession', () => {
     await waitFor(() => expect(session.current?.document).toBeTruthy());
 
     act(() => {
-      session.current!.updateDocument((current: InkDocument) =>
-        addPage(current, createInkPage('page-2')).result,
+      session.current!.updateDocument(
+        (current: InkDocument) => addPage(current, createInkPage('page-2')).result,
       );
     });
     await waitFor(() => expect(session.current?.dirty).toBe(true));
@@ -165,8 +163,9 @@ describe('useInkSession', () => {
     expect(session.current?.schemaSupport).toBe('newer');
     expect(session.current?.readOnly).toBe(true);
     // Untouched, so a later save can never strip what the newer build wrote.
-    expect((session.current!.document as unknown as Record<string, unknown>).futureField)
-      .toEqual({ keep: 'me' });
+    expect((session.current!.document as unknown as Record<string, unknown>).futureField).toEqual({
+      keep: 'me',
+    });
 
     act(() => {
       session.current!.updateDocument((current) => addPage(current, createInkPage('p2')).result);
@@ -184,8 +183,17 @@ describe('useInkSession', () => {
       id: 'orphan',
       type: 'stroke',
       layerId: 'gone',
-      brush: { kind: 'ballpoint', color: '#000', opacity: 1, width: 96, thinning: 0.5,
-               smoothing: 0.5, streamline: 0.4, taperStart: 0, taperEnd: 0 },
+      brush: {
+        kind: 'ballpoint',
+        color: '#000',
+        opacity: 1,
+        width: 96,
+        thinning: 0.5,
+        smoothing: 0.5,
+        streamline: 0.4,
+        taperStart: 0,
+        taperEnd: 0,
+      },
       samples: { x: [0, 1], y: [0, 1] },
     };
     damaged.pages[pageId].scene.objectOrder = ['orphan'];
@@ -197,9 +205,10 @@ describe('useInkSession', () => {
     const session = mountSession();
     await waitFor(() => expect(session.current?.warnings.length).toBeGreaterThan(0));
     // Repaired, not dropped — it is somebody's handwriting.
-    expect(session.current!.document!.pages[
-      session.current!.document!.pageOrder[0]
-    ].scene.objects.orphan).toBeTruthy();
+    expect(
+      session.current!.document!.pages[session.current!.document!.pageOrder[0]].scene.objects
+        .orphan,
+    ).toBeTruthy();
   });
 
   it('surfaces a parse failure as an error rather than an empty document', async () => {

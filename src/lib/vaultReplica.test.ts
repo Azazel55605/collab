@@ -1,15 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { HostedVaultMeta } from '../types/vault';
-import { tauriCommands } from './tauri';
-import { createWorkbookFixture } from './sheet/fixture';
-import { serializeSheetDocument } from './sheet/document';
+
 import { sheetCellKey } from '../types/sheet';
+import type { HostedVaultMeta } from '../types/vault';
+
+import { serializeSheetDocument } from './sheet/document';
+import { createWorkbookFixture } from './sheet/fixture';
+import { tauriCommands } from './tauri';
 import {
   classifyPendingOperationFailure,
   cleanupReplicaCache,
   discardPendingOperation,
-  enqueuePendingOperation,
   emitReplicaMutated,
+  enqueuePendingOperation,
   initialSyncState,
   isLikelyConnectivityError,
   listPendingOperationRecoveries,
@@ -43,7 +45,9 @@ vi.mock('./tauri', () => ({
     replicaReadCachedAsset: vi.fn(),
     replicaReadLogicComponents: vi.fn().mockResolvedValue([]),
     replicaWriteLogicComponents: vi.fn().mockResolvedValue(undefined),
-    replicaCleanup: vi.fn().mockResolvedValue({ removedFiles: 2, freedBytes: 10, remainingBytes: 5 }),
+    replicaCleanup: vi
+      .fn()
+      .mockResolvedValue({ removedFiles: 2, freedBytes: 10, remainingBytes: 5 }),
   },
 }));
 
@@ -105,8 +109,12 @@ describe('vaultReplica', () => {
   });
 
   it('detects connectivity-shaped errors without swallowing validation failures', () => {
-    expect(isLikelyConnectivityError(new Error('NetworkError when attempting to fetch resource.'))).toBe(true);
-    expect(isLikelyConnectivityError(new Error('Too many requests. Slow down and try again shortly.'))).toBe(true);
+    expect(
+      isLikelyConnectivityError(new Error('NetworkError when attempting to fetch resource.')),
+    ).toBe(true);
+    expect(
+      isLikelyConnectivityError(new Error('Too many requests. Slow down and try again shortly.')),
+    ).toBe(true);
     expect(isLikelyConnectivityError(new Error('RATE_LIMITED'))).toBe(true);
     expect(isLikelyConnectivityError(new Error('manifest_conflict'))).toBe(false);
   });
@@ -118,7 +126,11 @@ describe('vaultReplica', () => {
     const unsubscribeManifest = onReplicaMutated(manifestOnly, { kinds: ['manifest'] });
 
     emitReplicaMutated({ kind: 'content', fileIds: ['file-1'], relativePaths: ['Notes/Test.md'] });
-    emitReplicaMutated({ kind: 'manifest', fileIds: ['file-2'], relativePaths: ['Notes/Other.md'] });
+    emitReplicaMutated({
+      kind: 'manifest',
+      fileIds: ['file-2'],
+      relativePaths: ['Notes/Other.md'],
+    });
 
     expect(broad).toHaveBeenCalledTimes(2);
     expect(manifestOnly).toHaveBeenCalledTimes(1);
@@ -127,8 +139,18 @@ describe('vaultReplica', () => {
       fileIds: ['file-2'],
       relativePaths: ['Notes/Other.md'],
     });
-    expect(replicaMutationAffectsPath({ kind: 'manifest', relativePaths: ['Notes/Test.md'] }, 'Notes/Test.md')).toBe(true);
-    expect(replicaMutationAffectsPath({ kind: 'manifest', relativePaths: ['Notes/Other.md'] }, 'Notes/Test.md')).toBe(false);
+    expect(
+      replicaMutationAffectsPath(
+        { kind: 'manifest', relativePaths: ['Notes/Test.md'] },
+        'Notes/Test.md',
+      ),
+    ).toBe(true);
+    expect(
+      replicaMutationAffectsPath(
+        { kind: 'manifest', relativePaths: ['Notes/Other.md'] },
+        'Notes/Test.md',
+      ),
+    ).toBe(false);
     expect(replicaMutationAffectsPath({ kind: 'manifest' }, 'Notes/Test.md')).toBe(true);
 
     unsubscribeBroad();
@@ -138,20 +160,39 @@ describe('vaultReplica', () => {
   it('treats a vault whose server is not the connected one as offline (queueable)', () => {
     // Connected to a different server than the vault belongs to: for this vault
     // that is effectively offline, so edits must queue rather than hard-fail.
-    expect(isLikelyConnectivityError(new Error('This hosted vault belongs to a different Collab server.'))).toBe(true);
+    expect(
+      isLikelyConnectivityError(
+        new Error('This hosted vault belongs to a different Collab server.'),
+      ),
+    ).toBe(true);
     // No server connected at all when opening a hosted vault.
-    expect(isLikelyConnectivityError(new Error('Connect to the Collab server before opening hosted vaults.'))).toBe(true);
+    expect(
+      isLikelyConnectivityError(
+        new Error('Connect to the Collab server before opening hosted vaults.'),
+      ),
+    ).toBe(true);
     // A genuine access-revocation must still not be mistaken for connectivity.
-    expect(isLikelyConnectivityError(new Error('You do not have permission to perform this vault operation.'))).toBe(false);
+    expect(
+      isLikelyConnectivityError(
+        new Error('You do not have permission to perform this vault operation.'),
+      ),
+    ).toBe(false);
   });
 
   it('classifies irreconcilable replay failures for recovery flows', () => {
-    expect(classifyPendingOperationFailure(new Error('The vault manifest has changed since the supplied sequence.'))).toEqual({
+    expect(
+      classifyPendingOperationFailure(
+        new Error('The vault manifest has changed since the supplied sequence.'),
+      ),
+    ).toEqual({
       code: 'manifest_conflict',
       message: 'The vault manifest has changed since the supplied sequence.',
     });
-    expect(classifyPendingOperationFailure(new Error('You do not have permission to perform this vault operation.')).code)
-      .toBe('permission_revoked');
+    expect(
+      classifyPendingOperationFailure(
+        new Error('You do not have permission to perform this vault operation.'),
+      ).code,
+    ).toBe('permission_revoked');
   });
 
   it('seeds the replica from the fetched server manifest', async () => {
@@ -198,7 +239,9 @@ describe('vaultReplica', () => {
       .mockResolvedValueOnce(manifest)
       .mockResolvedValueOnce({ content: '# Cached' });
     vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(manifest);
-    vi.mocked(tauriCommands.hostedVaultAssetDataUrl).mockResolvedValue('data:image/png;base64,aW1n');
+    vi.mocked(tauriCommands.hostedVaultAssetDataUrl).mockResolvedValue(
+      'data:image/png;base64,aW1n',
+    );
 
     const report = await makeHostedVaultAvailableOffline(hostedVault, progress);
 
@@ -373,13 +416,15 @@ describe('vaultReplica', () => {
         vaultId: 'hosted-vault',
         baseSequence: 9,
         sequence: 10,
-        changedFiles: [{
-          id: 'file-1',
-          kind: 'document',
-          relativePath: 'Note.md',
-          state: 'active',
-          currentRevision: { contentHash: 'updated-hash' },
-        }],
+        changedFiles: [
+          {
+            id: 'file-1',
+            kind: 'document',
+            relativePath: 'Note.md',
+            state: 'active',
+            currentRevision: { contentHash: 'updated-hash' },
+          },
+        ],
       })
       .mockResolvedValueOnce({ content: '# Updated on server' });
 
@@ -479,14 +524,16 @@ describe('vaultReplica', () => {
       payload: { operationType: 'rename', targetFileId: 'file-1', name: 'New.md' },
     });
 
-    expect(operation).toEqual(expect.objectContaining({
-      id: '11111111-1111-4111-8111-111111111111',
-      kind: 'rename',
-      fileId: 'file-1',
-      relativePath: 'Old.md',
-      baseManifestSequence: 8,
-      status: 'pending',
-    }));
+    expect(operation).toEqual(
+      expect.objectContaining({
+        id: '11111111-1111-4111-8111-111111111111',
+        kind: 'rename',
+        fileId: 'file-1',
+        relativePath: 'Old.md',
+        baseManifestSequence: 8,
+        status: 'pending',
+      }),
+    );
     expect(tauriCommands.replicaEnqueueOperation).toHaveBeenCalledWith(
       'https://collab.example.test',
       'hosted-vault',
@@ -628,21 +675,23 @@ describe('vaultReplica', () => {
     const remote = structuredClone(base);
     local.worksheets[0].cells[sheetCellKey('r1', 'c1')] = { value: 'offline', valueType: 'text' };
     remote.worksheets[0].cells[sheetCellKey('r2', 'c2')] = { value: 'server', valueType: 'text' };
-    const operations = [{
-      id: 'op-sheet-edit',
-      kind: 'edit' as const,
-      fileId: 'sheet-1',
-      relativePath: 'Budget.sheet',
-      payload: {
-        targetFileId: 'sheet-1',
-        expectedRevisionSequence: 2,
-        content: serializeSheetDocument(local),
-        baseContent: serializeSheetDocument(base),
+    const operations = [
+      {
+        id: 'op-sheet-edit',
+        kind: 'edit' as const,
+        fileId: 'sheet-1',
+        relativePath: 'Budget.sheet',
+        payload: {
+          targetFileId: 'sheet-1',
+          expectedRevisionSequence: 2,
+          content: serializeSheetDocument(local),
+          baseContent: serializeSheetDocument(base),
+        },
+        baseManifestSequence: 8,
+        createdAt: '2026-06-18T08:00:00Z',
+        status: 'pending' as const,
       },
-      baseManifestSequence: 8,
-      createdAt: '2026-06-18T08:00:00Z',
-      status: 'pending' as const,
-    }];
+    ];
     const seededManifest = { vaultId: 'hosted-vault', sequence: 10, files: [] };
     vi.mocked(tauriCommands.replicaListPendingOperations).mockResolvedValue(operations);
     vi.mocked(tauriCommands.hostedVaultRequest)

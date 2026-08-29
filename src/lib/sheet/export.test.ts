@@ -13,11 +13,16 @@ describe('sheet range export', () => {
       worksheet: { rows: 4, columns: 4 },
     });
     const worksheet = activeWorksheet(document);
-    document = setCell(document, worksheet.id, { row: 0, column: 0 }, {
-      value: '<Budget & plan>',
-      valueType: 'text',
-      note: 'Check',
-    });
+    document = setCell(
+      document,
+      worksheet.id,
+      { row: 0, column: 0 },
+      {
+        value: '<Budget & plan>',
+        valueType: 'text',
+        note: 'Check',
+      },
+    );
     document = applyStyleToSelection(
       document,
       worksheet.id,
@@ -43,7 +48,10 @@ describe('sheet range export', () => {
       worksheet: { rows: 4, columns: 4 },
     });
     const worksheet = activeWorksheet(document);
-    const selection = extendSelection(createSelection({ row: 0, column: 0 }), { row: 1, column: 1 });
+    const selection = extendSelection(createSelection({ row: 0, column: 0 }), {
+      row: 1,
+      column: 1,
+    });
     document = mergeSelection(document, worksheet.id, selection);
     const html = buildSheetRangePrintHtml(document, activeWorksheet(document), selection);
     expect(html).toContain('rowspan="2"');

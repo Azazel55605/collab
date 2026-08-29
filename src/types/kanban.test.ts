@@ -5,10 +5,10 @@ import {
   getFilteredBoard,
   getKanbanBoardStats,
   getKanbanSwimlanes,
+  type KanbanBoard,
   normalizeKanbanBoard,
   runKanbanAutomations,
   setCardDoneState,
-  type KanbanBoard,
 } from './kanban';
 
 function makeBoard(): KanbanBoard {
@@ -25,7 +25,16 @@ function makeBoard(): KanbanBoard {
             tags: ['ops', 'urgent'],
             startDate: '2026-04-29',
             dueDate: '2026-04-30',
-            comments: [{ id: 'comment-1', userId: 'user-1', userName: 'Ada', userColor: '#fff', content: 'note', timestamp: 1 }],
+            comments: [
+              {
+                id: 'comment-1',
+                userId: 'user-1',
+                userName: 'Ada',
+                userColor: '#fff',
+                content: 'note',
+                timestamp: 1,
+              },
+            ],
             checklist: [{ id: 'check-1', text: 'Ship it', checked: true }],
             recurrence: {
               enabled: true,
@@ -74,7 +83,9 @@ describe('kanban helpers', () => {
     expect(todo?.cards).toHaveLength(3);
 
     const original = todo?.cards.find((card) => card.id === 'card-1');
-    const spawned = todo?.cards.find((card) => card.id !== 'card-1' && card.title === 'Recurring task');
+    const spawned = todo?.cards.find(
+      (card) => card.id !== 'card-1' && card.title === 'Recurring task',
+    );
 
     expect(original?.isDone).toBe(true);
     expect(original?.completedAt).toBeTypeOf('number');
@@ -105,7 +116,9 @@ describe('kanban helpers', () => {
     const next = runKanbanAutomations(board, 'manual', new Date('2026-04-30T12:00:00Z').getTime());
 
     expect(next.columns.find((column) => column.id === 'todo')?.cards).toHaveLength(0);
-    expect(next.columns.find((column) => column.id === 'review')?.cards.map((card) => card.id)).toEqual(['card-1', 'card-2']);
+    expect(
+      next.columns.find((column) => column.id === 'review')?.cards.map((card) => card.id),
+    ).toEqual(['card-1', 'card-2']);
   });
 
   it('derives board stats from runtime board state', () => {
@@ -124,10 +137,14 @@ describe('kanban helpers', () => {
 
   it('groups cards into single swimlanes and mutates lane-owned fields', () => {
     const board = makeBoard();
-    const lanes = getKanbanSwimlanes(board.columns[0].cards, 'assignee', [{ userId: 'user-1', userName: 'Ada' }]);
+    const lanes = getKanbanSwimlanes(board.columns[0].cards, 'assignee', [
+      { userId: 'user-1', userName: 'Ada' },
+    ]);
 
     expect(lanes.map((lane) => lane.title)).toContain('Ada');
-    expect(lanes.flatMap((lane) => lane.cards).filter((card) => card.id === 'card-1')).toHaveLength(1);
+    expect(lanes.flatMap((lane) => lane.cards).filter((card) => card.id === 'card-1')).toHaveLength(
+      1,
+    );
 
     const reprioritized = applyCardSwimlaneValue(board, 'card-1', 'todo', 'priority', 'low');
     expect(reprioritized.columns[0].cards[0].priority).toBe('low');

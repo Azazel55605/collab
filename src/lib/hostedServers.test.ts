@@ -19,27 +19,32 @@ describe('hosted server registry', () => {
   });
 
   it('migrates and deduplicates equivalent saved server URLs', () => {
-    localStorage.setItem('collab-hosted-servers', JSON.stringify([
+    localStorage.setItem(
+      'collab-hosted-servers',
+      JSON.stringify([
+        {
+          serverUrl: 'https://collab.example.test/',
+          username: 'old',
+          allowInvalidCertificates: false,
+          persistAcrossReboots: false,
+        },
+        {
+          serverUrl: 'https://collab.example.test/admin',
+          username: 'alice',
+          allowInvalidCertificates: true,
+          persistAcrossReboots: true,
+        },
+      ]),
+    );
+
+    expect(listKnownServers()).toEqual([
       {
-        serverUrl: 'https://collab.example.test/',
-        username: 'old',
-        allowInvalidCertificates: false,
-        persistAcrossReboots: false,
-      },
-      {
-        serverUrl: 'https://collab.example.test/admin',
+        serverUrl: 'https://collab.example.test',
         username: 'alice',
         allowInvalidCertificates: true,
         persistAcrossReboots: true,
       },
-    ]));
-
-    expect(listKnownServers()).toEqual([{
-      serverUrl: 'https://collab.example.test',
-      username: 'alice',
-      allowInvalidCertificates: true,
-      persistAcrossReboots: true,
-    }]);
+    ]);
     expect(knownServerFor('https://collab.example.test/settings/')).toMatchObject({
       username: 'alice',
     });

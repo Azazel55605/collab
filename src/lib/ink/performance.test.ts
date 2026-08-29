@@ -11,11 +11,11 @@
  * notebook, and because a renderer measured on ten strokes has not been
  * measured.
  */
-
 import { describe, expect, it } from 'vitest';
 
 import { INK_PAGE_PRESETS, INK_SAMPLE_RANGES } from '../../types/ink';
 import type { InkScene, InkStroke } from '../../types/ink';
+
 import { INK_PERFORMANCE_BUDGETS, inkTimeBudget } from './budgets';
 import { decodeSamples } from './codec';
 import { buildInkScene, buildStrokeSamples } from './fixture';
@@ -178,7 +178,9 @@ describe('hit testing', () => {
     const candidates = current.objectOrder.filter((id) => {
       const object = current.objects[id];
       if (object.type !== 'stroke' || !object.bounds) return false;
-      return tilesForBounds(object.bounds).some((key) => candidateTiles.has(`${key.col}:${key.row}`));
+      return tilesForBounds(object.bounds).some((key) =>
+        candidateTiles.has(`${key.col}:${key.row}`),
+      );
     });
     expect(candidates.length).toBeLessThan(STROKE_COUNT / 10);
 

@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { HostedVaultMeta } from '../types/vault';
+
 import { HostedServerTransport } from './collabTransport';
 import { tauriCommands } from './tauri';
-import type { HostedVaultMeta } from '../types/vault';
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),

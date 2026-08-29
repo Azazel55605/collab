@@ -16,8 +16,18 @@ function fixture() {
     worksheet: { rows: 5, columns: 4 },
   });
   const worksheet = activeWorksheet(document);
-  document = setCell(document, worksheet.id, { row: 0, column: 0 }, { value: 'Alpha beta', valueType: 'text' });
-  document = setCell(document, worksheet.id, { row: 1, column: 0 }, { value: 'BETA', valueType: 'text' });
+  document = setCell(
+    document,
+    worksheet.id,
+    { row: 0, column: 0 },
+    { value: 'Alpha beta', valueType: 'text' },
+  );
+  document = setCell(
+    document,
+    worksheet.id,
+    { row: 1, column: 0 },
+    { value: 'BETA', valueType: 'text' },
+  );
   document = setCell(document, worksheet.id, { row: 2, column: 0 }, { formula: '=SUM(BETA)' });
   return document;
 }
@@ -32,7 +42,10 @@ describe('sheet search', () => {
       { row: 2, column: 0 },
     ]);
     expect(nextSheetMatch(matches, { row: 2, column: 0 })).toEqual({ row: 0, column: 0 });
-    expect(nextSheetMatch(matches, { row: 0, column: 0 }, 'previous')).toEqual({ row: 2, column: 0 });
+    expect(nextSheetMatch(matches, { row: 0, column: 0 }, 'previous')).toEqual({
+      row: 2,
+      column: 0,
+    });
   });
 
   it('supports case and whole-cell matching', () => {
@@ -63,14 +76,17 @@ describe('sheet search', () => {
       worksheet: { rows: 20_000, columns: 200 },
     });
     const sheetId = activeWorksheet(document).id;
-    document = setCell(document, sheetId, { row: 19_999, column: 199 }, {
-      value: 'needle',
-      valueType: 'text',
-    });
-    const worksheet = activeWorksheet(document);
-    expect(findPopulatedSheetMatches(worksheet, 'needle')).toEqual([
+    document = setCell(
+      document,
+      sheetId,
       { row: 19_999, column: 199 },
-    ]);
+      {
+        value: 'needle',
+        valueType: 'text',
+      },
+    );
+    const worksheet = activeWorksheet(document);
+    expect(findPopulatedSheetMatches(worksheet, 'needle')).toEqual([{ row: 19_999, column: 199 }]);
   });
 
   it('replaces one or all matches while preserving formulas and typed values', () => {

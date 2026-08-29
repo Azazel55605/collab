@@ -21,11 +21,7 @@ export type NotificationKind =
   | 'sync.permission-denied'
   | 'transfer.complete';
 
-export type NotificationChannel =
-  | 'calendar'
-  | 'collaboration'
-  | 'sync'
-  | 'transfers';
+export type NotificationChannel = 'calendar' | 'collaboration' | 'sync' | 'transfers';
 
 export type NotificationPrivacyLevel = 'full' | 'title-only' | 'hidden';
 export type NotificationPriority = 'normal' | 'time-sensitive';
@@ -87,13 +83,7 @@ export interface NotificationEnvelope {
 }
 
 export type NotificationState =
-  | 'scheduled'
-  | 'ready'
-  | 'delivered'
-  | 'read'
-  | 'dismissed'
-  | 'cancelled'
-  | 'failed';
+  'scheduled' | 'ready' | 'delivered' | 'read' | 'dismissed' | 'cancelled' | 'failed';
 
 export interface NotificationRecord {
   envelope: NotificationEnvelope;

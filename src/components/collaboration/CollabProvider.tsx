@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useRef, useState, createContext, useContext, ReactNode } from 'react';
+import { createContext, ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
+
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
+
+import { useCollabIdentity } from '../../lib/collabIdentity';
+import { type CollabTransport, createCollabTransport } from '../../lib/collabTransport';
 import { getAppVersion } from '../../lib/tauri';
-import { useVaultStore } from '../../store/vaultStore';
-import { useEditorStore } from '../../store/editorStore';
-import { useCollabStore } from '../../store/collabStore';
-import { useUiStore } from '../../store/uiStore';
 import { tauriCommands } from '../../lib/tauri';
-import { createCollabTransport, type CollabTransport } from '../../lib/collabTransport';
+import { useCollabStore } from '../../store/collabStore';
+import { useEditorStore } from '../../store/editorStore';
+import { useUiStore } from '../../store/uiStore';
+import { useVaultStore } from '../../store/vaultStore';
 import type { ChatMessage } from '../../types/collab';
 import { vaultKind } from '../../types/vault';
-import { useCollabIdentity } from '../../lib/collabIdentity';
 
 const CollabContext = createContext<CollabTransport | null>(null);
 
@@ -22,12 +24,7 @@ export function CollabProvider({ children }: { children: ReactNode }) {
   const { vault } = useVaultStore();
   const { activeTabPath } = useEditorStore();
   const { isSidebarOpen, sidebarPanel, collabTab } = useUiStore();
-  const {
-    setPeers,
-    setChatMessages,
-    appendChatMessage,
-    chatTypingUntil,
-  } = useCollabStore();
+  const { setPeers, setChatMessages, appendChatMessage, chatTypingUntil } = useCollabStore();
   const identity = useCollabIdentity();
   const knownMessageIdsRef = useRef<Set<string>>(new Set());
   const isChatVisible = isSidebarOpen && sidebarPanel === 'collab' && collabTab === 'chat';
@@ -58,11 +55,15 @@ export function CollabProvider({ children }: { children: ReactNode }) {
       if (transportRef.current) {
         void transportRef.current.clearPresence(identity.userId).catch(() => {});
       }
-    }).then((unlisten) => { unlistenHidden = unlisten; });
+    }).then((unlisten) => {
+      unlistenHidden = unlisten;
+    });
     listen('background:window-shown', () => {
       windowVisibleRef.current = true;
       setWindowVisible(true);
-    }).then((unlisten) => { unlistenShown = unlisten; });
+    }).then((unlisten) => {
+      unlistenShown = unlisten;
+    });
     return () => {
       unlistenHidden?.();
       unlistenShown?.();
@@ -97,7 +98,9 @@ export function CollabProvider({ children }: { children: ReactNode }) {
   // Local identity metadata remains useful for presence, chat, and history labels.
   useEffect(() => {
     if (!vault || vaultKind(vault) !== 'local') return;
-    tauriCommands.registerKnownUser(vault.path, identity.userId, identity.userName, identity.userColor).catch(() => {});
+    tauriCommands
+      .registerKnownUser(vault.path, identity.userId, identity.userName, identity.userColor)
+      .catch(() => {});
   }, [vault, identity.userId, identity.userName, identity.userColor]);
 
   // Broadcast presence when active tab changes
@@ -148,10 +151,13 @@ export function CollabProvider({ children }: { children: ReactNode }) {
     const unsubPresence = transport.onPresenceChanged(refreshPeers);
 
     // Load initial chat messages
-    transport.readChatMessages(100).then((msgs) => {
-      knownMessageIdsRef.current = new Set(msgs.map((msg) => msg.id));
-      setChatMessages(msgs);
-    }).catch(() => {});
+    transport
+      .readChatMessages(100)
+      .then((msgs) => {
+        knownMessageIdsRef.current = new Set(msgs.map((msg) => msg.id));
+        setChatMessages(msgs);
+      })
+      .catch(() => {});
 
     const unsubChat = transport.onChatUpdated(async () => {
       try {
@@ -183,9 +189,5 @@ export function CollabProvider({ children }: { children: ReactNode }) {
     };
   }, [vault?.path, identity.userId]);
 
-  return (
-    <CollabContext.Provider value={transport}>
-      {children}
-    </CollabContext.Provider>
-  );
+  return <CollabContext.Provider value={transport}>{children}</CollabContext.Provider>;
 }

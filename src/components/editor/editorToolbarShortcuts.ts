@@ -1,5 +1,13 @@
-import { dispatchEditorToolbarAction, type EditorToolbarAction } from '../../lib/editorToolbarActions';
-import { getEditorShortcutKey, hasPrimaryModifier, type EditorShortcutEventLike } from './editorShortcutKeys';
+import {
+  dispatchEditorToolbarAction,
+  type EditorToolbarAction,
+} from '../../lib/editorToolbarActions';
+
+import {
+  type EditorShortcutEventLike,
+  getEditorShortcutKey,
+  hasPrimaryModifier,
+} from './editorShortcutKeys';
 
 const toolbarShortcutActions: Record<string, EditorToolbarAction> = {
   s: 'icon',

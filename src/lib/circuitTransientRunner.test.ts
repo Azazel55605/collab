@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { LogicDiagramDocument } from '../types/logicDiagram';
-import { runCircuitTransientJob, type CircuitTransientJobClient } from './circuitTransientRunner';
+
+import { type CircuitTransientJobClient, runCircuitTransientJob } from './circuitTransientRunner';
 
 const DOCUMENT = {
   schemaVersion: 6,

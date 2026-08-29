@@ -1,9 +1,13 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { CanvasNodeInspector } from './CanvasNodeInspector';
+
 vi.mock('../ui/button', () => ({
   Button: ({ children, onClick, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" onClick={onClick} {...props}>{children}</button>
+    <button type="button" onClick={onClick} {...props}>
+      {children}
+    </button>
   ),
 }));
 
@@ -17,7 +21,9 @@ vi.mock('../ui/textarea', () => ({
 
 vi.mock('../ui/select', () => ({
   Select: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  SelectTrigger: ({ children }: { children: React.ReactNode }) => <button type="button">{children}</button>,
+  SelectTrigger: ({ children }: { children: React.ReactNode }) => (
+    <button type="button">{children}</button>
+  ),
   SelectValue: () => <span>Select value</span>,
   SelectContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   SelectItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -33,17 +39,13 @@ vi.mock('../ui/calendar', () => ({
   Calendar: () => <div>Calendar widget</div>,
 }));
 
-import { CanvasNodeInspector } from './CanvasNodeInspector';
-
 describe('CanvasNodeInspector', () => {
   afterEach(() => {
     cleanup();
   });
 
   const sharedProps = {
-    knownUsers: [
-      { userId: 'user-1', userName: 'Ada', userColor: '#ff0000', lastSeen: 1 },
-    ],
+    knownUsers: [{ userId: 'user-1', userName: 'Ada', userColor: '#ff0000', lastSeen: 1 }],
     availableTags: ['infra', 'vpn', 'critical'],
     dateFormat: 'YYYY_MM_DD' as const,
     onTitleChange: vi.fn(),
@@ -87,7 +89,9 @@ describe('CanvasNodeInspector', () => {
       />,
     );
 
-    expect(screen.queryByPlaceholderText('Description, branch notes, or supporting context')).toBeNull();
+    expect(
+      screen.queryByPlaceholderText('Description, branch notes, or supporting context'),
+    ).toBeNull();
   });
 
   it('suggests tags from the app tag system for planning nodes', () => {
@@ -109,9 +113,11 @@ describe('CanvasNodeInspector', () => {
     fireEvent.focus(screen.getByPlaceholderText('Type tag, press Enter'));
     fireEvent.click(screen.getByText('vpn'));
 
-    expect(onPlanningChange).toHaveBeenCalledWith(expect.objectContaining({
-      tags: ['infra', 'vpn'],
-    }));
+    expect(onPlanningChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tags: ['infra', 'vpn'],
+      }),
+    );
   });
 
   it('offers a file picker action for linked vault paths', () => {

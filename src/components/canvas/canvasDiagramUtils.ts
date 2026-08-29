@@ -64,10 +64,7 @@ export function splitEdgeWithJunction(
   };
 }
 
-export function mergeSingleJunction(
-  nodeId: string,
-  edges: CanvasEdge[],
-) {
+export function mergeSingleJunction(nodeId: string, edges: CanvasEdge[]) {
   const incoming = edges.filter((edge) => edge.target === nodeId);
   const outgoing = edges.filter((edge) => edge.source === nodeId);
   if (incoming.length !== 1 || outgoing.length !== 1) return null;

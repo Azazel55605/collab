@@ -1,4 +1,5 @@
 import ICAL from 'ical.js';
+
 import type { CalendarItem, CalendarTimeValue } from '../types/calendar';
 
 const MAX_RECURRENCE_ITERATIONS = 20_000;
@@ -27,7 +28,8 @@ function wallTimeAt(instant: Date, timeZone: string): WallTime {
     second: '2-digit',
     hourCycle: 'h23',
   }).formatToParts(instant);
-  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value);
   return {
     year: value('year'),
     month: value('month'),
@@ -82,19 +84,25 @@ function occurrenceInstant(
   if (base.kind === 'date') {
     return new Date(Date.UTC(occurrence.year, occurrence.month - 1, occurrence.day));
   }
-  return instantForWallTime({
-    year: occurrence.year,
-    month: occurrence.month,
-    day: occurrence.day,
-    hour: occurrence.hour,
-    minute: occurrence.minute,
-    second: occurrence.second,
-  }, base.timeZone);
+  return instantForWallTime(
+    {
+      year: occurrence.year,
+      month: occurrence.month,
+      day: occurrence.day,
+      hour: occurrence.hour,
+      minute: occurrence.minute,
+      second: occurrence.second,
+    },
+    base.timeZone,
+  );
 }
 
 function shiftTimeValue(value: CalendarTimeValue, deltaMs: number): CalendarTimeValue {
   if (value.kind === 'dateTime') {
-    return { ...value, dateTime: new Date(new Date(value.dateTime).getTime() + deltaMs).toISOString() };
+    return {
+      ...value,
+      dateTime: new Date(new Date(value.dateTime).getTime() + deltaMs).toISOString(),
+    };
   }
   const shifted = new Date(new Date(`${value.date}T00:00:00.000Z`).getTime() + deltaMs);
   return { kind: 'date', date: shifted.toISOString().slice(0, 10) };
@@ -105,7 +113,14 @@ function shiftedOccurrence(item: CalendarItem, base: CalendarTimeValue, start: D
   const recurrenceId = shiftTimeValue(base, delta);
   const id = `${item.id}::${recurrenceId.kind === 'date' ? recurrenceId.date : recurrenceId.dateTime}`;
   if (item.kind === 'event') {
-    return { ...item, id, recurrenceId, recurrenceSeriesId: item.id, start: shiftTimeValue(item.start, delta), end: shiftTimeValue(item.end, delta) };
+    return {
+      ...item,
+      id,
+      recurrenceId,
+      recurrenceSeriesId: item.id,
+      start: shiftTimeValue(item.start, delta),
+      end: shiftTimeValue(item.end, delta),
+    };
   }
   if (item.kind === 'task') {
     return {
@@ -118,11 +133,18 @@ function shiftedOccurrence(item: CalendarItem, base: CalendarTimeValue, start: D
     };
   }
   const shifted = shiftTimeValue({ kind: 'date', date: item.date }, delta);
-  return { ...item, id, recurrenceId, recurrenceSeriesId: item.id, date: shifted.kind === 'date' ? shifted.date : item.date };
+  return {
+    ...item,
+    id,
+    recurrenceId,
+    recurrenceSeriesId: item.id,
+    date: shifted.kind === 'date' ? shifted.date : item.date,
+  };
 }
 
 function itemDuration(item: CalendarItem, base: CalendarTimeValue): number {
-  if (item.kind === 'event') return timeValueInstant(item.end).getTime() - timeValueInstant(item.start).getTime();
+  if (item.kind === 'event')
+    return timeValueInstant(item.end).getTime() - timeValueInstant(item.start).getTime();
   if (item.kind === 'task') {
     const end = item.due ?? item.start ?? base;
     return Math.max(1, timeValueInstant(end).getTime() - timeValueInstant(base).getTime());
@@ -142,12 +164,18 @@ export function expandRecurringItem(
   const component = new ICAL.Component('vevent');
   component.addPropertyWithValue('dtstart', icalTimeForValue(base));
   component.addPropertyWithValue('rrule', ICAL.Recur.fromString(item.recurrence.rrule));
-  for (const value of item.recurrence.rdates ?? []) component.addPropertyWithValue('rdate', icalTimeForValue(value));
-  for (const value of item.recurrence.exdates ?? []) component.addPropertyWithValue('exdate', icalTimeForValue(value));
+  for (const value of item.recurrence.rdates ?? [])
+    component.addPropertyWithValue('rdate', icalTimeForValue(value));
+  for (const value of item.recurrence.exdates ?? [])
+    component.addPropertyWithValue('exdate', icalTimeForValue(value));
   const iterator = new ICAL.RecurExpansion({ component, dtstart: icalTimeForValue(base) });
   const duration = itemDuration(item, base);
   const results: CalendarItem[] = [];
-  for (let iterations = 0; iterations < MAX_RECURRENCE_ITERATIONS && results.length < limit; iterations += 1) {
+  for (
+    let iterations = 0;
+    iterations < MAX_RECURRENCE_ITERATIONS && results.length < limit;
+    iterations += 1
+  ) {
     const next = iterator.next();
     if (!next) break;
     const instant = occurrenceInstant(next, base);
@@ -160,13 +188,15 @@ export function expandRecurringItem(
 export function recurrenceIncludes(item: CalendarItem, recurrenceId: CalendarTimeValue): boolean {
   if (!item.recurrence) return false;
   const target = timeValueInstant(recurrenceId).getTime();
-  return expandRecurringItem(item, target, target + 1, MAX_RECURRENCE_ITERATIONS)
-    .some((occurrence) => {
+  return expandRecurringItem(item, target, target + 1, MAX_RECURRENCE_ITERATIONS).some(
+    (occurrence) => {
       const occurrenceId = occurrence.recurrenceId;
       if (!occurrenceId || occurrenceId.kind !== recurrenceId.kind) return false;
       return occurrenceId.kind === 'date' && recurrenceId.kind === 'date'
         ? occurrenceId.date === recurrenceId.date
-        : occurrenceId.kind === 'dateTime' && recurrenceId.kind === 'dateTime'
-          && occurrenceId.dateTime === recurrenceId.dateTime;
-    });
+        : occurrenceId.kind === 'dateTime' &&
+            recurrenceId.kind === 'dateTime' &&
+            occurrenceId.dateTime === recurrenceId.dateTime;
+    },
+  );
 }

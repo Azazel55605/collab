@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 
+import type { InkDocument, InkText } from '../types/ink';
+
 import { createInkDocument } from './ink/document';
 import { addObject, removeObject, reorderObjects } from './ink/operations';
 import { transformObject, translation } from './ink/transform';
-import type { InkDocument, InkText } from '../types/ink';
+import { reconcileInkMap } from './liveInkDocument';
 import type { JsonObject } from './liveJsonDocument';
 import { yToJson } from './liveJsonDocument';
-import { reconcileInkMap } from './liveInkDocument';
 
 function withText(): InkDocument {
   const document = createInkDocument({ name: 'Shared', timestamp: '2026-01-01T00:00:00.000Z' });
@@ -15,9 +16,16 @@ function withText(): InkDocument {
   const page = document.pages[pageId];
   const layerId = page.scene.layerOrder[0];
   const text: InkText = {
-    id: 'text-1', type: 'text', layerId,
-    x: 10, y: 20, width: 300, height: 100,
-    text: 'hello', color: '#111111', fontSize: 64,
+    id: 'text-1',
+    type: 'text',
+    layerId,
+    x: 10,
+    y: 20,
+    width: 300,
+    height: 100,
+    text: 'hello',
+    color: '#111111',
+    fontSize: 64,
   };
   return {
     ...document,
@@ -67,7 +75,14 @@ describe('live ink CRDT', () => {
     const add = (document: InkDocument, id: string) => {
       const page = document.pages[pageId];
       const scene = addObject(page.scene, {
-        id, type: 'stamp', layerId, x: 0, y: 0, width: 100, height: 100, symbolId: 'star',
+        id,
+        type: 'stamp',
+        layerId,
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        symbolId: 'star',
       }).result;
       return { ...document, pages: { ...document.pages, [pageId]: { ...page, scene } } };
     };

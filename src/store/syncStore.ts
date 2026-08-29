@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import { hostedVaultMeta, type HostedVaultMeta, type HostedVaultSummary } from '../types/vault';
+import { tauriCommands } from '../lib/tauri';
 import {
   classifyVaultAccessError,
   deriveVaultAccess,
@@ -9,20 +9,21 @@ import {
   listHostedVaultReplicas,
   listPendingOperationRecoveries,
   makeHostedVaultAvailableOffline,
-  retryPendingOperation,
-  syncReplicaManifestDelta,
   type OfflineAvailabilityReport,
   type PendingOperation,
   type PendingOperationRecovery,
   type ReplicaSummary,
   type ReplicaSyncProgress,
+  retryPendingOperation,
+  syncReplicaManifestDelta,
   type SyncStatus,
   type VaultAccessState,
 } from '../lib/vaultReplica';
-import { tauriCommands } from '../lib/tauri';
-import { useVaultStore } from './vaultStore';
+import { hostedVaultMeta, type HostedVaultMeta, type HostedVaultSummary } from '../types/vault';
 import type { MemberRole } from '../types/vault';
+
 import { useSyncTransferStore } from './syncTransferStore';
+import { useVaultStore } from './vaultStore';
 
 /** The coarse rollup the status-bar indicator renders. */
 export type SyncRollup = 'synced' | 'syncing' | 'pending' | 'conflicts';
@@ -78,11 +79,12 @@ function beginSyncTransfer(vault: HostedVaultMeta, label = `Syncing ${vault.name
 }
 
 function reportSyncTransfer(id: string, progress: ReplicaSyncProgress): void {
-  const action = progress.direction === 'upload'
-    ? 'Uploading changes'
-    : progress.direction === 'download'
-      ? 'Downloading changes'
-      : 'Checking for changes';
+  const action =
+    progress.direction === 'upload'
+      ? 'Uploading changes'
+      : progress.direction === 'download'
+        ? 'Downloading changes'
+        : 'Checking for changes';
   useSyncTransferStore.getState().update(id, {
     direction: progress.direction,
     label: action,
@@ -142,7 +144,15 @@ export const useSyncStore = create<SyncStoreState>((set, get) => ({
       });
     } catch {
       // A read failure (e.g. no replica yet) leaves a clean snapshot for the key.
-      set({ vaultKey: key, status: 'idle', lastSyncedAt: null, offlineAvailableAt: null, pending: [], failed: [], access: 'ok' });
+      set({
+        vaultKey: key,
+        status: 'idle',
+        lastSyncedAt: null,
+        offlineAvailableAt: null,
+        pending: [],
+        failed: [],
+        access: 'ok',
+      });
     }
   },
 
@@ -238,7 +248,9 @@ export const useSyncStore = create<SyncStoreState>((set, get) => ({
             : vaultMetaFromReplica(replica);
         const transferId = beginSyncTransfer(vault);
         try {
-          await syncReplicaManifestDelta(vault, (progress) => reportSyncTransfer(transferId, progress));
+          await syncReplicaManifestDelta(vault, (progress) =>
+            reportSyncTransfer(transferId, progress),
+          );
           useSyncTransferStore.getState().complete(transferId, 'Background sync complete');
         } catch (error) {
           useSyncTransferStore.getState().fail(transferId, error);
@@ -263,16 +275,16 @@ export const useSyncStore = create<SyncStoreState>((set, get) => ({
     }
 
     const serverVaults = new Map(
-      vaults
-        .filter((vault) => vault.status === 'active')
-        .map((vault) => [vault.id, vault]),
+      vaults.filter((vault) => vault.status === 'active').map((vault) => [vault.id, vault]),
     );
     const targets = replicas.filter((replica) => {
       const remote = serverVaults.get(replica.vaultId);
-      return replica.serverUrl === serverUrl
-        && !!replica.offlineAvailableAt
-        && !!remote
-        && remote.manifestSequence > replica.manifestSequence;
+      return (
+        replica.serverUrl === serverUrl &&
+        !!replica.offlineAvailableAt &&
+        !!remote &&
+        remote.manifestSequence > replica.manifestSequence
+      );
     });
     if (targets.length === 0) return;
 
@@ -288,7 +300,9 @@ export const useSyncStore = create<SyncStoreState>((set, get) => ({
         try {
           // Use the latest server DTO so role and capability changes are applied
           // before deciding whether cached file bodies may be refreshed.
-          await syncReplicaManifestDelta(remoteVault, (progress) => reportSyncTransfer(transferId, progress));
+          await syncReplicaManifestDelta(remoteVault, (progress) =>
+            reportSyncTransfer(transferId, progress),
+          );
           useSyncTransferStore.getState().complete(transferId, 'Offline copy updated');
         } catch (error) {
           useSyncTransferStore.getState().fail(transferId, error);
@@ -305,11 +319,22 @@ export const useSyncStore = create<SyncStoreState>((set, get) => ({
   },
 
   clear: () =>
-    set({ vaultKey: null, status: 'idle', lastSyncedAt: null, offlineAvailableAt: null, pending: [], failed: [], access: 'ok', isSyncing: false }),
+    set({
+      vaultKey: null,
+      status: 'idle',
+      lastSyncedAt: null,
+      offlineAvailableAt: null,
+      pending: [],
+      failed: [],
+      access: 'ok',
+      isSyncing: false,
+    }),
 }));
 
 /** Derives the coarse rollup from a snapshot for the status-bar indicator. */
-export function syncRollup(state: Pick<SyncStoreState, 'isSyncing' | 'status' | 'pending' | 'failed'>): SyncRollup {
+export function syncRollup(
+  state: Pick<SyncStoreState, 'isSyncing' | 'status' | 'pending' | 'failed'>,
+): SyncRollup {
   if (state.failed.length > 0) return 'conflicts';
   if (state.isSyncing || state.status === 'syncing') return 'syncing';
   if (state.pending.length > 0) return 'pending';

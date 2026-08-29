@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+
 import { CheckSquare, GripVertical, Minus, Plus } from 'lucide-react';
+
 import { Button } from '../ui/button';
 import {
   Dialog,
@@ -29,9 +31,7 @@ function cloneTasks(tasks: TaskListItemDraft[]): TaskListItemDraft[] {
 }
 
 export function renderMarkdownTaskList(tasks: TaskListItemDraft[]) {
-  const lines = tasks
-    .map((task) => task.text.trim())
-    .filter((text) => text.length > 0);
+  const lines = tasks.map((task) => task.text.trim()).filter((text) => text.length > 0);
 
   if (lines.length === 0) {
     return '- [ ] ';
@@ -85,7 +85,8 @@ export function TaskListEditorDialog({
             Insert task list
           </DialogTitle>
           <DialogDescription>
-            Add multiple tasks, choose their checked state, and insert the markdown list into the note.
+            Add multiple tasks, choose their checked state, and insert the markdown list into the
+            note.
           </DialogDescription>
         </DialogHeader>
 
@@ -95,7 +96,8 @@ export function TaskListEditorDialog({
             Task
           </Button>
           <div className="ml-auto text-xs text-muted-foreground">
-            {draft.filter((task) => task.text.trim().length > 0).length} filled, {draft.length} total
+            {draft.filter((task) => task.text.trim().length > 0).length} filled, {draft.length}{' '}
+            total
           </div>
         </div>
 
@@ -142,7 +144,10 @@ export function TaskListEditorDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={() => onApply(draft)} disabled={!draft.some((task) => task.text.trim().length > 0)}>
+          <Button
+            onClick={() => onApply(draft)}
+            disabled={!draft.some((task) => task.text.trim().length > 0)}
+          >
             Insert task list
           </Button>
         </DialogFooter>

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { INK_SAMPLE_RANGES } from '../../types/ink';
 import type { InkBrushParameters, InkSample } from '../../types/ink';
-import { FIXTURE_BRUSH, buildStrokeSamples } from './fixture';
+
+import { buildStrokeSamples, FIXTURE_BRUSH } from './fixture';
 import { halfWidthAt, outlineStroke, strokeBounds, strokeHitTest } from './stroke';
 import { outlineStrokeWithPerfectFreehand } from './strokeAdapters';
 
@@ -90,7 +91,7 @@ describe('outlineStroke', () => {
     }));
     const outline = outlineStroke(samples, brush);
     const spread = (index: number) => Math.abs(outline[index].y);
-    expect(spread(outline.length / 4 | 0)).toBeGreaterThan(spread(19));
+    expect(spread((outline.length / 4) | 0)).toBeGreaterThan(spread(19));
   });
 });
 

@@ -1,5 +1,6 @@
 import { FileImage, FileText, Layout, LayoutDashboard } from 'lucide-react';
 
+import type { NoteFile } from '../../types/vault';
 import {
   Command,
   CommandEmpty,
@@ -9,9 +10,18 @@ import {
   CommandList,
 } from '../ui/command';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
-import type { NoteFile } from '../../types/vault';
 
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
+const IMAGE_EXTENSIONS = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'svg',
+  'bmp',
+  'ico',
+  'avif',
+]);
 
 export type CanvasPickerMode = 'note' | 'file' | 'linked-path' | null;
 
@@ -21,9 +31,11 @@ function getNameWithoutExtension(name: string): string {
 
 function getFileIcon(file: Pick<NoteFile, 'extension'>) {
   const extension = file.extension.toLowerCase();
-  if (IMAGE_EXTENSIONS.has(extension)) return <FileImage size={14} className="shrink-0 text-sky-400/80" />;
+  if (IMAGE_EXTENSIONS.has(extension))
+    return <FileImage size={14} className="shrink-0 text-sky-400/80" />;
   if (extension === 'canvas') return <Layout size={14} className="shrink-0 text-blue-400/70" />;
-  if (extension === 'kanban') return <LayoutDashboard size={14} className="shrink-0 text-emerald-400/70" />;
+  if (extension === 'kanban')
+    return <LayoutDashboard size={14} className="shrink-0 text-emerald-400/70" />;
   return <FileText size={14} className="shrink-0 text-muted-foreground/70" />;
 }
 
@@ -40,11 +52,12 @@ export function CanvasPickerDialog({
   onOpenChange: (open: boolean) => void;
   onSelect: (file: NoteFile) => void;
 }) {
-  const title = mode === 'note'
-    ? 'Add note to canvas'
-    : mode === 'linked-path'
-      ? 'Select linked vault file'
-      : 'Add file to canvas';
+  const title =
+    mode === 'note'
+      ? 'Add note to canvas'
+      : mode === 'linked-path'
+        ? 'Select linked vault file'
+        : 'Add file to canvas';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -70,7 +83,9 @@ export function CanvasPickerDialog({
                   {getFileIcon(file)}
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm">{getNameWithoutExtension(file.name)}</div>
-                    <div className="truncate text-[11px] text-muted-foreground">{file.relativePath}</div>
+                    <div className="truncate text-[11px] text-muted-foreground">
+                      {file.relativePath}
+                    </div>
                   </div>
                 </CommandItem>
               ))}

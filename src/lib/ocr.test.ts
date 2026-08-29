@@ -24,7 +24,9 @@ describe('recognizeImageText', () => {
       getImageData: vi.fn(),
       putImageData: vi.fn(),
     } as unknown as CanvasRenderingContext2D);
-    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,converted');
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
+      'data:image/png;base64,converted',
+    );
 
     class ImageMock {
       onload: (() => void) | null = null;

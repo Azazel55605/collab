@@ -1,12 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { startFileDragOut } from '../../lib/dragOut';
 import { tauriCommands } from '../../lib/tauri';
 import { useCollabStore } from '../../store/collabStore';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
-import { startFileDragOut } from '../../lib/dragOut';
+
+import FileTree from './FileTree';
 
 vi.mock('../../lib/tauri', () => ({
   tauriCommands: {
@@ -40,8 +42,16 @@ vi.mock('../ui/dropdown-menu', () => ({
   DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
     <div role="menu">{children}</div>
   ),
-  DropdownMenuItem: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
-    <button type="button" role="menuitem" onClick={onClick}>{children}</button>
+  DropdownMenuItem: ({
+    children,
+    onClick,
+  }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+  }) => (
+    <button type="button" role="menuitem" onClick={onClick}>
+      {children}
+    </button>
   ),
   DropdownMenuSeparator: () => null,
 }));
@@ -50,9 +60,10 @@ vi.mock('./useNativeFileDrop', () => ({
   useNativeFileDrop: () => ({ isDraggingOver: false }),
 }));
 
-const importExternalFilesIntoVault = vi.fn(
-  async (..._args: unknown[]) => ({ imported: ['Pictures/cat.png'], failed: [] as { name: string; error: string }[] }),
-);
+const importExternalFilesIntoVault = vi.fn(async (..._args: unknown[]) => ({
+  imported: ['Pictures/cat.png'],
+  failed: [] as { name: string; error: string }[],
+}));
 vi.mock('../../lib/vaultFileImport', () => ({
   importExternalFilesIntoVault: (...args: unknown[]) => importExternalFilesIntoVault(...args),
   IMPORTABLE_EXTENSIONS: ['png', 'pdf', 'md', 'canvas', 'kanban'],
@@ -80,23 +91,41 @@ vi.mock('./FileReferencesPanel', () => ({
 }));
 
 vi.mock('../previews/FileTreeHoverPreviewPopover', () => ({
-  FileTreeHoverPreviewPopover: ({ relativePath, type, enabled }: { relativePath: string | null; type: string | null; enabled: boolean }) => (
-    enabled && relativePath && type ? <div data-testid="file-hover-preview">{`${type}:${relativePath}`}</div> : null
-  ),
+  FileTreeHoverPreviewPopover: ({
+    relativePath,
+    type,
+    enabled,
+  }: {
+    relativePath: string | null;
+    type: string | null;
+    enabled: boolean;
+  }) =>
+    enabled && relativePath && type ? (
+      <div data-testid="file-hover-preview">{`${type}:${relativePath}`}</div>
+    ) : null,
 }));
 
 vi.mock('../collaboration/history/VersionHistoryModal', () => ({
-  VersionHistoryModal: ({ open, relativePath }: { open: boolean; relativePath: string | null }) => (
-    open && relativePath ? <div data-testid="version-history-modal">{relativePath}</div> : null
-  ),
+  VersionHistoryModal: ({ open, relativePath }: { open: boolean; relativePath: string | null }) =>
+    open && relativePath ? <div data-testid="version-history-modal">{relativePath}</div> : null,
 }));
 
 vi.mock('../ui/context-menu', () => ({
   ContextMenu: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   ContextMenuTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   ContextMenuContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  ContextMenuItem: ({ children, onClick, className }: { children: React.ReactNode; onClick?: () => void; className?: string }) => (
-    <button type="button" onClick={onClick} className={className}>{children}</button>
+  ContextMenuItem: ({
+    children,
+    onClick,
+    className,
+  }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+    className?: string;
+  }) => (
+    <button type="button" onClick={onClick} className={className}>
+      {children}
+    </button>
   ),
   ContextMenuSeparator: () => null,
 }));
@@ -112,8 +141,6 @@ vi.mock('../ui/tooltip', () => ({
   TooltipTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
-
-import FileTree from './FileTree';
 
 function createDataTransfer() {
   const store = new Map<string, string>();
@@ -134,7 +161,13 @@ describe('FileTree folder collapse state', () => {
     vi.mocked(tauriCommands.listFileReferences).mockResolvedValue([]);
 
     useVaultStore.setState({
-      vault: { id: 'vault-1', path: '/vault', name: 'Vault', isEncrypted: false, lastOpened: Date.now() },
+      vault: {
+        id: 'vault-1',
+        path: '/vault',
+        name: 'Vault',
+        isEncrypted: false,
+        lastOpened: Date.now(),
+      },
       isVaultLocked: false,
       fileTree: [
         {
@@ -207,7 +240,13 @@ describe('FileTree folder collapse state', () => {
     render(<FileTree />);
     const menu = screen.getByRole('menu');
 
-    for (const label of ['New note', 'New spreadsheet', 'New drawing', 'New logic diagram', 'New folder']) {
+    for (const label of [
+      'New note',
+      'New spreadsheet',
+      'New drawing',
+      'New logic diagram',
+      'New folder',
+    ]) {
       expect(within(menu).getByText(label)).toBeTruthy();
     }
     // And exactly one create control in the header, not one per type.
@@ -221,7 +260,9 @@ describe('FileTree folder collapse state', () => {
     // `NewDrawingDialog` is the one creation surface not stubbed here, so it
     // proves the menu item reaches the right dialog rather than a generic one.
     fireEvent.click(within(menu).getByText('New drawing'));
-    expect(screen.getByText('Choose the paper now — every part of it stays editable later.')).toBeTruthy();
+    expect(
+      screen.getByText('Choose the paper now — every part of it stays editable later.'),
+    ).toBeTruthy();
   });
 
   it('keeps a folder collapsed after remounting', () => {
@@ -284,18 +325,27 @@ describe('FileTree folder collapse state', () => {
   });
 
   it('downloads a file via the save dialog and write command', async () => {
-    vi.mocked(tauriCommands.readNoteAssetDataUrl).mockResolvedValue('data:text/markdown;base64,QUJD');
+    vi.mocked(tauriCommands.readNoteAssetDataUrl).mockResolvedValue(
+      'data:text/markdown;base64,QUJD',
+    );
     vi.mocked(tauriCommands.showDownloadDialog).mockResolvedValue('/home/u/Downloads/child.md');
 
     render(<FileTree />);
     fireEvent.click(screen.getByText('Download…'));
 
     await waitFor(() => expect(tauriCommands.showDownloadDialog).toHaveBeenCalledWith('child.md'));
-    await waitFor(() => expect(tauriCommands.writeDownloadedFile).toHaveBeenCalledWith('/home/u/Downloads/child.md', 'QUJD'));
+    await waitFor(() =>
+      expect(tauriCommands.writeDownloadedFile).toHaveBeenCalledWith(
+        '/home/u/Downloads/child.md',
+        'QUJD',
+      ),
+    );
   });
 
   it('does not write when the download dialog is cancelled', async () => {
-    vi.mocked(tauriCommands.readNoteAssetDataUrl).mockResolvedValue('data:text/markdown;base64,QUJD');
+    vi.mocked(tauriCommands.readNoteAssetDataUrl).mockResolvedValue(
+      'data:text/markdown;base64,QUJD',
+    );
     vi.mocked(tauriCommands.showDownloadDialog).mockResolvedValue(null);
 
     render(<FileTree />);
@@ -309,7 +359,14 @@ describe('FileTree folder collapse state', () => {
     useVaultStore.setState({
       ...useVaultStore.getState(),
       fileTree: [
-        { relativePath: 'note.md', name: 'note.md', extension: 'md', modifiedAt: 1, size: 10, isFolder: false },
+        {
+          relativePath: 'note.md',
+          name: 'note.md',
+          extension: 'md',
+          modifiedAt: 1,
+          size: 10,
+          isFolder: false,
+        },
       ],
     });
     vi.mocked(tauriCommands.resolveVaultFilePath).mockResolvedValue('/vault/note.md');
@@ -317,8 +374,12 @@ describe('FileTree folder collapse state', () => {
     render(<FileTree />);
     fireEvent.click(screen.getByText('Reveal in file manager'));
 
-    await waitFor(() => expect(tauriCommands.resolveVaultFilePath).toHaveBeenCalledWith('/vault', 'note.md'));
-    await waitFor(() => expect(tauriCommands.revealInFileManager).toHaveBeenCalledWith('/vault/note.md'));
+    await waitFor(() =>
+      expect(tauriCommands.resolveVaultFilePath).toHaveBeenCalledWith('/vault', 'note.md'),
+    );
+    await waitFor(() =>
+      expect(tauriCommands.revealInFileManager).toHaveBeenCalledWith('/vault/note.md'),
+    );
   });
 
   it('opens version history from the file context menu for supported files', () => {
@@ -449,7 +510,14 @@ describe('FileTree folder collapse state', () => {
     useVaultStore.setState({
       ...useVaultStore.getState(),
       fileTree: [
-        { relativePath: 'plan.md', name: 'plan.md', extension: 'md', modifiedAt: 1, size: 10, isFolder: false },
+        {
+          relativePath: 'plan.md',
+          name: 'plan.md',
+          extension: 'md',
+          modifiedAt: 1,
+          size: 10,
+          isFolder: false,
+        },
       ],
     });
 
@@ -472,8 +540,22 @@ describe('FileTree folder collapse state', () => {
     useVaultStore.setState({
       ...useVaultStore.getState(),
       fileTree: [
-        { relativePath: 'a.md', name: 'a.md', extension: 'md', modifiedAt: 1, size: 1, isFolder: false },
-        { relativePath: 'b.md', name: 'b.md', extension: 'md', modifiedAt: 1, size: 1, isFolder: false },
+        {
+          relativePath: 'a.md',
+          name: 'a.md',
+          extension: 'md',
+          modifiedAt: 1,
+          size: 1,
+          isFolder: false,
+        },
+        {
+          relativePath: 'b.md',
+          name: 'b.md',
+          extension: 'md',
+          modifiedAt: 1,
+          size: 1,
+          isFolder: false,
+        },
       ],
     });
 
@@ -482,7 +564,13 @@ describe('FileTree folder collapse state', () => {
     fireEvent.keyDown(window, { key: 'Delete' });
 
     await waitFor(() =>
-      expect(tauriCommands.moveNoteToTrash).toHaveBeenCalledWith('/vault', 'a.md', undefined, undefined, false),
+      expect(tauriCommands.moveNoteToTrash).toHaveBeenCalledWith(
+        '/vault',
+        'a.md',
+        undefined,
+        undefined,
+        false,
+      ),
     );
     expect(tauriCommands.moveNoteToTrash).toHaveBeenCalledTimes(1);
   });
@@ -493,7 +581,14 @@ describe('FileTree folder collapse state', () => {
     useVaultStore.setState({
       ...useVaultStore.getState(),
       fileTree: [
-        { relativePath: 'a.md', name: 'a.md', extension: 'md', modifiedAt: 1, size: 1, isFolder: false },
+        {
+          relativePath: 'a.md',
+          name: 'a.md',
+          extension: 'md',
+          modifiedAt: 1,
+          size: 1,
+          isFolder: false,
+        },
       ],
     });
 
@@ -512,9 +607,30 @@ describe('FileTree folder collapse state', () => {
     useVaultStore.setState({
       ...useVaultStore.getState(),
       fileTree: [
-        { relativePath: 'a.md', name: 'a.md', extension: 'md', modifiedAt: 1, size: 1, isFolder: false },
-        { relativePath: 'b.md', name: 'b.md', extension: 'md', modifiedAt: 1, size: 1, isFolder: false },
-        { relativePath: 'c.md', name: 'c.md', extension: 'md', modifiedAt: 1, size: 1, isFolder: false },
+        {
+          relativePath: 'a.md',
+          name: 'a.md',
+          extension: 'md',
+          modifiedAt: 1,
+          size: 1,
+          isFolder: false,
+        },
+        {
+          relativePath: 'b.md',
+          name: 'b.md',
+          extension: 'md',
+          modifiedAt: 1,
+          size: 1,
+          isFolder: false,
+        },
+        {
+          relativePath: 'c.md',
+          name: 'c.md',
+          extension: 'md',
+          modifiedAt: 1,
+          size: 1,
+          isFolder: false,
+        },
       ],
     });
 
@@ -524,9 +640,27 @@ describe('FileTree folder collapse state', () => {
     fireEvent.keyDown(window, { key: 'Delete' });
 
     await waitFor(() => expect(tauriCommands.moveNoteToTrash).toHaveBeenCalledTimes(2));
-    expect(tauriCommands.moveNoteToTrash).toHaveBeenCalledWith('/vault', 'a.md', undefined, undefined, false);
-    expect(tauriCommands.moveNoteToTrash).toHaveBeenCalledWith('/vault', 'b.md', undefined, undefined, false);
-    expect(tauriCommands.moveNoteToTrash).not.toHaveBeenCalledWith('/vault', 'c.md', undefined, undefined, false);
+    expect(tauriCommands.moveNoteToTrash).toHaveBeenCalledWith(
+      '/vault',
+      'a.md',
+      undefined,
+      undefined,
+      false,
+    );
+    expect(tauriCommands.moveNoteToTrash).toHaveBeenCalledWith(
+      '/vault',
+      'b.md',
+      undefined,
+      undefined,
+      false,
+    );
+    expect(tauriCommands.moveNoteToTrash).not.toHaveBeenCalledWith(
+      '/vault',
+      'c.md',
+      undefined,
+      undefined,
+      false,
+    );
   });
 
   it('imports files chosen from the add-files dialog', async () => {
@@ -535,7 +669,15 @@ describe('FileTree folder collapse state', () => {
     render(<FileTree />);
     fireEvent.click(screen.getByLabelText('Add files to vault'));
 
-    await waitFor(() => expect(tauriCommands.showOpenFilesDialog).toHaveBeenCalledWith(['png', 'pdf', 'md', 'canvas', 'kanban']));
+    await waitFor(() =>
+      expect(tauriCommands.showOpenFilesDialog).toHaveBeenCalledWith([
+        'png',
+        'pdf',
+        'md',
+        'canvas',
+        'kanban',
+      ]),
+    );
     await waitFor(() => expect(importExternalFilesIntoVault).toHaveBeenCalled());
     expect(importExternalFilesIntoVault.mock.calls[0][1]).toEqual(['/desktop/cat.png']);
   });

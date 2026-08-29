@@ -1,6 +1,12 @@
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  AUTO_RECONNECT_INTERVAL_MS,
+  SERVER_INVENTORY_REFRESH_INTERVAL_MS,
+  useServerAutoReconnect,
+} from './useServerAutoReconnect';
+
 const SAVED_KEY = 'collab-hosted-server-url';
 const mocks = vi.hoisted(() => ({
   statuses: {} as Record<string, unknown>,
@@ -14,8 +20,9 @@ const { subscribers, autoReconnect, loadHostedVaults, syncAllForServer } = mocks
 vi.mock('../store/serverStore', () => ({
   isEffectivelyConnected: (status: { connected?: boolean; serverUrl?: string } | null) =>
     !!status?.connected && !!status?.serverUrl,
-  shouldRefreshServerSession: (status: { connected?: boolean; serverUrl?: string; refreshSoon?: boolean } | null) =>
-    !status?.connected || status.refreshSoon === true,
+  shouldRefreshServerSession: (
+    status: { connected?: boolean; serverUrl?: string; refreshSoon?: boolean } | null,
+  ) => !status?.connected || status.refreshSoon === true,
   useServerStore: {
     getState: () => ({
       statusFor: (serverUrl: string) => mocks.statuses[serverUrl] ?? null,
@@ -35,7 +42,14 @@ vi.mock('../lib/hostedServers', () => ({
   listKnownServers: () => {
     const url = localStorage.getItem(SAVED_KEY);
     return url
-      ? [{ serverUrl: url, username: '', allowInvalidCertificates: false, persistAcrossReboots: false }]
+      ? [
+          {
+            serverUrl: url,
+            username: '',
+            allowInvalidCertificates: false,
+            persistAcrossReboots: false,
+          },
+        ]
       : [];
   },
 }));
@@ -43,12 +57,6 @@ vi.mock('../lib/hostedServers', () => ({
 vi.mock('../store/syncStore', () => ({
   useSyncStore: { getState: () => ({ syncAllForServer: mocks.syncAllForServer }) },
 }));
-
-import {
-  AUTO_RECONNECT_INTERVAL_MS,
-  SERVER_INVENTORY_REFRESH_INTERVAL_MS,
-  useServerAutoReconnect,
-} from './useServerAutoReconnect';
 
 const CONNECTED = { connected: true, serverUrl: 'https://collab.example.test' };
 const NEAR_EXPIRY = { ...CONNECTED, refreshSoon: true };
@@ -66,7 +74,10 @@ function Harness() {
   return null;
 }
 
-const flush = () => act(async () => { await Promise.resolve(); });
+const flush = () =>
+  act(async () => {
+    await Promise.resolve();
+  });
 
 describe('useServerAutoReconnect', () => {
   beforeEach(() => {
@@ -115,7 +126,7 @@ describe('useServerAutoReconnect', () => {
     expect(autoReconnect).toHaveBeenCalledWith(CONNECTED.serverUrl);
   });
 
-  it('syncs all of the server\'s replicas when the connection is (re)established', async () => {
+  it("syncs all of the server's replicas when the connection is (re)established", async () => {
     localStorage.setItem(SAVED_KEY, CONNECTED.serverUrl);
     render(<Harness />);
     await flush();
@@ -158,7 +169,9 @@ describe('useServerAutoReconnect', () => {
     vi.useFakeTimers();
     localStorage.setItem(SAVED_KEY, CONNECTED.serverUrl);
     render(<Harness />);
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(autoReconnect).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -173,7 +186,9 @@ describe('useServerAutoReconnect', () => {
     localStorage.setItem(SAVED_KEY, CONNECTED.serverUrl);
     setConnected();
     render(<Harness />);
-    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(loadHostedVaults).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -209,7 +224,9 @@ describe('useServerAutoReconnect', () => {
     vi.useFakeTimers();
     localStorage.setItem(SAVED_KEY, CONNECTED.serverUrl);
     setConnected();
-    loadHostedVaults.mockRejectedValue(new Error('Too many requests. Slow down and try again shortly.'));
+    loadHostedVaults.mockRejectedValue(
+      new Error('Too many requests. Slow down and try again shortly.'),
+    );
     render(<Harness />);
     await act(async () => {
       await Promise.resolve();

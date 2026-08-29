@@ -1,5 +1,13 @@
 import { Button } from '../ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
+
 import type { MoveTagsPromptState } from './useCardDialogActions';
 
 type Props = {
@@ -38,7 +46,10 @@ export function CardDialogMoveTagsPrompt({
           </p>
           <div className="flex flex-wrap gap-1.5">
             {prompt.missingTags.map((tag) => (
-              <span key={tag} className="rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary/80">
+              <span
+                key={tag}
+                className="rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary/80"
+              >
                 {tag}
               </span>
             ))}
@@ -52,9 +63,7 @@ export function CardDialogMoveTagsPrompt({
             <Button variant="outline" onClick={onApplyOnce}>
               Apply once
             </Button>
-            <Button onClick={onAlwaysApply}>
-              Always apply here
-            </Button>
+            <Button onClick={onAlwaysApply}>Always apply here</Button>
           </div>
         </DialogFooter>
       </DialogContent>

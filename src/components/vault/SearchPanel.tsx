@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+
 import { Search } from 'lucide-react';
-import { Input } from '../ui/input';
-import { useVaultStore } from '../../store/vaultStore';
+
+import { cn } from '../../lib/utils';
+import { createVaultClient } from '../../lib/vaultClient';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
-import { createVaultClient } from '../../lib/vaultClient';
+import { useVaultStore } from '../../store/vaultStore';
 import type { SearchResult } from '../../types/note';
-import { cn } from '../../lib/utils';
+import { Input } from '../ui/input';
 
 export default function SearchPanel() {
   const [query, setQuery] = useState('');
@@ -32,7 +34,10 @@ export default function SearchPanel() {
   return (
     <div className="flex flex-col h-full p-2 gap-2">
       <div className="relative">
-        <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <Search
+          size={14}
+          className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+        />
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -60,7 +65,9 @@ export default function SearchPanel() {
           </button>
         ))}
         {query.length >= 2 && results.length === 0 && (
-          <p className="rounded-lg border border-border/40 bg-card/20 px-3 py-2 text-xs text-muted-foreground app-panel-enter">No results found</p>
+          <p className="rounded-lg border border-border/40 bg-card/20 px-3 py-2 text-xs text-muted-foreground app-panel-enter">
+            No results found
+          </p>
         )}
       </div>
     </div>

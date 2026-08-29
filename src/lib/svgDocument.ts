@@ -115,7 +115,15 @@ const GEOMETRY_ATTRS: Record<SvgEditableType, string[]> = {
   path: ['d'],
 };
 
-const HANDLED_ATTRS = new Set(['fill', 'stroke', 'stroke-width', 'opacity', 'transform', 'style', 'data-cid']);
+const HANDLED_ATTRS = new Set([
+  'fill',
+  'stroke',
+  'stroke-width',
+  'opacity',
+  'transform',
+  'style',
+  'data-cid',
+]);
 
 function parseNode(el: Element, type: SvgEditableType): SvgNode {
   const { style, leftoverStyle } = extractStyle(el);
@@ -180,7 +188,12 @@ function parseViewBox(root: Element): SvgRect {
   const raw = root.getAttribute('viewBox');
   if (raw) {
     const parts = raw.split(/[\s,]+/).map((p) => Number.parseFloat(p));
-    if (parts.length === 4 && parts.every((n) => Number.isFinite(n)) && parts[2] > 0 && parts[3] > 0) {
+    if (
+      parts.length === 4 &&
+      parts.every((n) => Number.isFinite(n)) &&
+      parts[2] > 0 &&
+      parts[3] > 0
+    ) {
       return { x: parts[0], y: parts[1], width: parts[2], height: parts[3] };
     }
   }
@@ -259,13 +272,28 @@ function fmt(n: number): string {
 function geometryAttrs(node: SvgNode): Record<string, string> {
   switch (node.type) {
     case 'rect':
-      return { x: fmt(node.x ?? 0), y: fmt(node.y ?? 0), width: fmt(node.width ?? 0), height: fmt(node.height ?? 0) };
+      return {
+        x: fmt(node.x ?? 0),
+        y: fmt(node.y ?? 0),
+        width: fmt(node.width ?? 0),
+        height: fmt(node.height ?? 0),
+      };
     case 'circle':
       return { cx: fmt(node.cx ?? 0), cy: fmt(node.cy ?? 0), r: fmt(node.r ?? 0) };
     case 'ellipse':
-      return { cx: fmt(node.cx ?? 0), cy: fmt(node.cy ?? 0), rx: fmt(node.rx ?? 0), ry: fmt(node.ry ?? 0) };
+      return {
+        cx: fmt(node.cx ?? 0),
+        cy: fmt(node.cy ?? 0),
+        rx: fmt(node.rx ?? 0),
+        ry: fmt(node.ry ?? 0),
+      };
     case 'line':
-      return { x1: fmt(node.x1 ?? 0), y1: fmt(node.y1 ?? 0), x2: fmt(node.x2 ?? 0), y2: fmt(node.y2 ?? 0) };
+      return {
+        x1: fmt(node.x1 ?? 0),
+        y1: fmt(node.y1 ?? 0),
+        x2: fmt(node.x2 ?? 0),
+        y2: fmt(node.y2 ?? 0),
+      };
     case 'text':
       return { x: fmt(node.x ?? 0), y: fmt(node.y ?? 0), 'font-size': fmt(node.fontSize ?? 16) };
     case 'polyline':
@@ -305,7 +333,9 @@ export function serializeNode(node: SvgNode, indent = '  '): string {
 
 export function serializeScene(scene: SvgScene): string {
   const rootAttrs = { ...scene.rootAttrs };
-  const parts: string[] = [`viewBox="${fmt(scene.viewBox.x)} ${fmt(scene.viewBox.y)} ${fmt(scene.viewBox.width)} ${fmt(scene.viewBox.height)}"`];
+  const parts: string[] = [
+    `viewBox="${fmt(scene.viewBox.x)} ${fmt(scene.viewBox.y)} ${fmt(scene.viewBox.width)} ${fmt(scene.viewBox.height)}"`,
+  ];
   if (scene.width != null) parts.push(`width="${fmt(scene.width)}"`);
   if (scene.height != null) parts.push(`height="${fmt(scene.height)}"`);
   const rootAttrStr = Object.entries(rootAttrs)
@@ -346,7 +376,12 @@ export function nodeBounds(node: SvgNode): SvgRect | null {
       const y1 = node.y1 ?? 0;
       const x2 = node.x2 ?? 0;
       const y2 = node.y2 ?? 0;
-      return { x: Math.min(x1, x2), y: Math.min(y1, y2), width: Math.abs(x2 - x1), height: Math.abs(y2 - y1) };
+      return {
+        x: Math.min(x1, x2),
+        y: Math.min(y1, y2),
+        width: Math.abs(x2 - x1),
+        height: Math.abs(y2 - y1),
+      };
     }
     default:
       return null;
@@ -414,7 +449,12 @@ export function resizeNodeToBounds(node: SvgNode, box: SvgRect): SvgNode {
   return next;
 }
 
-export function setLineEndpoint(node: SvgNode, which: 'start' | 'end', x: number, y: number): SvgNode {
+export function setLineEndpoint(
+  node: SvgNode,
+  which: 'start' | 'end',
+  x: number,
+  y: number,
+): SvgNode {
   if (node.type !== 'line') return node;
   return which === 'start' ? { ...node, x1: x, y1: y } : { ...node, x2: x, y2: y };
 }
@@ -450,9 +490,20 @@ export function createNode(type: SvgPrimitiveType, box: SvgRect, style?: SvgStyl
     case 'rect':
       return { ...base, x: box.x, y: box.y, width, height };
     case 'ellipse':
-      return { ...base, cx: box.x + width / 2, cy: box.y + height / 2, rx: width / 2, ry: height / 2 };
+      return {
+        ...base,
+        cx: box.x + width / 2,
+        cy: box.y + height / 2,
+        rx: width / 2,
+        ry: height / 2,
+      };
     case 'circle':
-      return { ...base, cx: box.x + width / 2, cy: box.y + height / 2, r: Math.min(width, height) / 2 };
+      return {
+        ...base,
+        cx: box.x + width / 2,
+        cy: box.y + height / 2,
+        r: Math.min(width, height) / 2,
+      };
     case 'line':
       return { ...base, x1: box.x, y1: box.y, x2: box.x + width, y2: box.y + height };
     case 'text':
@@ -477,11 +528,17 @@ export function findNode(scene: SvgScene, id: string): SvgNode | null {
   return null;
 }
 
-export function updateNode(scene: SvgScene, id: string, updater: (node: SvgNode) => SvgNode): SvgScene {
+export function updateNode(
+  scene: SvgScene,
+  id: string,
+  updater: (node: SvgNode) => SvgNode,
+): SvgScene {
   return {
     ...scene,
     slots: scene.slots.map((slot) =>
-      slot.kind === 'node' && slot.node.id === id ? { kind: 'node', node: updater(slot.node) } : slot,
+      slot.kind === 'node' && slot.node.id === id
+        ? { kind: 'node', node: updater(slot.node) }
+        : slot,
     ),
   };
 }
@@ -491,11 +548,18 @@ export function addNode(scene: SvgScene, node: SvgNode): SvgScene {
 }
 
 export function removeNode(scene: SvgScene, id: string): SvgScene {
-  return { ...scene, slots: scene.slots.filter((slot) => !(slot.kind === 'node' && slot.node.id === id)) };
+  return {
+    ...scene,
+    slots: scene.slots.filter((slot) => !(slot.kind === 'node' && slot.node.id === id)),
+  };
 }
 
 /** Move a node one step forward/backward in paint order among all slots. */
-export function reorderNode(scene: SvgScene, id: string, direction: 'forward' | 'backward'): SvgScene {
+export function reorderNode(
+  scene: SvgScene,
+  id: string,
+  direction: 'forward' | 'backward',
+): SvgScene {
   const index = scene.slots.findIndex((slot) => slot.kind === 'node' && slot.node.id === id);
   if (index === -1) return scene;
   const target = direction === 'forward' ? index + 1 : index - 1;

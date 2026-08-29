@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import type { NotificationEnvelope } from '../types/notification';
+
 import {
   createNotificationId,
   decideForegroundNotificationDelivery,
@@ -9,7 +11,6 @@ import {
   validateNotificationEnvelope,
   validatePushInvalidation,
 } from './notificationContract';
-import type { NotificationEnvelope } from '../types/notification';
 
 function reminder(): NotificationEnvelope {
   const identity = {
@@ -38,11 +39,7 @@ function reminder(): NotificationEnvelope {
       itemId: 'item-1',
       occurrenceKey: '2026-08-01T10:00:00Z',
     },
-    actions: [
-      { kind: 'open' },
-      { kind: 'snooze', minutes: 10 },
-      { kind: 'dismiss' },
-    ],
+    actions: [{ kind: 'open' }, { kind: 'snooze', minutes: 10 }, { kind: 'dismiss' }],
     requiresInbox: true,
   };
 }
@@ -51,31 +48,40 @@ describe('notification contract', () => {
   it('builds stable IDs from account, source, occurrence, and delivery identity', () => {
     const notification = reminder();
     expect(createNotificationId(notification)).toBe(notification.id);
-    expect(createNotificationId({ ...notification, deliveryKey: 'second-reminder' }))
-      .not.toBe(notification.id);
+    expect(createNotificationId({ ...notification, deliveryKey: 'second-reminder' })).not.toBe(
+      notification.id,
+    );
   });
 
   it('validates a bounded typed notification envelope', () => {
     expect(validateNotificationEnvelope(reminder())).toEqual(reminder());
-    expect(validateNotificationEnvelope({
-      ...reminder(),
-      serverUrl: 'https://collab.example.test',
-    }).serverUrl).toBe('https://collab.example.test');
-    expect(() => validateNotificationEnvelope({
-      ...reminder(),
-      serverUrl: 'https://collab.example.test/private',
-    })).toThrow(/HTTP origin/);
+    expect(
+      validateNotificationEnvelope({
+        ...reminder(),
+        serverUrl: 'https://collab.example.test',
+      }).serverUrl,
+    ).toBe('https://collab.example.test');
+    expect(() =>
+      validateNotificationEnvelope({
+        ...reminder(),
+        serverUrl: 'https://collab.example.test/private',
+      }),
+    ).toThrow(/HTTP origin/);
   });
 
   it('rejects category mismatches and actions not allowed for the kind', () => {
-    expect(() => validateNotificationEnvelope({
-      ...reminder(),
-      channel: 'sync',
-    })).toThrow(/category\/channel/);
-    expect(() => validateNotificationEnvelope({
-      ...reminder(),
-      actions: [{ kind: 'sync.retry' }],
-    })).toThrow(/not allowed/);
+    expect(() =>
+      validateNotificationEnvelope({
+        ...reminder(),
+        channel: 'sync',
+      }),
+    ).toThrow(/category\/channel/);
+    expect(() =>
+      validateNotificationEnvelope({
+        ...reminder(),
+        actions: [{ kind: 'sync.retry' }],
+      }),
+    ).toThrow(/not allowed/);
   });
 
   it('enforces title-only and hidden lock-screen presentation', () => {
@@ -104,18 +110,24 @@ describe('notification contract', () => {
 
   it('suppresses only the exact visible destination', () => {
     const notification = reminder();
-    expect(decideForegroundNotificationDelivery(notification, { appVisible: false }))
-      .toBe('native');
-    expect(decideForegroundNotificationDelivery(notification, {
-      appVisible: true,
-      activeDestination: { kind: 'calendar-invitations' },
-    })).toBe('in-app');
-    expect(decideForegroundNotificationDelivery(notification, {
-      appVisible: true,
-      activeDestination: notification.destination,
-    })).toBe('suppress');
-    expect(notificationDestinationKey(notification.destination))
-      .toContain('calendar-item:profile-local-1');
+    expect(decideForegroundNotificationDelivery(notification, { appVisible: false })).toBe(
+      'native',
+    );
+    expect(
+      decideForegroundNotificationDelivery(notification, {
+        appVisible: true,
+        activeDestination: { kind: 'calendar-invitations' },
+      }),
+    ).toBe('in-app');
+    expect(
+      decideForegroundNotificationDelivery(notification, {
+        appVisible: true,
+        activeDestination: notification.destination,
+      }),
+    ).toBe('suppress');
+    expect(notificationDestinationKey(notification.destination)).toContain(
+      'calendar-item:profile-local-1',
+    );
   });
 
   it('accepts only opaque, content-free third-party invalidations', () => {
@@ -128,13 +140,17 @@ describe('notification contract', () => {
       createdAt: '2026-07-28T10:00:00Z',
     };
     expect(validatePushInvalidation(invalidation)).toEqual(invalidation);
-    expect(() => validatePushInvalidation({
-      ...invalidation,
-      title: 'Private meeting',
-    })).toThrow(/private or unsupported fields/);
-    expect(() => validatePushInvalidation({
-      ...invalidation,
-      accountKey: 'https://collab.example.test/users/alice',
-    })).toThrow(/opaque/);
+    expect(() =>
+      validatePushInvalidation({
+        ...invalidation,
+        title: 'Private meeting',
+      }),
+    ).toThrow(/private or unsupported fields/);
+    expect(() =>
+      validatePushInvalidation({
+        ...invalidation,
+        accountKey: 'https://collab.example.test/users/alice',
+      }),
+    ).toThrow(/opaque/);
   });
 });

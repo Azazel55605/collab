@@ -8,16 +8,16 @@
  * pending operations at rest (`src-tauri/src/replica/`), and `.sheet` inherits
  * that without a document-format opinion.
  */
-
 import { describe, expect, it } from 'vitest';
 
 import { sheetCellKey } from '../../types/sheet';
+
 import { mergeSheetDocuments } from './collaboration';
 import {
-  SheetDocumentError,
   inspectSheetDocumentText,
   parseSheetDocument,
   serializeSheetDocument,
+  SheetDocumentError,
 } from './document';
 import { createDenseWorkbookFixture, createWorkbookFixture } from './fixture';
 import { setCell } from './operations';
@@ -98,8 +98,9 @@ describe('schema upgrade', () => {
     source.futureWorkbookField = { note: 'from a later build' };
     const worksheet = (source.worksheets as Record<string, unknown>[])[0];
     worksheet.futureWorksheetField = ['keep', 'me'];
-    (worksheet.cells as Record<string, Record<string, unknown>>)[sheetCellKey('r1', 'c1')]
-      .futureCellField = 42;
+    (worksheet.cells as Record<string, Record<string, unknown>>)[
+      sheetCellKey('r1', 'c1')
+    ].futureCellField = 42;
 
     const round = parseSheetDocument(JSON.stringify(source)) as unknown as Record<string, unknown>;
     const roundWorksheet = (round.worksheets as Record<string, unknown>[])[0];

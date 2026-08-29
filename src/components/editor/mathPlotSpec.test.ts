@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildDefaultPlotDirective, parseMathPlots, samplePlot2D, samplePlot3D } from './mathPlotSpec';
+import {
+  buildDefaultPlotDirective,
+  parseMathPlots,
+  samplePlot2D,
+  samplePlot3D,
+} from './mathPlotSpec';
 
 describe('mathPlotSpec', () => {
   it('parses inferred 2D directives', () => {
@@ -19,7 +24,15 @@ describe('mathPlotSpec', () => {
 
   it('parses 3D directives and clamps excessive samples', () => {
     expect(parseMathPlots('%plot3d z=x^2+y^2, x=-5..5, y=-4..4, samples=999')).toMatchObject({
-      plots: [{ kind: '3d', expression: 'x^2+y^2', x: { min: -5, max: 5 }, y: { min: -4, max: 4 }, samples: 90 }],
+      plots: [
+        {
+          kind: '3d',
+          expression: 'x^2+y^2',
+          x: { min: -5, max: 5 },
+          y: { min: -4, max: 4 },
+          samples: 90,
+        },
+      ],
       errors: [],
     });
   });
@@ -28,7 +41,11 @@ describe('mathPlotSpec', () => {
     expect(parseMathPlots('%plot3d x=-5..5, y=-5..5\nz &= \\sin(x+y)\\\\')).toMatchObject({
       plots: [{ kind: '3d', expression: '\\sin(x+y)' }],
     });
-    expect(parseMathPlots('%plot3d x=-5..5, y=-5..5\n\\begin{aligned} z &= \\sin(\\sqrt{x^2+y^2}) \\end{aligned}')).toMatchObject({
+    expect(
+      parseMathPlots(
+        '%plot3d x=-5..5, y=-5..5\n\\begin{aligned} z &= \\sin(\\sqrt{x^2+y^2}) \\end{aligned}',
+      ),
+    ).toMatchObject({
       plots: [{ kind: '3d', expression: '\\sin(\\sqrt{x^2+y^2})' }],
     });
     expect(parseMathPlots('%plot3d x=-5..5, y=-5..5\nz(x,y)=x^2+y^2')).toMatchObject({
@@ -50,7 +67,9 @@ describe('mathPlotSpec', () => {
       plots: [{ kind: '3d', expression: '\\sin(x+y)' }],
       errors: [],
     });
-    expect(parseMathPlots('%plot3d z=<placeholder:expression>, x=-5..5, y=-5..5\nz=x^2+y^2')).toMatchObject({
+    expect(
+      parseMathPlots('%plot3d z=<placeholder:expression>, x=-5..5, y=-5..5\nz=x^2+y^2'),
+    ).toMatchObject({
       plots: [{ kind: '3d', expression: 'x^2+y^2' }],
       errors: [],
     });
@@ -129,6 +148,8 @@ describe('mathPlotSpec', () => {
 
   it('builds compact default directives for inferred math bodies', () => {
     expect(buildDefaultPlotDirective('2d', 'y=\\sin(x)')).toBe('%plot2d x=-10..10, samples=600');
-    expect(buildDefaultPlotDirective('3d', 'z=x^2+y^2')).toBe('%plot3d x=-5..5, y=-5..5, samples=60');
+    expect(buildDefaultPlotDirective('3d', 'z=x^2+y^2')).toBe(
+      '%plot3d x=-5..5, y=-5..5, samples=60',
+    );
   });
 });

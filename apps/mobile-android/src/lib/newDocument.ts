@@ -9,14 +9,17 @@
  * document the app can then only stare at would be worse than not offering it:
  * `.canvas` and `.logic` open read-only on mobile, so they are not here.
  */
-
-import { serializeInkDocument, createInkDocument } from '../../../../src/lib/ink/document';
-import { createEmptySheetDocument, serializeSheetDocument } from '../../../../src/lib/sheet/document';
-import { serializeBoard, createColumn, addColumn } from './kanban';
+import { createInkDocument, serializeInkDocument } from '../../../../src/lib/ink/document';
+import {
+  createEmptySheetDocument,
+  serializeSheetDocument,
+} from '../../../../src/lib/sheet/document';
 import { normalizeKanbanBoard } from '../../../../src/types/kanban';
-import type { FileGlyph } from './format';
-import type { ActiveSheet } from '../state/store';
 import type { HostedFileEntry } from '../mobileTauri';
+import type { ActiveSheet } from '../state/store';
+
+import type { FileGlyph } from './format';
+import { addColumn, createColumn, serializeBoard } from './kanban';
 
 export type NewDocumentKind = 'note' | 'kanban' | 'sheet' | 'ink';
 

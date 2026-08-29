@@ -1,4 +1,4 @@
-import { formatDate, type DateFormat } from '../../store/uiStore';
+import { type DateFormat, formatDate } from '../../store/uiStore';
 
 export interface Snippet {
   label: string;
@@ -109,7 +109,11 @@ const INSERT_COMMANDS: SnippetCommand[] = [
     build: (query) => {
       const match = query.match(/^(?:image|img|picture)\s+(.+)/i);
       const path = match ? match[1].trim() : '';
-      const alt = path.split('/').pop()?.replace(/\.[^.]+$/, '') || 'alt text';
+      const alt =
+        path
+          .split('/')
+          .pop()
+          ?.replace(/\.[^.]+$/, '') || 'alt text';
       return {
         label: path ? `Image: ${alt}` : 'Image',
         preview: path ? `![${alt}](${path})` : '![alt text](Pictures/example.png)',
@@ -316,7 +320,9 @@ const INSERT_COMMANDS: SnippetCommand[] = [
 function matchesCommand(query: string, command: SnippetCommand) {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return [command.key, ...command.aliases, command.label.toLowerCase()].some((value) => value.startsWith(q));
+  return [command.key, ...command.aliases, command.label.toLowerCase()].some((value) =>
+    value.startsWith(q),
+  );
 }
 
 export function completeInsertQuery(query: string): string | null {
@@ -336,7 +342,7 @@ export function completeInsertQuery(query: string): string | null {
   }
 
   const aliasMatches = INSERT_COMMANDS.filter((command) =>
-    command.aliases.some((value) => value.startsWith(token))
+    command.aliases.some((value) => value.startsWith(token)),
   );
   if (aliasMatches.length !== 1) return null;
 
@@ -356,7 +362,7 @@ export function generateSnippets(query: string, dateFormat: DateFormat): Snippet
   }
 
   const direct = INSERT_COMMANDS.find((command) =>
-    [command.key, ...command.aliases].some((value) => q.toLowerCase().startsWith(value))
+    [command.key, ...command.aliases].some((value) => q.toLowerCase().startsWith(value)),
   );
   if (direct) {
     return [direct.build(q, dateFormat)];

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -41,7 +42,12 @@ export function useNativeFileDrop(
       const el = containerRef.current;
       if (!el) return false;
       const rect = el.getBoundingClientRect();
-      return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+      return (
+        point.x >= rect.left &&
+        point.x <= rect.right &&
+        point.y >= rect.top &&
+        point.y <= rect.bottom
+      );
     };
 
     const handle = (payload: NativeDropPayload) => {
@@ -71,7 +77,11 @@ export function useNativeFileDrop(
     };
 
     const subscribe = (
-      source: { onDragDropEvent: (handler: (event: { payload: NativeDropPayload }) => void) => Promise<() => void> },
+      source: {
+        onDragDropEvent: (
+          handler: (event: { payload: NativeDropPayload }) => void,
+        ) => Promise<() => void>;
+      },
       assign: (unlisten: () => void) => void,
       label: string,
     ) => {
@@ -81,14 +91,28 @@ export function useNativeFileDrop(
           if (disposed) unlisten();
           else assign(unlisten);
         })
-        .catch((err) => console.error(`[useNativeFileDrop] failed to attach ${label} listener:`, err));
+        .catch((err) =>
+          console.error(`[useNativeFileDrop] failed to attach ${label} listener:`, err),
+        );
     };
 
     // Guard against environments without a Tauri runtime (e.g. the test harness),
     // where acquiring the webview/window handle can throw synchronously.
     try {
-      subscribe(getCurrentWebview(), (u) => { unlistenWebview = u; }, 'webview');
-      subscribe(getCurrentWindow(), (u) => { unlistenWindow = u; }, 'window');
+      subscribe(
+        getCurrentWebview(),
+        (u) => {
+          unlistenWebview = u;
+        },
+        'webview',
+      );
+      subscribe(
+        getCurrentWindow(),
+        (u) => {
+          unlistenWindow = u;
+        },
+        'window',
+      );
     } catch (err) {
       console.error('[useNativeFileDrop] native drag-drop unavailable:', err);
     }

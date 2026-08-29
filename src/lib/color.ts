@@ -15,9 +15,10 @@ export function normalizeHex(value: string, allowAlpha: boolean): string | null 
   const match = value.trim().match(HEX_COLOR);
   if (!match) return null;
   const source = match[1].toLowerCase();
-  const expanded = source.length <= 4
-    ? [...source].map((character) => `${character}${character}`).join('')
-    : source;
+  const expanded =
+    source.length <= 4
+      ? [...source].map((character) => `${character}${character}`).join('')
+      : source;
   const rgb = expanded.slice(0, 6);
   const alpha = expanded.slice(6, 8);
   return `#${rgb}${allowAlpha && alpha && alpha !== 'ff' ? alpha : ''}`;
@@ -54,16 +55,25 @@ export function hsvaToHex(color: HsvaColor, allowAlpha: boolean): string {
   const chroma = value * saturation;
   const section = hue / 60;
   const secondary = chroma * (1 - Math.abs((section % 2) - 1));
-  const [red1, green1, blue1] = section < 1 ? [chroma, secondary, 0]
-    : section < 2 ? [secondary, chroma, 0]
-      : section < 3 ? [0, chroma, secondary]
-        : section < 4 ? [0, secondary, chroma]
-          : section < 5 ? [secondary, 0, chroma]
-            : [chroma, 0, secondary];
+  const [red1, green1, blue1] =
+    section < 1
+      ? [chroma, secondary, 0]
+      : section < 2
+        ? [secondary, chroma, 0]
+        : section < 3
+          ? [0, chroma, secondary]
+          : section < 4
+            ? [0, secondary, chroma]
+            : section < 5
+              ? [secondary, 0, chroma]
+              : [chroma, 0, secondary];
   const match = value - chroma;
-  const channel = (component: number) => Math.round((component + match) * 255)
+  const channel = (component: number) =>
+    Math.round((component + match) * 255)
+      .toString(16)
+      .padStart(2, '0');
+  const alpha = Math.round(clampColorChannel(color.a, 0, 1) * 255)
     .toString(16)
     .padStart(2, '0');
-  const alpha = Math.round(clampColorChannel(color.a, 0, 1) * 255).toString(16).padStart(2, '0');
   return `#${channel(red1)}${channel(green1)}${channel(blue1)}${allowAlpha && alpha !== 'ff' ? alpha : ''}`;
 }

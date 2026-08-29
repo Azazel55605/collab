@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { TooltipProvider } from '../ui/tooltip';
-import LivePeers from './LivePeers';
+import { describe, expect, it } from 'vitest';
+
 import type { LivePeer } from '../../lib/liveAwareness';
+import { TooltipProvider } from '../ui/tooltip';
+
+import LivePeers from './LivePeers';
 
 function renderPeers(peers: LivePeer[], max?: number) {
   return render(

@@ -21,11 +21,6 @@ describe('enqueuePdfRender', () => {
 
     await expect(slow).resolves.toBe('slow');
     await expect(fast).resolves.toBe('fast');
-    expect(events).toEqual([
-      'slow:start',
-      'slow:end',
-      'fast:start',
-      'fast:end',
-    ]);
+    expect(events).toEqual(['slow:start', 'slow:end', 'fast:start', 'fast:end']);
   });
 });

@@ -29,8 +29,26 @@ describe('ImageAnnotationsPopover', () => {
         open
         onOpenChange={onOpenChange}
         items={[
-          { id: 'text-1', type: 'text', x: 0, y: 0, width: 0.2, height: 0.1, text: 'Alpha', color: '#fff', fontSize: 18 },
-          { id: 'arrow-1', type: 'arrow', start: { x: 0, y: 0 }, end: { x: 1, y: 1 }, color: '#fff', strokeWidth: 4, lineStyle: 'solid' },
+          {
+            id: 'text-1',
+            type: 'text',
+            x: 0,
+            y: 0,
+            width: 0.2,
+            height: 0.1,
+            text: 'Alpha',
+            color: '#fff',
+            fontSize: 18,
+          },
+          {
+            id: 'arrow-1',
+            type: 'arrow',
+            start: { x: 0, y: 0 },
+            end: { x: 1, y: 1 },
+            color: '#fff',
+            strokeWidth: 4,
+            lineStyle: 'solid',
+          },
         ]}
         selectedItemId="arrow-1"
         onSelectItem={onSelectItem}
@@ -42,7 +60,10 @@ describe('ImageAnnotationsPopover', () => {
     expect(onSelectItem).toHaveBeenCalledWith('text-1');
     expect(onOpenChange).toHaveBeenCalledWith(false);
 
-    fireEvent.click(screen.getAllByRole('button').find((button) => button.textContent === '') ?? screen.getAllByRole('button')[2]);
+    fireEvent.click(
+      screen.getAllByRole('button').find((button) => button.textContent === '') ??
+        screen.getAllByRole('button')[2],
+    );
     expect(onDeleteItem).toHaveBeenCalled();
   });
 });

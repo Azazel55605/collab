@@ -28,7 +28,11 @@ export function OptionRow({
       aria-disabled={disabled}
     >
       <div className="min-w-0">
-        <p className={cn('text-sm font-medium text-foreground', disabled && 'text-muted-foreground')}>{label}</p>
+        <p
+          className={cn('text-sm font-medium text-foreground', disabled && 'text-muted-foreground')}
+        >
+          {label}
+        </p>
         {description && <p className="text-[12px] text-muted-foreground mt-0.5">{description}</p>}
       </div>
       <div className="shrink-0">{children}</div>
@@ -59,7 +63,8 @@ export function PillSelect<T extends string | number>({
           disabled={disabled}
           className={cn(
             'px-2.5 py-1 rounded-md text-[12px] font-medium border transition-all',
-            disabled && 'cursor-not-allowed opacity-50 hover:text-muted-foreground hover:border-border/50 hover:bg-transparent',
+            disabled &&
+              'cursor-not-allowed opacity-50 hover:text-muted-foreground hover:border-border/50 hover:bg-transparent',
             value === opt
               ? 'bg-primary/15 border-primary/40 text-primary'
               : 'bg-transparent border-border/50 text-muted-foreground hover:text-foreground hover:border-border',

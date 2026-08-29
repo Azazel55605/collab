@@ -1,24 +1,25 @@
+import { downloadWithProgress, type TransferListener, uploadWithProgress } from './transfer';
 import type {
-  AdminOverview,
   AdminBackupCommandResult,
   AdminBackupOverview,
   AdminBackupVerification,
+  AdminNotificationTestResult,
+  AdminOverview,
   AdminServerSettings,
   AuditEvent,
   CreatedInvitation,
-  HostedVaultActivityEvent,
-  HostedVaultAdminDetail,
   HostedChatMessage,
   HostedFileEntry,
   HostedFileRevision,
+  HostedVaultActivityEvent,
+  HostedVaultAdminDetail,
   HostedVaultImportResult,
+  HostedVaultManifest,
   HostedVaultMember,
   HostedVaultStorage,
-  HostedVaultManifest,
   HostedVaultSummary,
   Invitation,
   LiveDebugState,
-  AdminNotificationTestResult,
   MaintenanceReport,
   PermissionTemplate,
   ServerUser,
@@ -30,8 +31,6 @@ import type {
 interface DataResponse<T> {
   data: T;
 }
-
-import { downloadWithProgress, uploadWithProgress, type TransferListener } from './transfer';
 
 interface ErrorResponse {
   error?: {
@@ -72,7 +71,8 @@ async function apiBlob(path: string, onProgress?: TransferListener): Promise<Blo
 }
 
 export const serverApi = {
-  bootstrapStatus: () => api<{ required: boolean }>('/api/v1/auth/bootstrap-status', { cache: 'no-store' }),
+  bootstrapStatus: () =>
+    api<{ required: boolean }>('/api/v1/auth/bootstrap-status', { cache: 'no-store' }),
   bootstrap: (payload: Record<string, unknown>) =>
     api<{ user: ServerUser; csrfToken: string }>('/api/v1/auth/bootstrap', {
       method: 'POST',
@@ -84,37 +84,57 @@ export const serverApi = {
       body: JSON.stringify(payload),
     }),
   acceptInvitation: (token: string, password: string) =>
-    api<{ user: ServerUser; csrfToken: string }>(`/api/v1/auth/invitations/${encodeURIComponent(token)}/accept`, {
-      method: 'POST',
-      body: JSON.stringify({ password }),
-    }),
+    api<{ user: ServerUser; csrfToken: string }>(
+      `/api/v1/auth/invitations/${encodeURIComponent(token)}/accept`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ password }),
+      },
+    ),
   logout: () => api<void>('/api/v1/auth/logout', { method: 'POST' }),
   me: () => api<ServerUser>('/api/v1/users/me'),
   updateSelf: (payload: Record<string, unknown>) =>
     api<ServerUser>('/api/v1/users/me', { method: 'PATCH', body: JSON.stringify(payload) }),
   changeOwnPassword: (currentPassword: string, newPassword: string) =>
-    api<void>('/api/v1/users/me/password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
+    api<void>('/api/v1/users/me/password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
   uploadOwnAvatar: (mediaType: string, contentBase64: string) =>
-    api<ServerUser>('/api/v1/users/me/avatar', { method: 'PUT', body: JSON.stringify({ mediaType, contentBase64 }) }),
+    api<ServerUser>('/api/v1/users/me/avatar', {
+      method: 'PUT',
+      body: JSON.stringify({ mediaType, contentBase64 }),
+    }),
   deleteOwnAvatar: () => api<ServerUser>('/api/v1/users/me/avatar', { method: 'DELETE' }),
   avatarUrl: (userId: string, updatedAt?: string | null) =>
     `/api/v1/users/${userId}/avatar${updatedAt ? `?v=${encodeURIComponent(updatedAt)}` : ''}`,
   overview: () => api<AdminOverview>('/api/v1/admin/overview'),
   settings: () => api<AdminServerSettings>('/api/v1/admin/settings'),
   updateSettings: (payload: Record<string, unknown>) =>
-    api<AdminServerSettings>('/api/v1/admin/settings', { method: 'PATCH', body: JSON.stringify(payload) }),
+    api<AdminServerSettings>('/api/v1/admin/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
   runMaintenance: () => api<MaintenanceReport>('/api/v1/admin/maintenance', { method: 'POST' }),
   sendNotificationTest: () =>
     api<AdminNotificationTestResult>('/api/v1/admin/notifications/test', { method: 'POST' }),
   liveDebug: () => api<LiveDebugState>('/api/v1/admin/live-debug'),
   setLiveDebug: (enabled: boolean) =>
-    api<LiveDebugState>('/api/v1/admin/live-debug', { method: 'PUT', body: JSON.stringify({ enabled }) }),
+    api<LiveDebugState>('/api/v1/admin/live-debug', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
   backups: () => api<AdminBackupOverview>('/api/v1/admin/backups'),
   updateBackupSettings: (payload: Record<string, unknown>) =>
-    api<AdminBackupOverview>('/api/v1/admin/backups/settings', { method: 'PATCH', body: JSON.stringify(payload) }),
+    api<AdminBackupOverview>('/api/v1/admin/backups/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
   runBackup: () => api<AdminBackupCommandResult>('/api/v1/admin/backups', { method: 'POST' }),
   verifyBackup: (name: string) =>
-    api<AdminBackupVerification>(`/api/v1/admin/backups/${encodeURIComponent(name)}/verify`, { method: 'POST' }),
+    api<AdminBackupVerification>(`/api/v1/admin/backups/${encodeURIComponent(name)}/verify`, {
+      method: 'POST',
+    }),
   restoreBackup: (name: string) =>
     api<AdminBackupCommandResult>(`/api/v1/admin/backups/${encodeURIComponent(name)}/restore`, {
       method: 'POST',
@@ -151,7 +171,10 @@ export const serverApi = {
   userActivity: (id: string) => api<AuditEvent[]>(`/api/v1/admin/users/${id}/activity`),
   invitations: () => api<Invitation[]>('/api/v1/admin/invitations'),
   createInvitation: (payload: Record<string, unknown>) =>
-    api<CreatedInvitation>('/api/v1/admin/invitations', { method: 'POST', body: JSON.stringify(payload) }),
+    api<CreatedInvitation>('/api/v1/admin/invitations', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   revokeInvitation: (id: string) =>
     api<void>(`/api/v1/admin/invitations/${id}`, { method: 'DELETE' }),
   vaults: () => api<HostedVaultSummary[]>('/api/v1/admin/vaults'),
@@ -179,7 +202,8 @@ export const serverApi = {
     }),
   removeVaultMember: (id: string, userId: string) =>
     api<void>(`/api/v1/admin/vaults/${id}/members/${userId}`, { method: 'DELETE' }),
-  vaultActivity: (id: string) => api<HostedVaultActivityEvent[]>(`/api/v1/admin/vaults/${id}/activity`),
+  vaultActivity: (id: string) =>
+    api<HostedVaultActivityEvent[]>(`/api/v1/admin/vaults/${id}/activity`),
   vaultChat: (id: string) => api<HostedChatMessage[]>(`/api/v1/vaults/${id}/chat?limit=100`),
   vaultStorage: (id: string) => api<HostedVaultStorage>(`/api/v1/vaults/${id}/storage`),
   vaultFiles: (id: string) => api<HostedVaultManifest>(`/api/v1/vaults/${id}/manifest`),
@@ -194,14 +218,25 @@ export const serverApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  restoreFileRevision: (vaultId: string, fileId: string, revisionId: string, expectedRevisionSequence: number) =>
+  restoreFileRevision: (
+    vaultId: string,
+    fileId: string,
+    revisionId: string,
+    expectedRevisionSequence: number,
+  ) =>
     api<unknown>(`/api/v1/vaults/${vaultId}/files/${fileId}/revisions/${revisionId}`, {
       method: 'POST',
       body: JSON.stringify({ expectedRevisionSequence }),
     }),
   deleteFileRevision: (vaultId: string, fileId: string, revisionId: string) =>
-    api<HostedFileRevision[]>(`/api/v1/vaults/${vaultId}/files/${fileId}/revisions/${revisionId}`, { method: 'DELETE' }),
-  deleteFileRevisions: (vaultId: string, fileId: string, payload: { revisionIds?: string[]; all?: boolean }) =>
+    api<HostedFileRevision[]>(`/api/v1/vaults/${vaultId}/files/${fileId}/revisions/${revisionId}`, {
+      method: 'DELETE',
+    }),
+  deleteFileRevisions: (
+    vaultId: string,
+    fileId: string,
+    payload: { revisionIds?: string[]; all?: boolean },
+  ) =>
     api<HostedFileRevision[]>(`/api/v1/vaults/${vaultId}/files/${fileId}/revisions`, {
       method: 'DELETE',
       body: JSON.stringify(payload),
@@ -218,9 +253,15 @@ export const serverApi = {
   // Permission templates
   templates: () => api<PermissionTemplate[]>('/api/v1/admin/templates'),
   createTemplate: (payload: Record<string, unknown>) =>
-    api<PermissionTemplate>('/api/v1/admin/templates', { method: 'POST', body: JSON.stringify(payload) }),
+    api<PermissionTemplate>('/api/v1/admin/templates', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   updateTemplate: (id: string, payload: Record<string, unknown>) =>
-    api<PermissionTemplate>(`/api/v1/admin/templates/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+    api<PermissionTemplate>(`/api/v1/admin/templates/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
   deleteTemplate: (id: string) => api<void>(`/api/v1/admin/templates/${id}`, { method: 'DELETE' }),
 
   // User groups
@@ -228,7 +269,10 @@ export const serverApi = {
   createGroup: (payload: Record<string, unknown>) =>
     api<UserGroup>('/api/v1/admin/groups', { method: 'POST', body: JSON.stringify(payload) }),
   updateGroup: (id: string, payload: Record<string, unknown>) =>
-    api<UserGroup>(`/api/v1/admin/groups/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+    api<UserGroup>(`/api/v1/admin/groups/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
   deleteGroup: (id: string) => api<void>(`/api/v1/admin/groups/${id}`, { method: 'DELETE' }),
   groupMembers: (id: string) => api<UserGroupMember[]>(`/api/v1/admin/groups/${id}/members`),
   addGroupMember: (id: string, userId: string) =>
@@ -238,11 +282,18 @@ export const serverApi = {
 
   // Vault grants
   vaultGrants: (id: string) => api<VaultGrant[]>(`/api/v1/admin/vaults/${id}/grants`),
-  putVaultGrant: (id: string, subjectType: 'user' | 'group', subjectId: string, payload: Record<string, unknown>) =>
+  putVaultGrant: (
+    id: string,
+    subjectType: 'user' | 'group',
+    subjectId: string,
+    payload: Record<string, unknown>,
+  ) =>
     api<VaultGrant>(`/api/v1/admin/vaults/${id}/grants/${subjectType}/${subjectId}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
   deleteVaultGrant: (id: string, subjectType: 'user' | 'group', subjectId: string) =>
-    api<void>(`/api/v1/admin/vaults/${id}/grants/${subjectType}/${subjectId}`, { method: 'DELETE' }),
+    api<void>(`/api/v1/admin/vaults/${id}/grants/${subjectType}/${subjectId}`, {
+      method: 'DELETE',
+    }),
 };

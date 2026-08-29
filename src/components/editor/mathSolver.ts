@@ -1,8 +1,7 @@
 import nerdamer from 'nerdamer/all';
 
 export type MathSolveResult =
-  | { kind: 'expression'; latex: string }
-  | { kind: 'equation'; variable: string; latex: string };
+  { kind: 'expression'; latex: string } | { kind: 'equation'; variable: string; latex: string };
 
 export type MathSolveMode = 'exact' | 'approximate';
 
@@ -46,7 +45,7 @@ function formatEquationSolution(variable: string, solution: string, mode: MathSo
     .split(',')
     .map((part) => part.trim())
     .filter(Boolean)
-    .map((part) => mode === 'approximate' ? toApproximateText(part) : toLatex(part));
+    .map((part) => (mode === 'approximate' ? toApproximateText(part) : toLatex(part)));
 
   if (parts.length === 0) return null;
   const operator = mode === 'approximate' ? '\\approx' : '=';
@@ -94,9 +93,10 @@ export function solveMathInput(
     return latex ? { kind: 'equation', variable, latex } : null;
   }
 
-  const evaluated = mode === 'approximate'
-    ? toApproximateText(expression.toString())
-    : expression.evaluate().toString();
+  const evaluated =
+    mode === 'approximate'
+      ? toApproximateText(expression.toString())
+      : expression.evaluate().toString();
   return {
     kind: 'expression',
     latex: mode === 'approximate' ? evaluated : toLatex(evaluated),

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import {
   addNode,
   createNode,
@@ -40,14 +41,20 @@ describe('parseSvg', () => {
     const scene = parseSvg(SAMPLE);
     const rect = scene.slots.find((s) => s.kind === 'node' && s.node.type === 'rect');
     expect(rect?.kind === 'node' && rect.node).toMatchObject({
-      x: 10, y: 20, width: 30, height: 40, style: { fill: 'url(#g)' },
+      x: 10,
+      y: 20,
+      width: 30,
+      height: 40,
+      style: { fill: 'url(#g)' },
     });
     // rx is not a rect geometry field we own — it must be preserved as an extra attr
     expect(rect?.kind === 'node' && rect.node.extraAttrs.rx).toBe('4');
   });
 
   it('preserves fill declared via inline style', () => {
-    const scene = parseSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect style="fill:#abc;opacity:0.5;foo:bar" width="5" height="5"/></svg>');
+    const scene = parseSvg(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect style="fill:#abc;opacity:0.5;foo:bar" width="5" height="5"/></svg>',
+    );
     const node = findNode(scene, scene.slots[0].kind === 'node' ? scene.slots[0].node.id : '');
     expect(node?.style.fill).toBe('#abc');
     expect(node?.style.opacity).toBe(0.5);
@@ -76,7 +83,9 @@ describe('serializeScene round-trip', () => {
   });
 
   it('escapes text content on serialize so the result re-parses', () => {
-    let scene = parseSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><text x="0" y="5">t</text></svg>');
+    let scene = parseSvg(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><text x="0" y="5">t</text></svg>',
+    );
     const id = scene.slots[0].kind === 'node' ? scene.slots[0].node.id : '';
     scene = updateNode(scene, id, (n) => ({ ...n, text: 'a & b < c' }));
     const out = serializeScene(scene);
@@ -89,7 +98,12 @@ describe('serializeScene round-trip', () => {
 
 describe('geometry operations', () => {
   it('computes bounds per primitive type', () => {
-    expect(nodeBounds(createNode('rect', { x: 2, y: 3, width: 10, height: 20 }))).toEqual({ x: 2, y: 3, width: 10, height: 20 });
+    expect(nodeBounds(createNode('rect', { x: 2, y: 3, width: 10, height: 20 }))).toEqual({
+      x: 2,
+      y: 3,
+      width: 10,
+      height: 20,
+    });
     const circle = createNode('circle', { x: 0, y: 0, width: 10, height: 10 });
     expect(nodeBounds(circle)).toEqual({ x: 0, y: 0, width: 10, height: 10 });
     expect(nodeBounds(createNode('text', { x: 0, y: 0, width: 5, height: 5 }))).toBeNull();
@@ -102,7 +116,9 @@ describe('geometry operations', () => {
     const line = createNode('line', { x: 0, y: 0, width: 10, height: 10 });
     expect(translateNode(line, 1, 2)).toMatchObject({ x1: 1, y1: 2, x2: 11, y2: 12 });
 
-    const scene = parseSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0"/></svg>');
+    const scene = parseSvg(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0"/></svg>',
+    );
     const pathId = scene.slots[0].kind === 'node' ? scene.slots[0].node.id : '';
     const moved = updateNode(scene, pathId, (n) => translateNode(n, 3, 4));
     expect(findNode(moved, pathId)?.transform).toContain('translate(3, 4)');

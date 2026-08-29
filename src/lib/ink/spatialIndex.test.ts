@@ -1,19 +1,22 @@
 import { describe, expect, it } from 'vitest';
 
 import type { InkScene } from '../../types/ink';
+
 import { decodeSamples, encodeSamples } from './codec';
 import { strokeOf } from './document';
-import { FIXTURE_BRUSH, buildInkScene, buildStroke } from './fixture';
+import { buildInkScene, buildStroke, FIXTURE_BRUSH } from './fixture';
 import {
-  InkSpatialIndex,
   boundsContain,
   boundsOverlap,
+  InkSpatialIndex,
   pointInPolygon,
   polygonBounds,
 } from './spatialIndex';
 import { INK_TILE_SIZE } from './tiles';
 
-function sceneWith(strokes: Array<{ id: string; x: number; y: number; layerId?: string }>): InkScene {
+function sceneWith(
+  strokes: Array<{ id: string; x: number; y: number; layerId?: string }>,
+): InkScene {
   const scene: InkScene = {
     layers: {
       'layer-1': { id: 'layer-1', name: 'One', visible: true, locked: false, opacity: 1 },
@@ -76,9 +79,7 @@ describe('InkSpatialIndex', () => {
     const index = new InkSpatialIndex(scene);
     const samples = decodeSamples(strokeOf(scene, 'a')!.samples);
     expect(index.hitTest(samples[6].x, samples[6].y)).toBeNull();
-    expect(
-      index.hitTest(samples[6].x, samples[6].y, { respectVisibility: false }),
-    ).toBe('a');
+    expect(index.hitTest(samples[6].x, samples[6].y, { respectVisibility: false })).toBe('a');
   });
 
   it('skips locked objects and objects on locked layers', () => {

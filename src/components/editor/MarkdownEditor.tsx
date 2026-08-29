@@ -1,52 +1,50 @@
 import { forwardRef, useEffect, useRef, useState } from 'react';
+
 import { createPortal } from 'react-dom';
-import { EditorState, type Extension } from '@codemirror/state';
-import { useUiStore, EDITOR_FONTS } from '../../store/uiStore';
-import {
-  EditorView,
-  keymap,
-  type ViewUpdate,
-} from '@codemirror/view';
+
 import { syntaxHighlighting } from '@codemirror/language';
-import { createLivePreviewPlugin } from './livePreview';
+import { EditorState, type Extension } from '@codemirror/state';
+import { EditorView, keymap, type ViewUpdate } from '@codemirror/view';
 import 'katex/dist/katex.min.css';
-import { parseFenceInfoLanguage, type ParsedCodeBlockAtCursor } from './codeBlockUtils';
+
 import { dispatchEditorToolbarAction } from '../../lib/editorToolbarActions';
 import type { EditorToolbarAction } from '../../lib/editorToolbarActions';
-import { WebLinkPreviewPopover } from '../previews/WebLinkPreviewPopover';
+import { getMarkdownImageTarget } from '../../lib/noteAssets';
+import { EDITOR_FONTS, useUiStore } from '../../store/uiStore';
 import { PdfLinkPreviewPopover } from '../previews/PdfLinkPreviewPopover';
+import { WebLinkPreviewPopover } from '../previews/WebLinkPreviewPopover';
+
+import { type ParsedCodeBlockAtCursor, parseFenceInfoLanguage } from './codeBlockUtils';
 import { createColorPreviewExtension } from './colorPreview';
-import { createSnippetSessionExtension } from './snippetEngine';
-import {
-  indentationConfig,
-  indentVisualization,
-} from './indentationPlugins';
+import { handleEditorToolbarShortcutKeydown } from './editorToolbarShortcuts';
+import { indentationConfig, indentVisualization } from './indentationPlugins';
+import { createLivePreviewPlugin } from './livePreview';
+import { MarkdownEditorContextMenu } from './MarkdownEditorContextMenu';
+import { handleFormattingShortcutKeydown } from './MarkdownEditorContextMenu';
+import { buildMarkdownEditorTheme, buildMarkdownHighlightStyle } from './markdownEditorTheme';
 import {
   buildMarkdownEditorReconfigureEffects,
   createMarkdownEditorCompartments,
   createMarkdownEditorState,
   createMarkdownWikiAutocompleteOverride,
 } from './markdownEditorViewConfig';
-import { createSlashCommandSource } from './slashCommands';
-import { buildMarkdownEditorTheme, buildMarkdownHighlightStyle } from './markdownEditorTheme';
-import { handleEditorDocumentLinkMouseDown, useMarkdownEditorIntegrations } from './useMarkdownEditorIntegrations';
-import { useMarkdownEditorHandle } from './useMarkdownEditorHandle';
-import type { MarkdownEditorViewState } from './useMarkdownEditorHandle';
-import { captureEditorViewState, restoreEditorViewState } from './useMarkdownEditorHandle';
-import { MarkdownEditorContextMenu } from './MarkdownEditorContextMenu';
-import {
-  handleFormattingShortcutKeydown,
-} from './MarkdownEditorContextMenu';
 import { openNonVaultMarkdownPreviewLink } from './markdownLinkOpen';
-import { getMarkdownImageTarget } from '../../lib/noteAssets';
 import {
-  MATH_SOLVER_ACTION_EVENT,
   handleMathBlockShortcutKeydown,
+  MATH_SOLVER_ACTION_EVENT,
   type MathSolverActionDetail,
 } from './mathBlockCommands';
 import { solveMathInput } from './mathSolver';
 import type { MathSolveMode } from './mathSolver';
-import { handleEditorToolbarShortcutKeydown } from './editorToolbarShortcuts';
+import { createSlashCommandSource } from './slashCommands';
+import { createSnippetSessionExtension } from './snippetEngine';
+import { useMarkdownEditorHandle } from './useMarkdownEditorHandle';
+import type { MarkdownEditorViewState } from './useMarkdownEditorHandle';
+import { captureEditorViewState, restoreEditorViewState } from './useMarkdownEditorHandle';
+import {
+  handleEditorDocumentLinkMouseDown,
+  useMarkdownEditorIntegrations,
+} from './useMarkdownEditorIntegrations';
 
 export interface MarkdownEditorHandle {
   /** Wrap selection with `before`/`after`; if no selection, insert `before + placeholder + after` and select placeholder. */
@@ -86,7 +84,17 @@ interface MarkdownEditorProps {
 
 type MathSolverActionState = MathSolverActionDetail;
 
-const IMAGE_DROP_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
+const IMAGE_DROP_EXTENSIONS = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'svg',
+  'bmp',
+  'ico',
+  'avif',
+]);
 
 function getFileExtension(path: string): string {
   const base = path.split(/[?#]/, 1)[0];
@@ -149,7 +157,10 @@ function getTableRangeAtCursor(view: EditorView) {
   while (startLine > 1 && isMarkdownTableLine(view.state.doc.line(startLine - 1).text)) {
     startLine -= 1;
   }
-  while (endLine < view.state.doc.lines && isMarkdownTableLine(view.state.doc.line(endLine + 1).text)) {
+  while (
+    endLine < view.state.doc.lines &&
+    isMarkdownTableLine(view.state.doc.line(endLine + 1).text)
+  ) {
     endLine += 1;
   }
 
@@ -182,8 +193,12 @@ function getMathBlockRangeAtCursor(view: EditorView) {
 
     const startLine = view.state.doc.line(startLineNumber);
     const endLine = view.state.doc.line(endLineNumber);
-    const textStart = startLineNumber < endLineNumber ? view.state.doc.line(startLineNumber + 1).from : startLine.to;
-    const textEnd = endLineNumber > startLineNumber ? view.state.doc.line(endLineNumber - 1).to : startLine.to;
+    const textStart =
+      startLineNumber < endLineNumber
+        ? view.state.doc.line(startLineNumber + 1).from
+        : startLine.to;
+    const textEnd =
+      endLineNumber > startLineNumber ? view.state.doc.line(endLineNumber - 1).to : startLine.to;
 
     return {
       from: startLine.from,
@@ -215,11 +230,10 @@ function getCodeBlockRangeAtCursor(view: EditorView): ParsedCodeBlockAtCursor | 
       continue;
     }
 
-    const isClosingFence = (
+    const isClosingFence =
       marker[0] === activeFence.marker[0] &&
       marker.length >= activeFence.marker.length &&
-      match[2].trim().length === 0
-    );
+      match[2].trim().length === 0;
 
     if (!isClosingFence) {
       activeFence = {
@@ -233,8 +247,12 @@ function getCodeBlockRangeAtCursor(view: EditorView): ParsedCodeBlockAtCursor | 
     if (currentLineNumber >= activeFence.lineNumber && currentLineNumber <= lineNumber) {
       const startLine = view.state.doc.line(activeFence.lineNumber);
       const endLine = view.state.doc.line(lineNumber);
-      const textStart = activeFence.lineNumber < lineNumber ? view.state.doc.line(activeFence.lineNumber + 1).from : startLine.to;
-      const textEnd = lineNumber > activeFence.lineNumber ? view.state.doc.line(lineNumber - 1).to : startLine.to;
+      const textStart =
+        activeFence.lineNumber < lineNumber
+          ? view.state.doc.line(activeFence.lineNumber + 1).from
+          : startLine.to;
+      const textEnd =
+        lineNumber > activeFence.lineNumber ? view.state.doc.line(lineNumber - 1).to : startLine.to;
 
       return {
         from: startLine.from,
@@ -257,7 +275,10 @@ function openToolbarAction(action: EditorToolbarAction) {
   };
 }
 
-function buildMathSolverInsertion(mode: MathSolveMode, result: NonNullable<ReturnType<typeof solveMathInput>>) {
+function buildMathSolverInsertion(
+  mode: MathSolveMode,
+  result: NonNullable<ReturnType<typeof solveMathInput>>,
+) {
   if (result.kind === 'equation') return `\n\\Rightarrow ${result.latex}`;
   return mode === 'approximate' ? ` \\approx ${result.latex}` : ` = ${result.latex}`;
 }
@@ -295,7 +316,11 @@ function MathSolverActionPopover({
       <div
         className="overflow-hidden rounded-lg border border-border/60 bg-popover/96 p-2 shadow-2xl ring-1 ring-foreground/10 backdrop-blur-sm-webkit"
         role="dialog"
-        aria-label={action.mode === 'approximate' ? 'Choose variable to approximate' : 'Choose variable to solve'}
+        aria-label={
+          action.mode === 'approximate'
+            ? 'Choose variable to approximate'
+            : 'Choose variable to solve'
+        }
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             event.preventDefault();
@@ -309,7 +334,9 @@ function MathSolverActionPopover({
           }
           if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
             event.preventDefault();
-            setActiveIndex((index) => (index - 1 + action.variables.length) % action.variables.length);
+            setActiveIndex(
+              (index) => (index - 1 + action.variables.length) % action.variables.length,
+            );
             return;
           }
           if (event.key === 'Home') {
@@ -371,7 +398,19 @@ function MathSolverActionPopover({
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
-  function MarkdownEditor({ content, onChange, onSave, relativePath, initialViewState = null, onViewStateChange, readOnly = false, collabExtension = null }, ref) {
+  function MarkdownEditor(
+    {
+      content,
+      onChange,
+      onSave,
+      relativePath,
+      initialViewState = null,
+      onViewStateChange,
+      readOnly = false,
+      collabExtension = null,
+    },
+    ref,
+  ) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
     const [editorView, setEditorView] = useState<EditorView | null>(null);
@@ -429,7 +468,12 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           themeExtension: buildMarkdownEditorTheme(isDark, fontFamily, editorFontSize),
           highlightExtension: syntaxHighlighting(buildMarkdownHighlightStyle(isDark)),
           indentationExtension: indentationConfig(indentStyle, tabWidth),
-          indentVisualExtension: indentVisualization(showIndentMarkers, showColoredIndents, indentStyle, tabWidth),
+          indentVisualExtension: indentVisualization(
+            showIndentMarkers,
+            showColoredIndents,
+            indentStyle,
+            tabWidth,
+          ),
           colorPreviewExtension: createColorPreviewExtension({
             enabled: showInlineColorPreviews,
             showSwatch: colorPreviewShowSwatch,
@@ -439,7 +483,19 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           contentAttrsExtension: [],
         }),
       });
-    }, [theme, fontFamily, editorFontSize, indentStyle, tabWidth, showIndentMarkers, showColoredIndents, showInlineColorPreviews, colorPreviewShowSwatch, colorPreviewTintText, colorPreviewFormats]);
+    }, [
+      theme,
+      fontFamily,
+      editorFontSize,
+      indentStyle,
+      tabWidth,
+      showIndentMarkers,
+      showColoredIndents,
+      showInlineColorPreviews,
+      colorPreviewShowSwatch,
+      colorPreviewTintText,
+      colorPreviewFormats,
+    ]);
 
     useMarkdownEditorHandle({
       ref,
@@ -459,9 +515,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         if (!(active instanceof Node) || !container.contains(active)) return;
 
         if (
-          handleEditorToolbarShortcutKeydown(event)
-          || handleMathBlockShortcutKeydown(event, view)
-          || handleFormattingShortcutKeydown(event, view)
+          handleEditorToolbarShortcutKeydown(event) ||
+          handleMathBlockShortcutKeydown(event, view) ||
+          handleFormattingShortcutKeydown(event, view)
         ) {
           event.stopPropagation();
         }
@@ -536,14 +592,22 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           return false;
         },
         keydown(event: KeyboardEvent, view: EditorView) {
-          return handleEditorToolbarShortcutKeydown(event)
-            || handleMathBlockShortcutKeydown(event, view)
-            || handleFormattingShortcutKeydown(event, view);
+          return (
+            handleEditorToolbarShortcutKeydown(event) ||
+            handleMathBlockShortcutKeydown(event, view) ||
+            handleFormattingShortcutKeydown(event, view)
+          );
         },
       });
 
       const saveKeymap = keymap.of([
-        { key: 'Mod-s', run: (view: EditorView) => { onSaveRef.current(view.state.doc.toString()); return true; } },
+        {
+          key: 'Mod-s',
+          run: (view: EditorView) => {
+            onSaveRef.current(view.state.doc.toString());
+            return true;
+          },
+        },
         { key: 'Mod-Alt-s', run: openToolbarAction('icon') },
         { key: 'Mod-Alt-t', run: openToolbarAction('table') },
         { key: 'Mod-Alt-l', run: openToolbarAction('link') },
@@ -596,7 +660,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         linkClickHandler,
         saveKeymap,
         updateListener,
-        livePreviewExtension: [createLivePreviewPlugin(relativePath), createSnippetSessionExtension()],
+        livePreviewExtension: [
+          createLivePreviewPlugin(relativePath),
+          createSnippetSessionExtension(),
+        ],
         readOnly,
         extraExtensions: collabExtension ?? [],
       });
@@ -696,5 +763,5 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         />
       </>
     );
-  }
+  },
 );

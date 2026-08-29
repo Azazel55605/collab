@@ -1,8 +1,9 @@
 import { useState } from 'react';
+
 import { LockKeyhole, Trash2 } from 'lucide-react';
 
-import type { SheetProtectedRange, SheetWorksheet } from '../../types/sheet';
 import { protectedRangeLabel } from '../../lib/sheet/protectedRanges';
+import type { SheetProtectedRange, SheetWorksheet } from '../../types/sheet';
 import { Button } from '../ui/button';
 import {
   Dialog,
@@ -67,7 +68,10 @@ export default function SheetProtectionDialog({
           {ranges.length > 0 && (
             <div className="max-h-52 space-y-1 overflow-y-auto border-t border-border/60 pt-3">
               {ranges.map((range: SheetProtectedRange) => (
-                <div key={range.id} className="flex items-center gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-xs">
+                <div
+                  key={range.id}
+                  className="flex items-center gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-xs"
+                >
                   <span className="min-w-0 flex-1 truncate">
                     {range.name ?? protectedRangeLabel(worksheet, range)}
                   </span>

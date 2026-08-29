@@ -12,13 +12,7 @@
  * entry belongs with the number-format work in Phase 4, where the app's
  * date/time settings are already in play.
  */
-
-import type {
-  SheetCell,
-  SheetNumberFormat,
-  SheetStyle,
-  SheetValueType,
-} from '../../types/sheet';
+import type { SheetCell, SheetNumberFormat, SheetStyle, SheetValueType } from '../../types/sheet';
 import type { SheetFormulaComputedValue } from '../../types/sheetFormula';
 
 const BOOLEAN_TRUE = /^true$/i;
@@ -33,9 +27,9 @@ const PERCENT = /^([+-]?\d*\.?\d+)\s*%$/;
 function isValidDate(year: number, month: number, day: number): boolean {
   if (month < 1 || month > 12 || day < 1 || day > 31) return false;
   const date = new Date(Date.UTC(year, month - 1, day));
-  return date.getUTCFullYear() === year
-    && date.getUTCMonth() === month - 1
-    && date.getUTCDate() === day;
+  return (
+    date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+  );
 }
 
 function isValidTime(hour: number, minute: number, second: number): boolean {
@@ -120,8 +114,9 @@ function formatDateValue(value: string, format: SheetDisplayFormatOptions['dateF
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
   if (!match || !format) return value;
   const [, year, month, day] = match;
-  const monthName = new Intl.DateTimeFormat(undefined, { month: 'short', timeZone: 'UTC' })
-    .format(new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))));
+  const monthName = new Intl.DateTimeFormat(undefined, { month: 'short', timeZone: 'UTC' }).format(
+    new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))),
+  );
   if (format === 'MMM_D_YYYY') return `${monthName} ${Number(day)}, ${year}`;
   if (format === 'D_MMM_YYYY') return `${Number(day)} ${monthName} ${year}`;
   if (format === 'MM_DD_YYYY') return `${month}/${day}/${year}`;
@@ -136,9 +131,10 @@ function formatTimeValue(value: string, options: SheetDisplayFormatOptions): str
   return new Intl.DateTimeFormat(options.locale, {
     hour: '2-digit',
     minute: '2-digit',
-    hour12: options.timeFormat === 'system' || !options.timeFormat
-      ? undefined
-      : options.timeFormat === '12-hour',
+    hour12:
+      options.timeFormat === 'system' || !options.timeFormat
+        ? undefined
+        : options.timeFormat === '12-hour',
   }).format(date);
 }
 
@@ -195,7 +191,8 @@ export function formatComputedValue(
   options: SheetDisplayFormatOptions = {},
 ): string {
   if (!value || value.type === 'blank') return '';
-  if (value.type === 'number') return formatNumberWithStyle(value.value, style?.numberFormat, options);
+  if (value.type === 'number')
+    return formatNumberWithStyle(value.value, style?.numberFormat, options);
   if (value.type === 'boolean') return value.value ? 'TRUE' : 'FALSE';
   return value.value;
 }
@@ -277,9 +274,7 @@ export function numericValueOf(
 ): number | null {
   if (!cell) return null;
   if (cell.formula) {
-    return computed?.type === 'number' && Number.isFinite(computed.value)
-      ? computed.value
-      : null;
+    return computed?.type === 'number' && Number.isFinite(computed.value) ? computed.value : null;
   }
   if (typeof cell.value === 'number' && Number.isFinite(cell.value)) return cell.value;
   return null;

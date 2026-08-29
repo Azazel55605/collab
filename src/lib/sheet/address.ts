@@ -6,7 +6,6 @@
  * `columnOrder` are truth, and A1 is derived. That is what lets a row insert
  * shift every downstream reference without rewriting unrelated cells.
  */
-
 import type {
   SheetCellKey,
   SheetColumnId,
@@ -156,8 +155,14 @@ export class SheetAddressIndex {
     const start = this.positionOf(range.startRowId, range.startColumnId);
     const end = this.positionOf(range.endRowId, range.endColumnId);
     if (!start || !end) return null;
-    const topLeft = { row: Math.min(start.row, end.row), column: Math.min(start.column, end.column) };
-    const bottomRight = { row: Math.max(start.row, end.row), column: Math.max(start.column, end.column) };
+    const topLeft = {
+      row: Math.min(start.row, end.row),
+      column: Math.min(start.column, end.column),
+    };
+    const bottomRight = {
+      row: Math.max(start.row, end.row),
+      column: Math.max(start.column, end.column),
+    };
     return `${formatA1(topLeft)}:${formatA1(bottomRight)}`;
   }
 }

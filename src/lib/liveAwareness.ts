@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
+
 import type { Awareness } from 'y-protocols/awareness';
-import type { LiveDocumentHandle } from './liveDocumentSession';
+
 import type { InkBrushParameters, InkSample } from '../types/ink';
+
+import type { LiveDocumentHandle } from './liveDocumentSession';
 
 /**
  * Shared consumption side of the Phase 5 ephemeral awareness relay.

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+
 import katex from 'katex';
 import {
   Braces,
@@ -11,6 +12,7 @@ import {
   SquareRadical,
   Superscript,
 } from 'lucide-react';
+
 import { Button } from '../ui/button';
 import {
   Dialog,
@@ -306,7 +308,9 @@ function parseExactOperator(source: string) {
 }
 
 function parseExactBracketed(source: string) {
-  const match = source.trim().match(/^\\left(\(|\[|\\\{|\\langle|\|)(.+)\\right(\)|\]|\\\}|\\rangle|\|)$/s);
+  const match = source
+    .trim()
+    .match(/^\\left(\(|\[|\\\{|\\langle|\|)(.+)\\right(\)|\]|\\\}|\\rangle|\|)$/s);
   if (!match) return null;
   const left = match[1] as BracketSide;
   return {
@@ -317,7 +321,9 @@ function parseExactBracketed(source: string) {
 }
 
 function parseExactMatrix(source: string) {
-  const match = source.trim().match(/^\\begin\{(bmatrix|pmatrix|vmatrix|Bmatrix)\}([\s\S]*)\\end\{\1\}$/);
+  const match = source
+    .trim()
+    .match(/^\\begin\{(bmatrix|pmatrix|vmatrix|Bmatrix)\}([\s\S]*)\\end\{\1\}$/);
   if (!match) return null;
   const rows = match[2]
     .split(/\\\\/)
@@ -460,7 +466,9 @@ export function MathBlockEditorDialog({
   onApply,
 }: MathBlockEditorDialogProps) {
   const [source, setSource] = useState(initialSource);
-  const [drafts, setDrafts] = useState<ParsedMathDrafts>(() => parseSourceIntoDrafts(initialSource));
+  const [drafts, setDrafts] = useState<ParsedMathDrafts>(() =>
+    parseSourceIntoDrafts(initialSource),
+  );
   const sourceRef = useRef<HTMLTextAreaElement | null>(null);
   const pendingSelectionRef = useRef<{ start: number; end: number } | null>(null);
 
@@ -544,11 +552,11 @@ export function MathBlockEditorDialog({
   const updateMatrixCell = (rowIndex: number, colIndex: number, value: string) => {
     updateDraft('matrix', {
       ...drafts.matrix,
-      rows: drafts.matrix.rows.map((row, currentRowIndex) => (
+      rows: drafts.matrix.rows.map((row, currentRowIndex) =>
         currentRowIndex !== rowIndex
           ? row
-          : row.map((cell, currentColIndex) => (currentColIndex === colIndex ? value : cell))
-      )),
+          : row.map((cell, currentColIndex) => (currentColIndex === colIndex ? value : cell)),
+      ),
     });
   };
 
@@ -593,7 +601,8 @@ export function MathBlockEditorDialog({
             {mode === 'edit' ? 'Edit math block' : 'Insert math block'}
           </DialogTitle>
           <DialogDescription>
-            Build LaTeX with visual helpers, symbols, and live preview, then insert the generated block into the note.
+            Build LaTeX with visual helpers, symbols, and live preview, then insert the generated
+            block into the note.
           </DialogDescription>
         </DialogHeader>
 
@@ -620,7 +629,9 @@ export function MathBlockEditorDialog({
                           <span className="text-xs text-muted-foreground">Base</span>
                           <Input
                             value={drafts.script.base}
-                            onChange={(event) => updateDraft('script', { ...drafts.script, base: event.target.value })}
+                            onChange={(event) =>
+                              updateDraft('script', { ...drafts.script, base: event.target.value })
+                            }
                             placeholder="x"
                           />
                         </label>
@@ -628,7 +639,12 @@ export function MathBlockEditorDialog({
                           <span className="text-xs text-muted-foreground">Superscript</span>
                           <Input
                             value={drafts.script.superscript}
-                            onChange={(event) => updateDraft('script', { ...drafts.script, superscript: event.target.value })}
+                            onChange={(event) =>
+                              updateDraft('script', {
+                                ...drafts.script,
+                                superscript: event.target.value,
+                              })
+                            }
                             placeholder="2"
                           />
                         </label>
@@ -636,7 +652,12 @@ export function MathBlockEditorDialog({
                           <span className="text-xs text-muted-foreground">Subscript</span>
                           <Input
                             value={drafts.script.subscript}
-                            onChange={(event) => updateDraft('script', { ...drafts.script, subscript: event.target.value })}
+                            onChange={(event) =>
+                              updateDraft('script', {
+                                ...drafts.script,
+                                subscript: event.target.value,
+                              })
+                            }
                             placeholder="i"
                           />
                         </label>
@@ -661,7 +682,12 @@ export function MathBlockEditorDialog({
                           <span className="text-xs text-muted-foreground">Numerator</span>
                           <Input
                             value={drafts.fraction.numerator}
-                            onChange={(event) => updateDraft('fraction', { ...drafts.fraction, numerator: event.target.value })}
+                            onChange={(event) =>
+                              updateDraft('fraction', {
+                                ...drafts.fraction,
+                                numerator: event.target.value,
+                              })
+                            }
                             placeholder="a+b"
                           />
                         </label>
@@ -669,7 +695,12 @@ export function MathBlockEditorDialog({
                           <span className="text-xs text-muted-foreground">Denominator</span>
                           <Input
                             value={drafts.fraction.denominator}
-                            onChange={(event) => updateDraft('fraction', { ...drafts.fraction, denominator: event.target.value })}
+                            onChange={(event) =>
+                              updateDraft('fraction', {
+                                ...drafts.fraction,
+                                denominator: event.target.value,
+                              })
+                            }
                             placeholder="c+d"
                           />
                         </label>
@@ -694,7 +725,9 @@ export function MathBlockEditorDialog({
                           <span className="text-xs text-muted-foreground">Degree</span>
                           <Input
                             value={drafts.root.degree}
-                            onChange={(event) => updateDraft('root', { ...drafts.root, degree: event.target.value })}
+                            onChange={(event) =>
+                              updateDraft('root', { ...drafts.root, degree: event.target.value })
+                            }
                             placeholder="3"
                           />
                         </label>
@@ -702,7 +735,9 @@ export function MathBlockEditorDialog({
                           <span className="text-xs text-muted-foreground">Radicand</span>
                           <Input
                             value={drafts.root.radicand}
-                            onChange={(event) => updateDraft('root', { ...drafts.root, radicand: event.target.value })}
+                            onChange={(event) =>
+                              updateDraft('root', { ...drafts.root, radicand: event.target.value })
+                            }
                             placeholder="x+1"
                           />
                         </label>
@@ -727,7 +762,12 @@ export function MathBlockEditorDialog({
                           <span className="text-xs text-muted-foreground">Operator</span>
                           <Select
                             value={drafts.operator.kind}
-                            onValueChange={(value) => updateDraft('operator', { ...drafts.operator, kind: value as OperatorKind })}
+                            onValueChange={(value) =>
+                              updateDraft('operator', {
+                                ...drafts.operator,
+                                kind: value as OperatorKind,
+                              })
+                            }
                           >
                             <SelectTrigger className="w-full">
                               <SelectValue />
@@ -742,7 +782,12 @@ export function MathBlockEditorDialog({
                           <span className="text-xs text-muted-foreground">Index</span>
                           <Input
                             value={drafts.operator.index}
-                            onChange={(event) => updateDraft('operator', { ...drafts.operator, index: event.target.value })}
+                            onChange={(event) =>
+                              updateDraft('operator', {
+                                ...drafts.operator,
+                                index: event.target.value,
+                              })
+                            }
                             placeholder="i"
                           />
                         </label>
@@ -750,7 +795,12 @@ export function MathBlockEditorDialog({
                           <span className="text-xs text-muted-foreground">From</span>
                           <Input
                             value={drafts.operator.lower}
-                            onChange={(event) => updateDraft('operator', { ...drafts.operator, lower: event.target.value })}
+                            onChange={(event) =>
+                              updateDraft('operator', {
+                                ...drafts.operator,
+                                lower: event.target.value,
+                              })
+                            }
                             placeholder="1"
                           />
                         </label>
@@ -758,7 +808,12 @@ export function MathBlockEditorDialog({
                           <span className="text-xs text-muted-foreground">To</span>
                           <Input
                             value={drafts.operator.upper}
-                            onChange={(event) => updateDraft('operator', { ...drafts.operator, upper: event.target.value })}
+                            onChange={(event) =>
+                              updateDraft('operator', {
+                                ...drafts.operator,
+                                upper: event.target.value,
+                              })
+                            }
                             placeholder="n"
                           />
                         </label>
@@ -767,7 +822,12 @@ export function MathBlockEditorDialog({
                         <span className="text-xs text-muted-foreground">Body</span>
                         <Input
                           value={drafts.operator.body}
-                          onChange={(event) => updateDraft('operator', { ...drafts.operator, body: event.target.value })}
+                          onChange={(event) =>
+                            updateDraft('operator', {
+                              ...drafts.operator,
+                              body: event.target.value,
+                            })
+                          }
                           placeholder="a_i"
                         />
                       </label>
@@ -791,7 +851,12 @@ export function MathBlockEditorDialog({
                           <span className="text-xs text-muted-foreground">Left</span>
                           <Select
                             value={drafts.bracket.left}
-                            onValueChange={(value) => updateDraft('bracket', { ...drafts.bracket, left: value as BracketSide })}
+                            onValueChange={(value) =>
+                              updateDraft('bracket', {
+                                ...drafts.bracket,
+                                left: value as BracketSide,
+                              })
+                            }
                           >
                             <SelectTrigger className="w-full">
                               <SelectValue />
@@ -809,7 +874,12 @@ export function MathBlockEditorDialog({
                           <span className="text-xs text-muted-foreground">Right</span>
                           <Select
                             value={drafts.bracket.right}
-                            onValueChange={(value) => updateDraft('bracket', { ...drafts.bracket, right: value as RightBracketSide })}
+                            onValueChange={(value) =>
+                              updateDraft('bracket', {
+                                ...drafts.bracket,
+                                right: value as RightBracketSide,
+                              })
+                            }
                           >
                             <SelectTrigger className="w-full">
                               <SelectValue />
@@ -828,7 +898,12 @@ export function MathBlockEditorDialog({
                         <span className="text-xs text-muted-foreground">Content</span>
                         <Input
                           value={drafts.bracket.content}
-                          onChange={(event) => updateDraft('bracket', { ...drafts.bracket, content: event.target.value })}
+                          onChange={(event) =>
+                            updateDraft('bracket', {
+                              ...drafts.bracket,
+                              content: event.target.value,
+                            })
+                          }
                           placeholder="x+1"
                         />
                       </label>
@@ -850,7 +925,12 @@ export function MathBlockEditorDialog({
                       <div className="flex flex-wrap items-center gap-2">
                         <Select
                           value={drafts.matrix.environment}
-                          onValueChange={(value) => updateDraft('matrix', { ...drafts.matrix, environment: value as MatrixEnvironment })}
+                          onValueChange={(value) =>
+                            updateDraft('matrix', {
+                              ...drafts.matrix,
+                              environment: value as MatrixEnvironment,
+                            })
+                          }
                         >
                           <SelectTrigger className="w-[160px]">
                             <SelectValue />
@@ -866,7 +946,13 @@ export function MathBlockEditorDialog({
                           <Plus size={13} />
                           Column
                         </Button>
-                        <Button type="button" variant="outline" size="sm" onClick={removeMatrixColumn} disabled={matrixCols <= 1}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={removeMatrixColumn}
+                          disabled={matrixCols <= 1}
+                        >
                           <Minus size={13} />
                           Column
                         </Button>
@@ -874,24 +960,34 @@ export function MathBlockEditorDialog({
                           <Plus size={13} />
                           Row
                         </Button>
-                        <Button type="button" variant="outline" size="sm" onClick={removeMatrixRow} disabled={matrixRows <= 1}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={removeMatrixRow}
+                          disabled={matrixRows <= 1}
+                        >
                           <Minus size={13} />
                           Row
                         </Button>
                       </div>
                       <div
                         className="grid gap-2"
-                        style={{ gridTemplateColumns: `repeat(${Math.max(matrixCols, 1)}, minmax(0, 1fr))` }}
+                        style={{
+                          gridTemplateColumns: `repeat(${Math.max(matrixCols, 1)}, minmax(0, 1fr))`,
+                        }}
                       >
                         {drafts.matrix.rows.reduce<React.ReactNode[]>((cells, row, rowIndex) => {
                           row.forEach((cell, colIndex) => {
                             cells.push(
-                            <Input
-                              key={`matrix-${rowIndex}-${colIndex}`}
-                              value={cell}
-                              onChange={(event) => updateMatrixCell(rowIndex, colIndex, event.target.value)}
-                              placeholder={`${rowIndex + 1},${colIndex + 1}`}
-                            />
+                              <Input
+                                key={`matrix-${rowIndex}-${colIndex}`}
+                                value={cell}
+                                onChange={(event) =>
+                                  updateMatrixCell(rowIndex, colIndex, event.target.value)
+                                }
+                                placeholder={`${rowIndex + 1},${colIndex + 1}`}
+                              />,
                             );
                           });
                           return cells;
@@ -915,11 +1011,23 @@ export function MathBlockEditorDialog({
                   <div className="space-y-5 px-5 py-4">
                     <SymbolGrid title="Greek" items={GREEK_SYMBOLS} onInsert={insertSnippet} />
                     <Separator />
-                    <SymbolGrid title="Relations" items={RELATION_SYMBOLS} onInsert={insertSnippet} />
+                    <SymbolGrid
+                      title="Relations"
+                      items={RELATION_SYMBOLS}
+                      onInsert={insertSnippet}
+                    />
                     <Separator />
-                    <SymbolGrid title="Operators" items={OPERATOR_SYMBOLS} onInsert={insertSnippet} />
+                    <SymbolGrid
+                      title="Operators"
+                      items={OPERATOR_SYMBOLS}
+                      onInsert={insertSnippet}
+                    />
                     <Separator />
-                    <SymbolGrid title="Functions" items={FUNCTION_SYMBOLS} onInsert={insertSnippet} />
+                    <SymbolGrid
+                      title="Functions"
+                      items={FUNCTION_SYMBOLS}
+                      onInsert={insertSnippet}
+                    />
                   </div>
                 </ScrollArea>
               </TabsContent>
@@ -929,19 +1037,45 @@ export function MathBlockEditorDialog({
           <div className="flex min-h-0 flex-col">
             <div className="border-b border-border/30 px-5 py-3">
               <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => insertSnippet('\\frac{<selection>}{<cursor>}')}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => insertSnippet('\\frac{<selection>}{<cursor>}')}
+                >
                   Fraction from selection
                 </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => insertSnippet('^{<cursor>}')}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => insertSnippet('^{<cursor>}')}
+                >
                   Superscript
                 </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => insertSnippet('_{<cursor>}')}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => insertSnippet('_{<cursor>}')}
+                >
                   Subscript
                 </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => insertSnippet('\\sqrt{<selection>}<cursor>')}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => insertSnippet('\\sqrt{<selection>}<cursor>')}
+                >
                   Root from selection
                 </Button>
-                <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={syncDraftsFromSource}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto"
+                  onClick={syncDraftsFromSource}
+                >
                   Refresh builders from source
                 </Button>
               </div>
@@ -952,7 +1086,9 @@ export function MathBlockEditorDialog({
                 <div className="flex items-center justify-between border-b border-border/30 px-5 py-3">
                   <div>
                     <div className="text-sm font-medium">Preview</div>
-                    <div className="text-xs text-muted-foreground">KaTeX rendering of the current block source.</div>
+                    <div className="text-xs text-muted-foreground">
+                      KaTeX rendering of the current block source.
+                    </div>
                   </div>
                 </div>
                 <ScrollArea className="h-[32vh] xl:h-full">
@@ -981,11 +1117,11 @@ export function MathBlockEditorDialog({
                 <div className="flex items-center justify-between border-b border-border/30 px-5 py-3">
                   <div>
                     <div className="text-sm font-medium">LaTeX source</div>
-                    <div className="text-xs text-muted-foreground">Unsupported syntax can always be edited directly here.</div>
+                    <div className="text-xs text-muted-foreground">
+                      Unsupported syntax can always be edited directly here.
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    {source.trim().length} chars
-                  </div>
+                  <div className="text-xs text-muted-foreground">{source.trim().length} chars</div>
                 </div>
                 <div className="flex-1 px-5 py-4">
                   <Textarea

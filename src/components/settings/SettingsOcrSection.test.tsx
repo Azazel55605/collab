@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { tauriCommands, type OcrLanguagePack } from '../../lib/tauri';
+import { type OcrLanguagePack, tauriCommands } from '../../lib/tauri';
+
 import SettingsOcrSection from './SettingsOcrSection';
 
 vi.mock('sonner', () => ({

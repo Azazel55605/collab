@@ -10,6 +10,7 @@ import type {
   NotificationEnvelope,
   NotificationKind,
 } from '../types/notification';
+
 import { expandRecurringItem } from './calendarRecurrence';
 import {
   createNotificationId,
@@ -48,9 +49,8 @@ function itemStart(item: CalendarItem): CalendarTimeValue | undefined {
 }
 
 function reminderFireAt(start: CalendarTimeValue, minutesBefore: number): string {
-  const instant = start.kind === 'date'
-    ? new Date(`${start.date}T09:00:00`)
-    : new Date(start.dateTime);
+  const instant =
+    start.kind === 'date' ? new Date(`${start.date}T09:00:00`) : new Date(start.dateTime);
   return new Date(instant.getTime() - minutesBefore * 60_000).toISOString();
 }
 
@@ -60,7 +60,9 @@ function reminderKind(itemKind: CalendarReminderScheduleEntry['itemKind']): Noti
   return 'calendar.event-reminder';
 }
 
-function reminderActions(itemKind: CalendarReminderScheduleEntry['itemKind']): NotificationAction[] {
+function reminderActions(
+  itemKind: CalendarReminderScheduleEntry['itemKind'],
+): NotificationAction[] {
   const actions: NotificationAction[] = [
     { kind: 'open' },
     { kind: 'dismiss' },
@@ -75,9 +77,7 @@ export function reminderEnvelope(
   createdAt = new Date().toISOString(),
 ): NotificationEnvelope {
   const kind = reminderKind(entry.itemKind);
-  const occurrenceKey = entry.recurrenceId
-    ? calendarTimeValueKey(entry.recurrenceId)
-    : undefined;
+  const occurrenceKey = entry.recurrenceId ? calendarTimeValueKey(entry.recurrenceId) : undefined;
   const envelope: NotificationEnvelope = {
     schemaVersion: 1,
     id: createNotificationId({
@@ -113,18 +113,17 @@ export function reminderEnvelope(
   return validateNotificationEnvelope(envelope);
 }
 
-export function expandReminderHorizon(
-  items: CalendarItem[],
-  now = Date.now(),
-): CalendarItem[] {
+export function expandReminderHorizon(items: CalendarItem[], now = Date.now()): CalendarItem[] {
   const from = now - 24 * 60 * 60_000;
   const to = now + REMINDER_HORIZON_DAYS * 24 * 60 * 60_000;
-  const exceptions = new Map(items
-    .filter((item) => item.recurrenceId && item.recurrenceSeriesId)
-    .map((item) => [
-      `${item.recurrenceSeriesId}:${calendarTimeValueKey(item.recurrenceId!)}`,
-      item,
-    ]));
+  const exceptions = new Map(
+    items
+      .filter((item) => item.recurrenceId && item.recurrenceSeriesId)
+      .map((item) => [
+        `${item.recurrenceSeriesId}:${calendarTimeValueKey(item.recurrenceId!)}`,
+        item,
+      ]),
+  );
   const expanded: CalendarItem[] = [];
   for (const item of items) {
     if (expanded.length >= MAX_REMINDER_OCCURRENCES) break;
@@ -173,25 +172,24 @@ export function calendarReminderEntries(items: CalendarItem[]): CalendarReminder
     const start = itemStart(item);
     if (!start || item.deletedAt) return [];
     return item.reminders.flatMap((reminder, index) => {
-      const fireAt = reminder.kind === 'absolute'
-        ? reminder.at
-        : reminderFireAt(start, reminder.minutesBefore);
+      const fireAt =
+        reminder.kind === 'absolute' ? reminder.at : reminderFireAt(start, reminder.minutesBefore);
       if (!Number.isFinite(Date.parse(fireAt))) return [];
       const itemId = item.recurrenceSeriesId ?? item.id;
-      const occurrence = item.recurrenceId
-        ? `:${calendarTimeValueKey(item.recurrenceId)}`
-        : '';
-      return [{
-        scheduleId: `${itemId}${occurrence}:${index}:${fireAt}`,
-        profileId: '',
-        calendarId: item.calendarId,
-        itemId,
-        itemKind: item.kind,
-        recurrenceId: item.recurrenceId,
-        fireAt,
-        title: item.title,
-        body: item.description,
-      }];
+      const occurrence = item.recurrenceId ? `:${calendarTimeValueKey(item.recurrenceId)}` : '';
+      return [
+        {
+          scheduleId: `${itemId}${occurrence}:${index}:${fireAt}`,
+          profileId: '',
+          calendarId: item.calendarId,
+          itemId,
+          itemKind: item.kind,
+          recurrenceId: item.recurrenceId,
+          fireAt,
+          title: item.title,
+          body: item.description,
+        },
+      ];
     });
   });
 }
@@ -201,8 +199,10 @@ export async function reconcileCalendarReminders(
   profileId: string,
   items: CalendarItem[],
 ): Promise<void> {
-  const entries = calendarReminderEntries(expandReminderHorizon(items))
-    .map((entry) => ({ ...entry, profileId }));
+  const entries = calendarReminderEntries(expandReminderHorizon(items)).map((entry) => ({
+    ...entry,
+    profileId,
+  }));
   await scheduler.reconcileProfile(profileId, entries);
 }
 

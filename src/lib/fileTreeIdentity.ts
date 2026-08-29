@@ -54,11 +54,11 @@ function reconcileNode(previous: NoteFile | undefined, next: NoteFile): NoteFile
 
 function sameNodeFields(left: NoteFile, right: NoteFile): boolean {
   return (
-    left.relativePath === right.relativePath
-    && left.name === right.name
-    && left.extension === right.extension
-    && left.modifiedAt === right.modifiedAt
-    && left.size === right.size
-    && left.isFolder === right.isFolder
+    left.relativePath === right.relativePath &&
+    left.name === right.name &&
+    left.extension === right.extension &&
+    left.modifiedAt === right.modifiedAt &&
+    left.size === right.size &&
+    left.isFolder === right.isFolder
   );
 }

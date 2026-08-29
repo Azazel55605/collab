@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { HostedVault, ReplicaSummary } from '../mobileTauri';
+
+import { useMobileStore } from './store';
+
 const invoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
-
-import type { HostedVault, ReplicaSummary } from '../mobileTauri';
-import { useMobileStore } from './store';
 
 const SERVER = 'https://collab.example.com';
 
@@ -78,15 +79,15 @@ function resetStore() {
     backgroundJobs: [],
     offlineBusy: {},
     offlineProgress: {},
-      offlineError: null,
-      calendarSyncing: false,
-      calendarSyncProgress: {},
-      calendarSyncResults: [],
-      calendarConflicts: [],
-      calendarMirrorConflicts: [],
-      calendarMirrorStatuses: [],
-      calendarMirrorProgress: {},
-      calendarCacheOrigins: [],
+    offlineError: null,
+    calendarSyncing: false,
+    calendarSyncProgress: {},
+    calendarSyncResults: [],
+    calendarConflicts: [],
+    calendarMirrorConflicts: [],
+    calendarMirrorStatuses: [],
+    calendarMirrorProgress: {},
+    calendarCacheOrigins: [],
     tab: 'servers',
     folderTrail: [{ id: null, name: 'Root' }],
     activeSheet: null,
@@ -111,7 +112,12 @@ describe('offline replica store actions', () => {
         case 'hosted_vault_asset_data_url':
           return Promise.resolve('data:image/png;base64,QUJD');
         case 'replica_cached_content_status':
-          return Promise.resolve({ present: false, matchesExpectedHash: false, actualSha256: null, sizeBytes: null });
+          return Promise.resolve({
+            present: false,
+            matchesExpectedHash: false,
+            actualSha256: null,
+            sizeBytes: null,
+          });
         case 'replica_read_sync_state':
           return Promise.resolve({ manifestSequence: 5, lastSyncedAt: null, status: 'idle' });
         case 'replica_list':
@@ -172,7 +178,12 @@ describe('offline replica store actions', () => {
     invoke.mockImplementation((command: string) => {
       if (command === 'replica_read_manifest') return Promise.resolve(MANIFEST);
       if (command === 'replica_cached_content_status') {
-        return Promise.resolve({ present: true, matchesExpectedHash: true, actualSha256: 'x', sizeBytes: 5 });
+        return Promise.resolve({
+          present: true,
+          matchesExpectedHash: true,
+          actualSha256: 'x',
+          sizeBytes: 5,
+        });
       }
       return Promise.reject(new Error(`unhandled ${command}`));
     });
@@ -447,7 +458,9 @@ describe('offline replica store actions', () => {
 
     await useMobileStore.getState().loadVaults(SERVER);
 
-    expect(useMobileStore.getState().vaults[SERVER]).toEqual([{ ...vault, requireOfflineCopy: false }]);
+    expect(useMobileStore.getState().vaults[SERVER]).toEqual([
+      { ...vault, requireOfflineCopy: false },
+    ]);
     expect(invoke).toHaveBeenCalledWith(
       'hosted_vault_request',
       expect.objectContaining({ path: '/api/v1/vaults/v2/manifest' }),
@@ -462,7 +475,10 @@ describe('offline replica store actions', () => {
     // 1. An open sheet is dismissed first.
     useMobileStore.setState({
       tab: 'files',
-      folderTrail: [{ id: null, name: 'Root' }, { id: 'a', name: 'A' }],
+      folderTrail: [
+        { id: null, name: 'Root' },
+        { id: 'a', name: 'A' },
+      ],
       activeSheet: { kind: 'fileDetail', fileId: 'doc-1' },
     });
     expect(store().goBack()).toBe(true);
@@ -503,7 +519,10 @@ describe('offline replica store actions', () => {
   it('selectVault opens the vault at its root on the Files tab', async () => {
     useMobileStore.setState({
       statuses: {},
-      folderTrail: [{ id: null, name: 'Root' }, { id: 'stale', name: 'Stale' }],
+      folderTrail: [
+        { id: null, name: 'Root' },
+        { id: 'stale', name: 'Stale' },
+      ],
     });
     invoke.mockImplementation((command: string) => {
       if (command === 'replica_read_manifest') return Promise.resolve(null);
@@ -553,31 +572,42 @@ describe('offline replica store actions', () => {
     });
 
     it('opens a shortcut target in its folder context', async () => {
-      const result = await useMobileStore.getState()
+      const result = await useMobileStore
+        .getState()
         .openVaultTarget('v1', 'board-1', { cardId: 'card-1' });
       expect(result).toBe('opened');
       expect(useMobileStore.getState().tab).toBe('files');
-      expect(useMobileStore.getState().activeSheet)
-        .toEqual({ kind: 'kanban', fileId: 'board-1', cardId: 'card-1' });
+      expect(useMobileStore.getState().activeSheet).toEqual({
+        kind: 'kanban',
+        fileId: 'board-1',
+        cardId: 'card-1',
+      });
       // The trail is rebuilt by walking parents so the board opens in context.
-      expect(useMobileStore.getState().folderTrail.map((crumb) => crumb.id))
-        .toEqual([null, 'folder-1']);
+      expect(useMobileStore.getState().folderTrail.map((crumb) => crumb.id)).toEqual([
+        null,
+        'folder-1',
+      ]);
     });
 
     it('enters a pinned folder without opening a document', async () => {
-      const result = await useMobileStore.getState()
+      const result = await useMobileStore
+        .getState()
         .openVaultTarget('v1', 'folder-1', { expectFolder: true });
       expect(result).toBe('opened');
       expect(useMobileStore.getState().activeSheet).toBeNull();
-      expect(useMobileStore.getState().folderTrail.map((crumb) => crumb.id))
-        .toEqual([null, 'folder-1']);
+      expect(useMobileStore.getState().folderTrail.map((crumb) => crumb.id)).toEqual([
+        null,
+        'folder-1',
+      ]);
     });
 
     it('reports unavailable vaults and files instead of opening a dead screen', async () => {
-      expect(await useMobileStore.getState().openVaultTarget('missing', 'board-1'))
-        .toBe('vault-unavailable');
-      expect(await useMobileStore.getState().openVaultTarget('v1', 'trashed-file'))
-        .toBe('file-unavailable');
+      expect(await useMobileStore.getState().openVaultTarget('missing', 'board-1')).toBe(
+        'vault-unavailable',
+      );
+      expect(await useMobileStore.getState().openVaultTarget('v1', 'trashed-file')).toBe(
+        'file-unavailable',
+      );
       expect(useMobileStore.getState().activeSheet).toBeNull();
     });
   });

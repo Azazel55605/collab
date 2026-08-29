@@ -274,19 +274,19 @@ It must remain ephemeral and must not be written into the workbook.
 
 ## Progress Tracker
 
-| Phase | Status | Goal |
-| --- | --- | --- |
-| 0. Product contract and technical proof | Complete | Finalize schema, select the formula/grid engines, and prove large-grid editing plus recalculation. |
-| 1. `.sheet` domain and vault integration | Complete | Add parsing, validation, migrations, creation, routing, revisions, and local/hosted document support. |
-| 2. Desktop spreadsheet editor | Complete | Deliver the virtualized grid, worksheet controls, selection, editing, navigation, and structural operations. |
-| 3. Formulas and recalculation | Complete | Native incremental evaluation, formula UX, reference rewrites, stable errors, inspection, volatile-time policy, and fixtures are implemented. |
-| 4. Formatting and spreadsheet interactions | Testing | Formatting, clipboard variants, fill/series behavior, bounded undo/redo, search/replace, notes, and range print/export are implemented. |
-| 5. Tables and data tools | Testing | Tables, filtering, validation, conditional formatting, named ranges, editor protection, summaries, cleanup tools, and combined interaction matrices are implemented. |
-| 6. Hosted collaboration and offline behavior | Complete | Structured live sessions, stable-ID presence and merging, offline queues, conflict handling, and revision-safe recovery are implemented; physical two-client validation remains. |
-| 7. Charts, analysis, and Collab integration | Testing | Stable-range charts, bounded summaries, vault references, source-linked note embeds, and explicit Kanban/calendar snapshots are implemented. |
-| 8. Mobile sheet experience | Complete | Windowed touch grid, pinch zoom, frozen panes, sparse search, and bounded value/formula/formatting/filter editing are implemented; physical Android memory and process-recreation validation remains. |
-| 9. Performance, accessibility, and release hardening | Complete | Budget enforcement, shape/corruption fixtures, keyboard and screen-reader validation, recovery coverage, the dependency audit, and the reference documentation are implemented; the Windows, macOS, and Android matrix rows remain. |
-| 10. XLSX and CSV conversion | Testing | Bounded native `.xlsx`/`.csv` import into a new `.sheet`, `.xlsx`/`.csv` export, honest conversion reports, injection protection, and the published support matrix are implemented; validation against files from other spreadsheet applications remains. |
+| Phase                                                | Status   | Goal                                                                                                                                                                                                                                                      |
+| ---------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0. Product contract and technical proof              | Complete | Finalize schema, select the formula/grid engines, and prove large-grid editing plus recalculation.                                                                                                                                                        |
+| 1. `.sheet` domain and vault integration             | Complete | Add parsing, validation, migrations, creation, routing, revisions, and local/hosted document support.                                                                                                                                                     |
+| 2. Desktop spreadsheet editor                        | Complete | Deliver the virtualized grid, worksheet controls, selection, editing, navigation, and structural operations.                                                                                                                                              |
+| 3. Formulas and recalculation                        | Complete | Native incremental evaluation, formula UX, reference rewrites, stable errors, inspection, volatile-time policy, and fixtures are implemented.                                                                                                             |
+| 4. Formatting and spreadsheet interactions           | Testing  | Formatting, clipboard variants, fill/series behavior, bounded undo/redo, search/replace, notes, and range print/export are implemented.                                                                                                                   |
+| 5. Tables and data tools                             | Testing  | Tables, filtering, validation, conditional formatting, named ranges, editor protection, summaries, cleanup tools, and combined interaction matrices are implemented.                                                                                      |
+| 6. Hosted collaboration and offline behavior         | Complete | Structured live sessions, stable-ID presence and merging, offline queues, conflict handling, and revision-safe recovery are implemented; physical two-client validation remains.                                                                          |
+| 7. Charts, analysis, and Collab integration          | Testing  | Stable-range charts, bounded summaries, vault references, source-linked note embeds, and explicit Kanban/calendar snapshots are implemented.                                                                                                              |
+| 8. Mobile sheet experience                           | Complete | Windowed touch grid, pinch zoom, frozen panes, sparse search, and bounded value/formula/formatting/filter editing are implemented; physical Android memory and process-recreation validation remains.                                                     |
+| 9. Performance, accessibility, and release hardening | Complete | Budget enforcement, shape/corruption fixtures, keyboard and screen-reader validation, recovery coverage, the dependency audit, and the reference documentation are implemented; the Windows, macOS, and Android matrix rows remain.                       |
+| 10. XLSX and CSV conversion                          | Testing  | Bounded native `.xlsx`/`.csv` import into a new `.sheet`, `.xlsx`/`.csv` export, honest conversion reports, injection protection, and the published support matrix are implemented; validation against files from other spreadsheet applications remains. |
 
 ## Phase Details
 
@@ -295,26 +295,26 @@ It must remain ephemeral and must not be written into the workbook.
 Outcome recorded in `docs/plans/advanced-tables-phase0-contract.md`.
 
 - [x] Finalize the `.sheet` extension, media type, schema ownership, and limits.
-  Frozen in `src/types/sheet.ts`.
+      Frozen in `src/types/sheet.ts`.
 - [x] Evaluate maintained formula engines for function coverage, licensing,
-  deterministic behavior, bundle size, and React/native independence.
-  Selected `formualizer` (MIT OR Apache-2.0, Rust); HyperFormula rejected
-  because GPLv3 is incompatible with Collab's MIT distribution.
+      deterministic behavior, bundle size, and React/native independence.
+      Selected `formualizer` (MIT OR Apache-2.0, Rust); HyperFormula rejected
+      because GPLv3 is incompatible with Collab's MIT distribution.
 - [x] Evaluate virtualized spreadsheet/grid renderers for performance,
-  accessibility, frozen panes, selection overlays, and licensing. Selected a
-  first-party canvas grid with a DOM overlay; no third-party grid dependency.
+      accessibility, frozen panes, selection overlays, and licensing. Selected a
+      first-party canvas grid with a DOM overlay; no third-party grid dependency.
 - [x] Prototype a sparse workbook with at least 100,000 populated cells and a
-  substantially larger logical empty range. `src/lib/sheet/fixture.ts`.
+      substantially larger logical empty range. `src/lib/sheet/fixture.ts`.
 - [x] Prove keyboard navigation, range selection, direct editing, scrolling,
-  resizing, and frozen panes without unstable frame times. Proven at the
-  viewport-model level (`src/lib/sheet/viewport.ts`, 0.12 ms/frame);
-  rendered-interaction frame times remain a Phase 2 measurement.
+      resizing, and frozen panes without unstable frame times. Proven at the
+      viewport-model level (`src/lib/sheet/viewport.ts`, 0.12 ms/frame);
+      rendered-interaction frame times remain a Phase 2 measurement.
 - [x] Prove formula dependency updates, cross-sheet references, cycles, and
-  bounded recalculation. `crates/collab-sheet/tests/formula_proof.rs`.
+      bounded recalculation. `crates/collab-sheet/tests/formula_proof.rs`.
 - [x] Define formula compatibility and unsupported-function behavior.
 - [x] Decide whether the shared domain remains under `src/lib/sheet/` or becomes
-  a frontend workspace package used by desktop and mobile. Stays under
-  `src/lib/sheet/`; mobile already imports desktop modules directly.
+      a frontend workspace package used by desktop and mobile. Stays under
+      `src/lib/sheet/`; mobile already imports desktop modules directly.
 - [x] Record baseline CPU, memory, first-open, scroll, paste, and recalc budgets.
 
 Exit gate: met. The selected engines satisfy licensing and performance
@@ -324,35 +324,35 @@ row/column identity without depending on renderer internals.
 ### Phase 1: `.sheet` Domain And Vault Integration
 
 - [x] Add schema types, parser, validator, normalizer, serializer, and fixtures.
-  `src/types/sheet.ts`, `src/lib/sheet/document.ts`, `src/lib/sheet/fixture.ts`.
+      `src/types/sheet.ts`, `src/lib/sheet/document.ts`, `src/lib/sheet/fixture.ts`.
 - [x] Add stable workbook, worksheet, row, column, cell, range, style, and chart
-  identities. Identities may never contain `:` (the cell-key separator); this is
-  enforced on both sides of the IPC boundary.
+      identities. Identities may never contain `:` (the cell-key separator); this is
+      enforced on both sides of the IPC boundary.
 - [x] Add migration and unknown-field policy. Unknown fields are preserved
-  verbatim at document, worksheet, and cell level; every future schema version
-  must add an explicit `migrateSheetDocument` step.
+      verbatim at document, worksheet, and cell level; every future schema version
+      must add an explicit `migrateSheetDocument` step.
 - [x] Extend `collab-documents` classification and bounded validation.
-  `crates/collab-documents/src/sheet.rs` rejects dangling row/column/style/
-  worksheet references and limit violations for known versions, and applies only
-  generic JSON bounds to newer ones.
+      `crates/collab-documents/src/sheet.rs` rejects dangling row/column/style/
+      worksheet references and limit violations for known versions, and applies only
+      generic JSON bounds to newer ones.
 - [x] Add `.sheet` creation, file-tree icon, tab routing, duplicate, rename,
-  move, trash, restore, download, and revision-history behavior. Duplicate is a
-  new generic Files action (`src/lib/vaultDuplicate.ts`) covering every
-  text-backed document type; rename/move/trash/restore/download were already
-  extension-agnostic and now include `.sheet`.
+      move, trash, restore, download, and revision-history behavior. Duplicate is a
+      new generic Files action (`src/lib/vaultDuplicate.ts`) covering every
+      text-backed document type; rename/move/trash/restore/download were already
+      extension-agnostic and now include `.sheet`.
 - [x] Add `VaultClient` local and hosted read/write sessions with optimistic
-  revisions. `src/lib/sheet/useSheetSession.ts` over the shared document-session
-  controller.
+      revisions. `src/lib/sheet/useSheetSession.ts` over the shared document-session
+      controller.
 - [x] Include `.sheet` in archive import/export, hosted offline replicas,
-  search metadata, and reference analysis where applicable. Archive import maps
-  `.sheet` to a hosted text document; the offline replica caches it through the
-  existing content-agnostic document cache. Note indexing stays markdown-only on
-  both local and hosted paths, matching `.canvas`/`.kanban`/`.logic`. Reference
-  analysis is not applicable yet — cell-level vault links arrive in Phase 7.
+      search metadata, and reference analysis where applicable. Archive import maps
+      `.sheet` to a hosted text document; the offline replica caches it through the
+      existing content-agnostic document cache. Note indexing stays markdown-only on
+      both local and hosted paths, matching `.canvas`/`.kanban`/`.logic`. Reference
+      analysis is not applicable yet — cell-level vault links arrive in Phase 7.
 - [x] Add a read-only fallback for newer unsupported schema versions. A newer
-  workbook opens read-only and is never normalized or rewritten.
+      workbook opens read-only and is never normalized or rewritten.
 - [x] Add round-trip, malformed-input, limits, migration, and local/hosted
-  capability tests.
+      capability tests.
 
 Exit gate: met. A workbook can be created (Files sidebar, context menu, or
 command bar), opened, edited, saved with optimistic revisions, duplicated,
@@ -368,29 +368,29 @@ with the virtualized canvas grid.
 
 - [x] Add the dedicated `SheetView` and route `.sheet` tabs to it.
 - [x] Add virtualized row/column rendering with stable dimensions and overscan.
-  `SheetGrid` paints a canvas cell layer from `viewport.ts`; only the visible
-  headers exist as DOM.
+      `SheetGrid` paints a canvas cell layer from `viewport.ts`; only the visible
+      headers exist as DOM.
 - [x] Add headers, formula bar, name box, worksheet bar, status summary, and
-  compact toolbar. The name box doubles as go-to-cell and reports `3R x 2C` for
-  multi-cell selections.
+      compact toolbar. The name box doubles as go-to-cell and reports `3R x 2C` for
+      multi-cell selections.
 - [x] Add active-cell, range, row, column, and all-cells selection, including
-  disjoint ranges via Ctrl-click.
+      disjoint ranges via Ctrl-click.
 - [x] Add mouse, touchpad, and keyboard navigation with shift/control modifiers.
-  Arrows, Shift-extend, Ctrl-jump across populated blocks, Home/End, Ctrl+Home/
-  End, PageUp/PageDown, Tab, and Ctrl+A — all bound to `KeyboardEvent.key`, so
-  they stay layout-independent.
+      Arrows, Shift-extend, Ctrl-jump across populated blocks, Home/End, Ctrl+Home/
+      End, PageUp/PageDown, Tab, and Ctrl+A — all bound to `KeyboardEvent.key`, so
+      they stay layout-independent.
 - [x] Add direct cell editing and type-aware commit/cancel behavior. Typing a
-  printable character opens the editor; Enter/Tab commit and advance; Escape
-  cancels; F2 and double-click open the existing value. `cellValue.ts` parses
-  numbers, percentages, booleans, ISO dates/times, and formulas, and leaves
-  anything ambiguous as text.
+      printable character opens the editor; Enter/Tab commit and advance; Escape
+      cancels; F2 and double-click open the existing value. `cellValue.ts` parses
+      numbers, percentages, booleans, ISO dates/times, and formulas, and leaves
+      anything ambiguous as text.
 - [x] Add worksheet creation, rename, duplicate, reorder, hide, and delete.
 - [x] Add row/column insert, delete, move, hide, resize, and auto-size.
 - [x] Add bounded merge/unmerge and frozen panes.
 - [x] Preserve viewport, selection, active worksheet, and editor state per tab
-  (`editorStore.sheetViewStates`, persisted and remapped on rename).
+      (`editorStore.sheetViewStates`, persisted and remapped on rename).
 - [x] Add loading, empty, malformed, read-only, and unsupported-version states.
-  A newer-schema workbook renders read-only rather than blank.
+      A newer-schema workbook renders read-only rather than blank.
 
 Exit gate: met. A multi-worksheet workbook can be created and edited without
 formulas; rendering stays bounded by the viewport rather than the logical grid.
@@ -403,19 +403,19 @@ identities, and numeric formula results participate in selection summaries.
 
 - [x] Integrate the selected engine behind a Collab-owned adapter.
 - [x] Add formula entry, syntax highlighting, reference selection, and formula
-  autocomplete.
+      autocomplete.
 - [x] Implement the baseline function set and document the exact support table
-  in `advanced-tables-formula-support.md`.
+      in `advanced-tables-formula-support.md`.
 - [x] Support relative, absolute, mixed, range, and cross-sheet references.
 - [x] Rewrite references for insert, delete, move, fill, copy, and paste.
 - [x] Add dependency-aware incremental recalculation.
 - [x] Display stable errors for parse, reference, type, division, name, cycle,
-  bounds, and unsupported-function failures.
+      bounds, and unsupported-function failures.
 - [x] Bound volatile functions and define `TODAY`/`NOW` timezone behavior using
-  the app's time/date settings.
+      the app's time/date settings.
 - [x] Add formula inspection and dependent/precedent highlighting.
 - [x] Add fixtures for deep dependencies, wide fan-out, cycles, error
-  propagation, and structural rewrites.
+      propagation, and structural rewrites.
 
 Exit gate: supported formulas recalculate deterministically after value and
 structural changes, and malformed/cyclic workbooks remain responsive.
@@ -441,11 +441,11 @@ upstream-gap test can be removed.
 
 - [x] Add font, fill, border, alignment, wrapping, and indentation controls.
 - [x] Add number, percent, currency, date, time, and custom format controls that
-  respect app locale/time settings without changing stored values.
+      respect app locale/time settings without changing stored values.
 - [x] Add style deduplication and range-based style application.
 - [x] Add copy, cut, paste, paste-values, paste-formulas, and paste-formatting.
 - [x] Add a private structured clipboard format plus plain-text and sanitized
-  HTML fallbacks.
+      HTML fallbacks.
 - [x] Add fill handle, series recognition, and formula-relative fill.
 - [x] Add operation-based undo/redo with bounded history.
 - [x] Add find/replace and go-to-cell/range.
@@ -479,14 +479,14 @@ without corrupting formulas, types, or merged ranges.
 - [x] Add filters for values, text, numbers, dates, blanks, and colors.
 - [x] Add data validation for lists, ranges, numbers, dates, and custom formulas.
 - [x] Add conditional formatting for comparisons, formulas, color scales, and
-  duplicate/unique values.
+      duplicate/unique values.
 - [x] Add named cells/ranges and formula integration.
 - [x] Add protected cells/ranges as an editor policy with clear hosted
-  capability semantics; do not present it as encryption.
+      capability semantics; do not present it as encryption.
 - [x] Add subtotal/status-bar summaries for selected numeric ranges.
 - [x] Add bounded duplicate removal, split text, and basic cleanup operations.
 - [x] Add test matrices combining sort/filter with formulas, merged cells,
-  hidden rows, validation, and collaboration operations.
+      hidden rows, validation, and collaboration operations.
 
 Implementation note: structured tables are explicit worksheet metadata rather
 than inferred formatting. They have stable table and column identities, unique
@@ -548,19 +548,19 @@ filtering, validation, and formatting behavior.
 
 - [x] Define semantic workbook operations and their idempotency keys.
 - [x] Add structured live-session conversion through the shared collaboration
-  boundary.
+      boundary.
 - [x] Merge unrelated cell/range changes without whole-document conflicts.
 - [x] Define deterministic ordering for concurrent row, column, and worksheet
-  structural changes.
+      structural changes.
 - [x] Add ephemeral collaborator selections, active cells, and worksheet
-  presence.
+      presence.
 - [x] Queue offline workbook operations and replay them through the existing
-  replica/sync coordinator.
+      replica/sync coordinator.
 - [x] Surface overlapping edits, deleted targets, unsupported schema changes,
-  and lost access through existing recovery UI.
+      and lost access through existing recovery UI.
 - [x] Keep computed values derived locally and out of authoritative live state.
 - [x] Add multi-client, reconnect, offline, revision restore, and access-loss
-  tests.
+      tests.
 
 Exit gate: two clients can edit unrelated and overlapping ranges, reconnect
 after offline work, and restore revisions without replacing the workbook with a
@@ -596,13 +596,13 @@ migrated hosted server remains the release gate while this phase is in Testing.
 
 - [x] Add column, bar, line, area, pie, scatter, and compact sparkline charts.
 - [x] Store chart definitions against stable ranges and update them after
-  structural edits.
+      structural edits.
 - [x] Add grouped summaries and a bounded pivot-style summary view without
-  promising Excel pivot compatibility.
+      promising Excel pivot compatibility.
 - [x] Add vault-file links and attachments in cell metadata.
 - [x] Add source-linked sheet/range embeds for notes that reopen the workbook.
 - [x] Add optional read-only data connections to Kanban tasks and calendar
-  items through explicit refreshable snapshots.
+      items through explicit refreshable snapshots.
 - [x] Keep live external/network data functions out of formulas.
 - [x] Add chart accessibility summaries and export rendering.
 
@@ -632,19 +632,19 @@ release gate while the phase is in Testing.
 ### Phase 8: Mobile Sheet Experience
 
 - [x] Add `.sheet` routing and a responsive mobile viewer.
-  `apps/mobile-android/src/screens/SheetScreen.tsx`, routed from `FilesScreen`
-  through the `workbook` active-sheet kind.
+      `apps/mobile-android/src/screens/SheetScreen.tsx`, routed from `FilesScreen`
+      through the `workbook` active-sheet kind.
 - [x] Add worksheet navigation, pinch zoom, selection, search, and frozen-pane
-  behavior. `apps/mobile-android/src/components/SheetTouchGrid.tsx`.
+      behavior. `apps/mobile-android/src/components/SheetTouchGrid.tsx`.
 - [x] Add bounded editing for values, formulas, formatting, filters, and
-  validation-backed cells.
+      validation-backed cells.
 - [x] Add formula/result inspection without exposing desktop-only controls.
 - [x] Reuse the shared schema, formula adapter, session controller, and offline
-  replica behavior.
+      replica behavior.
 - [x] Add touch selection handles, keyboard/IME behavior, and bottom-sheet
-  editors that stay above system navigation.
+      editors that stay above system navigation.
 - [ ] Add large-sheet memory and process-recreation tests on physical Android
-  devices. Release gate; not reproducible in the frontend harness.
+      devices. Release gate; not reproducible in the frontend harness.
 
 Exit gate: mobile can reliably inspect and make common edits to local/cached
 workbooks without loading the whole logical grid into the view hierarchy.
@@ -691,29 +691,29 @@ Testing.
 ### Phase 9: Performance, Accessibility, And Release Hardening
 
 - [x] Enforce the Phase 0 CPU, memory, scroll, paste, save, and recalc budgets.
-  The ceilings are `src/lib/sheet/budgets.ts` (mirroring the Phase 0 contract,
-  scalable per environment with `COLLAB_SHEET_BUDGET_SCALE`); open, save,
-  scroll, and paste are asserted in `src/lib/sheet/performance.test.ts` and
-  load/recalculation in `crates/collab-sheet/tests/formula_proof.rs`.
+      The ceilings are `src/lib/sheet/budgets.ts` (mirroring the Phase 0 contract,
+      scalable per environment with `COLLAB_SHEET_BUDGET_SCALE`); open, save,
+      scroll, and paste are asserted in `src/lib/sheet/performance.test.ts` and
+      load/recalculation in `crates/collab-sheet/tests/formula_proof.rs`.
 - [x] Add fixtures for sparse, dense, wide, tall, deeply dependent, highly
-  formatted, and corrupted workbooks. `src/lib/sheet/fixture.ts`
-  (`SHEET_SHAPE_FIXTURES`, `CORRUPT_SHEET_FIXTURES`), asserted in
-  `fixtureShapes.test.ts`.
+      formatted, and corrupted workbooks. `src/lib/sheet/fixture.ts`
+      (`SHEET_SHAPE_FIXTURES`, `CORRUPT_SHEET_FIXTURES`), asserted in
+      `fixtureShapes.test.ts`.
 - [x] Add keyboard-only operation, focus, screen-reader grid semantics, contrast,
-  zoom, and reduced-motion validation. `src/lib/sheet/accessibility.ts` plus
-  `SheetGridAccessibility.test.tsx` and `SheetGridTheme.test.ts`.
+      zoom, and reduced-motion validation. `src/lib/sheet/accessibility.ts` plus
+      `SheetGridAccessibility.test.tsx` and `SheetGridTheme.test.ts`.
 - [x] Add autosave/reload, crash recovery, schema upgrade, revision conflict,
-  and encryption coverage. `src/lib/sheet/recovery.test.ts`; encryption at rest
-  stays native in the replica store and is covered there.
+      and encryption coverage. `src/lib/sheet/recovery.test.ts`; encryption at rest
+      stays native in the replica store and is covered there.
 - [x] Add Linux, Windows, macOS, and Android rendering/performance matrices.
-  `docs/build/advanced-tables-release-validation.md`. Linux is filled in; the
-  other three rows are release gates that need runs on those platforms.
+      `docs/build/advanced-tables-release-validation.md`. Linux is filled in; the
+      other three rows are release gates that need runs on those platforms.
 - [x] Audit formula, clipboard, import, renderer, and chart dependencies for
-  licensing and security. Recorded in the release-validation document: every
-  crate reachable from `collab-sheet` is permissively licensed, the grid and
-  charts are first-party, and clipboard handling has no third-party dependency.
+      licensing and security. Recorded in the release-validation document: every
+      crate reachable from `collab-sheet` is permissively licensed, the grid and
+      charts are first-party, and clipboard handling has no third-party dependency.
 - [x] Document supported functions, limits, keyboard behavior, collaboration
-  semantics, and recovery paths. `docs/desktop/sheet-reference.md`.
+      semantics, and recovery paths. `docs/desktop/sheet-reference.md`.
 
 Exit gate: supported platforms meet documented performance and accessibility
 budgets, malformed input fails safely, and packaging includes every required
@@ -743,60 +743,60 @@ workbook format.
 #### Import
 
 - [x] Add file import entry points for `.xlsx` and `.csv`. The Files sidebar
-  "Add files" button and OS drag-and-drop route them through
-  `importCategoryForName` → `workbookConversion` in `src/lib/vaultFileImport.ts`.
+      "Add files" button and OS drag-and-drop route them through
+      `importCategoryForName` → `workbookConversion` in `src/lib/vaultFileImport.ts`.
 - [x] Parse imports in a bounded native or isolated worker path so large files
-  do not block the UI. `collab_sheet::convert` runs behind the
-  `sheet_convert_import` command; archive bytes never enter the webview.
+      do not block the UI. `collab_sheet::convert` runs behind the
+      `sheet_convert_import` command; archive bytes never enter the webview.
 - [x] Convert imported content into a new `.sheet` document before opening it.
-  The document is built natively and validated against
-  `collab_documents::sheet` before it is returned.
+      The document is built natively and validated against
+      `collab_documents::sheet` before it is returned.
 - [x] Import supported worksheet names/order, cell values, supported formulas,
-  common number formats, common styles, merged ranges, widths/heights, and
-  frozen panes. Charts are deliberately **not** imported — see the note below.
+      common number formats, common styles, merged ranges, widths/heights, and
+      frozen panes. Charts are deliberately **not** imported — see the note below.
 - [x] Convert unsupported formulas to a clearly reported fallback according to
-  the Phase 0 policy; never silently claim successful formula compatibility.
-  Each unrecognized function is named in the report and its source is kept, so
-  the cell shows an error rather than a wrong number.
+      the Phase 0 policy; never silently claim successful formula compatibility.
+      Each unrecognized function is named in the report and its source is kept, so
+      the cell shows an error rather than a wrong number.
 - [x] Reject macros and external execution. Ignore or safely flatten external
-  links, data connections, Power Query, and unsupported embedded objects.
+      links, data connections, Power Query, and unsupported embedded objects.
 - [x] Add conservative CSV delimiter/quote/encoding handling and optional type
-  inference. CSV creates one worksheet because the format has no workbook
-  model.
+      inference. CSV creates one worksheet because the format has no workbook
+      model.
 - [x] Present a conversion report listing imported, flattened, skipped, and
-  unsupported features before the user relies on the result.
-  `SheetConversionReportDialog`.
+      unsupported features before the user relies on the result.
+      `SheetConversionReportDialog`.
 - [x] Preserve the source file unchanged; the created `.sheet` is a separate
-  Collab document, named to avoid colliding with an existing workbook.
+      Collab document, named to avoid colliding with an existing workbook.
 
 #### Export
 
 - [x] Export a `.sheet` workbook as a newly generated `.xlsx` copy.
 - [x] Export a chosen worksheet or selected range as `.csv`; the report states
-  how many worksheets were left out, because CSV cannot contain them.
+      how many worksheets were left out, because CSV cannot contain them.
 - [x] Map supported values, formulas, styles, formats, merged ranges,
-  dimensions, and frozen panes to the target format. Charts are not written.
+      dimensions, and frozen panes to the target format. Charts are not written.
 - [x] Flatten or omit unsupported Collab-only metadata with an export report.
 - [x] Never change the open document's backing format or begin saving future
-  edits into the exported file. The exporter receives serialized text and
-  writes to a user-chosen path; it has no handle on the open document.
+      edits into the exported file. The exporter receives serialized text and
+      writes to a user-chosen path; it has no handle on the open document.
 - [x] Add formula-injection protection for CSV consumers while preserving an
-  explicit opt-in for users who intentionally export formulas.
+      explicit opt-in for users who intentionally export formulas.
 
 #### Compatibility Contract
 
 - [x] Publish a conversion support matrix with exact supported features.
-  `docs/desktop/sheet-conversion.md`.
+      `docs/desktop/sheet-conversion.md`.
 - [x] State clearly that round trips may be lossy and are not guaranteed.
 - [x] Add fixtures covering dates, formulas, shared formula groups, styles,
-  merged cells, hidden sheets, Unicode and XML-escaped text, error values, and
-  malformed/hostile archives. `crates/collab-sheet/tests/conversion_proof.rs`
-  builds them inline so the XML a test asserts against is visible next to the
-  assertion. Fixtures produced by other spreadsheet applications remain a
-  release-validation gate rather than a checked-in binary.
+      merged cells, hidden sheets, Unicode and XML-escaped text, error values, and
+      malformed/hostile archives. `crates/collab-sheet/tests/conversion_proof.rs`
+      builds them inline so the XML a test asserts against is visible next to the
+      assertion. Fixtures produced by other spreadsheet applications remain a
+      release-validation gate rather than a checked-in binary.
 - [x] Add import-to-`.sheet`, `.sheet`-to-export, reopen, and semantic
-  comparison tests. Compare supported values/formulas/styles rather than binary
-  file equality.
+      comparison tests. Compare supported values/formulas/styles rather than binary
+      file equality.
 
 Exit gate: users can deliberately convert supported `.xlsx`/`.csv` files into
 native `.sheet` documents and export interoperable copies with an honest,

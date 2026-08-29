@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createEmptySheetDocument, addWorksheet } from '../../lib/sheet/document';
+import { addWorksheet, createEmptySheetDocument } from '../../lib/sheet/document';
+
 import SheetCsvExportDialog from './SheetCsvExportDialog';
 
 function documentWith(worksheets: number) {
@@ -55,8 +56,9 @@ describe('CSV export options', () => {
     // CSV has no workbook model, so the user is told before the export, not
     // only afterwards in the report.
     renderDialog({ document: documentWith(3) });
-    expect(screen.getByTestId('csv-worksheets-left-out').textContent)
-      .toBe('2 other worksheets will not be written.');
+    expect(screen.getByTestId('csv-worksheets-left-out').textContent).toBe(
+      '2 other worksheets will not be written.',
+    );
   });
 
   it('does not mention other worksheets for a single-worksheet workbook', () => {

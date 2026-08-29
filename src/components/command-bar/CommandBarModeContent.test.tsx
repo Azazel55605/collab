@@ -2,8 +2,9 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Command } from '../ui/command';
-import { CommandBarModeContent, CommandBarModeHints } from './CommandBarModeContent';
+
 import type { RenderCtx } from './commandBarActions';
+import { CommandBarModeContent, CommandBarModeHints } from './CommandBarModeContent';
 
 const writeText = vi.fn();
 
@@ -42,12 +43,26 @@ describe('CommandBarModeContent', () => {
           mode={{ type: 'search', query: '' }}
           ctx={makeCtx({
             files: [
-              { name: 'Old.md', relativePath: 'Old.md', extension: 'md', modifiedAt: 1, size: 1, isFolder: false },
-              { name: 'New.md', relativePath: 'New.md', extension: 'md', modifiedAt: 2, size: 1, isFolder: false },
+              {
+                name: 'Old.md',
+                relativePath: 'Old.md',
+                extension: 'md',
+                modifiedAt: 1,
+                size: 1,
+                isFolder: false,
+              },
+              {
+                name: 'New.md',
+                relativePath: 'New.md',
+                extension: 'md',
+                modifiedAt: 2,
+                size: 1,
+                isFolder: false,
+              },
             ],
           })}
         />
-      </Command>
+      </Command>,
     );
 
     expect(screen.getByText('Recent')).toBeTruthy();
@@ -65,7 +80,7 @@ describe('CommandBarModeContent', () => {
           mode={{ type: 'search', query: 'theme' }}
           ctx={makeCtx({ openSettings, close })}
         />
-      </Command>
+      </Command>,
     );
 
     fireEvent.click(screen.getByText('Appearance'));
@@ -77,11 +92,8 @@ describe('CommandBarModeContent', () => {
   it('copies the computed math result', () => {
     render(
       <Command>
-        <CommandBarModeContent
-          mode={{ type: 'math', expr: '2 + 2' }}
-          ctx={makeCtx()}
-        />
-      </Command>
+        <CommandBarModeContent mode={{ type: 'math', expr: '2 + 2' }} ctx={makeCtx()} />
+      </Command>,
     );
 
     fireEvent.click(screen.getByText('2 + 2 = 4'));
@@ -96,7 +108,7 @@ describe('CommandBarModeContent', () => {
           mode={{ type: 'insert', query: '' }}
           ctx={makeCtx({ activeView: 'canvas' })}
         />
-      </Command>
+      </Command>,
     );
 
     expect(screen.getByText('Open a note first to insert snippets.')).toBeTruthy();

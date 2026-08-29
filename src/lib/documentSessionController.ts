@@ -227,10 +227,7 @@ const DEFAULT_AUTOSAVE_DEBOUNCE_MS = 600;
  * This is the primitive the whole plan builds on; `useDocumentSessionState`
  * (the legacy per-view hook) and {@link DocumentSessionController} both use it.
  */
-export function createExclusiveSaveRunner(callbacks?: {
-  onBusy?(): void;
-  onIdle?(): void;
-}) {
+export function createExclusiveSaveRunner(callbacks?: { onBusy?(): void; onIdle?(): void }) {
   let saving = false;
   let pending: null | (() => Promise<void>) = null;
 
@@ -387,9 +384,10 @@ export class DocumentSessionController<TDocument> {
   markLocalChange(doc: TDocument): void {
     this.currentDocument = doc;
     this.currentContent = this.options.serialize(doc);
-    this.dirty = this.lastSavedContent === null
-      ? true
-      : !this.contentEqual(this.currentContent, this.lastSavedContent);
+    this.dirty =
+      this.lastSavedContent === null
+        ? true
+        : !this.contentEqual(this.currentContent, this.lastSavedContent);
     if (this.dirty) {
       this.justSaved = false;
       this.scheduleAutosave();
@@ -447,11 +445,18 @@ export class DocumentSessionController<TDocument> {
       this.currentContent = saved;
       const document = this.options.deserialize(saved);
       this.currentDocument = document;
-      this.options.applyDocument({ document, content: saved, version: outcome.version, source: 'rest' });
+      this.options.applyDocument({
+        document,
+        content: saved,
+        version: outcome.version,
+        source: 'rest',
+      });
     }
-    this.dirty = this.currentContent === null
-      ? false
-      : this.lastSavedContent !== null && !this.contentEqual(this.currentContent, this.lastSavedContent);
+    this.dirty =
+      this.currentContent === null
+        ? false
+        : this.lastSavedContent !== null &&
+          !this.contentEqual(this.currentContent, this.lastSavedContent);
     this.justSaved = !this.dirty;
     this.invalidate();
   }
@@ -606,9 +611,10 @@ export class DocumentSessionController<TDocument> {
     this.loadedVersion = pending.version;
     this.lastSavedContent = pending.content;
     this.lastAppliedRemoteVersion = pending.version;
-    this.dirty = this.currentContent === null
-      ? false
-      : !this.contentEqual(this.currentContent, pending.content);
+    this.dirty =
+      this.currentContent === null
+        ? false
+        : !this.contentEqual(this.currentContent, pending.content);
     this.justSaved = false;
     if (this.dirty) this.scheduleAutosave();
     this.invalidate();
@@ -676,9 +682,10 @@ export class DocumentSessionController<TDocument> {
       // three-way merge treats their content as the common base.
       this.loadedVersion = conflict.theirVersion;
       this.lastSavedContent = conflict.theirContent;
-      this.dirty = this.currentContent === null
-        ? false
-        : !this.contentEqual(this.currentContent, conflict.theirContent);
+      this.dirty =
+        this.currentContent === null
+          ? false
+          : !this.contentEqual(this.currentContent, conflict.theirContent);
       this.clearConflictState();
       if (this.dirty) this.scheduleAutosave();
       this.invalidate();
@@ -755,7 +762,8 @@ export class DocumentSessionController<TDocument> {
     // Opaque tokens: a candidate equal to what we already have (or already
     // applied) carries no change and is stale; anything else is treated as new.
     if (candidateVersion === this.loadedVersion) return true;
-    if (candidateVersion !== null && candidateVersion === this.lastAppliedRemoteVersion) return true;
+    if (candidateVersion !== null && candidateVersion === this.lastAppliedRemoteVersion)
+      return true;
     return false;
   }
 
@@ -829,7 +837,8 @@ export function useDocumentSessionController<TDocument>(
       applyDocument: (candidate) => optionsRef.current.applyDocument(candidate),
       read: () => (optionsRef.current.read ? optionsRef.current.read() : Promise.resolve(null)),
       mergeRemote: (args) => optionsRef.current.mergeRemote?.(args) ?? null,
-      isContentEqual: (a, b) => (optionsRef.current.isContentEqual ? optionsRef.current.isContentEqual(a, b) : a === b),
+      isContentEqual: (a, b) =>
+        optionsRef.current.isContentEqual ? optionsRef.current.isContentEqual(a, b) : a === b,
       compareVersions: optionsRef.current.compareVersions
         ? (a, b) => optionsRef.current.compareVersions!(a, b)
         : undefined,

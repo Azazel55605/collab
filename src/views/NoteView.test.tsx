@@ -1,16 +1,19 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
+import * as Y from 'yjs';
 
 import { useCollabStore } from '../store/collabStore';
-import { useEditorStore } from '../store/editorStore';
 import { useDocumentStatusStore } from '../store/documentStatusStore';
+import { useEditorStore } from '../store/editorStore';
 import { useUiStore } from '../store/uiStore';
 import { useVaultStore } from '../store/vaultStore';
 
+import NoteView from './NoteView';
+
 const noteEvents = vi.hoisted(() => ({
-  fileModifiedHandler: null as null | ((event: { payload?: { path?: string } }) => void | Promise<void>),
+  fileModifiedHandler: null as
+    null | ((event: { payload?: { path?: string } }) => void | Promise<void>),
 }));
 
 const tauriMocks = vi.hoisted(() => ({
@@ -28,16 +31,21 @@ const liveMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@tauri-apps/api/event', () => ({
-  listen: vi.fn(async (eventName: string, handler: (event: { payload?: { path?: string } }) => void | Promise<void>) => {
-    if (eventName === 'vault:file-modified') {
-      noteEvents.fileModifiedHandler = handler;
-    }
-    return () => {
+  listen: vi.fn(
+    async (
+      eventName: string,
+      handler: (event: { payload?: { path?: string } }) => void | Promise<void>,
+    ) => {
       if (eventName === 'vault:file-modified') {
-        noteEvents.fileModifiedHandler = null;
+        noteEvents.fileModifiedHandler = handler;
       }
-    };
-  }),
+      return () => {
+        if (eventName === 'vault:file-modified') {
+          noteEvents.fileModifiedHandler = null;
+        }
+      };
+    },
+  ),
 }));
 
 vi.mock('../lib/tauri', () => ({
@@ -67,7 +75,15 @@ vi.mock('../components/editor/EditorToolbar', () => ({
 }));
 
 vi.mock('../components/editor/MarkdownEditor', () => ({
-  MarkdownEditor: ({ content, onChange, readOnly }: { content: string; onChange: (content: string) => void; readOnly?: boolean }) => (
+  MarkdownEditor: ({
+    content,
+    onChange,
+    readOnly,
+  }: {
+    content: string;
+    onChange: (content: string) => void;
+    readOnly?: boolean;
+  }) => (
     <div>
       <div data-testid="editor-content">{content}</div>
       <div data-testid="editor-readonly">{String(!!readOnly)}</div>
@@ -91,15 +107,19 @@ vi.mock('sonner', () => ({
   },
 }));
 
-import NoteView from './NoteView';
-
 describe('NoteView external reload behavior', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     noteEvents.fileModifiedHandler = null;
 
     useVaultStore.setState({
-      vault: { id: 'vault-1', path: '/vault', name: 'Vault', isEncrypted: false, lastOpened: Date.now() },
+      vault: {
+        id: 'vault-1',
+        path: '/vault',
+        name: 'Vault',
+        isEncrypted: false,
+        lastOpened: Date.now(),
+      },
       isVaultLocked: false,
       fileTree: [],
       recentVaults: [],
@@ -115,7 +135,9 @@ describe('NoteView external reload behavior', () => {
 
     useEditorStore.setState({
       sessionVaultPath: '/vault',
-      openTabs: [{ relativePath: 'Notes/a.md', title: 'a', isDirty: false, savedHash: null, type: 'note' }],
+      openTabs: [
+        { relativePath: 'Notes/a.md', title: 'a', isDirty: false, savedHash: null, type: 'note' },
+      ],
       activeTabPath: 'Notes/a.md',
       forceReloadPath: null,
       revealEditorPath: null,
@@ -170,7 +192,11 @@ describe('NoteView external reload behavior', () => {
   });
 
   it('does not reload on external modification while the note is dirty', async () => {
-    tauriMocks.readNote.mockResolvedValue({ content: 'initial note', hash: 'hash-1', modifiedAt: 1 });
+    tauriMocks.readNote.mockResolvedValue({
+      content: 'initial note',
+      hash: 'hash-1',
+      modifiedAt: 1,
+    });
 
     render(<NoteView relativePath="Notes/a.md" />);
 
@@ -200,13 +226,17 @@ describe('NoteView external reload behavior', () => {
     expect((await screen.findByTestId('editor-content')).textContent).toBe('initial note');
 
     fireEvent.click(screen.getByRole('button', { name: 'change' }));
-    await waitFor(() => expect(screen.getByTestId('editor-content').textContent).toContain('updated'));
+    await waitFor(() =>
+      expect(screen.getByTestId('editor-content').textContent).toContain('updated'),
+    );
 
     await noteEvents.fileModifiedHandler?.({ payload: { path: 'Notes/a.md' } });
 
     // A newer remote (hash-2) is queued as pending, not applied over local edits.
     await waitFor(() => {
-      expect(useDocumentStatusStore.getState().statuses['Notes/a.md']?.status).toBe('remote-pending');
+      expect(useDocumentStatusStore.getState().statuses['Notes/a.md']?.status).toBe(
+        'remote-pending',
+      );
     });
     expect(screen.getByTestId('editor-content').textContent).not.toBe('external update');
 
@@ -215,7 +245,9 @@ describe('NoteView external reload behavior', () => {
     act(() => {
       useDocumentStatusStore.getState().statuses['Notes/a.md']?.controller?.loadRemote();
     });
-    await waitFor(() => expect(screen.getByTestId('editor-content').textContent).toBe('external update'));
+    await waitFor(() =>
+      expect(screen.getByTestId('editor-content').textContent).toBe('external update'),
+    );
   });
 
   it('auto-merges a non-overlapping remote change while dirty (three-way merge)', async () => {
@@ -231,7 +263,9 @@ describe('NoteView external reload behavior', () => {
 
     // Local edit appends "\nupdated" to the end.
     fireEvent.click(screen.getByRole('button', { name: 'change' }));
-    await waitFor(() => expect(screen.getByTestId('editor-content').textContent).toContain('updated'));
+    await waitFor(() =>
+      expect(screen.getByTestId('editor-content').textContent).toContain('updated'),
+    );
 
     await noteEvents.fileModifiedHandler?.({ payload: { path: 'Notes/a.md' } });
 
@@ -241,7 +275,9 @@ describe('NoteView external reload behavior', () => {
       expect(text).toContain('line1 remote');
       expect(text).toContain('updated');
     });
-    expect(useDocumentStatusStore.getState().statuses['Notes/a.md']?.status).not.toBe('remote-pending');
+    expect(useDocumentStatusStore.getState().statuses['Notes/a.md']?.status).not.toBe(
+      'remote-pending',
+    );
   });
 
   it('serializes overlapping autosaves on a slow connection (no stale-revision write)', async () => {
@@ -249,7 +285,10 @@ describe('NoteView external reload behavior', () => {
     // A slow write: each call resolves only when we release it, modelling latency.
     const deferred: Array<(value: { hash: string }) => void> = [];
     tauriMocks.writeNote.mockImplementation(
-      () => new Promise<{ hash: string }>((resolve) => { deferred.push(resolve); }),
+      () =>
+        new Promise<{ hash: string }>((resolve) => {
+          deferred.push(resolve);
+        }),
     );
 
     render(<NoteView relativePath="Notes/a.md" />);

@@ -1,7 +1,8 @@
 import { ArrowDown, ArrowUp, Trash2, X } from 'lucide-react';
-import type { SvgNode } from '../../types/svg';
+
 import { setNodeFontSize, setNodeStyle, setNodeText } from '../../lib/svgDocument';
 import { cn } from '../../lib/utils';
+import type { SvgNode } from '../../types/svg';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import { ColorPicker } from '../ui/color-picker';
@@ -51,7 +52,11 @@ export function SvgPropertiesPanel({ node, onChange, onReorder, onDelete, onClos
             <Checkbox
               checked={fillOn}
               onCheckedChange={(checked) =>
-                onChange((n) => setNodeStyle(n, { fill: checked === true ? NORMALIZE_COLOR(n.style.fill, '#38bdf8') : 'none' }))
+                onChange((n) =>
+                  setNodeStyle(n, {
+                    fill: checked === true ? NORMALIZE_COLOR(n.style.fill, '#38bdf8') : 'none',
+                  }),
+                )
               }
               aria-label="Toggle fill"
             />
@@ -72,7 +77,8 @@ export function SvgPropertiesPanel({ node, onChange, onReorder, onDelete, onClos
               onChange((n) =>
                 setNodeStyle(n, {
                   stroke: checked === true ? NORMALIZE_COLOR(n.style.stroke, '#0f172a') : 'none',
-                  strokeWidth: checked === true && n.style.strokeWidth == null ? 2 : n.style.strokeWidth,
+                  strokeWidth:
+                    checked === true && n.style.strokeWidth == null ? 2 : n.style.strokeWidth,
                 }),
               )
             }
@@ -94,7 +100,13 @@ export function SvgPropertiesPanel({ node, onChange, onReorder, onDelete, onClos
               min={0}
               step={0.5}
               value={node.style.strokeWidth ?? 1}
-              onChange={(e) => onChange((n) => setNodeStyle(n, { strokeWidth: Math.max(0, Number.parseFloat(e.target.value) || 0) }))}
+              onChange={(e) =>
+                onChange((n) =>
+                  setNodeStyle(n, {
+                    strokeWidth: Math.max(0, Number.parseFloat(e.target.value) || 0),
+                  }),
+                )
+              }
               className="h-7 w-20 text-xs"
             />
           </Row>
@@ -106,7 +118,9 @@ export function SvgPropertiesPanel({ node, onChange, onReorder, onDelete, onClos
             max={100}
             step={5}
             value={[(node.style.opacity ?? 1) * 100]}
-            onValueChange={([opacity]) => onChange((n) => setNodeStyle(n, { opacity: opacity / 100 }))}
+            onValueChange={([opacity]) =>
+              onChange((n) => setNodeStyle(n, { opacity: opacity / 100 }))
+            }
             aria-label="Opacity"
             className="w-28"
           />
@@ -128,7 +142,9 @@ export function SvgPropertiesPanel({ node, onChange, onReorder, onDelete, onClos
                 type="number"
                 min={1}
                 value={node.fontSize ?? 16}
-                onChange={(e) => onChange((n) => setNodeFontSize(n, Number.parseFloat(e.target.value) || 1))}
+                onChange={(e) =>
+                  onChange((n) => setNodeFontSize(n, Number.parseFloat(e.target.value) || 1))
+                }
                 className="h-7 w-20 text-xs"
               />
             </Row>
@@ -136,14 +152,32 @@ export function SvgPropertiesPanel({ node, onChange, onReorder, onDelete, onClos
         )}
 
         <div className="mt-1 flex items-center gap-1.5 border-t border-border/40 pt-2.5">
-          <Button size="icon" variant="ghost" className={cn('size-8')} title="Bring forward" onClick={() => onReorder('forward')}>
+          <Button
+            size="icon"
+            variant="ghost"
+            className={cn('size-8')}
+            title="Bring forward"
+            onClick={() => onReorder('forward')}
+          >
             <ArrowUp size={14} />
           </Button>
-          <Button size="icon" variant="ghost" className="size-8" title="Send backward" onClick={() => onReorder('backward')}>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-8"
+            title="Send backward"
+            onClick={() => onReorder('backward')}
+          >
             <ArrowDown size={14} />
           </Button>
           <div className="flex-1" />
-          <Button size="icon" variant="ghost" className="size-8 text-destructive hover:text-destructive" title="Delete element" onClick={onDelete}>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-8 text-destructive hover:text-destructive"
+            title="Delete element"
+            onClick={onDelete}
+          >
             <Trash2 size={14} />
           </Button>
         </div>

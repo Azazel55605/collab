@@ -43,17 +43,19 @@ describe('CanvasFlowNodeUtils', () => {
   });
 
   it('round-trips a file-backed description through the flow mapping', () => {
-    expect(fromFlowNode({
-      id: 'file-1',
-      type: 'fileCard',
-      position: { x: 5, y: 6 },
-      width: 280,
-      height: 160,
-      data: {
-        relativePath: 'Docs/spec.pdf',
-        content: 'Reference PDF',
-      },
-    } as never)).toEqual({
+    expect(
+      fromFlowNode({
+        id: 'file-1',
+        type: 'fileCard',
+        position: { x: 5, y: 6 },
+        width: 280,
+        height: 160,
+        data: {
+          relativePath: 'Docs/spec.pdf',
+          content: 'Reference PDF',
+        },
+      } as never),
+    ).toEqual({
       id: 'file-1',
       type: 'file',
       position: { x: 5, y: 6 },
@@ -65,16 +67,18 @@ describe('CanvasFlowNodeUtils', () => {
   });
 
   it('round-trips a text flow node back into a text canvas node', () => {
-    expect(fromFlowNode({
-      id: 'text-1',
-      type: 'textCard',
-      position: { x: 5, y: 6 },
-      width: 280,
-      height: 160,
-      data: {
-        content: 'hello',
-      },
-    } as never)).toEqual({
+    expect(
+      fromFlowNode({
+        id: 'text-1',
+        type: 'textCard',
+        position: { x: 5, y: 6 },
+        width: 280,
+        height: 160,
+        data: {
+          content: 'hello',
+        },
+      } as never),
+    ).toEqual({
       id: 'text-1',
       type: 'text',
       position: { x: 5, y: 6 },
@@ -138,22 +142,24 @@ describe('CanvasFlowNodeUtils', () => {
   });
 
   it('round-trips a planning flow node back into a persisted planning node', () => {
-    expect(fromFlowNode({
-      id: 'decision-1',
-      type: 'decisionCard',
-      position: { x: 12, y: 14 },
-      width: 280,
-      height: 180,
-      data: {
-        title: 'Approve?',
-        content: 'If approved, continue to delivery.',
-        planning: {
-          status: 'blocked',
-          priority: 'high',
-          ownerLabel: 'Lead',
+    expect(
+      fromFlowNode({
+        id: 'decision-1',
+        type: 'decisionCard',
+        position: { x: 12, y: 14 },
+        width: 280,
+        height: 180,
+        data: {
+          title: 'Approve?',
+          content: 'If approved, continue to delivery.',
+          planning: {
+            status: 'blocked',
+            priority: 'high',
+            ownerLabel: 'Lead',
+          },
         },
-      },
-    } as never)).toEqual({
+      } as never),
+    ).toEqual({
       id: 'decision-1',
       type: 'decision',
       position: { x: 12, y: 14 },

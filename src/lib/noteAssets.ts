@@ -29,7 +29,10 @@ function parentPath(path: string): string {
   return index >= 0 ? normalized.slice(0, index) : '';
 }
 
-export function getRelativeMarkdownPath(currentDocumentRelativePath: string, targetRelativePath: string) {
+export function getRelativeMarkdownPath(
+  currentDocumentRelativePath: string,
+  targetRelativePath: string,
+) {
   const currentDir = normalizeRelativePath(currentDocumentRelativePath).includes('/')
     ? normalizeRelativePath(currentDocumentRelativePath).split('/').slice(0, -1)
     : [];
@@ -37,9 +40,9 @@ export function getRelativeMarkdownPath(currentDocumentRelativePath: string, tar
 
   let common = 0;
   while (
-    common < currentDir.length
-    && common < targetParts.length
-    && currentDir[common] === targetParts[common]
+    common < currentDir.length &&
+    common < targetParts.length &&
+    currentDir[common] === targetParts[common]
   ) {
     common += 1;
   }
@@ -49,7 +52,10 @@ export function getRelativeMarkdownPath(currentDocumentRelativePath: string, tar
   return [...up, ...down].join('/') || '.';
 }
 
-export function getMarkdownImageTarget(currentDocumentRelativePath: string, targetRelativePath: string) {
+export function getMarkdownImageTarget(
+  currentDocumentRelativePath: string,
+  targetRelativePath: string,
+) {
   const relativeTarget = getRelativeMarkdownPath(currentDocumentRelativePath, targetRelativePath);
   return /\s/.test(relativeTarget) ? `<${relativeTarget}>` : relativeTarget;
 }
@@ -59,9 +65,7 @@ export function isLikelyImagePath(path: string): boolean {
   return IMAGE_EXT_RE.test(cleanPath);
 }
 
-export type NoteAssetTarget =
-  | { kind: 'direct'; value: string }
-  | { kind: 'vault'; value: string };
+export type NoteAssetTarget = { kind: 'direct'; value: string } | { kind: 'vault'; value: string };
 
 function flattenVaultFiles(nodes: NoteFile[]): NoteFile[] {
   const flat: NoteFile[] = [];
@@ -87,10 +91,13 @@ export function resolveNoteAssetTarget(
 ): NoteAssetTarget | null {
   const trimmed = assetPath.trim();
   if (!trimmed) return null;
-  const unwrapped = trimmed.startsWith('<') && trimmed.endsWith('>')
-    ? trimmed.slice(1, -1).trim()
-    : trimmed;
-  if (ABSOLUTE_URL_RE.test(unwrapped) || unwrapped.startsWith('data:') || unwrapped.startsWith('blob:')) {
+  const unwrapped =
+    trimmed.startsWith('<') && trimmed.endsWith('>') ? trimmed.slice(1, -1).trim() : trimmed;
+  if (
+    ABSOLUTE_URL_RE.test(unwrapped) ||
+    unwrapped.startsWith('data:') ||
+    unwrapped.startsWith('blob:')
+  ) {
     return { kind: 'direct', value: unwrapped };
   }
 
@@ -100,9 +107,9 @@ export function resolveNoteAssetTarget(
     const noteDir = parentPath(_noteRelativePath);
     const noteRelativePath = normalizeRelativePath(noteDir ? `${noteDir}/${rawPath}` : rawPath);
     const candidates = Array.from(new Set([vaultRelativePath, noteRelativePath]));
-    const exactVaultMatch = flattenVaultFiles(fileTree).find((file) => (
-      candidates.some((candidate) => file.relativePath.toLowerCase() === candidate.toLowerCase())
-    ));
+    const exactVaultMatch = flattenVaultFiles(fileTree).find((file) =>
+      candidates.some((candidate) => file.relativePath.toLowerCase() === candidate.toLowerCase()),
+    );
     if (exactVaultMatch) {
       return {
         kind: 'vault',

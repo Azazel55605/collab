@@ -1,8 +1,6 @@
-import {
-  SCHEMATIC_SYMBOL_SETS,
-  schematicSymbolMarkup,
-} from '../logic/schematicSymbols';
 import type { SchematicSymbolSet } from '../../types/logicDiagram';
+import { SCHEMATIC_SYMBOL_SETS, schematicSymbolMarkup } from '../logic/schematicSymbols';
+
 import { OptionRow, PillSelect, SectionLabel } from './settingsControls';
 
 type Props = {
@@ -12,10 +10,7 @@ type Props = {
 
 const SYMBOL_SET_OPTIONS = Object.keys(SCHEMATIC_SYMBOL_SETS) as SchematicSymbolSet[];
 
-export default function SettingsLogicSection({
-  schematicSymbolSet,
-  setSchematicSymbolSet,
-}: Props) {
+export default function SettingsLogicSection({ schematicSymbolSet, setSchematicSymbolSet }: Props) {
   const selected = SCHEMATIC_SYMBOL_SETS[schematicSymbolSet];
 
   return (
@@ -29,7 +24,7 @@ export default function SettingsLogicSection({
           options={SYMBOL_SET_OPTIONS}
           value={schematicSymbolSet}
           onChange={setSchematicSymbolSet}
-          getLabel={(value) => value === 'ansi' ? 'ANSI' : 'IEC / DIN'}
+          getLabel={(value) => (value === 'ansi' ? 'ANSI' : 'IEC / DIN')}
         />
       </OptionRow>
 
@@ -47,17 +42,24 @@ export default function SettingsLogicSection({
             role="img"
             aria-label={`${selected.label} resistor and NPN transistor preview`}
           >
-            <g dangerouslySetInnerHTML={{ __html: schematicSymbolMarkup('resistor', 'currentColor', schematicSymbolSet) }} />
+            <g
+              dangerouslySetInnerHTML={{
+                __html: schematicSymbolMarkup('resistor', 'currentColor', schematicSymbolSet),
+              }}
+            />
             <g
               transform="translate(120 0)"
-              dangerouslySetInnerHTML={{ __html: schematicSymbolMarkup('transistor', 'currentColor', schematicSymbolSet) }}
+              dangerouslySetInnerHTML={{
+                __html: schematicSymbolMarkup('transistor', 'currentColor', schematicSymbolSet),
+              }}
             />
           </svg>
         </div>
       </div>
 
       <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-        This preference applies to the logic viewer and new SVG exports. Terminal names, wiring, and saved `.logic` files remain unchanged.
+        This preference applies to the logic viewer and new SVG exports. Terminal names, wiring, and
+        saved `.logic` files remain unchanged.
       </p>
     </div>
   );

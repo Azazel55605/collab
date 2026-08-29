@@ -1,11 +1,13 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useSyncExternalStore } from 'react';
+
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   DocumentSessionController,
   type DocumentWriteOutcome,
 } from '../../lib/documentSessionController';
+
 import { DocumentReconciler } from './DocumentReconciler';
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -15,7 +17,7 @@ function makeController(resolveWrite?: () => Promise<DocumentWriteOutcome>) {
     serialize: (d) => d,
     deserialize: (c) => c,
     applyDocument: () => {},
-    write: async (args) => (resolveWrite ? resolveWrite() : ({ version: args.content })),
+    write: async (args) => (resolveWrite ? resolveWrite() : { version: args.content }),
     // Immediate scheduler is irrelevant here; keep autosave inert.
     schedule: () => () => {},
   });
@@ -44,7 +46,12 @@ function Harness({
 function pendingRemote(controller: DocumentSessionController<string>) {
   controller.load('base', 'v1');
   controller.markLocalChange('mine');
-  controller.handleRemoteCandidate({ document: 'theirs', content: 'theirs', version: 'v2', source: 'rest' });
+  controller.handleRemoteCandidate({
+    document: 'theirs',
+    content: 'theirs',
+    version: 'v2',
+    source: 'rest',
+  });
 }
 
 describe('DocumentReconciler', () => {
@@ -103,7 +110,12 @@ describe('DocumentReconciler', () => {
     pendingRemote(controller);
     const persisted: string[] = [];
     render(
-      <Harness controller={controller} onSaveAsNew={async (local) => { persisted.push(local); }} />,
+      <Harness
+        controller={controller}
+        onSaveAsNew={async (local) => {
+          persisted.push(local);
+        }}
+      />,
     );
     fireEvent.click(screen.getByRole('button', { name: /review/i }));
     fireEvent.click(await screen.findByRole('button', { name: 'Save mine as new' }));

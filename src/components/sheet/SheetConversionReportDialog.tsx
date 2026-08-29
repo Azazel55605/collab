@@ -1,13 +1,10 @@
 import { AlertTriangle, ArrowRightLeft, Check, Info, XCircle } from 'lucide-react';
 
-import type {
-  SheetConversionReport,
-  SheetConversionSeverity,
-} from '../../types/sheetConversion';
+import type { SheetConversionReport, SheetConversionSeverity } from '../../types/sheetConversion';
 import {
-  SHEET_CONVERSION_SEVERITY_LABELS,
   groupConversionNotes,
   isLosslessConversion,
+  SHEET_CONVERSION_SEVERITY_LABELS,
 } from '../../types/sheetConversion';
 import { Button } from '../ui/button';
 import {
@@ -105,9 +102,7 @@ export default function SheetConversionReportDialog({
                         <span className="ml-1 text-xs text-muted-foreground">{note.location}</span>
                       )}
                       {note.count > 1 && (
-                        <span className="ml-1 text-xs text-muted-foreground">
-                          ×{note.count}
-                        </span>
+                        <span className="ml-1 text-xs text-muted-foreground">×{note.count}</span>
                       )}
                       <p className="text-xs text-muted-foreground">{note.detail}</p>
                     </li>

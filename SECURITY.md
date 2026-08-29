@@ -10,9 +10,9 @@ Only the latest release is supported. Fixes are published as a new release
 rather than backported.
 
 | Version | Supported |
-| --- | --- |
-| 0.7.x | Yes |
-| < 0.7 | No |
+| ------- | --------- |
+| 0.7.x   | Yes       |
+| < 0.7   | No        |
 
 Server deployments should pin an exact image tag in `.env` and upgrade
 deliberately; see [Deployment topology and upgrade compatibility](./docs/server/deployment-topology.md).

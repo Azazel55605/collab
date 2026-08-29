@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  getLogicDiagramTemplates,
-  instantiateLogicDiagramTemplate,
-} from './logicDiagramTemplates';
 import { normalizeLogicDiagramDocument } from '../../types/logicDiagram';
-import { evaluateLogicDiagram, getLogicInputHandles, getLogicOutputHandles } from './logicDiagramEvaluator';
+
+import {
+  evaluateLogicDiagram,
+  getLogicInputHandles,
+  getLogicOutputHandles,
+} from './logicDiagramEvaluator';
+import { getLogicDiagramTemplates, instantiateLogicDiagramTemplate } from './logicDiagramTemplates';
 
 const TEMPLATE_IDS = ['half-adder', 'full-adder', 'multiplexer', 'sr-flip-flop'];
 
@@ -38,15 +40,27 @@ describe('logicDiagramTemplates', () => {
       for (const w of wires) {
         const source = nodeMap.get(w.source);
         const target = nodeMap.get(w.target);
-        expect(source, `wire ${w.id} source ${w.source} must exist in ${template.id}`).toBeDefined();
-        expect(target, `wire ${w.id} target ${w.target} must exist in ${template.id}`).toBeDefined();
+        expect(
+          source,
+          `wire ${w.id} source ${w.source} must exist in ${template.id}`,
+        ).toBeDefined();
+        expect(
+          target,
+          `wire ${w.id} target ${w.target} must exist in ${template.id}`,
+        ).toBeDefined();
         if (!source || !target) continue;
         // Source handle must be a valid output handle for the source kind
         const sourceHandles = getLogicOutputHandles(source.kind);
-        expect(sourceHandles, `wire ${w.id} sourceHandle must be valid for ${source.kind}`).toContain(w.sourceHandle ?? 'out');
+        expect(
+          sourceHandles,
+          `wire ${w.id} sourceHandle must be valid for ${source.kind}`,
+        ).toContain(w.sourceHandle ?? 'out');
         // Target handle must be a valid input handle for the target kind
         const targetHandles = getLogicInputHandles(target.kind);
-        expect(targetHandles, `wire ${w.id} targetHandle must be valid for ${target.kind}`).toContain(w.targetHandle ?? 'in');
+        expect(
+          targetHandles,
+          `wire ${w.id} targetHandle must be valid for ${target.kind}`,
+        ).toContain(w.targetHandle ?? 'in');
       }
     }
   });
@@ -76,9 +90,9 @@ describe('logicDiagramTemplates', () => {
 
     const cases: Array<[boolean, boolean, boolean, boolean]> = [
       [false, false, false, false], // 0+0 = 00
-      [true, false, true, false],   // 1+0 = 01
-      [false, true, true, false],   // 0+1 = 01
-      [true, true, false, true],    // 1+1 = 10
+      [true, false, true, false], // 1+0 = 01
+      [false, true, true, false], // 0+1 = 01
+      [true, true, false, true], // 1+1 = 10
     ];
 
     for (const [a, b, expectedSum, expectedCarry] of cases) {
@@ -106,9 +120,9 @@ describe('logicDiagramTemplates', () => {
     // A + B + Cin → Sum, Cout (2-bit result)
     const cases: Array<[boolean, boolean, boolean, boolean, boolean]> = [
       [false, false, false, false, false], // 0
-      [true, false, false, true, false],   // 1
-      [true, true, false, false, true],    // 2
-      [true, true, true, true, true],      // 3
+      [true, false, false, true, false], // 1
+      [true, true, false, false, true], // 2
+      [true, true, true, true, true], // 3
     ];
 
     for (const [a, b, cin, expectedSum, expectedCout] of cases) {
@@ -122,8 +136,12 @@ describe('logicDiagramTemplates', () => {
         }),
       };
       const result = evaluateLogicDiagram(testDoc.nodes, testDoc.wires);
-      expect(result.nodeValues[sumOut.id], `full-adder A=${a} B=${b} Cin=${cin} sum`).toBe(expectedSum);
-      expect(result.nodeValues[coutOut.id], `full-adder A=${a} B=${b} Cin=${cin} cout`).toBe(expectedCout);
+      expect(result.nodeValues[sumOut.id], `full-adder A=${a} B=${b} Cin=${cin} sum`).toBe(
+        expectedSum,
+      );
+      expect(result.nodeValues[coutOut.id], `full-adder A=${a} B=${b} Cin=${cin} cout`).toBe(
+        expectedCout,
+      );
     }
   });
 
@@ -146,11 +164,19 @@ describe('logicDiagramTemplates', () => {
     });
 
     // S=0 → Y = A
-    expect(evaluateLogicDiagram(setInputs(true, false, false).nodes, doc.wires).nodeValues[outputY.id]).toBe(true);
-    expect(evaluateLogicDiagram(setInputs(false, true, false).nodes, doc.wires).nodeValues[outputY.id]).toBe(false);
+    expect(
+      evaluateLogicDiagram(setInputs(true, false, false).nodes, doc.wires).nodeValues[outputY.id],
+    ).toBe(true);
+    expect(
+      evaluateLogicDiagram(setInputs(false, true, false).nodes, doc.wires).nodeValues[outputY.id],
+    ).toBe(false);
     // S=1 → Y = B
-    expect(evaluateLogicDiagram(setInputs(false, true, true).nodes, doc.wires).nodeValues[outputY.id]).toBe(true);
-    expect(evaluateLogicDiagram(setInputs(true, false, true).nodes, doc.wires).nodeValues[outputY.id]).toBe(false);
+    expect(
+      evaluateLogicDiagram(setInputs(false, true, true).nodes, doc.wires).nodeValues[outputY.id],
+    ).toBe(true);
+    expect(
+      evaluateLogicDiagram(setInputs(true, false, true).nodes, doc.wires).nodeValues[outputY.id],
+    ).toBe(false);
   });
 
   it('SR flip-flop evaluates without crashing (feedback cycle is handled)', () => {
@@ -163,7 +189,11 @@ describe('logicDiagramTemplates', () => {
     const testDoc = {
       ...doc,
       nodes: doc.nodes.map((n) =>
-        n.id === inputS.id ? { ...n, value: false } : n.id === inputR.id ? { ...n, value: false } : n,
+        n.id === inputS.id
+          ? { ...n, value: false }
+          : n.id === inputR.id
+            ? { ...n, value: false }
+            : n,
       ),
     };
     expect(() => evaluateLogicDiagram(testDoc.nodes, testDoc.wires)).not.toThrow();

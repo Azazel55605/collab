@@ -1,5 +1,6 @@
 import type { SheetCell, SheetDocument, SheetWorksheet } from '../../types/sheet';
 import { sheetCellKey } from '../../types/sheet';
+
 import { columnIndex, columnLabel } from './address';
 import { expandNamedRangesInFormula } from './namedRanges';
 
@@ -19,7 +20,8 @@ export interface ParsedFormulaReference {
   last: ParsedFormulaEndpoint | null;
 }
 
-const REFERENCE = /^(?:(?:'((?:[^']|'')+)'|([A-Za-z_][A-Za-z0-9_.]*))!)?(\$?)([A-Za-z]{1,3})(\$?)([1-9]\d*)(?::(\$?)([A-Za-z]{1,3})(\$?)([1-9]\d*))?/;
+const REFERENCE =
+  /^(?:(?:'((?:[^']|'')+)'|([A-Za-z_][A-Za-z0-9_.]*))!)?(\$?)([A-Za-z]{1,3})(\$?)([1-9]\d*)(?::(\$?)([A-Za-z]{1,3})(\$?)([1-9]\d*))?/;
 
 function identifierCharacter(character: string | undefined): boolean {
   return Boolean(character && /[A-Za-z0-9_.]/.test(character));
@@ -69,12 +71,14 @@ export function parseFormulaReferences(formula: string): ParsedFormulaReference[
         absoluteColumn: match[3] === '$',
         absoluteRow: match[5] === '$',
       },
-      last: match[8] ? {
-        column: lastColumn!,
-        row: Number.parseInt(match[10], 10) - 1,
-        absoluteColumn: match[7] === '$',
-        absoluteRow: match[9] === '$',
-      } : null,
+      last: match[8]
+        ? {
+            column: lastColumn!,
+            row: Number.parseInt(match[10], 10) - 1,
+            absoluteColumn: match[7] === '$',
+            absoluteRow: match[9] === '$',
+          }
+        : null,
     });
     index += match[0].length;
   }
@@ -82,15 +86,15 @@ export function parseFormulaReferences(formula: string): ParsedFormulaReference[
 }
 
 function worksheetByName(document: SheetDocument, name: string): SheetWorksheet | null {
-  return document.worksheets.find(
-    (worksheet) => worksheet.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
-  ) ?? null;
+  return (
+    document.worksheets.find(
+      (worksheet) => worksheet.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+    ) ?? null
+  );
 }
 
 function sheetPrefix(name: string): string {
-  return /^[A-Za-z_][A-Za-z0-9_.]*$/.test(name)
-    ? `${name}!`
-    : `'${name.replace(/'/g, "''")}'!`;
+  return /^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? `${name}!` : `'${name.replace(/'/g, "''")}'!`;
 }
 
 function endpointText(endpoint: ParsedFormulaEndpoint, row: number, column: number): string {
@@ -158,9 +162,10 @@ function rewriteFormula(
       const columnId = targetBefore.columnOrder[reference.first.column];
       const row = rowId ? targetAfter.rowOrder.indexOf(rowId) : -1;
       const column = columnId ? targetAfter.columnOrder.indexOf(columnId) : -1;
-      output += row >= 0 && column >= 0
-        ? `${prefix}${endpointText(reference.first, row, column)}`
-        : '#REF!';
+      output +=
+        row >= 0 && column >= 0
+          ? `${prefix}${endpointText(reference.first, row, column)}`
+          : '#REF!';
     }
     cursor = reference.end;
   }
@@ -291,9 +296,11 @@ export function formulaDependsOn(
       : source;
     if (referencedWorksheet?.id !== target.worksheetId) return false;
     const last = reference.last ?? reference.first;
-    return targetRow >= Math.min(reference.first.row, last.row)
-      && targetRow <= Math.max(reference.first.row, last.row)
-      && targetColumn >= Math.min(reference.first.column, last.column)
-      && targetColumn <= Math.max(reference.first.column, last.column);
+    return (
+      targetRow >= Math.min(reference.first.row, last.row) &&
+      targetRow <= Math.max(reference.first.row, last.row) &&
+      targetColumn >= Math.min(reference.first.column, last.column) &&
+      targetColumn <= Math.max(reference.first.column, last.column)
+    );
   });
 }

@@ -1,14 +1,22 @@
-import { useState, useRef } from 'react';
+import { useRef, useState } from 'react';
+
 import { Plus, X } from 'lucide-react';
+
 import { cn } from '../../lib/utils';
 import { useGridStore } from '../../store/gridStore';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 export default function WorkspaceBar() {
-  const { workspaces, activeWorkspaceId, createWorkspace, deleteWorkspace, renameWorkspace, setActiveWorkspace } =
-    useGridStore();
+  const {
+    workspaces,
+    activeWorkspaceId,
+    createWorkspace,
+    deleteWorkspace,
+    renameWorkspace,
+    setActiveWorkspace,
+  } = useGridStore();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -43,7 +51,7 @@ export default function WorkspaceBar() {
               'border-r border-border/30 transition-colors duration-100 app-motion-fast',
               isActive
                 ? 'bg-background text-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent/40',
             )}
           >
             {/* Active indicator line */}
@@ -101,7 +109,9 @@ export default function WorkspaceBar() {
             <Plus size={12} />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="bottom" className="text-xs">New workspace</TooltipContent>
+        <TooltipContent side="bottom" className="text-xs">
+          New workspace
+        </TooltipContent>
       </Tooltip>
 
       <div className="flex-1" />

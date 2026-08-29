@@ -1,24 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
+
 import { RotateCcw } from 'lucide-react';
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button } from '../ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Input } from '../ui/input';
 
 import { MathPlot2D } from './MathPlot2D';
 import { MathPlot3D } from './MathPlot3D';
 import {
+  type MathPlotDomain,
+  type MathPlotSpec,
   PLOT_2D_MAX_SAMPLES,
   PLOT_3D_MAX_SAMPLES,
   PLOT_MIN_SAMPLES,
-  type MathPlotDomain,
-  type MathPlotSpec,
 } from './mathPlotSpec';
 
 interface MathPlotModalProps {
@@ -64,13 +59,7 @@ function clampSamples(value: number, max: number) {
   return Math.min(Math.max(Math.round(value), PLOT_MIN_SAMPLES), max);
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
       <span>{label}</span>
@@ -218,11 +207,7 @@ export function MathPlotModal({ spec, onOpenChange }: MathPlotModalProps) {
               />
             </Field>
 
-            <DomainField
-              label="x range"
-              domain={draft.x}
-              onChange={(x) => updateDraft({ x })}
-            />
+            <DomainField label="x range" domain={draft.x} onChange={(x) => updateDraft({ x })} />
 
             {draft.kind === '3d' && (
               <DomainField

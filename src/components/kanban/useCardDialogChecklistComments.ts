@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import type { KanbanBoard, KanbanCard, KanbanComment, ChecklistItem } from '../../types/kanban';
+import type { ChecklistItem, KanbanBoard, KanbanCard, KanbanComment } from '../../types/kanban';
 
 type UseCardDialogChecklistCommentsArgs = {
   board: KanbanBoard;
@@ -19,7 +19,11 @@ export function resolveChecklistCardTitle(board: KanbanBoard, cardId: string): s
   return '(deleted card)';
 }
 
-export function addChecklistEntry(checklist: ChecklistItem[], text: string, cardRef?: string): ChecklistItem[] {
+export function addChecklistEntry(
+  checklist: ChecklistItem[],
+  text: string,
+  cardRef?: string,
+): ChecklistItem[] {
   const trimmed = text.trim();
   if (!trimmed) return checklist;
   const item: ChecklistItem = {
@@ -35,7 +39,11 @@ export function toggleChecklistEntry(checklist: ChecklistItem[], id: string): Ch
   return checklist.map((item) => (item.id === id ? { ...item, checked: !item.checked } : item));
 }
 
-export function updateChecklistEntryText(checklist: ChecklistItem[], id: string, text: string): ChecklistItem[] {
+export function updateChecklistEntryText(
+  checklist: ChecklistItem[],
+  id: string,
+  text: string,
+): ChecklistItem[] {
   return checklist.map((item) => (item.id === id ? { ...item, text } : item));
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+
 import { StickyNote, Type } from 'lucide-react';
 
 import { Button } from '../ui/button';
@@ -44,7 +45,11 @@ export default function InkTextDialog({ draft, onOpenChange, onCreate }: InkText
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {draft?.kind === 'sticky' ? <StickyNote size={16} /> : <Type size={16} />}
-            {draft?.kind === 'sticky' ? 'Add sticky note' : draft?.kind === 'equation' ? 'Add equation' : 'Add text'}
+            {draft?.kind === 'sticky'
+              ? 'Add sticky note'
+              : draft?.kind === 'equation'
+                ? 'Add equation'
+                : 'Add text'}
           </DialogTitle>
           <DialogDescription>
             Text stays editable after it is placed on the drawing.
@@ -52,7 +57,13 @@ export default function InkTextDialog({ draft, onOpenChange, onCreate }: InkText
         </DialogHeader>
         <textarea
           autoFocus
-          aria-label={draft?.kind === 'sticky' ? 'Sticky note text' : draft?.kind === 'equation' ? 'Equation LaTeX' : 'Drawing text'}
+          aria-label={
+            draft?.kind === 'sticky'
+              ? 'Sticky note text'
+              : draft?.kind === 'equation'
+                ? 'Equation LaTeX'
+                : 'Drawing text'
+          }
           value={text}
           maxLength={16_384}
           rows={6}
@@ -63,8 +74,12 @@ export default function InkTextDialog({ draft, onOpenChange, onCreate }: InkText
           className="w-full resize-y rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-primary"
         />
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button disabled={!text.trim()} onClick={submit}>Add to drawing</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button disabled={!text.trim()} onClick={submit}>
+            Add to drawing
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

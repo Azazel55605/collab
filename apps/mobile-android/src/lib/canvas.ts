@@ -39,7 +39,8 @@ function normalizeNode(value: unknown, index: number): CanvasNode | null {
 
 function normalizeEdge(value: unknown, index: number): CanvasEdge | null {
   const record = asRecord(value);
-  if (!record || typeof record.source !== 'string' || typeof record.target !== 'string') return null;
+  if (!record || typeof record.source !== 'string' || typeof record.target !== 'string')
+    return null;
   return {
     ...record,
     id: typeof record.id === 'string' && record.id ? record.id : `edge-${index + 1}`,

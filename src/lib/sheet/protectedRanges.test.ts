@@ -3,10 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createEmptySheetDocument } from './document';
 import { enforceSheetMutationPolicies } from './mutationPolicy';
 import { activeWorksheet, insertTracks, setCell } from './operations';
-import {
-  protectSheetSelection,
-  removeSheetProtection,
-} from './protectedRanges';
+import { protectSheetSelection, removeSheetProtection } from './protectedRanges';
 import { createSelection, extendSelection } from './selection';
 
 describe('sheet protected ranges', () => {
@@ -16,27 +13,29 @@ describe('sheet protected ranges', () => {
     document = protectSheetSelection(
       document,
       worksheet.id,
-      extendSelection(
-        createSelection({ row: 0, column: 1 }),
-        { row: 2, column: 1 },
-      ),
+      extendSelection(createSelection({ row: 0, column: 1 }), { row: 2, column: 1 }),
       'Approved total',
     );
-    const edited = setCell(document, worksheet.id, { row: 1, column: 1 }, {
-      value: 2,
-      valueType: 'number',
-    });
+    const edited = setCell(
+      document,
+      worksheet.id,
+      { row: 1, column: 1 },
+      {
+        value: 2,
+        valueType: 'number',
+      },
+    );
     expect(() => enforceSheetMutationPolicies(document, edited)).toThrowError(/protected range/);
     const inserted = insertTracks(document, worksheet.id, 'row', 1, 1);
     expect(() => enforceSheetMutationPolicies(document, inserted)).toThrowError(/structural edit/);
 
     const protectionId = activeWorksheet(document).protectedRanges![0].id;
     document = removeSheetProtection(document, worksheet.id, protectionId);
-    expect(() => enforceSheetMutationPolicies(document, setCell(
-      document,
-      worksheet.id,
-      { row: 1, column: 1 },
-      { value: 2, valueType: 'number' },
-    ))).not.toThrow();
+    expect(() =>
+      enforceSheetMutationPolicies(
+        document,
+        setCell(document, worksheet.id, { row: 1, column: 1 }, { value: 2, valueType: 'number' }),
+      ),
+    ).not.toThrow();
   });
 });

@@ -4,11 +4,11 @@
  * Framework-free so the tool state, the brush presets, and the keyboard map are
  * shared with the mobile editor in Phase 4 rather than reimplemented there.
  */
+import type { InkArrowhead, InkBrushKind, InkBrushParameters, InkShapeKind } from '../../types/ink';
 
-import type { InkArrowhead, InkBrushParameters, InkBrushKind, InkShapeKind } from '../../types/ink';
+import { INK_THEME_SWATCHES } from './colors';
 import { INK_DEFAULT_BRUSHES } from './document';
 import type { InkEraserMode } from './erase';
-import { INK_THEME_SWATCHES } from './colors';
 
 export type InkToolId =
   | 'pen'
@@ -82,9 +82,7 @@ export function defaultToolState(): InkToolState {
 export const INK_BRUSH_WIDTHS = [32, 64, 96, 160, 256, 384, 640];
 
 /** The swatches the pen offers before the user picks their own. */
-export const INK_DEFAULT_SWATCHES = [
-  ...INK_THEME_SWATCHES,
-];
+export const INK_DEFAULT_SWATCHES = [...INK_THEME_SWATCHES];
 
 /**
  * Highlighters render behind normal ink.
@@ -234,9 +232,7 @@ export function resolveInkCommand(event: InkKeyEvent): InkCommand | null {
       Boolean(shortcut.alt) === event.altKey,
   );
   if (candidates.length === 0) return null;
-  return candidates.sort(
-    (left, right) => modifierCount(right) - modifierCount(left),
-  )[0].command;
+  return candidates.sort((left, right) => modifierCount(right) - modifierCount(left))[0].command;
 }
 
 function modifierCount(shortcut: InkShortcut): number {

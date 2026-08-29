@@ -1,13 +1,14 @@
 import { SHEET_LIMITS, sheetCellKey } from '../../types/sheet';
 import type {
   SheetCell,
-  SheetDocument,
   SheetColumn,
+  SheetDocument,
   SheetRow,
   SheetStyle,
   SheetStyleId,
   SheetWorksheet,
 } from '../../types/sheet';
+
 import type { SheetPosition } from './address';
 import { SheetDocumentError } from './document';
 import { normalizeRange, selectedPositions, type SheetSelection } from './selection';
@@ -159,16 +160,17 @@ function applyTrackStyle(
     styles = result.styles;
     tracks[id] = result.styleId
       ? { ...track, styleId: result.styleId }
-      : Object.fromEntries(Object.entries(track).filter(([key]) => key !== 'styleId')) as SheetRow | SheetColumn;
+      : (Object.fromEntries(Object.entries(track).filter(([key]) => key !== 'styleId')) as
+          SheetRow | SheetColumn);
   }
 
-  const worksheets = document.worksheets.map((candidate) => (
+  const worksheets = document.worksheets.map((candidate) =>
     candidate.id !== worksheet.id
       ? candidate
       : axis === 'row'
         ? { ...candidate, rows: tracks as SheetWorksheet['rows'] }
-        : { ...candidate, columns: tracks as SheetWorksheet['columns'] }
-  ));
+        : { ...candidate, columns: tracks as SheetWorksheet['columns'] },
+  );
   return pruneUnusedSheetStyles({ ...document, styles, worksheets });
 }
 
@@ -231,9 +233,9 @@ export function applyCellStyles(
     else delete cells[key];
   }
 
-  const worksheets = document.worksheets.map((candidate) => (
-    candidate.id === worksheetId ? { ...candidate, cells } : candidate
-  ));
+  const worksheets = document.worksheets.map((candidate) =>
+    candidate.id === worksheetId ? { ...candidate, cells } : candidate,
+  );
   return pruneUnusedSheetStyles({ ...document, styles, worksheets });
 }
 
@@ -278,9 +280,9 @@ export function applyStyleToSelection(
     else delete cells[key];
   }
 
-  const worksheets = document.worksheets.map((candidate) => (
-    candidate.id === worksheetId ? { ...candidate, cells } : candidate
-  ));
+  const worksheets = document.worksheets.map((candidate) =>
+    candidate.id === worksheetId ? { ...candidate, cells } : candidate,
+  );
   return pruneUnusedSheetStyles({ ...document, styles, worksheets });
 }
 
@@ -311,13 +313,13 @@ export function clearStylesFromSelection(
       const { styleId: _removed, ...rest } = track;
       tracks[id] = rest as SheetRow | SheetColumn;
     }
-    const worksheets = document.worksheets.map((candidate) => (
+    const worksheets = document.worksheets.map((candidate) =>
       candidate.id !== worksheetId
         ? candidate
         : axis === 'row'
           ? { ...candidate, rows: tracks as SheetWorksheet['rows'] }
-          : { ...candidate, columns: tracks as SheetWorksheet['columns'] }
-    ));
+          : { ...candidate, columns: tracks as SheetWorksheet['columns'] },
+    );
     return pruneUnusedSheetStyles({ ...document, worksheets });
   }
 
@@ -333,8 +335,8 @@ export function clearStylesFromSelection(
     if (Object.keys(rest).length > 0) cells[key] = rest;
     else delete cells[key];
   }
-  const worksheets = document.worksheets.map((candidate) => (
-    candidate.id === worksheetId ? { ...candidate, cells } : candidate
-  ));
+  const worksheets = document.worksheets.map((candidate) =>
+    candidate.id === worksheetId ? { ...candidate, cells } : candidate,
+  );
   return pruneUnusedSheetStyles({ ...document, worksheets });
 }

@@ -4,8 +4,8 @@ import {
   type DecorationSet,
   EditorView,
   ViewPlugin,
-  WidgetType,
   type ViewUpdate,
+  WidgetType,
 } from '@codemirror/view';
 import { toast } from 'sonner';
 
@@ -102,7 +102,11 @@ const COLOR_FORMAT_REGEXES: Record<ColorPreviewFormat, RegExp> = {
 };
 
 export function tryParseColor(value: string): ParsedColor | null {
-  if (typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && !CSS.supports('color', value)) {
+  if (
+    typeof CSS !== 'undefined' &&
+    typeof CSS.supports === 'function' &&
+    !CSS.supports('color', value)
+  ) {
     return null;
   }
   const probe = document.createElement('span');
@@ -128,7 +132,9 @@ function channelToHex(value: number) {
 }
 
 function alphaToHex(value: number) {
-  return clamp(Math.round(value * 255), 0, 255).toString(16).padStart(2, '0');
+  return clamp(Math.round(value * 255), 0, 255)
+    .toString(16)
+    .padStart(2, '0');
 }
 
 export function formatColorForClipboard(
@@ -223,11 +229,7 @@ function closeColorPreviewPopover() {
   removeColorPreviewPopoverListeners = null;
 }
 
-function buildColorPreviewAction(
-  label: string,
-  value: string,
-  onSelect: () => void,
-) {
+function buildColorPreviewAction(label: string, value: string, onSelect: () => void) {
   const button = document.createElement('button');
   button.type = 'button';
   button.textContent = label;
@@ -266,13 +268,12 @@ function buildColorPreviewAction(
   return button;
 }
 
-function openColorPreviewPopover(
-  anchor: HTMLElement,
-  original: string,
-  parsed: ParsedColor,
-) {
+function openColorPreviewPopover(anchor: HTMLElement, original: string, parsed: ParsedColor) {
   cancelScheduledColorPreviewClose();
-  if (activeColorPreviewPopover && activeColorPreviewPopover.dataset.colorPreviewSource === original) {
+  if (
+    activeColorPreviewPopover &&
+    activeColorPreviewPopover.dataset.colorPreviewSource === original
+  ) {
     return;
   }
   closeColorPreviewPopover();
@@ -391,7 +392,10 @@ export function findColorPreviewMatches(
 ): ColorPreviewMatch[] {
   const candidates: ColorPreviewMatch[] = [];
 
-  for (const [format, regex] of Object.entries(COLOR_FORMAT_REGEXES) as [ColorPreviewFormat, RegExp][]) {
+  for (const [format, regex] of Object.entries(COLOR_FORMAT_REGEXES) as [
+    ColorPreviewFormat,
+    RegExp,
+  ][]) {
     if (!enabledFormats[format]) continue;
     regex.lastIndex = 0;
     for (const match of text.matchAll(regex)) {
@@ -408,7 +412,7 @@ export function findColorPreviewMatches(
     }
   }
 
-  candidates.sort((a, b) => a.from - b.from || (b.to - b.from) - (a.to - a.from));
+  candidates.sort((a, b) => a.from - b.from || b.to - b.from - (a.to - a.from));
   const accepted: ColorPreviewMatch[] = [];
   let lastEnd = -1;
   for (const candidate of candidates) {
@@ -479,19 +483,22 @@ export function createColorPreviewExtension(options: {
 }) {
   if (!options.enabled || (!options.showSwatch && !options.tintText)) return [];
 
-  return ViewPlugin.fromClass(class {
-    decorations: DecorationSet;
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
 
-    constructor(view: EditorView) {
-      this.decorations = colorPreviewDecorations(view, options);
-    }
-
-    update(update: ViewUpdate) {
-      if (update.docChanged || update.viewportChanged || update.geometryChanged) {
-        this.decorations = colorPreviewDecorations(update.view, options);
+      constructor(view: EditorView) {
+        this.decorations = colorPreviewDecorations(view, options);
       }
-    }
-  }, {
-    decorations: (value) => value.decorations,
-  });
+
+      update(update: ViewUpdate) {
+        if (update.docChanged || update.viewportChanged || update.geometryChanged) {
+          this.decorations = colorPreviewDecorations(update.view, options);
+        }
+      }
+    },
+    {
+      decorations: (value) => value.decorations,
+    },
+  );
 }

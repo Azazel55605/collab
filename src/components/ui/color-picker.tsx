@@ -1,14 +1,10 @@
 import * as React from 'react';
+
 import { Check, Pipette } from 'lucide-react';
 
-import {
-  clampColorChannel,
-  hexToHsva,
-  hsvaToHex,
-  normalizeHex,
-  type HsvaColor,
-} from '@/lib/color';
+import { clampColorChannel, hexToHsva, type HsvaColor, hsvaToHex, normalizeHex } from '@/lib/color';
 import { cn } from '@/lib/utils';
+
 import { Button } from './button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from './field';
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from './input-group';
@@ -23,9 +19,18 @@ import {
 import { Slider } from './slider';
 
 const DEFAULT_COLORS = [
-  '#ffffff', '#e5e7eb', '#94a3b8', '#1f2933',
-  '#7c3aed', '#2563eb', '#0e7490', '#1a7f37',
-  '#b7791f', '#ea580c', '#c0392b', '#be185d',
+  '#ffffff',
+  '#e5e7eb',
+  '#94a3b8',
+  '#1f2933',
+  '#7c3aed',
+  '#2563eb',
+  '#0e7490',
+  '#1a7f37',
+  '#b7791f',
+  '#ea580c',
+  '#c0392b',
+  '#be185d',
 ];
 
 interface ColorPickerProps {
@@ -82,12 +87,15 @@ function ColorPicker({
     setDraft(hsvaToHex(next, allowAlpha));
   }, [allowAlpha, value]);
 
-  const emit = React.useCallback((next: HsvaColor) => {
-    const normalized = hsvaToHex(next, allowAlpha);
-    setColor(next);
-    setDraft(normalized);
-    onValueChange(normalized);
-  }, [allowAlpha, onValueChange]);
+  const emit = React.useCallback(
+    (next: HsvaColor) => {
+      const normalized = hsvaToHex(next, allowAlpha);
+      setColor(next);
+      setDraft(normalized);
+      onValueChange(normalized);
+    },
+    [allowAlpha, onValueChange],
+  );
 
   const commitDraft = React.useCallback(() => {
     const normalized = normalizeHex(draft, allowAlpha);
@@ -101,20 +109,24 @@ function ColorPicker({
     onValueChange(normalized);
   }, [allowAlpha, color, draft, onValueChange]);
 
-  const updatePlane = React.useCallback((clientX: number, clientY: number) => {
-    const bounds = planeRef.current?.getBoundingClientRect();
-    if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
-    emit({
-      ...color,
-      s: clampColorChannel(((clientX - bounds.left) / bounds.width) * 100, 0, 100),
-      v: clampColorChannel(100 - ((clientY - bounds.top) / bounds.height) * 100, 0, 100),
-    });
-  }, [color, emit]);
+  const updatePlane = React.useCallback(
+    (clientX: number, clientY: number) => {
+      const bounds = planeRef.current?.getBoundingClientRect();
+      if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+      emit({
+        ...color,
+        s: clampColorChannel(((clientX - bounds.left) / bounds.width) * 100, 0, 100),
+        v: clampColorChannel(100 - ((clientY - bounds.top) / bounds.height) * 100, 0, 100),
+      });
+    },
+    [color, emit],
+  );
 
   const selectedHex = hsvaToHex(color, allowAlpha);
   const opaqueHex = hsvaToHex({ ...color, a: 1 }, false);
   const channels = colorChannels(color);
-  const useDarkCheck = (channels.red * 299 + channels.green * 587 + channels.blue * 114) / 1000 > 150;
+  const useDarkCheck =
+    (channels.red * 299 + channels.green * 587 + channels.blue * 114) / 1000 > 150;
   const alphaPercent = Math.round(color.a * 100);
 
   return (
@@ -136,7 +148,9 @@ function ColorPicker({
             >
               <span className="absolute inset-0" style={{ backgroundColor: selectedHex }} />
             </span>
-            <span className="font-mono text-[10px] uppercase text-muted-foreground">{selectedHex}</span>
+            <span className="font-mono text-[10px] uppercase text-muted-foreground">
+              {selectedHex}
+            </span>
             <Pipette data-icon="inline-end" className="ml-auto text-muted-foreground" />
           </Button>
         )}
@@ -159,7 +173,8 @@ function ColorPicker({
           className="relative h-36 w-full touch-none overflow-hidden rounded-lg border border-foreground/10 shadow-inner outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           style={{
             backgroundColor: `hsl(${color.h} 100% 50%)`,
-            backgroundImage: 'linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent)',
+            backgroundImage:
+              'linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent)',
           }}
           onPointerDown={(event) => {
             event.currentTarget.setPointerCapture(event.pointerId);
@@ -173,10 +188,14 @@ function ColorPicker({
           onKeyDown={(event) => {
             const step = event.shiftKey ? 10 : 1;
             let next = color;
-            if (event.key === 'ArrowLeft') next = { ...color, s: clampColorChannel(color.s - step, 0, 100) };
-            else if (event.key === 'ArrowRight') next = { ...color, s: clampColorChannel(color.s + step, 0, 100) };
-            else if (event.key === 'ArrowUp') next = { ...color, v: clampColorChannel(color.v + step, 0, 100) };
-            else if (event.key === 'ArrowDown') next = { ...color, v: clampColorChannel(color.v - step, 0, 100) };
+            if (event.key === 'ArrowLeft')
+              next = { ...color, s: clampColorChannel(color.s - step, 0, 100) };
+            else if (event.key === 'ArrowRight')
+              next = { ...color, s: clampColorChannel(color.s + step, 0, 100) };
+            else if (event.key === 'ArrowUp')
+              next = { ...color, v: clampColorChannel(color.v + step, 0, 100) };
+            else if (event.key === 'ArrowDown')
+              next = { ...color, v: clampColorChannel(color.v - step, 0, 100) };
             else if (event.key === 'Home') next = { ...color, s: 0, v: 100 };
             else if (event.key === 'End') next = { ...color, s: 100, v: 0 };
             else return;
@@ -194,8 +213,12 @@ function ColorPicker({
         <FieldGroup className="gap-3">
           <Field className="gap-1.5">
             <div className="flex items-center justify-between gap-2">
-              <FieldLabel htmlFor={`${inputId}-hue`} className="text-xs">Hue</FieldLabel>
-              <span className="font-mono text-[10px] text-muted-foreground">{Math.round(color.h)}°</span>
+              <FieldLabel htmlFor={`${inputId}-hue`} className="text-xs">
+                Hue
+              </FieldLabel>
+              <span className="font-mono text-[10px] text-muted-foreground">
+                {Math.round(color.h)}°
+              </span>
             </div>
             <Slider
               id={`${inputId}-hue`}
@@ -212,7 +235,9 @@ function ColorPicker({
           {allowAlpha ? (
             <Field className="gap-1.5">
               <div className="flex items-center justify-between gap-2">
-                <FieldLabel htmlFor={`${inputId}-alpha`} className="text-xs">Opacity</FieldLabel>
+                <FieldLabel htmlFor={`${inputId}-alpha`} className="text-xs">
+                  Opacity
+                </FieldLabel>
                 <span className="font-mono text-[10px] text-muted-foreground">{alphaPercent}%</span>
               </div>
               <div
@@ -236,7 +261,9 @@ function ColorPicker({
         </FieldGroup>
 
         <Field className="gap-1.5">
-          <FieldLabel htmlFor={`${inputId}-hex`} className="text-xs">Hex value</FieldLabel>
+          <FieldLabel htmlFor={`${inputId}-hex`} className="text-xs">
+            Hex value
+          </FieldLabel>
           <div className="flex items-center gap-2">
             <span
               aria-hidden
@@ -246,7 +273,9 @@ function ColorPicker({
               <Check />
             </span>
             <InputGroup>
-              <InputGroupAddon><InputGroupText>#</InputGroupText></InputGroupAddon>
+              <InputGroupAddon>
+                <InputGroupText>#</InputGroupText>
+              </InputGroupAddon>
               <InputGroupInput
                 id={`${inputId}-hex`}
                 value={draft.replace(/^#/, '')}
@@ -265,15 +294,24 @@ function ColorPicker({
                 }}
               />
             </InputGroup>
-            <Button type="button" size="sm" variant="secondary" onClick={commitDraft}>Apply</Button>
+            <Button type="button" size="sm" variant="secondary" onClick={commitDraft}>
+              Apply
+            </Button>
           </div>
           <FieldDescription className="text-[10px]">
-            RGB {channels.red}, {channels.green}, {channels.blue}{allowAlpha ? ` · ${alphaPercent}%` : ''}
+            RGB {channels.red}, {channels.green}, {channels.blue}
+            {allowAlpha ? ` · ${alphaPercent}%` : ''}
           </FieldDescription>
         </Field>
 
         {colors.length > 0 ? (
-          <ColorPresets label={label} colors={colors} value={selectedHex} onChange={emit} allowAlpha={allowAlpha} />
+          <ColorPresets
+            label={label}
+            colors={colors}
+            value={selectedHex}
+            onChange={emit}
+            allowAlpha={allowAlpha}
+          />
         ) : null}
       </PopoverContent>
     </Popover>

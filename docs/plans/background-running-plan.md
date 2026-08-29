@@ -29,14 +29,14 @@ not become separate sync implementations.
 
 ## Progress Tracker
 
-| Phase | Status | Goal |
-| --- | --- | --- |
-| 0. Lifecycle contract and feasibility | Complete | Define platform behavior, OS limits, settings, job ownership, and a small desktop/Android proof. |
-| 1. Shared headless background coordinator | Complete | Run bounded sync and maintenance jobs without depending on a mounted webview. |
-| 2. Desktop tray and background lifecycle | Complete | Keep the desktop process available in the tray, support hide/restore/quit, and run scheduled work. |
-| 3. Android scheduled background work | Complete | Use WorkManager for durable, constrained sync and catch-up work. |
-| 4. Reliability, progress, and power controls | Complete | Add locking, backoff, persisted outcomes, network/battery policy, and transparent status. |
-| 5. Platform hardening and release | Complete | Validate lifecycle, packaging, upgrades, and device/desktop behavior before enabling by default. |
+| Phase                                        | Status   | Goal                                                                                               |
+| -------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------- |
+| 0. Lifecycle contract and feasibility        | Complete | Define platform behavior, OS limits, settings, job ownership, and a small desktop/Android proof.   |
+| 1. Shared headless background coordinator    | Complete | Run bounded sync and maintenance jobs without depending on a mounted webview.                      |
+| 2. Desktop tray and background lifecycle     | Complete | Keep the desktop process available in the tray, support hide/restore/quit, and run scheduled work. |
+| 3. Android scheduled background work         | Complete | Use WorkManager for durable, constrained sync and catch-up work.                                   |
+| 4. Reliability, progress, and power controls | Complete | Add locking, backoff, persisted outcomes, network/battery policy, and transparent status.          |
+| 5. Platform hardening and release            | Complete | Validate lifecycle, packaging, upgrades, and device/desktop behavior before enabling by default.   |
 
 ## Product Behavior
 
@@ -137,15 +137,15 @@ instead of racing it.
 ### Phase 0: Lifecycle Contract And Feasibility
 
 - [x] Document close, quit, suspend, resume, reboot, update, and force-stop
-  behavior in [the Phase 0 lifecycle contract](./background-running-phase0-contract.md).
+      behavior in [the Phase 0 lifecycle contract](./background-running-phase0-contract.md).
 - [x] Prototype a native desktop tray without changing current quit behavior.
 - [x] Prototype one Android WorkManager worker that calls a narrow native probe.
 - [x] Confirm the remaining work required for session restoration without the
-  webview.
+      webview.
 - [x] Record packaging implications for AppImage, Flatpak, Windows, macOS, APK,
-  and AAB builds.
+      and AAB builds.
 - [ ] Validate the tray proof on Linux, Windows, and macOS and the WorkManager
-  proof on a physical Android device.
+      proof on a physical Android device.
 
 Exit gate: both prototypes run on real target platforms and the native
 coordinator boundary is agreed before production behavior changes.
@@ -153,21 +153,21 @@ coordinator boundary is agreed before production behavior changes.
 ### Phase 1: Shared Headless Background Coordinator
 
 - [x] Extract foreground-only vault and calendar synchronization orchestration
-  out of React stores so foreground and background requests join the same
-  process-owned resource lock.
+      out of React stores so foreground and background requests join the same
+      process-owned resource lock.
 - [x] Add typed job request/result models in a platform-free
-  Tauri module.
+      Tauri module.
 - [x] Reuse the native vault replica and calendar stores directly, including
-  pending-operation replay, bounded change pages, manifest deltas, and
-  offline-body maintenance.
+      pending-operation replay, bounded change pages, manifest deltas, and
+      offline-body maintenance.
 - [x] Add the persistent job ledger, startup recovery, idempotency, bounded
-  runtime, cancellation, global concurrency cap, and per-server locking.
+      runtime, cancellation, global concurrency cap, and per-server locking.
 - [x] Add a native saved-server registry and restore refresh-token sessions
-  without localStorage or a webview.
+      without localStorage or a webview.
 - [x] Expose typed commands for run now, cancel, list recent outcomes, and read
-  aggregate progress.
+      aggregate progress.
 - [x] Add a native integration test that restores a refresh-token session and
-  completes a replica delta sync against a mock server without a Tauri window.
+      completes a replica delta sync against a mock server without a Tauri window.
 
 Exit gate: a native test can restore a session and complete a bounded sync
 without opening a Collab webview.
@@ -184,11 +184,11 @@ coordinator from the desktop tray without mounting React.
 - [x] Add explicit application quit handling and graceful worker shutdown.
 - [x] Add autostart integration and settings.
 - [x] Feed the existing sync menu from the persistent job ledger so hidden-window
-  jobs remain visible when the app is restored.
+      jobs remain visible when the app is restored.
 - [x] Prevent duplicate desktop instances and restore the existing window when a
-  second launch is attempted.
-- [X] Validate close-to-tray, restore, autostart, scheduled/manual sync, pause,
-  and quit on Linux, Windows, and macOS packages.
+      second launch is attempted.
+- [x] Validate close-to-tray, restore, autostart, scheduled/manual sync, pause,
+      and quit on Linux, Windows, and macOS packages.
 
 Exit gate: close-to-tray, restore, login startup, manual sync, pause, and quit
 work on Linux, Windows, and macOS without duplicate app instances.
@@ -205,9 +205,9 @@ enabled.
 - [x] Add immediate catch-up and user-initiated sync requests.
 - [x] Reconcile jobs after boot/app update through WorkManager persistence.
 - [x] Surface authentication-required and permission failures on next foreground.
-- [X] Add foreground transfer handling for large explicit uploads/downloads.
-- [X] Validate process-death, reboot, update, retry, and sign-out behavior on a
-  physical Android device.
+- [x] Add foreground transfer handling for large explicit uploads/downloads.
+- [x] Validate process-death, reboot, update, retry, and sign-out behavior on a
+      physical Android device.
 
 Exit gate: a physical device syncs eligible cached content after the activity
 has left the foreground and recovers cleanly after process death.
@@ -225,15 +225,15 @@ foreground-service path above.
 ### Phase 4: Reliability, Progress, And Power Controls
 
 - [x] Add metered-network, charging, low-battery, and roaming policy to Android
-  WorkManager constraints.
+      WorkManager constraints.
 - [x] Coalesce repeated server invalidations and avoid no-op sync loops.
 - [x] Persist attempts, capped exponential retry eligibility, successful runs,
-  and partial failures.
+      and partial failures.
 - [x] Integrate background progress with the desktop and mobile sync surfaces.
 - [x] Publish a compact, credential-free status snapshot through a narrow native
-  adapter for later notification and widget consumers.
+      adapter for later notification and widget consumers.
 - [x] Add age/count retention for completed job records and redact sensitive
-  failure payloads before they reach the ledger or Android worker logs.
+      failure payloads before they reach the ledger or Android worker logs.
 
 Phase 4 implementation is complete and is now in testing. Android scheduled and
 immediate work share explicit
@@ -251,23 +251,23 @@ covered by Phase 5.
 ### Phase 5: Platform Hardening And Release
 
 - [x] Add automated recovery coverage for interrupted jobs, credential refresh,
-  server removal, replica removal, old settings/ledger reads, and no-op
-  coalescing across app upgrades.
+      server removal, replica removal, old settings/ledger reads, and no-op
+      coalescing across app upgrades.
 - [x] Request a bounded coalesced catch-up when the desktop window is restored;
-  keep sleep/resume handling on the monotonic native scheduler.
+      keep sleep/resume handling on the monotonic native scheduler.
 - [x] Defer routine Android synchronization under low-storage conditions and
-  redact bounded worker errors before logging or returning output data.
-- [X] Validate Android Doze, force-stop, reboot, low-storage, and battery
-  restrictions on a physical-device matrix.
-- [X] Verify tray behavior under GNOME/KDE/Hyprland, Windows, and macOS.
+      redact bounded worker errors before logging or returning output data.
+- [x] Validate Android Doze, force-stop, reboot, low-storage, and battery
+      restrictions on a physical-device matrix.
+- [x] Verify tray behavior under GNOME/KDE/Hyprland, Windows, and macOS.
 - [x] Document platform limitations, release checks, physical test matrices, and
-  troubleshooting in
-  [Background Running Release Validation](../build/background-running-release-validation.md).
+      troubleshooting in
+      [Background Running Release Validation](../build/background-running-release-validation.md).
 - [x] Keep desktop and Android background running behind explicit opt-in
-  settings; do not migrate existing users to enabled defaults.
-- [X] Add notification-backed Android foreground transfer handling for large
-  explicit uploads/downloads after the notification system provides its
-  persistent channel and permission flow.
+      settings; do not migrate existing users to enabled defaults.
+- [x] Add notification-backed Android foreground transfer handling for large
+      explicit uploads/downloads after the notification system provides its
+      persistent channel and permission flow.
 
 Phase 5 implementation is complete and is now in testing. Automated coverage
 exercises interrupted-job recovery, schema-compatible upgrades, session refresh,

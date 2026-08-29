@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import type { ChatMessage, PresenceEntry } from '../types/collab';
+
 import { userColorForId } from '../lib/userColor';
+import type { ChatMessage, PresenceEntry } from '../types/collab';
 
 interface CollabState {
   myUserId: string;

@@ -3,12 +3,13 @@ import * as Y from 'yjs';
 
 import { INK_LIMITS } from '../../types/ink';
 import type { InkSample, InkStroke } from '../../types/ink';
+
 import { encodeSamples } from './codec';
-import { FIXTURE_BRUSH, buildStrokeSamples } from './fixture';
+import { buildStrokeSamples, FIXTURE_BRUSH } from './fixture';
 import {
+  buildStrokePreview,
   INK_MAX_PREVIEW_BYTES,
   INK_MAX_TRANSACTION_BYTES,
-  buildStrokePreview,
   strokeTransactions,
   transactionBytes,
   validateTransaction,
@@ -215,10 +216,18 @@ describe('over a real CRDT', () => {
     const rightObjects = right.getMap<Y.Map<unknown>>('objects');
 
     const samples = buildStrokeSamples({ samples: 40, x: 0, y: 0 });
-    commit(left, leftObjects, strokeTransactions('left-stroke', 'layer-1', samples, FIXTURE_BRUSH)[0]
-      .objects[0] as InkStroke);
-    commit(right, rightObjects, strokeTransactions('right-stroke', 'layer-1', samples, FIXTURE_BRUSH)[0]
-      .objects[0] as InkStroke);
+    commit(
+      left,
+      leftObjects,
+      strokeTransactions('left-stroke', 'layer-1', samples, FIXTURE_BRUSH)[0]
+        .objects[0] as InkStroke,
+    );
+    commit(
+      right,
+      rightObjects,
+      strokeTransactions('right-stroke', 'layer-1', samples, FIXTURE_BRUSH)[0]
+        .objects[0] as InkStroke,
+    );
 
     Y.applyUpdate(left, Y.encodeStateAsUpdate(right));
     Y.applyUpdate(right, Y.encodeStateAsUpdate(left));

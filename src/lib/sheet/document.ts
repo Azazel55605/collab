@@ -17,14 +17,13 @@
  * The bounded structural counterpart on the Rust side is
  * `crates/collab-documents/src/sheet.rs`; keep the limits in step.
  */
-
 import {
+  parseSheetCellKey,
   SHEET_DEFAULTS,
   SHEET_DOCUMENT_KIND,
   SHEET_LIMITS,
   SHEET_SCHEMA_VERSION,
   sheetCellKey,
-  parseSheetCellKey,
 } from '../../types/sheet';
 import type {
   SheetCell,
@@ -33,8 +32,8 @@ import type {
   SheetChartKind,
   SheetColumn,
   SheetColumnFilter,
-  SheetDocument,
   SheetDataConnection,
+  SheetDocument,
   SheetFilterState,
   SheetNamedRange,
   SheetRange,
@@ -43,6 +42,7 @@ import type {
   SheetValueType,
   SheetWorksheet,
 } from '../../types/sheet';
+
 import { rewriteDocumentFormulaReferences } from './formulaReferences';
 
 export type SheetDocumentErrorCode =
@@ -316,7 +316,12 @@ function normalizeCell(value: unknown): SheetCell | null {
 
   if ('value' in record) {
     const raw = record.value;
-    if (raw === null || typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') {
+    if (
+      raw === null ||
+      typeof raw === 'string' ||
+      typeof raw === 'number' ||
+      typeof raw === 'boolean'
+    ) {
       cell.value = raw;
     }
   }
@@ -334,31 +339,39 @@ function normalizeCell(value: unknown): SheetCell | null {
     const ids = new Set<string>();
     const attachments = record.attachments.flatMap((raw): SheetCellAttachment[] => {
       const attachment = asRecord(raw);
-      if (!attachment || typeof attachment.relativePath !== 'string' || !attachment.relativePath.trim()) {
+      if (
+        !attachment ||
+        typeof attachment.relativePath !== 'string' ||
+        !attachment.relativePath.trim()
+      ) {
         return [];
       }
-      const id = isValidSheetId(attachment.id) && !ids.has(attachment.id)
-        ? attachment.id
-        : createSheetAttachmentId();
+      const id =
+        isValidSheetId(attachment.id) && !ids.has(attachment.id)
+          ? attachment.id
+          : createSheetAttachmentId();
       ids.add(id);
-      return [{
-        id,
-        relativePath: attachment.relativePath.trim(),
-        ...(typeof attachment.label === 'string' && attachment.label.trim()
-          ? { label: attachment.label.trim() }
-          : {}),
-      }];
+      return [
+        {
+          id,
+          relativePath: attachment.relativePath.trim(),
+          ...(typeof attachment.label === 'string' && attachment.label.trim()
+            ? { label: attachment.label.trim() }
+            : {}),
+        },
+      ];
     });
     if (attachments.length > 0) cell.attachments = attachments;
   }
 
-  const meaningful = cell.value !== undefined
-    || cell.formula !== undefined
-    || cell.styleId !== undefined
-    || cell.note !== undefined
-    || cell.link !== undefined
-    || cell.attachments !== undefined
-    || cell.validationId !== undefined;
+  const meaningful =
+    cell.value !== undefined ||
+    cell.formula !== undefined ||
+    cell.styleId !== undefined ||
+    cell.note !== undefined ||
+    cell.link !== undefined ||
+    cell.attachments !== undefined ||
+    cell.validationId !== undefined;
   return meaningful ? cell : null;
 }
 
@@ -399,10 +412,10 @@ function normalizeStableRange(
   const endRowId = String(range.endRowId);
   const startColumnId = String(range.startColumnId);
   const endColumnId = String(range.endColumnId);
-  return rowIds.has(startRowId)
-    && rowIds.has(endRowId)
-    && columnIds.has(startColumnId)
-    && columnIds.has(endColumnId)
+  return rowIds.has(startRowId) &&
+    rowIds.has(endRowId) &&
+    columnIds.has(startColumnId) &&
+    columnIds.has(endColumnId)
     ? { startRowId, endRowId, startColumnId, endColumnId }
     : null;
 }
@@ -463,9 +476,10 @@ function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWor
   const worksheet: SheetWorksheet = {
     ...unknownKeys(record, KNOWN_WORKSHEET_KEYS),
     id: isValidSheetId(record.id) ? record.id : createSheetWorksheetId(),
-    name: typeof record.name === 'string' && record.name.trim()
-      ? record.name.slice(0, SHEET_LIMITS.worksheetNameLength)
-      : 'Sheet',
+    name:
+      typeof record.name === 'string' && record.name.trim()
+        ? record.name.slice(0, SHEET_LIMITS.worksheetNameLength)
+        : 'Sheet',
     rowOrder,
     columnOrder,
     cells,
@@ -495,11 +509,13 @@ function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWor
   if (Array.isArray(record.mergedRanges)) {
     const merged = record.mergedRanges.filter((range) => {
       const item = asRecord(range);
-      return item
-        && rowIds.has(String(item.startRowId))
-        && rowIds.has(String(item.endRowId))
-        && columnIds.has(String(item.startColumnId))
-        && columnIds.has(String(item.endColumnId));
+      return (
+        item &&
+        rowIds.has(String(item.startRowId)) &&
+        rowIds.has(String(item.endRowId)) &&
+        columnIds.has(String(item.startColumnId)) &&
+        columnIds.has(String(item.endColumnId))
+      );
     });
     if (merged.length !== record.mergedRanges.length) {
       context.warnings.push('Dropped merged range(s) pointing at missing rows or columns.');
@@ -521,34 +537,39 @@ function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWor
       const columns = item.columns.flatMap((rawColumn) => {
         const column = asRecord(rawColumn);
         if (!column || !rangeColumnIds.has(String(column.columnId))) return [];
-        const id = isValidSheetId(column.id) && !columnIdentity.has(column.id)
-          ? column.id
-          : createSheetTableColumnId();
+        const id =
+          isValidSheetId(column.id) && !columnIdentity.has(column.id)
+            ? column.id
+            : createSheetTableColumnId();
         columnIdentity.add(id);
-        return [{
-          ...column,
-          id,
-          name: typeof column.name === 'string' && column.name.trim()
-            ? column.name.trim()
-            : `Column ${columnIdentity.size}`,
-          columnId: String(column.columnId),
-        }];
+        return [
+          {
+            ...column,
+            id,
+            name:
+              typeof column.name === 'string' && column.name.trim()
+                ? column.name.trim()
+                : `Column ${columnIdentity.size}`,
+            columnId: String(column.columnId),
+          },
+        ];
       });
       if (columns.length !== rangeColumnIds.size) return [];
-      const id = isValidSheetId(item.id) && !tableIds.has(item.id)
-        ? item.id
-        : createSheetTableId();
+      const id = isValidSheetId(item.id) && !tableIds.has(item.id) ? item.id : createSheetTableId();
       tableIds.add(id);
-      return [{
-        ...item,
-        id,
-        name: typeof item.name === 'string' && item.name.trim()
-          ? item.name.trim()
-          : `Table${tableIds.size}`,
-        range,
-        hasHeaderRow: item.hasHeaderRow !== false,
-        columns,
-      }];
+      return [
+        {
+          ...item,
+          id,
+          name:
+            typeof item.name === 'string' && item.name.trim()
+              ? item.name.trim()
+              : `Table${tableIds.size}`,
+          range,
+          hasHeaderRow: item.hasHeaderRow !== false,
+          columns,
+        },
+      ];
     });
     if (tables.length !== record.tables.length) {
       context.warnings.push('Dropped table(s) with invalid or missing row/column references.');
@@ -569,9 +590,9 @@ function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWor
       if (Array.isArray(rawFilters.sortRules)) {
         filters.sortRules = rawFilters.sortRules.flatMap((rawRule) => {
           const rule = asRecord(rawRule);
-          return rule
-            && columnIds.has(String(rule.columnId))
-            && (rule.direction === 'ascending' || rule.direction === 'descending')
+          return rule &&
+            columnIds.has(String(rule.columnId)) &&
+            (rule.direction === 'ascending' || rule.direction === 'descending')
             ? [{ columnId: String(rule.columnId), direction: rule.direction }]
             : [];
         });
@@ -601,22 +622,26 @@ function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWor
     const validations = record.validations.flatMap((rawValidation) => {
       const validation = asRecord(rawValidation);
       if (!validation || !kinds.has(String(validation.kind))) return [];
-      const id = isValidSheetId(validation.id) && !validationIds.has(validation.id)
-        ? validation.id
-        : createSheetValidationId();
+      const id =
+        isValidSheetId(validation.id) && !validationIds.has(validation.id)
+          ? validation.id
+          : createSheetValidationId();
       validationIds.add(id);
-      const sourceRange = validation.sourceRange === undefined
-        ? undefined
-        : normalizeStableRange(validation.sourceRange, rowIds, columnIds);
+      const sourceRange =
+        validation.sourceRange === undefined
+          ? undefined
+          : normalizeStableRange(validation.sourceRange, rowIds, columnIds);
       if (validation.kind === 'range' && !sourceRange) return [];
       const anchorRecord = asRecord(validation.anchor);
-      let anchor = anchorRecord
-        && rowIds.has(String(anchorRecord.rowId))
-        && columnIds.has(String(anchorRecord.columnId))
-        ? { rowId: String(anchorRecord.rowId), columnId: String(anchorRecord.columnId) }
-        : undefined;
+      let anchor =
+        anchorRecord &&
+        rowIds.has(String(anchorRecord.rowId)) &&
+        columnIds.has(String(anchorRecord.columnId))
+          ? { rowId: String(anchorRecord.rowId), columnId: String(anchorRecord.columnId) }
+          : undefined;
       if (validation.kind === 'custom') {
-        if (typeof validation.formula !== 'string' || !validation.formula.startsWith('=')) return [];
+        if (typeof validation.formula !== 'string' || !validation.formula.startsWith('='))
+          return [];
         if (!anchor) {
           const firstCell = Object.entries(worksheet.cells).find(
             ([, cell]) => cell.validationId === id,
@@ -626,13 +651,15 @@ function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWor
         }
         if (!anchor) return [];
       }
-      return [{
-        ...validation,
-        id,
-        kind: String(validation.kind),
-        sourceRange: sourceRange ?? undefined,
-        anchor,
-      }];
+      return [
+        {
+          ...validation,
+          id,
+          kind: String(validation.kind),
+          sourceRange: sourceRange ?? undefined,
+          anchor,
+        },
+      ];
     }) as NonNullable<SheetWorksheet['validations']>;
     if (validations.length !== record.validations.length) {
       context.warnings.push('Dropped invalid data validation rule(s).');
@@ -669,7 +696,13 @@ function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWor
       );
     }
     const formatIds = new Set<string>();
-    const kinds = new Set(['comparison', 'formula', 'colorScale', 'duplicateValues', 'uniqueValues']);
+    const kinds = new Set([
+      'comparison',
+      'formula',
+      'colorScale',
+      'duplicateValues',
+      'uniqueValues',
+    ]);
     const conditionalFormats = record.conditionalFormats.flatMap((rawFormat) => {
       const format = asRecord(rawFormat);
       if (!format || !kinds.has(String(format.kind)) || !Array.isArray(format.ranges)) return [];
@@ -679,19 +712,23 @@ function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWor
       });
       if (ranges.length === 0 || ranges.length !== format.ranges.length) return [];
       if (
-        format.kind === 'formula'
-        && (typeof format.formula !== 'string' || !format.formula.startsWith('='))
-      ) return [];
-      const id = isValidSheetId(format.id) && !formatIds.has(format.id)
-        ? format.id
-        : createSheetConditionalFormatId();
+        format.kind === 'formula' &&
+        (typeof format.formula !== 'string' || !format.formula.startsWith('='))
+      )
+        return [];
+      const id =
+        isValidSheetId(format.id) && !formatIds.has(format.id)
+          ? format.id
+          : createSheetConditionalFormatId();
       formatIds.add(id);
-      return [{
-        ...format,
-        id,
-        kind: String(format.kind),
-        ranges,
-      }];
+      return [
+        {
+          ...format,
+          id,
+          kind: String(format.kind),
+          ranges,
+        },
+      ];
     }) as NonNullable<SheetWorksheet['conditionalFormats']>;
     if (conditionalFormats.length !== record.conditionalFormats.length) {
       context.warnings.push('Dropped invalid conditional formatting rule(s).');
@@ -710,16 +747,17 @@ function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWor
       const item = asRecord(rawRange);
       const range = item ? normalizeStableRange(item.range, rowIds, columnIds) : null;
       if (!item || !range) return [];
-      const id = isValidSheetId(item.id) && !ids.has(item.id)
-        ? item.id
-        : createSheetProtectedRangeId();
+      const id =
+        isValidSheetId(item.id) && !ids.has(item.id) ? item.id : createSheetProtectedRangeId();
       ids.add(id);
-      return [{
-        ...item,
-        id,
-        range,
-        name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : undefined,
-      }];
+      return [
+        {
+          ...item,
+          id,
+          range,
+          name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : undefined,
+        },
+      ];
     }) as NonNullable<SheetWorksheet['protectedRanges']>;
     if (protectedRanges.length !== record.protectedRanges.length) {
       context.warnings.push('Dropped invalid protected range(s).');
@@ -735,18 +773,24 @@ function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWor
     }
     const chartIds = new Set<string>();
     const chartKinds = new Set<SheetChartKind>([
-      'column', 'bar', 'line', 'area', 'pie', 'scatter', 'sparkline',
+      'column',
+      'bar',
+      'line',
+      'area',
+      'pie',
+      'scatter',
+      'sparkline',
     ]);
     const charts = record.charts.flatMap((rawChart): SheetChart[] => {
       const chart = asRecord(rawChart);
       const anchor = asRecord(chart?.anchor);
       if (
-        !chart
-        || !chartKinds.has(chart.kind as SheetChartKind)
-        || !anchor
-        || !rowIds.has(String(anchor.rowId))
-        || !columnIds.has(String(anchor.columnId))
-        || !Array.isArray(chart.series)
+        !chart ||
+        !chartKinds.has(chart.kind as SheetChartKind) ||
+        !anchor ||
+        !rowIds.has(String(anchor.rowId)) ||
+        !columnIds.has(String(anchor.columnId)) ||
+        !Array.isArray(chart.series)
       ) {
         return [];
       }
@@ -754,44 +798,53 @@ function normalizeWorksheet(value: unknown, context: NormalizeContext): SheetWor
       const series = chart.series.flatMap((rawSeries) => {
         const item = asRecord(rawSeries);
         const valuesRange = item ? normalizeStableRange(item.valuesRange, rowIds, columnIds) : null;
-        const categoriesRange = item?.categoriesRange === undefined
-          ? undefined
-          : normalizeStableRange(item.categoriesRange, rowIds, columnIds);
+        const categoriesRange =
+          item?.categoriesRange === undefined
+            ? undefined
+            : normalizeStableRange(item.categoriesRange, rowIds, columnIds);
         if (!item || !valuesRange || (item.categoriesRange !== undefined && !categoriesRange)) {
           return [];
         }
-        const id = isValidSheetId(item.id) && !seriesIds.has(item.id)
-          ? item.id
-          : createSheetChartSeriesId();
+        const id =
+          isValidSheetId(item.id) && !seriesIds.has(item.id) ? item.id : createSheetChartSeriesId();
         seriesIds.add(id);
-        return [{
-          id,
-          valuesRange,
-          ...(categoriesRange ? { categoriesRange } : {}),
-          ...(typeof item.name === 'string' && item.name.trim() ? { name: item.name.trim() } : {}),
-          ...(typeof item.color === 'string' && item.color.trim() ? { color: item.color.trim() } : {}),
-        }];
+        return [
+          {
+            id,
+            valuesRange,
+            ...(categoriesRange ? { categoriesRange } : {}),
+            ...(typeof item.name === 'string' && item.name.trim()
+              ? { name: item.name.trim() }
+              : {}),
+            ...(typeof item.color === 'string' && item.color.trim()
+              ? { color: item.color.trim() }
+              : {}),
+          },
+        ];
       });
       if (series.length === 0 || series.length !== chart.series.length) return [];
-      const id = isValidSheetId(chart.id) && !chartIds.has(chart.id)
-        ? chart.id
-        : createSheetChartId();
+      const id =
+        isValidSheetId(chart.id) && !chartIds.has(chart.id) ? chart.id : createSheetChartId();
       chartIds.add(id);
-      return [{
-        id,
-        kind: chart.kind as SheetChartKind,
-        ...(typeof chart.title === 'string' && chart.title.trim() ? { title: chart.title.trim() } : {}),
-        series,
-        anchor: {
-          rowId: String(anchor.rowId),
-          columnId: String(anchor.columnId),
-          width: Math.max(120, Math.min(1_600, positiveNumber(anchor.width) ?? 480)),
-          height: Math.max(80, Math.min(1_200, positiveNumber(anchor.height) ?? 280)),
+      return [
+        {
+          id,
+          kind: chart.kind as SheetChartKind,
+          ...(typeof chart.title === 'string' && chart.title.trim()
+            ? { title: chart.title.trim() }
+            : {}),
+          series,
+          anchor: {
+            rowId: String(anchor.rowId),
+            columnId: String(anchor.columnId),
+            width: Math.max(120, Math.min(1_600, positiveNumber(anchor.width) ?? 480)),
+            height: Math.max(80, Math.min(1_200, positiveNumber(anchor.height) ?? 280)),
+          },
+          ...(typeof chart.description === 'string' && chart.description.trim()
+            ? { description: chart.description.trim() }
+            : {}),
         },
-        ...(typeof chart.description === 'string' && chart.description.trim()
-          ? { description: chart.description.trim() }
-          : {}),
-      }];
+      ];
     });
     if (charts.length !== record.charts.length) {
       context.warnings.push('Dropped chart(s) with invalid or missing row/column references.');
@@ -819,11 +872,12 @@ export function normalizeSheetDocument(input: unknown, name = 'Workbook'): Sheet
     );
   }
 
-  const schemaVersion = typeof record.schemaVersion === 'number'
-    && Number.isInteger(record.schemaVersion)
-    && record.schemaVersion >= 1
-    ? record.schemaVersion
-    : null;
+  const schemaVersion =
+    typeof record.schemaVersion === 'number' &&
+    Number.isInteger(record.schemaVersion) &&
+    record.schemaVersion >= 1
+      ? record.schemaVersion
+      : null;
   if (schemaVersion === null) {
     throw new SheetDocumentError(
       'invalid-schema-version',
@@ -898,7 +952,8 @@ export function normalizeSheetDocument(input: unknown, name = 'Workbook'): Sheet
   }
   const styles: SheetDocument['styles'] = {};
   for (const [id, style] of Object.entries(stylesRecord)) {
-    if (isValidSheetId(id) && asRecord(style)) styles[id] = style as SheetDocument['styles'][string];
+    if (isValidSheetId(id) && asRecord(style))
+      styles[id] = style as SheetDocument['styles'][string];
   }
 
   // A style a cell points at must exist; otherwise drop the reference rather
@@ -936,8 +991,10 @@ export function normalizeSheetDocument(input: unknown, name = 'Workbook'): Sheet
 
   const activeWorksheetId = optionalString(migrated.activeWorksheetId);
   const timestamp = new Date().toISOString();
-  if (Array.isArray(migrated.namedRanges)
-    && migrated.namedRanges.length > SHEET_LIMITS.namedRangesPerWorkbook) {
+  if (
+    Array.isArray(migrated.namedRanges) &&
+    migrated.namedRanges.length > SHEET_LIMITS.namedRangesPerWorkbook
+  ) {
     throw new SheetDocumentError(
       'limit-exceeded',
       `A workbook may not have more than ${SHEET_LIMITS.namedRangesPerWorkbook} named ranges.`,
@@ -947,63 +1004,67 @@ export function normalizeSheetDocument(input: unknown, name = 'Workbook'): Sheet
   const acceptedNames: Array<{ name: string; scopeWorksheetId?: string }> = [];
   const namedRanges = Array.isArray(migrated.namedRanges)
     ? migrated.namedRanges.flatMap((rawRange): SheetNamedRange[] => {
-      const item = asRecord(rawRange);
-      if (!item || typeof item.name !== 'string' || !item.name.trim()) return [];
-      const worksheet = worksheets.find((candidate) => candidate.id === item.worksheetId);
-      if (!worksheet) return [];
-      const hasScope = Object.prototype.hasOwnProperty.call(item, 'scopeWorksheetId')
-        && item.scopeWorksheetId !== undefined;
-      if (
-        hasScope
-        && (
-          typeof item.scopeWorksheetId !== 'string'
-          || !worksheetIds.has(item.scopeWorksheetId)
+        const item = asRecord(rawRange);
+        if (!item || typeof item.name !== 'string' || !item.name.trim()) return [];
+        const worksheet = worksheets.find((candidate) => candidate.id === item.worksheetId);
+        if (!worksheet) return [];
+        const hasScope =
+          Object.prototype.hasOwnProperty.call(item, 'scopeWorksheetId') &&
+          item.scopeWorksheetId !== undefined;
+        if (
+          hasScope &&
+          (typeof item.scopeWorksheetId !== 'string' || !worksheetIds.has(item.scopeWorksheetId))
         )
-      ) return [];
-      const scopeWorksheetId = hasScope ? item.scopeWorksheetId as string : undefined;
-      const range = normalizeStableRange(
-        item.range,
-        new Set(worksheet.rowOrder),
-        new Set(worksheet.columnOrder),
-      );
-      if (!range) return [];
-      const name = item.name.trim();
-      if (
-        !/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name)
-        || /^[A-Za-z]{1,3}[1-9]\d*$/.test(name)
-      ) return [];
-      const normalizedName = name.toLocaleLowerCase();
-      const conflicts = acceptedNames.some((accepted) => (
-        accepted.name === normalizedName
-        && (
-          accepted.scopeWorksheetId === undefined
-          || scopeWorksheetId === undefined
-          || accepted.scopeWorksheetId === scopeWorksheetId
-        )
-      ));
-      if (conflicts) return [];
-      acceptedNames.push({ name: normalizedName, scopeWorksheetId });
-      const id = isValidSheetId(item.id) && !namedRangeIds.has(item.id)
-        ? item.id
-        : createSheetNamedRangeId();
-      namedRangeIds.add(id);
-      return [{
-        ...item,
-        id,
-        name,
-        worksheetId: worksheet.id,
-        range,
-        scopeWorksheetId,
-      }];
-    })
+          return [];
+        const scopeWorksheetId = hasScope ? (item.scopeWorksheetId as string) : undefined;
+        const range = normalizeStableRange(
+          item.range,
+          new Set(worksheet.rowOrder),
+          new Set(worksheet.columnOrder),
+        );
+        if (!range) return [];
+        const name = item.name.trim();
+        if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) || /^[A-Za-z]{1,3}[1-9]\d*$/.test(name))
+          return [];
+        const normalizedName = name.toLocaleLowerCase();
+        const conflicts = acceptedNames.some(
+          (accepted) =>
+            accepted.name === normalizedName &&
+            (accepted.scopeWorksheetId === undefined ||
+              scopeWorksheetId === undefined ||
+              accepted.scopeWorksheetId === scopeWorksheetId),
+        );
+        if (conflicts) return [];
+        acceptedNames.push({ name: normalizedName, scopeWorksheetId });
+        const id =
+          isValidSheetId(item.id) && !namedRangeIds.has(item.id)
+            ? item.id
+            : createSheetNamedRangeId();
+        namedRangeIds.add(id);
+        return [
+          {
+            ...item,
+            id,
+            name,
+            worksheetId: worksheet.id,
+            range,
+            scopeWorksheetId,
+          },
+        ];
+      })
     : undefined;
-  if (namedRanges && Array.isArray(migrated.namedRanges)
-    && namedRanges.length !== migrated.namedRanges.length) {
+  if (
+    namedRanges &&
+    Array.isArray(migrated.namedRanges) &&
+    namedRanges.length !== migrated.namedRanges.length
+  ) {
     context.warnings.push('Dropped invalid or conflicting named range(s).');
   }
 
-  if (Array.isArray(migrated.dataConnections)
-    && migrated.dataConnections.length > SHEET_LIMITS.dataConnectionsPerWorkbook) {
+  if (
+    Array.isArray(migrated.dataConnections) &&
+    migrated.dataConnections.length > SHEET_LIMITS.dataConnectionsPerWorkbook
+  ) {
     throw new SheetDocumentError(
       'limit-exceeded',
       `A workbook may not have more than ${SHEET_LIMITS.dataConnectionsPerWorkbook} data connections.`,
@@ -1012,58 +1073,69 @@ export function normalizeSheetDocument(input: unknown, name = 'Workbook'): Sheet
   const connectionIds = new Set<string>();
   const dataConnections = Array.isArray(migrated.dataConnections)
     ? migrated.dataConnections.flatMap((rawConnection): SheetDataConnection[] => {
-      const connection = asRecord(rawConnection);
-      if (
-        !connection
-        || (connection.kind !== 'kanbanTasks' && connection.kind !== 'calendarItems')
-        || typeof connection.targetWorksheetId !== 'string'
-      ) return [];
-      const worksheet = worksheets.find((candidate) => candidate.id === connection.targetWorksheetId);
-      if (!worksheet) return [];
-      const targetRange = normalizeStableRange(
-        connection.targetRange,
-        new Set(worksheet.rowOrder),
-        new Set(worksheet.columnOrder),
-      );
-      if (!targetRange || !Array.isArray(connection.columns)) return [];
-      const columns = connection.columns.flatMap((rawColumn) => {
-        const column = asRecord(rawColumn);
-        return column
-          && typeof column.key === 'string'
-          && typeof column.label === 'string'
-          && typeof column.columnId === 'string'
-          && worksheet.columnOrder.includes(column.columnId)
-          ? [{
-            key: column.key,
-            label: column.label,
-            columnId: column.columnId,
-          }]
-          : [];
-      });
-      if (columns.length === 0 || columns.length !== connection.columns.length) return [];
-      const id = isValidSheetId(connection.id) && !connectionIds.has(connection.id)
-        ? connection.id
-        : createSheetDataConnectionId();
-      connectionIds.add(id);
-      return [{
-        id,
-        kind: connection.kind,
-        ...(typeof connection.sourcePath === 'string' && connection.sourcePath.trim()
-          ? { sourcePath: connection.sourcePath.trim() }
-          : {}),
-        ...(typeof connection.calendarId === 'string' && connection.calendarId.trim()
-          ? { calendarId: connection.calendarId.trim() }
-          : {}),
-        targetWorksheetId: worksheet.id,
-        targetRange,
-        columns,
-        refreshedAt: optionalString(connection.refreshedAt) ?? new Date(0).toISOString(),
-        itemCount: Math.max(0, Math.floor(positiveNumber(connection.itemCount) ?? 0)),
-      }];
-    })
+        const connection = asRecord(rawConnection);
+        if (
+          !connection ||
+          (connection.kind !== 'kanbanTasks' && connection.kind !== 'calendarItems') ||
+          typeof connection.targetWorksheetId !== 'string'
+        )
+          return [];
+        const worksheet = worksheets.find(
+          (candidate) => candidate.id === connection.targetWorksheetId,
+        );
+        if (!worksheet) return [];
+        const targetRange = normalizeStableRange(
+          connection.targetRange,
+          new Set(worksheet.rowOrder),
+          new Set(worksheet.columnOrder),
+        );
+        if (!targetRange || !Array.isArray(connection.columns)) return [];
+        const columns = connection.columns.flatMap((rawColumn) => {
+          const column = asRecord(rawColumn);
+          return column &&
+            typeof column.key === 'string' &&
+            typeof column.label === 'string' &&
+            typeof column.columnId === 'string' &&
+            worksheet.columnOrder.includes(column.columnId)
+            ? [
+                {
+                  key: column.key,
+                  label: column.label,
+                  columnId: column.columnId,
+                },
+              ]
+            : [];
+        });
+        if (columns.length === 0 || columns.length !== connection.columns.length) return [];
+        const id =
+          isValidSheetId(connection.id) && !connectionIds.has(connection.id)
+            ? connection.id
+            : createSheetDataConnectionId();
+        connectionIds.add(id);
+        return [
+          {
+            id,
+            kind: connection.kind,
+            ...(typeof connection.sourcePath === 'string' && connection.sourcePath.trim()
+              ? { sourcePath: connection.sourcePath.trim() }
+              : {}),
+            ...(typeof connection.calendarId === 'string' && connection.calendarId.trim()
+              ? { calendarId: connection.calendarId.trim() }
+              : {}),
+            targetWorksheetId: worksheet.id,
+            targetRange,
+            columns,
+            refreshedAt: optionalString(connection.refreshedAt) ?? new Date(0).toISOString(),
+            itemCount: Math.max(0, Math.floor(positiveNumber(connection.itemCount) ?? 0)),
+          },
+        ];
+      })
     : undefined;
-  if (dataConnections && Array.isArray(migrated.dataConnections)
-    && dataConnections.length !== migrated.dataConnections.length) {
+  if (
+    dataConnections &&
+    Array.isArray(migrated.dataConnections) &&
+    dataConnections.length !== migrated.dataConnections.length
+  ) {
     context.warnings.push('Dropped invalid data connection(s).');
   }
 
@@ -1075,9 +1147,10 @@ export function normalizeSheetDocument(input: unknown, name = 'Workbook'): Sheet
     name: optionalString(migrated.name) ?? name,
     createdAt: optionalString(migrated.createdAt) ?? timestamp,
     updatedAt: optionalString(migrated.updatedAt) ?? timestamp,
-    activeWorksheetId: activeWorksheetId && worksheetIds.has(activeWorksheetId)
-      ? activeWorksheetId
-      : worksheets[0].id,
+    activeWorksheetId:
+      activeWorksheetId && worksheetIds.has(activeWorksheetId)
+        ? activeWorksheetId
+        : worksheets[0].id,
     worksheets,
     styles,
   };
@@ -1163,8 +1236,9 @@ export function countPopulatedCells(document: SheetDocument): number {
 
 export function countFormulaCells(document: SheetDocument): number {
   return document.worksheets.reduce(
-    (total, worksheet) => total + Object.values(worksheet.cells)
-      .filter((cell) => typeof cell.formula === 'string').length,
+    (total, worksheet) =>
+      total +
+      Object.values(worksheet.cells).filter((cell) => typeof cell.formula === 'string').length,
     0,
   );
 }
@@ -1203,7 +1277,8 @@ export function renameWorksheet(
     throw new SheetDocumentError('invalid-structure', 'A worksheet name cannot be empty.');
   }
   const collides = document.worksheets.some(
-    (worksheet) => worksheet.id !== worksheetId && worksheet.name.toLowerCase() === name.toLowerCase(),
+    (worksheet) =>
+      worksheet.id !== worksheetId && worksheet.name.toLowerCase() === name.toLowerCase(),
   );
   if (collides) {
     throw new SheetDocumentError(
@@ -1213,8 +1288,8 @@ export function renameWorksheet(
   }
   const next = {
     ...document,
-    worksheets: document.worksheets.map(
-      (worksheet) => (worksheet.id === worksheetId ? { ...worksheet, name } : worksheet),
+    worksheets: document.worksheets.map((worksheet) =>
+      worksheet.id === worksheetId ? { ...worksheet, name } : worksheet,
     ),
   };
   return rewriteDocumentFormulaReferences(document, next);
@@ -1237,14 +1312,13 @@ export function removeWorksheet(document: SheetDocument, worksheetId: string): S
   const next: SheetDocument = {
     ...document,
     worksheets,
-    activeWorksheetId: document.activeWorksheetId === worksheetId
-      ? worksheets[0].id
-      : document.activeWorksheetId,
+    activeWorksheetId:
+      document.activeWorksheetId === worksheetId ? worksheets[0].id : document.activeWorksheetId,
   };
   if (next.namedRanges) {
-    const kept = next.namedRanges.filter((range) => (
-      range.worksheetId !== worksheetId && range.scopeWorksheetId !== worksheetId
-    ));
+    const kept = next.namedRanges.filter(
+      (range) => range.worksheetId !== worksheetId && range.scopeWorksheetId !== worksheetId,
+    );
     if (kept.length > 0) next.namedRanges = kept;
     else delete next.namedRanges;
   }

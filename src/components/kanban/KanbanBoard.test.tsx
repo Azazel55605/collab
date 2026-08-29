@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
+
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { KanbanBoard } from '../../types/kanban';
 import { useCollabStore } from '../../store/collabStore';
 import { useKanbanStore } from '../../store/kanbanStore';
+import type { KanbanBoard } from '../../types/kanban';
 
 import KanbanBoardView from './KanbanBoard';
 
@@ -71,7 +72,9 @@ vi.mock('../layout/DocumentTopBar', () => ({
     title,
     ...props
   }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" onClick={onClick} title={title} {...props}>{children}</button>
+    <button type="button" onClick={onClick} title={title} {...props}>
+      {children}
+    </button>
   ),
   documentTopBarGroupClass: 'group',
   getDocumentBaseName: () => 'Test Board',
@@ -192,8 +195,13 @@ describe('KanbanBoard archive view', () => {
     expect(screen.getAllByText(/archived by test user/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/high/i)).toBeTruthy();
     expect(screen.getByText(/alex doe/i)).toBeTruthy();
-    expect(screen.getAllByText((_, element) => element?.textContent?.startsWith('Start ') ?? false).length).toBeGreaterThan(0);
-    expect(screen.getAllByText((_, element) => element?.textContent?.startsWith('Due ') ?? false).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText((_, element) => element?.textContent?.startsWith('Start ') ?? false)
+        .length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText((_, element) => element?.textContent?.startsWith('Due ') ?? false).length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText(/1 attachment/i)).toBeTruthy();
     expect(screen.getByText(/1\/1 tasks/i)).toBeTruthy();
 

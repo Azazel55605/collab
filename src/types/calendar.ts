@@ -1,4 +1,8 @@
-import { expandRecurringItem, recurrenceIncludes, validateRecurrenceRule } from '../lib/calendarRecurrence';
+import {
+  expandRecurringItem,
+  recurrenceIncludes,
+  validateRecurrenceRule,
+} from '../lib/calendarRecurrence';
 
 export const CALENDAR_SCHEMA_VERSION = 1;
 export const MAX_CALENDAR_QUERY_ITEMS = 5_000;
@@ -27,12 +31,10 @@ export type CalendarLocation =
   | { kind: 'kanban'; originKey: string };
 
 export type CalendarTimeValue =
-  | { kind: 'date'; date: string }
-  | { kind: 'dateTime'; dateTime: string; timeZone: string };
+  { kind: 'date'; date: string } | { kind: 'dateTime'; dateTime: string; timeZone: string };
 
 export type CalendarReminder =
-  | { kind: 'relative'; minutesBefore: number }
-  | { kind: 'absolute'; at: string };
+  { kind: 'relative'; minutesBefore: number } | { kind: 'absolute'; at: string };
 
 export interface CalendarRecurrence {
   /** RFC 5545 RRULE value without the `RRULE:` prefix. */
@@ -310,13 +312,7 @@ export interface CalendarMirrorGroupStatus {
 }
 
 export type CalendarMirrorProgressPhase =
-  | 'checking'
-  | 'applying'
-  | 'waiting'
-  | 'conflict'
-  | 'complete'
-  | 'disabled'
-  | 'error';
+  'checking' | 'applying' | 'waiting' | 'conflict' | 'complete' | 'disabled' | 'error';
 
 export interface CalendarMirrorProgress {
   groupId: string;
@@ -411,9 +407,9 @@ export function isCalendarDate(value: string): boolean {
   const month = Number(match[2]);
   const day = Number(match[3]);
   const date = new Date(Date.UTC(year, month - 1, day));
-  return date.getUTCFullYear() === year
-    && date.getUTCMonth() === month - 1
-    && date.getUTCDate() === day;
+  return (
+    date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+  );
 }
 
 export function isCalendarTimeZone(value: string): boolean {
@@ -432,7 +428,10 @@ function normalizeDate(value: unknown, label: string): string {
   return value;
 }
 
-export function normalizeCalendarTimeValue(value: unknown, label = 'Calendar time'): CalendarTimeValue {
+export function normalizeCalendarTimeValue(
+  value: unknown,
+  label = 'Calendar time',
+): CalendarTimeValue {
   const input = record(value, label);
   if (input.kind === 'date') {
     return { kind: 'date', date: normalizeDate(input.date, `${label} date`) };
@@ -480,12 +479,18 @@ function normalizeLocation(value: unknown): CalendarLocation {
     return {
       kind: 'subscription',
       subscriptionId: requiredString(input.subscriptionId, 'Subscription ID', 255),
-      serverUrl: input.serverUrl == null ? undefined : normalizeServerUrl(input.serverUrl, 'Subscription server URL'),
+      serverUrl:
+        input.serverUrl == null
+          ? undefined
+          : normalizeServerUrl(input.serverUrl, 'Subscription server URL'),
       userId: optionalString(input.userId, 'Subscription user ID', 255),
     };
   }
   if (input.kind === 'kanban') {
-    return { kind: 'kanban', originKey: requiredString(input.originKey, 'Kanban origin key', 2_048) };
+    return {
+      kind: 'kanban',
+      originKey: requiredString(input.originKey, 'Kanban origin key', 2_048),
+    };
   }
   throw new CalendarValidationError('Calendar location kind is invalid.');
 }
@@ -524,14 +529,12 @@ function normalizeServerUrl(value: unknown, label: string): string {
 
 function normalizeAttendee(value: unknown): CalendarAttendee {
   const input = record(value, 'Calendar attendee');
-  const response: CalendarAttendanceResponse = input.response === 'accepted'
-    || input.response === 'declined'
-    || input.response === 'tentative'
-    ? input.response
-    : 'needs-action';
-  const role: CalendarAttendeeRole = input.role === 'organizer' || input.role === 'optional'
-    ? input.role
-    : 'required';
+  const response: CalendarAttendanceResponse =
+    input.response === 'accepted' || input.response === 'declined' || input.response === 'tentative'
+      ? input.response
+      : 'needs-action';
+  const role: CalendarAttendeeRole =
+    input.role === 'organizer' || input.role === 'optional' ? input.role : 'required';
   const base = {
     id: requiredString(input.id, 'Attendee ID', 255),
     displayName: optionalString(input.displayName, 'Attendee display name', 500),
@@ -566,7 +569,10 @@ function normalizeAttachment(value: unknown): CalendarAttachment {
     return {
       ...base,
       kind: 'vaultFile',
-      serverUrl: input.serverUrl == null ? undefined : normalizeServerUrl(input.serverUrl, 'Attachment server URL'),
+      serverUrl:
+        input.serverUrl == null
+          ? undefined
+          : normalizeServerUrl(input.serverUrl, 'Attachment server URL'),
       vaultId: optionalString(input.vaultId, 'Attachment vault ID', 255),
       fileId: requiredString(input.fileId, 'Attachment file ID', 255),
       path: optionalString(input.path, 'Attachment path', 4_096),
@@ -576,7 +582,10 @@ function normalizeAttachment(value: unknown): CalendarAttachment {
     return {
       ...base,
       kind: 'kanbanTask',
-      serverUrl: input.serverUrl == null ? undefined : normalizeServerUrl(input.serverUrl, 'Attachment server URL'),
+      serverUrl:
+        input.serverUrl == null
+          ? undefined
+          : normalizeServerUrl(input.serverUrl, 'Attachment server URL'),
       vaultId: optionalString(input.vaultId, 'Attachment vault ID', 255),
       fileId: requiredString(input.fileId, 'Attachment file ID', 255),
       cardId: requiredString(input.cardId, 'Attachment card ID', 255),
@@ -589,7 +598,10 @@ function normalizeAttachment(value: unknown): CalendarAttachment {
       kind: 'uploaded',
       attachmentId: requiredString(input.attachmentId, 'Uploaded attachment ID', 255),
       contentType: optionalString(input.contentType, 'Attachment content type', 255),
-      sizeBytes: input.sizeBytes == null ? undefined : nonNegativeInteger(input.sizeBytes, 'Attachment size'),
+      sizeBytes:
+        input.sizeBytes == null
+          ? undefined
+          : nonNegativeInteger(input.sizeBytes, 'Attachment size'),
     };
   }
   if (input.kind === 'externalUrl') {
@@ -643,8 +655,8 @@ function normalizeRecurrence(value: unknown): CalendarRecurrence | undefined {
     throw new CalendarValidationError('Recurrence rule is not valid RFC 5545 syntax.');
   }
   if (
-    (Array.isArray(input.rdates) && input.rdates.length > MAX_CALENDAR_RECURRENCE_DATES)
-    || (Array.isArray(input.exdates) && input.exdates.length > MAX_CALENDAR_RECURRENCE_DATES)
+    (Array.isArray(input.rdates) && input.rdates.length > MAX_CALENDAR_RECURRENCE_DATES) ||
+    (Array.isArray(input.exdates) && input.exdates.length > MAX_CALENDAR_RECURRENCE_DATES)
   ) {
     throw new CalendarValidationError(
       `Recurrence additions and exclusions cannot exceed ${MAX_CALENDAR_RECURRENCE_DATES} values each.`,
@@ -672,9 +684,10 @@ function normalizeSourceBinding(value: unknown): CalendarSourceBinding | undefin
       fileId: requiredString(input.fileId, 'Source file ID', 255),
       cardId: requiredString(input.cardId, 'Source card ID', 255),
       path: optionalString(input.path, 'Source display path', 2_048),
-      sourceRevision: input.sourceRevision == null
-        ? undefined
-        : nonNegativeInteger(input.sourceRevision, 'Source revision'),
+      sourceRevision:
+        input.sourceRevision == null
+          ? undefined
+          : nonNegativeInteger(input.sourceRevision, 'Source revision'),
     };
   }
   if (input.kind === 'external') {
@@ -690,7 +703,9 @@ function normalizeSourceBinding(value: unknown): CalendarSourceBinding | undefin
 function normalizeIcalendarProperties(value: unknown): string[] | undefined {
   if (value == null) return undefined;
   if (!Array.isArray(value) || value.length > MAX_CALENDAR_ICALENDAR_PROPERTIES) {
-    throw new CalendarValidationError(`Calendar items cannot preserve more than ${MAX_CALENDAR_ICALENDAR_PROPERTIES} iCalendar properties.`);
+    throw new CalendarValidationError(
+      `Calendar items cannot preserve more than ${MAX_CALENDAR_ICALENDAR_PROPERTIES} iCalendar properties.`,
+    );
   }
   const properties = value.map((entry) => {
     const line = requiredString(
@@ -698,10 +713,14 @@ function normalizeIcalendarProperties(value: unknown): string[] | undefined {
       'Preserved iCalendar property',
       MAX_CALENDAR_ICALENDAR_PROPERTY_LENGTH,
     );
-    if (/[\r\n]/.test(line)
-      || !/^X-[A-Z0-9-]+(?:;[^:]*)?:/i.test(line)
-      || /^X-COLLAB-/i.test(line)) {
-      throw new CalendarValidationError('Preserved iCalendar properties must be safe X-* content lines.');
+    if (
+      /[\r\n]/.test(line) ||
+      !/^X-[A-Z0-9-]+(?:;[^:]*)?:/i.test(line) ||
+      /^X-COLLAB-/i.test(line)
+    ) {
+      throw new CalendarValidationError(
+        'Preserved iCalendar properties must be safe X-* content lines.',
+      );
     }
     return line;
   });
@@ -712,32 +731,44 @@ function normalizeItemBase(input: Record<string, unknown>) {
   const attendees = Array.isArray(input.attendees) ? input.attendees : [];
   const attachments = Array.isArray(input.attachments) ? input.attachments : [];
   if (attendees.length > MAX_CALENDAR_ATTENDEES) {
-    throw new CalendarValidationError(`Calendar items cannot have more than ${MAX_CALENDAR_ATTENDEES} attendees.`);
+    throw new CalendarValidationError(
+      `Calendar items cannot have more than ${MAX_CALENDAR_ATTENDEES} attendees.`,
+    );
   }
   if (attachments.length > MAX_CALENDAR_ATTACHMENTS) {
-    throw new CalendarValidationError(`Calendar items cannot have more than ${MAX_CALENDAR_ATTACHMENTS} attachments.`);
+    throw new CalendarValidationError(
+      `Calendar items cannot have more than ${MAX_CALENDAR_ATTACHMENTS} attachments.`,
+    );
   }
   return {
     id: requiredString(input.id, 'Calendar item ID', 255),
     uid: requiredString(input.uid, 'Calendar item UID', 2_048),
     calendarId: requiredString(input.calendarId, 'Calendar ID', 255),
     title: requiredString(input.title, 'Calendar item title', MAX_CALENDAR_ITEM_TITLE_LENGTH),
-    description: optionalString(input.description, 'Calendar item description', MAX_CALENDAR_ITEM_TEXT_LENGTH),
+    description: optionalString(
+      input.description,
+      'Calendar item description',
+      MAX_CALENDAR_ITEM_TEXT_LENGTH,
+    ),
     url: optionalString(input.url, 'Calendar item URL', 2_048),
     reminders: Array.isArray(input.reminders) ? input.reminders.map(normalizeReminder) : [],
     attendees: attendees.map(normalizeAttendee),
     attachments: attachments.map(normalizeAttachment),
     recurrence: normalizeRecurrence(input.recurrence),
-    recurrenceId: input.recurrenceId == null
-      ? undefined
-      : normalizeCalendarTimeValue(input.recurrenceId, 'Recurrence instance'),
+    recurrenceId:
+      input.recurrenceId == null
+        ? undefined
+        : normalizeCalendarTimeValue(input.recurrenceId, 'Recurrence instance'),
     recurrenceSeriesId: optionalString(input.recurrenceSeriesId, 'Recurrence series ID', 255),
     sourceBinding: normalizeSourceBinding(input.sourceBinding),
     icalendarProperties: normalizeIcalendarProperties(input.icalendarProperties),
     revision: nonNegativeInteger(input.revision, 'Calendar item revision'),
     createdAt: normalizeInstant(input.createdAt, 'Calendar item createdAt'),
     updatedAt: normalizeInstant(input.updatedAt, 'Calendar item updatedAt'),
-    deletedAt: input.deletedAt == null ? undefined : normalizeInstant(input.deletedAt, 'Calendar item deletedAt'),
+    deletedAt:
+      input.deletedAt == null
+        ? undefined
+        : normalizeInstant(input.deletedAt, 'Calendar item deletedAt'),
   };
 }
 
@@ -748,7 +779,9 @@ function timeSortValue(value: CalendarTimeValue, endOfDay: boolean): number {
 
 function assertCompatibleRange(start: CalendarTimeValue, end: CalendarTimeValue) {
   if (start.kind !== end.kind) {
-    throw new CalendarValidationError('Calendar event start and end must both be dates or both be date-times.');
+    throw new CalendarValidationError(
+      'Calendar event start and end must both be dates or both be date-times.',
+    );
   }
   // All-day end dates are exclusive, matching iCalendar DTEND semantics.
   const startValue = timeSortValue(start, false);
@@ -783,7 +816,8 @@ export function normalizeCalendarDefinition(value: unknown): CalendarDefinition 
     revision: nonNegativeInteger(input.revision, 'Calendar revision'),
     createdAt: normalizeInstant(input.createdAt, 'Calendar createdAt'),
     updatedAt: normalizeInstant(input.updatedAt, 'Calendar updatedAt'),
-    deletedAt: input.deletedAt == null ? undefined : normalizeInstant(input.deletedAt, 'Calendar deletedAt'),
+    deletedAt:
+      input.deletedAt == null ? undefined : normalizeInstant(input.deletedAt, 'Calendar deletedAt'),
   };
 }
 
@@ -804,32 +838,37 @@ export function normalizeCalendarItem(value: unknown): CalendarItem {
     };
   }
   if (input.kind === 'task') {
-    const status: CalendarTaskStatus = input.status === 'in-progress'
-      || input.status === 'completed'
-      || input.status === 'cancelled'
-      ? input.status
-      : 'needs-action';
-    const priority = input.priority === 'low' || input.priority === 'medium' || input.priority === 'high'
-      ? input.priority
-      : undefined;
+    const status: CalendarTaskStatus =
+      input.status === 'in-progress' || input.status === 'completed' || input.status === 'cancelled'
+        ? input.status
+        : 'needs-action';
+    const priority =
+      input.priority === 'low' || input.priority === 'medium' || input.priority === 'high'
+        ? input.priority
+        : undefined;
     return {
       ...base,
       kind: 'task',
-      start: input.start == null ? undefined : normalizeCalendarTimeValue(input.start, 'Task start'),
+      start:
+        input.start == null ? undefined : normalizeCalendarTimeValue(input.start, 'Task start'),
       due: input.due == null ? undefined : normalizeCalendarTimeValue(input.due, 'Task due'),
       priority,
       status,
-      completedAt: input.completedAt == null ? undefined : normalizeInstant(input.completedAt, 'Task completedAt'),
+      completedAt:
+        input.completedAt == null
+          ? undefined
+          : normalizeInstant(input.completedAt, 'Task completedAt'),
     };
   }
   if (input.kind === 'birthday') {
     const date = normalizeDate(input.date, 'Birthday date');
     const derivedYear = Number(date.slice(0, 4));
-    const birthYear = input.birthYear == null
-      ? undefined
-      : nonNegativeInteger(input.birthYear, 'Birth year');
+    const birthYear =
+      input.birthYear == null ? undefined : nonNegativeInteger(input.birthYear, 'Birth year');
     if (birthYear != null && (birthYear < 1 || birthYear > derivedYear)) {
-      throw new CalendarValidationError('Birth year must not be later than the birthday date year.');
+      throw new CalendarValidationError(
+        'Birth year must not be later than the birthday date year.',
+      );
     }
     return { ...base, kind: 'birthday', date, birthYear };
   }
@@ -863,26 +902,42 @@ function normalizeQueryBound(value: string, label: string): number {
   return new Date(normalizeInstant(value, label)).getTime();
 }
 
-export function queryCalendarItems(items: CalendarItem[], range: CalendarQueryRange): CalendarItem[] {
+export function queryCalendarItems(
+  items: CalendarItem[],
+  range: CalendarQueryRange,
+): CalendarItem[] {
   const from = normalizeQueryBound(range.from, 'Calendar query start');
   const to = normalizeQueryBound(range.to, 'Calendar query end');
   if (to <= from) throw new CalendarValidationError('Calendar query end must be after its start.');
   const requestedLimit = range.limit ?? 500;
-  if (!Number.isSafeInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > MAX_CALENDAR_QUERY_ITEMS) {
-    throw new CalendarValidationError(`Calendar query limit must be between 1 and ${MAX_CALENDAR_QUERY_ITEMS}.`);
+  if (
+    !Number.isSafeInteger(requestedLimit) ||
+    requestedLimit < 1 ||
+    requestedLimit > MAX_CALENDAR_QUERY_ITEMS
+  ) {
+    throw new CalendarValidationError(
+      `Calendar query limit must be between 1 and ${MAX_CALENDAR_QUERY_ITEMS}.`,
+    );
   }
 
-  const masterById = new Map(items.filter((item) => item.recurrence && !item.recurrenceId)
-    .map((item) => [item.id, item]));
-  const activeExceptions = new Set(items.flatMap((item) => {
-    if (!item.recurrenceId) return [];
-    const master = item.recurrenceSeriesId ? masterById.get(item.recurrenceSeriesId) : undefined;
-    if (master && (master.deletedAt || !recurrenceIncludes(master, item.recurrenceId))) return [];
-    return [item.id];
-  }));
-  const exceptionKeys = new Set(items.flatMap((item) => item.recurrenceId && activeExceptions.has(item.id)
-    ? [`${item.calendarId}\u0000${item.uid}\u0000${calendarTimeValueKey(item.recurrenceId)}`]
-    : []));
+  const masterById = new Map(
+    items.filter((item) => item.recurrence && !item.recurrenceId).map((item) => [item.id, item]),
+  );
+  const activeExceptions = new Set(
+    items.flatMap((item) => {
+      if (!item.recurrenceId) return [];
+      const master = item.recurrenceSeriesId ? masterById.get(item.recurrenceSeriesId) : undefined;
+      if (master && (master.deletedAt || !recurrenceIncludes(master, item.recurrenceId))) return [];
+      return [item.id];
+    }),
+  );
+  const exceptionKeys = new Set(
+    items.flatMap((item) =>
+      item.recurrenceId && activeExceptions.has(item.id)
+        ? [`${item.calendarId}\u0000${item.uid}\u0000${calendarTimeValueKey(item.recurrenceId)}`]
+        : [],
+    ),
+  );
   const expanded: CalendarItem[] = [];
   for (const item of items) {
     const remaining = MAX_CALENDAR_EXPANDED_CANDIDATES - expanded.length;
@@ -894,9 +949,15 @@ export function queryCalendarItems(items: CalendarItem[], range: CalendarQueryRa
       continue;
     }
     const occurrences = expandRecurringItem(item, from, to, Math.min(requestedLimit, remaining));
-    expanded.push(...occurrences.filter((occurrence) => !occurrence.recurrenceId || !exceptionKeys.has(
-      `${occurrence.calendarId}\u0000${occurrence.uid}\u0000${calendarTimeValueKey(occurrence.recurrenceId)}`,
-    )));
+    expanded.push(
+      ...occurrences.filter(
+        (occurrence) =>
+          !occurrence.recurrenceId ||
+          !exceptionKeys.has(
+            `${occurrence.calendarId}\u0000${occurrence.uid}\u0000${calendarTimeValueKey(occurrence.recurrenceId)}`,
+          ),
+      ),
+    );
   }
   return expanded
     .filter((item) => range.includeDeleted === true || item.deletedAt == null)
@@ -913,15 +974,18 @@ export function queryCalendarItems(items: CalendarItem[], range: CalendarQueryRa
       }
       return { item, itemRange: null };
     })
-    .filter((entry) => (
+    .filter((entry) =>
       entry.itemRange != null
         ? entry.itemRange.start < to && entry.itemRange.end > from
-        : range.includeUnscheduledTasks === true && entry.item.kind === 'task'
-    ))
-    .sort((left, right) => (left.itemRange?.start ?? Number.POSITIVE_INFINITY)
-      - (right.itemRange?.start ?? Number.POSITIVE_INFINITY)
-      || left.item.title.localeCompare(right.item.title)
-      || left.item.id.localeCompare(right.item.id))
+        : range.includeUnscheduledTasks === true && entry.item.kind === 'task',
+    )
+    .sort(
+      (left, right) =>
+        (left.itemRange?.start ?? Number.POSITIVE_INFINITY) -
+          (right.itemRange?.start ?? Number.POSITIVE_INFINITY) ||
+        left.item.title.localeCompare(right.item.title) ||
+        left.item.id.localeCompare(right.item.id),
+    )
     .slice(0, requestedLimit)
     .map((entry) => entry.item);
 }

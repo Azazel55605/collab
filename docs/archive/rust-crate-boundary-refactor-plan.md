@@ -308,15 +308,15 @@ remaining in one API file or being prematurely made public.
 
 ## Progress Tracker
 
-| Phase | Status | Goal |
-| --- | --- | --- |
-| 0. Baseline and dependency design | Complete | Baselines, consumer maps, draft contracts, dependency enforcement, characterization tests, and initial internal adapter ownership modules are in place. |
-| 1. Outbound network policy | Complete | `collab-net-policy` now owns shared URL, resolved-target, redirect, sensitive-header, response-budget, and timeout policy used by native and server adapters. |
-| 2. Document domain | Complete | `collab-documents` owns bounded document classification/validation, references, Kanban semantics, PDF semantics, and shared canvas inspection across native and server adapters. |
-| 3. Vault mutation domain | Complete | `collab-vault-domain` owns portable file/revision/manifest/trash mutation planning behind stable inputs and is consumed by hosted, local, and replica adapters. |
-| 4. Archive boundary | Complete | `collab-archive` owns portable entry validation, budgets, import-tree construction, export materialization, and manifest checks for server and native adapters. |
-| 5. Live document domain | Complete | `collab-live` owns bounded Yrs updates/replay, state exchange, compaction, document conversion, recovery, merge, and materialization decisions. |
-| 6. Enforcement and cleanup | Complete | Compatibility cleanup, final dependency enforcement, documentation, measurements, and the cross-platform regression matrix are complete. |
+| Phase                             | Status   | Goal                                                                                                                                                                             |
+| --------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0. Baseline and dependency design | Complete | Baselines, consumer maps, draft contracts, dependency enforcement, characterization tests, and initial internal adapter ownership modules are in place.                          |
+| 1. Outbound network policy        | Complete | `collab-net-policy` now owns shared URL, resolved-target, redirect, sensitive-header, response-budget, and timeout policy used by native and server adapters.                    |
+| 2. Document domain                | Complete | `collab-documents` owns bounded document classification/validation, references, Kanban semantics, PDF semantics, and shared canvas inspection across native and server adapters. |
+| 3. Vault mutation domain          | Complete | `collab-vault-domain` owns portable file/revision/manifest/trash mutation planning behind stable inputs and is consumed by hosted, local, and replica adapters.                  |
+| 4. Archive boundary               | Complete | `collab-archive` owns portable entry validation, budgets, import-tree construction, export materialization, and manifest checks for server and native adapters.                  |
+| 5. Live document domain           | Complete | `collab-live` owns bounded Yrs updates/replay, state exchange, compaction, document conversion, recovery, merge, and materialization decisions.                                  |
+| 6. Enforcement and cleanup        | Complete | Compatibility cleanup, final dependency enforcement, documentation, measurements, and the cross-platform regression matrix are complete.                                         |
 
 ## Phase 0: Baseline And Dependency Design
 
@@ -327,10 +327,10 @@ Tasks:
 - [x] Capture module-size, dependency, and compile-time baselines.
 - [x] Inventory duplicated behavior and every current consumer.
 - [x] Add characterization tests around security, references, archive validation,
-  revision transitions, and live recovery.
+      revision transitions, and live recovery.
 - [x] Define domain input/output types before moving implementations.
 - [x] Split `collab-server/src/api.rs`, `ws.rs`, and Tauri file commands into
-  internal modules while preserving exported handlers.
+      internal modules while preserving exported handlers.
 - [x] Add an architecture dependency check script based on `cargo metadata`.
 - [x] Record allowed crate edges and prohibited framework dependencies.
 
@@ -372,12 +372,12 @@ Tasks:
 
 - [x] Create `crates/collab-net-policy`.
 - [x] Move IP classification, URL validation, redirect decisions, target
-  revalidation, and response budgets into pure policy functions.
+      revalidation, and response budgets into pure policy functions.
 - [x] Keep request execution in native and server adapters.
 - [x] Add IPv4/IPv6, DNS rebinding, redirect-origin, credential, malformed URL,
-  response-size, and timeout fixtures.
+      response-size, and timeout fixtures.
 - [x] Replace duplicated policy code in native link/calendar fetching and server
-  calendar feeds.
+      calendar feeds.
 
 Acceptance criteria:
 
@@ -504,13 +504,13 @@ Estimated effort: 1-2 weeks.
 Tasks:
 
 - [x] Compare server ZIP import/export, backup archives, local vault exports, folder
-  downloads, and drag/download materialization.
+      downloads, and drag/download materialization.
 - [x] Extract only common validation and planning behavior.
 - [x] Preserve streaming and backend-specific storage behavior.
 - [x] Decide, with recorded evidence, between a dedicated `collab-archive` crate and
-  a `collab-vault-domain::archive` module.
+      a `collab-vault-domain::archive` module.
 - [x] Add traversal, separator, duplicate, zip-bomb, entry-count, total-size,
-  symlink, and malformed-manifest fixtures.
+      symlink, and malformed-manifest fixtures.
 
 Acceptance criteria:
 
@@ -553,10 +553,10 @@ Tasks:
 - [x] Create `crates/collab-live`.
 - [x] Extract Yrs seed/update/state-vector/compaction and structured JSON conversion.
 - [x] Extract recovery and materialization-decision logic behind persistence-neutral
-  inputs.
+      inputs.
 - [x] Keep server room registries and native WebSocket transport in their adapters.
 - [x] Add convergence, duplicate update, compaction, stale materialization,
-  structured-document, cancellation, and bounded-message fixtures.
+      structured-document, cancellation, and bounded-message fixtures.
 
 Acceptance criteria:
 

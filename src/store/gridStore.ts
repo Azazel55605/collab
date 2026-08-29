@@ -4,16 +4,10 @@ import { persist } from 'zustand/middleware';
 // ─── Layout definitions ───────────────────────────────────────────────────────
 
 export type GridLayoutId =
-  | 'single'
-  | 'split-h'
-  | 'split-v'
-  | '2x2'
-  | 'cols-3'
-  | 'cols-4'
-  | 'main-side'
-  | 'side-main';
+  'single' | 'split-h' | 'split-v' | '2x2' | 'cols-3' | 'cols-4' | 'main-side' | 'side-main';
 
-export type CellContentType = 'empty' | 'note' | 'graph' | 'canvas' | 'kanban' | 'logic' | 'image' | 'pdf' | 'settings';
+export type CellContentType =
+  'empty' | 'note' | 'graph' | 'canvas' | 'kanban' | 'logic' | 'image' | 'pdf' | 'settings';
 
 export interface GridCellContent {
   type: CellContentType;
@@ -36,18 +30,81 @@ export interface LayoutDef {
 }
 
 export const GRID_LAYOUTS: Record<GridLayoutId, LayoutDef> = {
-  single:      { id: 'single',     label: '1 Panel',        cellCount: 1, colTemplate: '1fr',               rowTemplate: '1fr',     minWidth: 0    },
-  'split-v':   { id: 'split-v',    label: '2 Rows',         cellCount: 2, colTemplate: '1fr',               rowTemplate: '1fr 1fr', minWidth: 0    },
-  'split-h':   { id: 'split-h',    label: '2 Columns',      cellCount: 2, colTemplate: '1fr 1fr',           rowTemplate: '1fr',     minWidth: 560  },
-  'main-side': { id: 'main-side',  label: 'Main + Sidebar', cellCount: 2, colTemplate: '2fr 1fr',           rowTemplate: '1fr',     minWidth: 560  },
-  'side-main': { id: 'side-main',  label: 'Sidebar + Main', cellCount: 2, colTemplate: '1fr 2fr',           rowTemplate: '1fr',     minWidth: 560  },
-  '2x2':       { id: '2x2',        label: '2×2 Grid',       cellCount: 4, colTemplate: '1fr 1fr',           rowTemplate: '1fr 1fr', minWidth: 560  },
-  'cols-3':    { id: 'cols-3',     label: '3 Columns',      cellCount: 3, colTemplate: '1fr 1fr 1fr',       rowTemplate: '1fr',     minWidth: 840  },
-  'cols-4':    { id: 'cols-4',     label: '4 Columns',      cellCount: 4, colTemplate: '1fr 1fr 1fr 1fr',   rowTemplate: '1fr',     minWidth: 1100 },
+  single: {
+    id: 'single',
+    label: '1 Panel',
+    cellCount: 1,
+    colTemplate: '1fr',
+    rowTemplate: '1fr',
+    minWidth: 0,
+  },
+  'split-v': {
+    id: 'split-v',
+    label: '2 Rows',
+    cellCount: 2,
+    colTemplate: '1fr',
+    rowTemplate: '1fr 1fr',
+    minWidth: 0,
+  },
+  'split-h': {
+    id: 'split-h',
+    label: '2 Columns',
+    cellCount: 2,
+    colTemplate: '1fr 1fr',
+    rowTemplate: '1fr',
+    minWidth: 560,
+  },
+  'main-side': {
+    id: 'main-side',
+    label: 'Main + Sidebar',
+    cellCount: 2,
+    colTemplate: '2fr 1fr',
+    rowTemplate: '1fr',
+    minWidth: 560,
+  },
+  'side-main': {
+    id: 'side-main',
+    label: 'Sidebar + Main',
+    cellCount: 2,
+    colTemplate: '1fr 2fr',
+    rowTemplate: '1fr',
+    minWidth: 560,
+  },
+  '2x2': {
+    id: '2x2',
+    label: '2×2 Grid',
+    cellCount: 4,
+    colTemplate: '1fr 1fr',
+    rowTemplate: '1fr 1fr',
+    minWidth: 560,
+  },
+  'cols-3': {
+    id: 'cols-3',
+    label: '3 Columns',
+    cellCount: 3,
+    colTemplate: '1fr 1fr 1fr',
+    rowTemplate: '1fr',
+    minWidth: 840,
+  },
+  'cols-4': {
+    id: 'cols-4',
+    label: '4 Columns',
+    cellCount: 4,
+    colTemplate: '1fr 1fr 1fr 1fr',
+    rowTemplate: '1fr',
+    minWidth: 1100,
+  },
 };
 
 export const LAYOUT_ORDER: GridLayoutId[] = [
-  'single', 'split-v', 'split-h', 'main-side', 'side-main', '2x2', 'cols-3', 'cols-4',
+  'single',
+  'split-v',
+  'split-h',
+  'main-side',
+  'side-main',
+  '2x2',
+  'cols-3',
+  'cols-4',
 ];
 
 // ─── Workspace model ──────────────────────────────────────────────────────────
@@ -102,7 +159,7 @@ interface GridState {
   activateSplit: (
     draggedContent: GridCellContent,
     currentContent: GridCellContent,
-    direction: 'left' | 'right' | 'top' | 'bottom'
+    direction: 'left' | 'right' | 'top' | 'bottom',
   ) => void;
 }
 
@@ -144,7 +201,7 @@ export const useGridStore = create<GridState>()(
       setLayout: (layoutId) =>
         set((s) => ({
           workspaces: s.workspaces.map((w) =>
-            w.id === s.activeWorkspaceId ? { ...w, layoutId } : w
+            w.id === s.activeWorkspaceId ? { ...w, layoutId } : w,
           ),
         })),
 
@@ -153,7 +210,7 @@ export const useGridStore = create<GridState>()(
           workspaces: s.workspaces.map((w) =>
             w.id === s.activeWorkspaceId
               ? { ...w, cells: w.cells.map((c) => (c.id === cellId ? { ...c, content } : c)) }
-              : w
+              : w,
           ),
         })),
 
@@ -174,7 +231,7 @@ export const useGridStore = create<GridState>()(
                       return c;
                     }),
                   }
-                : w
+                : w,
             ),
           };
         }),
@@ -188,9 +245,7 @@ export const useGridStore = create<GridState>()(
           const remaining = ws.cells.filter((c) => !newOrder.includes(c.id));
           return {
             workspaces: s.workspaces.map((w) =>
-              w.id === s.activeWorkspaceId
-                ? { ...w, cells: [...reordered, ...remaining] }
-                : w
+              w.id === s.activeWorkspaceId ? { ...w, cells: [...reordered, ...remaining] } : w,
             ),
           };
         }),
@@ -200,7 +255,7 @@ export const useGridStore = create<GridState>()(
           workspaces: s.workspaces.map((w) =>
             w.id === s.activeWorkspaceId
               ? { ...w, cells: w.cells.map((c) => (c.id === cellId ? emptyCell(cellId) : c)) }
-              : w
+              : w,
           ),
         })),
 
@@ -224,11 +279,11 @@ export const useGridStore = create<GridState>()(
 
           return {
             workspaces: s.workspaces.map((w) =>
-              w.id === s.activeWorkspaceId ? { ...w, layoutId: layout, cells: newCells } : w
+              w.id === s.activeWorkspaceId ? { ...w, layoutId: layout, cells: newCells } : w,
             ),
           };
         }),
     }),
-    { name: 'grid-storage-v2' }
-  )
+    { name: 'grid-storage-v2' },
+  ),
 );

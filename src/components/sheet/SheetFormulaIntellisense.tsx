@@ -1,8 +1,8 @@
-import { useMemo, type CSSProperties } from 'react';
+import { type CSSProperties, useMemo } from 'react';
 
-import { cn } from '../../lib/utils';
 import { activeFormulaFunction } from '../../lib/sheet/formulaFunctions';
 import { parseFormulaReferences } from '../../lib/sheet/formulaReferences';
+import { cn } from '../../lib/utils';
 
 export interface SheetFormulaSuggestion {
   name: string;
@@ -33,10 +33,7 @@ export default function SheetFormulaIntellisense({
   style,
   label = 'Formula IntelliSense',
 }: Props) {
-  const activeFunction = useMemo(
-    () => activeFormulaFunction(value, cursor),
-    [cursor, value],
-  );
+  const activeFunction = useMemo(() => activeFormulaFunction(value, cursor), [cursor, value]);
   const highlighted = useMemo(() => {
     if (!value.startsWith('=')) return null;
     const references = parseFormulaReferences(value);
@@ -88,9 +85,7 @@ export default function SheetFormulaIntellisense({
                 onChooseSuggestion(index);
               }}
             >
-              <span className="font-mono text-[12px] text-violet-300">
-                {definition.name}
-              </span>
+              <span className="font-mono text-[12px] text-violet-300">{definition.name}</span>
               <span className="truncate text-[10.5px] text-muted-foreground">
                 {definition.signature}
               </span>
@@ -100,13 +95,9 @@ export default function SheetFormulaIntellisense({
       )}
       {suggestions.length === 0 && activeFunction && (
         <div className="border-b border-border/60 px-2.5 py-2">
-          <div className="font-mono text-[11.5px] text-violet-300">
-            {activeFunction.signature}
-          </div>
+          <div className="font-mono text-[11.5px] text-violet-300">{activeFunction.signature}</div>
           {activeFunction.note && (
-            <div className="mt-1 text-[10.5px] text-muted-foreground">
-              {activeFunction.note}
-            </div>
+            <div className="mt-1 text-[10.5px] text-muted-foreground">{activeFunction.note}</div>
           )}
         </div>
       )}
@@ -118,9 +109,7 @@ export default function SheetFormulaIntellisense({
           {highlighted.map((part, index) => (
             <span
               key={`${part.text}-${index}`}
-              className={part.kind === 'reference'
-                ? 'text-cyan-400'
-                : 'text-popover-foreground'}
+              className={part.kind === 'reference' ? 'text-cyan-400' : 'text-popover-foreground'}
             >
               {part.text}
             </span>

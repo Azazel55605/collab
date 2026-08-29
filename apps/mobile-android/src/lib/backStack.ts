@@ -12,7 +12,6 @@
  * `goBack` runs the most recently registered one first, so back unwinds in the
  * order things were opened.
  */
-
 import { useEffect, useRef } from 'react';
 
 type Dismiss = () => void;

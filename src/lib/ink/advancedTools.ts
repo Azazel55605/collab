@@ -10,6 +10,7 @@ import type {
   InkStroke,
 } from '../../types/ink';
 import { INK_LIMITS } from '../../types/ink';
+
 import { decodeSamples, encodeSamples } from './codec';
 
 export interface InkPoint {
@@ -180,12 +181,17 @@ export function snapPointToAngle(from: InkPoint, to: InkPoint, stepDegrees = 15)
 
 export function inkObjectColor(object: InkObject): string | null {
   switch (object.type) {
-    case 'stroke': return object.brush.color;
+    case 'stroke':
+      return object.brush.color;
     case 'shape':
-    case 'connector': return object.stroke.color;
-    case 'text': return object.color;
-    case 'stamp': return object.color ?? null;
-    default: return null;
+    case 'connector':
+      return object.stroke.color;
+    case 'text':
+      return object.color;
+    case 'stamp':
+      return object.color ?? null;
+    default:
+      return null;
   }
 }
 
@@ -194,10 +200,7 @@ export function inkObjectColor(object: InkObject): string | null {
  * Recognition never runs implicitly: callers either invoke it explicitly or
  * opt into hold-to-straighten, and undo restores the source stroke.
  */
-export function recognizeStraightStroke(
-  stroke: InkStroke,
-  tolerance = 0.035,
-): InkShape | null {
+export function recognizeStraightStroke(stroke: InkStroke, tolerance = 0.035): InkShape | null {
   const samples = decodeSamples(stroke.samples);
   if (samples.length < 2) return null;
   const first = samples[0];
@@ -213,13 +216,13 @@ export function recognizeStraightStroke(
 
   return {
     ...createInkShape({
-    id: stroke.id,
-    layerId: stroke.layerId,
-    kind: 'line',
-    from: first,
-    to: last,
-    style: { stroke: stroke.brush },
-    sourceStrokeId: stroke.id,
+      id: stroke.id,
+      layerId: stroke.layerId,
+      kind: 'line',
+      from: first,
+      to: last,
+      style: { stroke: stroke.brush },
+      sourceStrokeId: stroke.id,
     }),
     ...(stroke.authorId ? { authorId: stroke.authorId } : {}),
     ...(stroke.createdAt === undefined ? {} : { createdAt: stroke.createdAt }),
@@ -254,28 +257,37 @@ export function recognizeInkShape(stroke: InkStroke): InkShape | null {
   }
 
   const edgeScale = Math.min(width, height);
-  const rectangleError = samples.reduce((total, sample) => total + Math.min(
-    Math.abs(sample.x - minX),
-    Math.abs(sample.x - maxX),
-    Math.abs(sample.y - minY),
-    Math.abs(sample.y - maxY),
-  ) / edgeScale, 0) / samples.length;
+  const rectangleError =
+    samples.reduce(
+      (total, sample) =>
+        total +
+        Math.min(
+          Math.abs(sample.x - minX),
+          Math.abs(sample.x - maxX),
+          Math.abs(sample.y - minY),
+          Math.abs(sample.y - maxY),
+        ) /
+          edgeScale,
+      0,
+    ) / samples.length;
 
   const centerX = (minX + maxX) / 2;
   const centerY = (minY + maxY) / 2;
   const radiusX = width / 2;
   const radiusY = height / 2;
-  const ellipseError = samples.reduce((total, sample) => {
-    const normalizedX = (sample.x - centerX) / radiusX;
-    const normalizedY = (sample.y - centerY) / radiusY;
-    return total + Math.abs(Math.hypot(normalizedX, normalizedY) - 1);
-  }, 0) / samples.length;
+  const ellipseError =
+    samples.reduce((total, sample) => {
+      const normalizedX = (sample.x - centerX) / radiusX;
+      const normalizedY = (sample.y - centerY) / radiusY;
+      return total + Math.abs(Math.hypot(normalizedX, normalizedY) - 1);
+    }, 0) / samples.length;
 
-  const kind: InkShapeKind | null = rectangleError <= 0.08 && rectangleError <= ellipseError
-    ? 'rectangle'
-    : ellipseError <= 0.16
-      ? 'ellipse'
-      : null;
+  const kind: InkShapeKind | null =
+    rectangleError <= 0.08 && rectangleError <= ellipseError
+      ? 'rectangle'
+      : ellipseError <= 0.16
+        ? 'ellipse'
+        : null;
   if (!kind) return null;
 
   return recognizedShape(stroke, kind, { x: minX, y: minY }, { x: maxX, y: maxY });
@@ -321,8 +333,15 @@ export function shouldHoldToStraighten(samples: InkSample[], durationMs: number)
     type: 'stroke',
     layerId: 'recognition-probe',
     brush: {
-      kind: 'ballpoint', color: '#000', opacity: 1, width: 64,
-      thinning: 0, smoothing: 0, streamline: 0, taperStart: 0, taperEnd: 0,
+      kind: 'ballpoint',
+      color: '#000',
+      opacity: 1,
+      width: 64,
+      thinning: 0,
+      smoothing: 0,
+      streamline: 0,
+      taperStart: 0,
+      taperEnd: 0,
     },
     samples: encodeSamples(samples),
   };
@@ -362,7 +381,10 @@ function pointLineDistance(point: InkPoint, from: InkPoint, to: InkPoint): numbe
   const dy = to.y - from.y;
   const denominator = dx * dx + dy * dy;
   if (denominator === 0) return Math.hypot(point.x - from.x, point.y - from.y);
-  const t = Math.max(0, Math.min(1, ((point.x - from.x) * dx + (point.y - from.y) * dy) / denominator));
+  const t = Math.max(
+    0,
+    Math.min(1, ((point.x - from.x) * dx + (point.y - from.y) * dy) / denominator),
+  );
   return Math.hypot(point.x - (from.x + t * dx), point.y - (from.y + t * dy));
 }
 

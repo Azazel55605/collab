@@ -1,15 +1,22 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
+
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useCollabStore } from '../store/collabStore';
-import { useEditorStore } from '../store/editorStore';
 import { useDocumentStatusStore } from '../store/documentStatusStore';
+import { useEditorStore } from '../store/editorStore';
 import { useUiStore } from '../store/uiStore';
 import { useVaultStore } from '../store/vaultStore';
 
+import CanvasPage, {
+  normalizeDirectedHandlePair,
+  normalizeLooseConnectionHandles,
+} from './CanvasPage';
+
 const canvasEvents = vi.hoisted(() => ({
-  fileModifiedHandler: null as null | ((event: { payload: { path: string } }) => void | Promise<void>),
+  fileModifiedHandler: null as
+    null | ((event: { payload: { path: string } }) => void | Promise<void>),
   reactFlowProps: null as null | Record<string, unknown>,
 }));
 
@@ -22,16 +29,21 @@ const tauriMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@tauri-apps/api/event', () => ({
-  listen: vi.fn(async (eventName: string, handler: (event: { payload: { path: string } }) => void | Promise<void>) => {
-    if (eventName === 'vault:file-modified') {
-      canvasEvents.fileModifiedHandler = handler;
-    }
-    return () => {
+  listen: vi.fn(
+    async (
+      eventName: string,
+      handler: (event: { payload: { path: string } }) => void | Promise<void>,
+    ) => {
       if (eventName === 'vault:file-modified') {
-        canvasEvents.fileModifiedHandler = null;
+        canvasEvents.fileModifiedHandler = handler;
       }
-    };
-  }),
+      return () => {
+        if (eventName === 'vault:file-modified') {
+          canvasEvents.fileModifiedHandler = null;
+        }
+      };
+    },
+  ),
 }));
 
 vi.mock('@tauri-apps/plugin-opener', () => ({
@@ -67,7 +79,10 @@ vi.mock('@xyflow/react', async () => {
 
   return {
     ReactFlowProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-    ReactFlow: ({ children, ...props }: { children: React.ReactNode } & Record<string, unknown>) => {
+    ReactFlow: ({
+      children,
+      ...props
+    }: { children: React.ReactNode } & Record<string, unknown>) => {
       canvasEvents.reactFlowProps = props;
       return <div data-testid="react-flow">{children}</div>;
     },
@@ -88,11 +103,9 @@ vi.mock('@xyflow/react', async () => {
           continue;
         }
         if (change.type === 'select') {
-          nextNodes = nextNodes.map((node) => (
-            node.id === change.id
-              ? { ...node, selected: change.selected }
-              : node
-          ));
+          nextNodes = nextNodes.map((node) =>
+            node.id === change.id ? { ...node, selected: change.selected } : node,
+          );
         }
       }
       return nextNodes;
@@ -127,8 +140,6 @@ vi.mock('sonner', () => ({
   },
 }));
 
-import CanvasPage, { normalizeDirectedHandlePair, normalizeLooseConnectionHandles } from './CanvasPage';
-
 function wait(ms: number) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -137,33 +148,56 @@ function wait(ms: number) {
 
 describe('normalizeLooseConnectionHandles', () => {
   it('backfills missing handles for near-diagonal loose connections with stable physical sides', () => {
-    expect(normalizeLooseConnectionHandles({
-      source: 'junction',
-      target: 'printer',
-      sourceHandle: undefined,
-      targetHandle: undefined,
-    }, [
-      { id: 'junction', position: { x: 200, y: 300 }, width: 56, height: 56, measured: undefined, style: undefined },
-      { id: 'printer', position: { x: 260, y: 120 }, width: 220, height: 180, measured: undefined, style: undefined },
-    ])).toEqual({
+    expect(
+      normalizeLooseConnectionHandles(
+        {
+          source: 'junction',
+          target: 'printer',
+          sourceHandle: undefined,
+          targetHandle: undefined,
+        },
+        [
+          {
+            id: 'junction',
+            position: { x: 200, y: 300 },
+            width: 56,
+            height: 56,
+            measured: undefined,
+            style: undefined,
+          },
+          {
+            id: 'printer',
+            position: { x: 260, y: 120 },
+            width: 220,
+            height: 180,
+            measured: undefined,
+            style: undefined,
+          },
+        ],
+      ),
+    ).toEqual({
       sourceHandle: 'top-in',
       targetHandle: 'bottom-out',
     });
   });
 
   it('remaps undirected saved handles onto renderable same-side source and target handles', () => {
-    expect(normalizeDirectedHandlePair({
-      sourceHandle: 'top-in',
-      targetHandle: 'left-in',
-    })).toEqual({
+    expect(
+      normalizeDirectedHandlePair({
+        sourceHandle: 'top-in',
+        targetHandle: 'left-in',
+      }),
+    ).toEqual({
       sourceHandle: 'top-out',
       targetHandle: 'left-in',
     });
 
-    expect(normalizeDirectedHandlePair({
-      sourceHandle: 'right-out',
-      targetHandle: 'bottom-out',
-    })).toEqual({
+    expect(
+      normalizeDirectedHandlePair({
+        sourceHandle: 'right-out',
+        targetHandle: 'bottom-out',
+      }),
+    ).toEqual({
       sourceHandle: 'right-out',
       targetHandle: 'bottom-in',
     });
@@ -177,7 +211,13 @@ describe('CanvasPage save behavior', () => {
     canvasEvents.reactFlowProps = null;
 
     useVaultStore.setState({
-      vault: { id: 'vault-1', path: '/vault', name: 'Vault', isEncrypted: false, lastOpened: Date.now() },
+      vault: {
+        id: 'vault-1',
+        path: '/vault',
+        name: 'Vault',
+        isEncrypted: false,
+        lastOpened: Date.now(),
+      },
       isVaultLocked: false,
       fileTree: [],
       recentVaults: [],
@@ -193,7 +233,15 @@ describe('CanvasPage save behavior', () => {
 
     useEditorStore.setState({
       sessionVaultPath: '/vault',
-      openTabs: [{ relativePath: 'Boards/test.canvas', title: 'test', isDirty: false, savedHash: null, type: 'canvas' }],
+      openTabs: [
+        {
+          relativePath: 'Boards/test.canvas',
+          title: 'test',
+          isDirty: false,
+          savedHash: null,
+          type: 'canvas',
+        },
+      ],
       activeTabPath: 'Boards/test.canvas',
       forceReloadPath: null,
     });
@@ -255,9 +303,14 @@ describe('CanvasPage save behavior', () => {
 
     // The controller latches the conflict and publishes it to the central
     // status bar surface instead of the legacy modal dialog.
-    await waitFor(() => {
-      expect(useDocumentStatusStore.getState().statuses['Boards/test.canvas']?.status).toBe('conflict');
-    }, { timeout: 2000 });
+    await waitFor(
+      () => {
+        expect(useDocumentStatusStore.getState().statuses['Boards/test.canvas']?.status).toBe(
+          'conflict',
+        );
+      },
+      { timeout: 2000 },
+    );
     expect(tauriMocks.createSnapshot).not.toHaveBeenCalled();
   });
 
@@ -315,7 +368,16 @@ describe('CanvasPage save behavior', () => {
       })
       .mockResolvedValueOnce({
         content: JSON.stringify({
-          nodes: [{ id: 'node-1', type: 'text', content: 'Remote', position: { x: 0, y: 0 }, width: 280, height: 160 }],
+          nodes: [
+            {
+              id: 'node-1',
+              type: 'text',
+              content: 'Remote',
+              position: { x: 0, y: 0 },
+              width: 280,
+              height: 160,
+            },
+          ],
           edges: [],
           viewport: { x: 0, y: 0, zoom: 1 },
         }),
@@ -375,7 +437,16 @@ describe('CanvasPage save behavior', () => {
   it('auto-connects a node created from the insert menu even when connect-start metadata is incomplete', async () => {
     tauriMocks.readNote.mockResolvedValue({
       content: JSON.stringify({
-        nodes: [{ id: 'source-1', type: 'text', content: 'Source', position: { x: 0, y: 0 }, width: 280, height: 160 }],
+        nodes: [
+          {
+            id: 'source-1',
+            type: 'text',
+            content: 'Source',
+            position: { x: 0, y: 0 },
+            width: 280,
+            height: 160,
+          },
+        ],
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
       }),
@@ -388,18 +459,22 @@ describe('CanvasPage save behavior', () => {
     expect(await screen.findByText(/1 card and 0 links/i)).toBeTruthy();
 
     await act(async () => {
-      (canvasEvents.reactFlowProps?.onConnectStart as ((event: MouseEvent, params: { nodeId?: string; handleId?: string }) => void) | undefined)?.(
-        {} as MouseEvent,
-        { handleId: 'right-out' },
-      );
-      (canvasEvents.reactFlowProps?.onConnectEnd as ((event: MouseEvent, state: { toNode: null; fromNode: { id: string }; fromHandle: { id: string } }) => void) | undefined)?.(
-        { clientX: 180, clientY: 200 } as MouseEvent,
-        {
-          toNode: null,
-          fromNode: { id: 'source-1' },
-          fromHandle: { id: 'right-out' },
-        },
-      );
+      (
+        canvasEvents.reactFlowProps?.onConnectStart as
+          ((event: MouseEvent, params: { nodeId?: string; handleId?: string }) => void) | undefined
+      )?.({} as MouseEvent, { handleId: 'right-out' });
+      (
+        canvasEvents.reactFlowProps?.onConnectEnd as
+          | ((
+              event: MouseEvent,
+              state: { toNode: null; fromNode: { id: string }; fromHandle: { id: string } },
+            ) => void)
+          | undefined
+      )?.({ clientX: 180, clientY: 200 } as MouseEvent, {
+        toNode: null,
+        fromNode: { id: 'source-1' },
+        fromHandle: { id: 'right-out' },
+      });
     });
 
     fireEvent.click(await screen.findByText('Text'));
@@ -428,8 +503,22 @@ describe('CanvasPage save behavior', () => {
     tauriMocks.readNote.mockResolvedValue({
       content: JSON.stringify({
         nodes: [
-          { id: 'node-a', type: 'text', content: 'A', position: { x: 0, y: 0 }, width: 280, height: 160 },
-          { id: 'node-b', type: 'text', content: 'B', position: { x: 320, y: 0 }, width: 280, height: 160 },
+          {
+            id: 'node-a',
+            type: 'text',
+            content: 'A',
+            position: { x: 0, y: 0 },
+            width: 280,
+            height: 160,
+          },
+          {
+            id: 'node-b',
+            type: 'text',
+            content: 'B',
+            position: { x: 320, y: 0 },
+            width: 280,
+            height: 160,
+          },
         ],
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
@@ -443,13 +532,31 @@ describe('CanvasPage save behavior', () => {
     expect(await screen.findByText(/2 cards and 0 links/i)).toBeTruthy();
 
     act(() => {
-      (canvasEvents.reactFlowProps?.onConnect as ((connection: { source: string; target: string; sourceHandle: string; targetHandle: string }) => void) | undefined)?.({
+      (
+        canvasEvents.reactFlowProps?.onConnect as
+          | ((connection: {
+              source: string;
+              target: string;
+              sourceHandle: string;
+              targetHandle: string;
+            }) => void)
+          | undefined
+      )?.({
         source: 'node-a',
         target: 'node-b',
         sourceHandle: 'right-out',
         targetHandle: 'left-in',
       });
-      (canvasEvents.reactFlowProps?.onConnect as ((connection: { source: string; target: string; sourceHandle: string; targetHandle: string }) => void) | undefined)?.({
+      (
+        canvasEvents.reactFlowProps?.onConnect as
+          | ((connection: {
+              source: string;
+              target: string;
+              sourceHandle: string;
+              targetHandle: string;
+            }) => void)
+          | undefined
+      )?.({
         source: 'node-a',
         target: 'node-b',
         sourceHandle: 'right-out',
@@ -466,7 +573,14 @@ describe('CanvasPage save behavior', () => {
     tauriMocks.readNote.mockResolvedValue({
       content: JSON.stringify({
         nodes: [
-          { id: 'node-a', type: 'text', content: 'A', position: { x: 0, y: 0 }, width: 280, height: 160 },
+          {
+            id: 'node-a',
+            type: 'text',
+            content: 'A',
+            position: { x: 0, y: 0 },
+            width: 280,
+            height: 160,
+          },
         ],
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
@@ -480,22 +594,22 @@ describe('CanvasPage save behavior', () => {
     expect(await screen.findByText(/1 card and 0 links/i)).toBeTruthy();
 
     act(() => {
-      (canvasEvents.reactFlowProps?.onNodeDragStart as ((event: MouseEvent, node: Record<string, unknown>) => void) | undefined)?.(
-        { altKey: true } as MouseEvent,
-        {
-          id: 'node-a',
-          selected: false,
-          position: { x: 0, y: 0 },
-        },
-      );
-      (canvasEvents.reactFlowProps?.onNodeDragStop as ((event: MouseEvent, node: Record<string, unknown>) => void) | undefined)?.(
-        { altKey: true } as MouseEvent,
-        {
-          id: 'node-a',
-          selected: false,
-          position: { x: 180, y: 120 },
-        },
-      );
+      (
+        canvasEvents.reactFlowProps?.onNodeDragStart as
+          ((event: MouseEvent, node: Record<string, unknown>) => void) | undefined
+      )?.({ altKey: true } as MouseEvent, {
+        id: 'node-a',
+        selected: false,
+        position: { x: 0, y: 0 },
+      });
+      (
+        canvasEvents.reactFlowProps?.onNodeDragStop as
+          ((event: MouseEvent, node: Record<string, unknown>) => void) | undefined
+      )?.({ altKey: true } as MouseEvent, {
+        id: 'node-a',
+        selected: false,
+        position: { x: 180, y: 120 },
+      });
     });
 
     await waitFor(() => {
@@ -507,8 +621,22 @@ describe('CanvasPage save behavior', () => {
     tauriMocks.readNote.mockResolvedValue({
       content: JSON.stringify({
         nodes: [
-          { id: 'node-a', type: 'text', content: 'A', position: { x: 0, y: 0 }, width: 280, height: 160 },
-          { id: 'node-b', type: 'text', content: 'B', position: { x: 320, y: 0 }, width: 280, height: 160 },
+          {
+            id: 'node-a',
+            type: 'text',
+            content: 'A',
+            position: { x: 0, y: 0 },
+            width: 280,
+            height: 160,
+          },
+          {
+            id: 'node-b',
+            type: 'text',
+            content: 'B',
+            position: { x: 320, y: 0 },
+            width: 280,
+            height: 160,
+          },
         ],
         edges: [
           {
@@ -536,9 +664,10 @@ describe('CanvasPage save behavior', () => {
     expect(await screen.findByText(/2 cards and 1 link/i)).toBeTruthy();
 
     act(() => {
-      (canvasEvents.reactFlowProps?.onNodesChange as ((changes: Array<{ id: string; type: string; selected?: boolean }>) => void) | undefined)?.([
-        { id: 'node-a', type: 'select', selected: true },
-      ]);
+      (
+        canvasEvents.reactFlowProps?.onNodesChange as
+          ((changes: Array<{ id: string; type: string; selected?: boolean }>) => void) | undefined
+      )?.([{ id: 'node-a', type: 'select', selected: true }]);
     });
 
     fireEvent.keyDown(document, { key: 'Delete' });

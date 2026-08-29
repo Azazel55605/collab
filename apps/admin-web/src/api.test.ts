@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import { api, serverApi } from './api';
 
 describe('admin API client', () => {
@@ -69,8 +70,11 @@ describe('admin API client', () => {
 
   it('uses the hosted vault transfer endpoints from the admin client', async () => {
     document.cookie = 'collab_csrf=csrf-token';
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { importedFiles: 1 } }), { status: 200 }))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { importedFiles: 1 } }), { status: 200 }),
+      )
       .mockResolvedValueOnce(new Response(new Blob(['zip']), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 

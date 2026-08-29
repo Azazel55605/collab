@@ -1,11 +1,12 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import StatusBar from './StatusBar';
 import { useDocumentStatusStore } from '../../store/documentStatusStore';
 import { useEditorStore } from '../../store/editorStore';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useVaultStore } from '../../store/vaultStore';
+
+import StatusBar from './StatusBar';
 
 vi.mock('../collaboration/PresenceBar', () => ({
   default: () => <span data-testid="presence-bar" />,
@@ -33,7 +34,9 @@ describe('StatusBar', () => {
       vault: { id: 'v1', path: '/vault', name: 'Vault', isEncrypted: false, lastOpened: 1 },
     } as never);
     useEditorStore.setState({
-      openTabs: [{ relativePath: 'Notes/a.md', title: 'a', isDirty: false, savedHash: null, type: 'note' }],
+      openTabs: [
+        { relativePath: 'Notes/a.md', title: 'a', isDirty: false, savedHash: null, type: 'note' },
+      ],
       activeTabPath: 'Notes/a.md',
     } as never);
     useNoteIndexStore.setState({ notes: [] } as never);

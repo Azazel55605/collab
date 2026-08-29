@@ -39,13 +39,13 @@ COLLAB_LOAD_PASSWORD='…' \
 
 ### Tuning
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `COLLAB_LOAD_URL` | `http://127.0.0.1:8788` | Target gateway URL. |
-| `COLLAB_LOAD_DURATION` | `30s` | Duration per endpoint (`oha`/`hey`/`wrk`). |
-| `COLLAB_LOAD_CONCURRENCY` | `50` | Concurrent connections/workers. |
-| `COLLAB_LOAD_REQUESTS` | `1000` | Total requests for the `curl` fallback only. |
-| `COLLAB_LOAD_USERNAME` / `COLLAB_LOAD_PASSWORD` | unset | Enables the authenticated phase. |
+| Variable                                        | Default                 | Purpose                                      |
+| ----------------------------------------------- | ----------------------- | -------------------------------------------- |
+| `COLLAB_LOAD_URL`                               | `http://127.0.0.1:8788` | Target gateway URL.                          |
+| `COLLAB_LOAD_DURATION`                          | `30s`                   | Duration per endpoint (`oha`/`hey`/`wrk`).   |
+| `COLLAB_LOAD_CONCURRENCY`                       | `50`                    | Concurrent connections/workers.              |
+| `COLLAB_LOAD_REQUESTS`                          | `1000`                  | Total requests for the `curl` fallback only. |
+| `COLLAB_LOAD_USERNAME` / `COLLAB_LOAD_PASSWORD` | unset                   | Enables the authenticated phase.             |
 
 ## Interpreting Results
 

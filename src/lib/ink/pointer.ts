@@ -11,8 +11,8 @@
  * and pointer capture live. Touch Events would lose pressure and tilt; mouse
  * events would lose everything.
  */
-
 import { INK_UNITS_PER_PX } from '../../types/ink';
+
 import type { InkPointerReading } from './samples';
 
 export type InkPointerKind = 'pen' | 'touch' | 'mouse';

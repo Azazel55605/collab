@@ -6,7 +6,7 @@ const MAX_MERMAID_EDGES = 500;
 const MERMAID_SCRIPT_ATTRIBUTE = 'data-collab-mermaid';
 
 let renderSequence = 0;
-type MermaidApi = typeof import('mermaid')['default'];
+type MermaidApi = (typeof import('mermaid'))['default'];
 type MermaidGlobal = typeof globalThis & { mermaid?: MermaidApi };
 
 let mermaidModule: Promise<MermaidApi> | null = null;
@@ -24,9 +24,7 @@ function loadMermaid() {
   if (mermaidModule) return mermaidModule;
 
   mermaidModule = new Promise<MermaidApi>((resolve, reject) => {
-    document.querySelector<HTMLScriptElement>(
-      `script[${MERMAID_SCRIPT_ATTRIBUTE}]`,
-    )?.remove();
+    document.querySelector<HTMLScriptElement>(`script[${MERMAID_SCRIPT_ATTRIBUTE}]`)?.remove();
 
     const script = document.createElement('script');
     const finish = () => {
@@ -68,24 +66,22 @@ function clampUnit(value: number) {
 
 function linearSrgbToByte(value: number) {
   const clamped = clampUnit(value);
-  const gamma = clamped <= 0.0031308
-    ? clamped * 12.92
-    : 1.055 * Math.pow(clamped, 1 / 2.4) - 0.055;
+  const gamma = clamped <= 0.0031308 ? clamped * 12.92 : 1.055 * Math.pow(clamped, 1 / 2.4) - 0.055;
   return Math.round(clampUnit(gamma) * 255);
 }
 
 export function mermaidCompatibleColor(value: string, fallback: string) {
-  const match = value.trim().match(
-    /^oklch\(\s*([+-]?(?:\d+\.?\d*|\.\d+))(%?)\s*(?:,|\s)\s*([+-]?(?:\d+\.?\d*|\.\d+))(%?)\s*(?:,|\s)\s*([+-]?(?:\d+\.?\d*|\.\d+))(?:deg)?(?:\s*\/\s*([+-]?(?:\d+\.?\d*|\.\d+))(%?))?\s*\)$/i,
-  );
+  const match = value
+    .trim()
+    .match(
+      /^oklch\(\s*([+-]?(?:\d+\.?\d*|\.\d+))(%?)\s*(?:,|\s)\s*([+-]?(?:\d+\.?\d*|\.\d+))(%?)\s*(?:,|\s)\s*([+-]?(?:\d+\.?\d*|\.\d+))(?:deg)?(?:\s*\/\s*([+-]?(?:\d+\.?\d*|\.\d+))(%?))?\s*\)$/i,
+    );
   if (!match) return value || fallback;
 
   const lightness = Number(match[1]) / (match[2] ? 100 : 1);
   const chroma = Number(match[3]) * (match[4] ? 0.004 : 1);
-  const hue = Number(match[5]) * Math.PI / 180;
-  const alpha = match[6] === undefined
-    ? 1
-    : Number(match[6]) / (match[7] ? 100 : 1);
+  const hue = (Number(match[5]) * Math.PI) / 180;
+  const alpha = match[6] === undefined ? 1 : Number(match[6]) / (match[7] ? 100 : 1);
   if (![lightness, chroma, hue, alpha].every(Number.isFinite)) return fallback;
 
   const labA = chroma * Math.cos(hue);
@@ -106,11 +102,7 @@ export function mermaidCompatibleColor(value: string, fallback: string) {
   return `#${[red, green, blue].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
 }
 
-function mermaidThemeColor(
-  style: CSSStyleDeclaration,
-  name: string,
-  fallback: string,
-) {
+function mermaidThemeColor(style: CSSStyleDeclaration, name: string, fallback: string) {
   return mermaidCompatibleColor(cssVariable(style, name, fallback), fallback);
 }
 
@@ -166,7 +158,9 @@ export function renderMermaidInto(target: HTMLElement, source: string): MermaidR
 
   const ready = enqueueRender(async () => {
     if (source.length > MAX_MERMAID_SOURCE_CHARS) {
-      throw new Error(`diagram source exceeds ${MAX_MERMAID_SOURCE_CHARS.toLocaleString()} characters`);
+      throw new Error(
+        `diagram source exceeds ${MAX_MERMAID_SOURCE_CHARS.toLocaleString()} characters`,
+      );
     }
 
     const mermaid = await loadMermaid();

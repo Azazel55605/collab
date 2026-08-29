@@ -14,7 +14,6 @@
  * the user will actually see. Quantizing last means every earlier stage runs in
  * continuous space and only one rounding error is ever introduced.
  */
-
 import { INK_LIMITS, INK_SAMPLE_RANGES } from '../../types/ink';
 import type { InkSample } from '../../types/ink';
 
@@ -87,10 +86,7 @@ export function normalizeReading(reading: InkPointerReading): InkPointerReading 
  * sample, which removes hand tremor. `strength` is 0..1 and is clamped below 1
  * so the stroke can always reach the pointer.
  */
-export function streamline(
-  readings: InkPointerReading[],
-  strength: number,
-): InkPointerReading[] {
+export function streamline(readings: InkPointerReading[], strength: number): InkPointerReading[] {
   const alpha = 1 - clamp(strength, 0, 0.95);
   if (readings.length === 0 || alpha >= 1) return readings;
 
@@ -256,7 +252,10 @@ export function captureStroke(
     options.simplifyTolerance ?? INK_DEFAULT_SIMPLIFY_TOLERANCE,
   );
 
-  const limit = Math.min(options.maxSamples ?? INK_LIMITS.samplesPerStroke, INK_LIMITS.samplesPerStroke);
+  const limit = Math.min(
+    options.maxSamples ?? INK_LIMITS.samplesPerStroke,
+    INK_LIMITS.samplesPerStroke,
+  );
   const bounded = simplified.length > limit ? simplified.slice(0, limit) : simplified;
   return bounded.map(quantize);
 }

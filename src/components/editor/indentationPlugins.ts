@@ -1,13 +1,13 @@
-import { EditorSelection, EditorState, RangeSetBuilder } from '@codemirror/state';
 import { indentMore } from '@codemirror/commands';
 import { indentUnit } from '@codemirror/language';
+import { EditorSelection, EditorState, RangeSetBuilder } from '@codemirror/state';
 import {
   Decoration,
   type DecorationSet,
   EditorView,
   ViewPlugin,
-  WidgetType,
   type ViewUpdate,
+  WidgetType,
 } from '@codemirror/view';
 
 export type EditorIndentStyle = 'spaces' | 'tabs';
@@ -22,7 +22,11 @@ class IndentMarkerWidget extends WidgetType {
   }
 
   eq(other: IndentMarkerWidget) {
-    return this.symbol === other.symbol && this.widthCh === other.widthCh && this.className === other.className;
+    return (
+      this.symbol === other.symbol &&
+      this.widthCh === other.widthCh &&
+      this.className === other.className
+    );
   }
 
   toDOM() {
@@ -111,21 +115,29 @@ function buildAsciiArrowLigatureDecorations(view: EditorView): DecorationSet {
 }
 
 export function asciiArrowLigatures() {
-  return ViewPlugin.fromClass(class {
-    decorations: DecorationSet;
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
 
-    constructor(view: EditorView) {
-      this.decorations = buildAsciiArrowLigatureDecorations(view);
-    }
-
-    update(update: ViewUpdate) {
-      if (update.docChanged || update.selectionSet || update.viewportChanged || update.geometryChanged) {
-        this.decorations = buildAsciiArrowLigatureDecorations(update.view);
+      constructor(view: EditorView) {
+        this.decorations = buildAsciiArrowLigatureDecorations(view);
       }
-    }
-  }, {
-    decorations: (value) => value.decorations,
-  });
+
+      update(update: ViewUpdate) {
+        if (
+          update.docChanged ||
+          update.selectionSet ||
+          update.viewportChanged ||
+          update.geometryChanged
+        ) {
+          this.decorations = buildAsciiArrowLigatureDecorations(update.view);
+        }
+      }
+    },
+    {
+      decorations: (value) => value.decorations,
+    },
+  );
 }
 
 function buildIndentDecorations(
@@ -229,7 +241,11 @@ function buildIndentDecorations(
                 fromPos,
                 toPos,
                 Decoration.replace({
-                  widget: new IndentMarkerWidget('→', widthCh, `cm-indent-marker cm-indent-marker-tab ${depthClass}`),
+                  widget: new IndentMarkerWidget(
+                    '→',
+                    widthCh,
+                    `cm-indent-marker cm-indent-marker-tab ${depthClass}`,
+                  ),
                 }),
               );
             } else {
@@ -240,7 +256,11 @@ function buildIndentDecorations(
               fromPos,
               toPos,
               Decoration.replace({
-                widget: new IndentMarkerWidget('→', widthCh, 'cm-indent-marker cm-indent-marker-tab'),
+                widget: new IndentMarkerWidget(
+                  '→',
+                  widthCh,
+                  'cm-indent-marker cm-indent-marker-tab',
+                ),
               }),
             );
           }
@@ -265,21 +285,36 @@ export function indentVisualization(
 ) {
   if (!showMarkers && !showColors) return [];
 
-  return ViewPlugin.fromClass(class {
-    decorations: DecorationSet;
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
 
-    constructor(view: EditorView) {
-      this.decorations = buildIndentDecorations(view, showMarkers, showColors, indentStyle, indentWidth);
-    }
-
-    update(update: ViewUpdate) {
-      if (update.docChanged || update.viewportChanged || update.geometryChanged) {
-        this.decorations = buildIndentDecorations(update.view, showMarkers, showColors, indentStyle, indentWidth);
+      constructor(view: EditorView) {
+        this.decorations = buildIndentDecorations(
+          view,
+          showMarkers,
+          showColors,
+          indentStyle,
+          indentWidth,
+        );
       }
-    }
-  }, {
-    decorations: (value) => value.decorations,
-  });
+
+      update(update: ViewUpdate) {
+        if (update.docChanged || update.viewportChanged || update.geometryChanged) {
+          this.decorations = buildIndentDecorations(
+            update.view,
+            showMarkers,
+            showColors,
+            indentStyle,
+            indentWidth,
+          );
+        }
+      }
+    },
+    {
+      decorations: (value) => value.decorations,
+    },
+  );
 }
 
 export function indentationConfig(indentStyle: EditorIndentStyle, tabWidth: number) {

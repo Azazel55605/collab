@@ -6,7 +6,16 @@ import type { NoteFile } from '../types/vault';
  * need a byte-level asset copy, which the Files sidebar exposes as Download
  * instead.
  */
-const DUPLICABLE_EXTENSIONS = new Set(['md', 'markdown', 'canvas', 'kanban', 'logic', 'sheet', 'ink', 'svg']);
+const DUPLICABLE_EXTENSIONS = new Set([
+  'md',
+  'markdown',
+  'canvas',
+  'kanban',
+  'logic',
+  'sheet',
+  'ink',
+  'svg',
+]);
 
 export function isTextDocumentPath(relativePath: string): boolean {
   const extension = relativePath.split('.').pop()?.toLowerCase() ?? '';

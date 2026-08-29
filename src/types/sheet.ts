@@ -166,15 +166,7 @@ export interface SheetStyle {
 }
 
 export type SheetNumberFormatKind =
-  | 'general'
-  | 'number'
-  | 'percent'
-  | 'currency'
-  | 'date'
-  | 'time'
-  | 'datetime'
-  | 'text'
-  | 'custom';
+  'general' | 'number' | 'percent' | 'currency' | 'date' | 'time' | 'datetime' | 'text' | 'custom';
 
 export interface SheetNumberFormat {
   kind: SheetNumberFormatKind;
@@ -206,17 +198,21 @@ export interface SheetValidation {
 }
 
 export type SheetConditionalFormatKind =
-  | 'comparison'
-  | 'formula'
-  | 'colorScale'
-  | 'duplicateValues'
-  | 'uniqueValues';
+  'comparison' | 'formula' | 'colorScale' | 'duplicateValues' | 'uniqueValues';
 
 export interface SheetConditionalFormat {
   id: string;
   kind: SheetConditionalFormatKind;
   ranges: SheetRange[];
-  operator?: 'equal' | 'notEqual' | 'greater' | 'greaterOrEqual' | 'less' | 'lessOrEqual' | 'between' | 'contains';
+  operator?:
+    | 'equal'
+    | 'notEqual'
+    | 'greater'
+    | 'greaterOrEqual'
+    | 'less'
+    | 'lessOrEqual'
+    | 'between'
+    | 'contains';
   values?: (string | number)[];
   formula?: string;
   styleId?: SheetStyleId;
@@ -384,7 +380,9 @@ export function sheetCellKey(rowId: SheetRowId, columnId: SheetColumnId): SheetC
   return `${rowId}:${columnId}`;
 }
 
-export function parseSheetCellKey(key: SheetCellKey): { rowId: SheetRowId; columnId: SheetColumnId } | null {
+export function parseSheetCellKey(
+  key: SheetCellKey,
+): { rowId: SheetRowId; columnId: SheetColumnId } | null {
   const separator = key.indexOf(':');
   if (separator <= 0 || separator === key.length - 1) return null;
   return { rowId: key.slice(0, separator), columnId: key.slice(separator + 1) };

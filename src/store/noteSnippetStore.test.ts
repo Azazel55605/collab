@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { tauriCommands } from '../lib/tauri';
+
 import { useNoteSnippetStore } from './noteSnippetStore';
 
 vi.mock('../lib/tauri', () => ({
@@ -31,7 +32,9 @@ describe('noteSnippetStore', () => {
   it('still surfaces snippet failures for local vaults', async () => {
     vi.mocked(tauriCommands.listNoteSnippets).mockRejectedValue(new Error('disk unavailable'));
 
-    await expect(useNoteSnippetStore.getState().loadSnippets('/vault')).rejects.toThrow('disk unavailable');
+    await expect(useNoteSnippetStore.getState().loadSnippets('/vault')).rejects.toThrow(
+      'disk unavailable',
+    );
     expect(useNoteSnippetStore.getState().isLoading).toBe(false);
   });
 });

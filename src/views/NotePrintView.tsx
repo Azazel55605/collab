@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Printer, X } from 'lucide-react';
+
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Printer, X } from 'lucide-react';
 
 import { MarkdownPreview } from '../components/editor/MarkdownPreview';
-import { createVaultClient } from '../lib/vaultClient';
-import { useVaultStore } from '../store/vaultStore';
 import { Button } from '../components/ui/button';
-import { getVaultDocumentTitle } from '../lib/vaultLinks';
 import { resolveNoteAssetTarget } from '../lib/noteAssets';
-import type { VaultMeta, NoteFile } from '../types/vault';
+import { createVaultClient } from '../lib/vaultClient';
+import { getVaultDocumentTitle } from '../lib/vaultLinks';
+import { useVaultStore } from '../store/vaultStore';
+import type { NoteFile, VaultMeta } from '../types/vault';
 
 interface NotePrintViewProps {
   relativePath: string;
@@ -20,10 +21,7 @@ async function waitForPrintableFonts() {
   const fonts = document.fonts;
   if (!fonts) return;
   try {
-    await Promise.race([
-      fonts.ready,
-      new Promise((resolve) => window.setTimeout(resolve, 1600)),
-    ]);
+    await Promise.race([fonts.ready, new Promise((resolve) => window.setTimeout(resolve, 1600))]);
   } catch {
     // Font readiness is best-effort; do not block printing forever.
   }
@@ -130,10 +128,16 @@ export default function NotePrintView({
     let cancelled = false;
     setPreviewReady(false);
 
-    createVaultClient(vault).readDocument(relativePath)
+    createVaultClient(vault)
+      .readDocument(relativePath)
       .then(async (doc) => {
         if (cancelled) return;
-        const printableContent = await inlinePrintableImages(doc.content, vault, relativePath, fileTree);
+        const printableContent = await inlinePrintableImages(
+          doc.content,
+          vault,
+          relativePath,
+          fileTree,
+        );
         if (cancelled) return;
         setContent(printableContent);
       })
@@ -167,7 +171,9 @@ export default function NotePrintView({
 
   const handleClose = () => {
     if (standalone) {
-      void getCurrentWindow().close().catch(() => window.close());
+      void getCurrentWindow()
+        .close()
+        .catch(() => window.close());
       return;
     }
     onClose?.();

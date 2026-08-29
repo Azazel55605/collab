@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { SheetAddressIndex, columnIndex, columnLabel, formatA1, parseA1 } from './address';
+import { columnIndex, columnLabel, formatA1, parseA1, SheetAddressIndex } from './address';
 import { createWorksheetFixture } from './fixture';
 
 describe('column labels', () => {
@@ -50,22 +50,26 @@ describe('SheetAddressIndex', () => {
     expect(index.a1For('r1', 'c1')).toBe('A1');
     expect(index.a1For('r3', 'c2')).toBe('B3');
     expect(index.cellKeyForA1('B3')).toBe('r3:c2');
-    expect(index.a1ForRange({
-      startRowId: 'r1',
-      startColumnId: 'c1',
-      endRowId: 'r3',
-      endColumnId: 'c3',
-    })).toBe('A1:C3');
+    expect(
+      index.a1ForRange({
+        startRowId: 'r1',
+        startColumnId: 'c1',
+        endRowId: 'r3',
+        endColumnId: 'c3',
+      }),
+    ).toBe('A1:C3');
   });
 
   it('normalizes reversed ranges', () => {
     const index = new SheetAddressIndex(worksheet);
-    expect(index.a1ForRange({
-      startRowId: 'r3',
-      startColumnId: 'c3',
-      endRowId: 'r1',
-      endColumnId: 'c1',
-    })).toBe('A1:C3');
+    expect(
+      index.a1ForRange({
+        startRowId: 'r3',
+        startColumnId: 'c3',
+        endRowId: 'r1',
+        endColumnId: 'c1',
+      }),
+    ).toBe('A1:C3');
   });
 
   it('reports dangling identities as null rather than inventing a position', () => {

@@ -1,14 +1,17 @@
 import { Link2, Trash2 } from 'lucide-react';
 
 import type { CanvasEdgeLineStyle, CanvasEdgeRoutingStyle } from '../../types/canvas';
-import type { CanvasEdgeData } from './CanvasEdgeTypes';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
-const canvasInspectorSelectTriggerClassName = 'h-8 w-full rounded-xl border-border/60 bg-background/80 text-xs shadow-none';
-const canvasInspectorSelectContentClassName = 'min-w-[var(--radix-select-trigger-width)] rounded-xl ring-1 ring-border/60';
+import type { CanvasEdgeData } from './CanvasEdgeTypes';
+
+const canvasInspectorSelectTriggerClassName =
+  'h-8 w-full rounded-xl border-border/60 bg-background/80 text-xs shadow-none';
+const canvasInspectorSelectContentClassName =
+  'min-w-[var(--radix-select-trigger-width)] rounded-xl ring-1 ring-border/60';
 
 interface CanvasEdgeInspectorProps {
   selectedEdgeData: CanvasEdgeData | null;
@@ -59,7 +62,11 @@ export function CanvasEdgeInspector({
                 <SelectTrigger size="sm" className={canvasInspectorSelectTriggerClassName}>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent align="end" position="popper" className={canvasInspectorSelectContentClassName}>
+                <SelectContent
+                  align="end"
+                  position="popper"
+                  className={canvasInspectorSelectContentClassName}
+                >
                   <SelectItem value="solid">Solid</SelectItem>
                   <SelectItem value="dashed">Dashed</SelectItem>
                   <SelectItem value="dotted">Dotted</SelectItem>
@@ -75,7 +82,11 @@ export function CanvasEdgeInspector({
                 <SelectTrigger size="sm" className={canvasInspectorSelectTriggerClassName}>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent align="end" position="popper" className={canvasInspectorSelectContentClassName}>
+                <SelectContent
+                  align="end"
+                  position="popper"
+                  className={canvasInspectorSelectContentClassName}
+                >
                   <SelectItem value="curved">Curved</SelectItem>
                   <SelectItem value="orthogonal">Orthogonal</SelectItem>
                 </SelectContent>
@@ -91,7 +102,11 @@ export function CanvasEdgeInspector({
                 <SelectTrigger size="sm" className={canvasInspectorSelectTriggerClassName}>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent align="end" position="popper" className={canvasInspectorSelectContentClassName}>
+                <SelectContent
+                  align="end"
+                  position="popper"
+                  className={canvasInspectorSelectContentClassName}
+                >
                   <SelectItem value="forward">Forward</SelectItem>
                   <SelectItem value="reverse">Reverse</SelectItem>
                 </SelectContent>
@@ -101,7 +116,9 @@ export function CanvasEdgeInspector({
           <label className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/45 px-3 py-2 text-xs">
             <span>
               <span className="block font-medium text-foreground">Animated line</span>
-              <span className="block text-muted-foreground">Off by default, reversible when enabled.</span>
+              <span className="block text-muted-foreground">
+                Off by default, reversible when enabled.
+              </span>
             </span>
             <Checkbox
               checked={selectedEdgeData.animated}
@@ -112,7 +129,9 @@ export function CanvasEdgeInspector({
             <label className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/45 px-3 py-2 text-xs">
               <span>
                 <span className="block font-medium text-foreground">Start arrow</span>
-                <span className="block text-muted-foreground">Show an arrowhead at the source.</span>
+                <span className="block text-muted-foreground">
+                  Show an arrowhead at the source.
+                </span>
               </span>
               <Checkbox
                 checked={selectedEdgeData.markerStart}
@@ -122,7 +141,9 @@ export function CanvasEdgeInspector({
             <label className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/45 px-3 py-2 text-xs">
               <span>
                 <span className="block font-medium text-foreground">End arrow</span>
-                <span className="block text-muted-foreground">Show an arrowhead at the target.</span>
+                <span className="block text-muted-foreground">
+                  Show an arrowhead at the target.
+                </span>
               </span>
               <Checkbox
                 checked={selectedEdgeData.markerEnd}
@@ -130,7 +151,12 @@ export function CanvasEdgeInspector({
               />
             </label>
           </div>
-          <Button size="sm" variant="outline" className="gap-2 self-start" onClick={onDeleteSelected}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-2 self-start"
+            onClick={onDeleteSelected}
+          >
             <Trash2 size={14} />
             Delete selected
           </Button>

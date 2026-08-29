@@ -12,33 +12,34 @@
  * Hosted drawings prefer the Phase 6 live Ink CRDT session and retain this
  * controller as the local-vault and unavailable-socket fallback.
  */
-
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
 import { listen } from '@tauri-apps/api/event';
 
+import type { InkDocument } from '../../types/ink';
+import { isVaultReadOnly } from '../../types/vault';
+import type { VaultMeta } from '../../types/vault';
+import { saveConflictedCopy } from '../conflictedCopy';
 import {
   compareDocumentVersions,
-  useDocumentSessionController,
   type DocumentSessionController,
   type DocumentSessionSnapshot,
   type DocumentStatus,
   type RemoteCandidate,
+  useDocumentSessionController,
 } from '../documentSessionController';
+import { type LiveInkSession, openLiveInkSession } from '../liveInkDocument';
+import { useLiveDocumentStatus } from '../useLiveDocumentStatus';
 import { createVaultClient } from '../vaultClient';
-import { saveConflictedCopy } from '../conflictedCopy';
 import { onReplicaMutated, replicaMutationAffectsPath } from '../vaultReplica';
-import { isVaultReadOnly } from '../../types/vault';
-import type { VaultMeta } from '../../types/vault';
-import type { InkDocument } from '../../types/ink';
+
 import {
   InkDocumentError,
+  type InkSchemaSupport,
   normalizeInkDocument,
   parseInkDocument,
   serializeInkDocument,
-  type InkSchemaSupport,
 } from './document';
-import { openLiveInkSession, type LiveInkSession } from '../liveInkDocument';
-import { useLiveDocumentStatus } from '../useLiveDocumentStatus';
 
 interface UseInkSessionOptions {
   vault: VaultMeta | null;
@@ -95,7 +96,11 @@ export function useInkSession({
   const readOnly = vaultReadOnly || schemaSupport === 'newer';
   const client = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
   const drawingName = useMemo(
-    () => relativePath?.split('/').pop()?.replace(/\.ink$/i, '') ?? 'Drawing',
+    () =>
+      relativePath
+        ?.split('/')
+        .pop()
+        ?.replace(/\.ink$/i, '') ?? 'Drawing',
     [relativePath],
   );
 
@@ -171,7 +176,8 @@ export function useInkSession({
     setSchemaVersion(null);
     setRestLoaded(false);
 
-    client.readDocument(relativePath)
+    client
+      .readDocument(relativePath)
       .then((doc) => {
         if (cancelled) return;
         const inspection = normalizeInkDocument(JSON.parse(doc.content));
@@ -209,7 +215,13 @@ export function useInkSession({
   }, [client, controller, relativePath, drawingName]);
 
   useEffect(() => {
-    if (!client || !relativePath || !restLoaded || schemaSupport !== 'supported' || !client.resolveLiveSession) {
+    if (
+      !client ||
+      !relativePath ||
+      !restLoaded ||
+      schemaSupport !== 'supported' ||
+      !client.resolveLiveSession
+    ) {
       liveSessionRef.current = null;
       setLiveSession(null);
       return;

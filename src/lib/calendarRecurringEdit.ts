@@ -1,8 +1,4 @@
-import type {
-  CalendarItem,
-  CalendarRecurrence,
-  CalendarTimeValue,
-} from '../types/calendar';
+import type { CalendarItem, CalendarRecurrence, CalendarTimeValue } from '../types/calendar';
 
 export type CalendarRecurrenceEditScope = 'occurrence' | 'following' | 'series';
 
@@ -56,10 +52,12 @@ function shiftItem(item: CalendarItem, deltaMs: number): CalendarItem {
 }
 
 function ruleParts(rule: string): Map<string, string> {
-  return new Map(rule.split(';').map((part) => {
-    const separator = part.indexOf('=');
-    return [part.slice(0, separator).toUpperCase(), part.slice(separator + 1)];
-  }));
+  return new Map(
+    rule.split(';').map((part) => {
+      const separator = part.indexOf('=');
+      return [part.slice(0, separator).toUpperCase(), part.slice(separator + 1)];
+    }),
+  );
 }
 
 function serializeRule(parts: Map<string, string>): string {
@@ -69,7 +67,10 @@ function serializeRule(parts: Map<string, string>): string {
       const leftIndex = preferred.indexOf(left);
       const rightIndex = preferred.indexOf(right);
       if (leftIndex >= 0 || rightIndex >= 0) {
-        return (leftIndex < 0 ? preferred.length : leftIndex) - (rightIndex < 0 ? preferred.length : rightIndex);
+        return (
+          (leftIndex < 0 ? preferred.length : leftIndex) -
+          (rightIndex < 0 ? preferred.length : rightIndex)
+        );
       }
       return left.localeCompare(right);
     })
@@ -94,9 +95,9 @@ function splitValues(
   side: 'before' | 'after',
 ): CalendarTimeValue[] | undefined {
   const boundary = timeValueMs(recurrenceId);
-  const filtered = values?.filter((value) => side === 'before'
-    ? timeValueMs(value) < boundary
-    : timeValueMs(value) >= boundary);
+  const filtered = values?.filter((value) =>
+    side === 'before' ? timeValueMs(value) < boundary : timeValueMs(value) >= boundary,
+  );
   return filtered && filtered.length > 0 ? filtered : undefined;
 }
 
@@ -120,11 +121,14 @@ export function splitRecurrence(
   }
 
   return {
-    previous: priorOccurrences <= 0 ? null : {
-      rrule: serializeRule(previousParts),
-      rdates: splitValues(recurrence.rdates, recurrenceId, 'before'),
-      exdates: splitValues(recurrence.exdates, recurrenceId, 'before'),
-    },
+    previous:
+      priorOccurrences <= 0
+        ? null
+        : {
+            rrule: serializeRule(previousParts),
+            rdates: splitValues(recurrence.rdates, recurrenceId, 'before'),
+            exdates: splitValues(recurrence.exdates, recurrenceId, 'before'),
+          },
     following: {
       rrule: serializeRule(followingParts),
       rdates: splitValues(recurrence.rdates, recurrenceId, 'after'),
@@ -155,18 +159,20 @@ export function planRecurringEdit(input: {
       scope,
       seriesId: master.id,
       recurrenceId,
-      upserts: [{
-        ...editedOccurrence,
-        id: input.exceptionId,
-        uid: master.uid,
-        recurrence: undefined,
-        recurrenceId,
-        recurrenceSeriesId: master.id,
-        revision: editedOccurrence.id === input.exceptionId ? editedOccurrence.revision : 0,
-        createdAt: editedOccurrence.id === input.exceptionId ? editedOccurrence.createdAt : now,
-        updatedAt: now,
-        deletedAt: undefined,
-      }],
+      upserts: [
+        {
+          ...editedOccurrence,
+          id: input.exceptionId,
+          uid: master.uid,
+          recurrence: undefined,
+          recurrenceId,
+          recurrenceSeriesId: master.id,
+          revision: editedOccurrence.id === input.exceptionId ? editedOccurrence.revision : 0,
+          createdAt: editedOccurrence.id === input.exceptionId ? editedOccurrence.createdAt : now,
+          updatedAt: now,
+          deletedAt: undefined,
+        },
+      ],
     };
   }
 
@@ -177,18 +183,20 @@ export function planRecurringEdit(input: {
       scope,
       seriesId: master.id,
       recurrenceId,
-      upserts: [{
-        ...shifted,
-        id: master.id,
-        uid: master.uid,
-        recurrence: editedOccurrence.recurrence,
-        recurrenceId: undefined,
-        recurrenceSeriesId: undefined,
-        revision: master.revision,
-        createdAt: master.createdAt,
-        updatedAt: now,
-        deletedAt: undefined,
-      }],
+      upserts: [
+        {
+          ...shifted,
+          id: master.id,
+          uid: master.uid,
+          recurrence: editedOccurrence.recurrence,
+          recurrenceId: undefined,
+          recurrenceSeriesId: undefined,
+          revision: master.revision,
+          createdAt: master.createdAt,
+          updatedAt: now,
+          deletedAt: undefined,
+        },
+      ],
     };
   }
 
@@ -198,9 +206,10 @@ export function planRecurringEdit(input: {
   if (split.previous) {
     upserts.push({ ...master, recurrence: split.previous, updatedAt: now });
   }
-  const followingRecurrence = editedOccurrence.recurrence?.rrule === master.recurrence.rrule
-    ? split.following
-    : editedOccurrence.recurrence;
+  const followingRecurrence =
+    editedOccurrence.recurrence?.rrule === master.recurrence.rrule
+      ? split.following
+      : editedOccurrence.recurrence;
   upserts.push({
     ...editedOccurrence,
     id: input.followingSeriesId,

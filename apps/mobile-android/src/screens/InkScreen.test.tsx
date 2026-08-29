@@ -1,19 +1,20 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createInkDocument } from '../../../../src/lib/ink/document';
+import { buildStroke } from '../../../../src/lib/ink/fixture';
+import { addObject } from '../../../../src/lib/ink/operations';
+import { INK_SCHEMA_VERSION } from '../../../../src/types/ink';
+import { clearBackDismissStack, runTopBackDismiss } from '../lib/backStack';
+import { serializeInk } from '../lib/ink';
+import type { HostedFileEntry, HostedVault } from '../mobileTauri';
+import { useMobileStore } from '../state/store';
+
+import { InkScreen } from './InkScreen';
+
 const invoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
-
-import { createInkDocument } from '../../../../src/lib/ink/document';
-import { addObject } from '../../../../src/lib/ink/operations';
-import { buildStroke } from '../../../../src/lib/ink/fixture';
-import { INK_SCHEMA_VERSION } from '../../../../src/types/ink';
-import { serializeInk } from '../lib/ink';
-import { clearBackDismissStack, runTopBackDismiss } from '../lib/backStack';
-import type { HostedFileEntry, HostedVault } from '../mobileTauri';
-import { useMobileStore } from '../state/store';
-import { InkScreen } from './InkScreen';
 
 class ResizeObserverMock {
   observe() {}
@@ -86,14 +87,14 @@ function selectVault(connected: boolean, role: HostedVault['role'] = 'editor') {
     selected: { serverUrl: SERVER, vault: { ...vault, role } },
     statuses: connected
       ? {
-        [SERVER]: {
-          connected: true,
-          serverUrl: SERVER,
-          allowInvalidCertificates: false,
-          user: null,
-          accessExpiresAt: null,
-        },
-      }
+          [SERVER]: {
+            connected: true,
+            serverUrl: SERVER,
+            allowInvalidCertificates: false,
+            user: null,
+            accessExpiresAt: null,
+          },
+        }
       : {},
     files: [file],
     activeSheet: { kind: 'drawing', fileId: file.id },
@@ -136,17 +137,29 @@ function drawWithPen(host: HTMLElement, points: Array<[number, number]>) {
   host.releasePointerCapture = vi.fn();
 
   fireEvent.pointerDown(host, {
-    pointerId: 1, pointerType: 'pen', clientX: points[0][0], clientY: points[0][1],
-    pressure: 0.6, buttons: 1, isPrimary: true,
+    pointerId: 1,
+    pointerType: 'pen',
+    clientX: points[0][0],
+    clientY: points[0][1],
+    pressure: 0.6,
+    buttons: 1,
+    isPrimary: true,
   });
   for (const [x, y] of points.slice(1)) {
     fireEvent.pointerMove(host, {
-      pointerId: 1, pointerType: 'pen', clientX: x, clientY: y, pressure: 0.6, buttons: 1,
+      pointerId: 1,
+      pointerType: 'pen',
+      clientX: x,
+      clientY: y,
+      pressure: 0.6,
+      buttons: 1,
     });
   }
   fireEvent.pointerUp(host, {
-    pointerId: 1, pointerType: 'pen',
-    clientX: points[points.length - 1][0], clientY: points[points.length - 1][1],
+    pointerId: 1,
+    pointerType: 'pen',
+    clientX: points[points.length - 1][0],
+    clientY: points[points.length - 1][1],
   });
 }
 
@@ -164,7 +177,14 @@ beforeEach(() => {
   mockServer({ revisions: [] });
 
   Element.prototype.getBoundingClientRect = vi.fn(() => ({
-    x: 0, y: 0, top: 0, left: 0, right: 400, bottom: 700, width: 400, height: 700,
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: 400,
+    bottom: 700,
+    width: 400,
+    height: 700,
     toJSON: () => ({}),
   })) as unknown as typeof Element.prototype.getBoundingClientRect;
 });
@@ -181,7 +201,12 @@ describe('InkScreen', () => {
     mockServer({ revisions });
 
     const host = await openDrawing();
-    drawWithPen(host, [[60, 120], [110, 160], [170, 220], [230, 280]]);
+    drawWithPen(host, [
+      [60, 120],
+      [110, 160],
+      [170, 220],
+      [230, 280],
+    ]);
 
     await waitFor(() => expect(revisions.length).toBeGreaterThan(0), { timeout: 3_000 });
     const saved = JSON.parse(revisions[revisions.length - 1]);
@@ -202,8 +227,7 @@ describe('InkScreen', () => {
     const reads = () =>
       invoke.mock.calls.filter(
         (call) =>
-          call[0] === 'hosted_vault_request' &&
-          (call[1] as { method?: string })?.method === 'GET',
+          call[0] === 'hosted_vault_request' && (call[1] as { method?: string })?.method === 'GET',
       ).length;
     const before = reads();
 
@@ -224,8 +248,7 @@ describe('InkScreen', () => {
     const reads = () =>
       invoke.mock.calls.filter(
         (call) =>
-          call[0] === 'hosted_vault_request' &&
-          (call[1] as { method?: string })?.method === 'GET',
+          call[0] === 'hosted_vault_request' && (call[1] as { method?: string })?.method === 'GET',
       ).length;
     const before = reads();
 
@@ -235,7 +258,11 @@ describe('InkScreen', () => {
 
   it('undoes a stroke', async () => {
     const host = await openDrawing();
-    drawWithPen(host, [[60, 120], [130, 180], [200, 250]]);
+    drawWithPen(host, [
+      [60, 120],
+      [130, 180],
+      [200, 250],
+    ]);
     await waitFor(() => expect(screen.getByText(/3 strokes/)).toBeTruthy());
 
     fireEvent.click(screen.getByLabelText('Undo'));
@@ -249,7 +276,13 @@ describe('InkScreen', () => {
     host.hasPointerCapture = vi.fn(() => true);
     host.releasePointerCapture = vi.fn();
 
-    fireEvent.pointerDown(host, { pointerId: 5, pointerType: 'touch', clientX: 200, clientY: 400, isPrimary: true });
+    fireEvent.pointerDown(host, {
+      pointerId: 5,
+      pointerType: 'touch',
+      clientX: 200,
+      clientY: 400,
+      isPrimary: true,
+    });
     fireEvent.pointerMove(host, { pointerId: 5, pointerType: 'touch', clientX: 140, clientY: 340 });
     fireEvent.pointerUp(host, { pointerId: 5, pointerType: 'touch' });
 
@@ -271,7 +304,13 @@ describe('InkScreen', () => {
     host.setPointerCapture = vi.fn();
     host.hasPointerCapture = vi.fn(() => true);
     host.releasePointerCapture = vi.fn();
-    fireEvent.pointerDown(host, { pointerId: 6, pointerType: 'touch', clientX: 60, clientY: 120, isPrimary: true });
+    fireEvent.pointerDown(host, {
+      pointerId: 6,
+      pointerType: 'touch',
+      clientX: 60,
+      clientY: 120,
+      isPrimary: true,
+    });
     fireEvent.pointerMove(host, { pointerId: 6, pointerType: 'touch', clientX: 140, clientY: 200 });
     fireEvent.pointerMove(host, { pointerId: 6, pointerType: 'touch', clientX: 210, clientY: 280 });
     fireEvent.pointerUp(host, { pointerId: 6, pointerType: 'touch' });
@@ -289,7 +328,12 @@ describe('InkScreen', () => {
     host.releasePointerCapture = vi.fn();
 
     fireEvent.pointerDown(host, {
-      pointerId: 1, pointerType: 'pen', clientX: 60, clientY: 120, pressure: 0.6, buttons: 1,
+      pointerId: 1,
+      pointerType: 'pen',
+      clientX: 60,
+      clientY: 120,
+      pressure: 0.6,
+      buttons: 1,
     });
     const before = screen.getByText(/%$/).textContent;
 
@@ -305,7 +349,13 @@ describe('InkScreen', () => {
     host.hasPointerCapture = vi.fn(() => true);
     host.releasePointerCapture = vi.fn();
 
-    fireEvent.pointerDown(host, { pointerId: 1, pointerType: 'touch', clientX: 150, clientY: 300, isPrimary: true });
+    fireEvent.pointerDown(host, {
+      pointerId: 1,
+      pointerType: 'touch',
+      clientX: 150,
+      clientY: 300,
+      isPrimary: true,
+    });
     fireEvent.pointerDown(host, { pointerId: 2, pointerType: 'touch', clientX: 250, clientY: 300 });
     fireEvent.pointerMove(host, { pointerId: 1, pointerType: 'touch', clientX: 100, clientY: 300 });
     fireEvent.pointerMove(host, { pointerId: 2, pointerType: 'touch', clientX: 300, clientY: 300 });
@@ -313,7 +363,7 @@ describe('InkScreen', () => {
     await waitFor(() => expect(screen.getByText(/200%|1[5-9]\d%/)).toBeTruthy());
   });
 
-  it('opens a tool\'s settings when its already-selected button is tapped again', async () => {
+  it("opens a tool's settings when its already-selected button is tapped again", async () => {
     await openDrawing();
     // The pen starts selected, so one more tap is the shortcut into its
     // settings rather than a no-op.
@@ -350,7 +400,7 @@ describe('InkScreen', () => {
     expect(dialog.querySelector('[role="radio"][aria-checked="true"]')).toBeTruthy();
   });
 
-  it('builds its controls from the app\'s shared classes', async () => {
+  it("builds its controls from the app's shared classes", async () => {
     // The guide's rule: extend the existing pattern rather than growing a
     // local mini-design-system inside one screen.
     await openDrawing();
@@ -400,7 +450,13 @@ describe('InkScreen', () => {
     host.setPointerCapture = vi.fn();
     host.hasPointerCapture = vi.fn(() => true);
     host.releasePointerCapture = vi.fn();
-    fireEvent.pointerDown(host, { pointerId: 9, pointerType: 'touch', clientX: 300, clientY: 500, isPrimary: true });
+    fireEvent.pointerDown(host, {
+      pointerId: 9,
+      pointerType: 'touch',
+      clientX: 300,
+      clientY: 500,
+      isPrimary: true,
+    });
     fireEvent.pointerMove(host, { pointerId: 9, pointerType: 'touch', clientX: 200, clientY: 400 });
     fireEvent.pointerUp(host, { pointerId: 9, pointerType: 'touch' });
 
@@ -417,12 +473,15 @@ describe('InkScreen', () => {
     mockServer({ revisions });
 
     const host = await openDrawing();
-    drawWithPen(host, [[60, 120], [130, 180], [200, 250]]);
+    drawWithPen(host, [
+      [60, 120],
+      [130, 180],
+      [200, 250],
+    ]);
 
-    await waitFor(
-      () => expect(screen.getByText(/sync when you reconnect/i)).toBeTruthy(),
-      { timeout: 3_000 },
-    );
+    await waitFor(() => expect(screen.getByText(/sync when you reconnect/i)).toBeTruthy(), {
+      timeout: 3_000,
+    });
     // Nothing reached the server; the edit is in the pending queue instead.
     expect(revisions).toHaveLength(0);
   });
@@ -436,7 +495,10 @@ describe('InkScreen', () => {
     expect((screen.getByLabelText('Pen options') as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByLabelText('Eraser') as HTMLButtonElement).disabled).toBe(true);
 
-    drawWithPen(host, [[60, 120], [200, 250]]);
+    drawWithPen(host, [
+      [60, 120],
+      [200, 250],
+    ]);
     // Same reasoning: the stroke count is immediate, a save is debounced.
     await waitFor(() => expect(screen.getByText(/2 strokes/)).toBeTruthy());
     expect(screen.queryByText(/3 strokes/)).toBeNull();

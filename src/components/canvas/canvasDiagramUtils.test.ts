@@ -20,7 +20,10 @@ describe('canvasDiagramUtils', () => {
   });
 
   it('splits an edge with a junction node', () => {
-    const junction = createSplitJunctionNode({ x: 120, y: 180 }, '11111111-1111-1111-1111-111111111111');
+    const junction = createSplitJunctionNode(
+      { x: 120, y: 180 },
+      '11111111-1111-1111-1111-111111111111',
+    );
     const split = splitEdgeWithJunction(
       {
         id: 'edge-1',
@@ -55,22 +58,24 @@ describe('canvasDiagramUtils', () => {
   it('merges a simple one-in one-out junction back into a single edge', () => {
     vi.spyOn(crypto, 'randomUUID').mockReturnValue('99999999-9999-9999-9999-999999999999');
 
-    expect(mergeSingleJunction('junction-1', [
-      {
-        id: 'edge-1',
-        source: 'node-a',
-        target: 'junction-1',
-        label: 'Yes',
-        routingStyle: 'orthogonal',
-      },
-      {
-        id: 'edge-2',
-        source: 'junction-1',
-        target: 'node-b',
-        markerEnd: true,
-        routingStyle: 'orthogonal',
-      },
-    ])).toEqual({
+    expect(
+      mergeSingleJunction('junction-1', [
+        {
+          id: 'edge-1',
+          source: 'node-a',
+          target: 'junction-1',
+          label: 'Yes',
+          routingStyle: 'orthogonal',
+        },
+        {
+          id: 'edge-2',
+          source: 'junction-1',
+          target: 'node-b',
+          markerEnd: true,
+          routingStyle: 'orthogonal',
+        },
+      ]),
+    ).toEqual({
       removedEdgeIds: ['edge-1', 'edge-2'],
       mergedEdge: expect.objectContaining({
         id: '99999999-9999-9999-9999-999999999999',

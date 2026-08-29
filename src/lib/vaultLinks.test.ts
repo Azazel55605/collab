@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import type { NoteFile } from '../types/vault';
+
 import {
   buildVaultLinkInsertText,
   getVaultDocumentTabType,
@@ -8,7 +10,6 @@ import {
   resolveVaultRelativeLinkTarget,
   resolveVaultWikilinkTarget,
 } from './vaultLinks';
-import type { NoteFile } from '../types/vault';
 
 const FILES: NoteFile[] = [
   {
@@ -144,12 +145,18 @@ describe('vaultLinks', () => {
   });
 
   it('builds markdown path links for non-note vault files', () => {
-    expect(buildVaultLinkInsertText('Docs/spec.pdf', 'Notes/alpha.md', FILES)).toBe('[spec](../Docs/spec.pdf)');
+    expect(buildVaultLinkInsertText('Docs/spec.pdf', 'Notes/alpha.md', FILES)).toBe(
+      '[spec](../Docs/spec.pdf)',
+    );
   });
 
   it('builds note slash-links with full vault paths and readable aliases', () => {
-    expect(buildVaultLinkInsertText('Notes/beta.md', 'Docs/spec.pdf', FILES)).toBe('[[Notes/beta.md|beta]]');
-    expect(buildVaultLinkInsertText('Docs/alpha.md', 'Notes/alpha.md', FILES)).toBe('[[Docs/alpha.md|alpha]]');
+    expect(buildVaultLinkInsertText('Notes/beta.md', 'Docs/spec.pdf', FILES)).toBe(
+      '[[Notes/beta.md|beta]]',
+    );
+    expect(buildVaultLinkInsertText('Docs/alpha.md', 'Notes/alpha.md', FILES)).toBe(
+      '[[Docs/alpha.md|alpha]]',
+    );
   });
 
   it('keeps unique note autocomplete items as stems and duplicate notes as full paths', () => {
@@ -186,17 +193,23 @@ describe('spreadsheet documents', () => {
   });
 
   it('resolves markdown links to spreadsheets', () => {
-    expect(resolveVaultRelativeLinkTarget('../Docs/budget.sheet', 'Notes/alpha.md', FILES)).toEqual({
-      relativePath: 'Docs/budget.sheet',
-      title: 'budget',
-      type: 'sheet',
-    });
+    expect(resolveVaultRelativeLinkTarget('../Docs/budget.sheet', 'Notes/alpha.md', FILES)).toEqual(
+      {
+        relativePath: 'Docs/budget.sheet',
+        title: 'budget',
+        type: 'sheet',
+      },
+    );
   });
 
   it('labels spreadsheets in wikilink autocomplete', () => {
     const items = getVaultWikilinkAutocompleteItems(FILES);
     expect(items).toContainEqual(
-      expect.objectContaining({ label: 'budget.sheet', insertText: 'Docs/budget.sheet', detail: 'Docs · Spreadsheet' }),
+      expect.objectContaining({
+        label: 'budget.sheet',
+        insertText: 'Docs/budget.sheet',
+        detail: 'Docs · Spreadsheet',
+      }),
     );
   });
 });

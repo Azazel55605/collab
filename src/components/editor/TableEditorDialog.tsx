@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
+
 import { Grid2x2Plus, GripVertical, Minus, Plus, Table, Trash2 } from 'lucide-react';
+
 import { Button } from '../ui/button';
 import {
   Dialog,
@@ -11,6 +13,7 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Input } from '../ui/input';
+
 import type { MarkdownTableAlignment, MarkdownTableModel } from './tableMarkdown';
 
 interface TableEditorDialogProps {
@@ -35,11 +38,11 @@ function cloneModel(model: MarkdownTableModel): MarkdownTableModel {
 
 function moveArrayItem<T>(values: T[], fromIndex: number, toIndex: number) {
   if (
-    fromIndex === toIndex
-    || fromIndex < 0
-    || toIndex < 0
-    || fromIndex >= values.length
-    || toIndex >= values.length
+    fromIndex === toIndex ||
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= values.length ||
+    toIndex >= values.length
   ) {
     return [...values];
   }
@@ -50,20 +53,28 @@ function moveArrayItem<T>(values: T[], fromIndex: number, toIndex: number) {
   return next;
 }
 
-export function moveTableRow(model: MarkdownTableModel, fromIndex: number, toIndex: number): MarkdownTableModel {
+export function moveTableRow(
+  model: MarkdownTableModel,
+  fromIndex: number,
+  toIndex: number,
+): MarkdownTableModel {
   return {
     ...model,
     rows: moveArrayItem(model.rows, fromIndex, toIndex),
   };
 }
 
-export function moveTableColumn(model: MarkdownTableModel, fromIndex: number, toIndex: number): MarkdownTableModel {
+export function moveTableColumn(
+  model: MarkdownTableModel,
+  fromIndex: number,
+  toIndex: number,
+): MarkdownTableModel {
   if (
-    fromIndex === toIndex
-    || fromIndex < 0
-    || toIndex < 0
-    || fromIndex >= model.headers.length
-    || toIndex >= model.headers.length
+    fromIndex === toIndex ||
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= model.headers.length ||
+    toIndex >= model.headers.length
   ) {
     return cloneModel(model);
   }
@@ -75,13 +86,7 @@ export function moveTableColumn(model: MarkdownTableModel, fromIndex: number, to
   };
 }
 
-function TableCellInput({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
+function TableCellInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
     <Input
       value={value}
@@ -102,7 +107,9 @@ function createDragHandlers(
     onDragStart(event: DragEvent<HTMLElement>) {
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('text/plain', `${kind}:${index}`);
-      const source = event.currentTarget.closest('[data-table-drag-surface="true"]') as HTMLElement | null;
+      const source = event.currentTarget.closest(
+        '[data-table-drag-surface="true"]',
+      ) as HTMLElement | null;
       if (source) {
         const clone = source.cloneNode(true) as HTMLElement;
         clone.style.position = 'fixed';
@@ -151,8 +158,10 @@ export function TableEditorDialog({
   const [columnMotionIds, setColumnMotionIds] = useState<string[]>([]);
   const dragPreviewRef = useRef<HTMLElement | null>(null);
 
-  const buildRowMotionIds = (count: number) => Array.from({ length: count }, () => `table-row-${rowIdSeedRef.current++}`);
-  const buildColumnMotionIds = (count: number) => Array.from({ length: count }, () => `table-column-${columnIdSeedRef.current++}`);
+  const buildRowMotionIds = (count: number) =>
+    Array.from({ length: count }, () => `table-row-${rowIdSeedRef.current++}`);
+  const buildColumnMotionIds = (count: number) =>
+    Array.from({ length: count }, () => `table-column-${columnIdSeedRef.current++}`);
 
   const runAnimatedUpdate = (update: () => void) => {
     update();
@@ -189,11 +198,11 @@ export function TableEditorDialog({
   const updateCell = (rowIndex: number, colIndex: number, value: string) => {
     setDraft((prev) => ({
       ...prev,
-      rows: prev.rows.map((row, currentRowIndex) => (
+      rows: prev.rows.map((row, currentRowIndex) =>
         currentRowIndex !== rowIndex
           ? row
-          : row.map((cell, currentColIndex) => (currentColIndex === colIndex ? value : cell))
-      )),
+          : row.map((cell, currentColIndex) => (currentColIndex === colIndex ? value : cell)),
+      ),
     }));
   };
 
@@ -221,11 +230,14 @@ export function TableEditorDialog({
     runAnimatedUpdate(() => {
       setDraft((prev) => ({
         ...prev,
-        rows: prev.rows.length > 1
-          ? prev.rows.filter((_, currentIndex) => currentIndex !== rowIndex)
-          : prev.rows,
+        rows:
+          prev.rows.length > 1
+            ? prev.rows.filter((_, currentIndex) => currentIndex !== rowIndex)
+            : prev.rows,
       }));
-      setRowMotionIds((prev) => (prev.length > 1 ? prev.filter((_, currentIndex) => currentIndex !== rowIndex) : prev));
+      setRowMotionIds((prev) =>
+        prev.length > 1 ? prev.filter((_, currentIndex) => currentIndex !== rowIndex) : prev,
+      );
     });
   };
 
@@ -254,17 +266,21 @@ export function TableEditorDialog({
   const removeColumnAt = (colIndex: number) => {
     runAnimatedUpdate(() => {
       setDraft((prev) => ({
-        headers: prev.headers.length > 1
-          ? prev.headers.filter((_, currentIndex) => currentIndex !== colIndex)
-          : prev.headers,
-        aligns: prev.aligns.length > 1
-          ? prev.aligns.filter((_, currentIndex) => currentIndex !== colIndex)
-          : prev.aligns,
-        rows: prev.rows.map((row) => (
-          row.length > 1 ? row.filter((_, currentIndex) => currentIndex !== colIndex) : row
-        )),
+        headers:
+          prev.headers.length > 1
+            ? prev.headers.filter((_, currentIndex) => currentIndex !== colIndex)
+            : prev.headers,
+        aligns:
+          prev.aligns.length > 1
+            ? prev.aligns.filter((_, currentIndex) => currentIndex !== colIndex)
+            : prev.aligns,
+        rows: prev.rows.map((row) =>
+          row.length > 1 ? row.filter((_, currentIndex) => currentIndex !== colIndex) : row,
+        ),
       }));
-      setColumnMotionIds((prev) => (prev.length > 1 ? prev.filter((_, currentIndex) => currentIndex !== colIndex) : prev));
+      setColumnMotionIds((prev) =>
+        prev.length > 1 ? prev.filter((_, currentIndex) => currentIndex !== colIndex) : prev,
+      );
     });
   };
 
@@ -277,21 +293,17 @@ export function TableEditorDialog({
     }
     if (dragState.index === index) return;
     runAnimatedUpdate(() => {
-      setDraft((prev) => (
+      setDraft((prev) =>
         kind === 'column'
           ? moveTableColumn(prev, dragState.index, index)
-          : moveTableRow(prev, dragState.index, index)
-      ));
+          : moveTableRow(prev, dragState.index, index),
+      );
       if (kind === 'column') {
         setColumnMotionIds((prev) => moveArrayItem(prev, dragState.index, index));
       } else {
         setRowMotionIds((prev) => moveArrayItem(prev, dragState.index, index));
       }
-      setDragState((prev) => (
-        prev && prev.kind === kind
-          ? { ...prev, index }
-          : prev
-      ));
+      setDragState((prev) => (prev && prev.kind === kind ? { ...prev, index } : prev));
     });
   };
 
@@ -319,7 +331,8 @@ export function TableEditorDialog({
             {mode === 'edit' ? 'Edit table' : 'Insert table'}
           </DialogTitle>
           <DialogDescription>
-            Edit headers, cell values, size, and column alignment, then insert markdown into the note.
+            Edit headers, cell values, size, and column alignment, then insert markdown into the
+            note.
           </DialogDescription>
         </DialogHeader>
 
@@ -328,7 +341,13 @@ export function TableEditorDialog({
             <Plus size={13} />
             Column
           </Button>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={removeColumn} disabled={colCount <= 1}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={removeColumn}
+            disabled={colCount <= 1}
+          >
             <Minus size={13} />
             Column
           </Button>
@@ -336,12 +355,20 @@ export function TableEditorDialog({
             <Grid2x2Plus size={13} />
             Row
           </Button>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={removeRow} disabled={draft.rows.length <= 1}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={removeRow}
+            disabled={draft.rows.length <= 1}
+          >
             <Minus size={13} />
             Row
           </Button>
           <div className="ml-auto text-right text-xs text-muted-foreground">
-            <div>{draft.headers.length} columns, {draft.rows.length} rows</div>
+            <div>
+              {draft.headers.length} columns, {draft.rows.length} rows
+            </div>
             <div>Drag headers or row labels to reorder.</div>
           </div>
         </div>
@@ -363,7 +390,9 @@ export function TableEditorDialog({
                   key={`header-${colIndex}`}
                   className={[
                     'space-y-2 rounded-xl border bg-card/35 p-3 transition-[transform,opacity,box-shadow,border-color,background-color] duration-150',
-                    isDropTarget ? 'border-primary/60 bg-primary/8 shadow-lg shadow-primary/10' : 'border-border/40',
+                    isDropTarget
+                      ? 'border-primary/60 bg-primary/8 shadow-lg shadow-primary/10'
+                      : 'border-border/40',
                     isDragging ? 'scale-[0.992] opacity-55 shadow-none ring-2 ring-primary/15' : '',
                   ].join(' ')}
                   style={{
@@ -389,7 +418,13 @@ export function TableEditorDialog({
                           'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/40 bg-background/70 text-muted-foreground transition-all hover:text-foreground',
                           isDragging ? 'cursor-grabbing bg-primary/10 text-primary' : 'cursor-grab',
                         ].join(' ')}
-                        {...createDragHandlers('column', colIndex, columnMotionIds[colIndex] ?? `table-column-fallback-${colIndex}`, setDragState, dragPreviewRef)}
+                        {...createDragHandlers(
+                          'column',
+                          colIndex,
+                          columnMotionIds[colIndex] ?? `table-column-fallback-${colIndex}`,
+                          setDragState,
+                          dragPreviewRef,
+                        )}
                       >
                         <GripVertical size={13} />
                       </button>
@@ -404,13 +439,18 @@ export function TableEditorDialog({
                       </button>
                     </div>
                   </div>
-                  <TableCellInput value={header} onChange={(value) => updateHeader(colIndex, value)} />
+                  <TableCellInput
+                    value={header}
+                    onChange={(value) => updateHeader(colIndex, value)}
+                  />
                   <div className="flex gap-1">
-                    {([
-                      ['left', 'L'],
-                      ['center', 'C'],
-                      ['right', 'R'],
-                    ] as const).map(([align, label]) => (
+                    {(
+                      [
+                        ['left', 'L'],
+                        ['center', 'C'],
+                        ['right', 'R'],
+                      ] as const
+                    ).map(([align, label]) => (
                       <Button
                         key={align}
                         size="sm"
@@ -435,8 +475,12 @@ export function TableEditorDialog({
                   key={`row-handle-${rowIndex}`}
                   className={[
                     'flex min-h-[90px] flex-col items-start justify-between rounded-xl border p-3 text-left transition-[transform,opacity,box-shadow,border-color,background-color] duration-150',
-                    isRowDropTarget ? 'border-primary/60 bg-primary/8 shadow-lg shadow-primary/10' : 'border-border/40 bg-muted/20',
-                    isRowDragging ? 'scale-[0.992] opacity-55 shadow-none ring-2 ring-primary/15' : '',
+                    isRowDropTarget
+                      ? 'border-primary/60 bg-primary/8 shadow-lg shadow-primary/10'
+                      : 'border-border/40 bg-muted/20',
+                    isRowDragging
+                      ? 'scale-[0.992] opacity-55 shadow-none ring-2 ring-primary/15'
+                      : '',
                   ].join(' ')}
                   style={{
                     gridColumn: 1,
@@ -458,9 +502,17 @@ export function TableEditorDialog({
                       aria-label={`Drag row ${rowIndex + 1}`}
                       className={[
                         'inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/40 bg-background/70 text-muted-foreground transition-all hover:text-foreground',
-                        isRowDragging ? 'cursor-grabbing bg-primary/10 text-primary' : 'cursor-grab',
+                        isRowDragging
+                          ? 'cursor-grabbing bg-primary/10 text-primary'
+                          : 'cursor-grab',
                       ].join(' ')}
-                      {...createDragHandlers('row', rowIndex, rowMotionIds[rowIndex] ?? `table-row-fallback-${rowIndex}`, setDragState, dragPreviewRef)}
+                      {...createDragHandlers(
+                        'row',
+                        rowIndex,
+                        rowMotionIds[rowIndex] ?? `table-row-fallback-${rowIndex}`,
+                        setDragState,
+                        dragPreviewRef,
+                      )}
                     >
                       <GripVertical size={13} />
                     </button>
@@ -493,7 +545,10 @@ export function TableEditorDialog({
                     <div className="text-[11px] text-muted-foreground">
                       Row {rowIndex + 1}, Col {colIndex + 1}
                     </div>
-                    <TableCellInput value={value} onChange={(nextValue) => updateCell(rowIndex, colIndex, nextValue)} />
+                    <TableCellInput
+                      value={value}
+                      onChange={(nextValue) => updateCell(rowIndex, colIndex, nextValue)}
+                    />
                   </div>,
                 );
               });

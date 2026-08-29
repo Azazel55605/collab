@@ -1,5 +1,6 @@
 import { parseSheetCellKey } from '../../types/sheet';
 import type { SheetDocument, SheetWorksheet } from '../../types/sheet';
+
 import type { SheetPosition } from './address';
 import { formatCellEditText, parseCellInput } from './cellValue';
 import { getCell, setCell } from './operations';
@@ -60,7 +61,7 @@ export function findPopulatedSheetMatches(
     const text = formatCellEditText(cell);
     if (text && matchesText(text, query, options)) matches.push({ row, column });
   }
-  matches.sort((a, b) => (a.row - b.row) || (a.column - b.column));
+  matches.sort((a, b) => a.row - b.row || a.column - b.column);
   return matches;
 }
 

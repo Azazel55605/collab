@@ -4,7 +4,8 @@ import type { NoteFile } from '../types/vault';
 const ABSOLUTE_URL_RE = /^(?:[a-z][a-z\d+.-]*:|\/\/)/i;
 const IMAGE_EXT_RE = /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i;
 
-export type VaultDocumentTabType = 'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'image' | 'pdf';
+export type VaultDocumentTabType =
+  'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'image' | 'pdf';
 
 export interface VaultLinkTarget {
   relativePath: string;
@@ -102,19 +103,24 @@ export function getVaultDocumentView(type: VaultDocumentTabType): ActiveView {
 }
 
 export function getVaultDocumentTitle(relativePath: string) {
-  return relativePath.split('/').pop()?.replace(/\.[^.]+$/, '') ?? relativePath;
+  return (
+    relativePath
+      .split('/')
+      .pop()
+      ?.replace(/\.[^.]+$/, '') ?? relativePath
+  );
 }
 
 function getVaultWikilinkInsertTarget(relativePath: string, fileTree: NoteFile[]) {
   const title = getVaultDocumentTitle(relativePath).toLowerCase();
-  const isUniqueNoteTitle = flattenVaultFiles(fileTree).filter((file) => (
-    getVaultDocumentTabType(file.relativePath) === 'note'
-    && getVaultDocumentTitle(file.relativePath).toLowerCase() === title
-  )).length === 1;
+  const isUniqueNoteTitle =
+    flattenVaultFiles(fileTree).filter(
+      (file) =>
+        getVaultDocumentTabType(file.relativePath) === 'note' &&
+        getVaultDocumentTitle(file.relativePath).toLowerCase() === title,
+    ).length === 1;
 
-  return isUniqueNoteTitle
-    ? getVaultDocumentTitle(relativePath)
-    : relativePath;
+  return isUniqueNoteTitle ? getVaultDocumentTitle(relativePath) : relativePath;
 }
 
 export function buildVaultLinkInsertText(
@@ -166,18 +172,25 @@ export function resolveVaultRelativeLinkTarget(
     : normalizeRelativePath(noteDir ? `${noteDir}/${filePath}` : filePath);
 
   const flatFiles = flattenVaultFiles(fileTree);
-  const exactMatch = flatFiles.find((file) => file.relativePath.toLowerCase() === relativeToVault.toLowerCase());
+  const exactMatch = flatFiles.find(
+    (file) => file.relativePath.toLowerCase() === relativeToVault.toLowerCase(),
+  );
   if (exactMatch) return buildVaultLinkTarget(exactMatch);
 
   if (!relativeToVault.includes('/')) {
-    const basenameMatches = flatFiles.filter((file) => file.name.toLowerCase() === relativeToVault.toLowerCase());
+    const basenameMatches = flatFiles.filter(
+      (file) => file.name.toLowerCase() === relativeToVault.toLowerCase(),
+    );
     if (basenameMatches.length === 1) return buildVaultLinkTarget(basenameMatches[0]);
   }
 
   return null;
 }
 
-export function resolveVaultWikilinkTarget(rawLink: string, fileTree: NoteFile[]): VaultLinkTarget | null {
+export function resolveVaultWikilinkTarget(
+  rawLink: string,
+  fileTree: NoteFile[],
+): VaultLinkTarget | null {
   const trimmed = rawLink.trim();
   if (!trimmed) return null;
 
@@ -199,7 +212,9 @@ export function resolveVaultWikilinkTarget(rawLink: string, fileTree: NoteFile[]
     });
     if (noteMatch) return buildVaultLinkTarget(noteMatch);
 
-    const otherDocMatches = flatFiles.filter((file) => getVaultDocumentTitle(file.relativePath).toLowerCase() === stemLower);
+    const otherDocMatches = flatFiles.filter(
+      (file) => getVaultDocumentTitle(file.relativePath).toLowerCase() === stemLower,
+    );
     if (otherDocMatches.length === 1) return buildVaultLinkTarget(otherDocMatches[0]);
   }
 
@@ -214,17 +229,28 @@ export function getVaultWikilinkAutocompleteItems(fileTree: NoteFile[]) {
       const folder = file.relativePath.includes('/')
         ? file.relativePath.split('/').slice(0, -1).join('/')
         : undefined;
-      const insertText = type === 'note'
-        ? getVaultWikilinkInsertTarget(file.relativePath, fileTree)
-        : file.relativePath;
+      const insertText =
+        type === 'note'
+          ? getVaultWikilinkInsertTarget(file.relativePath, fileTree)
+          : file.relativePath;
 
       return {
-        label: type === 'note'
-          ? getVaultDocumentTitle(file.relativePath)
-          : file.name,
-        detail: [folder, type === 'pdf' ? 'PDF' : type === 'canvas' ? 'Canvas' : type === 'kanban' ? 'Kanban' : type === 'sheet' ? 'Spreadsheet' : undefined]
-          .filter(Boolean)
-          .join(' · ') || undefined,
+        label: type === 'note' ? getVaultDocumentTitle(file.relativePath) : file.name,
+        detail:
+          [
+            folder,
+            type === 'pdf'
+              ? 'PDF'
+              : type === 'canvas'
+                ? 'Canvas'
+                : type === 'kanban'
+                  ? 'Kanban'
+                  : type === 'sheet'
+                    ? 'Spreadsheet'
+                    : undefined,
+          ]
+            .filter(Boolean)
+            .join(' · ') || undefined,
         type: 'text' as const,
         insertText,
       };

@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import type { MathPlot3DSpec, Sampled3DPlot } from './mathPlotSpec';
 import { samplePlot3D } from './mathPlotSpec';
@@ -59,20 +65,19 @@ function buildSurfaceGeometry(THREE: typeof import('three'), sampled: Sampled3DP
 
 function buildAxes(THREE: typeof import('three')) {
   const axis = 2.25;
-  const positions = [
-    -axis, 0, 0, axis, 0, 0,
-    0, -1.45, 0, 0, 1.45, 0,
-    0, 0, -axis, 0, 0, axis,
-  ];
+  const positions = [-axis, 0, 0, axis, 0, 0, 0, -1.45, 0, 0, 1.45, 0, 0, 0, -axis, 0, 0, axis];
   const colors = [
-    0.95, 0.24, 0.35, 0.95, 0.24, 0.35,
-    0.36, 0.75, 0.48, 0.36, 0.75, 0.48,
-    0.24, 0.52, 0.95, 0.24, 0.52, 0.95,
+    0.95, 0.24, 0.35, 0.95, 0.24, 0.35, 0.36, 0.75, 0.48, 0.36, 0.75, 0.48, 0.24, 0.52, 0.95, 0.24,
+    0.52, 0.95,
   ];
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  const material = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.82 });
+  const material = new THREE.LineBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.82,
+  });
   return new THREE.LineSegments(geometry, material);
 }
 
@@ -296,7 +301,10 @@ export function MathPlot3D({ spec, variant = 'inline', onShiftClick }: MathPlot3
           {!error && (
             <button
               type="button"
-              onClick={(event) => { event.stopPropagation(); resetRef.current?.(); }}
+              onClick={(event) => {
+                event.stopPropagation();
+                resetRef.current?.();
+              }}
               className="shrink-0 rounded border border-border/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border/80 hover:text-foreground"
               title="Reset the camera to its default angle"
             >

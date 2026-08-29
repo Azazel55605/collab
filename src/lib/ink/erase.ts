@@ -19,13 +19,13 @@
  * Raster-style pixel erasing is explicitly not here — the plan defers it, and a
  * vector document has nowhere to put it that survives export.
  */
-
 import type { InkObject, InkSample, InkScene, InkStroke } from '../../types/ink';
+
 import { decodeSamples, encodeSamples } from './codec';
-import { InkSpatialIndex } from './spatialIndex';
-import { halfWidthAt } from './stroke';
 import { addObject, removeObject, removeObjects } from './operations';
 import type { InkEdit } from './operations';
+import { InkSpatialIndex } from './spatialIndex';
+import { halfWidthAt } from './stroke';
 
 export type InkEraserMode = 'stroke' | 'segment' | 'object';
 
@@ -71,8 +71,10 @@ function segmentsIntersect(
   const abD = cross(a, b, d);
   const cdA = cross(c, d, a);
   const cdB = cross(c, d, b);
-  return ((abC <= 0 && abD >= 0) || (abC >= 0 && abD <= 0))
-    && ((cdA <= 0 && cdB >= 0) || (cdA >= 0 && cdB <= 0));
+  return (
+    ((abC <= 0 && abD >= 0) || (abC >= 0 && abD <= 0)) &&
+    ((cdA <= 0 && cdB >= 0) || (cdA >= 0 && cdB <= 0))
+  );
 }
 
 function segmentDistanceSquared(
@@ -97,8 +99,9 @@ function segmentTouchesEraser(
   radius: number,
 ): boolean {
   if (path.length === 1) {
-    return distanceToSegmentSquared(path[0].x, path[0].y, from.x, from.y, to.x, to.y)
-      <= radius * radius;
+    return (
+      distanceToSegmentSquared(path[0].x, path[0].y, from.x, from.y, to.x, to.y) <= radius * radius
+    );
   }
   for (let index = 1; index < path.length; index += 1) {
     if (segmentDistanceSquared(from, to, path[index - 1], path[index]) <= radius * radius) {
@@ -153,11 +156,7 @@ function refineSamplesNearEraser(
 }
 
 /** True when the eraser path passes within `radius` of a sample. */
-function sampleIsErased(
-  sample: InkSample,
-  path: InkEraserPoint[],
-  radius: number,
-): boolean {
+function sampleIsErased(sample: InkSample, path: InkEraserPoint[], radius: number): boolean {
   if (path.length === 1) {
     return (sample.x - path[0].x) ** 2 + (sample.y - path[0].y) ** 2 <= radius * radius;
   }
@@ -287,9 +286,10 @@ export function applyErase(scene: InkScene, plan: InkEraseResult): InkEdit<InkSc
     const sourceId = suffix < 0 ? replacement.id : replacement.id.slice(0, suffix);
     const base = indexes.get(sourceId);
     const offset = cursors.get(sourceId) ?? 0;
-    const insertAt = base === undefined || base < 0
-      ? result.objectOrder.length
-      : Math.min(base + offset, result.objectOrder.length);
+    const insertAt =
+      base === undefined || base < 0
+        ? result.objectOrder.length
+        : Math.min(base + offset, result.objectOrder.length);
     result = addObject(result, replacement, insertAt).result;
     cursors.set(sourceId, offset + 1);
   }

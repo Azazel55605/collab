@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { INK_PAGE_PRESETS } from '../../types/ink';
 import { createInkDocument } from '../../lib/ink/document';
+import { INK_PAGE_PRESETS } from '../../types/ink';
+
 import NewDrawingDialog, { type NewDrawingChoice } from './NewDrawingDialog';
 
 function open(onCreate: (choice: NewDrawingChoice) => void = vi.fn()) {

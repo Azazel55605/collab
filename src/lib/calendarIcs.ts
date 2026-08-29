@@ -1,7 +1,6 @@
 import ICAL from 'ical.js';
+
 import {
-  calendarTimeValueKey,
-  normalizeCalendarItem,
   type CalendarAttachment,
   type CalendarAttendee,
   type CalendarDefinition,
@@ -10,6 +9,8 @@ import {
   type CalendarTaskPriority,
   type CalendarTaskStatus,
   type CalendarTimeValue,
+  calendarTimeValueKey,
+  normalizeCalendarItem,
 } from '../types/calendar';
 
 export const MAX_ICS_BYTES = 5 * 1024 * 1024;
@@ -41,7 +42,10 @@ function requiredText(component: InstanceType<typeof ICAL.Component>, name: stri
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function optionalText(component: InstanceType<typeof ICAL.Component>, name: string): string | undefined {
+function optionalText(
+  component: InstanceType<typeof ICAL.Component>,
+  name: string,
+): string | undefined {
   const value = requiredText(component, name);
   return value || undefined;
 }
@@ -60,9 +64,10 @@ function timeValue(
   if (!(value instanceof ICAL.Time)) return undefined;
   if (value.isDate) return { kind: 'date', date: dateKey(value) };
   const preservedTimeZone = optionalText(component, `x-collab-${name}-timezone`);
-  const timeZone = preservedTimeZone
-    || property?.getFirstParameter('tzid')
-    || (value.zone?.tzid && value.zone.tzid !== 'floating' ? value.zone.tzid : fallbackTimeZone);
+  const timeZone =
+    preservedTimeZone ||
+    property?.getFirstParameter('tzid') ||
+    (value.zone?.tzid && value.zone.tzid !== 'floating' ? value.zone.tzid : fallbackTimeZone);
   return {
     kind: 'dateTime',
     dateTime: value.toJSDate().toISOString(),
@@ -95,8 +100,9 @@ function recurrenceValues(
         results.push({ kind: 'date', date: dateKey(value) });
         continue;
       }
-      const timeZone = property.getFirstParameter('tzid')
-        || (value.zone?.tzid && value.zone.tzid !== 'floating' && value.zone.tzid !== 'UTC'
+      const timeZone =
+        property.getFirstParameter('tzid') ||
+        (value.zone?.tzid && value.zone.tzid !== 'floating' && value.zone.tzid !== 'UTC'
           ? value.zone.tzid
           : fallbackTimeZone);
       results.push({
@@ -115,7 +121,8 @@ function reminders(component: InstanceType<typeof ICAL.Component>): CalendarRemi
     const trigger = alarm.getFirstPropertyValue('trigger');
     if (trigger instanceof ICAL.Duration) {
       const seconds = trigger.toSeconds();
-      if (seconds <= 0) results.push({ kind: 'relative', minutesBefore: Math.abs(Math.round(seconds / 60)) });
+      if (seconds <= 0)
+        results.push({ kind: 'relative', minutesBefore: Math.abs(Math.round(seconds / 60)) });
     }
     if (trigger instanceof ICAL.Time) {
       results.push({ kind: 'absolute', at: trigger.toJSDate().toISOString() });
@@ -126,10 +133,14 @@ function reminders(component: InstanceType<typeof ICAL.Component>): CalendarRemi
 
 function attendanceResponse(value: string | undefined): CalendarAttendee['response'] {
   switch (value?.toLowerCase()) {
-    case 'accepted': return 'accepted';
-    case 'declined': return 'declined';
-    case 'tentative': return 'tentative';
-    default: return 'needs-action';
+    case 'accepted':
+      return 'accepted';
+    case 'declined':
+      return 'declined';
+    case 'tentative':
+      return 'tentative';
+    default:
+      return 'needs-action';
   }
 }
 
@@ -143,14 +154,16 @@ function attendees(component: InstanceType<typeof ICAL.Component>): CalendarAtte
     if (typeof value !== 'string' || !value.toLowerCase().startsWith('mailto:')) return [];
     const email = value.slice(7).trim().toLowerCase();
     if (!email) return [];
-    return [{
-      id: `ics-attendee-${index}`,
-      kind: 'email' as const,
-      email,
-      displayName: property.getFirstParameter('cn') || undefined,
-      response: attendanceResponse(property.getFirstParameter('partstat')),
-      role: attendeeRole(property.getFirstParameter('role')),
-    }];
+    return [
+      {
+        id: `ics-attendee-${index}`,
+        kind: 'email' as const,
+        email,
+        displayName: property.getFirstParameter('cn') || undefined,
+        response: attendanceResponse(property.getFirstParameter('partstat')),
+        role: attendeeRole(property.getFirstParameter('role')),
+      },
+    ];
   });
 }
 
@@ -160,12 +173,14 @@ function attachments(component: InstanceType<typeof ICAL.Component>): CalendarAt
     if (typeof value !== 'string') return [];
     try {
       const url = new URL(value).toString();
-      return [{
-        id: `ics-attachment-${index}`,
-        kind: 'externalUrl' as const,
-        name: property.getFirstParameter('filename') || url,
-        url,
-      }];
+      return [
+        {
+          id: `ics-attachment-${index}`,
+          kind: 'externalUrl' as const,
+          name: property.getFirstParameter('filename') || url,
+          url,
+        },
+      ];
     } catch {
       return [];
     }
@@ -173,19 +188,26 @@ function attachments(component: InstanceType<typeof ICAL.Component>): CalendarAt
 }
 
 function preservedProperties(component: InstanceType<typeof ICAL.Component>): string[] {
-  return component.getAllProperties().flatMap((property) => {
-    if (!property.name.startsWith('x-') || property.name.startsWith('x-collab-')) return [];
-    const line = property.toICALString().replace(/\r?\n[ \t]/g, '');
-    return line.length <= 16_384 && !/[\r\n]/.test(line) ? [line] : [];
-  }).slice(0, 64);
+  return component
+    .getAllProperties()
+    .flatMap((property) => {
+      if (!property.name.startsWith('x-') || property.name.startsWith('x-collab-')) return [];
+      const line = property.toICALString().replace(/\r?\n[ \t]/g, '');
+      return line.length <= 16_384 && !/[\r\n]/.test(line) ? [line] : [];
+    })
+    .slice(0, 64);
 }
 
 function taskStatus(value: string | undefined): CalendarTaskStatus {
   switch (value?.toLowerCase()) {
-    case 'in-process': return 'in-progress';
-    case 'completed': return 'completed';
-    case 'cancelled': return 'cancelled';
-    default: return 'needs-action';
+    case 'in-process':
+      return 'in-progress';
+    case 'completed':
+      return 'completed';
+    case 'cancelled':
+      return 'cancelled';
+    default:
+      return 'needs-action';
   }
 }
 
@@ -218,11 +240,14 @@ function commonItemFields(
     reminders: reminders(component),
     attendees: attendees(component),
     attachments: attachments(component),
-    recurrence: rrule instanceof ICAL.Recur ? {
-      rrule: rrule.toString(),
-      rdates: rdates.length ? rdates : undefined,
-      exdates: exdates.length ? exdates : undefined,
-    } : undefined,
+    recurrence:
+      rrule instanceof ICAL.Recur
+        ? {
+            rrule: rrule.toString(),
+            rdates: rdates.length ? rdates : undefined,
+            exdates: exdates.length ? exdates : undefined,
+          }
+        : undefined,
     recurrenceId: timeValue(component, 'recurrence-id', fallbackTimeZone),
     icalendarProperties: preservedProperties(component),
     revision: 0,
@@ -260,15 +285,17 @@ function parseComponent(
       birthYear: Number(component.getFirstPropertyValue('x-collab-birth-year')) || undefined,
     });
   }
-  const end = timeValue(component, 'dtend', calendar.defaultTimeZone)
-    ?? addMilliseconds(start, start.kind === 'date' ? 86_400_000 : 3_600_000);
+  const end =
+    timeValue(component, 'dtend', calendar.defaultTimeZone) ??
+    addMilliseconds(start, start.kind === 'date' ? 86_400_000 : 3_600_000);
   return normalizeCalendarItem({
     ...common,
     kind: 'event',
     start,
     end,
     location: optionalText(component, 'location'),
-    availability: optionalText(component, 'transp')?.toLowerCase() === 'transparent' ? 'free' : 'busy',
+    availability:
+      optionalText(component, 'transp')?.toLowerCase() === 'transparent' ? 'free' : 'busy',
   });
 }
 
@@ -277,7 +304,14 @@ function importKey(item: Pick<CalendarItem, 'uid' | 'recurrenceId'>): string {
 }
 
 function semanticValue(item: CalendarItem): string {
-  const { id: _id, revision: _revision, createdAt: _createdAt, updatedAt: _updatedAt, deletedAt: _deletedAt, ...value } = item;
+  const {
+    id: _id,
+    revision: _revision,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    deletedAt: _deletedAt,
+    ...value
+  } = item;
   return JSON.stringify(value);
 }
 
@@ -288,9 +322,11 @@ export function previewCalendarIcsImport(
   now = new Date().toISOString(),
 ): CalendarIcsImportPreview {
   const byteLength = new TextEncoder().encode(content).byteLength;
-  if (byteLength > MAX_ICS_BYTES) throw new Error(`iCalendar files cannot exceed ${MAX_ICS_BYTES / 1024 / 1024} MB.`);
+  if (byteLength > MAX_ICS_BYTES)
+    throw new Error(`iCalendar files cannot exceed ${MAX_ICS_BYTES / 1024 / 1024} MB.`);
   for (const line of content.split(/\r?\n/)) {
-    if (line.length > MAX_ICS_LINE_LENGTH) throw new Error('An iCalendar content line exceeds the supported limit.');
+    if (line.length > MAX_ICS_LINE_LENGTH)
+      throw new Error('An iCalendar content line exceeds the supported limit.');
   }
 
   let root: InstanceType<typeof ICAL.Component>;
@@ -300,15 +336,15 @@ export function previewCalendarIcsImport(
     throw new Error('The selected file is not valid iCalendar data.');
   }
   if (root.name !== 'vcalendar') throw new Error('The selected file does not contain a VCALENDAR.');
-  const components = [
-    ...root.getAllSubcomponents('vevent'),
-    ...root.getAllSubcomponents('vtodo'),
-  ];
-  if (components.length > MAX_ICS_ITEMS) throw new Error(`iCalendar imports cannot contain more than ${MAX_ICS_ITEMS} items.`);
+  const components = [...root.getAllSubcomponents('vevent'), ...root.getAllSubcomponents('vtodo')];
+  if (components.length > MAX_ICS_ITEMS)
+    throw new Error(`iCalendar imports cannot contain more than ${MAX_ICS_ITEMS} items.`);
 
-  const existingByKey = new Map(existingItems
-    .filter((item) => item.calendarId === calendar.id)
-    .map((item) => [importKey(item), item]));
+  const existingByKey = new Map(
+    existingItems
+      .filter((item) => item.calendarId === calendar.id)
+      .map((item) => [importKey(item), item]),
+  );
   const importedByKey = new Map<string, CalendarItem>();
   const entries: CalendarIcsImportEntry[] = [];
   const warnings: string[] = [];
@@ -323,7 +359,8 @@ export function previewCalendarIcsImport(
   }
   const seriesIds = new Map<string, string>();
   for (const existing of existingItems) {
-    if (existing.calendarId === calendar.id && !existing.recurrenceId) seriesIds.set(existing.uid, existing.id);
+    if (existing.calendarId === calendar.id && !existing.recurrenceId)
+      seriesIds.set(existing.uid, existing.id);
   }
   for (const parsed of parsedItems) {
     if (!parsed.recurrenceId && !seriesIds.has(parsed.uid)) seriesIds.set(parsed.uid, parsed.id);
@@ -331,14 +368,23 @@ export function previewCalendarIcsImport(
 
   for (const parsedInput of parsedItems) {
     try {
-      const parsed = parsedInput.recurrenceId && seriesIds.has(parsedInput.uid)
-        ? normalizeCalendarItem({ ...parsedInput, recurrenceSeriesId: seriesIds.get(parsedInput.uid) })
-        : parsedInput;
+      const parsed =
+        parsedInput.recurrenceId && seriesIds.has(parsedInput.uid)
+          ? normalizeCalendarItem({
+              ...parsedInput,
+              recurrenceSeriesId: seriesIds.get(parsedInput.uid),
+            })
+          : parsedInput;
       const key = importKey(parsed);
       const duplicate = importedByKey.get(key);
       if (duplicate) {
         if (semanticValue(duplicate) !== semanticValue(parsed)) {
-          entries.push({ key, action: 'conflict', item: parsed, reason: 'The file contains different items with the same UID and recurrence instance.' });
+          entries.push({
+            key,
+            action: 'conflict',
+            item: parsed,
+            reason: 'The file contains different items with the same UID and recurrence instance.',
+          });
         } else {
           warnings.push(`Ignored duplicate item "${parsed.title}".`);
         }
@@ -358,7 +404,10 @@ export function previewCalendarIcsImport(
         });
         entries.push({
           key,
-          action: !existing.deletedAt && semanticValue(existing) === semanticValue(updated) ? 'unchanged' : 'update',
+          action:
+            !existing.deletedAt && semanticValue(existing) === semanticValue(updated)
+              ? 'unchanged'
+              : 'update',
           item: updated,
           existing,
         });
@@ -417,7 +466,10 @@ function addCommonProperties(component: InstanceType<typeof ICAL.Component>, ite
     alarm.addPropertyWithValue('action', 'DISPLAY');
     alarm.addPropertyWithValue('description', item.title);
     if (reminder.kind === 'relative') {
-      alarm.addPropertyWithValue('trigger', ICAL.Duration.fromSeconds(-reminder.minutesBefore * 60));
+      alarm.addPropertyWithValue(
+        'trigger',
+        ICAL.Duration.fromSeconds(-reminder.minutesBefore * 60),
+      );
     } else {
       alarm.addPropertyWithValue('trigger', ICAL.Time.fromJSDate(new Date(reminder.at), true));
     }
@@ -428,7 +480,10 @@ function addCommonProperties(component: InstanceType<typeof ICAL.Component>, ite
     const property = component.addPropertyWithValue('attendee', `mailto:${attendee.email}`);
     if (attendee.displayName) property.setParameter('cn', attendee.displayName);
     property.setParameter('partstat', attendee.response.toUpperCase());
-    property.setParameter('role', attendee.role === 'optional' ? 'OPT-PARTICIPANT' : 'REQ-PARTICIPANT');
+    property.setParameter(
+      'role',
+      attendee.role === 'optional' ? 'OPT-PARTICIPANT' : 'REQ-PARTICIPANT',
+    );
   }
   for (const attachment of item.attachments) {
     if (attachment.kind !== 'externalUrl') continue;
@@ -437,14 +492,18 @@ function addCommonProperties(component: InstanceType<typeof ICAL.Component>, ite
   }
   for (const line of item.icalendarProperties ?? []) {
     try {
-      const parsed = new ICAL.Component(ICAL.parse([
-        'BEGIN:VCALENDAR',
-        'VERSION:2.0',
-        `BEGIN:${component.name.toUpperCase()}`,
-        line,
-        `END:${component.name.toUpperCase()}`,
-        'END:VCALENDAR',
-      ].join('\r\n')));
+      const parsed = new ICAL.Component(
+        ICAL.parse(
+          [
+            'BEGIN:VCALENDAR',
+            'VERSION:2.0',
+            `BEGIN:${component.name.toUpperCase()}`,
+            line,
+            `END:${component.name.toUpperCase()}`,
+            'END:VCALENDAR',
+          ].join('\r\n'),
+        ),
+      );
       const property = parsed.getFirstSubcomponent(component.name)?.getFirstProperty();
       if (property?.name.startsWith('x-') && !property.name.startsWith('x-collab-')) {
         component.addProperty(property);
@@ -462,13 +521,27 @@ function componentForItem(item: CalendarItem): InstanceType<typeof ICAL.Componen
     addTimeProperty(component, 'dtstart', item.start);
     addTimeProperty(component, 'dtend', item.end);
     if (item.location) component.addPropertyWithValue('location', item.location.label);
-    component.addPropertyWithValue('transp', item.availability === 'free' ? 'TRANSPARENT' : 'OPAQUE');
+    component.addPropertyWithValue(
+      'transp',
+      item.availability === 'free' ? 'TRANSPARENT' : 'OPAQUE',
+    );
   } else if (item.kind === 'task') {
     addTimeProperty(component, 'dtstart', item.start);
     addTimeProperty(component, 'due', item.due);
-    component.addPropertyWithValue('status', item.status === 'in-progress' ? 'IN-PROCESS' : item.status.toUpperCase());
-    if (item.completedAt) component.addPropertyWithValue('completed', ICAL.Time.fromJSDate(new Date(item.completedAt), true));
-    if (item.priority) component.addPropertyWithValue('priority', item.priority === 'high' ? 1 : item.priority === 'medium' ? 5 : 9);
+    component.addPropertyWithValue(
+      'status',
+      item.status === 'in-progress' ? 'IN-PROCESS' : item.status.toUpperCase(),
+    );
+    if (item.completedAt)
+      component.addPropertyWithValue(
+        'completed',
+        ICAL.Time.fromJSDate(new Date(item.completedAt), true),
+      );
+    if (item.priority)
+      component.addPropertyWithValue(
+        'priority',
+        item.priority === 'high' ? 1 : item.priority === 'medium' ? 5 : 9,
+      );
   } else {
     addTimeProperty(component, 'dtstart', { kind: 'date', date: item.date });
     component.addPropertyWithValue('x-collab-kind', 'BIRTHDAY');
@@ -477,10 +550,7 @@ function componentForItem(item: CalendarItem): InstanceType<typeof ICAL.Componen
   return component;
 }
 
-export function exportCalendarIcs(
-  calendar: CalendarDefinition,
-  items: CalendarItem[],
-): string {
+export function exportCalendarIcs(calendar: CalendarDefinition, items: CalendarItem[]): string {
   const root = new ICAL.Component('vcalendar');
   root.addPropertyWithValue('version', '2.0');
   root.addPropertyWithValue('prodid', '-//Collab//Calendar//EN');
@@ -502,5 +572,7 @@ export function utf8ToBase64(value: string): string {
 }
 
 export function base64ToUtf8(value: string): string {
-  return new TextDecoder().decode(Uint8Array.from(atob(value), (character) => character.charCodeAt(0)));
+  return new TextDecoder().decode(
+    Uint8Array.from(atob(value), (character) => character.charCodeAt(0)),
+  );
 }

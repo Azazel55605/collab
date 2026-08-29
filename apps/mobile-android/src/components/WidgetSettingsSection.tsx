@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+
 import { LayoutDashboard, RefreshCw } from 'lucide-react';
 
-import type { CalendarDefinition, CalendarEvent, CalendarTask } from '../../../../src/types/calendar';
+import type {
+  CalendarDefinition,
+  CalendarEvent,
+  CalendarTask,
+} from '../../../../src/types/calendar';
 import type {
   WidgetCaptureAction,
   WidgetCaptureOptions,
@@ -13,17 +18,17 @@ import type {
   WidgetTaskOptions,
 } from '../../../../src/types/widget';
 import { mobileCalendarProfileId } from '../lib/calendarSync';
-import { useMobileStore } from '../state/store';
 import {
-  listProfileCalendars,
   listProfileCalendarItems,
+  listProfileCalendars,
   widgetActiveProfileSet,
-  widgetDiagnosticsList,
   widgetConfigurationList,
   widgetConfigurationSave,
+  widgetDiagnosticsList,
   widgetRefresh,
   widgetSyncAccounts,
 } from '../mobileTauri';
+import { useMobileStore } from '../state/store';
 
 const PRIVACY_OPTIONS: Array<[WidgetPrivacy, string]> = [
   ['full', 'Full details'],
@@ -123,7 +128,10 @@ export function WidgetSettingsSection() {
     kanbanTasks.forEach((task) => {
       const binding = task.sourceBinding;
       if (binding?.kind !== 'kanban' || byFileId.has(binding.fileId)) return;
-      const label = binding.path?.split('/').pop()?.replace(/\.kanban$/, '');
+      const label = binding.path
+        ?.split('/')
+        .pop()
+        ?.replace(/\.kanban$/, '');
       byFileId.set(binding.fileId, label || 'Kanban board');
     });
     return [...byFileId.entries()].slice(0, 24);
@@ -153,7 +161,13 @@ export function WidgetSettingsSection() {
       widgetConfigurationList(profileId),
       listProfileCalendars(profileId),
       widgetDiagnosticsList(profileId),
-      listProfileCalendarItems(profileId, rangeStart.toISOString(), rangeEnd.toISOString(), 2_000, false),
+      listProfileCalendarItems(
+        profileId,
+        rangeStart.toISOString(),
+        rangeEnd.toISOString(),
+        2_000,
+        false,
+      ),
       // Accounts are only needed by the sync widget, and a failure here must not
       // stop the rest of the widget settings from loading.
       widgetSyncAccounts().catch(() => [] as WidgetSyncAccount[]),
@@ -164,9 +178,15 @@ export function WidgetSettingsSection() {
         applyConfigurations(nextConfigurations);
         setCalendars(nextCalendars.filter((calendar) => !calendar.deletedAt && !calendar.archived));
         setDiagnostics(nextDiagnostics);
-        setCountdownEvents(nextItems.filter((item): item is CalendarEvent => item.kind === 'event'));
-        setKanbanTasks(nextItems.filter((item): item is CalendarTask =>
-          item.kind === 'task' && item.sourceBinding?.kind === 'kanban'));
+        setCountdownEvents(
+          nextItems.filter((item): item is CalendarEvent => item.kind === 'event'),
+        );
+        setKanbanTasks(
+          nextItems.filter(
+            (item): item is CalendarTask =>
+              item.kind === 'task' && item.sourceBinding?.kind === 'kanban',
+          ),
+        );
       })
       .catch((reason) => {
         if (!cancelled) setError(String(reason));
@@ -183,31 +203,43 @@ export function WidgetSettingsSection() {
     configurationId: string,
     update: (configuration: WidgetConfiguration) => WidgetConfiguration,
   ) => {
-    const previous = configurationsRef.current.find((entry) =>
-      entry.configurationId === configurationId);
+    const previous = configurationsRef.current.find(
+      (entry) => entry.configurationId === configurationId,
+    );
     if (!previous) return;
     const next = { ...update(previous), updatedAt: new Date().toISOString() };
-    applyConfigurations(configurationsRef.current.map((entry) =>
-      entry.configurationId === configurationId ? next : entry));
+    applyConfigurations(
+      configurationsRef.current.map((entry) =>
+        entry.configurationId === configurationId ? next : entry,
+      ),
+    );
     setError(null);
     const version = (saveVersionsRef.current.get(configurationId) ?? 0) + 1;
     saveVersionsRef.current.set(configurationId, version);
     const priorQueue = saveQueuesRef.current.get(configurationId) ?? Promise.resolve();
-    const queued = priorQueue.catch(() => {}).then(async () => {
-      try {
-        const saved = await widgetConfigurationSave(profileId, next);
-        if (saveVersionsRef.current.get(configurationId) !== version) return;
-        applyConfigurations(configurationsRef.current.map((entry) =>
-          entry.configurationId === saved.configurationId ? saved : entry));
-        setDiagnostics(await widgetDiagnosticsList(profileId));
-      } catch (reason) {
-        if (saveVersionsRef.current.get(configurationId) === version) {
-          applyConfigurations(configurationsRef.current.map((entry) =>
-            entry.configurationId === configurationId ? previous : entry));
-          setError(String(reason));
+    const queued = priorQueue
+      .catch(() => {})
+      .then(async () => {
+        try {
+          const saved = await widgetConfigurationSave(profileId, next);
+          if (saveVersionsRef.current.get(configurationId) !== version) return;
+          applyConfigurations(
+            configurationsRef.current.map((entry) =>
+              entry.configurationId === saved.configurationId ? saved : entry,
+            ),
+          );
+          setDiagnostics(await widgetDiagnosticsList(profileId));
+        } catch (reason) {
+          if (saveVersionsRef.current.get(configurationId) === version) {
+            applyConfigurations(
+              configurationsRef.current.map((entry) =>
+                entry.configurationId === configurationId ? previous : entry,
+              ),
+            );
+            setError(String(reason));
+          }
         }
-      }
-    });
+      });
     saveQueuesRef.current.set(configurationId, queued);
   };
 
@@ -241,328 +273,418 @@ export function WidgetSettingsSection() {
       {busy ? <p className="footnote">Loading widget configurations…</p> : null}
       {!busy && configurations.length === 0 ? (
         <p className="footnote">
-          Add the Collab Agenda widget from your Android launcher. Its configuration will appear here.
+          Add the Collab Agenda widget from your Android launcher. Its configuration will appear
+          here.
         </p>
       ) : null}
       {configurations.map((configuration, index) => {
         const status = diagnosticsById.get(configuration.configurationId);
         return (
-        <div className="widget-settings-entry" key={configuration.configurationId}>
-          <div className="setting-row">
-            <div>
-              <strong>{WIDGET_KIND_LABELS[configuration.kind]} {index + 1}</strong>
-              <span>{widgetSourceSummary(configuration)}</span>
+          <div className="widget-settings-entry" key={configuration.configurationId}>
+            <div className="setting-row">
+              <div>
+                <strong>
+                  {WIDGET_KIND_LABELS[configuration.kind]} {index + 1}
+                </strong>
+                <span>{widgetSourceSummary(configuration)}</span>
+              </div>
+              <span className="widget-live-label">Changes apply live</span>
             </div>
-            <span className="widget-live-label">Changes apply live</span>
-          </div>
-          <div className="widget-diagnostics" aria-label={`${WIDGET_KIND_LABELS[configuration.kind]} ${index + 1} status`}>
-            <span>{status?.lastSuccessAt
-              ? `Updated ${new Date(status.lastSuccessAt).toLocaleString()}`
-              : 'Waiting for first update'}</span>
-            {status ? (
+            <div
+              className="widget-diagnostics"
+              aria-label={`${WIDGET_KIND_LABELS[configuration.kind]} ${index + 1} status`}
+            >
               <span>
-                {status.itemCount} items · {Math.ceil(status.serializedBytes / 1024)} KB · {status.generationDurationMs} ms
-                {status.truncated ? ' · limited' : ''}
+                {status?.lastSuccessAt
+                  ? `Updated ${new Date(status.lastSuccessAt).toLocaleString()}`
+                  : 'Waiting for first update'}
               </span>
-            ) : null}
-            {status?.lastError ? <span className="error-text">{status.lastError}</span> : null}
-            {status && (status.staleSources > 0 || status.unavailableSources > 0) ? (
-              <span>{status.staleSources} stale · {status.unavailableSources} unavailable sources</span>
-            ) : null}
-          </div>
-          {configuration.kind === 'countdown' ? (
-            <div className="setting-row stacked">
-              <div><strong>Countdown events</strong><span>Select up to 24 upcoming events.</span></div>
-              <div className="widget-calendar-options">
-                {countdownCandidates.length === 0 ? <span className="footnote">No upcoming events available.</span> : null}
-                {countdownCandidates.map(([selectionId, event]) => (
-                  <label className="toggle-row" key={selectionId}>
-                    <span><strong>{event.title}</strong><small>{countdownDateLabel(event)}</small></span>
-                    <input
-                      type="checkbox"
-                      checked={(configuration.selectedItemIds ?? []).includes(selectionId)}
-                      onChange={(changeEvent) => save(configuration.configurationId, (current) => ({
-                        ...current,
-                        selectedItemIds: changeEvent.currentTarget.checked
-                          ? [...new Set([...(current.selectedItemIds ?? []), selectionId])]
-                          : (current.selectedItemIds ?? []).filter((id) => id !== selectionId),
-                      }))}
-                    />
-                  </label>
-                ))}
-              </div>
+              {status ? (
+                <span>
+                  {status.itemCount} items · {Math.ceil(status.serializedBytes / 1024)} KB ·{' '}
+                  {status.generationDurationMs} ms
+                  {status.truncated ? ' · limited' : ''}
+                </span>
+              ) : null}
+              {status?.lastError ? <span className="error-text">{status.lastError}</span> : null}
+              {status && (status.staleSources > 0 || status.unavailableSources > 0) ? (
+                <span>
+                  {status.staleSources} stale · {status.unavailableSources} unavailable sources
+                </span>
+              ) : null}
             </div>
-          ) : null}
-          {configuration.kind === 'capture' ? (
-            <div className="setting-row stacked">
-              <div><strong>Capture actions</strong><span>Each tile opens the matching Collab flow.</span></div>
-              <div className="widget-calendar-options">
-                {CAPTURE_ACTIONS.map(([action, label]) => {
-                  const actions = captureOptions(configuration).actions;
-                  const checked = actions.includes(action);
-                  return (
-                    <label className="toggle-row" key={action}>
-                      <span><strong>{label}</strong></span>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        // The last remaining tile stays on: an empty capture
-                        // widget would have nothing to tap.
-                        disabled={checked && actions.length === 1}
-                        onChange={(event) => save(configuration.configurationId, (current) => {
-                          const options = captureOptions(current);
-                          const next = event.currentTarget.checked
-                            ? CAPTURE_ACTIONS.map(([value]) => value)
-                              .filter((value) => options.actions.includes(value) || value === action)
-                            : options.actions.filter((value) => value !== action);
-                          return { ...current, capture: { ...options, actions: next } };
-                        })}
-                      />
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
-          {configuration.kind === 'shortcuts' ? (
-            <>
-              <div className="setting-row">
-                <div>
-                  <strong>Fill with recent files</strong>
-                  <span>Uses offline vault metadata only. Pins always come first.</span>
-                </div>
-                <input
-                  type="checkbox"
-                  aria-label="Fill with recent files"
-                  checked={shortcutOptions(configuration).includeRecent}
-                  onChange={(event) => save(configuration.configurationId, (current) => ({
-                    ...current,
-                    shortcuts: {
-                      ...shortcutOptions(current),
-                      includeRecent: event.currentTarget.checked,
-                    },
-                  }))}
-                />
-              </div>
+            {configuration.kind === 'countdown' ? (
               <div className="setting-row stacked">
                 <div>
-                  <strong>Pinned files</strong>
-                  <span>
-                    {selectedVault
-                      ? `Pin from ${selectedVault.vault.name}.`
-                      : 'Open a vault in Files to pin from it.'}
-                  </span>
+                  <strong>Countdown events</strong>
+                  <span>Select up to 24 upcoming events.</span>
                 </div>
                 <div className="widget-calendar-options">
-                  {pinCandidates.map((entry) => {
-                    const pinned = shortcutOptions(configuration).pinned;
-                    const checked = pinned.some((pin) =>
-                      pin.vaultId === selectedVault?.vault.id && pin.fileId === entry.id);
+                  {countdownCandidates.length === 0 ? (
+                    <span className="footnote">No upcoming events available.</span>
+                  ) : null}
+                  {countdownCandidates.map(([selectionId, event]) => (
+                    <label className="toggle-row" key={selectionId}>
+                      <span>
+                        <strong>{event.title}</strong>
+                        <small>{countdownDateLabel(event)}</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={(configuration.selectedItemIds ?? []).includes(selectionId)}
+                        onChange={(changeEvent) =>
+                          save(configuration.configurationId, (current) => ({
+                            ...current,
+                            selectedItemIds: changeEvent.currentTarget.checked
+                              ? [...new Set([...(current.selectedItemIds ?? []), selectionId])]
+                              : (current.selectedItemIds ?? []).filter((id) => id !== selectionId),
+                          }))
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {configuration.kind === 'capture' ? (
+              <div className="setting-row stacked">
+                <div>
+                  <strong>Capture actions</strong>
+                  <span>Each tile opens the matching Collab flow.</span>
+                </div>
+                <div className="widget-calendar-options">
+                  {CAPTURE_ACTIONS.map(([action, label]) => {
+                    const actions = captureOptions(configuration).actions;
+                    const checked = actions.includes(action);
                     return (
-                      <label className="toggle-row" key={entry.id}>
-                        <span><strong>{entry.name}</strong></span>
+                      <label className="toggle-row" key={action}>
+                        <span>
+                          <strong>{label}</strong>
+                        </span>
                         <input
                           type="checkbox"
                           checked={checked}
-                          onChange={(changeEvent) => save(configuration.configurationId, (current) => {
-                            const options = shortcutOptions(current);
-                            const vaultId = selectedVault!.vault.id;
-                            const next = changeEvent.currentTarget.checked
-                              ? [...options.pinned, { vaultId, fileId: entry.id }].slice(0, 16)
-                              : options.pinned.filter((pin) =>
-                                !(pin.vaultId === vaultId && pin.fileId === entry.id));
-                            return { ...current, shortcuts: { ...options, pinned: next } };
-                          })}
+                          // The last remaining tile stays on: an empty capture
+                          // widget would have nothing to tap.
+                          disabled={checked && actions.length === 1}
+                          onChange={(event) =>
+                            save(configuration.configurationId, (current) => {
+                              const options = captureOptions(current);
+                              const next = event.currentTarget.checked
+                                ? CAPTURE_ACTIONS.map(([value]) => value).filter(
+                                    (value) => options.actions.includes(value) || value === action,
+                                  )
+                                : options.actions.filter((value) => value !== action);
+                              return { ...current, capture: { ...options, actions: next } };
+                            })
+                          }
                         />
                       </label>
                     );
                   })}
                 </div>
               </div>
-            </>
-          ) : null}
-          {configuration.kind === 'tasks' ? (
-            <>
-              <div className="setting-row stacked">
-                <div><strong>Task sources</strong><span>Kanban assignments come from your cached boards.</span></div>
-                <div className="widget-calendar-options">
-                  {([
-                    ['includeCalendarTasks', 'Calendar tasks'],
-                    ['includeKanbanTasks', 'Kanban assignments'],
-                    ['includeUndated', 'Tasks without a due date'],
-                  ] as Array<[keyof WidgetTaskOptions, string]>).map(([key, label]) => (
-                    <label className="toggle-row" key={key}>
-                      <span><strong>{label}</strong></span>
-                      <input
-                        type="checkbox"
-                        checked={taskOptions(configuration)[key] as boolean}
-                        onChange={(event) => save(configuration.configurationId, (current) => ({
-                          ...current,
-                          tasks: { ...taskOptions(current), [key]: event.currentTarget.checked },
-                        }))}
-                      />
-                    </label>
-                  ))}
+            ) : null}
+            {configuration.kind === 'shortcuts' ? (
+              <>
+                <div className="setting-row">
+                  <div>
+                    <strong>Fill with recent files</strong>
+                    <span>Uses offline vault metadata only. Pins always come first.</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    aria-label="Fill with recent files"
+                    checked={shortcutOptions(configuration).includeRecent}
+                    onChange={(event) =>
+                      save(configuration.configurationId, (current) => ({
+                        ...current,
+                        shortcuts: {
+                          ...shortcutOptions(current),
+                          includeRecent: event.currentTarget.checked,
+                        },
+                      }))
+                    }
+                  />
                 </div>
-              </div>
-              {taskOptions(configuration).includeKanbanTasks && boardCandidates.length > 0 ? (
                 <div className="setting-row stacked">
-                  <div><strong>Kanban boards</strong><span>All boards when none are selected.</span></div>
+                  <div>
+                    <strong>Pinned files</strong>
+                    <span>
+                      {selectedVault
+                        ? `Pin from ${selectedVault.vault.name}.`
+                        : 'Open a vault in Files to pin from it.'}
+                    </span>
+                  </div>
                   <div className="widget-calendar-options">
-                    {boardCandidates.map(([fileId, label]) => {
-                      const selected = taskOptions(configuration).selectedBoardIds;
+                    {pinCandidates.map((entry) => {
+                      const pinned = shortcutOptions(configuration).pinned;
+                      const checked = pinned.some(
+                        (pin) => pin.vaultId === selectedVault?.vault.id && pin.fileId === entry.id,
+                      );
                       return (
-                        <label className="toggle-row" key={fileId}>
-                          <span><strong>{label}</strong></span>
+                        <label className="toggle-row" key={entry.id}>
+                          <span>
+                            <strong>{entry.name}</strong>
+                          </span>
                           <input
                             type="checkbox"
-                            checked={selected.length === 0 || selected.includes(fileId)}
-                            onChange={(event) => save(configuration.configurationId, (current) => {
-                              const options = taskOptions(current);
-                              const baseline = options.selectedBoardIds.length === 0
-                                ? boardCandidates.map(([id]) => id)
-                                : options.selectedBoardIds;
-                              const selectedBoardIds = event.currentTarget.checked
-                                ? [...new Set([...baseline, fileId])]
-                                : baseline.filter((id) => id !== fileId);
-                              return { ...current, tasks: { ...options, selectedBoardIds } };
-                            })}
+                            checked={checked}
+                            onChange={(changeEvent) =>
+                              save(configuration.configurationId, (current) => {
+                                const options = shortcutOptions(current);
+                                const vaultId = selectedVault!.vault.id;
+                                const next = changeEvent.currentTarget.checked
+                                  ? [...options.pinned, { vaultId, fileId: entry.id }].slice(0, 16)
+                                  : options.pinned.filter(
+                                      (pin) =>
+                                        !(pin.vaultId === vaultId && pin.fileId === entry.id),
+                                    );
+                                return { ...current, shortcuts: { ...options, pinned: next } };
+                              })
+                            }
                           />
                         </label>
                       );
                     })}
                   </div>
                 </div>
-              ) : null}
-              <div className="setting-row">
-                <div>
-                  <strong>Complete from the widget</strong>
-                  <span>Adds a confirmed complete action for your own calendar tasks. Kanban tasks always open Collab.</span>
+              </>
+            ) : null}
+            {configuration.kind === 'tasks' ? (
+              <>
+                <div className="setting-row stacked">
+                  <div>
+                    <strong>Task sources</strong>
+                    <span>Kanban assignments come from your cached boards.</span>
+                  </div>
+                  <div className="widget-calendar-options">
+                    {(
+                      [
+                        ['includeCalendarTasks', 'Calendar tasks'],
+                        ['includeKanbanTasks', 'Kanban assignments'],
+                        ['includeUndated', 'Tasks without a due date'],
+                      ] as Array<[keyof WidgetTaskOptions, string]>
+                    ).map(([key, label]) => (
+                      <label className="toggle-row" key={key}>
+                        <span>
+                          <strong>{label}</strong>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={taskOptions(configuration)[key] as boolean}
+                          onChange={(event) =>
+                            save(configuration.configurationId, (current) => ({
+                              ...current,
+                              tasks: {
+                                ...taskOptions(current),
+                                [key]: event.currentTarget.checked,
+                              },
+                            }))
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
                 </div>
-                <input
-                  type="checkbox"
-                  aria-label="Complete from the widget"
-                  checked={configuration.actions.toggleTask}
-                  onChange={(event) => save(configuration.configurationId, (current) => ({
-                    ...current,
-                    actions: { ...current.actions, toggleTask: event.currentTarget.checked },
-                  }))}
-                />
+                {taskOptions(configuration).includeKanbanTasks && boardCandidates.length > 0 ? (
+                  <div className="setting-row stacked">
+                    <div>
+                      <strong>Kanban boards</strong>
+                      <span>All boards when none are selected.</span>
+                    </div>
+                    <div className="widget-calendar-options">
+                      {boardCandidates.map(([fileId, label]) => {
+                        const selected = taskOptions(configuration).selectedBoardIds;
+                        return (
+                          <label className="toggle-row" key={fileId}>
+                            <span>
+                              <strong>{label}</strong>
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={selected.length === 0 || selected.includes(fileId)}
+                              onChange={(event) =>
+                                save(configuration.configurationId, (current) => {
+                                  const options = taskOptions(current);
+                                  const baseline =
+                                    options.selectedBoardIds.length === 0
+                                      ? boardCandidates.map(([id]) => id)
+                                      : options.selectedBoardIds;
+                                  const selectedBoardIds = event.currentTarget.checked
+                                    ? [...new Set([...baseline, fileId])]
+                                    : baseline.filter((id) => id !== fileId);
+                                  return { ...current, tasks: { ...options, selectedBoardIds } };
+                                })
+                              }
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+                <div className="setting-row">
+                  <div>
+                    <strong>Complete from the widget</strong>
+                    <span>
+                      Adds a confirmed complete action for your own calendar tasks. Kanban tasks
+                      always open Collab.
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    aria-label="Complete from the widget"
+                    checked={configuration.actions.toggleTask}
+                    onChange={(event) =>
+                      save(configuration.configurationId, (current) => ({
+                        ...current,
+                        actions: { ...current.actions, toggleTask: event.currentTarget.checked },
+                      }))
+                    }
+                  />
+                </div>
+              </>
+            ) : null}
+            {configuration.kind === 'sync' ? (
+              <div className="setting-row stacked">
+                <div>
+                  <strong>Accounts</strong>
+                  <span>All accounts when none are selected. The widget shows counts only.</span>
+                </div>
+                <div className="widget-calendar-options">
+                  {syncAccounts.length === 0 ? (
+                    <span className="footnote">No accounts with offline data yet.</span>
+                  ) : null}
+                  {syncAccounts.map((account) => {
+                    const allSelected = configuration.selectedSourceIds.length === 0;
+                    const checked =
+                      allSelected || configuration.selectedSourceIds.includes(account.accountId);
+                    return (
+                      <label className="toggle-row" key={account.accountId}>
+                        <span>
+                          <strong>{account.label}</strong>
+                          <small>
+                            {account.vaults === 1 ? '1 vault' : `${account.vaults} vaults`}
+                          </small>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(event) =>
+                            save(configuration.configurationId, (current) => {
+                              const baseline =
+                                current.selectedSourceIds.length === 0
+                                  ? syncAccounts.map((entry) => entry.accountId)
+                                  : current.selectedSourceIds;
+                              const selectedSourceIds = event.currentTarget.checked
+                                ? [...new Set([...baseline, account.accountId])]
+                                : baseline.filter((id) => id !== account.accountId);
+                              return { ...current, selectedSourceIds };
+                            })
+                          }
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
-            </>
-          ) : null}
-          {configuration.kind === 'sync' ? (
+            ) : null}
+            {configuration.kind !== 'month' ? (
+              <div className="setting-row stacked">
+                <div>
+                  <strong>Privacy</strong>
+                  <span>Controls content persisted for the launcher.</span>
+                </div>
+                <div className="segmented-control">
+                  {PRIVACY_OPTIONS.map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={configuration.privacy === value ? 'selected' : ''}
+                      onClick={() =>
+                        save(configuration.configurationId, (current) => ({
+                          ...current,
+                          privacy: value,
+                        }))
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {configuration.kind === 'sync' ? null : (
+              <div className="setting-row stacked">
+                <div>
+                  <strong>Calendars</strong>
+                  <span>Select sources included by this widget.</span>
+                </div>
+                <div className="widget-calendar-options">
+                  {calendars.map((calendar) => {
+                    const allSelected = configuration.selectedSourceIds.length === 0;
+                    const checked =
+                      allSelected || configuration.selectedSourceIds.includes(calendar.id);
+                    return (
+                      <label className="toggle-row" key={calendar.id}>
+                        <span>
+                          <strong>{calendar.name}</strong>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(event) => {
+                            const current =
+                              configurationsRef.current.find(
+                                (entry) => entry.configurationId === configuration.configurationId,
+                              ) ?? configuration;
+                            const currentAllSelected = current.selectedSourceIds.length === 0;
+                            const baseline = currentAllSelected
+                              ? calendars.map((entry) => entry.id)
+                              : current.selectedSourceIds;
+                            const selectedSourceIds = event.currentTarget.checked
+                              ? [...new Set([...baseline, calendar.id])]
+                              : baseline.filter((id) => id !== calendar.id);
+                            save(configuration.configurationId, (entry) => ({
+                              ...entry,
+                              selectedSourceIds,
+                            }));
+                          }}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <div className="setting-row stacked">
               <div>
-                <strong>Accounts</strong>
-                <span>All accounts when none are selected. The widget shows counts only.</span>
+                <strong>Maximum items</strong>
+                <span>Launcher size may show fewer.</span>
               </div>
-              <div className="widget-calendar-options">
-                {syncAccounts.length === 0 ? (
-                  <span className="footnote">No accounts with offline data yet.</span>
-                ) : null}
-                {syncAccounts.map((account) => {
-                  const allSelected = configuration.selectedSourceIds.length === 0;
-                  const checked = allSelected
-                    || configuration.selectedSourceIds.includes(account.accountId);
-                  return (
-                    <label className="toggle-row" key={account.accountId}>
-                      <span>
-                        <strong>{account.label}</strong>
-                        <small>{account.vaults === 1 ? '1 vault' : `${account.vaults} vaults`}</small>
-                      </span>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(event) => save(configuration.configurationId, (current) => {
-                          const baseline = current.selectedSourceIds.length === 0
-                            ? syncAccounts.map((entry) => entry.accountId)
-                            : current.selectedSourceIds;
-                          const selectedSourceIds = event.currentTarget.checked
-                            ? [...new Set([...baseline, account.accountId])]
-                            : baseline.filter((id) => id !== account.accountId);
-                          return { ...current, selectedSourceIds };
-                        })}
-                      />
-                    </label>
-                  );
-                })}
+              <div className="segmented-control compact">
+                {[3, 6, 10].map((maxItems) => (
+                  <button
+                    key={maxItems}
+                    type="button"
+                    className={configuration.display.maxItems === maxItems ? 'selected' : ''}
+                    onClick={() =>
+                      save(configuration.configurationId, (current) => ({
+                        ...current,
+                        display: { ...current.display, maxItems },
+                      }))
+                    }
+                  >
+                    {maxItems}
+                  </button>
+                ))}
               </div>
             </div>
-          ) : null}
-          {configuration.kind !== 'month' ? <div className="setting-row stacked">
-            <div><strong>Privacy</strong><span>Controls content persisted for the launcher.</span></div>
-            <div className="segmented-control">
-              {PRIVACY_OPTIONS.map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={configuration.privacy === value ? 'selected' : ''}
-                  onClick={() => save(configuration.configurationId, (current) => ({
-                    ...current,
-                    privacy: value,
-                  }))}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div> : null}
-          {configuration.kind === 'sync' ? null : <div className="setting-row stacked">
-            <div><strong>Calendars</strong><span>Select sources included by this widget.</span></div>
-            <div className="widget-calendar-options">
-              {calendars.map((calendar) => {
-                const allSelected = configuration.selectedSourceIds.length === 0;
-                const checked = allSelected || configuration.selectedSourceIds.includes(calendar.id);
-                return (
-                  <label className="toggle-row" key={calendar.id}>
-                    <span><strong>{calendar.name}</strong></span>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(event) => {
-                        const current = configurationsRef.current.find((entry) =>
-                          entry.configurationId === configuration.configurationId) ?? configuration;
-                        const currentAllSelected = current.selectedSourceIds.length === 0;
-                        const baseline = currentAllSelected
-                          ? calendars.map((entry) => entry.id)
-                          : current.selectedSourceIds;
-                        const selectedSourceIds = event.currentTarget.checked
-                          ? [...new Set([...baseline, calendar.id])]
-                          : baseline.filter((id) => id !== calendar.id);
-                        save(configuration.configurationId, (entry) => ({
-                          ...entry,
-                          selectedSourceIds,
-                        }));
-                      }}
-                    />
-                  </label>
-                );
-              })}
-            </div>
-          </div>}
-          <div className="setting-row stacked">
-            <div><strong>Maximum items</strong><span>Launcher size may show fewer.</span></div>
-            <div className="segmented-control compact">
-              {[3, 6, 10].map((maxItems) => (
-                <button
-                  key={maxItems}
-                  type="button"
-                  className={configuration.display.maxItems === maxItems ? 'selected' : ''}
-                  onClick={() => save(configuration.configurationId, (current) => ({
-                    ...current,
-                    display: { ...current.display, maxItems },
-                  }))}
-                >
-                  {maxItems}
-                </button>
-              ))}
-            </div>
+            <p className="footnote widget-remove-guidance">
+              To remove this widget, touch and hold it on the home screen, then choose Remove.
+            </p>
           </div>
-          <p className="footnote widget-remove-guidance">
-            To remove this widget, touch and hold it on the home screen, then choose Remove.
-          </p>
-        </div>
         );
       })}
       {error ? <p className="footnote error-text">{error}</p> : null}

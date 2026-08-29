@@ -2,19 +2,26 @@ import type { Node as FlowNode } from '@xyflow/react';
 
 import type { CanvasWebCardDefaultMode } from '../../store/uiStore';
 import type { CanvasNode, PlanningCanvasNode } from '../../types/canvas';
+
 import type { CanvasNodeData } from './CanvasNodeTypes';
+import { getPlanningNodeLabel, isPlanningNode } from './canvasPlanning';
 import {
   buildNodePreviewState,
   buildWebPreviewState,
   type PreviewState,
 } from './CanvasPreviewUtils';
-import { getPlanningNodeLabel, isPlanningNode } from './canvasPlanning';
 
 const DEFAULT_NODE_SIZE = { width: 300, height: 180 };
 
 type FlowNodeCallbacks = Pick<
   CanvasNodeData,
-  'onOpen' | 'onTextChange' | 'onSnapToGrid' | 'onWebUrlChange' | 'onWebDisplayModeOverrideChange' | 'onRequestWebPreview' | 'onOpenUrl'
+  | 'onOpen'
+  | 'onTextChange'
+  | 'onSnapToGrid'
+  | 'onWebUrlChange'
+  | 'onWebDisplayModeOverrideChange'
+  | 'onRequestWebPreview'
+  | 'onOpenUrl'
 >;
 
 export function toFlowNode(
@@ -38,7 +45,7 @@ export function toFlowNode(
         content: node.body,
         linkedRelativePath: node.linkedRelativePath,
         planning: node.planning,
-        orientation: node.type === 'swimlane' ? node.orientation ?? 'horizontal' : undefined,
+        orientation: node.type === 'swimlane' ? (node.orientation ?? 'horizontal') : undefined,
         onSnapToGrid: callbacks.onSnapToGrid,
       },
       style: {
@@ -75,7 +82,13 @@ export function toFlowNode(
       position: node.position,
       selected: false,
       data: {
-        ...buildWebPreviewState(node, preview, defaultWebCardMode, autoLoadEnabled, webPreviewsEnabled),
+        ...buildWebPreviewState(
+          node,
+          preview,
+          defaultWebCardMode,
+          autoLoadEnabled,
+          webPreviewsEnabled,
+        ),
         onWebUrlChange: callbacks.onWebUrlChange,
         onWebDisplayModeOverrideChange: callbacks.onWebDisplayModeOverrideChange,
         onRequestWebPreview: callbacks.onRequestWebPreview,
@@ -131,27 +144,33 @@ export function toFlowNode(
 }
 
 export function fromFlowNode(node: FlowNode<CanvasNodeData>): CanvasNode {
-  const width = typeof node.width === 'number'
-    ? node.width
-    : typeof node.measured?.width === 'number'
-      ? node.measured.width
-      : typeof node.style?.width === 'number'
-        ? node.style.width
-        : DEFAULT_NODE_SIZE.width;
-  const height = typeof node.height === 'number'
-    ? node.height
-    : typeof node.measured?.height === 'number'
-      ? node.measured.height
-      : typeof node.style?.height === 'number'
-        ? node.style.height
-        : DEFAULT_NODE_SIZE.height;
+  const width =
+    typeof node.width === 'number'
+      ? node.width
+      : typeof node.measured?.width === 'number'
+        ? node.measured.width
+        : typeof node.style?.width === 'number'
+          ? node.style.width
+          : DEFAULT_NODE_SIZE.width;
+  const height =
+    typeof node.height === 'number'
+      ? node.height
+      : typeof node.measured?.height === 'number'
+        ? node.measured.height
+        : typeof node.style?.height === 'number'
+          ? node.style.height
+          : DEFAULT_NODE_SIZE.height;
 
   const nodeType = node.type ?? 'fileCard';
-  const planningType = nodeType.endsWith('Card')
-    ? nodeType.slice(0, -4)
-    : nodeType;
+  const planningType = nodeType.endsWith('Card') ? nodeType.slice(0, -4) : nodeType;
 
-  if (planningType !== 'note' && planningType !== 'file' && planningType !== 'text' && planningType !== 'web' && planningType !== 'symbol') {
+  if (
+    planningType !== 'note' &&
+    planningType !== 'file' &&
+    planningType !== 'text' &&
+    planningType !== 'web' &&
+    planningType !== 'symbol'
+  ) {
     return {
       id: node.id,
       type: planningType as PlanningCanvasNode['type'],

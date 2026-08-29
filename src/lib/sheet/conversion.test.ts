@@ -1,5 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { SheetFormulaValueMap } from '../../types/sheetFormula';
+import { sheetFormulaResultKey } from '../../types/sheetFormula';
+import type { NoteFile } from '../../types/vault';
+import type { VaultClient } from '../vaultClient';
+
+import {
+  computedValuesForExport,
+  defaultExportFileName,
+  exportWorkbookFile,
+  importWorkbookFile,
+  nextAvailableWorkbookPath,
+} from './conversion';
+import { createWorkbookFixture } from './fixture';
+import { setCell } from './operations';
+
 const sheetConvertImport = vi.fn();
 const sheetConvertExport = vi.fn();
 const showDownloadDialog = vi.fn();
@@ -11,20 +26,6 @@ vi.mock('../tauri', () => ({
     showDownloadDialog: (...args: unknown[]) => showDownloadDialog(...args),
   },
 }));
-
-import type { NoteFile } from '../../types/vault';
-import type { SheetFormulaValueMap } from '../../types/sheetFormula';
-import { sheetFormulaResultKey } from '../../types/sheetFormula';
-import { createWorkbookFixture } from './fixture';
-import { setCell } from './operations';
-import {
-  computedValuesForExport,
-  defaultExportFileName,
-  exportWorkbookFile,
-  importWorkbookFile,
-  nextAvailableWorkbookPath,
-} from './conversion';
-import type { VaultClient } from '../vaultClient';
 
 function file(relativePath: string): NoteFile {
   return { name: relativePath.split('/').pop() ?? '', relativePath, isFolder: false } as NoteFile;
@@ -62,8 +63,9 @@ describe('nextAvailableWorkbookPath', () => {
   });
 
   it('compares case-insensitively, the way vault paths are matched elsewhere', () => {
-    expect(nextAvailableWorkbookPath(undefined, 'Budget', [file('budget.sheet')]))
-      .toBe('Budget 2.sheet');
+    expect(nextAvailableWorkbookPath(undefined, 'Budget', [file('budget.sheet')])).toBe(
+      'Budget 2.sheet',
+    );
   });
 });
 
@@ -167,8 +169,14 @@ describe('computedValuesForExport', () => {
     const document = workbookWithFormula();
     for (const [value, expected] of [
       [{ type: 'text', value: 'hi' } as const, { key: 'ws1:r2:c2', kind: 'text', text: 'hi' }],
-      [{ type: 'boolean', value: true } as const, { key: 'ws1:r2:c2', kind: 'boolean', boolean: true }],
-      [{ type: 'error', value: '#REF!' } as const, { key: 'ws1:r2:c2', kind: 'error', text: '#REF!' }],
+      [
+        { type: 'boolean', value: true } as const,
+        { key: 'ws1:r2:c2', kind: 'boolean', boolean: true },
+      ],
+      [
+        { type: 'error', value: '#REF!' } as const,
+        { key: 'ws1:r2:c2', kind: 'error', text: '#REF!' },
+      ],
     ] as const) {
       const computed: SheetFormulaValueMap = new Map([
         [sheetFormulaResultKey('ws1', 'r2', 'c2'), value],
@@ -213,7 +221,11 @@ describe('exportWorkbookFile', () => {
 
   it('writes to the chosen destination and returns the report', async () => {
     showDownloadDialog.mockResolvedValue('/tmp/Out.xlsx');
-    const result = { path: '/tmp/Out.xlsx', bytesWritten: 12, report: { notes: [], truncated: false } };
+    const result = {
+      path: '/tmp/Out.xlsx',
+      bytesWritten: 12,
+      report: { notes: [], truncated: false },
+    };
     sheetConvertExport.mockResolvedValue(result);
 
     expect(await exportWorkbookFile(document, 'xlsx')).toBe(result);

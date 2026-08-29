@@ -1,9 +1,13 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { CanvasEdgeInspector } from './CanvasEdgeInspector';
+
 vi.mock('../ui/button', () => ({
   Button: ({ children, onClick, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" onClick={onClick} {...props}>{children}</button>
+    <button type="button" onClick={onClick} {...props}>
+      {children}
+    </button>
   ),
 }));
 
@@ -12,7 +16,13 @@ vi.mock('../ui/input', () => ({
 }));
 
 vi.mock('../ui/checkbox', () => ({
-  Checkbox: ({ checked, onCheckedChange }: { checked?: boolean; onCheckedChange?: (checked: boolean) => void }) => (
+  Checkbox: ({
+    checked,
+    onCheckedChange,
+  }: {
+    checked?: boolean;
+    onCheckedChange?: (checked: boolean) => void;
+  }) => (
     <input
       type="checkbox"
       checked={checked}
@@ -33,17 +43,22 @@ vi.mock('../ui/select', () => ({
     disabled?: boolean;
     children: React.ReactNode;
   }) => (
-    <select aria-label="select" value={value} disabled={disabled} onChange={(event) => onValueChange?.(event.target.value)}>
+    <select
+      aria-label="select"
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onValueChange?.(event.target.value)}
+    >
       {children}
     </select>
   ),
   SelectTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   SelectValue: () => null,
   SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  SelectItem: ({ children, value }: { children: React.ReactNode; value: string }) => <option value={value}>{children}</option>,
+  SelectItem: ({ children, value }: { children: React.ReactNode; value: string }) => (
+    <option value={value}>{children}</option>
+  ),
 }));
-
-import { CanvasEdgeInspector } from './CanvasEdgeInspector';
 
 describe('CanvasEdgeInspector', () => {
   afterEach(() => {

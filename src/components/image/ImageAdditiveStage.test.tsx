@@ -24,9 +24,36 @@ describe('ImageAdditiveStage', () => {
         additiveCanvasStyle={{ width: 300, height: 200 }}
         additiveDisplayDimensions={{ width: 300, height: 200 }}
         overlaySvgItems={[
-          { id: 'arrow-1', type: 'arrow', start: { x: 0.1, y: 0.1 }, end: { x: 0.8, y: 0.8 }, color: '#fff', strokeWidth: 4, lineStyle: 'solid' },
-          { id: 'pen-1', type: 'pen', points: [{ x: 0.1, y: 0.2 }, { x: 0.3, y: 0.4 }], color: '#0ff', strokeWidth: 3 },
-          { id: 'text-1', type: 'text', x: 0.2, y: 0.2, width: 0.2, height: 0.12, text: 'Hello', color: '#f00', fontSize: 18 },
+          {
+            id: 'arrow-1',
+            type: 'arrow',
+            start: { x: 0.1, y: 0.1 },
+            end: { x: 0.8, y: 0.8 },
+            color: '#fff',
+            strokeWidth: 4,
+            lineStyle: 'solid',
+          },
+          {
+            id: 'pen-1',
+            type: 'pen',
+            points: [
+              { x: 0.1, y: 0.2 },
+              { x: 0.3, y: 0.4 },
+            ],
+            color: '#0ff',
+            strokeWidth: 3,
+          },
+          {
+            id: 'text-1',
+            type: 'text',
+            x: 0.2,
+            y: 0.2,
+            width: 0.2,
+            height: 0.12,
+            text: 'Hello',
+            color: '#f00',
+            fontSize: 18,
+          },
         ]}
         selectedItemId="arrow-1"
         textInputRefs={textInputRefs}

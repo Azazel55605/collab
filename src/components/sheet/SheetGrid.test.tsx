@@ -1,9 +1,8 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 
-import { SHEET_DEFAULTS } from '../../types/sheet';
-import type { SheetWorksheet } from '../../types/sheet';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { createEmptySheetDocument } from '../../lib/sheet/document';
 import { mergeSelection, setCell } from '../../lib/sheet/operations';
 import {
@@ -14,6 +13,9 @@ import {
   type SheetSelection,
   type SheetSelectionRange,
 } from '../../lib/sheet/selection';
+import { SHEET_DEFAULTS } from '../../types/sheet';
+import type { SheetWorksheet } from '../../types/sheet';
+
 import SheetGrid, { type SheetGridEditing, type SheetRemoteSelection } from './SheetGrid';
 
 const { rowHeight, columnWidth, headerHeight, headerWidth } = SHEET_DEFAULTS;
@@ -24,9 +26,24 @@ function worksheetFixture(): SheetWorksheet {
     worksheet: { name: 'Sheet1', rows: 50, columns: 20 },
   });
   const worksheetId = document.worksheets[0].id;
-  document = setCell(document, worksheetId, { row: 0, column: 0 }, { value: 'A1', valueType: 'text' });
-  document = setCell(document, worksheetId, { row: 1, column: 0 }, { value: 5, valueType: 'number' });
-  document = setCell(document, worksheetId, { row: 2, column: 0 }, { value: 7, valueType: 'number' });
+  document = setCell(
+    document,
+    worksheetId,
+    { row: 0, column: 0 },
+    { value: 'A1', valueType: 'text' },
+  );
+  document = setCell(
+    document,
+    worksheetId,
+    { row: 1, column: 0 },
+    { value: 5, valueType: 'number' },
+  );
+  document = setCell(
+    document,
+    worksheetId,
+    { row: 2, column: 0 },
+    { value: 7, valueType: 'number' },
+  );
   return document.worksheets[0];
 }
 
@@ -62,7 +79,9 @@ function Harness({
   onFillSelection,
   remoteSelections,
 }: HarnessProps) {
-  const [selection, setSelection] = useState<SheetSelection>(() => createSelection({ row: 0, column: 0 }));
+  const [selection, setSelection] = useState<SheetSelection>(() =>
+    createSelection({ row: 0, column: 0 }),
+  );
   const [editing, setEditing] = useState<SheetGridEditing | null>(null);
 
   return (
@@ -115,7 +134,14 @@ beforeEach(() => {
   // jsdom has no layout: give the sticky pane a real origin so pointer
   // coordinates map onto cells the way they do in a browser.
   Element.prototype.getBoundingClientRect = vi.fn(() => ({
-    x: 0, y: 0, top: 0, left: 0, right: 1000, bottom: 800, width: 1000, height: 800,
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: 1000,
+    bottom: 800,
+    width: 1000,
+    height: 800,
     toJSON: () => ({}),
   })) as unknown as typeof Element.prototype.getBoundingClientRect;
 });
@@ -145,13 +171,19 @@ describe('SheetGrid rendering', () => {
   });
 
   it('renders remote collaborator selections without changing local selection', () => {
-    render(<Harness remoteSelections={[{
-      clientId: 7,
-      name: 'Alice',
-      color: '#3b82f6',
-      active: { row: 2, column: 2 },
-      ranges: [{ anchor: { row: 1, column: 1 }, focus: { row: 2, column: 2 } }],
-    }]} />);
+    render(
+      <Harness
+        remoteSelections={[
+          {
+            clientId: 7,
+            name: 'Alice',
+            color: '#3b82f6',
+            active: { row: 2, column: 2 },
+            ranges: [{ anchor: { row: 1, column: 1 }, focus: { row: 2, column: 2 } }],
+          },
+        ]}
+      />,
+    );
 
     expect(screen.getByText('Alice')).toBeTruthy();
     expect(selectionState()).toBe('0,0,1,cells');
@@ -162,10 +194,15 @@ describe('SheetGrid rendering', () => {
       worksheet: { name: 'Sheet1', rows: 4, columns: 4 },
     });
     const worksheetId = document.worksheets[0].id;
-    document = setCell(document, worksheetId, { row: 0, column: 0 }, {
-      value: 'Merged',
-      valueType: 'text',
-    });
+    document = setCell(
+      document,
+      worksheetId,
+      { row: 0, column: 0 },
+      {
+        value: 'Merged',
+        valueType: 'text',
+      },
+    );
     document = mergeSelection(
       document,
       worksheetId,
@@ -198,12 +235,7 @@ describe('SheetGrid rendering', () => {
 
     render(<Harness worksheet={document.worksheets[0]} />);
 
-    expect(strokeRect).toHaveBeenCalledWith(
-      0.5,
-      0.5,
-      columnWidth * 2,
-      rowHeight * 2,
-    );
+    expect(strokeRect).toHaveBeenCalledWith(0.5, 0.5, columnWidth * 2, rowHeight * 2);
     expect(strokeRect).not.toHaveBeenCalledWith(0.5, 0.5, columnWidth, rowHeight);
   });
 });
@@ -211,7 +243,10 @@ describe('SheetGrid rendering', () => {
 describe('pointer selection', () => {
   it('selects a cell on pointer down', () => {
     render(<Harness />);
-    fireEvent.pointerDown(screen.getByTestId('sheet-cell-surface'), { button: 0, ...pointFor(2, 3) });
+    fireEvent.pointerDown(screen.getByTestId('sheet-cell-surface'), {
+      button: 0,
+      ...pointFor(2, 3),
+    });
     expect(selectionState()).toBe('2,3,1,cells');
   });
 
@@ -227,12 +262,7 @@ describe('pointer selection', () => {
 
   it('returns one completed range while formula reference mode is active', () => {
     const onFormulaReferenceCommit = vi.fn();
-    render(
-      <Harness
-        formulaReferenceMode
-        onFormulaReferenceCommit={onFormulaReferenceCommit}
-      />,
-    );
+    render(<Harness formulaReferenceMode onFormulaReferenceCommit={onFormulaReferenceCommit} />);
     const surface = screen.getByTestId('sheet-cell-surface');
     fireEvent.pointerDown(surface, { button: 0, ...pointFor(1, 1) });
     fireEvent.pointerMove(surface, pointFor(3, 2));
@@ -256,10 +286,10 @@ describe('pointer selection', () => {
       extendSelection(createSelection({ row: 0, column: 0 }), { row: 1, column: 1 }),
     );
     render(<Harness worksheet={document.worksheets[0]} />);
-    fireEvent.pointerDown(
-      screen.getByTestId('sheet-cell-surface'),
-      { button: 0, ...pointFor(1, 1) },
-    );
+    fireEvent.pointerDown(screen.getByTestId('sheet-cell-surface'), {
+      button: 0,
+      ...pointFor(1, 1),
+    });
     expect(selectionState()).toBe('0,0,1,cells');
   });
 
@@ -526,7 +556,13 @@ describe('selection geometry', () => {
 
   it('normalizes a backwards drag', () => {
     let captured: SheetSelection | null = null;
-    render(<Harness onSelectionChange={(selection) => { captured = selection; }} />);
+    render(
+      <Harness
+        onSelectionChange={(selection) => {
+          captured = selection;
+        }}
+      />,
+    );
 
     const surface = screen.getByTestId('sheet-cell-surface');
     fireEvent.pointerDown(surface, { button: 0, ...pointFor(4, 4) });

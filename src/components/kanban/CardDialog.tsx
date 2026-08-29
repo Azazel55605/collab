@@ -1,27 +1,25 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
-import {
-  CheckCircle2, Circle,
-} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+
+import { CheckCircle2, Circle } from 'lucide-react';
+
 import { cn } from '../../lib/utils';
-import { useKanbanContext } from '../../views/KanbanPage';
-import { useKanbanStore } from '../../store/kanbanStore';
 import { useCollabStore } from '../../store/collabStore';
 import { useEditorStore } from '../../store/editorStore';
+import { useKanbanStore } from '../../store/kanbanStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
-import {
-  getCardAttachmentPaths,
-  type KanbanCard,
-} from '../../types/kanban';
-import { Dialog, DialogContent } from '../ui/dialog';
+import { getCardAttachmentPaths, type KanbanCard } from '../../types/kanban';
 import type { NoteFile } from '../../types/vault';
-import { useCardDialogDraftSession } from './useCardDialogDraftSession';
-import { useCardDialogActions } from './useCardDialogActions';
-import { useCardDialogChecklistComments } from './useCardDialogChecklistComments';
-import { CardDialogSidebar } from './CardDialogSidebar';
-import { CardDialogTagsAttachments } from './CardDialogTagsAttachments';
+import { useKanbanContext } from '../../views/KanbanPage';
+import { Dialog, DialogContent } from '../ui/dialog';
+
 import { CardDialogChecklistComments } from './CardDialogChecklistComments';
 import { CardDialogMoveTagsPrompt } from './CardDialogMoveTagsPrompt';
+import { CardDialogSidebar } from './CardDialogSidebar';
+import { CardDialogTagsAttachments } from './CardDialogTagsAttachments';
+import { useCardDialogActions } from './useCardDialogActions';
+import { useCardDialogChecklistComments } from './useCardDialogChecklistComments';
+import { useCardDialogDraftSession } from './useCardDialogDraftSession';
 
 // ── Priority config ────────────────────────────────────────────────────────
 
@@ -31,9 +29,24 @@ const PRIORITIES: Array<{
   active: string;
   inactive: string;
 }> = [
-  { value: 'high',   label: 'High',   active: 'bg-red-500/20 text-red-400 border-red-500/40',         inactive: 'text-muted-foreground border-border/30 hover:bg-accent/40' },
-  { value: 'medium', label: 'Medium', active: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40', inactive: 'text-muted-foreground border-border/30 hover:bg-accent/40' },
-  { value: 'low',    label: 'Low',    active: 'bg-green-500/20 text-green-400 border-green-500/40',    inactive: 'text-muted-foreground border-border/30 hover:bg-accent/40' },
+  {
+    value: 'high',
+    label: 'High',
+    active: 'bg-red-500/20 text-red-400 border-red-500/40',
+    inactive: 'text-muted-foreground border-border/30 hover:bg-accent/40',
+  },
+  {
+    value: 'medium',
+    label: 'Medium',
+    active: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40',
+    inactive: 'text-muted-foreground border-border/30 hover:bg-accent/40',
+  },
+  {
+    value: 'low',
+    label: 'Low',
+    active: 'bg-green-500/20 text-green-400 border-green-500/40',
+    inactive: 'text-muted-foreground border-border/30 hover:bg-accent/40',
+  },
 ];
 
 // ── Component ─────────────────────────────────────────────────────────────
@@ -61,24 +74,25 @@ function getTabTypeForPath(path: string): 'note' | 'canvas' | 'kanban' | 'image'
   if (ext === 'canvas') return 'canvas';
   if (ext === 'kanban') return 'kanban';
   if (ext === 'pdf') return 'pdf';
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'].includes(ext)) return 'image';
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'].includes(ext))
+    return 'image';
   return 'note';
 }
 
 export default function CardDialog({ card: initialCard, columnId, onClose }: Props) {
   const { updateBoard, knownUsers, board, caps } = useKanbanContext();
   const { myUserId, myUserName, myUserColor } = useCollabStore();
-  const { openTab }       = useEditorStore();
+  const { openTab } = useEditorStore();
   const { setActiveView, dateFormat } = useUiStore();
-  const { fileTree }      = useVaultStore();
+  const { fileTree } = useVaultStore();
   const { draft: storedDraft, updateDraft: storeUpdateDraft } = useKanbanStore();
 
-  const [tagInput,        setTagInput]        = useState('');
+  const [tagInput, setTagInput] = useState('');
   const [tagInputFocused, setTagInputFocused] = useState(false);
-  const [startDateOpen,   setStartDateOpen]    = useState(false);
-  const [dueDateOpen,     setDueDateOpen]      = useState(false);
-  const [notePickerOpen,  setNotePickerOpen]   = useState(false);
-  const [confirmDelete,   setConfirmDelete]    = useState(false);
+  const [startDateOpen, setStartDateOpen] = useState(false);
+  const [dueDateOpen, setDueDateOpen] = useState(false);
+  const [notePickerOpen, setNotePickerOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const {
     draft,
     setDraft,
@@ -154,13 +168,16 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
 
   function addTag() {
     const t = tagInput.trim().replace(/,$/, '');
-    if (!t || draft.tags.includes(t)) { setTagInput(''); return; }
+    if (!t || draft.tags.includes(t)) {
+      setTagInput('');
+      return;
+    }
     patchDraft({ tags: [...draft.tags, t] });
     setTagInput('');
   }
 
   function removeTag(tag: string) {
-    patchDraft({ tags: draft.tags.filter(t => t !== tag) });
+    patchDraft({ tags: draft.tags.filter((t) => t !== tag) });
   }
 
   // ── Priority / due date / assignees ──────────────────────────────────────
@@ -171,7 +188,7 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
 
   function toggleAssignee(userId: string) {
     const assignees = draft.assignees.includes(userId)
-      ? draft.assignees.filter(id => id !== userId)
+      ? draft.assignees.filter((id) => id !== userId)
       : [...draft.assignees, userId];
     patchDraft({ assignees });
   }
@@ -197,7 +214,11 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
   }
 
   function openAttachment(path: string) {
-    const name = path.split('/').pop()?.replace(/\.[^.]+$/, '') ?? path;
+    const name =
+      path
+        .split('/')
+        .pop()
+        ?.replace(/\.[^.]+$/, '') ?? path;
     const type = getTabTypeForPath(path);
     openTab(path, name, type);
     if (type === 'canvas') setActiveView('canvas');
@@ -209,7 +230,10 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
   // ── Derived ───────────────────────────────────────────────────────────────
   const attachmentPaths = getCardAttachmentPaths(draft);
   const vaultFiles = useMemo(
-    () => collectVaultFiles(fileTree).sort((a, b) => a.relativePath.localeCompare(b.relativePath, undefined, { sensitivity: 'base' })),
+    () =>
+      collectVaultFiles(fileTree).sort((a, b) =>
+        a.relativePath.localeCompare(b.relativePath, undefined, { sensitivity: 'base' }),
+      ),
     [fileTree],
   );
 
@@ -217,22 +241,20 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
   const suggestedTags = useMemo(() => {
     const all = new Set<string>();
     for (const col of board.columns) {
-      for (const c of col.cards) c.tags.forEach(t => all.add(t));
+      for (const c of col.cards) c.tags.forEach((t) => all.add(t));
       for (const t of col.defaultTags ?? []) all.add(t);
     }
     return [...all]
-      .filter(t => !draft.tags.includes(t))
-      .filter(t => !tagInput || t.toLowerCase().includes(tagInput.toLowerCase()))
+      .filter((t) => !draft.tags.includes(t))
+      .filter((t) => !tagInput || t.toLowerCase().includes(tagInput.toLowerCase()))
       .sort();
   }, [board, draft.tags, tagInput]);
 
   const showTagSuggestions = tagInputFocused && suggestedTags.length > 0;
 
-
   return (
-    <Dialog open onOpenChange={open => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col p-0 gap-0">
-
         {/* ── Title row ─────────────────────────────────────────────────── */}
         <div className="flex items-start gap-2.5 px-5 pt-5 pb-2 pr-12 shrink-0">
           {/* Done toggle */}
@@ -242,16 +264,17 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
             className="shrink-0 mt-0 transition-colors disabled:cursor-default"
             title={draft.isDone ? 'Mark incomplete' : 'Mark done'}
           >
-            {draft.isDone
-              ? <CheckCircle2 size={18} className="text-green-400" />
-              : <Circle size={18} className="text-muted-foreground/40 hover:text-green-400" />
-            }
+            {draft.isDone ? (
+              <CheckCircle2 size={18} className="text-green-400" />
+            ) : (
+              <Circle size={18} className="text-muted-foreground/40 hover:text-green-400" />
+            )}
           </button>
 
           <textarea
             ref={titleRef}
             value={draft.title}
-            onChange={e => patchDraft({ title: e.target.value })}
+            onChange={(e) => patchDraft({ title: e.target.value })}
             readOnly={!caps.editContent}
             rows={1}
             placeholder="Card title"
@@ -266,13 +289,12 @@ export default function CardDialog({ card: initialCard, columnId, onClose }: Pro
         <div className="flex flex-1 min-h-0">
           {/* Main column */}
           <div className="flex-1 overflow-y-auto px-5 py-3 flex flex-col gap-4 min-w-0">
-
             {/* Description */}
             <section>
               <label className="section-label">Description</label>
               <textarea
                 value={draft.description ?? ''}
-                onChange={e => patchDraft({ description: e.target.value || undefined })}
+                onChange={(e) => patchDraft({ description: e.target.value || undefined })}
                 readOnly={!caps.editContent}
                 rows={6}
                 placeholder="Add a description..."

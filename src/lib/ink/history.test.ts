@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { InkScene } from '../../types/ink';
+
 import { buildInkScene, buildStroke } from './fixture';
 import { InkHistory } from './history';
 import { addObject, removeObject } from './operations';
@@ -46,9 +47,14 @@ describe('InkHistory', () => {
     const checkpoints = [current];
 
     for (let index = 0; index < 10; index += 1) {
-      const edit = addObject(current, buildStroke(`s${index}`, 'layer-1', {
-        samples: 4, x: index * 100, y: 0,
-      }));
+      const edit = addObject(
+        current,
+        buildStroke(`s${index}`, 'layer-1', {
+          samples: 4,
+          x: index * 100,
+          y: 0,
+        }),
+      );
       history.push(edit, `Draw ${index}`);
       current = edit.result;
       checkpoints.push(current);
@@ -92,9 +98,14 @@ describe('InkHistory', () => {
     const history = new InkHistory<InkScene>(3);
     let current = scene(1);
     for (let index = 0; index < 5; index += 1) {
-      const edit = addObject(current, buildStroke(`s${index}`, 'layer-1', {
-        samples: 4, x: index, y: 0,
-      }));
+      const edit = addObject(
+        current,
+        buildStroke(`s${index}`, 'layer-1', {
+          samples: 4,
+          x: index,
+          y: 0,
+        }),
+      );
       history.push(edit, `Draw ${index}`);
       current = edit.result;
     }

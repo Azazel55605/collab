@@ -1,24 +1,10 @@
 export const WIDGET_SCHEMA_VERSION = 1;
 
 export type WidgetKind =
-  | 'agenda'
-  | 'month'
-  | 'birthday'
-  | 'countdown'
-  | 'tasks'
-  | 'capture'
-  | 'shortcuts'
-  | 'sync';
+  'agenda' | 'month' | 'birthday' | 'countdown' | 'tasks' | 'capture' | 'shortcuts' | 'sync';
 /** A quick-capture tile. Each only opens an existing mobile flow. */
 export type WidgetCaptureAction = 'note' | 'task' | 'event' | 'files';
-export type WidgetEntryKind =
-  | 'note'
-  | 'board'
-  | 'canvas'
-  | 'sheet'
-  | 'pdf'
-  | 'folder'
-  | 'file';
+export type WidgetEntryKind = 'note' | 'board' | 'canvas' | 'sheet' | 'pdf' | 'folder' | 'file';
 export type WidgetPrivacy = 'full' | 'titleOnly' | 'private';
 export type WidgetTaskSource = 'calendar' | 'kanban';
 export type WidgetTaskDue = 'overdue' | 'today' | 'upcoming' | 'unscheduled';

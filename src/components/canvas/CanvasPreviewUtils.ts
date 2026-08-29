@@ -1,12 +1,39 @@
-import { normalizeWebPreviewUrl } from '../../lib/webPreviewCache';
 import type { LinkPreviewData } from '../../lib/tauri';
-import type { CanvasNode, CanvasWebDisplayMode, WebCanvasNode } from '../../types/canvas';
+import { normalizeWebPreviewUrl } from '../../lib/webPreviewCache';
 import type { CanvasWebCardDefaultMode } from '../../store/uiStore';
+import type { CanvasNode, CanvasWebDisplayMode, WebCanvasNode } from '../../types/canvas';
 
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
+const IMAGE_EXTENSIONS = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'svg',
+  'bmp',
+  'ico',
+  'avif',
+]);
 const TEXT_PREVIEW_EXTENSIONS = new Set([
-  'txt', 'md', 'markdown', 'json', 'yml', 'yaml', 'toml', 'csv', 'ts', 'tsx',
-  'js', 'jsx', 'css', 'html', 'rs', 'py', 'sh', 'sql', 'xml',
+  'txt',
+  'md',
+  'markdown',
+  'json',
+  'yml',
+  'yaml',
+  'toml',
+  'csv',
+  'ts',
+  'tsx',
+  'js',
+  'jsx',
+  'css',
+  'html',
+  'rs',
+  'py',
+  'sh',
+  'sql',
+  'xml',
 ]);
 
 export interface PreviewState {
@@ -119,8 +146,11 @@ export function buildWebPreviewState(
   const hasMetadataTitle = Boolean(linkPreview?.title?.trim());
   const hasMetadataDescription = Boolean(linkPreview?.description?.trim());
   const hasMetadataImage = Boolean(linkPreview?.imageUrl);
-  const hasMetadataSiteName = Boolean(linkPreview?.siteName?.trim() && linkPreview.siteName?.trim() !== hostname);
-  const hasRichPreview = hasMetadataTitle || hasMetadataDescription || hasMetadataImage || hasMetadataSiteName;
+  const hasMetadataSiteName = Boolean(
+    linkPreview?.siteName?.trim() && linkPreview.siteName?.trim() !== hostname,
+  );
+  const hasRichPreview =
+    hasMetadataTitle || hasMetadataDescription || hasMetadataImage || hasMetadataSiteName;
   const fallbackExcerpt = preview?.previewError
     ? `Preview unavailable right now. ${preview.previewError}`
     : normalizedUrl

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import type { LogicComponentDefinition, LogicDiagramNode, LogicDiagramWire } from '../../types/logicDiagram';
+import type {
+  LogicComponentDefinition,
+  LogicDiagramNode,
+  LogicDiagramWire,
+} from '../../types/logicDiagram';
+
 import { generateComponentTruthTable, generateLogicTruthTable } from './logicTruthTable';
 
 function wire(id: string, source: string, target: string, targetHandle = 'in'): LogicDiagramWire {

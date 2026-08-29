@@ -1,17 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import type { InkPage, InkScene } from '../../types/ink';
+
+import { INK_COLOR_TOKENS, INK_DARK_PALETTE } from './colors';
 import { createInkPage, strokeOf } from './document';
 import { buildInkScene } from './fixture';
-import {
-  InkTileRenderer,
-  paintPageBackground,
-  paintScene,
-} from './renderer';
+import { InkTileRenderer, paintPageBackground, paintScene } from './renderer';
 import type { InkRenderTarget, InkTileSurfaceFactory } from './renderer';
 import { outlineStrokeWithPerfectFreehand } from './strokeAdapters';
 import { INK_TILE_SIZE } from './tiles';
-import { INK_COLOR_TOKENS, INK_DARK_PALETTE } from './colors';
 
 /**
  * Records what would be drawn.
@@ -81,8 +78,13 @@ describe('paintScene', () => {
     const scene = buildInkScene({ strokes: 2, samplesPerStroke: 6 });
     const first = strokeOf(scene, 'stroke-1');
     const second = strokeOf(scene, 'stroke-2');
-    if (first) scene.objects[first.id] = { ...first, brush: { ...first.brush, color: INK_COLOR_TOKENS.foreground } };
-    if (second) scene.objects[second.id] = { ...second, brush: { ...second.brush, color: '#1f2933' } };
+    if (first)
+      scene.objects[first.id] = {
+        ...first,
+        brush: { ...first.brush, color: INK_COLOR_TOKENS.foreground },
+      };
+    if (second)
+      scene.objects[second.id] = { ...second, brush: { ...second.brush, color: '#1f2933' } };
     const target = new RecordingTarget();
     paintScene(target, scene, wholePage, { colors: INK_DARK_PALETTE });
     expect(target.colors).toEqual([INK_DARK_PALETTE.foreground, INK_DARK_PALETTE.foreground]);
@@ -185,21 +187,59 @@ describe('paintScene', () => {
   it('paints styled shapes, connector arrowheads, and sticky backgrounds', () => {
     const scene = buildInkScene({ strokes: 0 });
     scene.objects.shape = {
-      id: 'shape', type: 'shape', layerId: 'layer-1', shape: 'rectangle',
+      id: 'shape',
+      type: 'shape',
+      layerId: 'layer-1',
+      shape: 'rectangle',
       points: [0, 0, 1_000, 0, 1_000, 500, 0, 500],
-      stroke: { kind: 'technical', color: '#123', opacity: 1, width: 64, thinning: 0, smoothing: 0, streamline: 0, taperStart: 0, taperEnd: 0, dash: 'dashed' },
-      fill: '#fff', fillOpacity: 0.5,
+      stroke: {
+        kind: 'technical',
+        color: '#123',
+        opacity: 1,
+        width: 64,
+        thinning: 0,
+        smoothing: 0,
+        streamline: 0,
+        taperStart: 0,
+        taperEnd: 0,
+        dash: 'dashed',
+      },
+      fill: '#fff',
+      fillOpacity: 0.5,
     };
     scene.objects.connector = {
-      id: 'connector', type: 'connector', layerId: 'layer-1',
-      from: { x: 0, y: 0 }, to: { x: 1_000, y: 1_000 }, routing: 'straight',
-      stroke: { kind: 'technical', color: '#123', opacity: 1, width: 64, thinning: 0, smoothing: 0, streamline: 0, taperStart: 0, taperEnd: 0 },
+      id: 'connector',
+      type: 'connector',
+      layerId: 'layer-1',
+      from: { x: 0, y: 0 },
+      to: { x: 1_000, y: 1_000 },
+      routing: 'straight',
+      stroke: {
+        kind: 'technical',
+        color: '#123',
+        opacity: 1,
+        width: 64,
+        thinning: 0,
+        smoothing: 0,
+        streamline: 0,
+        taperStart: 0,
+        taperEnd: 0,
+      },
       arrowEnd: 'arrow',
     };
     scene.objects.sticky = {
-      id: 'sticky', type: 'text', layerId: 'layer-1', x: 0, y: 0,
-      width: 1_000, height: 800, text: 'remember', color: '#000', fontSize: 96,
-      sticky: true, backgroundColor: '#ff0',
+      id: 'sticky',
+      type: 'text',
+      layerId: 'layer-1',
+      x: 0,
+      y: 0,
+      width: 1_000,
+      height: 800,
+      text: 'remember',
+      color: '#000',
+      fontSize: 96,
+      sticky: true,
+      backgroundColor: '#ff0',
     };
     scene.objectOrder.push('shape', 'connector', 'sticky');
 
@@ -267,8 +307,16 @@ describe('paintPageBackground', () => {
   it('draws music staffs and storyboard frames', () => {
     const staff = new RecordingTarget();
     const storyboard = new RecordingTarget();
-    paintPageBackground(staff, createInkPage('p', { background: { pattern: 'staff', spacing: 1_000 } }), region);
-    paintPageBackground(storyboard, createInkPage('p', { background: { pattern: 'storyboard', spacing: 1_000 } }), region);
+    paintPageBackground(
+      staff,
+      createInkPage('p', { background: { pattern: 'staff', spacing: 1_000 } }),
+      region,
+    );
+    paintPageBackground(
+      storyboard,
+      createInkPage('p', { background: { pattern: 'storyboard', spacing: 1_000 } }),
+      region,
+    );
     expect(staff.strokes).toBeGreaterThan(5);
     expect(storyboard.strokes).toBeGreaterThan(1);
   });

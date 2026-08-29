@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+
 import { Check, ChevronDown, Download, ExternalLink, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { clearOcrResultCache } from '../../lib/ocrCache';
-import { tauriCommands, type OcrLanguagePack } from '../../lib/tauri';
+import { type OcrLanguagePack, tauriCommands } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
 import type { OcrModelSource, OcrPreprocessingMode, OcrRenderScale } from '../../store/uiStore';
 import { Badge } from '../ui/badge';
@@ -17,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { Separator } from '../ui/separator';
+
 import { OptionRow, SectionLabel } from './settingsControls';
 
 type Props = {
@@ -63,9 +65,7 @@ function buildLanguageOptions(packs: OcrLanguagePack[]): string[] {
   const installed = packs.filter((pack) => pack.installed).map((pack) => pack.code);
   const options = new Set(installed);
   if (installed.includes('eng')) {
-    installed
-      .filter((code) => code !== 'eng')
-      .forEach((code) => options.add(`eng+${code}`));
+    installed.filter((code) => code !== 'eng').forEach((code) => options.add(`eng+${code}`));
   }
   return Array.from(options);
 }
@@ -170,13 +170,18 @@ export default function SettingsOcrSection({
               className="h-8 w-48 justify-between gap-2 px-2.5 text-xs"
               disabled={languageOptions.length === 0}
             >
-              <span className="truncate">{languageOptionLabel(selectedAvailable ? ocrLanguage : 'eng', packs)}</span>
+              <span className="truncate">
+                {languageOptionLabel(selectedAvailable ? ocrLanguage : 'eng', packs)}
+              </span>
               <ChevronDown size={14} className="text-muted-foreground" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
             <DropdownMenuLabel>Preferred language</DropdownMenuLabel>
-            <DropdownMenuRadioGroup value={selectedAvailable ? ocrLanguage : 'eng'} onValueChange={setOcrLanguage}>
+            <DropdownMenuRadioGroup
+              value={selectedAvailable ? ocrLanguage : 'eng'}
+              onValueChange={setOcrLanguage}
+            >
               {languageOptions.map((option) => (
                 <DropdownMenuRadioItem key={option} value={option} className="text-xs">
                   {languageOptionLabel(option, packs)}
@@ -193,14 +198,22 @@ export default function SettingsOcrSection({
       >
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="outline" size="sm" className="h-8 w-48 justify-between gap-2 px-2.5 text-xs">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-48 justify-between gap-2 px-2.5 text-xs"
+            >
               <span className="truncate">Official fast</span>
               <ChevronDown size={14} className="text-muted-foreground" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
             <DropdownMenuLabel>Model source</DropdownMenuLabel>
-            <DropdownMenuRadioGroup value={ocrModelSource} onValueChange={(value) => setOcrModelSource(value as OcrModelSource)}>
+            <DropdownMenuRadioGroup
+              value={ocrModelSource}
+              onValueChange={(value) => setOcrModelSource(value as OcrModelSource)}
+            >
               <DropdownMenuRadioItem value="official-fast" className="text-xs">
                 Official fast
               </DropdownMenuRadioItem>
@@ -215,7 +228,12 @@ export default function SettingsOcrSection({
       >
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="outline" size="sm" className="h-8 w-48 justify-between gap-2 px-2.5 text-xs">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-48 justify-between gap-2 px-2.5 text-xs"
+            >
               <span className="truncate">{ocrRenderScale}x</span>
               <ChevronDown size={14} className="text-muted-foreground" />
             </Button>
@@ -242,9 +260,15 @@ export default function SettingsOcrSection({
       >
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="outline" size="sm" className="h-8 w-48 justify-between gap-2 px-2.5 text-xs">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-48 justify-between gap-2 px-2.5 text-xs"
+            >
               <span className="truncate">
-                {OCR_PREPROCESSING_OPTIONS.find((option) => option.value === ocrPreprocessingMode)?.label ?? 'None'}
+                {OCR_PREPROCESSING_OPTIONS.find((option) => option.value === ocrPreprocessingMode)
+                  ?.label ?? 'None'}
               </span>
               <ChevronDown size={14} className="text-muted-foreground" />
             </Button>
@@ -278,8 +302,9 @@ export default function SettingsOcrSection({
             <ExternalLink size={12} />
           </a>
         </div>
-        OCR language packs are downloaded from the official Tesseract OCR project on GitHub. Only install
-        language packs from trusted sources, because OCR models are engine data consumed by the recognition runtime.
+        OCR language packs are downloaded from the official Tesseract OCR project on GitHub. Only
+        install language packs from trusted sources, because OCR models are engine data consumed by
+        the recognition runtime.
       </div>
 
       <Separator className="my-4 bg-border/40" />
@@ -289,7 +314,13 @@ export default function SettingsOcrSection({
         label="OCR result cache"
         description="Clears cached recognized and extracted text. Language packs stay installed."
       >
-        <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5 px-2.5 text-xs" onClick={() => void clearCache()}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5 px-2.5 text-xs"
+          onClick={() => void clearCache()}
+        >
           <Trash2 size={13} />
           Clear
         </Button>
@@ -306,63 +337,99 @@ export default function SettingsOcrSection({
           </div>
         )}
 
-        {!loading && packs.map((pack) => {
-          const busy = busyCode === pack.code;
-          return (
-            <div
-              key={pack.code}
-              className="flex items-center justify-between gap-3 rounded-lg border border-border/35 bg-card/45 px-3 py-2.5"
-            >
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium">{pack.label}</span>
-                  <span className="font-mono text-[11px] text-muted-foreground">{pack.code}</span>
-                  {pack.bundled && <Badge variant="secondary" className="h-5 text-[10px]">Bundled</Badge>}
-                  {pack.installed && !pack.bundled && <Badge variant="outline" className="h-5 text-[10px]">Installed</Badge>}
+        {!loading &&
+          packs.map((pack) => {
+            const busy = busyCode === pack.code;
+            return (
+              <div
+                key={pack.code}
+                className="flex items-center justify-between gap-3 rounded-lg border border-border/35 bg-card/45 px-3 py-2.5"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">{pack.label}</span>
+                    <span className="font-mono text-[11px] text-muted-foreground">{pack.code}</span>
+                    {pack.bundled && (
+                      <Badge variant="secondary" className="h-5 text-[10px]">
+                        Bundled
+                      </Badge>
+                    )}
+                    {pack.installed && !pack.bundled && (
+                      <Badge variant="outline" className="h-5 text-[10px]">
+                        Installed
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                    <span>
+                      {pack.installed && !pack.bundled
+                        ? formatBytes(pack.sizeBytes)
+                        : pack.bundled
+                          ? 'Available offline'
+                          : 'Not installed'}
+                    </span>
+                    <a
+                      href={pack.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="truncate text-primary hover:underline"
+                    >
+                      official source
+                    </a>
+                    {pack.sha256 && (
+                      <span className="font-mono">sha256 {pack.sha256.slice(0, 10)}...</span>
+                    )}
+                  </div>
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                  <span>{pack.installed && !pack.bundled ? formatBytes(pack.sizeBytes) : pack.bundled ? 'Available offline' : 'Not installed'}</span>
-                  <a href={pack.sourceUrl} target="_blank" rel="noreferrer" className="truncate text-primary hover:underline">
-                    official source
-                  </a>
-                  {pack.sha256 && <span className="font-mono">sha256 {pack.sha256.slice(0, 10)}...</span>}
-                </div>
-              </div>
 
-              <div className="flex shrink-0 items-center gap-1.5">
-                {pack.installed ? (
-                  pack.bundled ? (
-                    <Button size="icon" variant="ghost" className="size-8 text-emerald-400" disabled title="Bundled">
-                      <Check size={14} />
-                    </Button>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {pack.installed ? (
+                    pack.bundled ? (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-8 text-emerald-400"
+                        disabled
+                        title="Bundled"
+                      >
+                        <Check size={14} />
+                      </Button>
+                    ) : (
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="size-8 text-destructive"
+                        disabled={busy}
+                        onClick={() => void removePack(pack)}
+                        title={`Remove ${pack.label}`}
+                      >
+                        {busy ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={14} />
+                        )}
+                      </Button>
+                    )
                   ) : (
                     <Button
                       size="icon"
                       variant="outline"
-                      className="size-8 text-destructive"
+                      className={cn('size-8', busy && 'pointer-events-none')}
                       disabled={busy}
-                      onClick={() => void removePack(pack)}
-                      title={`Remove ${pack.label}`}
+                      onClick={() => void installPack(pack)}
+                      title={`Install ${pack.label}`}
                     >
-                      {busy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      {busy ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <Download size={14} />
+                      )}
                     </Button>
-                  )
-                ) : (
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    className={cn('size-8', busy && 'pointer-events-none')}
-                    disabled={busy}
-                    onClick={() => void installPack(pack)}
-                    title={`Install ${pack.label}`}
-                  >
-                    {busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                  </Button>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
       </div>
     </div>
   );

@@ -125,30 +125,30 @@ function isDarkSurface(color: string | undefined): boolean | null {
   const hex = normalized.match(/^#([\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i)?.[1];
   let channels: [number, number, number] | null = null;
   if (hex) {
-    const rgbHex = hex.length === 3 || hex.length === 4
-      ? [...hex.slice(0, 3)].map((part) => part + part).join('')
-      : hex.slice(0, 6);
-    channels = [0, 2, 4].map((offset) => Number.parseInt(rgbHex.slice(offset, offset + 2), 16) / 255) as [number, number, number];
+    const rgbHex =
+      hex.length === 3 || hex.length === 4
+        ? [...hex.slice(0, 3)].map((part) => part + part).join('')
+        : hex.slice(0, 6);
+    channels = [0, 2, 4].map(
+      (offset) => Number.parseInt(rgbHex.slice(offset, offset + 2), 16) / 255,
+    ) as [number, number, number];
   } else {
     const rgb = normalized.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
     if (rgb) channels = [Number(rgb[1]) / 255, Number(rgb[2]) / 255, Number(rgb[3]) / 255];
   }
   if (!channels) return null;
   const [red, green, blue] = channels;
-  const linear = (channel: number) => channel <= 0.04045
-    ? channel / 12.92
-    : ((channel + 0.055) / 1.055) ** 2.4;
+  const linear = (channel: number) =>
+    channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
   const luminance = 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue);
   return luminance < 0.35;
 }
 
 /** Explicit page colours win over the app theme so white paper keeps dark ink. */
-export function inkPaletteForTheme(
-  theme: InkColorTheme,
-  surfaceColor?: string,
-): InkColorPalette {
+export function inkPaletteForTheme(theme: InkColorTheme, surfaceColor?: string): InkColorPalette {
   const surfaceIsDark = isDarkSurface(surfaceColor);
-  if (surfaceIsDark !== null) return surfaceIsDark ? { ...INK_DARK_PALETTE } : { ...INK_LIGHT_PALETTE };
+  if (surfaceIsDark !== null)
+    return surfaceIsDark ? { ...INK_DARK_PALETTE } : { ...INK_LIGHT_PALETTE };
   return theme === 'light' ? { ...INK_LIGHT_PALETTE } : { ...INK_DARK_PALETTE };
 }
 

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
+
 import { Link2, Paperclip, Plus, Trash2 } from 'lucide-react';
 
-import type { SheetCell, SheetCellAttachment } from '../../types/sheet';
-import type { NoteFile } from '../../types/vault';
 import { createSheetAttachmentId } from '../../lib/sheet/document';
 import { flattenVaultFiles } from '../../lib/vaultLinks';
+import type { SheetCell, SheetCellAttachment } from '../../types/sheet';
+import type { NoteFile } from '../../types/vault';
 import { Button } from '../ui/button';
 import {
   Dialog,
@@ -15,13 +16,7 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Input } from '../ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 interface Props {
   open: boolean;
@@ -63,7 +58,9 @@ export default function SheetLinksDialog({
         </DialogHeader>
         <div className="flex flex-col gap-4">
           <label className="flex flex-col gap-1 text-xs font-medium">
-            <span className="flex items-center gap-1.5"><Link2 size={13} /> Link target</span>
+            <span className="flex items-center gap-1.5">
+              <Link2 size={13} /> Link target
+            </span>
             <Input
               value={link}
               disabled={readOnly}
@@ -92,16 +89,21 @@ export default function SheetLinksDialog({
               <Button
                 type="button"
                 size="icon"
-                disabled={readOnly || !selectedPath || attachments.some(
-                  (attachment) => attachment.relativePath === selectedPath,
-                )}
+                disabled={
+                  readOnly ||
+                  !selectedPath ||
+                  attachments.some((attachment) => attachment.relativePath === selectedPath)
+                }
                 aria-label="Add attachment"
                 onClick={() => {
                   if (!selectedPath) return;
-                  setAttachments((current) => [...current, {
-                    id: createSheetAttachmentId(),
-                    relativePath: selectedPath,
-                  }]);
+                  setAttachments((current) => [
+                    ...current,
+                    {
+                      id: createSheetAttachmentId(),
+                      relativePath: selectedPath,
+                    },
+                  ]);
                   setSelectedPath('');
                 }}
               >
@@ -109,7 +111,10 @@ export default function SheetLinksDialog({
               </Button>
             </div>
             {attachments.map((attachment) => (
-              <div key={attachment.id} className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5">
+              <div
+                key={attachment.id}
+                className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5"
+              >
                 <span className="min-w-0 flex-1 truncate text-xs">
                   {attachment.label || attachment.relativePath}
                 </span>
@@ -119,9 +124,11 @@ export default function SheetLinksDialog({
                   variant="ghost"
                   disabled={readOnly}
                   aria-label={`Remove attachment ${attachment.relativePath}`}
-                  onClick={() => setAttachments((current) => current.filter(
-                    (candidate) => candidate.id !== attachment.id,
-                  ))}
+                  onClick={() =>
+                    setAttachments((current) =>
+                      current.filter((candidate) => candidate.id !== attachment.id),
+                    )
+                  }
                 >
                   <Trash2 />
                 </Button>

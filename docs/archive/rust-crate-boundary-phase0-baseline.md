@@ -17,10 +17,10 @@ cargo check --workspace
 
 Observed on the development machine:
 
-| Check | Elapsed | User CPU | System CPU |
-| --- | ---: | ---: | ---: |
-| Isolated clean target | 64.526 s | 528.877 s | 92.669 s |
-| Existing incremental target | 0.312 s | 0.214 s | 0.088 s |
+| Check                       |  Elapsed |  User CPU | System CPU |
+| --------------------------- | -------: | --------: | ---------: |
+| Isolated clean target       | 64.526 s | 528.877 s |   92.669 s |
+| Existing incremental target |  0.312 s |   0.214 s |    0.088 s |
 
 These are directional local measurements, not CI performance budgets. Phase 6
 must repeat the same commands on the same machine or record why the environment
@@ -28,16 +28,16 @@ changed.
 
 ## Module Baseline
 
-| Module | Lines | Bytes | Current responsibilities |
-| --- | ---: | ---: | --- |
-| `crates/collab-server/src/api.rs` | 15,000+ | 550,963 | Auth, users, vaults, files, revisions, transfer, admin, backup, settings |
-| `crates/collab-server/src/ws.rs` | 1,900+ | 104,585 | WebSocket transport, room lifecycle, Yrs conversion, recovery, materialization |
-| `src-tauri/src/commands/files.rs` | 3,000+ | 102,146 | Tree IO, note writes, trash, sidecars, imports, downloads, references |
-| `src-tauri/src/commands/web.rs` | 900+ | 35,823 | Native outbound URL and response hardening plus link metadata |
-| `crates/collab-server/src/calendar_feeds.rs` | 200+ | 9,010 | Server outbound URL and response hardening for calendar feeds |
-| `crates/collab-core/src/references.rs` | 900 | - | Note, Kanban, and canvas reference analysis and rewrites |
-| `crates/collab-core/src/kanban.rs` | 544 | - | Kanban parsing and capability classification |
-| `crates/collab-core/src/pdf.rs` | 183 | - | PDF-sidecar capability classification |
+| Module                                       |   Lines |   Bytes | Current responsibilities                                                       |
+| -------------------------------------------- | ------: | ------: | ------------------------------------------------------------------------------ |
+| `crates/collab-server/src/api.rs`            | 15,000+ | 550,963 | Auth, users, vaults, files, revisions, transfer, admin, backup, settings       |
+| `crates/collab-server/src/ws.rs`             |  1,900+ | 104,585 | WebSocket transport, room lifecycle, Yrs conversion, recovery, materialization |
+| `src-tauri/src/commands/files.rs`            |  3,000+ | 102,146 | Tree IO, note writes, trash, sidecars, imports, downloads, references          |
+| `src-tauri/src/commands/web.rs`              |    900+ |  35,823 | Native outbound URL and response hardening plus link metadata                  |
+| `crates/collab-server/src/calendar_feeds.rs` |    200+ |   9,010 | Server outbound URL and response hardening for calendar feeds                  |
+| `crates/collab-core/src/references.rs`       |     900 |       - | Note, Kanban, and canvas reference analysis and rewrites                       |
+| `crates/collab-core/src/kanban.rs`           |     544 |       - | Kanban parsing and capability classification                                   |
+| `crates/collab-core/src/pdf.rs`              |     183 |       - | PDF-sidecar capability classification                                          |
 
 Exact current values can be regenerated with:
 
@@ -211,13 +211,13 @@ server/native adapters.
 
 The extraction baseline is protected by existing and Phase 0 tests:
 
-| Area | Characterized behavior |
-| --- | --- |
-| Security | Hosted/native path rejection, outbound private target rejection, archive traversal rejection, rate/auth boundaries |
-| References | Note wikilinks/markdown links, Kanban attachments, canvas file nodes, rename/delete rewrites |
-| Archive | Backslash normalization, traversal rejection, expanded-size limits, backup manifest/checksum validation |
-| Revisions | Optimistic writes, non-overlapping text auto-merge, stale materialization refusal, snapshot restore |
-| Live recovery | Empty/degenerate room recovery, duplicate update convergence, compaction, external revision merge |
+| Area          | Characterized behavior                                                                                             |
+| ------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Security      | Hosted/native path rejection, outbound private target rejection, archive traversal rejection, rate/auth boundaries |
+| References    | Note wikilinks/markdown links, Kanban attachments, canvas file nodes, rename/delete rewrites                       |
+| Archive       | Backslash normalization, traversal rejection, expanded-size limits, backup manifest/checksum validation            |
+| Revisions     | Optimistic writes, non-overlapping text auto-merge, stale materialization refusal, snapshot restore                |
+| Live recovery | Empty/degenerate room recovery, duplicate update convergence, compaction, external revision merge                  |
 
 Phase 0 adds adapter-local ownership modules around these characterized rules.
 Later phases move only the pure contracts and implementations, keeping the
@@ -225,11 +225,11 @@ adapters and serialized boundaries stable.
 
 ## Phase 0 Post-Split Measurements
 
-| Adapter parent | Before | After | Extracted private module |
-| --- | ---: | ---: | --- |
-| Server `api.rs` | 550,963 bytes | 545,241 bytes | `api/archive.rs` (7,597 bytes) |
-| Server `ws.rs` | 104,585 bytes | 97,405 bytes | `ws/domain.rs` (8,131 bytes) |
-| Tauri `commands/files.rs` | 102,146 bytes | 93,514 bytes | `commands/files/sidecars.rs` (10,411 bytes) |
+| Adapter parent            |        Before |         After | Extracted private module                    |
+| ------------------------- | ------------: | ------------: | ------------------------------------------- |
+| Server `api.rs`           | 550,963 bytes | 545,241 bytes | `api/archive.rs` (7,597 bytes)              |
+| Server `ws.rs`            | 104,585 bytes |  97,405 bytes | `ws/domain.rs` (8,131 bytes)                |
+| Tauri `commands/files.rs` | 102,146 bytes |  93,514 bytes | `commands/files/sidecars.rs` (10,411 bytes) |
 
 The purpose of this split is ownership, characterization, and a stable
 extraction point, not maximum line-count reduction. Larger route and command
@@ -245,10 +245,10 @@ CARGO_TARGET_DIR=/tmp/collab-phase6-target cargo check --workspace
 cargo check --workspace
 ```
 
-| Check | Phase 0 elapsed | Phase 6 elapsed | Change |
-| --- | ---: | ---: | ---: |
-| Isolated clean target | 64.526 s | 51.166 s | -20.7% |
-| Existing incremental target | 0.312 s | 0.439 s | +0.127 s |
+| Check                       | Phase 0 elapsed | Phase 6 elapsed |   Change |
+| --------------------------- | --------------: | --------------: | -------: |
+| Isolated clean target       |        64.526 s |        51.166 s |   -20.7% |
+| Existing incremental target |         0.312 s |         0.439 s | +0.127 s |
 
 The clean check used 374.453 seconds of user CPU and 70.598 seconds of system
 CPU, down from 528.877 and 92.669 seconds respectively. The existing-target
@@ -257,26 +257,26 @@ Phase 6 target took 1.394 seconds because the Tauri package's build check ran
 again. These remain directional workstation measurements rather than CI
 budgets.
 
-| Adapter parent | Phase 0 bytes | Phase 6 bytes | Change |
-| --- | ---: | ---: | ---: |
-| Server `api.rs` | 550,963 | 552,818 | +0.34% |
-| Server `ws.rs` | 104,585 | 95,225 | -8.95% |
-| Tauri `commands/files.rs` | 102,146 | 94,611 | -7.38% |
-| Tauri `commands/web.rs` | 35,823 | 36,367 | +1.52% |
-| Server `calendar_feeds.rs` | 9,010 | 8,335 | -7.49% |
+| Adapter parent             | Phase 0 bytes | Phase 6 bytes | Change |
+| -------------------------- | ------------: | ------------: | -----: |
+| Server `api.rs`            |       550,963 |       552,818 | +0.34% |
+| Server `ws.rs`             |       104,585 |        95,225 | -8.95% |
+| Tauri `commands/files.rs`  |       102,146 |        94,611 | -7.38% |
+| Tauri `commands/web.rs`    |        35,823 |        36,367 | +1.52% |
+| Server `calendar_feeds.rs` |         9,010 |         8,335 | -7.49% |
 
 `api.rs` and `web.rs` received product work during the refactor program, so
 their small growth is not extraction overhead alone. The extracted final shared
 domains contain:
 
-| Crate | Rust lines | Rust bytes |
-| --- | ---: | ---: |
-| `collab-core` | 320 | 9,930 |
-| `collab-documents` | 2,103 | 69,674 |
-| `collab-vault-domain` | 758 | 24,569 |
-| `collab-archive` | 701 | 22,609 |
-| `collab-live` | 634 | 20,368 |
-| `collab-net-policy` | 472 | 14,631 |
+| Crate                 | Rust lines | Rust bytes |
+| --------------------- | ---------: | ---------: |
+| `collab-core`         |        320 |      9,930 |
+| `collab-documents`    |      2,103 |     69,674 |
+| `collab-vault-domain` |        758 |     24,569 |
+| `collab-archive`      |        701 |     22,609 |
+| `collab-live`         |        634 |     20,368 |
+| `collab-net-policy`   |        472 |     14,631 |
 
 The final dependency graph is enforced by `pnpm rust:boundaries`. The Tauri
 adapter imports `collab-replica` directly; its temporary blanket re-export was

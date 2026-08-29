@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+
 import * as Y from 'yjs';
+
 import { connectLiveProvider, type LiveDocumentHandle } from './liveDocumentSession';
 import type { VaultClient } from './vaultClient';
 
@@ -27,12 +29,7 @@ const ROOT_MAP = 'doc';
 const LOCAL_ORIGIN = Symbol('live-json-local');
 
 export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
 export interface LiveJsonSession extends LiveDocumentHandle {
@@ -113,8 +110,12 @@ function stableEqual(a: unknown, b: unknown): boolean {
   if (isPlainObject(a) && isPlainObject(b)) {
     const aKeys = Object.keys(a);
     const bKeys = Object.keys(b);
-    return aKeys.length === bKeys.length
-      && aKeys.every((key) => Object.prototype.hasOwnProperty.call(b, key) && stableEqual(a[key], b[key]));
+    return (
+      aKeys.length === bKeys.length &&
+      aKeys.every(
+        (key) => Object.prototype.hasOwnProperty.call(b, key) && stableEqual(a[key], b[key]),
+      )
+    );
   }
   return false;
 }
@@ -155,7 +156,10 @@ export function reconcileArray(yarr: Y.Array<unknown>, arr: JsonValue[]) {
     // Non-entity arrays are replaced wholesale when they differ.
     if (!stableEqual(yToJson(yarr), arr)) {
       if (yarr.length > 0) yarr.delete(0, yarr.length);
-      yarr.insert(0, arr.map((item) => toShared(item)));
+      yarr.insert(
+        0,
+        arr.map((item) => toShared(item)),
+      );
     }
     return;
   }

@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import { INK_LIMITS } from '../../types/ink';
 import type { InkScene } from '../../types/ink';
+
 import {
   copySelection,
   duplicateSelection,
-  isInkClipboard,
   INK_PASTE_OFFSET,
+  isInkClipboard,
   pasteClipboard,
 } from './clipboard';
 import { buildInkScene } from './fixture';
@@ -86,7 +87,13 @@ describe('pasteClipboard', () => {
   it('lands on the current layer, not the one it was copied from', () => {
     // Recreating the source's layers would multiply them on every paste, and
     // pasting into a drawing whose layers changed must not fail.
-    const source = addLayer(scene(), { id: 'layer-2', name: 'Two', visible: true, locked: false, opacity: 1 }).result;
+    const source = addLayer(scene(), {
+      id: 'layer-2',
+      name: 'Two',
+      visible: true,
+      locked: false,
+      opacity: 1,
+    }).result;
     const clipboard = copySelection(source, ['stroke-1'])!;
     const result = pasteClipboard(source, clipboard, { layerId: 'layer-2', makeId }).result;
     expect(result.objects['copy-0-stroke-1'].layerId).toBe('layer-2');
@@ -102,7 +109,9 @@ describe('pasteClipboard', () => {
   it('refuses a layer that does not exist', () => {
     const source = scene();
     const clipboard = copySelection(source, ['stroke-1'])!;
-    expect(() => pasteClipboard(source, clipboard, { layerId: 'ghost', makeId })).toThrow(/no layer/);
+    expect(() => pasteClipboard(source, clipboard, { layerId: 'ghost', makeId })).toThrow(
+      /no layer/,
+    );
   });
 
   it('refuses rather than truncating when the page cannot hold the paste', () => {

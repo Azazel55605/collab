@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useUiStore } from '../../store/uiStore';
 
+import CalendarView from './CalendarView';
+
 const useKanbanContextMock = vi.fn();
 
 vi.mock('../../views/KanbanPage', () => ({
@@ -34,12 +36,18 @@ vi.mock('../ui/dropdown-menu', () => ({
   DropdownMenu: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   DropdownMenuContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  DropdownMenuItem: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
-    <button type="button" onClick={onClick}>{children}</button>
+  DropdownMenuItem: ({
+    children,
+    onClick,
+  }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+  }) => (
+    <button type="button" onClick={onClick}>
+      {children}
+    </button>
   ),
 }));
-
-import CalendarView from './CalendarView';
 
 describe('CalendarView year overview', () => {
   beforeEach(() => {
@@ -54,9 +62,7 @@ describe('CalendarView year overview', () => {
     useKanbanContextMock.mockReturnValue({
       relativePath: 'Boards/project.kanban',
       updateBoard: vi.fn(),
-      knownUsers: [
-        { userId: 'user-1', userName: 'Alex', userColor: '#22c55e' },
-      ],
+      knownUsers: [{ userId: 'user-1', userName: 'Alex', userColor: '#22c55e' }],
       board: {
         columns: [
           {

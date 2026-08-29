@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
-import { reconcileMap, toShared, yToJson, type JsonObject } from './liveJsonDocument';
+
+import { type JsonObject, reconcileMap, toShared, yToJson } from './liveJsonDocument';
 
 function withMap(initial: JsonObject): { doc: Y.Doc; root: Y.Map<unknown> } {
   const doc = new Y.Doc();
@@ -31,9 +32,11 @@ describe('liveJsonDocument reconciler', () => {
 
     expect(yToJson(root)).toEqual({ viewport: { x: 0, y: 24, zoom: 1 } });
     expect(() => {
-      doc.transact(() => reconcileMap(root, {
-        viewport: { x: 0, y: 24, zoom: 1 },
-      }));
+      doc.transact(() =>
+        reconcileMap(root, {
+          viewport: { x: 0, y: 24, zoom: 1 },
+        }),
+      );
     }).not.toThrow();
   });
 

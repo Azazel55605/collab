@@ -31,13 +31,16 @@ export function useDocumentSessionState() {
     lastWriteRef.current = Date.now();
   }, []);
 
-  const shouldCreateSnapshot = useCallback((hash: string, now = Date.now(), intervalMs = DOCUMENT_SNAPSHOT_INTERVAL_MS) => {
-    if (hash === lastSnapshotHashRef.current) return false;
-    if (now - lastSnapshotTimeRef.current < intervalMs) return false;
-    lastSnapshotHashRef.current = hash;
-    lastSnapshotTimeRef.current = now;
-    return true;
-  }, []);
+  const shouldCreateSnapshot = useCallback(
+    (hash: string, now = Date.now(), intervalMs = DOCUMENT_SNAPSHOT_INTERVAL_MS) => {
+      if (hash === lastSnapshotHashRef.current) return false;
+      if (now - lastSnapshotTimeRef.current < intervalMs) return false;
+      lastSnapshotHashRef.current = hash;
+      lastSnapshotTimeRef.current = now;
+      return true;
+    },
+    [],
+  );
 
   /**
    * Runs document saves one at a time, coalescing overlapping requests to the

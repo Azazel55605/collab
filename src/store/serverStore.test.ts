@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { tauriCommands } from '../lib/tauri';
+
 import {
-  useServerStore,
-  isServerSessionExpired,
   isEffectivelyConnected,
-  shouldRefreshServerSession,
+  isServerSessionExpired,
   type ServerConnection,
+  shouldRefreshServerSession,
+  useServerStore,
 } from './serverStore';
-import { useVaultStore } from './vaultStore';
 import { useSyncStore } from './syncStore';
+import { useVaultStore } from './vaultStore';
 
 vi.mock('../lib/tauri', () => ({
   tauriCommands: {
@@ -29,7 +31,13 @@ const connected = {
   connected: true,
   serverUrl: SERVER_URL,
   allowInvalidCertificates: false,
-  user: { id: 'user-1', username: 'alice', displayName: 'Alice', role: 'member' as const, status: 'active' as const },
+  user: {
+    id: 'user-1',
+    username: 'alice',
+    displayName: 'Alice',
+    role: 'member' as const,
+    status: 'active' as const,
+  },
   accessExpiresAt: '2999-01-01T00:00:00Z',
 };
 
@@ -48,7 +56,10 @@ const hostedVault = {
 };
 
 /** Seeds the store with a single connected server's connection. */
-function seed(status = connected, hostedVaults: typeof hostedVault[] = []): Record<string, ServerConnection> {
+function seed(
+  status = connected,
+  hostedVaults: (typeof hostedVault)[] = [],
+): Record<string, ServerConnection> {
   return { [status.serverUrl!]: { status, hostedVaults } };
 }
 
@@ -68,12 +79,16 @@ describe('serverStore', () => {
 
     expect(useServerStore.getState().statusFor(SERVER_URL)).toEqual(connected);
     expect(useServerStore.getState().hostedVaultsFor(SERVER_URL)).toEqual([hostedVault]);
-    expect(tauriCommands.hostedVaultRequest).toHaveBeenCalledWith(SERVER_URL, 'GET', '/api/v1/vaults');
+    expect(tauriCommands.hostedVaultRequest).toHaveBeenCalledWith(
+      SERVER_URL,
+      'GET',
+      '/api/v1/vaults',
+    );
   });
 
   it('shares concurrent hosted-vault inventory requests for one server', async () => {
     useServerStore.setState({ connections: seed() });
-    let resolveInventory!: (vaults: typeof hostedVault[]) => void;
+    let resolveInventory!: (vaults: (typeof hostedVault)[]) => void;
     vi.mocked(tauriCommands.hostedVaultRequest).mockReturnValueOnce(
       new Promise((resolve) => {
         resolveInventory = resolve;
@@ -112,7 +127,12 @@ describe('serverStore', () => {
     const created = await useServerStore.getState().createHostedVault(SERVER_URL, 'New Vault');
 
     expect(created).toEqual(hostedVault);
-    expect(tauriCommands.hostedVaultRequest).toHaveBeenCalledWith(SERVER_URL, 'POST', '/api/v1/vaults', { name: 'New Vault' });
+    expect(tauriCommands.hostedVaultRequest).toHaveBeenCalledWith(
+      SERVER_URL,
+      'POST',
+      '/api/v1/vaults',
+      { name: 'New Vault' },
+    );
     expect(useServerStore.getState().hostedVaultsFor(SERVER_URL)).toEqual([hostedVault]);
   });
 
@@ -132,12 +152,14 @@ describe('serverStore', () => {
         capabilities: ['vault.read'],
       },
     } as never);
-    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([{
-      ...hostedVault,
-      role: 'editor',
-      capabilities: ['vault.read', 'file.write', 'kanban.card.move'],
-      updatedAt: '2026-06-11T09:00:00Z',
-    }]);
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([
+      {
+        ...hostedVault,
+        role: 'editor',
+        capabilities: ['vault.read', 'file.write', 'kanban.card.move'],
+        updatedAt: '2026-06-11T09:00:00Z',
+      },
+    ]);
 
     await useServerStore.getState().loadHostedVaults(SERVER_URL);
 
@@ -165,7 +187,7 @@ describe('serverStore', () => {
     const oldStatus = { ...connected, accessExpiresAt: '2026-06-11T10:00:00Z' };
     const newStatus = { ...connected, accessExpiresAt: '2026-06-11T12:00:00Z' };
     useServerStore.setState({ connections: seed(oldStatus, [hostedVault]) });
-    let resolveInventory!: (vaults: typeof hostedVault[]) => void;
+    let resolveInventory!: (vaults: (typeof hostedVault)[]) => void;
     vi.mocked(tauriCommands.hostedVaultRequest).mockReturnValueOnce(
       new Promise((resolve) => {
         resolveInventory = resolve;
@@ -183,7 +205,9 @@ describe('serverStore', () => {
 
   it('refuses to create a hosted vault when not connected to that server', async () => {
     useServerStore.setState({ connections: {} });
-    await expect(useServerStore.getState().createHostedVault(SERVER_URL, 'X')).rejects.toThrow(/Connect to a Collab server/);
+    await expect(useServerStore.getState().createHostedVault(SERVER_URL, 'X')).rejects.toThrow(
+      /Connect to a Collab server/,
+    );
   });
 
   it('records a connected server in the known-servers list on connect', async () => {
@@ -194,16 +218,28 @@ describe('serverStore', () => {
 
     expect(useServerStore.getState().statusFor(SERVER_URL)).toEqual(connected);
     const known = JSON.parse(localStorage.getItem('collab-hosted-servers') ?? '[]');
-    expect(known).toEqual([{ serverUrl: SERVER_URL, username: 'alice', allowInvalidCertificates: true, persistAcrossReboots: false }]);
+    expect(known).toEqual([
+      {
+        serverUrl: SERVER_URL,
+        username: 'alice',
+        allowInvalidCertificates: true,
+        persistAcrossReboots: false,
+      },
+    ]);
   });
 
   it('reauthenticates with the saved server settings and reloads its vaults', async () => {
-    localStorage.setItem('collab-hosted-servers', JSON.stringify([{
-      serverUrl: SERVER_URL,
-      username: 'alice',
-      allowInvalidCertificates: true,
-      persistAcrossReboots: true,
-    }]));
+    localStorage.setItem(
+      'collab-hosted-servers',
+      JSON.stringify([
+        {
+          serverUrl: SERVER_URL,
+          username: 'alice',
+          allowInvalidCertificates: true,
+          persistAcrossReboots: true,
+        },
+      ]),
+    );
     vi.mocked(tauriCommands.reauthenticateServer).mockResolvedValue(connected);
     vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([hostedVault]);
 
@@ -231,12 +267,17 @@ describe('serverStore', () => {
   });
 
   it('uses the canonical server origin for saved reconnect state', async () => {
-    localStorage.setItem('collab-hosted-servers', JSON.stringify([{
-      serverUrl: `${SERVER_URL}/admin/`,
-      username: 'alice',
-      allowInvalidCertificates: false,
-      persistAcrossReboots: false,
-    }]));
+    localStorage.setItem(
+      'collab-hosted-servers',
+      JSON.stringify([
+        {
+          serverUrl: `${SERVER_URL}/admin/`,
+          username: 'alice',
+          allowInvalidCertificates: false,
+          persistAcrossReboots: false,
+        },
+      ]),
+    );
     vi.mocked(tauriCommands.reauthenticateServer).mockResolvedValue(connected);
     vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([hostedVault]);
 
@@ -267,7 +308,10 @@ describe('serverStore', () => {
 
     it('refreshes proactively when the access token is close to expiry', async () => {
       localStorage.setItem('collab-hosted-server-url', SERVER_URL);
-      const nearExpiry = { ...connected, accessExpiresAt: new Date(Date.now() + 30_000).toISOString() };
+      const nearExpiry = {
+        ...connected,
+        accessExpiresAt: new Date(Date.now() + 30_000).toISOString(),
+      };
       useServerStore.setState({ connections: seed(nearExpiry) });
       vi.mocked(tauriCommands.reconnectServer).mockResolvedValue(connected);
       vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([hostedVault]);
@@ -301,7 +345,9 @@ describe('serverStore', () => {
     it('does not churn store state on a failed attempt', async () => {
       localStorage.setItem('collab-hosted-server-url', SERVER_URL);
       useServerStore.setState({ connections: {}, isLoading: false, error: null });
-      vi.mocked(tauriCommands.reconnectServer).mockRejectedValue(new Error('could not reach server'));
+      vi.mocked(tauriCommands.reconnectServer).mockRejectedValue(
+        new Error('could not reach server'),
+      );
 
       expect(await useServerStore.getState().autoReconnect(SERVER_URL)).toBe('failed');
       expect(useServerStore.getState().isLoading).toBe(false);
@@ -310,8 +356,12 @@ describe('serverStore', () => {
   });
 
   it('refuses to create a hosted vault when the session has expired', async () => {
-    useServerStore.setState({ connections: seed({ ...connected, accessExpiresAt: '2000-01-01T00:00:00Z' }) });
-    await expect(useServerStore.getState().createHostedVault(SERVER_URL, 'X')).rejects.toThrow(/Connect to a Collab server/);
+    useServerStore.setState({
+      connections: seed({ ...connected, accessExpiresAt: '2000-01-01T00:00:00Z' }),
+    });
+    await expect(useServerStore.getState().createHostedVault(SERVER_URL, 'X')).rejects.toThrow(
+      /Connect to a Collab server/,
+    );
     expect(tauriCommands.hostedVaultRequest).not.toHaveBeenCalled();
   });
 });
@@ -320,7 +370,9 @@ describe('isEffectivelyConnected', () => {
   const now = Date.parse('2026-06-11T10:00:00Z');
 
   it('is true for a connected, unexpired session', () => {
-    expect(isEffectivelyConnected({ ...connected, accessExpiresAt: '2026-06-11T12:00:00Z' }, now)).toBe(true);
+    expect(
+      isEffectivelyConnected({ ...connected, accessExpiresAt: '2026-06-11T12:00:00Z' }, now),
+    ).toBe(true);
   });
 
   it('is false when disconnected', () => {
@@ -329,7 +381,9 @@ describe('isEffectivelyConnected', () => {
   });
 
   it('is false when the access token has expired', () => {
-    expect(isEffectivelyConnected({ ...connected, accessExpiresAt: '2026-06-11T09:00:00Z' }, now)).toBe(false);
+    expect(
+      isEffectivelyConnected({ ...connected, accessExpiresAt: '2026-06-11T09:00:00Z' }, now),
+    ).toBe(false);
   });
 });
 
@@ -339,11 +393,15 @@ describe('shouldRefreshServerSession', () => {
   it('is true when disconnected or close to access-token expiry', () => {
     expect(shouldRefreshServerSession(null, now)).toBe(true);
     expect(shouldRefreshServerSession({ ...connected, connected: false }, now)).toBe(true);
-    expect(shouldRefreshServerSession({ ...connected, accessExpiresAt: '2026-06-11T10:01:00Z' }, now)).toBe(true);
+    expect(
+      shouldRefreshServerSession({ ...connected, accessExpiresAt: '2026-06-11T10:01:00Z' }, now),
+    ).toBe(true);
   });
 
   it('is false for a connected session with enough access-token lifetime left', () => {
-    expect(shouldRefreshServerSession({ ...connected, accessExpiresAt: '2026-06-11T10:05:00Z' }, now)).toBe(false);
+    expect(
+      shouldRefreshServerSession({ ...connected, accessExpiresAt: '2026-06-11T10:05:00Z' }, now),
+    ).toBe(false);
   });
 });
 
@@ -401,7 +459,9 @@ describe('serverStore.restoreAllSessions', () => {
   it('skips without error when a saved URL has no stored credential', async () => {
     localStorage.setItem('collab-hosted-server-url', SERVER_URL);
     vi.mocked(tauriCommands.serverConnectionStatuses).mockResolvedValue([]);
-    vi.mocked(tauriCommands.reconnectServer).mockRejectedValue(new Error('No saved server session was found.'));
+    vi.mocked(tauriCommands.reconnectServer).mockRejectedValue(
+      new Error('No saved server session was found.'),
+    );
 
     expect(await useServerStore.getState().restoreAllSessions()).toBe('skipped');
     expect(tauriCommands.reconnectServer).toHaveBeenCalledTimes(1);
@@ -414,7 +474,10 @@ describe('serverStore.restoreAllSessions', () => {
     vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([hostedVault]);
 
     const store = useServerStore.getState();
-    const [first, second] = await Promise.all([store.restoreAllSessions(), store.restoreAllSessions()]);
+    const [first, second] = await Promise.all([
+      store.restoreAllSessions(),
+      store.restoreAllSessions(),
+    ]);
 
     expect(first).toBe('connected');
     expect(second).toBe('connected');
@@ -439,15 +502,21 @@ describe('isServerSessionExpired', () => {
   });
 
   it('returns false when the token is still valid', () => {
-    expect(isServerSessionExpired({ ...connected, accessExpiresAt: '2026-06-11T12:00:00Z' }, now)).toBe(false);
+    expect(
+      isServerSessionExpired({ ...connected, accessExpiresAt: '2026-06-11T12:00:00Z' }, now),
+    ).toBe(false);
   });
 
   it('returns true when the token has expired', () => {
-    expect(isServerSessionExpired({ ...connected, accessExpiresAt: '2026-06-11T09:00:00Z' }, now)).toBe(true);
+    expect(
+      isServerSessionExpired({ ...connected, accessExpiresAt: '2026-06-11T09:00:00Z' }, now),
+    ).toBe(true);
   });
 
   it('returns false when the expiry timestamp is absent or unparseable', () => {
     expect(isServerSessionExpired({ ...connected, accessExpiresAt: null }, now)).toBe(false);
-    expect(isServerSessionExpired({ ...connected, accessExpiresAt: 'not-a-date' }, now)).toBe(false);
+    expect(isServerSessionExpired({ ...connected, accessExpiresAt: 'not-a-date' }, now)).toBe(
+      false,
+    );
   });
 });

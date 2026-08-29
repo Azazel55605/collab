@@ -76,9 +76,7 @@ export interface SvgNode {
   extraAttrs: Record<string, string>;
 }
 
-export type SvgSlot =
-  | { kind: 'node'; node: SvgNode }
-  | { kind: 'raw'; markup: string };
+export type SvgSlot = { kind: 'node'; node: SvgNode } | { kind: 'raw'; markup: string };
 
 export interface SvgScene {
   viewBox: SvgRect;

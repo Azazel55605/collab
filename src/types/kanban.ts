@@ -107,7 +107,8 @@ export interface KanbanCard {
   recurrence?: KanbanRecurrenceRule | null;
 }
 
-export type ColumnSortField = 'none' | 'name' | 'priority' | 'createdAt' | 'startDate' | 'dueDate' | 'assignees';
+export type ColumnSortField =
+  'none' | 'name' | 'priority' | 'createdAt' | 'startDate' | 'dueDate' | 'assignees';
 
 export interface KanbanColumn {
   id: string;
@@ -207,7 +208,11 @@ function normalizeQuery(value?: string) {
   return value?.trim().toLowerCase() ?? '';
 }
 
-export function syncChecklistReferences(board: KanbanBoard, cardId: string, checked: boolean): KanbanBoard {
+export function syncChecklistReferences(
+  board: KanbanBoard,
+  cardId: string,
+  checked: boolean,
+): KanbanBoard {
   let changed = false;
 
   const columns = board.columns.map((column) => {
@@ -238,11 +243,16 @@ export function mergeUniqueTags(existingTags: string[], incomingTags: string[]) 
   return [...existingTags, ...incomingTags.filter((tag) => !existingTags.includes(tag))];
 }
 
-export function getMissingColumnDefaultTags(card: Pick<KanbanCard, 'tags'>, column: Pick<KanbanColumn, 'defaultTags'>) {
+export function getMissingColumnDefaultTags(
+  card: Pick<KanbanCard, 'tags'>,
+  column: Pick<KanbanColumn, 'defaultTags'>,
+) {
   return (column.defaultTags ?? []).filter((tag) => !card.tags.includes(tag));
 }
 
-export function getCardAttachmentPaths(card: Pick<KanbanCard, 'relativePath' | 'attachmentPaths'>): string[] {
+export function getCardAttachmentPaths(
+  card: Pick<KanbanCard, 'relativePath' | 'attachmentPaths'>,
+): string[] {
   const paths = [
     ...(card.attachmentPaths ?? []),
     ...(card.relativePath ? [card.relativePath] : []),
@@ -251,7 +261,10 @@ export function getCardAttachmentPaths(card: Pick<KanbanCard, 'relativePath' | '
   return [...new Set(paths)];
 }
 
-export function getCardDueStatus(card: Pick<KanbanCard, 'dueDate' | 'isDone'>, now = new Date()): KanbanDueStatus {
+export function getCardDueStatus(
+  card: Pick<KanbanCard, 'dueDate' | 'isDone'>,
+  now = new Date(),
+): KanbanDueStatus {
   if (!card.dueDate) return 'none';
   const due = parseDateOnly(card.dueDate);
   if (!due) return 'none';
@@ -300,7 +313,9 @@ export function cardMatchesFilter(
 
   const assigneeQuery = normalizeQuery(spec.assigneeQuery);
   if (assigneeQuery) {
-    const matched = [...card.assignees, ...assigneeLabels].some((value) => value.toLowerCase().includes(assigneeQuery));
+    const matched = [...card.assignees, ...assigneeLabels].some((value) =>
+      value.toLowerCase().includes(assigneeQuery),
+    );
     if (!matched) return false;
   }
 
@@ -343,9 +358,8 @@ function createNextRecurringCard(card: KanbanCard, completedAt: number) {
   const dueDate = parseDateOnly(card.dueDate);
   const startDate = parseDateOnly(card.startDate);
   const anchorMode = recurrence.anchor ?? 'dueDate';
-  const anchorDate = anchorMode === 'completionDate'
-    ? completionDate
-    : dueDate ?? startDate ?? completionDate;
+  const anchorDate =
+    anchorMode === 'completionDate' ? completionDate : (dueDate ?? startDate ?? completionDate);
   const nextAnchor = advanceRecurrenceDate(anchorDate, recurrence);
 
   let nextDueDate = card.dueDate;
@@ -423,11 +437,11 @@ function setCardStateWithRecurrence(
   if (nextRecurringCard && recurringColumnId) {
     nextBoard = {
       ...nextBoard,
-      columns: nextBoard.columns.map((column) => (
+      columns: nextBoard.columns.map((column) =>
         column.id !== recurringColumnId
           ? column
-          : { ...column, cards: [...column.cards, nextRecurringCard as KanbanCard] }
-      )),
+          : { ...column, cards: [...column.cards, nextRecurringCard as KanbanCard] },
+      ),
     };
   }
   return syncChecklistReferences(nextBoard, cardId, isDone);
@@ -469,7 +483,8 @@ function conditionMatchesCard(
   if (condition.priority && (card.priority ?? 'none') !== condition.priority) return false;
   if (condition.assigneeState === 'empty' && card.assignees.length > 0) return false;
   if (condition.assigneeState === 'present' && card.assignees.length === 0) return false;
-  if (typeof condition.isDone === 'boolean' && (card.isDone ?? false) !== condition.isDone) return false;
+  if (typeof condition.isDone === 'boolean' && (card.isDone ?? false) !== condition.isDone)
+    return false;
   return true;
 }
 
@@ -478,7 +493,9 @@ export function runKanbanAutomations(
   trigger: KanbanAutomationTrigger,
   now = Date.now(),
 ): KanbanBoard {
-  const rules = (board.automations ?? []).filter((rule) => rule.enabled && rule.trigger === trigger);
+  const rules = (board.automations ?? []).filter(
+    (rule) => rule.enabled && rule.trigger === trigger,
+  );
   if (rules.length === 0) return board;
 
   let nextBoard = board;
@@ -536,16 +553,18 @@ export function runKanbanAutomations(
             if (!card.tags.includes(action.tag)) {
               nextBoard = {
                 ...nextBoard,
-                columns: nextBoard.columns.map((entry) => (
+                columns: nextBoard.columns.map((entry) =>
                   entry.id !== column.id
                     ? entry
                     : {
-                      ...entry,
-                      cards: entry.cards.map((item) => (
-                          item.id !== card.id ? item : { ...item, tags: mergeUniqueTags(item.tags, [action.tag]) }
-                      )),
-                    }
-                )),
+                        ...entry,
+                        cards: entry.cards.map((item) =>
+                          item.id !== card.id
+                            ? item
+                            : { ...item, tags: mergeUniqueTags(item.tags, [action.tag]) },
+                        ),
+                      },
+                ),
               };
             }
             processed.add(card.id);
@@ -553,34 +572,39 @@ export function runKanbanAutomations(
           case 'removeTag':
             nextBoard = {
               ...nextBoard,
-              columns: nextBoard.columns.map((entry) => (
+              columns: nextBoard.columns.map((entry) =>
                 entry.id !== column.id
                   ? entry
                   : {
-                    ...entry,
-                    cards: entry.cards.map((item) => (
-                        item.id !== card.id ? item : { ...item, tags: item.tags.filter((tag) => tag !== action.tag) }
-                    )),
-                  }
-              )),
+                      ...entry,
+                      cards: entry.cards.map((item) =>
+                        item.id !== card.id
+                          ? item
+                          : { ...item, tags: item.tags.filter((tag) => tag !== action.tag) },
+                      ),
+                    },
+              ),
             };
             processed.add(card.id);
             continue cardLoop;
           case 'setPriority':
             nextBoard = {
               ...nextBoard,
-              columns: nextBoard.columns.map((entry) => (
+              columns: nextBoard.columns.map((entry) =>
                 entry.id !== column.id
                   ? entry
                   : {
                       ...entry,
-                      cards: entry.cards.map((item) => (
-                          item.id !== card.id
-                            ? item
-                          : { ...item, priority: action.priority === 'none' ? undefined : action.priority }
-                      )),
-                    }
-              )),
+                      cards: entry.cards.map((item) =>
+                        item.id !== card.id
+                          ? item
+                          : {
+                              ...item,
+                              priority: action.priority === 'none' ? undefined : action.priority,
+                            },
+                      ),
+                    },
+              ),
             };
             processed.add(card.id);
             continue cardLoop;
@@ -591,23 +615,21 @@ export function runKanbanAutomations(
           case 'assignUser':
             nextBoard = {
               ...nextBoard,
-              columns: nextBoard.columns.map((entry) => (
+              columns: nextBoard.columns.map((entry) =>
                 entry.id !== column.id
                   ? entry
                   : {
                       ...entry,
-                      cards: entry.cards.map((item) => (
+                      cards: entry.cards.map((item) =>
                         item.id !== card.id
                           ? item
                           : {
                               ...item,
-                              assignees: action.userId
-                                ? [action.userId]
-                                : [],
-                            }
-                      )),
-                    }
-              )),
+                              assignees: action.userId ? [action.userId] : [],
+                            },
+                      ),
+                    },
+              ),
             };
             processed.add(card.id);
             continue cardLoop;
@@ -629,7 +651,10 @@ export function getKanbanBoardStats(board: KanbanBoard, now = new Date()): Kanba
     return cards;
   }, []);
   const checklistTotal = activeCards.reduce((sum, card) => sum + card.checklist.length, 0);
-  const checklistCompleted = activeCards.reduce((sum, card) => sum + card.checklist.filter((item) => item.checked).length, 0);
+  const checklistCompleted = activeCards.reduce(
+    (sum, card) => sum + card.checklist.filter((item) => item.checked).length,
+    0,
+  );
 
   const assigneeCounts = new Map<string, number>();
   const priorityCounts = new Map<string, number>();
@@ -639,7 +664,10 @@ export function getKanbanBoardStats(board: KanbanBoard, now = new Date()): Kanba
     for (const assignee of assignees) {
       assigneeCounts.set(assignee, (assigneeCounts.get(assignee) ?? 0) + 1);
     }
-    priorityCounts.set(card.priority ?? 'none', (priorityCounts.get(card.priority ?? 'none') ?? 0) + 1);
+    priorityCounts.set(
+      card.priority ?? 'none',
+      (priorityCounts.get(card.priority ?? 'none') ?? 0) + 1,
+    );
   }
 
   return {
@@ -718,11 +746,12 @@ export function getKanbanSwimlanes(
     }
 
     const dueStatus = getCardDueStatus(card, now);
-    const title = dueStatus === 'due-today'
-      ? 'Due today'
-      : dueStatus === 'none'
-        ? 'No due date'
-        : dueStatus[0].toUpperCase() + dueStatus.slice(1);
+    const title =
+      dueStatus === 'due-today'
+        ? 'Due today'
+        : dueStatus === 'none'
+          ? 'No due date'
+          : dueStatus[0].toUpperCase() + dueStatus.slice(1);
     ensureLane(`due:${dueStatus}`, title).cards.push(card);
   }
 
@@ -757,7 +786,10 @@ export function applyCardSwimlaneValue(
         }
       } else if (mode === 'tag') {
         const nextTags = laneValue
-          ? mergeUniqueTags(card.tags.filter((tag) => tag !== laneValue), [laneValue])
+          ? mergeUniqueTags(
+              card.tags.filter((tag) => tag !== laneValue),
+              [laneValue],
+            )
           : [];
         if (JSON.stringify(next.tags) !== JSON.stringify(nextTags)) {
           next = { ...next, tags: nextTags };

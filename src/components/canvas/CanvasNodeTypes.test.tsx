@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { nodeTypes } from './CanvasNodeTypes';
+
 vi.mock('@xyflow/react', () => ({
   Handle: () => null,
   NodeResizer: () => null,
@@ -11,8 +13,6 @@ vi.mock('@xyflow/react', () => ({
 vi.mock('../editor/MarkdownPreview', () => ({
   MarkdownPreview: ({ content }: { content: string }) => <div>{content}</div>,
 }));
-
-import { nodeTypes } from './CanvasNodeTypes';
 
 describe('CanvasNodeTypes', () => {
   afterEach(() => {
@@ -165,7 +165,9 @@ describe('CanvasNodeTypes', () => {
       />,
     );
 
-    const input = screen.getByPlaceholderText('example.com or https://example.com') as HTMLInputElement;
+    const input = screen.getByPlaceholderText(
+      'example.com or https://example.com',
+    ) as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: 'https://example.com' } });
 

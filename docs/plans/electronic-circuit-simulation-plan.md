@@ -37,18 +37,18 @@ Deferred until the core is stable:
 
 ## Progress Tracker
 
-| Phase | Status | Goal |
-| --- | --- | --- |
-| 6.0 First-party foundation | Complete | Establish the Rust crate, typed model, deterministic behavior, and linear DC baseline. |
-| 6.1 Simulation document model | In progress | Add electrical values, probes, analyses, junctions, and source waveforms to `.logic`. |
-| 6.2 Schematic compiler | Complete | Compile validated `.logic` connectivity into deterministic electrical nets and solver systems. |
-| 6.3 DC operating point | Complete | Expand the baseline solver with diagnostics, nonlinear devices, and live overlays. |
-| 6.4 Runtime integration | In progress | Run, cancel, and stream simulations through typed Tauri commands on desktop and Android. |
-| 6.5 Transient and DC sweep | Complete | Dynamic elements, adaptive trapezoidal integration with backward-Euler fallback, bounded sweeps, and shared desktop/Android plot inspection are implemented. |
-| 6.6 AC analysis | In progress | The bounded linear complex sweep core is implemented; DC-bias small-signal linearization, native jobs, and Bode UI remain. |
-| 6.7 Mixed-signal simulation | Planned | Coordinate the existing digital evaluator with analog timesteps through explicit bridges. |
-| 6.8 Offline, cache, and collaboration | Planned | Cache derived results locally while synchronizing source and configuration only. |
-| 6.9 Numerical hardening and release | Planned | Add sparse solving, convergence controls, platform stress tests, and reproducible validation. |
+| Phase                                 | Status      | Goal                                                                                                                                                         |
+| ------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 6.0 First-party foundation            | Complete    | Establish the Rust crate, typed model, deterministic behavior, and linear DC baseline.                                                                       |
+| 6.1 Simulation document model         | In progress | Add electrical values, probes, analyses, junctions, and source waveforms to `.logic`.                                                                        |
+| 6.2 Schematic compiler                | Complete    | Compile validated `.logic` connectivity into deterministic electrical nets and solver systems.                                                               |
+| 6.3 DC operating point                | Complete    | Expand the baseline solver with diagnostics, nonlinear devices, and live overlays.                                                                           |
+| 6.4 Runtime integration               | In progress | Run, cancel, and stream simulations through typed Tauri commands on desktop and Android.                                                                     |
+| 6.5 Transient and DC sweep            | Complete    | Dynamic elements, adaptive trapezoidal integration with backward-Euler fallback, bounded sweeps, and shared desktop/Android plot inspection are implemented. |
+| 6.6 AC analysis                       | In progress | The bounded linear complex sweep core is implemented; DC-bias small-signal linearization, native jobs, and Bode UI remain.                                   |
+| 6.7 Mixed-signal simulation           | Planned     | Coordinate the existing digital evaluator with analog timesteps through explicit bridges.                                                                    |
+| 6.8 Offline, cache, and collaboration | Planned     | Cache derived results locally while synchronizing source and configuration only.                                                                             |
+| 6.9 Numerical hardening and release   | Planned     | Add sparse solving, convergence controls, platform stress tests, and reproducible validation.                                                                |
 
 ## Phase 6.0: First-Party Foundation
 

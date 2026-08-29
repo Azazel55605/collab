@@ -1,9 +1,9 @@
 import { cleanup, renderHook, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Node as FlowNode } from '@xyflow/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { CanvasNodeData } from './CanvasNodeTypes';
 import type { CanvasFlowEdge } from './CanvasEdgeTypes';
+import type { CanvasNodeData } from './CanvasNodeTypes';
 import { sanitizeLoadedCanvasData, useCanvasDocumentSession } from './useCanvasDocumentSession';
 
 const eventState = vi.hoisted(() => ({
@@ -21,12 +21,14 @@ const liveMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@tauri-apps/api/event', () => ({
-  listen: vi.fn(async (_eventName: string, handler: (event: { payload: { path: string } }) => void) => {
-    eventState.modifiedHandler = handler;
-    return () => {
-      eventState.modifiedHandler = null;
-    };
-  }),
+  listen: vi.fn(
+    async (_eventName: string, handler: (event: { payload: { path: string } }) => void) => {
+      eventState.modifiedHandler = handler;
+      return () => {
+        eventState.modifiedHandler = null;
+      };
+    },
+  ),
 }));
 
 vi.mock('../../lib/tauri', () => ({
@@ -87,24 +89,38 @@ describe('useCanvasDocumentSession', () => {
   });
 
   it('removes dangling edges from loaded canvas data', () => {
-    expect(sanitizeLoadedCanvasData({
-      nodes: [
-        { id: 'node-a', type: 'text', content: 'A', position: { x: 0, y: 0 }, width: 100, height: 100 },
-      ],
-      edges: [
-        { id: 'edge-ok', source: 'node-a', target: 'node-a' },
-        { id: 'edge-broken', source: 'node-a', target: 'missing-node' },
-      ],
-      viewport: { x: 0, y: 0, zoom: 1 },
-    })).toEqual({
-      changed: true,
-      canvas: {
+    expect(
+      sanitizeLoadedCanvasData({
         nodes: [
-          { id: 'node-a', type: 'text', content: 'A', position: { x: 0, y: 0 }, width: 100, height: 100 },
+          {
+            id: 'node-a',
+            type: 'text',
+            content: 'A',
+            position: { x: 0, y: 0 },
+            width: 100,
+            height: 100,
+          },
         ],
         edges: [
           { id: 'edge-ok', source: 'node-a', target: 'node-a' },
+          { id: 'edge-broken', source: 'node-a', target: 'missing-node' },
         ],
+        viewport: { x: 0, y: 0, zoom: 1 },
+      }),
+    ).toEqual({
+      changed: true,
+      canvas: {
+        nodes: [
+          {
+            id: 'node-a',
+            type: 'text',
+            content: 'A',
+            position: { x: 0, y: 0 },
+            width: 100,
+            height: 100,
+          },
+        ],
+        edges: [{ id: 'edge-ok', source: 'node-a', target: 'node-a' }],
         viewport: { x: 0, y: 0, zoom: 1 },
       },
     });
@@ -113,7 +129,14 @@ describe('useCanvasDocumentSession', () => {
   it('drops malformed live nodes and their edges before they reach ReactFlow', () => {
     const result = sanitizeLoadedCanvasData({
       nodes: [
-        { id: 'valid', type: 'text', content: 'A', position: { x: 0, y: 0 }, width: 100, height: 100 },
+        {
+          id: 'valid',
+          type: 'text',
+          content: 'A',
+          position: { x: 0, y: 0 },
+          width: 100,
+          height: 100,
+        },
         { id: 'partial', type: 'text', content: 'B' },
       ],
       edges: [
@@ -133,11 +156,15 @@ describe('useCanvasDocumentSession', () => {
     const resetPreviewState = vi.fn();
     const setSavedHash = vi.fn();
 
-    renderHook(() => useCanvasDocumentSession(baseLocalOptions({
-      setViewport,
-      resetPreviewState,
-      setSavedHash,
-    })));
+    renderHook(() =>
+      useCanvasDocumentSession(
+        baseLocalOptions({
+          setViewport,
+          resetPreviewState,
+          setSavedHash,
+        }),
+      ),
+    );
 
     await waitFor(() => {
       expect(setSavedHash).toHaveBeenCalledWith('Boards/test.canvas', 'hash-1');
@@ -151,11 +178,16 @@ describe('useCanvasDocumentSession', () => {
     tauriMocks.readNote.mockResolvedValue({
       content: JSON.stringify({
         nodes: [
-          { id: 'node-a', type: 'text', content: 'A', position: { x: 0, y: 0 }, width: 100, height: 100 },
+          {
+            id: 'node-a',
+            type: 'text',
+            content: 'A',
+            position: { x: 0, y: 0 },
+            width: 100,
+            height: 100,
+          },
         ],
-        edges: [
-          { id: 'edge-broken', source: 'node-a', target: 'missing-node' },
-        ],
+        edges: [{ id: 'edge-broken', source: 'node-a', target: 'missing-node' }],
         viewport: { x: 1, y: 2, zoom: 0.9 },
       }),
       hash: 'hash-1',
@@ -171,21 +203,37 @@ describe('useCanvasDocumentSession', () => {
       expect(tauriMocks.writeNote).toHaveBeenCalledWith(
         '/vault',
         'Boards/test.canvas',
-        JSON.stringify({
-          nodes: [
-            { id: 'node-a', type: 'text', content: 'A', position: { x: 0, y: 0 }, width: 100, height: 100 },
-          ],
-          edges: [],
-          viewport: { x: 1, y: 2, zoom: 0.9 },
-        }, null, 2),
+        JSON.stringify(
+          {
+            nodes: [
+              {
+                id: 'node-a',
+                type: 'text',
+                content: 'A',
+                position: { x: 0, y: 0 },
+                width: 100,
+                height: 100,
+              },
+            ],
+            edges: [],
+            viewport: { x: 1, y: 2, zoom: 0.9 },
+          },
+          null,
+          2,
+        ),
         'hash-1',
         JSON.stringify({
           nodes: [
-            { id: 'node-a', type: 'text', content: 'A', position: { x: 0, y: 0 }, width: 100, height: 100 },
+            {
+              id: 'node-a',
+              type: 'text',
+              content: 'A',
+              position: { x: 0, y: 0 },
+              width: 100,
+              height: 100,
+            },
           ],
-          edges: [
-            { id: 'edge-broken', source: 'node-a', target: 'missing-node' },
-          ],
+          edges: [{ id: 'edge-broken', source: 'node-a', target: 'missing-node' }],
           viewport: { x: 1, y: 2, zoom: 0.9 },
         }),
       );
@@ -220,23 +268,29 @@ describe('useCanvasDocumentSession', () => {
       fromFlowEdge: vi.fn((edge: CanvasFlowEdge) => edge as never),
     });
 
-    const { rerender } = renderHook((props: { nodes: FlowNode<CanvasNodeData>[] }) => useCanvasDocumentSession({
-      ...options,
-      nodes: props.nodes,
-    }), {
-      initialProps: { nodes: [] as FlowNode<CanvasNodeData>[] },
-    });
+    const { rerender } = renderHook(
+      (props: { nodes: FlowNode<CanvasNodeData>[] }) =>
+        useCanvasDocumentSession({
+          ...options,
+          nodes: props.nodes,
+        }),
+      {
+        initialProps: { nodes: [] as FlowNode<CanvasNodeData>[] },
+      },
+    );
 
     await vi.advanceTimersByTimeAsync(0);
     expect(tauriMocks.readNote).toHaveBeenCalled();
 
     rerender({
-      nodes: [{
-        id: 'node-1',
-        type: 'textCard',
-        position: { x: 0, y: 0 },
-        data: { content: 'hello' },
-      } as FlowNode<CanvasNodeData>],
+      nodes: [
+        {
+          id: 'node-1',
+          type: 'textCard',
+          position: { x: 0, y: 0 },
+          data: { content: 'hello' },
+        } as FlowNode<CanvasNodeData>,
+      ],
     });
 
     await vi.advanceTimersByTimeAsync(650);
@@ -245,11 +299,24 @@ describe('useCanvasDocumentSession', () => {
     expect(tauriMocks.createSnapshot).toHaveBeenCalledWith(
       '/vault',
       'Boards/test.canvas',
-      JSON.stringify({
-        nodes: [{ id: 'node-1', type: 'text', content: 'hello', position: { x: 0, y: 0 }, width: 100, height: 100 }],
-        edges: [],
-        viewport: { x: 0, y: 0, zoom: 1 },
-      }, null, 2),
+      JSON.stringify(
+        {
+          nodes: [
+            {
+              id: 'node-1',
+              type: 'text',
+              content: 'hello',
+              position: { x: 0, y: 0 },
+              width: 100,
+              height: 100,
+            },
+          ],
+          edges: [],
+          viewport: { x: 0, y: 0, zoom: 1 },
+        },
+        null,
+        2,
+      ),
       'user-1',
       'User',
       undefined,
@@ -277,14 +344,15 @@ describe('useCanvasDocumentSession', () => {
       setViewport: vi.fn(),
       setNodes: vi.fn(),
       setEdges: vi.fn(),
-      buildFlowNode: (canvas: { nodes: Array<{ id: string; content?: string; position: { x: number; y: number } }> }) => (
+      buildFlowNode: (canvas: {
+        nodes: Array<{ id: string; content?: string; position: { x: number; y: number } }>;
+      }) =>
         canvas.nodes.map((node) => ({
           id: node.id,
           type: 'textCard',
           position: node.position,
           data: { title: 'Text', content: node.content ?? '' },
-        })) as FlowNode<CanvasNodeData>[]
-      ),
+        })) as FlowNode<CanvasNodeData>[],
       toFlowEdge: (edge) => edge as never,
       fromFlowNode: vi.fn((node: FlowNode<CanvasNodeData>) => ({
         id: node.id,
@@ -310,7 +378,16 @@ describe('useCanvasDocumentSession', () => {
     const writeJson = vi.fn();
     liveMocks.openLiveJsonSession.mockResolvedValue({
       readJson: () => ({
-        nodes: [{ id: 'node-1', type: 'text', content: 'server', position: { x: 0, y: 0 }, width: 100, height: 100 }],
+        nodes: [
+          {
+            id: 'node-1',
+            type: 'text',
+            content: 'server',
+            position: { x: 0, y: 0 },
+            width: 100,
+            height: 100,
+          },
+        ],
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
       }),
@@ -325,7 +402,8 @@ describe('useCanvasDocumentSession', () => {
     const options = hostedLiveOptions();
 
     const { rerender } = renderHook(
-      ({ nodes }: { nodes: FlowNode<CanvasNodeData>[] }) => useCanvasDocumentSession({ ...options, nodes }),
+      ({ nodes }: { nodes: FlowNode<CanvasNodeData>[] }) =>
+        useCanvasDocumentSession({ ...options, nodes }),
       { initialProps: { nodes: [] as FlowNode<CanvasNodeData>[] } },
     );
 
@@ -356,7 +434,16 @@ describe('useCanvasDocumentSession', () => {
     const setLocalStateField = vi.fn();
     liveMocks.openLiveJsonSession.mockResolvedValue({
       readJson: () => ({
-        nodes: [{ id: 'node-1', type: 'text', content: 'server', position: { x: 0, y: 0 }, width: 100, height: 100 }],
+        nodes: [
+          {
+            id: 'node-1',
+            type: 'text',
+            content: 'server',
+            position: { x: 0, y: 0 },
+            width: 100,
+            height: 100,
+          },
+        ],
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
       }),
@@ -371,25 +458,35 @@ describe('useCanvasDocumentSession', () => {
     const options = hostedLiveOptions();
 
     const { rerender } = renderHook(
-      ({ nodes }: { nodes: FlowNode<CanvasNodeData>[] }) => useCanvasDocumentSession({ ...options, nodes }),
+      ({ nodes }: { nodes: FlowNode<CanvasNodeData>[] }) =>
+        useCanvasDocumentSession({ ...options, nodes }),
       { initialProps: { nodes: [] as FlowNode<CanvasNodeData>[] } },
     );
 
     await waitFor(() => expect(liveMocks.openLiveJsonSession).toHaveBeenCalled());
     // Identity + document context are published; an empty selection is not.
-    await waitFor(() => expect(setLocalStateField).toHaveBeenCalledWith('document', { kind: 'canvas', relativePath: 'Boards/test.canvas' }));
+    await waitFor(() =>
+      expect(setLocalStateField).toHaveBeenCalledWith('document', {
+        kind: 'canvas',
+        relativePath: 'Boards/test.canvas',
+      }),
+    );
     expect(setLocalStateField).not.toHaveBeenCalledWith('canvas', { selectedNodeIds: [] });
 
     // Selecting a node publishes it as ephemeral canvas awareness.
     rerender({
-      nodes: [{
-        id: 'node-1',
-        type: 'textCard',
-        position: { x: 0, y: 0 },
-        selected: true,
-        data: { title: 'Text', content: 'server' },
-      } as FlowNode<CanvasNodeData>],
+      nodes: [
+        {
+          id: 'node-1',
+          type: 'textCard',
+          position: { x: 0, y: 0 },
+          selected: true,
+          data: { title: 'Text', content: 'server' },
+        } as FlowNode<CanvasNodeData>,
+      ],
     });
-    await waitFor(() => expect(setLocalStateField).toHaveBeenCalledWith('canvas', { selectedNodeIds: ['node-1'] }));
+    await waitFor(() =>
+      expect(setLocalStateField).toHaveBeenCalledWith('canvas', { selectedNodeIds: ['node-1'] }),
+    );
   });
 });

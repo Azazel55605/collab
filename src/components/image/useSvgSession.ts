@@ -1,18 +1,20 @@
-import { useCallback, useEffect, useMemo, useState, type SetStateAction } from 'react';
+import { type SetStateAction, useCallback, useEffect, useMemo, useState } from 'react';
+
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
-import { createVaultClient } from '../../lib/vaultClient';
+
 import {
   compareDocumentVersions,
-  useDocumentSessionController,
   type DocumentStatus,
   type RemoteCandidate,
+  useDocumentSessionController,
 } from '../../lib/documentSessionController';
+import { parseSvg, serializeScene, SvgParseError } from '../../lib/svgDocument';
+import { createVaultClient } from '../../lib/vaultClient';
 import { onReplicaMutated, replicaMutationAffectsPath } from '../../lib/vaultReplica';
+import type { SvgScene } from '../../types/svg';
 import { isVaultReadOnly } from '../../types/vault';
 import type { VaultMeta } from '../../types/vault';
-import type { SvgScene } from '../../types/svg';
-import { parseSvg, serializeScene, SvgParseError } from '../../lib/svgDocument';
 
 interface UseSvgSessionOptions {
   vault: VaultMeta | null;
@@ -62,7 +64,12 @@ function decodeDataUrlText(dataUrl: string): string {
  * and writes changes back through the optimistic text-write path. Editing is
  * disabled (read-only) for hosted viewers via {@link isVaultReadOnly}.
  */
-export function useSvgSession({ vault, relativePath, markDirty, markSaved }: UseSvgSessionOptions): SvgSession {
+export function useSvgSession({
+  vault,
+  relativePath,
+  markDirty,
+  markSaved,
+}: UseSvgSessionOptions): SvgSession {
   const [scene, setScene] = useState<SvgScene | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +82,11 @@ export function useSvgSession({ vault, relativePath, markDirty, markSaved }: Use
     setScene(candidate.document);
   }, []);
 
-  const readSvgDocument = useCallback(async (): Promise<{ content: string; version: string | null; asset: boolean }> => {
+  const readSvgDocument = useCallback(async (): Promise<{
+    content: string;
+    version: string | null;
+    asset: boolean;
+  }> => {
     if (!client || !relativePath) throw new Error('No file selected');
     try {
       const doc = await client.readDocument(relativePath);
@@ -83,7 +94,11 @@ export function useSvgSession({ vault, relativePath, markDirty, markSaved }: Use
     } catch (docError) {
       try {
         const dataUrl = await client.readAssetDataUrl(relativePath);
-        return { content: serializeScene(parseSvg(decodeDataUrlText(dataUrl))), version: null, asset: true };
+        return {
+          content: serializeScene(parseSvg(decodeDataUrlText(dataUrl))),
+          version: null,
+          asset: true,
+        };
       } catch {
         throw docError;
       }
@@ -100,7 +115,8 @@ export function useSvgSession({ vault, relativePath, markDirty, markSaved }: Use
       return { content: loaded.content, version: loaded.version };
     },
     write: async ({ content, expectedVersion, baseContent }) => {
-      if (!client || !relativePath || readOnly || assetBacked) return { version: expectedVersion ?? '' };
+      if (!client || !relativePath || readOnly || assetBacked)
+        return { version: expectedVersion ?? '' };
       const result = await client.writeDocument(
         relativePath,
         content,
@@ -174,15 +190,19 @@ export function useSvgSession({ vault, relativePath, markDirty, markSaved }: Use
     else if (snapshot.loadedVersion) markSaved(relativePath, `svg:${snapshot.loadedVersion}`);
   }, [markDirty, markSaved, relativePath, snapshot.dirty, snapshot.loadedVersion]);
 
-  const setSceneAndTrack = useCallback((value: SetStateAction<SvgScene | null>) => {
-    setScene((current) => {
-      const next = typeof value === 'function'
-        ? (value as (previous: SvgScene | null) => SvgScene | null)(current)
-        : value;
-      if (next && !readOnly) controller.markLocalChange(next);
-      return next;
-    });
-  }, [controller, readOnly]);
+  const setSceneAndTrack = useCallback(
+    (value: SetStateAction<SvgScene | null>) => {
+      setScene((current) => {
+        const next =
+          typeof value === 'function'
+            ? (value as (previous: SvgScene | null) => SvgScene | null)(current)
+            : value;
+        if (next && !readOnly) controller.markLocalChange(next);
+        return next;
+      });
+    },
+    [controller, readOnly],
+  );
 
   // Local filesystem watcher: clean SVGs update automatically, dirty SVGs queue
   // the remote version as pending instead of replacing the edited scene.
@@ -204,16 +224,21 @@ export function useSvgSession({ vault, relativePath, markDirty, markSaved }: Use
   // Hosted replica refreshes route through the same safe remote-candidate policy.
   useEffect(() => {
     if (!client || client.kind !== 'hosted' || !relativePath || assetBacked) return;
-    return onReplicaMutated(async (event) => {
-      if (!replicaMutationAffectsPath(event, relativePath)) return;
-      await controller.handleExternalMutation('cache');
-    }, { kinds: ['manifest'] });
+    return onReplicaMutated(
+      async (event) => {
+        if (!replicaMutationAffectsPath(event, relativePath)) return;
+        await controller.handleExternalMutation('cache');
+      },
+      { kinds: ['manifest'] },
+    );
   }, [assetBacked, client, controller, relativePath]);
 
   const save = useCallback(async () => {
     if (!vault || !relativePath || !scene || readOnly || snapshot.saving) return;
     if (assetBacked) {
-      toast.error('This SVG was imported as an image asset and cannot be saved as a vector document. Re-import it to edit and save it.');
+      toast.error(
+        'This SVG was imported as an image asset and cannot be saved as a vector document. Re-import it to edit and save it.',
+      );
       return;
     }
     try {

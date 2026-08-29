@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+
 import DOMPurify from 'dompurify';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
-import type { InkImage, InkScene, InkText } from '../../types/ink';
-import { INK_UNITS_PER_PX } from '../../types/ink';
 import { resolveInkColor } from '../../lib/ink/colors';
 import type { InkColorPalette } from '../../lib/ink/colors';
+import type { InkImage, InkScene, InkText } from '../../types/ink';
+import { INK_UNITS_PER_PX } from '../../types/ink';
 
 interface InkRichObjectLayerProps {
   scene: InkScene;
@@ -26,15 +27,25 @@ export default function InkRichObjectLayer({
   colorPalette,
 }: InkRichObjectLayerProps) {
   const images = useMemo(
-    () => scene.objectOrder
-      .map((id) => scene.objects[id])
-      .filter((object): object is InkImage => object?.type === 'image' && scene.layers[object.layerId]?.visible !== false),
+    () =>
+      scene.objectOrder
+        .map((id) => scene.objects[id])
+        .filter(
+          (object): object is InkImage =>
+            object?.type === 'image' && scene.layers[object.layerId]?.visible !== false,
+        ),
     [scene],
   );
   const equations = useMemo(
-    () => scene.objectOrder
-      .map((id) => scene.objects[id])
-      .filter((object): object is InkText => object?.type === 'text' && object.equation === true && scene.layers[object.layerId]?.visible !== false),
+    () =>
+      scene.objectOrder
+        .map((id) => scene.objects[id])
+        .filter(
+          (object): object is InkText =>
+            object?.type === 'text' &&
+            object.equation === true &&
+            scene.layers[object.layerId]?.visible !== false,
+        ),
     [scene],
   );
   const [sources, setSources] = useState<Record<string, string>>({});
@@ -42,8 +53,9 @@ export default function InkRichObjectLayer({
 
   useEffect(() => {
     let cancelled = false;
-    const paths = [...new Set(images.map((image) => image.relativePath))]
-      .filter((path) => !sourceCacheRef.current.has(path));
+    const paths = [...new Set(images.map((image) => image.relativePath))].filter(
+      (path) => !sourceCacheRef.current.has(path),
+    );
     const cached = Object.fromEntries(
       images.flatMap((image) => {
         const source = sourceCacheRef.current.get(image.relativePath);
@@ -51,16 +63,22 @@ export default function InkRichObjectLayer({
       }),
     );
     if (Object.keys(cached).length > 0) setSources((current) => ({ ...current, ...cached }));
-    void Promise.all(paths.map(async (path) => {
-      const dataUrl = await readAssetDataUrl(path);
-      return [path, sanitizeAssetDataUrl(dataUrl)] as const;
-    })).then((entries) => {
-      for (const [path, source] of entries) sourceCacheRef.current.set(path, source);
-      if (!cancelled) setSources((current) => ({ ...current, ...Object.fromEntries(entries) }));
-    }).catch(() => {
-      // Keep already resolved assets visible when one new asset fails.
-    });
-    return () => { cancelled = true; };
+    void Promise.all(
+      paths.map(async (path) => {
+        const dataUrl = await readAssetDataUrl(path);
+        return [path, sanitizeAssetDataUrl(dataUrl)] as const;
+      }),
+    )
+      .then((entries) => {
+        for (const [path, source] of entries) sourceCacheRef.current.set(path, source);
+        if (!cancelled) setSources((current) => ({ ...current, ...Object.fromEntries(entries) }));
+      })
+      .catch(() => {
+        // Keep already resolved assets visible when one new asset fails.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [images, readAssetDataUrl]);
 
   const unitsPerPixel = INK_UNITS_PER_PX / zoom;
@@ -120,12 +138,16 @@ function InkEquationObject({
   originY: number;
   colorPalette: InkColorPalette;
 }) {
-  const html = useMemo(() => katex.renderToString(object.text, {
-    displayMode: true,
-    throwOnError: false,
-    trust: false,
-    strict: 'warn',
-  }), [object.text]);
+  const html = useMemo(
+    () =>
+      katex.renderToString(object.text, {
+        displayMode: true,
+        throwOnError: false,
+        trust: false,
+        strict: 'warn',
+      }),
+    [object.text],
+  );
   return (
     <div
       style={{
@@ -153,7 +175,9 @@ function sanitizeAssetDataUrl(dataUrl: string): string {
     const metadata = dataUrl.slice(0, comma);
     const payload = dataUrl.slice(comma + 1);
     const markup = metadata.includes(';base64')
-      ? new TextDecoder().decode(Uint8Array.from(atob(payload), (character) => character.charCodeAt(0)))
+      ? new TextDecoder().decode(
+          Uint8Array.from(atob(payload), (character) => character.charCodeAt(0)),
+        )
       : decodeURIComponent(payload);
     const sanitized = DOMPurify.sanitize(markup, {
       USE_PROFILES: { svg: true, svgFilters: true },

@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import type {
+  CalendarDefinition,
+  CalendarItem,
+  CalendarMirrorAnchor,
+  CalendarMirrorGroup,
+} from '../types/calendar';
+
 import {
   bridgeCalendarMirrors,
   calendarMirrorItemFingerprint,
@@ -8,18 +15,20 @@ import {
   resolveCalendarMirrorConflict,
   validateCalendarMirrorGroup,
 } from './calendarMirroring';
-import type {
-  CalendarDefinition,
-  CalendarItem,
-  CalendarMirrorAnchor,
-  CalendarMirrorGroup,
-} from '../types/calendar';
 
 const now = '2026-07-24T08:00:00.000Z';
 const localLocation = { kind: 'local' as const, profileId: 'profile-1' };
-const hostedLocation = { kind: 'hosted' as const, serverUrl: 'https://one.example', userId: 'user-1' };
+const hostedLocation = {
+  kind: 'hosted' as const,
+  serverUrl: 'https://one.example',
+  userId: 'user-1',
+};
 
-function calendar(id: string, location: CalendarDefinition['location'], readOnly = false): CalendarDefinition {
+function calendar(
+  id: string,
+  location: CalendarDefinition['location'],
+  readOnly = false,
+): CalendarDefinition {
   return {
     schemaVersion: 1,
     id,
@@ -94,14 +103,21 @@ const connected = new Set(['https://one.example::user-1']);
 describe('calendar mirroring', () => {
   it('requires writable calendars in distinct locations', () => {
     expect(() => validateCalendarMirrorGroup(group, calendars)).not.toThrow();
-    expect(() => validateCalendarMirrorGroup(
-      { ...group, members: [...group.members, { ...group.members[1], id: 'duplicate', calendarId: 'other' }] },
-      [...calendars, calendar('other', hostedLocation)],
-    )).toThrow(/unique/);
-    expect(() => validateCalendarMirrorGroup(group, [
-      calendars[0],
-      { ...calendars[1], readOnly: true },
-    ])).toThrow(/read-only/);
+    expect(() =>
+      validateCalendarMirrorGroup(
+        {
+          ...group,
+          members: [
+            ...group.members,
+            { ...group.members[1], id: 'duplicate', calendarId: 'other' },
+          ],
+        },
+        [...calendars, calendar('other', hostedLocation)],
+      ),
+    ).toThrow(/unique/);
+    expect(() =>
+      validateCalendarMirrorGroup(group, [calendars[0], { ...calendars[1], readOnly: true }]),
+    ).toThrow(/read-only/);
   });
 
   it('copies a new local item to a hosted member with deterministic lineage', () => {
@@ -118,35 +134,45 @@ describe('calendar mirroring', () => {
     });
     expect(plan.status.state).toBe('ready');
     expect(plan.operations).toHaveLength(1);
-    expect(plan.operations[0]).toEqual(expect.objectContaining({
-      sourceMemberId: 'local-member',
-      destinationMemberId: 'hosted-member',
-      operation: expect.objectContaining({
-        sourceChangeId: expect.stringContaining('mirror:group-1:'),
-        propagationLineage: ['mirror:group-1', 'member:local-member', 'member:hosted-member'],
-        mutation: expect.objectContaining({ type: 'upsertItem' }),
+    expect(plan.operations[0]).toEqual(
+      expect.objectContaining({
+        sourceMemberId: 'local-member',
+        destinationMemberId: 'hosted-member',
+        operation: expect.objectContaining({
+          sourceChangeId: expect.stringContaining('mirror:group-1:'),
+          propagationLineage: ['mirror:group-1', 'member:local-member', 'member:hosted-member'],
+          mutation: expect.objectContaining({ type: 'upsertItem' }),
+        }),
       }),
-    }));
-    expect(plan.operations[0].item).toEqual(expect.objectContaining({
-      calendarId: 'hosted-calendar',
-      uid: source.uid,
-      title: source.title,
-    }));
+    );
+    expect(plan.operations[0].item).toEqual(
+      expect.objectContaining({
+        calendarId: 'hosted-calendar',
+        uid: source.uid,
+        title: source.title,
+      }),
+    );
     expect(plan.anchors).toHaveLength(2);
   });
 
   it('bridges directly between two authenticated server locations without server credentials crossing', () => {
-    const secondLocation = { kind: 'hosted' as const, serverUrl: 'https://two.example', userId: 'user-2' };
-    const serverCalendars = [
-      calendars[1],
-      calendar('second-hosted-calendar', secondLocation),
-    ];
+    const secondLocation = {
+      kind: 'hosted' as const,
+      serverUrl: 'https://two.example',
+      userId: 'user-2',
+    };
+    const serverCalendars = [calendars[1], calendar('second-hosted-calendar', secondLocation)];
     const serverGroup: CalendarMirrorGroup = {
       ...group,
       id: 'server-group',
       members: [
         group.members[1],
-        { id: 'second-hosted-member', calendarId: 'second-hosted-calendar', location: secondLocation, addedAt: now },
+        {
+          id: 'second-hosted-member',
+          calendarId: 'second-hosted-calendar',
+          location: secondLocation,
+          addedAt: now,
+        },
       ],
     };
     const plan = planCalendarMirrorGroup({
@@ -155,19 +181,18 @@ describe('calendar mirroring', () => {
       items: [event('hosted-calendar', 'hosted-item')],
       anchors: [],
       conflicts: [],
-      connectedOriginKeys: new Set([
-        'https://one.example::user-1',
-        'https://two.example::user-2',
-      ]),
+      connectedOriginKeys: new Set(['https://one.example::user-1', 'https://two.example::user-2']),
       deviceId: 'device-1',
       now,
     });
     expect(plan.operations).toHaveLength(1);
-    expect(plan.operations[0]).toEqual(expect.objectContaining({
-      sourceMemberId: 'hosted-member',
-      destinationMemberId: 'second-hosted-member',
-      item: expect.objectContaining({ calendarId: 'second-hosted-calendar' }),
-    }));
+    expect(plan.operations[0]).toEqual(
+      expect.objectContaining({
+        sourceMemberId: 'hosted-member',
+        destinationMemberId: 'second-hosted-member',
+        item: expect.objectContaining({ calendarId: 'second-hosted-calendar' }),
+      }),
+    );
   });
 
   it('does not echo a mirrored operation after its anchors are stored', () => {
@@ -208,10 +233,12 @@ describe('calendar mirroring', () => {
       deviceId: 'device-1',
       now,
     });
-    expect(plan.status).toEqual(expect.objectContaining({
-      state: 'waiting',
-      missingMemberIds: ['hosted-member'],
-    }));
+    expect(plan.status).toEqual(
+      expect.objectContaining({
+        state: 'waiting',
+        missingMemberIds: ['hosted-member'],
+      }),
+    );
     expect(plan.operations).toEqual([]);
     expect(plan.anchors).toEqual([]);
   });
@@ -337,10 +364,12 @@ describe('calendar mirroring', () => {
     const progress = vi.fn();
     const adapter = {
       calendarListMirrorGroups: vi.fn().mockResolvedValue([badGroup, goodGroup]),
-      calendarListMirrorAnchors: vi.fn().mockImplementation(async (_profileId: string, groupId: string) => {
-        if (groupId === badGroup.id) throw new Error('temporary anchor read failure');
-        return [];
-      }),
+      calendarListMirrorAnchors: vi
+        .fn()
+        .mockImplementation(async (_profileId: string, groupId: string) => {
+          if (groupId === badGroup.id) throw new Error('temporary anchor read failure');
+          return [];
+        }),
       calendarListMirrorConflicts: vi.fn().mockResolvedValue([]),
       calendarListMirrorItems: vi.fn().mockResolvedValue([event('local-calendar', 'local-item')]),
       calendarUpsertItem: vi.fn().mockResolvedValue(undefined),
@@ -361,31 +390,48 @@ describe('calendar mirroring', () => {
     });
 
     expect(result.statuses).toEqual([
-      expect.objectContaining({ groupId: badGroup.id, state: 'error', error: 'temporary anchor read failure' }),
+      expect.objectContaining({
+        groupId: badGroup.id,
+        state: 'error',
+        error: 'temporary anchor read failure',
+      }),
       expect.objectContaining({ groupId: goodGroup.id, state: 'ready' }),
     ]);
     expect(result.appliedOperations).toBe(1);
-    expect(progress).toHaveBeenCalledWith(expect.objectContaining({
-      groupId: badGroup.id,
-      phase: 'error',
-      error: 'temporary anchor read failure',
-    }));
-    expect(progress).toHaveBeenCalledWith(expect.objectContaining({
-      groupId: goodGroup.id,
-      phase: 'complete',
-      processedOperations: 1,
-    }));
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groupId: badGroup.id,
+        phase: 'error',
+        error: 'temporary anchor read failure',
+      }),
+    );
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groupId: goodGroup.id,
+        phase: 'complete',
+        processedOperations: 1,
+      }),
+    );
   });
 
   it('retries deterministically after a partial group write and converges without echoing', async () => {
-    const secondLocation = { kind: 'hosted' as const, serverUrl: 'https://two.example', userId: 'user-2' };
+    const secondLocation = {
+      kind: 'hosted' as const,
+      serverUrl: 'https://two.example',
+      userId: 'user-2',
+    };
     const secondCalendar = calendar('second-hosted-calendar', secondLocation);
     const threeMemberGroup: CalendarMirrorGroup = {
       ...group,
       id: 'three-member-group',
       members: [
         ...group.members,
-        { id: 'second-hosted-member', calendarId: secondCalendar.id, location: secondLocation, addedAt: now },
+        {
+          id: 'second-hosted-member',
+          calendarId: secondCalendar.id,
+          location: secondLocation,
+          addedAt: now,
+        },
       ],
     };
     const storedItems: CalendarItem[] = [event('local-calendar', 'local-item')];
@@ -396,17 +442,21 @@ describe('calendar mirroring', () => {
       calendarListMirrorAnchors: vi.fn().mockResolvedValue([]),
       calendarListMirrorConflicts: vi.fn().mockResolvedValue([]),
       calendarListMirrorItems: vi.fn().mockImplementation(async () => [...storedItems]),
-      calendarUpsertItem: vi.fn().mockImplementation(async (
-        _profileId: string,
-        item: CalendarItem,
-        operation: { clientOperationId: string },
-      ) => {
-        attemptedOperationIds.push(operation.clientOperationId);
-        if (failSecondDestination && item.calendarId === secondCalendar.id) {
-          throw new Error('second destination unavailable');
-        }
-        storedItems.push(item);
-      }),
+      calendarUpsertItem: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _profileId: string,
+            item: CalendarItem,
+            operation: { clientOperationId: string },
+          ) => {
+            attemptedOperationIds.push(operation.clientOperationId);
+            if (failSecondDestination && item.calendarId === secondCalendar.id) {
+              throw new Error('second destination unavailable');
+            }
+            storedItems.push(item);
+          },
+        ),
       calendarDeleteItem: vi.fn().mockResolvedValue(undefined),
       calendarAcknowledgeOperations: vi.fn().mockResolvedValue(undefined),
       calendarSaveMirrorAnchors: vi.fn().mockResolvedValue(undefined),

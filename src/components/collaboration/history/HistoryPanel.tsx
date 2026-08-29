@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
+
 import { Clock3, Eye, RotateCcw } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
-import { createVaultClient } from '@/lib/vaultClient';
-import { useCollabStore } from '@/store/collabStore';
-import { useEditorStore } from '@/store/editorStore';
-import { useVaultStore } from '@/store/vaultStore';
-import type { SnapshotMeta } from '@/types/collab';
+import { createVaultClient } from '../../../lib/vaultClient';
+import { useCollabStore } from '../../../store/collabStore';
+import { useEditorStore } from '../../../store/editorStore';
+import { useVaultStore } from '../../../store/vaultStore';
+import type { SnapshotMeta } from '../../../types/collab';
+import { Button } from '../../ui/button';
 
 import { relativeTime, supportsVersionHistoryTabType } from './historyUtils';
 import { VersionHistoryModal } from './VersionHistoryModal';
@@ -39,17 +40,25 @@ export function HistoryPanel() {
     void load();
   }, [load]);
 
-  const handleRestore = useCallback(async (snapshot: SnapshotMeta) => {
-    if (!vault?.path || !activeTabPath) return;
-    setRestoringId(snapshot.id);
-    try {
-      await createVaultClient(vault).restoreSnapshot(activeTabPath, snapshot.id, myUserId, myUserName);
-      setForceReloadPath(activeTabPath);
-      await load();
-    } finally {
-      setRestoringId(null);
-    }
-  }, [activeTabPath, load, myUserId, myUserName, setForceReloadPath, vault?.path]);
+  const handleRestore = useCallback(
+    async (snapshot: SnapshotMeta) => {
+      if (!vault?.path || !activeTabPath) return;
+      setRestoringId(snapshot.id);
+      try {
+        await createVaultClient(vault).restoreSnapshot(
+          activeTabPath,
+          snapshot.id,
+          myUserId,
+          myUserName,
+        );
+        setForceReloadPath(activeTabPath);
+        await load();
+      } finally {
+        setRestoringId(null);
+      }
+    },
+    [activeTabPath, load, myUserId, myUserName, setForceReloadPath, vault?.path],
+  );
 
   if (!activeTabPath) {
     return (
@@ -71,9 +80,16 @@ export function HistoryPanel() {
     <>
       <div className="flex h-full flex-col">
         <div className="border-b border-border/50 px-3 py-3">
-          <p className="truncate text-xs font-medium text-foreground">{activeTabPath.split('/').pop()}</p>
+          <p className="truncate text-xs font-medium text-foreground">
+            {activeTabPath.split('/').pop()}
+          </p>
           <p className="mt-1 truncate text-[11px] text-muted-foreground">{activeTabPath}</p>
-          <Button className="mt-3 w-full justify-center" variant="outline" size="sm" onClick={() => setHistoryModalOpen(true)}>
+          <Button
+            className="mt-3 w-full justify-center"
+            variant="outline"
+            size="sm"
+            onClick={() => setHistoryModalOpen(true)}
+          >
             <Eye size={14} />
             Open full history
           </Button>
@@ -87,7 +103,10 @@ export function HistoryPanel() {
         ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto divide-y divide-border/40">
             {snapshots.slice(0, 8).map((snapshot) => (
-              <div key={snapshot.id} className="flex items-center gap-2 px-3 py-2.5 hover:bg-muted/30 transition-colors group">
+              <div
+                key={snapshot.id}
+                className="flex items-center gap-2 px-3 py-2.5 hover:bg-muted/30 transition-colors group"
+              >
                 <Clock3 size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs font-medium">

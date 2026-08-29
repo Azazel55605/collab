@@ -1,98 +1,102 @@
 import { useEffect, useState } from 'react';
+
+import { toast } from 'sonner';
+
 import './App.css';
-import { TooltipProvider } from './components/ui/tooltip';
-import { useVaultStore } from './store/vaultStore';
-import { useServerStore } from './store/serverStore';
-import { useServerAutoReconnect } from './lib/useServerAutoReconnect';
-import { useEditorStore } from './store/editorStore';
-import { useUiStore, ACCENT_COLORS, INTERFACE_FONTS } from './store/uiStore';
-import VaultPicker from './components/vault/VaultPicker';
+import { LiveDebugPanel } from './components/collaboration/LiveDebugPanel';
+import { MathPlotModalHost } from './components/editor/MathPlotModal';
 import AppShell from './components/layout/AppShell';
 import SettingsModal from './components/settings/SettingsModal';
-import VaultManagerModal from './components/vault/VaultManagerModal';
-import VaultUnlockModal from './components/vault/VaultUnlockModal';
 import { Toaster } from './components/ui/sonner';
-import { MathPlotModalHost } from './components/editor/MathPlotModal';
-import { LiveDebugPanel } from './components/collaboration/LiveDebugPanel';
-import { setLiveCollabDebug } from './lib/liveDebugLog';
-import { tauriCommands } from './lib/tauri';
+import { TooltipProvider } from './components/ui/tooltip';
+import VaultManagerModal from './components/vault/VaultManagerModal';
+import VaultPicker from './components/vault/VaultPicker';
+import VaultUnlockModal from './components/vault/VaultUnlockModal';
 import { subscribeMediaQueryChange } from './lib/browserCompat';
-import { useUpdateStore } from './store/updateStore';
-import { toast } from 'sonner';
-import NotePrintView from './views/NotePrintView';
+import { setLiveCollabDebug } from './lib/liveDebugLog';
 import { NOTE_PDF_EXPORT_EVENT } from './lib/notePdfExport';
+import { tauriCommands } from './lib/tauri';
+import { useServerAutoReconnect } from './lib/useServerAutoReconnect';
+import { useEditorStore } from './store/editorStore';
+import { useServerStore } from './store/serverStore';
+import { ACCENT_COLORS, INTERFACE_FONTS, useUiStore } from './store/uiStore';
+import { useUpdateStore } from './store/updateStore';
+import { useVaultStore } from './store/vaultStore';
+import NotePrintView from './views/NotePrintView';
 
 /** Theme-base CSS overrides applied on top of the default dark palette */
 const THEME_VARS: Record<string, Record<string, string>> = {
   dark: {
-    '--background':       'oklch(0.17 0.015 264)',
-    '--foreground':       'oklch(0.93 0.01 264)',
-    '--card':             'oklch(0.20 0.015 264)',
-    '--card-foreground':  'oklch(0.93 0.01 264)',
-    '--popover':          'oklch(0.19 0.018 264)',
-    '--muted':            'oklch(0.23 0.015 264)',
+    '--background': 'oklch(0.17 0.015 264)',
+    '--foreground': 'oklch(0.93 0.01 264)',
+    '--card': 'oklch(0.20 0.015 264)',
+    '--card-foreground': 'oklch(0.93 0.01 264)',
+    '--popover': 'oklch(0.19 0.018 264)',
+    '--muted': 'oklch(0.23 0.015 264)',
     '--muted-foreground': 'oklch(0.62 0.02 264)',
-    '--accent':           'oklch(0.26 0.02 264)',
-    '--accent-foreground':'oklch(0.93 0.01 264)',
-    '--border':           'oklch(1 0 0 / 11%)',
-    '--input':            'oklch(1 0 0 / 13%)',
-    '--sidebar':          'oklch(0.15 0.018 264)',
-    '--glass-bg':         'rgba(30, 32, 52, 0.80)',
-    '--glass-bg-strong':  'rgba(24, 26, 42, 0.93)',
+    '--accent': 'oklch(0.26 0.02 264)',
+    '--accent-foreground': 'oklch(0.93 0.01 264)',
+    '--border': 'oklch(1 0 0 / 11%)',
+    '--input': 'oklch(1 0 0 / 13%)',
+    '--sidebar': 'oklch(0.15 0.018 264)',
+    '--glass-bg': 'rgba(30, 32, 52, 0.80)',
+    '--glass-bg-strong': 'rgba(24, 26, 42, 0.93)',
   },
   midnight: {
-    '--background':       'oklch(0.07 0.00 0)',
-    '--foreground':       'oklch(0.90 0.00 0)',
-    '--card':             'oklch(0.10 0.00 0)',
-    '--card-foreground':  'oklch(0.90 0.00 0)',
-    '--popover':          'oklch(0.09 0.005 264)',
-    '--muted':            'oklch(0.14 0.00 0)',
+    '--background': 'oklch(0.07 0.00 0)',
+    '--foreground': 'oklch(0.90 0.00 0)',
+    '--card': 'oklch(0.10 0.00 0)',
+    '--card-foreground': 'oklch(0.90 0.00 0)',
+    '--popover': 'oklch(0.09 0.005 264)',
+    '--muted': 'oklch(0.14 0.00 0)',
     '--muted-foreground': 'oklch(0.55 0.01 264)',
-    '--accent':           'oklch(0.16 0.01 264)',
-    '--accent-foreground':'oklch(0.90 0.00 0)',
-    '--border':           'oklch(1 0 0 / 8%)',
-    '--input':            'oklch(1 0 0 / 10%)',
-    '--sidebar':          'oklch(0.08 0.00 0)',
-    '--glass-bg':         'rgba(10, 10, 14, 0.85)',
-    '--glass-bg-strong':  'rgba(7, 7, 10, 0.94)',
+    '--accent': 'oklch(0.16 0.01 264)',
+    '--accent-foreground': 'oklch(0.90 0.00 0)',
+    '--border': 'oklch(1 0 0 / 8%)',
+    '--input': 'oklch(1 0 0 / 10%)',
+    '--sidebar': 'oklch(0.08 0.00 0)',
+    '--glass-bg': 'rgba(10, 10, 14, 0.85)',
+    '--glass-bg-strong': 'rgba(7, 7, 10, 0.94)',
   },
   warm: {
-    '--background':       'oklch(0.11 0.02 60)',
-    '--foreground':       'oklch(0.92 0.02 60)',
-    '--card':             'oklch(0.14 0.02 60)',
-    '--card-foreground':  'oklch(0.92 0.02 60)',
-    '--popover':          'oklch(0.13 0.02 60)',
-    '--muted':            'oklch(0.18 0.02 60)',
+    '--background': 'oklch(0.11 0.02 60)',
+    '--foreground': 'oklch(0.92 0.02 60)',
+    '--card': 'oklch(0.14 0.02 60)',
+    '--card-foreground': 'oklch(0.92 0.02 60)',
+    '--popover': 'oklch(0.13 0.02 60)',
+    '--muted': 'oklch(0.18 0.02 60)',
     '--muted-foreground': 'oklch(0.60 0.03 60)',
-    '--accent':           'oklch(0.20 0.03 60)',
-    '--accent-foreground':'oklch(0.92 0.02 60)',
-    '--border':           'oklch(1 0 0 / 9%)',
-    '--input':            'oklch(1 0 0 / 12%)',
-    '--sidebar':          'oklch(0.12 0.025 60)',
-    '--glass-bg':         'rgba(25, 18, 12, 0.82)',
-    '--glass-bg-strong':  'rgba(18, 13, 8, 0.93)',
+    '--accent': 'oklch(0.20 0.03 60)',
+    '--accent-foreground': 'oklch(0.92 0.02 60)',
+    '--border': 'oklch(1 0 0 / 9%)',
+    '--input': 'oklch(1 0 0 / 12%)',
+    '--sidebar': 'oklch(0.12 0.025 60)',
+    '--glass-bg': 'rgba(25, 18, 12, 0.82)',
+    '--glass-bg-strong': 'rgba(18, 13, 8, 0.93)',
   },
   light: {
-    '--background':       'oklch(0.97 0 0)',
-    '--foreground':       'oklch(0.14 0 0)',
-    '--card':             'oklch(1 0 0)',
-    '--card-foreground':  'oklch(0.14 0 0)',
-    '--popover':          'oklch(1 0 0)',
-    '--muted':            'oklch(0.94 0 0)',
+    '--background': 'oklch(0.97 0 0)',
+    '--foreground': 'oklch(0.14 0 0)',
+    '--card': 'oklch(1 0 0)',
+    '--card-foreground': 'oklch(0.14 0 0)',
+    '--popover': 'oklch(1 0 0)',
+    '--muted': 'oklch(0.94 0 0)',
     '--muted-foreground': 'oklch(0.45 0.01 264)',
-    '--accent':           'oklch(0.93 0.01 264)',
-    '--accent-foreground':'oklch(0.14 0 0)',
-    '--border':           'oklch(0 0 0 / 10%)',
-    '--input':            'oklch(0 0 0 / 10%)',
-    '--sidebar':          'oklch(0.94 0 0)',
-    '--glass-bg':         'rgba(255, 255, 255, 0.75)',
-    '--glass-bg-strong':  'rgba(250, 250, 252, 0.92)',
+    '--accent': 'oklch(0.93 0.01 264)',
+    '--accent-foreground': 'oklch(0.14 0 0)',
+    '--border': 'oklch(0 0 0 / 10%)',
+    '--input': 'oklch(0 0 0 / 10%)',
+    '--sidebar': 'oklch(0.94 0 0)',
+    '--glass-bg': 'rgba(255, 255, 255, 0.75)',
+    '--glass-bg-strong': 'rgba(250, 250, 252, 0.92)',
   },
 };
 
 export default function App() {
   const exportNoteRelativePath = new URLSearchParams(window.location.search).get('print-note');
-  const [activePrintNotePath, setActivePrintNotePath] = useState<string | null>(exportNoteRelativePath);
+  const [activePrintNotePath, setActivePrintNotePath] = useState<string | null>(
+    exportNoteRelativePath,
+  );
   const { vault, isVaultLocked, openVault, lastOpenedVaultPath } = useVaultStore();
   const { sessionVaultPath, setSessionVaultPath, resetSession } = useEditorStore();
   const {
@@ -132,23 +136,25 @@ export default function App() {
     root.style.setProperty('--primary', `oklch(${accent.oklch})`);
     root.style.setProperty('--primary-foreground', isLight ? 'oklch(1 0 0)' : 'oklch(0.10 0 0)');
     root.style.setProperty('--ring', `oklch(${accent.oklch})`);
-    root.style.setProperty('--glow-primary',    `oklch(${accent.oklch} / 30%)`);
+    root.style.setProperty('--glow-primary', `oklch(${accent.oklch} / 30%)`);
     root.style.setProperty('--glow-primary-sm', `oklch(${accent.oklch} / 15%)`);
     // Editor selection colours — referenced by CodeMirror theme via var().
     // Computed here alongside --primary so they always track the accent colour
     // without requiring color-mix() or relative-color CSS syntax in the theme.
-    root.style.setProperty('--editor-selection',     `oklch(${accent.oklch} / 0.35)`);
+    root.style.setProperty('--editor-selection', `oklch(${accent.oklch} / 0.35)`);
     root.style.setProperty('--editor-selection-dim', `oklch(${accent.oklch} / 0.18)`);
 
     // Font
     const font = INTERFACE_FONTS[interfaceFont] ?? INTERFACE_FONTS.geist;
     root.style.setProperty('--app-font-sans', font.css);
-    root.style.setProperty('--app-font-mono', "'JetBrains Mono', 'Fira Code', 'Geist Mono Variable', monospace");
+    root.style.setProperty(
+      '--app-font-mono',
+      "'JetBrains Mono', 'Fira Code', 'Geist Mono Variable', monospace",
+    );
 
     // Font size
     root.style.setProperty('--base-font-size', `${interfaceFontSize}px`);
     root.style.fontSize = `${interfaceFontSize}px`;
-
   }, [theme, accentColor, interfaceFont, interfaceFontSize]);
 
   useEffect(() => {
@@ -202,10 +208,18 @@ export default function App() {
     document.addEventListener('gesturestart', blockGesture, { capture: true });
     document.addEventListener('gesturechange', blockGesture, { capture: true });
     return () => {
-      document.removeEventListener('wheel', blockZoomWheel, { capture: true } as EventListenerOptions);
-      document.removeEventListener('keydown', blockZoomKeys, { capture: true } as EventListenerOptions);
-      document.removeEventListener('gesturestart', blockGesture, { capture: true } as EventListenerOptions);
-      document.removeEventListener('gesturechange', blockGesture, { capture: true } as EventListenerOptions);
+      document.removeEventListener('wheel', blockZoomWheel, {
+        capture: true,
+      } as EventListenerOptions);
+      document.removeEventListener('keydown', blockZoomKeys, {
+        capture: true,
+      } as EventListenerOptions);
+      document.removeEventListener('gesturestart', blockGesture, {
+        capture: true,
+      } as EventListenerOptions);
+      document.removeEventListener('gesturechange', blockGesture, {
+        capture: true,
+      } as EventListenerOptions);
     };
   }, []);
 
@@ -214,25 +228,25 @@ export default function App() {
   // by default and keep the env var as an override for any future non-AppImage
   // Linux bundles that need the same fallback.
   useEffect(() => {
-    Promise.allSettled([
-      tauriCommands.isAppImage(),
-      tauriCommands.shouldDisableBlur(),
-    ]).then(([appImageResult, disableBlurResult]) => {
-      const isAppImage = appImageResult.status === 'fulfilled' ? appImageResult.value : false;
-      const shouldDisableBlur = disableBlurResult.status === 'fulfilled' ? disableBlurResult.value : false;
-      const isWindowsWebView = navigator.userAgent.toLowerCase().includes('windows');
-      if (isAppImage || shouldDisableBlur) {
-        document.documentElement.dataset.appimage = '';
-      } else {
-        delete document.documentElement.dataset.appimage;
-      }
+    Promise.allSettled([tauriCommands.isAppImage(), tauriCommands.shouldDisableBlur()]).then(
+      ([appImageResult, disableBlurResult]) => {
+        const isAppImage = appImageResult.status === 'fulfilled' ? appImageResult.value : false;
+        const shouldDisableBlur =
+          disableBlurResult.status === 'fulfilled' ? disableBlurResult.value : false;
+        const isWindowsWebView = navigator.userAgent.toLowerCase().includes('windows');
+        if (isAppImage || shouldDisableBlur) {
+          document.documentElement.dataset.appimage = '';
+        } else {
+          delete document.documentElement.dataset.appimage;
+        }
 
-      if (isWindowsWebView) {
-        document.documentElement.dataset.windowsWebview = '';
-      } else {
-        delete document.documentElement.dataset.windowsWebview;
-      }
-    });
+        if (isWindowsWebView) {
+          document.documentElement.dataset.windowsWebview = '';
+        } else {
+          delete document.documentElement.dataset.windowsWebview;
+        }
+      },
+    );
   }, []);
 
   // Background update check: runs 3 s after startup, then every 6 hours.
@@ -251,7 +265,10 @@ export default function App() {
 
     const timeout = setTimeout(run, 3000);
     const interval = setInterval(run, 6 * 60 * 60 * 1000);
-    return () => { clearTimeout(timeout); clearInterval(interval); };
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
   }, []);
 
   // Apply HiDPI zoom. Routes through set_ui_zoom so the Rust side records the
@@ -279,7 +296,14 @@ export default function App() {
     if (!restorePreviousSession || vault || isVaultLocked || !lastOpenedVaultPath) return;
     if (sessionVaultPath && sessionVaultPath !== lastOpenedVaultPath) return;
     openVault(lastOpenedVaultPath).catch(() => {});
-  }, [restorePreviousSession, vault, isVaultLocked, lastOpenedVaultPath, sessionVaultPath, openVault]);
+  }, [
+    restorePreviousSession,
+    vault,
+    isVaultLocked,
+    lastOpenedVaultPath,
+    sessionVaultPath,
+    openVault,
+  ]);
 
   // Automatically restore a previously connected hosted-server session at startup
   // using the OS-stored refresh token. If it cannot be restored, prompt the user
@@ -297,15 +321,21 @@ export default function App() {
       .restoreAllSessions()
       .then((result) => {
         if (result === 'failed') {
-          toast.error('Could not restore one of your hosted server sessions. Reconnect from Settings → Hosted server.', {
-            duration: 6000,
-          });
+          toast.error(
+            'Could not restore one of your hosted server sessions. Reconnect from Settings → Hosted server.',
+            {
+              duration: 6000,
+            },
+          );
         }
       })
       .catch(() => {
-        toast.error('Could not inspect your hosted server sessions. Try reconnecting from Settings → Hosted server.', {
-          duration: 6000,
-        });
+        toast.error(
+          'Could not inspect your hosted server sessions. Try reconnecting from Settings → Hosted server.',
+          {
+            duration: 6000,
+          },
+        );
       });
   }, []);
 
@@ -326,13 +356,19 @@ export default function App() {
   return (
     <TooltipProvider delayDuration={300}>
       <div className={activePrintNotePath ? 'app-print-hidden' : undefined}>
-        {vault
-          ? isVaultLocked
-            ? <VaultUnlockModal />
-            : <AppShell />
-          : (activePrintNotePath && lastOpenedVaultPath
-              ? <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">Preparing export…</div>
-              : <VaultPicker />)}
+        {vault ? (
+          isVaultLocked ? (
+            <VaultUnlockModal />
+          ) : (
+            <AppShell />
+          )
+        ) : activePrintNotePath && lastOpenedVaultPath ? (
+          <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">
+            Preparing export…
+          </div>
+        ) : (
+          <VaultPicker />
+        )}
         {isSettingsOpen && <SettingsModal />}
         {isVaultManagerOpen && <VaultManagerModal />}
         {liveCollabDebug && <LiveDebugPanel />}

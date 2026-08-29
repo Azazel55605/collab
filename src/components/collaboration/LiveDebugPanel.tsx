@@ -1,12 +1,13 @@
-import { useSyncExternalStore, useState } from 'react';
-import { Copy, Trash2, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState, useSyncExternalStore } from 'react';
+
+import { ChevronDown, ChevronUp, Copy, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
   clearLiveDebugEvents,
   getLiveDebugEvents,
-  subscribeLiveDebug,
   type LiveDebugEvent,
+  subscribeLiveDebug,
 } from '../../lib/liveDebugLog';
 import { useUiStore } from '../../store/uiStore';
 

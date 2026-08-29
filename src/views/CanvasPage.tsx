@@ -1,73 +1,86 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import '@xyflow/react/dist/style.css';
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
 import {
-  ReactFlow,
   applyNodeChanges,
   Background,
   BackgroundVariant,
+  type Connection,
   ConnectionMode,
+  type EdgeChange,
+  type Node as FlowNode,
+  type NodeChange,
+  type OnReconnect,
   Panel,
+  ReactFlow,
   ReactFlowProvider,
   reconnectEdge,
   useEdgesState,
   useNodesState,
   useReactFlow,
-  type Connection,
-  type EdgeChange,
-  type Node as FlowNode,
-  type NodeChange,
-  type OnReconnect,
   type Viewport,
 } from '@xyflow/react';
+import type { FinalConnectionState, OnConnectStartParams } from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import { Layout, Loader2 } from 'lucide-react';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
+
 import {
-  Layout,
-  Loader2,
-} from 'lucide-react';
-import { nodeTypes, type CanvasNodeData } from '../components/canvas/CanvasNodeTypes';
+  createSplitJunctionNode,
+  mergeSingleJunction,
+  splitEdgeWithJunction,
+} from '../components/canvas/canvasDiagramUtils';
+import { CanvasEdgeInspector } from '../components/canvas/CanvasEdgeInspector';
 import {
   buildCanvasEdgeLayout,
   CanvasEdgeLayoutProvider,
+  type CanvasFlowEdge,
   DEFAULT_CANVAS_EDGE_STYLE,
   edgeTypes,
   fromFlowEdge,
   getCanvasEdgeData,
   StackedConnectionLine,
   toFlowEdge,
-  type CanvasFlowEdge,
 } from '../components/canvas/CanvasEdgeTypes';
-import { CanvasEdgeInspector } from '../components/canvas/CanvasEdgeInspector';
 import { fromFlowNode, toFlowNode } from '../components/canvas/CanvasFlowNodeUtils';
-import { CanvasNodeInspector } from '../components/canvas/CanvasNodeInspector';
+import type { CanvasInsertItem } from '../components/canvas/canvasInsertItems';
 import { CanvasInsertMenu } from '../components/canvas/CanvasInsertMenu';
-import { useCanvasDocumentSession } from '../components/canvas/useCanvasDocumentSession';
-import { CanvasToolbar } from '../components/canvas/CanvasToolbar';
+import { CanvasNodeInspector } from '../components/canvas/CanvasNodeInspector';
+import { type CanvasNodeData, nodeTypes } from '../components/canvas/CanvasNodeTypes';
 import { CanvasPickerDialog, type CanvasPickerMode } from '../components/canvas/CanvasPickerDialog';
-import { CanvasSymbolPickerDialog, type CanvasSymbolChoice } from '../components/canvas/CanvasSymbolPickerDialog';
+import { isPlanningNodeType } from '../components/canvas/canvasPlanning';
+import { getBaseName, getPreviewKey } from '../components/canvas/CanvasPreviewUtils';
+import {
+  type CanvasSymbolChoice,
+  CanvasSymbolPickerDialog,
+} from '../components/canvas/CanvasSymbolPickerDialog';
+import { CanvasToolbar } from '../components/canvas/CanvasToolbar';
+import { useCanvasDocumentSession } from '../components/canvas/useCanvasDocumentSession';
 import { useCanvasNodeCommands } from '../components/canvas/useCanvasNodeCommands';
 import type { PendingAutoConnect } from '../components/canvas/useCanvasNodeCommands';
 import { useCanvasPreviews } from '../components/canvas/useCanvasPreviews';
 import { useCanvasViewportControls } from '../components/canvas/useCanvasViewportControls';
-import {
-  createSplitJunctionNode,
-  mergeSingleJunction,
-  splitEdgeWithJunction,
-} from '../components/canvas/canvasDiagramUtils';
-import { isPlanningNodeType } from '../components/canvas/canvasPlanning';
-import type { CanvasInsertItem } from '../components/canvas/canvasInsertItems';
-import {
-  getBaseName,
-  getPreviewKey,
-} from '../components/canvas/CanvasPreviewUtils';
+import { useCollabContext } from '../components/collaboration/CollabProvider';
+import LivePeers from '../components/collaboration/LivePeers';
+import { DocumentStatusPill } from '../components/layout/DocumentStatusPill';
 import {
   DocumentTopBar,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
+import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
+import { useCollabIdentity } from '../lib/collabIdentity';
+import type {
+  DocumentSessionController,
+  DocumentSessionSnapshot,
+} from '../lib/documentSessionController';
+import { dedupePeersByUser, useLivePeers } from '../lib/liveAwareness';
+import { cn } from '../lib/utils';
+import { getVaultDocumentTabType } from '../lib/vaultLinks';
+import { useDocumentStatusRegistration } from '../store/documentStatusStore';
 import { useEditorStore } from '../store/editorStore';
+import { useNoteIndexStore } from '../store/noteIndexStore';
 import { useUiStore } from '../store/uiStore';
 import { useVaultStore } from '../store/vaultStore';
-import { useCollabIdentity } from '../lib/collabIdentity';
 import type {
   CanvasData,
   CanvasEdge,
@@ -75,26 +88,12 @@ import type {
   CanvasEdgeRoutingStyle,
   CanvasNode,
   CanvasPlanningMetadata,
-  CanvasSymbolDefinition,
   CanvasSwimlaneOrientation,
+  CanvasSymbolDefinition,
   PlanningCanvasNode,
 } from '../types/canvas';
 import type { NoteFile } from '../types/vault';
-import type { OnConnectStartParams, FinalConnectionState } from '@xyflow/react';
-import { useNoteIndexStore } from '../store/noteIndexStore';
-import { useCollabContext } from '../components/collaboration/CollabProvider';
 import { isVaultReadOnly, type KnownUser } from '../types/vault';
-import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
-import LivePeers from '../components/collaboration/LivePeers';
-import { dedupePeersByUser, useLivePeers } from '../lib/liveAwareness';
-import { DocumentStatusPill } from '../components/layout/DocumentStatusPill';
-import { useDocumentStatusRegistration } from '../store/documentStatusStore';
-import type {
-  DocumentSessionController,
-  DocumentSessionSnapshot,
-} from '../lib/documentSessionController';
-import { cn } from '../lib/utils';
-import { getVaultDocumentTabType } from '../lib/vaultLinks';
 
 const pdfWorkerUrl = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -241,38 +240,48 @@ function getIncomingHandleIdForSide(side: 'left' | 'right' | 'top' | 'bottom') {
   return 'bottom-in';
 }
 
-export function normalizeDirectedHandlePair<T extends {
-  sourceHandle?: string | null;
-  targetHandle?: string | null;
-}>(connection: T) {
+export function normalizeDirectedHandlePair<
+  T extends {
+    sourceHandle?: string | null;
+    targetHandle?: string | null;
+  },
+>(connection: T) {
   const sourceSide = getHandleSide(connection.sourceHandle);
   const targetSide = getHandleSide(connection.targetHandle);
 
   return {
     sourceHandle: connection.sourceHandle?.endsWith('-in')
-      ? (sourceSide ? getOutgoingHandleIdForSide(sourceSide) : connection.sourceHandle)
+      ? sourceSide
+        ? getOutgoingHandleIdForSide(sourceSide)
+        : connection.sourceHandle
       : (connection.sourceHandle ?? undefined),
     targetHandle: connection.targetHandle?.endsWith('-out')
-      ? (targetSide ? getIncomingHandleIdForSide(targetSide) : connection.targetHandle)
+      ? targetSide
+        ? getIncomingHandleIdForSide(targetSide)
+        : connection.targetHandle
       : (connection.targetHandle ?? undefined),
   };
 }
 
-function getFlowNodeCenter(node: Pick<FlowNode<CanvasNodeData>, 'position' | 'width' | 'height' | 'measured' | 'style'>) {
-  const width = typeof node.width === 'number'
-    ? node.width
-    : typeof node.measured?.width === 'number'
-      ? node.measured.width
-      : typeof node.style?.width === 'number'
-        ? node.style.width
-        : 300;
-  const height = typeof node.height === 'number'
-    ? node.height
-    : typeof node.measured?.height === 'number'
-      ? node.measured.height
-      : typeof node.style?.height === 'number'
-        ? node.style.height
-        : 180;
+function getFlowNodeCenter(
+  node: Pick<FlowNode<CanvasNodeData>, 'position' | 'width' | 'height' | 'measured' | 'style'>,
+) {
+  const width =
+    typeof node.width === 'number'
+      ? node.width
+      : typeof node.measured?.width === 'number'
+        ? node.measured.width
+        : typeof node.style?.width === 'number'
+          ? node.style.width
+          : 300;
+  const height =
+    typeof node.height === 'number'
+      ? node.height
+      : typeof node.measured?.height === 'number'
+        ? node.measured.height
+        : typeof node.style?.height === 'number'
+          ? node.style.height
+          : 180;
 
   return {
     x: node.position.x + width / 2,
@@ -283,7 +292,10 @@ function getFlowNodeCenter(node: Pick<FlowNode<CanvasNodeData>, 'position' | 'wi
 function inferLooseHandleSide(
   nodeId: string,
   oppositeId: string,
-  nodeMap: Map<string, Pick<FlowNode<CanvasNodeData>, 'id' | 'position' | 'width' | 'height' | 'measured' | 'style'>>,
+  nodeMap: Map<
+    string,
+    Pick<FlowNode<CanvasNodeData>, 'id' | 'position' | 'width' | 'height' | 'measured' | 'style'>
+  >,
 ) {
   const node = nodeMap.get(nodeId);
   const opposite = nodeMap.get(oppositeId);
@@ -307,12 +319,19 @@ function inferLooseHandleSide(
   return deltaY >= 0 ? 'bottom' : 'top';
 }
 
-export function normalizeLooseConnectionHandles<T extends {
-  source: string;
-  target: string;
-  sourceHandle?: string | null;
-  targetHandle?: string | null;
-}>(connection: T, flowNodes: Array<Pick<FlowNode<CanvasNodeData>, 'id' | 'position' | 'width' | 'height' | 'measured' | 'style'>>) {
+export function normalizeLooseConnectionHandles<
+  T extends {
+    source: string;
+    target: string;
+    sourceHandle?: string | null;
+    targetHandle?: string | null;
+  },
+>(
+  connection: T,
+  flowNodes: Array<
+    Pick<FlowNode<CanvasNodeData>, 'id' | 'position' | 'width' | 'height' | 'measured' | 'style'>
+  >,
+) {
   if (connection.sourceHandle && connection.targetHandle) {
     return {
       sourceHandle: connection.sourceHandle ?? undefined,
@@ -346,7 +365,12 @@ function getHandleDatasetFromEventTarget(target: EventTarget | null) {
 }
 
 function isAltModifiedEvent(event: unknown) {
-  return !!event && typeof event === 'object' && 'altKey' in event && !!(event as { altKey?: boolean }).altKey;
+  return (
+    !!event &&
+    typeof event === 'object' &&
+    'altKey' in event &&
+    !!(event as { altKey?: boolean }).altKey
+  );
 }
 
 function logAutoConnect(stage: string, details: Record<string, unknown>) {
@@ -381,20 +405,22 @@ function getAutoConnectHandles({
     };
   }
 
-  const sourceWidth = typeof sourceNode.width === 'number'
-    ? sourceNode.width
-    : typeof sourceNode.measured?.width === 'number'
-      ? sourceNode.measured.width
-      : typeof sourceNode.style?.width === 'number'
-        ? sourceNode.style.width
-        : 300;
-  const sourceHeight = typeof sourceNode.height === 'number'
-    ? sourceNode.height
-    : typeof sourceNode.measured?.height === 'number'
-      ? sourceNode.measured.height
-      : typeof sourceNode.style?.height === 'number'
-        ? sourceNode.style.height
-        : 180;
+  const sourceWidth =
+    typeof sourceNode.width === 'number'
+      ? sourceNode.width
+      : typeof sourceNode.measured?.width === 'number'
+        ? sourceNode.measured.width
+        : typeof sourceNode.style?.width === 'number'
+          ? sourceNode.style.width
+          : 300;
+  const sourceHeight =
+    typeof sourceNode.height === 'number'
+      ? sourceNode.height
+      : typeof sourceNode.measured?.height === 'number'
+        ? sourceNode.measured.height
+        : typeof sourceNode.style?.height === 'number'
+          ? sourceNode.style.height
+          : 180;
   const sourceCenterX = sourceNode.position.x + sourceWidth / 2;
   const sourceCenterY = sourceNode.position.y + sourceHeight / 2;
   const deltaX = targetPosition.x - sourceCenterX;
@@ -428,7 +454,9 @@ function getAutoConnectEdge({
       source: newNode.id,
       sourceHandle: pendingAutoConnect.sourceSide === 'top' ? 'bottom-out' : 'right-out',
       target: pendingAutoConnect.source,
-      targetHandle: pendingAutoConnect.sourceHandle ?? (pendingAutoConnect.sourceSide === 'top' ? 'top-in' : 'left-in'),
+      targetHandle:
+        pendingAutoConnect.sourceHandle ??
+        (pendingAutoConnect.sourceSide === 'top' ? 'top-in' : 'left-in'),
       lineStyle: 'solid',
       routingStyle: 'curved',
       animated: false,
@@ -501,7 +529,6 @@ async function renderPdfPreview(dataUrl: string) {
   }
 }
 
-
 function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   const vault = useVaultStore((state) => state.vault);
   const readOnly = isVaultReadOnly(vault);
@@ -517,7 +544,9 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   const canvasWebCardAutoLoad = useUiStore((state) => state.canvasWebCardAutoLoad);
   const webPreviewsEnabled = useUiStore((state) => state.webPreviewsEnabled);
   const hoverWebLinkPreviewsEnabled = useUiStore((state) => state.hoverWebLinkPreviewsEnabled);
-  const backgroundWebPreviewPrefetchEnabled = useUiStore((state) => state.backgroundWebPreviewPrefetchEnabled);
+  const backgroundWebPreviewPrefetchEnabled = useUiStore(
+    (state) => state.backgroundWebPreviewPrefetchEnabled,
+  );
   const dateFormat = useUiStore((state) => state.dateFormat);
   const reactFlow = useReactFlow<FlowNode<CanvasNodeData>, CanvasFlowEdge>();
   const collabTransport = useCollabContext();
@@ -556,13 +585,30 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   const [knownUsers, setKnownUsers] = useState<KnownUser[]>([]);
   const indexedNotes = useNoteIndexStore((state) => state.notes);
 
-  const allFiles = useMemo(() => flattenFiles(fileTree).filter((node) => !node.isFolder), [fileTree]);
+  const allFiles = useMemo(
+    () => flattenFiles(fileTree).filter((node) => !node.isFolder),
+    [fileTree],
+  );
   const availableTags = useMemo(
-    () => [...new Set(indexedNotes.flatMap((note) => note.tags).map((tag) => tag.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
+    () =>
+      [
+        ...new Set(
+          indexedNotes
+            .flatMap((note) => note.tags)
+            .map((tag) => tag.trim())
+            .filter(Boolean),
+        ),
+      ].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })),
     [indexedNotes],
   );
-  const availableNotes = useMemo(() => allFiles.filter((file) => file.extension.toLowerCase() === 'md'), [allFiles]);
-  const availableFiles = useMemo(() => allFiles.filter((file) => file.extension.toLowerCase() !== 'md'), [allFiles]);
+  const availableNotes = useMemo(
+    () => allFiles.filter((file) => file.extension.toLowerCase() === 'md'),
+    [allFiles],
+  );
+  const availableFiles = useMemo(
+    () => allFiles.filter((file) => file.extension.toLowerCase() !== 'md'),
+    [allFiles],
+  );
   const selectedEdge = useMemo(() => edges.find((edge) => edge.selected), [edges]);
   const selectedNode = useMemo(() => nodes.find((node) => node.selected), [nodes]);
   const selectedNodes = useMemo(() => nodes.filter((node) => node.selected), [nodes]);
@@ -571,7 +617,10 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     [edges],
   );
   const hasEdgesWithUndirectedHandles = useMemo(
-    () => edges.some((edge) => edge.sourceHandle?.endsWith('-in') || edge.targetHandle?.endsWith('-out')),
+    () =>
+      edges.some(
+        (edge) => edge.sourceHandle?.endsWith('-in') || edge.targetHandle?.endsWith('-out'),
+      ),
     [edges],
   );
   const edgeLayout = useMemo(() => buildCanvasEdgeLayout(nodes, edges), [nodes, edges]);
@@ -579,22 +628,26 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     () => (selectedEdge ? getCanvasEdgeData(selectedEdge.data) : null),
     [selectedEdge],
   );
-  const selectedInspectorNode = useMemo(() => (
-    selectedNode ? {
-      id: selectedNode.id,
-      type: selectedNode.type ?? '',
-      title: selectedNode.data.title,
-      subtitle: selectedNode.data.subtitle,
-      content: selectedNode.data.content,
-      symbolGlyph: selectedNode.data.symbolGlyph,
-      symbolId: selectedNode.data.symbolId,
-      symbolLabel: selectedNode.data.symbolLabel,
-      relativePath: selectedNode.data.relativePath,
-      linkedRelativePath: selectedNode.data.linkedRelativePath,
-      planning: selectedNode.data.planning,
-      orientation: selectedNode.data.orientation,
-    } : null
-  ), [selectedNode]);
+  const selectedInspectorNode = useMemo(
+    () =>
+      selectedNode
+        ? {
+            id: selectedNode.id,
+            type: selectedNode.type ?? '',
+            title: selectedNode.data.title,
+            subtitle: selectedNode.data.subtitle,
+            content: selectedNode.data.content,
+            symbolGlyph: selectedNode.data.symbolGlyph,
+            symbolId: selectedNode.data.symbolId,
+            symbolLabel: selectedNode.data.symbolLabel,
+            relativePath: selectedNode.data.relativePath,
+            linkedRelativePath: selectedNode.data.linkedRelativePath,
+            planning: selectedNode.data.planning,
+            orientation: selectedNode.data.orientation,
+          }
+        : null,
+    [selectedNode],
+  );
   const zoomLabel = `${Math.round(viewport.zoom * 100)}%`;
 
   useEffect(() => {
@@ -606,33 +659,40 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
 
   useEffect(() => {
     if (!vault || !collabTransport) return;
-    collabTransport.readVaultConfig()
+    collabTransport
+      .readVaultConfig()
       .then((config) => {
         if (isMountedRef.current) setKnownUsers(config.knownUsers ?? []);
       })
       .catch(() => {});
   }, [collabTransport, vault?.path]);
 
-  const openRelativePath = useCallback((path: string) => {
-    const type = getVaultDocumentTabType(path);
-    openTab(path, getNameWithoutExtension(getBaseName(path)), type);
-    if (type === 'canvas') setActiveView('canvas');
-    else if (type === 'kanban') setActiveView('kanban');
-    else setActiveView('editor');
-  }, [openTab, setActiveView]);
+  const openRelativePath = useCallback(
+    (path: string) => {
+      const type = getVaultDocumentTabType(path);
+      openTab(path, getNameWithoutExtension(getBaseName(path)), type);
+      if (type === 'canvas') setActiveView('canvas');
+      else if (type === 'kanban') setActiveView('kanban');
+      else setActiveView('editor');
+    },
+    [openTab, setActiveView],
+  );
 
-  const updateTextContent = useCallback((nodeId: string, content: string) => {
-    setNodes((prev) =>
-      prev.map((node) =>
-        node.id === nodeId
-          ? {
-              ...node,
-              data: { ...node.data, content },
-            }
-          : node,
-      ),
-    );
-  }, [setNodes]);
+  const updateTextContent = useCallback(
+    (nodeId: string, content: string) => {
+      setNodes((prev) =>
+        prev.map((node) =>
+          node.id === nodeId
+            ? {
+                ...node,
+                data: { ...node.data, content },
+              }
+            : node,
+        ),
+      );
+    },
+    [setNodes],
+  );
 
   const {
     openExternalUrl,
@@ -656,86 +716,110 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     backgroundWebPreviewPrefetchEnabled,
   });
 
-  const snapNodeToGrid = useCallback((nodeId: string) => {
-    setNodes((prev) =>
-      prev.map((node) => {
-        if (node.id !== nodeId) return node;
-        const { width: minWidth, height: minHeight } = getMinimumFlowNodeSize(node.type);
-        return {
-          ...node,
-          position: snapPosition(node.position),
-          width: typeof node.width === 'number' ? snapSize(node.width, minWidth) : node.width,
-          height: typeof node.height === 'number' ? snapSize(node.height, minHeight) : node.height,
-          style: {
-            ...node.style,
-            width: snapSize(
-              typeof node.width === 'number'
-                ? node.width
-                : typeof node.style?.width === 'number'
-                ? node.style.width
-                : minWidth,
-              minWidth,
-            ),
-            height: snapSize(
-              typeof node.height === 'number'
-                ? node.height
-                : typeof node.style?.height === 'number'
-                ? node.style.height
-                : minHeight,
-              minHeight,
-            ),
+  const snapNodeToGrid = useCallback(
+    (nodeId: string) => {
+      setNodes((prev) =>
+        prev.map((node) => {
+          if (node.id !== nodeId) return node;
+          const { width: minWidth, height: minHeight } = getMinimumFlowNodeSize(node.type);
+          return {
+            ...node,
+            position: snapPosition(node.position),
+            width: typeof node.width === 'number' ? snapSize(node.width, minWidth) : node.width,
+            height:
+              typeof node.height === 'number' ? snapSize(node.height, minHeight) : node.height,
+            style: {
+              ...node.style,
+              width: snapSize(
+                typeof node.width === 'number'
+                  ? node.width
+                  : typeof node.style?.width === 'number'
+                    ? node.style.width
+                    : minWidth,
+                minWidth,
+              ),
+              height: snapSize(
+                typeof node.height === 'number'
+                  ? node.height
+                  : typeof node.style?.height === 'number'
+                    ? node.style.height
+                    : minHeight,
+                minHeight,
+              ),
+            },
+          };
+        }),
+      );
+    },
+    [setNodes],
+  );
+
+  const buildFlowNodes = useCallback(
+    (canvas: CanvasData) =>
+      canvas.nodes.map((node) =>
+        toFlowNode(
+          node,
+          undefined,
+          {
+            onOpen: openRelativePath,
+            onTextChange: updateTextContent,
+            onSnapToGrid: snapNodeToGrid,
+            onWebUrlChange: updateWebUrl,
+            onWebDisplayModeOverrideChange: updateWebDisplayModeOverride,
+            onRequestWebPreview: requestWebPreview,
+            onOpenUrl: openExternalUrl,
           },
-        };
-      }),
-    );
-  }, [setNodes]);
+          canvasWebCardDefaultMode,
+          canvasWebCardAutoLoad,
+          webPreviewsEnabled,
+        ),
+      ),
+    [
+      canvasWebCardAutoLoad,
+      canvasWebCardDefaultMode,
+      openExternalUrl,
+      openRelativePath,
+      requestWebPreview,
+      snapNodeToGrid,
+      updateTextContent,
+      updateWebDisplayModeOverride,
+      updateWebUrl,
+      webPreviewsEnabled,
+    ],
+  );
 
-  const buildFlowNodes = useCallback((canvas: CanvasData) => (
-    canvas.nodes.map((node) => toFlowNode(node, undefined, {
-      onOpen: openRelativePath,
-      onTextChange: updateTextContent,
-      onSnapToGrid: snapNodeToGrid,
-      onWebUrlChange: updateWebUrl,
-      onWebDisplayModeOverrideChange: updateWebDisplayModeOverride,
-      onRequestWebPreview: requestWebPreview,
-      onOpenUrl: openExternalUrl,
-    }, canvasWebCardDefaultMode, canvasWebCardAutoLoad, webPreviewsEnabled))
-  ), [
-    canvasWebCardAutoLoad,
-    canvasWebCardDefaultMode,
-    openExternalUrl,
-    openRelativePath,
-    requestWebPreview,
-    snapNodeToGrid,
-    updateTextContent,
-    updateWebDisplayModeOverride,
-    updateWebUrl,
-    webPreviewsEnabled,
-  ]);
-
-  const createInteractiveFlowNode = useCallback((node: CanvasNode) => (
-    toFlowNode(node, previews[getPreviewKey(node)], {
-      onOpen: openRelativePath,
-      onTextChange: updateTextContent,
-      onSnapToGrid: snapNodeToGrid,
-      onWebUrlChange: updateWebUrl,
-      onWebDisplayModeOverrideChange: updateWebDisplayModeOverride,
-      onRequestWebPreview: requestWebPreview,
-      onOpenUrl: openExternalUrl,
-    }, canvasWebCardDefaultMode, canvasWebCardAutoLoad, webPreviewsEnabled)
-  ), [
-    canvasWebCardAutoLoad,
-    canvasWebCardDefaultMode,
-    openExternalUrl,
-    openRelativePath,
-    previews,
-    requestWebPreview,
-    snapNodeToGrid,
-    updateTextContent,
-    updateWebDisplayModeOverride,
-    updateWebUrl,
-    webPreviewsEnabled,
-  ]);
+  const createInteractiveFlowNode = useCallback(
+    (node: CanvasNode) =>
+      toFlowNode(
+        node,
+        previews[getPreviewKey(node)],
+        {
+          onOpen: openRelativePath,
+          onTextChange: updateTextContent,
+          onSnapToGrid: snapNodeToGrid,
+          onWebUrlChange: updateWebUrl,
+          onWebDisplayModeOverrideChange: updateWebDisplayModeOverride,
+          onRequestWebPreview: requestWebPreview,
+          onOpenUrl: openExternalUrl,
+        },
+        canvasWebCardDefaultMode,
+        canvasWebCardAutoLoad,
+        webPreviewsEnabled,
+      ),
+    [
+      canvasWebCardAutoLoad,
+      canvasWebCardDefaultMode,
+      openExternalUrl,
+      openRelativePath,
+      previews,
+      requestWebPreview,
+      snapNodeToGrid,
+      updateTextContent,
+      updateWebDisplayModeOverride,
+      updateWebUrl,
+      webPreviewsEnabled,
+    ],
+  );
 
   const {
     liveSession,
@@ -770,13 +854,16 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     readOnly,
   });
 
-  const documentStatus = useMemo(() => ({
-    status: canvasSnapshot.status,
-    controller: canvasController as DocumentSessionController<unknown>,
-    snapshot: canvasSnapshot as DocumentSessionSnapshot<unknown>,
-    onSaveAsNew,
-    readOnly,
-  }), [canvasController, canvasSnapshot, onSaveAsNew, readOnly]);
+  const documentStatus = useMemo(
+    () => ({
+      status: canvasSnapshot.status,
+      controller: canvasController as DocumentSessionController<unknown>,
+      snapshot: canvasSnapshot as DocumentSessionSnapshot<unknown>,
+      onSaveAsNew,
+      readOnly,
+    }),
+    [canvasController, canvasSnapshot, onSaveAsNew, readOnly],
+  );
   useDocumentStatusRegistration(relativePath, documentStatus);
 
   // ── Live awareness: co-editors and their node selections ─────────────────
@@ -817,16 +904,17 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     setEdges((prev) => {
       let changed = false;
       const next = prev.map((edge) => {
-        const withLooseHandles = edge.sourceHandle && edge.targetHandle
-          ? {
-              sourceHandle: edge.sourceHandle ?? undefined,
-              targetHandle: edge.targetHandle ?? undefined,
-            }
-          : normalizeLooseConnectionHandles(edge, nodes);
+        const withLooseHandles =
+          edge.sourceHandle && edge.targetHandle
+            ? {
+                sourceHandle: edge.sourceHandle ?? undefined,
+                targetHandle: edge.targetHandle ?? undefined,
+              }
+            : normalizeLooseConnectionHandles(edge, nodes);
         const normalizedHandles = normalizeDirectedHandlePair(withLooseHandles);
         if (
-          normalizedHandles.sourceHandle === (edge.sourceHandle ?? undefined)
-          && normalizedHandles.targetHandle === (edge.targetHandle ?? undefined)
+          normalizedHandles.sourceHandle === (edge.sourceHandle ?? undefined) &&
+          normalizedHandles.targetHandle === (edge.targetHandle ?? undefined)
         ) {
           return edge;
         }
@@ -841,121 +929,148 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     });
   }, [hasEdgesMissingHandles, hasEdgesWithUndirectedHandles, nodes, setEdges]);
 
-  const addCanvasNode = useCallback((node: CanvasNode, pendingAutoConnectOverride?: PendingAutoConnect | null) => {
-    const minimumSize = getMinimumCanvasNodeSize(node.type);
-    const snappedNode: CanvasNode = {
-      ...node,
-      position: snapPosition(node.position),
-      width: snapSize(node.width, minimumSize.width),
-      height: snapSize(node.height, minimumSize.height),
-    };
-    logAutoConnect('add-node', {
-      node: snappedNode,
-      pendingAutoConnectOverride,
-      pendingAutoConnectRef: pendingAutoConnectRef.current,
-    });
-    setNodes((prev) => [...prev, createInteractiveFlowNode(snappedNode)]);
-    const pendingAutoConnect = pendingAutoConnectOverride ?? pendingAutoConnectRef.current;
-    if (pendingAutoConnect) {
-      const sourceNode = nodes.find((candidate) => candidate.id === pendingAutoConnect.source);
-      const nextEdge = getAutoConnectEdge({
-        pendingAutoConnect,
-        existingNode: sourceNode,
-        newNode: snappedNode,
-      });
-      logAutoConnect('queue-edge', {
-        pendingAutoConnect,
-        sourceNode: sourceNode ? {
-          id: sourceNode.id,
-          position: sourceNode.position,
-          width: sourceNode.width ?? sourceNode.measured?.width ?? sourceNode.style?.width,
-          height: sourceNode.height ?? sourceNode.measured?.height ?? sourceNode.style?.height,
-        } : null,
-        targetNode: {
-          id: snappedNode.id,
-          position: snappedNode.position,
-        },
-        nextEdge,
-      });
-      setEdges((prev) => [...prev, toFlowEdge(nextEdge)]);
-      if (!pendingAutoConnectOverride || pendingAutoConnectRef.current === pendingAutoConnectOverride) {
-        pendingAutoConnectRef.current = null;
-      }
-    }
-  }, [createInteractiveFlowNode, nodes, openExternalUrl, openRelativePath, previews, requestWebPreview, setEdges, setNodes]);
-
-  const addCanvasNodes = useCallback((newNodes: CanvasNode[]) => {
-    setNodes((prev) => [
-      ...prev,
-      ...newNodes.map((node) => {
-        const minimumSize = getMinimumCanvasNodeSize(node.type);
-        return createInteractiveFlowNode({
-          ...node,
-          position: snapPosition(node.position),
-          width: snapSize(node.width, minimumSize.width),
-          height: snapSize(node.height, minimumSize.height),
-        });
-      }),
-    ]);
-  }, [createInteractiveFlowNode, setNodes]);
-
-  const addCanvasEdges = useCallback((newEdges: CanvasEdge[]) => {
-    setEdges((prev) => [...prev, ...newEdges.map((edge) => toFlowEdge(edge))]);
-  }, [setEdges]);
-
-  const duplicateSelectedCanvasNodes = useCallback((
-    positionOverrides?: Map<string, { x: number; y: number }>,
-    sourceCanvasNodesOverride?: CanvasNode[],
-    sourceEdgesOverride?: CanvasEdge[],
-  ) => {
-    const sourceCanvasNodes = sourceCanvasNodesOverride ?? (
-      selectedNodes.length > 0
-        ? selectedNodes.map(fromFlowNode)
-        : selectedNode
-        ? [fromFlowNode(selectedNode)]
-        : []
-    );
-    if (sourceCanvasNodes.length === 0) return;
-
-    const sourceNodeIds = new Set(sourceCanvasNodes.map((node) => node.id));
-    const nodeIdMap = new Map(sourceCanvasNodes.map((node) => [node.id, crypto.randomUUID()]));
-    const duplicatedNodes = sourceCanvasNodes.map((node) => {
+  const addCanvasNode = useCallback(
+    (node: CanvasNode, pendingAutoConnectOverride?: PendingAutoConnect | null) => {
       const minimumSize = getMinimumCanvasNodeSize(node.type);
-      const nextPosition = positionOverrides?.get(node.id) ?? {
-        x: node.position.x + CANVAS_GRID * 2,
-        y: node.position.y + CANVAS_GRID * 2,
-      };
-      return {
+      const snappedNode: CanvasNode = {
         ...node,
-        id: nodeIdMap.get(node.id) ?? crypto.randomUUID(),
-        position: snapPosition(nextPosition),
+        position: snapPosition(node.position),
         width: snapSize(node.width, minimumSize.width),
         height: snapSize(node.height, minimumSize.height),
-      } satisfies CanvasNode;
-    });
+      };
+      logAutoConnect('add-node', {
+        node: snappedNode,
+        pendingAutoConnectOverride,
+        pendingAutoConnectRef: pendingAutoConnectRef.current,
+      });
+      setNodes((prev) => [...prev, createInteractiveFlowNode(snappedNode)]);
+      const pendingAutoConnect = pendingAutoConnectOverride ?? pendingAutoConnectRef.current;
+      if (pendingAutoConnect) {
+        const sourceNode = nodes.find((candidate) => candidate.id === pendingAutoConnect.source);
+        const nextEdge = getAutoConnectEdge({
+          pendingAutoConnect,
+          existingNode: sourceNode,
+          newNode: snappedNode,
+        });
+        logAutoConnect('queue-edge', {
+          pendingAutoConnect,
+          sourceNode: sourceNode
+            ? {
+                id: sourceNode.id,
+                position: sourceNode.position,
+                width: sourceNode.width ?? sourceNode.measured?.width ?? sourceNode.style?.width,
+                height:
+                  sourceNode.height ?? sourceNode.measured?.height ?? sourceNode.style?.height,
+              }
+            : null,
+          targetNode: {
+            id: snappedNode.id,
+            position: snappedNode.position,
+          },
+          nextEdge,
+        });
+        setEdges((prev) => [...prev, toFlowEdge(nextEdge)]);
+        if (
+          !pendingAutoConnectOverride ||
+          pendingAutoConnectRef.current === pendingAutoConnectOverride
+        ) {
+          pendingAutoConnectRef.current = null;
+        }
+      }
+    },
+    [
+      createInteractiveFlowNode,
+      nodes,
+      openExternalUrl,
+      openRelativePath,
+      previews,
+      requestWebPreview,
+      setEdges,
+      setNodes,
+    ],
+  );
 
-    const duplicatedEdges = (sourceEdgesOverride ?? edges.map(fromFlowEdge))
-      .filter((edge) => sourceNodeIds.has(edge.source) && sourceNodeIds.has(edge.target))
-      .map((edge) => ({
-        ...edge,
-        id: crypto.randomUUID(),
-        source: nodeIdMap.get(edge.source) ?? edge.source,
-        target: nodeIdMap.get(edge.target) ?? edge.target,
-      }));
-
-    setNodes((prev) => [
-      ...prev.map((node) => ({ ...node, selected: false })),
-      ...duplicatedNodes.map((node) => ({ ...createInteractiveFlowNode(node), selected: true })),
-    ]);
-    if (duplicatedEdges.length > 0) {
-      setEdges((prev) => [
-        ...prev.map((edge) => ({ ...edge, selected: false })),
-        ...duplicatedEdges.map((edge) => toFlowEdge(edge)),
+  const addCanvasNodes = useCallback(
+    (newNodes: CanvasNode[]) => {
+      setNodes((prev) => [
+        ...prev,
+        ...newNodes.map((node) => {
+          const minimumSize = getMinimumCanvasNodeSize(node.type);
+          return createInteractiveFlowNode({
+            ...node,
+            position: snapPosition(node.position),
+            width: snapSize(node.width, minimumSize.width),
+            height: snapSize(node.height, minimumSize.height),
+          });
+        }),
       ]);
-    } else {
-      setEdges((prev) => prev.map((edge) => ({ ...edge, selected: false })));
-    }
-  }, [createInteractiveFlowNode, edges, selectedNode, selectedNodes, setEdges, setNodes]);
+    },
+    [createInteractiveFlowNode, setNodes],
+  );
+
+  const addCanvasEdges = useCallback(
+    (newEdges: CanvasEdge[]) => {
+      setEdges((prev) => [...prev, ...newEdges.map((edge) => toFlowEdge(edge))]);
+    },
+    [setEdges],
+  );
+
+  const duplicateSelectedCanvasNodes = useCallback(
+    (
+      positionOverrides?: Map<string, { x: number; y: number }>,
+      sourceCanvasNodesOverride?: CanvasNode[],
+      sourceEdgesOverride?: CanvasEdge[],
+    ) => {
+      const sourceCanvasNodes =
+        sourceCanvasNodesOverride ??
+        (selectedNodes.length > 0
+          ? selectedNodes.map(fromFlowNode)
+          : selectedNode
+            ? [fromFlowNode(selectedNode)]
+            : []);
+      if (sourceCanvasNodes.length === 0) return;
+
+      const sourceNodeIds = new Set(sourceCanvasNodes.map((node) => node.id));
+      const nodeIdMap = new Map(sourceCanvasNodes.map((node) => [node.id, crypto.randomUUID()]));
+      const duplicatedNodes = sourceCanvasNodes.map((node) => {
+        const minimumSize = getMinimumCanvasNodeSize(node.type);
+        const nextPosition = positionOverrides?.get(node.id) ?? {
+          x: node.position.x + CANVAS_GRID * 2,
+          y: node.position.y + CANVAS_GRID * 2,
+        };
+        return {
+          ...node,
+          id: nodeIdMap.get(node.id) ?? crypto.randomUUID(),
+          position: snapPosition(nextPosition),
+          width: snapSize(node.width, minimumSize.width),
+          height: snapSize(node.height, minimumSize.height),
+        } satisfies CanvasNode;
+      });
+
+      const duplicatedEdges = (sourceEdgesOverride ?? edges.map(fromFlowEdge))
+        .filter((edge) => sourceNodeIds.has(edge.source) && sourceNodeIds.has(edge.target))
+        .map((edge) => ({
+          ...edge,
+          id: crypto.randomUUID(),
+          source: nodeIdMap.get(edge.source) ?? edge.source,
+          target: nodeIdMap.get(edge.target) ?? edge.target,
+        }));
+
+      setNodes((prev) => [
+        ...prev.map((node) => ({ ...node, selected: false })),
+        ...duplicatedNodes.map((node) => ({ ...createInteractiveFlowNode(node), selected: true })),
+      ]);
+      if (duplicatedEdges.length > 0) {
+        setEdges((prev) => [
+          ...prev.map((edge) => ({ ...edge, selected: false })),
+          ...duplicatedEdges.map((edge) => toFlowEdge(edge)),
+        ]);
+      } else {
+        setEdges((prev) => prev.map((edge) => ({ ...edge, selected: false })));
+      }
+    },
+    [createInteractiveFlowNode, edges, selectedNode, selectedNodes, setEdges, setNodes],
+  );
 
   const {
     addTextNode,
@@ -980,139 +1095,170 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     addCanvasEdges,
   });
 
-  const handleConnect = useCallback((connection: Connection) => {
-    const normalizedHandles = normalizeDirectedHandlePair(normalizeLooseConnectionHandles(connection, nodes));
-    setEdges((prev) => [
-      ...prev,
-      toFlowEdge({
-        ...connection,
-        sourceHandle: normalizedHandles.sourceHandle,
-        targetHandle: normalizedHandles.targetHandle,
-        id: crypto.randomUUID(),
-        label: undefined,
-        lineStyle: 'solid',
-        routingStyle: 'curved',
-        animated: false,
-        animationReverse: false,
-        markerStart: false,
-        markerEnd: false,
-      }),
-    ]);
-  }, [nodes, setEdges]);
+  const handleConnect = useCallback(
+    (connection: Connection) => {
+      const normalizedHandles = normalizeDirectedHandlePair(
+        normalizeLooseConnectionHandles(connection, nodes),
+      );
+      setEdges((prev) => [
+        ...prev,
+        toFlowEdge({
+          ...connection,
+          sourceHandle: normalizedHandles.sourceHandle,
+          targetHandle: normalizedHandles.targetHandle,
+          id: crypto.randomUUID(),
+          label: undefined,
+          lineStyle: 'solid',
+          routingStyle: 'curved',
+          animated: false,
+          animationReverse: false,
+          markerStart: false,
+          markerEnd: false,
+        }),
+      ]);
+    },
+    [nodes, setEdges],
+  );
 
-  const handleConnectStart = useCallback((event: MouseEvent | TouchEvent, params: OnConnectStartParams) => {
-    const eventTarget = 'target' in event ? event.target : null;
-    const datasetHandle = getHandleDatasetFromEventTarget(eventTarget);
-    const sourceNodeId = params.nodeId ?? datasetHandle?.nodeId ?? null;
-    const sourceHandleId = params.handleId ?? datasetHandle?.handleId;
+  const handleConnectStart = useCallback(
+    (event: MouseEvent | TouchEvent, params: OnConnectStartParams) => {
+      const eventTarget = 'target' in event ? event.target : null;
+      const datasetHandle = getHandleDatasetFromEventTarget(eventTarget);
+      const sourceNodeId = params.nodeId ?? datasetHandle?.nodeId ?? null;
+      const sourceHandleId = params.handleId ?? datasetHandle?.handleId;
 
-    pendingAutoConnectRef.current = sourceNodeId
-      ? {
-          source: sourceNodeId,
-          sourceHandle: sourceHandleId ?? undefined,
-          sourceSide: getHandleSide(sourceHandleId),
-          handleType: params.handleType ?? (sourceHandleId?.endsWith('-in') ? 'target' : 'source'),
-        }
-      : null;
-    logAutoConnect('connect-start', {
-      params,
-      datasetHandle,
-      pendingAutoConnect: pendingAutoConnectRef.current,
-    });
-  }, []);
-
-  const openInsertMenuAt = useCallback((clientX: number, clientY: number, autoConnect?: PendingAutoConnect | null) => {
-    const rect = viewportRef.current?.getBoundingClientRect();
-    const flowPosition = reactFlow.screenToFlowPosition({ x: clientX, y: clientY });
-    setInsertMenuState({
-      open: true,
-      x: rect ? Math.min(clientX - rect.left, rect.width - 332) : clientX,
-      y: rect ? Math.min(clientY - rect.top, rect.height - 340) : clientY,
-      flowPosition,
-    });
-    setInsertSession({
-      flowPosition,
-      autoConnect: autoConnect ?? null,
-    });
-  }, [reactFlow]);
-
-  const handleConnectEnd = useCallback((event: MouseEvent | TouchEvent, connectionState: FinalConnectionState) => {
-    logAutoConnect('connect-end-initial', {
-      connectionState,
-      pendingAutoConnect: pendingAutoConnectRef.current,
-    });
-    if (connectionState.toNode) {
-      pendingAutoConnectRef.current = null;
-      logAutoConnect('connect-end-to-node', {
-        connectionState,
-      });
-      return;
-    }
-
-    if (!pendingAutoConnectRef.current) {
-      const sourceNodeId = 'fromHandle' in connectionState
-        && connectionState.fromHandle
-        && typeof connectionState.fromHandle === 'object'
-        && 'nodeId' in connectionState.fromHandle
-        && typeof connectionState.fromHandle.nodeId === 'string'
-        ? connectionState.fromHandle.nodeId
-        : 'fromNode' in connectionState && connectionState.fromNode && typeof connectionState.fromNode === 'object' && 'id' in connectionState.fromNode
-        ? String(connectionState.fromNode.id)
+      pendingAutoConnectRef.current = sourceNodeId
+        ? {
+            source: sourceNodeId,
+            sourceHandle: sourceHandleId ?? undefined,
+            sourceSide: getHandleSide(sourceHandleId),
+            handleType:
+              params.handleType ?? (sourceHandleId?.endsWith('-in') ? 'target' : 'source'),
+          }
         : null;
-      const sourceHandleId = 'fromHandle' in connectionState && connectionState.fromHandle && typeof connectionState.fromHandle === 'object' && 'id' in connectionState.fromHandle && typeof connectionState.fromHandle.id === 'string'
-        ? connectionState.fromHandle.id
-        : undefined;
+      logAutoConnect('connect-start', {
+        params,
+        datasetHandle,
+        pendingAutoConnect: pendingAutoConnectRef.current,
+      });
+    },
+    [],
+  );
 
-      if (sourceNodeId) {
-        pendingAutoConnectRef.current = {
-          source: sourceNodeId,
-          sourceHandle: sourceHandleId,
-          sourceSide: getHandleSide(sourceHandleId),
-          handleType: sourceHandleId?.endsWith('-in') ? 'target' : 'source',
-        };
+  const openInsertMenuAt = useCallback(
+    (clientX: number, clientY: number, autoConnect?: PendingAutoConnect | null) => {
+      const rect = viewportRef.current?.getBoundingClientRect();
+      const flowPosition = reactFlow.screenToFlowPosition({ x: clientX, y: clientY });
+      setInsertMenuState({
+        open: true,
+        x: rect ? Math.min(clientX - rect.left, rect.width - 332) : clientX,
+        y: rect ? Math.min(clientY - rect.top, rect.height - 340) : clientY,
+        flowPosition,
+      });
+      setInsertSession({
+        flowPosition,
+        autoConnect: autoConnect ?? null,
+      });
+    },
+    [reactFlow],
+  );
+
+  const handleConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, connectionState: FinalConnectionState) => {
+      logAutoConnect('connect-end-initial', {
+        connectionState,
+        pendingAutoConnect: pendingAutoConnectRef.current,
+      });
+      if (connectionState.toNode) {
+        pendingAutoConnectRef.current = null;
+        logAutoConnect('connect-end-to-node', {
+          connectionState,
+        });
+        return;
       }
-    }
 
-    logAutoConnect('connect-end-open-menu', {
-      connectionState,
-      pendingAutoConnect: pendingAutoConnectRef.current,
-    });
+      if (!pendingAutoConnectRef.current) {
+        const sourceNodeId =
+          'fromHandle' in connectionState &&
+          connectionState.fromHandle &&
+          typeof connectionState.fromHandle === 'object' &&
+          'nodeId' in connectionState.fromHandle &&
+          typeof connectionState.fromHandle.nodeId === 'string'
+            ? connectionState.fromHandle.nodeId
+            : 'fromNode' in connectionState &&
+                connectionState.fromNode &&
+                typeof connectionState.fromNode === 'object' &&
+                'id' in connectionState.fromNode
+              ? String(connectionState.fromNode.id)
+              : null;
+        const sourceHandleId =
+          'fromHandle' in connectionState &&
+          connectionState.fromHandle &&
+          typeof connectionState.fromHandle === 'object' &&
+          'id' in connectionState.fromHandle &&
+          typeof connectionState.fromHandle.id === 'string'
+            ? connectionState.fromHandle.id
+            : undefined;
 
-    const point = 'changedTouches' in event ? event.changedTouches[0] : event;
-    openInsertMenuAt(point.clientX, point.clientY, pendingAutoConnectRef.current);
-  }, [openInsertMenuAt]);
+        if (sourceNodeId) {
+          pendingAutoConnectRef.current = {
+            source: sourceNodeId,
+            sourceHandle: sourceHandleId,
+            sourceSide: getHandleSide(sourceHandleId),
+            handleType: sourceHandleId?.endsWith('-in') ? 'target' : 'source',
+          };
+        }
+      }
 
-  const handleReconnect = useCallback<OnReconnect<CanvasFlowEdge>>((oldEdge, newConnection) => {
-    const normalizedHandles = normalizeDirectedHandlePair(normalizeLooseConnectionHandles(newConnection, nodes));
-    setEdges((prev) => (reconnectEdge(
-      oldEdge,
-      {
-        ...newConnection,
-        sourceHandle: normalizedHandles.sourceHandle ?? null,
-        targetHandle: normalizedHandles.targetHandle ?? null,
-      },
-      prev,
-    ) as CanvasFlowEdge[]).map((edge) => (
-      edge.id === oldEdge.id
-        ? toFlowEdge(fromFlowEdge(edge))
-        : edge
-    )));
-  }, [nodes, setEdges]);
+      logAutoConnect('connect-end-open-menu', {
+        connectionState,
+        pendingAutoConnect: pendingAutoConnectRef.current,
+      });
 
-  const onNodesChange = useCallback((changes: NodeChange<FlowNode<CanvasNodeData>>[]) => {
-    setNodes((prev) => applyNodeChanges(changes, prev));
-  }, [setNodes]);
+      const point = 'changedTouches' in event ? event.changedTouches[0] : event;
+      openInsertMenuAt(point.clientX, point.clientY, pendingAutoConnectRef.current);
+    },
+    [openInsertMenuAt],
+  );
 
-  const onEdgesChange = useCallback((changes: EdgeChange<CanvasFlowEdge>[]) => {
-    onEdgesChangeBase(changes);
-  }, [onEdgesChangeBase]);
+  const handleReconnect = useCallback<OnReconnect<CanvasFlowEdge>>(
+    (oldEdge, newConnection) => {
+      const normalizedHandles = normalizeDirectedHandlePair(
+        normalizeLooseConnectionHandles(newConnection, nodes),
+      );
+      setEdges((prev) =>
+        (
+          reconnectEdge(
+            oldEdge,
+            {
+              ...newConnection,
+              sourceHandle: normalizedHandles.sourceHandle ?? null,
+              targetHandle: normalizedHandles.targetHandle ?? null,
+            },
+            prev,
+          ) as CanvasFlowEdge[]
+        ).map((edge) => (edge.id === oldEdge.id ? toFlowEdge(fromFlowEdge(edge)) : edge)),
+      );
+    },
+    [nodes, setEdges],
+  );
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange<FlowNode<CanvasNodeData>>[]) => {
+      setNodes((prev) => applyNodeChanges(changes, prev));
+    },
+    [setNodes],
+  );
+
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange<CanvasFlowEdge>[]) => {
+      onEdgesChangeBase(changes);
+    },
+    [onEdgesChangeBase],
+  );
 
   const deleteSelection = useCallback(() => {
-    const selectedNodeIds = new Set(
-      nodes
-        .filter((node) => node.selected)
-        .map((node) => node.id),
-    );
+    const selectedNodeIds = new Set(nodes.filter((node) => node.selected).map((node) => node.id));
     const selectedJunctionIds = nodes
       .filter((node) => node.selected && node.type === 'junctionCard')
       .map((node) => node.id);
@@ -1130,12 +1276,13 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
           return ids;
         }, []),
       );
-      const remaining = prev.filter((edge) => (
-        !selectedEdgeIds.includes(edge.id)
-        && !removedMergedEdgeIds.has(edge.id)
-        && !selectedNodeIds.has(edge.source)
-        && !selectedNodeIds.has(edge.target)
-      ));
+      const remaining = prev.filter(
+        (edge) =>
+          !selectedEdgeIds.includes(edge.id) &&
+          !removedMergedEdgeIds.has(edge.id) &&
+          !selectedNodeIds.has(edge.source) &&
+          !selectedNodeIds.has(edge.target),
+      );
       return [
         ...remaining,
         ...mergeCandidates.map((candidate) => toFlowEdge(candidate.mergedEdge)),
@@ -1143,11 +1290,7 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     });
   }, [edges, nodes, setEdges, setNodes]);
 
-  const {
-    adjustZoom,
-    fitCanvasView,
-    resetZoom,
-  } = useCanvasViewportControls({
+  const { adjustZoom, fitCanvasView, resetZoom } = useCanvasViewportControls({
     reactFlow,
     viewport,
     setViewport,
@@ -1159,188 +1302,258 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     deleteSelection,
   });
 
-  const handleNodeDragStart = useCallback((event: unknown, node: FlowNode<CanvasNodeData>) => {
-    setIsCanvasInteracting(true);
-    const altPressed = isAltModifiedEvent(event);
-    if (!altPressed) {
-      duplicateDragSessionRef.current = null;
-      return;
-    }
+  const handleNodeDragStart = useCallback(
+    (event: unknown, node: FlowNode<CanvasNodeData>) => {
+      setIsCanvasInteracting(true);
+      const altPressed = isAltModifiedEvent(event);
+      if (!altPressed) {
+        duplicateDragSessionRef.current = null;
+        return;
+      }
 
-    const draggedFlowNodes = node.selected
-      ? nodes.filter((candidate) => candidate.selected)
-      : nodes.filter((candidate) => candidate.id === node.id);
-    if (draggedFlowNodes.length === 0) {
-      duplicateDragSessionRef.current = null;
-      return;
-    }
+      const draggedFlowNodes = node.selected
+        ? nodes.filter((candidate) => candidate.selected)
+        : nodes.filter((candidate) => candidate.id === node.id);
+      if (draggedFlowNodes.length === 0) {
+        duplicateDragSessionRef.current = null;
+        return;
+      }
 
-    const draggedCanvasNodes = draggedFlowNodes.map(fromFlowNode);
-    const draggedNodeIds = new Set(draggedCanvasNodes.map((candidate) => candidate.id));
-    duplicateDragSessionRef.current = {
-      nodeIds: draggedCanvasNodes.map((candidate) => candidate.id),
-      originalPositions: new Map(draggedCanvasNodes.map((candidate) => [candidate.id, candidate.position])),
-      duplicateNodes: draggedCanvasNodes,
-      duplicateEdges: edges
-        .map(fromFlowEdge)
-        .filter((edge) => draggedNodeIds.has(edge.source) && draggedNodeIds.has(edge.target)),
-    };
-  }, [edges, nodes]);
-
-  const handleNodeDragStop = useCallback((event: unknown, node: FlowNode<CanvasNodeData>) => {
-    setIsCanvasInteracting(false);
-    const duplicateSession = duplicateDragSessionRef.current;
-    if (!duplicateSession) {
-      snapNodeToGrid(node.id);
-      return;
-    }
-
-    duplicateDragSessionRef.current = null;
-    const overridePositions = new Map<string, { x: number; y: number }>();
-    for (const duplicateNode of duplicateSession.duplicateNodes) {
-      const movedNode = nodes.find((candidate) => candidate.id === duplicateNode.id);
-      overridePositions.set(
-        duplicateNode.id,
-        movedNode?.position ?? (duplicateNode.id === node.id ? node.position : duplicateNode.position),
-      );
-    }
-
-    setNodes((prev) => prev.map((candidate) => {
-      const originalPosition = duplicateSession.originalPositions.get(candidate.id);
-      if (!originalPosition) return candidate;
-      return {
-        ...candidate,
-        position: originalPosition,
-        selected: false,
+      const draggedCanvasNodes = draggedFlowNodes.map(fromFlowNode);
+      const draggedNodeIds = new Set(draggedCanvasNodes.map((candidate) => candidate.id));
+      duplicateDragSessionRef.current = {
+        nodeIds: draggedCanvasNodes.map((candidate) => candidate.id),
+        originalPositions: new Map(
+          draggedCanvasNodes.map((candidate) => [candidate.id, candidate.position]),
+        ),
+        duplicateNodes: draggedCanvasNodes,
+        duplicateEdges: edges
+          .map(fromFlowEdge)
+          .filter((edge) => draggedNodeIds.has(edge.source) && draggedNodeIds.has(edge.target)),
       };
-    }));
+    },
+    [edges, nodes],
+  );
 
-    duplicateSelectedCanvasNodes(
-      overridePositions,
-      duplicateSession.duplicateNodes,
-      duplicateSession.duplicateEdges,
-    );
-    void event;
-  }, [duplicateSelectedCanvasNodes, nodes, setNodes, snapNodeToGrid]);
+  const handleNodeDragStop = useCallback(
+    (event: unknown, node: FlowNode<CanvasNodeData>) => {
+      setIsCanvasInteracting(false);
+      const duplicateSession = duplicateDragSessionRef.current;
+      if (!duplicateSession) {
+        snapNodeToGrid(node.id);
+        return;
+      }
 
-  const updateSelectedEdge = useCallback((updater: (edge: CanvasEdge) => CanvasEdge) => {
-    if (!selectedEdge?.id) return;
-    setEdges((prev) => prev.map((edge) => (
-      edge.id === selectedEdge.id
-        ? {
-            ...edge,
-            ...toFlowEdge(updater(fromFlowEdge(edge))),
-            selected: true,
-          }
-        : edge
-    )));
-  }, [selectedEdge?.id, setEdges]);
+      duplicateDragSessionRef.current = null;
+      const overridePositions = new Map<string, { x: number; y: number }>();
+      for (const duplicateNode of duplicateSession.duplicateNodes) {
+        const movedNode = nodes.find((candidate) => candidate.id === duplicateNode.id);
+        overridePositions.set(
+          duplicateNode.id,
+          movedNode?.position ??
+            (duplicateNode.id === node.id ? node.position : duplicateNode.position),
+        );
+      }
 
-  const updateSelectedEdgeLabel = useCallback((label: string) => {
-    setEdgeLabelDraft(label);
-    updateSelectedEdge((edge) => ({ ...edge, label }));
-  }, [updateSelectedEdge]);
+      setNodes((prev) =>
+        prev.map((candidate) => {
+          const originalPosition = duplicateSession.originalPositions.get(candidate.id);
+          if (!originalPosition) return candidate;
+          return {
+            ...candidate,
+            position: originalPosition,
+            selected: false,
+          };
+        }),
+      );
 
-  const updateSelectedEdgeLineStyle = useCallback((lineStyle: CanvasEdgeLineStyle) => {
-    updateSelectedEdge((edge) => ({ ...edge, lineStyle }));
-  }, [updateSelectedEdge]);
+      duplicateSelectedCanvasNodes(
+        overridePositions,
+        duplicateSession.duplicateNodes,
+        duplicateSession.duplicateEdges,
+      );
+      void event;
+    },
+    [duplicateSelectedCanvasNodes, nodes, setNodes, snapNodeToGrid],
+  );
 
-  const updateSelectedEdgeRoutingStyle = useCallback((routingStyle: CanvasEdgeRoutingStyle) => {
-    updateSelectedEdge((edge) => ({ ...edge, routingStyle }));
-  }, [updateSelectedEdge]);
+  const updateSelectedEdge = useCallback(
+    (updater: (edge: CanvasEdge) => CanvasEdge) => {
+      if (!selectedEdge?.id) return;
+      setEdges((prev) =>
+        prev.map((edge) =>
+          edge.id === selectedEdge.id
+            ? {
+                ...edge,
+                ...toFlowEdge(updater(fromFlowEdge(edge))),
+                selected: true,
+              }
+            : edge,
+        ),
+      );
+    },
+    [selectedEdge?.id, setEdges],
+  );
 
-  const updateSelectedEdgeAnimation = useCallback((animated: boolean) => {
-    updateSelectedEdge((edge) => ({ ...edge, animated }));
-  }, [updateSelectedEdge]);
+  const updateSelectedEdgeLabel = useCallback(
+    (label: string) => {
+      setEdgeLabelDraft(label);
+      updateSelectedEdge((edge) => ({ ...edge, label }));
+    },
+    [updateSelectedEdge],
+  );
 
-  const updateSelectedEdgeAnimationDirection = useCallback((animationReverse: boolean) => {
-    updateSelectedEdge((edge) => ({ ...edge, animationReverse }));
-  }, [updateSelectedEdge]);
+  const updateSelectedEdgeLineStyle = useCallback(
+    (lineStyle: CanvasEdgeLineStyle) => {
+      updateSelectedEdge((edge) => ({ ...edge, lineStyle }));
+    },
+    [updateSelectedEdge],
+  );
 
-  const updateSelectedEdgeMarkerStart = useCallback((markerStart: boolean) => {
-    updateSelectedEdge((edge) => ({ ...edge, markerStart }));
-  }, [updateSelectedEdge]);
+  const updateSelectedEdgeRoutingStyle = useCallback(
+    (routingStyle: CanvasEdgeRoutingStyle) => {
+      updateSelectedEdge((edge) => ({ ...edge, routingStyle }));
+    },
+    [updateSelectedEdge],
+  );
 
-  const updateSelectedEdgeMarkerEnd = useCallback((markerEnd: boolean) => {
-    updateSelectedEdge((edge) => ({ ...edge, markerEnd }));
-  }, [updateSelectedEdge]);
+  const updateSelectedEdgeAnimation = useCallback(
+    (animated: boolean) => {
+      updateSelectedEdge((edge) => ({ ...edge, animated }));
+    },
+    [updateSelectedEdge],
+  );
 
-  const updateSelectedPlanningNode = useCallback((updater: (node: FlowNode<CanvasNodeData>) => FlowNode<CanvasNodeData>) => {
-    if (!selectedNode?.id) return;
-    setNodes((prev) => prev.map((node) => (
-      node.id === selectedNode.id
-        ? { ...updater(node), selected: true }
-        : node
-    )));
-  }, [selectedNode?.id, setNodes]);
+  const updateSelectedEdgeAnimationDirection = useCallback(
+    (animationReverse: boolean) => {
+      updateSelectedEdge((edge) => ({ ...edge, animationReverse }));
+    },
+    [updateSelectedEdge],
+  );
 
-  const updateSelectedPlanningNodeTitle = useCallback((title: string) => {
-    const selectedNodeType = selectedNode?.type ?? '';
-    const isSymbolNode = selectedNodeType === 'symbolCard';
-    const isEditablePlanningNode = isPlanningNodeType(selectedNodeType.replace(/Card$/, '') as PlanningCanvasNode['type']);
-    if (!selectedNode || (!isEditablePlanningNode && !isSymbolNode)) return;
-    updateSelectedPlanningNode((node) => ({
-      ...node,
-      data: { ...node.data, title },
-    }));
-  }, [selectedNode, updateSelectedPlanningNode]);
+  const updateSelectedEdgeMarkerStart = useCallback(
+    (markerStart: boolean) => {
+      updateSelectedEdge((edge) => ({ ...edge, markerStart }));
+    },
+    [updateSelectedEdge],
+  );
 
-  const updateSelectedPlanningNodeBody = useCallback((content: string) => {
-    const selectedNodeType = selectedNode?.type ?? '';
-    const isEditablePlanningNode = isPlanningNodeType(selectedNodeType.replace(/Card$/, '') as PlanningCanvasNode['type']);
-    const isFileBackedNode = selectedNodeType === 'noteCard' || selectedNodeType === 'fileCard';
-    if (!selectedNode || (!isEditablePlanningNode && !isFileBackedNode)) return;
-    updateSelectedPlanningNode((node) => ({
-      ...node,
-      data: { ...node.data, content },
-    }));
-  }, [selectedNode, updateSelectedPlanningNode]);
+  const updateSelectedEdgeMarkerEnd = useCallback(
+    (markerEnd: boolean) => {
+      updateSelectedEdge((edge) => ({ ...edge, markerEnd }));
+    },
+    [updateSelectedEdge],
+  );
 
-  const updateSelectedPlanningNodeLinkedPath = useCallback((linkedRelativePath: string) => {
-    const selectedNodeType = selectedNode?.type ?? '';
-    if (!selectedNode || !isPlanningNodeType(selectedNodeType.replace(/Card$/, '') as PlanningCanvasNode['type'])) return;
-    updateSelectedPlanningNode((node) => ({
-      ...node,
-      data: { ...node.data, linkedRelativePath },
-    }));
-  }, [selectedNode, updateSelectedPlanningNode]);
+  const updateSelectedPlanningNode = useCallback(
+    (updater: (node: FlowNode<CanvasNodeData>) => FlowNode<CanvasNodeData>) => {
+      if (!selectedNode?.id) return;
+      setNodes((prev) =>
+        prev.map((node) =>
+          node.id === selectedNode.id ? { ...updater(node), selected: true } : node,
+        ),
+      );
+    },
+    [selectedNode?.id, setNodes],
+  );
+
+  const updateSelectedPlanningNodeTitle = useCallback(
+    (title: string) => {
+      const selectedNodeType = selectedNode?.type ?? '';
+      const isSymbolNode = selectedNodeType === 'symbolCard';
+      const isEditablePlanningNode = isPlanningNodeType(
+        selectedNodeType.replace(/Card$/, '') as PlanningCanvasNode['type'],
+      );
+      if (!selectedNode || (!isEditablePlanningNode && !isSymbolNode)) return;
+      updateSelectedPlanningNode((node) => ({
+        ...node,
+        data: { ...node.data, title },
+      }));
+    },
+    [selectedNode, updateSelectedPlanningNode],
+  );
+
+  const updateSelectedPlanningNodeBody = useCallback(
+    (content: string) => {
+      const selectedNodeType = selectedNode?.type ?? '';
+      const isEditablePlanningNode = isPlanningNodeType(
+        selectedNodeType.replace(/Card$/, '') as PlanningCanvasNode['type'],
+      );
+      const isFileBackedNode = selectedNodeType === 'noteCard' || selectedNodeType === 'fileCard';
+      if (!selectedNode || (!isEditablePlanningNode && !isFileBackedNode)) return;
+      updateSelectedPlanningNode((node) => ({
+        ...node,
+        data: { ...node.data, content },
+      }));
+    },
+    [selectedNode, updateSelectedPlanningNode],
+  );
+
+  const updateSelectedPlanningNodeLinkedPath = useCallback(
+    (linkedRelativePath: string) => {
+      const selectedNodeType = selectedNode?.type ?? '';
+      if (
+        !selectedNode ||
+        !isPlanningNodeType(selectedNodeType.replace(/Card$/, '') as PlanningCanvasNode['type'])
+      )
+        return;
+      updateSelectedPlanningNode((node) => ({
+        ...node,
+        data: { ...node.data, linkedRelativePath },
+      }));
+    },
+    [selectedNode, updateSelectedPlanningNode],
+  );
 
   const openLinkedPathPicker = useCallback(() => {
     if (!selectedNode) return;
     setPickerMode('linked-path');
   }, [selectedNode]);
 
-  const updateSelectedPlanningNodeMeta = useCallback((planning: CanvasPlanningMetadata) => {
-    const selectedNodeType = selectedNode?.type ?? '';
-    if (!selectedNode || !isPlanningNodeType(selectedNodeType.replace(/Card$/, '') as PlanningCanvasNode['type'])) return;
-    updateSelectedPlanningNode((node) => ({
-      ...node,
-      data: { ...node.data, planning },
-    }));
-  }, [selectedNode, updateSelectedPlanningNode]);
+  const updateSelectedPlanningNodeMeta = useCallback(
+    (planning: CanvasPlanningMetadata) => {
+      const selectedNodeType = selectedNode?.type ?? '';
+      if (
+        !selectedNode ||
+        !isPlanningNodeType(selectedNodeType.replace(/Card$/, '') as PlanningCanvasNode['type'])
+      )
+        return;
+      updateSelectedPlanningNode((node) => ({
+        ...node,
+        data: { ...node.data, planning },
+      }));
+    },
+    [selectedNode, updateSelectedPlanningNode],
+  );
 
-  const updateSelectedPlanningNodeOrientation = useCallback((orientation: CanvasSwimlaneOrientation) => {
-    if (selectedNode?.type !== 'swimlaneCard') return;
-    updateSelectedPlanningNode((node) => ({
-      ...node,
-      data: { ...node.data, orientation },
-    }));
-  }, [selectedNode?.type, updateSelectedPlanningNode]);
+  const updateSelectedPlanningNodeOrientation = useCallback(
+    (orientation: CanvasSwimlaneOrientation) => {
+      if (selectedNode?.type !== 'swimlaneCard') return;
+      updateSelectedPlanningNode((node) => ({
+        ...node,
+        data: { ...node.data, orientation },
+      }));
+    },
+    [selectedNode?.type, updateSelectedPlanningNode],
+  );
 
-  const updateSelectedSymbolNode = useCallback((symbol: CanvasSymbolDefinition) => {
-    if (selectedNode?.type !== 'symbolCard') return;
-    updateSelectedPlanningNode((node) => ({
-      ...node,
-      data: {
-        ...node.data,
-        symbolGlyph: symbol.glyph,
-        symbolId: symbol.iconId,
-        symbolLabel: symbol.iconLabel,
-        subtitle: symbol.iconLabel ?? 'Canvas symbol',
-        title: node.data.title || symbol.iconLabel || 'Symbol',
-      },
-    }));
-  }, [selectedNode?.type, updateSelectedPlanningNode]);
+  const updateSelectedSymbolNode = useCallback(
+    (symbol: CanvasSymbolDefinition) => {
+      if (selectedNode?.type !== 'symbolCard') return;
+      updateSelectedPlanningNode((node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          symbolGlyph: symbol.glyph,
+          symbolId: symbol.iconId,
+          symbolLabel: symbol.iconLabel,
+          subtitle: symbol.iconLabel ?? 'Canvas symbol',
+          title: node.data.title || symbol.iconLabel || 'Symbol',
+        },
+      }));
+    },
+    [selectedNode?.type, updateSelectedPlanningNode],
+  );
 
   const handleInsertMenuClose = useCallback(() => {
     setInsertMenuState((prev) => ({ ...prev, open: false }));
@@ -1350,115 +1563,147 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
     }
   }, [pickerMode, symbolPickerState.open]);
 
-  const handleInsertItemSelect = useCallback((item: CanvasInsertItem) => {
-    const flowPosition = insertSession?.flowPosition ?? insertMenuState.flowPosition;
-    setInsertMenuState((prev) => ({ ...prev, open: false }));
-    logAutoConnect('insert-item-select', {
-      itemId: item.id,
-      flowPosition,
-      pendingAutoConnect: insertSession?.autoConnect ?? pendingAutoConnectRef.current,
-    });
-
-    if (item.id === 'note' || item.id === 'file') {
-      setPickerMode(item.id);
-      return;
-    }
-
-    if (item.id === 'text') {
-      addTextNodeAt(flowPosition);
-      setInsertSession(null);
-      pendingAutoConnectRef.current = null;
-      return;
-    }
-
-    if (item.id === 'web') {
-      addWebNodeAt(flowPosition);
-      setInsertSession(null);
-      pendingAutoConnectRef.current = null;
-      return;
-    }
-
-    if (item.id === 'symbol') {
-      setSymbolPickerState({
-        open: true,
-        mode: 'insert',
-        position: flowPosition,
+  const handleInsertItemSelect = useCallback(
+    (item: CanvasInsertItem) => {
+      const flowPosition = insertSession?.flowPosition ?? insertMenuState.flowPosition;
+      setInsertMenuState((prev) => ({ ...prev, open: false }));
+      logAutoConnect('insert-item-select', {
+        itemId: item.id,
+        flowPosition,
+        pendingAutoConnect: insertSession?.autoConnect ?? pendingAutoConnectRef.current,
       });
-      return;
-    }
 
-    addPlanningNodeAt(item.id, flowPosition);
-    setInsertSession(null);
-    pendingAutoConnectRef.current = null;
-  }, [addPlanningNodeAt, addTextNodeAt, addWebNodeAt, insertMenuState.flowPosition, insertSession, setPickerMode]);
+      if (item.id === 'note' || item.id === 'file') {
+        setPickerMode(item.id);
+        return;
+      }
 
-  const handleSymbolSelect = useCallback((choice: CanvasSymbolChoice) => {
-    if (symbolPickerState.mode === 'edit') {
-      updateSelectedSymbolNode(choice);
-      setSymbolPickerState({ open: false, mode: 'insert', position: null });
-      return;
-    }
+      if (item.id === 'text') {
+        addTextNodeAt(flowPosition);
+        setInsertSession(null);
+        pendingAutoConnectRef.current = null;
+        return;
+      }
 
-    const pendingAutoConnect = insertSession?.autoConnect ?? pendingAutoConnectRef.current;
-    addSymbolNodeAt(choice, symbolPickerState.position ?? undefined, pendingAutoConnect);
-    setSymbolPickerState({ open: false, mode: 'insert', position: null });
-    setInsertSession(null);
-    pendingAutoConnectRef.current = null;
-  }, [addSymbolNodeAt, insertSession, symbolPickerState.mode, symbolPickerState.position, updateSelectedSymbolNode]);
+      if (item.id === 'web') {
+        addWebNodeAt(flowPosition);
+        setInsertSession(null);
+        pendingAutoConnectRef.current = null;
+        return;
+      }
 
-  const handleSymbolPickerOpenChange = useCallback((open: boolean) => {
-    if (open) {
-      setSymbolPickerState((prev) => ({ ...prev, open: true }));
-      return;
-    }
+      if (item.id === 'symbol') {
+        setSymbolPickerState({
+          open: true,
+          mode: 'insert',
+          position: flowPosition,
+        });
+        return;
+      }
 
-    const mode = symbolPickerState.mode;
-    setSymbolPickerState({ open: false, mode: 'insert', position: null });
-    if (mode === 'insert') {
+      addPlanningNodeAt(item.id, flowPosition);
       setInsertSession(null);
       pendingAutoConnectRef.current = null;
-    }
-  }, [symbolPickerState.mode]);
+    },
+    [
+      addPlanningNodeAt,
+      addTextNodeAt,
+      addWebNodeAt,
+      insertMenuState.flowPosition,
+      insertSession,
+      setPickerMode,
+    ],
+  );
 
-  const handleEdgeDoubleClick = useCallback((event: React.MouseEvent, edge: CanvasFlowEdge) => {
-    event.preventDefault();
-    const position = reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    const junction = createSplitJunctionNode({
-      x: position.x - 36,
-      y: position.y - 36,
-    });
-    const split = splitEdgeWithJunction(fromFlowEdge(edge), junction);
-    setNodes((prev) => [
-      ...prev,
-      toFlowNode(junction, undefined, {
-        onOpen: openRelativePath,
-        onTextChange: updateTextContent,
-        onSnapToGrid: snapNodeToGrid,
-        onWebUrlChange: updateWebUrl,
-        onWebDisplayModeOverrideChange: updateWebDisplayModeOverride,
-        onRequestWebPreview: requestWebPreview,
-        onOpenUrl: openExternalUrl,
-      }, canvasWebCardDefaultMode, canvasWebCardAutoLoad, webPreviewsEnabled),
-    ]);
-    setEdges((prev) => [
-      ...prev.filter((existing) => existing.id !== edge.id),
-      ...split.edges.map((nextEdge: CanvasEdge) => toFlowEdge(nextEdge)),
-    ]);
-  }, [
-    canvasWebCardAutoLoad,
-    canvasWebCardDefaultMode,
-    openExternalUrl,
-    openRelativePath,
-    reactFlow,
-    requestWebPreview,
-    setEdges,
-    setNodes,
-    snapNodeToGrid,
-    updateTextContent,
-    updateWebDisplayModeOverride,
-    updateWebUrl,
-    webPreviewsEnabled,
-  ]);
+  const handleSymbolSelect = useCallback(
+    (choice: CanvasSymbolChoice) => {
+      if (symbolPickerState.mode === 'edit') {
+        updateSelectedSymbolNode(choice);
+        setSymbolPickerState({ open: false, mode: 'insert', position: null });
+        return;
+      }
+
+      const pendingAutoConnect = insertSession?.autoConnect ?? pendingAutoConnectRef.current;
+      addSymbolNodeAt(choice, symbolPickerState.position ?? undefined, pendingAutoConnect);
+      setSymbolPickerState({ open: false, mode: 'insert', position: null });
+      setInsertSession(null);
+      pendingAutoConnectRef.current = null;
+    },
+    [
+      addSymbolNodeAt,
+      insertSession,
+      symbolPickerState.mode,
+      symbolPickerState.position,
+      updateSelectedSymbolNode,
+    ],
+  );
+
+  const handleSymbolPickerOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) {
+        setSymbolPickerState((prev) => ({ ...prev, open: true }));
+        return;
+      }
+
+      const mode = symbolPickerState.mode;
+      setSymbolPickerState({ open: false, mode: 'insert', position: null });
+      if (mode === 'insert') {
+        setInsertSession(null);
+        pendingAutoConnectRef.current = null;
+      }
+    },
+    [symbolPickerState.mode],
+  );
+
+  const handleEdgeDoubleClick = useCallback(
+    (event: React.MouseEvent, edge: CanvasFlowEdge) => {
+      event.preventDefault();
+      const position = reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      const junction = createSplitJunctionNode({
+        x: position.x - 36,
+        y: position.y - 36,
+      });
+      const split = splitEdgeWithJunction(fromFlowEdge(edge), junction);
+      setNodes((prev) => [
+        ...prev,
+        toFlowNode(
+          junction,
+          undefined,
+          {
+            onOpen: openRelativePath,
+            onTextChange: updateTextContent,
+            onSnapToGrid: snapNodeToGrid,
+            onWebUrlChange: updateWebUrl,
+            onWebDisplayModeOverrideChange: updateWebDisplayModeOverride,
+            onRequestWebPreview: requestWebPreview,
+            onOpenUrl: openExternalUrl,
+          },
+          canvasWebCardDefaultMode,
+          canvasWebCardAutoLoad,
+          webPreviewsEnabled,
+        ),
+      ]);
+      setEdges((prev) => [
+        ...prev.filter((existing) => existing.id !== edge.id),
+        ...split.edges.map((nextEdge: CanvasEdge) => toFlowEdge(nextEdge)),
+      ]);
+    },
+    [
+      canvasWebCardAutoLoad,
+      canvasWebCardDefaultMode,
+      openExternalUrl,
+      openRelativePath,
+      reactFlow,
+      requestWebPreview,
+      setEdges,
+      setNodes,
+      snapNodeToGrid,
+      updateTextContent,
+      updateWebDisplayModeOverride,
+      updateWebUrl,
+      webPreviewsEnabled,
+    ],
+  );
 
   if (!relativePath) {
     return (
@@ -1473,10 +1718,12 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
   }
 
   return (
-    <div className={cn(
-      'flex h-full w-full min-h-0 flex-col overflow-hidden bg-background app-document-ready',
-      refreshPulse && 'app-refresh-pulse',
-    )}>
+    <div
+      className={cn(
+        'flex h-full w-full min-h-0 flex-col overflow-hidden bg-background app-document-ready',
+        refreshPulse && 'app-refresh-pulse',
+      )}
+    >
       <DocumentTopBar
         title={getDocumentBaseName(relativePath, 'Canvas')}
         subtitle={getDocumentFolderPath(relativePath)}
@@ -1484,7 +1731,8 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
         meta={
           <>
             <span className="shrink-0 text-xs text-muted-foreground">
-              {nodes.length} {nodes.length === 1 ? 'card' : 'cards'} and {edges.length} {edges.length === 1 ? 'link' : 'links'}
+              {nodes.length} {nodes.length === 1 ? 'card' : 'cards'} and {edges.length}{' '}
+              {edges.length === 1 ? 'link' : 'links'}
             </span>
             <DocumentStatusPill status={canvasSnapshot.status} compact />
             <LivePeers peers={livePeers} />
@@ -1514,167 +1762,185 @@ function CanvasBoard({ relativePath }: { relativePath: string | null }) {
       <div
         ref={viewportRef}
         className="relative min-h-0 flex-1 overflow-hidden bg-[radial-gradient(circle_at_top,oklch(0.24_0.04_230_/_0.16),transparent_45%),linear-gradient(to_bottom,transparent,transparent)]"
-        onDragOver={readOnly ? undefined : (event) => {
-          event.preventDefault();
-          event.dataTransfer.dropEffect = 'copy';
-        }}
+        onDragOver={
+          readOnly
+            ? undefined
+            : (event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'copy';
+              }
+        }
         onDrop={readOnly ? undefined : handleDropOnCanvas}
       >
-      {canvasLoading && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/45 backdrop-blur-[1px]">
-          <div className="flex items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-2 text-sm text-muted-foreground shadow-lg">
-            <Loader2 size={16} className="animate-spin" />
-            Loading canvas…
+        {canvasLoading && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/45 backdrop-blur-[1px]">
+            <div className="flex items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-2 text-sm text-muted-foreground shadow-lg">
+              <Loader2 size={16} className="animate-spin" />
+              Loading canvas…
+            </div>
           </div>
-        </div>
-      )}
-      <CanvasPickerDialog
-        open={pickerMode !== null}
-        mode={pickerMode}
-        files={pickerMode === 'note' ? availableNotes : pickerMode === 'linked-path' ? allFiles : availableFiles}
-        onOpenChange={(open) => {
-          if (!open) {
-            logAutoConnect('picker-open-change', {
-              open,
-              selectionCommitted: false,
-              pendingAutoConnect: pendingAutoConnectRef.current,
+        )}
+        <CanvasPickerDialog
+          open={pickerMode !== null}
+          mode={pickerMode}
+          files={
+            pickerMode === 'note'
+              ? availableNotes
+              : pickerMode === 'linked-path'
+                ? allFiles
+                : availableFiles
+          }
+          onOpenChange={(open) => {
+            if (!open) {
+              logAutoConnect('picker-open-change', {
+                open,
+                selectionCommitted: false,
+                pendingAutoConnect: pendingAutoConnectRef.current,
+                insertSession,
+              });
+              setPickerMode(null);
+              setInsertSession(null);
+              pendingAutoConnectRef.current = null;
+            }
+          }}
+          onSelect={(file) => {
+            if (pickerMode === 'linked-path') {
+              updateSelectedPlanningNodeLinkedPath(file.relativePath);
+              setPickerMode(null);
+              return;
+            }
+            const pendingAutoConnect = insertSession?.autoConnect
+              ? { ...insertSession.autoConnect }
+              : pendingAutoConnectRef.current
+                ? { ...pendingAutoConnectRef.current }
+                : null;
+            logAutoConnect('picker-select', {
+              file: file.relativePath,
+              pendingAutoConnect,
               insertSession,
             });
-            setPickerMode(null);
+            handlePickerSelect(file, pendingAutoConnect);
             setInsertSession(null);
             pendingAutoConnectRef.current = null;
+          }}
+        />
+        <CanvasSymbolPickerDialog
+          open={symbolPickerState.open}
+          title={
+            symbolPickerState.mode === 'edit' ? 'Change canvas symbol' : 'Add symbol to canvas'
           }
-        }}
-        onSelect={(file) => {
-          if (pickerMode === 'linked-path') {
-            updateSelectedPlanningNodeLinkedPath(file.relativePath);
-            setPickerMode(null);
-            return;
+          description={
+            symbolPickerState.mode === 'edit'
+              ? 'Choose a Nerd Font icon to replace the selected canvas symbol.'
+              : 'Search bundled Nerd Font icons and add one as a symbol node on the canvas.'
           }
-          const pendingAutoConnect = insertSession?.autoConnect
-            ? { ...insertSession.autoConnect }
-            : pendingAutoConnectRef.current
-              ? { ...pendingAutoConnectRef.current }
-              : null;
-          logAutoConnect('picker-select', {
-            file: file.relativePath,
-            pendingAutoConnect,
-            insertSession,
-          });
-          handlePickerSelect(file, pendingAutoConnect);
-          setInsertSession(null);
-          pendingAutoConnectRef.current = null;
-        }}
-      />
-      <CanvasSymbolPickerDialog
-        open={symbolPickerState.open}
-        title={symbolPickerState.mode === 'edit' ? 'Change canvas symbol' : 'Add symbol to canvas'}
-        description={
-          symbolPickerState.mode === 'edit'
-            ? 'Choose a Nerd Font icon to replace the selected canvas symbol.'
-            : 'Search bundled Nerd Font icons and add one as a symbol node on the canvas.'
-        }
-        onOpenChange={handleSymbolPickerOpenChange}
-        onSelect={handleSymbolSelect}
-      />
-      <CanvasInsertMenu
-        open={insertMenuState.open}
-        x={insertMenuState.x}
-        y={insertMenuState.y}
-        onSelect={handleInsertItemSelect}
-        onClose={handleInsertMenuClose}
-      />
+          onOpenChange={handleSymbolPickerOpenChange}
+          onSelect={handleSymbolSelect}
+        />
+        <CanvasInsertMenu
+          open={insertMenuState.open}
+          x={insertMenuState.x}
+          y={insertMenuState.y}
+          onSelect={handleInsertItemSelect}
+          onClose={handleInsertMenuClose}
+        />
 
-      <CanvasEdgeLayoutProvider value={edgeLayout}>
-        <ReactFlow<FlowNode<CanvasNodeData>, CanvasFlowEdge>
-          nodes={displayNodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeDragStart={handleNodeDragStart}
-          onNodeDragStop={handleNodeDragStop}
-          onConnect={handleConnect}
-          onConnectStart={handleConnectStart}
-          onConnectEnd={handleConnectEnd}
-          onReconnect={handleReconnect}
-          onPaneContextMenu={readOnly ? undefined : (event) => {
-            event.preventDefault();
-            pendingAutoConnectRef.current = null;
-            openInsertMenuAt(event.clientX, event.clientY, null);
-          }}
-          onEdgeDoubleClick={readOnly ? undefined : handleEdgeDoubleClick}
-          onMoveStart={() => setIsCanvasInteracting(true)}
-          onMoveEnd={(_: MouseEvent | TouchEvent | null, nextViewport: Viewport) => {
-            setIsCanvasInteracting(false);
-            setViewport(nextViewport);
-          }}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          connectionMode={ConnectionMode.Loose}
-          selectionOnDrag
-          panOnDrag={[1]}
-          panOnScroll
-          zoomOnScroll={false}
-          deleteKeyCode={readOnly ? null : ['Backspace', 'Delete']}
-          nodesDraggable={!readOnly}
-          elementsSelectable={!readOnly}
-          nodesConnectable={!readOnly}
-          edgesReconnectable={!readOnly}
-          connectionLineComponent={StackedConnectionLine}
-        connectionRadius={44}
-        reconnectRadius={44}
-        minZoom={0.2}
-        maxZoom={2.5}
-        onlyRenderVisibleElements
-        proOptions={{ hideAttribution: true }}
-        className="canvas-flow"
-          defaultEdgeOptions={{
-            type: 'stacked',
-            animated: false,
-            style: {
-              ...DEFAULT_CANVAS_EDGE_STYLE,
-              strokeLinecap: 'butt',
-            },
-          }}
-        >
-          <Background
-            gap={24}
-            size={1.5}
-            variant={BackgroundVariant.Dots}
-            color="color-mix(in oklch, var(--muted-foreground) 22%, transparent)"
-          />
-          <Panel position="top-right">
-            <CanvasEdgeInspector
-              selectedEdgeData={selectedEdgeData}
-              edgeLabelDraft={edgeLabelDraft}
-              onEdgeLabelChange={updateSelectedEdgeLabel}
-              onLineStyleChange={updateSelectedEdgeLineStyle}
-              onRoutingStyleChange={updateSelectedEdgeRoutingStyle}
-              onAnimationDirectionChange={updateSelectedEdgeAnimationDirection}
-              onAnimationChange={updateSelectedEdgeAnimation}
-              onMarkerStartChange={updateSelectedEdgeMarkerStart}
-              onMarkerEndChange={updateSelectedEdgeMarkerEnd}
-              onDeleteSelected={deleteSelection}
+        <CanvasEdgeLayoutProvider value={edgeLayout}>
+          <ReactFlow<FlowNode<CanvasNodeData>, CanvasFlowEdge>
+            nodes={displayNodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onNodeDragStart={handleNodeDragStart}
+            onNodeDragStop={handleNodeDragStop}
+            onConnect={handleConnect}
+            onConnectStart={handleConnectStart}
+            onConnectEnd={handleConnectEnd}
+            onReconnect={handleReconnect}
+            onPaneContextMenu={
+              readOnly
+                ? undefined
+                : (event) => {
+                    event.preventDefault();
+                    pendingAutoConnectRef.current = null;
+                    openInsertMenuAt(event.clientX, event.clientY, null);
+                  }
+            }
+            onEdgeDoubleClick={readOnly ? undefined : handleEdgeDoubleClick}
+            onMoveStart={() => setIsCanvasInteracting(true)}
+            onMoveEnd={(_: MouseEvent | TouchEvent | null, nextViewport: Viewport) => {
+              setIsCanvasInteracting(false);
+              setViewport(nextViewport);
+            }}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            connectionMode={ConnectionMode.Loose}
+            selectionOnDrag
+            panOnDrag={[1]}
+            panOnScroll
+            zoomOnScroll={false}
+            deleteKeyCode={readOnly ? null : ['Backspace', 'Delete']}
+            nodesDraggable={!readOnly}
+            elementsSelectable={!readOnly}
+            nodesConnectable={!readOnly}
+            edgesReconnectable={!readOnly}
+            connectionLineComponent={StackedConnectionLine}
+            connectionRadius={44}
+            reconnectRadius={44}
+            minZoom={0.2}
+            maxZoom={2.5}
+            onlyRenderVisibleElements
+            proOptions={{ hideAttribution: true }}
+            className="canvas-flow"
+            defaultEdgeOptions={{
+              type: 'stacked',
+              animated: false,
+              style: {
+                ...DEFAULT_CANVAS_EDGE_STYLE,
+                strokeLinecap: 'butt',
+              },
+            }}
+          >
+            <Background
+              gap={24}
+              size={1.5}
+              variant={BackgroundVariant.Dots}
+              color="color-mix(in oklch, var(--muted-foreground) 22%, transparent)"
             />
-          </Panel>
-          <Panel position="top-left">
-            <CanvasNodeInspector
-              selectedNode={selectedInspectorNode}
-              knownUsers={knownUsers}
-              availableTags={availableTags}
-              dateFormat={dateFormat}
-              onTitleChange={updateSelectedPlanningNodeTitle}
-              onBodyChange={updateSelectedPlanningNodeBody}
-              onPickSymbol={() => setSymbolPickerState({ open: true, mode: 'edit', position: null })}
-              onPickLinkedPath={openLinkedPathPicker}
-              onLinkedPathChange={updateSelectedPlanningNodeLinkedPath}
-              onPlanningChange={updateSelectedPlanningNodeMeta}
-              onOrientationChange={updateSelectedPlanningNodeOrientation}
-              onDeleteSelected={deleteSelection}
-            />
-          </Panel>
-        </ReactFlow>
-      </CanvasEdgeLayoutProvider>
+            <Panel position="top-right">
+              <CanvasEdgeInspector
+                selectedEdgeData={selectedEdgeData}
+                edgeLabelDraft={edgeLabelDraft}
+                onEdgeLabelChange={updateSelectedEdgeLabel}
+                onLineStyleChange={updateSelectedEdgeLineStyle}
+                onRoutingStyleChange={updateSelectedEdgeRoutingStyle}
+                onAnimationDirectionChange={updateSelectedEdgeAnimationDirection}
+                onAnimationChange={updateSelectedEdgeAnimation}
+                onMarkerStartChange={updateSelectedEdgeMarkerStart}
+                onMarkerEndChange={updateSelectedEdgeMarkerEnd}
+                onDeleteSelected={deleteSelection}
+              />
+            </Panel>
+            <Panel position="top-left">
+              <CanvasNodeInspector
+                selectedNode={selectedInspectorNode}
+                knownUsers={knownUsers}
+                availableTags={availableTags}
+                dateFormat={dateFormat}
+                onTitleChange={updateSelectedPlanningNodeTitle}
+                onBodyChange={updateSelectedPlanningNodeBody}
+                onPickSymbol={() =>
+                  setSymbolPickerState({ open: true, mode: 'edit', position: null })
+                }
+                onPickLinkedPath={openLinkedPathPicker}
+                onLinkedPathChange={updateSelectedPlanningNodeLinkedPath}
+                onPlanningChange={updateSelectedPlanningNodeMeta}
+                onOrientationChange={updateSelectedPlanningNodeOrientation}
+                onDeleteSelected={deleteSelection}
+              />
+            </Panel>
+          </ReactFlow>
+        </CanvasEdgeLayoutProvider>
       </div>
     </div>
   );

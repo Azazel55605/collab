@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+
 import { Bell, BellOff, CheckCircle2, ChevronDown, Save, Send } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '../../lib/utils';
-import { tauriCommands } from '../../lib/tauri';
-import { DEFAULT_NOTIFICATION_PREFERENCES } from '../../lib/notificationContract';
+
 import { listKnownServers } from '../../lib/hostedServers';
+import { DEFAULT_NOTIFICATION_PREFERENCES } from '../../lib/notificationContract';
+import { tauriCommands } from '../../lib/tauri';
+import { cn } from '../../lib/utils';
 import { useCollabStore } from '../../store/collabStore';
 import { useServerStore } from '../../store/serverStore';
 import { useUiStore } from '../../store/uiStore';
@@ -18,6 +20,7 @@ import type {
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { TimePicker } from '../ui/time-picker';
+
 import { OptionRow, SectionLabel, ToggleSwitch } from './settingsControls';
 import TimeZoneSelect from './TimeZoneSelect';
 
@@ -26,7 +29,11 @@ const CATEGORY_LABELS: Array<[NotificationCategory, string, string]> = [
   ['calendar.invitation', 'Calendar invitations', 'Invitations and attendee updates.'],
   ['collaboration.message', 'Chat messages', 'New collaboration messages.'],
   ['collaboration.mention', 'Mentions', 'Messages that mention you directly.'],
-  ['sync.action-required', 'Sync and account', 'Conflicts, permission changes, and sign-in recovery.'],
+  [
+    'sync.action-required',
+    'Sync and account',
+    'Conflicts, permission changes, and sign-in recovery.',
+  ],
   ['transfer.complete', 'Transfers', 'Completed uploads and downloads.'],
 ];
 
@@ -49,8 +56,9 @@ interface NotificationScopeSource {
 type NotificationScopeGroup = 'servers' | 'vaults' | 'calendars';
 
 function uniqueSources(sources: NotificationScopeSource[]): NotificationScopeSource[] {
-  return [...new Map(sources.map((source) => [source.key, source])).values()]
-    .sort((left, right) => left.label.localeCompare(right.label));
+  return [...new Map(sources.map((source) => [source.key, source])).values()].sort((left, right) =>
+    left.label.localeCompare(right.label),
+  );
 }
 
 export default function SettingsNotificationsSection() {
@@ -113,7 +121,9 @@ export default function SettingsNotificationsSection() {
   };
 
   const granted = permission?.status === 'granted';
-  const updatePreferences = (update: (current: NotificationPreferences) => NotificationPreferences) => {
+  const updatePreferences = (
+    update: (current: NotificationPreferences) => NotificationPreferences,
+  ) => {
     setPreferences((current) => update(current ?? DEFAULT_NOTIFICATION_PREFERENCES));
   };
   const toggleScope = (scopeKey: string) => {
@@ -137,36 +147,43 @@ export default function SettingsNotificationsSection() {
     })),
   ]);
   const vaultSources = uniqueSources([
-    ...Object.entries(connections).flatMap(([serverUrl, connection]) => (
+    ...Object.entries(connections).flatMap(([serverUrl, connection]) =>
       connection.hostedVaults.map((hostedVault) => ({
         key: `vault:${hostedVault.id}`,
         label: hostedVault.name,
         description: serverUrl,
-      }))
-    )),
+      })),
+    ),
     ...recentVaults.map((recent) => ({
       key: `vault:${recent.kind === 'hosted' ? recent.hostedVaultId : recent.id}`,
       label: recent.name,
       description: recent.kind === 'hosted' ? recent.serverUrl : 'Local vault',
     })),
-    ...(vault ? [{
-      key: `vault:${vault.kind === 'hosted' ? vault.hostedVaultId : vault.id}`,
-      label: vault.name,
-      description: vault.kind === 'hosted' ? vault.serverUrl : 'Local vault',
-    }] : []),
+    ...(vault
+      ? [
+          {
+            key: `vault:${vault.kind === 'hosted' ? vault.hostedVaultId : vault.id}`,
+            label: vault.name,
+            description: vault.kind === 'hosted' ? vault.serverUrl : 'Local vault',
+          },
+        ]
+      : []),
   ]);
-  const calendarSources = uniqueSources(calendars.map((calendar) => ({
-    key: `calendar:${calendar.id}`,
-    label: calendar.name,
-    description: calendar.location.kind === 'hosted'
-      ? calendar.location.serverUrl
-      : calendar.location.kind === 'local'
-        ? 'Local calendar'
-        : calendar.location.kind === 'subscription'
-          ? 'Subscribed calendar'
-          : 'Kanban tasks',
-    color: calendar.color,
-  })));
+  const calendarSources = uniqueSources(
+    calendars.map((calendar) => ({
+      key: `calendar:${calendar.id}`,
+      label: calendar.name,
+      description:
+        calendar.location.kind === 'hosted'
+          ? calendar.location.serverUrl
+          : calendar.location.kind === 'local'
+            ? 'Local calendar'
+            : calendar.location.kind === 'subscription'
+              ? 'Subscribed calendar'
+              : 'Kanban tasks',
+      color: calendar.color,
+    })),
+  );
   const savePreferences = async () => {
     if (!profileId || !preferences) return;
     setBusy(true);
@@ -188,15 +205,21 @@ export default function SettingsNotificationsSection() {
       </p>
       <OptionRow
         label="System permission"
-        description={granted
-          ? 'Collab can deliver notifications while hidden in the tray.'
-          : permission?.status === 'denied'
-            ? 'Notifications are blocked. Your operating system may require enabling them in system settings.'
-            : 'Enable native desktop notifications for due reminders.'}
+        description={
+          granted
+            ? 'Collab can deliver notifications while hidden in the tray.'
+            : permission?.status === 'denied'
+              ? 'Notifications are blocked. Your operating system may require enabling them in system settings.'
+              : 'Enable native desktop notifications for due reminders.'
+        }
       >
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            {granted ? <CheckCircle2 size={13} className="text-emerald-500" /> : <BellOff size={13} />}
+            {granted ? (
+              <CheckCircle2 size={13} className="text-emerald-500" />
+            ) : (
+              <BellOff size={13} />
+            )}
             {permission?.status ?? 'Checking'}
           </span>
           {!granted && permission?.supported !== false && (
@@ -210,159 +233,214 @@ export default function SettingsNotificationsSection() {
         label="Test notification"
         description="Send a local notification without creating an inbox item."
       >
-        <Button variant="outline" size="sm" onClick={() => void sendTest()} disabled={busy || !granted}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void sendTest()}
+          disabled={busy || !granted}
+        >
           <Send size={13} /> Send test
         </Button>
       </OptionRow>
       <SectionLabel>Delivery behavior</SectionLabel>
-      {preferences ? <>
-        <OptionRow label="Notifications" description="Keep inbox records while controlling native delivery for this profile.">
-          <ToggleSwitch
-            ariaLabel="Notifications"
-            checked={preferences.enabled}
-            onToggle={() => updatePreferences((current) => ({ ...current, enabled: !current.enabled }))}
-          />
-        </OptionRow>
-        <OptionRow label="Lock-screen privacy" description="The stricter of this setting and each notification's privacy rule is used.">
-          <Select
-            value={preferences.lockScreenPrivacy}
-            onValueChange={(lockScreenPrivacy) => updatePreferences((current) => ({
-              ...current,
-              lockScreenPrivacy: lockScreenPrivacy as NotificationPreferences['lockScreenPrivacy'],
-            }))}
+      {preferences ? (
+        <>
+          <OptionRow
+            label="Notifications"
+            description="Keep inbox records while controlling native delivery for this profile."
           >
-            <SelectTrigger aria-label="Lock-screen privacy" className="w-32"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="full">Full content</SelectItem>
-              <SelectItem value="title-only">Title only</SelectItem>
-              <SelectItem value="hidden">Hidden</SelectItem>
-            </SelectContent>
-          </Select>
-        </OptionRow>
-        <OptionRow label="Group notification bursts" description="Show one summary when several notifications become due together.">
-          <ToggleSwitch
-            ariaLabel="Group notification bursts"
-            checked={preferences.batchNotifications}
-            onToggle={() => updatePreferences((current) => ({
-              ...current,
-              batchNotifications: !current.batchNotifications,
-            }))}
-          />
-        </OptionRow>
-        <SectionLabel>Categories</SectionLabel>
-        {CATEGORY_LABELS.map(([category, label, description]) => (
-          <OptionRow key={category} label={label} description={description}>
             <ToggleSwitch
-              ariaLabel={label}
-              checked={preferences.categoryEnabled[category]}
-              onToggle={() => updatePreferences((current) => ({
-                ...current,
-                categoryEnabled: {
-                  ...current.categoryEnabled,
-                  [category]: !current.categoryEnabled[category],
-                },
-              }))}
+              ariaLabel="Notifications"
+              checked={preferences.enabled}
+              onToggle={() =>
+                updatePreferences((current) => ({ ...current, enabled: !current.enabled }))
+              }
             />
           </OptionRow>
-        ))}
-        <SectionLabel>Sources</SectionLabel>
-        <p className="mb-2 text-[12px] text-muted-foreground">
-          Mute native delivery from individual accounts, vaults, or calendars. Their items remain in the inbox.
-        </p>
-        <div className="space-y-2">
-          <ScopeGroup
-            id="servers"
-            label="Servers"
-            emptyLabel="No saved servers"
-            sources={serverSources}
-            preferences={preferences}
-            onToggle={toggleScope}
-            expanded={expandedScope === 'servers'}
-            onExpandedChange={() => setExpandedScope((current) => current === 'servers' ? null : 'servers')}
-          />
-          <ScopeGroup
-            id="vaults"
-            label="Vaults"
-            emptyLabel="No known vaults"
-            sources={vaultSources}
-            preferences={preferences}
-            onToggle={toggleScope}
-            expanded={expandedScope === 'vaults'}
-            onExpandedChange={() => setExpandedScope((current) => current === 'vaults' ? null : 'vaults')}
-          />
-          <ScopeGroup
-            id="calendars"
-            label="Calendars"
-            emptyLabel="No calendars"
-            sources={calendarSources}
-            preferences={preferences}
-            onToggle={toggleScope}
-            expanded={expandedScope === 'calendars'}
-            onExpandedChange={() => setExpandedScope((current) => current === 'calendars' ? null : 'calendars')}
-          />
-        </div>
-        <SectionLabel>Quiet hours</SectionLabel>
-        <OptionRow label="Enable quiet hours" description="Non-urgent native notifications wait until this period ends.">
-          <ToggleSwitch
-            ariaLabel="Enable quiet hours"
-            checked={preferences.quietHours !== null}
-            onToggle={() => updatePreferences((current) => ({
-              ...current,
-              quietHours: current.quietHours
-                ? null
-                : { startMinute: 22 * 60, endMinute: 7 * 60, timeZone: defaultTimeZone },
-            }))}
-          />
-        </OptionRow>
-        {preferences.quietHours && <div className="space-y-3 pb-3">
-          <div className="grid grid-cols-2 gap-2">
-            <TimePicker
-              value={minuteToTime(preferences.quietHours.startMinute)}
-              onChange={(value) => updatePreferences((current) => ({
-                ...current,
-                quietHours: current.quietHours
-                  ? { ...current.quietHours, startMinute: timeToMinute(value) }
-                  : null,
-              }))}
-              format={timeFormat}
-              label="Starts"
+          <OptionRow
+            label="Lock-screen privacy"
+            description="The stricter of this setting and each notification's privacy rule is used."
+          >
+            <Select
+              value={preferences.lockScreenPrivacy}
+              onValueChange={(lockScreenPrivacy) =>
+                updatePreferences((current) => ({
+                  ...current,
+                  lockScreenPrivacy:
+                    lockScreenPrivacy as NotificationPreferences['lockScreenPrivacy'],
+                }))
+              }
+            >
+              <SelectTrigger aria-label="Lock-screen privacy" className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="full">Full content</SelectItem>
+                <SelectItem value="title-only">Title only</SelectItem>
+                <SelectItem value="hidden">Hidden</SelectItem>
+              </SelectContent>
+            </Select>
+          </OptionRow>
+          <OptionRow
+            label="Group notification bursts"
+            description="Show one summary when several notifications become due together."
+          >
+            <ToggleSwitch
+              ariaLabel="Group notification bursts"
+              checked={preferences.batchNotifications}
+              onToggle={() =>
+                updatePreferences((current) => ({
+                  ...current,
+                  batchNotifications: !current.batchNotifications,
+                }))
+              }
             />
-            <TimePicker
-              value={minuteToTime(preferences.quietHours.endMinute)}
-              onChange={(value) => updatePreferences((current) => ({
-                ...current,
-                quietHours: current.quietHours
-                  ? { ...current.quietHours, endMinute: timeToMinute(value) }
-                  : null,
-              }))}
-              format={timeFormat}
-              label="Ends"
+          </OptionRow>
+          <SectionLabel>Categories</SectionLabel>
+          {CATEGORY_LABELS.map(([category, label, description]) => (
+            <OptionRow key={category} label={label} description={description}>
+              <ToggleSwitch
+                ariaLabel={label}
+                checked={preferences.categoryEnabled[category]}
+                onToggle={() =>
+                  updatePreferences((current) => ({
+                    ...current,
+                    categoryEnabled: {
+                      ...current.categoryEnabled,
+                      [category]: !current.categoryEnabled[category],
+                    },
+                  }))
+                }
+              />
+            </OptionRow>
+          ))}
+          <SectionLabel>Sources</SectionLabel>
+          <p className="mb-2 text-[12px] text-muted-foreground">
+            Mute native delivery from individual accounts, vaults, or calendars. Their items remain
+            in the inbox.
+          </p>
+          <div className="space-y-2">
+            <ScopeGroup
+              id="servers"
+              label="Servers"
+              emptyLabel="No saved servers"
+              sources={serverSources}
+              preferences={preferences}
+              onToggle={toggleScope}
+              expanded={expandedScope === 'servers'}
+              onExpandedChange={() =>
+                setExpandedScope((current) => (current === 'servers' ? null : 'servers'))
+              }
+            />
+            <ScopeGroup
+              id="vaults"
+              label="Vaults"
+              emptyLabel="No known vaults"
+              sources={vaultSources}
+              preferences={preferences}
+              onToggle={toggleScope}
+              expanded={expandedScope === 'vaults'}
+              onExpandedChange={() =>
+                setExpandedScope((current) => (current === 'vaults' ? null : 'vaults'))
+              }
+            />
+            <ScopeGroup
+              id="calendars"
+              label="Calendars"
+              emptyLabel="No calendars"
+              sources={calendarSources}
+              preferences={preferences}
+              onToggle={toggleScope}
+              expanded={expandedScope === 'calendars'}
+              onExpandedChange={() =>
+                setExpandedScope((current) => (current === 'calendars' ? null : 'calendars'))
+              }
             />
           </div>
-          <TimeZoneSelect
-            value={preferences.quietHours.timeZone}
-            onValueChange={(timeZone) => updatePreferences((current) => ({
-              ...current,
-              quietHours: current.quietHours ? { ...current.quietHours, timeZone } : null,
-            }))}
-          />
-          <OptionRow label="Allow time-sensitive notifications" description="Urgent reminders may bypass quiet hours.">
+          <SectionLabel>Quiet hours</SectionLabel>
+          <OptionRow
+            label="Enable quiet hours"
+            description="Non-urgent native notifications wait until this period ends."
+          >
             <ToggleSwitch
-              ariaLabel="Allow time-sensitive notifications"
-              checked={preferences.allowTimeSensitiveDuringQuietHours}
-              onToggle={() => updatePreferences((current) => ({
-                ...current,
-                allowTimeSensitiveDuringQuietHours: !current.allowTimeSensitiveDuringQuietHours,
-              }))}
+              ariaLabel="Enable quiet hours"
+              checked={preferences.quietHours !== null}
+              onToggle={() =>
+                updatePreferences((current) => ({
+                  ...current,
+                  quietHours: current.quietHours
+                    ? null
+                    : { startMinute: 22 * 60, endMinute: 7 * 60, timeZone: defaultTimeZone },
+                }))
+              }
             />
           </OptionRow>
-        </div>}
-        <div className="flex justify-end">
-          <Button size="sm" onClick={() => void savePreferences()} disabled={busy || !profileId}>
-            <Save size={13} /> Save preferences
-          </Button>
-        </div>
-      </> : <p className="text-[12px] text-muted-foreground">Loading notification preferences…</p>}
+          {preferences.quietHours && (
+            <div className="space-y-3 pb-3">
+              <div className="grid grid-cols-2 gap-2">
+                <TimePicker
+                  value={minuteToTime(preferences.quietHours.startMinute)}
+                  onChange={(value) =>
+                    updatePreferences((current) => ({
+                      ...current,
+                      quietHours: current.quietHours
+                        ? { ...current.quietHours, startMinute: timeToMinute(value) }
+                        : null,
+                    }))
+                  }
+                  format={timeFormat}
+                  label="Starts"
+                />
+                <TimePicker
+                  value={minuteToTime(preferences.quietHours.endMinute)}
+                  onChange={(value) =>
+                    updatePreferences((current) => ({
+                      ...current,
+                      quietHours: current.quietHours
+                        ? { ...current.quietHours, endMinute: timeToMinute(value) }
+                        : null,
+                    }))
+                  }
+                  format={timeFormat}
+                  label="Ends"
+                />
+              </div>
+              <TimeZoneSelect
+                value={preferences.quietHours.timeZone}
+                onValueChange={(timeZone) =>
+                  updatePreferences((current) => ({
+                    ...current,
+                    quietHours: current.quietHours ? { ...current.quietHours, timeZone } : null,
+                  }))
+                }
+              />
+              <OptionRow
+                label="Allow time-sensitive notifications"
+                description="Urgent reminders may bypass quiet hours."
+              >
+                <ToggleSwitch
+                  ariaLabel="Allow time-sensitive notifications"
+                  checked={preferences.allowTimeSensitiveDuringQuietHours}
+                  onToggle={() =>
+                    updatePreferences((current) => ({
+                      ...current,
+                      allowTimeSensitiveDuringQuietHours:
+                        !current.allowTimeSensitiveDuringQuietHours,
+                    }))
+                  }
+                />
+              </OptionRow>
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button size="sm" onClick={() => void savePreferences()} disabled={busy || !profileId}>
+              <Save size={13} /> Save preferences
+            </Button>
+          </div>
+        </>
+      ) : (
+        <p className="text-[12px] text-muted-foreground">Loading notification preferences…</p>
+      )}
     </>
   );
 }
@@ -386,47 +464,56 @@ function ScopeGroup({
   expanded: boolean;
   onExpandedChange: () => void;
 }) {
-  const mutedCount = sources.filter((source) => preferences.scopeEnabled[source.key] === false).length;
+  const mutedCount = sources.filter(
+    (source) => preferences.scopeEnabled[source.key] === false,
+  ).length;
   const panelId = `notification-source-${id}`;
-  return <div className="overflow-hidden rounded-xl border border-border/40 bg-card/25">
-    <button
-      type="button"
-      className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-all app-motion-fast hover:bg-accent/25"
-      aria-expanded={expanded}
-      aria-controls={panelId}
-      onClick={onExpandedChange}
-    >
-      <span>
-        <span className="block text-sm font-medium">{label}</span>
-        <span className="mt-0.5 block text-[12px] text-muted-foreground">
-          {sources.length === 0
-            ? emptyLabel
-            : `${sources.length} ${sources.length === 1 ? 'source' : 'sources'}${mutedCount ? `, ${mutedCount} muted` : ''}`}
+  return (
+    <div className="overflow-hidden rounded-xl border border-border/40 bg-card/25">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-all app-motion-fast hover:bg-accent/25"
+        aria-expanded={expanded}
+        aria-controls={panelId}
+        onClick={onExpandedChange}
+      >
+        <span>
+          <span className="block text-sm font-medium">{label}</span>
+          <span className="mt-0.5 block text-[12px] text-muted-foreground">
+            {sources.length === 0
+              ? emptyLabel
+              : `${sources.length} ${sources.length === 1 ? 'source' : 'sources'}${mutedCount ? `, ${mutedCount} muted` : ''}`}
+          </span>
         </span>
-      </span>
-      <ChevronDown
-        size={16}
-        className={cn(
-          'shrink-0 text-muted-foreground transition-transform duration-200',
-          expanded && 'rotate-180',
-        )}
-      />
-    </button>
-    {expanded && sources.length > 0 ? (
-      <div id={panelId} className="border-t border-border/40 px-3 py-1.5">
-        {sources.map((source) => (
-          <OptionRow key={source.key} label={source.label} description={source.description}>
-            <div className="flex items-center gap-2">
-              {source.color ? <span className="size-2.5 rounded-full" style={{ backgroundColor: source.color }} /> : null}
-              <ToggleSwitch
-                ariaLabel={`${source.label} notifications`}
-                checked={preferences.scopeEnabled[source.key] !== false}
-                onToggle={() => onToggle(source.key)}
-              />
-            </div>
-          </OptionRow>
-        ))}
-      </div>
-    ) : null}
-  </div>;
+        <ChevronDown
+          size={16}
+          className={cn(
+            'shrink-0 text-muted-foreground transition-transform duration-200',
+            expanded && 'rotate-180',
+          )}
+        />
+      </button>
+      {expanded && sources.length > 0 ? (
+        <div id={panelId} className="border-t border-border/40 px-3 py-1.5">
+          {sources.map((source) => (
+            <OptionRow key={source.key} label={source.label} description={source.description}>
+              <div className="flex items-center gap-2">
+                {source.color ? (
+                  <span
+                    className="size-2.5 rounded-full"
+                    style={{ backgroundColor: source.color }}
+                  />
+                ) : null}
+                <ToggleSwitch
+                  ariaLabel={`${source.label} notifications`}
+                  checked={preferences.scopeEnabled[source.key] !== false}
+                  onToggle={() => onToggle(source.key)}
+                />
+              </div>
+            </OptionRow>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }

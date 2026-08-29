@@ -31,7 +31,8 @@ interface HarnessOverrides extends Partial<DocumentSessionControllerOptions<stri
 
 function makeController({ resolveWrite, ...overrides }: HarnessOverrides = {}) {
   const applied: RemoteCandidate<string>[] = [];
-  const writes: Array<{ content: string; expectedVersion: string | null; baseContent?: string }> = [];
+  const writes: Array<{ content: string; expectedVersion: string | null; baseContent?: string }> =
+    [];
   let scheduled: (() => void) | null = null;
 
   const options: DocumentSessionControllerOptions<string> = {
@@ -42,7 +43,9 @@ function makeController({ resolveWrite, ...overrides }: HarnessOverrides = {}) {
     },
     write: async (args) => {
       writes.push(args);
-      return resolveWrite ? resolveWrite(args) : ({ version: args.content } satisfies DocumentWriteOutcome);
+      return resolveWrite
+        ? resolveWrite(args)
+        : ({ version: args.content } satisfies DocumentWriteOutcome);
     },
     schedule: (fn) => {
       scheduled = fn;
@@ -73,12 +76,19 @@ describe('createExclusiveSaveRunner', () => {
     const order: string[] = [];
     let releaseFirst!: () => void;
 
-    const first = () => new Promise<void>((resolve) => {
-      order.push('first');
-      releaseFirst = resolve;
-    });
-    const stale = () => { order.push('stale'); return Promise.resolve(); };
-    const latest = () => { order.push('latest'); return Promise.resolve(); };
+    const first = () =>
+      new Promise<void>((resolve) => {
+        order.push('first');
+        releaseFirst = resolve;
+      });
+    const stale = () => {
+      order.push('stale');
+      return Promise.resolve();
+    };
+    const latest = () => {
+      order.push('latest');
+      return Promise.resolve();
+    };
 
     const run = runner.run(first);
     runner.run(stale);
@@ -160,7 +170,12 @@ describe('DocumentSessionController', () => {
     controller.load('a', 'v1');
 
     expect(
-      controller.handleRemoteCandidate({ document: 'a', content: 'a', version: 'v1', source: 'rest' }),
+      controller.handleRemoteCandidate({
+        document: 'a',
+        content: 'a',
+        version: 'v1',
+        source: 'rest',
+      }),
     ).toBe('stale');
     // Only the initial load applied a document; the stale candidate added none.
     expect(applied).toHaveLength(1);
@@ -174,10 +189,20 @@ describe('DocumentSessionController', () => {
     controller.load('a', '5');
 
     expect(
-      controller.handleRemoteCandidate({ document: 'x', content: 'x', version: '4', source: 'cache' }),
+      controller.handleRemoteCandidate({
+        document: 'x',
+        content: 'x',
+        version: '4',
+        source: 'cache',
+      }),
     ).toBe('stale');
     expect(
-      controller.handleRemoteCandidate({ document: 'y', content: 'y', version: '6', source: 'cache' }),
+      controller.handleRemoteCandidate({
+        document: 'y',
+        content: 'y',
+        version: '6',
+        source: 'cache',
+      }),
     ).toBe('applied');
     expect(controller.version).toBe('6');
   });
@@ -235,7 +260,12 @@ describe('DocumentSessionController', () => {
     const first = makeController();
     first.controller.load('a', 'v1');
     first.controller.markLocalChange('mine');
-    first.controller.handleRemoteCandidate({ document: 'theirs', content: 'theirs', version: 'v2', source: 'rest' });
+    first.controller.handleRemoteCandidate({
+      document: 'theirs',
+      content: 'theirs',
+      version: 'v2',
+      source: 'rest',
+    });
     first.controller.applyRemoteNow();
     expect(first.controller.getSnapshot().currentContent).toBe('theirs');
     expect(first.controller.getSnapshot().dirty).toBe(false);
@@ -244,7 +274,12 @@ describe('DocumentSessionController', () => {
     const second = makeController();
     second.controller.load('a', 'v1');
     second.controller.markLocalChange('mine');
-    second.controller.handleRemoteCandidate({ document: 'theirs', content: 'theirs', version: 'v2', source: 'rest' });
+    second.controller.handleRemoteCandidate({
+      document: 'theirs',
+      content: 'theirs',
+      version: 'v2',
+      source: 'rest',
+    });
     second.controller.discardRemoteCandidate();
     expect(second.controller.getSnapshot().currentContent).toBe('mine');
     expect(second.controller.getSnapshot().pendingRemote).toBeNull();
@@ -265,7 +300,12 @@ describe('DocumentSessionController', () => {
     await flush();
     expect(controller.getSnapshot().saving).toBe(true);
 
-    const decision = controller.handleRemoteCandidate({ document: 'c', content: 'c', version: 'c', source: 'rest' });
+    const decision = controller.handleRemoteCandidate({
+      document: 'c',
+      content: 'c',
+      version: 'c',
+      source: 'rest',
+    });
     expect(decision).toBe('queued');
     expect(controller.getSnapshot().pendingRemote).toMatchObject({ content: 'c' });
 
@@ -289,7 +329,10 @@ describe('DocumentSessionController', () => {
 
     expect(controller.getSnapshot().conflicted).toBe(true);
     expect(controller.getSnapshot().status).toBe('conflict');
-    expect(controller.getSnapshot().conflict).toMatchObject({ theirContent: 'theirs', ourContent: 'mine' });
+    expect(controller.getSnapshot().conflict).toMatchObject({
+      theirContent: 'theirs',
+      ourContent: 'mine',
+    });
 
     // Further edits while conflicted must not schedule autosave.
     controller.markLocalChange('mine-2');
@@ -340,7 +383,9 @@ describe('DocumentSessionController', () => {
     let release!: () => void;
     const { controller } = makeController({
       resolveWrite: async () => {
-        await new Promise<void>((resolve) => { release = resolve; });
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
         return { version: '2', offlineQueued: true };
       },
       compareVersions: compareDocumentVersions,
@@ -379,12 +424,22 @@ describe('DocumentSessionController', () => {
 
     // Non-live remote candidates are ignored while live.
     expect(
-      controller.handleRemoteCandidate({ document: 'c', content: 'c', version: 'v9', source: 'rest' }),
+      controller.handleRemoteCandidate({
+        document: 'c',
+        content: 'c',
+        version: 'v9',
+        source: 'rest',
+      }),
     ).toBe('ignored');
 
     // A live candidate is authoritative and applied even with the same version.
     expect(
-      controller.handleRemoteCandidate({ document: 'live', content: 'live', version: 'v1', source: 'live' }),
+      controller.handleRemoteCandidate({
+        document: 'live',
+        content: 'live',
+        version: 'v1',
+        source: 'live',
+      }),
     ).toBe('applied');
     expect(controller.getSnapshot().currentContent).toBe('live');
 
@@ -410,11 +465,17 @@ describe('DocumentSessionController', () => {
     const decision = await controller.handleExternalMutation('cache');
     expect(read).toHaveBeenCalledTimes(1);
     expect(decision).toBe('applied');
-    expect(applied[applied.length - 1]).toMatchObject({ content: 'fresh', version: 'v2', source: 'cache' });
+    expect(applied[applied.length - 1]).toMatchObject({
+      content: 'fresh',
+      version: 'v2',
+      source: 'cache',
+    });
   });
 
   it('treats a failing external re-read as nothing-to-apply (no unhandled rejection)', async () => {
-    const read = vi.fn().mockRejectedValue(new Error('Decryption failed — incorrect password or corrupted file'));
+    const read = vi
+      .fn()
+      .mockRejectedValue(new Error('Decryption failed — incorrect password or corrupted file'));
     const { controller } = makeController({ read });
     controller.load('a', 'v1');
 
@@ -426,7 +487,10 @@ describe('DocumentSessionController', () => {
 
   it('merges a dirty remote candidate when a merge function is provided', () => {
     const { controller, applied } = makeController({
-      mergeRemote: ({ local, remote }) => ({ document: `${local}+${remote}`, content: `${local}+${remote}` }),
+      mergeRemote: ({ local, remote }) => ({
+        document: `${local}+${remote}`,
+        content: `${local}+${remote}`,
+      }),
     });
     controller.load('base', 'v1');
     controller.markLocalChange('local');
@@ -450,7 +514,12 @@ describe('DocumentSessionController reconciliation API', () => {
     const { controller } = makeController();
     controller.load('base', 'v1');
     controller.markLocalChange('mine');
-    controller.handleRemoteCandidate({ document: 'theirs', content: 'theirs', version: 'v2', source: 'rest' });
+    controller.handleRemoteCandidate({
+      document: 'theirs',
+      content: 'theirs',
+      version: 'v2',
+      source: 'rest',
+    });
 
     const recon = controller.getReconciliation();
     expect(recon).toEqual({
@@ -488,7 +557,12 @@ describe('DocumentSessionController reconciliation API', () => {
     const { controller, applied } = makeController();
     controller.load('base', 'v1');
     controller.markLocalChange('mine');
-    controller.handleRemoteCandidate({ document: 'theirs', content: 'theirs', version: 'v2', source: 'rest' });
+    controller.handleRemoteCandidate({
+      document: 'theirs',
+      content: 'theirs',
+      version: 'v2',
+      source: 'rest',
+    });
 
     controller.loadRemote();
     expect(controller.getReconciliation()).toBeNull();
@@ -501,7 +575,12 @@ describe('DocumentSessionController reconciliation API', () => {
     const { controller, hasScheduledAutosave } = makeController();
     controller.load('base', 'v1');
     controller.markLocalChange('mine');
-    controller.handleRemoteCandidate({ document: 'theirs', content: 'theirs', version: 'v2', source: 'rest' });
+    controller.handleRemoteCandidate({
+      document: 'theirs',
+      content: 'theirs',
+      version: 'v2',
+      source: 'rest',
+    });
 
     controller.keepMine();
     const snap = controller.getSnapshot();
@@ -519,10 +598,17 @@ describe('DocumentSessionController reconciliation API', () => {
     const { controller, applied } = makeController();
     controller.load('base', 'v1');
     controller.markLocalChange('mine');
-    controller.handleRemoteCandidate({ document: 'theirs', content: 'theirs', version: 'v2', source: 'rest' });
+    controller.handleRemoteCandidate({
+      document: 'theirs',
+      content: 'theirs',
+      version: 'v2',
+      source: 'rest',
+    });
 
     const persisted: string[] = [];
-    await controller.saveMineAsNew(async (local) => { persisted.push(local); });
+    await controller.saveMineAsNew(async (local) => {
+      persisted.push(local);
+    });
 
     expect(persisted).toEqual(['mine']);
     expect(controller.getReconciliation()).toBeNull();
@@ -534,10 +620,17 @@ describe('DocumentSessionController reconciliation API', () => {
     const { controller } = makeController();
     controller.load('base', 'v1');
     controller.markLocalChange('mine');
-    controller.handleRemoteCandidate({ document: 'theirs', content: 'theirs', version: 'v2', source: 'rest' });
+    controller.handleRemoteCandidate({
+      document: 'theirs',
+      content: 'theirs',
+      version: 'v2',
+      source: 'rest',
+    });
 
     await expect(
-      controller.saveMineAsNew(async () => { throw new Error('disk full'); }),
+      controller.saveMineAsNew(async () => {
+        throw new Error('disk full');
+      }),
     ).rejects.toThrow('disk full');
     expect(controller.getReconciliation()).not.toBeNull();
     expect(controller.getSnapshot().currentContent).toBe('mine');

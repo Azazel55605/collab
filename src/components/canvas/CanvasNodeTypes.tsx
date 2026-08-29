@@ -1,4 +1,6 @@
-import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, type ReactNode, useEffect, useRef, useState } from 'react';
+
+import { Handle, NodeResizer, Position, useStore } from '@xyflow/react';
 import {
   Calendar,
   CheckCircle2,
@@ -15,25 +17,35 @@ import {
   SquareDashedKanban,
   Users,
 } from 'lucide-react';
-import { Handle, NodeResizer, Position, useStore } from '@xyflow/react';
 
-import { MarkdownPreview } from '../editor/MarkdownPreview';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { cn } from '../../lib/utils';
+import { normalizeWebPreviewUrl } from '../../lib/webPreviewCache';
 import type {
   CanvasPlanningMetadata,
   CanvasSwimlaneOrientation,
   CanvasWebDisplayMode,
   PlanningCanvasNode,
 } from '../../types/canvas';
-import { normalizeWebPreviewUrl } from '../../lib/webPreviewCache';
-import { getPlanningNodeLabel } from './canvasPlanning';
-import { supportsLinkedPath, supportsPlanningMetadata } from './canvasDiagramUtils';
+import { MarkdownPreview } from '../editor/MarkdownPreview';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
+import { supportsLinkedPath, supportsPlanningMetadata } from './canvasDiagramUtils';
+import { getPlanningNodeLabel } from './canvasPlanning';
+
+const IMAGE_EXTENSIONS = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'svg',
+  'bmp',
+  'ico',
+  'avif',
+]);
 
 export interface CanvasNodeData extends Record<string, unknown> {
   title: string;
@@ -73,9 +85,12 @@ export interface CanvasNodeData extends Record<string, unknown> {
 
 function getFileIcon(extension: string) {
   const normalizedExtension = extension.toLowerCase();
-  if (IMAGE_EXTENSIONS.has(normalizedExtension)) return <FileImage size={14} className="shrink-0 text-sky-400/80" />;
-  if (normalizedExtension === 'canvas') return <Layout size={14} className="shrink-0 text-blue-400/70" />;
-  if (normalizedExtension === 'kanban') return <LayoutDashboard size={14} className="shrink-0 text-emerald-400/70" />;
+  if (IMAGE_EXTENSIONS.has(normalizedExtension))
+    return <FileImage size={14} className="shrink-0 text-sky-400/80" />;
+  if (normalizedExtension === 'canvas')
+    return <Layout size={14} className="shrink-0 text-blue-400/70" />;
+  if (normalizedExtension === 'kanban')
+    return <LayoutDashboard size={14} className="shrink-0 text-emerald-400/70" />;
   return <FileText size={14} className="shrink-0 text-muted-foreground/70" />;
 }
 
@@ -124,7 +139,10 @@ function PlanningStatusBadges({
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
       {planning?.status ? (
-        <Badge variant="secondary" className="rounded-full bg-primary/10 text-[10px] uppercase tracking-wide text-primary">
+        <Badge
+          variant="secondary"
+          className="rounded-full bg-primary/10 text-[10px] uppercase tracking-wide text-primary"
+        >
           {planning.status.replace(/_/g, ' ')}
         </Badge>
       ) : null}
@@ -135,7 +153,8 @@ function PlanningStatusBadges({
             'rounded-full text-[10px] uppercase tracking-wide',
             planning.priority === 'critical' && 'border-red-500/30 bg-red-500/15 text-red-400',
             planning.priority === 'high' && 'border-red-500/30 bg-red-500/15 text-red-400',
-            planning.priority === 'medium' && 'border-yellow-500/30 bg-yellow-500/15 text-yellow-400',
+            planning.priority === 'medium' &&
+              'border-yellow-500/30 bg-yellow-500/15 text-yellow-400',
             planning.priority === 'low' && 'border-green-500/30 bg-green-500/15 text-green-400',
           )}
         >
@@ -191,7 +210,7 @@ function CardHandles() {
   const connectionInProgress = useStore((state) => state.connection.inProgress);
   const handleClassName = cn(
     '!h-6 !w-6 !border-0 !bg-transparent shadow-none transition-[transform,box-shadow,opacity] duration-150',
-    'before:absolute before:left-1/2 before:top-1/2 before:h-3.5 before:w-3.5 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:border-2 before:border-background before:bg-primary/90 before:shadow-[0_0_0_6px_color-mix(in_oklch,var(--primary)_16%,transparent)] before:content-[\'\']',
+    "before:absolute before:left-1/2 before:top-1/2 before:h-3.5 before:w-3.5 before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:border-2 before:border-background before:bg-primary/90 before:shadow-[0_0_0_6px_color-mix(in_oklch,var(--primary)_16%,transparent)] before:content-['']",
     connectionInProgress
       ? '!opacity-100 scale-110 before:shadow-[0_0_0_8px_color-mix(in_oklch,var(--primary)_20%,transparent)]'
       : '!opacity-0 group-hover:!opacity-100 group-hover:scale-110 group-hover:before:shadow-[0_0_0_8px_color-mix(in_oklch,var(--primary)_20%,transparent)]',
@@ -200,14 +219,74 @@ function CardHandles() {
 
   return (
     <>
-      <Handle id="left-in" type="target" position={Position.Left} className={handleClassName} isConnectableStart isConnectableEnd />
-      <Handle id="left-out" type="source" position={Position.Left} className={passiveHandleClassName} isConnectable={false} isConnectableStart={false} isConnectableEnd={false} />
-      <Handle id="right-in" type="target" position={Position.Right} className={passiveHandleClassName} isConnectable={false} isConnectableStart={false} isConnectableEnd={false} />
-      <Handle id="right-out" type="source" position={Position.Right} className={handleClassName} isConnectableStart isConnectableEnd />
-      <Handle id="top-in" type="target" position={Position.Top} className={handleClassName} isConnectableStart isConnectableEnd />
-      <Handle id="top-out" type="source" position={Position.Top} className={passiveHandleClassName} isConnectable={false} isConnectableStart={false} isConnectableEnd={false} />
-      <Handle id="bottom-in" type="target" position={Position.Bottom} className={passiveHandleClassName} isConnectable={false} isConnectableStart={false} isConnectableEnd={false} />
-      <Handle id="bottom-out" type="source" position={Position.Bottom} className={handleClassName} isConnectableStart isConnectableEnd />
+      <Handle
+        id="left-in"
+        type="target"
+        position={Position.Left}
+        className={handleClassName}
+        isConnectableStart
+        isConnectableEnd
+      />
+      <Handle
+        id="left-out"
+        type="source"
+        position={Position.Left}
+        className={passiveHandleClassName}
+        isConnectable={false}
+        isConnectableStart={false}
+        isConnectableEnd={false}
+      />
+      <Handle
+        id="right-in"
+        type="target"
+        position={Position.Right}
+        className={passiveHandleClassName}
+        isConnectable={false}
+        isConnectableStart={false}
+        isConnectableEnd={false}
+      />
+      <Handle
+        id="right-out"
+        type="source"
+        position={Position.Right}
+        className={handleClassName}
+        isConnectableStart
+        isConnectableEnd
+      />
+      <Handle
+        id="top-in"
+        type="target"
+        position={Position.Top}
+        className={handleClassName}
+        isConnectableStart
+        isConnectableEnd
+      />
+      <Handle
+        id="top-out"
+        type="source"
+        position={Position.Top}
+        className={passiveHandleClassName}
+        isConnectable={false}
+        isConnectableStart={false}
+        isConnectableEnd={false}
+      />
+      <Handle
+        id="bottom-in"
+        type="target"
+        position={Position.Bottom}
+        className={passiveHandleClassName}
+        isConnectable={false}
+        isConnectableStart={false}
+        isConnectableEnd={false}
+      />
+      <Handle
+        id="bottom-out"
+        type="source"
+        position={Position.Bottom}
+        className={handleClassName}
+        isConnectableStart
+        isConnectableEnd
+      />
     </>
   );
 }
@@ -236,11 +315,12 @@ function PlanningNodeShell({
   const isContainer = kind === 'group' || kind === 'swimlane';
   const isCrossing = kind === 'crossing';
   const isJunction = kind === 'junction';
-  const shapeStyle = kind === 'decision'
-    ? { clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }
-    : kind === 'milestone'
-      ? { clipPath: 'polygon(12% 0%, 88% 0%, 100% 50%, 88% 100%, 12% 100%, 0% 50%)' }
-      : undefined;
+  const shapeStyle =
+    kind === 'decision'
+      ? { clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }
+      : kind === 'milestone'
+        ? { clipPath: 'polygon(12% 0%, 88% 0%, 100% 50%, 88% 100%, 12% 100%, 0% 50%)' }
+        : undefined;
 
   return (
     <div className="group relative h-full w-full">
@@ -261,10 +341,14 @@ function PlanningNodeShell({
           kind === 'group' ? 'border-dashed' : '',
           kind === 'swimlane' ? 'border-primary/20 bg-primary/5' : '',
           kind === 'terminator' ? 'rounded-[999px]' : '',
-          kind === 'document' ? 'after:pointer-events-none after:absolute after:top-0 after:right-0 after:h-10 after:w-10 after:border-l after:border-b after:border-border/50 after:bg-background/35' : '',
-          kind === 'milestone' ? 'bg-gradient-to-br from-primary/10 via-card to-card px-2 py-2' : '',
+          kind === 'document'
+            ? 'after:pointer-events-none after:absolute after:top-0 after:right-0 after:h-10 after:w-10 after:border-l after:border-b after:border-border/50 after:bg-background/35'
+            : '',
+          kind === 'milestone'
+            ? 'bg-gradient-to-br from-primary/10 via-card to-card px-2 py-2'
+            : '',
           kind === 'actor' ? 'bg-gradient-to-br from-primary/8 via-card to-card' : '',
-          (isCrossing || isJunction) ? 'items-center justify-center rounded-[999px]' : '',
+          isCrossing || isJunction ? 'items-center justify-center rounded-[999px]' : '',
           shapeClassName,
         )}
         style={shapeStyle}
@@ -285,19 +369,24 @@ function PlanningNodeShell({
           </div>
         ) : (
           <>
-            <div className={cn(
-              'flex items-center gap-2 border-b border-border/60 px-3 py-2',
-              kind === 'decision' ? 'px-8 pt-4' : '',
-              kind === 'milestone' ? 'border-transparent px-6 pt-4' : '',
-              kind === 'actor' ? 'bg-primary/6' : '',
-            )}>
+            <div
+              className={cn(
+                'flex items-center gap-2 border-b border-border/60 px-3 py-2',
+                kind === 'decision' ? 'px-8 pt-4' : '',
+                kind === 'milestone' ? 'border-transparent px-6 pt-4' : '',
+                kind === 'actor' ? 'bg-primary/6' : '',
+              )}
+            >
               <div className="flex size-7 items-center justify-center rounded-xl bg-primary/12 text-primary">
                 {icon}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-semibold text-foreground">{data.title}</div>
                 <div className="truncate text-[11px] text-muted-foreground">
-                  {getPlanningNodeLabel(kind)}{supportsLinkedPath(kind) && data.linkedRelativePath ? ` · ${data.linkedRelativePath}` : ''}
+                  {getPlanningNodeLabel(kind)}
+                  {supportsLinkedPath(kind) && data.linkedRelativePath
+                    ? ` · ${data.linkedRelativePath}`
+                    : ''}
                 </div>
               </div>
               {kind === 'milestone' && data.planning?.milestoneLabel ? (
@@ -306,19 +395,28 @@ function PlanningNodeShell({
                 </Badge>
               ) : null}
             </div>
-            <div className={cn(
-              'min-h-0 flex-1 overflow-hidden px-3 py-3',
-              kind === 'decision' ? 'px-8 pb-5 pt-3 text-center' : '',
-              kind === 'milestone' ? 'px-6 pb-5 pt-1' : '',
-              bodyClassName,
-            )}>
+            <div
+              className={cn(
+                'min-h-0 flex-1 overflow-hidden px-3 py-3',
+                kind === 'decision' ? 'px-8 pb-5 pt-3 text-center' : '',
+                kind === 'milestone' ? 'px-6 pb-5 pt-1' : '',
+                bodyClassName,
+              )}
+            >
               {data.content ? (
-                <div className={cn(compact ? 'line-clamp-3 text-xs' : 'line-clamp-6 text-sm', 'whitespace-pre-wrap leading-relaxed text-muted-foreground')}>
+                <div
+                  className={cn(
+                    compact ? 'line-clamp-3 text-xs' : 'line-clamp-6 text-sm',
+                    'whitespace-pre-wrap leading-relaxed text-muted-foreground',
+                  )}
+                >
                   {data.content}
                 </div>
               ) : (
                 <div className="text-sm leading-relaxed text-muted-foreground">
-                  {isContainer ? 'Use this as a structural layer for related nodes.' : 'Add context from the node inspector.'}
+                  {isContainer
+                    ? 'Use this as a structural layer for related nodes.'
+                    : 'Add context from the node inspector.'}
                 </div>
               )}
               <PlanningStatusBadges planning={data.planning} kind={kind} />
@@ -331,7 +429,15 @@ function PlanningNodeShell({
   );
 }
 
-function NoteCardNode({ id, data, selected }: { id: string; data: CanvasNodeData; selected?: boolean }) {
+function NoteCardNode({
+  id,
+  data,
+  selected,
+}: {
+  id: string;
+  data: CanvasNodeData;
+  selected?: boolean;
+}) {
   return (
     <div className="group relative h-full w-full">
       {selected ? (
@@ -385,7 +491,15 @@ function NoteCardNode({ id, data, selected }: { id: string; data: CanvasNodeData
   );
 }
 
-function FileCardNode({ id, data, selected }: { id: string; data: CanvasNodeData; selected?: boolean }) {
+function FileCardNode({
+  id,
+  data,
+  selected,
+}: {
+  id: string;
+  data: CanvasNodeData;
+  selected?: boolean;
+}) {
   const isImage = !!data.imageSrc;
 
   return (
@@ -418,7 +532,12 @@ function FileCardNode({ id, data, selected }: { id: string; data: CanvasNodeData
 
           {isImage ? (
             <div className="flex min-h-0 flex-1 items-center justify-center bg-background/50 p-3">
-              <img src={data.imageSrc ?? ''} alt={data.title} className="max-h-full max-w-full rounded-xl object-contain" draggable={false} />
+              <img
+                src={data.imageSrc ?? ''}
+                alt={data.title}
+                className="max-h-full max-w-full rounded-xl object-contain"
+                draggable={false}
+              />
             </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col justify-between px-3 py-3">
@@ -440,7 +559,15 @@ function FileCardNode({ id, data, selected }: { id: string; data: CanvasNodeData
   );
 }
 
-function TextCardNode({ id, data, selected }: { id: string; data: CanvasNodeData; selected?: boolean }) {
+function TextCardNode({
+  id,
+  data,
+  selected,
+}: {
+  id: string;
+  data: CanvasNodeData;
+  selected?: boolean;
+}) {
   return (
     <div className="group relative h-full w-full">
       {selected ? (
@@ -476,7 +603,15 @@ function TextCardNode({ id, data, selected }: { id: string; data: CanvasNodeData
   );
 }
 
-function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData; selected?: boolean }) {
+function WebCardNode({
+  id,
+  data,
+  selected,
+}: {
+  id: string;
+  data: CanvasNodeData;
+  selected?: boolean;
+}) {
   const currentUrl = data.url ?? '';
   const effectiveMode = data.displayMode ?? 'preview';
   const normalizedUrl = normalizeWebUrl(currentUrl);
@@ -487,9 +622,16 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
   const previewLoaded = data.previewLoaded ?? false;
   const previewAutoLoadEnabled = data.previewAutoLoadEnabled ?? true;
   const webPreviewsEnabled = data.webPreviewsEnabled ?? true;
-  const showManualPreviewLoad = webPreviewsEnabled && !previewAutoLoadEnabled && !!normalizedUrl && !previewLoading && !previewLoaded;
+  const showManualPreviewLoad =
+    webPreviewsEnabled &&
+    !previewAutoLoadEnabled &&
+    !!normalizedUrl &&
+    !previewLoading &&
+    !previewLoaded;
   const [embedActivated, setEmbedActivated] = useState(false);
-  const [iframeState, setIframeState] = useState<'idle' | 'loading' | 'loaded' | 'timed_out'>('idle');
+  const [iframeState, setIframeState] = useState<'idle' | 'loading' | 'loaded' | 'timed_out'>(
+    'idle',
+  );
   const [urlDraft, setUrlDraft] = useState(currentUrl);
   const urlCommitTimeoutRef = useRef<number | null>(null);
   const previousModeRef = useRef<CanvasWebDisplayMode>(effectiveMode);
@@ -499,11 +641,14 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
     setUrlDraft(currentUrl);
   }, [currentUrl, id]);
 
-  useEffect(() => () => {
-    if (urlCommitTimeoutRef.current !== null) {
-      window.clearTimeout(urlCommitTimeoutRef.current);
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      if (urlCommitTimeoutRef.current !== null) {
+        window.clearTimeout(urlCommitTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   const commitUrlDraft = (nextUrl: string) => {
     if (urlCommitTimeoutRef.current !== null) {
@@ -557,12 +702,18 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
   const statusChip = showingEmbedFallback
     ? { label: 'Blocked', className: 'border-amber-500/30 bg-amber-500/10 text-amber-200' }
     : effectiveMode === 'embed' && !embedActivated
-    ? { label: 'Paused', className: 'border-sky-500/30 bg-sky-500/10 text-sky-200' }
-    : effectiveMode === 'embed' && iframeState === 'loaded'
-    ? { label: 'Embedded', className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' }
-    : effectiveMode === 'embed'
-    ? { label: 'Loading', className: 'border-primary/30 bg-primary/10 text-primary' }
-    : { label: 'Preview', className: 'border-border/60 bg-background/60 text-muted-foreground' };
+      ? { label: 'Paused', className: 'border-sky-500/30 bg-sky-500/10 text-sky-200' }
+      : effectiveMode === 'embed' && iframeState === 'loaded'
+        ? {
+            label: 'Embedded',
+            className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+          }
+        : effectiveMode === 'embed'
+          ? { label: 'Loading', className: 'border-primary/30 bg-primary/10 text-primary' }
+          : {
+              label: 'Preview',
+              className: 'border-border/60 bg-background/60 text-muted-foreground',
+            };
 
   return (
     <div className="group relative h-full w-full">
@@ -581,14 +732,21 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
           <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
             <div className="flex size-7 items-center justify-center overflow-hidden rounded-xl bg-primary/12 text-primary">
               {data.faviconSrc ? (
-                <img src={data.faviconSrc} alt="" className="size-4 rounded-sm object-contain" draggable={false} />
+                <img
+                  src={data.faviconSrc}
+                  alt=""
+                  className="size-4 rounded-sm object-contain"
+                  draggable={false}
+                />
               ) : (
                 <Globe size={14} />
               )}
             </div>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-semibold">{data.title || 'Web card'}</div>
-              <div className="truncate text-[11px] text-muted-foreground">{data.subtitle || 'Website'}</div>
+              <div className="truncate text-[11px] text-muted-foreground">
+                {data.subtitle || 'Website'}
+              </div>
             </div>
             {normalizedUrl ? (
               <Button
@@ -617,14 +775,28 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
               onPointerDown={(event) => event.stopPropagation()}
               className="h-8 text-xs"
             />
-            <div className={cn('shrink-0 rounded-md border px-2 py-1 text-[11px] font-medium', statusChip.className)}>
+            <div
+              className={cn(
+                'shrink-0 rounded-md border px-2 py-1 text-[11px] font-medium',
+                statusChip.className,
+              )}
+            >
               {statusChip.label}
             </div>
             <Select
               value={data.displayModeOverride ?? 'default'}
-              onValueChange={(value) => data.onWebDisplayModeOverrideChange?.(id, value === 'default' ? null : value as CanvasWebDisplayMode)}
+              onValueChange={(value) =>
+                data.onWebDisplayModeOverrideChange?.(
+                  id,
+                  value === 'default' ? null : (value as CanvasWebDisplayMode),
+                )
+              }
             >
-              <SelectTrigger size="sm" className="h-8 min-w-[118px] bg-background/70 text-xs" onPointerDown={(event) => event.stopPropagation()}>
+              <SelectTrigger
+                size="sm"
+                className="h-8 min-w-[118px] bg-background/70 text-xs"
+                onPointerDown={(event) => event.stopPropagation()}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="end">
@@ -658,7 +830,9 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/92 px-6 text-center">
                     <div className="max-w-xs space-y-2">
                       <div className="text-sm font-medium text-foreground">
-                        {iframeState === 'timed_out' ? 'Embedding may be blocked' : 'Loading website…'}
+                        {iframeState === 'timed_out'
+                          ? 'Embedding may be blocked'
+                          : 'Loading website…'}
                       </div>
                       <div className="text-xs leading-relaxed text-muted-foreground">
                         {iframeState === 'timed_out'
@@ -674,7 +848,8 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
                 <div className="max-w-xs space-y-3">
                   <div className="text-sm font-medium text-foreground">Embedded page paused</div>
                   <div className="text-xs leading-relaxed text-muted-foreground">
-                    We keep embedded pages from auto-loading on app open so the canvas stays responsive.
+                    We keep embedded pages from auto-loading on app open so the canvas stays
+                    responsive.
                   </div>
                   <Button
                     size="sm"
@@ -696,14 +871,24 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
                 ) : null}
                 {data.imageSrc ? (
                   <div className="min-h-0 flex-[1.35] border-b border-border/50 bg-background/40">
-                    <img src={data.imageSrc} alt={data.title || 'Website preview'} className="h-full w-full object-cover" draggable={false} />
+                    <img
+                      src={data.imageSrc}
+                      alt={data.title || 'Website preview'}
+                      className="h-full w-full object-cover"
+                      draggable={false}
+                    />
                   </div>
                 ) : (
                   <div className="flex min-h-[120px] flex-[1.1] items-center justify-center border-b border-border/50 bg-background/30 px-4">
                     <div className="max-w-[260px] text-center">
                       <div className="mx-auto flex size-12 items-center justify-center overflow-hidden rounded-2xl border border-border/60 bg-card/70 text-primary shadow-sm">
                         {data.faviconSrc ? (
-                          <img src={data.faviconSrc} alt="" className="size-6 rounded-md object-contain" draggable={false} />
+                          <img
+                            src={data.faviconSrc}
+                            alt=""
+                            className="size-6 rounded-md object-contain"
+                            draggable={false}
+                          />
                         ) : (
                           <Globe size={22} />
                         )}
@@ -712,27 +897,27 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
                         {!normalizedUrl
                           ? 'Enter a URL'
                           : !webPreviewsEnabled
-                          ? 'Previews disabled'
-                          : showManualPreviewLoad
-                          ? 'Preview paused'
-                          : previewLoading
-                          ? 'Loading preview…'
-                          : previewLoaded && data.hasRichPreview
-                          ? 'Preview loaded'
-                          : 'Limited preview available'}
+                            ? 'Previews disabled'
+                            : showManualPreviewLoad
+                              ? 'Preview paused'
+                              : previewLoading
+                                ? 'Loading preview…'
+                                : previewLoaded && data.hasRichPreview
+                                  ? 'Preview loaded'
+                                  : 'Limited preview available'}
                       </div>
                       <div className="mt-1 text-xs leading-relaxed text-muted-foreground">
                         {!normalizedUrl
                           ? 'Paste a website address to load a preview or open it externally.'
                           : !webPreviewsEnabled
-                          ? 'Website previews are disabled in settings, so this card will only show the raw link until previews are re-enabled.'
-                          : showManualPreviewLoad
-                          ? 'Auto-loading is disabled. Load the preview when you want to fetch site metadata.'
-                          : previewLoading
-                          ? 'Fetching preview details for this site.'
-                          : previewLoaded && data.hasRichPreview
-                          ? 'This site returned text metadata, but no large preview image.'
-                          : 'This site does not expose a rich card preview, so we are falling back to the domain and page link.'}
+                            ? 'Website previews are disabled in settings, so this card will only show the raw link until previews are re-enabled.'
+                            : showManualPreviewLoad
+                              ? 'Auto-loading is disabled. Load the preview when you want to fetch site metadata.'
+                              : previewLoading
+                                ? 'Fetching preview details for this site.'
+                                : previewLoaded && data.hasRichPreview
+                                  ? 'This site returned text metadata, but no large preview image.'
+                                  : 'This site does not expose a rich card preview, so we are falling back to the domain and page link.'}
                       </div>
                       {showManualPreviewLoad ? (
                         <Button
@@ -758,7 +943,12 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
                   {!data.hasRichPreview && normalizedUrl ? (
                     <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full border border-border/60 bg-background/45 px-2.5 py-1 text-[11px] text-muted-foreground">
                       {data.faviconSrc ? (
-                        <img src={data.faviconSrc} alt="" className="size-3.5 rounded-[4px] object-contain" draggable={false} />
+                        <img
+                          src={data.faviconSrc}
+                          alt=""
+                          className="size-3.5 rounded-[4px] object-contain"
+                          draggable={false}
+                        />
                       ) : (
                         <Globe size={12} />
                       )}
@@ -767,8 +957,11 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
                   ) : null}
                   <div className="mt-3 line-clamp-4 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
                     {showingEmbedFallback
-                      ? (data.excerpt || 'This site blocks or restricts embedding in external apps.')
-                      : (data.excerpt || (effectiveMode === 'embed' ? 'Embedding unavailable. Falling back to preview.' : 'Preview details will appear here when available.'))}
+                      ? data.excerpt || 'This site blocks or restricts embedding in external apps.'
+                      : data.excerpt ||
+                        (effectiveMode === 'embed'
+                          ? 'Embedding unavailable. Falling back to preview.'
+                          : 'Preview details will appear here when available.')}
                   </div>
                 </div>
               </div>
@@ -781,7 +974,15 @@ function WebCardNode({ id, data, selected }: { id: string; data: CanvasNodeData;
   );
 }
 
-function SymbolCardNode({ id, data, selected }: { id: string; data: CanvasNodeData; selected?: boolean }) {
+function SymbolCardNode({
+  id,
+  data,
+  selected,
+}: {
+  id: string;
+  data: CanvasNodeData;
+  selected?: boolean;
+}) {
   return (
     <div className="group relative h-full w-full">
       {selected ? (
@@ -825,7 +1026,15 @@ function ProcessCardNode(props: { id: string; data: CanvasNodeData; selected?: b
   return <PlanningNodeShell {...props} minWidth={220} minHeight={130} />;
 }
 
-function DecisionCardNode({ id, data, selected }: { id: string; data: CanvasNodeData; selected?: boolean }) {
+function DecisionCardNode({
+  id,
+  data,
+  selected,
+}: {
+  id: string;
+  data: CanvasNodeData;
+  selected?: boolean;
+}) {
   return (
     <div className="group relative h-full w-full">
       {selected ? (
@@ -839,11 +1048,19 @@ function DecisionCardNode({ id, data, selected }: { id: string; data: CanvasNode
         />
       ) : null}
       <div className="relative h-full w-full">
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 h-full w-full overflow-visible">
+        <svg
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          className="absolute inset-0 h-full w-full overflow-visible"
+        >
           <polygon
             points="50,2 98,50 50,98 2,50"
             fill="color-mix(in oklch, var(--card) 96%, var(--primary) 4%)"
-            stroke={selected ? 'color-mix(in oklch, var(--primary) 60%, white 10%)' : 'color-mix(in oklch, var(--border) 88%, transparent)'}
+            stroke={
+              selected
+                ? 'color-mix(in oklch, var(--primary) 60%, white 10%)'
+                : 'color-mix(in oklch, var(--border) 88%, transparent)'
+            }
             strokeWidth="2.2"
           />
         </svg>
@@ -862,7 +1079,15 @@ function DecisionCardNode({ id, data, selected }: { id: string; data: CanvasNode
   );
 }
 
-function TerminatorCardNode({ id, data, selected }: { id: string; data: CanvasNodeData; selected?: boolean }) {
+function TerminatorCardNode({
+  id,
+  data,
+  selected,
+}: {
+  id: string;
+  data: CanvasNodeData;
+  selected?: boolean;
+}) {
   return (
     <div className="group relative h-full w-full">
       {selected ? (
@@ -876,7 +1101,11 @@ function TerminatorCardNode({ id, data, selected }: { id: string; data: CanvasNo
         />
       ) : null}
       <div className="relative h-full w-full">
-        <svg viewBox="0 0 100 44" preserveAspectRatio="none" className="absolute inset-0 h-full w-full overflow-visible">
+        <svg
+          viewBox="0 0 100 44"
+          preserveAspectRatio="none"
+          className="absolute inset-0 h-full w-full overflow-visible"
+        >
           <rect
             x="1.5"
             y="1.5"
@@ -884,7 +1113,11 @@ function TerminatorCardNode({ id, data, selected }: { id: string; data: CanvasNo
             height="41"
             rx="21"
             fill="color-mix(in oklch, var(--card) 96%, var(--primary) 4%)"
-            stroke={selected ? 'color-mix(in oklch, var(--primary) 60%, white 10%)' : 'color-mix(in oklch, var(--border) 88%, transparent)'}
+            stroke={
+              selected
+                ? 'color-mix(in oklch, var(--primary) 60%, white 10%)'
+                : 'color-mix(in oklch, var(--border) 88%, transparent)'
+            }
             strokeWidth="1.8"
           />
         </svg>
@@ -894,7 +1127,9 @@ function TerminatorCardNode({ id, data, selected }: { id: string; data: CanvasNo
           </div>
           <div className="line-clamp-2 text-sm font-semibold text-foreground">{data.title}</div>
           {data.content ? (
-            <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{data.content}</div>
+            <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+              {data.content}
+            </div>
           ) : null}
         </div>
       </div>
@@ -916,10 +1151,25 @@ function ActorCardNode(props: { id: string; data: CanvasNodeData; selected?: boo
 }
 
 function GroupCardNode(props: { id: string; data: CanvasNodeData; selected?: boolean }) {
-  return <PlanningNodeShell {...props} minWidth={320} minHeight={220} bodyClassName="bg-transparent/20" />;
+  return (
+    <PlanningNodeShell
+      {...props}
+      minWidth={320}
+      minHeight={220}
+      bodyClassName="bg-transparent/20"
+    />
+  );
 }
 
-function SwimlaneCardNode({ id, data, selected }: { id: string; data: CanvasNodeData; selected?: boolean }) {
+function SwimlaneCardNode({
+  id,
+  data,
+  selected,
+}: {
+  id: string;
+  data: CanvasNodeData;
+  selected?: boolean;
+}) {
   const orientation = data.orientation ?? 'horizontal';
   return (
     <PlanningNodeShell

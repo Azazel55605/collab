@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+
 import type { KanbanCard } from '../types/kanban';
 
 /**
@@ -7,24 +8,23 @@ import type { KanbanCard } from '../types/kanban';
  * user navigates away and returns, the card dialog reopens exactly as they left it.
  */
 interface KanbanStore {
-  boardPath:  string | null;
-  cardId:     string | null;
-  columnId:   string | null;
-  draft:      KanbanCard | null;
+  boardPath: string | null;
+  cardId: string | null;
+  columnId: string | null;
+  draft: KanbanCard | null;
 
-  setEditing:   (boardPath: string, cardId: string, columnId: string, draft: KanbanCard) => void;
-  updateDraft:  (draft: KanbanCard) => void;
+  setEditing: (boardPath: string, cardId: string, columnId: string, draft: KanbanCard) => void;
+  updateDraft: (draft: KanbanCard) => void;
   clearEditing: () => void;
 }
 
 export const useKanbanStore = create<KanbanStore>((set) => ({
-  boardPath:  null,
-  cardId:     null,
-  columnId:   null,
-  draft:      null,
+  boardPath: null,
+  cardId: null,
+  columnId: null,
+  draft: null,
 
-  setEditing: (boardPath, cardId, columnId, draft) =>
-    set({ boardPath, cardId, columnId, draft }),
+  setEditing: (boardPath, cardId, columnId, draft) => set({ boardPath, cardId, columnId, draft }),
 
   updateDraft: (draft) => set({ draft }),
 

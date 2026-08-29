@@ -1,8 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import SettingsServerSection from './SettingsServerSection';
+
 import { tauriCommands } from '../../lib/tauri';
 import { useServerStore } from '../../store/serverStore';
+
+import SettingsServerSection from './SettingsServerSection';
 
 vi.mock('../../lib/tauri', () => ({
   tauriCommands: {
@@ -37,12 +39,28 @@ describe('SettingsServerSection', () => {
     vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([]);
     render(<SettingsServerSection />);
     fireEvent.click(screen.getByRole('button', { name: /Connect a server/ }));
-    await waitFor(() => expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'https://collab.example.com' } });
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://collab.example.com' },
+    });
     fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'alice' } });
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'not-stored-password' } });
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'not-stored-password' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
-    await waitFor(() => expect(tauriCommands.connectServer).toHaveBeenCalledWith('https://collab.example.com', 'alice', 'not-stored-password', false, false));
+    await waitFor(() =>
+      expect(tauriCommands.connectServer).toHaveBeenCalledWith(
+        'https://collab.example.com',
+        'alice',
+        'not-stored-password',
+        false,
+        false,
+      ),
+    );
     expect(localStorage.getItem('collab-hosted-server-url')).toBe('https://collab.example.com');
     expect(JSON.stringify(localStorage)).not.toContain('not-stored-password');
   });
@@ -58,20 +76,28 @@ describe('SettingsServerSection', () => {
     vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([]);
     render(<SettingsServerSection />);
     fireEvent.click(screen.getByRole('button', { name: /Connect a server/ }));
-    await waitFor(() => expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'https://collab-server.net.local' } });
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://collab-server.net.local' },
+    });
     fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'alice' } });
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password' } });
     fireEvent.click(screen.getByLabelText('Allow untrusted TLS certificates'));
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
 
-    await waitFor(() => expect(tauriCommands.connectServer).toHaveBeenCalledWith(
-      'https://collab-server.net.local',
-      'alice',
-      'password',
-      true,
-      false,
-    ));
+    await waitFor(() =>
+      expect(tauriCommands.connectServer).toHaveBeenCalledWith(
+        'https://collab-server.net.local',
+        'alice',
+        'password',
+        true,
+        false,
+      ),
+    );
     expect(localStorage.getItem('collab-hosted-allow-invalid-certificates')).toBe('true');
   });
 
@@ -86,31 +112,47 @@ describe('SettingsServerSection', () => {
     vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([]);
     render(<SettingsServerSection />);
     fireEvent.click(screen.getByRole('button', { name: /Connect a server/ }));
-    await waitFor(() => expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'https://collab.example.com' } });
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://collab.example.com' },
+    });
     fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'alice' } });
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password' } });
     fireEvent.click(await screen.findByLabelText('Keep me signed in across reboots'));
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
 
-    await waitFor(() => expect(tauriCommands.connectServer).toHaveBeenCalledWith(
-      'https://collab.example.com',
-      'alice',
-      'password',
-      false,
-      true,
-    ));
+    await waitFor(() =>
+      expect(tauriCommands.connectServer).toHaveBeenCalledWith(
+        'https://collab.example.com',
+        'alice',
+        'password',
+        false,
+        true,
+      ),
+    );
     expect(localStorage.getItem('collab-hosted-persist-across-reboots')).toBe('true');
   });
 
   it('lets the current client always prepare hosted vaults for offline use', async () => {
-    vi.mocked(tauriCommands.serverConnectionStatuses).mockResolvedValue([{
-      connected: true,
-      serverUrl: 'https://collab.example.com',
-      allowInvalidCertificates: false,
-      user: { id: '1', username: 'alice', displayName: 'Alice', role: 'member', status: 'active' },
-      accessExpiresAt: '2026-06-09T12:00:00Z',
-    }]);
+    vi.mocked(tauriCommands.serverConnectionStatuses).mockResolvedValue([
+      {
+        connected: true,
+        serverUrl: 'https://collab.example.com',
+        allowInvalidCertificates: false,
+        user: {
+          id: '1',
+          username: 'alice',
+          displayName: 'Alice',
+          role: 'member',
+          status: 'active',
+        },
+        accessExpiresAt: '2026-06-09T12:00:00Z',
+      },
+    ]);
     vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([]);
 
     render(<SettingsServerSection />);
@@ -119,26 +161,41 @@ describe('SettingsServerSection', () => {
     fireEvent.click(toggle);
 
     expect(localStorage.getItem('collab-hosted-always-create-offline-copy')).toBe('true');
-    expect(await screen.findByRole('button', { name: 'Always create offline copy: On' })).toBeTruthy();
+    expect(
+      await screen.findByRole('button', { name: 'Always create offline copy: On' }),
+    ).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Always create offline copy: On' }));
     expect(localStorage.getItem('collab-hosted-always-create-offline-copy')).toBe('false');
   });
 
   it('hides password sign-in while the saved server session is healthy', async () => {
-    localStorage.setItem('collab-hosted-servers', JSON.stringify([{
-      serverUrl: 'https://collab.example.com/',
-      username: 'alice',
-      allowInvalidCertificates: false,
-      persistAcrossReboots: false,
-    }]));
-    vi.mocked(tauriCommands.serverConnectionStatuses).mockResolvedValue([{
-      connected: true,
-      serverUrl: 'https://collab.example.com',
-      allowInvalidCertificates: false,
-      user: { id: '1', username: 'alice', displayName: 'Alice', role: 'member', status: 'active' },
-      accessExpiresAt: '2999-01-01T00:00:00Z',
-    }]);
+    localStorage.setItem(
+      'collab-hosted-servers',
+      JSON.stringify([
+        {
+          serverUrl: 'https://collab.example.com/',
+          username: 'alice',
+          allowInvalidCertificates: false,
+          persistAcrossReboots: false,
+        },
+      ]),
+    );
+    vi.mocked(tauriCommands.serverConnectionStatuses).mockResolvedValue([
+      {
+        connected: true,
+        serverUrl: 'https://collab.example.com',
+        allowInvalidCertificates: false,
+        user: {
+          id: '1',
+          username: 'alice',
+          displayName: 'Alice',
+          role: 'member',
+          status: 'active',
+        },
+        accessExpiresAt: '2999-01-01T00:00:00Z',
+      },
+    ]);
     vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValue([]);
 
     render(<SettingsServerSection />);
@@ -149,12 +206,17 @@ describe('SettingsServerSection', () => {
   });
 
   it('reauthenticates a saved server by asking only for its password', async () => {
-    localStorage.setItem('collab-hosted-servers', JSON.stringify([{
-      serverUrl: 'https://collab.example.com',
-      username: 'alice',
-      allowInvalidCertificates: true,
-      persistAcrossReboots: true,
-    }]));
+    localStorage.setItem(
+      'collab-hosted-servers',
+      JSON.stringify([
+        {
+          serverUrl: 'https://collab.example.com',
+          username: 'alice',
+          allowInvalidCertificates: true,
+          persistAcrossReboots: true,
+        },
+      ]),
+    );
     vi.mocked(tauriCommands.reauthenticateServer).mockResolvedValue({
       connected: true,
       serverUrl: 'https://collab.example.com',
@@ -166,16 +228,22 @@ describe('SettingsServerSection', () => {
 
     render(<SettingsServerSection />);
     fireEvent.click(screen.getByRole('button', { name: 'Sign in again' }));
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'replacement-password' } });
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'replacement-password' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
-    await waitFor(() => expect(tauriCommands.reauthenticateServer).toHaveBeenCalledWith(
-      'https://collab.example.com',
-      'alice',
-      'replacement-password',
-      true,
-      true,
-    ));
-    expect(screen.queryByText('Sign in again', { selector: '[data-slot="dialog-title"]' })).toBeNull();
+    await waitFor(() =>
+      expect(tauriCommands.reauthenticateServer).toHaveBeenCalledWith(
+        'https://collab.example.com',
+        'alice',
+        'replacement-password',
+        true,
+        true,
+      ),
+    );
+    expect(
+      screen.queryByText('Sign in again', { selector: '[data-slot="dialog-title"]' }),
+    ).toBeNull();
   });
 });

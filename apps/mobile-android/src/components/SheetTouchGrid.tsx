@@ -17,23 +17,16 @@
  *
  * Nothing here mutates the workbook: edits are reported through callbacks.
  */
-
 import {
+  type CSSProperties,
+  type TouchEvent as ReactTouchEvent,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
-  type TouchEvent as ReactTouchEvent,
 } from 'react';
 
-import { SHEET_DEFAULTS } from '../../../../src/types/sheet';
-import type { SheetDocument, SheetWorksheet } from '../../../../src/types/sheet';
-import {
-  sheetFormulaResultKey,
-  type SheetFormulaValueMap,
-} from '../../../../src/types/sheetFormula';
 import { columnLabel, formatA1, type SheetPosition } from '../../../../src/lib/sheet/address';
 import {
   cellAlignment,
@@ -42,7 +35,6 @@ import {
 } from '../../../../src/lib/sheet/cellValue';
 import { createConditionalFormatEvaluator } from '../../../../src/lib/sheet/conditionalFormatting';
 import { getCell, mergedRangeAt, rangeRectangle } from '../../../../src/lib/sheet/operations';
-import { resolveCellStyle } from '../../../../src/lib/sheet/styles';
 import {
   isColumnSelected,
   isRowSelected,
@@ -52,15 +44,22 @@ import {
   selectRows,
   type SheetSelection,
 } from '../../../../src/lib/sheet/selection';
+import { resolveCellStyle } from '../../../../src/lib/sheet/styles';
 import {
   buildColumnMetrics,
   buildRowMetrics,
   computeViewport,
+  type SheetAxisMetrics,
   trackAtPaneOffset,
   trackOffset,
   trackSize,
-  type SheetAxisMetrics,
 } from '../../../../src/lib/sheet/viewport';
+import { SHEET_DEFAULTS } from '../../../../src/types/sheet';
+import type { SheetDocument, SheetWorksheet } from '../../../../src/types/sheet';
+import {
+  sheetFormulaResultKey,
+  type SheetFormulaValueMap,
+} from '../../../../src/types/sheetFormula';
 import { clampSheetScale, SHEET_MOBILE_SCALE } from '../lib/sheet';
 
 const HEADER_HEIGHT = 26;
@@ -144,11 +143,14 @@ export function SheetTouchGrid({
   const tapRef = useRef<{ x: number; y: number; timer: number; consumed: boolean } | null>(null);
   const dragHandleRef = useRef<'anchor' | 'focus' | null>(null);
 
-  const setScale = useCallback((next: number) => {
-    const clamped = clampSheetScale(next);
-    if (onScaleChange) onScaleChange(clamped);
-    else setInternalScale(clamped);
-  }, [onScaleChange]);
+  const setScale = useCallback(
+    (next: number) => {
+      const clamped = clampSheetScale(next);
+      if (onScaleChange) onScaleChange(clamped);
+      else setInternalScale(clamped);
+    },
+    [onScaleChange],
+  );
 
   const rows = useMemo<SheetAxisMetrics>(() => buildRowMetrics(worksheet), [worksheet]);
   const columns = useMemo<SheetAxisMetrics>(() => buildColumnMetrics(worksheet), [worksheet]);
@@ -169,17 +171,21 @@ export function SheetTouchGrid({
     return () => observer.disconnect();
   }, []);
 
-  const viewport = useMemo(() => computeViewport({
-    rows,
-    columns,
-    scrollTop: scroll.top / scale,
-    scrollLeft: scroll.left / scale,
-    viewportHeight: Math.max(0, size.height - HEADER_HEIGHT) / scale,
-    viewportWidth: Math.max(0, size.width - HEADER_WIDTH) / scale,
-    frozenRows,
-    frozenColumns,
-    overscan: SHEET_DEFAULTS.overscan,
-  }), [rows, columns, scroll, scale, size, frozenRows, frozenColumns]);
+  const viewport = useMemo(
+    () =>
+      computeViewport({
+        rows,
+        columns,
+        scrollTop: scroll.top / scale,
+        scrollLeft: scroll.left / scale,
+        viewportHeight: Math.max(0, size.height - HEADER_HEIGHT) / scale,
+        viewportWidth: Math.max(0, size.width - HEADER_WIDTH) / scale,
+        frozenRows,
+        frozenColumns,
+        overscan: SHEET_DEFAULTS.overscan,
+      }),
+    [rows, columns, scroll, scale, size, frozenRows, frozenColumns],
+  );
 
   const conditionalStyleAt = useMemo(
     () => createConditionalFormatEvaluator(workbook.styles, worksheet, computedValues),
@@ -188,34 +194,41 @@ export function SheetTouchGrid({
 
   // Content-space pixel geometry. Frozen tracks are pinned by adding the live
   // scroll offset, so they stay put while the rest of the grid scrolls under.
-  const rowTop = useCallback((index: number) => (
-    index < frozenRows
-      ? scroll.top + HEADER_HEIGHT + trackOffset(rows, index) * scale
-      : HEADER_HEIGHT + trackOffset(rows, index) * scale
-  ), [frozenRows, rows, scale, scroll.top]);
+  const rowTop = useCallback(
+    (index: number) =>
+      index < frozenRows
+        ? scroll.top + HEADER_HEIGHT + trackOffset(rows, index) * scale
+        : HEADER_HEIGHT + trackOffset(rows, index) * scale,
+    [frozenRows, rows, scale, scroll.top],
+  );
 
-  const columnLeft = useCallback((index: number) => (
-    index < frozenColumns
-      ? scroll.left + HEADER_WIDTH + trackOffset(columns, index) * scale
-      : HEADER_WIDTH + trackOffset(columns, index) * scale
-  ), [frozenColumns, columns, scale, scroll.left]);
+  const columnLeft = useCallback(
+    (index: number) =>
+      index < frozenColumns
+        ? scroll.left + HEADER_WIDTH + trackOffset(columns, index) * scale
+        : HEADER_WIDTH + trackOffset(columns, index) * scale,
+    [frozenColumns, columns, scale, scroll.left],
+  );
 
-  const positionAt = useCallback((clientX: number, clientY: number): SheetPosition | null => {
-    const element = containerRef.current;
-    if (!element) return null;
-    const rect = element.getBoundingClientRect();
-    const paneX = clientX - rect.left - HEADER_WIDTH;
-    const paneY = clientY - rect.top - HEADER_HEIGHT;
-    if (paneX < 0 || paneY < 0) return null;
-    const position = {
-      row: trackAtPaneOffset(rows, paneY / scale, scroll.top / scale, frozenRows),
-      column: trackAtPaneOffset(columns, paneX / scale, scroll.left / scale, frozenColumns),
-    };
-    // Touching anywhere inside a merge selects its origin, matching desktop.
-    const mergedRange = mergedRangeAt(worksheet, position);
-    const merged = mergedRange ? rangeRectangle(worksheet, mergedRange) : null;
-    return merged ? { row: merged.top, column: merged.left } : position;
-  }, [columns, frozenColumns, frozenRows, rows, scale, scroll.left, scroll.top, worksheet]);
+  const positionAt = useCallback(
+    (clientX: number, clientY: number): SheetPosition | null => {
+      const element = containerRef.current;
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      const paneX = clientX - rect.left - HEADER_WIDTH;
+      const paneY = clientY - rect.top - HEADER_HEIGHT;
+      if (paneX < 0 || paneY < 0) return null;
+      const position = {
+        row: trackAtPaneOffset(rows, paneY / scale, scroll.top / scale, frozenRows),
+        column: trackAtPaneOffset(columns, paneX / scale, scroll.left / scale, frozenColumns),
+      };
+      // Touching anywhere inside a merge selects its origin, matching desktop.
+      const mergedRange = mergedRangeAt(worksheet, position);
+      const merged = mergedRange ? rangeRectangle(worksheet, mergedRange) : null;
+      return merged ? { row: merged.top, column: merged.left } : position;
+    },
+    [columns, frozenColumns, frozenRows, rows, scale, scroll.left, scroll.top, worksheet],
+  );
 
   const clearTap = useCallback(() => {
     const pending = tapRef.current;
@@ -223,90 +236,103 @@ export function SheetTouchGrid({
     tapRef.current = null;
   }, []);
 
-  const handleTouchStart = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
-    if (event.touches.length === 2) {
-      clearTap();
-      pinchRef.current = {
-        distance: touchDistance(event.touches[0], event.touches[1]),
-        scale,
-      };
-      return;
-    }
-    if (event.touches.length !== 1 || dragHandleRef.current) return;
-    const touch = event.touches[0];
-    const start = { x: touch.clientX, y: touch.clientY, timer: 0, consumed: false };
-    start.timer = window.setTimeout(() => {
-      start.consumed = true;
-      const position = positionAt(start.x, start.y);
+  const handleTouchStart = useCallback(
+    (event: ReactTouchEvent<HTMLDivElement>) => {
+      if (event.touches.length === 2) {
+        clearTap();
+        pinchRef.current = {
+          distance: touchDistance(event.touches[0], event.touches[1]),
+          scale,
+        };
+        return;
+      }
+      if (event.touches.length !== 1 || dragHandleRef.current) return;
+      const touch = event.touches[0];
+      const start = { x: touch.clientX, y: touch.clientY, timer: 0, consumed: false };
+      start.timer = window.setTimeout(() => {
+        start.consumed = true;
+        const position = positionAt(start.x, start.y);
+        if (!position) return;
+        onSelectionChange(selectCell(position));
+        onLongPressCell?.(position);
+        navigator.vibrate?.(18);
+      }, LONG_PRESS_MS);
+      tapRef.current = start;
+    },
+    [clearTap, onLongPressCell, onSelectionChange, positionAt, scale],
+  );
+
+  const handleTouchMove = useCallback(
+    (event: ReactTouchEvent<HTMLDivElement>) => {
+      const pinch = pinchRef.current;
+      if (pinch && event.touches.length === 2) {
+        const distance = touchDistance(event.touches[0], event.touches[1]);
+        if (pinch.distance > 0) setScale(pinch.scale * (distance / pinch.distance));
+        return;
+      }
+      const pending = tapRef.current;
+      if (!pending || event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      if (
+        Math.abs(touch.clientX - pending.x) > TAP_MOVE_TOLERANCE ||
+        Math.abs(touch.clientY - pending.y) > TAP_MOVE_TOLERANCE
+      ) {
+        clearTap();
+      }
+    },
+    [clearTap, setScale],
+  );
+
+  const handleTouchEnd = useCallback(
+    (event: ReactTouchEvent<HTMLDivElement>) => {
+      if (event.touches.length === 0) pinchRef.current = null;
+      const pending = tapRef.current;
+      if (!pending) return;
+      window.clearTimeout(pending.timer);
+      tapRef.current = null;
+      if (pending.consumed) return;
+      const position = positionAt(pending.x, pending.y);
       if (!position) return;
+      // The tap is handled here, so suppress the compatibility click the WebView
+      // would otherwise synthesize at the same point — it would land on whatever
+      // this tap just opened (the cell editor's backdrop) and dismiss it.
+      if (event.cancelable) event.preventDefault();
+      const active = selection.active;
+      if (active.row === position.row && active.column === position.column) {
+        onActivateCell(position);
+        return;
+      }
       onSelectionChange(selectCell(position));
-      onLongPressCell?.(position);
-      navigator.vibrate?.(18);
-    }, LONG_PRESS_MS);
-    tapRef.current = start;
-  }, [clearTap, onLongPressCell, onSelectionChange, positionAt, scale]);
-
-  const handleTouchMove = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
-    const pinch = pinchRef.current;
-    if (pinch && event.touches.length === 2) {
-      const distance = touchDistance(event.touches[0], event.touches[1]);
-      if (pinch.distance > 0) setScale(pinch.scale * (distance / pinch.distance));
-      return;
-    }
-    const pending = tapRef.current;
-    if (!pending || event.touches.length !== 1) return;
-    const touch = event.touches[0];
-    if (
-      Math.abs(touch.clientX - pending.x) > TAP_MOVE_TOLERANCE
-      || Math.abs(touch.clientY - pending.y) > TAP_MOVE_TOLERANCE
-    ) {
-      clearTap();
-    }
-  }, [clearTap, setScale]);
-
-  const handleTouchEnd = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
-    if (event.touches.length === 0) pinchRef.current = null;
-    const pending = tapRef.current;
-    if (!pending) return;
-    window.clearTimeout(pending.timer);
-    tapRef.current = null;
-    if (pending.consumed) return;
-    const position = positionAt(pending.x, pending.y);
-    if (!position) return;
-    // The tap is handled here, so suppress the compatibility click the WebView
-    // would otherwise synthesize at the same point — it would land on whatever
-    // this tap just opened (the cell editor's backdrop) and dismiss it.
-    if (event.cancelable) event.preventDefault();
-    const active = selection.active;
-    if (active.row === position.row && active.column === position.column) {
-      onActivateCell(position);
-      return;
-    }
-    onSelectionChange(selectCell(position));
-  }, [onActivateCell, onSelectionChange, positionAt, selection.active]);
+    },
+    [onActivateCell, onSelectionChange, positionAt, selection.active],
+  );
 
   // Range handles: dragging either end extends the selection cell by cell.
-  const handleHandleTouchMove = useCallback((event: ReactTouchEvent<HTMLElement>) => {
-    const which = dragHandleRef.current;
-    if (!which || event.touches.length !== 1) return;
-    const touch = event.touches[0];
-    const position = positionAt(touch.clientX, touch.clientY);
-    if (!position) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const range = selection.ranges[selection.ranges.length - 1] ?? {
-      anchor: selection.active,
-      focus: selection.active,
-    };
-    const next = which === 'anchor'
-      ? { anchor: position, focus: range.focus }
-      : { anchor: range.anchor, focus: position };
-    onSelectionChange({
-      kind: 'cells',
-      active: which === 'anchor' ? position : next.focus,
-      ranges: [next],
-    });
-  }, [onSelectionChange, positionAt, selection.active, selection.ranges]);
+  const handleHandleTouchMove = useCallback(
+    (event: ReactTouchEvent<HTMLElement>) => {
+      const which = dragHandleRef.current;
+      if (!which || event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      const position = positionAt(touch.clientX, touch.clientY);
+      if (!position) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const range = selection.ranges[selection.ranges.length - 1] ?? {
+        anchor: selection.active,
+        focus: selection.active,
+      };
+      const next =
+        which === 'anchor'
+          ? { anchor: position, focus: range.focus }
+          : { anchor: range.anchor, focus: position };
+      onSelectionChange({
+        kind: 'cells',
+        active: which === 'anchor' ? position : next.focus,
+        ranges: [next],
+      });
+    },
+    [onSelectionChange, positionAt, selection.active, selection.ranges],
+  );
 
   const rectangle = useMemo(() => {
     const range = selection.ranges[selection.ranges.length - 1];
@@ -337,8 +363,11 @@ export function SheetTouchGrid({
     // Conditional styles are derived at paint time and never overwrite the base.
     const style = { ...base, ...conditionalStyleAt(position) };
     const text = formatCellDisplay(cell, computed, style, displayFormat);
-    const selected = row >= rectangle.top && row <= rectangle.bottom
-      && column >= rectangle.left && column <= rectangle.right;
+    const selected =
+      row >= rectangle.top &&
+      row <= rectangle.bottom &&
+      column >= rectangle.left &&
+      column <= rectangle.right;
     const isActive = selection.active.row === row && selection.active.column === column;
     const spanWidth = merged
       ? (trackOffset(columns, merged.right + 1) - trackOffset(columns, merged.left)) * scale
@@ -360,7 +389,9 @@ export function SheetTouchGrid({
           cell?.formula ? 'formula' : '',
           computed?.type === 'error' ? 'error' : '',
           cell?.validationId ? 'validated' : '',
-        ].filter(Boolean).join(' ')}
+        ]
+          .filter(Boolean)
+          .join(' ')}
         style={{
           top: rowTop(row),
           left: columnLeft(column),
@@ -379,15 +410,17 @@ export function SheetTouchGrid({
 
   const rowIndexes = [
     ...Array.from({ length: frozenRows }, (_, index) => index),
-    ...Array.from({ length: viewport.rows.end - viewport.rows.start }, (_, index) => (
-      viewport.rows.start + index
-    )),
+    ...Array.from(
+      { length: viewport.rows.end - viewport.rows.start },
+      (_, index) => viewport.rows.start + index,
+    ),
   ];
   const columnIndexes = [
     ...Array.from({ length: frozenColumns }, (_, index) => index),
-    ...Array.from({ length: viewport.columns.end - viewport.columns.start }, (_, index) => (
-      viewport.columns.start + index
-    )),
+    ...Array.from(
+      { length: viewport.columns.end - viewport.columns.start },
+      (_, index) => viewport.columns.start + index,
+    ),
   ];
 
   const handleStyle = (row: number, column: number): CSSProperties => ({
@@ -433,10 +466,14 @@ export function SheetTouchGrid({
                 width,
                 height: HEADER_HEIGHT,
               }}
-              onClick={() => onSelectionChange(selectColumns(column, column, {
-                rowCount: rows.count,
-                columnCount: columns.count,
-              }))}
+              onClick={() =>
+                onSelectionChange(
+                  selectColumns(column, column, {
+                    rowCount: rows.count,
+                    columnCount: columns.count,
+                  }),
+                )
+              }
             >
               {columnLabel(column)}
             </button>
@@ -457,10 +494,14 @@ export function SheetTouchGrid({
                 width: HEADER_WIDTH,
                 height,
               }}
-              onClick={() => onSelectionChange(selectRows(row, row, {
-                rowCount: rows.count,
-                columnCount: columns.count,
-              }))}
+              onClick={() =>
+                onSelectionChange(
+                  selectRows(row, row, {
+                    rowCount: rows.count,
+                    columnCount: columns.count,
+                  }),
+                )
+              }
             >
               {row + 1}
             </button>
@@ -479,9 +520,11 @@ export function SheetTouchGrid({
               key={which}
               className={`workbook-handle ${which}`}
               aria-label={which === 'anchor' ? 'Extend selection start' : 'Extend selection end'}
-              style={which === 'anchor'
-                ? { top: rowTop(row), left: columnLeft(column) }
-                : handleStyle(row, column)}
+              style={
+                which === 'anchor'
+                  ? { top: rowTop(row), left: columnLeft(column) }
+                  : handleStyle(row, column)
+              }
               onTouchStart={(event) => {
                 event.stopPropagation();
                 clearTap();

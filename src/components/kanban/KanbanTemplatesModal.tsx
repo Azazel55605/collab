@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+
 import {
   ArrowLeftRight,
   Download,
@@ -11,6 +12,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { toast } from 'sonner';
+
 import { tauriCommands } from '../../lib/tauri';
 import { createVaultClient } from '../../lib/vaultClient';
 import { useVaultStore } from '../../store/vaultStore';
@@ -19,13 +21,7 @@ import type { KanbanTemplate, TemplateSource } from '../../types/template';
 import type { NoteFile } from '../../types/vault';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,13 +31,7 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { Input } from '../ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { ConfirmDeleteDialog, InputDialog } from '../vault/VaultDialogs';
 
 interface VisibleTemplate {
@@ -99,9 +89,10 @@ function groupTemplates(templates: KanbanTemplate[]): VisibleTemplate[] {
         return rank(a.source) - rank(b.source);
       }),
     }))
-    .sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) ||
-      b.variants.length - a.variants.length,
+    .sort(
+      (a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) ||
+        b.variants.length - a.variants.length,
     );
 }
 
@@ -122,10 +113,11 @@ function hasDifferentSourceCopy(
   template: KanbanTemplate,
   source: TemplateSource,
 ): boolean {
-  return templates.some((other) =>
-    other.name.localeCompare(template.name, undefined, { sensitivity: 'base' }) === 0 &&
-    other.source === source &&
-    other.hash !== template.hash,
+  return templates.some(
+    (other) =>
+      other.name.localeCompare(template.name, undefined, { sensitivity: 'base' }) === 0 &&
+      other.source === source &&
+      other.hash !== template.hash,
   );
 }
 
@@ -184,7 +176,9 @@ export default function KanbanTemplatesModal({
       await tauriCommands.createBlankKanbanTemplate(vaultPath, createSource, templateName);
       setCreateName('');
       await loadTemplates();
-      toast.success(`Created ${sourceLabel(createSource).toLowerCase()} template "${templateName}"`);
+      toast.success(
+        `Created ${sourceLabel(createSource).toLowerCase()} template "${templateName}"`,
+      );
     } catch (error) {
       toast.error(`Failed to create template: ${error}`);
     }
@@ -209,9 +203,15 @@ export default function KanbanTemplatesModal({
     const filePath = await tauriCommands.showOpenTemplateFileDialog();
     if (!filePath) return;
     try {
-      const template = await tauriCommands.importKanbanTemplateFromFile(vaultPath, importSource, filePath);
+      const template = await tauriCommands.importKanbanTemplateFromFile(
+        vaultPath,
+        importSource,
+        filePath,
+      );
       await loadTemplates();
-      toast.success(`Imported "${template.name}" to ${sourceLabel(importSource).toLowerCase()} templates`);
+      toast.success(
+        `Imported "${template.name}" to ${sourceLabel(importSource).toLowerCase()} templates`,
+      );
     } catch (error) {
       toast.error(`Failed to import template: ${error}`);
     }
@@ -240,17 +240,29 @@ export default function KanbanTemplatesModal({
       await tauriCommands.deleteKanbanTemplate(vaultPath, deleteTarget.source, deleteTarget.name);
       setDeleteTarget(null);
       await loadTemplates();
-      toast.success(`Deleted ${sourceLabel(deleteTarget.source).toLowerCase()} template "${deleteTarget.name}"`);
+      toast.success(
+        `Deleted ${sourceLabel(deleteTarget.source).toLowerCase()} template "${deleteTarget.name}"`,
+      );
     } catch (error) {
       toast.error(`Failed to delete template: ${error}`);
     }
   }
 
-  async function handleCopyTemplate(template: KanbanTemplate, targetSource: Extract<TemplateSource, 'vault' | 'app'>) {
+  async function handleCopyTemplate(
+    template: KanbanTemplate,
+    targetSource: Extract<TemplateSource, 'vault' | 'app'>,
+  ) {
     try {
-      await tauriCommands.copyKanbanTemplate(vaultPath, template.source, targetSource, template.name);
+      await tauriCommands.copyKanbanTemplate(
+        vaultPath,
+        template.source,
+        targetSource,
+        template.name,
+      );
       await loadTemplates();
-      toast.success(`Copied "${template.name}" to ${sourceLabel(targetSource).toLowerCase()} templates`);
+      toast.success(
+        `Copied "${template.name}" to ${sourceLabel(targetSource).toLowerCase()} templates`,
+      );
     } catch (error) {
       toast.error(`Failed to copy template: ${error}`);
     }
@@ -260,7 +272,12 @@ export default function KanbanTemplatesModal({
     const filePath = await tauriCommands.showSaveTemplateFileDialog(`${template.name}.json`);
     if (!filePath) return;
     try {
-      await tauriCommands.exportKanbanTemplateToFile(vaultPath, template.source, template.name, filePath);
+      await tauriCommands.exportKanbanTemplateToFile(
+        vaultPath,
+        template.source,
+        template.name,
+        filePath,
+      );
       toast.success(`Exported "${template.name}"`);
     } catch (error) {
       toast.error(`Failed to export template: ${error}`);
@@ -301,7 +318,8 @@ export default function KanbanTemplatesModal({
               <div className="min-w-0">
                 <DialogTitle>Kanban Templates</DialogTitle>
                 <DialogDescription className="mt-1 text-xs">
-                  Built-in templates are always available. Vault and app templates can be added alongside them.
+                  Built-in templates are always available. Vault and app templates can be added
+                  alongside them.
                 </DialogDescription>
               </div>
             </div>
@@ -319,7 +337,10 @@ export default function KanbanTemplatesModal({
                   onChange={(event) => setCreateName(event.target.value)}
                   placeholder="Sprint Board"
                 />
-                <Select value={createSource} onValueChange={(value) => setCreateSource(value as TemplateSource)}>
+                <Select
+                  value={createSource}
+                  onValueChange={(value) => setCreateSource(value as TemplateSource)}
+                >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Choose destination" />
                   </SelectTrigger>
@@ -328,7 +349,11 @@ export default function KanbanTemplatesModal({
                     <SelectItem value="app">App-wide templates</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={selectedBoardPath} onValueChange={setSelectedBoardPath} disabled={boards.length === 0}>
+                <Select
+                  value={selectedBoardPath}
+                  onValueChange={setSelectedBoardPath}
+                  disabled={boards.length === 0}
+                >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Choose board to snapshot" />
                   </SelectTrigger>
@@ -364,7 +389,10 @@ export default function KanbanTemplatesModal({
                   <Upload size={12} />
                   Import File
                 </div>
-                <Select value={importSource} onValueChange={(value) => setImportSource(value as TemplateSource)}>
+                <Select
+                  value={importSource}
+                  onValueChange={(value) => setImportSource(value as TemplateSource)}
+                >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Choose import destination" />
                   </SelectTrigger>
@@ -390,7 +418,12 @@ export default function KanbanTemplatesModal({
                     Identical built-in, vault, and app templates collapse into one row.
                   </div>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => void loadTemplates()} disabled={loading}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void loadTemplates()}
+                  disabled={loading}
+                >
                   Refresh
                 </Button>
               </div>
@@ -403,7 +436,9 @@ export default function KanbanTemplatesModal({
                     <LayoutDashboard size={28} className="opacity-35" />
                     <div>
                       <p>No kanban templates yet.</p>
-                      <p className="text-xs opacity-70 mt-1">Create one from a board or import a template file.</p>
+                      <p className="text-xs opacity-70 mt-1">
+                        Create one from a board or import a template file.
+                      </p>
                     </div>
                   </div>
                 ) : (
@@ -412,14 +447,20 @@ export default function KanbanTemplatesModal({
                       const hasBuiltIn = hasSource(entry, 'builtin');
                       const primary = getPrimaryVariant(entry);
                       const canCopyToVault =
-                        entry.variants.some((variant) => variant.source === 'app' || variant.source === 'builtin') &&
+                        entry.variants.some(
+                          (variant) => variant.source === 'app' || variant.source === 'builtin',
+                        ) &&
                         !hasSource(entry, 'vault') &&
                         !hasDifferentSourceCopy(templates, primary, 'vault');
                       const canCopyToApp =
-                        entry.variants.some((variant) => variant.source === 'vault' || variant.source === 'builtin') &&
+                        entry.variants.some(
+                          (variant) => variant.source === 'vault' || variant.source === 'builtin',
+                        ) &&
                         !hasSource(entry, 'app') &&
                         !hasDifferentSourceCopy(templates, primary, 'app');
-                      const deletableVariants = entry.variants.filter((variant) => variant.source !== 'builtin');
+                      const deletableVariants = entry.variants.filter(
+                        (variant) => variant.source !== 'builtin',
+                      );
 
                       return (
                         <div
@@ -433,9 +474,15 @@ export default function KanbanTemplatesModal({
 
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <h3 className="text-sm font-medium text-foreground truncate">{entry.name}</h3>
+                                <h3 className="text-sm font-medium text-foreground truncate">
+                                  {entry.name}
+                                </h3>
                                 {entry.variants.map((variant) => (
-                                  <Badge key={`${entry.key}-${variant.source}`} variant="secondary" className="text-[10px]">
+                                  <Badge
+                                    key={`${entry.key}-${variant.source}`}
+                                    variant="secondary"
+                                    className="text-[10px]"
+                                  >
                                     {sourceLabel(variant.source)}
                                   </Badge>
                                 ))}
@@ -453,10 +500,7 @@ export default function KanbanTemplatesModal({
                               </div>
 
                               <div className="mt-2 flex flex-wrap gap-2">
-                                <Button
-                                  size="sm"
-                                  onClick={() => setApplyTarget(primary)}
-                                >
+                                <Button size="sm" onClick={() => setApplyTarget(primary)}>
                                   <LayoutDashboard />
                                   Use Template
                                 </Button>
@@ -473,7 +517,11 @@ export default function KanbanTemplatesModal({
 
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon-sm" aria-label={`Manage template ${entry.name}`}>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  aria-label={`Manage template ${entry.name}`}
+                                >
                                   <MoreHorizontal />
                                 </Button>
                               </DropdownMenuTrigger>
@@ -483,19 +531,25 @@ export default function KanbanTemplatesModal({
                                   <LayoutDashboard />
                                   Use Template
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => void handleExportTemplate(primary)}>
+                                <DropdownMenuItem
+                                  onSelect={() => void handleExportTemplate(primary)}
+                                >
                                   <Download />
                                   Export to File
                                 </DropdownMenuItem>
                                 {(canCopyToVault || canCopyToApp) && <DropdownMenuSeparator />}
                                 {canCopyToVault && (
-                                  <DropdownMenuItem onSelect={() => void handleCopyTemplate(primary, 'vault')}>
+                                  <DropdownMenuItem
+                                    onSelect={() => void handleCopyTemplate(primary, 'vault')}
+                                  >
                                     <ArrowLeftRight />
                                     Copy to Vault Templates
                                   </DropdownMenuItem>
                                 )}
                                 {canCopyToApp && (
-                                  <DropdownMenuItem onSelect={() => void handleCopyTemplate(primary, 'app')}>
+                                  <DropdownMenuItem
+                                    onSelect={() => void handleCopyTemplate(primary, 'app')}
+                                  >
                                     <ArrowLeftRight />
                                     Copy to App Templates
                                   </DropdownMenuItem>

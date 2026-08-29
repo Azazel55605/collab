@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { KanbanCard } from '../../types/kanban';
 import type { NoteFile } from '../../types/vault';
+
 import { CardDialogTagsAttachments } from './CardDialogTagsAttachments';
 
 const DRAFT: KanbanCard = {

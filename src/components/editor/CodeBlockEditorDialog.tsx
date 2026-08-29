@@ -1,10 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Compartment, EditorSelection, EditorState } from '@codemirror/state';
+
+import {
+  autocompletion,
+  closeBrackets,
+  closeBracketsKeymap,
+  completionKeymap,
+} from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentMore } from '@codemirror/commands';
-import { drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view';
-import { bracketMatching, defaultHighlightStyle, indentOnInput, indentUnit, syntaxHighlighting } from '@codemirror/language';
-import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete';
+import {
+  bracketMatching,
+  defaultHighlightStyle,
+  indentOnInput,
+  indentUnit,
+  syntaxHighlighting,
+} from '@codemirror/language';
 import { searchKeymap } from '@codemirror/search';
+import { Compartment, EditorSelection, EditorState } from '@codemirror/state';
+import {
+  drawSelection,
+  EditorView,
+  highlightActiveLine,
+  keymap,
+  lineNumbers,
+} from '@codemirror/view';
+import { FileCode2, Sparkles } from 'lucide-react';
+
+import { EDITOR_FONTS, useUiStore } from '../../store/uiStore';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import {
@@ -16,9 +37,7 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { useUiStore, EDITOR_FONTS } from '../../store/uiStore';
-import { buildMarkdownHighlightStyle } from './markdownEditorTheme';
-import { asciiArrowLigatures, indentationConfig, indentVisualization } from './indentationPlugins';
+
 import {
   CODE_BLOCK_LANGUAGE_OPTIONS,
   detectCodeLanguage,
@@ -26,7 +45,8 @@ import {
   getLanguageLabel,
   loadCodeLanguageSupport,
 } from './codeBlockUtils';
-import { FileCode2, Sparkles } from 'lucide-react';
+import { asciiArrowLigatures, indentationConfig, indentVisualization } from './indentationPlugins';
+import { buildMarkdownHighlightStyle } from './markdownEditorTheme';
 
 const PLAIN_TEXT_SELECT_VALUE = '__plain_text__';
 
@@ -49,7 +69,8 @@ function buildCodeEditorTheme(dark: boolean, fontFamily: string, fontSize: numbe
     },
     '.cm-scroller': {
       overflow: 'auto',
-      fontFamily: "ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Monaco, Consolas, monospace",
+      fontFamily:
+        "ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Monaco, Consolas, monospace",
       lineHeight: '1.6',
     },
     '.cm-content': {
@@ -92,12 +113,30 @@ function buildCodeEditorTheme(dark: boolean, fontFamily: string, fontSize: numbe
     '.cm-indent-marker-tab': {
       textAlign: 'left',
     },
-    '.cm-indent-guide-depth-0': { boxShadow: 'inset 2px 0 0 oklch(from var(--primary) l c h / 0.38)', backgroundColor: 'oklch(from var(--primary) l c h / 0.06)' },
-    '.cm-indent-guide-depth-1': { boxShadow: 'inset 2px 0 0 oklch(0.82 0.17 210 / 0.42)', backgroundColor: 'oklch(0.82 0.17 210 / 0.06)' },
-    '.cm-indent-guide-depth-2': { boxShadow: 'inset 2px 0 0 oklch(0.86 0.15 160 / 0.42)', backgroundColor: 'oklch(0.86 0.15 160 / 0.06)' },
-    '.cm-indent-guide-depth-3': { boxShadow: 'inset 2px 0 0 oklch(0.83 0.19 40 / 0.42)', backgroundColor: 'oklch(0.83 0.19 40 / 0.06)' },
-    '.cm-indent-guide-depth-4': { boxShadow: 'inset 2px 0 0 oklch(0.80 0.20 320 / 0.42)', backgroundColor: 'oklch(0.80 0.20 320 / 0.06)' },
-    '.cm-indent-guide-depth-5': { boxShadow: 'inset 2px 0 0 oklch(0.88 0.12 80 / 0.42)', backgroundColor: 'oklch(0.88 0.12 80 / 0.06)' },
+    '.cm-indent-guide-depth-0': {
+      boxShadow: 'inset 2px 0 0 oklch(from var(--primary) l c h / 0.38)',
+      backgroundColor: 'oklch(from var(--primary) l c h / 0.06)',
+    },
+    '.cm-indent-guide-depth-1': {
+      boxShadow: 'inset 2px 0 0 oklch(0.82 0.17 210 / 0.42)',
+      backgroundColor: 'oklch(0.82 0.17 210 / 0.06)',
+    },
+    '.cm-indent-guide-depth-2': {
+      boxShadow: 'inset 2px 0 0 oklch(0.86 0.15 160 / 0.42)',
+      backgroundColor: 'oklch(0.86 0.15 160 / 0.06)',
+    },
+    '.cm-indent-guide-depth-3': {
+      boxShadow: 'inset 2px 0 0 oklch(0.83 0.19 40 / 0.42)',
+      backgroundColor: 'oklch(0.83 0.19 40 / 0.06)',
+    },
+    '.cm-indent-guide-depth-4': {
+      boxShadow: 'inset 2px 0 0 oklch(0.80 0.20 320 / 0.42)',
+      backgroundColor: 'oklch(0.80 0.20 320 / 0.06)',
+    },
+    '.cm-indent-guide-depth-5': {
+      boxShadow: 'inset 2px 0 0 oklch(0.88 0.12 80 / 0.42)',
+      backgroundColor: 'oklch(0.88 0.12 80 / 0.06)',
+    },
     '.cm-activeLine': {
       backgroundColor: dark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.035)',
       fontVariantLigatures: 'none',
@@ -218,14 +257,24 @@ function CodeEditorSurface({
     const isDark = theme !== 'light';
     view.dispatch({
       effects: [
-        themeCompartment.current.reconfigure(buildCodeEditorTheme(isDark, fontFamily, editorFontSize)),
+        themeCompartment.current.reconfigure(
+          buildCodeEditorTheme(isDark, fontFamily, editorFontSize),
+        ),
         indentationCompartment.current.reconfigure(indentationConfig(indentStyle, tabWidth)),
         indentVisualCompartment.current.reconfigure(
           indentVisualization(showIndentMarkers, showColoredIndents, indentStyle, tabWidth),
         ),
       ],
     });
-  }, [theme, fontFamily, editorFontSize, indentStyle, tabWidth, showIndentMarkers, showColoredIndents]);
+  }, [
+    theme,
+    fontFamily,
+    editorFontSize,
+    indentStyle,
+    tabWidth,
+    showIndentMarkers,
+    showColoredIndents,
+  ]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -309,7 +358,8 @@ export function CodeBlockEditorDialog({
             {mode === 'edit' ? 'Edit code block' : 'Insert code block'}
           </DialogTitle>
           <DialogDescription>
-            Choose a fence language and edit the code in a dedicated editor before inserting it into the note.
+            Choose a fence language and edit the code in a dedicated editor before inserting it into
+            the note.
           </DialogDescription>
         </DialogHeader>
 
@@ -353,9 +403,7 @@ export function CodeBlockEditorDialog({
                   Suggestion only: {detected?.reason}
                 </span>
               ) : detected ? (
-                <span className="text-xs text-muted-foreground">
-                  Detection: {detected.reason}
-                </span>
+                <span className="text-xs text-muted-foreground">Detection: {detected.reason}</span>
               ) : null}
             </div>
           </div>

@@ -15,13 +15,13 @@ Related documents:
 
 ## Document Model
 
-| Property | Value |
-| --- | --- |
-| Extension | `.sheet` |
-| Media type | `application/vnd.collab.sheet+json` |
-| Document kind | `collab-sheet` |
-| Schema version | `1` |
-| Storage | Sparse structured JSON through the normal document APIs |
+| Property       | Value                                                   |
+| -------------- | ------------------------------------------------------- |
+| Extension      | `.sheet`                                                |
+| Media type     | `application/vnd.collab.sheet+json`                     |
+| Document kind  | `collab-sheet`                                          |
+| Schema version | `1`                                                     |
+| Storage        | Sparse structured JSON through the normal document APIs |
 
 One file is one workbook holding one or more worksheets. Row, column,
 worksheet, style, table, chart, and named-range identities are stable strings;
@@ -40,24 +40,24 @@ Enforced by `SHEET_LIMITS` in `src/types/sheet.ts` and mirrored in
 `crates/collab-documents/src/sheet.rs`. A document that exceeds a limit is
 rejected with a clear error — never silently truncated.
 
-| Limit | Value |
-| --- | --- |
-| Worksheets per workbook | 200 |
-| Rows per worksheet | 1,000,000 |
-| Columns per worksheet | 16,384 |
-| Populated cells per worksheet | 500,000 |
-| Populated cells per workbook | 1,000,000 |
-| Formula cells per workbook | 200,000 |
-| Formula source length | 8,192 characters |
-| Cell text length | 32,768 characters |
-| Worksheet name length | 64 characters |
-| Styles per workbook | 10,000 |
-| Named ranges per workbook | 1,000 |
-| Merged ranges per worksheet | 10,000 |
-| Conditional formats per worksheet | 500 |
-| Charts per worksheet | 50 |
-| Copy / paste selection | 100,000 cells |
-| Document size | 64 MiB |
+| Limit                             | Value             |
+| --------------------------------- | ----------------- |
+| Worksheets per workbook           | 200               |
+| Rows per worksheet                | 1,000,000         |
+| Columns per worksheet             | 16,384            |
+| Populated cells per worksheet     | 500,000           |
+| Populated cells per workbook      | 1,000,000         |
+| Formula cells per workbook        | 200,000           |
+| Formula source length             | 8,192 characters  |
+| Cell text length                  | 32,768 characters |
+| Worksheet name length             | 64 characters     |
+| Styles per workbook               | 10,000            |
+| Named ranges per workbook         | 1,000             |
+| Merged ranges per worksheet       | 10,000            |
+| Conditional formats per worksheet | 500               |
+| Charts per worksheet              | 50                |
+| Copy / paste selection            | 100,000 cells     |
+| Document size                     | 64 MiB            |
 
 Evaluation is separately bounded by `SheetFormulaBudget`: 200,000 formula cells
 and a 5 s wall clock per evaluation on desktop. Mobile and background callers
@@ -85,31 +85,31 @@ no punctuation or physical-position shortcuts in the grid.
 
 ### Navigation
 
-| Key | Action |
-| --- | --- |
-| Arrow keys | Move the active cell |
-| `Ctrl`/`Cmd` + arrow | Jump to the next populated edge |
-| `Shift` + arrow | Extend the selection |
-| `Tab` / `Shift`+`Tab` | Move right / left |
-| `PageUp` / `PageDown` | Move one viewport |
-| `Home` / `End` | Start / end of the row |
-| `Ctrl`/`Cmd` + `Home` / `End` | Start / end of the grid |
-| `Ctrl`/`Cmd` + `A` | Select the whole worksheet |
-| `Escape` | Collapse the selection to the active cell |
+| Key                           | Action                                    |
+| ----------------------------- | ----------------------------------------- |
+| Arrow keys                    | Move the active cell                      |
+| `Ctrl`/`Cmd` + arrow          | Jump to the next populated edge           |
+| `Shift` + arrow               | Extend the selection                      |
+| `Tab` / `Shift`+`Tab`         | Move right / left                         |
+| `PageUp` / `PageDown`         | Move one viewport                         |
+| `Home` / `End`                | Start / end of the row                    |
+| `Ctrl`/`Cmd` + `Home` / `End` | Start / end of the grid                   |
+| `Ctrl`/`Cmd` + `A`            | Select the whole worksheet                |
+| `Escape`                      | Collapse the selection to the active cell |
 
 ### Editing
 
-| Key | Action |
-| --- | --- |
-| Any printable character | Start editing with that character |
-| `Enter` or `F2` | Edit the active cell's existing content |
-| `Enter` (in the editor) | Commit and move down |
-| `Tab` (in the editor) | Commit and move right |
-| `Escape` (in the editor) | Cancel and return focus to the grid |
-| `Delete` / `Backspace` | Clear the selection |
-| `Ctrl`/`Cmd` + `Z` / `Shift`+`Z` / `Y` | Undo / redo |
-| `Ctrl`/`Cmd` + `F` | Find and replace |
-| `Ctrl`/`Cmd` + `C` / `X` / `V` | Copy / cut / paste |
+| Key                                    | Action                                  |
+| -------------------------------------- | --------------------------------------- |
+| Any printable character                | Start editing with that character       |
+| `Enter` or `F2`                        | Edit the active cell's existing content |
+| `Enter` (in the editor)                | Commit and move down                    |
+| `Tab` (in the editor)                  | Commit and move right                   |
+| `Escape` (in the editor)               | Cancel and return focus to the grid     |
+| `Delete` / `Backspace`                 | Clear the selection                     |
+| `Ctrl`/`Cmd` + `Z` / `Shift`+`Z` / `Y` | Undo / redo                             |
+| `Ctrl`/`Cmd` + `F`                     | Find and replace                        |
+| `Ctrl`/`Cmd` + `C` / `X` / `V`         | Copy / cut / paste                      |
 
 Read-only workbooks (a hosted viewer, or a workbook written by a newer schema)
 accept every navigation key and no editing key.
@@ -127,7 +127,7 @@ to read. It therefore exposes:
 - a polite live region announcing the selection — the cell for a single cell,
   the shape and corners for a range, and the read-only state.
 
-The deliberate limitation: the *whole* visible window is not mirrored into the
+The deliberate limitation: the _whole_ visible window is not mirrored into the
 DOM. Doing so would add hundreds of nodes per scroll frame and break the scroll
 budget, so browse-mode table navigation reads the active cell rather than the
 surrounding grid. Focus-mode navigation with the arrow keys is the supported
@@ -167,18 +167,18 @@ charts, named ranges, data connections, and protection editing are desktop-only.
 
 ## Recovery
 
-| Situation | Behavior |
-| --- | --- |
-| Empty `.sheet` file | Opens as a new workbook — a file created but never written is not corruption |
-| Truncated or non-JSON content | Rejected with `invalid-json`; the grid never opens blank over recoverable bytes |
-| Wrong document kind | Rejected with `wrong-kind` |
-| Missing or invalid schema version | Rejected with `invalid-schema-version` |
-| Newer schema version | Opens read-only; never normalized or rewritten |
-| Over a structural limit | Rejected with `limit-exceeded` |
-| Missing worksheets, duplicate or invalid row/column identifiers, cells pointing at removed rows, duplicate worksheet names | Repaired on open, and every repair is reported to the user |
-| Unknown fields from a newer build | Preserved verbatim at document, worksheet, and cell level |
-| Crash with unsynced edits | The replica's last synced revision is the merge base, so the pending edit replays against the newer server revision |
-| Conflicting concurrent edits | Reported as `overlapping-edit` or `deleted-target` with the exact path; the merged workbook still opens for review |
+| Situation                                                                                                                  | Behavior                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Empty `.sheet` file                                                                                                        | Opens as a new workbook — a file created but never written is not corruption                                        |
+| Truncated or non-JSON content                                                                                              | Rejected with `invalid-json`; the grid never opens blank over recoverable bytes                                     |
+| Wrong document kind                                                                                                        | Rejected with `wrong-kind`                                                                                          |
+| Missing or invalid schema version                                                                                          | Rejected with `invalid-schema-version`                                                                              |
+| Newer schema version                                                                                                       | Opens read-only; never normalized or rewritten                                                                      |
+| Over a structural limit                                                                                                    | Rejected with `limit-exceeded`                                                                                      |
+| Missing worksheets, duplicate or invalid row/column identifiers, cells pointing at removed rows, duplicate worksheet names | Repaired on open, and every repair is reported to the user                                                          |
+| Unknown fields from a newer build                                                                                          | Preserved verbatim at document, worksheet, and cell level                                                           |
+| Crash with unsynced edits                                                                                                  | The replica's last synced revision is the merge base, so the pending edit replays against the newer server revision |
+| Conflicting concurrent edits                                                                                               | Reported as `overlapping-edit` or `deleted-target` with the exact path; the merged workbook still opens for review  |
 
 Repairs are never silent: `SheetDocumentInspection.warnings` surfaces them in
 the editor, because a repair changes what the user stored.

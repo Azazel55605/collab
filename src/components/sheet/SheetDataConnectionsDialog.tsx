@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
+
 import { Link2Off, RefreshCw } from 'lucide-react';
 
+import { flattenVaultFiles } from '../../lib/vaultLinks';
 import type { CalendarDefinition } from '../../types/calendar';
 import type { SheetDataConnection } from '../../types/sheet';
 import type { NoteFile } from '../../types/vault';
-import { flattenVaultFiles } from '../../lib/vaultLinks';
 import { Button } from '../ui/button';
 import {
   Dialog,
@@ -14,13 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 interface Props {
   open: boolean;
@@ -49,7 +44,9 @@ export default function SheetDataConnectionsDialog({
 }: Props) {
   const [kanbanPath, setKanbanPath] = useState('');
   const [calendarId, setCalendarId] = useState('');
-  const kanbanFiles = flattenVaultFiles(fileTree).filter((file) => /\.kanban$/i.test(file.relativePath));
+  const kanbanFiles = flattenVaultFiles(fileTree).filter((file) =>
+    /\.kanban$/i.test(file.relativePath),
+  );
   useEffect(() => {
     if (!open) return;
     setKanbanPath('');
@@ -62,7 +59,8 @@ export default function SheetDataConnectionsDialog({
         <DialogHeader>
           <DialogTitle>Data snapshots</DialogTitle>
           <DialogDescription>
-            Import read-only snapshots from Collab tasks or calendars. Refreshing replaces only the managed range.
+            Import read-only snapshots from Collab tasks or calendars. Refreshing replaces only the
+            managed range.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4">
@@ -95,7 +93,10 @@ export default function SheetDataConnectionsDialog({
               <SelectContent>
                 {calendars.map((calendar) => (
                   <SelectItem key={calendar.id} value={calendar.id}>
-                    <span className="size-2 rounded-full" style={{ backgroundColor: calendar.color }} />
+                    <span
+                      className="size-2 rounded-full"
+                      style={{ backgroundColor: calendar.color }}
+                    />
                     {calendar.name}
                   </SelectItem>
                 ))}
@@ -111,16 +112,20 @@ export default function SheetDataConnectionsDialog({
           </div>
           <div className="max-h-64 space-y-1 overflow-y-auto">
             {connections.map((connection) => (
-              <div key={connection.id} className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5">
+              <div
+                key={connection.id}
+                className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5"
+              >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-xs font-medium">
                     {connection.kind === 'kanbanTasks'
                       ? connection.sourcePath
-                      : calendars.find((calendar) => calendar.id === connection.calendarId)?.name
-                        ?? connection.calendarId}
+                      : (calendars.find((calendar) => calendar.id === connection.calendarId)
+                          ?.name ?? connection.calendarId)}
                   </div>
                   <div className="text-[11px] text-muted-foreground">
-                    {connection.itemCount} rows · refreshed {new Date(connection.refreshedAt).toLocaleString()}
+                    {connection.itemCount} rows · refreshed{' '}
+                    {new Date(connection.refreshedAt).toLocaleString()}
                   </div>
                 </div>
                 <Button

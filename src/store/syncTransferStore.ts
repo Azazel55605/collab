@@ -24,7 +24,10 @@ type NewSyncTransfer = Pick<SyncTransfer, 'vaultId' | 'vaultName' | 'direction' 
 interface SyncTransferState {
   transfers: SyncTransfer[];
   begin: (transfer: NewSyncTransfer) => string;
-  update: (id: string, patch: Partial<Pick<SyncTransfer, 'direction' | 'label' | 'detail' | 'completed' | 'total'>>) => void;
+  update: (
+    id: string,
+    patch: Partial<Pick<SyncTransfer, 'direction' | 'label' | 'detail' | 'completed' | 'total'>>,
+  ) => void;
   complete: (id: string, label?: string) => void;
   fail: (id: string, error: unknown) => void;
   clearFinished: () => void;
@@ -65,26 +68,32 @@ export const useSyncTransferStore = create<SyncTransferState>((set) => ({
     }));
     return id;
   },
-  update: (id, patch) => set((state) => ({ transfers: updateTransfer(state.transfers, id, patch) })),
-  complete: (id, label) => set((state) => ({
-    transfers: updateTransfer(state.transfers, id, {
-      status: 'completed',
-      ...(label ? { label } : {}),
-    }),
-  })),
-  fail: (id, error) => set((state) => ({
-    transfers: updateTransfer(state.transfers, id, {
-      status: 'failed',
-      error: String(error),
-    }),
-  })),
-  clearFinished: () => set((state) => ({
-    transfers: state.transfers.filter((transfer) => transfer.status === 'active'),
-  })),
+  update: (id, patch) =>
+    set((state) => ({ transfers: updateTransfer(state.transfers, id, patch) })),
+  complete: (id, label) =>
+    set((state) => ({
+      transfers: updateTransfer(state.transfers, id, {
+        status: 'completed',
+        ...(label ? { label } : {}),
+      }),
+    })),
+  fail: (id, error) =>
+    set((state) => ({
+      transfers: updateTransfer(state.transfers, id, {
+        status: 'failed',
+        error: String(error),
+      }),
+    })),
+  clearFinished: () =>
+    set((state) => ({
+      transfers: state.transfers.filter((transfer) => transfer.status === 'active'),
+    })),
   reset: () => set({ transfers: [] }),
 }));
 
-export function transferPercent(transfer: Pick<SyncTransfer, 'completed' | 'total'>): number | null {
+export function transferPercent(
+  transfer: Pick<SyncTransfer, 'completed' | 'total'>,
+): number | null {
   if (!transfer.total || transfer.total <= 0) return null;
   return Math.max(0, Math.min(100, Math.round((transfer.completed / transfer.total) * 100)));
 }

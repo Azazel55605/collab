@@ -15,9 +15,9 @@
  * `docs/desktop/sheet-reference.md` documents the resulting behavior, including
  * what this approach deliberately does not provide.
  */
-
 import type { SheetCell, SheetStyle, SheetWorksheet } from '../../types/sheet';
 import type { SheetFormulaComputedValue } from '../../types/sheetFormula';
+
 import { columnLabel, formatA1 } from './address';
 import type { SheetPosition } from './address';
 import { formatCellDisplay, type SheetDisplayFormatOptions } from './cellValue';
@@ -46,9 +46,7 @@ function cellContentPhrase(
   if (cell?.formula) {
     // Both halves matter: the result is what the sheet shows, the source is
     // what an editor is about to change.
-    return text && text !== '…'
-      ? `${text}, formula ${cell.formula}`
-      : `formula ${cell.formula}`;
+    return text && text !== '…' ? `${text}, formula ${cell.formula}` : `formula ${cell.formula}`;
   }
   return text || 'empty';
 }
@@ -82,12 +80,16 @@ export function describeSheetSelection(options: SheetSelectionAnnouncementOption
   const parts: string[] = [];
 
   if (selection.kind === 'all') {
-    parts.push(`All cells selected, ${worksheet.rowOrder.length} rows by ${worksheet.columnOrder.length} columns`);
+    parts.push(
+      `All cells selected, ${worksheet.rowOrder.length} rows by ${worksheet.columnOrder.length} columns`,
+    );
   } else if (selection.kind === 'rows' || selection.kind === 'columns') {
     const rectangle = normalizeRange(selection.ranges[selection.ranges.length - 1]);
-    parts.push(selection.kind === 'rows'
-      ? `Rows ${rectangle.top + 1} to ${rectangle.bottom + 1} selected`
-      : `Columns ${columnLabel(rectangle.left)} to ${columnLabel(rectangle.right)} selected`);
+    parts.push(
+      selection.kind === 'rows'
+        ? `Rows ${rectangle.top + 1} to ${rectangle.bottom + 1} selected`
+        : `Columns ${columnLabel(rectangle.left)} to ${columnLabel(rectangle.right)} selected`,
+    );
   } else if (selection.ranges.length > 1) {
     parts.push(`${selection.ranges.length} ranges selected, ${selectedCellCount(selection)} cells`);
     parts.push(describeSheetCell(options));
@@ -98,7 +100,9 @@ export function describeSheetSelection(options: SheetSelectionAnnouncementOption
     if (height === 1 && width === 1) {
       parts.push(describeSheetCell(options));
     } else {
-      parts.push(`${height} by ${width} range selected, ${formatA1({ row: rectangle.top, column: rectangle.left })} to ${formatA1({ row: rectangle.bottom, column: rectangle.right })}`);
+      parts.push(
+        `${height} by ${width} range selected, ${formatA1({ row: rectangle.top, column: rectangle.left })} to ${formatA1({ row: rectangle.bottom, column: rectangle.right })}`,
+      );
       parts.push(describeSheetCell(options));
     }
   }

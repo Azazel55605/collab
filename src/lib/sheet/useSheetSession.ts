@@ -1,31 +1,33 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
 import { listen } from '@tauri-apps/api/event';
 
+import type { SheetDocument } from '../../types/sheet';
+import { isVaultReadOnly } from '../../types/vault';
+import type { VaultMeta } from '../../types/vault';
 import { useCollabIdentity } from '../collabIdentity';
-import { createVaultClient } from '../vaultClient';
+import { saveConflictedCopy } from '../conflictedCopy';
 import {
   compareDocumentVersions,
-  useDocumentSessionController,
   type DocumentSessionController,
   type DocumentSessionSnapshot,
   type DocumentStatus,
   type RemoteCandidate,
+  useDocumentSessionController,
 } from '../documentSessionController';
-import { saveConflictedCopy } from '../conflictedCopy';
-import { openLiveJsonSession, type JsonObject, type LiveJsonSession } from '../liveJsonDocument';
-import { onReplicaMutated, replicaMutationAffectsPath } from '../vaultReplica';
+import { type JsonObject, type LiveJsonSession, openLiveJsonSession } from '../liveJsonDocument';
 import { useLiveDocumentStatus } from '../useLiveDocumentStatus';
-import { isVaultReadOnly } from '../../types/vault';
-import type { VaultMeta } from '../../types/vault';
-import type { SheetDocument } from '../../types/sheet';
+import { createVaultClient } from '../vaultClient';
+import { onReplicaMutated, replicaMutationAffectsPath } from '../vaultReplica';
+
+import { mergeSheetDocuments } from './collaboration';
 import {
-  SheetDocumentError,
   inspectSheetDocumentText,
   parseSheetDocument,
   serializeSheetDocument,
+  SheetDocumentError,
   type SheetSchemaSupport,
 } from './document';
-import { mergeSheetDocuments } from './collaboration';
 
 interface UseSheetSessionOptions {
   vault: VaultMeta | null;
@@ -103,7 +105,11 @@ export function useSheetSession({
   const readOnly = vaultReadOnly || schemaSupport === 'newer';
   const client = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
   const workbookName = useMemo(
-    () => relativePath?.split('/').pop()?.replace(/\.sheet$/i, '') ?? 'Workbook',
+    () =>
+      relativePath
+        ?.split('/')
+        .pop()
+        ?.replace(/\.sheet$/i, '') ?? 'Workbook',
     [relativePath],
   );
 
@@ -189,7 +195,8 @@ export function useSheetSession({
     setSchemaVersion(null);
     setRestLoadedPath(null);
 
-    client.readDocument(relativePath)
+    client
+      .readDocument(relativePath)
       .then((doc) => {
         if (cancelled) return;
         const inspection = inspectSheetDocumentText(doc.content, workbookName);
@@ -228,33 +235,36 @@ export function useSheetSession({
     else if (snapshot.loadedVersion) markSaved(relativePath, `sheet:${snapshot.loadedVersion}`);
   }, [liveSession, markDirty, markSaved, relativePath, snapshot.dirty, snapshot.loadedVersion]);
 
-  const updateDocument = useCallback((updater: (current: SheetDocument) => SheetDocument) => {
-    if (readOnly) return;
-    const current = documentRef.current;
-    if (!current) return;
-    // Applied synchronously so a rejected operation throws here, where the
-    // caller can turn it into a message.
-    const next = updater(current);
-    if (next === current) return;
-    const stamped: SheetDocument = { ...next, updatedAt: new Date().toISOString() };
-    documentRef.current = stamped;
-    setDocument(stamped);
-    if (liveSessionRef.current) {
-      liveSessionRef.current.writeJson(sheetToJson(stamped));
-    } else {
-      controller.markLocalChange(stamped);
-    }
-  }, [controller, readOnly]);
+  const updateDocument = useCallback(
+    (updater: (current: SheetDocument) => SheetDocument) => {
+      if (readOnly) return;
+      const current = documentRef.current;
+      if (!current) return;
+      // Applied synchronously so a rejected operation throws here, where the
+      // caller can turn it into a message.
+      const next = updater(current);
+      if (next === current) return;
+      const stamped: SheetDocument = { ...next, updatedAt: new Date().toISOString() };
+      documentRef.current = stamped;
+      setDocument(stamped);
+      if (liveSessionRef.current) {
+        liveSessionRef.current.writeJson(sheetToJson(stamped));
+      } else {
+        controller.markLocalChange(stamped);
+      }
+    },
+    [controller, readOnly],
+  );
 
   // Hosted sheets use the same structured Yjs room and offline replica as
   // Kanban/canvas. REST remains the fallback and initial integrity baseline.
   useEffect(() => {
     if (
-      !client
-      || !relativePath
-      || !client.resolveLiveSession
-      || restLoadedPath !== relativePath
-      || schemaSupport !== 'supported'
+      !client ||
+      !relativePath ||
+      !client.resolveLiveSession ||
+      restLoadedPath !== relativePath ||
+      schemaSupport !== 'supported'
     ) {
       liveSessionRef.current = null;
       setLiveSession(null);
@@ -277,7 +287,9 @@ export function useSheetSession({
         setRemoteRevision((revision) => revision + 1);
         return true;
       } catch {
-        setError('Live workbook state is invalid. The REST revision remains available for recovery.');
+        setError(
+          'Live workbook state is invalid. The REST revision remains available for recovery.',
+        );
         return false;
       }
     };
@@ -309,9 +321,8 @@ export function useSheetSession({
 
         const rest = restDocumentRef.current;
         const liveWorksheetIds = new Set(initial.worksheets.map((worksheet) => worksheet.id));
-        const lostWorksheet = rest?.worksheets.some(
-          (worksheet) => !liveWorksheetIds.has(worksheet.id),
-        ) ?? false;
+        const lostWorksheet =
+          rest?.worksheets.some((worksheet) => !liveWorksheetIds.has(worksheet.id)) ?? false;
         if (initial.id !== rest?.id || initial.worksheets.length === 0 || lostWorksheet) {
           session.discardOfflineState();
           session.destroy();
@@ -348,14 +359,7 @@ export function useSheetSession({
       liveSessionRef.current = null;
       setLiveSession(null);
     };
-  }, [
-    client,
-    controller,
-    relativePath,
-    restLoadedPath,
-    schemaSupport,
-    workbookName,
-  ]);
+  }, [client, controller, relativePath, restLoadedPath, schemaSupport, workbookName]);
 
   useEffect(() => {
     if (!liveSession) return;
@@ -399,10 +403,13 @@ export function useSheetSession({
     await controller.requestSave('manual');
   }, [controller, readOnly]);
 
-  const saveMineAsNew = useCallback(async (localContent: string) => {
-    if (!client || !relativePath) return;
-    await saveConflictedCopy(client, relativePath, localContent);
-  }, [client, relativePath]);
+  const saveMineAsNew = useCallback(
+    async (localContent: string) => {
+      if (!client || !relativePath) return;
+      await saveConflictedCopy(client, relativePath, localContent);
+    },
+    [client, relativePath],
+  );
 
   return {
     document,

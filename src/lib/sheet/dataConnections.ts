@@ -8,6 +8,7 @@ import {
   type SheetDocument,
   type SheetWorksheet,
 } from '../../types/sheet';
+
 import type { SheetPosition } from './address';
 import { createSheetDataConnectionId } from './document';
 import { insertTracks, worksheetById } from './operations';
@@ -53,16 +54,18 @@ export function kanbanTaskSnapshot(content: string, sourcePath: string): SheetSn
   return {
     kind: 'kanbanTasks',
     sourcePath,
-    rows: board.columns.flatMap((column) => column.cards
-      .filter((card) => !card.archived)
-      .map((card) => ({
-        title: card.title,
-        column: column.title,
-        dueDate: card.dueDate ?? '',
-        priority: card.priority ?? '',
-        assignees: card.assignees.join(', '),
-        done: Boolean(card.isDone),
-      }))),
+    rows: board.columns.flatMap((column) =>
+      column.cards
+        .filter((card) => !card.archived)
+        .map((card) => ({
+          title: card.title,
+          column: column.title,
+          dueDate: card.dueDate ?? '',
+          priority: card.priority ?? '',
+          assignees: card.assignees.join(', '),
+          done: Boolean(card.isDone),
+        })),
+    ),
   };
 }
 
@@ -81,19 +84,20 @@ export function calendarItemSnapshot(
   return {
     kind: 'calendarItems',
     calendarId,
-    rows: items.filter((item) => !item.deletedAt).map((item) => ({
-      title: item.title,
-      kind: item.kind,
-      start: item.kind === 'birthday'
-        ? item.date
-        : calendarTimeLabel(item.start),
-      end: item.kind === 'event'
-        ? calendarTimeLabel(item.end)
-        : item.kind === 'task'
-          ? calendarTimeLabel(item.due)
-          : '',
-      status: item.kind === 'task' ? item.status : '',
-    })),
+    rows: items
+      .filter((item) => !item.deletedAt)
+      .map((item) => ({
+        title: item.title,
+        kind: item.kind,
+        start: item.kind === 'birthday' ? item.date : calendarTimeLabel(item.start),
+        end:
+          item.kind === 'event'
+            ? calendarTimeLabel(item.end)
+            : item.kind === 'task'
+              ? calendarTimeLabel(item.due)
+              : '',
+        status: item.kind === 'task' ? item.status : '',
+      })),
   };
 }
 
@@ -113,7 +117,10 @@ function ensureSnapshotCapacity(
   if (!worksheet) throw new Error('The target worksheet no longer exists.');
   const neededRows = start.row + rowCount;
   const neededColumns = start.column + columnCount;
-  if (neededRows > SHEET_LIMITS.rowsPerWorksheet || neededColumns > SHEET_LIMITS.columnsPerWorksheet) {
+  if (
+    neededRows > SHEET_LIMITS.rowsPerWorksheet ||
+    neededColumns > SHEET_LIMITS.columnsPerWorksheet
+  ) {
     throw new Error('The snapshot exceeds the worksheet limits.');
   }
   if (neededRows > worksheet.rowOrder.length) {
@@ -138,7 +145,10 @@ function ensureSnapshotCapacity(
   return next;
 }
 
-function connectionStart(worksheet: SheetWorksheet, connection: SheetDataConnection): SheetPosition | null {
+function connectionStart(
+  worksheet: SheetWorksheet,
+  connection: SheetDataConnection,
+): SheetPosition | null {
   const row = worksheet.rowOrder.indexOf(connection.targetRange.startRowId);
   const column = worksheet.columnOrder.indexOf(connection.targetRange.startColumnId);
   return row >= 0 && column >= 0 ? { row, column } : null;
@@ -175,22 +185,25 @@ export function applySheetDataSnapshot(
     }
   }
   columns.forEach((column, columnOffset) => {
-    cells[sheetCellKey(
-      worksheet.rowOrder[start.row],
-      worksheet.columnOrder[start.column + columnOffset],
-    )] = { value: column.label, valueType: 'text' };
+    cells[
+      sheetCellKey(
+        worksheet.rowOrder[start.row],
+        worksheet.columnOrder[start.column + columnOffset],
+      )
+    ] = { value: column.label, valueType: 'text' };
   });
   boundedRows.forEach((row, rowOffset) => {
     columns.forEach((column, columnOffset) => {
       const value = row[column.key] ?? '';
-      cells[sheetCellKey(
-        worksheet.rowOrder[start.row + rowOffset + 1],
-        worksheet.columnOrder[start.column + columnOffset],
-      )] = {
+      cells[
+        sheetCellKey(
+          worksheet.rowOrder[start.row + rowOffset + 1],
+          worksheet.columnOrder[start.column + columnOffset],
+        )
+      ] = {
         value,
-        valueType: typeof value === 'number'
-          ? 'number'
-          : typeof value === 'boolean' ? 'boolean' : 'text',
+        valueType:
+          typeof value === 'number' ? 'number' : typeof value === 'boolean' ? 'boolean' : 'text',
       };
     });
   });
@@ -220,9 +233,9 @@ export function applySheetDataSnapshot(
   ];
   return {
     ...next,
-    worksheets: next.worksheets.map((candidate) => (
-      candidate.id === worksheetId ? { ...candidate, cells } : candidate
-    )),
+    worksheets: next.worksheets.map((candidate) =>
+      candidate.id === worksheetId ? { ...candidate, cells } : candidate,
+    ),
     dataConnections,
   };
 }
@@ -237,13 +250,7 @@ export function refreshSheetDataSnapshot(
   const worksheet = worksheetById(document, connection.targetWorksheetId);
   const start = worksheet ? connectionStart(worksheet, connection) : null;
   if (!worksheet || !start) throw new Error('The data connection target no longer exists.');
-  return applySheetDataSnapshot(
-    document,
-    worksheet.id,
-    start,
-    snapshot,
-    connection.id,
-  );
+  return applySheetDataSnapshot(document, worksheet.id, start, snapshot, connection.id);
 }
 
 export function removeSheetDataConnection(document: SheetDocument, connectionId: string) {

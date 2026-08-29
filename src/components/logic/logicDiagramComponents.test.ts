@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { LogicDiagramDocument } from '../../types/logicDiagram';
 import { normalizeLogicDiagramDocument } from '../../types/logicDiagram';
+
 import { captureLogicComponent, instantiateLogicComponentNode } from './logicDiagramComponents';
 
 function doc(): LogicDiagramDocument {
@@ -55,11 +56,17 @@ describe('logic diagram components', () => {
   });
 
   it('rejects a component selection with dangling boundary wires', () => {
-    expect(() => captureLogicComponent(doc(), ['a', 'b', 'xor'], 'Invalid')).toThrow(/cross the selection boundary/);
+    expect(() => captureLogicComponent(doc(), ['a', 'b', 'xor'], 'Invalid')).toThrow(
+      /cross the selection boundary/,
+    );
   });
 
   it('creates snapshot and linked component nodes with embedded cached definitions', () => {
-    const component = captureLogicComponent(doc(), ['a', 'b', 'xor', 'sum'], 'Half Adder').component;
+    const component = captureLogicComponent(
+      doc(),
+      ['a', 'b', 'xor', 'sum'],
+      'Half Adder',
+    ).component;
     const snapshot = instantiateLogicComponentNode(component, 'snapshot', { x: 24, y: 48 });
     const linked = instantiateLogicComponentNode(component, 'linked', { x: 48, y: 96 });
 

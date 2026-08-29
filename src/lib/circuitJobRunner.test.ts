@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { LogicDiagramDocument } from '../types/logicDiagram';
-import { runCircuitJob, type CircuitJobClient } from './circuitJobRunner';
+
+import { type CircuitJobClient, runCircuitJob } from './circuitJobRunner';
 
 const DOCUMENT = {
   schemaVersion: 6,
@@ -21,7 +22,8 @@ describe('circuit job runner', () => {
     ] as const;
     const client: CircuitJobClient = {
       start: vi.fn().mockResolvedValue('job-1'),
-      status: vi.fn()
+      status: vi
+        .fn()
         .mockResolvedValueOnce(statuses[0])
         .mockResolvedValueOnce(statuses[1])
         .mockResolvedValueOnce(statuses[2]),
@@ -31,10 +33,16 @@ describe('circuit job runner', () => {
     const onStatus = vi.fn();
     const wait = vi.fn().mockResolvedValue(undefined);
 
-    await expect(runCircuitJob(client, DOCUMENT, { onStarted, onStatus, wait })).resolves.toEqual({ state: 'cancelled' });
+    await expect(runCircuitJob(client, DOCUMENT, { onStarted, onStatus, wait })).resolves.toEqual({
+      state: 'cancelled',
+    });
     expect(client.start).toHaveBeenCalledWith(DOCUMENT);
     expect(onStarted).toHaveBeenCalledWith('job-1');
-    expect(onStatus.mock.calls.map(([status]) => status.stage)).toEqual(['compiling', 'solving', null]);
+    expect(onStatus.mock.calls.map(([status]) => status.stage)).toEqual([
+      'compiling',
+      'solving',
+      null,
+    ]);
     expect(wait).toHaveBeenCalledTimes(2);
     expect(client.takeResult).toHaveBeenCalledOnce();
     expect(client.takeResult).toHaveBeenCalledWith('job-1');

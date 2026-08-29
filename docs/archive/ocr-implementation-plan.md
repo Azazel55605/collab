@@ -11,16 +11,16 @@
 
 ## Tracker
 
-| Phase | Status | Notes |
-| --- | --- | --- |
-| 1. OCR settings and language management | Complete | Settings UI, persisted preference, curated official pack download/remove flow, and app-data storage are implemented. |
-| 2. OCR engine runtime | Complete | OCR now reads the preferred language, seeds installed app-data packs into Tesseract's cache, reuses the active worker, and idles it after a short timeout. |
-| 3. PDF text-first extraction | Complete | PDF page OCR now extracts embedded text before invoking OCR. |
-| 4. Controlled PDF render scale | Complete | PDF OCR now renders an offscreen page at the configured 1x/2x/3x scale with a pixel clamp. |
-| 5. OCR result cache | Complete | OCR results are cached in app-local IndexedDB by file/page identity and OCR settings, with regenerate controls and a clear-cache settings action. |
-| 6. Region OCR | Complete | PDF region OCR uses the existing drag selection and high-resolution OCR render; image OCR can target the active crop region. |
-| 7. Conservative preprocessing | Complete | OCR preprocessing is explicit and defaults to none; grayscale, contrast, black-and-white, and invert modes are cache-keyed. |
-| 8. Selectable OCR overlay | Complete | OCR word boxes now render as selectable transparent text layers on PDF pages and image surfaces after OCR. |
+| Phase                                   | Status   | Notes                                                                                                                                                      |
+| --------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. OCR settings and language management | Complete | Settings UI, persisted preference, curated official pack download/remove flow, and app-data storage are implemented.                                       |
+| 2. OCR engine runtime                   | Complete | OCR now reads the preferred language, seeds installed app-data packs into Tesseract's cache, reuses the active worker, and idles it after a short timeout. |
+| 3. PDF text-first extraction            | Complete | PDF page OCR now extracts embedded text before invoking OCR.                                                                                               |
+| 4. Controlled PDF render scale          | Complete | PDF OCR now renders an offscreen page at the configured 1x/2x/3x scale with a pixel clamp.                                                                 |
+| 5. OCR result cache                     | Complete | OCR results are cached in app-local IndexedDB by file/page identity and OCR settings, with regenerate controls and a clear-cache settings action.          |
+| 6. Region OCR                           | Complete | PDF region OCR uses the existing drag selection and high-resolution OCR render; image OCR can target the active crop region.                               |
+| 7. Conservative preprocessing           | Complete | OCR preprocessing is explicit and defaults to none; grayscale, contrast, black-and-white, and invert modes are cache-keyed.                                |
+| 8. Selectable OCR overlay               | Complete | OCR word boxes now render as selectable transparent text layers on PDF pages and image surfaces after OCR.                                                 |
 
 ## Trust and language-pack source
 

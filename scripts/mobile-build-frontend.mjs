@@ -8,6 +8,7 @@
 import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 import { resolveNodeTool } from './tauri-command.mjs';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -15,7 +16,9 @@ const nodeOptions = process.env.NODE_OPTIONS ?? '';
 const heapOption = '--max-old-space-size=8192';
 const childEnv = {
   ...process.env,
-  NODE_OPTIONS: nodeOptions.includes('--max-old-space-size') ? nodeOptions : `${nodeOptions} ${heapOption}`.trim(),
+  NODE_OPTIONS: nodeOptions.includes('--max-old-space-size')
+    ? nodeOptions
+    : `${nodeOptions} ${heapOption}`.trim(),
 };
 
 function run(toolName, args) {

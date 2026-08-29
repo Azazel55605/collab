@@ -9,12 +9,12 @@ a pointer, not a copy.
 
 Four independently versioned artifacts from one workspace ([`versions.json`](./versions.json)):
 
-| Artifact | Where | Stack |
-| --- | --- | --- |
-| Desktop app | `src/`, `src-tauri/` | Tauri 2, React 19, Rust |
-| Android companion | `apps/mobile-android/`, `src-tauri/` | Tauri Android, own Vite/Vitest config |
-| Collaboration server | `crates/collab-server/` | Axum, SQLx, PostgreSQL |
-| Admin web | `apps/admin-web/` | React 19, Vite, served under `/admin/` |
+| Artifact             | Where                                | Stack                                  |
+| -------------------- | ------------------------------------ | -------------------------------------- |
+| Desktop app          | `src/`, `src-tauri/`                 | Tauri 2, React 19, Rust                |
+| Android companion    | `apps/mobile-android/`, `src-tauri/` | Tauri Android, own Vite/Vitest config  |
+| Collaboration server | `crates/collab-server/`              | Axum, SQLx, PostgreSQL                 |
+| Admin web            | `apps/admin-web/`                    | React 19, Vite, served under `/admin/` |
 
 Rust is a Cargo workspace of 12 crates plus `src-tauri`. Portable domain logic
 lives in `crates/`; Tauri and Axum are adapters around it.
@@ -137,10 +137,10 @@ meant to be changed under `/admin/settings` instead.
 
 Two Compose files exist and are not interchangeable:
 
-| File | Purpose |
-| --- | --- |
+| File                 | Purpose                                                           |
+| -------------------- | ----------------------------------------------------------------- |
 | `docker-compose.yml` | Production/release — pulls the published GHCR image, never builds |
-| `compose.yaml` | Local development and testing — builds the server from source |
+| `compose.yaml`       | Local development and testing — builds the server from source     |
 
 ## Gotchas
 

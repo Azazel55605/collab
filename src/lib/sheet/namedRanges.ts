@@ -1,10 +1,6 @@
 import { SHEET_LIMITS } from '../../types/sheet';
-import type {
-  SheetDocument,
-  SheetNamedRange,
-  SheetRange,
-  SheetWorksheet,
-} from '../../types/sheet';
+import type { SheetDocument, SheetNamedRange, SheetRange, SheetWorksheet } from '../../types/sheet';
+
 import { columnLabel } from './address';
 import { createSheetNamedRangeId, SheetDocumentError } from './document';
 import type { SheetSelection } from './selection';
@@ -25,9 +21,9 @@ export function visibleNamedRanges(
   document: SheetDocument,
   sourceWorksheetId: string,
 ): SheetNamedRange[] {
-  return (document.namedRanges ?? []).filter((range) => (
-    range.scopeWorksheetId === undefined || range.scopeWorksheetId === sourceWorksheetId
-  ));
+  return (document.namedRanges ?? []).filter(
+    (range) => range.scopeWorksheetId === undefined || range.scopeWorksheetId === sourceWorksheetId,
+  );
 }
 
 export function resolveNamedRange(
@@ -37,13 +33,16 @@ export function resolveNamedRange(
 ): ResolvedNamedRange | null {
   const normalized = name.trim().toLocaleLowerCase();
   const visible = visibleNamedRanges(document, sourceWorksheetId);
-  const namedRange = visible.find((range) => (
-    range.scopeWorksheetId === sourceWorksheetId
-    && range.name.toLocaleLowerCase() === normalized
-  )) ?? visible.find((range) => (
-    range.scopeWorksheetId === undefined
-    && range.name.toLocaleLowerCase() === normalized
-  ));
+  const namedRange =
+    visible.find(
+      (range) =>
+        range.scopeWorksheetId === sourceWorksheetId &&
+        range.name.toLocaleLowerCase() === normalized,
+    ) ??
+    visible.find(
+      (range) =>
+        range.scopeWorksheetId === undefined && range.name.toLocaleLowerCase() === normalized,
+    );
   if (!namedRange) return null;
   const worksheet = document.worksheets.find(
     (candidate) => candidate.id === namedRange.worksheetId,
@@ -67,26 +66,25 @@ export function createSheetNamedRange(
     );
   }
   const trimmed = name.trim();
-  if (
-    !SHEET_NAMED_RANGE_PATTERN.test(trimmed)
-    || SHEET_CELL_REFERENCE_PATTERN.test(trimmed)
-  ) {
+  if (!SHEET_NAMED_RANGE_PATTERN.test(trimmed) || SHEET_CELL_REFERENCE_PATTERN.test(trimmed)) {
     throw new SheetDocumentError(
       'invalid-structure',
       'Names must start with a letter or underscore, contain only letters, numbers, dots, or underscores, and cannot look like a cell address.',
     );
   }
   const scopeWorksheetId = scope === 'worksheet' ? worksheetId : undefined;
-  const conflict = (document.namedRanges ?? []).some((range) => (
-    range.name.toLocaleLowerCase() === trimmed.toLocaleLowerCase()
-    && (
-      range.scopeWorksheetId === undefined
-      || scopeWorksheetId === undefined
-      || range.scopeWorksheetId === scopeWorksheetId
-    )
-  ));
+  const conflict = (document.namedRanges ?? []).some(
+    (range) =>
+      range.name.toLocaleLowerCase() === trimmed.toLocaleLowerCase() &&
+      (range.scopeWorksheetId === undefined ||
+        scopeWorksheetId === undefined ||
+        range.scopeWorksheetId === scopeWorksheetId),
+  );
   if (conflict) {
-    throw new SheetDocumentError('invalid-structure', `The name "${trimmed}" is already visible in this scope.`);
+    throw new SheetDocumentError(
+      'invalid-structure',
+      `The name "${trimmed}" is already visible in this scope.`,
+    );
   }
   const range = stableRangeFromSelection(worksheet, {
     ...selection,
@@ -116,15 +114,10 @@ export function removeSheetNamedRange(
 }
 
 function sheetPrefix(name: string): string {
-  return /^[A-Za-z_][A-Za-z0-9_.]*$/.test(name)
-    ? `${name}!`
-    : `'${name.replace(/'/g, "''")}'!`;
+  return /^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? `${name}!` : `'${name.replace(/'/g, "''")}'!`;
 }
 
-function absoluteRangeText(
-  worksheet: SheetWorksheet,
-  range: SheetRange,
-): string | null {
+function absoluteRangeText(worksheet: SheetWorksheet, range: SheetRange): string | null {
   const startRow = worksheet.rowOrder.indexOf(range.startRowId);
   const endRow = worksheet.rowOrder.indexOf(range.endRowId);
   const startColumn = worksheet.columnOrder.indexOf(range.startColumnId);
@@ -169,9 +162,10 @@ export function expandNamedRangesInFormula(
       index += 1;
       continue;
     }
-    const match = !stringQuoted && !sheetQuoted && /[A-Za-z_]/.test(character)
-      ? /^[A-Za-z_][A-Za-z0-9_.]*/.exec(formula.slice(index))
-      : null;
+    const match =
+      !stringQuoted && !sheetQuoted && /[A-Za-z_]/.test(character)
+        ? /^[A-Za-z_][A-Za-z0-9_.]*/.exec(formula.slice(index))
+        : null;
     if (!match) {
       output += character;
       index += 1;
@@ -179,9 +173,8 @@ export function expandNamedRangesInFormula(
     }
     const token = match[0];
     const after = formula[index + token.length];
-    const resolved = after === '(' || after === '!'
-      ? null
-      : resolveNamedRange(document, sourceWorksheetId, token);
+    const resolved =
+      after === '(' || after === '!' ? null : resolveNamedRange(document, sourceWorksheetId, token);
     if (!resolved) {
       output += token;
       index += token.length;
@@ -191,18 +184,17 @@ export function expandNamedRangesInFormula(
     if (!rangeText) {
       output += '#REF!';
     } else {
-      output += resolved.worksheet.id === sourceWorksheetId
-        ? rangeText
-        : `${sheetPrefix(resolved.worksheet.name)}${rangeText}`;
+      output +=
+        resolved.worksheet.id === sourceWorksheetId
+          ? rangeText
+          : `${sheetPrefix(resolved.worksheet.name)}${rangeText}`;
     }
     index += token.length;
   }
   return output;
 }
 
-export function namedRangeSelection(
-  resolved: ResolvedNamedRange,
-): SheetSelection | null {
+export function namedRangeSelection(resolved: ResolvedNamedRange): SheetSelection | null {
   const startRow = resolved.worksheet.rowOrder.indexOf(resolved.range.startRowId);
   const endRow = resolved.worksheet.rowOrder.indexOf(resolved.range.endRowId);
   const startColumn = resolved.worksheet.columnOrder.indexOf(resolved.range.startColumnId);

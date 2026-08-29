@@ -8,6 +8,7 @@ import type {
   SchematicRotation,
 } from '../../types/logicDiagram';
 import { isElectronicComponentKind } from '../../types/logicDiagram';
+
 import { getSchematicSymbol } from './schematicSymbols';
 
 export interface LogicFlowNodeData extends Record<string, unknown> {
@@ -36,8 +37,10 @@ export const LOGIC_COMPONENT_MIN_HEIGHT = 80;
 export const LOGIC_COMPONENT_PORT_SPACING = 24;
 
 export function logicComponentDimensions(component?: LogicComponentInstance) {
-  const inputCount = component?.definition.ports.filter((port) => port.direction === 'input').length ?? 0;
-  const outputCount = component?.definition.ports.filter((port) => port.direction === 'output').length ?? 0;
+  const inputCount =
+    component?.definition.ports.filter((port) => port.direction === 'input').length ?? 0;
+  const outputCount =
+    component?.definition.ports.filter((port) => port.direction === 'output').length ?? 0;
   const rows = Math.max(1, inputCount, outputCount);
   return {
     width: LOGIC_COMPONENT_WIDTH,
@@ -61,29 +64,51 @@ export function logicHandleYOffset(
 export function logicNodeLabel(node: Pick<LogicDiagramNode, 'kind' | 'label'>) {
   if (node.label?.trim()) return node.label.trim();
   switch (node.kind) {
-    case 'input': return 'Input';
-    case 'clock': return 'Clock';
-    case 'output': return 'Output';
-    case 'group': return 'Group';
-    case 'and': return 'AND';
-    case 'or': return 'OR';
-    case 'not': return 'NOT';
-    case 'xor': return 'XOR';
-    case 'nand': return 'NAND';
-    case 'nor': return 'NOR';
-    case 'xnor': return 'XNOR';
-    case 'component': return 'Component';
+    case 'input':
+      return 'Input';
+    case 'clock':
+      return 'Clock';
+    case 'output':
+      return 'Output';
+    case 'group':
+      return 'Group';
+    case 'and':
+      return 'AND';
+    case 'or':
+      return 'OR';
+    case 'not':
+      return 'NOT';
+    case 'xor':
+      return 'XOR';
+    case 'nand':
+      return 'NAND';
+    case 'nor':
+      return 'NOR';
+    case 'xnor':
+      return 'XNOR';
+    case 'component':
+      return 'Component';
     default:
-      return isElectronicComponentKind(node.kind) ? getSchematicSymbol(node.kind).label : 'Component';
+      return isElectronicComponentKind(node.kind)
+        ? getSchematicSymbol(node.kind).label
+        : 'Component';
   }
 }
 
 function getNodeWidth(node: LogicFlowNode) {
-  return numericStyleValue(node.style?.width) ?? numericStyleValue(node.width) ?? numericStyleValue(node.measured?.width);
+  return (
+    numericStyleValue(node.style?.width) ??
+    numericStyleValue(node.width) ??
+    numericStyleValue(node.measured?.width)
+  );
 }
 
 function getNodeHeight(node: LogicFlowNode) {
-  return numericStyleValue(node.style?.height) ?? numericStyleValue(node.height) ?? numericStyleValue(node.measured?.height);
+  return (
+    numericStyleValue(node.style?.height) ??
+    numericStyleValue(node.height) ??
+    numericStyleValue(node.measured?.height)
+  );
 }
 
 function toFlowNode(node: LogicDiagramNode, parent?: LogicDiagramNode): LogicFlowNode {
@@ -108,12 +133,13 @@ function toFlowNode(node: LogicDiagramNode, parent?: LogicDiagramNode): LogicFlo
     parentId: node.parentId,
     extent: node.parentId ? 'parent' : undefined,
     zIndex: node.kind === 'group' ? 0 : 1,
-    style: node.width || node.height
-      ? {
-          width: node.width,
-          height: node.height,
-        }
-      : undefined,
+    style:
+      node.width || node.height
+        ? {
+            width: node.width,
+            height: node.height,
+          }
+        : undefined,
   };
 }
 
@@ -130,7 +156,7 @@ function fromFlowNode(node: LogicFlowNode, parent?: LogicFlowNode): LogicDiagram
     label: typeof node.data.label === 'string' ? node.data.label : undefined,
     value: typeof node.data.value === 'boolean' ? node.data.value : undefined,
     clock: node.data.kind === 'clock' ? node.data.clock : undefined,
-    rotation: isElectronicComponentKind(node.data.kind) ? node.data.rotation ?? 0 : undefined,
+    rotation: isElectronicComponentKind(node.data.kind) ? (node.data.rotation ?? 0) : undefined,
     electrical: isElectronicComponentKind(node.data.kind) ? node.data.electrical : undefined,
     parentId: typeof node.parentId === 'string' ? node.parentId : undefined,
     // Only groups carry an explicit size; gate nodes are intrinsically sized, so
@@ -174,7 +200,9 @@ export function toFlowGraph(diagram: LogicDiagramDocument) {
   });
 
   return {
-    nodes: sortedNodes.map((node) => toFlowNode(node, node.parentId ? nodesById.get(node.parentId) : undefined)),
+    nodes: sortedNodes.map((node) =>
+      toFlowNode(node, node.parentId ? nodesById.get(node.parentId) : undefined),
+    ),
     edges: diagram.wires.map(toFlowEdge),
     viewport: diagram.viewport,
   };
@@ -189,7 +217,9 @@ export function fromFlowGraph(
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   return {
     ...base,
-    nodes: nodes.map((node) => fromFlowNode(node, node.parentId ? nodesById.get(node.parentId) : undefined)),
+    nodes: nodes.map((node) =>
+      fromFlowNode(node, node.parentId ? nodesById.get(node.parentId) : undefined),
+    ),
     wires: edges.map(fromFlowEdge),
     viewport,
   };

@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import type { HostedVaultMeta, LocalVaultMeta } from '../types/vault';
+
 import { tauriCommands } from './tauri';
 import {
+  createVaultClient,
   HOSTED_VAULT_CAPABILITIES,
   HostedVaultClient,
   LOCAL_VAULT_CAPABILITIES,
   LocalVaultClient,
-  createVaultClient,
   requireRuntimeCapability,
 } from './vaultClient';
 
@@ -173,12 +175,19 @@ describe('LocalVaultClient', () => {
     const client = new LocalVaultClient(vault);
     await requireRuntimeCapability(client, 'watch').start();
     await requireRuntimeCapability(client, 'encryption').unlock('password');
-    await requireRuntimeCapability(client, 'externalAssetImport').import('/tmp/image.png', 'Pictures');
+    await requireRuntimeCapability(client, 'externalAssetImport').import(
+      '/tmp/image.png',
+      'Pictures',
+    );
     await requireRuntimeCapability(client, 'archiveExport').exportTo('/tmp/vault.zip');
 
     expect(tauriCommands.watchVault).toHaveBeenCalledWith('/vault');
     expect(tauriCommands.unlockVault).toHaveBeenCalledWith('/vault', 'password');
-    expect(tauriCommands.importAssetIntoVault).toHaveBeenCalledWith('/vault', '/tmp/image.png', 'Pictures');
+    expect(tauriCommands.importAssetIntoVault).toHaveBeenCalledWith(
+      '/vault',
+      '/tmp/image.png',
+      'Pictures',
+    );
     expect(tauriCommands.exportVault).toHaveBeenCalledWith('/vault', '/tmp/vault.zip');
   });
 
@@ -225,12 +234,20 @@ describe('LocalVaultClient', () => {
       version: 'hash-1',
       modifiedAt: 123,
     });
-    await expect(client.writeDocument('Notes/Test.md', '# Next', 'hash-1', '# Test')).resolves.toEqual({
+    await expect(
+      client.writeDocument('Notes/Test.md', '# Next', 'hash-1', '# Test'),
+    ).resolves.toEqual({
       version: 'hash-2',
       mergedContent: '# Merged',
       conflict: undefined,
     });
-    expect(tauriCommands.writeNote).toHaveBeenCalledWith('/vault', 'Notes/Test.md', '# Next', 'hash-1', '# Test');
+    expect(tauriCommands.writeNote).toHaveBeenCalledWith(
+      '/vault',
+      'Notes/Test.md',
+      '# Next',
+      'hash-1',
+      '# Test',
+    );
   });
 
   it('delegates file, trash, search, and history operations through typed Tauri commands', async () => {
@@ -260,23 +277,66 @@ describe('LocalVaultClient', () => {
     expect(tauriCommands.listVaultFiles).toHaveBeenCalledWith('/vault');
     expect(tauriCommands.createNote).toHaveBeenCalledWith('/vault', 'Test.md');
     expect(tauriCommands.createFolder).toHaveBeenCalledWith('/vault', 'Notes');
-    expect(tauriCommands.previewRenameMove).toHaveBeenCalledWith('/vault', 'Test.md', 'Notes/Test.md');
-    expect(tauriCommands.renameNote).toHaveBeenCalledWith('/vault', 'Test.md', 'Notes/Test.md', true);
-    expect(tauriCommands.moveNoteToTrash).toHaveBeenCalledWith('/vault', 'Notes/Test.md', undefined, undefined, true);
+    expect(tauriCommands.previewRenameMove).toHaveBeenCalledWith(
+      '/vault',
+      'Test.md',
+      'Notes/Test.md',
+    );
+    expect(tauriCommands.renameNote).toHaveBeenCalledWith(
+      '/vault',
+      'Test.md',
+      'Notes/Test.md',
+      true,
+    );
+    expect(tauriCommands.moveNoteToTrash).toHaveBeenCalledWith(
+      '/vault',
+      'Notes/Test.md',
+      undefined,
+      undefined,
+      true,
+    );
     expect(tauriCommands.deleteNote).toHaveBeenCalledWith('/vault', 'Old.md', true);
     expect(tauriCommands.listFileReferences).toHaveBeenCalledWith('/vault', 'Notes/Test.md');
     expect(tauriCommands.listTrashEntries).toHaveBeenCalledWith('/vault');
-    expect(tauriCommands.restoreTrashedItem).toHaveBeenCalledWith('/vault', 'trash-1', 'Notes/Test.md');
+    expect(tauriCommands.restoreTrashedItem).toHaveBeenCalledWith(
+      '/vault',
+      'trash-1',
+      'Notes/Test.md',
+    );
     expect(tauriCommands.purgeTrashedItem).toHaveBeenCalledWith('/vault', 'trash-2', true);
     expect(tauriCommands.purgeAllTrash).toHaveBeenCalledWith('/vault');
     expect(tauriCommands.searchNotes).toHaveBeenCalledWith('/vault', 'test');
-    expect(tauriCommands.createSnapshot).toHaveBeenCalledWith('/vault', 'Notes/Test.md', '# Test', 'user-1', 'Alice', 'Checkpoint');
+    expect(tauriCommands.createSnapshot).toHaveBeenCalledWith(
+      '/vault',
+      'Notes/Test.md',
+      '# Test',
+      'user-1',
+      'Alice',
+      'Checkpoint',
+    );
     expect(tauriCommands.listSnapshots).toHaveBeenCalledWith('/vault', 'Notes/Test.md');
-    expect(tauriCommands.readSnapshot).toHaveBeenCalledWith('/vault', 'Notes/Test.md', 'snapshot-1');
-    expect(tauriCommands.restoreSnapshot).toHaveBeenCalledWith('/vault', 'Notes/Test.md', 'snapshot-1', 'user-1', 'Alice');
-    expect(tauriCommands.deleteSnapshot).toHaveBeenCalledWith('/vault', 'Notes/Test.md', 'snapshot-1');
+    expect(tauriCommands.readSnapshot).toHaveBeenCalledWith(
+      '/vault',
+      'Notes/Test.md',
+      'snapshot-1',
+    );
+    expect(tauriCommands.restoreSnapshot).toHaveBeenCalledWith(
+      '/vault',
+      'Notes/Test.md',
+      'snapshot-1',
+      'user-1',
+      'Alice',
+    );
+    expect(tauriCommands.deleteSnapshot).toHaveBeenCalledWith(
+      '/vault',
+      'Notes/Test.md',
+      'snapshot-1',
+    );
     expect(tauriCommands.clearSnapshotHistory).toHaveBeenCalledWith('/vault', 'Notes/Test.md');
-    expect(tauriCommands.readNoteAssetDataUrl).toHaveBeenCalledWith('/vault', 'Pictures/diagram.png');
+    expect(tauriCommands.readNoteAssetDataUrl).toHaveBeenCalledWith(
+      '/vault',
+      'Pictures/diagram.png',
+    );
   });
 });
 
@@ -311,13 +371,15 @@ describe('HostedVaultClient', () => {
       logicComponents: expect.any(Object),
       members: expect.any(Object),
     });
-    await expect(client.listFiles()).resolves.toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        relativePath: 'Notes',
-        isFolder: true,
-        children: [expect.objectContaining({ relativePath: 'Notes/Test.md', size: 6 })],
-      }),
-    ]));
+    await expect(client.listFiles()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          relativePath: 'Notes',
+          isFolder: true,
+          children: [expect.objectContaining({ relativePath: 'Notes/Test.md', size: 6 })],
+        }),
+      ]),
+    );
   });
 
   it('derives a lightweight note index from the manifest documents', async () => {
@@ -371,7 +433,9 @@ describe('HostedVaultClient', () => {
       manifestSequence: 8,
       contentHash: 'hash-3',
     });
-    await expect(client.writeDocument('Notes/Test.md', '# Next', '3')).resolves.toEqual({ version: '4' });
+    await expect(client.writeDocument('Notes/Test.md', '# Next', '3')).resolves.toEqual({
+      version: '4',
+    });
     expect(tauriCommands.hostedVaultRequest).toHaveBeenLastCalledWith(
       'https://collab.example.test',
       'POST',
@@ -437,11 +501,15 @@ describe('HostedVaultClient', () => {
     };
     vi.mocked(tauriCommands.replicaReadLogicComponents).mockResolvedValue([component]);
     vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(mockHostedManifest(8));
-    vi.mocked(tauriCommands.hostedVaultRequest).mockRejectedValue(new Error('Network connection unavailable'));
+    vi.mocked(tauriCommands.hostedVaultRequest).mockRejectedValue(
+      new Error('Network connection unavailable'),
+    );
 
     const logicComponents = new HostedVaultClient(hostedVault).runtime.logicComponents!;
     await expect(logicComponents.list()).resolves.toEqual([component]);
-    await expect(logicComponents.save({ ...component, description: 'Updated' })).resolves.toMatchObject({
+    await expect(
+      logicComponents.save({ ...component, description: 'Updated' }),
+    ).resolves.toMatchObject({
       id: 'component-1',
       version: 2,
       description: 'Updated',
@@ -470,8 +538,9 @@ describe('HostedVaultClient', () => {
     // revision POST is rejected because the connected session targets another
     // server. The edit must be queued as a pending operation, not thrown away.
     vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(mockHostedManifest(8));
-    vi.mocked(tauriCommands.hostedVaultRequest)
-      .mockRejectedValueOnce(new Error('This hosted vault belongs to a different Collab server.'));
+    vi.mocked(tauriCommands.hostedVaultRequest).mockRejectedValueOnce(
+      new Error('This hosted vault belongs to a different Collab server.'),
+    );
     const client = new HostedVaultClient(hostedVault);
 
     await expect(client.writeDocument('Notes/Test.md', '# Next', '3')).resolves.toEqual({
@@ -516,7 +585,8 @@ describe('HostedVaultClient', () => {
   });
 
   it('opens a matching cached hosted document before the network read completes', async () => {
-    let resolveHostedRead: ((value: { file: typeof hostedDocument; content: string }) => void) | undefined;
+    let resolveHostedRead:
+      ((value: { file: typeof hostedDocument; content: string }) => void) | undefined;
     vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(mockHostedManifest());
     vi.mocked(tauriCommands.replicaCachedContentStatus).mockResolvedValue({
       present: true,
@@ -531,7 +601,9 @@ describe('HostedVaultClient', () => {
           resolveHostedRead = resolve;
         }) as ReturnType<typeof tauriCommands.hostedVaultRequest>;
       }
-      return Promise.resolve(mockHostedManifest()) as ReturnType<typeof tauriCommands.hostedVaultRequest>;
+      return Promise.resolve(mockHostedManifest()) as ReturnType<
+        typeof tauriCommands.hostedVaultRequest
+      >;
     });
     const client = new HostedVaultClient(hostedVault);
 
@@ -584,7 +656,8 @@ describe('HostedVaultClient', () => {
         sizeBytes: 7,
       },
     };
-    let resolveHostedRead: ((value: { file: typeof freshDocument; content: string }) => void) | undefined;
+    let resolveHostedRead:
+      ((value: { file: typeof freshDocument; content: string }) => void) | undefined;
     vi.mocked(tauriCommands.replicaReadManifest).mockResolvedValue(mockHostedManifest());
     vi.mocked(tauriCommands.replicaCachedContentStatus).mockResolvedValue({
       present: true,
@@ -605,7 +678,9 @@ describe('HostedVaultClient', () => {
           resolveHostedRead = resolve;
         }) as ReturnType<typeof tauriCommands.hostedVaultRequest>;
       }
-      return Promise.resolve(mockHostedManifest()) as ReturnType<typeof tauriCommands.hostedVaultRequest>;
+      return Promise.resolve(mockHostedManifest()) as ReturnType<
+        typeof tauriCommands.hostedVaultRequest
+      >;
     });
     const client = new HostedVaultClient(hostedVault);
 
@@ -729,11 +804,18 @@ describe('HostedVaultClient', () => {
   it('applies move-and-rename as sequential manifest-locked operations', async () => {
     const destination = { ...rootFolder, id: 'folder-2', name: 'Archive', relativePath: 'Archive' };
     vi.mocked(tauriCommands.hostedVaultRequest)
-      .mockResolvedValueOnce({ ...mockHostedManifest(8), files: [rootFolder, destination, hostedDocument] })
+      .mockResolvedValueOnce({
+        ...mockHostedManifest(8),
+        files: [rootFolder, destination, hostedDocument],
+      })
       .mockResolvedValueOnce({})
       .mockResolvedValueOnce({
         ...mockHostedManifest(9),
-        files: [rootFolder, destination, { ...hostedDocument, name: 'Renamed.md', relativePath: 'Notes/Renamed.md' }],
+        files: [
+          rootFolder,
+          destination,
+          { ...hostedDocument, name: 'Renamed.md', relativePath: 'Notes/Renamed.md' },
+        ],
       })
       .mockResolvedValueOnce({});
     vi.spyOn(crypto, 'randomUUID')
@@ -748,14 +830,22 @@ describe('HostedVaultClient', () => {
       'https://collab.example.test',
       'POST',
       '/api/v1/vaults/hosted-vault/operations',
-      expect.objectContaining({ baseManifestSequence: 8, operationType: 'rename', name: 'Renamed.md' }),
+      expect.objectContaining({
+        baseManifestSequence: 8,
+        operationType: 'rename',
+        name: 'Renamed.md',
+      }),
     );
     expect(tauriCommands.hostedVaultRequest).toHaveBeenNthCalledWith(
       4,
       'https://collab.example.test',
       'POST',
       '/api/v1/vaults/hosted-vault/operations',
-      expect.objectContaining({ baseManifestSequence: 9, operationType: 'move', parentId: 'folder-2' }),
+      expect.objectContaining({
+        baseManifestSequence: 9,
+        operationType: 'move',
+        parentId: 'folder-2',
+      }),
     );
   });
 
@@ -783,7 +873,11 @@ describe('HostedVaultClient', () => {
       expect.objectContaining({
         sequence: 8,
         files: expect.arrayContaining([
-          expect.objectContaining({ id: 'file-1', name: 'Renamed.md', relativePath: 'Notes/Renamed.md' }),
+          expect.objectContaining({
+            id: 'file-1',
+            name: 'Renamed.md',
+            relativePath: 'Notes/Renamed.md',
+          }),
         ]),
       }),
       expect.objectContaining({ manifestSequence: 8, status: 'offline' }),
@@ -821,11 +915,13 @@ describe('HostedVaultClient', () => {
       .mockReturnValueOnce('33333333-3333-4333-8333-333333333333');
     const client = new HostedVaultClient(hostedVault);
 
-    await expect(client.createDocument('Notes/Draft.md')).resolves.toEqual(expect.objectContaining({
-      relativePath: 'Notes/Draft.md',
-      name: 'Draft.md',
-      extension: 'md',
-    }));
+    await expect(client.createDocument('Notes/Draft.md')).resolves.toEqual(
+      expect.objectContaining({
+        relativePath: 'Notes/Draft.md',
+        name: 'Draft.md',
+        extension: 'md',
+      }),
+    );
 
     expect(tauriCommands.replicaCacheDocument).toHaveBeenCalledWith(
       'https://collab.example.test',
@@ -872,16 +968,18 @@ describe('HostedVaultClient', () => {
   it('queues offline document edits and reads the cached document content', async () => {
     const optimisticManifest = {
       ...mockHostedManifest(8),
-      files: mockHostedManifest(8).files.map((file) => file.id === 'file-1'
-        ? {
-            ...file,
-            currentRevision: {
-              ...(file.currentRevision as object),
-              sequence: 4,
-              contentHash: 'offline',
-            },
-          }
-        : file),
+      files: mockHostedManifest(8).files.map((file) =>
+        file.id === 'file-1'
+          ? {
+              ...file,
+              currentRevision: {
+                ...(file.currentRevision as object),
+                sequence: 4,
+                contentHash: 'offline',
+              },
+            }
+          : file,
+      ),
     };
     vi.mocked(tauriCommands.replicaReadManifest)
       .mockResolvedValueOnce(mockHostedManifest(8))
@@ -964,11 +1062,15 @@ describe('HostedVaultClient', () => {
       .mockResolvedValueOnce([snapshot])
       .mockResolvedValueOnce({ revision: hostedDocument.currentRevision, content: '# Snapshot' })
       .mockResolvedValueOnce(mockHostedManifest());
-    vi.mocked(tauriCommands.hostedVaultAssetDataUrl).mockResolvedValue('data:text/plain;base64,IyBUZXN0');
+    vi.mocked(tauriCommands.hostedVaultAssetDataUrl).mockResolvedValue(
+      'data:text/plain;base64,IyBUZXN0',
+    );
     const client = new HostedVaultClient(hostedVault);
 
     await expect(client.readSnapshot('Notes/Test.md', 'snapshot-1')).resolves.toBe('# Snapshot');
-    await expect(client.readAssetDataUrl('Notes/Test.md')).resolves.toBe('data:text/plain;base64,IyBUZXN0');
+    await expect(client.readAssetDataUrl('Notes/Test.md')).resolves.toBe(
+      'data:text/plain;base64,IyBUZXN0',
+    );
     expect(tauriCommands.hostedVaultAssetDataUrl).toHaveBeenCalledWith(
       'https://collab.example.test',
       'hosted-vault',
@@ -984,7 +1086,9 @@ describe('HostedVaultClient', () => {
     vi.mocked(tauriCommands.replicaReadCachedAsset).mockResolvedValue('UERG');
     const client = new HostedVaultClient(hostedVault);
 
-    await expect(client.readAssetDataUrl('doc.pdf')).resolves.toBe('data:application/pdf;base64,UERG');
+    await expect(client.readAssetDataUrl('doc.pdf')).resolves.toBe(
+      'data:application/pdf;base64,UERG',
+    );
     expect(tauriCommands.replicaReadCachedAsset).toHaveBeenCalledWith(
       'https://collab.example.test',
       'hosted-vault',
@@ -1003,7 +1107,9 @@ describe('HostedVaultClient', () => {
     vi.mocked(tauriCommands.replicaReadCachedAsset).mockResolvedValue('UERG');
     const client = new HostedVaultClient(hostedVault);
 
-    await expect(client.readAssetDataUrl('doc.pdf')).resolves.toBe('data:application/pdf;base64,UERG');
+    await expect(client.readAssetDataUrl('doc.pdf')).resolves.toBe(
+      'data:application/pdf;base64,UERG',
+    );
 
     expect(tauriCommands.hostedVaultAssetDataUrl).not.toHaveBeenCalled();
     expect(tauriCommands.replicaCachedContentStatus).toHaveBeenCalledWith(
@@ -1027,7 +1133,11 @@ describe('HostedVaultClient', () => {
   });
 
   it('maps structural previews, root trash entries, and hosted search results', async () => {
-    const trashedFolder = { ...rootFolder, state: 'trashed' as const, updatedAt: '2026-06-11T10:00:00Z' };
+    const trashedFolder = {
+      ...rootFolder,
+      state: 'trashed' as const,
+      updatedAt: '2026-06-11T10:00:00Z',
+    };
     const trashedChild = {
       ...hostedDocument,
       state: 'trashed' as const,
@@ -1062,7 +1172,11 @@ describe('HostedVaultClient', () => {
       blockedReason: undefined,
     });
     await expect(client.listTrash()).resolves.toEqual([
-      expect.objectContaining({ id: 'folder-1', originalRelativePath: 'Notes', itemKind: 'folder' }),
+      expect.objectContaining({
+        id: 'folder-1',
+        originalRelativePath: 'Notes',
+        itemKind: 'folder',
+      }),
     ]);
     await expect(client.search('hello world')).resolves.toEqual([
       {
@@ -1104,7 +1218,11 @@ describe('HostedVaultClient', () => {
       'https://collab.example.test',
       'POST',
       '/api/v1/vaults/hosted-vault/operations',
-      expect.objectContaining({ baseManifestSequence: 8, operationType: 'restore', targetFileId: 'file-1' }),
+      expect.objectContaining({
+        baseManifestSequence: 8,
+        operationType: 'restore',
+        targetFileId: 'file-1',
+      }),
     );
     expect(tauriCommands.hostedVaultRequest).toHaveBeenNthCalledWith(
       6,
@@ -1137,7 +1255,12 @@ describe('HostedVaultClient', () => {
     await expect(
       client.createSnapshot('Notes/Test.md', 'ignored body', 'ignored', 'ignored', 'Checkpoint'),
     ).resolves.toEqual(
-      expect.objectContaining({ id: 'snapshot-9', label: 'Checkpoint', hash: 'hash-3', authorName: 'Alice' }),
+      expect.objectContaining({
+        id: 'snapshot-9',
+        label: 'Checkpoint',
+        hash: 'hash-3',
+        authorName: 'Alice',
+      }),
     );
     expect(tauriCommands.hostedVaultRequest).toHaveBeenLastCalledWith(
       'https://collab.example.test',
@@ -1158,7 +1281,9 @@ describe('HostedVaultClient', () => {
       .mockResolvedValueOnce({ file: restoredDocument, content: '# Restored' });
     const client = new HostedVaultClient(hostedVault);
 
-    await expect(client.restoreSnapshot('Notes/Test.md', 'snapshot-1', 'ignored', 'ignored')).resolves.toEqual({
+    await expect(
+      client.restoreSnapshot('Notes/Test.md', 'snapshot-1', 'ignored', 'ignored'),
+    ).resolves.toEqual({
       version: '4',
     });
     expect(tauriCommands.hostedVaultRequest).toHaveBeenLastCalledWith(
@@ -1198,7 +1323,12 @@ describe('HostedVaultClient', () => {
   });
 
   it('uploads an external desktop asset into an existing hosted folder with a verified digest', async () => {
-    const pictures = { ...rootFolder, id: 'folder-pics', name: 'Pictures', relativePath: 'Pictures' };
+    const pictures = {
+      ...rootFolder,
+      id: 'folder-pics',
+      name: 'Pictures',
+      relativePath: 'Pictures',
+    };
     vi.mocked(tauriCommands.readFileForUpload).mockResolvedValue({
       name: 'diagram.png',
       mediaType: 'image/png',
@@ -1214,8 +1344,10 @@ describe('HostedVaultClient', () => {
       relativePath: 'Pictures/diagram.png',
     });
     vi.mocked(tauriCommands.hostedVaultRequest).mockReset();
-    vi.mocked(tauriCommands.hostedVaultRequest)
-      .mockResolvedValueOnce({ ...mockHostedManifest(), files: [rootFolder, pictures, hostedDocument] });
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValueOnce({
+      ...mockHostedManifest(),
+      files: [rootFolder, pictures, hostedDocument],
+    });
     vi.mocked(tauriCommands.replicaReadSyncState).mockResolvedValue({
       manifestSequence: 8,
       lastSyncedAt: '2026-06-17T00:00:00Z',
@@ -1224,9 +1356,9 @@ describe('HostedVaultClient', () => {
     });
     const client = new HostedVaultClient(hostedVault);
 
-    await expect(
-      client.runtime.externalAssetImport!.import('/tmp/diagram.png'),
-    ).resolves.toBe('Pictures/diagram.png');
+    await expect(client.runtime.externalAssetImport!.import('/tmp/diagram.png')).resolves.toBe(
+      'Pictures/diagram.png',
+    );
     expect(tauriCommands.hostedVaultUploadFile).toHaveBeenCalledWith(
       'https://collab.example.test',
       'hosted-vault',
@@ -1245,7 +1377,12 @@ describe('HostedVaultClient', () => {
   });
 
   it('queues interrupted hosted asset uploads with cached bytes for retry', async () => {
-    const pictures = { ...rootFolder, id: 'folder-pics', name: 'Pictures', relativePath: 'Pictures' };
+    const pictures = {
+      ...rootFolder,
+      id: 'folder-pics',
+      name: 'Pictures',
+      relativePath: 'Pictures',
+    };
     vi.mocked(tauriCommands.readFileForUpload).mockResolvedValue({
       name: 'diagram.png',
       mediaType: 'image/png',
@@ -1253,8 +1390,10 @@ describe('HostedVaultClient', () => {
       expectedHash: 'abc123',
     });
     vi.mocked(tauriCommands.hostedVaultRequest).mockReset();
-    vi.mocked(tauriCommands.hostedVaultRequest)
-      .mockResolvedValueOnce({ ...mockHostedManifest(), files: [rootFolder, pictures, hostedDocument] });
+    vi.mocked(tauriCommands.hostedVaultRequest).mockResolvedValueOnce({
+      ...mockHostedManifest(),
+      files: [rootFolder, pictures, hostedDocument],
+    });
     vi.mocked(tauriCommands.hostedVaultUploadFile).mockRejectedValue(
       new Error('NetworkError when attempting to fetch resource.'),
     );
@@ -1268,7 +1407,9 @@ describe('HostedVaultClient', () => {
       .mockReturnValueOnce('33333333-3333-4333-8333-333333333333');
     const client = new HostedVaultClient(hostedVault);
 
-    await expect(client.runtime.externalAssetImport!.import('/tmp/diagram.png')).resolves.toBe('Pictures/diagram.png');
+    await expect(client.runtime.externalAssetImport!.import('/tmp/diagram.png')).resolves.toBe(
+      'Pictures/diagram.png',
+    );
 
     expect(tauriCommands.replicaCacheAsset).toHaveBeenCalledWith(
       'https://collab.example.test',
@@ -1345,7 +1486,10 @@ describe('HostedVaultClient', () => {
     await members.updateRole('user-9', 'admin');
     await members.remove('user-9');
 
-    expect(tauriCommands.hostedUserDirectory).toHaveBeenCalledWith('https://collab.example.test', 'al');
+    expect(tauriCommands.hostedUserDirectory).toHaveBeenCalledWith(
+      'https://collab.example.test',
+      'al',
+    );
     expect(tauriCommands.hostedVaultRequest).toHaveBeenNthCalledWith(
       1,
       'https://collab.example.test',
@@ -1584,7 +1728,11 @@ describe('PDF annotations', () => {
     expect(tauriCommands.readPdfSidecarState).toHaveBeenCalledWith('/vault', 'Docs/spec.pdf');
 
     await client.writePdfAnnotations('Docs/spec.pdf', sidecar, null);
-    expect(tauriCommands.writePdfSidecarState).toHaveBeenCalledWith('/vault', 'Docs/spec.pdf', sidecar);
+    expect(tauriCommands.writePdfSidecarState).toHaveBeenCalledWith(
+      '/vault',
+      'Docs/spec.pdf',
+      sidecar,
+    );
   });
 
   it('reads hosted PDF annotations from the endpoint and normalizes the state', async () => {

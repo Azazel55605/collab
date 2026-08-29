@@ -1,7 +1,8 @@
-import { renderHook, act } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { KanbanBoard, KanbanCard } from '../../types/kanban';
+
 import {
   applyPromptTagsToBoard,
   deleteCardFromBoard,
@@ -32,7 +33,10 @@ describe('useCardDialogActions helpers', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(123456789);
 
     expect(
-      toggleArchivedCardInBoard(BOARD, 'todo', 'card-1', false, { userId: 'user-1', userName: 'Test User' }).columns[0].cards[0],
+      toggleArchivedCardInBoard(BOARD, 'todo', 'card-1', false, {
+        userId: 'user-1',
+        userName: 'Test User',
+      }).columns[0].cards[0],
     ).toEqual(
       expect.objectContaining({
         archived: true,
@@ -50,14 +54,16 @@ describe('useCardDialogActions helpers', () => {
             {
               id: 'todo',
               title: 'Todo',
-              cards: [{
-                ...CARD,
-                archived: true,
-                archivedColumnId: 'todo',
-                archivedAt: 123456789,
-                archivedByUserId: 'user-1',
-                archivedByUserName: 'Test User',
-              }],
+              cards: [
+                {
+                  ...CARD,
+                  archived: true,
+                  archivedColumnId: 'todo',
+                  archivedAt: 123456789,
+                  archivedByUserId: 'user-1',
+                  archivedByUserName: 'Test User',
+                },
+              ],
             },
           ],
         },
@@ -79,7 +85,12 @@ describe('useCardDialogActions helpers', () => {
   });
 
   it('moves cards between columns and requests prompt tags when needed', () => {
-    const { nextBoard, destinationColumn, promptRequest } = moveCardBetweenColumns(BOARD, CARD, 'todo', 'done');
+    const { nextBoard, destinationColumn, promptRequest } = moveCardBetweenColumns(
+      BOARD,
+      CARD,
+      'todo',
+      'done',
+    );
 
     expect(destinationColumn?.id).toBe('done');
     expect(nextBoard.columns[0].cards).toHaveLength(0);
@@ -95,11 +106,16 @@ describe('useCardDialogActions helpers', () => {
   });
 
   it('applies prompt tags to the destination column card', () => {
-    const next = applyPromptTagsToBoard(BOARD, 'card-1', {
-      destinationColumnId: 'done',
-      destinationColumnTitle: 'Done',
-      missingTags: ['done'],
-    }, true);
+    const next = applyPromptTagsToBoard(
+      BOARD,
+      'card-1',
+      {
+        destinationColumnId: 'done',
+        destinationColumnTitle: 'Done',
+        missingTags: ['done'],
+      },
+      true,
+    );
 
     expect(next.columns[1].autoApplyDefaultTagsOnMove).toBe(true);
   });

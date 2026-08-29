@@ -1,12 +1,4 @@
-import {
-  AlertTriangle,
-  Check,
-  CloudOff,
-  Loader2,
-  RefreshCw,
-  Wifi,
-  WifiOff,
-} from 'lucide-react';
+import { AlertTriangle, Check, CloudOff, Loader2, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 
 import type { DocumentStatus } from '../../lib/documentSessionController';
 import { cn } from '../../lib/utils';
@@ -41,13 +33,21 @@ interface StatusPresentation {
 function present(status: DocumentStatus): StatusPresentation {
   switch (status) {
     case 'saving':
-      return { label: 'Saving…', icon: <Loader2 size={12} className="animate-spin" />, tone: 'active' };
+      return {
+        label: 'Saving…',
+        icon: <Loader2 size={12} className="animate-spin" />,
+        tone: 'active',
+      };
     case 'saved':
       return { label: 'Saved', icon: <Check size={12} />, tone: 'muted' };
     case 'dirty':
       return { label: 'Unsaved changes', icon: <RefreshCw size={12} />, tone: 'active' };
     case 'remote-pending':
-      return { label: 'Remote changes available', icon: <AlertTriangle size={12} />, tone: 'warning' };
+      return {
+        label: 'Remote changes available',
+        icon: <AlertTriangle size={12} />,
+        tone: 'warning',
+      };
     case 'conflict':
       return { label: 'Conflict needs review', icon: <AlertTriangle size={12} />, tone: 'danger' };
     case 'offline-queued':
@@ -70,7 +70,14 @@ const TONE_CLASS: Record<StatusPresentation['tone'], string> = {
   live: 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400',
 };
 
-export function DocumentStatusPill({ status, onLoadRemote, onKeepLocal, className, hideWhenSaved = false, compact = false }: DocumentStatusPillProps) {
+export function DocumentStatusPill({
+  status,
+  onLoadRemote,
+  onKeepLocal,
+  className,
+  hideWhenSaved = false,
+  compact = false,
+}: DocumentStatusPillProps) {
   if (hideWhenSaved && (status === 'idle' || status === 'saved')) return null;
   const { label, icon, tone } = present(status);
   const showActions = status === 'remote-pending' || status === 'conflict';

@@ -1,5 +1,6 @@
-import { Check, ChevronDown } from 'lucide-react';
 import { forwardRef, useEffect, useRef, useState } from 'react';
+
+import { Check, ChevronDown } from 'lucide-react';
 
 function cn(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(' ');
@@ -22,12 +23,16 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 Button.displayName = 'Button';
 
 export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
-  ({ className, ...props }, ref) => <input ref={ref} className={cn('ui-input', className)} {...props} />,
+  ({ className, ...props }, ref) => (
+    <input ref={ref} className={cn('ui-input', className)} {...props} />
+  ),
 );
 Input.displayName = 'Input';
 
 export const Checkbox = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
-  ({ className, ...props }, ref) => <input ref={ref} type="checkbox" className={cn('ui-checkbox', className)} {...props} />,
+  ({ className, ...props }, ref) => (
+    <input ref={ref} type="checkbox" className={cn('ui-checkbox', className)} {...props} />
+  ),
 );
 Checkbox.displayName = 'Checkbox';
 
@@ -39,7 +44,9 @@ export function Badge({
   className,
   variant = 'secondary',
   ...props
-}: React.HTMLAttributes<HTMLSpanElement> & { variant?: 'secondary' | 'success' | 'destructive' | 'outline' }) {
+}: React.HTMLAttributes<HTMLSpanElement> & {
+  variant?: 'secondary' | 'success' | 'destructive' | 'outline';
+}) {
   return <span className={cn('ui-badge', `ui-badge-${variant}`, className)} {...props} />;
 }
 
@@ -184,8 +191,12 @@ export function ConfirmDialog({
   return (
     <DialogShell title={title} description={description} onClose={onCancel}>
       <div className="ui-dialog-actions">
-        <Button variant="outline" autoFocus onClick={onCancel}>Cancel</Button>
-        <Button variant={destructive ? 'destructive' : 'default'} onClick={onConfirm}>{confirmLabel}</Button>
+        <Button variant="outline" autoFocus onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant={destructive ? 'destructive' : 'default'} onClick={onConfirm}>
+          {confirmLabel}
+        </Button>
       </div>
     </DialogShell>
   );
@@ -224,10 +235,19 @@ export function PromptDialog({
       >
         <label className="field">
           <span>{label}</span>
-          <Input name="value" type={type} defaultValue={defaultValue} minLength={minLength} autoFocus required />
+          <Input
+            name="value"
+            type={type}
+            defaultValue={defaultValue}
+            minLength={minLength}
+            autoFocus
+            required
+          />
         </label>
         <div className="ui-dialog-actions">
-          <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
+          <Button type="button" variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
           <Button>{submitLabel}</Button>
         </div>
       </form>

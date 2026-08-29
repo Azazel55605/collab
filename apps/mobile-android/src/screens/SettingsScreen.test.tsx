@@ -1,13 +1,16 @@
+import { invoke } from '@tauri-apps/api/core';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.reject(new Error('unavailable'))) }));
-
-import { invoke } from '@tauri-apps/api/core';
 import { clearBackDismissStack } from '../lib/backStack';
 import { DEFAULT_PREFS } from '../lib/theme';
 import { useMobileStore } from '../state/store';
+
 import { SettingsScreen } from './SettingsScreen';
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn(() => Promise.reject(new Error('unavailable'))),
+}));
 
 describe('mobile settings navigation', () => {
   it('starts with a searchable category index and opens one focused section', () => {

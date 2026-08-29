@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RotateCcw, Trash2, Trash, RefreshCw } from 'lucide-react';
+
+import { RefreshCw, RotateCcw, Trash, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { createVaultClient } from '../../lib/vaultClient';
 import { useVaultStore } from '../../store/vaultStore';
 import type { TrashEntry } from '../../types/vault';
-import { ConfirmDeleteDialog, RestoreTrashDialog } from './VaultDialogs';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+
+import { ConfirmDeleteDialog, RestoreTrashDialog } from './VaultDialogs';
 
 function formatRelativeTime(timestamp: number) {
   const diff = Date.now() - timestamp;
@@ -46,27 +48,28 @@ export default function TrashPanel() {
     void loadEntries();
   }, [vault?.path]);
 
-  const totalSize = useMemo(
-    () => entries.reduce((sum, entry) => sum + entry.size, 0),
-    [entries],
-  );
+  const totalSize = useMemo(() => entries.reduce((sum, entry) => sum + entry.size, 0), [entries]);
 
   const filteredEntries = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase();
     if (!query) return entries;
-    return entries.filter((entry) =>
-      entry.rootName.toLocaleLowerCase().includes(query)
-      || entry.originalRelativePath.toLocaleLowerCase().includes(query)
-      || entry.itemKind.toLocaleLowerCase().includes(query)
-      || (entry.extension ?? '').toLocaleLowerCase().includes(query)
-      || (entry.deletedByUserName ?? '').toLocaleLowerCase().includes(query),
+    return entries.filter(
+      (entry) =>
+        entry.rootName.toLocaleLowerCase().includes(query) ||
+        entry.originalRelativePath.toLocaleLowerCase().includes(query) ||
+        entry.itemKind.toLocaleLowerCase().includes(query) ||
+        (entry.extension ?? '').toLocaleLowerCase().includes(query) ||
+        (entry.deletedByUserName ?? '').toLocaleLowerCase().includes(query),
     );
   }, [entries, searchQuery]);
 
   const handleRestore = async () => {
     if (!vault || !restoreEntry) return;
     try {
-      await createVaultClient(vault).restoreTrash(restoreEntry.id, restoreTarget.trim() || undefined);
+      await createVaultClient(vault).restoreTrash(
+        restoreEntry.id,
+        restoreTarget.trim() || undefined,
+      );
       setRestoreEntry(null);
       setRestoreTarget('');
       await loadEntries();
@@ -144,7 +147,9 @@ export default function TrashPanel() {
 
       <div className="flex items-center justify-between gap-2 border-b border-border/30 px-2 py-1.5">
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">Vault Trash</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+            Vault Trash
+          </div>
           <div className="text-[11px] text-muted-foreground">
             {entries.length} items · {Math.round(totalSize / 1024)} KB
           </div>
@@ -161,7 +166,9 @@ export default function TrashPanel() {
                 <RefreshCw size={13} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs text-foreground">Refresh trash</TooltipContent>
+            <TooltipContent side="bottom" className="text-xs text-foreground">
+              Refresh trash
+            </TooltipContent>
           </Tooltip>
           <Button
             variant="outline"
@@ -187,7 +194,9 @@ export default function TrashPanel() {
 
       <div className="flex-1 overflow-y-auto py-1">
         {loading ? (
-          <div className="px-4 py-6 text-center text-xs text-muted-foreground/60">Loading trash…</div>
+          <div className="px-4 py-6 text-center text-xs text-muted-foreground/60">
+            Loading trash…
+          </div>
         ) : entries.length === 0 ? (
           <div className="px-4 py-6 text-center text-xs text-muted-foreground/50">
             <Trash size={24} className="mx-auto mb-2 opacity-30" />
@@ -199,18 +208,26 @@ export default function TrashPanel() {
           </div>
         ) : (
           filteredEntries.map((entry) => (
-            <div key={entry.id} className="mx-2 rounded-xl border border-border/35 bg-card/45 px-3 py-2.5 transition-colors hover:border-border/55 hover:bg-accent/35">
+            <div
+              key={entry.id}
+              className="mx-2 rounded-xl border border-border/35 bg-card/45 px-3 py-2.5 transition-colors hover:border-border/55 hover:bg-accent/35"
+            >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="truncate text-[12.5px] font-medium text-foreground">{entry.rootName}</div>
-                  <div className="mt-1 text-[11px] text-muted-foreground truncate">{entry.originalRelativePath}</div>
+                  <div className="truncate text-[12.5px] font-medium text-foreground">
+                    {entry.rootName}
+                  </div>
+                  <div className="mt-1 text-[11px] text-muted-foreground truncate">
+                    {entry.originalRelativePath}
+                  </div>
                   <div className="mt-1 text-[10px] text-muted-foreground">
                     {entry.itemKind} · {formatRelativeTime(entry.deletedAt)}
                     {entry.deletedByUserName ? ` · ${entry.deletedByUserName}` : ''}
                   </div>
                   {entry.restoreConflict && (
                     <div className="mt-1 text-[10px] text-amber-500">
-                      Original path occupied · suggested: {entry.restoreConflict.suggestedRelativePath}
+                      Original path occupied · suggested:{' '}
+                      {entry.restoreConflict.suggestedRelativePath}
                     </div>
                   )}
                 </div>
@@ -220,7 +237,10 @@ export default function TrashPanel() {
                       <Button
                         onClick={() => {
                           setRestoreEntry(entry);
-                          setRestoreTarget(entry.restoreConflict?.suggestedRelativePath ?? entry.originalRelativePath);
+                          setRestoreTarget(
+                            entry.restoreConflict?.suggestedRelativePath ??
+                              entry.originalRelativePath,
+                          );
                         }}
                         aria-label={`Restore ${entry.rootName}`}
                         variant="ghost"
@@ -230,7 +250,9 @@ export default function TrashPanel() {
                         <RotateCcw size={12} />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom" className="text-xs text-foreground">Restore</TooltipContent>
+                    <TooltipContent side="bottom" className="text-xs text-foreground">
+                      Restore
+                    </TooltipContent>
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -247,7 +269,9 @@ export default function TrashPanel() {
                         <Trash2 size={12} />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom" className="text-xs text-foreground">Delete permanently</TooltipContent>
+                    <TooltipContent side="bottom" className="text-xs text-foreground">
+                      Delete permanently
+                    </TooltipContent>
                   </Tooltip>
                 </div>
               </div>

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { INK_LIMITS } from '../../types/ink';
 import type { InkObject } from '../../types/ink';
+
 import { decodeSamples } from './codec';
 import { buildStroke, FIXTURE_BRUSH } from './fixture';
 import { objectBounds } from './svg';
@@ -89,10 +90,7 @@ describe('transformObject', () => {
 
   it('does not change the width for a pure translation', () => {
     const moved = transformObject(stroke(), translation(100, 100));
-    expect((moved as { brush: { width: number } }).brush.width).toBeCloseTo(
-      FIXTURE_BRUSH.width,
-      6,
-    );
+    expect((moved as { brush: { width: number } }).brush.width).toBeCloseTo(FIXTURE_BRUSH.width, 6);
   });
 
   it('bakes the geometry rather than storing a matrix', () => {
@@ -120,9 +118,16 @@ describe('transformObject', () => {
   it('moves a text box and scales its type with the frame', () => {
     // Otherwise a resized sticky note keeps small text in a bigger box.
     const text: InkObject = {
-      id: 't', type: 'text', layerId: 'layer-1',
-      x: 100, y: 100, width: 200, height: 80,
-      text: 'hi', color: '#000', fontSize: 96,
+      id: 't',
+      type: 'text',
+      layerId: 'layer-1',
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 80,
+      text: 'hi',
+      color: '#000',
+      fontSize: 96,
     };
     const scaled = transformObject(text, scaleAbout(0, 0, 2, 2));
     expect(scaled).toMatchObject({ x: 200, y: 200, width: 400, height: 160, fontSize: 192 });
@@ -130,9 +135,16 @@ describe('transformObject', () => {
 
   it('rotates a box-backed object around the selection center', () => {
     const text: InkObject = {
-      id: 't', type: 'text', layerId: 'layer-1',
-      x: 100, y: 100, width: 200, height: 80,
-      text: 'hi', color: '#000', fontSize: 96,
+      id: 't',
+      type: 'text',
+      layerId: 'layer-1',
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 80,
+      text: 'hi',
+      color: '#000',
+      fontSize: 96,
     };
     const rotated = transformObject(text, rotationAbout(200, 140, Math.PI / 2));
     expect(rotated).toMatchObject({ x: 100, y: 100, width: 200, height: 80 });
@@ -141,9 +153,13 @@ describe('transformObject', () => {
 
   it('rotates connector endpoints and retains their selection orientation', () => {
     const connector: InkObject = {
-      id: 'c', type: 'connector', layerId: 'layer-1',
-      from: { x: 0, y: 0 }, to: { x: 1_000, y: 0 },
-      routing: 'straight', stroke: FIXTURE_BRUSH,
+      id: 'c',
+      type: 'connector',
+      layerId: 'layer-1',
+      from: { x: 0, y: 0 },
+      to: { x: 1_000, y: 0 },
+      routing: 'straight',
+      stroke: FIXTURE_BRUSH,
     };
     const rotated = transformObject(connector, rotationAbout(500, 0, Math.PI / 2));
     expect(rotated).toMatchObject({
@@ -155,8 +171,13 @@ describe('transformObject', () => {
 
   it('rotates guide geometry and retains its selection orientation', () => {
     const guide: InkObject = {
-      id: 'g', type: 'shape', shape: 'line', guide: true, layerId: 'layer-1',
-      points: [0, 0, 1_000, 0], stroke: FIXTURE_BRUSH,
+      id: 'g',
+      type: 'shape',
+      shape: 'line',
+      guide: true,
+      layerId: 'layer-1',
+      points: [0, 0, 1_000, 0],
+      stroke: FIXTURE_BRUSH,
     };
     const rotated = transformObject(guide, rotationAbout(500, 0, Math.PI / 2));
     expect((rotated as typeof guide).points).toEqual([500, -500, 500, 500]);
@@ -188,16 +209,25 @@ describe('boundsToBounds', () => {
 describe('resizeBounds', () => {
   it('keeps the opposite edge fixed', () => {
     expect(resizeBounds(BOX, 'se', 50, 25)).toEqual({
-      minX: 0, minY: 0, maxX: 150, maxY: 75,
+      minX: 0,
+      minY: 0,
+      maxX: 150,
+      maxY: 75,
     });
     expect(resizeBounds(BOX, 'nw', -50, -25)).toEqual({
-      minX: -50, minY: -25, maxX: 100, maxY: 50,
+      minX: -50,
+      minY: -25,
+      maxX: 100,
+      maxY: 50,
     });
   });
 
   it('moves one axis only for an edge handle', () => {
     expect(resizeBounds(BOX, 'e', 40, 999)).toEqual({
-      minX: 0, minY: 0, maxX: 140, maxY: 50,
+      minX: 0,
+      minY: 0,
+      maxX: 140,
+      maxY: 50,
     });
   });
 

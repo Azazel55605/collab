@@ -1,13 +1,29 @@
 import { useEffect, useRef, useState } from 'react';
-import { Trash2, CircuitBoard, FilePlus, FolderPlus, Pencil, Layout, LayoutDashboard, PenLine, Table2 } from 'lucide-react';
+
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-  DialogDescription, DialogFooter,
-} from '../ui/dialog';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Checkbox } from '../ui/checkbox';
+  CircuitBoard,
+  FilePlus,
+  FolderPlus,
+  Layout,
+  LayoutDashboard,
+  Pencil,
+  PenLine,
+  Table2,
+  Trash2,
+} from 'lucide-react';
+
 import type { PathChangePreview, TrashEntry } from '../../types/vault';
+import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
+import { Input } from '../ui/input';
 
 // ─── Confirm delete ───────────────────────────────────────────────────────────
 
@@ -43,7 +59,12 @@ export function ConfirmDeleteDialog({
   const hasTrashFlow = !!onMoveToTrash;
   const isMultiple = itemCount > 1;
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onCancel(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) onCancel();
+      }}
+    >
       <DialogContent showCloseButton={false} className="max-w-sm">
         <DialogHeader>
           <div className="flex items-center gap-3 mb-1">
@@ -51,22 +72,28 @@ export function ConfirmDeleteDialog({
               <Trash2 size={16} />
             </span>
             <DialogTitle>
-              {isMultiple ? `Delete ${itemCount} items?` : `Delete ${isFolder ? 'folder' : 'note'}?`}
+              {isMultiple
+                ? `Delete ${itemCount} items?`
+                : `Delete ${isFolder ? 'folder' : 'note'}?`}
             </DialogTitle>
           </div>
           <DialogDescription>
-            <span className="font-medium text-foreground">{isMultiple ? `${itemCount} items` : `"${name}"`}</span>
+            <span className="font-medium text-foreground">
+              {isMultiple ? `${itemCount} items` : `"${name}"`}
+            </span>
             {hasTrashFlow ? (
               <>
-                {' '}will be moved to the vault trash.
-                {!isMultiple && isFolder && ' Everything inside it will move to trash too.'}
-                {' '}You can restore {isMultiple ? 'them' : 'it'} later until permanently purged.
+                {' '}
+                will be moved to the vault trash.
+                {!isMultiple && isFolder && ' Everything inside it will move to trash too.'} You can
+                restore {isMultiple ? 'them' : 'it'} later until permanently purged.
               </>
             ) : (
               <>
-                {' '}will be permanently deleted.
-                {!isMultiple && isFolder && ' All notes inside will also be deleted.'}
-                {' '}This cannot be undone.
+                {' '}
+                will be permanently deleted.
+                {!isMultiple && isFolder && ' All notes inside will also be deleted.'} This cannot
+                be undone.
               </>
             )}
           </DialogDescription>
@@ -81,20 +108,30 @@ export function ConfirmDeleteDialog({
             <div className="space-y-1">
               <div className="text-sm font-medium text-foreground">Also remove file references</div>
               <div className="text-xs text-muted-foreground">
-                Update notes, boards, and canvases that link to this {isFolder ? 'folder' : 'file'} by removing the affected references as part of this delete action. If you move it to trash, those references will not be restored automatically.
+                Update notes, boards, and canvases that link to this {isFolder ? 'folder' : 'file'}{' '}
+                by removing the affected references as part of this delete action. If you move it to
+                trash, those references will not be restored automatically.
               </div>
             </div>
           </label>
         )}
         <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-          <Button variant="outline" onClick={onCancel}>Cancel</Button>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
           {onMoveToTrash ? (
             <>
-              <Button variant="outline" onClick={onMoveToTrash} autoFocus>Move to Trash</Button>
-              <Button variant="destructive" onClick={onDeletePermanently ?? onConfirm}>{primaryActionLabel}</Button>
+              <Button variant="outline" onClick={onMoveToTrash} autoFocus>
+                Move to Trash
+              </Button>
+              <Button variant="destructive" onClick={onDeletePermanently ?? onConfirm}>
+                {primaryActionLabel}
+              </Button>
             </>
           ) : (
-            <Button variant="destructive" onClick={onConfirm} autoFocus>{primaryActionLabel}</Button>
+            <Button variant="destructive" onClick={onConfirm} autoFocus>
+              {primaryActionLabel}
+            </Button>
           )}
         </DialogFooter>
       </DialogContent>
@@ -104,15 +141,27 @@ export function ConfirmDeleteDialog({
 
 // ─── Input (create / rename) ──────────────────────────────────────────────────
 
-type InputDialogVariant = 'create-note' | 'create-folder' | 'rename' | 'create-canvas' | 'create-kanban' | 'create-logic' | 'create-sheet' | 'create-ink' | 'create-template';
+type InputDialogVariant =
+  | 'create-note'
+  | 'create-folder'
+  | 'rename'
+  | 'create-canvas'
+  | 'create-kanban'
+  | 'create-logic'
+  | 'create-sheet'
+  | 'create-ink'
+  | 'create-template';
 
-const VARIANT_META: Record<InputDialogVariant, {
-  icon: React.ReactNode;
-  title: string;
-  label: string;
-  placeholder: string;
-  confirm: string;
-}> = {
+const VARIANT_META: Record<
+  InputDialogVariant,
+  {
+    icon: React.ReactNode;
+    title: string;
+    label: string;
+    placeholder: string;
+    confirm: string;
+  }
+> = {
   'create-note': {
     icon: <FilePlus size={16} />,
     title: 'New note',
@@ -127,7 +176,7 @@ const VARIANT_META: Record<InputDialogVariant, {
     placeholder: 'Folder',
     confirm: 'Create',
   },
-  'rename': {
+  rename: {
     icon: <Pencil size={16} />,
     title: 'Rename',
     label: 'New name',
@@ -186,7 +235,13 @@ interface InputDialogProps {
   onCancel: () => void;
 }
 
-export function InputDialog({ open, variant, initialValue = '', onConfirm, onCancel }: InputDialogProps) {
+export function InputDialog({
+  open,
+  variant,
+  initialValue = '',
+  onConfirm,
+  onCancel,
+}: InputDialogProps) {
   const [value, setValue] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
   const meta = VARIANT_META[variant];
@@ -213,7 +268,12 @@ export function InputDialog({ open, variant, initialValue = '', onConfirm, onCan
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onCancel(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) onCancel();
+      }}
+    >
       <DialogContent showCloseButton={false} className="max-w-sm">
         <DialogHeader>
           <div className="flex items-center gap-3 mb-1">
@@ -239,8 +299,12 @@ export function InputDialog({ open, variant, initialValue = '', onConfirm, onCan
         </div>
 
         <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-          <Button variant="outline" onClick={onCancel}>Cancel</Button>
-          <Button onClick={submit} disabled={!value.trim()}>{meta.confirm}</Button>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={!value.trim()}>
+            {meta.confirm}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -266,7 +330,12 @@ export function RenameMovePreviewDialog({
   const blocked = preview?.blockedReason;
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+    >
       <DialogContent showCloseButton={false} className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Review rename / move</DialogTitle>
@@ -281,10 +350,16 @@ export function RenameMovePreviewDialog({
               <div className="font-medium text-foreground">{preview.oldRelativePath}</div>
               <div className="text-xs text-muted-foreground mt-1">→ {preview.newRelativePath}</div>
               <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                <span className="rounded-full border border-border/60 px-2 py-0.5">{preview.operation}</span>
-                <span className="rounded-full border border-border/60 px-2 py-0.5">{preview.itemKind}</span>
                 <span className="rounded-full border border-border/60 px-2 py-0.5">
-                  {preview.itemKind === 'folder' ? `${preview.nestedItemCount} nested items` : 'single file'}
+                  {preview.operation}
+                </span>
+                <span className="rounded-full border border-border/60 px-2 py-0.5">
+                  {preview.itemKind}
+                </span>
+                <span className="rounded-full border border-border/60 px-2 py-0.5">
+                  {preview.itemKind === 'folder'
+                    ? `${preview.nestedItemCount} nested items`
+                    : 'single file'}
                 </span>
               </div>
             </div>
@@ -297,21 +372,33 @@ export function RenameMovePreviewDialog({
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-lg border border-border/60 px-3 py-2.5">
-                <div className="text-xs font-medium text-muted-foreground">Open tabs to retarget</div>
-                <div className="mt-1 text-lg font-semibold text-foreground">{affectedOpenTabs.length}</div>
+                <div className="text-xs font-medium text-muted-foreground">
+                  Open tabs to retarget
+                </div>
+                <div className="mt-1 text-lg font-semibold text-foreground">
+                  {affectedOpenTabs.length}
+                </div>
               </div>
               <div className="rounded-lg border border-border/60 px-3 py-2.5">
-                <div className="text-xs font-medium text-muted-foreground">References to rewrite</div>
-                <div className="mt-1 text-lg font-semibold text-foreground">{affectedReferencePaths.length}</div>
+                <div className="text-xs font-medium text-muted-foreground">
+                  References to rewrite
+                </div>
+                <div className="mt-1 text-lg font-semibold text-foreground">
+                  {affectedReferencePaths.length}
+                </div>
               </div>
             </div>
 
             {affectedReferencePaths.length > 0 && (
               <div className="rounded-lg border border-border/60 px-3 py-2.5">
-                <div className="text-xs font-medium text-muted-foreground mb-2">Affected documents</div>
+                <div className="text-xs font-medium text-muted-foreground mb-2">
+                  Affected documents
+                </div>
                 <div className="max-h-40 overflow-y-auto space-y-1 text-xs">
                   {affectedReferencePaths.slice(0, 12).map((path) => (
-                    <div key={path} className="truncate text-foreground/85">{path}</div>
+                    <div key={path} className="truncate text-foreground/85">
+                      {path}
+                    </div>
                   ))}
                   {affectedReferencePaths.length > 12 && (
                     <div className="text-muted-foreground">
@@ -325,8 +412,12 @@ export function RenameMovePreviewDialog({
         )}
 
         <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-          <Button variant="outline" onClick={onCancel}>Cancel</Button>
-          <Button onClick={onConfirm} disabled={!preview || !!blocked}>Apply</Button>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button onClick={onConfirm} disabled={!preview || !!blocked}>
+            Apply
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -351,7 +442,12 @@ export function RestoreTrashDialog({
   onCancel,
 }: RestoreTrashDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onCancel();
+      }}
+    >
       <DialogContent showCloseButton={false} className="max-w-md">
         <DialogHeader>
           <DialogTitle>Restore item</DialogTitle>
@@ -364,16 +460,25 @@ export function RestoreTrashDialog({
         <div className="space-y-3">
           <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
             <div className="text-xs font-medium text-muted-foreground">Original path</div>
-            <div className="mt-1 text-sm text-foreground break-all">{entry?.originalRelativePath}</div>
+            <div className="mt-1 text-sm text-foreground break-all">
+              {entry?.originalRelativePath}
+            </div>
           </div>
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-muted-foreground">Restore to</span>
-            <Input value={targetPath} onChange={(event) => onTargetPathChange(event.target.value)} />
+            <Input
+              value={targetPath}
+              onChange={(event) => onTargetPathChange(event.target.value)}
+            />
           </label>
         </div>
         <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-          <Button variant="outline" onClick={onCancel}>Cancel</Button>
-          <Button onClick={onConfirm} disabled={!targetPath.trim()}>Restore</Button>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button onClick={onConfirm} disabled={!targetPath.trim()}>
+            Restore
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

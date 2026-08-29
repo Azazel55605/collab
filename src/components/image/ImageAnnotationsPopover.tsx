@@ -11,11 +11,8 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from '../ui/popover';
-import {
-  describeOverlayCount,
-  getOverlayItemLabel,
-  getOverlayItemMeta,
-} from './ImageViewUtils';
+
+import { describeOverlayCount, getOverlayItemLabel, getOverlayItemMeta } from './ImageViewUtils';
 
 interface ImageAnnotationsPopoverProps {
   open: boolean;

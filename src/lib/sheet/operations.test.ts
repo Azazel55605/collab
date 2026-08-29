@@ -2,11 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import { sheetCellKey } from '../../types/sheet';
 import type { SheetDocument } from '../../types/sheet';
+
+import { createSheetTable, setSheetTableColumnFilter } from './dataTools';
 import { createEmptySheetDocument } from './document';
-import {
-  createSheetTable,
-  setSheetTableColumnFilter,
-} from './dataTools';
 import {
   activeWorksheet,
   autoSizeColumn,
@@ -15,8 +13,8 @@ import {
   duplicateWorksheet,
   getCell,
   insertTracks,
-  mergeSelection,
   mergedRangeAt,
+  mergeSelection,
   moveTracks,
   reorderWorksheet,
   resizeTrack,
@@ -53,8 +51,16 @@ describe('cells', () => {
     const document = workbook();
     const worksheet = activeWorksheet(document);
 
-    const written = setCell(document, worksheet.id, { row: 1, column: 2 }, { value: 7, valueType: 'number' });
-    expect(getCell(activeWorksheet(written), { row: 1, column: 2 })).toEqual({ value: 7, valueType: 'number' });
+    const written = setCell(
+      document,
+      worksheet.id,
+      { row: 1, column: 2 },
+      { value: 7, valueType: 'number' },
+    );
+    expect(getCell(activeWorksheet(written), { row: 1, column: 2 })).toEqual({
+      value: 7,
+      valueType: 'number',
+    });
 
     const cleared = setCell(written, worksheet.id, { row: 1, column: 2 }, null);
     expect(Object.keys(activeWorksheet(cleared).cells)).toHaveLength(0);
@@ -70,8 +76,18 @@ describe('cells', () => {
   it('preserves an existing cell style when only the value changes', () => {
     const document = workbook();
     const worksheet = activeWorksheet(document);
-    const styled = setCell(document, worksheet.id, { row: 0, column: 0 }, { value: 1, styleId: 's1' });
-    const revalued = setCell(styled, worksheet.id, { row: 0, column: 0 }, { value: 2, valueType: 'number' });
+    const styled = setCell(
+      document,
+      worksheet.id,
+      { row: 0, column: 0 },
+      { value: 1, styleId: 's1' },
+    );
+    const revalued = setCell(
+      styled,
+      worksheet.id,
+      { row: 0, column: 0 },
+      { value: 2, valueType: 'number' },
+    );
     expect(getCell(activeWorksheet(revalued), { row: 0, column: 0 })).toEqual({
       value: 2,
       valueType: 'number',
@@ -82,12 +98,17 @@ describe('cells', () => {
   it('preserves formatting and notes when cell content is cleared', () => {
     const document = workbook();
     const worksheet = activeWorksheet(document);
-    const written = setCell(document, worksheet.id, { row: 0, column: 0 }, {
-      value: 7,
-      valueType: 'number',
-      styleId: 's1',
-      note: 'Keep this',
-    });
+    const written = setCell(
+      document,
+      worksheet.id,
+      { row: 0, column: 0 },
+      {
+        value: 7,
+        valueType: 'number',
+        styleId: 's1',
+        note: 'Keep this',
+      },
+    );
     const cleared = setCell(written, worksheet.id, { row: 0, column: 0 }, null);
     expect(getCell(activeWorksheet(cleared), { row: 0, column: 0 })).toEqual({
       styleId: 's1',
@@ -98,10 +119,15 @@ describe('cells', () => {
   it('updates note metadata without changing cell content', () => {
     const document = workbook();
     const worksheet = activeWorksheet(document);
-    const written = setCell(document, worksheet.id, { row: 0, column: 0 }, {
-      value: 7,
-      valueType: 'number',
-    });
+    const written = setCell(
+      document,
+      worksheet.id,
+      { row: 0, column: 0 },
+      {
+        value: 7,
+        valueType: 'number',
+      },
+    );
     const noted = setCellNote(written, worksheet.id, { row: 0, column: 0 }, 'Review this');
     expect(getCell(activeWorksheet(noted), { row: 0, column: 0 })).toEqual({
       value: 7,
@@ -118,7 +144,10 @@ describe('cells', () => {
   it('clears every cell in a selection', () => {
     const document = withCells(workbook());
     const worksheet = activeWorksheet(document);
-    const selection = extendSelection(createSelection({ row: 0, column: 0 }), { row: 1, column: 1 });
+    const selection = extendSelection(createSelection({ row: 0, column: 0 }), {
+      row: 1,
+      column: 1,
+    });
 
     const cleared = clearCells(document, worksheet.id, selection);
     expect(Object.keys(activeWorksheet(cleared).cells)).toHaveLength(1);
@@ -172,13 +201,10 @@ describe('rows and columns', () => {
     worksheet = activeWorksheet(document);
     const table = worksheet.tables![0];
     const filteredColumn = table.columns[1].columnId;
-    document = setSheetTableColumnFilter(
-      document,
-      worksheet.id,
-      table.id,
-      filteredColumn,
-      { columnId: filteredColumn, includeValues: ['keep'] },
-    );
+    document = setSheetTableColumnFilter(document, worksheet.id, table.id, filteredColumn, {
+      columnId: filteredColumn,
+      includeValues: ['keep'],
+    });
 
     const deletedRow = deleteTracks(document, worksheet.id, 'row', 0, 1);
     const rowResult = activeWorksheet(deletedRow);
@@ -187,8 +213,10 @@ describe('rows and columns', () => {
 
     const deletedColumn = deleteTracks(deletedRow, worksheet.id, 'column', 1, 1);
     const columnResult = activeWorksheet(deletedColumn);
-    expect(columnResult.tables?.[0].columns.map((column) => column.columnId))
-      .toEqual([worksheet.columnOrder[0], worksheet.columnOrder[2]]);
+    expect(columnResult.tables?.[0].columns.map((column) => column.columnId)).toEqual([
+      worksheet.columnOrder[0],
+      worksheet.columnOrder[2],
+    ]);
     expect(columnResult.filters).toBeUndefined();
     expect(Object.values(columnResult.rows ?? {}).some((row) => row.filterHidden)).toBe(false);
   });
@@ -196,8 +224,12 @@ describe('rows and columns', () => {
   it('refuses to delete the last row or column', () => {
     const document = createEmptySheetDocument('Book', { worksheet: { rows: 1, columns: 1 } });
     const worksheet = activeWorksheet(document);
-    expect(() => deleteTracks(document, worksheet.id, 'row', 0, 1)).toThrowError(/at least one row/);
-    expect(() => deleteTracks(document, worksheet.id, 'column', 0, 1)).toThrowError(/at least one column/);
+    expect(() => deleteTracks(document, worksheet.id, 'row', 0, 1)).toThrowError(
+      /at least one row/,
+    );
+    expect(() => deleteTracks(document, worksheet.id, 'column', 0, 1)).toThrowError(
+      /at least one column/,
+    );
   });
 
   it('moves a block of tracks', () => {
@@ -233,13 +265,24 @@ describe('rows and columns', () => {
   it('auto-sizes a column from its widest populated cell', () => {
     let document = workbook();
     const worksheet = activeWorksheet(document);
-    document = setCell(document, worksheet.id, { row: 0, column: 0 }, { value: 'short', valueType: 'text' });
-    document = setCell(document, worksheet.id, { row: 1, column: 0 }, { value: 'a much longer value', valueType: 'text' });
+    document = setCell(
+      document,
+      worksheet.id,
+      { row: 0, column: 0 },
+      { value: 'short', valueType: 'text' },
+    );
+    document = setCell(
+      document,
+      worksheet.id,
+      { row: 1, column: 0 },
+      { value: 'a much longer value', valueType: 'text' },
+    );
 
     const measure = (text: string) => text.length * 7;
     const sized = autoSizeColumn(document, worksheet.id, 0, measure, { padding: 10 });
-    expect(activeWorksheet(sized).columns?.[worksheet.columnOrder[0]].width)
-      .toBe('a much longer value'.length * 7 + 10);
+    expect(activeWorksheet(sized).columns?.[worksheet.columnOrder[0]].width).toBe(
+      'a much longer value'.length * 7 + 10,
+    );
   });
 });
 
@@ -247,7 +290,10 @@ describe('merged ranges', () => {
   it('merges a rectangle, keeping only the top-left content', () => {
     let document = withCells(workbook());
     const worksheet = activeWorksheet(document);
-    const selection = extendSelection(createSelection({ row: 0, column: 0 }), { row: 1, column: 1 });
+    const selection = extendSelection(createSelection({ row: 0, column: 0 }), {
+      row: 1,
+      column: 1,
+    });
 
     document = mergeSelection(document, worksheet.id, selection);
     const next = activeWorksheet(document);
@@ -262,19 +308,22 @@ describe('merged ranges', () => {
   it('rejects single cells and overlapping merges', () => {
     let document = workbook();
     const worksheet = activeWorksheet(document);
-    expect(() => mergeSelection(document, worksheet.id, createSelection({ row: 0, column: 0 })))
-      .toThrowError(/more than one cell/);
+    expect(() =>
+      mergeSelection(document, worksheet.id, createSelection({ row: 0, column: 0 })),
+    ).toThrowError(/more than one cell/);
 
     document = mergeSelection(
       document,
       worksheet.id,
       extendSelection(createSelection({ row: 0, column: 0 }), { row: 1, column: 1 }),
     );
-    expect(() => mergeSelection(
-      document,
-      worksheet.id,
-      extendSelection(createSelection({ row: 1, column: 1 }), { row: 2, column: 2 }),
-    )).toThrowError(/overlaps/);
+    expect(() =>
+      mergeSelection(
+        document,
+        worksheet.id,
+        extendSelection(createSelection({ row: 1, column: 1 }), { row: 2, column: 2 }),
+      ),
+    ).toThrowError(/overlaps/);
   });
 
   it('unmerges every range touching the selection', () => {
@@ -303,30 +352,40 @@ describe('selection summaries', () => {
   it('reports a filter-aware subtotal without changing the full sum', () => {
     let document = workbook();
     const worksheet = activeWorksheet(document);
-    document = setCell(document, worksheet.id, { row: 0, column: 0 }, {
-      value: 2,
-      valueType: 'number',
-    });
-    document = setCell(document, worksheet.id, { row: 1, column: 0 }, {
-      value: 3,
-      valueType: 'number',
-    });
+    document = setCell(
+      document,
+      worksheet.id,
+      { row: 0, column: 0 },
+      {
+        value: 2,
+        valueType: 'number',
+      },
+    );
+    document = setCell(
+      document,
+      worksheet.id,
+      { row: 1, column: 0 },
+      {
+        value: 3,
+        valueType: 'number',
+      },
+    );
     document = {
       ...document,
-      worksheets: document.worksheets.map((candidate) => (
+      worksheets: document.worksheets.map((candidate) =>
         candidate.id === worksheet.id
           ? {
-            ...candidate,
-            rows: {
-              ...candidate.rows,
-              [candidate.rowOrder[1]]: {
-                id: candidate.rowOrder[1],
-                filterHidden: true,
+              ...candidate,
+              rows: {
+                ...candidate.rows,
+                [candidate.rowOrder[1]]: {
+                  id: candidate.rowOrder[1],
+                  filterHidden: true,
+                },
               },
-            },
-          }
-          : candidate
-      )),
+            }
+          : candidate,
+      ),
     };
     const summary = summarizeSelection(
       activeWorksheet(document),
@@ -350,13 +409,10 @@ describe('worksheets', () => {
     );
     source = activeWorksheet(document);
     const table = source.tables![0];
-    document = setSheetTableColumnFilter(
-      document,
-      source.id,
-      table.id,
-      table.columns[0].columnId,
-      { columnId: table.columns[0].columnId, includeValues: ['A1'] },
-    );
+    document = setSheetTableColumnFilter(document, source.id, table.id, table.columns[0].columnId, {
+      columnId: table.columns[0].columnId,
+      includeValues: ['A1'],
+    });
     source = activeWorksheet(document);
 
     const duplicated = duplicateWorksheet(document, source.id);

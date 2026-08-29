@@ -1,16 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { HostedVault } from '../mobileTauri';
+
+import {
+  downloadEntireVault,
+  downloadEntry,
+  normalizedNoteName,
+  pickAndUploadFiles,
+} from './fileTransfer';
+
 const invoke = vi.fn();
 const open = vi.fn();
 const save = vi.fn();
-vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args), Channel: class {} }));
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: (...args: unknown[]) => invoke(...args),
+  Channel: class {},
+}));
 vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: (...args: unknown[]) => open(...args),
   save: (...args: unknown[]) => save(...args),
 }));
-
-import type { HostedVault } from '../mobileTauri';
-import { downloadEntireVault, downloadEntry, normalizedNoteName, pickAndUploadFiles } from './fileTransfer';
 
 const vault = (capabilities: string[]): HostedVault => ({
   id: 'vault-1',
@@ -46,22 +55,40 @@ describe('mobile file transfer', () => {
   it('uploads binary assets and text documents through their permission-specific routes', async () => {
     open.mockResolvedValue(['/picked/photo.png', '/picked/readme.md']);
     invoke.mockImplementation((command: string, args: Record<string, unknown>) => {
-      if (command === 'hosted_vault_upload_file') return Promise.resolve(rawFile('asset-1', 'photo.png', 'asset'));
+      if (command === 'hosted_vault_upload_file')
+        return Promise.resolve(rawFile('asset-1', 'photo.png', 'asset'));
       if (command === 'read_file_for_upload') {
-        return Promise.resolve({ name: 'readme.md', mediaType: 'text/markdown', contentBase64: btoa('# Readme'), expectedHash: 'hash' });
+        return Promise.resolve({
+          name: 'readme.md',
+          mediaType: 'text/markdown',
+          contentBase64: btoa('# Readme'),
+          expectedHash: 'hash',
+        });
       }
-      if (command === 'hosted_vault_request') return Promise.resolve(rawFile('doc-1', 'readme.md', 'document'));
+      if (command === 'hosted_vault_request')
+        return Promise.resolve(rawFile('doc-1', 'readme.md', 'document'));
       return Promise.reject(new Error(`Unexpected ${command} ${JSON.stringify(args)}`));
     });
 
-    const result = await pickAndUploadFiles('https://server.test', vault(['file.create', 'file.uploadAsset']), null);
+    const result = await pickAndUploadFiles(
+      'https://server.test',
+      vault(['file.create', 'file.uploadAsset']),
+      null,
+    );
 
     expect(result.completed.map((file) => file.name)).toEqual(['photo.png', 'readme.md']);
     expect(result.failed).toEqual([]);
-    expect(invoke).toHaveBeenCalledWith('hosted_vault_request', expect.objectContaining({
-      path: '/api/v1/vaults/vault-1/files',
-      body: expect.objectContaining({ name: 'readme.md', documentType: 'note', content: '# Readme' }),
-    }));
+    expect(invoke).toHaveBeenCalledWith(
+      'hosted_vault_request',
+      expect.objectContaining({
+        path: '/api/v1/vaults/vault-1/files',
+        body: expect.objectContaining({
+          name: 'readme.md',
+          documentType: 'note',
+          content: '# Readme',
+        }),
+      }),
+    );
   });
 
   it('rejects uploads when the required capability is absent', async () => {
@@ -80,13 +107,15 @@ describe('mobile file transfer', () => {
       name: 'Budget',
       createdAt: '2026-01-01T00:00:00Z',
       updatedAt: '2026-01-01T00:00:00Z',
-      worksheets: [{
-        id: 'ws1',
-        name: 'Sheet1',
-        rowOrder: ['r1'],
-        columnOrder: ['c1'],
-        cells: {},
-      }],
+      worksheets: [
+        {
+          id: 'ws1',
+          name: 'Sheet1',
+          rowOrder: ['r1'],
+          columnOrder: ['c1'],
+          cells: {},
+        },
+      ],
       styles: {},
     });
     open.mockResolvedValue('/picked/Budget.sheet');
@@ -108,34 +137,53 @@ describe('mobile file transfer', () => {
       return Promise.reject(new Error(`Unexpected ${command}`));
     });
 
-    const result = await pickAndUploadFiles(
-      'https://server.test',
-      vault(['file.create']),
-      null,
-    );
+    const result = await pickAndUploadFiles('https://server.test', vault(['file.create']), null);
 
     expect(result.failed).toEqual([]);
-    expect(invoke).toHaveBeenCalledWith('hosted_vault_request', expect.objectContaining({
-      body: expect.objectContaining({
-        name: 'Budget.sheet',
-        documentType: 'sheet',
-        content,
+    expect(invoke).toHaveBeenCalledWith(
+      'hosted_vault_request',
+      expect.objectContaining({
+        body: expect.objectContaining({
+          name: 'Budget.sheet',
+          documentType: 'sheet',
+          content,
+        }),
       }),
-    }));
+    );
   });
 
   it('downloads files, folders, and full vault exports through separate native commands', async () => {
-    save.mockResolvedValueOnce('/downloads/note.md').mockResolvedValueOnce('/downloads/Folder.zip').mockResolvedValueOnce('/downloads/Vault.zip');
+    save
+      .mockResolvedValueOnce('/downloads/note.md')
+      .mockResolvedValueOnce('/downloads/Folder.zip')
+      .mockResolvedValueOnce('/downloads/Vault.zip');
     invoke.mockResolvedValue(undefined);
     const allowed = vault(['vault.read', 'vault.export']);
 
-    await downloadEntry('https://server.test', allowed, rawFile('doc-1', 'note.md', 'document') as never);
-    await downloadEntry('https://server.test', allowed, rawFile('folder-1', 'Folder', 'folder') as never);
+    await downloadEntry(
+      'https://server.test',
+      allowed,
+      rawFile('doc-1', 'note.md', 'document') as never,
+    );
+    await downloadEntry(
+      'https://server.test',
+      allowed,
+      rawFile('folder-1', 'Folder', 'folder') as never,
+    );
     await downloadEntireVault('https://server.test', allowed);
 
-    expect(invoke).toHaveBeenCalledWith('hosted_vault_download_entry', expect.objectContaining({ fileId: 'doc-1', archive: false }));
-    expect(invoke).toHaveBeenCalledWith('hosted_vault_download_entry', expect.objectContaining({ fileId: 'folder-1', archive: true }));
-    expect(invoke).toHaveBeenCalledWith('hosted_vault_export_zip', expect.objectContaining({ vaultId: 'vault-1' }));
+    expect(invoke).toHaveBeenCalledWith(
+      'hosted_vault_download_entry',
+      expect.objectContaining({ fileId: 'doc-1', archive: false }),
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      'hosted_vault_download_entry',
+      expect.objectContaining({ fileId: 'folder-1', archive: true }),
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      'hosted_vault_export_zip',
+      expect.objectContaining({ vaultId: 'vault-1' }),
+    );
   });
 
   it('normalizes note names', () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { INK_SAMPLE_RANGES } from '../../types/ink';
 import type { InkSample } from '../../types/ink';
+
 import { decodeSamples, encodeSamples, sampleCount } from './codec';
 import { buildStrokeSamples } from './fixture';
 import { captureStroke } from './samples';

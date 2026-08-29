@@ -1,55 +1,74 @@
-import { useEffect, useMemo, useRef, useState, Component, type ReactNode, type ErrorInfo } from 'react';
-import MarkdownIt from 'markdown-it';
-// @ts-ignore – no bundled types
-import texmath from 'markdown-it-texmath';
+import {
+  Component,
+  type ErrorInfo,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+
+import DOMPurify from 'dompurify';
+import hljs from 'highlight.js';
+import 'highlight.js/styles/atom-one-dark.css';
 import katex from 'katex';
-// @ts-ignore – no bundled types
-import footnote from 'markdown-it-footnote';
+import 'katex/dist/katex.min.css';
+import MarkdownIt from 'markdown-it';
 import anchor from 'markdown-it-anchor';
 // @ts-ignore – no bundled types
-import taskLists from 'markdown-it-task-lists';
+import container from 'markdown-it-container';
+// @ts-ignore – no bundled types
+import deflist from 'markdown-it-deflist';
+// @ts-ignore – no bundled types
+import footnote from 'markdown-it-footnote';
+// @ts-ignore – no bundled types
+import mark from 'markdown-it-mark';
 // @ts-ignore – no bundled types
 import sub from 'markdown-it-sub';
 // @ts-ignore – no bundled types
 import sup from 'markdown-it-sup';
 // @ts-ignore – no bundled types
-import mark from 'markdown-it-mark';
+import taskLists from 'markdown-it-task-lists';
 // @ts-ignore – no bundled types
-import deflist from 'markdown-it-deflist';
-// @ts-ignore – no bundled types
-import container from 'markdown-it-container';
-import hljs from 'highlight.js';
-import DOMPurify from 'dompurify';
+import texmath from 'markdown-it-texmath';
+
+import { extractLogicDiagramExportSource } from '../../lib/logicDiagramExport';
+import { isMermaidLanguage, renderMermaidBlocks } from '../../lib/mermaidRenderer';
+import { resolveNoteAssetTarget } from '../../lib/noteAssets';
+import { createVaultClient } from '../../lib/vaultClient';
+import { flattenVaultFiles, getVaultDocumentTitle } from '../../lib/vaultLinks';
+import { extractHttpUrls, prefetchWebPreviews } from '../../lib/webPreviewCache';
+import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
-import { createVaultClient } from '../../lib/vaultClient';
-import { useEditorStore } from '../../store/editorStore';
 import { WebLinkPreviewPopover } from '../previews/WebLinkPreviewPopover';
-import { extractHttpUrls, prefetchWebPreviews } from '../../lib/webPreviewCache';
-import { resolveNoteAssetTarget } from '../../lib/noteAssets';
-import { extractLogicDiagramExportSource } from '../../lib/logicDiagramExport';
-import { flattenVaultFiles, getVaultDocumentTitle } from '../../lib/vaultLinks';
-import { parseMathPlots, type ParsedMathPlots } from './mathPlotSpec';
+
 import { MathPlot2D } from './MathPlot2D';
 import { MathPlot3D } from './MathPlot3D';
 import { openMathPlotModal } from './MathPlotModal';
-import { isMermaidLanguage, renderMermaidBlocks } from '../../lib/mermaidRenderer';
-import 'katex/dist/katex.min.css';
-import 'highlight.js/styles/atom-one-dark.css';
+import { type ParsedMathPlots, parseMathPlots } from './mathPlotSpec';
 
 // ─── Error boundary ───────────────────────────────────────────────────────────
 
-interface EBState { error: Error | null }
+interface EBState {
+  error: Error | null;
+}
 class PreviewErrorBoundary extends Component<{ children: ReactNode }, EBState> {
   state: EBState = { error: null };
-  static getDerivedStateFromError(error: Error): EBState { return { error }; }
-  componentDidCatch(error: Error, info: ErrorInfo) { console.error('[MarkdownPreview]', error, info); }
+  static getDerivedStateFromError(error: Error): EBState {
+    return { error };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[MarkdownPreview]', error, info);
+  }
   render() {
     if (this.state.error) {
       return (
         <div className="p-6 text-sm text-destructive">
           <p className="font-medium">Preview error</p>
-          <pre className="mt-2 text-xs opacity-70 whitespace-pre-wrap">{this.state.error.message}</pre>
+          <pre className="mt-2 text-xs opacity-70 whitespace-pre-wrap">
+            {this.state.error.message}
+          </pre>
         </div>
       );
     }
@@ -116,19 +135,24 @@ function buildMd(): MarkdownIt {
 
   // Callout containers: ::: note Title\n...\n:::
   const callouts: [string, string][] = [
-    ['note', 'Note'], ['tip', 'Tip'], ['warning', 'Warning'],
-    ['danger', 'Danger'], ['info', 'Info'],
+    ['note', 'Note'],
+    ['tip', 'Tip'],
+    ['warning', 'Warning'],
+    ['danger', 'Danger'],
+    ['info', 'Info'],
   ];
   for (const [type, defaultTitle] of callouts) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    instance.use(container, type, { render(tokens: any[], idx: number) {
-      const tok = tokens[idx];
-      if (tok.nesting === 1) {
-        const title = tok.info.trim().slice(type.length).trim() || defaultTitle;
-        return `<div class="callout callout-${type}"><div class="callout-title">${instance.utils.escapeHtml(title)}</div><div class="callout-body">\n`;
-      }
-      return '</div></div>\n';
-    } });
+    instance.use(container, type, {
+      render(tokens: any[], idx: number) {
+        const tok = tokens[idx];
+        if (tok.nesting === 1) {
+          const title = tok.info.trim().slice(type.length).trim() || defaultTitle;
+          return `<div class="callout callout-${type}"><div class="callout-title">${instance.utils.escapeHtml(title)}</div><div class="callout-body">\n`;
+        }
+        return '</div></div>\n';
+      },
+    });
   }
 
   return instance;
@@ -160,7 +184,10 @@ function preprocessMath(src: string): string {
     .replace(/\\\((.+?)\\\)/g, (_: string, m: string) => `$${m}$`);
 }
 
-function preprocessDisplayMathPlots(src: string): { source: string; plotBlocks: ParsedMathPlots[] } {
+function preprocessDisplayMathPlots(src: string): {
+  source: string;
+  plotBlocks: ParsedMathPlots[];
+} {
   const plotBlocks: ParsedMathPlots[] = [];
   const source = src.replace(/\$\$([\s\S]+?)\$\$/g, (_match: string, mathSource: string) => {
     if (!/%plot[23]d\b/.test(mathSource)) return `$$${mathSource}$$`;
@@ -187,18 +214,62 @@ function preprocessWikilinks(src: string): string {
 
 const PURIFY_CONFIG: Parameters<typeof DOMPurify.sanitize>[1] = {
   ADD_TAGS: [
-    'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'ms', 'mtext',
-    'msup', 'msub', 'msubsup', 'mfrac', 'mover', 'munder', 'munderover',
-    'mroot', 'msqrt', 'mtable', 'mtr', 'mtd', 'mspace', 'annotation',
-    'annotation-xml', 'merror', 'mpadded', 'mphantom', 'mstyle',
-    'mmultiscripts', 'mprescripts', 'none', 'menclose',
+    'math',
+    'semantics',
+    'mrow',
+    'mi',
+    'mo',
+    'mn',
+    'ms',
+    'mtext',
+    'msup',
+    'msub',
+    'msubsup',
+    'mfrac',
+    'mover',
+    'munder',
+    'munderover',
+    'mroot',
+    'msqrt',
+    'mtable',
+    'mtr',
+    'mtd',
+    'mspace',
+    'annotation',
+    'annotation-xml',
+    'merror',
+    'mpadded',
+    'mphantom',
+    'mstyle',
+    'mmultiscripts',
+    'mprescripts',
+    'none',
+    'menclose',
   ],
   ADD_ATTR: [
-    'data-path', 'aria-hidden', 'aria-label', 'aria-describedby',
-    'class', 'style', 'href', 'id', 'encoding', 'display',
-    'mathvariant', 'mathsize', 'mathcolor', 'mathbackground',
-    'stretchy', 'fence', 'separator', 'lspace', 'rspace',
-    'columnalign', 'rowalign', 'columnspan', 'rowspan',
+    'data-path',
+    'aria-hidden',
+    'aria-label',
+    'aria-describedby',
+    'class',
+    'style',
+    'href',
+    'id',
+    'encoding',
+    'display',
+    'mathvariant',
+    'mathsize',
+    'mathcolor',
+    'mathbackground',
+    'stretchy',
+    'fence',
+    'separator',
+    'lspace',
+    'rspace',
+    'columnalign',
+    'rowalign',
+    'columnspan',
+    'rowspan',
   ],
   FORCE_BODY: true,
 };
@@ -251,20 +322,39 @@ function MathPlotPreviewStack({ parsed }: { parsed: ParsedMathPlots }) {
   return (
     <div className="mt-3 space-y-3 text-left">
       {parsed.errors.map((error, index) => (
-        <div key={`error-${index}`} className="rounded-md border border-destructive/35 bg-destructive/8 px-3 py-2 text-xs text-destructive">
+        <div
+          key={`error-${index}`}
+          className="rounded-md border border-destructive/35 bg-destructive/8 px-3 py-2 text-xs text-destructive"
+        >
           {error}
         </div>
       ))}
-      {parsed.plots.map((plot, index) => (
-        plot.kind === '2d'
-          ? <MathPlot2D key={`plot-${index}`} spec={plot} onShiftClick={() => openMathPlotModal(plot)} />
-          : <MathPlot3D key={`plot-${index}`} spec={plot} onShiftClick={() => openMathPlotModal(plot)} />
-      ))}
+      {parsed.plots.map((plot, index) =>
+        plot.kind === '2d' ? (
+          <MathPlot2D
+            key={`plot-${index}`}
+            spec={plot}
+            onShiftClick={() => openMathPlotModal(plot)}
+          />
+        ) : (
+          <MathPlot3D
+            key={`plot-${index}`}
+            spec={plot}
+            onShiftClick={() => openMathPlotModal(plot)}
+          />
+        ),
+      )}
     </div>
   );
 }
 
-function PreviewInner({ content, className = '', onWikilinkClick, currentDocumentRelativePath, onReady }: MarkdownPreviewProps) {
+function PreviewInner({
+  content,
+  className = '',
+  onWikilinkClick,
+  currentDocumentRelativePath,
+  onReady,
+}: MarkdownPreviewProps) {
   const {
     webPreviewsEnabled,
     hoverWebLinkPreviewsEnabled,
@@ -281,10 +371,10 @@ function PreviewInner({ content, className = '', onWikilinkClick, currentDocumen
   const renderedPreview = useMemo(() => {
     try {
       const body = stripFrontmatter(content);
-      const withMath  = preprocessMath(body);
+      const withMath = preprocessMath(body);
       const withPlots = preprocessDisplayMathPlots(withMath);
       const withLinks = preprocessWikilinks(withPlots.source);
-      const rendered  = md.render(withLinks);
+      const rendered = md.render(withLinks);
       return {
         html: DOMPurify.sanitize(rendered, PURIFY_CONFIG) as unknown as string,
         plotBlocks: withPlots.plotBlocks,
@@ -302,11 +392,17 @@ function PreviewInner({ content, className = '', onWikilinkClick, currentDocumen
   const plotBlocks = renderedPreview.plotBlocks;
 
   useEffect(() => {
-    if (!webPreviewsEnabled || !hoverWebLinkPreviewsEnabled || !backgroundWebPreviewPrefetchEnabled) return;
+    if (!webPreviewsEnabled || !hoverWebLinkPreviewsEnabled || !backgroundWebPreviewPrefetchEnabled)
+      return;
     const urls = extractHttpUrls(content);
     if (urls.length === 0) return;
     prefetchWebPreviews(urls);
-  }, [backgroundWebPreviewPrefetchEnabled, content, hoverWebLinkPreviewsEnabled, webPreviewsEnabled]);
+  }, [
+    backgroundWebPreviewPrefetchEnabled,
+    content,
+    hoverWebLinkPreviewsEnabled,
+    webPreviewsEnabled,
+  ]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -334,7 +430,8 @@ function PreviewInner({ content, className = '', onWikilinkClick, currentDocumen
       image.dataset.assetKind = 'vault';
       image.dataset.assetValue = target.value;
 
-      const imagePromise = client.readAssetDataUrl(target.value)
+      const imagePromise = client
+        .readAssetDataUrl(target.value)
         .then((dataUrl) => {
           if (cancelled || !image.isConnected) return;
           image.src = dataUrl;
@@ -349,14 +446,17 @@ function PreviewInner({ content, className = '', onWikilinkClick, currentDocumen
       imagePromises.push(imagePromise.then(() => undefined));
     }
 
-    const expected3dCanvases = plotBlocks.reduce((count, parsed) => (
-      count + parsed.plots.filter((plot) => plot.kind === '3d').length
-    ), 0);
+    const expected3dCanvases = plotBlocks.reduce(
+      (count, parsed) => count + parsed.plots.filter((plot) => plot.kind === '3d').length,
+      0,
+    );
     const ready = Promise.all([
       ...imagePromises,
       mermaidJob.ready,
       waitForPlotCanvases(root, expected3dCanvases),
-      new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
     ]);
 
     void ready.then(() => {
@@ -367,21 +467,30 @@ function PreviewInner({ content, className = '', onWikilinkClick, currentDocumen
       cancelled = true;
       mermaidJob.cancel();
     };
-  }, [accentColor, client, currentDocumentRelativePath, fileTree, html, onReady, plotBlocks, theme]);
+  }, [
+    accentColor,
+    client,
+    currentDocumentRelativePath,
+    fileTree,
+    html,
+    onReady,
+    plotBlocks,
+    theme,
+  ]);
 
   function handleClick(e: React.MouseEvent<HTMLDivElement>) {
-    const image = (e.target as HTMLElement).closest<HTMLImageElement>('img[data-asset-kind="vault"]');
+    const image = (e.target as HTMLElement).closest<HTMLImageElement>(
+      'img[data-asset-kind="vault"]',
+    );
     if (image?.dataset.assetValue) {
       const sourcePath = image.dataset.logicSourcePath;
       const sourceExists = sourcePath
         ? flattenVaultFiles(fileTree).some((entry) => entry.relativePath === sourcePath)
         : false;
       const targetPath = sourceExists ? sourcePath! : image.dataset.assetValue;
-      useEditorStore.getState().openTab(
-        targetPath,
-        getVaultDocumentTitle(targetPath),
-        sourceExists ? 'logic' : 'image',
-      );
+      useEditorStore
+        .getState()
+        .openTab(targetPath, getVaultDocumentTitle(targetPath), sourceExists ? 'logic' : 'image');
       useUiStore.getState().setActiveView('editor');
       e.preventDefault();
       e.stopPropagation();

@@ -1,5 +1,6 @@
 import { SHEET_LIMITS } from '../../types/sheet';
 import type { SheetCell, SheetDocument, SheetWorksheet } from '../../types/sheet';
+
 import type { SheetPosition } from './address';
 import { SheetDocumentError } from './document';
 import { translateFormulaReferences } from './formulaReferences';
@@ -11,11 +12,7 @@ import {
   type SheetRectangle,
   type SheetSelection,
 } from './selection';
-import {
-  applyStyleToSelection,
-  clearStylesFromSelection,
-  resolveCellStyle,
-} from './styles';
+import { applyStyleToSelection, clearStylesFromSelection, resolveCellStyle } from './styles';
 
 export interface SheetFillResult {
   document: SheetDocument;
@@ -40,15 +37,14 @@ function numericSeries(
   source: SheetRectangle,
   axis: 'row' | 'column',
 ): { first: number; step: number; origin: number } | null {
-  const length = axis === 'row'
-    ? source.bottom - source.top + 1
-    : source.right - source.left + 1;
+  const length = axis === 'row' ? source.bottom - source.top + 1 : source.right - source.left + 1;
   if (length < 2) return null;
   const values: number[] = [];
   for (let offset = 0; offset < length; offset += 1) {
-    const position = axis === 'row'
-      ? { row: source.top + offset, column: source.left }
-      : { row: source.top, column: source.left + offset };
+    const position =
+      axis === 'row'
+        ? { row: source.top + offset, column: source.left }
+        : { row: source.top, column: source.left + offset };
     const cell = getCell(worksheet, position);
     if (typeof cell?.value !== 'number' || cell.formula) return null;
     values.push(cell.value);
@@ -63,22 +59,27 @@ function dateSeries(
   source: SheetRectangle,
   axis: 'row' | 'column',
 ): { first: number; step: number; origin: number; valueType: SheetCell['valueType'] } | null {
-  const length = axis === 'row'
-    ? source.bottom - source.top + 1
-    : source.right - source.left + 1;
+  const length = axis === 'row' ? source.bottom - source.top + 1 : source.right - source.left + 1;
   if (length < 2) return null;
   const values: number[] = [];
   let valueType: SheetCell['valueType'];
   for (let offset = 0; offset < length; offset += 1) {
-    const position = axis === 'row'
-      ? { row: source.top + offset, column: source.left }
-      : { row: source.top, column: source.left + offset };
+    const position =
+      axis === 'row'
+        ? { row: source.top + offset, column: source.left }
+        : { row: source.top, column: source.left + offset };
     const cell = getCell(worksheet, position);
-    if (cell?.formula || typeof cell?.value !== 'string'
-      || (cell.valueType !== 'date' && cell.valueType !== 'datetime')) return null;
+    if (
+      cell?.formula ||
+      typeof cell?.value !== 'string' ||
+      (cell.valueType !== 'date' && cell.valueType !== 'datetime')
+    )
+      return null;
     valueType ??= cell.valueType;
     if (cell.valueType !== valueType) return null;
-    const time = Date.parse(cell.valueType === 'date' ? `${cell.value}T00:00:00Z` : `${cell.value}Z`);
+    const time = Date.parse(
+      cell.valueType === 'date' ? `${cell.value}T00:00:00Z` : `${cell.value}Z`,
+    );
     if (!Number.isFinite(time)) return null;
     values.push(time);
   }
@@ -97,10 +98,12 @@ function seriesCell(
   source: SheetRectangle,
   destination: SheetPosition,
 ): SheetCell | null {
-  const vertical = source.left === source.right
-    && (destination.row < source.top || destination.row > source.bottom);
-  const horizontal = source.top === source.bottom
-    && (destination.column < source.left || destination.column > source.right);
+  const vertical =
+    source.left === source.right &&
+    (destination.row < source.top || destination.row > source.bottom);
+  const horizontal =
+    source.top === source.bottom &&
+    (destination.column < source.left || destination.column > source.right);
   if (!vertical && !horizontal) return null;
   const axis = vertical ? 'row' : 'column';
   const coordinate = vertical ? destination.row : destination.column;
@@ -115,19 +118,17 @@ function seriesCell(
   if (date) {
     const next = new Date(date.first + date.step * (coordinate - date.origin));
     return {
-      value: date.valueType === 'date'
-        ? next.toISOString().slice(0, 10)
-        : next.toISOString().replace(/Z$/, ''),
+      value:
+        date.valueType === 'date'
+          ? next.toISOString().slice(0, 10)
+          : next.toISOString().replace(/Z$/, ''),
       valueType: date.valueType,
     };
   }
   return null;
 }
 
-function sourcePositionFor(
-  source: SheetRectangle,
-  destination: SheetPosition,
-): SheetPosition {
+function sourcePositionFor(source: SheetRectangle, destination: SheetPosition): SheetPosition {
   const rows = source.bottom - source.top + 1;
   const columns = source.right - source.left + 1;
   return {
@@ -197,10 +198,12 @@ export function fillSheetSelection(
   return {
     document: next,
     selection: {
-      ranges: [{
-        anchor: { row: expanded.top, column: expanded.left },
-        focus: { row: expanded.bottom, column: expanded.right },
-      }],
+      ranges: [
+        {
+          anchor: { row: expanded.top, column: expanded.left },
+          focus: { row: expanded.bottom, column: expanded.right },
+        },
+      ],
       active: selection.active,
       kind: 'cells',
     },

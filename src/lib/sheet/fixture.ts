@@ -6,12 +6,7 @@
  * Later phases reuse them for schema, editor, and performance tests, so keep
  * generation deterministic — no `Math.random`, no clock reads.
  */
-
-import {
-  SHEET_DOCUMENT_KIND,
-  SHEET_SCHEMA_VERSION,
-  sheetCellKey,
-} from '../../types/sheet';
+import { SHEET_DOCUMENT_KIND, SHEET_SCHEMA_VERSION, sheetCellKey } from '../../types/sheet';
 import type {
   SheetCell,
   SheetConditionalFormat,
@@ -19,6 +14,7 @@ import type {
   SheetStyle,
   SheetWorksheet,
 } from '../../types/sheet';
+
 import { columnLabel } from './address';
 import type { SheetDocumentErrorCode } from './document';
 
@@ -100,12 +96,7 @@ export function createWorkbookFixture(options: SheetFixtureOptions): SheetDocume
  * grids fails somewhere here.
  */
 export type SheetFixtureShape =
-  | 'sparse'
-  | 'dense'
-  | 'wide'
-  | 'tall'
-  | 'deeplyDependent'
-  | 'highlyFormatted';
+  'sparse' | 'dense' | 'wide' | 'tall' | 'deeplyDependent' | 'highlyFormatted';
 
 function workbook(
   name: string,
@@ -169,9 +160,7 @@ export function createDenseWorkbookFixture(rows = 200, columns = 50): SheetDocum
       }
     }
   }
-  return workbook('Dense fixture', [
-    { id: 'ws1', name: 'Dense', rowOrder, columnOrder, cells },
-  ]);
+  return workbook('Dense fixture', [{ id: 'ws1', name: 'Dense', rowOrder, columnOrder, cells }]);
 }
 
 /** Few rows, near the column ceiling: exercises horizontal metrics and labels. */
@@ -202,9 +191,7 @@ export function createTallWorkbookFixture(rows = 150_000): SheetDocument {
   for (let row = 0; row < rows; row += 1) {
     cells[sheetCellKey(rowOrder[row], columnOrder[0])] = { value: row + 1, valueType: 'number' };
   }
-  return workbook('Tall fixture', [
-    { id: 'ws1', name: 'Tall', rowOrder, columnOrder, cells },
-  ]);
+  return workbook('Tall fixture', [{ id: 'ws1', name: 'Tall', rowOrder, columnOrder, cells }]);
 }
 
 /**
@@ -244,7 +231,8 @@ export function createHighlyFormattedWorkbookFixture(
       color: `#${(index * 4).toString(16).padStart(2, '0')}3355`,
       backgroundColor: `#ff${(index * 3).toString(16).padStart(2, '0')}22`,
       horizontalAlign: index % 3 === 0 ? 'center' : 'right',
-      numberFormat: index % 4 === 0 ? { kind: 'currency', currencyCode: 'EUR', decimals: 2 } : undefined,
+      numberFormat:
+        index % 4 === 0 ? { kind: 'currency', currencyCode: 'EUR', decimals: 2 } : undefined,
     };
   }
 
@@ -325,8 +313,7 @@ export const SHEET_SHAPE_FIXTURES: Record<SheetFixtureShape, () => SheetDocument
  * silently, because the user's stored content changed.
  */
 export type CorruptSheetOutcome =
-  | { kind: 'rejected'; code: SheetDocumentErrorCode }
-  | { kind: 'repaired'; warning: RegExp };
+  { kind: 'rejected'; code: SheetDocumentErrorCode } | { kind: 'repaired'; warning: RegExp };
 
 export interface CorruptSheetFixture {
   name: string;
@@ -364,7 +351,11 @@ export const CORRUPT_SHEET_FIXTURES: CorruptSheetFixture[] = [
   },
   { name: 'json array', text: '[1,2,3]', outcome: { kind: 'rejected', code: 'not-an-object' } },
   { name: 'json null', text: 'null', outcome: { kind: 'rejected', code: 'not-an-object' } },
-  { name: 'json string', text: '"a workbook"', outcome: { kind: 'rejected', code: 'not-an-object' } },
+  {
+    name: 'json string',
+    text: '"a workbook"',
+    outcome: { kind: 'rejected', code: 'not-an-object' },
+  },
   {
     name: 'wrong document kind',
     text: mutated((document) => {

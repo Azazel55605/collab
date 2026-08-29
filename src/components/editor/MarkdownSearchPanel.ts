@@ -5,9 +5,9 @@ import {
   getSearchQuery,
   replaceAll,
   replaceNext,
+  type search,
   SearchQuery,
   setSearchQuery,
-  type search,
 } from '@codemirror/search';
 import type { EditorView, Panel } from '@codemirror/view';
 
@@ -84,11 +84,12 @@ function syncFromQuery(
 
   const stats = getSearchMatchStats(view.state, query);
   status.classList.remove('is-error');
-  status.textContent = stats.total === 0
-    ? 'No matches'
-    : stats.current > 0
-    ? `${stats.current} of ${stats.total}`
-    : `${stats.total} matches`;
+  status.textContent =
+    stats.total === 0
+      ? 'No matches'
+      : stats.current > 0
+        ? `${stats.current} of ${stats.total}`
+        : `${stats.total} matches`;
 }
 
 function dispatchQuery(
@@ -166,13 +167,36 @@ export const createMarkdownSearchPanel: SearchPanelFactory = (view) => {
   dom.append(searchRow, replaceRow);
 
   const applyQuery = () => {
-    dispatchQuery(view, searchInput, replaceInput, caseSensitiveToggle, regexpToggle, wholeWordToggle);
-    syncFromQuery(view, searchInput, replaceInput, caseSensitiveToggle, regexpToggle, wholeWordToggle, status);
+    dispatchQuery(
+      view,
+      searchInput,
+      replaceInput,
+      caseSensitiveToggle,
+      regexpToggle,
+      wholeWordToggle,
+    );
+    syncFromQuery(
+      view,
+      searchInput,
+      replaceInput,
+      caseSensitiveToggle,
+      regexpToggle,
+      wholeWordToggle,
+      status,
+    );
   };
 
   const runCommand = (command: (target: EditorView) => boolean) => {
     command(view);
-    syncFromQuery(view, searchInput, replaceInput, caseSensitiveToggle, regexpToggle, wholeWordToggle, status);
+    syncFromQuery(
+      view,
+      searchInput,
+      replaceInput,
+      caseSensitiveToggle,
+      regexpToggle,
+      wholeWordToggle,
+      status,
+    );
   };
 
   searchInput.addEventListener('input', applyQuery);
@@ -221,7 +245,15 @@ export const createMarkdownSearchPanel: SearchPanelFactory = (view) => {
     }
   });
 
-  syncFromQuery(view, searchInput, replaceInput, caseSensitiveToggle, regexpToggle, wholeWordToggle, status);
+  syncFromQuery(
+    view,
+    searchInput,
+    replaceInput,
+    caseSensitiveToggle,
+    regexpToggle,
+    wholeWordToggle,
+    status,
+  );
 
   return {
     dom,
@@ -231,8 +263,20 @@ export const createMarkdownSearchPanel: SearchPanelFactory = (view) => {
       searchInput.select();
     },
     update(update) {
-      if (update.docChanged || update.selectionSet || update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setSearchQuery)))) {
-        syncFromQuery(update.view, searchInput, replaceInput, caseSensitiveToggle, regexpToggle, wholeWordToggle, status);
+      if (
+        update.docChanged ||
+        update.selectionSet ||
+        update.transactions.some((tr) => tr.effects.some((effect) => effect.is(setSearchQuery)))
+      ) {
+        syncFromQuery(
+          update.view,
+          searchInput,
+          replaceInput,
+          caseSensitiveToggle,
+          regexpToggle,
+          wholeWordToggle,
+          status,
+        );
       }
     },
   } satisfies Panel;

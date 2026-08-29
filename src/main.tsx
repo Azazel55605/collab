@@ -1,5 +1,7 @@
 import React from 'react';
+
 import ReactDOM from 'react-dom/client';
+
 import App from './App';
 
 const BOOT_THEME_VARS: Record<string, Record<string, string>> = {
@@ -96,11 +98,17 @@ for (const [key, value] of Object.entries(themeVars)) {
 }
 const accent = BOOT_ACCENTS[accentColor] ?? BOOT_ACCENTS.violet;
 document.documentElement.style.setProperty('--primary', `oklch(${accent})`);
-document.documentElement.style.setProperty('--primary-foreground', theme === 'light' ? 'oklch(1 0 0)' : 'oklch(0.10 0 0)');
+document.documentElement.style.setProperty(
+  '--primary-foreground',
+  theme === 'light' ? 'oklch(1 0 0)' : 'oklch(0.10 0 0)',
+);
 document.documentElement.style.setProperty('--ring', `oklch(${accent})`);
 document.documentElement.style.setProperty('--glow-primary', `oklch(${accent} / 30%)`);
 document.documentElement.style.setProperty('--glow-primary-sm', `oklch(${accent} / 15%)`);
-document.documentElement.style.setProperty('--app-font-sans', BOOT_INTERFACE_FONTS[interfaceFont] ?? BOOT_INTERFACE_FONTS.geist);
+document.documentElement.style.setProperty(
+  '--app-font-sans',
+  BOOT_INTERFACE_FONTS[interfaceFont] ?? BOOT_INTERFACE_FONTS.geist,
+);
 
 // ── Global error overlay ───────────────────────────────────────────────────
 // Shows a visible red overlay instead of a blank screen so crashes are
@@ -115,10 +123,15 @@ function showErrorOverlay(message: string) {
   const el = document.createElement('div');
   el.id = '__err_overlay__';
   el.style.cssText = [
-    'position:fixed', 'inset:0', 'z-index:99999',
-    'background:#1a0000', 'color:#ff9999',
-    'font:13px/1.5 monospace', 'padding:24px',
-    'overflow:auto', 'white-space:pre-wrap',
+    'position:fixed',
+    'inset:0',
+    'z-index:99999',
+    'background:#1a0000',
+    'color:#ff9999',
+    'font:13px/1.5 monospace',
+    'padding:24px',
+    'overflow:auto',
+    'white-space:pre-wrap',
   ].join(';');
   el.innerHTML = `<b style="font-size:15px;color:#ff4444">⚠ Uncaught Error</b>\n\n`;
   const pre = document.createElement('pre');
@@ -150,7 +163,8 @@ window.addEventListener('error', (e) => {
 window.addEventListener('unhandledrejection', (e) => {
   const reasonName = e.reason?.name ? `${e.reason.name}: ` : '';
   const reasonMessage = e.reason?.message;
-  const msg = e.reason?.stack ?? (reasonMessage ? `${reasonName}${reasonMessage}` : String(e.reason));
+  const msg =
+    e.reason?.stack ?? (reasonMessage ? `${reasonName}${reasonMessage}` : String(e.reason));
   if (isIgnorableBrowserError(msg)) {
     e.preventDefault();
     return;

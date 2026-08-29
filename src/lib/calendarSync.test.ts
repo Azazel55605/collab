@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { tauriCommands } from './tauri';
+
+import { createCalendarDefinition, normalizeCalendarItem } from '../types/calendar';
+
 import {
-  normalizeRemoteCalendar,
   normalizeHostedCalendarOrigins,
+  normalizeRemoteCalendar,
   syncHostedCalendarOrigin,
   syncHostedCalendars,
 } from './calendarSync';
-import { createCalendarDefinition, normalizeCalendarItem } from '../types/calendar';
+import { tauriCommands } from './tauri';
 
 vi.mock('./tauri', () => ({
   tauriCommands: {
@@ -65,22 +67,29 @@ beforeEach(() => {
 
 describe('calendarSync', () => {
   it('normalizes hosted origins into a stable deduplicated order', () => {
-    expect(normalizeHostedCalendarOrigins([
-      { serverUrl: 'https://second.example/', userId: 'user-b' },
-      { serverUrl: 'https://first.example', userId: 'user-a' },
-      { serverUrl: 'https://second.example', userId: 'user-b' },
-    ])).toEqual([
+    expect(
+      normalizeHostedCalendarOrigins([
+        { serverUrl: 'https://second.example/', userId: 'user-b' },
+        { serverUrl: 'https://first.example', userId: 'user-a' },
+        { serverUrl: 'https://second.example', userId: 'user-b' },
+      ]),
+    ).toEqual([
       { serverUrl: 'https://first.example', userId: 'user-a' },
       { serverUrl: 'https://second.example', userId: 'user-b' },
     ]);
   });
 
   it('keeps subscription calendars read-only and binds them to their server origin', () => {
-    expect(normalizeRemoteCalendar({
-      ...remoteCalendar,
-      location: { kind: 'subscription', subscriptionId: 'subscription-1' },
-      readOnly: true,
-    }, origin)).toMatchObject({
+    expect(
+      normalizeRemoteCalendar(
+        {
+          ...remoteCalendar,
+          location: { kind: 'subscription', subscriptionId: 'subscription-1' },
+          readOnly: true,
+        },
+        origin,
+      ),
+    ).toMatchObject({
       location: {
         kind: 'subscription',
         subscriptionId: 'subscription-1',
@@ -102,7 +111,8 @@ describe('calendarSync', () => {
     vi.mocked(tauriCommands.hostedCalendarRequest).mockImplementation(
       async (_serverUrl, method, path) => {
         if (method === 'GET' && path === '/api/v1/calendars') return [remoteCalendar];
-        if (method === 'POST') return [{ clientOperationId: pending.clientOperationId, applied: true }];
+        if (method === 'POST')
+          return [{ clientOperationId: pending.clientOperationId, applied: true }];
         return {
           changes: [
             {
@@ -131,10 +141,9 @@ describe('calendarSync', () => {
     const result = await syncHostedCalendarOrigin('profile-1', origin, []);
 
     expect(result).toMatchObject({ appliedChanges: 2, replayedOperations: 1, failedOperations: 0 });
-    expect(tauriCommands.calendarAcknowledgeOperations).toHaveBeenCalledWith(
-      'profile-1',
-      ['operation-1'],
-    );
+    expect(tauriCommands.calendarAcknowledgeOperations).toHaveBeenCalledWith('profile-1', [
+      'operation-1',
+    ]);
     expect(tauriCommands.calendarApplyRemoteChanges).toHaveBeenCalledWith(
       'profile-1',
       [
@@ -257,8 +266,12 @@ describe('calendarSync', () => {
     await syncHostedCalendarOrigin('profile-1', origin, [], progress);
 
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ phase: 'discovering' }));
-    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ phase: 'uploading', totalItems: 0 }));
-    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ phase: 'downloading', processedItems: 0 }));
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'uploading', totalItems: 0 }),
+    );
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: 'downloading', processedItems: 0 }),
+    );
     expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'complete' }));
   });
 
@@ -283,8 +296,11 @@ describe('calendarSync', () => {
       async (_serverUrl, method, path, body) => {
         if (method === 'GET' && path === '/api/v1/calendars') return [remoteCalendar];
         if (method === 'POST') {
-          const operations = (body as { operations: typeof first[] }).operations;
-          if (operations.length > 1 || operations[0].clientOperationId === second.clientOperationId) {
+          const operations = (body as { operations: (typeof first)[] }).operations;
+          if (
+            operations.length > 1 ||
+            operations[0].clientOperationId === second.clientOperationId
+          ) {
             throw new Error('revision conflict');
           }
           return [];
@@ -301,7 +317,9 @@ describe('calendarSync', () => {
       appliedChanges: 0,
       error: '1 calendar change need attention.',
     });
-    expect(tauriCommands.calendarAcknowledgeOperations).toHaveBeenCalledWith('profile-1', ['operation-1']);
+    expect(tauriCommands.calendarAcknowledgeOperations).toHaveBeenCalledWith('profile-1', [
+      'operation-1',
+    ]);
     expect(tauriCommands.calendarMarkOperationFailed).toHaveBeenCalledWith(
       'profile-1',
       'operation-2',
@@ -390,10 +408,14 @@ describe('calendarSync', () => {
       },
     );
 
-    const results = await syncHostedCalendars('profile-1', [
-      { serverUrl: 'https://offline.example', userId: 'user-a' },
-      { serverUrl: 'https://online.example', userId: 'user-b' },
-    ], []);
+    const results = await syncHostedCalendars(
+      'profile-1',
+      [
+        { serverUrl: 'https://offline.example', userId: 'user-a' },
+        { serverUrl: 'https://online.example', userId: 'user-b' },
+      ],
+      [],
+    );
 
     expect(results[0]).toMatchObject({ serverUrl: 'https://offline.example', error: 'offline' });
     expect(results[1]).toMatchObject({ serverUrl: 'https://online.example' });
@@ -411,10 +433,14 @@ describe('calendarSync', () => {
     );
 
     for (cycle = 0; cycle < 50; cycle += 1) {
-      const results = await syncHostedCalendars('profile-1', [
-        { serverUrl: 'https://first.example', userId: 'user-a' },
-        { serverUrl: 'https://second.example', userId: 'user-b' },
-      ], []);
+      const results = await syncHostedCalendars(
+        'profile-1',
+        [
+          { serverUrl: 'https://first.example', userId: 'user-a' },
+          { serverUrl: 'https://second.example', userId: 'user-b' },
+        ],
+        [],
+      );
       expect(results[1]).toMatchObject({ serverUrl: 'https://second.example' });
       expect(results[1].error).toBeUndefined();
       if (cycle < 10) {

@@ -18,11 +18,23 @@ export const SHEET_FUNCTIONS: readonly SheetFunctionDefinition[] = [
   { name: 'COUNT', signature: 'COUNT(value, ...)', category: 'aggregate' },
   { name: 'COUNTA', signature: 'COUNTA(value, ...)', category: 'aggregate' },
   { name: 'SUMIF', signature: 'SUMIF(range, criteria, [sum_range])', category: 'aggregate' },
-  { name: 'SUMIFS', signature: 'SUMIFS(sum_range, criteria_range, criteria, ...)', category: 'aggregate' },
+  {
+    name: 'SUMIFS',
+    signature: 'SUMIFS(sum_range, criteria_range, criteria, ...)',
+    category: 'aggregate',
+  },
   { name: 'COUNTIF', signature: 'COUNTIF(range, criteria)', category: 'aggregate' },
   { name: 'COUNTIFS', signature: 'COUNTIFS(criteria_range, criteria, ...)', category: 'aggregate' },
-  { name: 'AVERAGEIF', signature: 'AVERAGEIF(range, criteria, [average_range])', category: 'aggregate' },
-  { name: 'AVERAGEIFS', signature: 'AVERAGEIFS(average_range, criteria_range, criteria, ...)', category: 'aggregate' },
+  {
+    name: 'AVERAGEIF',
+    signature: 'AVERAGEIF(range, criteria, [average_range])',
+    category: 'aggregate',
+  },
+  {
+    name: 'AVERAGEIFS',
+    signature: 'AVERAGEIFS(average_range, criteria_range, criteria, ...)',
+    category: 'aggregate',
+  },
   { name: 'IF', signature: 'IF(condition, true_value, false_value)', category: 'logic' },
   { name: 'IFS', signature: 'IFS(condition, value, ...)', category: 'logic' },
   { name: 'AND', signature: 'AND(value, ...)', category: 'logic' },
@@ -34,7 +46,12 @@ export const SHEET_FUNCTIONS: readonly SheetFunctionDefinition[] = [
   { name: 'MOD', signature: 'MOD(number, divisor)', category: 'math' },
   { name: 'SQRT', signature: 'SQRT(number)', category: 'math' },
   { name: 'POWER', signature: 'POWER(number, power)', category: 'math' },
-  { name: 'CONCAT', signature: 'CONCAT(text, ...)', category: 'text', note: 'Range arguments are currently unsupported.' },
+  {
+    name: 'CONCAT',
+    signature: 'CONCAT(text, ...)',
+    category: 'text',
+    note: 'Range arguments are currently unsupported.',
+  },
   { name: 'LEFT', signature: 'LEFT(text, [count])', category: 'text' },
   { name: 'RIGHT', signature: 'RIGHT(text, [count])', category: 'text' },
   { name: 'MID', signature: 'MID(text, start, count)', category: 'text' },
@@ -48,9 +65,17 @@ export const SHEET_FUNCTIONS: readonly SheetFunctionDefinition[] = [
   { name: 'NOW', signature: 'NOW()', category: 'date' },
   { name: 'INDEX', signature: 'INDEX(range, row, [column])', category: 'lookup' },
   { name: 'MATCH', signature: 'MATCH(value, range, [match_type])', category: 'lookup' },
-  { name: 'VLOOKUP', signature: 'VLOOKUP(value, range, column, [approximate])', category: 'lookup' },
+  {
+    name: 'VLOOKUP',
+    signature: 'VLOOKUP(value, range, column, [approximate])',
+    category: 'lookup',
+  },
   { name: 'HLOOKUP', signature: 'HLOOKUP(value, range, row, [approximate])', category: 'lookup' },
-  { name: 'XLOOKUP', signature: 'XLOOKUP(value, lookup_range, result_range, [missing])', category: 'lookup' },
+  {
+    name: 'XLOOKUP',
+    signature: 'XLOOKUP(value, lookup_range, result_range, [missing])',
+    category: 'lookup',
+  },
 ] as const;
 
 export function formulaAutocompleteQuery(value: string): string | null {
@@ -111,7 +136,7 @@ export function activeFormulaFunction(
     }
   }
   const active = stack[stack.length - 1];
-  return active ? SHEET_FUNCTIONS.find((definition) => definition.name === active) ?? null : null;
+  return active ? (SHEET_FUNCTIONS.find((definition) => definition.name === active) ?? null) : null;
 }
 
 export function insertFormulaReference(

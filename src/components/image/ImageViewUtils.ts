@@ -27,7 +27,12 @@ export function clamp(value: number, min: number, max: number) {
 }
 
 export function fitWithin(container: Dimensions, intrinsic: Dimensions): Dimensions {
-  if (container.width <= 0 || container.height <= 0 || intrinsic.width <= 0 || intrinsic.height <= 0) {
+  if (
+    container.width <= 0 ||
+    container.height <= 0 ||
+    intrinsic.width <= 0 ||
+    intrinsic.height <= 0
+  ) {
     return EMPTY_SIZE;
   }
 
@@ -45,7 +50,11 @@ export function scaleDimensions(dimensions: Dimensions, scale: number): Dimensio
   };
 }
 
-export function getWorkspaceDimensions(viewport: Dimensions, stage: Dimensions, padding = 48): Dimensions {
+export function getWorkspaceDimensions(
+  viewport: Dimensions,
+  stage: Dimensions,
+  padding = 48,
+): Dimensions {
   return {
     width: Math.max(stage.width + padding, viewport.width),
     height: Math.max(stage.height + padding, viewport.height),
@@ -109,7 +118,10 @@ export function getTextMinHeight(display: Dimensions) {
   return clamp(56 / Math.max(display.height, 1), 0.08, 0.3);
 }
 
-export function getRotatedDimensions(dimensions: Dimensions, rotation: PermanentImageEdits['rotation']): Dimensions {
+export function getRotatedDimensions(
+  dimensions: Dimensions,
+  rotation: PermanentImageEdits['rotation'],
+): Dimensions {
   return rotation === 90 || rotation === 270
     ? { width: dimensions.height, height: dimensions.width }
     : dimensions;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+
 import { diffLines } from 'diff';
 import { AlertTriangle, Check, ClipboardCopy, GitMerge } from 'lucide-react';
 import { toast } from 'sonner';
@@ -19,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
+
 import { DocumentStatusPill } from './DocumentStatusPill';
 
 /**
@@ -174,13 +176,17 @@ function ReviewDialog({
             <span
               className={cn(
                 'flex h-8 w-8 items-center justify-center rounded-lg',
-                isConflict ? 'bg-destructive/15 text-destructive' : 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+                isConflict
+                  ? 'bg-destructive/15 text-destructive'
+                  : 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
               )}
             >
               <AlertTriangle size={16} />
             </span>
             <div>
-              <DialogTitle>{isConflict ? 'Conflict needs review' : 'Remote changes available'}</DialogTitle>
+              <DialogTitle>
+                {isConflict ? 'Conflict needs review' : 'Remote changes available'}
+              </DialogTitle>
               <DialogDescription className="mt-0.5">
                 {isConflict
                   ? 'This document changed elsewhere while your save was in flight. Your local copy is safe below — choose how to reconcile.'
@@ -191,16 +197,8 @@ function ReviewDialog({
         </DialogHeader>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <ContentPane
-            label="Your version"
-            tone="local"
-            content={ours}
-          />
-          <ContentPane
-            label="Their version"
-            tone="remote"
-            content={theirs}
-          />
+          <ContentPane label="Your version" tone="local" content={ours} />
+          <ContentPane label="Their version" tone="remote" content={theirs} />
         </div>
 
         <DiffPane base={base} ours={ours} theirs={theirs} />
@@ -231,7 +229,15 @@ function ReviewDialog({
   );
 }
 
-function ContentPane({ label, tone, content }: { label: string; tone: 'local' | 'remote'; content: string }) {
+function ContentPane({
+  label,
+  tone,
+  content,
+}: {
+  label: string;
+  tone: 'local' | 'remote';
+  content: string;
+}) {
   const [copied, setCopied] = useState(false);
 
   const copy = useCallback(async () => {
@@ -248,8 +254,18 @@ function ContentPane({ label, tone, content }: { label: string; tone: 'local' | 
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
-          <span className={cn('h-2 w-2 rounded-full', tone === 'local' ? 'bg-primary' : 'bg-destructive')} />
-          <span className={cn('text-xs font-semibold', tone === 'local' ? 'text-primary' : 'text-destructive')}>
+          <span
+            className={cn(
+              'h-2 w-2 rounded-full',
+              tone === 'local' ? 'bg-primary' : 'bg-destructive',
+            )}
+          />
+          <span
+            className={cn(
+              'text-xs font-semibold',
+              tone === 'local' ? 'text-primary' : 'text-destructive',
+            )}
+          >
             {label}
           </span>
         </div>
@@ -265,7 +281,9 @@ function ContentPane({ label, tone, content }: { label: string; tone: 'local' | 
       <pre
         className={cn(
           'max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border p-3 font-mono text-[11px] leading-relaxed',
-          tone === 'local' ? 'border-primary/15 bg-primary/5' : 'border-destructive/15 bg-destructive/5',
+          tone === 'local'
+            ? 'border-primary/15 bg-primary/5'
+            : 'border-destructive/15 bg-destructive/5',
         )}
       >
         {content || <span className="text-muted-foreground italic">(empty)</span>}

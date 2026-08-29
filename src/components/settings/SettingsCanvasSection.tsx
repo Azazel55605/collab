@@ -1,6 +1,7 @@
-import type { CanvasWebCardDefaultMode } from '../../store/uiStore';
 import { cn } from '../../lib/utils';
+import type { CanvasWebCardDefaultMode } from '../../store/uiStore';
 import { Separator } from '../ui/separator';
+
 import { OptionRow, PillSelect, SectionLabel, ToggleSwitch } from './settingsControls';
 
 type Props = {
@@ -29,7 +30,9 @@ export default function SettingsCanvasSection({
           options={['preview', 'embed'] as const}
           value={canvasWebCardDefaultMode}
           onChange={(value) => setCanvasWebCardDefaultMode(value as CanvasWebCardDefaultMode)}
-          getLabel={(value: CanvasWebCardDefaultMode) => value === 'preview' ? 'Preview' : 'Embed'}
+          getLabel={(value: CanvasWebCardDefaultMode) =>
+            value === 'preview' ? 'Preview' : 'Embed'
+          }
         />
       </OptionRow>
 
@@ -48,10 +51,23 @@ export default function SettingsCanvasSection({
         />
       </OptionRow>
 
-      <div className={cn('mt-3 rounded-xl border border-border/35 bg-card/55 p-3 text-xs text-muted-foreground shadow-sm')}>
-        {!webPreviewsEnabled
-          ? <>Web previews are currently disabled globally, so canvas web cards and link hover previews will not fetch metadata.</>
-          : <>When auto-load is off, web cards show a manual <span className="text-foreground font-medium">Load preview</span> action instead of fetching immediately.</>}
+      <div
+        className={cn(
+          'mt-3 rounded-xl border border-border/35 bg-card/55 p-3 text-xs text-muted-foreground shadow-sm',
+        )}
+      >
+        {!webPreviewsEnabled ? (
+          <>
+            Web previews are currently disabled globally, so canvas web cards and link hover
+            previews will not fetch metadata.
+          </>
+        ) : (
+          <>
+            When auto-load is off, web cards show a manual{' '}
+            <span className="text-foreground font-medium">Load preview</span> action instead of
+            fetching immediately.
+          </>
+        )}
       </div>
     </div>
   );

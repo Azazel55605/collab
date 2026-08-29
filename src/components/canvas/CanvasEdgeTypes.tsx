@@ -1,14 +1,25 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  createContext,
+  type CSSProperties,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+
 import {
   BaseEdge,
-  Position,
   type ConnectionLineComponentProps,
-  type Edge as FlowEdge,
   type EdgeProps,
+  type Edge as FlowEdge,
   type Node as FlowNode,
+  Position,
 } from '@xyflow/react';
 
 import type { CanvasEdge, CanvasEdgeLineStyle, CanvasEdgeRoutingStyle } from '../../types/canvas';
+
 import type { CanvasNodeData } from './CanvasNodeTypes';
 
 const DEFAULT_NODE_HEIGHT = 180;
@@ -93,15 +104,17 @@ function normalizeVector(x: number, y: number) {
   return { x: x / length, y: y / length };
 }
 
-export function getCanvasEdgeData(edge?: {
-  label?: string;
-  lineStyle?: CanvasEdgeLineStyle;
-  routingStyle?: CanvasEdgeRoutingStyle;
-  animated?: boolean;
-  animationReverse?: boolean;
-  markerStart?: boolean;
-  markerEnd?: boolean;
-} | null): CanvasEdgeData {
+export function getCanvasEdgeData(
+  edge?: {
+    label?: string;
+    lineStyle?: CanvasEdgeLineStyle;
+    routingStyle?: CanvasEdgeRoutingStyle;
+    animated?: boolean;
+    animationReverse?: boolean;
+    markerStart?: boolean;
+    markerEnd?: boolean;
+  } | null,
+): CanvasEdgeData {
   return {
     label: edge?.label ?? '',
     lineStyle: edge?.lineStyle ?? 'solid',
@@ -176,9 +189,7 @@ function getOrthogonalCanvasEdgePoints(geometry: EdgeGeometry): PathPoint[] {
 
 export function buildOrthogonalCanvasEdgePath(geometry: EdgeGeometry) {
   const points = getOrthogonalCanvasEdgePoints(geometry);
-  return points
-    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
-    .join(' ');
+  return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
 }
 
 export function getOrthogonalCanvasEdgeLabelPosition(geometry: EdgeGeometry) {
@@ -202,9 +213,9 @@ export function getOrthogonalCanvasEdgeLabelPosition(geometry: EdgeGeometry) {
     const distanceToFallback = Math.hypot(midX - fallbackMidpoint.x, midY - fallbackMidpoint.y);
 
     if (
-      !bestSegment
-      || length > bestSegment.length
-      || (Math.abs(length - bestSegment.length) < 0.5 && distanceToFallback < bestDistance)
+      !bestSegment ||
+      length > bestSegment.length ||
+      (Math.abs(length - bestSegment.length) < 0.5 && distanceToFallback < bestDistance)
     ) {
       bestSegment = { start, end, length };
       bestDistance = distanceToFallback;
@@ -294,7 +305,10 @@ export function toFlowEdge(edge: CanvasEdge): CanvasFlowEdge {
 
 function getSlotOffset(index: number, count: number, nodeHeight: number) {
   if (count <= 1) return 0;
-  const availableSpread = Math.max(nodeHeight - CANVAS_EDGE_SLOT_PADDING * 2, CANVAS_EDGE_SLOT_SPACING);
+  const availableSpread = Math.max(
+    nodeHeight - CANVAS_EDGE_SLOT_PADDING * 2,
+    CANVAS_EDGE_SLOT_SPACING,
+  );
   const spacing = Math.min(CANVAS_EDGE_SLOT_SPACING, availableSpread / (count - 1));
   return (index - (count - 1) / 2) * spacing;
 }
@@ -399,8 +413,10 @@ function sortSiblingDescriptors(
     const rightMetrics = getLocalMetrics(rightNode);
 
     if (leftMetrics.angle !== rightMetrics.angle) return leftMetrics.angle - rightMetrics.angle;
-    if (leftMetrics.distance !== rightMetrics.distance) return leftMetrics.distance - rightMetrics.distance;
-    if (left.oppositeId !== right.oppositeId) return left.oppositeId.localeCompare(right.oppositeId);
+    if (leftMetrics.distance !== rightMetrics.distance)
+      return leftMetrics.distance - rightMetrics.distance;
+    if (left.oppositeId !== right.oppositeId)
+      return left.oppositeId.localeCompare(right.oppositeId);
     return left.key.localeCompare(right.key);
   });
 }
@@ -458,19 +474,21 @@ function getOrderedEndpointSiblings(
     return lookup.get(lookupKey) ?? [];
   }
 
-  const getSiblingDescriptors = (candidate: Pick<CanvasFlowEdge, 'id' | 'source' | 'target' | 'sourceHandle' | 'targetHandle'>) => {
+  const getSiblingDescriptors = (
+    candidate: Pick<CanvasFlowEdge, 'id' | 'source' | 'target' | 'sourceHandle' | 'targetHandle'>,
+  ) => {
     const descriptors: Array<{ key: string; oppositeId: string }> = [];
     if (
-      candidate.source === nodeId
-      && (!requireExplicitHandle || !!candidate.sourceHandle)
-      && getEndpointPosition(candidate, 'source', nodeGeometry, Position.Right) === anchorPosition
+      candidate.source === nodeId &&
+      (!requireExplicitHandle || !!candidate.sourceHandle) &&
+      getEndpointPosition(candidate, 'source', nodeGeometry, Position.Right) === anchorPosition
     ) {
       descriptors.push({ key: `${candidate.id}:source`, oppositeId: candidate.target });
     }
     if (
-      candidate.target === nodeId
-      && (!requireExplicitHandle || !!candidate.targetHandle)
-      && getEndpointPosition(candidate, 'target', nodeGeometry, Position.Left) === anchorPosition
+      candidate.target === nodeId &&
+      (!requireExplicitHandle || !!candidate.targetHandle) &&
+      getEndpointPosition(candidate, 'target', nodeGeometry, Position.Left) === anchorPosition
     ) {
       descriptors.push({ key: `${candidate.id}:target`, oppositeId: candidate.source });
     }
@@ -483,8 +501,8 @@ function getOrderedEndpointSiblings(
   }, []);
 
   if (
-    pendingEdge
-    && !siblings.some((candidate) => candidate.key === `${pendingEdge.id}:${endpoint}`)
+    pendingEdge &&
+    !siblings.some((candidate) => candidate.key === `${pendingEdge.id}:${endpoint}`)
   ) {
     siblings.push(...getSiblingDescriptors(pendingEdge));
   }
@@ -509,35 +527,19 @@ function getOrthogonalFacingLaneLimit({
   sourcePosition: Position;
   targetPosition: Position;
 }) {
-  if (
-    sourcePosition === Position.Right
-    && targetPosition === Position.Left
-    && targetX >= sourceX
-  ) {
+  if (sourcePosition === Position.Right && targetPosition === Position.Left && targetX >= sourceX) {
     return (targetX - sourceX) / 2;
   }
 
-  if (
-    sourcePosition === Position.Left
-    && targetPosition === Position.Right
-    && sourceX >= targetX
-  ) {
+  if (sourcePosition === Position.Left && targetPosition === Position.Right && sourceX >= targetX) {
     return (sourceX - targetX) / 2;
   }
 
-  if (
-    sourcePosition === Position.Bottom
-    && targetPosition === Position.Top
-    && targetY >= sourceY
-  ) {
+  if (sourcePosition === Position.Bottom && targetPosition === Position.Top && targetY >= sourceY) {
     return (targetY - sourceY) / 2;
   }
 
-  if (
-    sourcePosition === Position.Top
-    && targetPosition === Position.Bottom
-    && sourceY >= targetY
-  ) {
+  if (sourcePosition === Position.Top && targetPosition === Position.Bottom && sourceY >= targetY) {
     return (sourceY - targetY) / 2;
   }
 
@@ -593,27 +595,79 @@ export function getAnchoredEdgeGeometry({
     siblingLookup,
     edge,
   );
-  const sourceIndex = Math.max(0, sourceSiblings.findIndex((candidate) => candidate.key === `${edge.id}:source`));
-  const targetIndex = Math.max(0, targetSiblings.findIndex((candidate) => candidate.key === `${edge.id}:target`));
+  const sourceIndex = Math.max(
+    0,
+    sourceSiblings.findIndex((candidate) => candidate.key === `${edge.id}:source`),
+  );
+  const targetIndex = Math.max(
+    0,
+    targetSiblings.findIndex((candidate) => candidate.key === `${edge.id}:target`),
+  );
   const sourceNodeHeight = nodeGeometry.get(edge.source)?.height ?? DEFAULT_NODE_HEIGHT;
   const targetNodeHeight = nodeGeometry.get(edge.target)?.height ?? DEFAULT_NODE_HEIGHT;
   const sourceNodeWidth = sourceNode?.width ?? 300;
   const targetNodeWidth = targetNode?.width ?? 300;
-  const sourceAxisSpread = isHorizontalPosition(resolvedSourcePosition) ? sourceNodeHeight : sourceNodeWidth;
-  const targetAxisSpread = isHorizontalPosition(resolvedTargetPosition) ? targetNodeHeight : targetNodeWidth;
-  const normalizedSourceOffset = getSlotOffset(sourceIndex, sourceSiblings.length, sourceAxisSpread);
-  const normalizedTargetOffset = getSlotOffset(targetIndex, targetSiblings.length, targetAxisSpread);
-  const anchoredSourceX = isHorizontalPosition(resolvedSourcePosition) ? sourceAnchor.x : sourceAnchor.x + normalizedSourceOffset;
-  const anchoredSourceY = isHorizontalPosition(resolvedSourcePosition) ? sourceAnchor.y + normalizedSourceOffset : sourceAnchor.y;
-  const anchoredTargetX = isHorizontalPosition(resolvedTargetPosition) ? targetAnchor.x : targetAnchor.x + normalizedTargetOffset;
-  const anchoredTargetY = isHorizontalPosition(resolvedTargetPosition) ? targetAnchor.y + normalizedTargetOffset : targetAnchor.y;
-  const directionFromSourceX = resolvedSourcePosition === Position.Left ? -1 : resolvedSourcePosition === Position.Right ? 1 : 0;
-  const directionFromSourceY = resolvedSourcePosition === Position.Top ? -1 : resolvedSourcePosition === Position.Bottom ? 1 : 0;
-  const directionFromTargetX = resolvedTargetPosition === Position.Left ? -1 : resolvedTargetPosition === Position.Right ? 1 : 0;
-  const directionFromTargetY = resolvedTargetPosition === Position.Top ? -1 : resolvedTargetPosition === Position.Bottom ? 1 : 0;
+  const sourceAxisSpread = isHorizontalPosition(resolvedSourcePosition)
+    ? sourceNodeHeight
+    : sourceNodeWidth;
+  const targetAxisSpread = isHorizontalPosition(resolvedTargetPosition)
+    ? targetNodeHeight
+    : targetNodeWidth;
+  const normalizedSourceOffset = getSlotOffset(
+    sourceIndex,
+    sourceSiblings.length,
+    sourceAxisSpread,
+  );
+  const normalizedTargetOffset = getSlotOffset(
+    targetIndex,
+    targetSiblings.length,
+    targetAxisSpread,
+  );
+  const anchoredSourceX = isHorizontalPosition(resolvedSourcePosition)
+    ? sourceAnchor.x
+    : sourceAnchor.x + normalizedSourceOffset;
+  const anchoredSourceY = isHorizontalPosition(resolvedSourcePosition)
+    ? sourceAnchor.y + normalizedSourceOffset
+    : sourceAnchor.y;
+  const anchoredTargetX = isHorizontalPosition(resolvedTargetPosition)
+    ? targetAnchor.x
+    : targetAnchor.x + normalizedTargetOffset;
+  const anchoredTargetY = isHorizontalPosition(resolvedTargetPosition)
+    ? targetAnchor.y + normalizedTargetOffset
+    : targetAnchor.y;
+  const directionFromSourceX =
+    resolvedSourcePosition === Position.Left
+      ? -1
+      : resolvedSourcePosition === Position.Right
+        ? 1
+        : 0;
+  const directionFromSourceY =
+    resolvedSourcePosition === Position.Top
+      ? -1
+      : resolvedSourcePosition === Position.Bottom
+        ? 1
+        : 0;
+  const directionFromTargetX =
+    resolvedTargetPosition === Position.Left
+      ? -1
+      : resolvedTargetPosition === Position.Right
+        ? 1
+        : 0;
+  const directionFromTargetY =
+    resolvedTargetPosition === Position.Top
+      ? -1
+      : resolvedTargetPosition === Position.Bottom
+        ? 1
+        : 0;
   const baseLaneDistance = Math.max(
     CANVAS_EDGE_LANE,
-    Math.min(Math.max(Math.abs(anchoredTargetX - anchoredSourceX), Math.abs(anchoredTargetY - anchoredSourceY)) * 0.32, 96),
+    Math.min(
+      Math.max(
+        Math.abs(anchoredTargetX - anchoredSourceX),
+        Math.abs(anchoredTargetY - anchoredSourceY),
+      ) * 0.32,
+      96,
+    ),
   );
   const facingLaneLimit = getOrthogonalFacingLaneLimit({
     sourceX: anchoredSourceX,
@@ -623,9 +677,10 @@ export function getAnchoredEdgeGeometry({
     sourcePosition: resolvedSourcePosition,
     targetPosition: resolvedTargetPosition,
   });
-  const laneDistance = facingLaneLimit == null
-    ? baseLaneDistance
-    : Math.max(0, Math.min(baseLaneDistance, facingLaneLimit));
+  const laneDistance =
+    facingLaneLimit == null
+      ? baseLaneDistance
+      : Math.max(0, Math.min(baseLaneDistance, facingLaneLimit));
   const controlSourceX = anchoredSourceX + directionFromSourceX * laneDistance;
   const controlTargetX = anchoredTargetX + directionFromTargetX * laneDistance;
   const controlSourceY = anchoredSourceY + directionFromSourceY * laneDistance;
@@ -648,49 +703,58 @@ export function getAnchoredEdgeGeometry({
 }
 
 function getNodeGeometryMap(nodes: FlowNode<CanvasNodeData>[]) {
-  return new Map(nodes.filter((node) => (
-    !!node
-    && typeof node.id === 'string'
-    && !!node.position
-    && Number.isFinite(node.position.x)
-    && Number.isFinite(node.position.y)
-  )).map((node) => [
-    node.id,
-    {
-      centerX: (node.position.x ?? 0) + (
-        typeof node.width === 'number'
-          ? node.width
-          : typeof node.measured?.width === 'number'
-            ? node.measured.width
-            : typeof node.style?.width === 'number'
-              ? node.style.width
-              : 300
-      ) / 2,
-      centerY: (node.position.y ?? 0) + (
-        typeof node.height === 'number'
-          ? node.height
-          : typeof node.measured?.height === 'number'
-            ? node.measured.height
-            : typeof node.style?.height === 'number'
-              ? node.style.height
-              : DEFAULT_NODE_HEIGHT
-      ) / 2,
-      height: typeof node.height === 'number'
-        ? node.height
-        : typeof node.measured?.height === 'number'
-          ? node.measured.height
-          : typeof node.style?.height === 'number'
-            ? node.style.height
-            : DEFAULT_NODE_HEIGHT,
-      width: typeof node.width === 'number'
-        ? node.width
-        : typeof node.measured?.width === 'number'
-          ? node.measured.width
-          : typeof node.style?.width === 'number'
-            ? node.style.width
-            : 300,
-    } satisfies NodeGeometry,
-  ]));
+  return new Map(
+    nodes
+      .filter(
+        (node) =>
+          !!node &&
+          typeof node.id === 'string' &&
+          !!node.position &&
+          Number.isFinite(node.position.x) &&
+          Number.isFinite(node.position.y),
+      )
+      .map((node) => [
+        node.id,
+        {
+          centerX:
+            (node.position.x ?? 0) +
+            (typeof node.width === 'number'
+              ? node.width
+              : typeof node.measured?.width === 'number'
+                ? node.measured.width
+                : typeof node.style?.width === 'number'
+                  ? node.style.width
+                  : 300) /
+              2,
+          centerY:
+            (node.position.y ?? 0) +
+            (typeof node.height === 'number'
+              ? node.height
+              : typeof node.measured?.height === 'number'
+                ? node.measured.height
+                : typeof node.style?.height === 'number'
+                  ? node.style.height
+                  : DEFAULT_NODE_HEIGHT) /
+              2,
+          height:
+            typeof node.height === 'number'
+              ? node.height
+              : typeof node.measured?.height === 'number'
+                ? node.measured.height
+                : typeof node.style?.height === 'number'
+                  ? node.style.height
+                  : DEFAULT_NODE_HEIGHT,
+          width:
+            typeof node.width === 'number'
+              ? node.width
+              : typeof node.measured?.width === 'number'
+                ? node.measured.width
+                : typeof node.style?.width === 'number'
+                  ? node.style.width
+                  : 300,
+        } satisfies NodeGeometry,
+      ]),
+  );
 }
 
 function buildEdgeSiblingLookup(
@@ -765,9 +829,7 @@ export function CanvasEdgeLayoutProvider({
   children: ReactNode;
 }) {
   return (
-    <CanvasEdgeLayoutContext.Provider value={value}>
-      {children}
-    </CanvasEdgeLayoutContext.Provider>
+    <CanvasEdgeLayoutContext.Provider value={value}>{children}</CanvasEdgeLayoutContext.Provider>
   );
 }
 
@@ -776,37 +838,42 @@ function StackedCanvasEdge(props: EdgeProps<CanvasFlowEdge>) {
   if (!layout) {
     throw new Error('StackedCanvasEdge must be rendered within a CanvasEdgeLayoutProvider.');
   }
-  const targetGeometry = useMemo(() => getAnchoredEdgeGeometry({
-    edge: props,
-    edges: layout.edges,
-    nodeGeometry: layout.nodeGeometry,
-    siblingLookup: layout.siblingLookup,
-    sourceX: props.sourceX,
-    sourceY: props.sourceY,
-    targetX: props.targetX,
-    targetY: props.targetY,
-    sourcePosition: props.sourcePosition,
-    targetPosition: props.targetPosition,
-  }), [
-    layout,
-    props.id,
-    props.source,
-    props.target,
-    props.sourcePosition,
-    props.sourceX,
-    props.sourceY,
-    props.targetPosition,
-    props.targetX,
-    props.targetY,
-  ]);
+  const targetGeometry = useMemo(
+    () =>
+      getAnchoredEdgeGeometry({
+        edge: props,
+        edges: layout.edges,
+        nodeGeometry: layout.nodeGeometry,
+        siblingLookup: layout.siblingLookup,
+        sourceX: props.sourceX,
+        sourceY: props.sourceY,
+        targetX: props.targetX,
+        targetY: props.targetY,
+        sourcePosition: props.sourcePosition,
+        targetPosition: props.targetPosition,
+      }),
+    [
+      layout,
+      props.id,
+      props.source,
+      props.target,
+      props.sourcePosition,
+      props.sourceX,
+      props.sourceY,
+      props.targetPosition,
+      props.targetX,
+      props.targetY,
+    ],
+  );
   const [displayGeometry, setDisplayGeometry] = useState(targetGeometry);
   const currentGeometryRef = useRef(targetGeometry);
 
   useEffect(() => {
     const previous = currentGeometryRef.current;
     const next = targetGeometry;
-    const changed = (Object.keys(next) as (keyof EdgeGeometry)[])
-      .some((key) => Math.abs(previous[key] - next[key]) > 0.25);
+    const changed = (Object.keys(next) as (keyof EdgeGeometry)[]).some(
+      (key) => Math.abs(previous[key] - next[key]) > 0.25,
+    );
 
     if (!changed) {
       currentGeometryRef.current = next;
@@ -838,9 +905,10 @@ function StackedCanvasEdge(props: EdgeProps<CanvasFlowEdge>) {
   }, [layout.animateReroutes, targetGeometry]);
 
   const data = getCanvasEdgeData(props.data);
-  const baseStrokeWidth = typeof props.style?.strokeWidth === 'number'
-    ? props.style.strokeWidth
-    : DEFAULT_CANVAS_EDGE_STYLE.strokeWidth;
+  const baseStrokeWidth =
+    typeof props.style?.strokeWidth === 'number'
+      ? props.style.strokeWidth
+      : DEFAULT_CANVAS_EDGE_STYLE.strokeWidth;
   const interactionStrokeWidth = Math.max(baseStrokeWidth + 12, 16);
   const markerStartId = getCanvasArrowMarkerIdForEdge(props.id, 'start');
   const markerEndId = getCanvasArrowMarkerIdForEdge(props.id, 'end');
@@ -857,10 +925,18 @@ function StackedCanvasEdge(props: EdgeProps<CanvasFlowEdge>) {
     displayGeometry.targetX - displayGeometry.controlTargetX,
     displayGeometry.targetY - displayGeometry.controlTargetY,
   );
-  const pathSourceX = props.markerStart ? displayGeometry.sourceX + sourceDirection.x * markerInset : displayGeometry.sourceX;
-  const pathSourceY = props.markerStart ? displayGeometry.sourceY + sourceDirection.y * markerInset : displayGeometry.sourceY;
-  const pathTargetX = props.markerEnd ? displayGeometry.targetX - targetDirection.x * markerInset : displayGeometry.targetX;
-  const pathTargetY = props.markerEnd ? displayGeometry.targetY - targetDirection.y * markerInset : displayGeometry.targetY;
+  const pathSourceX = props.markerStart
+    ? displayGeometry.sourceX + sourceDirection.x * markerInset
+    : displayGeometry.sourceX;
+  const pathSourceY = props.markerStart
+    ? displayGeometry.sourceY + sourceDirection.y * markerInset
+    : displayGeometry.sourceY;
+  const pathTargetX = props.markerEnd
+    ? displayGeometry.targetX - targetDirection.x * markerInset
+    : displayGeometry.targetX;
+  const pathTargetY = props.markerEnd
+    ? displayGeometry.targetY - targetDirection.y * markerInset
+    : displayGeometry.targetY;
   const pathGeometry: EdgeGeometry = {
     ...displayGeometry,
     sourceX: pathSourceX,
@@ -868,12 +944,14 @@ function StackedCanvasEdge(props: EdgeProps<CanvasFlowEdge>) {
     targetX: pathTargetX,
     targetY: pathTargetY,
   };
-  const path = data.routingStyle === 'orthogonal'
-    ? buildOrthogonalCanvasEdgePath(pathGeometry)
-    : buildCanvasEdgePath(pathGeometry);
-  const labelPosition = data.routingStyle === 'orthogonal'
-    ? getOrthogonalCanvasEdgeLabelPosition(displayGeometry)
-    : { x: displayGeometry.labelX, y: displayGeometry.labelY };
+  const path =
+    data.routingStyle === 'orthogonal'
+      ? buildOrthogonalCanvasEdgePath(pathGeometry)
+      : buildCanvasEdgePath(pathGeometry);
+  const labelPosition =
+    data.routingStyle === 'orthogonal'
+      ? getOrthogonalCanvasEdgeLabelPosition(displayGeometry)
+      : { x: displayGeometry.labelX, y: displayGeometry.labelY };
 
   return (
     <>
@@ -961,7 +1039,9 @@ function StackedCanvasEdge(props: EdgeProps<CanvasFlowEdge>) {
         markerStart={props.markerStart ? `url(#${markerStartId})` : undefined}
         markerEnd={props.markerEnd ? `url(#${markerEndId})` : undefined}
         style={{
-          filter: props.selected ? 'drop-shadow(0 0 10px color-mix(in oklch, var(--primary) 35%, transparent))' : undefined,
+          filter: props.selected
+            ? 'drop-shadow(0 0 10px color-mix(in oklch, var(--primary) 35%, transparent))'
+            : undefined,
         }}
       >
         {data.animated && data.lineStyle !== 'solid' ? (
@@ -991,7 +1071,11 @@ function StackedCanvasEdge(props: EdgeProps<CanvasFlowEdge>) {
         >
           <animate
             attributeName="stroke-dashoffset"
-            from={data.animationReverse ? `-${SOLID_EDGE_ANIMATION_DASH + SOLID_EDGE_ANIMATION_GAP}` : `${SOLID_EDGE_ANIMATION_DASH + SOLID_EDGE_ANIMATION_GAP}`}
+            from={
+              data.animationReverse
+                ? `-${SOLID_EDGE_ANIMATION_DASH + SOLID_EDGE_ANIMATION_GAP}`
+                : `${SOLID_EDGE_ANIMATION_DASH + SOLID_EDGE_ANIMATION_GAP}`
+            }
             to="0"
             dur="1200ms"
             repeatCount="indefinite"
@@ -1031,7 +1115,10 @@ export function StackedConnectionLine({
   if (!layout) {
     throw new Error('StackedConnectionLine must be rendered within a CanvasEdgeLayoutProvider.');
   }
-  const previewEdge: Pick<CanvasFlowEdge, 'id' | 'source' | 'target' | 'sourceHandle' | 'targetHandle'> = {
+  const previewEdge: Pick<
+    CanvasFlowEdge,
+    'id' | 'source' | 'target' | 'sourceHandle' | 'targetHandle'
+  > = {
     id: '__canvas-connection-preview__',
     source: fromNode.id,
     sourceHandle: fromHandle.id ?? undefined,
@@ -1069,12 +1156,7 @@ export function StackedConnectionLine({
           opacity: 0.9,
         }}
       />
-      <path
-        d={previewPath}
-        fill="none"
-        stroke="transparent"
-        strokeWidth={0}
-      />
+      <path d={previewPath} fill="none" stroke="transparent" strokeWidth={0} />
     </g>
   );
 }

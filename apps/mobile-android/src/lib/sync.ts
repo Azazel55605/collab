@@ -8,7 +8,6 @@
  * pending-operation model so both clients replay through the same native store;
  * only the `edit` operation kind is produced on mobile so far.
  */
-
 import {
   HostedFileEntry,
   PendingOperation,
@@ -72,13 +71,25 @@ export function classifyPendingOperationFailure(error: unknown): PendingOperatio
   if (lower.includes('document has changed') || lower.includes('revision_conflict')) {
     return { code: 'revision_conflict', message };
   }
-  if (lower.includes('path_conflict') || lower.includes('already exists') || lower.includes('destination')) {
+  if (
+    lower.includes('path_conflict') ||
+    lower.includes('already exists') ||
+    lower.includes('destination')
+  ) {
     return { code: 'path_conflict', message };
   }
-  if (lower.includes('permission') || lower.includes('forbidden') || lower.includes('unauthorized')) {
+  if (
+    lower.includes('permission') ||
+    lower.includes('forbidden') ||
+    lower.includes('unauthorized')
+  ) {
     return { code: 'permission_revoked', message };
   }
-  if (lower.includes('archived') || lower.includes('pending deletion') || lower.includes('not found')) {
+  if (
+    lower.includes('archived') ||
+    lower.includes('pending deletion') ||
+    lower.includes('not found')
+  ) {
     return { code: 'vault_unavailable', message };
   }
   return { code: 'server_rejected', message };
@@ -197,7 +208,11 @@ export async function replayPendingOperations(
 ): Promise<ReplayResult> {
   const operations = await replicaListPendingOperations(serverUrl, vaultId);
   const replayable = operations.filter((operation) => operation.status !== 'failed');
-  const result: ReplayResult = { replayed: 0, stoppedForConnectivity: false, stoppedForFailure: false };
+  const result: ReplayResult = {
+    replayed: 0,
+    stoppedForConnectivity: false,
+    stoppedForFailure: false,
+  };
   if (replayable.length === 0) return result;
 
   // Reset any operation left mid-flight by a previous interrupted replay.
@@ -232,7 +247,13 @@ export async function replayPendingOperations(
         return result;
       }
       const failure = classifyPendingOperationFailure(error);
-      await replicaRecordOperationFailure(serverUrl, vaultId, operation.id, failure.code, failure.message);
+      await replicaRecordOperationFailure(
+        serverUrl,
+        vaultId,
+        operation.id,
+        failure.code,
+        failure.message,
+      );
       result.stoppedForFailure = true;
       return result;
     }

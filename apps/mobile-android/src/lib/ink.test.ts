@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { INK_LIMITS } from '../../../../src/types/ink';
 import { createInkDocument } from '../../../../src/lib/ink/document';
+import { INK_LIMITS } from '../../../../src/types/ink';
 import type { HostedFileEntry } from '../mobileTauri';
+
 import {
   clampInkScale,
   clearInkViewState,
@@ -43,7 +44,9 @@ describe('isInkFile', () => {
   it('rejects folders and other documents', () => {
     expect(isInkFile(entry({ kind: 'folder', documentType: null as never }))).toBe(false);
     expect(
-      isInkFile(entry({ name: 'Budget.sheet', relativePath: 'Budget.sheet', documentType: 'sheet' })),
+      isInkFile(
+        entry({ name: 'Budget.sheet', relativePath: 'Budget.sheet', documentType: 'sheet' }),
+      ),
     ).toBe(false);
   });
 });
@@ -73,8 +76,9 @@ describe('inspectInkContent', () => {
 
     const inspected = inspectInkContent(JSON.stringify(document));
     expect(inspected.support).toBe('newer');
-    expect((inspected.document as unknown as Record<string, unknown>).futureField)
-      .toEqual({ keep: 'me' });
+    expect((inspected.document as unknown as Record<string, unknown>).futureField).toEqual({
+      keep: 'me',
+    });
   });
 
   it('surfaces repairs rather than applying them silently', () => {
@@ -86,8 +90,17 @@ describe('inspectInkContent', () => {
       id: 'orphan',
       type: 'stroke',
       layerId: 'gone',
-      brush: { kind: 'ballpoint', color: '#000', opacity: 1, width: 96, thinning: 0.5,
-               smoothing: 0.5, streamline: 0.4, taperStart: 0, taperEnd: 0 },
+      brush: {
+        kind: 'ballpoint',
+        color: '#000',
+        opacity: 1,
+        width: 96,
+        thinning: 0.5,
+        smoothing: 0.5,
+        streamline: 0.4,
+        taperStart: 0,
+        taperEnd: 0,
+      },
       samples: { x: [0, 1], y: [0, 1] },
     };
     document.pages[pageId].scene.objectOrder = ['orphan'];
@@ -130,7 +143,10 @@ describe('view state across process recreation', () => {
     saveInkViewState('b', { pageId: 'page-9', originX: 5, originY: 6, zoom: 0.5 });
 
     expect(loadInkViewState('a')).toEqual({
-      pageId: 'page-1', originX: 100, originY: 200, zoom: 2,
+      pageId: 'page-1',
+      originX: 100,
+      originY: 200,
+      zoom: 2,
     });
     expect(loadInkViewState('b')?.pageId).toBe('page-9');
   });

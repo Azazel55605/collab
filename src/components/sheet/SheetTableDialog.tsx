@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+
 import { Table2, Trash2 } from 'lucide-react';
 
 import type { SheetTable } from '../../types/sheet';
@@ -57,7 +58,10 @@ export default function SheetTableDialog({
           <div className="grid gap-3">
             <div className="grid grid-cols-2 gap-2 text-xs">
               {activeTable.columns.map((column) => (
-                <div key={column.id} className="truncate rounded-md border border-border/60 px-2 py-1.5">
+                <div
+                  key={column.id}
+                  className="truncate rounded-md border border-border/60 px-2 py-1.5"
+                >
                   {column.name}
                 </div>
               ))}

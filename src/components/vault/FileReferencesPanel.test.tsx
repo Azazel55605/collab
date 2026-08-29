@@ -33,10 +33,12 @@ describe('FileReferencesPanel', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: /Spec Doc/i }));
-    expect(onOpenReference).toHaveBeenCalledWith(expect.objectContaining({
-      sourceRelativePath: 'Notes/alpha.md',
-      referenceKind: 'note-markdown-link',
-    }));
+    expect(onOpenReference).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceRelativePath: 'Notes/alpha.md',
+        referenceKind: 'note-markdown-link',
+      }),
+    );
   });
 
   it('shows an explicit empty state when no references exist', () => {

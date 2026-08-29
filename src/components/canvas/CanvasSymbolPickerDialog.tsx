@@ -65,11 +65,13 @@ export function CanvasSymbolPickerDialog({
                   <CommandItem
                     key={entry.id}
                     value={entry.id}
-                    onSelect={() => onSelect({
-                      glyph: entry.glyph,
-                      iconId: entry.id,
-                      iconLabel: entry.nameLabel,
-                    })}
+                    onSelect={() =>
+                      onSelect({
+                        glyph: entry.glyph,
+                        iconId: entry.id,
+                        iconLabel: entry.nameLabel,
+                      })
+                    }
                     className="gap-3"
                   >
                     <span
@@ -81,9 +83,13 @@ export function CanvasSymbolPickerDialog({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate">{entry.nameLabel}</span>
-                      <span className="block truncate text-xs text-muted-foreground">{entry.id}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {entry.id}
+                      </span>
                     </span>
-                    <CommandShortcut className="tracking-normal">{formatNerdFontHexCode(entry.hexCode)}</CommandShortcut>
+                    <CommandShortcut className="tracking-normal">
+                      {formatNerdFontHexCode(entry.hexCode)}
+                    </CommandShortcut>
                   </CommandItem>
                 ))}
               </CommandGroup>

@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { type BackgroundSettings, tauriCommands } from '../../lib/tauri';
+
 import SettingsBackgroundSection from './SettingsBackgroundSection';
-import { tauriCommands, type BackgroundSettings } from '../../lib/tauri';
 
 const settings: BackgroundSettings = {
   schemaVersion: 1,

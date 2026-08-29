@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import * as Y from 'yjs';
 import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
-import { tauriCommands } from './tauri';
+import * as Y from 'yjs';
+
 import { openLiveNoteSession } from './liveDocumentSession';
-import { openLiveJsonSession, toShared, type JsonObject } from './liveJsonDocument';
+import { type JsonObject, openLiveJsonSession, toShared } from './liveJsonDocument';
+import { tauriCommands } from './tauri';
 import type { VaultClient } from './vaultClient';
 
 vi.mock('./tauri', () => ({
@@ -92,7 +93,9 @@ function frame(tag: number, payload: Uint8Array): ArrayBuffer {
   return out.buffer;
 }
 
-function hostedClient(target: { serverUrl: string; vaultId: string; fileId: string } | null): VaultClient {
+function hostedClient(
+  target: { serverUrl: string; vaultId: string; fileId: string } | null,
+): VaultClient {
   return {
     resolveLiveSession: vi.fn().mockResolvedValue(target),
   } as unknown as VaultClient;
@@ -112,10 +115,18 @@ async function connectSession() {
   const socket = MockWebSocket.instances[0];
   socket.open();
   // Client authenticates first.
-  expect(JSON.parse(socket.sent[0] as string)).toMatchObject({ type: 'authenticate', ticket: 'ticket-1' });
-  socket.emit(JSON.stringify({ type: 'ready', manifestSequence: 0, protocolVersion: 1, role: 'editor' }));
+  expect(JSON.parse(socket.sent[0] as string)).toMatchObject({
+    type: 'authenticate',
+    ticket: 'ticket-1',
+  });
+  socket.emit(
+    JSON.stringify({ type: 'ready', manifestSequence: 0, protocolVersion: 1, role: 'editor' }),
+  );
   // Client subscribes after ready.
-  expect(JSON.parse(socket.sent[1] as string)).toMatchObject({ type: 'document.subscribe', fileId: FILE_ID });
+  expect(JSON.parse(socket.sent[1] as string)).toMatchObject({
+    type: 'document.subscribe',
+    fileId: FILE_ID,
+  });
   socket.emit(JSON.stringify({ type: 'document.subscribed', fileId: FILE_ID }));
   // The provider is not ready until the server responds to its state-vector
   // request, preventing an empty local Y.Doc from binding over seeded content.
@@ -134,7 +145,7 @@ beforeEach(() => {
 
 describe('openLiveNoteSession', () => {
   it('returns null for clients without live support (local vaults)', async () => {
-    const client = { } as unknown as VaultClient;
+    const client = {} as unknown as VaultClient;
     expect(await openLiveNoteSession(client, 'note.md')).toBeNull();
   });
 
@@ -172,7 +183,9 @@ describe('openLiveNoteSession', () => {
     socket.open();
     expect(JSON.parse(socket.sent[0] as string)).toMatchObject({ type: 'authenticate' });
     // Server accepts a version this client does not speak.
-    socket.emit(JSON.stringify({ type: 'ready', manifestSequence: 0, protocolVersion: 2, role: 'editor' }));
+    socket.emit(
+      JSON.stringify({ type: 'ready', manifestSequence: 0, protocolVersion: 2, role: 'editor' }),
+    );
     expect(await promise).toBeNull();
     const subscribed = socket.sent.some(
       (m) => typeof m === 'string' && JSON.parse(m).type === 'document.subscribe',
@@ -226,7 +239,9 @@ describe('openLiveNoteSession', () => {
     await vi.waitFor(() => expect(MockWebSocket.instances.length).toBe(1));
     const socket = MockWebSocket.instances[0];
     socket.open();
-    socket.emit(JSON.stringify({ type: 'ready', manifestSequence: 0, protocolVersion: 1, role: 'editor' }));
+    socket.emit(
+      JSON.stringify({ type: 'ready', manifestSequence: 0, protocolVersion: 1, role: 'editor' }),
+    );
     socket.emit(JSON.stringify({ type: 'document.subscribed', fileId: FILE_ID }));
 
     await Promise.resolve();
@@ -256,9 +271,13 @@ describe('openLiveNoteSession', () => {
     // A remote update must not be re-sent back to the server.
     const remote = new Y.Doc();
     remote.getText('content').insert(0, 'abc');
-    const sentBefore = socket.sent.filter((d) => d instanceof Uint8Array && d[0] === SYNC_UPDATE).length;
+    const sentBefore = socket.sent.filter(
+      (d) => d instanceof Uint8Array && d[0] === SYNC_UPDATE,
+    ).length;
     socket.emit(frame(SYNC_UPDATE, Y.encodeStateAsUpdate(remote)));
-    const sentAfterRemote = socket.sent.filter((d) => d instanceof Uint8Array && d[0] === SYNC_UPDATE).length;
+    const sentAfterRemote = socket.sent.filter(
+      (d) => d instanceof Uint8Array && d[0] === SYNC_UPDATE,
+    ).length;
     expect(sentAfterRemote).toBe(sentBefore);
 
     // A local edit is broadcast as a binary update frame.
@@ -270,9 +289,8 @@ describe('openLiveNoteSession', () => {
 
   it('relays local awareness and applies remote awareness without echoing it', async () => {
     const { session, socket } = await connectSession();
-    const awarenessFrames = () => socket.sent.filter(
-      (data) => data instanceof Uint8Array && data[0] === AWARENESS,
-    );
+    const awarenessFrames = () =>
+      socket.sent.filter((data) => data instanceof Uint8Array && data[0] === AWARENESS);
 
     const sentBeforeLocal = awarenessFrames().length;
     session.awareness.setLocalStateField('user', { id: 'local', name: 'Alice' });
@@ -303,7 +321,9 @@ describe('openLiveNoteSession', () => {
     expect(session.getStatus()).toBe('connected');
 
     session.text.insert(0, 'still live');
-    expect(socket.sent.some((data) => data instanceof Uint8Array && data[0] === SYNC_UPDATE)).toBe(true);
+    expect(socket.sent.some((data) => data instanceof Uint8Array && data[0] === SYNC_UPDATE)).toBe(
+      true,
+    );
     session.destroy();
   });
 });
@@ -321,7 +341,9 @@ async function connectJsonSession() {
   await vi.waitFor(() => expect(MockWebSocket.instances.length).toBe(1));
   const socket = MockWebSocket.instances[0];
   socket.open();
-  socket.emit(JSON.stringify({ type: 'ready', manifestSequence: 0, protocolVersion: 1, role: 'editor' }));
+  socket.emit(
+    JSON.stringify({ type: 'ready', manifestSequence: 0, protocolVersion: 1, role: 'editor' }),
+  );
   socket.emit(JSON.stringify({ type: 'document.subscribed', fileId: FILE_ID }));
   socket.emit(frame(SYNC_UPDATE, new Uint8Array([0, 0])));
 
@@ -348,7 +370,11 @@ describe('openLiveJsonSession offline replica reconnect sync', () => {
     const { session } = await connectJsonSession();
 
     session.discardOfflineState();
-    expect(tauriCommands.replicaClearCrdtState).toHaveBeenCalledWith('https://server', 'v', FILE_ID);
+    expect(tauriCommands.replicaClearCrdtState).toHaveBeenCalledWith(
+      'https://server',
+      'v',
+      FILE_ID,
+    );
 
     vi.mocked(tauriCommands.replicaCacheCrdtState).mockClear();
     session.destroy();

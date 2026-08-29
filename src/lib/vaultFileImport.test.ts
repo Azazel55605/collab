@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useSyncTransferStore } from '../store/syncTransferStore';
+
+import { tauriCommands } from './tauri';
+import type { VaultClient } from './vaultClient';
 import {
   fileBaseName,
   importCategoryForName,
-  isImportableFile,
   importExternalFilesIntoVault,
+  isImportableFile,
 } from './vaultFileImport';
-import { tauriCommands } from './tauri';
-import type { VaultClient } from './vaultClient';
-import { useSyncTransferStore } from '../store/syncTransferStore';
 
 vi.mock('./tauri', () => ({
   tauriCommands: {
@@ -17,15 +18,35 @@ vi.mock('./tauri', () => ({
   },
 }));
 
-function makeClient(overrides: Partial<VaultClient> & { importMock?: ReturnType<typeof vi.fn> } = {}) {
-  const importMock = overrides.importMock ?? vi.fn(async (_p: string, folder?: string) => `${folder ? folder + '/' : ''}asset.png`);
+function makeClient(
+  overrides: Partial<VaultClient> & { importMock?: ReturnType<typeof vi.fn> } = {},
+) {
+  const importMock =
+    overrides.importMock ??
+    vi.fn(async (_p: string, folder?: string) => `${folder ? folder + '/' : ''}asset.png`);
   const client = {
     runtime: { externalAssetImport: { import: importMock, importData: vi.fn() } },
-    createDocument: vi.fn(async () => ({ relativePath: 'x', name: 'x', extension: 'md', modifiedAt: 0, size: 0, isFolder: false })),
-    readDocument: vi.fn(async (path: string) => ({ relativePath: path, content: '', version: 'v0', modifiedAt: 0 })),
+    createDocument: vi.fn(async () => ({
+      relativePath: 'x',
+      name: 'x',
+      extension: 'md',
+      modifiedAt: 0,
+      size: 0,
+      isFolder: false,
+    })),
+    readDocument: vi.fn(async (path: string) => ({
+      relativePath: path,
+      content: '',
+      version: 'v0',
+      modifiedAt: 0,
+    })),
     writeDocument: vi.fn(async () => ({ version: 'v1' })),
     ...overrides,
-  } as unknown as VaultClient & { createDocument: ReturnType<typeof vi.fn>; readDocument: ReturnType<typeof vi.fn>; writeDocument: ReturnType<typeof vi.fn> };
+  } as unknown as VaultClient & {
+    createDocument: ReturnType<typeof vi.fn>;
+    readDocument: ReturnType<typeof vi.fn>;
+    writeDocument: ReturnType<typeof vi.fn>;
+  };
   return { client, importMock };
 }
 
@@ -125,9 +146,7 @@ describe('importExternalFilesIntoVault', () => {
 
   it('routes images to Pictures and PDFs to the vault root by default', async () => {
     const { client, importMock } = makeClient();
-    importMock
-      .mockResolvedValueOnce('Pictures/cat.png')
-      .mockResolvedValueOnce('report.pdf');
+    importMock.mockResolvedValueOnce('Pictures/cat.png').mockResolvedValueOnce('report.pdf');
 
     const result = await importExternalFilesIntoVault(client, ['/x/cat.png', '/x/report.pdf']);
 
@@ -155,10 +174,17 @@ describe('importExternalFilesIntoVault', () => {
       expectedHash: 'hash',
     });
 
-    const result = await importExternalFilesIntoVault(client, ['/x/notes.md'], { targetFolder: 'Docs' });
+    const result = await importExternalFilesIntoVault(client, ['/x/notes.md'], {
+      targetFolder: 'Docs',
+    });
 
     expect((client as any).createDocument).toHaveBeenCalledWith('Docs/notes.md');
-    expect((client as any).writeDocument).toHaveBeenCalledWith('Docs/notes.md', '# Title', 'v0', '');
+    expect((client as any).writeDocument).toHaveBeenCalledWith(
+      'Docs/notes.md',
+      '# Title',
+      'v0',
+      '',
+    );
     expect(result.imported).toEqual(['Docs/notes.md']);
   });
 
@@ -166,7 +192,11 @@ describe('importExternalFilesIntoVault', () => {
     ['canvas', 'diagram.canvas', '{"nodes":[],"edges":[],"viewport":{"x":0,"y":0,"zoom":1}}'],
     ['kanban', 'tasks.kanban', '{"columns":[]}'],
     ['logic', 'adder.logic', '{"kind":"logic-diagram","nodes":[],"wires":[]}'],
-    ['sheet', 'budget.sheet', '{"kind":"collab-sheet","schemaVersion":1,"id":"wb1","name":"Budget","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","worksheets":[{"id":"ws1","name":"Sheet1","rowOrder":["r1"],"columnOrder":["c1"],"cells":{}}],"styles":{}}'],
+    [
+      'sheet',
+      'budget.sheet',
+      '{"kind":"collab-sheet","schemaVersion":1,"id":"wb1","name":"Budget","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","worksheets":[{"id":"ws1","name":"Sheet1","rowOrder":["r1"],"columnOrder":["c1"],"cells":{}}],"styles":{}}',
+    ],
   ])('imports valid %s files as text documents', async (_category, name, content) => {
     const { client } = makeClient();
     vi.mocked(tauriCommands.readFileForUpload).mockResolvedValue({
@@ -176,16 +206,24 @@ describe('importExternalFilesIntoVault', () => {
       expectedHash: 'hash',
     });
 
-    const result = await importExternalFilesIntoVault(client, [`/x/${name}`], { targetFolder: 'Recovered' });
+    const result = await importExternalFilesIntoVault(client, [`/x/${name}`], {
+      targetFolder: 'Recovered',
+    });
 
     expect((client as any).createDocument).toHaveBeenCalledWith(`Recovered/${name}`);
-    expect((client as any).writeDocument).toHaveBeenCalledWith(`Recovered/${name}`, content, 'v0', '');
+    expect((client as any).writeDocument).toHaveBeenCalledWith(
+      `Recovered/${name}`,
+      content,
+      'v0',
+      '',
+    );
     expect(result.imported).toEqual([`Recovered/${name}`]);
   });
 
   it('imports SVG as a text document defaulting to Pictures (not a binary asset)', async () => {
     const { client, importMock } = makeClient();
-    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
     vi.mocked(tauriCommands.readFileForUpload).mockResolvedValue({
       name: 'icon.svg',
       mediaType: 'image/svg+xml',
@@ -206,20 +244,23 @@ describe('importExternalFilesIntoVault', () => {
     ['broken.kanban', '{"cards":[]}'],
     ['broken.logic', '{"kind":"logic-diagram","nodes":[]}'],
     ['broken.sheet', '{"kind":"collab-sheet"}'],
-  ])('rejects structurally invalid Collab documents before creating them', async (name, content) => {
-    const { client } = makeClient();
-    vi.mocked(tauriCommands.readFileForUpload).mockResolvedValue({
-      name,
-      mediaType: 'application/json',
-      contentBase64: btoa(content),
-      expectedHash: 'hash',
-    });
+  ])(
+    'rejects structurally invalid Collab documents before creating them',
+    async (name, content) => {
+      const { client } = makeClient();
+      vi.mocked(tauriCommands.readFileForUpload).mockResolvedValue({
+        name,
+        mediaType: 'application/json',
+        contentBase64: btoa(content),
+        expectedHash: 'hash',
+      });
 
-    const result = await importExternalFilesIntoVault(client, [`/x/${name}`]);
+      const result = await importExternalFilesIntoVault(client, [`/x/${name}`]);
 
-    expect((client as any).createDocument).not.toHaveBeenCalled();
-    expect(result.failed).toHaveLength(1);
-  });
+      expect((client as any).createDocument).not.toHaveBeenCalled();
+      expect(result.failed).toHaveLength(1);
+    },
+  );
 
   it('reports unsupported files without aborting the rest', async () => {
     const { client, importMock } = makeClient();
@@ -243,10 +284,12 @@ describe('importExternalFilesIntoVault', () => {
   });
 
   it('reports hosted drag-import progress in the sync transfer list', async () => {
-    const { client, importMock } = makeClient({ kind: 'hosted', id: 'vault-1', name: 'Team Vault' } as Partial<VaultClient>);
-    importMock
-      .mockResolvedValueOnce('Pictures/a.png')
-      .mockResolvedValueOnce('Pictures/b.png');
+    const { client, importMock } = makeClient({
+      kind: 'hosted',
+      id: 'vault-1',
+      name: 'Team Vault',
+    } as Partial<VaultClient>);
+    importMock.mockResolvedValueOnce('Pictures/a.png').mockResolvedValueOnce('Pictures/b.png');
 
     await importExternalFilesIntoVault(client, ['/x/a.png', '/x/b.png']);
 

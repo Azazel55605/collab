@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
+
 import { createCalendarDefinition, normalizeCalendarItem } from '../types/calendar';
-import {
-  exportCalendarIcs,
-  MAX_ICS_ITEMS,
-  previewCalendarIcsImport,
-} from './calendarIcs';
+
+import { exportCalendarIcs, MAX_ICS_ITEMS, previewCalendarIcsImport } from './calendarIcs';
 
 const calendar = createCalendarDefinition({
   id: 'calendar-1',
@@ -71,17 +69,29 @@ describe('iCalendar interoperability', () => {
 
   it('deduplicates by UID and recurrence identity and preserves the existing id on updates', () => {
     const initial = previewCalendarIcsImport(fixture, calendar, [], '2026-07-26T11:00:00.000Z');
-    const existing = initial.entries.map((entry, index) => normalizeCalendarItem({
-      ...entry.item,
-      id: `stored-${index}`,
-      revision: 4,
-      createdAt: '2026-07-20T10:00:00.000Z',
-    }));
-    const unchanged = previewCalendarIcsImport(fixture, calendar, existing, '2026-07-26T11:00:00.000Z');
+    const existing = initial.entries.map((entry, index) =>
+      normalizeCalendarItem({
+        ...entry.item,
+        id: `stored-${index}`,
+        revision: 4,
+        createdAt: '2026-07-20T10:00:00.000Z',
+      }),
+    );
+    const unchanged = previewCalendarIcsImport(
+      fixture,
+      calendar,
+      existing,
+      '2026-07-26T11:00:00.000Z',
+    );
     expect(unchanged.unchanged).toBe(2);
 
     const changedFixture = fixture.replace('SUMMARY:Planning', 'SUMMARY:Revised planning');
-    const changed = previewCalendarIcsImport(changedFixture, calendar, existing, '2026-07-26T12:00:00.000Z');
+    const changed = previewCalendarIcsImport(
+      changedFixture,
+      calendar,
+      existing,
+      '2026-07-26T12:00:00.000Z',
+    );
     expect(changed.updates).toBe(1);
     expect(changed.entries.find((entry) => entry.action === 'update')?.item).toMatchObject({
       id: 'stored-0',
@@ -91,7 +101,9 @@ describe('iCalendar interoperability', () => {
   });
 
   it('exports valid CRLF iCalendar that round-trips supported fields', () => {
-    const imported = previewCalendarIcsImport(fixture, calendar, []).entries.map((entry) => entry.item);
+    const imported = previewCalendarIcsImport(fixture, calendar, []).entries.map(
+      (entry) => entry.item,
+    );
     const exported = exportCalendarIcs(calendar, imported);
     const reparsed = previewCalendarIcsImport(exported, calendar, []);
 
@@ -147,11 +159,8 @@ describe('iCalendar interoperability', () => {
       'X-GOOGLE-CONFERENCE:https://meet.example.test/room',
     ]);
 
-    const reparsed = previewCalendarIcsImport(
-      exportCalendarIcs(calendar, [imported]),
-      calendar,
-      [],
-    ).entries[0].item;
+    const reparsed = previewCalendarIcsImport(exportCalendarIcs(calendar, [imported]), calendar, [])
+      .entries[0].item;
     expect(reparsed.icalendarProperties).toEqual(imported.icalendarProperties);
     expect(exportCalendarIcs(calendar, [imported])).not.toContain('Injected/Zone');
   });
@@ -214,24 +223,30 @@ describe('iCalendar interoperability', () => {
       ],
     };
     expect(() => normalizeCalendarItem(input)).toThrow(/safe X-\*/);
-    expect(normalizeCalendarItem({
-      ...input,
-      icalendarProperties: ['X-SAFE-PROPERTY:value'],
-    }).icalendarProperties).toEqual(['X-SAFE-PROPERTY:value']);
+    expect(
+      normalizeCalendarItem({
+        ...input,
+        icalendarProperties: ['X-SAFE-PROPERTY:value'],
+      }).icalendarProperties,
+    ).toEqual(['X-SAFE-PROPERTY:value']);
   });
 
   it('rejects oversized item collections before application', () => {
-    const items = Array.from({ length: MAX_ICS_ITEMS + 1 }, (_, index) => [
-      'BEGIN:VEVENT',
-      `UID:${index}@example.test`,
-      `SUMMARY:${index}`,
-      'DTSTART;VALUE=DATE:20260727',
-      'END:VEVENT',
-    ].join('\r\n')).join('\r\n');
-    expect(() => previewCalendarIcsImport(
-      `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${items}\r\nEND:VCALENDAR`,
-      calendar,
-      [],
-    )).toThrow(/more than/);
+    const items = Array.from({ length: MAX_ICS_ITEMS + 1 }, (_, index) =>
+      [
+        'BEGIN:VEVENT',
+        `UID:${index}@example.test`,
+        `SUMMARY:${index}`,
+        'DTSTART;VALUE=DATE:20260727',
+        'END:VEVENT',
+      ].join('\r\n'),
+    ).join('\r\n');
+    expect(() =>
+      previewCalendarIcsImport(
+        `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${items}\r\nEND:VCALENDAR`,
+        calendar,
+        [],
+      ),
+    ).toThrow(/more than/);
   });
 });

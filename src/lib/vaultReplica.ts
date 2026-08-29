@@ -6,12 +6,12 @@
  *
  * The replica holds vault *content* only — never tokens.
  */
-
-import { tauriCommands } from './tauri';
-import { vaultCan, type HostedVaultMeta } from '../types/vault';
 import type { LogicComponentDefinition } from '../types/logicDiagram';
-import { parseSheetDocument, serializeSheetDocument } from './sheet/document';
+import { type HostedVaultMeta, vaultCan } from '../types/vault';
+
 import { mergeSheetDocuments } from './sheet/collaboration';
+import { parseSheetDocument, serializeSheetDocument } from './sheet/document';
+import { tauriCommands } from './tauri';
 
 /**
  * Lightweight change notification for the replica's local state. The sync UI
@@ -57,7 +57,10 @@ export function emitReplicaMutated(event: ReplicaMutationEvent = { kind: 'replic
   }
 }
 
-export function replicaMutationAffectsPath(event: ReplicaMutationEvent, relativePath: string): boolean {
+export function replicaMutationAffectsPath(
+  event: ReplicaMutationEvent,
+  relativePath: string,
+): boolean {
   return !event.relativePaths || event.relativePaths.includes(relativePath);
 }
 
@@ -239,7 +242,10 @@ async function replaySheetEditAfterConflict(
   operation: PendingOperation,
   payload: PendingEditPayload,
 ): Promise<boolean> {
-  if (!operation.relativePath?.toLowerCase().endsWith('.sheet') || payload.baseContent === undefined) {
+  if (
+    !operation.relativePath?.toLowerCase().endsWith('.sheet') ||
+    payload.baseContent === undefined
+  ) {
     return false;
   }
   const current = await tauriCommands.hostedVaultRequest<HostedPendingDocument>(
@@ -249,13 +255,20 @@ async function replaySheetEditAfterConflict(
   );
   if (current.content === payload.content) return true;
 
-  const workbookName = operation.relativePath.split('/').pop()?.replace(/\.sheet$/i, '') ?? 'Workbook';
+  const workbookName =
+    operation.relativePath
+      .split('/')
+      .pop()
+      ?.replace(/\.sheet$/i, '') ?? 'Workbook';
   const base = parseSheetDocument(payload.baseContent, workbookName);
   const local = parseSheetDocument(payload.content, workbookName);
   const remote = parseSheetDocument(current.content, workbookName);
   const merged = mergeSheetDocuments(base, local, remote);
   if (merged.conflicts.length > 0) {
-    const targets = merged.conflicts.slice(0, 3).map((conflict) => conflict.path).join(', ');
+    const targets = merged.conflicts
+      .slice(0, 3)
+      .map((conflict) => conflict.path)
+      .join(', ');
     throw new Error(`REVISION_CONFLICT: overlapping sheet edits require recovery (${targets}).`);
   }
 
@@ -294,11 +307,21 @@ interface PendingLogicComponentDeletePayload {
 }
 
 export function initialSyncState(manifestSequence: number): ReplicaSyncState {
-  return { manifestSequence, lastSyncedAt: new Date().toISOString(), offlineAvailableAt: null, status: 'idle' };
+  return {
+    manifestSequence,
+    lastSyncedAt: new Date().toISOString(),
+    offlineAvailableAt: null,
+    status: 'idle',
+  };
 }
 
 export function offlineSyncState(manifestSequence: number): ReplicaSyncState {
-  return { manifestSequence, lastSyncedAt: new Date().toISOString(), offlineAvailableAt: null, status: 'offline' };
+  return {
+    manifestSequence,
+    lastSyncedAt: new Date().toISOString(),
+    offlineAvailableAt: null,
+    status: 'offline',
+  };
 }
 
 export function isLikelyConnectivityError(error: unknown): boolean {
@@ -347,7 +370,8 @@ export interface PendingOperationFailure {
 export interface PendingOperationRecovery {
   operation: PendingOperation;
   failure: PendingOperationFailure;
-  recommendedAction: 'retry-after-refresh' | 'restore-manually' | 'reconnect-account' | 'discard-or-contact-admin';
+  recommendedAction:
+    'retry-after-refresh' | 'restore-manually' | 'reconnect-account' | 'discard-or-contact-admin';
 }
 
 /**
@@ -414,19 +438,33 @@ export function classifyPendingOperationFailure(error: unknown): PendingOperatio
   if (lower.includes('document has changed') || lower.includes('revision_conflict')) {
     return { code: 'revision_conflict', message };
   }
-  if (lower.includes('path_conflict') || lower.includes('already exists') || lower.includes('destination')) {
+  if (
+    lower.includes('path_conflict') ||
+    lower.includes('already exists') ||
+    lower.includes('destination')
+  ) {
     return { code: 'path_conflict', message };
   }
-  if (lower.includes('permission') || lower.includes('forbidden') || lower.includes('unauthorized')) {
+  if (
+    lower.includes('permission') ||
+    lower.includes('forbidden') ||
+    lower.includes('unauthorized')
+  ) {
     return { code: 'permission_revoked', message };
   }
-  if (lower.includes('archived') || lower.includes('pending deletion') || lower.includes('not found')) {
+  if (
+    lower.includes('archived') ||
+    lower.includes('pending deletion') ||
+    lower.includes('not found')
+  ) {
     return { code: 'vault_unavailable', message };
   }
   return { code: 'server_rejected', message };
 }
 
-export async function readCachedReplicaManifest(vault: HostedVaultMeta): Promise<ReplicaManifest | null> {
+export async function readCachedReplicaManifest(
+  vault: HostedVaultMeta,
+): Promise<ReplicaManifest | null> {
   return tauriCommands.replicaReadManifest(vault.serverUrl, vault.hostedVaultId);
 }
 
@@ -434,7 +472,9 @@ export async function listHostedVaultReplicas(): Promise<ReplicaSummary[]> {
   return tauriCommands.replicaList();
 }
 
-export async function deleteHostedVaultReplica(replica: Pick<ReplicaSummary, 'serverUrl' | 'vaultId'>): Promise<void> {
+export async function deleteHostedVaultReplica(
+  replica: Pick<ReplicaSummary, 'serverUrl' | 'vaultId'>,
+): Promise<void> {
   await tauriCommands.replicaDelete(replica.serverUrl, replica.vaultId);
   emitReplicaMutated({ kind: 'replica' });
 }
@@ -456,7 +496,7 @@ export async function writeOptimisticReplicaManifest(
     kind: 'manifest',
     fileIds: manifest.files.map((file) => file.id),
     relativePaths: manifest.files
-      .map((file) => typeof file.relativePath === 'string' ? file.relativePath : null)
+      .map((file) => (typeof file.relativePath === 'string' ? file.relativePath : null))
       .filter((path): path is string => path !== null),
   });
 }
@@ -484,7 +524,9 @@ export async function enqueuePendingOperation(
   return operation;
 }
 
-export async function readCachedLogicComponents(vault: HostedVaultMeta): Promise<LogicComponentDefinition[]> {
+export async function readCachedLogicComponents(
+  vault: HostedVaultMeta,
+): Promise<LogicComponentDefinition[]> {
   return tauriCommands.replicaReadLogicComponents(vault.serverUrl, vault.hostedVaultId);
 }
 
@@ -499,11 +541,16 @@ export async function writeCachedLogicComponents(
 export async function listPendingOperationRecoveries(
   vault: HostedVaultMeta,
 ): Promise<PendingOperationRecovery[]> {
-  const operations = await tauriCommands.replicaListPendingOperations(vault.serverUrl, vault.hostedVaultId);
+  const operations = await tauriCommands.replicaListPendingOperations(
+    vault.serverUrl,
+    vault.hostedVaultId,
+  );
   return operations
     .filter((operation) => operation.status === 'failed')
     .map((operation) => {
-      const fallback = classifyPendingOperationFailure(operation.failureMessage ?? operation.failureCode ?? 'Replay failed.');
+      const fallback = classifyPendingOperationFailure(
+        operation.failureMessage ?? operation.failureCode ?? 'Replay failed.',
+      );
       const failure = {
         code: (operation.failureCode as PendingOperationFailureCode | undefined) ?? fallback.code,
         message: operation.failureMessage ?? fallback.message,
@@ -516,12 +563,23 @@ export async function listPendingOperationRecoveries(
     });
 }
 
-export async function retryPendingOperation(vault: HostedVaultMeta, operationId: string): Promise<void> {
-  await tauriCommands.replicaUpdateOperationStatus(vault.serverUrl, vault.hostedVaultId, operationId, 'pending');
+export async function retryPendingOperation(
+  vault: HostedVaultMeta,
+  operationId: string,
+): Promise<void> {
+  await tauriCommands.replicaUpdateOperationStatus(
+    vault.serverUrl,
+    vault.hostedVaultId,
+    operationId,
+    'pending',
+  );
   emitReplicaMutated({ kind: 'pending' });
 }
 
-export async function discardPendingOperation(vault: HostedVaultMeta, operationId: string): Promise<void> {
+export async function discardPendingOperation(
+  vault: HostedVaultMeta,
+  operationId: string,
+): Promise<void> {
   await tauriCommands.replicaRemoveOperation(vault.serverUrl, vault.hostedVaultId, operationId);
   emitReplicaMutated({ kind: 'pending' });
 }
@@ -550,8 +608,12 @@ function replaceMappedIds<T extends { targetFileId?: string; parentId?: string |
 ): T {
   return {
     ...payload,
-    targetFileId: payload.targetFileId ? (idMap.get(payload.targetFileId) ?? payload.targetFileId) : payload.targetFileId,
-    parentId: payload.parentId ? (idMap.get(payload.parentId) ?? payload.parentId) : payload.parentId,
+    targetFileId: payload.targetFileId
+      ? (idMap.get(payload.targetFileId) ?? payload.targetFileId)
+      : payload.targetFileId,
+    parentId: payload.parentId
+      ? (idMap.get(payload.parentId) ?? payload.parentId)
+      : payload.parentId,
   };
 }
 
@@ -559,14 +621,22 @@ export async function replayPendingOperations(
   vault: HostedVaultMeta,
   onProgress?: (progress: ReplicaSyncProgress) => void,
 ): Promise<void> {
-  const operations = await tauriCommands.replicaListPendingOperations(vault.serverUrl, vault.hostedVaultId);
+  const operations = await tauriCommands.replicaListPendingOperations(
+    vault.serverUrl,
+    vault.hostedVaultId,
+  );
   const replayableOperations = operations.filter((operation) => operation.status !== 'failed');
   if (replayableOperations.length === 0) return;
   const idMap = new Map<string, string>();
   let stoppedForFailure = false;
   for (const operation of replayableOperations) {
     if (operation.status === 'inflight') {
-      await tauriCommands.replicaUpdateOperationStatus(vault.serverUrl, vault.hostedVaultId, operation.id, 'pending');
+      await tauriCommands.replicaUpdateOperationStatus(
+        vault.serverUrl,
+        vault.hostedVaultId,
+        operation.id,
+        'pending',
+      );
     }
   }
   for (const [operationIndex, operation] of replayableOperations.entries()) {
@@ -576,7 +646,12 @@ export async function replayPendingOperations(
       total: replayableOperations.length,
       detail: operation.relativePath ?? operation.fileId ?? operation.kind,
     });
-    await tauriCommands.replicaUpdateOperationStatus(vault.serverUrl, vault.hostedVaultId, operation.id, 'inflight');
+    await tauriCommands.replicaUpdateOperationStatus(
+      vault.serverUrl,
+      vault.hostedVaultId,
+      operation.id,
+      'inflight',
+    );
     try {
       if (operation.kind === 'create') {
         const payload = operation.payload as PendingCreatePayload;
@@ -602,10 +677,16 @@ export async function replayPendingOperations(
             vault.serverUrl,
             'POST',
             `/api/v1/vaults/${vault.hostedVaultId}/files/${payload.targetFileId}/revisions`,
-            { expectedRevisionSequence: payload.expectedRevisionSequence, content: payload.content },
+            {
+              expectedRevisionSequence: payload.expectedRevisionSequence,
+              content: payload.content,
+            },
           );
         } catch (error) {
-          if (!isRevisionConflict(error) || !await replaySheetEditAfterConflict(vault, operation, payload)) {
+          if (
+            !isRevisionConflict(error) ||
+            !(await replaySheetEditAfterConflict(vault, operation, payload))
+          ) {
             throw error;
           }
         }
@@ -617,7 +698,9 @@ export async function replayPendingOperations(
           payload.assetCacheId,
         );
         if (contentBase64 === null) {
-          throw new Error('Cached upload bytes are no longer available for this pending asset upload.');
+          throw new Error(
+            'Cached upload bytes are no longer available for this pending asset upload.',
+          );
         }
         await tauriCommands.hostedVaultRequest(
           vault.serverUrl,
@@ -640,10 +723,17 @@ export async function replayPendingOperations(
           payload.component,
         );
         const cached = await readCachedLogicComponents(vault);
-        await writeCachedLogicComponents(vault, [
-          ...cached.filter((component) => component.id !== saved.id && component.name.toLowerCase() !== saved.name.toLowerCase()),
-          saved,
-        ].sort((a, b) => a.name.localeCompare(b.name)));
+        await writeCachedLogicComponents(
+          vault,
+          [
+            ...cached.filter(
+              (component) =>
+                component.id !== saved.id &&
+                component.name.toLowerCase() !== saved.name.toLowerCase(),
+            ),
+            saved,
+          ].sort((a, b) => a.name.localeCompare(b.name)),
+        );
       } else if (operation.kind === 'logicComponentDelete') {
         const payload = operation.payload as PendingLogicComponentDeletePayload;
         await tauriCommands.hostedVaultRequest(
@@ -660,7 +750,11 @@ export async function replayPendingOperations(
           payload,
         );
       }
-      await tauriCommands.replicaRemoveOperation(vault.serverUrl, vault.hostedVaultId, operation.id);
+      await tauriCommands.replicaRemoveOperation(
+        vault.serverUrl,
+        vault.hostedVaultId,
+        operation.id,
+      );
       onProgress?.({
         direction: 'upload',
         completed: operationIndex + 1,
@@ -730,7 +824,7 @@ export async function seedReplicaFromManifest(vault: HostedVaultMeta): Promise<v
     kind: 'manifest',
     fileIds: manifest.files.map((file) => file.id),
     relativePaths: manifest.files
-      .map((file) => typeof file.relativePath === 'string' ? file.relativePath : null)
+      .map((file) => (typeof file.relativePath === 'string' ? file.relativePath : null))
       .filter((path): path is string => path !== null),
   });
 }
@@ -741,7 +835,10 @@ function dataUrlBase64(dataUrl: string): string {
   return match[1];
 }
 
-async function markOfflineAvailable(vault: HostedVaultMeta, manifestSequence: number): Promise<void> {
+async function markOfflineAvailable(
+  vault: HostedVaultMeta,
+  manifestSequence: number,
+): Promise<void> {
   const syncState = await tauriCommands.replicaReadSyncState(vault.serverUrl, vault.hostedVaultId);
   await tauriCommands.replicaWriteSyncState(vault.serverUrl, vault.hostedVaultId, {
     ...syncState,
@@ -793,11 +890,25 @@ async function cacheActiveFilesForOffline(
           'GET',
           `/api/v1/vaults/${vault.hostedVaultId}/files/${file.id}`,
         );
-        await tauriCommands.replicaCacheDocument(vault.serverUrl, vault.hostedVaultId, file.id, document.content);
+        await tauriCommands.replicaCacheDocument(
+          vault.serverUrl,
+          vault.hostedVaultId,
+          file.id,
+          document.content,
+        );
         documentsCached += 1;
       } else if (kind === 'asset') {
-        const dataUrl = await tauriCommands.hostedVaultAssetDataUrl(vault.serverUrl, vault.hostedVaultId, file.id);
-        await tauriCommands.replicaCacheAsset(vault.serverUrl, vault.hostedVaultId, file.id, dataUrlBase64(dataUrl));
+        const dataUrl = await tauriCommands.hostedVaultAssetDataUrl(
+          vault.serverUrl,
+          vault.hostedVaultId,
+          file.id,
+        );
+        await tauriCommands.replicaCacheAsset(
+          vault.serverUrl,
+          vault.hostedVaultId,
+          file.id,
+          dataUrlBase64(dataUrl),
+        );
         assetsCached += 1;
       }
     } catch (error) {
@@ -832,10 +943,8 @@ export async function makeHostedVaultAvailableOffline(
   const manifest = await tauriCommands.replicaReadManifest(vault.serverUrl, vault.hostedVaultId);
   if (!manifest) throw new Error('Replica manifest was not available after seeding.');
 
-  const report = await cacheActiveFilesForOffline(
-    vault,
-    manifest.files,
-    (completed, total) => onProgress?.(completed, total),
+  const report = await cacheActiveFilesForOffline(vault, manifest.files, (completed, total) =>
+    onProgress?.(completed, total),
   );
   try {
     const components = await tauriCommands.hostedVaultRequest<LogicComponentDefinition[]>(
@@ -859,12 +968,17 @@ export async function syncReplicaManifestDelta(
   onProgress?: (progress: ReplicaSyncProgress) => void,
 ): Promise<ReplicaManifest> {
   if (
-    typeof tauriCommands.backgroundJobRun !== 'function'
-    || typeof tauriCommands.backgroundJobGet !== 'function'
+    typeof tauriCommands.backgroundJobRun !== 'function' ||
+    typeof tauriCommands.backgroundJobGet !== 'function'
   ) {
     return syncReplicaManifestDeltaWithAdapter(vault, onProgress);
   }
-  onProgress?.({ direction: 'sync', completed: 0, total: null, detail: 'Checking pending changes' });
+  onProgress?.({
+    direction: 'sync',
+    completed: 0,
+    total: null,
+    detail: 'Checking pending changes',
+  });
   const job = await tauriCommands.backgroundJobRun({
     idempotencyKey: `foreground:${vault.hostedVaultId}:${crypto.randomUUID()}`,
     kind: 'replica_sync',
@@ -888,9 +1002,9 @@ export async function syncReplicaManifestDelta(
   }
   if (current.status !== 'succeeded') {
     throw new Error(
-      current.errorMessage
-      ?? current.summary
-      ?? `Background synchronization ended with status ${current.status}.`,
+      current.errorMessage ??
+        current.summary ??
+        `Background synchronization ended with status ${current.status}.`,
     );
   }
   const manifest = await tauriCommands.replicaReadManifest(vault.serverUrl, vault.hostedVaultId);
@@ -900,7 +1014,7 @@ export async function syncReplicaManifestDelta(
       kind: 'sync',
       fileIds: manifest.files.map((file) => file.id),
       relativePaths: manifest.files
-        .map((file) => typeof file.relativePath === 'string' ? file.relativePath : null)
+        .map((file) => (typeof file.relativePath === 'string' ? file.relativePath : null))
         .filter((path): path is string => path !== null),
     });
   }
@@ -911,7 +1025,12 @@ async function syncReplicaManifestDeltaWithAdapter(
   vault: HostedVaultMeta,
   onProgress?: (progress: ReplicaSyncProgress) => void,
 ): Promise<ReplicaManifest> {
-  onProgress?.({ direction: 'sync', completed: 0, total: null, detail: 'Checking pending changes' });
+  onProgress?.({
+    direction: 'sync',
+    completed: 0,
+    total: null,
+    detail: 'Checking pending changes',
+  });
   await replayPendingOperations(vault, onProgress).catch((error) => {
     if (!isLikelyConnectivityError(error)) throw error;
   });
@@ -919,7 +1038,8 @@ async function syncReplicaManifestDeltaWithAdapter(
     tauriCommands.replicaReadManifest(vault.serverUrl, vault.hostedVaultId),
     tauriCommands.replicaReadSyncState(vault.serverUrl, vault.hostedVaultId),
   ]);
-  const shouldMaintainOfflineCache = !!syncState.offlineAvailableAt && vaultCan(vault, 'vault.offlineCopy');
+  const shouldMaintainOfflineCache =
+    !!syncState.offlineAvailableAt && vaultCan(vault, 'vault.offlineCopy');
 
   if (!cachedManifest || syncState.manifestSequence > cachedManifest.sequence) {
     await seedReplicaFromManifest(vault);
@@ -940,7 +1060,10 @@ async function syncReplicaManifestDeltaWithAdapter(
     'GET',
     `/api/v1/vaults/${vault.hostedVaultId}/manifest/delta?since=${encodeURIComponent(String(syncState.manifestSequence))}`,
   );
-  if (delta.sequence < cachedManifest.sequence || delta.baseSequence !== syncState.manifestSequence) {
+  if (
+    delta.sequence < cachedManifest.sequence ||
+    delta.baseSequence !== syncState.manifestSequence
+  ) {
     await seedReplicaFromManifest(vault);
     const seeded = await tauriCommands.replicaReadManifest(vault.serverUrl, vault.hostedVaultId);
     if (!seeded) throw new Error('Replica manifest was not available after seeding.');
@@ -986,7 +1109,7 @@ async function syncReplicaManifestDeltaWithAdapter(
     kind: 'manifest',
     fileIds: delta.changedFiles.map((file) => file.id),
     relativePaths: delta.changedFiles
-      .map((file) => typeof file.relativePath === 'string' ? file.relativePath : null)
+      .map((file) => (typeof file.relativePath === 'string' ? file.relativePath : null))
       .filter((path): path is string => path !== null),
   });
   return nextManifest;

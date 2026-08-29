@@ -9,7 +9,11 @@ export function buildPdfQuoteMarkdown(relativePath: string, page: number, text: 
   return `${quoteBody}\n> \n> Source: ${relativePath} (page ${page})\n`;
 }
 
-export function buildPdfSnapshotMarkdown(pdfRelativePath: string, page: number, imageRelativePath: string) {
+export function buildPdfSnapshotMarkdown(
+  pdfRelativePath: string,
+  page: number,
+  imageRelativePath: string,
+) {
   return `![PDF snapshot from ${pdfRelativePath} page ${page}](${imageRelativePath})\n\n_Source: ${pdfRelativePath} (page ${page})_\n`;
 }
 

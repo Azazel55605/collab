@@ -10,7 +10,6 @@
  * On a slow runner, set `COLLAB_SHEET_BUDGET_SCALE` and record the scale the
  * platform was validated at in the release-validation matrix.
  */
-
 import { describe, expect, it } from 'vitest';
 
 import { SheetAddressIndex } from './address';
@@ -19,9 +18,9 @@ import { createSheetClipboardPayload, pasteSheetClipboardPayload } from './clipb
 import { parseSheetDocument, serializeSheetDocument } from './document';
 import { createSparseWorkbookFixture, createTallWorkbookFixture } from './fixture';
 import { setCells } from './operations';
+import type { SheetCellWrite } from './operations';
 import { createSelection, extendSelection } from './selection';
 import { buildColumnMetrics, buildRowMetrics, computeViewport } from './viewport';
-import type { SheetCellWrite } from './operations';
 
 function elapsed(run: () => void): number {
   const started = performance.now();
@@ -51,8 +50,9 @@ describe('Phase 9 performance budgets', () => {
     const document = createSparseWorkbookFixture();
     // Warm the shape so the measurement is serialization, not first-touch.
     serializeSheetDocument(document);
-    expect(elapsed(() => serializeSheetDocument(document)))
-      .toBeLessThan(sheetTimeBudget('saveSerializeMs'));
+    expect(elapsed(() => serializeSheetDocument(document))).toBeLessThan(
+      sheetTimeBudget('saveSerializeMs'),
+    );
   });
 
   it('resolves a scroll frame within the per-frame budget', () => {
@@ -96,20 +96,21 @@ describe('Phase 9 performance budgets', () => {
     const rows = buildRowMetrics(worksheet);
     const columns = buildColumnMetrics(worksheet);
 
-    const frameCost = (scrollTop: number) => elapsed(() => {
-      for (let frame = 0; frame < 60; frame += 1) {
-        computeViewport({
-          rows,
-          columns,
-          scrollTop: scrollTop + frame,
-          scrollLeft: 0,
-          viewportHeight: 900,
-          viewportWidth: 1_600,
-          frozenRows: 0,
-          frozenColumns: 0,
-        });
-      }
-    }) / 60;
+    const frameCost = (scrollTop: number) =>
+      elapsed(() => {
+        for (let frame = 0; frame < 60; frame += 1) {
+          computeViewport({
+            rows,
+            columns,
+            scrollTop: scrollTop + frame,
+            scrollLeft: 0,
+            viewportHeight: 900,
+            viewportWidth: 1_600,
+            frozenRows: 0,
+            frozenColumns: 0,
+          });
+        }
+      }) / 60;
 
     expect(frameCost(0)).toBeLessThan(sheetTimeBudget('scrollFrameMs'));
     expect(frameCost(3_000_000)).toBeLessThan(sheetTimeBudget('scrollFrameMs'));
@@ -118,10 +119,7 @@ describe('Phase 9 performance budgets', () => {
   it('pastes 10,000 cells into a large worksheet within the paste budget', () => {
     const document = createSparseWorkbookFixture();
     const worksheet = document.worksheets[0];
-    const source = extendSelection(
-      createSelection({ row: 0, column: 0 }),
-      { row: 99, column: 99 },
-    );
+    const source = extendSelection(createSelection({ row: 0, column: 0 }), { row: 99, column: 99 });
     const payload = createSheetClipboardPayload(document, worksheet, source);
     expect(payload.rows * payload.columns).toBe(10_000);
 
@@ -140,7 +138,10 @@ describe('Phase 9 performance budgets', () => {
     const writes: SheetCellWrite[] = [];
     for (let row = 0; row < 100; row += 1) {
       for (let column = 0; column < 100; column += 1) {
-        writes.push({ position: { row: 2_000 + row, column }, cell: { value: row * column, valueType: 'number' } });
+        writes.push({
+          position: { row: 2_000 + row, column },
+          cell: { value: row * column, valueType: 'number' },
+        });
       }
     }
 

@@ -1,18 +1,29 @@
 import { useCallback, useEffect, useMemo } from 'react';
-import { Plus, Layout, LayoutDashboard, FileText, Library, MoreHorizontal, Sparkles, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+
+import {
+  FileText,
+  Layout,
+  LayoutDashboard,
+  Library,
+  MoreHorizontal,
+  Plus,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
+import { toast } from 'sonner';
+
+import { tauriCommands } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
-import { useVaultStore } from '../../store/vaultStore';
+import { createVaultClient } from '../../lib/vaultClient';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
-import { tauriCommands } from '../../lib/tauri';
-import { createVaultClient } from '../../lib/vaultClient';
-import type { NoteFile } from '../../types/vault';
+import { useVaultStore } from '../../store/vaultStore';
+import type { KanbanBoard } from '../../types/kanban';
 import type { KanbanTemplate } from '../../types/template';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
-import { ConfirmDeleteDialog, InputDialog } from './VaultDialogs';
-import { useState } from 'react';
-import { toast } from 'sonner';
+import type { NoteFile } from '../../types/vault';
 import KanbanTemplatesModal from '../kanban/KanbanTemplatesModal';
+import { Button } from '../ui/button';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -20,6 +31,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '../ui/context-menu';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,23 +39,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import type { KanbanBoard } from '../../types/kanban';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
-import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+
+import { ConfirmDeleteDialog, InputDialog } from './VaultDialogs';
 
 interface Props {
   kind: 'canvas' | 'kanban';
@@ -117,12 +117,18 @@ export default function BoardsPanel({ kind }: Props) {
   const Icon = kind === 'canvas' ? Layout : LayoutDashboard;
   const label = kind === 'canvas' ? 'Canvas' : 'Kanban';
   const color = kind === 'canvas' ? 'text-blue-400/70' : 'text-emerald-400/70';
-  const visibleTemplateChoices = useMemo(() => groupKanbanTemplates(templateChoices), [templateChoices]);
+  const visibleTemplateChoices = useMemo(
+    () => groupKanbanTemplates(templateChoices),
+    [templateChoices],
+  );
 
-  const handleOpen = useCallback((file: NoteFile) => {
-    openTab(file.relativePath, file.name, kind);
-    setActiveView(kind);
-  }, [openTab, setActiveView, kind]);
+  const handleOpen = useCallback(
+    (file: NoteFile) => {
+      openTab(file.relativePath, file.name, kind);
+      setActiveView(kind);
+    },
+    [openTab, setActiveView, kind],
+  );
 
   const handleCreate = async (name: string) => {
     if (!vault) return;
@@ -133,11 +139,19 @@ export default function BoardsPanel({ kind }: Props) {
       await refreshFileTree();
       openTab(relativePath, relativePath.split('/').pop() ?? relativePath, kind);
       setActiveView(kind);
-    } catch (e) { toast.error(`Failed to create ${label} board: ${e}`); }
+    } catch (e) {
+      toast.error(`Failed to create ${label} board: ${e}`);
+    }
   };
 
   useEffect(() => {
-    if (!creating || kind !== 'kanban' || !vault || !createVaultClient(vault).capabilities.nativeFilesystem) return;
+    if (
+      !creating ||
+      kind !== 'kanban' ||
+      !vault ||
+      !createVaultClient(vault).capabilities.nativeFilesystem
+    )
+      return;
 
     let cancelled = false;
     const vaultPath = vault.path;
@@ -184,7 +198,12 @@ export default function BoardsPanel({ kind }: Props) {
           (entry) => `${entry.source}::${entry.name}` === createTemplate,
         );
         if (!template) throw new Error('Selected template is no longer available');
-        file = await tauriCommands.applyKanbanTemplate(vault.path, template.source, template.name, relativePath);
+        file = await tauriCommands.applyKanbanTemplate(
+          vault.path,
+          template.source,
+          template.name,
+          relativePath,
+        );
       }
       await refreshFileTree();
       openTab(file.relativePath, file.name, 'kanban');
@@ -192,73 +211,97 @@ export default function BoardsPanel({ kind }: Props) {
     } catch (error) {
       toast.error(`Failed to create ${label} board: ${error}`);
     }
-  }, [createName, createTemplate, label, openTab, refreshFileTree, setActiveView, vault, visibleTemplateChoices]);
+  }, [
+    createName,
+    createTemplate,
+    label,
+    openTab,
+    refreshFileTree,
+    setActiveView,
+    vault,
+    visibleTemplateChoices,
+  ]);
 
-  const deleteBoardFile = useCallback(async (file: NoteFile, removeReferences = false) => {
-    if (!vault) return;
-    try {
-      await createVaultClient(vault).deletePermanently(file.relativePath, removeReferences);
-      closeTab(file.relativePath);
-      await refreshFileTree();
-      toast.success(`Deleted ${file.name}`);
-    } catch (error) {
-      toast.error(`Failed to delete ${label} board: ${error}`);
-    }
-  }, [vault, closeTab, refreshFileTree, label]);
+  const deleteBoardFile = useCallback(
+    async (file: NoteFile, removeReferences = false) => {
+      if (!vault) return;
+      try {
+        await createVaultClient(vault).deletePermanently(file.relativePath, removeReferences);
+        closeTab(file.relativePath);
+        await refreshFileTree();
+        toast.success(`Deleted ${file.name}`);
+      } catch (error) {
+        toast.error(`Failed to delete ${label} board: ${error}`);
+      }
+    },
+    [vault, closeTab, refreshFileTree, label],
+  );
 
-  const moveBoardToTrash = useCallback(async (file: NoteFile) => {
-    if (!vault) return;
-    try {
-      await createVaultClient(vault).moveToTrash(file.relativePath, deleteRemoveReferences);
-      closeTab(file.relativePath);
-      await refreshFileTree();
-      toast.success(`Moved ${file.name} to trash`);
-    } catch (error) {
-      toast.error(`Failed to move ${label} board to trash: ${error}`);
-    }
-  }, [vault, closeTab, refreshFileTree, label, deleteRemoveReferences]);
+  const moveBoardToTrash = useCallback(
+    async (file: NoteFile) => {
+      if (!vault) return;
+      try {
+        await createVaultClient(vault).moveToTrash(file.relativePath, deleteRemoveReferences);
+        closeTab(file.relativePath);
+        await refreshFileTree();
+        toast.success(`Moved ${file.name} to trash`);
+      } catch (error) {
+        toast.error(`Failed to move ${label} board to trash: ${error}`);
+      }
+    },
+    [vault, closeTab, refreshFileTree, label, deleteRemoveReferences],
+  );
 
-  const handleDelete = useCallback((file: NoteFile) => {
-    setDeleteRemoveReferences(false);
-    if (!confirmDeleteEnabled) {
-      void moveBoardToTrash(file);
-      return;
-    }
-    setDeleteBoard(file);
-  }, [confirmDeleteEnabled, moveBoardToTrash]);
+  const handleDelete = useCallback(
+    (file: NoteFile) => {
+      setDeleteRemoveReferences(false);
+      if (!confirmDeleteEnabled) {
+        void moveBoardToTrash(file);
+        return;
+      }
+      setDeleteBoard(file);
+    },
+    [confirmDeleteEnabled, moveBoardToTrash],
+  );
 
   const handleSaveAsTemplate = useCallback((file: NoteFile) => {
     setTemplateBoard(file);
   }, []);
 
-  const confirmSaveAsTemplate = useCallback(async (templateName: string) => {
-    if (!vault || !templateBoard || kind !== 'kanban') return;
-    setTemplateBoard(null);
-    try {
-      const { content } = await createVaultClient(vault).readDocument(templateBoard.relativePath);
-      const board = JSON.parse(content) as KanbanBoard;
-      await tauriCommands.saveKanbanTemplate(vault.path, 'vault', templateName, board);
-      toast.success(`Saved "${templateName}" to vault templates`);
-    } catch (error) {
-      toast.error(`Failed to save template: ${error}`);
-    }
-  }, [vault, templateBoard, kind]);
+  const confirmSaveAsTemplate = useCallback(
+    async (templateName: string) => {
+      if (!vault || !templateBoard || kind !== 'kanban') return;
+      setTemplateBoard(null);
+      try {
+        const { content } = await createVaultClient(vault).readDocument(templateBoard.relativePath);
+        const board = JSON.parse(content) as KanbanBoard;
+        await tauriCommands.saveKanbanTemplate(vault.path, 'vault', templateName, board);
+        toast.success(`Saved "${templateName}" to vault templates`);
+      } catch (error) {
+        toast.error(`Failed to save template: ${error}`);
+      }
+    },
+    [vault, templateBoard, kind],
+  );
 
-  const renderBoardActions = useCallback((board: NoteFile) => (
-    <>
-      {kind === 'kanban' && vault && createVaultClient(vault).capabilities.nativeFilesystem && (
-        <DropdownMenuItem onSelect={() => handleSaveAsTemplate(board)}>
-          <Sparkles />
-          Save as Template
+  const renderBoardActions = useCallback(
+    (board: NoteFile) => (
+      <>
+        {kind === 'kanban' && vault && createVaultClient(vault).capabilities.nativeFilesystem && (
+          <DropdownMenuItem onSelect={() => handleSaveAsTemplate(board)}>
+            <Sparkles />
+            Save as Template
+          </DropdownMenuItem>
+        )}
+        {kind === 'kanban' && <DropdownMenuSeparator />}
+        <DropdownMenuItem variant="destructive" onSelect={() => handleDelete(board)}>
+          <Trash2 />
+          Delete Board
         </DropdownMenuItem>
-      )}
-      {kind === 'kanban' && <DropdownMenuSeparator />}
-      <DropdownMenuItem variant="destructive" onSelect={() => handleDelete(board)}>
-        <Trash2 />
-        Delete Board
-      </DropdownMenuItem>
-    </>
-  ), [handleDelete, handleSaveAsTemplate, kind]);
+      </>
+    ),
+    [handleDelete, handleSaveAsTemplate, kind],
+  );
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -277,7 +320,12 @@ export default function BoardsPanel({ kind }: Props) {
         />
       )}
 
-      <Dialog open={creating} onOpenChange={(open) => { if (!open) setCreating(false); }}>
+      <Dialog
+        open={creating}
+        onOpenChange={(open) => {
+          if (!open) setCreating(false);
+        }}
+      >
         {kind === 'canvas' ? (
           <DialogContent showCloseButton={false} className="max-w-sm">
             <DialogHeader>
@@ -305,7 +353,9 @@ export default function BoardsPanel({ kind }: Props) {
             </div>
 
             <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-              <Button variant="outline" onClick={() => setCreating(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => setCreating(false)}>
+                Cancel
+              </Button>
               <Button onClick={() => void handleCreate(createName)} disabled={!createName.trim()}>
                 Create
               </Button>
@@ -339,14 +389,25 @@ export default function BoardsPanel({ kind }: Props) {
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Template</label>
                 <Select value={createTemplate} onValueChange={setCreateTemplate}>
-                  <SelectTrigger size="sm" className="w-full justify-between border-border/40 bg-background/55 text-xs hover:border-border/70">
+                  <SelectTrigger
+                    size="sm"
+                    className="w-full justify-between border-border/40 bg-background/55 text-xs hover:border-border/70"
+                  >
                     <SelectValue placeholder="Choose a template" />
                   </SelectTrigger>
                   <SelectContent position="popper" align="start">
                     <SelectItem value="__blank__">Blank board</SelectItem>
                     {visibleTemplateChoices.map((template) => (
-                      <SelectItem key={`${template.source}::${template.name}`} value={`${template.source}::${template.name}`}>
-                        {template.name} {template.source === 'builtin' ? '• Built-in' : template.source === 'vault' ? '• Vault' : '• App'}
+                      <SelectItem
+                        key={`${template.source}::${template.name}`}
+                        value={`${template.source}::${template.name}`}
+                      >
+                        {template.name}{' '}
+                        {template.source === 'builtin'
+                          ? '• Built-in'
+                          : template.source === 'vault'
+                            ? '• Vault'
+                            : '• App'}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -358,7 +419,9 @@ export default function BoardsPanel({ kind }: Props) {
             </div>
 
             <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-              <Button variant="outline" onClick={() => setCreating(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => setCreating(false)}>
+                Cancel
+              </Button>
               <Button onClick={() => void handleCreateKanban()} disabled={!createName.trim()}>
                 Create
               </Button>
@@ -423,7 +486,9 @@ export default function BoardsPanel({ kind }: Props) {
                   <Library size={13} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">Manage templates</TooltipContent>
+              <TooltipContent side="bottom" className="text-xs">
+                Manage templates
+              </TooltipContent>
             </Tooltip>
           )}
           <Tooltip>
@@ -436,8 +501,10 @@ export default function BoardsPanel({ kind }: Props) {
               >
                 <Plus size={13} />
               </Button>
-              </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">New {label} board</TooltipContent>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">
+              New {label} board
+            </TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -473,12 +540,17 @@ export default function BoardsPanel({ kind }: Props) {
                       'group mx-2 flex items-start gap-2 rounded-xl border px-3 py-2.5 cursor-pointer select-none transition-colors',
                       isActive
                         ? 'border-primary/25 bg-primary/10 text-foreground shadow-sm'
-                        : 'border-border/35 bg-card/45 text-foreground/75 hover:border-border/55 hover:bg-accent/35 hover:text-foreground'
+                        : 'border-border/35 bg-card/45 text-foreground/75 hover:border-border/55 hover:bg-accent/35 hover:text-foreground',
                     )}
                   >
                     <Icon size={13} className={cn('mt-0.5 shrink-0', color)} />
                     <div className="flex-1 min-w-0">
-                      <div className={cn('text-[12.5px] truncate', isActive && 'font-medium text-foreground')}>
+                      <div
+                        className={cn(
+                          'text-[12.5px] truncate',
+                          isActive && 'font-medium text-foreground',
+                        )}
+                      >
                         {board.name}
                       </div>
                       {folderPath && (
@@ -507,7 +579,9 @@ export default function BoardsPanel({ kind }: Props) {
                         {renderBoardActions(board)}
                       </DropdownMenuContent>
                     </DropdownMenu>
-                    {isActive && <span className="w-1 h-1 rounded-full bg-primary shrink-0 opacity-80 mt-1.5" />}
+                    {isActive && (
+                      <span className="w-1 h-1 rounded-full bg-primary shrink-0 opacity-80 mt-1.5" />
+                    )}
                   </div>
                 </ContextMenuTrigger>
                 <ContextMenuContent className="w-48">

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createEmptyLogicDiagram } from '../../types/logicDiagram';
+
 import {
   fromFlowGraph,
   logicComponentDimensions,
@@ -15,11 +16,24 @@ describe('logic diagram flow helpers', () => {
       ...createEmptyLogicDiagram('Half Adder'),
       nodes: [
         { id: 'a', kind: 'input' as const, position: { x: 0, y: 0 }, label: 'A', value: false },
-        { id: 'group-1', kind: 'group' as const, position: { x: -48, y: -48 }, width: 304, height: 160 },
+        {
+          id: 'group-1',
+          kind: 'group' as const,
+          position: { x: -48, y: -48 },
+          width: 304,
+          height: 160,
+        },
         { id: 'sum', kind: 'xor' as const, position: { x: 208, y: 48 }, parentId: 'group-1' },
       ],
       wires: [
-        { id: 'w1', source: 'a', target: 'sum', sourceHandle: 'out', targetHandle: 'in-a', label: 'A' },
+        {
+          id: 'w1',
+          source: 'a',
+          target: 'sum',
+          sourceHandle: 'out',
+          targetHandle: 'in-a',
+          label: 'A',
+        },
       ],
       viewport: { x: 10, y: 20, zoom: 1.5 },
     };
@@ -93,12 +107,14 @@ describe('logic diagram flow helpers', () => {
   it('round-trips persisted clock timing', () => {
     const diagram = {
       ...createEmptyLogicDiagram('Clocked'),
-      nodes: [{
-        id: 'clock',
-        kind: 'clock' as const,
-        position: { x: 10, y: 20 },
-        clock: { periodMs: 500, dutyCycle: 0.25, phaseMs: 50 },
-      }],
+      nodes: [
+        {
+          id: 'clock',
+          kind: 'clock' as const,
+          position: { x: 10, y: 20 },
+          clock: { periodMs: 500, dutyCycle: 0.25, phaseMs: 50 },
+        },
+      ],
     };
 
     const graph = toFlowGraph(diagram);
@@ -109,13 +125,15 @@ describe('logic diagram flow helpers', () => {
   it('round-trips schematic symbol rotation', () => {
     const diagram = {
       ...createEmptyLogicDiagram('Rotated', 'schematic'),
-      nodes: [{
-        id: 'r1',
-        kind: 'resistor' as const,
-        position: { x: 10, y: 20 },
-        rotation: 270 as const,
-        electrical: { resistanceOhms: 4700 },
-      }],
+      nodes: [
+        {
+          id: 'r1',
+          kind: 'resistor' as const,
+          position: { x: 10, y: 20 },
+          rotation: 270 as const,
+          electrical: { resistanceOhms: 4700 },
+        },
+      ],
     };
     const graph = toFlowGraph(diagram);
     expect(graph.nodes[0].data.rotation).toBe(270);
@@ -156,9 +174,11 @@ describe('logic diagram flow helpers', () => {
     expect(dimensions.height).toBeGreaterThan(80);
 
     const inputs = Array.from({ length: 5 }, (_, index) =>
-      logicHandleYOffset('component', 5, index, dimensions.height));
+      logicHandleYOffset('component', 5, index, dimensions.height),
+    );
     const outputs = Array.from({ length: 3 }, (_, index) =>
-      logicHandleYOffset('component', 3, index, dimensions.height));
+      logicHandleYOffset('component', 3, index, dimensions.height),
+    );
 
     expect(inputs).toEqual([...inputs].sort((a, b) => a - b));
     expect(outputs).toEqual([...outputs].sort((a, b) => a - b));

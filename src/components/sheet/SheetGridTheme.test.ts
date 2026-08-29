@@ -6,12 +6,13 @@
  * tints the grid paints behind theme-colored text, and the app-wide motion
  * suppression that the sheet's own spinners rely on.
  */
-
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { SHEET_DEFAULTS } from '../../types/sheet';
+
 import { SHEET_GRID_LINES, SHEET_INDICATOR_COLORS, SHEET_SURFACE_TINTS } from './SheetGrid';
 
 /** Reads a project file relative to the repository root. */
@@ -41,8 +42,7 @@ describe('contrast', () => {
     for (const color of Object.values(SHEET_GRID_LINES)) {
       expect(color).toMatch(/rgba\(\s*127\s*,\s*127\s*,\s*127/);
     }
-    expect(alphaOf(SHEET_GRID_LINES.frozen))
-      .toBeGreaterThan(alphaOf(SHEET_GRID_LINES.cell));
+    expect(alphaOf(SHEET_GRID_LINES.frozen)).toBeGreaterThan(alphaOf(SHEET_GRID_LINES.cell));
   });
 
   it('routes every fixed color through the documented indicator tokens', () => {

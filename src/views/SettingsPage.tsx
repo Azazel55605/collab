@@ -1,13 +1,21 @@
 import { useState } from 'react';
-import { useCollabStore } from '../store/collabStore';
-import { useCollabIdentity } from '../lib/collabIdentity';
-import { ANIMATION_SPEED_OPTIONS, useUiStore, type AnimationSpeed } from '../store/uiStore';
-import { Input } from '../components/ui/input';
-import { Button } from '../components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+
 import { toast } from 'sonner';
-import { cn } from '../lib/utils';
+
 import SettingsOcrSection from '../components/settings/SettingsOcrSection';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
+import { useCollabIdentity } from '../lib/collabIdentity';
+import { cn } from '../lib/utils';
+import { useCollabStore } from '../store/collabStore';
+import { ANIMATION_SPEED_OPTIONS, type AnimationSpeed, useUiStore } from '../store/uiStore';
 
 export default function SettingsPage() {
   const { myUserName, myUserColor, setMyProfile, myUserId } = useCollabStore();
@@ -154,7 +162,10 @@ export default function SettingsPage() {
           <div className="max-w-md space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium block">Default web card mode</label>
-              <Select value={canvasWebCardDefaultMode} onValueChange={(value) => setCanvasWebCardDefaultMode(value as 'preview' | 'embed')}>
+              <Select
+                value={canvasWebCardDefaultMode}
+                onValueChange={(value) => setCanvasWebCardDefaultMode(value as 'preview' | 'embed')}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -175,7 +186,8 @@ export default function SettingsPage() {
               <div>
                 <div className="text-sm font-medium">Disable web preview auto-load</div>
                 <div className="text-xs text-muted-foreground mt-1">
-                  When enabled, canvas web cards wait for a manual preview load instead of fetching immediately.
+                  When enabled, canvas web cards wait for a manual preview load instead of fetching
+                  immediately.
                 </div>
               </div>
               <span

@@ -1,4 +1,4 @@
-import { Channel, tauriCommands, type LiveWsEvent } from './tauri';
+import { Channel, type LiveWsEvent, tauriCommands } from './tauri';
 
 /**
  * Minimal transport abstraction the live provider (`liveDocumentSession.ts`)
@@ -144,7 +144,8 @@ class BrowserLiveSocket implements LiveSocket {
     this.socket = new WebSocket(websocketUrl);
     this.socket.binaryType = 'arraybuffer';
     this.socket.onopen = () => this.onopen?.();
-    this.socket.onmessage = (event) => this.onmessage?.({ data: event.data as string | ArrayBuffer });
+    this.socket.onmessage = (event) =>
+      this.onmessage?.({ data: event.data as string | ArrayBuffer });
     this.socket.onclose = (event) => this.onclose?.({ code: (event as CloseEvent)?.code });
     this.socket.onerror = () => this.onerror?.();
   }

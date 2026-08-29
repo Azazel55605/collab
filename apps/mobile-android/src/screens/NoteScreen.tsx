@@ -1,19 +1,28 @@
+import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
 import { ArrowLeft, CloudOff, Edit3, Eye, RefreshCw, Save, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { yCollab } from 'y-codemirror.next';
 
-import { Banner, ReadOnlyBadge, Spinner } from '../components/ui';
+import { MathPlot2D } from '../../../../src/components/editor/MathPlot2D';
+import { MathPlot3D } from '../../../../src/components/editor/MathPlot3D';
+import { renderMermaidBlocks } from '../../../../src/lib/mermaidRenderer';
 import { MobileMarkdownEditor } from '../components/MobileMarkdownEditor';
-import { readMobileAssetDataUrl, isRichViewableFile } from '../lib/assets';
+import { Banner, ReadOnlyBadge, Spinner } from '../components/ui';
+import { isRichViewableFile, readMobileAssetDataUrl } from '../lib/assets';
 import { fileEntryExtension, isReadOnlyRole } from '../lib/format';
+import {
+  type LiveStatus,
+  type MobileLiveNoteSession,
+  openMobileLiveNoteSession,
+} from '../lib/liveNote';
 import { isLogicFile } from '../lib/logic';
 import {
   isExternalHref,
   readNoteDocument,
+  type RenderedMarkdownDocument,
   renderMarkdownDocument,
   resolveVaultLink,
   saveNoteDocument,
-  type RenderedMarkdownDocument,
 } from '../lib/notes';
 import {
   describePendingFailure,
@@ -23,17 +32,9 @@ import {
   pendingEditsForFile,
   retryPendingOperation,
 } from '../lib/sync';
-import {
-  replicaCacheDocument,
-  type HostedFileEntry,
-  type PendingOperation,
-} from '../mobileTauri';
 import type { ThemePrefs } from '../lib/theme';
-import { openMobileLiveNoteSession, type LiveStatus, type MobileLiveNoteSession } from '../lib/liveNote';
+import { type HostedFileEntry, type PendingOperation, replicaCacheDocument } from '../mobileTauri';
 import { useMobileStore } from '../state/store';
-import { MathPlot2D } from '../../../../src/components/editor/MathPlot2D';
-import { MathPlot3D } from '../../../../src/components/editor/MathPlot3D';
-import { renderMermaidBlocks } from '../../../../src/lib/mermaidRenderer';
 
 export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: ThemePrefs }) {
   const selected = useMobileStore((s) => s.selected);
@@ -87,11 +88,11 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
         ? liveStatus === 'connected'
           ? 'Live'
           : 'Live offline'
-      : source === 'cache'
-        ? 'Cached note'
-        : dirty
-          ? 'Unsaved changes'
-          : 'Saved';
+        : source === 'cache'
+          ? 'Cached note'
+          : dirty
+            ? 'Unsaved changes'
+            : 'Saved';
   const [rendered, setRendered] = useState<RenderedMarkdownDocument>({ html: '', plotBlocks: [] });
   const [renderingPreview, setRenderingPreview] = useState(false);
   const collabExtension = useMemo(
@@ -125,16 +126,23 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
       setError(null);
       setMessage(null);
       try {
-        const document = await readNoteDocument(selected.serverUrl, selected.vault.id, file, connected);
+        const document = await readNoteDocument(
+          selected.serverUrl,
+          selected.vault.id,
+          file,
+          connected,
+        );
         if (cancelled) return;
         if (liveSessionRef.current) return;
         setCurrentFile(document.file);
         setContent(document.content);
         setSavedContent(document.content);
         setSource(document.source);
-        const queued = await pendingEditsForFile(selected.serverUrl, selected.vault.id, file.id).catch(
-          () => [] as PendingOperation[],
-        );
+        const queued = await pendingEditsForFile(
+          selected.serverUrl,
+          selected.vault.id,
+          file.id,
+        ).catch(() => [] as PendingOperation[]);
         if (!cancelled) setPending(queued[0] ?? null);
       } catch (reason) {
         if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
@@ -182,7 +190,9 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
           const next = opened.text.toString();
           setContent(next);
           setSavedContent(next);
-          void replicaCacheDocument(selected.serverUrl, selected.vault.id, file.id, next).catch(() => {});
+          void replicaCacheDocument(selected.serverUrl, selected.vault.id, file.id, next).catch(
+            () => {},
+          );
         };
         syncFromText();
         opened.text.observe(syncFromText);
@@ -226,7 +236,10 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
       const rawSrc = image.getAttribute('src') ?? '';
       if (!rawSrc || isExternalHref(rawSrc)) continue;
       const target = resolveVaultLink(files, currentFile.relativePath, rawSrc);
-      if (!target || (target.kind !== 'asset' && !(target.kind === 'document' && /\.svg$/i.test(target.name)))) {
+      if (
+        !target ||
+        (target.kind !== 'asset' && !(target.kind === 'document' && /\.svg$/i.test(target.name)))
+      ) {
         image.dataset.missing = 'true';
         continue;
       }
@@ -278,7 +291,10 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
       closeSheet();
     } else if (isLogicFile(linkedFile)) {
       openSheet({ kind: 'viewer', fileId: linkedFile.id });
-    } else if (linkedFile.kind === 'document' && ['md', 'markdown'].includes(fileEntryExtension(linkedFile))) {
+    } else if (
+      linkedFile.kind === 'document' &&
+      ['md', 'markdown'].includes(fileEntryExtension(linkedFile))
+    ) {
       openSheet({ kind: 'note', fileId: linkedFile.id });
     } else if (isRichViewableFile(linkedFile)) {
       openSheet({ kind: 'viewer', fileId: linkedFile.id });
@@ -315,7 +331,12 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
     try {
       if (connected) {
         try {
-          const document = await saveNoteDocument(selected.serverUrl, selected.vault.id, currentFile, content);
+          const document = await saveNoteDocument(
+            selected.serverUrl,
+            selected.vault.id,
+            currentFile,
+            content,
+          );
           setCurrentFile(document.file);
           setSavedContent(document.content);
           replaceFile(document.file);
@@ -341,7 +362,9 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
     setContent(next);
     if (liveSession && selected) {
       setSavedContent(next);
-      void replicaCacheDocument(selected.serverUrl, selected.vault.id, currentFile.id, next).catch(() => {});
+      void replicaCacheDocument(selected.serverUrl, selected.vault.id, currentFile.id, next).catch(
+        () => {},
+      );
     }
   }
 
@@ -353,10 +376,19 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
     try {
       await retryPendingOperation(selected.serverUrl, selected.vault.id, pending.id);
       await syncServer(selected.serverUrl);
-      const queued = await pendingEditsForFile(selected.serverUrl, selected.vault.id, currentFile.id);
+      const queued = await pendingEditsForFile(
+        selected.serverUrl,
+        selected.vault.id,
+        currentFile.id,
+      );
       setPending(queued[0] ?? null);
       if (queued.length === 0) {
-        const document = await readNoteDocument(selected.serverUrl, selected.vault.id, currentFile, connected);
+        const document = await readNoteDocument(
+          selected.serverUrl,
+          selected.vault.id,
+          currentFile,
+          connected,
+        );
         setCurrentFile(document.file);
         setContent(document.content);
         setSavedContent(document.content);
@@ -379,7 +411,12 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
       await discardPendingOperation(selected.serverUrl, selected.vault.id, pending.id);
       setPending(null);
       // Reload the note so it reflects the last server-known content again.
-      const document = await readNoteDocument(selected.serverUrl, selected.vault.id, currentFile, connected);
+      const document = await readNoteDocument(
+        selected.serverUrl,
+        selected.vault.id,
+        currentFile,
+        connected,
+      );
       setCurrentFile(document.file);
       setContent(document.content);
       setSavedContent(document.content);
@@ -440,11 +477,21 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
             <span>{describePendingFailure(pending!)}</span>
           </div>
           <div className="sync-recovery-actions">
-            <button type="button" className="text-button" onClick={() => void retrySync()} disabled={recovering || !connected}>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => void retrySync()}
+              disabled={recovering || !connected}
+            >
               {recovering ? <Spinner size={14} /> : <RefreshCw size={14} aria-hidden />}
               Retry
             </button>
-            <button type="button" className="text-button destructive" onClick={() => void discardQueued()} disabled={recovering}>
+            <button
+              type="button"
+              className="text-button destructive"
+              onClick={() => void discardQueued()}
+              disabled={recovering}
+            >
               <Trash2 size={14} aria-hidden />
               Discard
             </button>
@@ -465,19 +512,31 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
           </div>
           <div className="sync-recovery-actions">
             {connected ? (
-              <button type="button" className="text-button" onClick={() => void retrySync()} disabled={recovering}>
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => void retrySync()}
+                disabled={recovering}
+              >
                 {recovering ? <Spinner size={14} /> : <RefreshCw size={14} aria-hidden />}
                 Sync now
               </button>
             ) : null}
-            <button type="button" className="text-button destructive" onClick={() => void discardQueued()} disabled={recovering}>
+            <button
+              type="button"
+              className="text-button destructive"
+              onClick={() => void discardQueued()}
+              disabled={recovering}
+            >
               <Trash2 size={14} aria-hidden />
               Discard
             </button>
           </div>
         </div>
       ) : source === 'cache' ? (
-        <Banner tone="info">Showing cached content. Changes you make will sync when you reconnect.</Banner>
+        <Banner tone="info">
+          Showing cached content. Changes you make will sync when you reconnect.
+        </Banner>
       ) : null}
 
       {busy || (mode === 'preview' && renderingPreview) ? (
@@ -486,13 +545,13 @@ export function NoteScreen({ file, prefs }: { file: HostedFileEntry; prefs: Them
           <span>{busy ? 'Loading note...' : 'Rendering preview...'}</span>
         </div>
       ) : mode === 'edit' && !readOnly ? (
-          <MobileMarkdownEditor
-            value={content}
-            prefs={prefs}
-            onChange={handleEditorChange}
-            onSave={() => void save()}
-            collabExtension={collabExtension}
-          />
+        <MobileMarkdownEditor
+          value={content}
+          prefs={prefs}
+          onChange={handleEditorChange}
+          onSave={() => void save()}
+          collabExtension={collabExtension}
+        />
       ) : (
         <>
           <article

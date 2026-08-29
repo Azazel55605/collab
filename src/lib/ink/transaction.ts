@@ -15,9 +15,9 @@
  * *how large* it may be; `liveJsonDocument.ts` and the Phase 6 ink session own
  * the Yjs plumbing.
  */
-
 import { INK_LIMITS } from '../../types/ink';
 import type { InkObject, InkSample, InkStroke } from '../../types/ink';
+
 import { encodeSamples, sampleCount } from './codec';
 import { splitIntoSegments } from './samples';
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { SvgNode, SvgPrimitiveType, SvgRect, SvgScene } from '../../types/svg';
+
 import {
   addNode,
   createNode,
@@ -10,6 +10,8 @@ import {
   translateNode,
   updateNode,
 } from '../../lib/svgDocument';
+import type { SvgNode, SvgPrimitiveType, SvgRect, SvgScene } from '../../types/svg';
+
 import type { Dimensions } from './ImageViewUtils';
 
 export type SvgTool = 'select' | SvgPrimitiveType;
@@ -95,9 +97,14 @@ export function SvgEditStage({
   );
 
   const selectedNode = selectedId
-    ? (scene.slots.find((slot) => slot.kind === 'node' && slot.node.id === selectedId)?.kind === 'node'
-        ? (scene.slots.find((slot) => slot.kind === 'node' && slot.node.id === selectedId) as { node: SvgNode }).node
-        : null)
+    ? scene.slots.find((slot) => slot.kind === 'node' && slot.node.id === selectedId)?.kind ===
+      'node'
+      ? (
+          scene.slots.find((slot) => slot.kind === 'node' && slot.node.id === selectedId) as {
+            node: SvgNode;
+          }
+        ).node
+      : null
     : null;
 
   // Bounds shown for the selection: model-derived for shapes with known
@@ -109,7 +116,9 @@ export function SvgEditStage({
       setMeasuredBox(null);
       return;
     }
-    const el = svgRef.current?.querySelector(`[data-cid="${selectedNode.id}"]`) as SVGGraphicsElement | null;
+    const el = svgRef.current?.querySelector(
+      `[data-cid="${selectedNode.id}"]`,
+    ) as SVGGraphicsElement | null;
     const rect = el?.getBoundingClientRect();
     const svgRect = svgRef.current?.getBoundingClientRect();
     if (!rect || !svgRect) {
@@ -131,9 +140,16 @@ export function SvgEditStage({
     const drag = dragRef.current;
     if (drag?.kind === 'create' && draftBox) {
       if (draftBox.width >= 2 || draftBox.height >= 2 || drag.type === 'text') {
-        const node = createNode(drag.type, draftBox.width < 2 && draftBox.height < 2
-          ? { ...draftBox, width: drag.type === 'text' ? 80 : 40, height: drag.type === 'text' ? 24 : 40 }
-          : draftBox);
+        const node = createNode(
+          drag.type,
+          draftBox.width < 2 && draftBox.height < 2
+            ? {
+                ...draftBox,
+                width: drag.type === 'text' ? 80 : 40,
+                height: drag.type === 'text' ? 24 : 40,
+              }
+            : draftBox,
+        );
         onSceneChange((s) => addNode(s, node));
         onCreated(node.id);
       }
@@ -195,7 +211,13 @@ export function SvgEditStage({
   const startResize = (e: React.PointerEvent, handle: BoxHandle) => {
     e.stopPropagation();
     if (readOnly || !selectedNode || !modelBounds) return;
-    dragRef.current = { kind: 'resize', id: selectedNode.id, origin: selectedNode, handle, startBox: modelBounds };
+    dragRef.current = {
+      kind: 'resize',
+      id: selectedNode.id,
+      origin: selectedNode,
+      handle,
+      startBox: modelBounds,
+    };
   };
 
   const startLineEndpoint = (e: React.PointerEvent, end: 'start' | 'end') => {
@@ -226,7 +248,10 @@ export function SvgEditStage({
           <g
             key={node.id}
             data-cid={node.id}
-            style={{ cursor: readOnly ? 'default' : tool === 'select' ? 'move' : 'crosshair', pointerEvents: 'visiblePainted' }}
+            style={{
+              cursor: readOnly ? 'default' : tool === 'select' ? 'move' : 'crosshair',
+              pointerEvents: 'visiblePainted',
+            }}
             onPointerDown={(e) => startMove(e, node)}
             dangerouslySetInnerHTML={{ __html: serializeNode(node, '') }}
           />

@@ -11,7 +11,6 @@
  * viewport repaint at 31 ms against 2.5 ms for one tile on a 10,000-stroke
  * page, so the renderer repaints tiles, never the viewport.
  */
-
 import type {
   InkBounds,
   InkDashStyle,
@@ -21,13 +20,14 @@ import type {
   InkScene,
   InkStroke,
 } from '../../types/ink';
+
+import { stampGlyph } from './advancedTools';
 import { decodeSamples } from './codec';
+import { INK_LIGHT_PALETTE, resolveInkColor } from './colors';
+import type { InkColorPalette } from './colors';
 import { outlineStroke } from './stroke';
 import type { InkPoint, InkStrokeOutliner } from './stroke';
 import { objectBounds } from './svg';
-import { stampGlyph } from './advancedTools';
-import { INK_LIGHT_PALETTE, resolveInkColor } from './colors';
-import type { InkColorPalette } from './colors';
 import {
   INK_TILE_CACHE_BUDGET_BYTES,
   INK_TILE_SIZE,
@@ -119,10 +119,7 @@ function paintObject(
   options: InkRenderOptions,
 ): void {
   const colors = options.colors ?? INK_LIGHT_PALETTE;
-  if (
-    (object.type === 'text' || object.type === 'stamp')
-    && object.rotation
-  ) {
+  if ((object.type === 'text' || object.type === 'stamp') && object.rotation) {
     const centerX = object.x + object.width / 2;
     const centerY = object.y + object.height / 2;
     target.save();
@@ -159,7 +156,10 @@ function paintObject(
       applyDash(target, object.stroke.dash, object.stroke.width);
       target.globalAlpha = object.stroke.opacity;
       target.stroke();
-      paintArrowheads(target, object.points, object.arrowStart, object.arrowEnd, { ...object.stroke, color: strokeColor });
+      paintArrowheads(target, object.points, object.arrowStart, object.arrowEnd, {
+        ...object.stroke,
+        color: strokeColor,
+      });
       applyDash(target, 'solid', object.stroke.width);
       target.globalAlpha = 1;
       break;
@@ -177,7 +177,10 @@ function paintObject(
       target.globalAlpha = object.stroke.opacity;
       applyDash(target, object.stroke.dash, object.stroke.width);
       target.stroke();
-      paintArrowheads(target, points, object.arrowStart, object.arrowEnd, { ...object.stroke, color: strokeColor });
+      paintArrowheads(target, points, object.arrowStart, object.arrowEnd, {
+        ...object.stroke,
+        color: strokeColor,
+      });
       applyDash(target, 'solid', object.stroke.width);
       target.globalAlpha = 1;
       break;
@@ -209,11 +212,7 @@ function paintObject(
   }
 }
 
-function applyDash(
-  target: InkRenderTarget,
-  dash: InkDashStyle | undefined,
-  width: number,
-): void {
+function applyDash(target: InkRenderTarget, dash: InkDashStyle | undefined, width: number): void {
   if (!target.setLineDash) return;
   target.setLineDash(
     dash === 'dashed' ? [width * 4, width * 3] : dash === 'dotted' ? [width, width * 2] : [],
@@ -223,7 +222,16 @@ function applyDash(
 function connectorPoints(object: Extract<InkObject, { type: 'connector' }>): number[] {
   if (object.routing === 'orthogonal') {
     const midX = Math.round((object.from.x + object.to.x) / 2);
-    return [object.from.x, object.from.y, midX, object.from.y, midX, object.to.y, object.to.x, object.to.y];
+    return [
+      object.from.x,
+      object.from.y,
+      midX,
+      object.from.y,
+      midX,
+      object.to.y,
+      object.to.x,
+      object.to.y,
+    ];
   }
   return [object.from.x, object.from.y, object.to.x, object.to.y];
 }
@@ -241,7 +249,15 @@ function paintArrowheads(
   }
   if (end && end !== 'none') {
     const last = points.length - 2;
-    paintArrowhead(target, points[last], points[last + 1], points[last - 2], points[last - 1], end, stroke);
+    paintArrowhead(
+      target,
+      points[last],
+      points[last + 1],
+      points[last - 2],
+      points[last - 1],
+      end,
+      stroke,
+    );
   }
 }
 
@@ -265,7 +281,8 @@ function paintArrowhead(
       const theta = (index / segments) * Math.PI * 2;
       const px = x + Math.cos(theta) * size * 0.45;
       const py = y + Math.sin(theta) * size * 0.45;
-      if (index === 0) target.moveTo(px, py); else target.lineTo(px, py);
+      if (index === 0) target.moveTo(px, py);
+      else target.lineTo(px, py);
     }
     target.closePath();
     target.fill();
@@ -347,12 +364,7 @@ export function paintPageBackground(
   const background = page.background;
   if (background.color) {
     target.fillStyle = resolveInkColor(background.color, colors);
-    target.fillRect(
-      region.minX,
-      region.minY,
-      region.maxX - region.minX,
-      region.maxY - region.minY,
-    );
+    target.fillRect(region.minX, region.minY, region.maxX - region.minX, region.maxY - region.minY);
   }
   if (background.pattern === 'blank') return;
 

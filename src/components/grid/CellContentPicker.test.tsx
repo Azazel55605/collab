@@ -1,9 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import CellContentPicker from './CellContentPicker';
 import { useNoteIndexStore } from '../../store/noteIndexStore';
 import { useVaultStore } from '../../store/vaultStore';
+
+import CellContentPicker from './CellContentPicker';
 
 vi.mock('../ui/tooltip', () => ({
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,

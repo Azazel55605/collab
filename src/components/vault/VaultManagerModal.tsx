@@ -1,23 +1,66 @@
 import { useEffect, useRef, useState } from 'react';
+
 import {
-  Vault, FolderOpen, Plus, Download, Upload, Trash2, Pencil,
-  Check, ChevronRight, Clock, ShieldCheck, Lock, LockOpen, Eye, EyeOff,
-  Server, RefreshCw, HardDriveDownload, AlertTriangle, WifiOff,
+  AlertTriangle,
+  Check,
+  ChevronRight,
+  Clock,
+  Download,
+  Eye,
+  EyeOff,
+  FolderOpen,
+  HardDriveDownload,
+  Lock,
+  LockOpen,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Server,
+  ShieldCheck,
+  Trash2,
+  Upload,
+  Vault,
+  WifiOff,
 } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/dialog';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
+import { toast } from 'sonner';
+
+import { tauriCommands } from '../../lib/tauri';
 import { cn } from '../../lib/utils';
-import { useVaultStore } from '../../store/vaultStore';
-import { useServerStore, isEffectivelyConnected } from '../../store/serverStore';
+import {
+  createVaultClient,
+  hasRuntimeCapability,
+  requireRuntimeCapability,
+} from '../../lib/vaultClient';
+import {
+  deleteHostedVaultReplica,
+  listHostedVaultReplicas,
+  type ReplicaSummary,
+} from '../../lib/vaultReplica';
+import { isEffectivelyConnected, useServerStore } from '../../store/serverStore';
 import { syncRollup, useSyncStore } from '../../store/syncStore';
 import { useUiStore } from '../../store/uiStore';
-import { tauriCommands } from '../../lib/tauri';
-import { createVaultClient, hasRuntimeCapability, requireRuntimeCapability } from '../../lib/vaultClient';
-import { deleteHostedVaultReplica, listHostedVaultReplicas, type ReplicaSummary } from '../../lib/vaultReplica';
+import { useVaultStore } from '../../store/vaultStore';
+import {
+  hostedVaultMeta,
+  type HostedVaultMeta,
+  type HostedVaultSummary,
+  type MemberRole,
+  vaultKind,
+  type VaultKind,
+  type VaultMeta,
+} from '../../types/vault';
+import { Button } from '../ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
+import { Input } from '../ui/input';
+
 import { HostedMembersPanel } from './HostedMembersPanel';
-import { hostedVaultMeta, vaultKind, type HostedVaultMeta, type HostedVaultSummary, type MemberRole, type VaultKind, type VaultMeta } from '../../types/vault';
-import { toast } from 'sonner';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -42,7 +85,9 @@ function CreateVaultForm({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
 
   const pickFolder = async () => {
     const p = await tauriCommands.showOpenVaultDialog();
@@ -74,7 +119,10 @@ function CreateVaultForm({ onDone }: { onDone: () => void }) {
         placeholder="Vault name"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') create(); if (e.key === 'Escape') onDone(); }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') create();
+          if (e.key === 'Escape') onDone();
+        }}
         className="h-8 text-sm"
       />
       <Button
@@ -89,7 +137,9 @@ function CreateVaultForm({ onDone }: { onDone: () => void }) {
         </span>
       </Button>
       <div className="flex gap-2 justify-end">
-        <Button variant="ghost" size="sm" onClick={onDone} disabled={busy}>Cancel</Button>
+        <Button variant="ghost" size="sm" onClick={onDone} disabled={busy}>
+          Cancel
+        </Button>
         <Button size="sm" onClick={create} disabled={busy || !path || !name.trim()}>
           Create &amp; Open
         </Button>
@@ -109,7 +159,14 @@ interface VaultRowProps {
   onRenameComplete: (newName: string) => void;
 }
 
-function VaultRow({ meta, isCurrent, onOpen, onRemove, onExport, onRenameComplete }: VaultRowProps) {
+function VaultRow({
+  meta,
+  isCurrent,
+  onOpen,
+  onRemove,
+  onExport,
+  onRenameComplete,
+}: VaultRowProps) {
   const [renaming, setRenaming] = useState(false);
   const [renameVal, setRenameVal] = useState(meta.name);
   const renameRef = useRef<HTMLInputElement>(null);
@@ -134,10 +191,12 @@ function VaultRow({ meta, isCurrent, onOpen, onRemove, onExport, onRenameComplet
       )}
     >
       {/* Vault icon */}
-      <div className={cn(
-        'w-8 h-8 rounded-md flex items-center justify-center shrink-0 border',
-        isCurrent ? 'bg-primary/15 border-primary/25' : 'bg-muted/40 border-border/40',
-      )}>
+      <div
+        className={cn(
+          'w-8 h-8 rounded-md flex items-center justify-center shrink-0 border',
+          isCurrent ? 'bg-primary/15 border-primary/25' : 'bg-muted/40 border-border/40',
+        )}
+      >
         <Vault size={14} className={isCurrent ? 'text-primary' : 'text-muted-foreground'} />
       </div>
 
@@ -150,7 +209,10 @@ function VaultRow({ meta, isCurrent, onOpen, onRemove, onExport, onRenameComplet
             onChange={(e) => setRenameVal(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') commitRename();
-              if (e.key === 'Escape') { setRenaming(false); setRenameVal(meta.name); }
+              if (e.key === 'Escape') {
+                setRenaming(false);
+                setRenameVal(meta.name);
+              }
             }}
             onBlur={commitRename}
             className="h-6 text-sm px-1.5 py-0"
@@ -242,15 +304,21 @@ function HostedVaultRow({
           : 'border-transparent hover:border-border/50 hover:bg-accent/30',
       )}
     >
-      <div className={cn(
-        'w-8 h-8 rounded-md flex items-center justify-center shrink-0 border',
-        isCurrent
-          ? 'bg-primary/15 border-primary/25'
-          : offline
-            ? 'bg-amber-500/10 border-amber-500/20'
-            : 'bg-primary/10 border-primary/20',
-      )}>
-        {offline ? <WifiOff size={14} className="text-amber-400" /> : <Server size={14} className="text-primary" />}
+      <div
+        className={cn(
+          'w-8 h-8 rounded-md flex items-center justify-center shrink-0 border',
+          isCurrent
+            ? 'bg-primary/15 border-primary/25'
+            : offline
+              ? 'bg-amber-500/10 border-amber-500/20'
+              : 'bg-primary/10 border-primary/20',
+        )}
+      >
+        {offline ? (
+          <WifiOff size={14} className="text-amber-400" />
+        ) : (
+          <Server size={14} className="text-primary" />
+        )}
       </div>
 
       <div className="min-w-0 flex-1">
@@ -274,7 +342,9 @@ function HostedVaultRow({
             <span className="min-w-0 truncate opacity-70">{serverUrl}</span>
           ) : (
             <>
-              <span className="shrink-0">{summary.members} {summary.members === 1 ? 'member' : 'members'}</span>
+              <span className="shrink-0">
+                {summary.members} {summary.members === 1 ? 'member' : 'members'}
+              </span>
               <span className="shrink-0 opacity-50">·</span>
               <span className="min-w-0 truncate opacity-70">{summary.ownerDisplayName}</span>
             </>
@@ -364,7 +434,8 @@ function VaultsTab({
   onClose: () => void;
   onRequestRemove: (meta: VaultMeta) => void;
 }) {
-  const { vault, recentVaults, openVault, openHostedVault, loadRecentVaults, closeVault } = useVaultStore();
+  const { vault, recentVaults, openVault, openHostedVault, loadRecentVaults, closeVault } =
+    useVaultStore();
   const connections = useServerStore((state) => state.connections);
   const serverLoading = useServerStore((state) => state.isLoading);
   const refreshAll = useServerStore((state) => state.refreshAll);
@@ -379,7 +450,9 @@ function VaultsTab({
   const [offlineReplicas, setOfflineReplicas] = useState<ReplicaSummary[]>([]);
 
   const refreshOfflineReplicas = () => {
-    listHostedVaultReplicas().then(setOfflineReplicas).catch(() => setOfflineReplicas([]));
+    listHostedVaultReplicas()
+      .then(setOfflineReplicas)
+      .catch(() => setOfflineReplicas([]));
   };
 
   useEffect(() => {
@@ -390,17 +463,23 @@ function VaultsTab({
   }, []);
 
   // Keep local list in sync with store
-  useEffect(() => { setVaults(recentVaults); }, [recentVaults]);
+  useEffect(() => {
+    setVaults(recentVaults);
+  }, [recentVaults]);
 
   const localVaults = vaults.filter((meta) => vaultKind(meta) === 'local');
-  const connectedServers = Object.values(connections).filter((c) => c.status.connected && c.status.serverUrl);
+  const connectedServers = Object.values(connections).filter(
+    (c) => c.status.connected && c.status.serverUrl,
+  );
   const totalActiveHosted = connectedServers.reduce(
     (sum, c) => sum + c.hostedVaults.filter((hosted) => hosted.status === 'active').length,
     0,
   );
   const activeHostedKeys = new Set(
     connectedServers.flatMap((c) =>
-      c.hostedVaults.filter((hosted) => hosted.status === 'active').map((hosted) => `${c.status.serverUrl}|${hosted.id}`),
+      c.hostedVaults
+        .filter((hosted) => hosted.status === 'active')
+        .map((hosted) => `${c.status.serverUrl}|${hosted.id}`),
     ),
   );
   const offlineOnlyReplicas = offlineReplicas.filter(
@@ -442,9 +521,10 @@ function VaultsTab({
   };
 
   const handleRemoveOfflineReplica = async (replica: ReplicaSummary) => {
-    const pendingText = replica.pendingCount > 0
-      ? `\n\nThis offline copy has ${replica.pendingCount} pending local change${replica.pendingCount === 1 ? '' : 's'} that will be discarded.`
-      : '';
+    const pendingText =
+      replica.pendingCount > 0
+        ? `\n\nThis offline copy has ${replica.pendingCount} pending local change${replica.pendingCount === 1 ? '' : 's'} that will be discarded.`
+        : '';
     const confirmed = window.confirm(
       `Remove the offline copy of "${replica.vaultName}" from ${replica.serverUrl}?${pendingText}`,
     );
@@ -452,9 +532,9 @@ function VaultsTab({
     try {
       await deleteHostedVaultReplica(replica);
       if (
-        vault?.kind === 'hosted'
-        && vault.hostedVaultId === replica.vaultId
-        && vault.serverUrl === replica.serverUrl
+        vault?.kind === 'hosted' &&
+        vault.hostedVaultId === replica.vaultId &&
+        vault.serverUrl === replica.serverUrl
       ) {
         closeVault();
       }
@@ -510,7 +590,7 @@ function VaultsTab({
   const handleRename = async (meta: VaultMeta, newName: string) => {
     try {
       await tauriCommands.renameVault(meta.path, newName);
-      setVaults((prev) => prev.map((v) => v.path === meta.path ? { ...v, name: newName } : v));
+      setVaults((prev) => prev.map((v) => (v.path === meta.path ? { ...v, name: newName } : v)));
     } catch (e) {
       toast.error('Rename failed: ' + e);
     }
@@ -546,12 +626,15 @@ function VaultsTab({
 
         {/* Vault list */}
         <div className="flex-1 overflow-y-auto min-h-0">
-          {localVaults.length === 0 && totalActiveHosted === 0 && offlineOnlyReplicas.length === 0 && !creating && (
-            <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
-              <Vault size={32} className="opacity-20" />
-              <p className="text-sm">No vaults yet. Create or import one.</p>
-            </div>
-          )}
+          {localVaults.length === 0 &&
+            totalActiveHosted === 0 &&
+            offlineOnlyReplicas.length === 0 &&
+            !creating && (
+              <div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
+                <Vault size={32} className="opacity-20" />
+                <p className="text-sm">No vaults yet. Create or import one.</p>
+              </div>
+            )}
 
           {/* Hosted vaults, grouped by connected server */}
           {connectedServers.map(({ status, hostedVaults }) => {
@@ -579,7 +662,9 @@ function VaultsTab({
                       </button>
                     )}
                     <button
-                      onClick={() => loadHostedVaults(serverUrl).catch((reason) => toast.error(String(reason)))}
+                      onClick={() =>
+                        loadHostedVaults(serverUrl).catch((reason) => toast.error(String(reason)))
+                      }
                       title="Refresh hosted vaults"
                       className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors app-motion-fast"
                     >
@@ -595,12 +680,20 @@ function VaultsTab({
                       onChange={(e) => setHostedName(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') handleCreateHosted(serverUrl);
-                        if (e.key === 'Escape') { setCreatingForServer(null); setHostedName(''); }
+                        if (e.key === 'Escape') {
+                          setCreatingForServer(null);
+                          setHostedName('');
+                        }
                       }}
                       placeholder="New hosted vault name"
                       className="h-7 text-sm"
                     />
-                    <Button size="sm" className="h-7 gap-1 text-xs" disabled={hostedBusy || !hostedName.trim()} onClick={() => handleCreateHosted(serverUrl)}>
+                    <Button
+                      size="sm"
+                      className="h-7 gap-1 text-xs"
+                      disabled={hostedBusy || !hostedName.trim()}
+                      onClick={() => handleCreateHosted(serverUrl)}
+                    >
                       <Check size={12} />
                       {hostedBusy ? 'Creating…' : 'Create'}
                     </Button>
@@ -611,7 +704,11 @@ function VaultsTab({
                     <HostedVaultRow
                       key={summary.id}
                       summary={summary}
-                      isCurrent={vault?.kind === 'hosted' && vault.hostedVaultId === summary.id && vault.serverUrl === serverUrl}
+                      isCurrent={
+                        vault?.kind === 'hosted' &&
+                        vault.hostedVaultId === summary.id &&
+                        vault.serverUrl === serverUrl
+                      }
                       onOpen={() => handleOpenHosted(serverUrl, summary)}
                       onExport={
                         summary.role === 'admin'
@@ -621,7 +718,9 @@ function VaultsTab({
                     />
                   ))}
                   {!serverLoading && activeHostedVaults.length === 0 && (
-                    <p className="py-2 text-center text-xs text-muted-foreground">No hosted vaults available on this server.</p>
+                    <p className="py-2 text-center text-xs text-muted-foreground">
+                      No hosted vaults available on this server.
+                    </p>
                   )}
                 </div>
               </div>
@@ -641,9 +740,9 @@ function VaultsTab({
                     key={`${replica.serverUrl}|${replica.vaultId}`}
                     summary={replicaToHostedVaultSummary(replica)}
                     isCurrent={
-                      vault?.kind === 'hosted'
-                      && vault.hostedVaultId === replica.vaultId
-                      && vault.serverUrl === replica.serverUrl
+                      vault?.kind === 'hosted' &&
+                      vault.hostedVaultId === replica.vaultId &&
+                      vault.serverUrl === replica.serverUrl
                     }
                     onOpen={() => handleOpenOfflineReplica(replica)}
                     offline
@@ -656,7 +755,9 @@ function VaultsTab({
           ))}
 
           {/* Local vaults */}
-          {(localVaults.length > 0 || connectedServers.length > 0 || offlineOnlyReplicas.length > 0) && (
+          {(localVaults.length > 0 ||
+            connectedServers.length > 0 ||
+            offlineOnlyReplicas.length > 0) && (
             <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
               <Clock size={11} />
               Local
@@ -672,7 +773,11 @@ function VaultsTab({
                   isCurrent={vault?.path === meta.path}
                   onOpen={() => handleOpen(meta.path)}
                   onRemove={() => onRequestRemove(meta)}
-                  onExport={hasRuntimeCapability(client, 'archiveExport') ? () => handleExport(meta) : undefined}
+                  onExport={
+                    hasRuntimeCapability(client, 'archiveExport')
+                      ? () => handleExport(meta)
+                      : undefined
+                  }
                   onRenameComplete={(newName) => handleRename(meta, newName)}
                 />
               );
@@ -724,13 +829,16 @@ function OfflineSyncTab() {
 
   const rollup = syncRollup({ isSyncing, status, pending, failed });
   const lastSyncLabel = lastSyncedAt ? new Date(lastSyncedAt).toLocaleString() : 'Not synced yet';
-  const offlineReadyLabel = offlineAvailableAt ? new Date(offlineAvailableAt).toLocaleString() : null;
+  const offlineReadyLabel = offlineAvailableAt
+    ? new Date(offlineAvailableAt).toLocaleString()
+    : null;
   const accessLost = access !== 'ok';
-  const progressLabel = progress && progress.total > 0
-    ? `${progress.completed} / ${progress.total} files cached`
-    : progress
-      ? 'Preparing offline cache…'
-      : null;
+  const progressLabel =
+    progress && progress.total > 0
+      ? `${progress.completed} / ${progress.total} files cached`
+      : progress
+        ? 'Preparing offline cache…'
+        : null;
 
   const handleMakeOffline = async () => {
     setProgress({ completed: 0, total: 0 });
@@ -739,9 +847,9 @@ function OfflineSyncTab() {
         setProgress({ completed, total });
       });
       toast.success(
-        `Offline copy ready: ${report.documentsCached} documents and ${report.assetsCached} assets cached`
-        + (report.alreadyCached ? ` (${report.alreadyCached} already cached)` : '')
-        + (report.skipped ? ` (${report.skipped} skipped)` : ''),
+        `Offline copy ready: ${report.documentsCached} documents and ${report.assetsCached} assets cached` +
+          (report.alreadyCached ? ` (${report.alreadyCached} already cached)` : '') +
+          (report.skipped ? ` (${report.skipped} skipped)` : ''),
       );
     } catch (error) {
       toast.error(`Could not prepare offline copy: ${error}`);
@@ -790,17 +898,25 @@ function OfflineSyncTab() {
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-lg border border-border/50 bg-card/60 p-3">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Status</p>
-          <p className="mt-2 text-sm font-medium capitalize text-foreground">{accessLost ? access : rollup}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+            Status
+          </p>
+          <p className="mt-2 text-sm font-medium capitalize text-foreground">
+            {accessLost ? access : rollup}
+          </p>
           <p className="mt-1 text-xs text-muted-foreground">Last sync: {lastSyncLabel}</p>
           {offlineReadyLabel && (
             <p className="mt-1 text-xs text-primary">Offline copy ready: {offlineReadyLabel}</p>
           )}
         </div>
         <div className="rounded-lg border border-border/50 bg-card/60 p-3">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Local changes</p>
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+            Local changes
+          </p>
           <p className="mt-2 text-sm font-medium text-foreground">{pending.length} pending</p>
-          <p className="mt-1 text-xs text-muted-foreground">{failed.length} conflict{failed.length === 1 ? '' : 's'} need attention</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {failed.length} conflict{failed.length === 1 ? '' : 's'} need attention
+          </p>
         </div>
       </div>
 
@@ -809,7 +925,8 @@ function OfflineSyncTab() {
           <p className="mb-1 flex items-center gap-1 font-medium text-destructive">
             <AlertTriangle size={13} /> Sync unavailable
           </p>
-          Your access to this vault is no longer valid on the server. The local copy is kept until you remove it.
+          Your access to this vault is no longer valid on the server. The local copy is kept until
+          you remove it.
         </div>
       )}
 
@@ -839,7 +956,11 @@ function OfflineSyncTab() {
           variant="ghost"
           className="ml-auto gap-1.5 text-muted-foreground hover:text-destructive"
           disabled={isSyncing || removing || pending.length > 0 || failed.length > 0}
-          title={pending.length > 0 || failed.length > 0 ? 'Resolve or discard unsynced changes before removing the offline copy.' : undefined}
+          title={
+            pending.length > 0 || failed.length > 0
+              ? 'Resolve or discard unsynced changes before removing the offline copy.'
+              : undefined
+          }
           onClick={() => void handleRemoveReplica()}
         >
           <Trash2 size={13} />
@@ -848,8 +969,8 @@ function OfflineSyncTab() {
       </div>
 
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        The status-bar sync chip is still the quickest place to retry, discard, or inspect
-        pending offline changes while you work.
+        The status-bar sync chip is still the quickest place to retry, discard, or inspect pending
+        offline changes while you work.
       </p>
     </div>
   );
@@ -860,8 +981,16 @@ function OfflineSyncTab() {
 // ─── Encryption Tab ───────────────────────────────────────────────────────────
 
 function PasswordField({
-  label, value, onChange, placeholder,
-}: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
   const [show, setShow] = useState(false);
   return (
     <div>
@@ -920,7 +1049,8 @@ function EncryptionTab() {
       useVaultStore.setState((s) => ({
         vault: s.vault ? { ...s.vault, isEncrypted: true } : s.vault,
       }));
-      setNewPw(''); setConfirmPw('');
+      setNewPw('');
+      setConfirmPw('');
       toast.success('Vault encryption enabled');
     } catch (e) {
       toast.error('Failed to enable encryption: ' + e);
@@ -937,8 +1067,13 @@ function EncryptionTab() {
     if (changePw.length < 8) return toast.error('New password must be at least 8 characters');
     setChangeBusy(true);
     try {
-      await requireRuntimeCapability(createVaultClient(vault), 'encryption').changePassword(oldPw, changePw);
-      setOldPw(''); setChangePw(''); setChangeConfirm('');
+      await requireRuntimeCapability(createVaultClient(vault), 'encryption').changePassword(
+        oldPw,
+        changePw,
+      );
+      setOldPw('');
+      setChangePw('');
+      setChangeConfirm('');
       toast.success('Password changed');
     } catch (e) {
       toast.error('Failed to change password: ' + e);
@@ -976,12 +1111,14 @@ function EncryptionTab() {
   return (
     <div className="flex flex-col gap-5 h-full overflow-y-auto pr-1">
       {/* Status banner */}
-      <div className={cn(
-        'flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-sm font-medium',
-        isEncrypted
-          ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
-          : 'bg-muted/40 border-border/50 text-muted-foreground',
-      )}>
+      <div
+        className={cn(
+          'flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-sm font-medium',
+          isEncrypted
+            ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
+            : 'bg-muted/40 border-border/50 text-muted-foreground',
+        )}
+      >
         {isEncrypted ? <Lock size={14} /> : <LockOpen size={14} />}
         {isEncrypted
           ? 'This vault is encrypted at rest (AES-256-GCM · Argon2id)'
@@ -995,9 +1132,11 @@ function EncryptionTab() {
             Enable Encryption
           </p>
           <p className="text-[12px] text-muted-foreground leading-relaxed">
-            All note files will be encrypted with AES-256-GCM. The key is derived
-            from your password using Argon2id — without the correct password the
-            files cannot be read. <span className="text-foreground/70 font-medium">There is no recovery if you lose the password.</span>
+            All note files will be encrypted with AES-256-GCM. The key is derived from your password
+            using Argon2id — without the correct password the files cannot be read.{' '}
+            <span className="text-foreground/70 font-medium">
+              There is no recovery if you lose the password.
+            </span>
           </p>
           <PasswordField label="New Password" value={newPw} onChange={setNewPw} />
           <PasswordField label="Confirm Password" value={confirmPw} onChange={setConfirmPw} />
@@ -1022,7 +1161,11 @@ function EncryptionTab() {
             </p>
             <PasswordField label="Current Password" value={oldPw} onChange={setOldPw} />
             <PasswordField label="New Password" value={changePw} onChange={setChangePw} />
-            <PasswordField label="Confirm New Password" value={changeConfirm} onChange={setChangeConfirm} />
+            <PasswordField
+              label="Confirm New Password"
+              value={changeConfirm}
+              onChange={setChangeConfirm}
+            />
             <Button
               size="sm"
               variant="outline"
@@ -1041,7 +1184,8 @@ function EncryptionTab() {
               Danger Zone
             </p>
             <p className="text-[12px] text-muted-foreground">
-              Decrypts all files and removes the encryption header. Files will be stored in plaintext.
+              Decrypts all files and removes the encryption header. Files will be stored in
+              plaintext.
             </p>
             <PasswordField label="Current Password" value={disablePw} onChange={setDisablePw} />
             <Button
@@ -1073,9 +1217,7 @@ const ALL_TABS: Record<Tab, { id: Tab; label: string; icon: React.ReactNode }> =
 };
 
 export function vaultManagerTabIds(kind: VaultKind): Tab[] {
-  return kind === 'hosted'
-    ? ['vaults', 'permissions', 'offline']
-    : ['vaults', 'encryption'];
+  return kind === 'hosted' ? ['vaults', 'permissions', 'offline'] : ['vaults', 'encryption'];
 }
 
 export default function VaultManagerModal() {
@@ -1098,7 +1240,11 @@ export default function VaultManagerModal() {
         closeVault();
       }
       await removeRecentVault(removeTarget.path);
-      toast.success(isCurrent ? `Closed and removed "${removeTarget.name}" from recents` : `Removed "${removeTarget.name}" from recents`);
+      toast.success(
+        isCurrent
+          ? `Closed and removed "${removeTarget.name}" from recents`
+          : `Removed "${removeTarget.name}" from recents`,
+      );
     } catch (error) {
       toast.error(`Failed to remove vault: ${error}`);
     } finally {
@@ -1108,67 +1254,73 @@ export default function VaultManagerModal() {
 
   return (
     <>
-    <Dialog
-      open={!!removeTarget}
-      onOpenChange={(open) => { if (!open) setRemoveTarget(null); }}
-    >
-      <DialogContent showCloseButton={false} className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Remove vault from recents?</DialogTitle>
-          <DialogDescription>
-            {removeTarget && vault?.path === removeTarget.path
-              ? `"${removeTarget.name}" is currently open. Removing it from recents will also close the active vault.`
-              : `This removes "${removeTarget?.name ?? ''}" from the recent vaults list.`}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
-          <Button variant="outline" onClick={() => setRemoveTarget(null)}>Cancel</Button>
-          <Button variant="destructive" onClick={() => void confirmRemoveVault()}>
-            Remove
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <Dialog
+        open={!!removeTarget}
+        onOpenChange={(open) => {
+          if (!open) setRemoveTarget(null);
+        }}
+      >
+        <DialogContent showCloseButton={false} className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Remove vault from recents?</DialogTitle>
+            <DialogDescription>
+              {removeTarget && vault?.path === removeTarget.path
+                ? `"${removeTarget.name}" is currently open. Removing it from recents will also close the active vault.`
+                : `This removes "${removeTarget?.name ?? ''}" from the recent vaults list.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="border-none bg-transparent -mx-0 -mb-0 px-0 pb-0">
+            <Button variant="outline" onClick={() => setRemoveTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => void confirmRemoveVault()}>
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-    <Dialog open={isVaultManagerOpen} onOpenChange={(open) => !open && closeVaultManager()}>
-      <DialogContent className="sm:max-w-3xl w-full p-0 overflow-hidden glass-strong border-border/40 shadow-2xl shadow-black/60 gap-0">
-        <DialogHeader className="px-5 pt-5 pb-0">
-          <DialogTitle className="flex items-center gap-2 text-base font-semibold">
-            <Vault size={16} className="text-primary" />
-            Vault Manager
-          </DialogTitle>
-        </DialogHeader>
+      <Dialog open={isVaultManagerOpen} onOpenChange={(open) => !open && closeVaultManager()}>
+        <DialogContent className="sm:max-w-3xl w-full p-0 overflow-hidden glass-strong border-border/40 shadow-2xl shadow-black/60 gap-0">
+          <DialogHeader className="px-5 pt-5 pb-0">
+            <DialogTitle className="flex items-center gap-2 text-base font-semibold">
+              <Vault size={16} className="text-primary" />
+              Vault Manager
+            </DialogTitle>
+          </DialogHeader>
 
-        <div className="flex h-[520px]">
-          {/* Tab sidebar */}
-          <nav className="w-44 shrink-0 border-r border-border/40 p-2 flex flex-col gap-0.5">
-            {tabs.map(({ id, label, icon }) => (
-              <button
-                key={id}
-                onClick={() => setTab(id)}
-                className={cn(
-                  'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all text-left',
-                  tab === id
-                    ? 'bg-primary/15 text-primary font-medium'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
-                )}
-              >
-                {icon}
-                {label}
-              </button>
-            ))}
-          </nav>
+          <div className="flex h-[520px]">
+            {/* Tab sidebar */}
+            <nav className="w-44 shrink-0 border-r border-border/40 p-2 flex flex-col gap-0.5">
+              {tabs.map(({ id, label, icon }) => (
+                <button
+                  key={id}
+                  onClick={() => setTab(id)}
+                  className={cn(
+                    'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all text-left',
+                    tab === id
+                      ? 'bg-primary/15 text-primary font-medium'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
+                  )}
+                >
+                  {icon}
+                  {label}
+                </button>
+              ))}
+            </nav>
 
-          {/* Tab content */}
-          <div className="flex-1 min-w-0 overflow-y-auto p-5 flex flex-col">
-            {tab === 'vaults' && <VaultsTab onClose={closeVaultManager} onRequestRemove={setRemoveTarget} />}
-            {tab === 'permissions' && <HostedPermissionsTab />}
-            {tab === 'offline' && <OfflineSyncTab />}
-            {tab === 'encryption' && <EncryptionTab />}
+            {/* Tab content */}
+            <div className="flex-1 min-w-0 overflow-y-auto p-5 flex flex-col">
+              {tab === 'vaults' && (
+                <VaultsTab onClose={closeVaultManager} onRequestRemove={setRemoveTarget} />
+              )}
+              {tab === 'permissions' && <HostedPermissionsTab />}
+              {tab === 'offline' && <OfflineSyncTab />}
+              {tab === 'encryption' && <EncryptionTab />}
+            </div>
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

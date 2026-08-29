@@ -1,11 +1,26 @@
 import {
+  type CSSProperties,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+  type TouchEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type WheelEvent,
+} from 'react';
+
+import { getSmoothStepPath } from '@xyflow/react';
+import {
   Activity,
   ArrowLeft,
   Calendar,
-  CheckCircle2,
   ChartLine,
-  CircuitBoard,
+  CheckCircle2,
   CircleDot,
+  CircuitBoard,
   Diamond,
   FileImage,
   FileText,
@@ -21,8 +36,8 @@ import {
   PencilLine,
   Play,
   Plus,
-  Route,
   RotateCcw,
+  Route,
   Save,
   Settings2,
   SlidersHorizontal,
@@ -32,53 +47,22 @@ import {
   Zap,
 } from 'lucide-react';
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type Dispatch,
-  type RefObject,
-  type SetStateAction,
-  type TouchEvent,
-  type WheelEvent,
-} from 'react';
-import { getSmoothStepPath } from '@xyflow/react';
-import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy, type RenderTask } from 'pdfjs-dist/legacy/build/pdf.mjs';
+  getDocument,
+  GlobalWorkerOptions,
+  type PDFDocumentProxy,
+  type RenderTask,
+} from 'pdfjs-dist/legacy/build/pdf.mjs';
 
-import { Banner, EmptyState, Spinner } from '../components/ui';
-import { isCanvasFile, readCanvasDocument, type CanvasData, type CanvasEdge, type CanvasNode } from '../lib/canvas';
 import {
-  isLogicFile,
-  parseLogicContent,
-  readLogicDocument,
-  saveLogicDocument,
-  serializeLogicDocument,
-  type LogicDiagramDocument,
-} from '../lib/logic';
-import {
-  isImageFile,
-  isPdfFile,
-  readMobileAssetDataUrl,
-  uint8ArrayFromDataUrlChunked,
-} from '../lib/assets';
-import { calculateMobilePdfPageSize, type MobilePdfPageSize } from '../lib/pdf';
+  CircuitSweepPlot,
+  CircuitTransientPlot,
+} from '../../../../src/components/logic/CircuitSweepPlot';
 import {
   evaluateLogicDiagram,
   getLogicInputHandles,
   getLogicOutputHandles,
   type LogicSignal,
 } from '../../../../src/components/logic/logicDiagramEvaluator';
-import {
-  defaultSchematicElectricalParameters,
-  isElectronicComponentKind,
-  type ElectronicComponentKind,
-  type LogicDiagramNode,
-  type LogicSourceWaveform,
-  type SchematicElectricalParameters,
-  type SchematicSymbolSet,
-} from '../../../../src/types/logicDiagram';
 import {
   getSchematicTerminals,
   schematicSymbolDimensions,
@@ -88,36 +72,73 @@ import {
   schematicTerminalPoint,
   schematicTerminalSide,
 } from '../../../../src/components/logic/schematicSymbols';
+import { circuitErrorText } from '../../../../src/lib/circuitErrorText';
+import { type CircuitJobClient, runCircuitJob } from '../../../../src/lib/circuitJobRunner';
+import {
+  type CircuitSweepJobClient,
+  runCircuitSweepJob,
+} from '../../../../src/lib/circuitSweepRunner';
+import {
+  type CircuitTransientJobClient,
+  runCircuitTransientJob,
+} from '../../../../src/lib/circuitTransientRunner';
+import {
+  defaultSchematicElectricalParameters,
+  type ElectronicComponentKind,
+  isElectronicComponentKind,
+  type LogicDiagramNode,
+  type LogicSourceWaveform,
+  type SchematicElectricalParameters,
+  type SchematicSymbolSet,
+} from '../../../../src/types/logicDiagram';
+import { Banner, EmptyState, Spinner } from '../components/ui';
+import {
+  isImageFile,
+  isPdfFile,
+  readMobileAssetDataUrl,
+  uint8ArrayFromDataUrlChunked,
+} from '../lib/assets';
+import {
+  type CanvasData,
+  type CanvasEdge,
+  type CanvasNode,
+  isCanvasFile,
+  readCanvasDocument,
+} from '../lib/canvas';
+import { isReadOnlyRole } from '../lib/format';
+import {
+  type JsonObject,
+  type MobileLiveJsonSession,
+  openMobileLiveJsonSession,
+} from '../lib/liveNote';
+import {
+  isLogicFile,
+  type LogicDiagramDocument,
+  parseLogicContent,
+  readLogicDocument,
+  saveLogicDocument,
+  serializeLogicDocument,
+} from '../lib/logic';
+import { calculateMobilePdfPageSize, type MobilePdfPageSize } from '../lib/pdf';
+import { enqueueDocumentEdit, isLikelyConnectivityError } from '../lib/sync';
 import type { HostedFileEntry } from '../mobileTauri';
 import {
   circuitCancelJob,
+  type CircuitDcResult,
   circuitDiscardJob,
   circuitJobStatus,
+  type CircuitJobStatus,
   circuitReadSweepChunk,
   circuitReadTransientChunk,
   circuitStartDc,
   circuitStartDcSweep,
   circuitStartTransient,
-  circuitTakeJobResult,
-  replicaCacheDocument,
-  type CircuitDcResult,
-  type CircuitJobStatus,
   type CircuitSweepResult,
+  circuitTakeJobResult,
   type CircuitTransientResult,
+  replicaCacheDocument,
 } from '../mobileTauri';
 import { useMobileStore } from '../state/store';
-import { runCircuitJob, type CircuitJobClient } from '../../../../src/lib/circuitJobRunner';
-import { runCircuitSweepJob, type CircuitSweepJobClient } from '../../../../src/lib/circuitSweepRunner';
-import { runCircuitTransientJob, type CircuitTransientJobClient } from '../../../../src/lib/circuitTransientRunner';
-import { circuitErrorText } from '../../../../src/lib/circuitErrorText';
-import { CircuitSweepPlot, CircuitTransientPlot } from '../../../../src/components/logic/CircuitSweepPlot';
-import { isReadOnlyRole } from '../lib/format';
-import { enqueueDocumentEdit, isLikelyConnectivityError } from '../lib/sync';
-import {
-  openMobileLiveJsonSession,
-  type JsonObject,
-  type MobileLiveJsonSession,
-} from '../lib/liveNote';
 
 const workerUrl = new URL('pdfjs-dist/legacy/build/pdf.worker.mjs', import.meta.url).toString();
 GlobalWorkerOptions.workerSrc = workerUrl;
@@ -145,9 +166,18 @@ const ANALOG_ACTIVE_VOLTAGE = 1e-9;
 
 type LoadState =
   | { status: 'loading' }
-  | { status: 'ready'; dataUrl?: string; canvas?: CanvasData; logic?: LogicDiagramDocument; source: 'network' | 'cache' }
+  | {
+      status: 'ready';
+      dataUrl?: string;
+      canvas?: CanvasData;
+      logic?: LogicDiagramDocument;
+      source: 'network' | 'cache';
+    }
   | { status: 'error'; message: string };
-type LogicSaveState = { status: 'idle' | 'saving' | 'saved' | 'offline' | 'error'; message?: string };
+type LogicSaveState = {
+  status: 'idle' | 'saving' | 'saved' | 'offline' | 'error';
+  message?: string;
+};
 type PdfLayoutMode = 'single' | 'scroll';
 type TouchPoint = { x: number; y: number };
 type CanvasWorldBounds = {
@@ -212,10 +242,21 @@ export function RichFileViewerScreen({
       setZoom(1);
       try {
         if (canvas) {
-          const result = await readCanvasDocument(selected.serverUrl, selected.vault.id, file, connected);
-          if (!cancelled) setLoadState({ status: 'ready', canvas: result.canvas, source: result.source });
+          const result = await readCanvasDocument(
+            selected.serverUrl,
+            selected.vault.id,
+            file,
+            connected,
+          );
+          if (!cancelled)
+            setLoadState({ status: 'ready', canvas: result.canvas, source: result.source });
         } else if (logic) {
-          const result = await readLogicDocument(selected.serverUrl, selected.vault.id, file, connected);
+          const result = await readLogicDocument(
+            selected.serverUrl,
+            selected.vault.id,
+            file,
+            connected,
+          );
           if (!cancelled) {
             currentFileRef.current = result.file;
             currentLogicRef.current = result.logic;
@@ -265,13 +306,22 @@ export function RichFileViewerScreen({
         if (canonical) {
           const nodeIds = new Set(nextLogic.nodes.map((node) => node.id));
           const wireIds = new Set(nextLogic.wires.map((wire) => wire.id));
-          if (!canonical.nodes.every((node) => nodeIds.has(node.id))
-            || !canonical.wires.every((wire) => wireIds.has(wire.id))) return;
+          if (
+            !canonical.nodes.every((node) => nodeIds.has(node.id)) ||
+            !canonical.wires.every((wire) => wireIds.has(wire.id))
+          )
+            return;
         }
         currentLogicRef.current = nextLogic;
-        setLoadState((current) => current.status === 'ready'
-          ? { ...current, logic: nextLogic, source: opened?.getStatus() === 'connected' ? 'network' : 'cache' }
-          : current);
+        setLoadState((current) =>
+          current.status === 'ready'
+            ? {
+                ...current,
+                logic: nextLogic,
+                source: opened?.getStatus() === 'connected' ? 'network' : 'cache',
+              }
+            : current,
+        );
         void replicaCacheDocument(
           selected.serverUrl,
           selected.vault.id,
@@ -306,62 +356,68 @@ export function RichFileViewerScreen({
     };
   }, [file.id, logic, selected?.serverUrl, selected?.vault.id, selected?.vault.role]);
 
-  const persistLogic = useCallback(async (nextLogic: LogicDiagramDocument) => {
-    if (!selected || isReadOnlyRole(selected.vault.role)) {
-      throw new Error('This vault is read-only.');
-    }
-    const content = serializeLogicDocument(nextLogic);
-    currentLogicRef.current = nextLogic;
-    setLoadState((current) => current.status === 'ready'
-      ? { ...current, logic: nextLogic }
-      : current);
-    setLogicSaveState({ status: 'saving' });
-    try {
-      const liveSession = logicLiveSessionRef.current;
-      if (liveSession) {
-        liveSession.writeJson(JSON.parse(content) as JsonObject);
-        await replicaCacheDocument(
-          selected.serverUrl,
-          selected.vault.id,
-          currentFileRef.current.id,
-          content,
-        ).catch(() => {});
-        setLogicSaveState({ status: 'saved', message: 'Circuit values saved live.' });
-        return;
+  const persistLogic = useCallback(
+    async (nextLogic: LogicDiagramDocument) => {
+      if (!selected || isReadOnlyRole(selected.vault.role)) {
+        throw new Error('This vault is read-only.');
       }
-      if (connected) {
-        try {
-          const document = await saveLogicDocument(
+      const content = serializeLogicDocument(nextLogic);
+      currentLogicRef.current = nextLogic;
+      setLoadState((current) =>
+        current.status === 'ready' ? { ...current, logic: nextLogic } : current,
+      );
+      setLogicSaveState({ status: 'saving' });
+      try {
+        const liveSession = logicLiveSessionRef.current;
+        if (liveSession) {
+          liveSession.writeJson(JSON.parse(content) as JsonObject);
+          await replicaCacheDocument(
             selected.serverUrl,
             selected.vault.id,
-            currentFileRef.current,
-            nextLogic,
-          );
-          currentFileRef.current = document.file;
-          replaceFile(document.file);
-          setLogicSaveState({ status: 'saved', message: 'Circuit values saved.' });
+            currentFileRef.current.id,
+            content,
+          ).catch(() => {});
+          setLogicSaveState({ status: 'saved', message: 'Circuit values saved live.' });
           return;
-        } catch (error) {
-          if (!isLikelyConnectivityError(error)) throw error;
         }
+        if (connected) {
+          try {
+            const document = await saveLogicDocument(
+              selected.serverUrl,
+              selected.vault.id,
+              currentFileRef.current,
+              nextLogic,
+            );
+            currentFileRef.current = document.file;
+            replaceFile(document.file);
+            setLogicSaveState({ status: 'saved', message: 'Circuit values saved.' });
+            return;
+          } catch (error) {
+            if (!isLikelyConnectivityError(error)) throw error;
+          }
+        }
+        await enqueueDocumentEdit(
+          selected.serverUrl,
+          selected.vault.id,
+          currentFileRef.current,
+          content,
+          selected.vault.manifestSequence,
+        );
+        setLoadState((current) =>
+          current.status === 'ready' ? { ...current, source: 'cache' } : current,
+        );
+        setLogicSaveState({
+          status: 'offline',
+          message: 'Saved offline. The circuit will sync when reconnected.',
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setLogicSaveState({ status: 'error', message });
+        throw error;
       }
-      await enqueueDocumentEdit(
-        selected.serverUrl,
-        selected.vault.id,
-        currentFileRef.current,
-        content,
-        selected.vault.manifestSequence,
-      );
-      setLoadState((current) => current.status === 'ready'
-        ? { ...current, source: 'cache' }
-        : current);
-      setLogicSaveState({ status: 'offline', message: 'Saved offline. The circuit will sync when reconnected.' });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setLogicSaveState({ status: 'error', message });
-      throw error;
-    }
-  }, [connected, replaceFile, selected]);
+    },
+    [connected, replaceFile, selected],
+  );
 
   function adjustZoom(delta: number) {
     setZoom((value) => clamp(Number((value + delta).toFixed(2)), 0.35, 4));
@@ -389,13 +445,23 @@ export function RichFileViewerScreen({
           <p>{statusForFile(file, loadState)}</p>
         </div>
         <div className="viewer-controls">
-          <button type="button" className="icon-button" aria-label="Zoom out" onClick={() => adjustZoom(-0.2)}>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Zoom out"
+            onClick={() => adjustZoom(-0.2)}
+          >
             <Minus size={16} aria-hidden />
           </button>
           <button type="button" className="icon-button" aria-label="Reset zoom" onClick={resetZoom}>
             <RotateCcw size={16} aria-hidden />
           </button>
-          <button type="button" className="icon-button" aria-label="Zoom in" onClick={() => adjustZoom(0.2)}>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Zoom in"
+            onClick={() => adjustZoom(0.2)}
+          >
             <Plus size={16} aria-hidden />
           </button>
         </div>
@@ -404,8 +470,12 @@ export function RichFileViewerScreen({
       {loadState.status === 'ready' && loadState.source === 'cache' ? (
         <Banner tone="info">Showing cached content. The server copy was not reachable.</Banner>
       ) : null}
-      {logicSaveState.status === 'error' ? <Banner tone="error">{logicSaveState.message}</Banner> : null}
-      {logicSaveState.status === 'offline' ? <Banner tone="info">{logicSaveState.message}</Banner> : null}
+      {logicSaveState.status === 'error' ? (
+        <Banner tone="error">{logicSaveState.message}</Banner>
+      ) : null}
+      {logicSaveState.status === 'offline' ? (
+        <Banner tone="info">{logicSaveState.message}</Banner>
+      ) : null}
 
       {loadState.status === 'loading' ? (
         <div className="loading-block">
@@ -521,7 +591,10 @@ function ImageMobileViewer({
       const first = touchPoint(event.touches[0]);
       const second = touchPoint(event.touches[1]);
       dragRef.current = null;
-      pinchRef.current = { distance: distanceBetween(first, second), center: midpoint(first, second) };
+      pinchRef.current = {
+        distance: distanceBetween(first, second),
+        center: midpoint(first, second),
+      };
     }
   }
 
@@ -556,7 +629,9 @@ function ImageMobileViewer({
       const current = touchPoint(event.touches[0]);
       const previous = dragRef.current;
       dragRef.current = current;
-      setPan((value) => clampPan({ x: value.x + current.x - previous.x, y: value.y + current.y - previous.y }));
+      setPan((value) =>
+        clampPan({ x: value.x + current.x - previous.x, y: value.y + current.y - previous.y }),
+      );
     }
   }
 
@@ -595,17 +670,21 @@ function ImageMobileViewer({
 function canvasNodeTitle(node: CanvasNode): string {
   const record = node as unknown as Record<string, unknown>;
   if (typeof record.title === 'string' && record.title.trim()) return record.title;
-  if (typeof record.relativePath === 'string' && record.relativePath.trim()) return record.relativePath.split('/').pop() ?? record.relativePath;
+  if (typeof record.relativePath === 'string' && record.relativePath.trim())
+    return record.relativePath.split('/').pop() ?? record.relativePath;
   if (typeof record.url === 'string' && record.url.trim()) return record.url;
-  if (typeof record.content === 'string' && record.content.trim()) return record.content.trim().split('\n')[0] ?? 'Text';
+  if (typeof record.content === 'string' && record.content.trim())
+    return record.content.trim().split('\n')[0] ?? 'Text';
   if (typeof record.glyph === 'string' && record.glyph.trim()) return record.glyph;
   return `${node.type[0]?.toUpperCase() ?? 'N'}${node.type.slice(1)} node`;
 }
 
 function canvasNodeSubtitle(node: CanvasNode): string | null {
   const record = node as unknown as Record<string, unknown>;
-  if (typeof record.relativePath === 'string' && record.relativePath.trim()) return record.relativePath;
-  if (typeof record.linkedRelativePath === 'string' && record.linkedRelativePath.trim()) return record.linkedRelativePath;
+  if (typeof record.relativePath === 'string' && record.relativePath.trim())
+    return record.relativePath;
+  if (typeof record.linkedRelativePath === 'string' && record.linkedRelativePath.trim())
+    return record.linkedRelativePath;
   if (typeof record.url === 'string' && record.url.trim()) return record.url;
   if (typeof record.iconLabel === 'string' && record.iconLabel.trim()) return record.iconLabel;
   return null;
@@ -708,8 +787,12 @@ function planningBadges(node: CanvasNode): Array<{ key: string; label: string; t
     ? planning.tags.filter((tag): tag is string => typeof tag === 'string' && tag.trim().length > 0)
     : [];
   return [
-    typeof planning.status === 'string' ? { key: 'status', label: planning.status.replace(/_/g, ' ') } : null,
-    typeof planning.priority === 'string' ? { key: 'priority', label: planning.priority, tone: planning.priority } : null,
+    typeof planning.status === 'string'
+      ? { key: 'status', label: planning.status.replace(/_/g, ' ') }
+      : null,
+    typeof planning.priority === 'string'
+      ? { key: 'priority', label: planning.priority, tone: planning.priority }
+      : null,
     typeof planning.ownerLabel === 'string' ? { key: 'owner', label: planning.ownerLabel } : null,
     typeof planning.dueDate === 'string' ? { key: 'due', label: planning.dueDate } : null,
     ...tags.slice(0, 3).map((tag) => ({ key: `tag-${tag}`, label: `#${tag}` })),
@@ -872,11 +955,15 @@ function mobileCanvasEndpointPosition(
   nodeGeometry: Map<string, MobileCanvasNodeGeometry>,
 ): CanvasEdgePosition {
   if (endpoint === 'source') {
-    return mobileCanvasEdgePositionFromHandle(edge.sourceHandle)
-      ?? mobileCanvasEdgePositionForNodes(edge.source, edge.target, nodeGeometry, 'right');
+    return (
+      mobileCanvasEdgePositionFromHandle(edge.sourceHandle) ??
+      mobileCanvasEdgePositionForNodes(edge.source, edge.target, nodeGeometry, 'right')
+    );
   }
-  return mobileCanvasEdgePositionFromHandle(edge.targetHandle)
-    ?? mobileCanvasEdgePositionForNodes(edge.target, edge.source, nodeGeometry, 'left');
+  return (
+    mobileCanvasEdgePositionFromHandle(edge.targetHandle) ??
+    mobileCanvasEdgePositionForNodes(edge.target, edge.source, nodeGeometry, 'left')
+  );
 }
 
 function mobileCanvasAnchorCoordinates(
@@ -886,14 +973,18 @@ function mobileCanvasAnchorCoordinates(
 ): TouchPoint {
   if (!geometry) return fallback;
   if (position === 'left') return { x: geometry.centerX - geometry.width / 2, y: geometry.centerY };
-  if (position === 'right') return { x: geometry.centerX + geometry.width / 2, y: geometry.centerY };
+  if (position === 'right')
+    return { x: geometry.centerX + geometry.width / 2, y: geometry.centerY };
   if (position === 'top') return { x: geometry.centerX, y: geometry.centerY - geometry.height / 2 };
   return { x: geometry.centerX, y: geometry.centerY + geometry.height / 2 };
 }
 
 function mobileCanvasSlotOffset(index: number, count: number, axisSize: number): number {
   if (count <= 1) return 0;
-  const availableSpread = Math.max(axisSize - MOBILE_CANVAS_EDGE_SLOT_PADDING * 2, MOBILE_CANVAS_EDGE_SLOT_SPACING);
+  const availableSpread = Math.max(
+    axisSize - MOBILE_CANVAS_EDGE_SLOT_PADDING * 2,
+    MOBILE_CANVAS_EDGE_SLOT_SPACING,
+  );
   const spacing = Math.min(MOBILE_CANVAS_EDGE_SLOT_SPACING, availableSpread / (count - 1));
   return (index - (count - 1) / 2) * spacing;
 }
@@ -910,11 +1001,23 @@ function mobileCanvasEndpointSiblings(
 ): Array<{ key: string; oppositeId: string }> {
   const siblings: Array<{ key: string; oppositeId: string }> = [];
   for (const edge of edges) {
-    if (edge.source === nodeId && mobileCanvasEndpointPosition(edge, 'source', nodeGeometry) === position) {
-      siblings.push({ key: mobileCanvasEndpointSiblingKey(edge, 'source'), oppositeId: edge.target });
+    if (
+      edge.source === nodeId &&
+      mobileCanvasEndpointPosition(edge, 'source', nodeGeometry) === position
+    ) {
+      siblings.push({
+        key: mobileCanvasEndpointSiblingKey(edge, 'source'),
+        oppositeId: edge.target,
+      });
     }
-    if (edge.target === nodeId && mobileCanvasEndpointPosition(edge, 'target', nodeGeometry) === position) {
-      siblings.push({ key: mobileCanvasEndpointSiblingKey(edge, 'target'), oppositeId: edge.source });
+    if (
+      edge.target === nodeId &&
+      mobileCanvasEndpointPosition(edge, 'target', nodeGeometry) === position
+    ) {
+      siblings.push({
+        key: mobileCanvasEndpointSiblingKey(edge, 'target'),
+        oppositeId: edge.source,
+      });
     }
   }
   const anchorNode = nodeGeometry.get(nodeId);
@@ -941,8 +1044,10 @@ function mobileCanvasEndpointSiblings(
     const leftMetrics = metrics(leftNode);
     const rightMetrics = metrics(rightNode);
     if (leftMetrics.angle !== rightMetrics.angle) return leftMetrics.angle - rightMetrics.angle;
-    if (leftMetrics.distance !== rightMetrics.distance) return leftMetrics.distance - rightMetrics.distance;
-    if (left.oppositeId !== right.oppositeId) return left.oppositeId.localeCompare(right.oppositeId);
+    if (leftMetrics.distance !== rightMetrics.distance)
+      return leftMetrics.distance - rightMetrics.distance;
+    if (left.oppositeId !== right.oppositeId)
+      return left.oppositeId.localeCompare(right.oppositeId);
     return left.key.localeCompare(right.key);
   });
 }
@@ -953,10 +1058,14 @@ function mobileCanvasFacingLaneLimit(
   sourcePosition: CanvasEdgePosition,
   targetPosition: CanvasEdgePosition,
 ): number | null {
-  if (sourcePosition === 'right' && targetPosition === 'left' && target.x >= source.x) return (target.x - source.x) / 2;
-  if (sourcePosition === 'left' && targetPosition === 'right' && source.x >= target.x) return (source.x - target.x) / 2;
-  if (sourcePosition === 'bottom' && targetPosition === 'top' && target.y >= source.y) return (target.y - source.y) / 2;
-  if (sourcePosition === 'top' && targetPosition === 'bottom' && source.y >= target.y) return (source.y - target.y) / 2;
+  if (sourcePosition === 'right' && targetPosition === 'left' && target.x >= source.x)
+    return (target.x - source.x) / 2;
+  if (sourcePosition === 'left' && targetPosition === 'right' && source.x >= target.x)
+    return (source.x - target.x) / 2;
+  if (sourcePosition === 'bottom' && targetPosition === 'top' && target.y >= source.y)
+    return (target.y - source.y) / 2;
+  if (sourcePosition === 'top' && targetPosition === 'bottom' && source.y >= target.y)
+    return (source.y - target.y) / 2;
   return null;
 }
 
@@ -970,23 +1079,61 @@ function mobileCanvasEdgeGeometry(
   if (!sourceNode || !targetNode) return null;
   const sourcePosition = mobileCanvasEndpointPosition(edge, 'source', nodeGeometry);
   const targetPosition = mobileCanvasEndpointPosition(edge, 'target', nodeGeometry);
-  const sourceAnchor = mobileCanvasAnchorCoordinates(sourceNode, sourcePosition, { x: sourceNode.centerX, y: sourceNode.centerY });
-  const targetAnchor = mobileCanvasAnchorCoordinates(targetNode, targetPosition, { x: targetNode.centerX, y: targetNode.centerY });
-  const sourceSiblings = mobileCanvasEndpointSiblings(edges, edge.source, sourcePosition, nodeGeometry);
-  const targetSiblings = mobileCanvasEndpointSiblings(edges, edge.target, targetPosition, nodeGeometry);
-  const sourceIndex = Math.max(0, sourceSiblings.findIndex((candidate) => candidate.key === mobileCanvasEndpointSiblingKey(edge, 'source')));
-  const targetIndex = Math.max(0, targetSiblings.findIndex((candidate) => candidate.key === mobileCanvasEndpointSiblingKey(edge, 'target')));
-  const sourceAxisSize = isHorizontalCanvasEdgePosition(sourcePosition) ? sourceNode.height : sourceNode.width;
-  const targetAxisSize = isHorizontalCanvasEdgePosition(targetPosition) ? targetNode.height : targetNode.width;
+  const sourceAnchor = mobileCanvasAnchorCoordinates(sourceNode, sourcePosition, {
+    x: sourceNode.centerX,
+    y: sourceNode.centerY,
+  });
+  const targetAnchor = mobileCanvasAnchorCoordinates(targetNode, targetPosition, {
+    x: targetNode.centerX,
+    y: targetNode.centerY,
+  });
+  const sourceSiblings = mobileCanvasEndpointSiblings(
+    edges,
+    edge.source,
+    sourcePosition,
+    nodeGeometry,
+  );
+  const targetSiblings = mobileCanvasEndpointSiblings(
+    edges,
+    edge.target,
+    targetPosition,
+    nodeGeometry,
+  );
+  const sourceIndex = Math.max(
+    0,
+    sourceSiblings.findIndex(
+      (candidate) => candidate.key === mobileCanvasEndpointSiblingKey(edge, 'source'),
+    ),
+  );
+  const targetIndex = Math.max(
+    0,
+    targetSiblings.findIndex(
+      (candidate) => candidate.key === mobileCanvasEndpointSiblingKey(edge, 'target'),
+    ),
+  );
+  const sourceAxisSize = isHorizontalCanvasEdgePosition(sourcePosition)
+    ? sourceNode.height
+    : sourceNode.width;
+  const targetAxisSize = isHorizontalCanvasEdgePosition(targetPosition)
+    ? targetNode.height
+    : targetNode.width;
   const sourceOffset = mobileCanvasSlotOffset(sourceIndex, sourceSiblings.length, sourceAxisSize);
   const targetOffset = mobileCanvasSlotOffset(targetIndex, targetSiblings.length, targetAxisSize);
   const anchoredSource = {
-    x: isHorizontalCanvasEdgePosition(sourcePosition) ? sourceAnchor.x : sourceAnchor.x + sourceOffset,
-    y: isHorizontalCanvasEdgePosition(sourcePosition) ? sourceAnchor.y + sourceOffset : sourceAnchor.y,
+    x: isHorizontalCanvasEdgePosition(sourcePosition)
+      ? sourceAnchor.x
+      : sourceAnchor.x + sourceOffset,
+    y: isHorizontalCanvasEdgePosition(sourcePosition)
+      ? sourceAnchor.y + sourceOffset
+      : sourceAnchor.y,
   };
   const anchoredTarget = {
-    x: isHorizontalCanvasEdgePosition(targetPosition) ? targetAnchor.x : targetAnchor.x + targetOffset,
-    y: isHorizontalCanvasEdgePosition(targetPosition) ? targetAnchor.y + targetOffset : targetAnchor.y,
+    x: isHorizontalCanvasEdgePosition(targetPosition)
+      ? targetAnchor.x
+      : targetAnchor.x + targetOffset,
+    y: isHorizontalCanvasEdgePosition(targetPosition)
+      ? targetAnchor.y + targetOffset
+      : targetAnchor.y,
   };
   const sourceDirection = {
     x: sourcePosition === 'left' ? -1 : sourcePosition === 'right' ? 1 : 0,
@@ -998,10 +1145,24 @@ function mobileCanvasEdgeGeometry(
   };
   const baseLaneDistance = Math.max(
     MOBILE_CANVAS_EDGE_LANE,
-    Math.min(Math.max(Math.abs(anchoredTarget.x - anchoredSource.x), Math.abs(anchoredTarget.y - anchoredSource.y)) * 0.32, 96),
+    Math.min(
+      Math.max(
+        Math.abs(anchoredTarget.x - anchoredSource.x),
+        Math.abs(anchoredTarget.y - anchoredSource.y),
+      ) * 0.32,
+      96,
+    ),
   );
-  const facingLaneLimit = mobileCanvasFacingLaneLimit(anchoredSource, anchoredTarget, sourcePosition, targetPosition);
-  const laneDistance = facingLaneLimit == null ? baseLaneDistance : Math.max(0, Math.min(baseLaneDistance, facingLaneLimit));
+  const facingLaneLimit = mobileCanvasFacingLaneLimit(
+    anchoredSource,
+    anchoredTarget,
+    sourcePosition,
+    targetPosition,
+  );
+  const laneDistance =
+    facingLaneLimit == null
+      ? baseLaneDistance
+      : Math.max(0, Math.min(baseLaneDistance, facingLaneLimit));
   return {
     sourceX: anchoredSource.x,
     sourceY: anchoredSource.y,
@@ -1067,7 +1228,11 @@ function buildOrthogonalCanvasEdgePath(geometry: MobileCanvasEdgeGeometry): stri
 
 function orthogonalCanvasEdgeLabelPosition(geometry: MobileCanvasEdgeGeometry): TouchPoint {
   const points = orthogonalCanvasEdgePoints(geometry);
-  let best = { start: { x: geometry.sourceX, y: geometry.sourceY }, end: { x: geometry.targetX, y: geometry.targetY }, length: 0 };
+  let best = {
+    start: { x: geometry.sourceX, y: geometry.sourceY },
+    end: { x: geometry.targetX, y: geometry.targetY },
+    length: 0,
+  };
   for (let index = 1; index < points.length; index += 1) {
     const start = points[index - 1];
     const end = points[index];
@@ -1079,36 +1244,45 @@ function orthogonalCanvasEdgeLabelPosition(geometry: MobileCanvasEdgeGeometry): 
   return { x: (best.start.x + best.end.x) / 2, y: (best.start.y + best.end.y) / 2 };
 }
 
-function buildMobileCanvasEdges(edges: CanvasEdge[], nodes: Map<string, CanvasNode>): MobileCanvasEdgeRender[] {
-  const nodeGeometry = new Map(Array.from(nodes.entries()).map(([id, node]) => [
-    id,
-    {
-      centerX: node.position.x + canvasNodeWidth(node) / 2,
-      centerY: node.position.y + canvasNodeHeight(node) / 2,
-      width: canvasNodeWidth(node),
-      height: canvasNodeHeight(node),
-    } satisfies MobileCanvasNodeGeometry,
-  ]));
+function buildMobileCanvasEdges(
+  edges: CanvasEdge[],
+  nodes: Map<string, CanvasNode>,
+): MobileCanvasEdgeRender[] {
+  const nodeGeometry = new Map(
+    Array.from(nodes.entries()).map(([id, node]) => [
+      id,
+      {
+        centerX: node.position.x + canvasNodeWidth(node) / 2,
+        centerY: node.position.y + canvasNodeHeight(node) / 2,
+        width: canvasNodeWidth(node),
+        height: canvasNodeHeight(node),
+      } satisfies MobileCanvasNodeGeometry,
+    ]),
+  );
   return edges.flatMap((edge) => {
     const geometry = mobileCanvasEdgeGeometry(edge, edges, nodeGeometry);
     if (!geometry) return [];
-    const labelPosition = edge.routingStyle === 'orthogonal'
-      ? orthogonalCanvasEdgeLabelPosition(geometry)
-      : { x: geometry.labelX, y: geometry.labelY };
-    return [{
-      id: edge.id,
-      path: edge.routingStyle === 'orthogonal'
-        ? buildOrthogonalCanvasEdgePath(geometry)
-        : buildCurvedCanvasEdgePath(geometry),
-      label: edge.label?.trim() ?? '',
-      labelX: labelPosition.x,
-      labelY: labelPosition.y,
-      lineStyle: edge.lineStyle ?? 'solid',
-      animated: edge.animated ?? false,
-      animationReverse: edge.animationReverse ?? false,
-      markerStart: edge.markerStart ?? false,
-      markerEnd: edge.markerEnd ?? false,
-    }];
+    const labelPosition =
+      edge.routingStyle === 'orthogonal'
+        ? orthogonalCanvasEdgeLabelPosition(geometry)
+        : { x: geometry.labelX, y: geometry.labelY };
+    return [
+      {
+        id: edge.id,
+        path:
+          edge.routingStyle === 'orthogonal'
+            ? buildOrthogonalCanvasEdgePath(geometry)
+            : buildCurvedCanvasEdgePath(geometry),
+        label: edge.label?.trim() ?? '',
+        labelX: labelPosition.x,
+        labelY: labelPosition.y,
+        lineStyle: edge.lineStyle ?? 'solid',
+        animated: edge.animated ?? false,
+        animationReverse: edge.animationReverse ?? false,
+        markerStart: edge.markerStart ?? false,
+        markerEnd: edge.markerEnd ?? false,
+      },
+    ];
   });
 }
 
@@ -1127,16 +1301,27 @@ function CanvasMobileViewer({
 }) {
   const stageRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<TouchPoint | null>(null);
-  const pinchRef = useRef<{ distance: number; center: TouchPoint; zoom: number; pan: TouchPoint } | null>(null);
+  const pinchRef = useRef<{
+    distance: number;
+    center: TouchPoint;
+    zoom: number;
+    pan: TouchPoint;
+  } | null>(null);
   const [pan, setPan] = useState<TouchPoint>({ x: 0, y: 0 });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [animateEdges, setAnimateEdges] = useState(false);
   const [stageWidth, stageHeight] = useElementSize(stageRef);
   const lastFitKeyRef = useRef<string | null>(null);
   const bounds = useMemo(() => computeCanvasBounds(canvas.nodes), [canvas.nodes]);
-  const nodeById = useMemo(() => new Map(canvas.nodes.map((node) => [node.id, node])), [canvas.nodes]);
-  const renderedEdges = useMemo(() => buildMobileCanvasEdges(canvas.edges, nodeById), [canvas.edges, nodeById]);
-  const selectedNode = selectedNodeId ? nodeById.get(selectedNodeId) ?? null : null;
+  const nodeById = useMemo(
+    () => new Map(canvas.nodes.map((node) => [node.id, node])),
+    [canvas.nodes],
+  );
+  const renderedEdges = useMemo(
+    () => buildMobileCanvasEdges(canvas.edges, nodeById),
+    [canvas.edges, nodeById],
+  );
+  const selectedNode = selectedNodeId ? (nodeById.get(selectedNodeId) ?? null) : null;
 
   function fitToStage() {
     const stage = stageRef.current;
@@ -1179,7 +1364,12 @@ function CanvasMobileViewer({
     if (event.touches.length === 2) {
       const first = touchPoint(event.touches[0]);
       const second = touchPoint(event.touches[1]);
-      pinchRef.current = { distance: distanceBetween(first, second), center: midpoint(first, second), zoom, pan };
+      pinchRef.current = {
+        distance: distanceBetween(first, second),
+        center: midpoint(first, second),
+        zoom,
+        pan,
+      };
       dragRef.current = null;
       return;
     }
@@ -1200,14 +1390,22 @@ function CanvasMobileViewer({
       const ratio = distance / Math.max(1, previous.distance);
       const nextZoom = clamp(Number((previous.zoom * ratio).toFixed(3)), 0.03, 3);
       const stage = stageRef.current;
-      const stageCenter = stage ? { x: stage.clientWidth / 2, y: stage.clientHeight / 2 } : { x: 0, y: 0 };
+      const stageCenter = stage
+        ? { x: stage.clientWidth / 2, y: stage.clientHeight / 2 }
+        : { x: 0, y: 0 };
       const zoomRatio = nextZoom / Math.max(0.001, previous.zoom);
       setZoom(nextZoom);
       setPan(
         clampCanvasPan(
           {
-            x: center.x - stageCenter.x - zoomRatio * (previous.center.x - stageCenter.x - previous.pan.x),
-            y: center.y - stageCenter.y - zoomRatio * (previous.center.y - stageCenter.y - previous.pan.y),
+            x:
+              center.x -
+              stageCenter.x -
+              zoomRatio * (previous.center.x - stageCenter.x - previous.pan.x),
+            y:
+              center.y -
+              stageCenter.y -
+              zoomRatio * (previous.center.y - stageCenter.y - previous.pan.y),
           },
           nextZoom,
         ),
@@ -1219,7 +1417,12 @@ function CanvasMobileViewer({
       const current = touchPoint(event.touches[0]);
       const previous = dragRef.current;
       dragRef.current = current;
-      setPan((value) => clampCanvasPan({ x: value.x + current.x - previous.x, y: value.y + current.y - previous.y }));
+      setPan((value) =>
+        clampCanvasPan({
+          x: value.x + current.x - previous.x,
+          y: value.y + current.y - previous.y,
+        }),
+      );
     }
   }
 
@@ -1278,7 +1481,10 @@ function CanvasMobileViewer({
           message="This canvas does not contain any nodes yet."
         />
       ) : (
-        <div className={`mobile-canvas-camera ${animateEdges ? 'animate-edges' : ''}`} style={cameraStyle}>
+        <div
+          className={`mobile-canvas-camera ${animateEdges ? 'animate-edges' : ''}`}
+          style={cameraStyle}
+        >
           <div className="mobile-canvas-grid" style={gridStyle} aria-hidden />
           <svg
             className="mobile-canvas-edges"
@@ -1334,7 +1540,9 @@ function CanvasMobileViewer({
                 <path
                   className={`mobile-canvas-edge ${edge.lineStyle ?? 'solid'}`}
                   d={edge.path}
-                  markerStart={edge.markerStart ? 'url(#mobile-canvas-edge-arrow-start)' : undefined}
+                  markerStart={
+                    edge.markerStart ? 'url(#mobile-canvas-edge-arrow-start)' : undefined
+                  }
                   markerEnd={edge.markerEnd ? 'url(#mobile-canvas-edge-arrow-end)' : undefined}
                 >
                   {edge.animated && animateEdges && edge.lineStyle !== 'solid' ? (
@@ -1411,7 +1619,8 @@ function MobileCanvasNodeView({
   const body = canvasNodeBody(node);
   const badges = planningBadges(node);
   const symbolGlyph = canvasString(node, 'glyph') ?? '?';
-  const symbolLabel = canvasString(node, 'iconLabel') ?? canvasString(node, 'iconId') ?? 'Nerd Font icon';
+  const symbolLabel =
+    canvasString(node, 'iconLabel') ?? canvasString(node, 'iconId') ?? 'Nerd Font icon';
 
   if (node.type === 'junction') {
     return (
@@ -1490,8 +1699,13 @@ function MobileCanvasNodeView({
     );
   }
 
-  const isPlanning = node.type !== 'note' && node.type !== 'file' && node.type !== 'text' && node.type !== 'web';
-  const isImageFile = node.type === 'file' && ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'].includes(fileExtensionFromPath(canvasString(node, 'relativePath')));
+  const isPlanning =
+    node.type !== 'note' && node.type !== 'file' && node.type !== 'text' && node.type !== 'web';
+  const isImageFile =
+    node.type === 'file' &&
+    ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'].includes(
+      fileExtensionFromPath(canvasString(node, 'relativePath')),
+    );
   const imageSrc = typeof record.imageSrc === 'string' ? record.imageSrc : null;
 
   return (
@@ -1512,7 +1726,9 @@ function MobileCanvasNodeView({
           <small>{subtitle ?? canvasNodeKindLabel(node)}</small>
         </span>
         {node.type === 'milestone' && asCanvasRecord(record.planning)?.milestoneLabel ? (
-          <span className="desktop-node-badge">{String(asCanvasRecord(record.planning)?.milestoneLabel)}</span>
+          <span className="desktop-node-badge">
+            {String(asCanvasRecord(record.planning)?.milestoneLabel)}
+          </span>
         ) : null}
       </span>
       <span className="desktop-node-body">
@@ -1525,7 +1741,11 @@ function MobileCanvasNodeView({
             <span className="desktop-node-web-preview">
               <Globe size={22} aria-hidden />
             </span>
-            <span className="desktop-node-text">{body ?? canvasString(node, 'url') ?? 'Preview details will appear here when available.'}</span>
+            <span className="desktop-node-text">
+              {body ??
+                canvasString(node, 'url') ??
+                'Preview details will appear here when available.'}
+            </span>
           </>
         ) : (
           <span className="desktop-node-text">
@@ -1557,7 +1777,9 @@ function MobileCanvasNodeView({
 function CanvasNodeDetail({ node, onClose }: { node: CanvasNode; onClose: () => void }) {
   const record = node as unknown as Record<string, unknown>;
   const planning = asCanvasRecord(record.planning);
-  const tags = Array.isArray(planning?.tags) ? planning.tags.filter((tag): tag is string => typeof tag === 'string') : [];
+  const tags = Array.isArray(planning?.tags)
+    ? planning.tags.filter((tag): tag is string => typeof tag === 'string')
+    : [];
   const details = [
     ['Type', node.type],
     ['Path', typeof record.relativePath === 'string' ? record.relativePath : null],
@@ -1567,7 +1789,10 @@ function CanvasNodeDetail({ node, onClose }: { node: CanvasNode; onClose: () => 
     ['Status', typeof planning?.status === 'string' ? planning.status.replace(/_/g, ' ') : null],
     ['Priority', typeof planning?.priority === 'string' ? planning.priority : null],
     ['Due', typeof planning?.dueDate === 'string' ? planning.dueDate : null],
-  ].filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim().length > 0);
+  ].filter(
+    (entry): entry is [string, string] =>
+      typeof entry[1] === 'string' && entry[1].trim().length > 0,
+  );
 
   return (
     <aside className="canvas-node-detail" aria-label="Canvas node details">
@@ -1635,18 +1860,25 @@ function logicNodeLabel(node: LogicDiagramNode): string {
 function logicNodeWidth(node: LogicDiagramNode): number {
   if (node.kind === 'group') return node.width ?? MOBILE_LOGIC_GROUP_WIDTH;
   if (node.kind === 'component') return node.width ?? MOBILE_LOGIC_COMPONENT_WIDTH;
-  if (isElectronicComponentKind(node.kind)) return schematicSymbolDimensions(node.kind, node.rotation ?? 0).width;
+  if (isElectronicComponentKind(node.kind))
+    return schematicSymbolDimensions(node.kind, node.rotation ?? 0).width;
   return node.width ?? MOBILE_LOGIC_NODE_WIDTH;
 }
 
 function logicNodeHeight(node: LogicDiagramNode): number {
   if (node.kind === 'group') return node.height ?? MOBILE_LOGIC_GROUP_HEIGHT;
   if (node.kind === 'component') {
-    const inputCount = node.component?.definition.ports.filter((port) => port.direction === 'input').length ?? 0;
-    const outputCount = node.component?.definition.ports.filter((port) => port.direction === 'output').length ?? 0;
-    return Math.max(node.height ?? MOBILE_LOGIC_NODE_HEIGHT, 78 + Math.max(inputCount, outputCount, 1) * 15);
+    const inputCount =
+      node.component?.definition.ports.filter((port) => port.direction === 'input').length ?? 0;
+    const outputCount =
+      node.component?.definition.ports.filter((port) => port.direction === 'output').length ?? 0;
+    return Math.max(
+      node.height ?? MOBILE_LOGIC_NODE_HEIGHT,
+      78 + Math.max(inputCount, outputCount, 1) * 15,
+    );
   }
-  if (isElectronicComponentKind(node.kind)) return schematicSymbolDimensions(node.kind, node.rotation ?? 0).height;
+  if (isElectronicComponentKind(node.kind))
+    return schematicSymbolDimensions(node.kind, node.rotation ?? 0).height;
   return node.height ?? MOBILE_LOGIC_NODE_HEIGHT;
 }
 
@@ -1681,9 +1913,10 @@ function logicHandleAnchor(
     const point = schematicTerminalPoint(node.kind, handleId ?? terminals[0], node.rotation ?? 0);
     return { x: position.x + point.x, y: position.y + point.y };
   }
-  const handles = type === 'source'
-    ? getLogicOutputHandles(node.kind, node.component)
-    : getLogicInputHandles(node.kind, node.component);
+  const handles =
+    type === 'source'
+      ? getLogicOutputHandles(node.kind, node.component)
+      : getLogicInputHandles(node.kind, node.component);
   const index = Math.max(0, handleId ? handles.indexOf(handleId) : 0);
   const width = logicNodeWidth(node);
   const height = logicNodeHeight(node);
@@ -1694,7 +1927,10 @@ function logicHandleAnchor(
   };
 }
 
-function computeLogicBounds(nodes: LogicDiagramNode[], nodeById: Map<string, LogicDiagramNode>): CanvasWorldBounds {
+function computeLogicBounds(
+  nodes: LogicDiagramNode[],
+  nodeById: Map<string, LogicDiagramNode>,
+): CanvasWorldBounds {
   if (nodes.length === 0) {
     return {
       minX: -320,
@@ -1757,7 +1993,8 @@ function formatCircuitMeasurement(value: number, unit: string): string {
     { threshold: 1e-9, scale: 1e-9, prefix: 'n' },
     { threshold: 0, scale: 1e-12, prefix: 'p' },
   ];
-  const selected = prefixes.find((candidate) => magnitude >= candidate.threshold) ?? prefixes[prefixes.length - 1];
+  const selected =
+    prefixes.find((candidate) => magnitude >= candidate.threshold) ?? prefixes[prefixes.length - 1];
   return `${Number((value / selected.scale).toPrecision(4))} ${selected.prefix}${unit}`;
 }
 
@@ -1802,16 +2039,18 @@ function logicWireGeometry(
 
   const source = logicHandleAnchor(sourceNode, sourceHandle, 'source', nodeById);
   const target = logicHandleAnchor(targetNode, targetHandle, 'target', nodeById);
-  const sourceSide = sourceNode.kind === 'junction'
-    ? connectionSideToward(source, target)
-    : isElectronicComponentKind(sourceNode.kind)
-      ? schematicTerminalSide(sourceNode.kind, sourceHandle, sourceNode.rotation ?? 0)
-      : 'right';
-  const targetSide = targetNode.kind === 'junction'
-    ? connectionSideToward(target, source)
-    : isElectronicComponentKind(targetNode.kind)
-      ? schematicTerminalSide(targetNode.kind, targetHandle, targetNode.rotation ?? 0)
-      : 'left';
+  const sourceSide =
+    sourceNode.kind === 'junction'
+      ? connectionSideToward(source, target)
+      : isElectronicComponentKind(sourceNode.kind)
+        ? schematicTerminalSide(sourceNode.kind, sourceHandle, sourceNode.rotation ?? 0)
+        : 'right';
+  const targetSide =
+    targetNode.kind === 'junction'
+      ? connectionSideToward(target, source)
+      : isElectronicComponentKind(targetNode.kind)
+        ? schematicTerminalSide(targetNode.kind, targetHandle, targetNode.rotation ?? 0)
+        : 'left';
   const [path] = getSmoothStepPath({
     sourceX: source.x,
     sourceY: source.y,
@@ -1847,7 +2086,12 @@ export function LogicMobileViewer({
 }) {
   const stageRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<TouchPoint | null>(null);
-  const pinchRef = useRef<{ distance: number; center: TouchPoint; zoom: number; pan: TouchPoint } | null>(null);
+  const pinchRef = useRef<{
+    distance: number;
+    center: TouchPoint;
+    zoom: number;
+    pan: TouchPoint;
+  } | null>(null);
   const [pan, setPan] = useState<TouchPoint>({ x: 0, y: 0 });
   const [inputValues, setInputValues] = useState<Record<string, boolean>>({});
   const [circuitRunning, setCircuitRunning] = useState(false);
@@ -1904,14 +2148,35 @@ export function LogicMobileViewer({
     };
   }, [logic]);
 
-  const simulatedNodes = useMemo(() => logic.nodes.map((node) => (
-    node.kind === 'input' ? { ...node, value: inputValues[node.id] ?? node.value ?? false } : node
-  )), [inputValues, logic.nodes]);
-  const nodeById = useMemo(() => new Map(simulatedNodes.map((node) => [node.id, node])), [simulatedNodes]);
-  const bounds = useMemo(() => computeLogicBounds(simulatedNodes, nodeById), [nodeById, simulatedNodes]);
-  const evaluation = useMemo(() => evaluateLogicDiagram(simulatedNodes, logic.wires, { components: logic.components }), [logic.components, logic.wires, simulatedNodes]);
-  const inputNodes = useMemo(() => simulatedNodes.filter((node) => node.kind === 'input'), [simulatedNodes]);
-  const outputNodes = useMemo(() => simulatedNodes.filter((node) => node.kind === 'output'), [simulatedNodes]);
+  const simulatedNodes = useMemo(
+    () =>
+      logic.nodes.map((node) =>
+        node.kind === 'input'
+          ? { ...node, value: inputValues[node.id] ?? node.value ?? false }
+          : node,
+      ),
+    [inputValues, logic.nodes],
+  );
+  const nodeById = useMemo(
+    () => new Map(simulatedNodes.map((node) => [node.id, node])),
+    [simulatedNodes],
+  );
+  const bounds = useMemo(
+    () => computeLogicBounds(simulatedNodes, nodeById),
+    [nodeById, simulatedNodes],
+  );
+  const evaluation = useMemo(
+    () => evaluateLogicDiagram(simulatedNodes, logic.wires, { components: logic.components }),
+    [logic.components, logic.wires, simulatedNodes],
+  );
+  const inputNodes = useMemo(
+    () => simulatedNodes.filter((node) => node.kind === 'input'),
+    [simulatedNodes],
+  );
+  const outputNodes = useMemo(
+    () => simulatedNodes.filter((node) => node.kind === 'output'),
+    [simulatedNodes],
+  );
   const circuitWirePolarities = useMemo(() => {
     const polarities = new Map<string, 'positive' | 'negative' | 'reference'>();
     if (!circuitResult) return polarities;
@@ -2063,7 +2328,8 @@ export function LogicMobileViewer({
           }
         },
         onStatus: (status) => {
-          if (circuitMountedRef.current && circuitRunSequenceRef.current === runSequence) setCircuitStatus(status);
+          if (circuitMountedRef.current && circuitRunSequenceRef.current === runSequence)
+            setCircuitStatus(status);
         },
       });
       if (!circuitMountedRef.current || circuitRunSequenceRef.current !== runSequence) return;
@@ -2089,7 +2355,7 @@ export function LogicMobileViewer({
     try {
       const phase = await circuitCancelJob(activeJobId);
       if (circuitMountedRef.current) {
-        setCircuitStatus((current) => current ? { ...current, phase } : current);
+        setCircuitStatus((current) => (current ? { ...current, phase } : current));
       }
     } catch (error) {
       if (circuitMountedRef.current) {
@@ -2141,7 +2407,12 @@ export function LogicMobileViewer({
     if (event.touches.length === 2) {
       const first = touchPoint(event.touches[0]);
       const second = touchPoint(event.touches[1]);
-      pinchRef.current = { distance: distanceBetween(first, second), center: midpoint(first, second), zoom, pan };
+      pinchRef.current = {
+        distance: distanceBetween(first, second),
+        center: midpoint(first, second),
+        zoom,
+        pan,
+      };
       dragRef.current = null;
       return;
     }
@@ -2162,14 +2433,22 @@ export function LogicMobileViewer({
       const ratio = distance / Math.max(1, previous.distance);
       const nextZoom = clamp(Number((previous.zoom * ratio).toFixed(3)), 0.08, 3);
       const stage = stageRef.current;
-      const stageCenter = stage ? { x: stage.clientWidth / 2, y: stage.clientHeight / 2 } : { x: 0, y: 0 };
+      const stageCenter = stage
+        ? { x: stage.clientWidth / 2, y: stage.clientHeight / 2 }
+        : { x: 0, y: 0 };
       const zoomRatio = nextZoom / Math.max(0.001, previous.zoom);
       setZoom(nextZoom);
       setPan(
         clampLogicPan(
           {
-            x: center.x - stageCenter.x - zoomRatio * (previous.center.x - stageCenter.x - previous.pan.x),
-            y: center.y - stageCenter.y - zoomRatio * (previous.center.y - stageCenter.y - previous.pan.y),
+            x:
+              center.x -
+              stageCenter.x -
+              zoomRatio * (previous.center.x - stageCenter.x - previous.pan.x),
+            y:
+              center.y -
+              stageCenter.y -
+              zoomRatio * (previous.center.y - stageCenter.y - previous.pan.y),
           },
           nextZoom,
         ),
@@ -2181,7 +2460,9 @@ export function LogicMobileViewer({
       const current = touchPoint(event.touches[0]);
       const previous = dragRef.current;
       dragRef.current = current;
-      setPan((value) => clampLogicPan({ x: value.x + current.x - previous.x, y: value.y + current.y - previous.y }));
+      setPan((value) =>
+        clampLogicPan({ x: value.x + current.x - previous.x, y: value.y + current.y - previous.y }),
+      );
     }
   }
 
@@ -2246,44 +2527,107 @@ export function LogicMobileViewer({
                 <button
                   type="button"
                   className="logic-circuit-action"
-                  aria-label={circuitRunning && circuitRunKind === 'dc' ? 'Cancel DC simulation' : 'Run DC simulation'}
-                  disabled={(circuitRunning && circuitRunKind !== 'dc') || (circuitRunning && (!circuitStatus || circuitStatus.phase === 'cancelling'))}
+                  aria-label={
+                    circuitRunning && circuitRunKind === 'dc'
+                      ? 'Cancel DC simulation'
+                      : 'Run DC simulation'
+                  }
+                  disabled={
+                    (circuitRunning && circuitRunKind !== 'dc') ||
+                    (circuitRunning && (!circuitStatus || circuitStatus.phase === 'cancelling'))
+                  }
                   onTouchStart={(event) => event.stopPropagation()}
-                  onClick={() => circuitRunning && circuitRunKind === 'dc' ? void cancelDcSimulation() : void runDcSimulation()}
+                  onClick={() =>
+                    circuitRunning && circuitRunKind === 'dc'
+                      ? void cancelDcSimulation()
+                      : void runDcSimulation()
+                  }
                 >
-                  {circuitRunning && circuitRunKind === 'dc' && (!circuitStatus || circuitStatus.phase === 'cancelling')
-                    ? <Spinner size={14} />
-                    : circuitRunning && circuitRunKind === 'dc' ? <X size={14} aria-hidden /> : <Play size={14} aria-hidden />}
-                  <span>{circuitRunning && circuitRunKind === 'dc' ? circuitStageLabel(circuitStatus) : 'Run DC'}</span>
+                  {circuitRunning &&
+                  circuitRunKind === 'dc' &&
+                  (!circuitStatus || circuitStatus.phase === 'cancelling') ? (
+                    <Spinner size={14} />
+                  ) : circuitRunning && circuitRunKind === 'dc' ? (
+                    <X size={14} aria-hidden />
+                  ) : (
+                    <Play size={14} aria-hidden />
+                  )}
+                  <span>
+                    {circuitRunning && circuitRunKind === 'dc'
+                      ? circuitStageLabel(circuitStatus)
+                      : 'Run DC'}
+                  </span>
                 </button>
                 {logic.simulation?.dcSweep ? (
                   <button
                     type="button"
                     className="logic-circuit-action"
-                    aria-label={circuitRunning && circuitRunKind === 'sweep' ? 'Cancel DC sweep' : 'Run DC sweep'}
-                    disabled={(circuitRunning && circuitRunKind !== 'sweep') || (circuitRunning && (!circuitStatus || circuitStatus.phase === 'cancelling'))}
+                    aria-label={
+                      circuitRunning && circuitRunKind === 'sweep'
+                        ? 'Cancel DC sweep'
+                        : 'Run DC sweep'
+                    }
+                    disabled={
+                      (circuitRunning && circuitRunKind !== 'sweep') ||
+                      (circuitRunning && (!circuitStatus || circuitStatus.phase === 'cancelling'))
+                    }
                     onTouchStart={(event) => event.stopPropagation()}
-                    onClick={() => circuitRunning && circuitRunKind === 'sweep' ? void cancelDcSimulation() : void runDcSweep()}
+                    onClick={() =>
+                      circuitRunning && circuitRunKind === 'sweep'
+                        ? void cancelDcSimulation()
+                        : void runDcSweep()
+                    }
                   >
-                    {circuitRunning && circuitRunKind === 'sweep' && (!circuitStatus || circuitStatus.phase === 'cancelling')
-                      ? <Spinner size={14} />
-                      : circuitRunning && circuitRunKind === 'sweep' ? <X size={14} aria-hidden /> : <ChartLine size={14} aria-hidden />}
-                    <span>{circuitRunning && circuitRunKind === 'sweep' ? circuitStageLabel(circuitStatus) : 'Sweep'}</span>
+                    {circuitRunning &&
+                    circuitRunKind === 'sweep' &&
+                    (!circuitStatus || circuitStatus.phase === 'cancelling') ? (
+                      <Spinner size={14} />
+                    ) : circuitRunning && circuitRunKind === 'sweep' ? (
+                      <X size={14} aria-hidden />
+                    ) : (
+                      <ChartLine size={14} aria-hidden />
+                    )}
+                    <span>
+                      {circuitRunning && circuitRunKind === 'sweep'
+                        ? circuitStageLabel(circuitStatus)
+                        : 'Sweep'}
+                    </span>
                   </button>
                 ) : null}
                 {logic.simulation?.transient ? (
                   <button
                     type="button"
                     className="logic-circuit-action"
-                    aria-label={circuitRunning && circuitRunKind === 'transient' ? 'Cancel transient analysis' : 'Run transient analysis'}
-                    disabled={(circuitRunning && circuitRunKind !== 'transient') || (circuitRunning && (!circuitStatus || circuitStatus.phase === 'cancelling'))}
+                    aria-label={
+                      circuitRunning && circuitRunKind === 'transient'
+                        ? 'Cancel transient analysis'
+                        : 'Run transient analysis'
+                    }
+                    disabled={
+                      (circuitRunning && circuitRunKind !== 'transient') ||
+                      (circuitRunning && (!circuitStatus || circuitStatus.phase === 'cancelling'))
+                    }
                     onTouchStart={(event) => event.stopPropagation()}
-                    onClick={() => circuitRunning && circuitRunKind === 'transient' ? void cancelDcSimulation() : void runTransient()}
+                    onClick={() =>
+                      circuitRunning && circuitRunKind === 'transient'
+                        ? void cancelDcSimulation()
+                        : void runTransient()
+                    }
                   >
-                    {circuitRunning && circuitRunKind === 'transient' && (!circuitStatus || circuitStatus.phase === 'cancelling')
-                      ? <Spinner size={14} />
-                      : circuitRunning && circuitRunKind === 'transient' ? <X size={14} aria-hidden /> : <Activity size={14} aria-hidden />}
-                    <span>{circuitRunning && circuitRunKind === 'transient' ? circuitStageLabel(circuitStatus) : 'Transient'}</span>
+                    {circuitRunning &&
+                    circuitRunKind === 'transient' &&
+                    (!circuitStatus || circuitStatus.phase === 'cancelling') ? (
+                      <Spinner size={14} />
+                    ) : circuitRunning && circuitRunKind === 'transient' ? (
+                      <X size={14} aria-hidden />
+                    ) : (
+                      <Activity size={14} aria-hidden />
+                    )}
+                    <span>
+                      {circuitRunning && circuitRunKind === 'transient'
+                        ? circuitStageLabel(circuitStatus)
+                        : 'Transient'}
+                    </span>
                   </button>
                 ) : null}
                 {!circuitResultsOpen && (circuitResult || circuitError) ? (
@@ -2336,7 +2680,9 @@ export function LogicMobileViewer({
               <>
                 <span className="logic-stat">{inputNodes.length} inputs</span>
                 <span className="logic-stat">{outputNodes.length} outputs</span>
-                {evaluation.warnings.length > 0 ? <span className="logic-stat">{evaluation.warnings.length} warnings</span> : null}
+                {evaluation.warnings.length > 0 ? (
+                  <span className="logic-stat">{evaluation.warnings.length} warnings</span>
+                ) : null}
               </>
             )}
           </div>
@@ -2379,15 +2725,18 @@ export function LogicMobileViewer({
                   nodeById,
                 );
                 if (!geometry) return null;
-                const circuitPolarity = logic.diagramMode === 'schematic'
-                  ? circuitWirePolarities.get(wire.id) ?? null
-                  : null;
+                const circuitPolarity =
+                  logic.diagramMode === 'schematic'
+                    ? (circuitWirePolarities.get(wire.id) ?? null)
+                    : null;
                 return (
                   <path
                     key={wire.id}
                     className={`mobile-logic-wire ${logic.diagramMode === 'schematic' ? `schematic ${circuitPolarity ?? ''}` : logicSignalClass(evaluation.wireValues[wire.id])}`}
                     d={geometry.path}
-                    markerEnd={logic.diagramMode === 'schematic' ? undefined : 'url(#mobile-logic-arrow)'}
+                    markerEnd={
+                      logic.diagramMode === 'schematic' ? undefined : 'url(#mobile-logic-arrow)'
+                    }
                     data-logic-wire-id={wire.id}
                     data-circuit-polarity={circuitPolarity ?? undefined}
                   />
@@ -2400,18 +2749,26 @@ export function LogicMobileViewer({
                 node={node}
                 nodeById={nodeById}
                 value={evaluation.nodeValues[node.id]}
-                onToggleInput={node.kind === 'input'
-                  ? () => setInputValues((current) => ({ ...current, [node.id]: !(current[node.id] ?? node.value ?? false) }))
-                  : undefined}
-                onInspect={logic.diagramMode === 'schematic'
-                  && isElectronicComponentKind(node.kind)
-                  && node.kind !== 'ground'
-                  && node.kind !== 'junction'
-                  ? () => {
-                      setInspectedNodeId(node.id);
-                      setInspectorOpen(true);
-                    }
-                  : undefined}
+                onToggleInput={
+                  node.kind === 'input'
+                    ? () =>
+                        setInputValues((current) => ({
+                          ...current,
+                          [node.id]: !(current[node.id] ?? node.value ?? false),
+                        }))
+                    : undefined
+                }
+                onInspect={
+                  logic.diagramMode === 'schematic' &&
+                  isElectronicComponentKind(node.kind) &&
+                  node.kind !== 'ground' &&
+                  node.kind !== 'junction'
+                    ? () => {
+                        setInspectedNodeId(node.id);
+                        setInspectorOpen(true);
+                      }
+                    : undefined
+                }
                 schematicSymbolSet={schematicSymbolSet}
               />
             ))}
@@ -2419,7 +2776,9 @@ export function LogicMobileViewer({
           {logic.diagramMode !== 'schematic' && evaluation.warnings.length > 0 ? (
             <div className="logic-warning-strip">
               {evaluation.warnings.slice(0, 2).map((warning) => (
-                <span key={`${warning.code}-${warning.nodeId}-${warning.message}`}>{warning.message}</span>
+                <span key={`${warning.code}-${warning.nodeId}-${warning.message}`}>
+                  {warning.message}
+                </span>
               ))}
             </div>
           ) : null}
@@ -2477,11 +2836,16 @@ type MobileElectricalField = {
 
 function mobileElectricalField(kind: ElectronicComponentKind): MobileElectricalField | null {
   switch (kind) {
-    case 'resistor': return { key: 'resistanceOhms', label: 'Resistance', unit: 'ohm', positive: true };
-    case 'capacitor': return { key: 'capacitanceFarads', label: 'Capacitance', unit: 'F', positive: true };
-    case 'inductor': return { key: 'inductanceHenries', label: 'Inductance', unit: 'H', positive: true };
-    case 'voltage-source': return { key: 'voltageVolts', label: 'DC voltage', unit: 'V', positive: false };
-    default: return null;
+    case 'resistor':
+      return { key: 'resistanceOhms', label: 'Resistance', unit: 'ohm', positive: true };
+    case 'capacitor':
+      return { key: 'capacitanceFarads', label: 'Capacitance', unit: 'F', positive: true };
+    case 'inductor':
+      return { key: 'inductanceHenries', label: 'Inductance', unit: 'H', positive: true };
+    case 'voltage-source':
+      return { key: 'voltageVolts', label: 'DC voltage', unit: 'V', positive: false };
+    default:
+      return null;
   }
 }
 
@@ -2493,7 +2857,9 @@ function schematicMobileValueLabel(
   const field = mobileElectricalField(kind);
   if (field) {
     const value = values?.[field.key];
-    return typeof value === 'number' ? formatCircuitMeasurement(value, field.unit) : 'Value missing';
+    return typeof value === 'number'
+      ? formatCircuitMeasurement(value, field.unit)
+      : 'Value missing';
   }
   if (kind === 'switch') return values?.switchClosed ? 'Closed' : 'Open';
   if (kind === 'diode' || kind === 'led' || kind === 'transistor') {
@@ -2517,13 +2883,15 @@ function MobileCircuitInspector({
   onSave?: (logic: LogicDiagramDocument) => Promise<void>;
   onClose: () => void;
 }) {
-  const components = logic.nodes.filter((node) =>
-    isElectronicComponentKind(node.kind) && node.kind !== 'ground' && node.kind !== 'junction');
+  const components = logic.nodes.filter(
+    (node) =>
+      isElectronicComponentKind(node.kind) && node.kind !== 'ground' && node.kind !== 'junction',
+  );
   const [tab, setTab] = useState<'components' | 'analysis'>('components');
   const [selectedNodeId, setSelectedNodeId] = useState(
     initialNodeId && components.some((node) => node.id === initialNodeId)
       ? initialNodeId
-      : components[0]?.id ?? '',
+      : (components[0]?.id ?? ''),
   );
   const selectedNode = components.find((node) => node.id === selectedNodeId) ?? null;
 
@@ -2539,29 +2907,55 @@ function MobileCircuitInspector({
         <Settings2 size={16} aria-hidden />
         <strong>Circuit settings</strong>
         {readOnly ? <span className="logic-stat">Read only</span> : null}
-        <button type="button" className="icon-button" aria-label="Close circuit settings" onClick={onClose}>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Close circuit settings"
+          onClick={onClose}
+        >
           <X size={15} aria-hidden />
         </button>
       </header>
-      <div className="mobile-circuit-inspector-tabs" role="tablist" aria-label="Circuit settings sections">
-        <button type="button" role="tab" aria-selected={tab === 'components'} onClick={() => setTab('components')}>
+      <div
+        className="mobile-circuit-inspector-tabs"
+        role="tablist"
+        aria-label="Circuit settings sections"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'components'}
+          onClick={() => setTab('components')}
+        >
           <SlidersHorizontal size={14} aria-hidden /> Components
         </button>
-        <button type="button" role="tab" aria-selected={tab === 'analysis'} onClick={() => setTab('analysis')}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'analysis'}
+          onClick={() => setTab('analysis')}
+        >
           <ChartLine size={14} aria-hidden /> Analysis
         </button>
       </div>
       {tab === 'components' ? (
         <div className="mobile-circuit-inspector-body">
           {components.length === 0 ? (
-            <p className="mobile-circuit-summary">This circuit has no editable electrical components.</p>
+            <p className="mobile-circuit-summary">
+              This circuit has no editable electrical components.
+            </p>
           ) : (
             <>
               <label className="mobile-circuit-field">
                 <span>Component</span>
-                <select value={selectedNodeId} onChange={(event) => setSelectedNodeId(event.target.value)}>
+                <select
+                  value={selectedNodeId}
+                  onChange={(event) => setSelectedNodeId(event.target.value)}
+                >
                   {components.map((node) => (
-                    <option key={node.id} value={node.id}>{logicNodeLabel(node)} - {node.kind}</option>
+                    <option key={node.id} value={node.id}>
+                      {logicNodeLabel(node)} - {node.kind}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -2606,9 +3000,9 @@ function MobileElectricalComponentEditor({
   const defaults = defaultSchematicElectricalParameters(node.kind);
   const electrical = node.electrical ?? defaults;
   const field = mobileElectricalField(node.kind);
-  const [numericValue, setNumericValue] = useState(() => field && typeof electrical?.[field.key] === 'number'
-    ? String(electrical[field.key])
-    : '');
+  const [numericValue, setNumericValue] = useState(() =>
+    field && typeof electrical?.[field.key] === 'number' ? String(electrical[field.key]) : '',
+  );
   const [switchClosed, setSwitchClosed] = useState(electrical?.switchClosed === true);
   const [error, setError] = useState<string | null>(null);
 
@@ -2618,7 +3012,9 @@ function MobileElectricalComponentEditor({
     if (field) {
       const parsed = Number(numericValue);
       if (!Number.isFinite(parsed) || (field.positive && parsed <= 0)) {
-        setError(`${field.label} must be ${field.positive ? 'greater than zero' : 'a finite number'}.`);
+        setError(
+          `${field.label} must be ${field.positive ? 'greater than zero' : 'a finite number'}.`,
+        );
         return;
       }
       nextElectrical = { ...electrical, [field.key]: parsed };
@@ -2628,9 +3024,9 @@ function MobileElectricalComponentEditor({
     setError(null);
     const nextLogic: LogicDiagramDocument = {
       ...logic,
-      nodes: logic.nodes.map((candidate) => candidate.id === node.id
-        ? { ...candidate, electrical: nextElectrical }
-        : candidate),
+      nodes: logic.nodes.map((candidate) =>
+        candidate.id === node.id ? { ...candidate, electrical: nextElectrical } : candidate,
+      ),
     };
     try {
       await onSave(nextLogic);
@@ -2650,7 +3046,9 @@ function MobileElectricalComponentEditor({
       </div>
       {field ? (
         <label className="mobile-circuit-field">
-          <span>{field.label} ({field.unit})</span>
+          <span>
+            {field.label} ({field.unit})
+          </span>
           <input
             type="number"
             inputMode="decimal"
@@ -2678,7 +3076,12 @@ function MobileElectricalComponentEditor({
       )}
       {error ? <p className="mobile-circuit-form-error">{error}</p> : null}
       {!readOnly && (field || node.kind === 'switch') ? (
-        <button type="button" className="primary-button mobile-circuit-save" disabled={saving} onClick={() => void save()}>
+        <button
+          type="button"
+          className="primary-button mobile-circuit-save"
+          disabled={saving}
+          onClick={() => void save()}
+        >
           {saving ? <Spinner size={14} /> : <Save size={14} aria-hidden />}
           Save value
         </button>
@@ -2700,7 +3103,8 @@ function MobileCircuitAnalysisEditor({
 }) {
   const sources = logic.nodes.filter((node) => node.kind === 'voltage-source');
   const probeChoices = logic.nodes.flatMap((node) => {
-    if (!isElectronicComponentKind(node.kind) || node.kind === 'ground' || node.kind === 'junction') return [];
+    if (!isElectronicComponentKind(node.kind) || node.kind === 'ground' || node.kind === 'junction')
+      return [];
     return getSchematicTerminals(node.kind).map((handleId) => ({
       key: `${node.id}::${handleId}`,
       nodeId: node.id,
@@ -2711,31 +3115,60 @@ function MobileCircuitAnalysisEditor({
   const existingProbe = logic.simulation?.probes[0];
   const defaultProbeKey = existingProbe
     ? `${existingProbe.nodeId}::${existingProbe.handleId ?? ''}`
-    : probeChoices.find((choice) => choice.handleId === 'positive')?.key
-      ?? probeChoices[0]?.key
-      ?? '';
-  const defaultSourceId = logic.simulation?.dcSweep?.sourceNodeId
-    ?? Object.keys(logic.simulation?.transient?.sourceWaveforms ?? {})[0]
-    ?? sources[0]?.id
-    ?? '';
+    : (probeChoices.find((choice) => choice.handleId === 'positive')?.key ??
+      probeChoices[0]?.key ??
+      '');
+  const defaultSourceId =
+    logic.simulation?.dcSweep?.sourceNodeId ??
+    Object.keys(logic.simulation?.transient?.sourceWaveforms ?? {})[0] ??
+    sources[0]?.id ??
+    '';
   const [analysis, setAnalysis] = useState(logic.simulation?.analysis ?? 'dc-operating-point');
   const [sourceId, setSourceId] = useState(defaultSourceId);
   const [probeKey, setProbeKey] = useState(defaultProbeKey);
   const [sweepStart, setSweepStart] = useState(String(logic.simulation?.dcSweep?.start ?? 0));
   const [sweepStop, setSweepStop] = useState(String(logic.simulation?.dcSweep?.stop ?? 5));
-  const [sweepSamples, setSweepSamples] = useState(String(logic.simulation?.dcSweep?.sampleCount ?? 101));
-  const [duration, setDuration] = useState(String(logic.simulation?.transient?.durationSeconds ?? 0.02));
-  const [maxStep, setMaxStep] = useState(String(logic.simulation?.transient?.maxTimeStepSeconds ?? 0.0001));
-  const existingWaveform = sourceId ? logic.simulation?.transient?.sourceWaveforms[sourceId] : undefined;
-  const [waveformKind, setWaveformKind] = useState<'dc' | 'pulse' | 'sine'>(existingWaveform?.kind ?? 'pulse');
-  const [lowValue, setLowValue] = useState(String(existingWaveform?.kind === 'pulse' ? existingWaveform.lowValue : 0));
-  const [highValue, setHighValue] = useState(String(existingWaveform?.kind === 'pulse' ? existingWaveform.highValue : 5));
-  const [delay, setDelay] = useState(String(existingWaveform && existingWaveform.kind !== 'dc' ? existingWaveform.delaySeconds : 0.001));
-  const [pulseWidth, setPulseWidth] = useState(String(existingWaveform?.kind === 'pulse' ? existingWaveform.pulseWidthSeconds : 0.008));
-  const [period, setPeriod] = useState(String(existingWaveform?.kind === 'pulse' ? existingWaveform.periodSeconds : 0.02));
-  const [sineOffset, setSineOffset] = useState(String(existingWaveform?.kind === 'sine' ? existingWaveform.offset : 0));
-  const [sineAmplitude, setSineAmplitude] = useState(String(existingWaveform?.kind === 'sine' ? existingWaveform.amplitude : 5));
-  const [sineFrequency, setSineFrequency] = useState(String(existingWaveform?.kind === 'sine' ? existingWaveform.frequencyHertz : 50));
+  const [sweepSamples, setSweepSamples] = useState(
+    String(logic.simulation?.dcSweep?.sampleCount ?? 101),
+  );
+  const [duration, setDuration] = useState(
+    String(logic.simulation?.transient?.durationSeconds ?? 0.02),
+  );
+  const [maxStep, setMaxStep] = useState(
+    String(logic.simulation?.transient?.maxTimeStepSeconds ?? 0.0001),
+  );
+  const existingWaveform = sourceId
+    ? logic.simulation?.transient?.sourceWaveforms[sourceId]
+    : undefined;
+  const [waveformKind, setWaveformKind] = useState<'dc' | 'pulse' | 'sine'>(
+    existingWaveform?.kind ?? 'pulse',
+  );
+  const [lowValue, setLowValue] = useState(
+    String(existingWaveform?.kind === 'pulse' ? existingWaveform.lowValue : 0),
+  );
+  const [highValue, setHighValue] = useState(
+    String(existingWaveform?.kind === 'pulse' ? existingWaveform.highValue : 5),
+  );
+  const [delay, setDelay] = useState(
+    String(
+      existingWaveform && existingWaveform.kind !== 'dc' ? existingWaveform.delaySeconds : 0.001,
+    ),
+  );
+  const [pulseWidth, setPulseWidth] = useState(
+    String(existingWaveform?.kind === 'pulse' ? existingWaveform.pulseWidthSeconds : 0.008),
+  );
+  const [period, setPeriod] = useState(
+    String(existingWaveform?.kind === 'pulse' ? existingWaveform.periodSeconds : 0.02),
+  );
+  const [sineOffset, setSineOffset] = useState(
+    String(existingWaveform?.kind === 'sine' ? existingWaveform.offset : 0),
+  );
+  const [sineAmplitude, setSineAmplitude] = useState(
+    String(existingWaveform?.kind === 'sine' ? existingWaveform.amplitude : 5),
+  );
+  const [sineFrequency, setSineFrequency] = useState(
+    String(existingWaveform?.kind === 'sine' ? existingWaveform.frequencyHertz : 50),
+  );
   const [error, setError] = useState<string | null>(null);
 
   async function saveAnalysis() {
@@ -2747,7 +3180,12 @@ function MobileCircuitAnalysisEditor({
         setError('Select an output probe for sampled analysis.');
         return;
       }
-      if (!probes.some((probe) => probe.nodeId === selectedProbe.nodeId && probe.handleId === selectedProbe.handleId)) {
+      if (
+        !probes.some(
+          (probe) =>
+            probe.nodeId === selectedProbe.nodeId && probe.handleId === selectedProbe.handleId,
+        )
+      ) {
         probes.push({
           id: `mobile-probe-${selectedProbe.nodeId}-${selectedProbe.handleId}`,
           kind: 'node-voltage',
@@ -2775,11 +3213,18 @@ function MobileCircuitAnalysisEditor({
     } else if (analysis === 'transient') {
       const durationSeconds = Number(duration);
       const maxTimeStepSeconds = Number(maxStep);
-      if (!sourceId || !Number.isFinite(durationSeconds) || durationSeconds <= 0
-        || !Number.isFinite(maxTimeStepSeconds) || maxTimeStepSeconds <= 0
-        || maxTimeStepSeconds > durationSeconds
-        || Math.ceil(durationSeconds / maxTimeStepSeconds) + 1 > 4096) {
-        setError('Choose a source and a positive duration/timestep producing at most 4096 samples.');
+      if (
+        !sourceId ||
+        !Number.isFinite(durationSeconds) ||
+        durationSeconds <= 0 ||
+        !Number.isFinite(maxTimeStepSeconds) ||
+        maxTimeStepSeconds <= 0 ||
+        maxTimeStepSeconds > durationSeconds ||
+        Math.ceil(durationSeconds / maxTimeStepSeconds) + 1 > 4096
+      ) {
+        setError(
+          'Choose a source and a positive duration/timestep producing at most 4096 samples.',
+        );
         return;
       }
       let waveform: LogicSourceWaveform = { kind: 'dc' };
@@ -2789,10 +3234,16 @@ function MobileCircuitAnalysisEditor({
         const delaySeconds = Number(delay);
         const pulseWidthSeconds = Number(pulseWidth);
         const periodSeconds = Number(period);
-        if (![low, high, delaySeconds, pulseWidthSeconds, periodSeconds].every(Number.isFinite)
-          || delaySeconds < 0 || pulseWidthSeconds <= 0 || periodSeconds <= 0
-          || pulseWidthSeconds > periodSeconds) {
-          setError('Pulse values must be finite, with positive width/period and width no greater than period.');
+        if (
+          ![low, high, delaySeconds, pulseWidthSeconds, periodSeconds].every(Number.isFinite) ||
+          delaySeconds < 0 ||
+          pulseWidthSeconds <= 0 ||
+          periodSeconds <= 0 ||
+          pulseWidthSeconds > periodSeconds
+        ) {
+          setError(
+            'Pulse values must be finite, with positive width/period and width no greater than period.',
+          );
           return;
         }
         waveform = {
@@ -2810,8 +3261,11 @@ function MobileCircuitAnalysisEditor({
         const amplitude = Number(sineAmplitude);
         const frequencyHertz = Number(sineFrequency);
         const delaySeconds = Number(delay);
-        if (![offset, amplitude, frequencyHertz, delaySeconds].every(Number.isFinite)
-          || frequencyHertz <= 0 || delaySeconds < 0) {
+        if (
+          ![offset, amplitude, frequencyHertz, delaySeconds].every(Number.isFinite) ||
+          frequencyHertz <= 0 ||
+          delaySeconds < 0
+        ) {
           setError('Sine values must be finite, with positive frequency and a non-negative delay.');
           return;
         }
@@ -2853,12 +3307,20 @@ function MobileCircuitAnalysisEditor({
   return (
     <div className="mobile-circuit-inspector-body mobile-analysis-editor">
       <div className="mobile-analysis-modes" role="group" aria-label="Analysis type">
-        {([
-          ['dc-operating-point', 'DC'],
-          ['dc-sweep', 'Sweep'],
-          ['transient', 'Transient'],
-        ] as const).map(([value, label]) => (
-          <button key={value} type="button" aria-pressed={analysis === value} disabled={readOnly || saving} onClick={() => setAnalysis(value)}>
+        {(
+          [
+            ['dc-operating-point', 'DC'],
+            ['dc-sweep', 'Sweep'],
+            ['transient', 'Transient'],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={analysis === value}
+            disabled={readOnly || saving}
+            onClick={() => setAnalysis(value)}
+          >
             {label}
           </button>
         ))}
@@ -2867,38 +3329,107 @@ function MobileCircuitAnalysisEditor({
         <>
           <label className="mobile-circuit-field">
             <span>Voltage source</span>
-            <select value={sourceId} onChange={(event) => setSourceId(event.target.value)} disabled={readOnly || saving}>
+            <select
+              value={sourceId}
+              onChange={(event) => setSourceId(event.target.value)}
+              disabled={readOnly || saving}
+            >
               <option value="">Select source</option>
-              {sources.map((node) => <option key={node.id} value={node.id}>{logicNodeLabel(node)}</option>)}
+              {sources.map((node) => (
+                <option key={node.id} value={node.id}>
+                  {logicNodeLabel(node)}
+                </option>
+              ))}
             </select>
           </label>
           <label className="mobile-circuit-field">
             <span>Output probe</span>
-            <select value={probeKey} onChange={(event) => setProbeKey(event.target.value)} disabled={readOnly || saving}>
+            <select
+              value={probeKey}
+              onChange={(event) => setProbeKey(event.target.value)}
+              disabled={readOnly || saving}
+            >
               <option value="">Select probe target</option>
-              {probeChoices.map((choice) => <option key={choice.key} value={choice.key}>{choice.label}</option>)}
+              {probeChoices.map((choice) => (
+                <option key={choice.key} value={choice.key}>
+                  {choice.label}
+                </option>
+              ))}
             </select>
           </label>
         </>
       ) : (
-        <p className="mobile-circuit-summary">DC operating point uses the current component values and reports every solved node and branch.</p>
+        <p className="mobile-circuit-summary">
+          DC operating point uses the current component values and reports every solved node and
+          branch.
+        </p>
       )}
       {analysis === 'dc-sweep' ? (
         <div className="mobile-circuit-field-grid">
-          <label className="mobile-circuit-field"><span>Start (V)</span><input type="number" step="any" value={sweepStart} disabled={readOnly || saving} onChange={(event) => setSweepStart(event.target.value)} /></label>
-          <label className="mobile-circuit-field"><span>Stop (V)</span><input type="number" step="any" value={sweepStop} disabled={readOnly || saving} onChange={(event) => setSweepStop(event.target.value)} /></label>
-          <label className="mobile-circuit-field"><span>Samples</span><input type="number" min="2" max="4096" value={sweepSamples} disabled={readOnly || saving} onChange={(event) => setSweepSamples(event.target.value)} /></label>
+          <label className="mobile-circuit-field">
+            <span>Start (V)</span>
+            <input
+              type="number"
+              step="any"
+              value={sweepStart}
+              disabled={readOnly || saving}
+              onChange={(event) => setSweepStart(event.target.value)}
+            />
+          </label>
+          <label className="mobile-circuit-field">
+            <span>Stop (V)</span>
+            <input
+              type="number"
+              step="any"
+              value={sweepStop}
+              disabled={readOnly || saving}
+              onChange={(event) => setSweepStop(event.target.value)}
+            />
+          </label>
+          <label className="mobile-circuit-field">
+            <span>Samples</span>
+            <input
+              type="number"
+              min="2"
+              max="4096"
+              value={sweepSamples}
+              disabled={readOnly || saving}
+              onChange={(event) => setSweepSamples(event.target.value)}
+            />
+          </label>
         </div>
       ) : null}
       {analysis === 'transient' ? (
         <>
           <div className="mobile-circuit-field-grid">
-            <label className="mobile-circuit-field"><span>Duration (s)</span><input type="number" step="any" value={duration} disabled={readOnly || saving} onChange={(event) => setDuration(event.target.value)} /></label>
-            <label className="mobile-circuit-field"><span>Max timestep (s)</span><input type="number" step="any" value={maxStep} disabled={readOnly || saving} onChange={(event) => setMaxStep(event.target.value)} /></label>
+            <label className="mobile-circuit-field">
+              <span>Duration (s)</span>
+              <input
+                type="number"
+                step="any"
+                value={duration}
+                disabled={readOnly || saving}
+                onChange={(event) => setDuration(event.target.value)}
+              />
+            </label>
+            <label className="mobile-circuit-field">
+              <span>Max timestep (s)</span>
+              <input
+                type="number"
+                step="any"
+                value={maxStep}
+                disabled={readOnly || saving}
+                onChange={(event) => setMaxStep(event.target.value)}
+              />
+            </label>
           </div>
           <label className="mobile-circuit-field">
             <span>Source waveform</span>
-            <select value={waveformKind} disabled={readOnly || saving} onChange={(event) => setWaveformKind(event.target.value as typeof waveformKind)}>
+            <select
+              value={waveformKind}
+              disabled={readOnly || saving}
+              onChange={(event) => setWaveformKind(event.target.value as typeof waveformKind)}
+            >
               <option value="dc">DC</option>
               <option value="pulse">Pulse</option>
               <option value="sine">Sine</option>
@@ -2906,26 +3437,112 @@ function MobileCircuitAnalysisEditor({
           </label>
           {waveformKind === 'pulse' ? (
             <div className="mobile-circuit-field-grid">
-              <label className="mobile-circuit-field"><span>Low (V)</span><input type="number" step="any" value={lowValue} disabled={readOnly || saving} onChange={(event) => setLowValue(event.target.value)} /></label>
-              <label className="mobile-circuit-field"><span>High (V)</span><input type="number" step="any" value={highValue} disabled={readOnly || saving} onChange={(event) => setHighValue(event.target.value)} /></label>
-              <label className="mobile-circuit-field"><span>Delay (s)</span><input type="number" step="any" value={delay} disabled={readOnly || saving} onChange={(event) => setDelay(event.target.value)} /></label>
-              <label className="mobile-circuit-field"><span>Width (s)</span><input type="number" step="any" value={pulseWidth} disabled={readOnly || saving} onChange={(event) => setPulseWidth(event.target.value)} /></label>
-              <label className="mobile-circuit-field"><span>Period (s)</span><input type="number" step="any" value={period} disabled={readOnly || saving} onChange={(event) => setPeriod(event.target.value)} /></label>
+              <label className="mobile-circuit-field">
+                <span>Low (V)</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={lowValue}
+                  disabled={readOnly || saving}
+                  onChange={(event) => setLowValue(event.target.value)}
+                />
+              </label>
+              <label className="mobile-circuit-field">
+                <span>High (V)</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={highValue}
+                  disabled={readOnly || saving}
+                  onChange={(event) => setHighValue(event.target.value)}
+                />
+              </label>
+              <label className="mobile-circuit-field">
+                <span>Delay (s)</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={delay}
+                  disabled={readOnly || saving}
+                  onChange={(event) => setDelay(event.target.value)}
+                />
+              </label>
+              <label className="mobile-circuit-field">
+                <span>Width (s)</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={pulseWidth}
+                  disabled={readOnly || saving}
+                  onChange={(event) => setPulseWidth(event.target.value)}
+                />
+              </label>
+              <label className="mobile-circuit-field">
+                <span>Period (s)</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={period}
+                  disabled={readOnly || saving}
+                  onChange={(event) => setPeriod(event.target.value)}
+                />
+              </label>
             </div>
           ) : null}
           {waveformKind === 'sine' ? (
             <div className="mobile-circuit-field-grid">
-              <label className="mobile-circuit-field"><span>Offset (V)</span><input type="number" step="any" value={sineOffset} disabled={readOnly || saving} onChange={(event) => setSineOffset(event.target.value)} /></label>
-              <label className="mobile-circuit-field"><span>Amplitude (V)</span><input type="number" step="any" value={sineAmplitude} disabled={readOnly || saving} onChange={(event) => setSineAmplitude(event.target.value)} /></label>
-              <label className="mobile-circuit-field"><span>Frequency (Hz)</span><input type="number" step="any" value={sineFrequency} disabled={readOnly || saving} onChange={(event) => setSineFrequency(event.target.value)} /></label>
-              <label className="mobile-circuit-field"><span>Delay (s)</span><input type="number" step="any" value={delay} disabled={readOnly || saving} onChange={(event) => setDelay(event.target.value)} /></label>
+              <label className="mobile-circuit-field">
+                <span>Offset (V)</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={sineOffset}
+                  disabled={readOnly || saving}
+                  onChange={(event) => setSineOffset(event.target.value)}
+                />
+              </label>
+              <label className="mobile-circuit-field">
+                <span>Amplitude (V)</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={sineAmplitude}
+                  disabled={readOnly || saving}
+                  onChange={(event) => setSineAmplitude(event.target.value)}
+                />
+              </label>
+              <label className="mobile-circuit-field">
+                <span>Frequency (Hz)</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={sineFrequency}
+                  disabled={readOnly || saving}
+                  onChange={(event) => setSineFrequency(event.target.value)}
+                />
+              </label>
+              <label className="mobile-circuit-field">
+                <span>Delay (s)</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={delay}
+                  disabled={readOnly || saving}
+                  onChange={(event) => setDelay(event.target.value)}
+                />
+              </label>
             </div>
           ) : null}
         </>
       ) : null}
       {error ? <p className="mobile-circuit-form-error">{error}</p> : null}
       {!readOnly ? (
-        <button type="button" className="primary-button mobile-circuit-save" disabled={saving} onClick={() => void saveAnalysis()}>
+        <button
+          type="button"
+          className="primary-button mobile-circuit-save"
+          disabled={saving}
+          onClick={() => void saveAnalysis()}
+        >
           {saving ? <Spinner size={14} /> : <Save size={14} aria-hidden />}
           Save analysis
         </button>
@@ -2948,11 +3565,19 @@ function MobileCircuitTransientResults({
   onClose: () => void;
 }) {
   return (
-    <aside className="mobile-circuit-results mobile-circuit-sweep-results" aria-label="Transient results">
+    <aside
+      className="mobile-circuit-results mobile-circuit-sweep-results"
+      aria-label="Transient results"
+    >
       <header>
         <Activity size={16} aria-hidden />
         <strong>Transient analysis</strong>
-        <button type="button" className="icon-button" aria-label="Close transient results" onClick={onClose}>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Close transient results"
+          onClick={onClose}
+        >
           <X size={15} aria-hidden />
         </button>
       </header>
@@ -2973,7 +3598,8 @@ function MobileCircuitTransientResults({
         {result && !running ? (
           <>
             <p className="mobile-circuit-summary">
-              {result.sampleCount.toLocaleString()} samples · {result.traces.length} {result.traces.length === 1 ? 'trace' : 'traces'}
+              {result.sampleCount.toLocaleString()} samples · {result.traces.length}{' '}
+              {result.traces.length === 1 ? 'trace' : 'traces'}
             </p>
             <CircuitTransientPlot result={result} />
           </>
@@ -3000,11 +3626,19 @@ function MobileCircuitSweepResults({
 }) {
   const sourceNode = result ? logic.nodes.find((node) => node.id === result.source) : null;
   return (
-    <aside className="mobile-circuit-results mobile-circuit-sweep-results" aria-label="DC sweep results">
+    <aside
+      className="mobile-circuit-results mobile-circuit-sweep-results"
+      aria-label="DC sweep results"
+    >
       <header>
         <ChartLine size={16} aria-hidden />
         <strong>DC source sweep</strong>
-        <button type="button" className="icon-button" aria-label="Close DC sweep results" onClick={onClose}>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Close DC sweep results"
+          onClick={onClose}
+        >
           <X size={15} aria-hidden />
         </button>
       </header>
@@ -3025,7 +3659,8 @@ function MobileCircuitSweepResults({
         {result && !running ? (
           <>
             <p className="mobile-circuit-summary">
-              {result.sampleCount.toLocaleString()} samples · {result.traces.length} {result.traces.length === 1 ? 'trace' : 'traces'}
+              {result.sampleCount.toLocaleString()} samples · {result.traces.length}{' '}
+              {result.traces.length === 1 ? 'trace' : 'traces'}
             </p>
             <CircuitSweepPlot
               result={result}
@@ -3064,11 +3699,12 @@ function MobileCircuitResults({
     .map(([electricalNode, voltage]) => {
       const terminal = terminalsByNet.get(electricalNode)?.[0];
       const node = terminal ? nodeById.get(terminal.terminal.nodeId) : null;
-      const label = electricalNode === '0'
-        ? 'Ground'
-        : node && terminal
-          ? `${logicNodeLabel(node)} - ${terminal.terminal.handleId}`
-          : electricalNode;
+      const label =
+        electricalNode === '0'
+          ? 'Ground'
+          : node && terminal
+            ? `${logicNodeLabel(node)} - ${terminal.terminal.handleId}`
+            : electricalNode;
       return { electricalNode, label, voltage };
     })
     .sort((left, right) => left.label.localeCompare(right.label));
@@ -3098,7 +3734,12 @@ function MobileCircuitResults({
       <header>
         {running ? <Spinner size={16} /> : <Zap size={16} aria-hidden />}
         <strong>DC operating point</strong>
-        <button type="button" className="icon-button" aria-label="Close DC results" onClick={onClose}>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Close DC results"
+          onClick={onClose}
+        >
           <X size={15} aria-hidden />
         </button>
       </header>
@@ -3119,10 +3760,14 @@ function MobileCircuitResults({
         {result && !running ? (
           <>
             <p className="mobile-circuit-summary">
-              Converged in {result.operatingPoint.iterations} {result.operatingPoint.iterations === 1 ? 'iteration' : 'iterations'}
+              Converged in {result.operatingPoint.iterations}{' '}
+              {result.operatingPoint.iterations === 1 ? 'iteration' : 'iterations'}
             </p>
             {result.operatingPoint.diagnostics.map((diagnostic) => (
-              <div className="mobile-circuit-warning" key={`${diagnostic.code}-${diagnostic.context.component}`}>
+              <div
+                className="mobile-circuit-warning"
+                key={`${diagnostic.code}-${diagnostic.context.component}`}
+              >
                 {nodeById.has(diagnostic.context.component)
                   ? logicNodeLabel(nodeById.get(diagnostic.context.component)!)
                   : diagnostic.context.component}{' '}
@@ -3136,9 +3781,11 @@ function MobileCircuitResults({
                   {result.probeValues.map((probe) => (
                     <div key={probe.probeId}>
                       <span>{probe.label || probe.probeId}</span>
-                      <code>{probe.kind === 'node-voltage'
-                        ? formatCircuitMeasurement(probe.valueVolts, 'V')
-                        : formatCircuitMeasurement(probe.valueAmps, 'A')}</code>
+                      <code>
+                        {probe.kind === 'node-voltage'
+                          ? formatCircuitMeasurement(probe.valueVolts, 'V')
+                          : formatCircuitMeasurement(probe.valueAmps, 'A')}
+                      </code>
                     </div>
                   ))}
                 </div>
@@ -3236,7 +3883,9 @@ function MobileLogicNode({
         <svg viewBox={schematicSymbolViewBox(rotation)} aria-hidden>
           <g
             transform={schematicSymbolTransform(rotation) || undefined}
-            dangerouslySetInnerHTML={{ __html: schematicSymbolMarkup(kind, 'currentColor', schematicSymbolSet) }}
+            dangerouslySetInnerHTML={{
+              __html: schematicSymbolMarkup(kind, 'currentColor', schematicSymbolSet),
+            }}
           />
         </svg>
         {kind !== 'junction' ? (
@@ -3259,7 +3908,9 @@ function MobileLogicNode({
         {content}
       </button>
     ) : (
-      <div className="mobile-logic-node mobile-logic-schematic" style={style}>{content}</div>
+      <div className="mobile-logic-node mobile-logic-schematic" style={style}>
+        {content}
+      </div>
     );
   }
 
@@ -3274,7 +3925,9 @@ function MobileLogicNode({
       ))}
       <span className="mobile-logic-kind">{node.kind === 'component' ? 'COMP' : node.kind}</span>
       <strong>{logicNodeLabel(node)}</strong>
-      <span className={`mobile-logic-value ${logicSignalClass(value)}`}>{logicSignalLabel(value)}</span>
+      <span className={`mobile-logic-value ${logicSignalClass(value)}`}>
+        {logicSignalLabel(value)}
+      </span>
       {node.kind === 'component' ? (
         <span className="mobile-logic-component-ports">
           {node.component?.definition.ports
@@ -3312,7 +3965,10 @@ function MobileLogicNode({
   }
 
   return (
-    <div className={`mobile-logic-node mobile-logic-gate mobile-logic-${node.kind} ${logicSignalClass(value)}`} style={style}>
+    <div
+      className={`mobile-logic-node mobile-logic-gate mobile-logic-${node.kind} ${logicSignalClass(value)}`}
+      style={style}
+    >
       {content}
     </div>
   );
@@ -3348,14 +4004,11 @@ function PdfMobileViewer({
     () => Array.from({ length: pageCount }, (_, index) => index + 1),
     [pageCount],
   );
-  const widestPage = useMemo(
-    () => Math.max(0, ...Object.values(pageWidths)),
-    [pageWidths],
-  );
+  const widestPage = useMemo(() => Math.max(0, ...Object.values(pageWidths)), [pageWidths]);
   const handlePageMeasured = useCallback((measuredPage: number, size: MobilePdfPageSize) => {
-    setPageWidths((current) => current[measuredPage] === size.width
-      ? current
-      : { ...current, [measuredPage]: size.width });
+    setPageWidths((current) =>
+      current[measuredPage] === size.width ? current : { ...current, [measuredPage]: size.width },
+    );
   }, []);
 
   useEffect(() => {
@@ -3412,9 +4065,7 @@ function PdfMobileViewer({
     const stage = stageRef.current;
     if (!stage || layoutMode !== 'scroll') return;
     const frame = window.requestAnimationFrame(() => {
-      stage.scrollLeft = scale > 1
-        ? Math.max(0, (stage.scrollWidth - stage.clientWidth) / 2)
-        : 0;
+      stage.scrollLeft = scale > 1 ? Math.max(0, (stage.scrollWidth - stage.clientWidth) / 2) : 0;
     });
     return () => window.cancelAnimationFrame(frame);
   }, [layoutMode, scale, stageWidth, widestPage]);
@@ -3442,7 +4093,10 @@ function PdfMobileViewer({
     if (event.touches.length === 2) {
       const first = touchPoint(event.touches[0]);
       const second = touchPoint(event.touches[1]);
-      pinchRef.current = { distance: distanceBetween(first, second), center: midpoint(first, second) };
+      pinchRef.current = {
+        distance: distanceBetween(first, second),
+        center: midpoint(first, second),
+      };
       swipeStartRef.current = null;
       dragRef.current = null;
       return;
@@ -3489,7 +4143,9 @@ function PdfMobileViewer({
       const current = touchPoint(event.touches[0]);
       const previous = dragRef.current;
       dragRef.current = current;
-      setPan((value) => clampPdfPan({ x: value.x + current.x - previous.x, y: value.y + current.y - previous.y }));
+      setPan((value) =>
+        clampPdfPan({ x: value.x + current.x - previous.x, y: value.y + current.y - previous.y }),
+      );
     }
   }
 
@@ -3695,7 +4351,10 @@ function PdfPageCanvas({
         return task.promise;
       })
       .catch((reason: unknown) => {
-        if (!cancelled && !(reason instanceof Error && reason.name === 'RenderingCancelledException')) {
+        if (
+          !cancelled &&
+          !(reason instanceof Error && reason.name === 'RenderingCancelledException')
+        ) {
           onError(reason instanceof Error ? reason.message : String(reason));
         }
       })
@@ -3714,10 +4373,14 @@ function PdfPageCanvas({
       className="pdf-page-wrap"
       data-pdf-page={pageNumber}
       aria-label={`PDF page ${pageNumber}`}
-      style={pageSize ? {
-        height: `${pageSize.height}px`,
-        minHeight: `${pageSize.height}px`,
-      } : undefined}
+      style={
+        pageSize
+          ? {
+              height: `${pageSize.height}px`,
+              minHeight: `${pageSize.height}px`,
+            }
+          : undefined
+      }
     >
       {rendering ? (
         <div className="pdf-page-loading">

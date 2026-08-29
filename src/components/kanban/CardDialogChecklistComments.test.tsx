@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { KanbanBoard, KanbanCard } from '../../types/kanban';
+
 import { CardDialogChecklistComments } from './CardDialogChecklistComments';
 
 const DRAFT: KanbanCard = {
@@ -27,7 +28,21 @@ const DRAFT: KanbanCard = {
 
 const BOARD: KanbanBoard = {
   columns: [
-    { id: 'todo', title: 'Todo', cards: [{ id: 'card-2', title: 'Other Card', assignees: [], tags: [], comments: [], checklist: [], isDone: true }] },
+    {
+      id: 'todo',
+      title: 'Todo',
+      cards: [
+        {
+          id: 'card-2',
+          title: 'Other Card',
+          assignees: [],
+          tags: [],
+          comments: [],
+          checklist: [],
+          isDone: true,
+        },
+      ],
+    },
   ],
 };
 

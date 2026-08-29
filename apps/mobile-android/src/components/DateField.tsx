@@ -1,5 +1,6 @@
-import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+
+import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
@@ -141,14 +142,29 @@ function CalendarSheet({
 
   return (
     <div className="sheet-backdrop calendar-backdrop" onClick={onClose}>
-      <div className="sheet calendar-sheet" role="dialog" aria-label="Choose a date" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="sheet calendar-sheet"
+        role="dialog"
+        aria-label="Choose a date"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="sheet-handle" />
         <div className="calendar-head">
-          <button type="button" className="icon-button" aria-label="Previous month" onClick={() => step(-1)}>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Previous month"
+            onClick={() => step(-1)}
+          >
             <ChevronLeft size={18} aria-hidden />
           </button>
           <strong>{monthLabel}</strong>
-          <button type="button" className="icon-button" aria-label="Next month" onClick={() => step(1)}>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Next month"
+            onClick={() => step(1)}
+          >
             <ChevronRight size={18} aria-hidden />
           </button>
         </div>

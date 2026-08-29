@@ -28,11 +28,7 @@ export function normalizeHostedServerUrl(value: string): string {
   const trimmed = value.trim();
   try {
     const url = new URL(trimmed);
-    if (
-      (url.protocol !== 'https:' && url.protocol !== 'http:')
-      || url.username
-      || url.password
-    ) {
+    if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.username || url.password) {
       return trimmed.replace(/\/+$/, '');
     }
     return url.origin;

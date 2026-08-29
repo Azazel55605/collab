@@ -1,6 +1,8 @@
 import { render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import App from './App';
+
 const tauriCommandsMock = vi.hoisted(() => ({
   isAppImage: vi.fn(),
   shouldDisableBlur: vi.fn(),
@@ -96,8 +98,6 @@ vi.mock('./store/updateStore', () => ({
     checkForUpdate: vi.fn(),
   }),
 }));
-
-import App from './App';
 
 describe('App Windows blur fallback', () => {
   const originalUserAgent = navigator.userAgent;

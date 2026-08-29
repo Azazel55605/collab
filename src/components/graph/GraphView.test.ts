@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
 import type { NoteMetadata } from '../../types/note';
+
 import { buildGraphData } from './GraphView';
 
-function makeNote(overrides: Partial<NoteMetadata> & Pick<NoteMetadata, 'relativePath'>): NoteMetadata {
+function makeNote(
+  overrides: Partial<NoteMetadata> & Pick<NoteMetadata, 'relativePath'>,
+): NoteMetadata {
   return {
     relativePath: overrides.relativePath,
-    title: overrides.title ?? overrides.relativePath.split('/').pop()?.replace(/\.md$/i, '') ?? overrides.relativePath,
+    title:
+      overrides.title ??
+      overrides.relativePath.split('/').pop()?.replace(/\.md$/i, '') ??
+      overrides.relativePath,
     tags: overrides.tags ?? [],
     wikilinksOut: overrides.wikilinksOut ?? [],
     modifiedAt: overrides.modifiedAt ?? 0,

@@ -47,7 +47,10 @@ export function snapCalendarEndMinute(
   return Math.max(minimum, Math.min(CALENDAR_MINUTES_PER_DAY, snapped));
 }
 
-function shiftTimedValue(value: CalendarTimeValue | undefined, deltaMs: number): CalendarTimeValue | undefined {
+function shiftTimedValue(
+  value: CalendarTimeValue | undefined,
+  deltaMs: number,
+): CalendarTimeValue | undefined {
   if (value?.kind !== 'dateTime') return value;
   return { ...value, dateTime: new Date(Date.parse(value.dateTime) + deltaMs).toISOString() };
 }
@@ -57,7 +60,10 @@ function dateDay(value: string): number {
   return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000);
 }
 
-function shiftDateValue(value: CalendarTimeValue | undefined, deltaDays: number): CalendarTimeValue | undefined {
+function shiftDateValue(
+  value: CalendarTimeValue | undefined,
+  deltaDays: number,
+): CalendarTimeValue | undefined {
   if (value?.kind !== 'date') return value;
   const shifted = new Date((dateDay(value.date) + deltaDays) * 86_400_000);
   return { kind: 'date', date: shifted.toISOString().slice(0, 10) };
@@ -79,11 +85,8 @@ export function rescheduleCalendarAllDayItem(
     };
   }
 
-  const anchor = item.start?.kind === 'date'
-    ? item.start
-    : item.due?.kind === 'date'
-      ? item.due
-      : undefined;
+  const anchor =
+    item.start?.kind === 'date' ? item.start : item.due?.kind === 'date' ? item.due : undefined;
   if (!anchor) return null;
   const deltaDays = dateDay(dateKey) - dateDay(sourceDateKey ?? anchor.date);
   return {
@@ -164,7 +167,10 @@ function itemTimedRange(item: CalendarItem): { start: number; end: number } | nu
   const start = timestamp(item.start) ?? timestamp(item.due);
   if (start == null) return null;
   const end = timestamp(item.due);
-  return { start, end: end != null && end > start ? end : start + CALENDAR_TIMED_MINIMUM_MINUTES * 60_000 };
+  return {
+    start,
+    end: end != null && end > start ? end : start + CALENDAR_TIMED_MINIMUM_MINUTES * 60_000,
+  };
 }
 
 export function calendarTimedRangeForDay(
@@ -196,11 +202,12 @@ export function layoutCalendarTimedItems(
       const range = calendarTimedRangeForDay(item, dateKey);
       return range ? [{ item, ...range, column: 0, columnCount: 1 }] : [];
     })
-    .sort((left, right) => (
-      left.startMinute - right.startMinute
-      || right.endMinute - left.endMinute
-      || left.item.id.localeCompare(right.item.id)
-    ));
+    .sort(
+      (left, right) =>
+        left.startMinute - right.startMinute ||
+        right.endMinute - left.endMinute ||
+        left.item.id.localeCompare(right.item.id),
+    );
 
   let cluster: CalendarTimedLayoutEntry[] = [];
   let clusterEnd = -1;

@@ -55,13 +55,13 @@ exported PowerPoint file.
 
 Rough effort for one experienced engineer:
 
-| Scope | Estimate |
-| --- | --- |
-| Phase 0 proofs and frozen contract | 2-4 weeks |
-| Native desktop MVP through presentation mode | 12-18 weeks |
-| Collaboration, offline behavior, and PPTX export | 8-14 weeks |
-| Mobile viewer and release hardening | 6-10 weeks |
-| Deferred bounded PPTX import | Additional 8-16 weeks |
+| Scope                                            | Estimate              |
+| ------------------------------------------------ | --------------------- |
+| Phase 0 proofs and frozen contract               | 2-4 weeks             |
+| Native desktop MVP through presentation mode     | 12-18 weeks           |
+| Collaboration, offline behavior, and PPTX export | 8-14 weeks            |
+| Mobile viewer and release hardening              | 6-10 weeks            |
+| Deferred bounded PPTX import                     | Additional 8-16 weeks |
 
 These are engineering estimates, not release dates. Text fidelity and physical
 PowerPoint/LibreOffice/Google Slides validation can move them materially.
@@ -477,20 +477,20 @@ Security requirements:
 
 ## Progress Tracker
 
-| Phase | Status | Goal |
-| --- | --- | --- |
-| 0. Product contract and technical proofs | Not started | Freeze `.deck`, prove scene/text fidelity, rich-text editing, live text collaboration, and PPTX export. |
-| 1. `.deck` domain and vault integration | Not started | Add schema, validation, migrations, creation, routing, references, revisions, and normal local/hosted lifecycle. |
-| 2. Desktop scene editor foundation | Not started | Build slide navigation, stage rendering, selection, transforms, snapping, ordering, clipboard, and undo/redo. |
-| 3. Rich text, themes, masters, and layouts | Not started | Deliver text editing, placeholders, theme inheritance, reusable layouts, and templates. |
-| 4. Visual objects and Collab data integration | Not started | Add images, SVG, shapes, lines, groups, tables, charts, `.sheet` snapshots, and note links. |
-| 5. Presentation mode and speaker workflow | Not started | Add fullscreen playback, notes, presenter view, navigation, handouts, and PDF/image output. |
-| 6. Hosted collaboration and offline behavior | Not started | Add the deck-specific CRDT codec, awareness, offline replica merge, recovery, and physical multi-client validation. |
-| 7. Compatible PPTX export | Not started | Generate tested `.pptx` copies with a support matrix and visible conversion report. |
-| 8. Mobile viewer and presentation companion | Not started | Add offline viewing, notes, touch navigation, playback, and remote controls. |
-| 9. Transitions and animations | Not started | Add a bounded timeline, preview/playback, reduced motion, and a tested PPTX-compatible subset. |
-| 10. Performance, accessibility, and release hardening | Not started | Validate large decks, fonts, packaging, recovery, keyboard/screen-reader operation, and target applications. |
-| 11. Deferred PPTX import | Deferred | Convert a bounded supported subset of `.pptx` into a new `.deck` with a detailed import report. |
+| Phase                                                 | Status      | Goal                                                                                                                |
+| ----------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------- |
+| 0. Product contract and technical proofs              | Not started | Freeze `.deck`, prove scene/text fidelity, rich-text editing, live text collaboration, and PPTX export.             |
+| 1. `.deck` domain and vault integration               | Not started | Add schema, validation, migrations, creation, routing, references, revisions, and normal local/hosted lifecycle.    |
+| 2. Desktop scene editor foundation                    | Not started | Build slide navigation, stage rendering, selection, transforms, snapping, ordering, clipboard, and undo/redo.       |
+| 3. Rich text, themes, masters, and layouts            | Not started | Deliver text editing, placeholders, theme inheritance, reusable layouts, and templates.                             |
+| 4. Visual objects and Collab data integration         | Not started | Add images, SVG, shapes, lines, groups, tables, charts, `.sheet` snapshots, and note links.                         |
+| 5. Presentation mode and speaker workflow             | Not started | Add fullscreen playback, notes, presenter view, navigation, handouts, and PDF/image output.                         |
+| 6. Hosted collaboration and offline behavior          | Not started | Add the deck-specific CRDT codec, awareness, offline replica merge, recovery, and physical multi-client validation. |
+| 7. Compatible PPTX export                             | Not started | Generate tested `.pptx` copies with a support matrix and visible conversion report.                                 |
+| 8. Mobile viewer and presentation companion           | Not started | Add offline viewing, notes, touch navigation, playback, and remote controls.                                        |
+| 9. Transitions and animations                         | Not started | Add a bounded timeline, preview/playback, reduced motion, and a tested PPTX-compatible subset.                      |
+| 10. Performance, accessibility, and release hardening | Not started | Validate large decks, fonts, packaging, recovery, keyboard/screen-reader operation, and target applications.        |
+| 11. Deferred PPTX import                              | Deferred    | Convert a bounded supported subset of `.pptx` into a new `.deck` with a detailed import report.                     |
 
 ## Phase Details
 
@@ -647,4 +647,3 @@ A first production release is useful when a user can:
 5. Export PDF/images and a compatible `.pptx` copy.
 6. Open the `.pptx` in maintained presentation applications with a truthful
    report for anything approximated or omitted.
-

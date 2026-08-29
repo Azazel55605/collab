@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import type { LocalVaultMeta } from '../types/vault';
+
 import { loadPdfPreviewDataUrl } from './pdfPreview';
 import { LocalVaultClient, type VaultClient } from './vaultClient';
-import type { LocalVaultMeta } from '../types/vault';
 
 vi.mock('pdfjs-dist', () => ({
   GlobalWorkerOptions: {},

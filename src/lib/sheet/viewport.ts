@@ -9,7 +9,6 @@
  * Sizes are cumulative-summed once per structural change so scrolling is a
  * binary search rather than a scan.
  */
-
 import { SHEET_DEFAULTS } from '../../types/sheet';
 import type { SheetWorksheet } from '../../types/sheet';
 

@@ -1,9 +1,4 @@
-import type {
-  SheetDocument,
-  SheetRange,
-  SheetValidation,
-  SheetWorksheet,
-} from '../../types/sheet';
+import type { SheetDocument, SheetRange, SheetValidation, SheetWorksheet } from '../../types/sheet';
 import type {
   SheetFormulaCellInput,
   SheetFormulaComputedValue,
@@ -11,6 +6,7 @@ import type {
   SheetFormulaWorksheetInput,
 } from '../../types/sheetFormula';
 import { sheetFormulaResultKey } from '../../types/sheetFormula';
+
 import type { SheetPosition } from './address';
 import { parseFormulaReferences, translateFormulaReferences } from './formulaReferences';
 import { expandNamedRangesInFormula } from './namedRanges';
@@ -23,9 +19,7 @@ function syntheticWorksheetId(worksheetId: string): string {
 }
 
 function quoteWorksheet(name: string): string {
-  return /^[A-Za-z_][A-Za-z0-9_.]*$/.test(name)
-    ? `${name}!`
-    : `'${name.replace(/'/g, "''")}'!`;
+  return /^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? `${name}!` : `'${name.replace(/'/g, "''")}'!`;
 }
 
 function qualifyLocalReferences(formula: string, worksheetName: string): string {
@@ -65,11 +59,14 @@ function translatedFormula(
   position: SheetPosition,
 ): string {
   const expanded = expandNamedRangesInFormula(document, worksheet.id, formula);
-  return qualifyLocalReferences(translateFormulaReferences(
-    expanded,
-    position.row - anchor.row,
-    position.column - anchor.column,
-  ), worksheet.name);
+  return qualifyLocalReferences(
+    translateFormulaReferences(
+      expanded,
+      position.row - anchor.row,
+      position.column - anchor.column,
+    ),
+    worksheet.name,
+  );
 }
 
 export function conditionalFormulaExpressionId(
@@ -93,11 +90,9 @@ export function ruleFormulaValue(
   worksheet: SheetWorksheet,
   expressionId: string,
 ): SheetFormulaComputedValue | undefined {
-  return values?.get(sheetFormulaResultKey(
-    syntheticWorksheetId(worksheet.id),
-    expressionId,
-    'result',
-  ));
+  return values?.get(
+    sheetFormulaResultKey(syntheticWorksheetId(worksheet.id), expressionId, 'result'),
+  );
 }
 
 function validationAnchor(

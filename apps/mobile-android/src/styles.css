@@ -25,8 +25,16 @@
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    'Pure Nerd Font', PureNerdFont, sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    'Pure Nerd Font',
+    PureNerdFont,
+    sans-serif;
   font-size: var(--base-font-size);
   color: var(--foreground);
   background: var(--background);
@@ -68,10 +76,13 @@ p {
 }
 
 .mono {
-  font-family: 'Fira Code', 'JetBrains Mono', 'Pure Nerd Font', PureNerdFont, ui-monospace,
-    SFMono-Regular, Menlo, monospace;
+  font-family:
+    'Fira Code', 'JetBrains Mono', 'Pure Nerd Font', PureNerdFont, ui-monospace, SFMono-Regular,
+    Menlo, monospace;
   font-variant-ligatures: contextual common-ligatures;
-  font-feature-settings: 'liga' 1, 'calt' 1;
+  font-feature-settings:
+    'liga' 1,
+    'calt' 1;
 }
 
 .truncate {
@@ -792,10 +803,20 @@ p {
   background: var(--card);
   text-align: left;
 }
-.kanban-view-card strong { font-size: 0.9rem; }
+.kanban-view-card strong {
+  font-size: 0.9rem;
+}
 .kanban-view-card span,
-.kanban-view-card time { color: var(--muted-foreground); font-size: 0.74rem; }
-.kanban-timeline-range { display: flex; align-items: center; gap: 5px; color: var(--primary) !important; }
+.kanban-view-card time {
+  color: var(--muted-foreground);
+  font-size: 0.74rem;
+}
+.kanban-timeline-range {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--primary) !important;
+}
 .mobile-board-calendar,
 .mobile-board-timeline {
   flex: 1;
@@ -966,8 +987,13 @@ p {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.mobile-timeline-label strong { font-size: 0.72rem; }
-.mobile-timeline-label small { color: var(--muted-foreground); font-size: 0.6rem; }
+.mobile-timeline-label strong {
+  font-size: 0.72rem;
+}
+.mobile-timeline-label small {
+  color: var(--muted-foreground);
+  font-size: 0.6rem;
+}
 .mobile-timeline-label > i {
   position: absolute;
   top: 9px;
@@ -987,8 +1013,13 @@ p {
   color: var(--muted-foreground);
   font-size: 0.68rem;
 }
-.mobile-timeline-days small { font-size: 0.55rem; }
-.mobile-timeline-days span.today { color: var(--primary); font-weight: 700; }
+.mobile-timeline-days small {
+  font-size: 0.55rem;
+}
+.mobile-timeline-days span.today {
+  color: var(--primary);
+  font-weight: 700;
+}
 .mobile-timeline-row {
   min-height: 48px;
   border-bottom: 1px solid var(--border);
@@ -1018,9 +1049,14 @@ p {
   pointer-events: none;
 }
 .column-order-actions,
-.kanban-card-danger-actions { display: flex; gap: 8px; }
+.kanban-card-danger-actions {
+  display: flex;
+  gap: 8px;
+}
 .column-order-actions > *,
-.kanban-card-danger-actions > * { flex: 1; }
+.kanban-card-danger-actions > * {
+  flex: 1;
+}
 
 .status-dot {
   flex: 0 0 auto;
@@ -1395,12 +1431,24 @@ p {
   animation: calendar-subview-previous 180ms ease-out;
 }
 @keyframes calendar-subview-next {
-  from { opacity: 0.35; transform: translateX(20px); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0.35;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 @keyframes calendar-subview-previous {
-  from { opacity: 0.35; transform: translateX(-20px); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0.35;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 .calendar-mobile-month,
 .calendar-mobile-day {
@@ -2633,12 +2681,15 @@ p {
   outline: none;
   background: var(--surface);
   color: var(--foreground);
-  font-family: 'Fira Code', 'JetBrains Mono', 'Pure Nerd Font', PureNerdFont, ui-monospace,
-    SFMono-Regular, Menlo, monospace;
+  font-family:
+    'Fira Code', 'JetBrains Mono', 'Pure Nerd Font', PureNerdFont, ui-monospace, SFMono-Regular,
+    Menlo, monospace;
   font-size: 0.9rem;
   line-height: 1.55;
   font-variant-ligatures: contextual common-ligatures;
-  font-feature-settings: 'liga' 1, 'calt' 1;
+  font-feature-settings:
+    'liga' 1,
+    'calt' 1;
 }
 .note-editor:focus {
   border-color: var(--primary);
@@ -2725,11 +2776,14 @@ p {
   padding: 2px 5px;
   border-radius: 6px;
   background: var(--surface);
-  font-family: 'Fira Code', 'JetBrains Mono', 'Pure Nerd Font', PureNerdFont, ui-monospace,
-    SFMono-Regular, Menlo, monospace;
+  font-family:
+    'Fira Code', 'JetBrains Mono', 'Pure Nerd Font', PureNerdFont, ui-monospace, SFMono-Regular,
+    Menlo, monospace;
   font-size: 0.86em;
   font-variant-ligatures: contextual common-ligatures;
-  font-feature-settings: 'liga' 1, 'calt' 1;
+  font-feature-settings:
+    'liga' 1,
+    'calt' 1;
 }
 .markdown-preview pre {
   overflow-x: auto;
@@ -2773,13 +2827,12 @@ p {
 }
 
 .markdown-preview .md-mermaid-canvas.is-loading {
-  background:
-    linear-gradient(
-      100deg,
-      transparent 20%,
-      color-mix(in oklch, var(--surface) 75%, transparent) 45%,
-      transparent 70%
-    );
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    color-mix(in oklch, var(--surface) 75%, transparent) 45%,
+    transparent 70%
+  );
   background-size: 220% 100%;
   animation: md-mermaid-loading 1.25s linear infinite;
 }
@@ -2807,7 +2860,9 @@ p {
 }
 
 @keyframes md-mermaid-loading {
-  to { background-position: -220% 0; }
+  to {
+    background-position: -220% 0;
+  }
 }
 .markdown-preview a {
   color: var(--primary);
@@ -2932,10 +2987,26 @@ p {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background:
-    linear-gradient(45deg, color-mix(in oklch, var(--surface) 75%, transparent) 25%, transparent 25%),
-    linear-gradient(-45deg, color-mix(in oklch, var(--surface) 75%, transparent) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, color-mix(in oklch, var(--surface) 75%, transparent) 75%),
-    linear-gradient(-45deg, transparent 75%, color-mix(in oklch, var(--surface) 75%, transparent) 75%),
+    linear-gradient(
+      45deg,
+      color-mix(in oklch, var(--surface) 75%, transparent) 25%,
+      transparent 25%
+    ),
+    linear-gradient(
+      -45deg,
+      color-mix(in oklch, var(--surface) 75%, transparent) 25%,
+      transparent 25%
+    ),
+    linear-gradient(
+      45deg,
+      transparent 75%,
+      color-mix(in oklch, var(--surface) 75%, transparent) 75%
+    ),
+    linear-gradient(
+      -45deg,
+      transparent 75%,
+      color-mix(in oklch, var(--surface) 75%, transparent) 75%
+    ),
     var(--card);
   background-position:
     0 0,
@@ -3108,8 +3179,7 @@ p {
   left: 0;
   width: 1px;
   height: 1px;
-  transform:
-    translate3d(var(--canvas-origin-x, 0px), var(--canvas-origin-y, 0px), 0)
+  transform: translate3d(var(--canvas-origin-x, 0px), var(--canvas-origin-y, 0px), 0)
     scale(var(--canvas-zoom, 1))
     translate3d(calc(var(--canvas-center-x, 0px) * -1), calc(var(--canvas-center-y, 0px) * -1), 0);
   backface-visibility: hidden;
@@ -3120,8 +3190,16 @@ p {
   position: absolute;
   background:
     linear-gradient(color-mix(in oklch, var(--border) 42%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in oklch, var(--border) 42%, transparent) 1px, transparent 1px),
-    radial-gradient(circle at 24px 24px, color-mix(in oklch, var(--primary) 18%, transparent) 1px, transparent 1.5px);
+    linear-gradient(
+      90deg,
+      color-mix(in oklch, var(--border) 42%, transparent) 1px,
+      transparent 1px
+    ),
+    radial-gradient(
+      circle at 24px 24px,
+      color-mix(in oklch, var(--primary) 18%, transparent) 1px,
+      transparent 1.5px
+    );
   background-size:
     48px 48px,
     48px 48px,
@@ -3129,8 +3207,11 @@ p {
   pointer-events: none;
 }
 .mobile-logic-grid {
-  background:
-    radial-gradient(circle, color-mix(in oklch, var(--muted-foreground) 30%, transparent) 1px, transparent 1.5px);
+  background: radial-gradient(
+    circle,
+    color-mix(in oklch, var(--muted-foreground) 30%, transparent) 1px,
+    transparent 1.5px
+  );
   background-size: 24px 24px;
 }
 .mobile-logic-edges {
@@ -3574,7 +3655,9 @@ p {
 }
 .mobile-logic-gate.on {
   border-color: color-mix(in oklch, var(--primary) 62%, white 10%);
-  box-shadow: 0 0 0 2px color-mix(in oklch, var(--primary) 16%, transparent), 0 10px 22px rgb(0 0 0 / 22%);
+  box-shadow:
+    0 0 0 2px color-mix(in oklch, var(--primary) 16%, transparent),
+    0 10px 22px rgb(0 0 0 / 22%);
 }
 .mobile-logic-input {
   cursor: pointer;
@@ -3768,7 +3851,9 @@ p {
 }
 .mobile-canvas-node.selected {
   border-color: color-mix(in oklch, var(--primary) 60%, white 10%);
-  box-shadow: 0 0 0 3px var(--glow), 0 16px 36px rgb(0 0 0 / 28%);
+  box-shadow:
+    0 0 0 3px var(--glow),
+    0 16px 36px rgb(0 0 0 / 28%);
 }
 .desktop-node-header {
   display: flex;
@@ -3933,10 +4018,18 @@ p {
 }
 .desktop-node-milestone {
   clip-path: polygon(12% 0%, 88% 0%, 100% 50%, 88% 100%, 12% 100%, 0% 50%);
-  background: linear-gradient(135deg, color-mix(in oklch, var(--primary) 10%, var(--card)), var(--card));
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--primary) 10%, var(--card)),
+    var(--card)
+  );
 }
 .desktop-node-actor {
-  background: linear-gradient(135deg, color-mix(in oklch, var(--primary) 8%, var(--card)), var(--card));
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--primary) 8%, var(--card)),
+    var(--card)
+  );
 }
 .desktop-node-symbol {
   align-items: center;
@@ -3944,7 +4037,11 @@ p {
   gap: 10px;
   padding: 16px;
   text-align: center;
-  background: linear-gradient(135deg, color-mix(in oklch, var(--primary) 10%, var(--card)), var(--card));
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--primary) 10%, var(--card)),
+    var(--card)
+  );
 }
 .desktop-node-symbol-glyph {
   display: flex;
@@ -4233,7 +4330,9 @@ p {
 .math-plot-stack .font-mono {
   font-family: 'Fira Code', 'JetBrains Mono', 'Pure Nerd Font', PureNerdFont, monospace;
   font-variant-ligatures: contextual common-ligatures;
-  font-feature-settings: 'liga' 1, 'calt' 1;
+  font-feature-settings:
+    'liga' 1,
+    'calt' 1;
 }
 .math-plot-stack .text-muted-foreground,
 .math-plot-stack .text-muted-foreground\/70 {
@@ -4740,8 +4839,12 @@ p {
 }
 
 @keyframes sync-sweep {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(250%); }
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
 }
 
 .sync-activity {
@@ -5341,7 +5444,9 @@ p {
   height: 8px;
   border-radius: 999px;
   background: var(--border);
-  transition: width 160ms ease, background 160ms ease;
+  transition:
+    width 160ms ease,
+    background 160ms ease;
 }
 .kanban-dot.active {
   width: 22px;
@@ -5889,7 +5994,8 @@ p {
     flex-direction: column;
     justify-content: center;
     gap: 6px;
-    padding: calc(8px + var(--safe-top)) 8px calc(8px + var(--safe-bottom)) calc(8px + env(safe-area-inset-left, 0px));
+    padding: calc(8px + var(--safe-top)) 8px calc(8px + var(--safe-bottom))
+      calc(8px + env(safe-area-inset-left, 0px));
     border-top: 0;
     border-right: 1px solid var(--border);
   }
@@ -5918,7 +6024,6 @@ p {
     max-height: calc(100% - 28px);
   }
 }
-
 
 /* ── Drawings (.ink) ──────────────────────────────────────────────────────── */
 /* Namespaced `ink-`, matching the `workbook-` precedent. Controls reuse the
