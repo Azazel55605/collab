@@ -1,0 +1,151 @@
+# AGENTS.md
+
+Implementation rules for AI coding assistants working in this repository. This
+is the canonical agent document — `CLAUDE.md` points here rather than repeating
+it. Detailed documentation lives in [`docs/`](./docs/README.md); keep this file
+a pointer, not a copy.
+
+## What this repository ships
+
+Four independently versioned artifacts from one workspace ([`versions.json`](./versions.json)):
+
+| Artifact | Where | Stack |
+| --- | --- | --- |
+| Desktop app | `src/`, `src-tauri/` | Tauri 2, React 19, Rust |
+| Android companion | `apps/mobile-android/`, `src-tauri/` | Tauri Android, own Vite/Vitest config |
+| Collaboration server | `crates/collab-server/` | Axum, SQLx, PostgreSQL |
+| Admin web | `apps/admin-web/` | React 19, Vite, served under `/admin/` |
+
+Rust is a Cargo workspace of 12 crates plus `src-tauri`. Portable domain logic
+lives in `crates/`; Tauri and Axum are adapters around it.
+
+## Requirements
+
+Node.js 20+, `pnpm` 10+, Rust stable, Tauri 2 system dependencies for the
+platform, Docker with Compose for the server, and `curl` for smoke tests.
+
+## Verification
+
+Run the full set before claiming work is done:
+
+```bash
+pnpm test && pnpm exec tsc --noEmit && pnpm admin:test && pnpm admin:build && cargo test --workspace && cargo check --workspace
+```
+
+`pnpm test` covers **only** `src/` and `scripts/` — admin-web and mobile have
+their own configs and are not included. Mobile needs its own run:
+
+```bash
+pnpm mobile:test
+```
+
+Server and Compose checks:
+
+```bash
+docker compose config && ./scripts/server-smoke.sh
+```
+
+Live PostgreSQL tests need a disposable database — **they truncate identity
+tables, so never point them at real data**:
+
+```bash
+COLLAB_TEST_DATABASE_URL=postgres://collab:password@127.0.0.1:5432/collab_test cargo test -p collab-server
+```
+
+## Repository-specific guards
+
+Easy to miss because nothing else surfaces them:
+
+```bash
+pnpm rust:boundaries   # enforces the allowed crate dependency graph via cargo metadata
+pnpm versions:check    # verifies desktop/mobile/server/admin-web versions are aligned
+```
+
+Every new workspace crate must be added to the boundary policy or
+`pnpm rust:boundaries` fails.
+
+## Testing conventions
+
+- Frontend uses Vitest + jsdom; setup is `src/test/setup.ts`, and mocks are
+  cleared and restored between tests.
+- Test files live next to the code they cover (`foo.ts` → `foo.test.ts`).
+- `vitest.config.ts` sets explicit `include` roots so generated build trees
+  (`.flatpak-builder/`, `flatpak/`) are never picked up. Do not widen them.
+- Rust tests run through `cargo test --workspace`; `src-tauri`-only tests can
+  run with `cd src-tauri && cargo test`.
+
+## Git conventions
+
+- **Never push to `main`.** Every change goes through a branch and a pull
+  request, one per concern.
+- **Commit messages are a single line.** The history contains no multi-line
+  commit bodies — match that. Keep the subject short and lowercase-leaning,
+  e.g. `android build fix`, `improvements for the server backup workflow`.
+- Do not add authorship, tool, or generator trailers to commits or PR bodies.
+
+## Code conventions
+
+- **IPC**: frontend code calls typed wrappers in `src/lib/tauri.ts`, never Tauri
+  plugins directly from components. Shared local/hosted file and document
+  operations go through `src/lib/vaultClient.ts`.
+- **Paths**: everything crossing the IPC boundary is relative to the vault root.
+- **Optimistic locking**: `write_note` takes `expected_hash`; handle the
+  conflict result rather than retrying blindly.
+- **Excluded from listing/indexing**: `.collab/` plus hidden and generated
+  dependency/build directories.
+- **UI controls**: use `src/components/ui/`; never render browser- or OS-native
+  control chrome directly. Missing controls get added there following
+  [`docs/desktop/ui-guide.md`](./docs/desktop/ui-guide.md).
+- **Document views**: follow the `DocumentTopBar` pattern in
+  `src/components/layout/DocumentTopBar.tsx`.
+- **Shared crates** must stay free of Tauri, Axum, SQLx, PostgreSQL, concrete
+  storage backends, and OS integration. `collab-calendar` has an explicit
+  SQLite-store exception.
+
+## Server configuration
+
+Copy [`.env.example`](./.env.example) to `.env` and set at least a strong
+`POSTGRES_PASSWORD`. Values uncommented there become global environment
+overrides and appear **locked** in the admin UI — most runtime settings are
+meant to be changed under `/admin/settings` instead.
+
+Two Compose files exist and are not interchangeable:
+
+| File | Purpose |
+| --- | --- |
+| `docker-compose.yml` | Production/release — pulls the published GHCR image, never builds |
+| `compose.yaml` | Local development and testing — builds the server from source |
+
+## Gotchas
+
+- **Android debug builds**: `Cargo.toml` sets `opt-level = 1` for workspace
+  crates and `3` for dependencies on purpose. Unoptimized dependencies make the
+  debug APK feel broken — AES-GCM measured ~65× slower. Do not "simplify" those
+  profile settings.
+- **View routing is two-layered**: `uiStore.activeView` handles page-level views
+  (`grid`, `calendar`, …); the `editorStore` tab type selects document views
+  (`sheet`, `ink`, `logic`, `image`, `pdf`). `SvgVectorView` is chosen over
+  `ImageView` by a `/\.svg$/i` test inside the `image` tab type. See
+  `src/components/layout/AppShell.tsx`.
+- **OCR assets** are prepared by `scripts/prepare-ocr-assets.mjs`, which runs
+  automatically before `pnpm dev` and `pnpm build`.
+- **`.sheet` is the only authoritative spreadsheet format.** `.xlsx`/`.csv` are
+  bounded conversion targets, never a live backing model.
+- **Formula engine isolation**: nothing outside `crates/collab-sheet/src/formula.rs`
+  may depend on `formualizer_*` types.
+- **Security advisories** are accepted explicitly, not suppressed silently. If
+  you touch [`.cargo/audit.toml`](./.cargo/audit.toml), update the matching
+  rationale in [`docs/build/security-advisories.md`](./docs/build/security-advisories.md).
+
+## Where the truth lives
+
+- Project status, and what is actually unfinished:
+  [`docs/plans/open-development-work.md`](./docs/plans/open-development-work.md)
+  — trust this over any plan document's own tracker.
+- Code structure, stores, types, IPC commands, crate responsibilities:
+  [`docs/desktop/codebase.md`](./docs/desktop/codebase.md)
+- Visual language and interaction rules: [`docs/desktop/ui-guide.md`](./docs/desktop/ui-guide.md)
+- Server architecture, protocol, operations: [`docs/server/README.md`](./docs/server/README.md)
+
+Update `docs/desktop/codebase.md` alongside any structural change — it is the
+file that goes stale first.
