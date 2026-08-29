@@ -11,6 +11,9 @@ Dockerfile* text eol=lf
 Caddyfile* text eol=lf
 *.Caddyfile text eol=lf
 
+# Windows batch files should stay CRLF for cmd.exe compatibility.
+*.bat text eol=crlf
+*.cmd text eol=crlf
 # Binary files: never diff, never convert.
 *.png binary
 *.jpg binary
