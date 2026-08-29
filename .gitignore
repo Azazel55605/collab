@@ -29,7 +29,6 @@ public/ocr-assets/
 *.sln
 *.sw?
 features - bugs.md
-AGENTS.md
 .codex
 .flatpak-builder/
 flatpak-build/

@@ -1,0 +1,54 @@
+# Consistent line endings. Everything Git considers text is stored and checked
+# out as LF on every platform. The repository already stores LF exclusively, so
+# this changes working copies only — it removes the CRLF warnings on Windows and
+# keeps tooling that compares file bytes (scripts/sync-versions.mjs) honest.
+* text=auto eol=lf
+
+# Shell scripts and container inputs must stay LF — CRLF breaks them inside the
+# server image and in Docker builds started from a Windows checkout.
+*.sh text eol=lf
+Dockerfile* text eol=lf
+Caddyfile* text eol=lf
+*.Caddyfile text eol=lf
+
+# Binary files: never diff, never convert.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.pdf binary
+*.zip binary
+*.jar binary
+*.keystore binary
+*.traineddata binary
+
+# Text files with useful diff drivers.
+*.md text diff=markdown
+*.rs text diff=rust
+*.json text
+*.jsonc text
+*.yml text
+*.yaml text
+*.toml text
+*.ts text
+*.tsx text
+*.js text
+*.mjs text
+*.css text
+*.html text
+*.sql text
+*.kt text
+*.xml text
+
+# Generated lockfiles: excluded from language statistics and collapsed by
+# default in reviews, but still diffable — dependency changes must stay
+# reviewable, since advisory tracking depends on seeing them.
+pnpm-lock.yaml linguist-generated
+Cargo.lock linguist-generated
