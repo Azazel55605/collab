@@ -24,22 +24,38 @@ the flaw to everyone running an unpatched server before a fix exists.
 
 Report privately, in this order of preference:
 
-1. **GitHub private vulnerability reporting** — the "Report a vulnerability"
-   button under the repository's Security tab. This keeps the report, the
-   discussion, and the advisory in one place.
+1. **GitHub private vulnerability reporting** (preferred) — open a report at
+   <https://github.com/Azazel55605/collab/security/advisories/new>. This keeps
+   the report, the discussion, and the resulting advisory in one place.
 2. **Direct contact with the maintainer** via the contact details on
-   [the maintainer's GitHub profile](https://github.com/Azazel55605), if private
-   reporting is unavailable.
+   [the maintainer's GitHub profile](https://github.com/Azazel55605), if the
+   page above is unavailable to you.
 
-Please include:
+Please include as much of the following as you can:
 
-- affected component (desktop app, Android app, collaboration server, admin web)
-- affected version, and the server image tag if applicable
-- reproduction steps or a proof of concept
-- the impact you believe it has
+- Affected component: desktop app, Android app, collaboration server, or admin
+  web interface.
+- Affected version, plus the server image tag and deployment topology if the
+  server is involved.
+- A description of the issue and the impact you believe it has.
+- Step-by-step reproduction, ideally with a minimal proof of concept.
+- Any mitigation you have already identified.
 
-You will get an acknowledgement of the report. Please allow time for a fix to
-be prepared and released before disclosing publicly.
+Please redact secrets — tokens, passwords, vault contents — from anything you
+attach.
+
+## What to expect
+
+- **Acknowledgement** of your report within **5 working days**.
+- An **initial assessment** — severity and intended plan — within
+  **10 working days**.
+- For **high and critical** issues, a fix and coordinated disclosure are aimed
+  for within **30 days**.
+- Lower-severity issues are scheduled into the next regular release.
+
+Server-affecting fixes ship as a new release and a new published image tag;
+there are no backports to older lines. Please allow the fix to be released
+before disclosing publicly.
 
 ## Scope
 
@@ -64,6 +80,23 @@ Out of scope — these are documented, deliberate behaviors rather than defects:
   practice.
 - Findings that require an attacker to already have filesystem access to a
   user's unlocked vault or the server host.
+- Vulnerabilities in upstream dependencies as such — report those upstream, and
+  mention them here if `collab` is affected in a way the upstream advisory does
+  not already cover.
+- Social engineering against maintainers or users.
+
+## Safe harbor
+
+Good-faith security research is welcome. No legal action will be pursued against
+researchers who:
+
+- Make a reasonable effort to avoid privacy violations, data destruction, and
+  disruption of other people's servers.
+- Test only against their own installation or an installation they are
+  authorized to test.
+- Give a reasonable opportunity to address the issue before disclosing it
+  publicly.
+- Do not exploit the issue beyond what is necessary to demonstrate it.
 
 ## Hardening and operations
 
