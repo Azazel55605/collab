@@ -58,6 +58,26 @@ docker compose up --build --wait
 Note that `docker-compose.yml` and `compose.yaml` are **not** interchangeable:
 the former pulls the published release image, the latter builds from source.
 
+## Formatting
+
+Prettier owns formatting and import order. Run it before committing:
+
+```bash
+pnpm format
+```
+
+`format` is preceded automatically by `preformat`, which rewrites any `@/…`
+import in `src/` back to a relative path — the Android companion bundles
+modules straight out of `src/` and has no `@` alias, so alias imports there
+fail to resolve. Generated shadcn primitives in `src/components/ui/` keep their
+aliases and are left alone.
+
+CI-friendly check without writing:
+
+```bash
+pnpm format:check
+```
+
 ## Before opening a pull request
 
 Run the full verification set:
