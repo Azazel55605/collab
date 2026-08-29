@@ -202,69 +202,79 @@ Server architecture, operations, and release guidance are tracked in
 ```text
 apps/
   admin-web/         Focused browser administration interface
+  mobile-android/    Android companion frontend (own Vite/Vitest config)
 
 crates/
+  collab-archive/    Portable archive validation and import/export planning
   collab-calendar/   Shared calendar model, recurrence, iCalendar, and native store
   collab-circuit/    Shared circuit model, compiler, and simulation numerics
   collab-core/       Shared hashing and relative-path rules
+  collab-documents/  Portable document classification, validation, and references
+  collab-live/       Portable Yrs update/replay, compaction, and merge policy
+  collab-net-policy/ Outbound URL, redirect, and response-budget policy
   collab-protocol/   Shared server DTOs, error codes, and protocol versions
   collab-replica/    Shared native hosted-vault offline replica store
   collab-server/     Axum server, authentication, migrations, and blob storage
+  collab-sheet/      Formula-engine boundary and bounded .xlsx/.csv conversion
+  collab-vault-domain/ Portable vault metadata mutation and conflict decisions
 
 src/
   components/
+    calendar/        Calendar item relations editor
+    canvas/          Canvas nodes, edges, inspectors, toolbar
     collaboration/   Presence, chat, history, conflict UI
     command-bar/     Global command/search/action palette
     editor/          Markdown editor, toolbar, preview helpers, editor dialogs
     graph/           D3 graph view
     grid/            Multi-workspace layout UI
+    image/           Image stages, toolbars, annotation popover
+    ink/             Ink canvas, tool rail, layers, drawing dialogs
     kanban/          Board, columns, cards, templates, calendar, timeline
     layout/          App shell, activity bar, sidebar, tab bar, status bar
-    previews/        Web preview popovers
+    logic/           Logic/schematic helpers and circuit result plots
+    notifications/   In-app notification center
+    pdf/             PDF workspace tooling
+    previews/        File tree, PDF link, and web link preview popovers
+    server/          Hosted-server UI pieces
     settings/        Settings and shortcuts UI
+    sheet/           Workbook grid, formula bar, and sheet dialogs
     ui/              shadcn/ui primitives
     vault/           Vault picker, file tree, boards panel, dialogs
   lib/
     tauri.ts         Typed Tauri IPC wrappers
-    collabTransport.ts
+    vaultClient.ts   Shared local/hosted file and document operations
+    vaultReplica.ts  Offline replica and pending-operation access
+    ink/  sheet/     Ink and spreadsheet document domains
   store/
-    vaultStore.ts
-    editorStore.ts
-    uiStore.ts
-    noteIndexStore.ts
-    collabStore.ts
-    gridStore.ts
-    kanbanStore.ts
-    updateStore.ts
+    vaultStore.ts    editorStore.ts     uiStore.ts
+    noteIndexStore.ts  noteSnippetStore.ts
+    collabStore.ts   gridStore.ts       kanbanStore.ts
+    calendarStore.ts serverStore.ts     updateStore.ts
+    syncStore.ts     syncTransferStore.ts  documentStatusStore.ts
   types/
-    canvas.ts
-    kanban.ts
-    image.ts
-    note.ts
-    template.ts
-    vault.ts
+    canvas.ts  kanban.ts  image.ts  note.ts  template.ts  vault.ts
+    calendar.ts  ink.ts  sheet.ts  logicDiagram.ts  notification.ts
+    svg.ts  widget.ts  pdf.ts  collab.ts  circuitRuntime.ts
   views/
-    NoteView.tsx
-    ImageView.tsx
-    PdfView.tsx
-    GraphPage.tsx
-    CanvasPage.tsx
-    KanbanPage.tsx
-    GridView.tsx
-    SettingsPage.tsx
+    NoteView.tsx     ImageView.tsx      PdfView.tsx
+    GraphPage.tsx    CanvasPage.tsx     KanbanPage.tsx
+    CalendarPage.tsx SheetView.tsx      InkView.tsx
+    LogicDiagramView.tsx  SvgVectorView.tsx
+    GridView.tsx     SettingsPage.tsx   NotePrintView.tsx
 
 src-tauri/src/commands/
-  vault.rs
-  files.rs
-  templates.rs
-  index.rs
-  watcher.rs
-  collab.rs
-  crypto.rs
-  ui.rs
-  update.rs
-  web.rs
-  server.rs
+  vault.rs      files.rs       templates.rs   index.rs
+  watcher.rs    collab.rs      crypto.rs      ui.rs
+  update.rs     web.rs         server.rs      mobile.rs
+  calendar.rs           User calendars, mirroring, and hosted sync
+  circuit.rs            Bounded native circuit simulation jobs
+  sheet.rs              Native .sheet formula evaluation
+  sheet_convert.rs      Bounded .xlsx/.csv import and export
+  ocr.rs                OCR language packs and image recognition
+  notifications.rs      Notification inbox, preferences, and permissions
+  background.rs         Background jobs and Android WorkManager reconciliation
+  widgets.rs            Android launcher widget configuration and snapshots
+  live_ws.rs            Live co-editing WebSocket transport
   replica.rs            Native hosted-vault offline replica store
 
 docker-compose.yml    Production/release stack (published GHCR image)

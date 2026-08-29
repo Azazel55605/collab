@@ -2,6 +2,8 @@
 
 Quick-scan reference for components, features, types, and IPC. Update this file alongside `AGENTS.md` and `CLAUDE.md` after any structural change.
 
+Last reviewed: 2026-08-29.
+
 For the app's visual language, interaction patterns, and UI rules, see the
 [UI Guide](./ui-guide.md).
 
@@ -87,7 +89,20 @@ Expectation:
 
 ## Views
 
-Located in `src/views/`. Each view is a full-page component routed by `uiStore.activeView`.
+Located in `src/views/`. View selection is **two-layered** and resolved in
+`components/layout/AppShell.tsx`:
+
+1. `uiStore.activeView` (`'editor' | 'graph' | 'canvas' | 'kanban' | 'calendar' | 'grid'`)
+   wins for `grid` and `calendar`.
+2. Otherwise `editorStore` tab type (`'note' | 'canvas' | 'kanban' | 'logic' |
+   'sheet' | 'ink' | 'graph' | 'settings' | 'image' | 'pdf'`) selects the
+   document view. A note tab only renders when `activeView === 'editor'`, so
+   clicking Graph/Canvas/Kanban in the ActivityBar overrides it.
+
+There is no `activeView` key for sheet, ink, logic, image, PDF, or SVG — those
+are reachable only as document tabs.
+
+### Page-level views (`uiStore.activeView`)
 
 | File | Route key | Provides | Key stores |
 |------|-----------|----------|------------|
@@ -95,8 +110,21 @@ Located in `src/views/`. Each view is a full-page component routed by `uiStore.a
 | `GraphPage.tsx` | `'graph'` | — | noteIndexStore, editorStore, uiStore |
 | `CanvasPage.tsx` | `'canvas'` | React Flow canvas board with planning nodes, presets, and inspector panels | vaultStore, editorStore, collabStore, uiStore |
 | `KanbanPage.tsx` | `'kanban'` | KanbanContext | vaultStore, collabStore, kanbanStore |
+| `CalendarPage.tsx` | `'calendar'` | Calendar workspace with month/week/day/agenda navigation, drag-to-reschedule, and the item editor | calendarStore, collabStore, uiStore |
 | `GridView.tsx` | `'grid'` | — | gridStore |
 | `SettingsPage.tsx` | (modal) | — | collabStore, uiStore |
+
+### Document views (`editorStore` tab type)
+
+| File | Tab type | Provides | Key stores |
+|------|----------|----------|------------|
+| `SheetView.tsx` | `'sheet'` | `.sheet` workbook editor: virtualized grid, formula bar, worksheets, data tools, charts | vaultStore, editorStore, uiStore, calendarStore |
+| `InkView.tsx` | `'ink'` | `.ink` drawing editor: stroke capture, tool rail, layers, rich objects | vaultStore, editorStore, uiStore |
+| `LogicDiagramView.tsx` | `'logic'` | Logic/schematic editor plus circuit simulation runs and result plots | vaultStore, editorStore, uiStore |
+| `ImageView.tsx` | `'image'` | Raster image viewer/editor with additive overlays and permanent edits | vaultStore, editorStore, uiStore |
+| `SvgVectorView.tsx` | `'image'` | Chosen over `ImageView` when the path matches `/\.svg$/i` — vector scene editing | vaultStore, editorStore |
+| `PdfView.tsx` | `'pdf'` | PDF reader with layout/zoom modes, bookmarks, and highlights | vaultStore, editorStore, uiStore |
+| `NotePrintView.tsx` | (not a tab) | Print/export rendering surface for a note | vaultStore |
 
 ### KanbanPage context shape
 ```ts
@@ -261,6 +289,88 @@ missing a control, add it there using the interaction and theming rules in
 
 **Grid layout types:** `single | split-h | split-v | 2x2 | cols-3 | cols-4 | main-side | side-main`
 **Grid cell content types:** `empty | note | graph | canvas | kanban | settings`
+
+### Sheet
+
+Backing logic lives in `src/lib/sheet/` (`document.ts`, `operations.ts`,
+`dataTools.ts`, `formulaFunctions.ts`, `useSheetSession.ts`); components here
+are presentation and dialogs only.
+
+| File | Purpose | shadcn used |
+|------|---------|-------------|
+| `components/sheet/SheetGrid.tsx` | Virtualized workbook grid with selection, editing, fill, and resize interactions | — |
+| `components/sheet/SheetFormulaBar.tsx` | Formula input bound to the shared function registry | Input |
+| `components/sheet/SheetFormulaIntellisense.tsx` | Function/named-range suggestion overlay for the formula bar | — |
+| `components/sheet/SheetFormattingToolbar.tsx` | Cell formatting controls for alignment, fonts, borders, and number formats | Button, Select, Popover |
+| `components/sheet/SheetWorksheetBar.tsx` | Worksheet tabs with rename/reorder/delete context actions | ContextMenu |
+| `components/sheet/SheetFilterPopover.tsx` | Per-column filter builder | Select, Popover |
+| `components/sheet/SheetFindDialog.tsx` | Find/replace across the workbook | Dialog |
+| `components/sheet/SheetTableDialog.tsx` | Structured table definition over a range | Dialog |
+| `components/sheet/SheetNamedRangeDialog.tsx` | Named-range creation and management | Dialog |
+| `components/sheet/SheetValidationDialog.tsx` | Cell data-validation rules | Dialog |
+| `components/sheet/SheetConditionalFormatDialog.tsx` | Conditional formatting rules | Dialog |
+| `components/sheet/SheetProtectionDialog.tsx` | Range/worksheet protection settings | Dialog |
+| `components/sheet/SheetAnalysisDialog.tsx` | Chart and analysis configuration (`SheetChart`, `SheetChartKind`) | Dialog |
+| `components/sheet/SheetLinksDialog.tsx` | Collab references and note-embed links from sheet cells | Dialog |
+| `components/sheet/SheetDataConnectionsDialog.tsx` | Snapshot data-connection management | Dialog |
+| `components/sheet/SheetCsvExportDialog.tsx` | CSV export options, including formula-injection protection | Dialog |
+| `components/sheet/SheetConversionReportDialog.tsx` | Honest `.xlsx`/`.csv` conversion report by severity | Dialog |
+
+### Ink
+
+Backing logic lives in `src/lib/ink/` (`document.ts`, `operations.ts`,
+`renderer.ts`).
+
+| File | Purpose | shadcn used |
+|------|---------|-------------|
+| `components/ink/InkCanvas.tsx` | Stroke capture and rendering surface; owns pointer arbitration (`InkContactArbiter`), barrel-button and eraser-end detection | — |
+| `components/ink/InkToolRail.tsx` | Tool selection rail (pen, highlighter, eraser, lasso, hand) | Button, Tooltip |
+| `components/ink/InkSidePanel.tsx` | Layers, object alignment, and property editing panel | Button, Select, Tabs |
+| `components/ink/InkRichObjectLayer.tsx` | Overlay layer for rich objects (text, equations, links) above the stroke scene | — |
+| `components/ink/InkTextDialog.tsx` | Text-object entry dialog | Dialog |
+| `components/ink/NewDrawingDialog.tsx` | First-class New Drawing lifecycle: page mode, background pattern, template | Dialog, Select |
+
+### Logic And Circuit
+
+Pure helpers, not React components, except `CircuitSweepPlot`. Runtime job
+contracts live in `src/types/circuitRuntime.ts`; job polling is shared with
+Android via `src/lib/circuitJobRunner.ts`.
+
+| File | Purpose |
+|------|---------|
+| `components/logic/logicDiagramComponents.ts` | Component definitions and port metadata for diagram nodes |
+| `components/logic/logicDiagramFlow.ts` | Mapping between persisted logic documents and React Flow models |
+| `components/logic/logicDiagramEvaluator.ts` | Digital logic evaluation including clock configuration |
+| `components/logic/logicTruthTable.ts` | Truth-table derivation from nodes and wires |
+| `components/logic/logicDiagramTemplates.ts` | Built-in starter diagrams (`LogicDiagramTemplate`) |
+| `components/logic/schematicSymbols.ts` | Schematic symbol geometry per `SchematicSymbolSet` and rotation |
+| `components/logic/CircuitSweepPlot.tsx` | Plot for DC-sweep and transient circuit results (+ `CircuitSweepPlot.css`) |
+
+### Calendar
+
+The calendar workspace itself is `views/CalendarPage.tsx`; this folder holds
+only the relations editor.
+
+| File | Purpose | shadcn used |
+|------|---------|-------------|
+| `components/calendar/CalendarRelations.tsx` | Attendee, attachment, and response editing for a calendar item | Button, Input, Select |
+
+### Notifications
+
+| File | Purpose | shadcn used |
+|------|---------|-------------|
+| `components/notifications/NotificationCenter.tsx` | In-app notification list with per-category icons, state transitions, and actions | Popover, Button, ScrollArea |
+
+### Previews
+
+All three take an `anchorRect: DOMRect | null` plus a target path/URL and render
+a positioned popover.
+
+| File | Purpose |
+|------|---------|
+| `components/previews/FileTreeHoverPreviewPopover.tsx` | Hover preview for file-tree entries |
+| `components/previews/PdfLinkPreviewPopover.tsx` | Preview for links pointing at vault PDFs |
+| `components/previews/WebLinkPreviewPopover.tsx` | Preview for external web links |
 
 ### Other
 
@@ -445,6 +555,81 @@ lastChecked: number | null
 checkForUpdate() | startDownload() | reset()
 ```
 
+### `calendarStore` (`src/store/calendarStore.ts`)
+```ts
+profileId: string | null
+calendars: CalendarDefinition[]
+subscriptions: CalendarSubscription[]
+sourceItems | items: CalendarItem[]   // sourceItems = unmirrored, items = projected
+visibleCalendarIds: string[]
+range: { from, to, includeUnscheduledTasks? } | null
+loading | saving | syncing: boolean
+syncResults: CalendarOriginSyncResult[]
+syncProgress: Record<string, CalendarSyncProgress>
+conflicts: CalendarOperationFailure[]
+mirrorGroups | mirrorConflicts | mirrorStatuses | mirrorProgress   // cross-location mirroring
+error: string | null
+
+initialize(profileId) | loadRange(from, to, includeUnscheduledTasks?)
+syncHosted(origins) | retryConflict(id) | discardConflict(id) | removeHostedCache(origin)
+refreshSubscription(id) | refreshSubscriptions(staleAfterMs?) | deleteSubscription(id)
+listCalendarItems(calendarId) | importItems(calendarId, items) | searchItems(query, limit?)
+setCalendarVisible(calendarId, visible)
+```
+
+### `syncStore` (`src/store/syncStore.ts`)
+Hosted-vault offline replica state behind the status-bar indicator. Types come
+from `src/lib/vaultReplica.ts`.
+```ts
+SyncRollup = 'synced' | 'syncing' | 'pending' | 'conflicts'   // what the indicator renders
+
+vaultKey: string | null
+status: SyncStatus
+lastSyncedAt | offlineAvailableAt: string | null
+pending: PendingOperation[]
+failed: PendingOperationRecovery[]     // conflicts needing user resolution
+access: VaultAccessState
+isSyncing: boolean
+
+refresh(vault) | syncNow(vault) | retry(vault, operationId) | discard(vault, operationId)
+removeReplica(vault) | syncAllForServer(serverUrl)
+refreshOfflineCopiesForServer(serverUrl, vaults) | clear()
+```
+
+### `syncTransferStore` (`src/store/syncTransferStore.ts`)
+Progress rows for in-flight transfers; purely presentational, fed by `syncStore`.
+```ts
+SyncTransferDirection = 'upload' | 'download' | 'sync'
+SyncTransferStatus    = 'active' | 'completed' | 'failed'
+SyncTransfer  { id, vaultId, vaultName, direction, label, detail,
+                completed, total, status, error, startedAt, updatedAt }
+
+transfers: SyncTransfer[]
+begin(transfer) → id | update(id, patch) | complete(id, label?) | fail(id, error)
+clearFinished() | reset()
+```
+
+### `documentStatusStore` (`src/store/documentStatusStore.ts`)
+Central registry so the shared status surface can render conflict/reconciliation
+UI for whichever document is active. Type parameters are **erased at the store
+boundary** — the surface treats documents opaquely.
+```ts
+RegisteredDocumentStatus {
+  status: DocumentStatus
+  controller?: DocumentSessionController<unknown>   // full reconciliation review
+  snapshot?: DocumentSessionSnapshot<unknown>
+  onSaveAsNew?: (localContent) => Promise<void>
+  readOnly?: boolean
+  onLoadRemote?: () => void
+  onKeepLocal?: () => void
+}
+
+statuses: Record<string, RegisteredDocumentStatus>   // keyed by relativePath
+setDocumentStatus(relativePath, status) | clearDocumentStatus(relativePath)
+```
+Registrants that supply only `status`/`onLoadRemote`/`onKeepLocal` still render
+as a plain pill.
+
 ---
 
 ## Types
@@ -515,6 +700,119 @@ ColumnSortField = 'none' | 'name' | 'priority' | 'createdAt' | 'startDate' | 'du
 KanbanColumn    { id, title, color?, autoComplete?, sort?, hideFromTimeline?,
                   isDoneDestination?, defaultTags?, cards[] }
 KanbanBoard     { columns[] }
+```
+
+### `src/types/image.ts`
+```ts
+ImageOverlayTool  | ImageLineStyle
+NormalizedPoint       { x, y }              // 0–1, resolution-independent
+ImageTextOverlay | ImageArrowOverlay | ImagePenOverlay
+ImageOverlayItem      = union of the three above
+ImageOverlayDocument  additive overlays persisted under `.collab/image-overlays/`
+ImageCropRect | PermanentImageEdits         // destructive edits, not overlays
+```
+
+### `src/types/sheet.ts`
+Workbook document model (391 lines). Ids are branded string aliases.
+```ts
+SheetValueType | SheetErrorCode
+SheetRowId | SheetColumnId | SheetWorksheetId | SheetStyleId | SheetCellKey
+SheetRow | SheetColumn | SheetCell | SheetCellAttachment | SheetRange
+SheetHorizontalAlign | SheetVerticalAlign | SheetBorderStyle
+SheetBorderSide | SheetBorders | SheetStyle
+```
+
+### `src/types/sheetFormula.ts`
+Boundary contract for the native formula engine — request/response only, no
+evaluation logic.
+```ts
+SheetFormulaComputedValue | SheetFormulaValueMap
+SheetFormulaCellInput | SheetFormulaWorksheetInput
+SheetFormulaEvaluationRequest → SheetFormulaEvaluationResponse { SheetFormulaComputedCell[] }
+```
+
+### `src/types/sheetConversion.ts`
+Bounded `.xlsx`/`.csv` import/export. External formats are **conversion targets,
+not live document models** — see [`.sheet` Conversion Support Matrix](./sheet-conversion.md).
+```ts
+SheetConversionSeverity | SheetConversionNote | SheetConversionReport
+SheetExportFormat | SheetImportOptions | SheetImportResult
+SheetExportRange | SheetExportComputedValue | SheetExportOptions | SheetExportResult
+```
+
+### `src/types/ink.ts`
+```ts
+InkPageMode | InkBackgroundPattern | InkPageBackground | InkLayer
+InkSampleChannels | InkSample          // frozen Phase 0 input contract
+InkBrushKind | InkDashStyle | InkBrushParameters | InkBrushPreset
+InkBounds | InkTransform | InkObjectLink
+InkStroke | InkShape | InkConnector     // all extend InkObjectBase
+InkShapeKind | InkArrowhead
+```
+
+### `src/types/logicDiagram.ts`
+Covers both the digital logic editor and the electrical/schematic model (564 lines).
+```ts
+LogicDiagramMode | SchematicRotation | SchematicSymbolSet
+LogicGateKind | ElectronicComponentKind | LogicNodeKind
+LogicComponentInstanceMode | LogicComponentPortDirection
+LogicComponentPort | LogicComponentDefinition | LogicClockConfig
+SchematicElectricalParameters
+LogicCircuitProbeKind | LogicCircuitProbe
+LogicDcSweepConfig | LogicSourceWaveform | LogicTransientConfig | LogicSimulationConfig
+```
+Job/result contracts for actually running a simulation live separately in
+`src/types/circuitRuntime.ts`.
+
+### `src/types/calendar.ts`
+Largest type module (957 lines); mirrors the `collab-calendar` crate model.
+```ts
+CalendarItemKind | CalendarAvailability
+CalendarTaskPriority | CalendarTaskStatus
+CalendarAttendanceResponse | CalendarAttendeeRole | CalendarAttendee
+CalendarLocation | CalendarEventLocation | CalendarTimeValue
+CalendarRecurrence | CalendarReminder
+CalendarReminderScheduleEntry | CalendarReminderScheduler
+CalendarAttachment | CalendarSourceBinding
+CalendarEvent | CalendarTask           // both extend CalendarItemBase
+```
+
+### `src/types/notification.ts`
+```ts
+NotificationCategory | NotificationKind | NotificationChannel
+NotificationPrivacyLevel | NotificationPriority | NotificationDestination
+NotificationAction | NotificationEnvelope
+NotificationState | NotificationRecord
+NotificationReconciliationRequest → NotificationReconcileResult
+NotificationActionToken | ConsumedNotificationAction
+NotificationPermissionStatus | NotificationPresentation
+NotificationForegroundContext → ForegroundNotificationDecision
+```
+The shared runtime contract lives in `src/lib/notificationContract.ts`.
+
+### `src/types/widget.ts`
+Android launcher widgets; the native side is `src-tauri/src/widgets.rs`.
+```ts
+WidgetKind | WidgetEntryKind | WidgetPrivacy
+WidgetCaptureAction | WidgetTaskSource | WidgetTaskDue | WidgetTaskCompletion
+WidgetDisplayOptions | WidgetActionOptions | WidgetTaskOptions
+WidgetCaptureOptions | WidgetShortcutOptions | WidgetPinnedTarget
+WidgetSyncState | WidgetSyncSummary | WidgetSyncAccount
+WidgetConfiguration | WidgetAppearanceSnapshot
+```
+
+### `src/types/svg.ts`
+Vector scene model behind `SvgVectorView`.
+```ts
+SvgPrimitiveType | SvgEditableType
+SvgStyle | SvgRect | SvgNode | SvgSlot | SvgScene
+```
+
+### `src/types/template.ts`
+```ts
+TemplateSource          // built-in | vault | app
+KanbanTemplate | KanbanFilterPreset | KanbanAutomationPreset
+LogicComponentTemplate
 ```
 
 ---
@@ -658,6 +956,7 @@ The repository root is a Cargo workspace:
 | `crates/collab-protocol/` | Shared server response DTOs, error envelope, and protocol versions |
 | `crates/collab-vault-domain/` | IO-free vault metadata snapshots and deterministic mutation, path, state-transition, optimistic-sequence, reference-impact, quota, idempotency, and conflict decisions |
 | `crates/collab-replica/` | Encrypted native hosted-vault offline replica, pending mutation queue, and document/asset/CRDT/logic-component caches |
+| `crates/collab-sheet/` | Collab-owned spreadsheet boundaries: the formula engine wrapper (`formula.rs`, isolating `formualizer`) and bounded `.xlsx`/`.csv` conversion (`convert/`). No engine, error, or value type from the third-party engine may reach the `.sheet` schema, IPC, or UI — replacing the engine must stay a change to this crate alone |
 | `crates/collab-calendar/` | Shared user-calendar wire model and profile-scoped SQLite store with indexed range queries, pending operations, optimistic item revisions, cross-location mirror groups/anchors/conflicts, and atomic local generated-Kanban projection replacement |
 | `crates/collab-server/` | Standalone Axum server, PostgreSQL migrations, hosted-vault authorization/storage APIs, owner-scoped calendar/CalDAV APIs, runtime calendar quota/request controls, aggregate-only calendar operations health, health checks, and blob storage |
 | `src-tauri/` | Native Tauri application adapter and local-vault commands |
@@ -706,6 +1005,22 @@ materialization scheduling remain adapter responsibilities.
 | `lib.rs` | Plugin registration (updater, opener, dialog, fs), all command registrations, Linux GTK gesture zoom suppression |
 | `test_support.rs` | Shared backend test helpers for temp-vault setup, collab directory bootstrap, and fixture file IO |
 | `state/mod.rs` | `AppState` — active vault path, file watcher handle, note index cache, bounded circuit-worker registry, and memory-only native server access session via `parking_lot` locks |
+| `hosted_client.rs` | HTTP client for hosted-server REST calls shared by desktop and Android |
+| `hosted_session.rs` | Native hosted-session orchestration shared by desktop and Android command modules |
+| `server_token_store.rs` | OS credential-store persistence for refresh tokens; access tokens stay memory-only |
+| `notifications.rs` | Platform-independent notification core: envelopes, state machine, scheduling, reconciliation, action tokens |
+| `desktop_notifications.rs` | Desktop notification delivery adapter |
+| `android_notifications.rs` | Android notification delivery adapter, incl. channels and exact-alarm handling |
+| `android_jni.rs` | Shared JNI helpers for calling the companion app's Kotlin secret store and platform services |
+| `widgets.rs` | Android launcher-widget engine: configuration, snapshot build/publish, actions, diagnostics (largest Rust file at ~6.3k lines) |
+| `background/mod.rs` | Background coordinator: bounded job scheduling and lifecycle |
+| `background/models.rs` | Job, server, and settings models for the coordinator |
+| `background/persistence.rs` | Coordinator state persistence |
+| `background/sync.rs` | Headless vault sync jobs |
+| `background/calendar_sync.rs` | Headless calendar sync jobs |
+| `background/notification_sync.rs` | Headless notification sync jobs |
+| `background_lifecycle.rs` | Desktop tray/lifecycle integration for background running |
+| `background_observer.rs` | Bridges background coordinator activity to the webview |
 | `commands/vault.rs` | Vault CRUD, recents (~/.config/collab/recents.json, max 20), vault.json config |
 | `commands/calendar.rs` | Profile-scoped calendar CRUD, bounded item/mirror queries, atomic item writes, pending operations, sync state, mirror group/anchor/conflict persistence, local generated-Kanban replacement, and transactional hosted change-page application over `collab-calendar` |
 | `commands/server.rs` | Hosted-server connection/login/refresh/logout and OS credential-store refresh-token storage |
@@ -721,6 +1036,14 @@ materialization scheduling remain adapter responsibilities.
 | `commands/ui.rs` | GTK zoom (Linux), AppImage detection |
 | `commands/update.rs` | Tauri updater plugin, async download with progress |
 | `commands/web.rs` | Remote link preview fetching with redirect controls, local-target blocking, content-type handling, and bounded HTML body reads |
+| `commands/sheet.rs` | Native `.sheet` formula evaluation (`sheet_formula_evaluate`, `sheet_formula_release`) over `collab-sheet` |
+| `commands/sheet_convert.rs` | Bounded `.xlsx`/`.csv` import/export (`sheet_convert_import`, `sheet_convert_export`) with conversion reports |
+| `commands/ocr.rs` | OCR language-pack lifecycle plus image recognition (`recognize_image_data_url`, `..._words`) |
+| `commands/notifications.rs` | Notification inbox, preferences, read/dismiss/snooze/retry, action tokens, permission and Android exact-alarm flows |
+| `commands/background.rs` | Background runtime probe, server registry, job run/get/list/cancel/aggregate, settings, and Android WorkManager reconciliation |
+| `commands/widgets.rs` | Widget configuration CRUD, snapshot build/publish/read, appearance, sync accounts, diagnostics, action preparation |
+| `commands/live_ws.rs` | Live co-editing WebSocket transport (`live_ws_connect`, `live_ws_send`, `live_ws_close`) |
+| `commands/mobile.rs` | Android-only app-data probe, exit, and pending-destination handoff |
 | `models/` | Rust structs mirroring TypeScript types (serde Serialize/Deserialize, camelCase rename) |
 
 **Collab file layout inside `.collab/`:**
@@ -833,6 +1156,25 @@ How features map to source files:
 | App updates | `store/updateStore.ts`, `commands/update.rs` |
 | Theming | `App.tsx` (CSS var injection), `uiStore` (theme/accentColor), `App.css` |
 | Command palette | `components/CommandPalette.tsx` (cmdk) |
+| User calendar | `views/CalendarPage.tsx`, `components/calendar/CalendarRelations.tsx`, `store/calendarStore.ts`, `lib/calendarRecurrence.ts`, `lib/calendarIcs.ts`, `lib/calendarSync.ts`, `lib/calendarMirroring.ts`, `lib/calendarTimedLayout.ts`, `commands/calendar.rs`, `crates/collab-calendar/` |
+| Calendar ↔ Kanban projection | `lib/kanbanCalendarProjection.ts`, `commands/calendar.rs` |
+| CalDAV / app passwords | `crates/collab-server/src/caldav.rs`, `calendar_api.rs`, `calendar_feeds.rs` |
+| Spreadsheets (`.sheet`) | `views/SheetView.tsx`, `components/sheet/`, `lib/sheet/` (`document.ts`, `operations.ts`, `dataTools.ts`, `formulaFunctions.ts`, `useSheetSession.ts`), `types/sheet.ts`, `commands/sheet.rs`, `crates/collab-sheet/` |
+| Sheet import/export | `lib/sheet/conversion.ts`, `lib/sheet/export.ts`, `components/sheet/SheetConversionReportDialog.tsx`, `commands/sheet_convert.rs`, `crates/collab-sheet/src/convert/` |
+| Digital ink (`.ink`) | `views/InkView.tsx`, `components/ink/`, `lib/ink/` (`document.ts`, `operations.ts`, `renderer.ts`, `pointer.ts`, `tiles.ts`, `spatialIndex.ts`), `types/ink.ts` |
+| Logic diagrams | `views/LogicDiagramView.tsx`, `components/logic/logicDiagram*.ts`, `logicTruthTable.ts`, `schematicSymbols.ts`, `types/logicDiagram.ts` |
+| Circuit simulation | `components/logic/CircuitSweepPlot.tsx`, `lib/circuitJobRunner.ts`, `lib/circuitSweepRunner.ts`, `lib/circuitTransientRunner.ts`, `lib/circuitErrorText.ts`, `types/circuitRuntime.ts`, `commands/circuit.rs`, `crates/collab-circuit/` |
+| SVG vector editing | `views/SvgVectorView.tsx`, `lib/svgDocument.ts`, `types/svg.ts` |
+| Image annotations | `views/ImageView.tsx`, `components/image/`, `types/image.ts`, `commands/files/sidecars.rs` |
+| OCR | `commands/ocr.rs`, `scripts/prepare-ocr-assets.mjs` (tesseract.js assets are prepared before `dev`/`build`) |
+| Live co-editing | `lib/liveDocumentSession.ts`, `lib/liveSocket.ts`, `lib/liveAwareness.ts`, `lib/liveJsonDocument.ts`, `lib/liveInkDocument.ts`, `lib/useLiveDocumentStatus.ts`, `commands/live_ws.rs`, `crates/collab-live/`, `crates/collab-server/src/ws.rs` |
+| Document session / conflicts | `lib/documentSessionController.ts`, `store/documentStatusStore.ts` |
+| Offline sync (hosted vaults) | `store/syncStore.ts`, `store/syncTransferStore.ts`, `lib/vaultReplica.ts`, `commands/replica.rs`, `crates/collab-replica/` |
+| Hosted server connection | `store/serverStore.ts`, `components/settings/SettingsServerSection.tsx`, `commands/server.rs`, `src-tauri/src/hosted_client.rs`, `hosted_session.rs`, `server_token_store.rs` |
+| Notifications | `components/notifications/NotificationCenter.tsx`, `lib/notificationContract.ts`, `types/notification.ts`, `commands/notifications.rs`, `src-tauri/src/notifications.rs`, `desktop_notifications.rs`, `android_notifications.rs` |
+| Background running | `commands/background.rs`, `src-tauri/src/background/`, `background_lifecycle.rs`, `background_observer.rs` |
+| Android launcher widgets | `types/widget.ts`, `commands/widgets.rs`, `src-tauri/src/widgets.rs`, `apps/mobile-android/src/components/WidgetSettingsSection.tsx` |
+| Android companion app | `apps/mobile-android/`, `commands/mobile.rs`, `src-tauri/src/android_jni.rs`, `scripts/mobile-build-frontend.mjs` |
 
 ---
 
