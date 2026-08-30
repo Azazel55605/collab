@@ -78,6 +78,15 @@ CI-friendly check without writing:
 pnpm format:check
 ```
 
+The first Prettier run touched 701 files. `.git-blame-ignore-revs` lists that
+revision; configure git once so `git blame` skips it:
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
+GitHub applies the file automatically.
+
 ## Before opening a pull request
 
 Run the full verification set:

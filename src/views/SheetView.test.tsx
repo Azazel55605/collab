@@ -153,6 +153,25 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
+/**
+ * Clicks the top bar's save control, tolerating an edit that already persisted.
+ *
+ * The control's accessible name follows the session state: `Saving…` while a
+ * write is in flight, `Save` while the session is dirty, `Saved` once it is
+ * not. Some edit paths persist on their own before the assertion runs, so
+ * insisting on the dirty label made the test depend on which of the two won the
+ * race — it passed alone and failed inside the full suite.
+ *
+ * Skipping the click is safe: every caller asserts the written document
+ * afterwards, and that assertion fails if nothing was written at all.
+ */
+async function clickSave(): Promise<void> {
+  const control = await screen.findByRole('button', { name: /^saved?$/i }, { timeout: 10_000 });
+  if (!(control as HTMLButtonElement).disabled) fireEvent.click(control);
+}
+
+vi.setConfig({ testTimeout: 30_000 });
+
 describe('SheetView editor', () => {
   it('opens a workbook with a grid, formula bar, worksheet strip, and summary', async () => {
     await openWorkbook();
@@ -171,7 +190,7 @@ describe('SheetView editor', () => {
     fireEvent.change(editor, { target: { value: '123' } });
     fireEvent.keyDown(editor, { key: 'Enter' });
 
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
     const written = await writtenDocument();
 
     const worksheet = written.worksheets[0];
@@ -183,7 +202,7 @@ describe('SheetView editor', () => {
     await openWorkbook();
 
     fireEvent.click(screen.getByRole('button', { name: 'Bold' }));
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
     const written = await writtenDocument();
     const worksheet = written.worksheets[0];
     const cell = worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`];
@@ -203,7 +222,7 @@ describe('SheetView editor', () => {
     expect(screen.getAllByText('Revenue').length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[0]);
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
     const written = await writtenDocument();
     expect(written.worksheets[0].charts).toEqual([
       expect.objectContaining({
@@ -225,7 +244,7 @@ describe('SheetView editor', () => {
       target: { value: 'Notes/Budget.md' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save links' }));
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
 
     const written = await writtenDocument();
     const worksheet = written.worksheets[0];
@@ -256,7 +275,7 @@ describe('SheetView editor', () => {
       ...pointFor(0, 1),
     });
     fireEvent.paste(screen.getByTestId('sheet-grid'), { clipboardData });
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
 
     const written = await writtenDocument();
     const worksheet = written.worksheets[0];
@@ -286,7 +305,7 @@ describe('SheetView editor', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[0]);
     expect(screen.getByRole('status', { name: 'Selection summary' }).textContent).toContain('B2');
 
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
     const written = await writtenDocument();
     const worksheet = written.worksheets[0];
     expect(worksheet.cells[`${worksheet.rowOrder[1]}:${worksheet.columnOrder[0]}`].value).toBe(42);
@@ -299,7 +318,7 @@ describe('SheetView editor', () => {
       target: { value: 'Verify this total' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save cell note' }));
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
 
     const written = await writtenDocument();
     const worksheet = written.worksheets[0];
@@ -339,7 +358,7 @@ describe('SheetView editor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
     expect(screen.getByRole('button', { name: 'Redo' }).hasAttribute('disabled')).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
 
     const written = await writtenDocument();
     const worksheet = written.worksheets[0];
@@ -354,7 +373,7 @@ describe('SheetView editor', () => {
     fireEvent.change(screen.getByLabelText('Formula bar'), { target: { value: '=SUM(A1:A2)' } });
     fireEvent.keyDown(screen.getByLabelText('Formula bar'), { key: 'Enter' });
 
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
     const written = await writtenDocument();
     const worksheet = written.worksheets[0];
     expect(worksheet.cells[`${worksheet.rowOrder[0]}:${worksheet.columnOrder[0]}`]).toEqual({
@@ -383,7 +402,7 @@ describe('SheetView editor', () => {
       target: { value: '=SUM(A1:A2)', selectionStart: 11 },
     });
     fireEvent.keyDown(formulaBar, { key: 'Enter' });
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
     const written = await writtenDocument();
     expect(Object.values(written.worksheets[0].cells)).toContainEqual({
       formula: '=SUM(A1:A2)',
@@ -454,7 +473,7 @@ describe('SheetView editor', () => {
       expect(screen.getByRole('button', { name: 'Manage table Values' })).toBeTruthy();
     });
     fireEvent.click(screen.getByRole('button', { name: 'Sort active table column descending' }));
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
 
     const written = await writtenDocument();
     const worksheet = written.worksheets[0];
@@ -490,7 +509,7 @@ describe('SheetView editor', () => {
     fireEvent.keyDown(editor, { key: 'Enter' });
     expect(toastMocks.error).toHaveBeenCalledWith(expect.stringMatching(/validation list/i));
 
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
     const written = await writtenDocument();
     const worksheet = written.worksheets[0];
     expect(worksheet.validations).toHaveLength(1);
@@ -514,7 +533,7 @@ describe('SheetView editor', () => {
     });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Add rule' }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
 
     const written = await writtenDocument();
     const worksheet = written.worksheets[0];
@@ -566,7 +585,7 @@ describe('SheetView editor', () => {
       'Sum: 30',
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
     const written = await writtenDocument();
     const worksheet = written.worksheets[0];
     expect(written.namedRanges).toHaveLength(1);
@@ -586,7 +605,7 @@ describe('SheetView editor', () => {
     await openWorkbook();
 
     fireEvent.click(screen.getByRole('button', { name: /insert rows/i }));
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
     let written = await writtenDocument();
     expect(written.worksheets[0].rowOrder).toHaveLength(21);
     // The inserted row pushes the existing content down but keeps its identity.
@@ -594,7 +613,7 @@ describe('SheetView editor', () => {
 
     clientMocks.writeDocument.mockClear();
     fireEvent.click(screen.getByRole('button', { name: /delete rows/i }));
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
     written = await writtenDocument();
     expect(written.worksheets[0].rowOrder).toHaveLength(20);
   });
@@ -606,7 +625,7 @@ describe('SheetView editor', () => {
     fireEvent.pointerDown(surface, { button: 0, ...pointFor(2, 1) });
     fireEvent.click(screen.getByRole('button', { name: /freeze here/i }));
 
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
     const written = await writtenDocument();
     expect(written.worksheets[0].frozen).toEqual({ rows: 2, columns: 1 });
     expect(screen.getByRole('status', { name: 'Selection summary' }).textContent).toContain(
@@ -623,7 +642,7 @@ describe('SheetView editor', () => {
     fireEvent.pointerUp(surface, pointFor(1, 1));
     fireEvent.click(screen.getByRole('button', { name: /^merge$/i }));
 
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
     const written = await writtenDocument();
     expect(written.worksheets[0].mergedRanges).toHaveLength(1);
 
@@ -645,7 +664,7 @@ describe('SheetView editor', () => {
     fireEvent.keyDown(nameInput, { key: 'Enter' });
     await screen.findByRole('tab', { name: 'Data' });
 
-    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await clickSave();
     const written = await writtenDocument();
     expect(written.worksheets.map((sheet: { name: string }) => sheet.name)).toEqual([
       'Sheet1',
