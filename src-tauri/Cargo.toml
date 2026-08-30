@@ -20,7 +20,7 @@ tauri-build = { version = "2", features = [] }
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "2", features = ["v2_40"] }
 gtk = "0.18"
-glib = "0.18"
+glib = "0.22"
 gtk-sys = "0.18"
 tauri-plugin-drag = "2.1.1"
 # Both Linux keyring backends: kernel keyutils (silent default) and D-Bus Secret
@@ -48,26 +48,26 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sqlx = { workspace = true, features = ["sqlite"] }
 tokio = { version = "1", features = ["full"] }
-notify = "6"
-notify-debouncer-mini = "0.4"
+notify = "8"
+notify-debouncer-mini = "0.7"
 walkdir = "2"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz.workspace = true
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
-thiserror = "1"
+thiserror = "2"
 parking_lot = "0.12"
 fuzzy-matcher = "0.3"
-zip = "2"
+zip = "4"
 argon2 = "0.5"
-rand = "0.8"
-base64 = "0.22"
+rand = "0.9"
+base64 = "0.23"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-scraper = "0.24"
+scraper = "0.27"
 url = "2.5"
 tempfile = "3"
-reqwest-websocket = { version = "0.5", default-features = false }
+reqwest-websocket = { version = "0.6", default-features = false }
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 
 # Windows/macOS use their native OS keystore (Credential Manager / Keychain),
@@ -86,8 +86,8 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-notification = "2"
 
 [target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21"
+jni = "0.22"
 ndk-context = "0.1"
 
 [dev-dependencies]
-httpmock = "0.7"
+httpmock = "0.8"

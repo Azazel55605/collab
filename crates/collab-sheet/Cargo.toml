@@ -8,14 +8,14 @@ license.workspace = true
 chrono.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-formualizer-common = "2"
-formualizer-workbook = { version = "0.7.1", default-features = false, features = ["system-clock"] }
+formualizer-common = "3"
+formualizer-workbook = { version = "0.8.4", default-features = false, features = ["system-clock"] }
 # Conversion codecs only: `.xlsx` is a ZIP of XML. Neither reaches the network,
 # the filesystem, or a database, so the domain-crate boundary is unaffected.
 quick-xml.workspace = true
 serde_json.workspace = true
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 serde_json.workspace = true
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }
