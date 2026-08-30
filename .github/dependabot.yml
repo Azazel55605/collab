@@ -2,86 +2,86 @@ version: 2
 
 # Grouped, low-frequency updates. The Security Scan workflow already reports
 # advisories; these pull requests are what actually closes them.
+#
+# Grouping is by update type, not by package family. The previous per-family
+# split left every major on its own and produced thirteen open pull requests in
+# the first run — seven of them single major bumps. A repository that floods its
+# own pull request list gets its dependency automation switched off.
 updates:
+  # One entry, both npm directories: `directories` (plural) lets Dependabot
+  # combine updates across paths into shared pull requests instead of running
+  # two separate streams for the root and the admin interface.
   - package-ecosystem: npm
-    directory: /
+    directories:
+      - '/'
+      - '/apps/admin-web'
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+    commit-message:
+      prefix: dependabot
+      prefix-development: dependabot(dev)
+    ignore:
+      # A TypeScript major would break linting on the first file: typescript-eslint
+      # 8.68 declares `peer typescript >=4.8.4 <6.1.0`, and the repository runs
+      # 5.8.3. Drop this once typescript-eslint supports the next major.
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major']
     groups:
-      # One pull request per cluster keeps related packages on matching
-      # versions and avoids six separate builds for one framework bump.
-      react:
-        patterns:
-          - 'react'
-          - 'react-dom'
-          - '@types/react'
-          - '@types/react-dom'
-      codemirror:
-        patterns:
-          - '@codemirror/*'
-          - '@lezer/*'
-      tauri:
-        patterns:
-          - '@tauri-apps/*'
-      radix:
-        patterns:
-          - 'radix-ui'
-          - '@radix-ui/*'
-      build-tooling:
-        patterns:
-          - 'vite'
-          - 'vitest'
-          - '@vitejs/*'
-          - 'typescript'
-          - 'prettier'
-          - '@trivago/prettier-plugin-sort-imports'
-          - 'tailwindcss'
-          - '@tailwindcss/*'
-      remaining-minor-and-patch:
-        update-types:
-          - minor
-          - patch
-
-  - package-ecosystem: npm
-    directory: /apps/admin-web
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 3
-    groups:
-      admin-web:
-        update-types:
-          - minor
-          - patch
+      npm-all:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+      npm-majors:
+        patterns: ['*']
+        update-types: ['major']
 
   - package-ecosystem: cargo
-    directory: /
+    directory: '/'
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    labels:
+      - dependencies
+    commit-message:
+      prefix: dependabot
     groups:
-      # The workspace pins shared versions in the root Cargo.toml, so these
-      # move together anyway.
-      rust-minor-and-patch:
-        update-types:
-          - minor
-          - patch
+      cargo-all:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+      cargo-majors:
+        patterns: ['*']
+        update-types: ['major']
 
   - package-ecosystem: github-actions
-    directory: /
+    directory: '/'
     schedule:
-      interval: monthly
-    open-pull-requests-limit: 3
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 1
+    labels:
+      - dependencies
+    commit-message:
+      prefix: dependabot
     groups:
-      actions:
-        patterns:
-          - '*'
+      actions-all:
+        patterns: ['*']
 
+  # Base images in Dockerfile.server. Monthly: these move slowly, and a major
+  # here means a new PostgreSQL or Node line, which is a deliberate decision
+  # rather than a routine bump.
   - package-ecosystem: docker
-    directory: /
+    directory: '/'
     schedule:
       interval: monthly
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 1
+    labels:
+      - dependencies
+    commit-message:
+      prefix: dependabot
+    groups:
+      docker-all:
+        patterns: ['*']
