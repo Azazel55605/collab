@@ -86,7 +86,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-notification = "2"
 
 [target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21"
+jni = "0.22"
 ndk-context = "0.1"
 
 [dev-dependencies]
