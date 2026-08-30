@@ -57,7 +57,7 @@ RUN --mount=type=cache,id=collab-pnpm-store,target=/pnpm/store \
 COPY apps/admin-web ./apps/admin-web
 RUN pnpm admin:build
 
-FROM postgres:17-bookworm AS runtime
+FROM postgres:18-bookworm AS runtime
 
 RUN rm -f /usr/local/bin/gosu /usr/local/bin/docker-entrypoint.sh \
     && apt-get update \
