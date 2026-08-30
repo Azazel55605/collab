@@ -44,7 +44,7 @@ anyhow = "1"
 argon2 = "0.5"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws"] }
-base64 = "0.22"
+base64 = "0.23"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10.4"
 futures-util = "0.3"

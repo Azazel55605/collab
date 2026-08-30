@@ -62,7 +62,7 @@ fuzzy-matcher = "0.3"
 zip = "2"
 argon2 = "0.5"
 rand = "0.8"
-base64 = "0.22"
+base64 = "0.23"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 scraper = "0.24"
 url = "2.5"
