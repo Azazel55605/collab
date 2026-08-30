@@ -65,7 +65,7 @@ services:
     volumes:
       - blob-data:/data/blobs
       - backups:/backups
-      - ${COLLAB_BACKUP_EXPORT_PATH:-./server-data/backup-export}:/backup-export
+      - ${COLLAB_BACKUP_EXPORT_PATH:-backup-export}:/backup-export
     restart: unless-stopped
 
   gateway:
@@ -106,7 +106,7 @@ services:
     volumes:
       - backups:/backups
       - blob-data:/data/blobs:ro
-      - ${COLLAB_BACKUP_EXPORT_PATH:-./server-data/backup-export}:/backup-export
+      - ${COLLAB_BACKUP_EXPORT_PATH:-backup-export}:/backup-export
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -161,6 +161,12 @@ configs:
       }
 
 volumes:
+  # Default target for /backup-export. A named volume rather than a host path:
+  # the release stack documents itself as needing no host bind mounts, and a
+  # bind mount here fails outright on any host where the drive is not shared
+  # with the container runtime. Operators copying backups to external storage
+  # set COLLAB_BACKUP_EXPORT_PATH to a host path and override this.
+  backup-export:
   postgres-data:
   blob-data:
   backups:
