@@ -1,0 +1,87 @@
+version: 2
+
+# Grouped, low-frequency updates. The Security Scan workflow already reports
+# advisories; these pull requests are what actually closes them.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One pull request per cluster keeps related packages on matching
+      # versions and avoids six separate builds for one framework bump.
+      react:
+        patterns:
+          - 'react'
+          - 'react-dom'
+          - '@types/react'
+          - '@types/react-dom'
+      codemirror:
+        patterns:
+          - '@codemirror/*'
+          - '@lezer/*'
+      tauri:
+        patterns:
+          - '@tauri-apps/*'
+      radix:
+        patterns:
+          - 'radix-ui'
+          - '@radix-ui/*'
+      build-tooling:
+        patterns:
+          - 'vite'
+          - 'vitest'
+          - '@vitejs/*'
+          - 'typescript'
+          - 'prettier'
+          - '@trivago/prettier-plugin-sort-imports'
+          - 'tailwindcss'
+          - '@tailwindcss/*'
+      remaining-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /apps/admin-web
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      admin-web:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # The workspace pins shared versions in the root Cargo.toml, so these
+      # move together anyway.
+      rust-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns:
+          - '*'
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2

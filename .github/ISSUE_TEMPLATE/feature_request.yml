@@ -1,0 +1,54 @@
+name: Feature request
+description: Suggest a capability collab does not have yet.
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check
+        [open development work](https://github.com/Azazel55605/collab/blob/main/docs/plans/open-development-work.md)
+        first. It lists what is already in progress, planned, deferred, or
+        deliberately out of scope, and it is kept current.
+
+  - type: checkboxes
+    id: checked-plans
+    attributes:
+      label: Prior check
+      options:
+        - label: I checked open development work and this is not already tracked there.
+          required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Desktop app
+        - Android companion
+        - Collaboration server
+        - Admin web interface
+        - Across several
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >-
+        What are you trying to do that collab makes hard or impossible today?
+        Describe the situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: How you imagine it working. A rough sketch is fine.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: Workarounds you use today, and why they fall short.

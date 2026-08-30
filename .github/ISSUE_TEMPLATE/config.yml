@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Azazel55605/collab/security/advisories/new
+    about: Report privately. Never open a public issue for a security problem — see SECURITY.md.
+  - name: Contributing guide
+    url: https://github.com/Azazel55605/collab/blob/main/CONTRIBUTING.md
+    about: Setup, the verification command set, and the branch and commit conventions.
+  - name: Planned and in-progress work
+    url: https://github.com/Azazel55605/collab/blob/main/docs/plans/open-development-work.md
+    about: Check here before proposing a feature — it may already be planned, deferred, or deliberately out of scope.
