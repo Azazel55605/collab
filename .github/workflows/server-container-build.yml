@@ -27,13 +27,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build OCI image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.server
@@ -46,7 +46,7 @@ jobs:
           BUILDKIT_PROGRESS: plain
 
       - name: Upload OCI image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: collab-server-${{ matrix.architecture }}
           path: /tmp/collab-server-${{ matrix.architecture }}.tar
@@ -67,7 +67,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Verify release version
         run: node scripts/check-release-version.mjs --target server "${{ github.ref_name }}"
@@ -107,13 +107,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -121,7 +121,7 @@ jobs:
 
       - name: Build and push platform image by digest
         id: platform
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.server
@@ -163,7 +163,7 @@ jobs:
           touch "$RUNNER_TEMP/digests/${digest#sha256:}"
 
       - name: Upload platform digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: collab-server-digest-${{ matrix.architecture }}
           path: ${{ runner.temp }}/digests/*
@@ -180,17 +180,17 @@ jobs:
 
     steps:
       - name: Download platform digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: collab-server-digest-*
           path: /tmp/digests
           merge-multiple: true
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -198,7 +198,7 @@ jobs:
 
       - name: Generate release tags
         id: metadata
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ needs.release.outputs.image }}
           tags: |
