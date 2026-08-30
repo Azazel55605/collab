@@ -1,3 +1,5 @@
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -13,12 +15,15 @@ describe('tauri command wrapper', () => {
       ['android', 'build', '--debug', '--apk', '--target', 'aarch64'],
       '/workspace',
     );
-    expect(outputs).toContain(
-      '/workspace/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk',
+    // Built with join() rather than a POSIX literal: the production caller
+    // hands these straight to rmSync, so they must carry the platform
+    // separator, and a hard-coded '/' fails every Windows checkout.
+    const universalDebugApk = join(
+      '/workspace',
+      'src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk',
     );
-    expect(outputs).toContain(
-      '/workspace/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk.idsig',
-    );
+    expect(outputs).toContain(universalDebugApk);
+    expect(outputs).toContain(`${universalDebugApk}.idsig`);
     expect(androidApkOutputPaths(['android', 'dev'], '/workspace')).toEqual([]);
   });
 

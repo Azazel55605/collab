@@ -75,13 +75,22 @@ describe('admin API client', () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ data: { importedFiles: 1 } }), { status: 200 }),
       )
-      .mockResolvedValueOnce(new Response(new Blob(['zip']), { status: 200 }));
+      // A string body, not a Blob: under jsdom the global Blob is jsdom's while
+      // Response comes from undici, and undici calls .stream() on the body —
+      // which jsdom's Blob does not provide. downloadWithProgress only calls
+      // response.blob() here, so the body type makes no difference to what is
+      // under test.
+      .mockResolvedValueOnce(new Response('zip', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
     await serverApi.importVault('vault-1', 'emlw');
     const exported = await serverApi.exportVault('vault-1');
 
-    expect(exported).toBeInstanceOf(Blob);
+    // Asserted by behavior, not by class identity: jsdom supplies the global
+    // Blob while Response.blob() returns undici's, so instanceof compares two
+    // different classes with the same contract.
+    expect(await exported.text()).toBe('zip');
+    expect(exported.size).toBe(3);
     expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/vaults/vault-1/import');
     expect(fetchMock.mock.calls[1]).toEqual([
       '/api/v1/vaults/vault-1/export',

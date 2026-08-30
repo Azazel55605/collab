@@ -1,0 +1,66 @@
+name: CI
+
+# The verification set from CONTRIBUTING.md, enforced. Until now nothing ran on
+# a pull request except the Rust crate-boundary check, and that only when Rust
+# paths changed — `build.yml` and `server-container-build.yml` fire on release
+# tags and run no tests.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Formatting
+        run: pnpm format:check
+
+      - name: Types
+        run: pnpm exec tsc --noEmit
+
+      - name: Version manifests
+        run: pnpm versions:check
+
+      - name: Desktop and script tests
+        # The ink and sheet performance tests assert wall-clock ceilings
+        # measured on a developer machine. A shared runner is slower, and both
+        # suites provide a scale for exactly that case rather than expecting the
+        # published budgets to be loosened for everyone — see
+        # docs/plans/digital-ink-phase0-contract.md and
+        # docs/plans/advanced-tables-phase0-contract.md. These are starting
+        # values; adjust them from what real runs here report.
+        env:
+          COLLAB_INK_BUDGET_SCALE: '4'
+          COLLAB_SHEET_BUDGET_SCALE: '4'
+        run: pnpm test
+
+      - name: Android companion tests
+        run: pnpm mobile:test
+
+      - name: Admin web tests
+        run: pnpm admin:test
+
+      - name: Admin web build
+        run: pnpm admin:build

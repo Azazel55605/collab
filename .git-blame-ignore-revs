@@ -1,0 +1,9 @@
+# Revisions that only moved code, never changed behavior. Git and GitHub skip
+# these when attributing lines.
+#
+# Locally this file is not picked up automatically:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Add Prettier with sorted imports and format the codebase (#6)
+# 701 files touched by the first formatting pass.
+101ea255aa48764acf595adedf31392b4883fbe6
