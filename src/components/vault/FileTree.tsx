@@ -430,24 +430,18 @@ export default function FileTree() {
     setDialog({ type: 'create-folder', parentPath });
   }, []);
 
-  const handleDelete = useCallback(
-    (file: NoteFile) => {
-      if (isManagedPicturesFolder(file)) {
-        toast.error('The Pictures folder is managed by the app and cannot be deleted');
-        return;
-      }
-      setDeleteRemoveReferences(false);
-      if (!confirmDeleteEnabled) {
-        void moveFilesToTrash([file]);
-        return;
-      }
-      setDialog({ type: 'delete', files: [file] });
-      // `moveFilesToTrash` is declared below and is stable for a given vault; it is
-      // read through the closure rather than listed, which would need a forward
-      // reference.
-    },
-    [confirmDeleteEnabled, vault],
-  );
+  const handleDelete = (file: NoteFile) => {
+    if (isManagedPicturesFolder(file)) {
+      toast.error('The Pictures folder is managed by the app and cannot be deleted');
+      return;
+    }
+    setDeleteRemoveReferences(false);
+    if (!confirmDeleteEnabled) {
+      void moveFilesToTrash([file]);
+      return;
+    }
+    setDialog({ type: 'delete', files: [file] });
+  };
 
   // When several entries are selected, dropping a folder also trashes its
   // descendants — drop any selected child whose ancestor folder is also selected
