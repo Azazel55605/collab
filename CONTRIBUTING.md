@@ -87,6 +87,17 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 
 GitHub applies the file automatically.
 
+## Linting
+
+```bash
+pnpm lint
+```
+
+`pnpm lint:fix` applies what can be fixed automatically. The repository is at
+zero lint errors; warnings mark known debt and do not block. If a rule is wrong
+for a specific line, disable it there with a comment saying why — do not weaken
+the rule for everyone.
+
 ## Before opening a pull request
 
 Run the full verification set:

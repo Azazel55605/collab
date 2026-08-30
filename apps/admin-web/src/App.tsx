@@ -1088,7 +1088,7 @@ function ServerConfigurationPanel() {
   );
 }
 
-function SettingField<T extends string | number | boolean>({
+function SettingField({
   label,
   setting,
   ...inputProps

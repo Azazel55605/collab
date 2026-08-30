@@ -19,10 +19,15 @@ export default function VaultUnlockModal() {
     setBusy(true);
     try {
       await unlockVault(password);
-    } catch (e) {
-      toast.error('Incorrect password');
-      setPassword('');
-      inputRef.current?.focus();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes('incorrect')) {
+        toast.error('Incorrect password');
+        setPassword('');
+        inputRef.current?.focus();
+        return;
+      }
+      toast.error(`Failed to unlock vault: ${message}`);
     } finally {
       setBusy(false);
     }

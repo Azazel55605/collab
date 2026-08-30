@@ -447,7 +447,6 @@ export function useCanvasDocumentSession({
       expectedLiveCanvasRef.current = null;
       setLiveSession(null);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyLiveCanvas, client, relativePath, restLoadedPath]);
 
   useEffect(() => {

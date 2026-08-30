@@ -531,6 +531,11 @@ export function KanbanScreen({
     }
   }
 
+  // Above the early return: hooks must run in the same order on every render,
+  // and `selected` being absent must not skip one. `board` is component state,
+  // so it is available here.
+  const boardTags = useMemo(() => collectBoardTags(board), [board]);
+
   if (!selected) return null;
 
   const columns = board.columns;
@@ -541,9 +546,6 @@ export function KanbanScreen({
   const activeColumn = columns[activeIndex] ?? columns[0] ?? null;
   const activeColumnId = activeColumn?.id ?? null;
   const openCard = openCardId ? (findCard(board, openCardId)?.card ?? null) : null;
-
-  // All distinct tags used anywhere on the board, for tag suggestions.
-  const boardTags = useMemo(() => collectBoardTags(board), [board]);
 
   function goToColumn(index: number) {
     const clamped = Math.max(0, Math.min(columns.length - 1, index));

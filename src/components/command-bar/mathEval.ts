@@ -30,6 +30,8 @@ export function evalMath(expr: string): number | null {
   if (!/^[0-9+\-*/().%\s,]*$/.test(stripped)) return null;
 
   try {
+    // Guarded by the allowlist strip and the character check directly above:
+    // only digits, operators and known-safe identifiers ever reach this.
     // eslint-disable-next-line no-new-func
     const fn = new Function(`${PREAMBLE}; return (${normalized});`);
     const result = fn() as unknown;

@@ -43,6 +43,9 @@ vi.mock('../../views/ImageView', () => ({ default: () => <div>image</div> }));
 vi.mock('../../views/PdfView', () => ({ default: () => <div>pdf</div> }));
 vi.mock('../../views/NoteView', () => ({
   default: ({ relativePath }: { relativePath: string }) => {
+    // A mock component, so the hook is used correctly — the rule cannot tell,
+    // because the factory returns an anonymous arrow under the key `default`.
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     useEffect(() => {
       noteLifecycle.events.push(`mount:${relativePath}`);
       return () => {

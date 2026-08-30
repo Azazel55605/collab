@@ -218,7 +218,8 @@ export default function AppShell() {
         case 's':
           if (e.shiftKey) {
             e.preventDefault();
-            isSettingsOpen ? closeSettings() : openSettings();
+            if (isSettingsOpen) closeSettings();
+            else openSettings();
           }
           break;
         case 'w':

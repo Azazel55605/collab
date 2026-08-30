@@ -374,6 +374,9 @@ function isAltModifiedEvent(event: unknown) {
 }
 
 function logAutoConnect(stage: string, details: Record<string, unknown>) {
+  // A deliberate trace of the auto-connect flow, called from ten places while
+  // diagnosing edge creation — not a leftover debug statement.
+  // eslint-disable-next-line no-console
   console.debug(`[canvas-auto-connect] ${stage}`, details);
 }
 
