@@ -17,7 +17,7 @@ import {
 } from '../ui/command';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 
-export interface CanvasSymbolChoice extends CanvasSymbolDefinition {}
+export type CanvasSymbolChoice = CanvasSymbolDefinition;
 
 export function CanvasSymbolPickerDialog({
   open,

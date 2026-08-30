@@ -142,7 +142,6 @@ function buildMd(): MarkdownIt {
     ['info', 'Info'],
   ];
   for (const [type, defaultTitle] of callouts) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     instance.use(container, type, {
       render(tokens: any[], idx: number) {
         const tok = tokens[idx];
@@ -539,7 +538,8 @@ function PreviewInner({
       >
         <div
           className={`markdown-preview ${className}`}
-          // eslint-disable-next-line react/no-danger
+          // Deliberate: `html` comes from the sanitising renderer above, never
+          // from untrusted input reaching this component directly.
           dangerouslySetInnerHTML={{ __html: html }}
         />
         {plotBlocks.length > 0 && (

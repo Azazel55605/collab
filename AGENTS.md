@@ -118,6 +118,24 @@ so `git blame` skips it:
 git config blame.ignoreRevsFile .git-blame-ignore-revs
 ```
 
+## Linting
+
+```bash
+pnpm lint       # eslint .
+pnpm lint:fix   # eslint . --fix
+```
+
+`eslint.config.js` runs without type information — `pnpm exec tsc --noEmit`
+already covers what type-aware rules would catch — and `eslint-config-prettier`
+comes last so nothing competes with Prettier. The baseline is zero errors;
+warnings are visible debt, not a gate. Generated shadcn primitives in
+`src/components/ui/` are not linted, for the same reason they are not
+import-rewritten.
+
+The React Compiler rules shipped with `eslint-plugin-react-hooks` v7 are
+deliberately not enabled: they report 243 findings against working code and are
+a separate migration. `rules-of-hooks` is an error, `exhaustive-deps` a warning.
+
 ## Code conventions
 
 - **IPC**: frontend code calls typed wrappers in `src/lib/tauri.ts`, never Tauri

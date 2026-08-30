@@ -70,7 +70,8 @@ export default function TagsPanel() {
   const toggle = (tag: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
-      next.has(tag) ? next.delete(tag) : next.add(tag);
+      if (next.has(tag)) next.delete(tag);
+      else next.add(tag);
       return next;
     });
 

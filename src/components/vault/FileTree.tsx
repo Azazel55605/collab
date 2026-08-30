@@ -445,7 +445,6 @@ export default function FileTree() {
       // `moveFilesToTrash` is declared below and is stable for a given vault; it is
       // read through the closure rather than listed, which would need a forward
       // reference.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
     [confirmDeleteEnabled, vault],
   );

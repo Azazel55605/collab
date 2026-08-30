@@ -19,7 +19,7 @@ export default function VaultUnlockModal() {
     setBusy(true);
     try {
       await unlockVault(password);
-    } catch (e) {
+    } catch {
       toast.error('Incorrect password');
       setPassword('');
       inputRef.current?.focus();

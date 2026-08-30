@@ -853,7 +853,6 @@ export function useDocumentSessionController<TDocument>(
     return new DocumentSessionController<TDocument>(proxy);
     // The controller intentionally lives for the lifetime of the hook; callers
     // remount it by changing the hook's key (e.g. relativePath) upstream.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => () => controller.dispose(), [controller]);

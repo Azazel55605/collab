@@ -63,6 +63,7 @@ export function liveDebugPush(file: string, message: string): void {
   const event: LiveDebugEvent = { id: nextId++, at: Date.now(), file: file.slice(0, 8), message };
   events.push(event);
   if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+  // The whole point of this module is a console trace of live-session traffic.
   // eslint-disable-next-line no-console
   console.info(`[live ${event.file}]`, message);
   snapshot = events.slice();

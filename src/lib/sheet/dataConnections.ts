@@ -163,7 +163,7 @@ export function applySheetDataSnapshot(
 ): SheetDocument {
   const columns = columnsFor(snapshot.kind);
   const boundedRows = snapshot.rows.slice(0, 5_000);
-  let next = ensureSnapshotCapacity(
+  const next = ensureSnapshotCapacity(
     document,
     worksheetId,
     start,
