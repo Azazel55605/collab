@@ -1,0 +1,93 @@
+name: Bug report
+description: Something in collab behaves incorrectly.
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not use this form for security problems. Report those privately —
+        see [SECURITY.md](https://github.com/Azazel55605/collab/blob/main/SECURITY.md).
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Where does the problem appear?
+      options:
+        - Desktop app
+        - Android companion
+        - Collaboration server
+        - Admin web interface
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: >-
+        Desktop and Android: Settings → About. Server: the image tag you run,
+        for example `ghcr.io/azazel55605/collab-server:0.7.1`.
+      placeholder: '0.7.1'
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Operating system and version, or Android version and device.
+      placeholder: 'Windows 11 26200 / Fedora 42 / Android 15 on Pixel 8'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: vault-kind
+    attributes:
+      label: Vault kind
+      description: A local vault and a hosted vault take different code paths.
+      options:
+        - Local vault
+        - Hosted vault (server)
+        - Hosted vault, offline
+        - Not applicable
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: file-type
+    attributes:
+      label: Document type and sample
+      description: >-
+        If a specific document is involved (`.md`, `.canvas`, `.kanban`,
+        `.sheet`, `.ink`, `.logic`, PDF, image), say which — and attach a small
+        file that reproduces it, if you can share one.
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >-
+        Relevant output, with secrets removed. For the server,
+        `docker compose logs collab-server` is usually the right place.
+      render: text
