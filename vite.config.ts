@@ -35,7 +35,6 @@ export default defineConfig(async () => ({
       "react",
       "react-dom",
       "react-dom/client",
-      "react-router-dom",
       "zustand",
       "simple-icons",
       "lucide-react",

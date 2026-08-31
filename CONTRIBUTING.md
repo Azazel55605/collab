@@ -58,6 +58,14 @@ docker compose up --build --wait
 Note that `docker-compose.yml` and `compose.yaml` are **not** interchangeable:
 the former pulls the published release image, the latter builds from source.
 
+Both publish the gateway on `8788`. `pnpm admin:dev` proxies to `8787` by
+default — the port a natively started server uses — so against the Compose stack
+run it as:
+
+```bash
+COLLAB_ADMIN_PROXY_TARGET=http://127.0.0.1:8788 pnpm admin:dev
+```
+
 ## Formatting
 
 Prettier owns formatting and import order. Run it before committing:

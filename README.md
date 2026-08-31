@@ -316,11 +316,17 @@ Build a production desktop bundle:
 pnpm tauri build
 ```
 
-Run only the browser frontend without the Tauri shell:
+Start only the Vite dev server. `pnpm tauri dev` starts this for you, so run it
+separately only when you want the frontend server without rebuilding the Rust
+side:
 
 ```bash
 pnpm dev
 ```
+
+The app is not usable in a plain browser: it calls Tauri IPC while mounting the
+vault picker, so opening `http://localhost:1420` outside the desktop shell fails
+with `Cannot read properties of undefined (reading 'invoke')`.
 
 ### Admin Web Interface
 
@@ -337,7 +343,13 @@ pnpm admin:build
 ```
 
 The development server proxies API requests to a collaboration server listening
-on `127.0.0.1:8787`.
+on `127.0.0.1:8787`, which is where a natively started server listens. The
+Compose stack publishes its gateway on `8788`, so point the proxy there when the
+server runs in Docker:
+
+```bash
+COLLAB_ADMIN_PROXY_TARGET=http://127.0.0.1:8788 pnpm admin:dev
+```
 
 ### Collaboration Server With Docker Compose
 
