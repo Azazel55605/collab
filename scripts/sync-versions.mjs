@@ -41,6 +41,21 @@ function replaceTomlVersion(path, section, version) {
   writeFile(path, source.replace(pattern, `$1${version}$2`));
 }
 
+function replaceMetainfoRelease(path, version) {
+  const source = fs.readFileSync(path, 'utf8');
+  const pattern = /(<release\s+version=")([^"]+)("\s+date=")([^"]+)(")/;
+  const match = source.match(pattern);
+  if (!match) throw new Error(`Could not find a release entry in ${path}`);
+
+  // Software centres show this version, so it must track versions.json. The
+  // release date cannot be derived from a version number; it is only rewritten
+  // when the version actually changes, which keeps --check deterministic.
+  if (match[2] === version) return;
+
+  const today = new Date().toISOString().slice(0, 10);
+  writeFile(path, source.replace(pattern, `$1${version}$3${today}$5`));
+}
+
 function replacePkgbuildValue(path, name, value) {
   const source = fs.readFileSync(path, 'utf8');
   const pattern = new RegExp(`(^${name}=).*`, 'm');
@@ -86,6 +101,7 @@ mobileTauri.bundle.android.versionCode = versions.mobile.versionCode;
 writeJson('src-tauri/tauri.android.conf.json', mobileTauri);
 
 replacePkgbuildValue('packaging/aur/collab/PKGBUILD', 'pkgver', versions.desktop);
+replaceMetainfoRelease('flatpak/com.azazel.collab.metainfo.xml', versions.desktop);
 
 if (process.exitCode) {
   process.exit(process.exitCode);

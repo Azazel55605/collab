@@ -39,7 +39,7 @@
     "dev": "node scripts/prepare-ocr-assets.mjs && vite",
     "build": "node scripts/prepare-ocr-assets.mjs && tsc && vite build",
     "prepare:ocr": "node scripts/prepare-ocr-assets.mjs",
-    "dmg:background": "node scripts/build-dmg-background.mjs",
+    "installer:art": "node scripts/build-installer-art.mjs",
     "mobile:dev": "vite --config apps/mobile-android/vite.config.ts",
     "mobile:build": "node scripts/mobile-build-frontend.mjs",
     "mobile:test": "vitest run --config apps/mobile-android/vitest.config.ts",
