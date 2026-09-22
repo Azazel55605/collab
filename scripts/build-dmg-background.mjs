@@ -35,20 +35,33 @@ export function renderBackground() {
   if (!existsSync(source)) throw new Error(`Missing vector source: ${source}`);
 
   run('rsvg-convert', [
-    '--width', String(WINDOW_POINTS.width * SCALE),
-    '--height', String(WINDOW_POINTS.height * SCALE),
-    '--output', output,
+    '--width',
+    String(WINDOW_POINTS.width * SCALE),
+    '--height',
+    String(WINDOW_POINTS.height * SCALE),
+    '--output',
+    output,
     source,
   ]);
 
   // rsvg-convert writes no resolution tag; without it the Finder treats the
   // image as 72 dpi and renders it at twice the intended size.
-  run('sips', ['--setProperty', 'dpiWidth', String(DPI), '--setProperty', 'dpiHeight', String(DPI), output]);
+  run('sips', [
+    '--setProperty',
+    'dpiWidth',
+    String(DPI),
+    '--setProperty',
+    'dpiHeight',
+    String(DPI),
+    output,
+  ]);
 
   return output;
 }
 
 if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
   const written = renderBackground();
-  console.log(`Wrote ${written} at ${WINDOW_POINTS.width * SCALE}x${WINDOW_POINTS.height * SCALE}px, ${DPI} dpi.`);
+  console.log(
+    `Wrote ${written} at ${WINDOW_POINTS.width * SCALE}x${WINDOW_POINTS.height * SCALE}px, ${DPI} dpi.`,
+  );
 }
