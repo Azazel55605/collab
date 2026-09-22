@@ -519,7 +519,7 @@ deliberately kept out of the ignore list. Keep the tracking doc in sync whenever
 - [Versioning and releases](./docs/build/versioning-and-releases.md)
 - [Mobile companion docs](./docs/mobile/README.md)
 - [Linux installation](./docs/build/linux-install.md)
-- [macOS installation](./docs/build/macos-install.md) - unsigned Apple Silicon build and the Gatekeeper workaround
+- [macOS installation](./docs/build/macos-install.md) - unsigned Intel and Apple Silicon builds and the Gatekeeper workaround
 - [Flatpak guide](./docs/build/flatpak.md)
 
 ## Notes For Contributors
