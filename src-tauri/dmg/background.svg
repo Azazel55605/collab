@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="400" viewBox="0 0 660 400">
+  <title>collab DMG installer background</title>
+  <desc>
+    Background art for the macOS installer window. The app icon and the
+    Applications alias are drawn by the Finder at the positions configured in
+    tauri.conf.json (180,245 and 480,245); this file must stay clear of them.
+
+    The coloured band is confined to the top: the Finder draws icon labels in the
+    system text colour, which Tauri cannot override, so the area behind the icons
+    and their names stays light enough to keep that text readable.
+  </desc>
+
+  <defs>
+    <linearGradient id="band" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1F6C9E"/>
+      <stop offset="1" stop-color="#58BCEC"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="660" height="400" fill="#E3EDF5"/>
+  <rect width="660" height="150" fill="url(#band)"/>
+
+  <!-- The product mark, cropped by the band it sits in. -->
+  <g fill="#FFFFFF">
+    <rect x="470" y="34" width="104" height="122" rx="28" fill-opacity="0.13"/>
+    <rect x="508" y="14" width="104" height="122" rx="28" fill-opacity="0.18"/>
+    <path d="M556 30h26v26" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="5"
+          stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M532 62h34M532 78h22" stroke="#FFFFFF" stroke-opacity="0.42" stroke-width="5"
+          stroke-linecap="round"/>
+  </g>
+
+  <text x="44" y="68" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="30" font-weight="500" fill="#FFFFFF">collab</text>
+  <text x="44" y="97" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="14" fill="#FFFFFF" fill-opacity="0.85">Drag collab into your Applications folder</text>
+
+  <!-- Cards under each icon: they give the pale app icon an edge to sit against,
+       carry the Finder's own label text on white, and echo the overlapping cards
+       of the product mark. Sized generously so a few points of Finder placement
+       drift stay invisible. -->
+  <g>
+    <rect x="96" y="176" width="168" height="186" rx="24" fill="#FFFFFF"/>
+    <rect x="396" y="176" width="168" height="186" rx="24" fill="#FFFFFF"/>
+  </g>
+
+  <path d="M296 245h62" stroke="#2F86B8" stroke-width="3" stroke-linecap="round"/>
+  <path d="M352 236l10 9-10 9" stroke="#2F86B8" stroke-width="3"
+        stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>
