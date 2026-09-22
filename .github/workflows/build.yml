@@ -133,6 +133,13 @@ jobs:
             echo "::warning::No signature next to $src; this platform will be skipped in latest.json."
           fi
 
+          # Name the produced downloads in the log. This is the only record of
+          # which macOS artifacts a run actually built once the runner is gone.
+          echo "macOS bundles for ${{ matrix.artifact-label }}:"
+          find "target/${{ matrix.rust-target }}/release/bundle" \
+            \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \) \
+            -exec basename {} \;
+
       - name: Package portable Linux archive
         if: contains(matrix.platform, 'ubuntu')
         run: |
