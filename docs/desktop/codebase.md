@@ -331,7 +331,14 @@ Backing logic lives in `src/lib/ink/` (`document.ts`, `operations.ts`,
 | `components/ink/InkSidePanel.tsx`       | Layers, object alignment, and property editing panel                                                                         | Button, Select, Tabs |
 | `components/ink/InkRichObjectLayer.tsx` | Overlay layer for rich objects (text, equations, links) above the stroke scene                                               | —                    |
 | `components/ink/InkTextDialog.tsx`      | Text-object entry dialog                                                                                                     | Dialog               |
+| `components/ink/InkExportDialog.tsx`    | Page/selection/region export options plus worker progress and cancellation                                                   | Dialog, Select       |
 | `components/ink/NewDrawingDialog.tsx`   | First-class New Drawing lifecycle: page mode, background pattern, template                                                   | Dialog, Select       |
+
+`lib/ink/export.ts`, `exportPrepare.ts`, and `exportRuntime.ts` plan deterministic
+SVG/PNG/multi-page PDF output and report missing image/font dependencies.
+`exportClient.ts` runs the bounded renderer in `exportWorker.ts`. Note insertion
+rewrites a stable vault SVG containing source page/region metadata;
+`MarkdownPreview` uses that metadata to reopen the editable `.ink` source.
 
 ### Logic And Circuit
 

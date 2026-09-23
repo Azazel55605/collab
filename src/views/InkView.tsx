@@ -5,7 +5,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  FileDown,
   Group,
+  ImagePlus,
   Loader2,
   Maximize2,
   Minimize2,
@@ -23,6 +25,7 @@ import { toast } from 'sonner';
 
 import LivePeers from '../components/collaboration/LivePeers';
 import InkCanvas from '../components/ink/InkCanvas';
+import InkExportDialog from '../components/ink/InkExportDialog';
 import InkSidePanel from '../components/ink/InkSidePanel';
 import InkTextDialog from '../components/ink/InkTextDialog';
 import type { InkTextDraft } from '../components/ink/InkTextDialog';
@@ -62,6 +65,13 @@ import { createInkPage, inkDocumentStats, isVaultRelativePath } from '../lib/ink
 import { INK_DEFAULT_BRUSHES } from '../lib/ink/document';
 import { applyErase, planErase } from '../lib/ink/erase';
 import type { InkEraserMode } from '../lib/ink/erase';
+import type { InkExportOptions, InkExportReport, InkExportResult } from '../lib/ink/export';
+import { stableInkEmbedPath } from '../lib/ink/export';
+import { startInkExport } from '../lib/ink/exportClient';
+import type { InkExportJob } from '../lib/ink/exportClient';
+import { prepareInkExportRequest } from '../lib/ink/exportPrepare';
+import { InkExportCancelledError } from '../lib/ink/exportRuntime';
+import type { InkExportProgress } from '../lib/ink/exportRuntime';
 import { InkHistory } from '../lib/ink/history';
 import {
   addLayer,
@@ -110,6 +120,7 @@ import type { InkResizeHandle } from '../lib/ink/transform';
 import { useInkSession } from '../lib/ink/useInkSession';
 import { useLivePeers } from '../lib/liveAwareness';
 import type { InkInteraction } from '../lib/liveAwareness';
+import { getMarkdownImageTarget } from '../lib/noteAssets';
 import { tauriCommands } from '../lib/tauri';
 import { createVaultClient } from '../lib/vaultClient';
 import { getVaultDocumentTabType, getVaultDocumentView } from '../lib/vaultLinks';
@@ -131,6 +142,35 @@ const ZOOM_STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 4, 8];
 /** Autosave delay, matching the repo's `saveDebounce`. */
 const AUTOSAVE_MS = 600;
 
+function describeInkExportReport(report: InkExportReport): string | null {
+  const parts = [
+    report.missingAssets.length > 0
+      ? `${report.missingAssets.length} missing image asset${report.missingAssets.length === 1 ? '' : 's'}`
+      : null,
+    report.missingFonts.length > 0
+      ? `${report.missingFonts.length} missing font${report.missingFonts.length === 1 ? '' : 's'}`
+      : null,
+    report.warnings.length > 0
+      ? `${report.warnings.length} export warning${report.warnings.length === 1 ? '' : 's'}`
+      : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : null;
+}
+
+async function writeInkSvgExport(
+  client: ReturnType<typeof createVaultClient>,
+  relativePath: string,
+  svg: string,
+) {
+  try {
+    const existing = await client.readDocument(relativePath);
+    return client.writeDocument(relativePath, svg, existing.version, existing.content);
+  } catch {
+    await client.createDocument(relativePath);
+    return client.writeDocument(relativePath, svg);
+  }
+}
+
 /**
  * The `.ink` drawing editor.
  *
@@ -139,13 +179,30 @@ const AUTOSAVE_MS = 600;
  * file decides *when* an edit happens and never *what* the edit means.
  */
 export default function InkView({ relativePath }: InkViewProps) {
-  const { vault } = useVaultStore();
+  const { vault, refreshFileTree } = useVaultStore();
   const setActiveView = useUiStore((state) => state.setActiveView);
   const theme = useUiStore((state) => state.theme);
-  const { markDirty, setSavedHash, inkViewStates, setInkViewState, openTab, setActiveTab } =
-    useEditorStore();
+  const {
+    markDirty,
+    markSaved,
+    setSavedHash,
+    inkViewStates,
+    setInkViewState,
+    openTabs,
+    activeTabPath,
+    openTab,
+    setActiveTab,
+    setForceReloadPath,
+  } = useEditorStore();
   const { userId: myUserId, userName: myUserName, userColor: myUserColor } = useCollabIdentity();
   const vaultClient = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
+  const noteTarget = useMemo(
+    () =>
+      openTabs.find((tab) => tab.type === 'note' && tab.relativePath === activeTabPath) ??
+      openTabs.find((tab) => tab.type === 'note') ??
+      null,
+    [activeTabPath, openTabs],
+  );
   const readAssetDataUrl = useCallback(
     (path: string) =>
       vaultClient
@@ -205,6 +262,10 @@ export default function InkView({ relativePath }: InkViewProps) {
   const [historyVersion, setHistoryVersion] = useState(0);
   const [textDraft, setTextDraft] = useState<InkTextDraft | null>(null);
   const [templates, setTemplates] = useState(() => loadInkTemplates());
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState<InkExportProgress | null>(null);
+  const exportJobRef = useRef<InkExportJob | null>(null);
   const awarenessTimerRef = useRef<number | null>(null);
   const pendingAwarenessRef = useRef<InkInteraction | null>(null);
   const lastAwarenessSentRef = useRef(0);
@@ -1031,6 +1092,138 @@ export default function InkView({ relativePath }: InkViewProps) {
     });
   }, [page]);
 
+  const visibleExportRegion = useMemo(() => {
+    const host = window.document.querySelector<HTMLElement>('[data-testid="ink-canvas-host"]');
+    const width = Math.max(1, host?.clientWidth ?? window.innerWidth - 420);
+    const height = Math.max(1, host?.clientHeight ?? window.innerHeight - 180);
+    const unitsPerPixel = INK_UNITS_PER_PX / viewport.zoom;
+    return {
+      minX: viewport.originX,
+      minY: viewport.originY,
+      maxX: viewport.originX + width * unitsPerPixel,
+      maxY: viewport.originY + height * unitsPerPixel,
+    };
+  }, [viewport]);
+
+  const runInkExport = useCallback(
+    async (options: InkExportOptions): Promise<InkExportResult> => {
+      if (!vaultClient || !document) throw new Error('No drawing is open.');
+      if (session.dirty && !session.readOnly) await session.save();
+      const request = await prepareInkExportRequest(vaultClient, document, relativePath, options);
+      setExporting(true);
+      setExportProgress({ completed: 0, total: 1, label: 'Preparing export' });
+      const job = startInkExport(request, setExportProgress);
+      exportJobRef.current = job;
+      try {
+        return await job.promise;
+      } finally {
+        exportJobRef.current = null;
+        setExporting(false);
+        setExportProgress(null);
+      }
+    },
+    [document, relativePath, session, vaultClient],
+  );
+
+  const exportDrawing = useCallback(
+    async (options: InkExportOptions) => {
+      try {
+        const result = await runInkExport(options);
+        const destination = await tauriCommands.showDownloadDialog(result.fileName);
+        if (!destination) return;
+        await tauriCommands.writeDownloadedFile(destination, result.contentBase64);
+        setExportOpen(false);
+        const report = describeInkExportReport(result.report);
+        if (report) toast.warning(`Drawing exported with ${report}.`);
+        else toast.success(`Drawing exported as ${options.format.toUpperCase()}.`);
+      } catch (error) {
+        if (error instanceof InkExportCancelledError) {
+          toast.message('Drawing export cancelled.');
+          return;
+        }
+        toast.error(`Could not export the drawing: ${error}`);
+      }
+    },
+    [runInkExport],
+  );
+
+  const insertPageInNote = useCallback(
+    async (selectedOptions?: InkExportOptions) => {
+      if (!vaultClient || !document || !page || !activePageId) return;
+      if (!noteTarget) {
+        toast.error('Open a note before inserting this drawing.');
+        return;
+      }
+      try {
+        const result = await runInkExport(
+          selectedOptions ?? {
+            format: 'svg',
+            scope: 'page',
+            pageId: activePageId,
+            crop: 'page',
+            scale: 1,
+            padding: 0,
+            transparent: false,
+            includePageBackground: true,
+            palette: 'page',
+          },
+        );
+        await vaultClient.createFolder('Pictures').catch(() => undefined);
+        const exportedPath = stableInkEmbedPath(relativePath, page);
+        await writeInkSvgExport(vaultClient, exportedPath, base64ToUtf8(result.contentBase64));
+        await refreshFileTree();
+
+        const note = await vaultClient.readDocument(noteTarget.relativePath);
+        const imageTarget = getMarkdownImageTarget(noteTarget.relativePath, exportedPath);
+        if (!note.content.includes(`](${imageTarget})`)) {
+          const title = getDocumentBaseName(relativePath, 'Drawing').replace(/\.ink$/i, '');
+          const separator = note.content.trim() && !note.content.endsWith('\n') ? '\n\n' : '';
+          const nextContent = `${note.content}${separator}![${title} - ${page.name}](${imageTarget})\n`;
+          const write = await vaultClient.writeDocument(
+            noteTarget.relativePath,
+            nextContent,
+            note.version,
+            note.content,
+          );
+          markSaved(noteTarget.relativePath, write.version);
+          setForceReloadPath(noteTarget.relativePath);
+        }
+        openTab(noteTarget.relativePath, noteTarget.title, 'note');
+        setActiveTab(noteTarget.relativePath);
+        setActiveView('editor');
+        const report = describeInkExportReport(result.report);
+        if (report) toast.warning(`Drawing inserted with ${report}.`);
+        else toast.success(`Inserted ${page.name} into ${noteTarget.title}.`);
+        setExportOpen(false);
+      } catch (error) {
+        if (error instanceof InkExportCancelledError) return;
+        toast.error(`Could not insert the drawing: ${error}`);
+      }
+    },
+    [
+      activePageId,
+      document,
+      markSaved,
+      noteTarget,
+      openTab,
+      page,
+      refreshFileTree,
+      relativePath,
+      runInkExport,
+      setActiveTab,
+      setActiveView,
+      setForceReloadPath,
+      vaultClient,
+    ],
+  );
+
+  useEffect(
+    () => () => {
+      exportJobRef.current?.cancel();
+    },
+    [],
+  );
+
   /* --------------------------------------------------------------------- */
   /* Autosave                                                               */
   /* --------------------------------------------------------------------- */
@@ -1328,6 +1521,25 @@ export default function InkView({ relativePath }: InkViewProps) {
 
               <div className={documentTopBarGroupClass}>
                 <DocumentTopBarButton
+                  onClick={() => setExportOpen(true)}
+                  disabled={!document || exporting}
+                >
+                  {exporting ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <FileDown size={13} />
+                  )}
+                  Export
+                </DocumentTopBarButton>
+                <DocumentTopBarButton
+                  onClick={() => void insertPageInNote()}
+                  disabled={!document || exporting || !noteTarget}
+                  title={noteTarget ? `Insert into ${noteTarget.title}` : 'Open a note first'}
+                >
+                  <ImagePlus size={13} />
+                  Insert in note
+                </DocumentTopBarButton>
+                <DocumentTopBarButton
                   onClick={() => void session.save()}
                   disabled={session.readOnly || !session.dirty}
                 >
@@ -1556,6 +1768,21 @@ export default function InkView({ relativePath }: InkViewProps) {
         }}
         onCreate={createTextFromDraft}
       />
+      {activePageId ? (
+        <InkExportDialog
+          open={exportOpen}
+          onOpenChange={setExportOpen}
+          pageId={activePageId}
+          pageCount={document?.pageOrder.length ?? 0}
+          selectedObjectIds={selectedIds}
+          initialRegion={visibleExportRegion}
+          busy={exporting}
+          progress={exportProgress}
+          onExport={(options) => void exportDrawing(options)}
+          onInsert={noteTarget ? (options) => void insertPageInNote(options) : undefined}
+          onCancel={() => exportJobRef.current?.cancel()}
+        />
+      ) : null}
     </div>
   );
 }

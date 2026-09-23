@@ -272,6 +272,17 @@ describe('InkView', () => {
     await screen.findByText('100%');
   });
 
+  it('opens the bounded export workflow from the document toolbar', async () => {
+    await openDrawing();
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Export drawing' })).toBeTruthy();
+    expect(screen.getByText('PNG image')).toBeTruthy();
+    expect(screen.getByText('Current page')).toBeTruthy();
+    expect(screen.getByText('Include page background and pattern')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Export' })).toBeTruthy();
+  });
+
   it('pans with the pan tool, without changing the document', async () => {
     await openDrawing();
     fireEvent.click(screen.getByRole('button', { name: 'Pan (H)' }));

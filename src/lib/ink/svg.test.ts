@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { InkObject, InkScene } from '../../types/ink';
 
 import { INK_COLOR_TOKENS, INK_DARK_PALETTE, INK_LIGHT_PALETTE } from './colors';
+import { createInkDocument } from './document';
 import { buildInkScene, buildStroke } from './fixture';
 import { outlineStrokeWithPerfectFreehand } from './strokeAdapters';
 import { escapeXml, objectBounds, sceneBounds, sceneToSvg } from './svg';
@@ -106,6 +107,46 @@ describe('sceneToSvg', () => {
     const scene = buildInkScene({ strokes: 1, samplesPerStroke: 4 });
     expect(sceneToSvg(scene)).not.toContain('<rect');
     expect(sceneToSvg(scene, { background: '#ffffff' })).toContain('<rect');
+  });
+
+  it('exports page paper patterns and prepared vault images', () => {
+    const document = createInkDocument({ name: 'Export', timestamp: '2026-01-01T00:00:00.000Z' });
+    const page = document.pages[document.pageOrder[0]];
+    page.background = {
+      pattern: 'grid',
+      spacing: 800,
+      color: '#ffffff',
+      lineColor: '#ccddee',
+    };
+    const layerId = page.scene.layerOrder[0];
+    page.scene.objects.image = {
+      id: 'image',
+      type: 'image',
+      layerId,
+      x: 100,
+      y: 200,
+      width: 400,
+      height: 300,
+      relativePath: 'Pictures/reference.png',
+      crop: { x: 5, y: 10, width: 20, height: 20 },
+    };
+    page.scene.objectOrder.push('image');
+
+    const svg = sceneToSvg(page.scene, {
+      page,
+      includePageBackground: true,
+      imageAssets: {
+        'Pictures/reference.png': {
+          dataUrl: 'data:image/png;base64,AAAA',
+          width: 40,
+          height: 50,
+        },
+      },
+    });
+    expect(svg).toContain('<pattern id="ink-page-pattern"');
+    expect(svg).toContain('fill="url(#ink-page-pattern)"');
+    expect(svg).toContain('<image href="data:image/png;base64,AAAA"');
+    expect(svg).toContain('<clipPath id="ink-image-0"');
   });
 
   it('scales the pixel size without changing the coordinates', () => {

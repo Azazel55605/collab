@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { encodeInkExportMetadata, makeInkExportSource } from '../../lib/ink/export';
 import { buildLogicDiagramSvgDataUrl } from '../../lib/logicDiagramExport';
 import { useEditorStore } from '../../store/editorStore';
 import { useUiStore } from '../../store/uiStore';
@@ -216,5 +217,78 @@ describe('MarkdownPreview', () => {
     fireEvent.click(image);
 
     expect(openTab).toHaveBeenCalledWith('Pictures/adder.svg', 'adder', 'image');
+  });
+
+  it('reopens an exported ink page at its source region', async () => {
+    useUiStore.setState({
+      webPreviewsEnabled: false,
+      hoverWebLinkPreviewsEnabled: false,
+      backgroundWebPreviewPrefetchEnabled: false,
+    });
+    useVaultStore.setState({
+      vault: {
+        id: 'v1',
+        path: '/vault',
+        name: 'Vault',
+        isEncrypted: false,
+        lastOpened: Date.now(),
+      },
+      fileTree: [
+        {
+          name: 'Sketches',
+          relativePath: 'Sketches',
+          isFolder: true,
+          children: [
+            {
+              name: 'ideas.ink',
+              relativePath: 'Sketches/ideas.ink',
+              isFolder: false,
+              extension: 'ink',
+            },
+          ],
+        },
+        {
+          name: 'Pictures',
+          relativePath: 'Pictures',
+          isFolder: true,
+          children: [
+            {
+              name: 'ideas.svg',
+              relativePath: 'Pictures/ideas.svg',
+              isFolder: false,
+              extension: 'svg',
+            },
+          ],
+        },
+      ],
+    } as never);
+    const source = makeInkExportSource('Sketches/ideas.ink', 'page-2', {
+      minX: 120,
+      minY: 240,
+      maxX: 1_200,
+      maxY: 1_400,
+    });
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg"><metadata id="collab-ink-export">${encodeInkExportMetadata(source)}</metadata></svg>`;
+    vaultClientMocks.readAssetDataUrl.mockResolvedValue(`data:image/svg+xml;base64,${btoa(svg)}`);
+    const openTab = vi.spyOn(useEditorStore.getState(), 'openTab');
+
+    render(
+      <MarkdownPreview
+        content="![Ideas](../Pictures/ideas.svg)"
+        currentDocumentRelativePath="Notes/a.md"
+      />,
+    );
+
+    const image = await screen.findByRole('img');
+    await waitFor(() => expect(image.getAttribute('src')).toMatch(/^data:image\/svg\+xml/));
+    fireEvent.click(image);
+
+    expect(openTab).toHaveBeenCalledWith('Sketches/ideas.ink', 'ideas', 'ink');
+    expect(useEditorStore.getState().inkViewStates['Sketches/ideas.ink']).toEqual({
+      pageId: 'page-2',
+      originX: 120,
+      originY: 240,
+      zoom: 1,
+    });
   });
 });
