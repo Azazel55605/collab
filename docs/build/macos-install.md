@@ -1,13 +1,27 @@
 # macOS Install Guide
 
-The macOS build targets **Apple Silicon (arm64)**. Download either the `.dmg` or
-the `.app.tar.gz` from the release page.
+collab is built for both Mac families. Pick the download that matches the
+machine:
+
+| Mac                          | Download                       |
+| ---------------------------- | ------------------------------ |
+| Apple Silicon (M1 and newer) | `collab_<version>_aarch64.dmg` |
+| Intel                        | `collab_<version>_x64.dmg`     |
+
+The Apple menu → **About This Mac** names the chip. The mismatches are not
+symmetric: the Apple Silicon build does not run on an Intel Mac at all, while the
+Intel build runs on Apple Silicon through Rosetta 2 — slower, and only if Rosetta
+is installed. Take the matching one.
+
+The `.app.tar.gz` archives next to the `.dmg` files carry the same app and exist
+for the in-app updater; `collab-mac-intel.app.tar.gz` is the Intel build and
+`collab-mac-apple-silicon.app.tar.gz` the Apple Silicon one.
 
 ## Important: the app is not signed or notarized
 
-collab is currently distributed **without an Apple code signature or
-notarization**. macOS Gatekeeper blocks unsigned, downloaded apps by default, so
-on first launch you will likely see one of:
+Neither build is signed. collab is currently distributed **without an Apple
+code signature or notarization**. macOS Gatekeeper blocks unsigned, downloaded
+apps by default, so on first launch you will likely see one of:
 
 - "collab is damaged and can't be opened. You should move it to the Trash."
 - "collab can't be opened because Apple cannot check it for malicious software."

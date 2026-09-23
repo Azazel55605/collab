@@ -38,6 +38,14 @@ jobs:
             rust-target:    aarch64-apple-darwin
             artifact-label: mac-apple-silicon
 
+          # ── macOS Intel ──────────────────────────────────────────────────
+          # Cross-compiled on the same ARM runner: macOS ships both SDKs, so
+          # Intel needs no separate runner image and no image that GitHub is
+          # phasing out.
+          - platform:       macos-latest
+            rust-target:    x86_64-apple-darwin
+            artifact-label: mac-intel
+
     runs-on: ${{ matrix.platform }}
     name: ${{ matrix.artifact-label }}
 
@@ -99,6 +107,39 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+      # ── macOS bundle names ────────────────────────────────────────────────
+      # Tauri names the updater bundle after the product alone
+      # ("collab.app.tar.gz"), regardless of target architecture. With two macOS
+      # jobs, both would upload a different bundle under that one name and the
+      # second would replace the first in the release. Make the name carry the
+      # architecture. The .dmg files already differ (_x64 vs _aarch64).
+      - name: Disambiguate macOS bundle name
+        if: contains(matrix.platform, 'macos')
+        run: |
+          set -euo pipefail
+          bundle_dir="target/${{ matrix.rust-target }}/release/bundle/macos"
+          src="$bundle_dir/collab.app.tar.gz"
+          dest="$bundle_dir/collab-${{ matrix.artifact-label }}.app.tar.gz"
+
+          if [ ! -f "$src" ]; then
+            echo "Expected updater bundle $src was not produced by the build." >&2
+            exit 1
+          fi
+          mv "$src" "$dest"
+
+          if [ -f "$src.sig" ]; then
+            mv "$src.sig" "$dest.sig"
+          else
+            echo "::warning::No signature next to $src; this platform will be skipped in latest.json."
+          fi
+
+          # Name the produced downloads in the log. This is the only record of
+          # which macOS artifacts a run actually built once the runner is gone.
+          echo "macOS bundles for ${{ matrix.artifact-label }}:"
+          find "target/${{ matrix.rust-target }}/release/bundle" \
+            \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \) \
+            -exec basename {} \;
+
       - name: Package portable Linux archive
         if: contains(matrix.platform, 'ubuntu')
         run: |
@@ -134,17 +175,23 @@ jobs:
 
             Native packages, the Flatpak bundle, and the portable tarball provide the best touchpad scrolling, blur/compositing, and scaling behavior on Linux.
 
-            Linux install guide: https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/linux-install.md
+            Linux install guide: https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/build/linux-install.md
 
             ---
 
-            macOS (Apple Silicon): the `.dmg` / `.app.tar.gz` builds are **not code-signed or notarized**, so macOS Gatekeeper will refuse to open them by default ("collab is damaged and can't be opened"). After moving `collab.app` to `/Applications`, clear the quarantine flag once:
+            macOS download order:
+            1. On an Apple Silicon Mac (M1 and newer), use `collab_<version>_aarch64.dmg`.
+            2. On an Intel Mac, use `collab_<version>_x64.dmg`.
+
+            The Apple menu → About This Mac shows which chip a machine has.
+
+            Neither build is **code-signed or notarized**, so macOS Gatekeeper will refuse to open them by default ("collab is damaged and can't be opened"). After moving `collab.app` to `/Applications`, clear the quarantine flag once:
 
             ```
             xattr -cr /Applications/collab.app
             ```
 
-            Then open the app normally. See the macOS install guide: https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/macos-install.md
+            Then open the app normally. See the macOS install guide: https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/build/macos-install.md
           files: |
             target/${{ matrix.rust-target }}/release/bundle/**/*.deb
             target/${{ matrix.rust-target }}/release/bundle/**/*.deb.sig
@@ -249,6 +296,9 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -258,66 +308,7 @@ jobs:
         run: find artifacts -type f | sort
 
       - name: Generate latest.json
-        run: |
-          cat > gen_manifest.mjs << 'SCRIPT'
-          import fs   from 'fs';
-          import path from 'path';
-
-          const tag     = process.env.TAG;
-          const version = tag.replace(/^desktop-v/, '').replace(/^v/, '');
-          const repo    = process.env.GITHUB_REPOSITORY;
-          const baseUrl = `https://github.com/${repo}/releases/download/${tag}`;
-
-          // Find the first file under `dir` whose name matches `pattern`.
-          function findFile(dir, pattern) {
-            if (!fs.existsSync(dir)) return null;
-            for (const rel of fs.readdirSync(dir, { recursive: true })) {
-              if (pattern.test(String(rel))) return path.join(dir, String(rel));
-            }
-            return null;
-          }
-
-          // artifact-label → Tauri platform key + file patterns.
-          // Linux is intentionally omitted: the in-app updater's only Linux target
-          // was the AppImage, which is no longer built. Linux updates are handled by
-          // the system package manager (.deb/.rpm) or Flathub (Flatpak).
-          const PLATFORMS = {
-            'windows-x86_64':{ artifact: 'windows-x86_64',   file: /-setup\.exe$|\.msi$/, sig: /-setup\.exe\.sig$|\.msi\.sig$/ },
-            'darwin-aarch64':{ artifact: 'mac-apple-silicon', file: /\.app\.tar\.gz$/,     sig: /\.app\.tar\.gz\.sig$/ },
-          };
-
-          const manifest = {
-            version,
-            notes:    '',
-            pub_date: new Date().toISOString(),
-            platforms: {},
-          };
-
-          for (const [platform, cfg] of Object.entries(PLATFORMS)) {
-            const dir       = path.join('artifacts', cfg.artifact);
-            const installer = findFile(dir, cfg.file);
-            const sigFile   = findFile(dir, cfg.sig);
-
-            if (!installer) {
-              console.warn(`Skipping ${platform}: installer not found under ${dir}`);
-              continue;
-            }
-            if (!sigFile) {
-              console.warn(`Skipping ${platform}: .sig file not found under ${dir} (installer: ${path.basename(installer)})`);
-              continue;
-            }
-
-            manifest.platforms[platform] = {
-              url:       `${baseUrl}/${path.basename(installer)}`,
-              signature: fs.readFileSync(sigFile, 'utf8').trim(),
-            };
-            console.log(`  ${platform}: ${path.basename(installer)}`);
-          }
-
-          fs.writeFileSync('latest.json', JSON.stringify(manifest, null, 2));
-          console.log('latest.json written.');
-          SCRIPT
-          node gen_manifest.mjs
+        run: node scripts/generate-update-manifest.mjs
         env:
           TAG: ${{ github.ref_name }}
 
