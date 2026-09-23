@@ -80,3 +80,30 @@ export type InkTimeBudgetKey = {
 export function inkTimeBudget(key: InkTimeBudgetKey): number {
   return INK_PERFORMANCE_BUDGETS[key] * inkBudgetScale();
 }
+
+/**
+ * Explains a blown time budget.
+ *
+ * A bare `expected 12.7 to be less than 8` sends the reader hunting for a
+ * performance regression when the cause is often a busy machine. The published
+ * ceiling, the scale in effect, and the supported way out belong in the failure
+ * itself.
+ */
+export function inkBudgetMessage(
+  key: InkTimeBudgetKey,
+  cost: number,
+  env?: Record<string, string | undefined>,
+): string {
+  const scale = inkBudgetScale(env);
+  const ceiling = INK_PERFORMANCE_BUDGETS[key] * scale;
+  const scaleNote =
+    scale === 1
+      ? 'no COLLAB_INK_BUDGET_SCALE is set'
+      : `COLLAB_INK_BUDGET_SCALE=${scale} raises the published ${INK_PERFORMANCE_BUDGETS[key]}ms ceiling`;
+
+  return (
+    `${key} took ${cost.toFixed(1)}ms against a ${ceiling}ms ceiling (${scaleNote}). ` +
+    'If this machine is slow or busy rather than the code slower, set COLLAB_INK_BUDGET_SCALE ' +
+    'instead of loosening the published budget.'
+  );
+}
