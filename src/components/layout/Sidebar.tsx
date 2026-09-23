@@ -1,12 +1,9 @@
-import { useEffect } from 'react';
-
-import { Files, Layout, LayoutDashboard, Search, Tag } from 'lucide-react';
+import { Files, Search, Tag } from 'lucide-react';
 
 import { cn } from '../../lib/utils';
 import { type SidebarPanel, useUiStore } from '../../store/uiStore';
 import { useVaultStore } from '../../store/vaultStore';
 import { CollabPanel } from '../collaboration/CollabPanel';
-import BoardsPanel from '../vault/BoardsPanel';
 import FileTree from '../vault/FileTree';
 import SearchPanel from '../vault/SearchPanel';
 import TagsPanel from '../vault/TagsPanel';
@@ -17,32 +14,9 @@ const EDITOR_TABS: { id: SidebarPanel; icon: React.ReactNode; label: string }[] 
   { id: 'tags', icon: <Tag size={13} />, label: 'Tags' },
 ];
 
-const CANVAS_TABS: { id: SidebarPanel; icon: React.ReactNode; label: string }[] = [
-  { id: 'canvas-boards', icon: <Layout size={13} />, label: 'Boards' },
-  { id: 'files', icon: <Files size={13} />, label: 'Files' },
-  { id: 'search', icon: <Search size={13} />, label: 'Search' },
-];
-
-const KANBAN_TABS: { id: SidebarPanel; icon: React.ReactNode; label: string }[] = [
-  { id: 'kanban-boards', icon: <LayoutDashboard size={13} />, label: 'Boards' },
-  { id: 'files', icon: <Files size={13} />, label: 'Files' },
-  { id: 'search', icon: <Search size={13} />, label: 'Search' },
-];
-
 export default function Sidebar() {
-  const { sidebarPanel, setSidebarPanel, activeView } = useUiStore();
+  const { sidebarPanel, setSidebarPanel } = useUiStore();
   const { vault } = useVaultStore();
-
-  // Auto-switch panel when the main view changes
-  useEffect(() => {
-    if (activeView === 'canvas') {
-      setSidebarPanel('canvas-boards');
-    } else if (activeView === 'kanban') {
-      setSidebarPanel('kanban-boards');
-    } else if (sidebarPanel === 'canvas-boards' || sidebarPanel === 'kanban-boards') {
-      setSidebarPanel('files');
-    }
-  }, [activeView]);
 
   // Collab panel is a standalone overlay — skip normal tab logic
   if (sidebarPanel === 'collab') {
@@ -65,9 +39,6 @@ export default function Sidebar() {
     );
   }
 
-  const tabs =
-    activeView === 'canvas' ? CANVAS_TABS : activeView === 'kanban' ? KANBAN_TABS : EDITOR_TABS;
-
   return (
     <div className="flex flex-col h-full bg-sidebar">
       {/* Vault name header */}
@@ -84,7 +55,7 @@ export default function Sidebar() {
 
       {/* Panel tab switcher */}
       <div className="flex px-2 pt-2 pb-1 gap-0.5">
-        {tabs.map((tab) => (
+        {EDITOR_TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setSidebarPanel(tab.id)}
@@ -106,8 +77,6 @@ export default function Sidebar() {
         {sidebarPanel === 'files' && <FileTree />}
         {sidebarPanel === 'search' && <SearchPanel />}
         {sidebarPanel === 'tags' && <TagsPanel />}
-        {sidebarPanel === 'canvas-boards' && <BoardsPanel kind="canvas" />}
-        {sidebarPanel === 'kanban-boards' && <BoardsPanel kind="kanban" />}
       </div>
     </div>
   );

@@ -4,8 +4,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import type { SchematicSymbolSet } from '../types/logicDiagram';
 
 export type ActiveView = 'editor' | 'graph' | 'canvas' | 'kanban' | 'calendar' | 'grid';
-export type SidebarPanel =
-  'files' | 'search' | 'tags' | 'canvas-boards' | 'kanban-boards' | 'collab';
+export type SidebarPanel = 'files' | 'search' | 'tags' | 'collab';
 export type CollabTab = 'peers' | 'chat' | 'history';
 export type Theme = 'dark' | 'midnight' | 'warm' | 'light';
 export type AccentColor = 'violet' | 'blue' | 'emerald' | 'rose' | 'orange' | 'cyan';
@@ -116,6 +115,10 @@ function isTimeFormat(value: unknown): value is TimeFormat {
   return value === 'system' || value === '12-hour' || value === '24-hour';
 }
 
+function isSidebarPanel(value: unknown): value is SidebarPanel {
+  return value === 'files' || value === 'search' || value === 'tags' || value === 'collab';
+}
+
 function isCalendarDefaultDuration(value: unknown): value is CalendarDefaultDuration {
   return (
     value === 15 || value === 30 || value === 45 || value === 60 || value === 90 || value === 120
@@ -175,6 +178,7 @@ function normalizePersistedUiState(persisted: unknown): Partial<UiState> {
 
   return {
     ...state,
+    sidebarPanel: isSidebarPanel(state.sidebarPanel) ? state.sidebarPanel : 'files',
     interfaceFont,
     interfaceFontSize: normalizeFontSize(
       state.interfaceFontSize ?? legacyFontSize,
