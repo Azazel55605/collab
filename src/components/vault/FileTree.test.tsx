@@ -53,6 +53,24 @@ vi.mock('../ui/dropdown-menu', () => ({
       {children}
     </button>
   ),
+  DropdownMenuCheckboxItem: ({
+    children,
+    checked,
+    onCheckedChange,
+  }: {
+    children: React.ReactNode;
+    checked?: boolean;
+    onCheckedChange?: (checked: boolean) => void;
+  }) => (
+    <button
+      type="button"
+      role="menuitemcheckbox"
+      aria-checked={checked}
+      onClick={() => onCheckedChange?.(!checked)}
+    >
+      {children}
+    </button>
+  ),
   DropdownMenuSeparator: () => null,
 }));
 
@@ -78,7 +96,8 @@ vi.mock('sonner', () => ({
 
 vi.mock('./VaultDialogs', () => ({
   ConfirmDeleteDialog: () => null,
-  InputDialog: () => null,
+  InputDialog: ({ open, variant }: { open: boolean; variant: string }) =>
+    open ? <div data-testid="input-dialog">{variant}</div> : null,
   RenameMovePreviewDialog: () => null,
 }));
 
@@ -238,10 +257,14 @@ describe('FileTree folder collapse state', () => {
     // The header used to grow an icon button per document type; a header is
     // not the place to keep a list.
     render(<FileTree />);
-    const menu = screen.getByRole('menu');
+    const menu = screen
+      .getAllByRole('menu')
+      .find((candidate) => within(candidate).queryByText('New note'))!;
 
     for (const label of [
       'New note',
+      'New canvas',
+      'New Kanban board',
       'New spreadsheet',
       'New drawing',
       'New logic diagram',
@@ -255,7 +278,12 @@ describe('FileTree folder collapse state', () => {
 
   it('routes each menu item to its own creation dialog', () => {
     render(<FileTree />);
-    const menu = screen.getByRole('menu');
+    const menu = screen
+      .getAllByRole('menu')
+      .find((candidate) => within(candidate).queryByText('New note'))!;
+
+    fireEvent.click(within(menu).getByText('New canvas'));
+    expect(screen.getByTestId('input-dialog').textContent).toBe('create-canvas');
 
     // `NewDrawingDialog` is the one creation surface not stubbed here, so it
     // proves the menu item reaches the right dialog rather than a generic one.
@@ -263,6 +291,49 @@ describe('FileTree folder collapse state', () => {
     expect(
       screen.getByText('Choose the paper now — every part of it stays editable later.'),
     ).toBeTruthy();
+  });
+
+  it('filters the unified tree by file type while preserving matching folders', () => {
+    useVaultStore.setState({
+      ...useVaultStore.getState(),
+      fileTree: [
+        {
+          relativePath: 'Boards',
+          name: 'Boards',
+          extension: '',
+          modifiedAt: 1,
+          size: 0,
+          isFolder: true,
+          children: [
+            {
+              relativePath: 'Boards/roadmap.kanban',
+              name: 'roadmap.kanban',
+              extension: 'kanban',
+              modifiedAt: 1,
+              size: 10,
+              isFolder: false,
+            },
+          ],
+        },
+        {
+          relativePath: 'notes.md',
+          name: 'notes.md',
+          extension: 'md',
+          modifiedAt: 1,
+          size: 10,
+          isFolder: false,
+        },
+      ],
+    });
+
+    render(<FileTree />);
+
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Kanban boards' }));
+
+    expect(screen.getByText('Boards')).toBeTruthy();
+    expect(screen.getByText('roadmap.kanban')).toBeTruthy();
+    expect(screen.queryByText('notes.md')).toBeNull();
+    expect(screen.getByLabelText('Filter files, 1 active')).toBeTruthy();
   });
 
   it('keeps a folder collapsed after remounting', () => {

@@ -11,6 +11,7 @@ import {
   FolderOpen,
   FolderPlus,
   FolderSearch,
+  Funnel,
   Image as ImageIcon,
   Layout,
   LayoutDashboard,
@@ -62,6 +63,7 @@ import {
 } from '../ui/context-menu';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -71,6 +73,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 import FileReferencesPanel from './FileReferencesPanel';
+import { FILE_TYPE_FILTERS, type FileTypeFilter, filterFileTreeByType } from './fileTreeFilters';
 import TrashPanel from './TrashPanel';
 import { useNativeFileDrop } from './useNativeFileDrop';
 import { ConfirmDeleteDialog, InputDialog, RenameMovePreviewDialog } from './VaultDialogs';
@@ -80,6 +83,8 @@ type DialogState =
   | { type: 'delete'; files: NoteFile[] }
   | { type: 'rename'; file: NoteFile }
   | { type: 'create-note'; parentPath?: string }
+  | { type: 'create-canvas'; parentPath?: string }
+  | { type: 'create-kanban'; parentPath?: string }
   | { type: 'create-logic'; parentPath?: string }
   | { type: 'create-sheet'; parentPath?: string }
   | { type: 'create-ink'; parentPath?: string }
@@ -147,6 +152,7 @@ export default function FileTree() {
     Record<string, TaskAttachmentRef[]>
   >({});
   const [mode, setMode] = useState<'files' | 'trash'>('files');
+  const [fileTypeFilters, setFileTypeFilters] = useState<Set<FileTypeFilter>>(() => new Set());
   const [selectedRelativePath, setSelectedRelativePath] = useState<string | null>(null);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [hoveredPath, setHoveredPath] = useState<string | null>(null);
@@ -160,6 +166,10 @@ export default function FileTree() {
   const [historyModalPath, setHistoryModalPath] = useState<string | null>(null);
   const collapsedPaths = vault?.path ? (fileTreeCollapsedPathsByVault[vault.path] ?? []) : [];
   const collapsed = useMemo(() => new Set(collapsedPaths), [collapsedPaths]);
+  const filteredFileTree = useMemo(
+    () => filterFileTreeByType(fileTree, fileTypeFilters),
+    [fileTree, fileTypeFilters],
+  );
 
   const setCollapsed = useCallback(
     (value: React.SetStateAction<Set<string>>) => {
@@ -183,7 +193,8 @@ export default function FileTree() {
   }
 
   const selectedNode = selectedRelativePath
-    ? (flatten(fileTree).find((entry) => entry.relativePath === selectedRelativePath) ?? null)
+    ? (flatten(filteredFileTree).find((entry) => entry.relativePath === selectedRelativePath) ??
+      null)
     : null;
   const hostedReferenceRefreshKey =
     vault?.kind === 'hosted'
@@ -202,9 +213,9 @@ export default function FileTree() {
         }
       }
     };
-    walk(fileTree);
+    walk(filteredFileTree);
     return out;
-  }, [fileTree, collapsed]);
+  }, [filteredFileTree, collapsed]);
 
   const toggleCollapsePath = useCallback(
     (path: string) => {
@@ -366,6 +377,14 @@ export default function FileTree() {
   // memoized rows re-render on each parent render.
   const handleCreateNote = useCallback((parentPath?: string) => {
     setDialog({ type: 'create-note', parentPath });
+  }, []);
+
+  const handleCreateCanvas = useCallback((parentPath?: string) => {
+    setDialog({ type: 'create-canvas', parentPath });
+  }, []);
+
+  const handleCreateKanban = useCallback((parentPath?: string) => {
+    setDialog({ type: 'create-kanban', parentPath });
   }, []);
 
   const handleCreateLogic = useCallback((parentPath?: string) => {
@@ -619,6 +638,21 @@ export default function FileTree() {
         setActiveView('editor');
       } catch (e) {
         toast.error('Failed to create note: ' + e);
+      }
+    } else if (dialog.type === 'create-canvas' || dialog.type === 'create-kanban') {
+      const { parentPath, type } = dialog;
+      setDialog({ type: 'none' });
+      const documentType = type === 'create-canvas' ? 'canvas' : 'kanban';
+      const stem = name.replace(new RegExp(`\\.${documentType}$`, 'i'), '');
+      const fileName = `${stem}.${documentType}`;
+      const relativePath = parentPath ? `${parentPath}/${fileName}` : fileName;
+      try {
+        await createVaultClient(vault).createDocument(relativePath);
+        await refreshFileTree();
+        openTab(relativePath, stem, documentType);
+        setActiveView(documentType);
+      } catch (e) {
+        toast.error(`Failed to create ${documentType} board: ${e}`);
       }
     } else if (dialog.type === 'create-logic') {
       const { parentPath } = dialog;
@@ -942,6 +976,8 @@ export default function FileTree() {
       <InputDialog
         open={
           dialog.type === 'create-note' ||
+          dialog.type === 'create-canvas' ||
+          dialog.type === 'create-kanban' ||
           dialog.type === 'create-logic' ||
           dialog.type === 'create-sheet' ||
           dialog.type === 'create-folder' ||
@@ -950,13 +986,17 @@ export default function FileTree() {
         variant={
           dialog.type === 'create-note'
             ? 'create-note'
-            : dialog.type === 'create-logic'
-              ? 'create-logic'
-              : dialog.type === 'create-sheet'
-                ? 'create-sheet'
-                : dialog.type === 'create-folder'
-                  ? 'create-folder'
-                  : 'rename'
+            : dialog.type === 'create-canvas'
+              ? 'create-canvas'
+              : dialog.type === 'create-kanban'
+                ? 'create-kanban'
+                : dialog.type === 'create-logic'
+                  ? 'create-logic'
+                  : dialog.type === 'create-sheet'
+                    ? 'create-sheet'
+                    : dialog.type === 'create-folder'
+                      ? 'create-folder'
+                      : 'rename'
         }
         initialValue={dialog.type === 'rename' ? dialog.file.name : ''}
         onConfirm={dialog.type === 'rename' ? confirmRename : confirmCreate}
@@ -1016,6 +1056,62 @@ export default function FileTree() {
         </div>
         {mode === 'files' && (
           <div className="flex items-center gap-0.5">
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      aria-label={
+                        fileTypeFilters.size === 0
+                          ? 'Filter files'
+                          : `Filter files, ${fileTypeFilters.size} active`
+                      }
+                      className={cn(
+                        'relative flex h-6 min-w-6 items-center justify-center rounded px-1 text-muted-foreground transition-colors app-motion-fast hover:bg-accent/60 hover:text-foreground',
+                        fileTypeFilters.size > 0 && 'bg-primary/10 text-primary',
+                      )}
+                    >
+                      <Funnel size={12} />
+                      {fileTypeFilters.size > 0 ? (
+                        <span className="ml-1 text-[10px] font-semibold">
+                          {fileTypeFilters.size}
+                        </span>
+                      ) : null}
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs text-foreground">
+                  Filter by file type
+                </TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuCheckboxItem
+                  checked={fileTypeFilters.size === 0}
+                  onSelect={(event) => event.preventDefault()}
+                  onCheckedChange={() => setFileTypeFilters(new Set())}
+                >
+                  All files
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuSeparator />
+                {FILE_TYPE_FILTERS.map((filter) => (
+                  <DropdownMenuCheckboxItem
+                    key={filter.id}
+                    checked={fileTypeFilters.has(filter.id)}
+                    onSelect={(event) => event.preventDefault()}
+                    onCheckedChange={(checked) => {
+                      setFileTypeFilters((current) => {
+                        const next = new Set(current);
+                        if (checked === true) next.add(filter.id);
+                        else next.delete(filter.id);
+                        return next;
+                      });
+                    }}
+                  >
+                    {filter.label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             {!readOnly && (
               /* One menu rather than five stacked icon buttons: the row was
                  growing by one every time a document type was added, and a
@@ -1041,6 +1137,14 @@ export default function FileTree() {
                   <DropdownMenuItem onClick={() => handleCreateNote()}>
                     <FileText size={13} />
                     New note
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleCreateCanvas()}>
+                    <Layout size={13} />
+                    New canvas
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleCreateKanban()}>
+                    <LayoutDashboard size={13} />
+                    New Kanban board
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => handleCreateSheet()}>
                     <Table2 size={13} />
@@ -1113,18 +1217,32 @@ export default function FileTree() {
             setDropTargetPath(null);
           }}
         >
-          {fileTree.length === 0 ? (
+          {filteredFileTree.length === 0 ? (
             <div className="px-4 py-6 text-center text-xs text-muted-foreground/50">
-              <p>No notes yet.</p>
-              <button
-                onClick={() => handleCreateNote()}
-                className="mt-2 text-primary/70 hover:text-primary transition-colors app-motion-fast underline underline-offset-2"
-              >
-                Create your first note
-              </button>
+              {fileTree.length === 0 ? (
+                <>
+                  <p>No files yet.</p>
+                  <button
+                    onClick={() => handleCreateNote()}
+                    className="mt-2 text-primary/70 hover:text-primary transition-colors app-motion-fast underline underline-offset-2"
+                  >
+                    Create your first note
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p>No files match the active filters.</p>
+                  <button
+                    onClick={() => setFileTypeFilters(new Set())}
+                    className="mt-2 text-primary/70 hover:text-primary transition-colors app-motion-fast underline underline-offset-2"
+                  >
+                    Clear filters
+                  </button>
+                </>
+              )}
             </div>
           ) : (
-            fileTree.map((node) => (
+            filteredFileTree.map((node) => (
               <FileTreeNode
                 key={node.relativePath}
                 node={node}
@@ -1133,6 +1251,8 @@ export default function FileTree() {
                 setCollapsed={setCollapsed}
                 onOpenFile={handleOpenFile}
                 onCreateNote={handleCreateNote}
+                onCreateCanvas={handleCreateCanvas}
+                onCreateKanban={handleCreateKanban}
                 onCreateLogic={handleCreateLogic}
                 onCreateSheet={handleCreateSheet}
                 onCreateInk={handleCreateInk}
@@ -1188,6 +1308,8 @@ interface FileTreeNodeProps {
   setCollapsed: React.Dispatch<React.SetStateAction<Set<string>>>;
   onOpenFile: (file: NoteFile) => void;
   onCreateNote: (parentPath?: string) => void;
+  onCreateCanvas: (parentPath?: string) => void;
+  onCreateKanban: (parentPath?: string) => void;
   onCreateLogic: (parentPath?: string) => void;
   onCreateSheet: (parentPath?: string) => void;
   onCreateInk: (parentPath?: string) => void;
@@ -1232,6 +1354,8 @@ const FileTreeNode = memo(function FileTreeNode({
   setCollapsed,
   onOpenFile,
   onCreateNote,
+  onCreateCanvas,
+  onCreateKanban,
   onCreateLogic,
   onCreateSheet,
   onCreateInk,
@@ -1571,6 +1695,8 @@ const FileTreeNode = memo(function FileTreeNode({
                   setCollapsed={setCollapsed}
                   onOpenFile={onOpenFile}
                   onCreateNote={onCreateNote}
+                  onCreateCanvas={onCreateCanvas}
+                  onCreateKanban={onCreateKanban}
                   onCreateLogic={onCreateLogic}
                   onCreateSheet={onCreateSheet}
                   onCreateInk={onCreateInk}
@@ -1606,6 +1732,12 @@ const FileTreeNode = memo(function FileTreeNode({
           <>
             <ContextMenuItem onClick={() => onCreateNote(node.relativePath)}>
               New Note
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => onCreateCanvas(node.relativePath)}>
+              New Canvas
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => onCreateKanban(node.relativePath)}>
+              New Kanban Board
             </ContextMenuItem>
             <ContextMenuItem onClick={() => onCreateLogic(node.relativePath)}>
               New Logic Diagram

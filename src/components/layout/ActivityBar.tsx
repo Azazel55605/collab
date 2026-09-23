@@ -4,8 +4,6 @@ import {
   CalendarDays,
   Files,
   GitFork,
-  Layout,
-  LayoutDashboard,
   LayoutGrid,
   PanelLeft,
   PanelLeftClose,
@@ -24,8 +22,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 const NAV_ITEMS: { view: ActiveView; icon: React.ReactNode; label: string }[] = [
   { view: 'editor', icon: <Files size={18} />, label: 'Files' },
   { view: 'graph', icon: <GitFork size={18} />, label: 'Graph View' },
-  { view: 'canvas', icon: <Layout size={18} />, label: 'Canvas' },
-  { view: 'kanban', icon: <LayoutDashboard size={18} />, label: 'Kanban' },
   { view: 'calendar', icon: <CalendarDays size={18} />, label: 'Calendar' },
   { view: 'grid', icon: <LayoutGrid size={18} />, label: 'Grid View' },
 ];
@@ -34,8 +30,6 @@ const ACTIVITY_INDICATOR_INSET = 2;
 // Synthetic paths for singleton view tabs (not real files)
 const VIEW_TAB_PATHS: Partial<Record<ActiveView, string>> = {
   graph: '__graph__',
-  canvas: '__canvas__',
-  kanban: '__kanban__',
   grid: '__grid__',
 };
 
@@ -124,8 +118,6 @@ export default function ActivityBar() {
     if (!path) return; // 'editor' has no singleton tab
     const titles: Partial<Record<ActiveView, string>> = {
       graph: 'Graph',
-      canvas: 'Canvas',
-      kanban: 'Kanban',
       grid: 'Grid',
     };
     openTab(path, titles[view] ?? view, view as 'graph' | 'canvas' | 'kanban');

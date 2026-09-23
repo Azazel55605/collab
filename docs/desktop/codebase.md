@@ -93,11 +93,11 @@ Located in `src/views/`. View selection is **two-layered** and resolved in
 `components/layout/AppShell.tsx`:
 
 1. `uiStore.activeView` (`'editor' | 'graph' | 'canvas' | 'kanban' | 'calendar' | 'grid'`)
-   wins for `grid` and `calendar`.
+   wins for the page-level `graph`, `grid`, and `calendar` workspaces.
 2. Otherwise `editorStore` tab type (`'note' | 'canvas' | 'kanban' | 'logic' |
 'sheet' | 'ink' | 'graph' | 'settings' | 'image' | 'pdf'`) selects the
-   document view. A note tab only renders when `activeView === 'editor'`, so
-   clicking Graph/Canvas/Kanban in the ActivityBar overrides it.
+   document view. Canvas and Kanban are file-backed document views opened from
+   the unified file tree; they have no singleton ActivityBar destination.
 
 There is no `activeView` key for sheet, ink, logic, image, PDF, or SVG — those
 are reachable only as document tabs.
@@ -160,24 +160,23 @@ missing a control, add it there using the interaction and theming rules in
 | ---------------------------- | ----------------------------------------------------- | -------------------------------- | ------------------- |
 | `components/AppShell.tsx`    | Root shell: sidebar + tabbar + main area + statusbar  | vaultStore, editorStore, uiStore | ResizablePanelGroup |
 | `components/ActivityBar.tsx` | Leftmost icon strip, switches activeView/sidebarPanel | uiStore                          | Tooltip             |
-| `components/Sidebar.tsx`     | Dynamic panel host (files/search/tags/boards/collab)  | uiStore                          | Sheet               |
+| `components/Sidebar.tsx`     | Dynamic panel host (files/search/tags/collab)         | uiStore                          | Sheet               |
 | `components/TabBar.tsx`      | Open tabs with dirty dot, drag-to-reorder             | editorStore, uiStore             | ContextMenu         |
 | `components/StatusBar.tsx`   | Bottom bar: vault name, file path, peer count         | vaultStore, collabStore          | —                   |
 
 ### Vault
 
-| File                                       | Purpose                                                                                                                           | Key stores                            | shadcn used                 |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | --------------------------- |
-| `components/vault/VaultPicker.tsx`         | Initial screen: open/create vault, recents                                                                                        | vaultStore                            | Button                      |
-| `components/vault/VaultManagerModal.tsx`   | Vault settings: export, encryption, members                                                                                       | vaultStore, collabStore, uiStore      | Dialog, Tabs, Button, Input |
-| `components/vault/VaultUnlockModal.tsx`    | Password prompt for encrypted vaults                                                                                              | vaultStore                            | Dialog, Input, Button       |
-| `components/vault/FileTree.tsx`            | File/folder browser with create/rename/delete, trash mode toggle, rename/move preview flow, and contextual file-reference details | vaultStore, editorStore, uiStore      | ContextMenu, Tooltip        |
-| `components/vault/FileReferencesPanel.tsx` | Contextual file-details section that lists incoming note/kanban/canvas references for the selected vault file                     | FileTree state, typed file references | —                           |
-| `components/vault/TrashPanel.tsx`          | Dedicated vault trash view for restore, purge, and purge-all flows                                                                | vaultStore                            | Button, Dialog              |
-| `components/vault/SearchPanel.tsx`         | Full-text search across notes                                                                                                     | noteIndexStore                        | Input                       |
-| `components/vault/TagsPanel.tsx`           | Tag filter list from note metadata                                                                                                | noteIndexStore                        | Badge                       |
-| `components/vault/BoardsPanel.tsx`         | List `.kanban` files                                                                                                              | vaultStore, editorStore               | —                           |
-| `components/vault/VaultDialogs.tsx`        | Create/rename/delete/trash confirmation dialogs plus rename/move preview and trash restore dialogs                                | vaultStore, uiStore                   | Dialog, Input, Button       |
+| File                                       | Purpose                                                                                                                                                                                      | Key stores                            | shadcn used                        |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ---------------------------------- |
+| `components/vault/VaultPicker.tsx`         | Initial screen: open/create vault, recents                                                                                                                                                   | vaultStore                            | Button                             |
+| `components/vault/VaultManagerModal.tsx`   | Vault settings: export, encryption, members                                                                                                                                                  | vaultStore, collabStore, uiStore      | Dialog, Tabs, Button, Input        |
+| `components/vault/VaultUnlockModal.tsx`    | Password prompt for encrypted vaults                                                                                                                                                         | vaultStore                            | Dialog, Input, Button              |
+| `components/vault/FileTree.tsx`            | Unified file/folder browser with multi-type filters; creation for notes, Canvas, Kanban, logic, sheets, drawings, and folders; rename/delete/trash; path previews; and contextual references | vaultStore, editorStore, uiStore      | DropdownMenu, ContextMenu, Tooltip |
+| `components/vault/FileReferencesPanel.tsx` | Contextual file-details section that lists incoming note/kanban/canvas references for the selected vault file                                                                                | FileTree state, typed file references | —                                  |
+| `components/vault/TrashPanel.tsx`          | Dedicated vault trash view for restore, purge, and purge-all flows                                                                                                                           | vaultStore                            | Button, Dialog                     |
+| `components/vault/SearchPanel.tsx`         | Full-text search across notes                                                                                                                                                                | noteIndexStore                        | Input                              |
+| `components/vault/TagsPanel.tsx`           | Tag filter list from note metadata                                                                                                                                                           | noteIndexStore                        | Badge                              |
+| `components/vault/VaultDialogs.tsx`        | Create/rename/delete/trash confirmation dialogs plus rename/move preview and trash restore dialogs                                                                                           | vaultStore, uiStore                   | Dialog, Input, Button              |
 
 ### Editor
 
@@ -482,7 +481,7 @@ reorderTabs(from, to) | setForceReloadPath(path)
 ```ts
 // State (persisted except modal states)
 activeView: 'editor' | 'graph' | 'canvas' | 'kanban' | 'grid'
-sidebarPanel: 'files' | 'search' | 'tags' | 'canvas-boards' | 'kanban-boards' | 'collab'
+sidebarPanel: 'files' | 'search' | 'tags' | 'collab'
 sidebarWidth: number        // px, min 160, max 400
 isSidebarOpen: boolean
 isSettingsOpen: boolean

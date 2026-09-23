@@ -94,26 +94,6 @@ export const ACTIONS: Action[] = [
     },
   },
   {
-    id: 'kanban',
-    keywords: ['kanban', 'board', 'open kanban'],
-    label: 'Open Kanban View',
-    icon: <LayoutDashboard className="size-4 shrink-0" />,
-    onSelect: (ctx) => {
-      ctx.setActiveView('kanban');
-      ctx.close();
-    },
-  },
-  {
-    id: 'canvas',
-    keywords: ['canvas', 'open canvas', 'canvas view'],
-    label: 'Open Canvas View',
-    icon: <Layers className="size-4 shrink-0" />,
-    onSelect: (ctx) => {
-      ctx.setActiveView('canvas');
-      ctx.close();
-    },
-  },
-  {
     id: 'grid',
     keywords: ['grid', 'grid view', 'workspace'],
     label: 'Open Grid View',

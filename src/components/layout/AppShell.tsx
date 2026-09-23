@@ -239,12 +239,6 @@ export default function AppShell() {
             setActiveView('graph');
           }
           break;
-        case '3':
-          if (!inInput) {
-            e.preventDefault();
-            setActiveView('kanban');
-          }
-          break;
         case '4':
           if (!inInput) {
             e.preventDefault();
@@ -338,8 +332,8 @@ export default function AppShell() {
     if (activeView === 'grid') return <GridView />;
     if (activeView === 'calendar') return <CalendarPage />;
 
-    // View tabs (graph/canvas/kanban/settings) always take priority — they were
-    // explicitly opened and their type unambiguously identifies the content.
+    // View and document tabs take priority because their type unambiguously
+    // identifies the content that was explicitly opened.
     if (activeTab) {
       if (activeTab.type === 'graph') return <GraphPage />;
       if (activeTab.type === 'settings') return <SettingsPage />;
@@ -358,29 +352,25 @@ export default function AppShell() {
       if (activeTab.type === 'ink')
         return <InkView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
       if (activeTab.type === 'canvas')
-        return (
-          <CanvasPage
-            key={activeDocumentKey}
-            relativePath={activeTab.relativePath === '__canvas__' ? null : activeTab.relativePath}
-          />
+        return activeTab.relativePath === '__canvas__' ? (
+          <EmptyEditor />
+        ) : (
+          <CanvasPage key={activeDocumentKey} relativePath={activeTab.relativePath} />
         );
       if (activeTab.type === 'kanban')
-        return (
-          <KanbanPage
-            key={activeDocumentKey}
-            relativePath={activeTab.relativePath === '__kanban__' ? null : activeTab.relativePath}
-          />
+        return activeTab.relativePath === '__kanban__' ? (
+          <EmptyEditor />
+        ) : (
+          <KanbanPage key={activeDocumentKey} relativePath={activeTab.relativePath} />
         );
-      // Note tab: only show the note when activeView is editor — if the user
-      // clicked Graph/Canvas/Kanban in the ActivityBar, show that view instead.
+      // Note tabs only render in editor mode; page-level workspaces can still
+      // temporarily take over the main area.
       if (activeView === 'editor')
         return <NoteView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
     }
 
     // Fallback to activeView (covers: no open tabs, or note tab active but view changed)
     if (activeView === 'graph') return <GraphPage />;
-    if (activeView === 'canvas') return <CanvasPage relativePath={null} />;
-    if (activeView === 'kanban') return <KanbanPage relativePath={null} />;
     return <EmptyEditor />;
   };
 
@@ -497,16 +487,6 @@ function EmptyEditor() {
       icon: <GitFork size={32} />,
       title: 'Graph View',
       hint: 'Visualising wikilink connections between your notes.',
-    },
-    canvas: {
-      icon: <Layout size={32} />,
-      title: 'Canvas',
-      hint: 'Drag notes onto an infinite canvas to build visual maps.',
-    },
-    kanban: {
-      icon: <LayoutDashboard size={32} />,
-      title: 'Kanban Board',
-      hint: 'Organise tasks and assign them to collaborators.',
     },
     editor: {
       icon: <FileText size={32} />,
