@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="493" height="312" viewBox="0 0 493 312">
+  <title>WiX welcome and exit dialog image</title>
+  <desc>
+    Background of the MSI welcome and exit dialogs. WiX draws its body text in black
+    over the area right of roughly x=164, so only the left panel is branded and the
+    rest stays white.
+  </desc>
+  <defs><linearGradient id="band" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1F6C9E"/><stop offset="1" stop-color="#58BCEC"/></linearGradient></defs>
+  <rect width="493" height="312" fill="#FFFFFF"/>
+  <rect width="164" height="312" fill="url(#band)"/>
+  <g fill="#FFFFFF">
+    <rect x="30" y="120" width="70" height="84" rx="20" fill-opacity="0.14"/>
+    <rect x="58" y="102" width="70" height="84" rx="20" fill-opacity="0.20"/>
+    <path d="M100 114h18v18" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="4"
+          stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M78 140h26M78 154h17" stroke="#FFFFFF" stroke-opacity="0.42" stroke-width="4"
+          stroke-linecap="round"/>
+  </g>
+  <text x="24" y="54" font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="24" font-weight="500" fill="#FFFFFF">collab</text>
+</svg>

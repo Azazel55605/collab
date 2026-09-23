@@ -18,8 +18,12 @@
   </categories>
   <url type="homepage">https://github.com/Azazel55605/collab</url>
   <url type="bugtracker">https://github.com/Azazel55605/collab/issues</url>
+  <branding>
+    <color type="primary" scheme_preference="light">#58bcec</color>
+    <color type="primary" scheme_preference="dark">#1f6c9e</color>
+  </branding>
   <releases>
-    <release version="0.4.1" date="2026-05-08" />
+    <release version="0.7.1" date="2026-08-12" />
   </releases>
   <content_rating type="oars-1.1" />
 </component>
