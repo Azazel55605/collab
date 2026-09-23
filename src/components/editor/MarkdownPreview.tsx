@@ -32,6 +32,7 @@ import taskLists from 'markdown-it-task-lists';
 // @ts-ignore – no bundled types
 import texmath from 'markdown-it-texmath';
 
+import { extractInkExportSource } from '../../lib/ink/export';
 import { extractLogicDiagramExportSource } from '../../lib/logicDiagramExport';
 import { isMermaidLanguage, renderMermaidBlocks } from '../../lib/mermaidRenderer';
 import { resolveNoteAssetTarget } from '../../lib/noteAssets';
@@ -436,6 +437,8 @@ function PreviewInner({
           image.src = dataUrl;
           const logicSource = extractLogicDiagramExportSource(dataUrl);
           if (logicSource) image.dataset.logicSourcePath = logicSource;
+          const inkSource = extractInkExportSource(dataUrl);
+          if (inkSource) image.dataset.inkSource = JSON.stringify(inkSource);
           return waitForImageLoad(image);
         })
         .catch(() => {
@@ -482,14 +485,28 @@ function PreviewInner({
       'img[data-asset-kind="vault"]',
     );
     if (image?.dataset.assetValue) {
-      const sourcePath = image.dataset.logicSourcePath;
+      const inkSource = image.dataset.inkSource
+        ? extractStoredInkSource(image.dataset.inkSource)
+        : null;
+      const sourcePath = inkSource?.source ?? image.dataset.logicSourcePath;
       const sourceExists = sourcePath
         ? flattenVaultFiles(fileTree).some((entry) => entry.relativePath === sourcePath)
         : false;
       const targetPath = sourceExists ? sourcePath! : image.dataset.assetValue;
-      useEditorStore
-        .getState()
-        .openTab(targetPath, getVaultDocumentTitle(targetPath), sourceExists ? 'logic' : 'image');
+      const editor = useEditorStore.getState();
+      if (sourceExists && inkSource) {
+        editor.setInkViewState(inkSource.source, {
+          pageId: inkSource.pageId,
+          originX: inkSource.bounds.minX,
+          originY: inkSource.bounds.minY,
+          zoom: editor.inkViewStates[inkSource.source]?.zoom ?? 1,
+        });
+      }
+      editor.openTab(
+        targetPath,
+        getVaultDocumentTitle(targetPath),
+        sourceExists ? (inkSource ? 'ink' : 'logic') : 'image',
+      );
       useUiStore.getState().setActiveView('editor');
       e.preventDefault();
       e.stopPropagation();
@@ -557,6 +574,36 @@ function PreviewInner({
       />
     </>
   );
+}
+
+function extractStoredInkSource(value: string) {
+  try {
+    const parsed = JSON.parse(value) as {
+      marker?: string;
+      source?: string;
+      pageId?: string;
+      bounds?: { minX?: number; minY?: number; maxX?: number; maxY?: number };
+    };
+    if (
+      parsed.marker !== 'collab-ink-export' ||
+      typeof parsed.source !== 'string' ||
+      typeof parsed.pageId !== 'string' ||
+      !parsed.bounds ||
+      ![parsed.bounds.minX, parsed.bounds.minY, parsed.bounds.maxX, parsed.bounds.maxY].every(
+        (entry) => typeof entry === 'number' && Number.isFinite(entry),
+      )
+    ) {
+      return null;
+    }
+    return parsed as {
+      marker: 'collab-ink-export';
+      source: string;
+      pageId: string;
+      bounds: { minX: number; minY: number; maxX: number; maxY: number };
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function MarkdownPreview(props: MarkdownPreviewProps) {

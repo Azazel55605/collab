@@ -12,12 +12,13 @@
  * That means: no clock reads, no `Math.random`, no iteration over unordered
  * maps, and fixed-precision coordinates.
  */
-import type { InkBounds, InkLayer, InkObject, InkScene, InkStroke } from '../../types/ink';
+import type { InkBounds, InkLayer, InkObject, InkPage, InkScene, InkStroke } from '../../types/ink';
 
 import { stampGlyph } from './advancedTools';
 import { decodeSamples } from './codec';
 import { inkExportPalette, resolveInkColor } from './colors';
 import type { InkColorPalette } from './colors';
+import type { InkExportAsset } from './export';
 import { outlineStroke, strokeBounds } from './stroke';
 import type { InkPoint, InkStrokeOutliner } from './stroke';
 
@@ -35,6 +36,13 @@ export interface InkSvgExportOptions {
   precision?: number;
   /** Override semantic ink colours for a particular export destination. */
   colors?: InkColorPalette;
+  /** Resolved vault image bytes keyed by relative path. */
+  imageAssets?: Readonly<Record<string, InkExportAsset>>;
+  /** Page metadata used when including the paper/background pattern. */
+  page?: InkPage;
+  includePageBackground?: boolean;
+  /** Base64-encoded source metadata for source-linked note embeds. */
+  metadata?: string;
 }
 
 const DEFAULT_PRECISION = 2;
@@ -362,6 +370,88 @@ function textElement(
   return rotateSvgBox(content, object, precision);
 }
 
+function imageElement(
+  object: Extract<InkObject, { type: 'image' }>,
+  asset: InkExportAsset,
+  precision: number,
+  clipId: string,
+): string {
+  const opacity =
+    object.opacity === undefined || object.opacity >= 1
+      ? ''
+      : ` opacity="${num(object.opacity, 3)}"`;
+  const crop = object.crop;
+  let imageX = object.x;
+  let imageY = object.y;
+  let imageWidth = object.width;
+  let imageHeight = object.height;
+  let clip = '';
+  let clipAttribute = '';
+  if (crop && crop.width > 0 && crop.height > 0 && asset.width > 0 && asset.height > 0) {
+    const scaleX = object.width / crop.width;
+    const scaleY = object.height / crop.height;
+    imageX = object.x - crop.x * scaleX;
+    imageY = object.y - crop.y * scaleY;
+    imageWidth = asset.width * scaleX;
+    imageHeight = asset.height * scaleY;
+    clip = `<clipPath id="${clipId}"><rect x="${num(object.x, precision)}" y="${num(object.y, precision)}" width="${num(object.width, precision)}" height="${num(object.height, precision)}"/></clipPath>`;
+    clipAttribute = ` clip-path="url(#${clipId})"`;
+  }
+  const image =
+    `${clip}<image href="${escapeXml(asset.dataUrl)}" x="${num(imageX, precision)}" y="${num(imageY, precision)}"` +
+    ` width="${num(imageWidth, precision)}" height="${num(imageHeight, precision)}" preserveAspectRatio="none"${opacity}${clipAttribute}/>`;
+  return rotateSvgBox(image, object, precision);
+}
+
+function pageBackgroundElements(
+  page: InkPage,
+  bounds: InkBounds,
+  precision: number,
+  colors: InkColorPalette,
+): string {
+  const background = page.background;
+  const width = bounds.maxX - bounds.minX;
+  const height = bounds.maxY - bounds.minY;
+  const elements: string[] = [];
+  if (background.color) {
+    elements.push(
+      `<rect x="${num(bounds.minX, precision)}" y="${num(bounds.minY, precision)}" width="${num(width, precision)}" height="${num(height, precision)}" fill="${escapeXml(resolveInkColor(background.color, colors))}"/>`,
+    );
+  }
+  if (background.pattern === 'blank') return elements.join('');
+
+  const spacing = background.spacing && background.spacing > 0 ? background.spacing : 1_600;
+  const lineColor = resolveInkColor(background.lineColor ?? colors.grid, colors);
+  const patternId = 'ink-page-pattern';
+  let patternWidth = spacing;
+  let patternHeight = spacing;
+  let markup = '';
+  if (background.pattern === 'ruled') {
+    markup = `<path d="M0 0H${num(spacing, precision)}" stroke="${escapeXml(lineColor)}" stroke-width="8"/>`;
+  } else if (background.pattern === 'grid') {
+    markup = `<path d="M0 0H${num(spacing, precision)}M0 0V${num(spacing, precision)}" stroke="${escapeXml(lineColor)}" stroke-width="8"/>`;
+  } else if (background.pattern === 'dotted') {
+    markup = `<circle cx="0" cy="0" r="8" fill="${escapeXml(lineColor)}"/>`;
+  } else if (background.pattern === 'staff') {
+    const gap = Math.max(64, Math.round(spacing / 4));
+    patternHeight = gap * 8;
+    markup = Array.from(
+      { length: 5 },
+      (_, index) =>
+        `<path d="M0 ${num(index * gap, precision)}H${num(patternWidth, precision)}" stroke="${escapeXml(lineColor)}" stroke-width="8"/>`,
+    ).join('');
+  } else if (background.pattern === 'storyboard') {
+    patternWidth = Math.max(spacing * 4, 3_200);
+    patternHeight = Math.max(spacing * 3, 2_400);
+    markup = `<rect x="96" y="96" width="${num(patternWidth - 192, precision)}" height="${num(patternHeight - 192, precision)}" fill="none" stroke="${escapeXml(lineColor)}" stroke-width="8"/>`;
+  }
+  elements.push(
+    `<defs><pattern id="${patternId}" x="0" y="0" width="${num(patternWidth, precision)}" height="${num(patternHeight, precision)}" patternUnits="userSpaceOnUse">${markup}</pattern></defs>`,
+    `<rect x="${num(bounds.minX, precision)}" y="${num(bounds.minY, precision)}" width="${num(width, precision)}" height="${num(height, precision)}" fill="url(#${patternId})"/>`,
+  );
+  return elements.join('');
+}
+
 function rotateSvgBox(
   content: string,
   object: { x: number; y: number; width: number; height: number; rotation?: number },
@@ -377,9 +467,9 @@ function rotateSvgBox(
 /**
  * Renders a scene to a standalone SVG document.
  *
- * Images and stamps are emitted as placeholder rectangles here. Embedding them
- * needs asset bytes, which means an async vault read — that belongs to the
- * Phase 7 export job, not to this pure function.
+ * Vault images are emitted only when the export preparation step supplies
+ * their bytes and dimensions. Missing assets stay absent from the portable
+ * SVG and are surfaced separately in the export report.
  */
 export function sceneToSvg(scene: InkScene, options: InkSvgExportOptions = {}): string {
   const precision = options.precision ?? DEFAULT_PRECISION;
@@ -392,7 +482,12 @@ export function sceneToSvg(scene: InkScene, options: InkSvgExportOptions = {}): 
   const colors = options.colors ?? inkExportPalette(options.background);
 
   const body: string[] = [];
-  if (options.background) {
+  if (options.metadata) {
+    body.push(`<metadata id="collab-ink-export">${escapeXml(options.metadata)}</metadata>`);
+  }
+  if (options.page && options.includePageBackground) {
+    body.push(pageBackgroundElements(options.page, bounds, precision, colors));
+  } else if (options.background) {
     body.push(
       `<rect x="${num(bounds.minX, precision)}" y="${num(bounds.minY, precision)}"` +
         ` width="${num(width, precision)}" height="${num(height, precision)}"` +
@@ -402,7 +497,8 @@ export function sceneToSvg(scene: InkScene, options: InkSvgExportOptions = {}): 
 
   // Walk `objectOrder`, never `Object.keys(objects)`: paint order is document
   // data, and key order is not something the format may depend on.
-  for (const id of scene.objectOrder) {
+  for (let objectIndex = 0; objectIndex < scene.objectOrder.length; objectIndex += 1) {
+    const id = scene.objectOrder[objectIndex];
     const object = scene.objects[id];
     if (!object) continue;
     if (object.type === 'shape' && object.guide) continue;
@@ -410,7 +506,7 @@ export function sceneToSvg(scene: InkScene, options: InkSvgExportOptions = {}): 
     const layer = scene.layers[object.layerId];
     if (!layerIsVisible(layer)) continue;
 
-    let element = '';
+    let element: string;
     switch (object.type) {
       case 'stroke':
         element = strokeElement(object, outliner, precision, colors);
@@ -431,6 +527,11 @@ export function sceneToSvg(scene: InkScene, options: InkSvgExportOptions = {}): 
           precision,
         );
         break;
+      case 'image': {
+        const asset = options.imageAssets?.[object.relativePath];
+        element = asset ? imageElement(object, asset, precision, `ink-image-${objectIndex}`) : '';
+        break;
+      }
       default:
         element = '';
     }
