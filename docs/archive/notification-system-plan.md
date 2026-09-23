@@ -453,7 +453,7 @@ silent.
 
 ## Dependencies
 
-- [Background Running Plan](../plans/background-running-plan.md) supplies durable
+- [Background Running Plan](./background-running-plan.md) supplies durable
   scheduling, session restoration, and background execution.
 - [User Calendar Feature Plan](../plans/user-calendar-feature-plan.md) supplies the
   reminder model and calendar synchronization.

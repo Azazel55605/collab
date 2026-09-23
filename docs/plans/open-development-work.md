@@ -1,6 +1,6 @@
 # Open Development Work
 
-Last reviewed: 2026-08-14
+Last reviewed: 2026-09-23
 
 This is the entry point for unfinished Collab projects. Detailed requirements,
 implementation notes, and acceptance criteria remain in their canonical plan
@@ -23,28 +23,20 @@ work from being mistaken for an active roadmap item.
 | Project                          | Current status                     | Remaining work                                                                                                                                                                                                                                                                                                                   | Canonical document                                                                                                            |
 | -------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Advanced Tables                  | Testing                            | Build the native `.sheet` domain, desktop editor, formulas, data tools, hosted collaboration, mobile experience, and final bounded XLSX/CSV conversion phase.                                                                                                                                                                    | [Advanced Tables Plan](./advanced-tables-plan.md)                                                                             |
-| Android companion app            | In progress / deferred expansion   | Finish Phase 7 device lifecycle QA, signing, release packaging, and operational documentation. Phase 8 remains a deferred expansion bucket; background execution has its own active plan and the notification system is complete.                                                                                                | [Android Companion App Plan](./android-companion-app-plan.md)                                                                 |
+| Android companion app            | In progress / deferred expansion   | Finish Phase 7 device lifecycle QA, signing, release packaging, and operational documentation. Phase 8 remains a deferred expansion bucket; background execution and the notification system are complete and archived.                                                                                                          | [Android Companion App Plan](./android-companion-app-plan.md)                                                                 |
 | Electronic circuit simulation    | In progress / planned              | Finish remaining schema/runtime details and AC integration, then mixed-signal simulation, derived-result caching/collaboration policy, numerical hardening, and release validation.                                                                                                                                              | [Electronic Circuit Simulation Plan](./electronic-circuit-simulation-plan.md)                                                 |
 | Logic and circuit diagram editor | In progress umbrella               | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream.                                                                                                                                                                                        | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md)                                                      |
 | User calendar                    | Testing                            | Complete the Phase 9 maintained external-client CalDAV interoperability matrix. Cross-location mirroring, hardening/restore drills, and notification delivery are complete.                                                                                                                                                      | [User Calendar Feature Plan](./user-calendar-feature-plan.md)                                                                 |
-| Background running               | Testing                            | Phase 5 automated hardening is implemented. Complete the packaged desktop/physical Android matrix, then add notification-backed Android foreground transfers.                                                                                                                                                                    | [Background Running Plan](./background-running-plan.md)                                                                       |
 | Collab Presentations             | Planned                            | Complete the `.deck` Phase 0 proofs for scene/text fidelity, deck-specific live text collaboration, and compatible PPTX export before beginning the editor.                                                                                                                                                                      | [Collab Presentations Plan](./presentation-tool-plan.md)                                                                      |
 | Digital ink and annotation       | Phase 5 complete, device gate open | Phases 0-5 are implemented, including advanced objects, recognition, precision tools, vault-backed assets, safe links, equations, and portable templates. Start Phase 6 hosted/offline collaboration. Run `tools/ink-input-probe.html` on real pens and tablets to close the shared Phase 0/3/4 device gate and outliner choice. | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md), [Phase 0 Contract](./digital-ink-phase0-contract.md) |
 | Flatpak distribution             | Planned                            | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs.                                                                                                                                       | [Flatpak Distribution Plan](./flatpak-distribution-plan.md)                                                                   |
 
 ## Recommended Dependency Order
 
-1. Finish Android Phase 7 lifecycle and release validation that does not depend
-   on new background behavior.
-2. Validate the desktop tray and production Android WorkManager coordinator on
-   real target platforms.
-3. Route future server/native feed, map, webhook, or preview integrations
+1. Finish Android Phase 7 lifecycle and release validation.
+2. Route future server/native feed, map, webhook, or preview integrations
    through the completed shared outbound-network policy.
-4. Run the packaged desktop and physical Android matrix from the background
-   running release-validation guide.
-5. Add Android foreground transfer handling using the completed notification
-   system's persistent channel and permission flow.
-6. Complete the calendar Phase 9 maintained external-client interoperability
+3. Complete the calendar Phase 9 maintained external-client interoperability
    matrix.
 
 Circuit simulation and Flatpak distribution can proceed independently, subject
@@ -75,9 +67,8 @@ Open tracker entries:
 - Phase 8, **Deferred**: richer mobile editing, iOS, capture flows, and other
   post-MVP expansion.
 
-Background sync remains tracked by its cross-platform plan. Push notification
-delivery is complete and documented in the archive rather than implemented as
-an Android-only fork.
+Background sync and push notification delivery are complete and documented in
+the archive rather than implemented as Android-only forks.
 
 ### Advanced Tables
 
@@ -164,13 +155,6 @@ Open tracker entries:
   revocable app passwords are implemented. DAVx5, Thunderbird, Apple Calendar,
   and one additional maintained client still require interoperability testing.
 
-### Background Running
-
-Background execution owns bounded scheduling and headless sync. The completed
-notification system consumes that foundation but remains independently
-documented in the archive. Background running still tracks its own packaged
-desktop/physical Android matrix and notification-backed foreground transfers.
-
 ### Flatpak Distribution
 
 The local Flatpak build is a working packaging baseline. Public distribution is
@@ -183,6 +167,8 @@ These documents are retained for architecture and implementation history but
 have no open tracked phases:
 
 - [Document Session And Collaboration Stability Plan](../archive/document-session-collaboration-plan.md)
+- [Background Running Plan](../archive/background-running-plan.md)
+- [Background Running Phase 0 Contract](../archive/background-running-phase0-contract.md)
 - [Notification System Plan](../archive/notification-system-plan.md)
 - [Notification System Phase 0 Contract](../archive/notification-system-phase0-contract.md)
 - [OCR Implementation Plan](../archive/ocr-implementation-plan.md)

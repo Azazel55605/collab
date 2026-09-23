@@ -4,6 +4,8 @@ These plans have no open tracked phases. They are retained as implementation
 and architectural history.
 
 - [Document Session And Collaboration Stability](./document-session-collaboration-plan.md)
+- [Background Running](./background-running-plan.md)
+- [Background Running Phase 0 Contract](./background-running-phase0-contract.md)
 - [Mobile Widget Ideas](./mobile-widget-ideas.md)
 - [Mobile Widgets Integration](./mobile-widgets-plan.md)
 - [Notification System](./notification-system-plan.md)

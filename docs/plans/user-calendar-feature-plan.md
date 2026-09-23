@@ -66,7 +66,7 @@ models.
 Phase 11 is detailed in the cross-platform
 [Notification System Plan](../archive/notification-system-plan.md), with lifecycle and
 scheduled execution supplied by the
-[Background Running Plan](./background-running-plan.md).
+[Background Running Plan](../archive/background-running-plan.md).
 
 ### Implementation Status (2026-07-23)
 
