@@ -16,7 +16,8 @@ import { describe, expect, it } from 'vitest';
 import { INK_PAGE_PRESETS, INK_SAMPLE_RANGES } from '../../types/ink';
 import type { InkScene, InkStroke } from '../../types/ink';
 
-import { INK_PERFORMANCE_BUDGETS, inkTimeBudget } from './budgets';
+import { INK_PERFORMANCE_BUDGETS, inkBudgetMessage, inkTimeBudget } from './budgets';
+import type { InkTimeBudgetKey } from './budgets';
 import { decodeSamples } from './codec';
 import { buildInkScene, buildStrokeSamples } from './fixture';
 import { captureStroke } from './samples';
@@ -32,6 +33,14 @@ function elapsed(run: () => void): number {
   const started = performance.now();
   run();
   return performance.now() - started;
+}
+
+/**
+ * Asserts a measurement against its budget, explaining a failure rather than
+ * leaving the reader with two bare numbers.
+ */
+function expectWithinBudget(cost: number, key: InkTimeBudgetKey): void {
+  expect(cost, inkBudgetMessage(key, cost)).toBeLessThan(inkTimeBudget(key));
 }
 
 /** Narrows an object to a stroke, failing the test rather than casting blind. */
@@ -84,7 +93,7 @@ describe('capture', () => {
     const cost = elapsed(() => {
       captureStroke(readings);
     });
-    expect(cost).toBeLessThan(inkTimeBudget('strokeCaptureMs'));
+    expectWithinBudget(cost, 'strokeCaptureMs');
   });
 });
 
@@ -96,7 +105,7 @@ describe('rendering', () => {
     const cost = elapsed(() => {
       outlineStroke(samples, brush);
     });
-    expect(cost).toBeLessThan(inkTimeBudget('strokeOutlineMs'));
+    expectWithinBudget(cost, 'strokeOutlineMs');
   });
 
   it('repaints one dirty tile inside a frame', () => {
@@ -110,7 +119,7 @@ describe('rendering', () => {
     const cost = elapsed(() => {
       for (const entry of decoded) outlineStroke(entry.samples, entry.brush);
     });
-    expect(cost).toBeLessThan(inkTimeBudget('tileRepaintMs'));
+    expectWithinBudget(cost, 'tileRepaintMs');
   });
 
   it('outlines a whole viewport within the cold-paint budget', () => {
@@ -135,7 +144,7 @@ describe('rendering', () => {
     const cost = elapsed(() => {
       for (const entry of decoded) outlineStroke(entry.samples, entry.brush);
     });
-    expect(cost).toBeLessThan(inkTimeBudget('viewportOutlineMs'));
+    expectWithinBudget(cost, 'viewportOutlineMs');
 
     // And the point of the comparison: one tile is a small fraction of that.
     const tileDecoded = decodeAll(current, strokesInTiles(current, new Set(['0:0'])));
@@ -158,7 +167,7 @@ describe('rendering', () => {
         if (object?.bounds) dirty.markBounds(object.bounds);
       }
     });
-    expect(cost).toBeLessThan(inkTimeBudget('tileResolveMs'));
+    expectWithinBudget(cost, 'tileResolveMs');
   });
 });
 
@@ -195,7 +204,7 @@ describe('hit testing', () => {
       }
     });
     expect(hit).not.toBeNull();
-    expect(cost).toBeLessThan(inkTimeBudget('hitTestMs'));
+    expectWithinBudget(cost, 'hitTestMs');
   });
 });
 
@@ -206,7 +215,7 @@ describe('document lifecycle', () => {
     const cost = elapsed(() => {
       json = JSON.stringify(current);
     });
-    expect(cost).toBeLessThan(inkTimeBudget('pageSerializeMs'));
+    expectWithinBudget(cost, 'pageSerializeMs');
     expect(json.length).toBeLessThan(INK_PERFORMANCE_BUDGETS.tenThousandStrokeBytes);
   });
 
@@ -219,7 +228,7 @@ describe('document lifecycle', () => {
         if (object.type === 'stroke') decodeSamples(object.samples);
       }
     });
-    expect(cost).toBeLessThan(inkTimeBudget('pageOpenMs'));
+    expectWithinBudget(cost, 'pageOpenMs');
   });
 
   it('rebuilds every stroke bound within the open budget', () => {
@@ -230,7 +239,7 @@ describe('document lifecycle', () => {
     const cost = elapsed(() => {
       for (const entry of decoded) strokeBounds(entry.samples, entry.brush);
     });
-    expect(cost).toBeLessThan(inkTimeBudget('pageOpenMs'));
+    expectWithinBudget(cost, 'pageOpenMs');
   });
 });
 
@@ -240,7 +249,7 @@ describe('export', () => {
     const cost = elapsed(() => {
       svg = sceneToSvg(scene());
     });
-    expect(cost).toBeLessThan(inkTimeBudget('svgExportMs'));
+    expectWithinBudget(cost, 'svgExportMs');
     expect(svg.match(/<path/g)?.length).toBe(STROKE_COUNT);
   });
 });
