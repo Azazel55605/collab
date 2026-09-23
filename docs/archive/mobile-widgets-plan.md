@@ -865,7 +865,7 @@ synchronization.
 
 - [Mobile Widget Ideas](./mobile-widget-ideas.md)
 - [Mobile Widgets Release Validation](../build/mobile-widgets-release-validation.md)
-- [Background Running Plan](../plans/background-running-plan.md)
+- [Background Running Plan](./background-running-plan.md)
 - [Background Running Release Validation](../build/background-running-release-validation.md)
 - [Android Companion App Plan](../plans/android-companion-app-plan.md)
 - [Notification System Plan](./notification-system-plan.md)

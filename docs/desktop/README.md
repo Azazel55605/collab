@@ -12,12 +12,12 @@ Implementation references:
 - [`.sheet` Workbook Reference](./sheet-reference.md)
 - [`.sheet` Conversion Support Matrix](./sheet-conversion.md)
 - [Background Running Release Validation](../build/background-running-release-validation.md)
+- [Background Running Architecture And Delivery History](../archive/background-running-plan.md)
 - [Advanced Tables Release Validation](../build/advanced-tables-release-validation.md)
 - [Notification System Architecture](../archive/notification-system-plan.md)
 
 Relevant active plans:
 
-- [Background Running](../plans/background-running-plan.md)
 - [User Calendar](../plans/user-calendar-feature-plan.md)
 - [Logic And Circuit Diagram Editor](../plans/logic-circuit-diagram-plan.md)
 - [Electronic Circuit Simulation](../plans/electronic-circuit-simulation-plan.md)

@@ -1,5 +1,12 @@
 # Background Running Plan
 
+## Status
+
+**Complete.** The shared coordinator, desktop lifecycle, Android WorkManager
+adapter, reliability controls, foreground-transfer path, and initial packaged
+platform validation are delivered. The release-validation guide remains active
+as a per-release operational checklist.
+
 ## Summary
 
 Collab should remain useful when its main window is closed or its Android
@@ -24,8 +31,9 @@ not become separate sync implementations.
   progress.
 - Phase 3 replaces the debug-only WorkManager probe with a production worker
   that invokes Rust without a Tauri activity or webview.
-- Notification delivery is not implemented. Calendar reminder scheduling
-  already has a typed frontend connector and a no-op implementation.
+- Notification delivery and notification-backed Android foreground transfers
+  use the completed notification system's persistent channel and permission
+  flow.
 
 ## Progress Tracker
 
@@ -144,7 +152,7 @@ instead of racing it.
       webview.
 - [x] Record packaging implications for AppImage, Flatpak, Windows, macOS, APK,
       and AAB builds.
-- [ ] Validate the tray proof on Linux, Windows, and macOS and the WorkManager
+- [x] Validate the tray proof on Linux, Windows, and macOS and the WorkManager
       proof on a physical Android device.
 
 Exit gate: both prototypes run on real target platforms and the native
@@ -172,10 +180,9 @@ coordinator boundary is agreed before production behavior changes.
 Exit gate: a native test can restore a session and complete a bounded sync
 without opening a Collab webview.
 
-Phase 1 implementation is complete and remains in testing while foreground
-vault/calendar synchronization and the Android Phase 0 probe are exercised
-against real hosted servers. Phase 2 now consumes the same ledger and
-coordinator from the desktop tray without mounting React.
+Phase 1 is complete. Foreground vault/calendar synchronization and the Android
+Phase 0 probe were exercised against real hosted servers. Phase 2 consumes the
+same ledger and coordinator from the desktop tray without mounting React.
 
 ### Phase 2: Desktop Tray And Background Lifecycle
 
@@ -193,10 +200,9 @@ coordinator from the desktop tray without mounting React.
 Exit gate: close-to-tray, restore, login startup, manual sync, pause, and quit
 work on Linux, Windows, and macOS without duplicate app instances.
 
-Phase 2 implementation is complete and remains in testing until the packaged
-desktop behavior is exercised on Linux, Windows, and macOS. Background mode is
-opt-in; existing installations retain close-means-quit until the setting is
-enabled.
+Phase 2 is complete, including packaged desktop validation on Linux, Windows,
+and macOS. Background mode is opt-in; existing installations retain
+close-means-quit until the setting is enabled.
 
 ### Phase 3: Android Scheduled Background Work
 
@@ -212,15 +218,15 @@ enabled.
 Exit gate: a physical device syncs eligible cached content after the activity
 has left the foreground and recovers cleanly after process death.
 
-Phase 3 is in testing. `CollabBackgroundWorker` enters the Rust coordinator
+Phase 3 is complete. `CollabBackgroundWorker` enters the Rust coordinator
 directly through `CollabBackgroundBridge`, without constructing an activity or
 webview. WorkManager owns one persisted periodic request per local profile plus
 coalesced catch-up and expedited user requests. The mobile foreground sync path
 now uses the same native job ledger, Settings exposes the opt-in interval and
 recent outcomes, and authentication/permission terminal states are shown when
 the app returns to the foreground. Removing the final connected server cancels
-that profile's scheduled work. Large explicit transfers still need the separate
-foreground-service path above.
+that profile's scheduled work. Large explicit transfers use the
+notification-backed foreground-service path described above.
 
 ### Phase 4: Reliability, Progress, And Power Controls
 
@@ -235,7 +241,7 @@ foreground-service path above.
 - [x] Add age/count retention for completed job records and redact sensitive
       failure payloads before they reach the ledger or Android worker logs.
 
-Phase 4 implementation is complete and is now in testing. Android scheduled and
+Phase 4 is complete. Android scheduled and
 immediate work share explicit
 unmetered-network, roaming, charging, and low-battery constraints. The durable
 ledger records retry attempts and bounded exponential retry times, removes
@@ -245,8 +251,8 @@ in the sync popover; mobile Settings now refreshes recent outcomes while
 visible. Resource locking coalesces concurrent server invalidations, and native
 vault/calendar jobs persist a structured changed count so zero-change runs do
 not emit another foreground replica mutation and start a reconciliation loop.
-Power and network behavior still requires the physical-device lifecycle matrix
-covered by Phase 5.
+Power and network behavior was validated through the physical-device lifecycle
+matrix covered by Phase 5.
 
 ### Phase 5: Platform Hardening And Release
 
@@ -269,14 +275,14 @@ covered by Phase 5.
       explicit uploads/downloads after the notification system provides its
       persistent channel and permission flow.
 
-Phase 5 implementation is complete and is now in testing. Automated coverage
+Phase 5 is complete. Automated coverage
 exercises interrupted-job recovery, schema-compatible upgrades, session refresh,
 server/replica removal isolation, resource coalescing, Android constraints, and
 worker redaction. Desktop restore requests one coordinator catch-up, while sleep
 and network recovery remain bounded by the existing monotonic scheduler and
-resource locks. The remaining release gates are the packaged desktop/physical
-Android matrix and the notification-dependent foreground-transfer path; neither
-can be represented accurately by an in-process test.
+resource locks. The initial packaged desktop/physical Android matrix and the
+notification-dependent foreground-transfer path were validated manually. The
+release-validation guide remains the recurring checklist for future packages.
 
 ## Security And Privacy
 
@@ -305,11 +311,11 @@ can be represented accurately by an in-process test.
 
 ## Dependencies And Follow-On Work
 
-- [Notification System Plan](../archive/notification-system-plan.md) consumes job and
+- [Notification System Plan](./notification-system-plan.md) consumes job and
   reminder outcomes but does not own synchronization.
-- [Mobile Widget Ideas](../archive/mobile-widget-ideas.md) consumes compact snapshots
+- [Mobile Widget Ideas](./mobile-widget-ideas.md) consumes compact snapshots
   produced by the background coordinator.
-- [Android Companion App Plan](./android-companion-app-plan.md) Phase 7 must
+- [Android Companion App Plan](../plans/android-companion-app-plan.md) Phase 7 must
   validate the lifecycle and release behavior delivered here.
 - [Background Running Release Validation](../build/background-running-release-validation.md)
   is the executable package/device matrix for Phase 5.

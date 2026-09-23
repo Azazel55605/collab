@@ -136,7 +136,7 @@ Do not reuse directly:
 | 5. Kanban MVP                         | Complete    | View and edit boards/cards through a mobile-first Kanban workflow.                                |
 | 6. Viewer-only rich files             | Complete    | Add PDF, image, canvas, and logic diagram viewers without edit affordances.                       |
 | 7. Android hardening and release prep | In progress | Device QA, lifecycle handling, signing, release packaging, and operational docs.                  |
-| 8. Later expansion                    | Deferred    | Decide whether to add push/background sync, iOS, richer viewers, or mobile capture flows.         |
+| 8. Later expansion                    | Deferred    | Decide whether to add iOS, richer viewers, or mobile capture flows.                               |
 
 ## Phase Details
 
@@ -675,15 +675,16 @@ Acceptance criteria:
 - Known limitations are documented.
 - The app is safe to distribute to a small internal/beta group.
 
-Current background-lifecycle hardening is in testing. Shared coordinator
-recovery now survives old settings/ledger records, server and replica removal
-cancel only matching work, WorkManager defers routine sync for low storage, and
-worker errors are bounded and redacted. The packaged/physical matrix and
+Background-lifecycle hardening is complete. Shared coordinator recovery
+survives old settings/ledger records, server and replica removal cancels only
+matching work, WorkManager defers routine sync for low storage, and worker
+errors are bounded and redacted. The recurring packaged/physical matrix and
 troubleshooting steps live in
 [Background Running Release Validation](../build/background-running-release-validation.md).
-Notification-backed foreground transfers remain a release dependency for large
-explicit uploads/downloads and are not implemented as unrestricted routine
-WorkManager jobs.
+Large explicit uploads/downloads use notification-backed foreground transfers,
+not unrestricted routine WorkManager jobs. Delivery history and architecture
+are retained in the
+[Background Running Plan](../archive/background-running-plan.md).
 
 ### Phase 8: Later Expansion
 
@@ -693,8 +694,6 @@ Candidates:
 
 - Broader live editing for rich file types if mobile authoring demand justifies
   it.
-- Android background sync with OS constraints respected, tracked
-  cross-platform in the [Background Running Plan](./background-running-plan.md).
 - iOS feasibility and build pipeline.
 - Better PDF search/annotations.
 - Lightweight canvas or logic editing, only if mobile usage justifies it.

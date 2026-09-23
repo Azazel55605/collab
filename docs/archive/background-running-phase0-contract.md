@@ -2,10 +2,9 @@
 
 ## Status
 
-**Testing.** The native desktop and Android proofs compile and the shared Rust
-probe passes its unit tests. Real tray behavior still needs validation on Linux,
-Windows, and macOS, and the WorkManager bridge still needs a physical Android
-device run before Phase 0 can be marked complete.
+**Complete.** The native desktop and Android proofs compile, the shared Rust
+probe passes its unit tests, tray behavior was validated on Linux, Windows, and
+macOS, and the WorkManager bridge was validated on a physical Android device.
 
 The original proofs no longer define production behavior. Phase 2 replaced the
 desktop probe with the opt-in tray lifecycle, and Phase 3 replaced the debug
@@ -148,6 +147,6 @@ snapshots through later adapters.
 - `:app:compileUniversalDebugKotlin` with JDK 21 and the installed Android SDK
 - `:app:testUniversalDebugUnitTest` with JDK 21 and the installed Android SDK
 
-The remaining Phase 0 validation is deliberately manual because a successful
-compile cannot prove shell tray integration, Android process death behavior,
-Doze scheduling, or reboot recovery.
+The platform validation was performed manually because a successful compile
+cannot prove shell tray integration, Android process death behavior, Doze
+scheduling, or reboot recovery.
