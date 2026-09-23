@@ -51,7 +51,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Verify release version
         if: startsWith(github.ref, 'refs/tags/')
@@ -59,10 +59,10 @@ jobs:
 
       # ── Node / pnpm ───────────────────────────────────────────────────────
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -162,7 +162,7 @@ jobs:
       # ── Publish GitHub Release (tag pushes only) ───────────────────────────
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft:      true
           prerelease: false
@@ -208,7 +208,7 @@ jobs:
 
       # ── Collect artifacts (all runs) ───────────────────────────────────────
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact-label }}
           if-no-files-found: warn
@@ -234,7 +234,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Flatpak tooling
         run: |
@@ -263,7 +263,7 @@ jobs:
           flatpak build-bundle flatpak-repo collab-flatpak-x86_64.flatpak com.azazel.collab --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
 
       - name: Upload Flatpak artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: flatpak-x86_64
           if-no-files-found: error
@@ -275,7 +275,7 @@ jobs:
 
       - name: Release Flatpak bundle
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           prerelease: false
@@ -297,10 +297,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -313,7 +313,7 @@ jobs:
           TAG: ${{ github.ref_name }}
 
       - name: Upload latest.json to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: false
           files: latest.json
