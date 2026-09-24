@@ -4,37 +4,56 @@
 [![Server Container Build](https://github.com/Azazel55605/collab/actions/workflows/server-container-build.yml/badge.svg)](https://github.com/Azazel55605/collab/actions/workflows/server-container-build.yml)
 [![Security Scan](https://github.com/Azazel55605/collab/actions/workflows/security-scan.yml/badge.svg)](https://github.com/Azazel55605/collab/actions/workflows/security-scan.yml)
 
-Local-first vault-based knowledge work for Markdown notes, canvases, Kanban boards,
-PDFs, images, and collaboration.
+Local-first vault-based knowledge work for notes, drawings, spreadsheets,
+diagrams, canvases, Kanban boards, calendars, PDFs, images, and collaboration.
 
-`collab` is a Tauri 2 desktop app built with React 19, TypeScript, Rust, and
-CodeMirror 6. Local vaults remain first-class and stay on disk. Existing
-shared-folder collaboration works through vault metadata, and a self-hosted
-collaboration server provides authenticated users, hosted vaults, server-backed
-permissions, live co-editing, and offline synchronization.
+`collab` ships a Tauri 2 desktop app, an Android companion, a self-hosted Rust
+collaboration server, and a browser administration interface. Local vaults
+remain first-class and stay on disk. Hosted vaults add authenticated users,
+server-backed permissions, live co-editing, and offline synchronization without
+replacing the local workflow.
 
-The server foundation, authentication, administration, hosted-vault content,
-live co-editing, and offline-sync phases are implemented. They include
-PostgreSQL-backed identities, Argon2id credentials, secure browser and native
-sessions, expiring invitations, audit events, a Collab-style admin web
-interface, a desktop server connection flow, server-backed CRDT live editing
-over WebSocket, and a native offline replica with reconnect convergence.
+The workspace now includes first-class `.sheet`, `.ink`, and `.logic` document
+editors; desktop and Android calendars; a durable notification and background
+work system; and hosted collaboration for supported structured documents.
 Published multi-architecture (AMD64/ARM64) server images are released to GitHub
 Container Registry and run with a single production Compose file.
 
 ## Highlights
 
-- Markdown notes with live preview, wikilinks, backlinks, autosave, optimistic conflict handling, and rich insertion tools
-- First-class vault files for `.md`, `.canvas`, `.kanban`, images, and PDFs
+- Markdown notes with live preview, Mermaid, math solving and plots, snippets,
+  wikilinks, backlinks, autosave, optimistic conflict handling, and rich
+  insertion tools
+- First-class vault files for `.md`, `.canvas`, `.kanban`, `.sheet`, `.ink`,
+  `.logic`, SVG, raster images, and PDFs in one unified file tree
+- Native `.sheet` workbooks with formulas, formatting, data tools, charts,
+  hosted/offline collaboration, mobile editing, and bounded XLSX/CSV conversion
+- Pressure-aware `.ink` drawings with pages or infinite canvas, layers, rich
+  tools, desktop/mobile editing, hosted merge, deterministic export, and
+  source-linked note embeds
+- Logic and electronic schematic diagrams with live Boolean evaluation,
+  reusable components, sequenced digital tools, SVG note exports, and an
+  offline first-party Rust circuit simulator
 - Canvas boards with note/file/text/web cards, edge labels/styles/arrows, PDF thumbnails, and link previews/embeds
 - Kanban boards with drag-and-drop columns/cards, calendar and timeline views, attachments, assignees, tags, archive, and templates
-- Dedicated PDF reader with single-page, long-scroll, and side-by-side layouts plus fit and custom zoom modes
-- Dedicated image viewer/editor with additive annotation overlays and permanent crop/rotate/resize/export flows
+- Desktop and Android calendars with events, tasks, birthdays, recurrence,
+  attachments, multi-server offline sync, Kanban task projection, iCalendar
+  feeds/import/export, hosted CalDAV, and cross-location mirroring
+- Native desktop and Android notifications with a durable inbox, reminders,
+  quiet hours, privacy controls, safe actions, background delivery, and hosted
+  catch-up
+- Dedicated PDF reader with single-page, long-scroll, and side-by-side layouts,
+  bookmarks, highlights, quote/snapshot handoff, and fit/custom zoom modes
+- Raster and SVG editing, image annotation overlays and permanent transforms,
+  plus optional local OCR language packs
 - Shared-folder collaboration with presence, chat, per-file history snapshots, permissions, and conflict dialogs
 - Hosted vaults on a self-hosted server with server-backed roles, fine-grained permissions, and authenticated native/browser sessions
-- Live co-editing of hosted notes, Kanban boards, canvases, and logic diagrams over a server-held CRDT, with live presence and safe REST fallback when no live session is available
+- Live co-editing of supported hosted documents over server-held CRDTs, with
+  live presence and safe REST fallback when no live session is available
 - Offline synchronization for hosted vaults through a native replica with reconnect convergence and a status-bar sync/conflict indicator
-- User calendars with desktop and Android offline sync, iCalendar import/export and subscriptions, plus hosted CalDAV access through revocable app passwords
+- Android companion access to hosted vaults, notes, Kanban, sheets, drawings,
+  calendars, offline edits, background sync, notifications, and eight launcher
+  widgets
 - Self-hosted Docker Compose server with PostgreSQL, persistent blob storage, Caddy gateway, health checks, automatic migrations, backups, quotas, and rate limiting
 - Published multi-architecture (AMD64/ARM64) server images on GitHub Container Registry for one-command production deployment
 - Server administration web interface with first-admin bootstrap, invitations, dashboard, user/password/session lifecycle management, activity inspection, and audit views
@@ -44,34 +63,43 @@ Container Registry and run with a single production Compose file.
 
 ## Stack
 
-| Layer                | Technology                           |
-| -------------------- | ------------------------------------ |
-| Desktop shell        | Tauri 2                              |
-| Frontend             | React 19, Vite, TypeScript           |
-| Styling              | Tailwind CSS v4, shadcn/ui, Radix UI |
-| Editor               | CodeMirror 6                         |
-| Canvas               | `@xyflow/react`                      |
-| Kanban drag/drop     | `dnd-kit`                            |
-| Graph view           | D3                                   |
-| PDF rendering        | `pdfjs-dist`                         |
-| State                | Zustand                              |
-| Desktop backend      | Rust, Tauri commands                 |
-| Collaboration server | Rust, Axum, SQLx, PostgreSQL         |
-| Admin web            | React 19, Vite                       |
-| Deployment           | Docker Compose, Caddy                |
+| Layer                | Technology                            |
+| -------------------- | ------------------------------------- |
+| Desktop shell        | Tauri 2                               |
+| Frontend             | React 19, Vite, TypeScript            |
+| Styling              | Tailwind CSS v4, shadcn/ui, Radix UI  |
+| Editor               | CodeMirror 6                          |
+| Canvas               | `@xyflow/react`                       |
+| Kanban drag/drop     | `dnd-kit`                             |
+| Graph view           | D3                                    |
+| PDF rendering        | `pdfjs-dist`                          |
+| Spreadsheet engine   | `collab-sheet`, Formualizer           |
+| Diagramming          | React Flow, `collab-circuit`          |
+| Calendar storage     | `collab-calendar`, SQLite             |
+| State                | Zustand                               |
+| Desktop backend      | Rust, Tauri commands                  |
+| Android companion    | Tauri Android, React, Kotlin adapters |
+| Collaboration server | Rust, Axum, SQLx, PostgreSQL          |
+| Admin web            | React 19, Vite                        |
+| Deployment           | Docker Compose, Caddy                 |
 
 ## Current Features
 
 ### Notes
 
 - CodeMirror-based Markdown editing with GFM support
-- Live inline formatting previews for common Markdown constructs
+- Live inline formatting previews, Mermaid diagrams, color previews, indentation
+  guides, and ASCII arrow ligatures
 - Wikilinks with vault-wide autocomplete and backlink indexing
 - Autosave with optimistic locking and conflict resolution
 - Auto-rename to match the first H1 heading
-- Toolbar actions for headings, formatting, links, images, tables, task lists, math, code blocks, and more
+- Toolbar, slash-command, command-bar, and context-menu authoring flows
+- Reusable app- and vault-level snippets with placeholder traversal
+- Exact and approximate math solving plus `%plot2d` SVG and lazy-loaded
+  `%plot3d` WebGL plots
 - Shift-click editor dialogs for visual table, task-list, math-block, and fenced-code editing
-- Nerd Font icon picker and command-bar insertion actions
+- Footnotes, callouts, references sections, Nerd Font icons, file links, and
+  drag/drop imports
 - Sidebar search and tag browsing
 
 ### Vault Files And Views
@@ -79,7 +107,9 @@ Container Registry and run with a single production Compose file.
 - Notes (`.md`)
 - Canvases (`.canvas`)
 - Kanban boards (`.kanban`)
-- Images, including additive overlay annotations stored under `.collab/image-overlays/`
+- Workbooks (`.sheet`), drawings (`.ink`), and logic/schematic diagrams
+  (`.logic`)
+- Raster images and editable SVG vector scenes
 - PDFs opened in a custom in-app reader
 - Multi-tab editing with dirty-state tracking and drag-reorder
 - Grid workspace view for arranging multiple views side by side
@@ -87,10 +117,69 @@ Container Registry and run with a single production Compose file.
 ### Navigation And Discovery
 
 - D3 graph view for wikilink relationships across notes
-- File tree with folders, managed media, drag-and-drop moves, and context actions
+- Unified file tree for every document type, folders, trash, managed media,
+  drag-and-drop moves, creation, duplication, and contextual references
 - Command bar for search, quick actions, note creation, math evaluation, and editor insertions
 - Vault-wide text search and tag browsing in the sidebar
 - Shared document top-bar pattern across note, image, PDF, canvas, and Kanban views
+
+### Spreadsheets
+
+- `.sheet` is the authoritative workbook format; XLSX and CSV are bounded
+  import/export targets rather than live backing models
+- Virtualized canvas grid with worksheets, frozen panes, formula bar, structural
+  edits, formatting, clipboard/fill, undo/redo, and search/replace
+- Native incremental formula evaluation with cross-sheet references, stable
+  error values, dependency inspection, and resource limits
+- Tables, filtering, validation, conditional formatting, named ranges,
+  protection, summaries, cleanup tools, charts, and range print/export
+- Vault references, source-linked note embeds, and explicit Kanban/calendar
+  snapshots
+- Hosted live collaboration, offline queues and recovery, plus a windowed touch
+  editor on Android
+
+### Digital Ink
+
+- Native `.ink` documents with fixed pages or an infinite canvas, layers,
+  templates, backgrounds, favourites, and swatches
+- Pressure/tilt-aware pens and highlighters, stroke and pixel erasers, lasso
+  selection, transforms, history, clipboard, and drawing-tablet input
+- Shapes, connectors, guides, text, sticky notes, equations, stamps, safe links,
+  and vault-backed image/SVG objects
+- Adaptive phone/tablet controls, pen/touch gesture policy, rotation and process
+  recovery, hosted live previews, and offline merge
+- Deterministic PNG, SVG, and PDF export with cancellation, progress, stable
+  re-export, and source-linked note insertion
+
+### Logic Diagrams And Circuit Simulation
+
+- `.logic` editors for digital gates and electronic schematic symbols with
+  labels, templates, reusable components, grouping, rotation, and optimistic
+  local/hosted persistence
+- Toggleable inputs, live Boolean evaluation, active-wire states, truth tables,
+  clock sources, sequenced simulation, and dynamic value tables
+- Deterministic SVG export to notes with source metadata that reopens the
+  editable diagram
+- First-party pure-Rust circuit engine with deterministic schematic compilation,
+  source-mapped diagnostics, DC operating point, DC sweep, and transient jobs
+- Desktop and Android run/cancel flows, voltage/current probes, result plots,
+  and an implemented bounded linear AC sweep core; mixed-signal and AC UI work
+  remain tracked development items
+
+### Calendars, Tasks, And Notifications
+
+- Calendar events, tasks, and birthdays across local profiles and multiple
+  hosted accounts, with month/week/day/agenda/year views and calendar search
+- Recurrence, attendees, invitations, attachments, drag-to-reschedule/resize,
+  archive/restore, conflicts, and offline operation queues
+- Deterministic cross-location mirroring and generated calendars for assigned
+  Kanban tasks with bounded write-through
+- iCalendar import/export/subscriptions and publications, plus hosted CalDAV
+  collections through revocable app passwords
+- Durable native notification inbox and scheduler for reminders, invitations,
+  mentions, sync actions, and transfer completion
+- Desktop tray/background delivery and Android alarms/WorkManager, with privacy
+  modes, quiet hours, category/source preferences, snooze, and safe actions
 
 ### Canvas
 
@@ -115,9 +204,27 @@ Container Registry and run with a single production Compose file.
 
 - PDF reader with single, scroll, and spread layouts
 - Fit-width, fit-height, fit-page, `100%`, and custom zoom controls
-- Rotation and keyboard shortcut support in the PDF viewer
+- Rotation, bookmarks, highlights, keyboard shortcuts, and quote/snapshot
+  handoff to notes and canvases
 - Image viewer with additive annotations like pen, arrows, text, crop overlays, and erasing
 - Permanent image edits for crop, rotate, resize, flattening, overwrite, or save-as-new-image
+- Dedicated SVG vector scene editor selected automatically for `.svg` files
+- Local OCR with managed language packs, bounded recognition, and prepared
+  offline runtime assets
+
+### Android Companion
+
+- Hosted-server sign-in and session restore with secrets kept in Android
+  Keystore-backed native storage
+- Hosted vault browsing, offline replicas, queued edits, reconnect replay, and
+  live-session plumbing
+- Phone/tablet experiences for notes, Kanban, sheets, ink drawings, calendars,
+  notifications, sync recovery, and supported circuit simulations
+- Shared background coordinator using WorkManager rather than a retained hidden
+  webview
+- Eight privacy-aware launcher widgets covering agenda, month, birthdays,
+  countdowns, tasks, capture/shortcuts, and synchronization status
+- Independent mobile Vite/Vitest configuration and Android APK/AAB build paths
 
 ### Collaboration
 
@@ -156,10 +263,11 @@ Container Registry and run with a single production Compose file.
   theme, accent, and density settings
 - Dashboard storage/warning summaries, user creation/invitations, password reset, disable/re-enable/delete controls, session revocation, activity inspection, and redacted audit views
 - Desktop server login in Settings with memory-only access tokens and refresh tokens stored in the OS credential store
-- Live co-editing of hosted notes, Kanban boards, canvases, and logic diagrams backed by a
-  per-document server-held `yrs` CRDT, relayed over an authenticated WebSocket
-  with single-use tickets, live awareness/presence, and REST optimistic-write
-  fallback when no live session is available
+- Live co-editing of hosted notes, Kanban boards, canvases, logic diagrams,
+  sheets, and ink drawings backed by per-document server-held `yrs` CRDTs,
+  relayed over an authenticated WebSocket with single-use tickets, live
+  awareness/presence, and REST optimistic-write fallback when no live session
+  is available
 - Offline synchronization through a native per-vault replica store with a
   pending-operation queue, CRDT-state caching, integrity checks, reconnect
   convergence, and a status-bar sync/conflict recovery indicator
@@ -285,7 +393,7 @@ Dockerfile.server     Cached multi-stage server and admin-web image
 ## Requirements
 
 - Node.js 20+
-- `pnpm` 10+
+- `pnpm` 11.7 (pinned through `packageManager`)
 - Rust stable toolchain
 - Tauri 2 system dependencies for your platform
 - Docker with Docker Compose for the collaboration server
@@ -327,6 +435,29 @@ pnpm dev
 The app is not usable in a plain browser: it calls Tauri IPC while mounting the
 vault picker, so opening `http://localhost:1420` outside the desktop shell fails
 with `Cannot read properties of undefined (reading 'invoke')`.
+
+### Android Companion
+
+Run the mobile frontend test suite independently from the desktop tests:
+
+```bash
+pnpm mobile:test
+```
+
+With the Android SDK, NDK, JDK, and Tauri targets configured, start a connected
+development build or produce release artifacts:
+
+```bash
+pnpm android:dev
+pnpm android:build        # ARM64 APK
+pnpm android:build:aab    # Play-ready bundle; signing must be configured
+```
+
+Use `pnpm android:build:universal` when a multi-ABI APK is specifically needed.
+The full environment, signing, regeneration-safe native customizations, and
+release process are documented in
+[docs/mobile/android-companion-build.md](./docs/mobile/android-companion-build.md)
+and [docs/mobile/android-play-release.md](./docs/mobile/android-play-release.md).
 
 ### Admin Web Interface
 
@@ -382,7 +513,7 @@ exact version in `.env` so upgrades are deliberate:
 
 ```bash
 # .env
-COLLAB_SERVER_IMAGE=ghcr.io/azazel55605/collab-server:0.4.8
+COLLAB_SERVER_IMAGE=ghcr.io/azazel55605/collab-server:0.7.1
 ```
 
 Upgrade later by bumping that tag and re-pulling:
@@ -453,8 +584,13 @@ pnpm test
 pnpm exec tsc --noEmit
 pnpm admin:test
 pnpm admin:build
+pnpm mobile:test
 cargo test --workspace
 cargo check --workspace
+pnpm lint
+pnpm format:check
+pnpm rust:boundaries
+pnpm versions:check
 docker compose config
 ./scripts/server-smoke.sh
 ```
@@ -481,10 +617,10 @@ unfixed, and the condition to drop it — in
 [docs/build/security-advisories.md](./docs/build/security-advisories.md).
 
 Currently accepted: `RUSTSEC-2023-0071` (`rsa`, reachable only through the
-unused MySQL backend) and `RUSTSEC-2026-0194` / `RUSTSEC-2026-0195` (`quick-xml`,
-build-time macOS bundling only, blocked on an upstream `plist` release).
-Non-failing `unmaintained`/`unsound` warnings are tracked in the doc but are
-deliberately kept out of the ignore list. Keep the tracking doc in sync whenever
+unused MySQL backend). The former `quick-xml` advisories were resolved by the
+Tauri `plist` dependency upgrade and removed from the ignore list. Non-failing
+`unmaintained`/`unsound` warnings are tracked in the doc but are deliberately
+kept out of the ignore list. Keep the tracking doc in sync whenever
 `.cargo/audit.toml` changes.
 
 ## Useful Documents
@@ -493,6 +629,9 @@ deliberately kept out of the ignore list. Keep the tracking doc in sync whenever
 
 - [Documentation index](./docs/README.md) - plans, archived work, and platform/build documentation
 - [Open development work](./docs/plans/open-development-work.md) - consolidated status and remaining work across active, testing, planned, and deferred projects
+- [Codebase reference](./docs/desktop/codebase.md) - current views, components, stores, IPC commands, crates, and feature map
+- [UI guide](./docs/desktop/ui-guide.md) - visual language, shared controls, interaction rules, and document-view patterns
+- [Advanced tables](./docs/plans/advanced-tables-plan.md), [digital ink](./docs/plans/digital-ink-and-annotation-plan.md), [logic/circuit diagrams](./docs/plans/logic-circuit-diagram-plan.md), and [calendar](./docs/plans/user-calendar-feature-plan.md) - implemented scope and remaining validation or follow-on work
 - [Rust crate boundary refactor](./docs/archive/rust-crate-boundary-refactor-plan.md) - completed extraction of portable Rust domains from server and Tauri adapters
 - [Security advisory tracking](./docs/build/security-advisories.md) - accepted/ignored dependency advisories and why they are unresolved
 
