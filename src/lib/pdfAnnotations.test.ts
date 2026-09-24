@@ -50,6 +50,27 @@ describe('PDF annotation sidecar migration', () => {
     });
   });
 
+  it('treats a native legacy null ink field as an empty sidecar without a repair warning', () => {
+    const result = migratePdfSidecar(
+      {
+        bookmarks: [],
+        highlights: [],
+        textAnnotations: [],
+        pageComments: [],
+        ink: null,
+      },
+      'Docs/legacy.pdf',
+      3,
+    );
+
+    expect(result.warnings).toEqual([]);
+    expect(result.state.ink).toMatchObject({
+      kind: 'collab-annotations',
+      source: { relativePath: 'Docs/legacy.pdf', pageCount: 3 },
+      surfaceOrder: [],
+    });
+  });
+
   it('stores page geometry in source points and scene geometry in ink units', () => {
     const document = createPdfInkDocument('paper.pdf', 1);
     const updated = updatePdfInkSurface(document, 1, 612, 792, (scene) => ({

@@ -150,7 +150,7 @@ export function migratePdfSidecar(
       } as InkAnnotationDocument['source'],
       ...normalizedSurfaces,
     };
-  } else if (source.ink !== undefined) {
+  } else if (source.ink != null) {
     warnings.push(
       'The stored PDF ink container was invalid and was repaired as an empty document.',
     );

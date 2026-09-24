@@ -926,6 +926,10 @@ export default function PdfView({ relativePath }: Props) {
   const [pageNumber, setPageNumber] = useState(1);
   const [pageInput, setPageInput] = useState('1');
   const [pageCount, setPageCount] = useState(0);
+  // Session codecs must not change identity when loading discovers page count;
+  // otherwise the PDF load effect tears down and starts over indefinitely.
+  const pageCountRef = useRef(pageCount);
+  pageCountRef.current = pageCount;
   const [zoomMode, setZoomMode] = useState<ZoomMode>('fit-width');
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
@@ -984,8 +988,8 @@ export default function PdfView({ relativePath }: Props) {
 
   const normalizePdfState = useCallback(
     (state: PdfSidecarState): PdfSidecarState =>
-      migratePdfSidecar(state, relativePath, pageCount || undefined).state,
-    [pageCount, relativePath],
+      migratePdfSidecar(state, relativePath, pageCountRef.current || undefined).state,
+    [relativePath],
   );
 
   const serializePdfSession = useCallback(
