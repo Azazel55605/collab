@@ -333,12 +333,20 @@ Backing logic lives in `src/lib/ink/` (`document.ts`, `operations.ts`,
 | `components/ink/InkTextDialog.tsx`      | Text-object entry dialog                                                                                                     | Dialog               |
 | `components/ink/InkExportDialog.tsx`    | Page/selection/region export options plus worker progress and cancellation                                                   | Dialog, Select       |
 | `components/ink/NewDrawingDialog.tsx`   | First-class New Drawing lifecycle: page mode, background pattern, template                                                   | Dialog, Select       |
+| `components/pdf/PdfInkOverlay.tsx`      | Rotation-safe anchored `InkCanvas` adapter for immutable PDF pages                                                           | —                    |
+| `components/pdf/PdfInkToolbar.tsx`      | PDF-appropriate shared pens, eraser, selection, shapes, arrows, and stamps                                                   | Button, DropdownMenu |
 
 `lib/ink/export.ts`, `exportPrepare.ts`, and `exportRuntime.ts` plan deterministic
 SVG/PNG/multi-page PDF output and report missing image/font dependencies.
 `exportClient.ts` runs the bounded renderer in `exportWorker.ts`. Note insertion
 rewrites a stable vault SVG containing source page/region metadata;
 `MarkdownPreview` uses that metadata to reopen the editable `.ink` source.
+`lib/pdfAnnotations.ts` migrates PDF sidecars to the anchored annotation
+container and maps PDF points to ink units. `lib/pdfAnnotatedExport.ts`
+composites PDF pages, semantic annotations, and ink into a bounded flattened
+copy while preserving the original bytes and editable sidecar. Hosted PDF ink
+uses version polling plus the encrypted replica pending-operation queue rather
+than entering the immutable PDF file's Yjs content room.
 
 ### Logic And Circuit
 
@@ -711,7 +719,7 @@ PdfHighlightRect { left, top, width, height }
 PdfBookmark      { id, page, label?, createdAt, updatedAt }
 PdfHighlight     { id, page, text, rects[], color?, note?, createdAt, updatedAt }
 PdfViewerState   { lastPage?, lastZoomMode?, lastZoom?, lastLayoutMode?, lastRotation? }
-PdfSidecarState  { bookmarks[], highlights[], viewerState? }
+PdfSidecarState  { schemaVersion?, bookmarks[], highlights[], textAnnotations[], pageComments[], ink?, viewerState? }
 ```
 
 ### `src/types/collab.ts`
@@ -1125,7 +1133,7 @@ materialization scheduling remain adapter responsibilities.
   history/{pathKey}/                  Snapshot index + .snap content
   templates/kanban/                   Vault-scoped kanban templates
   templates/notes/                    Vault-scoped note snippets
-  pdf/{encoded}.json                  PDF bookmarks / highlights / viewer state sidecars
+  pdf/{encoded}.json                  PDF semantic annotations / anchored ink / viewer state sidecars
   trash/entries/{entryId}.json        Trash metadata
   trash/items/{entryId}/...           Trashed payloads
 ```

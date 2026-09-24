@@ -45,6 +45,7 @@ vi.mock('./tauri', () => ({
     hostedVaultUploadFile: vi.fn(),
     hostedUserDirectory: vi.fn(),
     replicaCacheDocument: vi.fn().mockResolvedValue(undefined),
+    replicaReadCachedDocument: vi.fn(),
     replicaReadManifest: vi.fn(),
     replicaReadSyncState: vi.fn(),
     replicaWriteSyncState: vi.fn().mockResolvedValue(undefined),
@@ -68,7 +69,6 @@ vi.mock('./tauri', () => ({
     listLogicComponents: vi.fn(),
     saveLogicComponent: vi.fn(),
     deleteLogicComponent: vi.fn(),
-    replicaReadCachedDocument: vi.fn(),
     replicaReadLogicComponents: vi.fn().mockResolvedValue([]),
     replicaWriteLogicComponents: vi.fn().mockResolvedValue(undefined),
   },
@@ -1788,6 +1788,37 @@ describe('PDF annotations', () => {
           pageComments: [],
         },
       },
+    );
+  });
+
+  it('queues hosted PDF annotations in the replica when the server is offline', async () => {
+    vi.mocked(tauriCommands.hostedVaultRequest)
+      .mockResolvedValueOnce(mockHostedManifest())
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const client = new HostedVaultClient(hostedVault);
+    const state = {
+      schemaVersion: 2,
+      bookmarks: [],
+      highlights: [],
+      textAnnotations: [],
+      pageComments: [],
+    };
+
+    await expect(client.writePdfAnnotations('doc.pdf', state, 3)).resolves.toMatchObject({
+      state,
+      version: 3,
+      offlineQueued: true,
+    });
+    expect(tauriCommands.replicaCacheDocument).toHaveBeenCalledWith(
+      'https://collab.example.test',
+      'hosted-vault',
+      'pdf-1',
+      expect.stringContaining('offlineQueued'),
+    );
+    expect(tauriCommands.replicaEnqueueOperation).toHaveBeenCalledWith(
+      'https://collab.example.test',
+      'hosted-vault',
+      expect.objectContaining({ kind: 'pdfAnnotations', fileId: 'pdf-1' }),
     );
   });
 });

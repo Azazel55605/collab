@@ -10,6 +10,7 @@ import {
   Columns2,
   Copy,
   Crop,
+  Download,
   Eye,
   EyeOff,
   FileText,
@@ -22,6 +23,7 @@ import {
   Minus,
   PanelRightClose,
   PanelRightOpen,
+  PenLine,
   Plus,
   RefreshCw,
   RotateCw,
@@ -44,6 +46,8 @@ import {
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
+import PdfInkOverlay from '../components/pdf/PdfInkOverlay';
+import PdfInkToolbar from '../components/pdf/PdfInkToolbar';
 import { type PdfSendTarget, PdfSendTargetDialog } from '../components/pdf/PdfSendTargetDialog';
 import { Button } from '../components/ui/button';
 import {
@@ -65,7 +69,16 @@ import {
   type RemoteCandidate,
   useDocumentSessionController,
 } from '../lib/documentSessionController';
+import { defaultToolState } from '../lib/ink/tools';
+import type { InkToolState } from '../lib/ink/tools';
 import { readOcrCache, writeOcrCache } from '../lib/ocrCache';
+import {
+  annotatedPdfFileName,
+  exportAnnotatedPdf,
+  PdfAnnotatedExportCancelledError,
+} from '../lib/pdfAnnotatedExport';
+import type { PdfAnnotatedExportProgress } from '../lib/pdfAnnotatedExport';
+import { migratePdfSidecar, pdfInkObjectCount } from '../lib/pdfAnnotations';
 import {
   appendMarkdownBlock,
   appendPdfQuoteTextNode,
@@ -83,6 +96,7 @@ import { useEditorStore } from '../store/editorStore';
 import { useUiStore } from '../store/uiStore';
 import { useVaultStore } from '../store/vaultStore';
 import type { CanvasData } from '../types/canvas';
+import type { InkAnnotationDocument } from '../types/ink';
 import type {
   PdfBookmark,
   PdfHighlight,
@@ -271,6 +285,7 @@ function getPdfTextAnnotationPalette(annotation: PdfTextAnnotation) {
 }
 
 const EMPTY_PDF_STATE: PdfSidecarState = {
+  schemaVersion: 2,
   bookmarks: [],
   highlights: [],
   textAnnotations: [],
@@ -342,6 +357,14 @@ function dataUrlToUint8Array(dataUrl: string) {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
 }
 
 function useElementSize<T extends HTMLElement>(ref: { current: T | null }) {
@@ -424,6 +447,11 @@ interface PdfPageCanvasProps {
   regionSelection: RegionSelectionState | null;
   interactionMode: 'none' | 'snapshot' | 'annotation' | 'ocr';
   ocrWords: SelectableOcrWord[];
+  inkDocument: InkAnnotationDocument;
+  inkEnabled: boolean;
+  inkReadOnly: boolean;
+  inkTool: InkToolState;
+  onInkChange: (document: InkAnnotationDocument) => void;
 }
 
 function PdfPageCanvas({
@@ -448,6 +476,11 @@ function PdfPageCanvas({
   regionSelection,
   interactionMode,
   ocrWords,
+  inkDocument,
+  inkEnabled,
+  inkReadOnly,
+  inkTool,
+  onInkChange,
 }: PdfPageCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -812,6 +845,21 @@ function PdfPageCanvas({
         )}
       </div>
 
+      {estimatedSize && (
+        <PdfInkOverlay
+          document={inkDocument}
+          pageNumber={pageNumber}
+          widthPoints={estimatedSize.width}
+          heightPoints={estimatedSize.height}
+          scale={scale}
+          rotation={rotation}
+          enabled={inkEnabled && interactionMode === 'none'}
+          readOnly={inkReadOnly}
+          tool={inkTool}
+          onChange={onInkChange}
+        />
+      )}
+
       {rendering && !hasRendered && shouldRender && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/28 backdrop-blur-2px-webkit">
           <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-popover/90 px-3 py-2 text-sm text-muted-foreground shadow-lg">
@@ -845,8 +893,9 @@ interface Props {
 
 export default function PdfView({ relativePath }: Props) {
   const { vault, fileTree } = useVaultStore();
-  // PDF workspace sidecars live on the local filesystem under .collab/pdf/; hosted
-  // vaults have no sidecar endpoint, so viewer state is in-memory only there.
+  // Local PDF sidecars live under `.collab/pdf/`. Hosted sidecars use the
+  // permission-enforced API; this flag only controls native file watching and
+  // local viewer-state persistence.
   const supportsSidecars = useMemo(
     () => (vault ? createVaultClient(vault).capabilities.nativeFilesystem : false),
     [vault?.path],
@@ -908,6 +957,11 @@ export default function PdfView({ relativePath }: Props) {
   const [ocrRegenerateAction, setOcrRegenerateAction] = useState<PdfOcrRegenerateAction | null>(
     null,
   );
+  const [inkEnabled, setInkEnabled] = useState(false);
+  const [inkTool, setInkTool] = useState<InkToolState>(() => defaultToolState());
+  const [annotatedExportProgress, setAnnotatedExportProgress] =
+    useState<PdfAnnotatedExportProgress | null>(null);
+  const annotatedExportCancelRef = useRef(false);
   const ocrRenderScale = useUiStore((state) => state.ocrRenderScale);
   const ocrOverlayVisible = useUiStore((state) => state.ocrOverlayVisible);
   const setOcrOverlayVisible = useUiStore((state) => state.setOcrOverlayVisible);
@@ -929,13 +983,9 @@ export default function PdfView({ relativePath }: Props) {
   );
 
   const normalizePdfState = useCallback(
-    (state: PdfSidecarState): PdfSidecarState => ({
-      ...EMPTY_PDF_STATE,
-      ...state,
-      textAnnotations: state.textAnnotations ?? [],
-      pageComments: state.pageComments ?? [],
-    }),
-    [],
+    (state: PdfSidecarState): PdfSidecarState =>
+      migratePdfSidecar(state, relativePath, pageCount || undefined).state,
+    [pageCount, relativePath],
   );
 
   const serializePdfSession = useCallback(
@@ -943,10 +993,12 @@ export default function PdfView({ relativePath }: Props) {
       const normalized = normalizePdfState(state);
       if (vault?.kind === 'hosted') {
         return JSON.stringify({
+          schemaVersion: normalized.schemaVersion,
           bookmarks: normalized.bookmarks,
           highlights: normalized.highlights,
           textAnnotations: normalized.textAnnotations,
           pageComments: normalized.pageComments,
+          ink: normalized.ink,
         });
       }
       return JSON.stringify({
@@ -1034,6 +1086,7 @@ export default function PdfView({ relativePath }: Props) {
           return {
             version: result.version === null ? nextContent : String(result.version),
             mergedContent: nextContent,
+            offlineQueued: result.offlineQueued,
           };
         }
         await tauriCommands.writePdfSidecarState(vault.path, relativePath, {
@@ -1132,6 +1185,10 @@ export default function PdfView({ relativePath }: Props) {
     setOcrPage(null);
     setOcrConfidence(null);
     setOcrProgress(null);
+    setInkEnabled(false);
+    setInkTool(defaultToolState());
+    setAnnotatedExportProgress(null);
+    annotatedExportCancelRef.current = true;
 
     const loadClient = createVaultClient(vault);
     void Promise.all([
@@ -1143,7 +1200,6 @@ export default function PdfView({ relativePath }: Props) {
         .catch(() => ({ state: EMPTY_PDF_STATE, version: null }) as VaultPdfAnnotations),
     ])
       .then(async ([dataUrl, annotations]) => {
-        const sidecar = normalizePdfState(annotations.state);
         const data = dataUrlToUint8Array(dataUrl);
         const task = getDocument({ data });
         const pdf = await task.promise;
@@ -1152,6 +1208,14 @@ export default function PdfView({ relativePath }: Props) {
           // the worker teardown now.
           await task.destroy().catch(() => {});
           return;
+        }
+
+        const migration = migratePdfSidecar(annotations.state, relativePath, pdf.numPages);
+        const sidecar = migration.state;
+        if (migration.warnings.length > 0) {
+          toast.warning('Some PDF annotations needed repair.', {
+            description: migration.warnings.slice(0, 3).join(' '),
+          });
         }
 
         const firstPage = await pdf.getPage(1);
@@ -1268,6 +1332,32 @@ export default function PdfView({ relativePath }: Props) {
       { kinds: ['manifest'] },
     );
   }, [pdfSessionController, relativePath, vault]);
+
+  // PDF sidecars are separate from the immutable PDF bytes and therefore do
+  // not enter the file-content Yjs room. A lightweight version poll gives the
+  // annotation session live conflict/remote-update behavior while the replica
+  // queue below owns offline durability and replay.
+  useEffect(() => {
+    if (!vault || vault.kind !== 'hosted' || !relativePath || !sidecarLoaded) return;
+    let checking = false;
+    const check = async () => {
+      if (checking || document.visibilityState === 'hidden') return;
+      const snapshot = pdfSessionController.getSnapshot();
+      if (snapshot.saving || snapshot.conflicted) return;
+      checking = true;
+      try {
+        await pdfSessionController.handleExternalMutation('rest');
+      } finally {
+        checking = false;
+      }
+    };
+    const interval = window.setInterval(() => void check(), 2_000);
+    window.addEventListener('focus', check);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', check);
+    };
+  }, [pdfSessionController, relativePath, sidecarLoaded, vault]);
 
   useEffect(() => {
     if (!pdfSessionSnapshot.conflicted) return;
@@ -1424,6 +1514,41 @@ export default function PdfView({ relativePath }: Props) {
   const updatePdfState = useCallback((updater: (current: PdfSidecarState) => PdfSidecarState) => {
     setPdfState((current) => updater(current));
   }, []);
+
+  const updatePdfInk = useCallback(
+    (ink: InkAnnotationDocument) => updatePdfState((current) => ({ ...current, ink })),
+    [updatePdfState],
+  );
+
+  const exportFlattenedPdf = useCallback(async () => {
+    if (!documentProxy) return;
+    if (annotatedExportProgress) {
+      annotatedExportCancelRef.current = true;
+      return;
+    }
+    annotatedExportCancelRef.current = false;
+    try {
+      const bytes = await exportAnnotatedPdf(
+        documentProxy,
+        pdfState,
+        setAnnotatedExportProgress,
+        () => annotatedExportCancelRef.current,
+      );
+      if (annotatedExportCancelRef.current) throw new PdfAnnotatedExportCancelledError();
+      const fileName = annotatedPdfFileName(relativePath);
+      const destination = await tauriCommands.showDownloadDialog(fileName);
+      if (!destination) return;
+      await tauriCommands.writeDownloadedFile(destination, bytesToBase64(bytes));
+      toast.success(`Exported ${fileName}`);
+    } catch (exportError) {
+      if (exportError instanceof PdfAnnotatedExportCancelledError)
+        toast.info('PDF export cancelled.');
+      else toast.error(`Could not export annotated PDF: ${(exportError as Error).message}`);
+    } finally {
+      setAnnotatedExportProgress(null);
+      annotatedExportCancelRef.current = false;
+    }
+  }, [annotatedExportProgress, documentProxy, pdfState, relativePath]);
 
   const addBookmarkForCurrentPage = useCallback(() => {
     if (!canAnnotate) return;
@@ -2656,6 +2781,46 @@ export default function PdfView({ relativePath }: Props) {
               <Button
                 size="sm"
                 variant="ghost"
+                className={cn(
+                  'h-8 gap-1.5 px-2.5 text-xs',
+                  inkEnabled && 'bg-accent text-accent-foreground',
+                )}
+                onClick={() => {
+                  setInkEnabled((current) => !current);
+                  setInteractionMode('none');
+                  setRegionSelection(null);
+                }}
+                title={canAnnotate ? 'Draw on the PDF' : 'View PDF ink (read-only)'}
+              >
+                <PenLine size={14} />
+                Ink
+                {(pdfState.ink ? pdfInkObjectCount(pdfState.ink) : 0) > 0 && (
+                  <span className="rounded-full bg-primary/15 px-1.5 text-[10px] text-primary">
+                    {pdfInkObjectCount(pdfState.ink!)}
+                  </span>
+                )}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-2.5 text-xs"
+                onClick={() => void exportFlattenedPdf()}
+                title={
+                  annotatedExportProgress
+                    ? 'Cancel annotated PDF export'
+                    : 'Export annotated PDF copy'
+                }
+              >
+                {annotatedExportProgress ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Download size={14} />
+                )}
+                {annotatedExportProgress ? 'Cancel export' : 'Export annotated'}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
                 className="h-8 gap-1.5 px-2.5 text-xs"
                 onClick={addBookmarkForCurrentPage}
               >
@@ -2793,6 +2958,17 @@ export default function PdfView({ relativePath }: Props) {
       />
 
       <div className="relative min-h-0 flex-1">
+        {inkEnabled && (
+          <div className="pointer-events-none absolute left-1/2 top-5 z-30 -translate-x-1/2">
+            <PdfInkToolbar tool={inkTool} readOnly={!canAnnotate} onChange={setInkTool} />
+          </div>
+        )}
+        {annotatedExportProgress && (
+          <div className="absolute bottom-5 left-1/2 z-30 -translate-x-1/2 rounded-full border border-border/60 bg-popover/95 px-4 py-2 text-xs text-muted-foreground shadow-xl">
+            {annotatedExportProgress.label} · {annotatedExportProgress.completed}/
+            {annotatedExportProgress.total}
+          </div>
+        )}
         <div className="pointer-events-none absolute right-5 top-5 z-20 flex flex-col gap-3">
           {ocrOpen && (
             <div className="pointer-events-auto w-[min(380px,calc(100vw-2.5rem))] rounded-2xl border border-border/60 bg-popover/95 p-3 shadow-2xl shadow-black/25 app-panel-enter">
@@ -3248,6 +3424,11 @@ export default function PdfView({ relativePath }: Props) {
                   ocrWords={
                     ocrOverlayVisible && ocrOverlay?.page === renderedPage ? ocrOverlay.words : []
                   }
+                  inkDocument={pdfState.ink!}
+                  inkEnabled={inkEnabled}
+                  inkReadOnly={!canAnnotate}
+                  inkTool={inkTool}
+                  onInkChange={updatePdfInk}
                 />
               ))}
             </div>

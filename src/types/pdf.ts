@@ -1,3 +1,7 @@
+import type { InkAnnotationDocument } from './ink';
+
+export const PDF_SIDECAR_SCHEMA_VERSION = 2;
+
 export interface PdfHighlightRect {
   left: number;
   top: number;
@@ -57,9 +61,13 @@ export interface PdfViewerState {
 }
 
 export interface PdfSidecarState {
+  /** Added in v2. Missing means a legacy v1 sidecar and is migrated on read. */
+  schemaVersion?: number;
   bookmarks: PdfBookmark[];
   highlights: PdfHighlight[];
   textAnnotations: PdfTextAnnotation[];
   pageComments: PdfPageComment[];
+  /** Editable pressure ink and vector objects anchored to immutable PDF pages. */
+  ink?: InkAnnotationDocument;
   viewerState?: PdfViewerState | null;
 }
