@@ -139,6 +139,8 @@ export interface InkCanvasProps {
   onRotateSelection: (radians: number) => void;
   remotePeers?: LivePeer[];
   onInkAwareness?: (change: Pick<InkInteraction, 'cursor' | 'preview'>) => void;
+  /** Maps viewport coordinates into this surface when a parent rotates it. */
+  clientToLocal?: (point: { x: number; y: number }, bounds: DOMRect) => { x: number; y: number };
   className?: string;
 }
 
@@ -221,6 +223,7 @@ export default function InkCanvas({
   onRotateSelection,
   remotePeers = [],
   onInkAwareness,
+  clientToLocal,
   className,
 }: InkCanvasProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -279,15 +282,22 @@ export default function InkCanvas({
 
   const unitsPerPixel = INK_UNITS_PER_PX / zoom;
 
+  const localPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const rect = hostRef.current?.getBoundingClientRect() ?? new DOMRect();
+      return clientToLocal
+        ? clientToLocal({ x: clientX, y: clientY }, rect)
+        : { x: clientX - rect.left, y: clientY - rect.top };
+    },
+    [clientToLocal],
+  );
+
   const toDocument = useCallback(
     (clientX: number, clientY: number) => {
-      const rect = hostRef.current?.getBoundingClientRect();
-      return toInkUnits(
-        { offsetX: clientX - (rect?.left ?? 0), offsetY: clientY - (rect?.top ?? 0) },
-        { originX, originY, zoom },
-      );
+      const point = localPoint(clientX, clientY);
+      return toInkUnits({ offsetX: point.x, offsetY: point.y }, { originX, originY, zoom });
     },
-    [originX, originY, zoom],
+    [localPoint, originX, originY, zoom],
   );
 
   const toScreen = useCallback(
@@ -471,7 +481,7 @@ export default function InkCanvas({
   /* --------------------------------------------------------------------- */
 
   const asPointerEvent = (event: React.PointerEvent<HTMLDivElement>): InkPointerEventLike => {
-    const rect = hostRef.current?.getBoundingClientRect();
+    const point = localPoint(event.clientX, event.clientY);
     return {
       pointerId: event.pointerId,
       pointerType: event.pointerType,
@@ -484,8 +494,8 @@ export default function InkCanvas({
       twist: (event as unknown as { twist?: number }).twist,
       width: (event as unknown as { width?: number }).width,
       height: (event as unknown as { height?: number }).height,
-      offsetX: event.clientX - (rect?.left ?? 0),
-      offsetY: event.clientY - (rect?.top ?? 0),
+      offsetX: point.x,
+      offsetY: point.y,
       timeStamp: event.timeStamp,
     };
   };
@@ -496,9 +506,7 @@ export default function InkCanvas({
   const handleAt = useCallback(
     (clientX: number, clientY: number): InkResizeHandle | null => {
       if (!selection) return null;
-      const point = { x: clientX, y: clientY };
-      const rect = hostRef.current?.getBoundingClientRect();
-      const local = { x: point.x - (rect?.left ?? 0), y: point.y - (rect?.top ?? 0) };
+      const local = localPoint(clientX, clientY);
 
       for (const [handle, position] of handlePositions(selection, toScreen)) {
         if (
@@ -510,19 +518,19 @@ export default function InkCanvas({
       }
       return null;
     },
-    [selection, toScreen],
+    [localPoint, selection, toScreen],
   );
 
   const rotationHandleAt = useCallback(
     (clientX: number, clientY: number): boolean => {
       if (!selection) return false;
-      const rect = hostRef.current?.getBoundingClientRect();
       const handle = rotationHandlePosition(selection, toScreen);
-      const localX = clientX - (rect?.left ?? 0);
-      const localY = clientY - (rect?.top ?? 0);
+      const local = localPoint(clientX, clientY);
+      const localX = local.x;
+      const localY = local.y;
       return Math.hypot(localX - handle.x, localY - handle.y) <= HANDLE_PX;
     },
-    [selection, toScreen],
+    [localPoint, selection, toScreen],
   );
 
   const onPointerDown = useCallback(
@@ -597,11 +605,7 @@ export default function InkCanvas({
         if (hit) onEyedropObject(hit);
         gestureRef.current = { kind: 'none' };
       } else if (effective === 'loupe') {
-        const rect = hostRef.current?.getBoundingClientRect();
-        setLoupePoint({
-          x: event.clientX - (rect?.left ?? 0),
-          y: event.clientY - (rect?.top ?? 0),
-        });
+        setLoupePoint(localPoint(event.clientX, event.clientY));
         gestureRef.current = { kind: 'loupe', pointerId: event.pointerId };
       } else if (
         [
@@ -688,6 +692,7 @@ export default function InkCanvas({
     [
       handleAt,
       index,
+      localPoint,
       onErase,
       onEyedropObject,
       onInkAwareness,
@@ -730,9 +735,11 @@ export default function InkCanvas({
 
       switch (gesture.kind) {
         case 'pan': {
+          const current = localPoint(event.clientX, event.clientY);
+          const previous = localPoint(gesture.clientX, gesture.clientY);
           onViewportChange({
-            originX: originX - (event.clientX - gesture.clientX) * unitsPerPixel,
-            originY: originY - (event.clientY - gesture.clientY) * unitsPerPixel,
+            originX: originX - (current.x - previous.x) * unitsPerPixel,
+            originY: originY - (current.y - previous.y) * unitsPerPixel,
             zoom,
           });
           gesture.clientX = event.clientX;
@@ -741,22 +748,24 @@ export default function InkCanvas({
         }
         case 'draw': {
           const coalesced = (event.nativeEvent as PointerEvent).getCoalescedEvents?.() ?? [];
-          const rect = hostRef.current?.getBoundingClientRect();
           const entries: InkPointerEventLike[] = (
             coalesced.length > 0 ? coalesced : [event.nativeEvent as PointerEvent]
-          ).map((entry) => ({
-            pointerId: entry.pointerId,
-            pointerType: entry.pointerType,
-            isPrimary: entry.isPrimary,
-            buttons: entry.buttons,
-            pressure: entry.pressure,
-            tiltX: entry.tiltX,
-            tiltY: entry.tiltY,
-            twist: (entry as unknown as { twist?: number }).twist,
-            offsetX: entry.clientX - (rect?.left ?? 0),
-            offsetY: entry.clientY - (rect?.top ?? 0),
-            timeStamp: entry.timeStamp,
-          }));
+          ).map((entry) => {
+            const point = localPoint(entry.clientX, entry.clientY);
+            return {
+              pointerId: entry.pointerId,
+              pointerType: entry.pointerType,
+              isPrimary: entry.isPrimary,
+              buttons: entry.buttons,
+              pressure: entry.pressure,
+              tiltX: entry.tiltX,
+              tiltY: entry.tiltY,
+              twist: (entry as unknown as { twist?: number }).twist,
+              offsetX: point.x,
+              offsetY: point.y,
+              timeStamp: entry.timeStamp,
+            };
+          });
           for (const entry of entries) {
             gesture.readings.push(
               ...readingsFromEvent(entry, { originX, originY, zoom }, gesture.startedAt),
@@ -796,17 +805,21 @@ export default function InkCanvas({
           return;
         }
         case 'move': {
+          const current = localPoint(event.clientX, event.clientY);
+          const previous = localPoint(gesture.clientX, gesture.clientY);
           onMoveSelection(
-            (event.clientX - gesture.clientX) * unitsPerPixel,
-            (event.clientY - gesture.clientY) * unitsPerPixel,
+            (current.x - previous.x) * unitsPerPixel,
+            (current.y - previous.y) * unitsPerPixel,
           );
           gesture.clientX = event.clientX;
           gesture.clientY = event.clientY;
           return;
         }
         case 'resize': {
-          const worldDx = (event.clientX - gesture.clientX) * unitsPerPixel;
-          const worldDy = (event.clientY - gesture.clientY) * unitsPerPixel;
+          const current = localPoint(event.clientX, event.clientY);
+          const previous = localPoint(gesture.clientX, gesture.clientY);
+          const worldDx = (current.x - previous.x) * unitsPerPixel;
+          const worldDy = (current.y - previous.y) * unitsPerPixel;
           const cos = Math.cos(gesture.rotation);
           const sin = Math.sin(gesture.rotation);
           onResizeSelection(
@@ -837,17 +850,14 @@ export default function InkCanvas({
           return;
         }
         case 'loupe': {
-          const rect = hostRef.current?.getBoundingClientRect();
-          setLoupePoint({
-            x: event.clientX - (rect?.left ?? 0),
-            y: event.clientY - (rect?.top ?? 0),
-          });
+          setLoupePoint(localPoint(event.clientX, event.clientY));
           return;
         }
       }
     },
     [
       handleAt,
+      localPoint,
       onErase,
       onInkAwareness,
       onMoveSelection,
@@ -952,9 +962,9 @@ export default function InkCanvas({
   const onWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
       event.preventDefault();
-      const rect = hostRef.current?.getBoundingClientRect();
-      const pointerX = event.clientX - (rect?.left ?? 0);
-      const pointerY = event.clientY - (rect?.top ?? 0);
+      const point = localPoint(event.clientX, event.clientY);
+      const pointerX = point.x;
+      const pointerY = point.y;
 
       const next = Math.min(
         INK_LIMITS.maxZoom,
@@ -968,7 +978,7 @@ export default function InkCanvas({
         zoom: next,
       });
     },
-    [onViewportChange, originX, originY, unitsPerPixel, zoom],
+    [localPoint, onViewportChange, originX, originY, unitsPerPixel, zoom],
   );
 
   // Losing the window mid-stroke must not leave a stuck contact.

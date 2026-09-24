@@ -32,7 +32,7 @@ function pdfNumber(value: number): string {
 /** Builds a bounded PDF whose pages each contain one JPEG export image. */
 export function buildInkPdf(pages: readonly InkPdfImagePage[]): Uint8Array {
   if (pages.length === 0) throw new Error('A PDF export requires at least one page.');
-  if (pages.length > 256) throw new Error('A PDF export cannot contain more than 256 pages.');
+  if (pages.length > 1_000) throw new Error('A PDF export cannot contain more than 1,000 pages.');
 
   const objectParts = new Map<number, Uint8Array>();
   const pageObjectIds: number[] = [];

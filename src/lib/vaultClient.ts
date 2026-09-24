@@ -131,6 +131,8 @@ export interface VaultPdfAnnotations {
    * sequence). `null` for local vaults, whose sidecars are not versioned.
    */
   version: number | null;
+  /** Hosted mutation was safely cached and queued for background replay. */
+  offlineQueued?: boolean;
 }
 
 /**
@@ -343,10 +345,14 @@ function normalizeAnnotationState(
   state: Record<string, unknown> | null | undefined,
 ): PdfSidecarState {
   return {
+    ...(typeof state?.schemaVersion === 'number' ? { schemaVersion: state.schemaVersion } : {}),
     bookmarks: asArray(state?.bookmarks),
     highlights: asArray(state?.highlights),
     textAnnotations: asArray(state?.textAnnotations),
     pageComments: asArray(state?.pageComments),
+    ...(state?.ink && typeof state.ink === 'object'
+      ? { ink: state.ink as PdfSidecarState['ink'] }
+      : {}),
     viewerState: null,
   };
 }
@@ -1564,13 +1570,29 @@ export class HostedVaultClient implements VaultClient {
   }
 
   async readPdfAnnotations(relativePath: string): Promise<VaultPdfAnnotations> {
-    const manifest = await this.manifest();
+    const manifest = await this.onlineOrCachedManifest();
     const file = this.findByPath(manifest, relativePath);
-    const response = await this.request<{ state: Record<string, unknown>; sequence: number }>(
-      'GET',
-      `/files/${file.id}/pdf-annotations`,
-    );
-    return { state: normalizeAnnotationState(response.state), version: response.sequence };
+    try {
+      const response = await this.request<{ state: Record<string, unknown>; sequence: number }>(
+        'GET',
+        `/files/${file.id}/pdf-annotations`,
+      );
+      const result = {
+        state: normalizeAnnotationState(response.state),
+        version: response.sequence,
+      };
+      void this.cacheDocumentForOfflineCopy(file.id, JSON.stringify(result));
+      return result;
+    } catch (error) {
+      if (!isLikelyConnectivityError(error)) throw error;
+      const cached = await tauriCommands.replicaReadCachedDocument(
+        this.vault.serverUrl,
+        this.vault.hostedVaultId,
+        file.id,
+      );
+      if (!cached) throw error;
+      return JSON.parse(cached) as VaultPdfAnnotations;
+    }
   }
 
   async writePdfAnnotations(
@@ -1578,22 +1600,49 @@ export class HostedVaultClient implements VaultClient {
     state: PdfSidecarState,
     expectedVersion: number | null,
   ): Promise<VaultPdfAnnotations> {
-    const manifest = await this.manifest();
+    const manifest = await this.onlineOrCachedManifest();
     const file = this.findByPath(manifest, relativePath);
     // Only the shared annotation collections are persisted server-side; per-user
     // viewer state stays client-local and is intentionally not sent.
     const shared = {
+      ...(state.schemaVersion === undefined ? {} : { schemaVersion: state.schemaVersion }),
       bookmarks: state.bookmarks,
       highlights: state.highlights,
       textAnnotations: state.textAnnotations,
       pageComments: state.pageComments,
+      ...(state.ink ? { ink: state.ink } : {}),
     };
-    const response = await this.request<{ state: Record<string, unknown>; sequence: number }>(
-      'PUT',
-      `/files/${file.id}/pdf-annotations`,
-      { expectedSequence: expectedVersion ?? 0, state: shared },
-    );
-    return { state: normalizeAnnotationState(response.state), version: response.sequence };
+    const payload = { expectedSequence: expectedVersion ?? 0, state: shared };
+    try {
+      const response = await this.request<{ state: Record<string, unknown>; sequence: number }>(
+        'PUT',
+        `/files/${file.id}/pdf-annotations`,
+        payload,
+      );
+      const result = {
+        state: normalizeAnnotationState(response.state),
+        version: response.sequence,
+      };
+      void this.cacheDocumentForOfflineCopy(file.id, JSON.stringify(result));
+      return result;
+    } catch (error) {
+      if (!isLikelyConnectivityError(error)) throw error;
+      const cached = { state, version: expectedVersion, offlineQueued: true };
+      await tauriCommands.replicaCacheDocument(
+        this.vault.serverUrl,
+        this.vault.hostedVaultId,
+        file.id,
+        JSON.stringify(cached),
+      );
+      await enqueuePendingOperation(this.vault, {
+        kind: 'pdfAnnotations',
+        fileId: file.id,
+        relativePath: file.relativePath,
+        baseManifestSequence: manifest.sequence,
+        payload,
+      });
+      return cached;
+    }
   }
 
   /**

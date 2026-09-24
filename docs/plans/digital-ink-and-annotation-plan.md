@@ -712,7 +712,7 @@ Target behaviors:
 | 5. Advanced tools                                     | Complete    | Deliver geometry, reversible recognition, text/stickies, vault-backed images/SVG, safe links, stamps/equations, precision tools/guides, backgrounds, portable templates, favourites/swatches, and cleanup. |
 | 6. Hosted collaboration and offline merge             | Complete    | Add `LiveDocumentKind::Ink`, final-stroke transactions, ephemeral previews, awareness, replica merge, and recovery, including physical desktop/Android recovery validation.                                |
 | 7. Export and note integration                        | Complete    | Add PNG/SVG/PDF export, source-linked note embeds, stable re-export, progress, cancellation, and honest missing-dependency reports.                                                                        |
-| 8. PDF annotation integration                         | Not started | Migrate PDF sidecars and add shared ink tools, live/offline editing, and flattened annotated-PDF export.                                                                                                   |
+| 8. PDF annotation integration                         | Complete    | Migrate PDF sidecars and add shared ink tools, live/offline editing, and flattened annotated-PDF export.                                                                                                   |
 | 9. Image and shared-view annotations                  | Not started | Migrate image overlays and add capability-driven annotation surfaces for images, decks, and future viewers.                                                                                                |
 | 10. Accessibility, performance, and release hardening | Not started | Validate large files, keyboard alternatives, devices, packaging, migrations, malformed content, and collaboration soak.                                                                                    |
 | 11. Optional recognition and interchange              | Deferred    | Evaluate handwriting/math recognition and optional InkML interchange without changing the native source model.                                                                                             |
@@ -959,15 +959,34 @@ drops malformed advanced objects before they reach rendering.
 
 ### Phase 8: PDF Annotation Integration
 
-- Introduce the anchored ink surface in the PDF sidecar.
-- Migrate current bookmarks, highlights, text annotations, and comments without
-  loss.
-- Add shared pens, highlighter, erasers, shapes, stamps, and selection tools.
-- Keep annotation rendering independent from asynchronous PDF page rendering.
-- Add live/offline annotation sessions with existing permissions.
-- Export flattened annotated PDF copies without modifying source bytes.
-- Validate rotation, page sizes, single/scroll/spread layouts, OCR layers, and
-  large PDFs.
+Complete. PDF sidecars migrate in place to schema v2: their existing semantic
+bookmarks, highlights, text annotations, comments, identities, and timestamps
+remain intact while a versioned `collab-annotations` document is added beside
+them.
+
+- [x] Introduce one source-coordinate anchored ink surface per PDF page in the
+      PDF sidecar (`pdfAnnotations.ts`). Scene geometry stays in shared ink
+      units; anchors retain the immutable PDF page dimensions in points.
+- [x] Migrate current bookmarks, highlights, text annotations, and comments
+      without loss. Local Rust sidecars round-trip the new JSON field instead
+      of stripping it, and hosted JSONB sidecars preserve the same v2 shape.
+- [x] Add the shared ballpoint/fountain/technical/pencil/marker/highlighter,
+      segment eraser, shapes, arrows, stamps, and selection/transform tools
+      through `InkCanvas`, not a fourth drawing implementation.
+- [x] Keep the annotation surface independent from asynchronous PDF page
+      rendering. It uses measured source-page geometry and remains available
+      while PDF.js queues, lazily renders, rerenders, or displays OCR layers.
+- [x] Add hosted live/offline annotation sessions with existing permissions.
+      A lightweight version poll adopts or reconciles concurrent sidecar edits;
+      encrypted replica caching, the pending-operation queue, and background
+      replay preserve offline ink. The server continues to require
+      `pdf.annotate` for all visual changes and `pdf.comment` for comments.
+- [x] Export bounded, cancellable, raster-flattened annotated PDF copies without
+      modifying either source bytes or the editable sidecar. Semantic
+      highlights/text boxes and anchored ink are composited one page at a time.
+- [x] Validate 0/90/180/270-degree coordinate transforms, heterogeneous source
+      page sizes, the shared single/scroll/spread page component, independent
+      OCR/ink layers, and per-page bitmap limits for large-PDF export.
 
 ### Phase 9: Image And Shared-View Annotations
 

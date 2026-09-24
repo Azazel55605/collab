@@ -1,8 +1,8 @@
 //! Semantic PDF-annotation diffing shared by server and native clients.
 //!
 //! A hosted PDF's shared annotation state is a JSON object with four annotation
-//! collections — `bookmarks`, `highlights`, `textAnnotations`, and
-//! `pageComments`. [`classify_changes`] compares two revisions and returns the
+//! collections plus a versioned anchored `ink` document. [`classify_changes`]
+//! compares two revisions and returns the
 //! [`PdfCapability`] tokens a write requires, so a commenter can change page
 //! comments while a full annotator can change everything. The server maps these
 //! tokens onto its `Capability` enum and rejects writes whose changes exceed the
@@ -42,7 +42,13 @@ impl PdfCapability {
 
 /// Annotation fields classified under the `pdf.annotate` capability. Any change
 /// to one of these requires full annotation rights.
-const ANNOTATE_FIELDS: [&str; 3] = ["bookmarks", "highlights", "textAnnotations"];
+const ANNOTATE_FIELDS: [&str; 5] = [
+    "schemaVersion",
+    "bookmarks",
+    "highlights",
+    "textAnnotations",
+    "ink",
+];
 
 /// The page-comment field, classified under the dedicated `pdf.comment`
 /// capability.
@@ -145,6 +151,22 @@ mod tests {
     fn changing_text_annotations_requires_annotate() {
         let old = json!({ "textAnnotations": [] });
         let new = json!({ "textAnnotations": [{ "id": "t", "page": 1, "text": "x" }] });
+        assert_eq!(
+            classify_changes(&old, &new),
+            HashSet::from([PdfCapability::Annotate])
+        );
+    }
+
+    #[test]
+    fn changing_anchored_ink_requires_annotate() {
+        let old = json!({ "ink": { "surfaces": {} } });
+        let new = json!({
+            "ink": {
+                "surfaces": {
+                    "pdf-page-1": { "scene": { "objectOrder": ["stroke-1"] } }
+                }
+            }
+        });
         assert_eq!(
             classify_changes(&old, &new),
             HashSet::from([PdfCapability::Annotate])

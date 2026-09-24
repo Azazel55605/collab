@@ -82,10 +82,14 @@ pub struct PdfViewerState {
 #[serde(rename_all = "camelCase")]
 #[serde(default)]
 pub struct PdfSidecarState {
+    pub schema_version: Option<u32>,
     pub bookmarks: Vec<PdfBookmark>,
     pub highlights: Vec<PdfHighlight>,
     pub text_annotations: Vec<PdfTextAnnotation>,
     pub page_comments: Vec<PdfPageComment>,
+    /// Versioned `collab-annotations` document. Kept as JSON so the native
+    /// adapter round-trips the framework-free ink schema without duplicating it.
+    pub ink: Option<serde_json::Value>,
     pub viewer_state: Option<PdfViewerState>,
 }
 
@@ -301,6 +305,27 @@ mod tests {
         assert!(state.highlights.is_empty());
         assert!(state.text_annotations.is_empty());
         assert!(state.page_comments.is_empty());
+        assert_eq!(state.schema_version, None);
+        assert_eq!(state.ink, None);
         assert_eq!(state.viewer_state, None);
+    }
+
+    #[test]
+    fn pdf_sidecar_round_trips_anchored_ink() {
+        let raw = r#"{
+          "schemaVersion": 2,
+          "bookmarks": [],
+          "ink": {
+            "kind": "collab-annotations",
+            "schemaVersion": 1,
+            "source": { "relativePath": "Docs/spec.pdf" },
+            "surfaces": {},
+            "surfaceOrder": []
+          }
+        }"#;
+        let state: PdfSidecarState = serde_json::from_str(raw).unwrap();
+        let encoded = serde_json::to_value(state).unwrap();
+        assert_eq!(encoded["schemaVersion"], 2);
+        assert_eq!(encoded["ink"]["kind"], "collab-annotations");
     }
 }

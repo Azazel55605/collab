@@ -513,6 +513,18 @@ async fn replay_operation(
             });
             let _: Value = request_json(session, Method::POST, &path, Some(body)).await?;
         }
+        PendingOpKind::PdfAnnotations => {
+            let target = operation.file_id.as_deref().ok_or_else(|| {
+                JobExecutionError::persistence(
+                    "A queued PDF annotation update has no target file id.",
+                )
+            })?;
+            let path = format!(
+                "/api/v1/vaults/{}/files/{target}/pdf-annotations",
+                vault.id
+            );
+            let _: Value = request_json(session, Method::PUT, &path, Some(payload)).await?;
+        }
         PendingOpKind::AssetUpload => {
             let cache_id = required_string(&payload, "assetCacheId")?;
             let bytes = store
