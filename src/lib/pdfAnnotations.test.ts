@@ -83,6 +83,22 @@ describe('PDF annotation sidecar migration', () => {
     expect(surface && pdfInkPage(surface)).toMatchObject({ width: 612 * 64, height: 792 * 64 });
   });
 
+  it('tolerates absent and structurally incomplete ink during a PDF load transition', () => {
+    expect(pdfInkSurface(undefined, 1)).toBeNull();
+    expect(
+      pdfInkSurface(
+        {
+          kind: 'collab-annotations',
+          schemaVersion: 1,
+          source: { relativePath: 'paper.pdf' },
+          surfaces: { broken: { id: 'broken' } },
+          surfaceOrder: ['broken'],
+        } as never,
+        1,
+      ),
+    ).toBeNull();
+  });
+
   it('keeps existing anchored surfaces when the source path changes', () => {
     const original = updatePdfInkSurface(
       createPdfInkDocument('old.pdf', 1),

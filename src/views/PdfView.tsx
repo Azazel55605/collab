@@ -78,7 +78,7 @@ import {
   PdfAnnotatedExportCancelledError,
 } from '../lib/pdfAnnotatedExport';
 import type { PdfAnnotatedExportProgress } from '../lib/pdfAnnotatedExport';
-import { migratePdfSidecar, pdfInkObjectCount } from '../lib/pdfAnnotations';
+import { createPdfInkDocument, migratePdfSidecar, pdfInkObjectCount } from '../lib/pdfAnnotations';
 import {
   appendMarkdownBlock,
   appendPdfQuoteTextNode,
@@ -966,6 +966,10 @@ export default function PdfView({ relativePath }: Props) {
   const [annotatedExportProgress, setAnnotatedExportProgress] =
     useState<PdfAnnotatedExportProgress | null>(null);
   const annotatedExportCancelRef = useRef(false);
+  const inkDocument = useMemo(
+    () => pdfState.ink ?? createPdfInkDocument(relativePath, pageCount || undefined),
+    [pageCount, pdfState.ink, relativePath],
+  );
   const ocrRenderScale = useUiStore((state) => state.ocrRenderScale);
   const ocrOverlayVisible = useUiStore((state) => state.ocrOverlayVisible);
   const setOcrOverlayVisible = useUiStore((state) => state.setOcrOverlayVisible);
@@ -3428,7 +3432,7 @@ export default function PdfView({ relativePath }: Props) {
                   ocrWords={
                     ocrOverlayVisible && ocrOverlay?.page === renderedPage ? ocrOverlay.words : []
                   }
-                  inkDocument={pdfState.ink!}
+                  inkDocument={inkDocument}
                   inkEnabled={inkEnabled}
                   inkReadOnly={!canAnnotate}
                   inkTool={inkTool}
