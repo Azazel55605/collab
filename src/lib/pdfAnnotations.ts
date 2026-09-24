@@ -150,7 +150,7 @@ export function migratePdfSidecar(
       } as InkAnnotationDocument['source'],
       ...normalizedSurfaces,
     };
-  } else if (source.ink !== undefined) {
+  } else if (source.ink != null) {
     warnings.push(
       'The stored PDF ink container was invalid and was repaired as an empty document.',
     );
@@ -202,15 +202,18 @@ export function createPdfInkSurface(
 }
 
 export function pdfInkSurface(
-  document: InkAnnotationDocument,
+  document: InkAnnotationDocument | null | undefined,
   page: number,
 ): InkAnnotationSurface | null {
-  const direct = document.surfaces[pdfInkSurfaceId(page)];
-  if (direct?.anchor.kind === 'pdf-page' && direct.anchor.page === page) return direct;
+  if (!document || typeof document !== 'object') return null;
+  const surfaces = record(document.surfaces) ?? {};
+  const direct = surfaces[pdfInkSurfaceId(page)] as InkAnnotationSurface | undefined;
+  if (direct?.anchor?.kind === 'pdf-page' && direct.anchor.page === page) return direct;
+  const surfaceOrder = Array.isArray(document.surfaceOrder) ? document.surfaceOrder : [];
   return (
-    document.surfaceOrder
-      .map((id) => document.surfaces[id])
-      .find((surface) => surface?.anchor.kind === 'pdf-page' && surface.anchor.page === page) ??
+    surfaceOrder
+      .map((id) => surfaces[id] as InkAnnotationSurface | undefined)
+      .find((surface) => surface?.anchor?.kind === 'pdf-page' && surface.anchor.page === page) ??
     null
   );
 }

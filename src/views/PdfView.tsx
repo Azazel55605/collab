@@ -78,7 +78,7 @@ import {
   PdfAnnotatedExportCancelledError,
 } from '../lib/pdfAnnotatedExport';
 import type { PdfAnnotatedExportProgress } from '../lib/pdfAnnotatedExport';
-import { migratePdfSidecar, pdfInkObjectCount } from '../lib/pdfAnnotations';
+import { createPdfInkDocument, migratePdfSidecar, pdfInkObjectCount } from '../lib/pdfAnnotations';
 import {
   appendMarkdownBlock,
   appendPdfQuoteTextNode,
@@ -926,6 +926,10 @@ export default function PdfView({ relativePath }: Props) {
   const [pageNumber, setPageNumber] = useState(1);
   const [pageInput, setPageInput] = useState('1');
   const [pageCount, setPageCount] = useState(0);
+  // Session codecs must not change identity when loading discovers page count;
+  // otherwise the PDF load effect tears down and starts over indefinitely.
+  const pageCountRef = useRef(pageCount);
+  pageCountRef.current = pageCount;
   const [zoomMode, setZoomMode] = useState<ZoomMode>('fit-width');
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
@@ -962,6 +966,10 @@ export default function PdfView({ relativePath }: Props) {
   const [annotatedExportProgress, setAnnotatedExportProgress] =
     useState<PdfAnnotatedExportProgress | null>(null);
   const annotatedExportCancelRef = useRef(false);
+  const inkDocument = useMemo(
+    () => pdfState.ink ?? createPdfInkDocument(relativePath, pageCount || undefined),
+    [pageCount, pdfState.ink, relativePath],
+  );
   const ocrRenderScale = useUiStore((state) => state.ocrRenderScale);
   const ocrOverlayVisible = useUiStore((state) => state.ocrOverlayVisible);
   const setOcrOverlayVisible = useUiStore((state) => state.setOcrOverlayVisible);
@@ -984,8 +992,8 @@ export default function PdfView({ relativePath }: Props) {
 
   const normalizePdfState = useCallback(
     (state: PdfSidecarState): PdfSidecarState =>
-      migratePdfSidecar(state, relativePath, pageCount || undefined).state,
-    [pageCount, relativePath],
+      migratePdfSidecar(state, relativePath, pageCountRef.current || undefined).state,
+    [relativePath],
   );
 
   const serializePdfSession = useCallback(
@@ -3424,7 +3432,7 @@ export default function PdfView({ relativePath }: Props) {
                   ocrWords={
                     ocrOverlayVisible && ocrOverlay?.page === renderedPage ? ocrOverlay.words : []
                   }
-                  inkDocument={pdfState.ink!}
+                  inkDocument={inkDocument}
                   inkEnabled={inkEnabled}
                   inkReadOnly={!canAnnotate}
                   inkTool={inkTool}

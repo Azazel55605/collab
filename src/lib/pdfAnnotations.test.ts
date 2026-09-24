@@ -50,6 +50,27 @@ describe('PDF annotation sidecar migration', () => {
     });
   });
 
+  it('treats a native legacy null ink field as an empty sidecar without a repair warning', () => {
+    const result = migratePdfSidecar(
+      {
+        bookmarks: [],
+        highlights: [],
+        textAnnotations: [],
+        pageComments: [],
+        ink: null,
+      },
+      'Docs/legacy.pdf',
+      3,
+    );
+
+    expect(result.warnings).toEqual([]);
+    expect(result.state.ink).toMatchObject({
+      kind: 'collab-annotations',
+      source: { relativePath: 'Docs/legacy.pdf', pageCount: 3 },
+      surfaceOrder: [],
+    });
+  });
+
   it('stores page geometry in source points and scene geometry in ink units', () => {
     const document = createPdfInkDocument('paper.pdf', 1);
     const updated = updatePdfInkSurface(document, 1, 612, 792, (scene) => ({
@@ -60,6 +81,22 @@ describe('PDF annotation sidecar migration', () => {
 
     expect(surface?.anchor).toEqual({ kind: 'pdf-page', page: 1, width: 612, height: 792 });
     expect(surface && pdfInkPage(surface)).toMatchObject({ width: 612 * 64, height: 792 * 64 });
+  });
+
+  it('tolerates absent and structurally incomplete ink during a PDF load transition', () => {
+    expect(pdfInkSurface(undefined, 1)).toBeNull();
+    expect(
+      pdfInkSurface(
+        {
+          kind: 'collab-annotations',
+          schemaVersion: 1,
+          source: { relativePath: 'paper.pdf' },
+          surfaces: { broken: { id: 'broken' } },
+          surfaceOrder: ['broken'],
+        } as never,
+        1,
+      ),
+    ).toBeNull();
   });
 
   it('keeps existing anchored surfaces when the source path changes', () => {
