@@ -408,6 +408,8 @@ pub enum Capability {
     PdfComment,
     #[serde(rename = "pdf.annotate")]
     PdfAnnotate,
+    #[serde(rename = "view.annotate")]
+    ViewAnnotate,
     #[serde(rename = "note.edit")]
     NoteEdit,
     #[serde(rename = "canvas.edit")]
@@ -417,7 +419,7 @@ pub enum Capability {
 impl Capability {
     /// Every capability, in canonical order. Used to seed the admin built-in
     /// template and to resolve tokens back to the typed enum.
-    pub const ALL: [Capability; 26] = [
+    pub const ALL: [Capability; 27] = [
         Capability::VaultRead,
         Capability::VaultSearch,
         Capability::VaultViewHistory,
@@ -442,6 +444,7 @@ impl Capability {
         Capability::KanbanColumnManage,
         Capability::PdfComment,
         Capability::PdfAnnotate,
+        Capability::ViewAnnotate,
         Capability::NoteEdit,
         Capability::CanvasEdit,
     ];
@@ -472,6 +475,7 @@ impl Capability {
             Capability::KanbanColumnManage => "kanban.column.manage",
             Capability::PdfComment => "pdf.comment",
             Capability::PdfAnnotate => "pdf.annotate",
+            Capability::ViewAnnotate => "view.annotate",
             Capability::NoteEdit => "note.edit",
             Capability::CanvasEdit => "canvas.edit",
         }
@@ -510,6 +514,7 @@ pub fn capabilities_for_role(role: HostedVaultRole) -> Vec<Capability> {
         Capability::KanbanColumnManage,
         Capability::PdfComment,
         Capability::PdfAnnotate,
+        Capability::ViewAnnotate,
         Capability::NoteEdit,
         Capability::CanvasEdit,
     ];

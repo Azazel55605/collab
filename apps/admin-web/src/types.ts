@@ -440,6 +440,7 @@ export const CAPABILITY_GROUPS: Array<{
     capabilities: [
       { token: 'note.edit', label: 'Edit notes' },
       { token: 'canvas.edit', label: 'Edit canvases' },
+      { token: 'view.annotate', label: 'Annotate images and review surfaces' },
     ],
   },
 ];

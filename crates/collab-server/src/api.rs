@@ -3916,6 +3916,158 @@ pub async fn write_pdf_annotations(
     ))
 }
 
+/// Returns capability-driven anchored annotations for an immutable viewer.
+pub async fn get_view_annotations(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path((vault_id, file_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<DataResponse<HostedPdfAnnotations>>, ApiFailure> {
+    let actor = require_authenticated_user(&state, &headers, &request_id).await?;
+    require_capability(
+        &state.database,
+        vault_id,
+        user_uuid(&actor.user),
+        Capability::VaultRead,
+        &request_id,
+    )
+    .await?;
+    let row = sqlx::query(
+        "SELECT state, sequence FROM hosted_view_annotations WHERE vault_id = $1 AND file_id = $2",
+    )
+    .bind(vault_id)
+    .bind(file_id)
+    .fetch_optional(&state.database)
+    .await
+    .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let annotations = row.map_or(
+        HostedPdfAnnotations {
+            state: Value::Null,
+            sequence: 0,
+        },
+        |row| HostedPdfAnnotations {
+            state: row.get::<Value, _>("state"),
+            sequence: row.get::<i64, _>("sequence"),
+        },
+    );
+    Ok(Json(DataResponse::new(annotations)))
+}
+
+/// Replaces an image/deck review annotation sidecar using its independent
+/// optimistic sequence. The source asset remains immutable.
+pub async fn write_view_annotations(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path((vault_id, file_id)): Path<(Uuid, Uuid)>,
+    Json(payload): Json<WritePdfAnnotationsRequest>,
+) -> Result<(StatusCode, Json<DataResponse<HostedPdfAnnotations>>), ApiFailure> {
+    let actor = require_any_user(&state, &headers, &request_id).await?;
+    let actor_id = user_uuid(&actor.user);
+    require_active_capability(
+        &state.database,
+        vault_id,
+        &actor.user,
+        Capability::ViewAnnotate,
+        &request_id,
+    )
+    .await?;
+    let mut transaction = state
+        .database
+        .begin()
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    lock_active_vault(&mut transaction, vault_id, &request_id).await?;
+    let file = sqlx::query(
+        "SELECT name, state::text AS state FROM hosted_file_entries WHERE vault_id = $1 AND id = $2 FOR UPDATE",
+    )
+    .bind(vault_id)
+    .bind(file_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|_| ApiFailure::server(request_id.clone()))?
+    .ok_or_else(|| ApiFailure::not_found(request_id.clone()))?;
+    let name = file.get::<String, _>("name").to_lowercase();
+    let supported = [
+        ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif", ".tif", ".tiff", ".deck",
+    ]
+    .iter()
+    .any(|suffix| name.ends_with(suffix));
+    if file.get::<String, _>("state") != "active" || !supported {
+        return Err(ApiFailure::validation(
+            "Only active image and deck-review files can carry view annotations.",
+            request_id,
+        ));
+    }
+    let existing = sqlx::query(
+        "SELECT sequence FROM hosted_view_annotations WHERE vault_id = $1 AND file_id = $2 FOR UPDATE",
+    )
+    .bind(vault_id)
+    .bind(file_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    let current_sequence = existing
+        .as_ref()
+        .map_or(0, |row| row.get::<i64, _>("sequence"));
+    if check_revision_sequence(payload.expected_sequence, current_sequence).is_err() {
+        return Err(ApiFailure::revision_conflict(request_id));
+    }
+    let bytes = serde_json::to_vec(&payload.state).map_err(|_| {
+        ApiFailure::validation("The view annotation state is invalid.", request_id.clone())
+    })?;
+    collab_documents::validate(
+        collab_documents::DocumentInput {
+            kind: collab_documents::DocumentKind::PdfSidecar,
+            path: &name,
+            content: &bytes,
+        },
+        collab_documents::DEFAULT_PARSER_LIMITS,
+    )
+    .map_err(|error| ApiFailure::validation(error.to_string(), request_id.clone()))?;
+    let next_sequence = next_sequence(current_sequence)
+        .map_err(|error| map_vault_domain_error(error, &request_id))?;
+    sqlx::query(
+        r#"
+        INSERT INTO hosted_view_annotations (vault_id, file_id, state, sequence, updated_by, updated_at)
+        VALUES ($1, $2, $3, $4, $5, NOW())
+        ON CONFLICT (vault_id, file_id)
+        DO UPDATE SET state = EXCLUDED.state, sequence = EXCLUDED.sequence,
+                      updated_by = EXCLUDED.updated_by, updated_at = NOW()
+        "#,
+    )
+    .bind(vault_id)
+    .bind(file_id)
+    .bind(&payload.state)
+    .bind(next_sequence)
+    .bind(actor_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    vault_activity_event(
+        &mut transaction,
+        vault_id,
+        Some(actor_id),
+        "view.annotations_updated",
+        Some("file"),
+        Some(&file_id.to_string()),
+        json!({"sequence": next_sequence}),
+        &request_id,
+    )
+    .await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    Ok((
+        StatusCode::OK,
+        Json(DataResponse::new(HostedPdfAnnotations {
+            state: payload.state,
+            sequence: next_sequence,
+        })),
+    ))
+}
+
 pub async fn upload_binary_asset(
     State(state): State<AppState>,
     Extension(request_id): Extension<String>,

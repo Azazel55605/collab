@@ -335,6 +335,7 @@ Backing logic lives in `src/lib/ink/` (`document.ts`, `operations.ts`,
 | `components/ink/NewDrawingDialog.tsx`   | First-class New Drawing lifecycle: page mode, background pattern, template                                                   | Dialog, Select       |
 | `components/pdf/PdfInkOverlay.tsx`      | Rotation-safe anchored `InkCanvas` adapter for immutable PDF pages                                                           | —                    |
 | `components/pdf/PdfInkToolbar.tsx`      | PDF-appropriate shared pens, eraser, selection, shapes, arrows, and stamps                                                   | Button, DropdownMenu |
+| `components/image/ImageInkOverlay.tsx`  | Source-coordinate shared ink adapter over immutable image assets                                                             | —                    |
 
 `lib/ink/export.ts`, `exportPrepare.ts`, and `exportRuntime.ts` plan deterministic
 SVG/PNG/multi-page PDF output and report missing image/font dependencies.
@@ -347,6 +348,11 @@ composites PDF pages, semantic annotations, and ink into a bounded flattened
 copy while preserving the original bytes and editable sidecar. Hosted PDF ink
 uses version polling plus the encrypted replica pending-operation queue rather
 than entering the immutable PDF file's Yjs content room.
+`lib/viewAnnotations.ts` owns the capability registry, generic anchored-surface
+adapter, and legacy `ImageOverlayDocument` v1 migration. Image and future deck
+review sidecars persist through `VaultClient` and the hosted/offline
+`viewAnnotations` operation. See
+[Anchored View Annotation Adapter](./anchored-view-annotations.md).
 
 ### Logic And Circuit
 
@@ -752,7 +758,7 @@ ImageOverlayTool  | ImageLineStyle
 NormalizedPoint       { x, y }              // 0–1, resolution-independent
 ImageTextOverlay | ImageArrowOverlay | ImagePenOverlay
 ImageOverlayItem      = union of the three above
-ImageOverlayDocument  additive overlays persisted under `.collab/image-overlays/`
+ImageOverlayDocument  legacy v1 input migrated into InkAnnotationDocument
 ImageCropRect | PermanentImageEdits         // destructive edits, not overlays
 ```
 

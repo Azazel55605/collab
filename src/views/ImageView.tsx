@@ -14,43 +14,38 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
-import {
-  ImageAdditiveStage,
-  type SelectableImageOcrWord,
-} from '../components/image/ImageAdditiveStage';
-import { ImageAdditiveToolbar } from '../components/image/ImageAdditiveToolbar';
-import { ImageAnnotationsPopover } from '../components/image/ImageAnnotationsPopover';
+import type { SelectableImageOcrWord } from '../components/image/ImageAdditiveStage';
+import ImageInkOverlay from '../components/image/ImageInkOverlay';
 import { ImageCropFooter, ImagePermanentStage } from '../components/image/ImagePermanentStage';
 import { ImagePermanentToolbar } from '../components/image/ImagePermanentToolbar';
 import {
   canOverwriteImageFormat,
-  clamp,
   createEmptyEdits,
-  createEmptyOverlayDocument,
   type Dimensions,
   EMPTY_SIZE,
   fitWithin,
-  getArrowLineEnd,
   getBaseName,
   getCropBounds,
-  getLineDash,
   getOutputFileName,
   getOutputMime,
   getPermanentPreviewDimensions,
   getRotatedDimensions,
-  getTextWidth,
   getWorkspaceDimensions,
   type Point,
   scaleDimensions,
 } from '../components/image/ImageViewUtils';
 import { useImageDocumentSession } from '../components/image/useImageDocumentSession';
-import { useImageInteractions } from '../components/image/useImageInteractions';
+import {
+  type ImageCropInteraction,
+  useImageInteractions,
+} from '../components/image/useImageInteractions';
 import {
   DocumentTopBar,
   documentTopBarGroupClass,
   getDocumentBaseName,
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
+import PdfInkToolbar from '../components/pdf/PdfInkToolbar';
 import { Button } from '../components/ui/button';
 import {
   Dialog,
@@ -60,21 +55,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
+import { sceneToSvg } from '../lib/ink/svg';
+import { defaultToolState } from '../lib/ink/tools';
 import { cn } from '../lib/utils';
+import { imageAnnotationObjectCount, imageAnnotationSurface } from '../lib/viewAnnotations';
 import { useDocumentStatusRegistration } from '../store/documentStatusStore';
 import { useEditorStore } from '../store/editorStore';
 import { useUiStore } from '../store/uiStore';
 import { useVaultStore } from '../store/vaultStore';
-import type {
-  ImageArrowOverlay,
-  ImageCropRect,
-  ImageLineStyle,
-  ImageOverlayDocument,
-  ImageOverlayItem,
-  ImageOverlayTool,
-  ImagePenOverlay,
-  PermanentImageEdits,
-} from '../types/image';
+import type { ImageCropRect, PermanentImageEdits } from '../types/image';
+import { INK_UNITS_PER_PX, type InkAnnotationDocument } from '../types/ink';
 
 interface Props {
   relativePath: string | null;
@@ -82,38 +72,10 @@ interface Props {
 
 type ViewerMode = 'view' | 'additive' | 'permanent';
 type SaveIntent = 'permanent' | 'flatten' | null;
-type TextInteraction =
-  | { id: string; mode: 'move'; startPointer: Point; startX: number; startY: number }
-  | {
-      id: string;
-      mode: 'resize';
-      edges: { left: boolean; right: boolean; top: boolean; bottom: boolean };
-      startPointer: Point;
-      startX: number;
-      startY: number;
-      startWidth: number;
-      startHeight: number;
-    };
-type ArrowInteraction =
-  | { id: string; mode: 'move'; startPointer: Point; startStart: Point; startEnd: Point }
-  | { id: string; mode: 'start'; startPointer: Point; startStart: Point; startEnd: Point }
-  | { id: string; mode: 'end'; startPointer: Point; startStart: Point; startEnd: Point };
-type CropInteraction =
-  | { mode: 'draw'; startPointer: Point }
-  | {
-      mode: 'resize';
-      edges: { left: boolean; right: boolean; top: boolean; bottom: boolean };
-      startPointer: Point;
-      startRect: ImageCropRect;
-    };
 
 type ImageOcrOverlay =
   | { surface: 'additive'; words: SelectableImageOcrWord[] }
   | { surface: 'permanent'; words: SelectableImageOcrWord[] };
-
-function generateId() {
-  return Math.random().toString(36).slice(2, 10);
-}
 
 function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -220,97 +182,27 @@ function normalizeImageOcrWords(
     .filter((word) => word.text.trim().length > 0);
 }
 
-function drawArrowHead(ctx: CanvasRenderingContext2D, from: Point, to: Point, size: number) {
-  const angle = Math.atan2(to.y - from.y, to.x - from.x);
-  ctx.beginPath();
-  ctx.moveTo(to.x, to.y);
-  ctx.lineTo(
-    to.x - size * Math.cos(angle - Math.PI / 6),
-    to.y - size * Math.sin(angle - Math.PI / 6),
-  );
-  ctx.lineTo(
-    to.x - size * Math.cos(angle + Math.PI / 6),
-    to.y - size * Math.sin(angle + Math.PI / 6),
-  );
-  ctx.closePath();
-  ctx.fill();
-}
-
-function drawOverlayToCanvas(
+async function drawAnnotationsToCanvas(
   ctx: CanvasRenderingContext2D,
-  overlay: ImageOverlayDocument | null,
+  document: InkAnnotationDocument,
   dimensions: Dimensions,
 ) {
-  if (!overlay) return;
-
-  for (const item of overlay.items) {
-    if (item.type === 'text') {
-      ctx.fillStyle = item.color;
-      ctx.font = `${item.fontSize}px sans-serif`;
-      ctx.textBaseline = 'top';
-      const x = item.x * dimensions.width;
-      const y = item.y * dimensions.height;
-      const maxWidth = Math.max(40, getTextWidth(item) * dimensions.width - 12);
-      const words = item.text.split(/\s+/).filter(Boolean);
-      const lines: string[] = [];
-      if (words.length === 0) {
-        lines.push('');
-      } else {
-        let currentLine = '';
-        words.forEach((word) => {
-          const candidate = currentLine ? `${currentLine} ${word}` : word;
-          if (ctx.measureText(candidate).width <= maxWidth || !currentLine) {
-            currentLine = candidate;
-          } else {
-            lines.push(currentLine);
-            currentLine = word;
-          }
-        });
-        lines.push(currentLine);
-      }
-      lines.forEach((line, index) => {
-        ctx.fillText(line || ' ', x + 6, y + 6 + index * item.fontSize * 1.25, maxWidth);
-      });
-      continue;
-    }
-
-    if (item.type === 'arrow') {
-      const start = {
-        x: item.start.x * dimensions.width,
-        y: item.start.y * dimensions.height,
-      };
-      const end = {
-        x: item.end.x * dimensions.width,
-        y: item.end.y * dimensions.height,
-      };
-      const headSize = Math.max(8, item.strokeWidth * 3);
-      const lineEnd = getArrowLineEnd(start, end, headSize);
-      ctx.strokeStyle = item.color;
-      ctx.fillStyle = item.color;
-      ctx.lineWidth = item.strokeWidth;
-      ctx.lineCap = 'round';
-      ctx.setLineDash(getLineDash(item.lineStyle, item.strokeWidth) ?? []);
-      ctx.beginPath();
-      ctx.moveTo(start.x, start.y);
-      ctx.lineTo(lineEnd.x, lineEnd.y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      drawArrowHead(ctx, start, end, headSize);
-      continue;
-    }
-
-    ctx.strokeStyle = item.color;
-    ctx.lineWidth = item.strokeWidth;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    item.points.forEach((point, index) => {
-      const x = point.x * dimensions.width;
-      const y = point.y * dimensions.height;
-      if (index === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
+  const surface = imageAnnotationSurface(document);
+  if (!surface || surface.scene.objectOrder.length === 0) return;
+  const svg = sceneToSvg(surface.scene, {
+    bounds: {
+      minX: 0,
+      minY: 0,
+      maxX: dimensions.width * INK_UNITS_PER_PX,
+      maxY: dimensions.height * INK_UNITS_PER_PX,
+    },
+  });
+  const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+  try {
+    const overlay = await loadImage(url);
+    ctx.drawImage(overlay, 0, 0, dimensions.width, dimensions.height);
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
 
@@ -353,25 +245,11 @@ function renderCanvasToElement(
   ctx.drawImage(canvas, offsetX, offsetY, fitted.width, fitted.height);
 }
 
-const OVERLAY_COLORS = [
-  '#38bdf8',
-  '#f97316',
-  '#f43f5e',
-  '#22c55e',
-  '#eab308',
-  '#a78bfa',
-  '#64748b',
-  '#f8fafc',
-  '#fb7185',
-  '#34d399',
-];
-
 export default function ImageView({ relativePath }: Props) {
   const { vault, refreshFileTree } = useVaultStore();
   const { openTab, markDirty, markSaved } = useEditorStore();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const textInputRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const overlayViewportSize = useElementSize(viewportRef);
 
   const [mode, setMode] = useState<ViewerMode>('view');
@@ -380,28 +258,17 @@ export default function ImageView({ relativePath }: Props) {
   const [dimensions, setDimensions] = useState<Dimensions | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [overlayDoc, setOverlayDoc] = useState<ImageOverlayDocument | null>(null);
-  const [overlayLoaded, setOverlayLoaded] = useState(false);
-  const [persistedOverlaySignature, setPersistedOverlaySignature] = useState('');
-  const [tool, setTool] = useState<ImageOverlayTool>('select');
-  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [overlayColor, setOverlayColor] = useState('#38bdf8');
-  const [strokeWidth, setStrokeWidth] = useState(4);
-  const [lineStyle, setLineStyle] = useState<ImageLineStyle>('solid');
-  const [fontSize, setFontSize] = useState(20);
-  const [colorOpen, setColorOpen] = useState(false);
-  const [hexDraft, setHexDraft] = useState('#38bdf8');
-  const [draftArrow, setDraftArrow] = useState<ImageArrowOverlay | null>(null);
-  const [draftStroke, setDraftStroke] = useState<ImagePenOverlay | null>(null);
+  const [annotationDoc, setAnnotationDoc] = useState<InkAnnotationDocument | null>(null);
+  const [annotationsLoaded, setAnnotationsLoaded] = useState(false);
+  const [inkTool, setInkTool] = useState(defaultToolState);
   const [permanentEdits, setPermanentEdits] = useState<PermanentImageEdits>(createEmptyEdits);
   const [cropMode, setCropMode] = useState(false);
   const [cropDraft, setCropDraft] = useState<ImageCropRect | null>(null);
   const [cropDragStart, setCropDragStart] = useState<Point | null>(null);
-  const [cropInteraction, setCropInteraction] = useState<CropInteraction | null>(null);
+  const [cropInteraction, setCropInteraction] = useState<ImageCropInteraction | null>(null);
   const [saveIntent, setSaveIntent] = useState<SaveIntent>(null);
   const [saving, setSaving] = useState(false);
   const [zoomPercent, setZoomPercent] = useState(100);
-  const [annotationsOpen, setAnnotationsOpen] = useState(false);
   const ocrOverlayVisible = useUiStore((state) => state.ocrOverlayVisible);
   const setOcrOverlayVisible = useUiStore((state) => state.setOcrOverlayVisible);
   const [ocrText, setOcrText] = useState('');
@@ -413,11 +280,7 @@ export default function ImageView({ relativePath }: Props) {
   const [ocrCached, setOcrCached] = useState(false);
   const [lastOcrRegion, setLastOcrRegion] = useState<ImageCropRect | null>(null);
   const [ocrOverlay, setOcrOverlay] = useState<ImageOcrOverlay | null>(null);
-  const [editingTextId, setEditingTextId] = useState<string | null>(null);
-  const [textInteraction, setTextInteraction] = useState<TextInteraction | null>(null);
-  const [arrowInteraction, setArrowInteraction] = useState<ArrowInteraction | null>(null);
-
-  const hasAdditiveItems = (overlayDoc?.items.length ?? 0) > 0;
+  const hasAdditiveItems = imageAnnotationObjectCount(annotationDoc) > 0;
   const hostedImage = vault?.kind === 'hosted';
   const overwriteSupported = !hostedImage && canOverwriteImageFormat(relativePath);
   const currentDimensions = dimensions ?? EMPTY_SIZE;
@@ -441,152 +304,88 @@ export default function ImageView({ relativePath }: Props) {
     mode === 'permanent' ? permanentDisplayDimensions : additiveDisplayDimensions;
   const workspaceDimensions = getWorkspaceDimensions(overlayViewportSize, activeDisplayDimensions);
 
-  const selectedItem = overlayDoc?.items.find((item) => item.id === selectedItemId) ?? null;
-
-  const { overlayStatus, permanentDirty, saveImageOutput, loadRemoteOverlay, keepLocalOverlay } =
-    useImageDocumentSession({
-      vault,
-      relativePath,
-      refreshFileTree,
-      openTab,
-      markDirty,
-      markSaved,
-      mode,
-      image,
-      dimensions,
-      overlayDoc,
-      overlayLoaded,
-      persistedOverlaySignature,
-      permanentEdits,
-      cropMode,
-      permanentDisplayDimensions,
-      saveIntent,
-      previewCanvasRef,
-      loadImage,
-      createEmptyOverlayDocument,
-      buildPermanentCanvas,
-      renderCanvasToElement,
-      drawOverlayToCanvas,
-      getOutputMime,
-      getOutputFileName,
-      getBaseName,
-      setSrc,
-      setImage,
-      setDimensions,
-      setLoading,
-      setError,
-      setOverlayDoc,
-      setOverlayLoaded,
-      setPersistedOverlaySignature,
-      setSelectedItemId,
-      setDraftArrow,
-      setDraftStroke,
-      setPermanentEdits,
-      setCropMode,
-      setCropDraft,
-      setCropDragStart,
-      setCropInteraction,
-      setZoomPercent,
-      setEditingTextId,
-      setTextInteraction,
-      setArrowInteraction,
-      setSaveIntent,
-      setSaving,
-    });
+  const {
+    annotationStatus,
+    canAnnotate,
+    permanentDirty,
+    saveImageOutput,
+    loadRemoteAnnotations,
+    keepLocalAnnotations,
+  } = useImageDocumentSession({
+    vault,
+    relativePath,
+    refreshFileTree,
+    openTab,
+    markDirty,
+    markSaved,
+    mode,
+    image,
+    dimensions,
+    annotationDoc,
+    annotationsLoaded,
+    permanentEdits,
+    cropMode,
+    permanentDisplayDimensions,
+    saveIntent,
+    previewCanvasRef,
+    loadImage,
+    buildPermanentCanvas,
+    renderCanvasToElement,
+    drawAnnotationsToCanvas,
+    getOutputMime,
+    getOutputFileName,
+    getBaseName,
+    setSrc,
+    setImage,
+    setDimensions,
+    setLoading,
+    setError,
+    setAnnotationDoc,
+    setAnnotationsLoaded,
+    setPermanentEdits,
+    setCropMode,
+    setCropDraft,
+    setZoomPercent,
+    setSaveIntent,
+    setSaving,
+  });
 
   const documentStatus = useMemo(
     () => ({
-      status: overlayStatus,
-      onLoadRemote: loadRemoteOverlay,
-      onKeepLocal: keepLocalOverlay,
+      status: annotationStatus,
+      onLoadRemote: loadRemoteAnnotations,
+      onKeepLocal: keepLocalAnnotations,
     }),
-    [keepLocalOverlay, loadRemoteOverlay, overlayStatus],
+    [annotationStatus, keepLocalAnnotations, loadRemoteAnnotations],
   );
   useDocumentStatusRegistration(relativePath, documentStatus);
-
-  const setOverlayItems = (updater: (items: ImageOverlayItem[]) => ImageOverlayItem[]) => {
-    setOverlayDoc((current) => {
-      if (!current) return current;
-      return {
-        ...current,
-        items: updater(current.items),
-        updatedAt: Date.now(),
-      };
-    });
-  };
-
-  const updateSelectedItem = (updater: (item: ImageOverlayItem) => ImageOverlayItem) => {
-    if (!selectedItemId) return;
-    setOverlayItems((items) =>
-      items.map((item) => (item.id === selectedItemId ? updater(item) : item)),
-    );
-  };
 
   const {
     beginCrop,
     resetPermanentEdits,
     applyCrop,
     cancelCrop,
-    handleOverlayPointerDown,
-    handleOverlayPointerMove,
-    finishOverlayDraft,
     handleCropPointerDown,
     handleCropPointerMove,
     handleResizeChange,
-    deleteSelectedItem,
   } = useImageInteractions({
     viewportRef,
-    textInputRefs,
-    overlayDoc,
-    dimensions,
     currentDimensions,
-    additiveDisplayDimensions,
     rotatedDimensions,
     permanentEdits,
     cropMode,
     cropDraft,
     cropDragStart,
     cropInteraction,
-    saveIntent,
-    mode,
-    tool,
-    overlayColor,
-    fontSize,
-    strokeWidth,
-    lineStyle,
-    selectedItemId,
-    editingTextId,
-    textInteraction,
-    arrowInteraction,
+    dialogOpen: saveIntent !== null,
     setMode,
-    setTool,
-    setOverlayItems,
-    setSelectedItemId,
-    setEditingTextId,
-    setDraftArrow,
-    setDraftStroke,
-    draftArrow,
-    draftStroke,
     setPermanentEdits,
     setCropMode,
     setCropDraft,
     setCropDragStart,
     setCropInteraction,
     setZoomPercent,
-    setTextInteraction,
-    setArrowInteraction,
-    createId: generateId,
   });
-
-  const overlaySvgItems = useMemo(() => {
-    const items = overlayDoc?.items ?? [];
-    return [...items, ...(draftArrow ? [draftArrow] : []), ...(draftStroke ? [draftStroke] : [])];
-  }, [overlayDoc?.items, draftArrow, draftStroke]);
-
-  const additiveCanvasStyle = {
-    width: additiveDisplayDimensions.width,
-    height: additiveDisplayDimensions.height,
-  };
 
   const cropRectStyle = cropDraft
     ? {
@@ -596,11 +395,6 @@ export default function ImageView({ relativePath }: Props) {
         height: `${(cropDraft.height / rotatedDimensions.height) * 100}%`,
       }
     : undefined;
-
-  const selectedStroke =
-    selectedItem?.type === 'arrow' || selectedItem?.type === 'pen' ? selectedItem : null;
-  const annotationItems = overlayDoc?.items ?? [];
-  const activeColor = selectedItem?.color ?? overlayColor;
 
   useEffect(() => {
     setOcrText('');
@@ -712,26 +506,11 @@ export default function ImageView({ relativePath }: Props) {
                 {dimensions.width} x {dimensions.height}
               </span>
             )}
-            <ImageAnnotationsPopover
-              open={annotationsOpen}
-              onOpenChange={setAnnotationsOpen}
-              items={annotationItems}
-              selectedItemId={selectedItemId}
-              onSelectItem={(id) => {
-                setMode('additive');
-                setTool('select');
-                setSelectedItemId(id);
-              }}
-              onDeleteItem={(id) => {
-                if (selectedItemId !== id) {
-                  setSelectedItemId(id);
-                }
-                setOverlayItems((items) => items.filter((entry) => entry.id !== id));
-                if (selectedItemId === id) {
-                  setSelectedItemId(null);
-                }
-              }}
-            />
+            {hasAdditiveItems && (
+              <span className="text-xs text-muted-foreground">
+                {imageAnnotationObjectCount(annotationDoc)} annotations
+              </span>
+            )}
           </>
         }
         secondary={
@@ -758,71 +537,18 @@ export default function ImageView({ relativePath }: Props) {
             </div>
 
             {mode === 'additive' && (
-              <>
-                <ImageAdditiveToolbar
-                  tool={tool}
-                  onToolChange={setTool}
-                  activeColor={activeColor}
-                  overlayColors={OVERLAY_COLORS}
-                  colorOpen={colorOpen}
-                  onColorOpenChange={(open) => {
-                    setColorOpen(open);
-                    if (open) setHexDraft(activeColor);
-                  }}
-                  hexDraft={hexDraft}
-                  onHexDraftChange={setHexDraft}
-                  onApplyHexColor={() => {
-                    const value = hexDraft.trim();
-                    if (/^#[0-9a-f]{6}$/i.test(value)) {
-                      setOverlayColor(value);
-                      if (selectedItem) {
-                        updateSelectedItem(
-                          (item) => ({ ...item, color: value }) as ImageOverlayItem,
-                        );
-                      }
-                    }
-                  }}
-                  onColorSelect={(swatch) => {
-                    setOverlayColor(swatch);
-                    if (selectedItem) {
-                      updateSelectedItem(
-                        (item) => ({ ...item, color: swatch }) as ImageOverlayItem,
-                      );
-                    }
-                  }}
-                  strokeWidth={selectedStroke?.strokeWidth ?? strokeWidth}
-                  onStrokeWidthChange={(value) => {
-                    const next = clamp(Number.parseInt(value, 10) || 1, 1, 18);
-                    setStrokeWidth(next);
-                    if (selectedItem?.type === 'arrow' || selectedItem?.type === 'pen') {
-                      updateSelectedItem(
-                        (item) => ({ ...item, strokeWidth: next }) as ImageOverlayItem,
-                      );
-                    }
-                  }}
-                  lineStyle={selectedItem?.type === 'arrow' ? selectedItem.lineStyle : null}
-                  onLineStyleChange={(next) => {
-                    setLineStyle(next);
-                    updateSelectedItem((item) =>
-                      item.type === 'arrow' ? { ...item, lineStyle: next } : item,
-                    );
-                  }}
-                  fontSize={selectedItem?.type === 'text' ? selectedItem.fontSize : fontSize}
-                  onFontSizeChange={(value) => {
-                    const next = clamp(Number.parseInt(value, 10) || 12, 10, 64);
-                    setFontSize(next);
-                    if (selectedItem?.type === 'text') {
-                      updateSelectedItem(
-                        (item) => ({ ...item, fontSize: next }) as ImageOverlayItem,
-                      );
-                    }
-                  }}
-                  hasSelectedItem={!!selectedItem}
-                  onDeleteSelected={deleteSelectedItem}
-                  hasAdditiveItems={hasAdditiveItems}
-                  onBakeIntoImage={() => setSaveIntent('flatten')}
-                />
-              </>
+              <div className={documentTopBarGroupClass}>
+                <PdfInkToolbar tool={inkTool} readOnly={!canAnnotate} onChange={setInkTool} />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-2.5 text-xs"
+                  disabled={!hasAdditiveItems}
+                  onClick={() => setSaveIntent('flatten')}
+                >
+                  Export baked copy
+                </Button>
+              </div>
             )}
 
             {mode === 'permanent' && (
@@ -943,25 +669,6 @@ export default function ImageView({ relativePath }: Props) {
         ref={viewportRef}
         className="relative flex-1 overflow-auto bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.08)_1px,transparent_0)] [background-size:18px_18px]"
       >
-        {mode === 'additive' && selectedItem?.type === 'text' && (
-          <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center px-4">
-            <div className="pointer-events-auto w-full max-w-xl rounded-xl border border-border/60 bg-background/88 p-3 shadow-2xl shadow-black/25 backdrop-blur-sm-webkit">
-              <textarea
-                value={selectedItem.text}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setEditingTextId(selectedItem.id);
-                  updateSelectedItem((item) =>
-                    item.type === 'text' ? { ...item, text: value } : item,
-                  );
-                }}
-                className="min-h-20 w-full rounded-lg border border-input bg-background/55 px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                placeholder="Annotation text"
-              />
-            </div>
-          </div>
-        )}
-
         {ocrOpen && (
           <div className="absolute right-4 top-4 z-30 w-[min(360px,calc(100%-2rem))] rounded-xl border border-border/60 bg-popover/95 p-3 shadow-2xl shadow-black/25 backdrop-blur-sm-webkit app-panel-enter">
             <div className="mb-2 flex items-start justify-between gap-3">
@@ -1091,67 +798,52 @@ export default function ImageView({ relativePath }: Props) {
               minHeight: workspaceDimensions.height,
             }}
           >
-            <ImageAdditiveStage
-              src={src}
-              relativePath={relativePath}
-              toolCursor={
-                tool === 'text'
-                  ? 'cursor-text'
-                  : tool === 'select'
-                    ? 'cursor-default'
-                    : 'cursor-crosshair'
-              }
-              additiveCanvasStyle={additiveCanvasStyle}
-              additiveDisplayDimensions={additiveDisplayDimensions}
-              overlaySvgItems={overlaySvgItems}
-              selectedItemId={selectedItemId}
-              textInputRefs={textInputRefs}
-              onStagePointerDown={handleOverlayPointerDown}
-              onStagePointerMove={handleOverlayPointerMove}
-              onStagePointerUp={finishOverlayDraft}
-              onStagePointerLeave={finishOverlayDraft}
-              onSelectItem={setSelectedItemId}
-              onSetEditingTextId={setEditingTextId}
-              onStartArrowInteraction={setArrowInteraction}
-              onStartTextInteraction={(interaction) => {
-                if (interaction.mode === 'move') {
-                  setTextInteraction({
-                    id: interaction.id,
-                    mode: 'move',
-                    startPointer: interaction.startPointer,
-                    startX: interaction.startX,
-                    startY: interaction.startY,
-                  });
-                  return;
-                }
-                if (
-                  !interaction.edges ||
-                  typeof interaction.startWidth !== 'number' ||
-                  typeof interaction.startHeight !== 'number'
-                )
-                  return;
-                setTextInteraction({
-                  id: interaction.id,
-                  mode: 'resize',
-                  edges: interaction.edges,
-                  startPointer: interaction.startPointer,
-                  startX: interaction.startX,
-                  startY: interaction.startY,
-                  startWidth: interaction.startWidth,
-                  startHeight: interaction.startHeight,
-                });
+            <div
+              className="relative overflow-hidden rounded-sm bg-black/20 shadow-2xl"
+              style={{
+                width: additiveDisplayDimensions.width,
+                height: additiveDisplayDimensions.height,
               }}
-              onTextChange={(id, value) => {
-                setOverlayItems((items) =>
-                  items.map((entry) =>
-                    entry.id === id && entry.type === 'text' ? { ...entry, text: value } : entry,
-                  ),
-                );
-              }}
-              ocrWords={
-                ocrOverlayVisible && ocrOverlay?.surface === 'additive' ? ocrOverlay.words : []
-              }
-            />
+              data-image-stage="additive"
+            >
+              <img
+                src={src}
+                alt={relativePath ?? 'Image'}
+                draggable={false}
+                className="absolute inset-0 size-full select-none object-fill"
+              />
+              {annotationDoc && (
+                <ImageInkOverlay
+                  document={annotationDoc}
+                  width={image.naturalWidth}
+                  height={image.naturalHeight}
+                  displayWidth={additiveDisplayDimensions.width}
+                  displayHeight={additiveDisplayDimensions.height}
+                  enabled={mode === 'additive'}
+                  readOnly={!canAnnotate}
+                  tool={inkTool}
+                  onChange={setAnnotationDoc}
+                />
+              )}
+              {ocrOverlayVisible && ocrOverlay?.surface === 'additive' && (
+                <div className="pointer-events-none absolute inset-0 z-20">
+                  {ocrOverlay.words.map((word, index) => (
+                    <span
+                      key={`${word.text}-${index}`}
+                      className="absolute border border-sky-400/70 bg-sky-400/10 text-transparent"
+                      style={{
+                        left: `${word.left * 100}%`,
+                        top: `${word.top * 100}%`,
+                        width: `${word.width * 100}%`,
+                        height: `${word.height * 100}%`,
+                      }}
+                    >
+                      {word.text}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -1211,12 +903,12 @@ export default function ImageView({ relativePath }: Props) {
             </DialogTitle>
             <DialogDescription>
               {saveIntent === 'flatten'
-                ? 'You can overwrite the current image or create a separate edited file with the annotations baked in.'
+                ? 'This creates a separate raster copy with annotations baked in. The original image and editable annotation sidecar remain intact.'
                 : 'Permanent changes modify the raster output. Overwriting updates the current image; saving as new creates a second file.'}
             </DialogDescription>
           </DialogHeader>
 
-          {!overwriteSupported && (
+          {saveIntent !== 'flatten' && !overwriteSupported && (
             <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90">
               {hostedImage
                 ? 'Hosted images can be saved as a new edited file. Overwriting the original hosted image is not available yet.'
@@ -1236,7 +928,7 @@ export default function ImageView({ relativePath }: Props) {
               Save As New File
             </Button>
             <Button
-              disabled={saving || !overwriteSupported}
+              disabled={saving || !overwriteSupported || saveIntent === 'flatten'}
               onClick={() => void saveImageOutput(true)}
             >
               Overwrite Original

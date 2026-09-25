@@ -23,7 +23,7 @@ import {
   pdfInkSurface,
   updatePdfInkSurface,
 } from '../../lib/pdfAnnotations';
-import type { InkAnnotationDocument, InkSample, InkScene } from '../../types/ink';
+import type { InkAnnotationDocument, InkPage, InkSample, InkScene } from '../../types/ink';
 import InkCanvas from '../ink/InkCanvas';
 
 export interface PdfInkOverlayProps {
@@ -37,6 +37,20 @@ export interface PdfInkOverlayProps {
   readOnly: boolean;
   tool: InkToolState;
   onChange: (document: InkAnnotationDocument) => void;
+}
+
+export interface AnchoredInkOverlayProps {
+  page: InkPage;
+  displayWidth: number;
+  displayHeight: number;
+  zoom: number;
+  rotation?: number;
+  enabled: boolean;
+  readOnly: boolean;
+  tool: InkToolState;
+  idPrefix: string;
+  testId: string;
+  onSceneChange: (scene: InkScene) => void;
 }
 
 export interface PdfInkOverlayTransform {
@@ -87,35 +101,30 @@ export function pdfInkClientToLocal(
   }
 }
 
-export default function PdfInkOverlay({
-  document,
-  pageNumber,
-  widthPoints,
-  heightPoints,
-  scale,
-  rotation,
+export function AnchoredInkOverlay({
+  page,
+  displayWidth,
+  displayHeight,
+  zoom,
+  rotation = 0,
   enabled,
   readOnly,
   tool,
-  onChange,
-}: PdfInkOverlayProps) {
+  idPrefix,
+  testId,
+  onSceneChange,
+}: AnchoredInkOverlayProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const idCounter = useRef(0);
-  const surface =
-    pdfInkSurface(document, pageNumber) ??
-    createPdfInkSurface(pageNumber, widthPoints, heightPoints);
-  const page = useMemo(() => pdfInkPage(surface), [surface]);
   const activeLayerId =
     tool.activeLayerId && page.scene.layers[tool.activeLayerId]
       ? tool.activeLayerId
       : page.scene.layerOrder[page.scene.layerOrder.length - 1];
-  const cssWidth = widthPoints * scale * (4 / 3);
-  const cssHeight = heightPoints * scale * (4 / 3);
-  const transform = pdfInkOverlayTransform(rotation, cssWidth, cssHeight);
+  const transform = pdfInkOverlayTransform(rotation, displayWidth, displayHeight);
   const clientToLocal = useCallback(
     (point: { x: number; y: number }, bounds: DOMRect) =>
-      pdfInkClientToLocal(rotation, point, bounds, cssWidth, cssHeight),
-    [cssHeight, cssWidth, rotation],
+      pdfInkClientToLocal(rotation, point, bounds, displayWidth, displayHeight),
+    [displayHeight, displayWidth, rotation],
   );
 
   const nextId = useCallback((prefix: string) => {
@@ -126,9 +135,9 @@ export default function PdfInkOverlay({
   const commitScene = useCallback(
     (update: (scene: InkScene) => InkScene) => {
       if (readOnly) return;
-      onChange(updatePdfInkSurface(document, pageNumber, widthPoints, heightPoints, update));
+      onSceneChange(update(page.scene));
     },
-    [document, heightPoints, onChange, pageNumber, readOnly, widthPoints],
+    [onSceneChange, page.scene, readOnly],
   );
 
   const commitStroke = useCallback(
@@ -137,7 +146,7 @@ export default function PdfInkOverlay({
       const brush = { ...tool.brush };
       commitScene((scene) => {
         const object = {
-          id: nextId('pdf-stroke'),
+          id: nextId(`${idPrefix}-stroke`),
           type: 'stroke' as const,
           layerId: activeLayerId,
           brush,
@@ -150,7 +159,7 @@ export default function PdfInkOverlay({
         return addObject(scene, object, index < 0 ? undefined : index).result;
       });
     },
-    [activeLayerId, commitScene, nextId, tool.brush],
+    [activeLayerId, commitScene, idPrefix, nextId, tool.brush],
   );
 
   const createObject = useCallback(
@@ -177,7 +186,7 @@ export default function PdfInkOverlay({
           return addObject(
             scene,
             createInkStamp({
-              id: nextId('pdf-stamp'),
+              id: nextId(`${idPrefix}-stamp`),
               layerId: activeLayerId,
               symbolId: tool.stampSymbolId,
               from,
@@ -187,7 +196,7 @@ export default function PdfInkOverlay({
           ).result;
         }
         const shape = createInkShape({
-          id: nextId(kind === 'connector' ? 'pdf-arrow' : 'pdf-shape'),
+          id: nextId(`${idPrefix}-${kind === 'connector' ? 'arrow' : 'shape'}`),
           layerId: activeLayerId,
           kind: kind === 'connector' ? 'line' : tool.shapeKind,
           from,
@@ -201,7 +210,7 @@ export default function PdfInkOverlay({
         return addObject(scene, shape).result;
       });
     },
-    [activeLayerId, commitScene, nextId, tool],
+    [activeLayerId, commitScene, idPrefix, nextId, tool],
   );
 
   const changeSelection = useCallback((ids: string[], additive: boolean) => {
@@ -261,13 +270,13 @@ export default function PdfInkOverlay({
           transform: transform.transform,
           transformOrigin: '0 0',
         }}
-        data-testid={`pdf-ink-overlay-${pageNumber}`}
+        data-testid={testId}
       >
         <InkCanvas
           page={page}
           originX={0}
           originY={0}
-          zoom={scale}
+          zoom={zoom}
           tool={tool}
           penButtons={INK_DEFAULT_PEN_BUTTONS}
           selectedIds={selectedIds}
@@ -278,7 +287,7 @@ export default function PdfInkOverlay({
           onCreateAdvancedObject={createObject}
           onEyedropObject={() => undefined}
           onActivateObjectLink={() => undefined}
-          readAssetDataUrl={() => Promise.reject(new Error('PDF ink does not embed assets.'))}
+          readAssetDataUrl={() => Promise.reject(new Error('Anchored ink does not embed assets.'))}
           onErase={(path, radius) =>
             commitScene(
               (scene) => applyErase(scene, planErase(scene, path, radius, tool.eraserMode)).result,
@@ -315,5 +324,43 @@ export default function PdfInkOverlay({
         />
       </div>
     </div>
+  );
+}
+
+export default function PdfInkOverlay({
+  document,
+  pageNumber,
+  widthPoints,
+  heightPoints,
+  scale,
+  rotation,
+  enabled,
+  readOnly,
+  tool,
+  onChange,
+}: PdfInkOverlayProps) {
+  const surface =
+    pdfInkSurface(document, pageNumber) ??
+    createPdfInkSurface(pageNumber, widthPoints, heightPoints);
+  const page = useMemo(() => pdfInkPage(surface), [surface]);
+  const onSceneChange = useCallback(
+    (scene: InkScene) =>
+      onChange(updatePdfInkSurface(document, pageNumber, widthPoints, heightPoints, () => scene)),
+    [document, heightPoints, onChange, pageNumber, widthPoints],
+  );
+  return (
+    <AnchoredInkOverlay
+      page={page}
+      displayWidth={widthPoints * scale * (4 / 3)}
+      displayHeight={heightPoints * scale * (4 / 3)}
+      zoom={scale}
+      rotation={rotation}
+      enabled={enabled}
+      readOnly={readOnly}
+      tool={tool}
+      idPrefix="pdf"
+      testId={`pdf-ink-overlay-${pageNumber}`}
+      onSceneChange={onSceneChange}
+    />
   );
 }

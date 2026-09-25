@@ -94,7 +94,8 @@ export type PendingOpKind =
   | 'assetUpload'
   | 'logicComponentSave'
   | 'logicComponentDelete'
-  | 'pdfAnnotations';
+  | 'pdfAnnotations'
+  | 'viewAnnotations';
 
 export type PendingOpStatus = 'pending' | 'inflight' | 'failed';
 
