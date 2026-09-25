@@ -122,6 +122,8 @@ pub enum PendingOpKind {
     LogicComponentDelete,
     #[serde(rename = "pdfAnnotations")]
     PdfAnnotations,
+    #[serde(rename = "viewAnnotations")]
+    ViewAnnotations,
 }
 
 /// The lifecycle state of a pending operation in the replay queue.

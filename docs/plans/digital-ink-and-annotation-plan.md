@@ -713,7 +713,7 @@ Target behaviors:
 | 6. Hosted collaboration and offline merge             | Complete    | Add `LiveDocumentKind::Ink`, final-stroke transactions, ephemeral previews, awareness, replica merge, and recovery, including physical desktop/Android recovery validation.                                |
 | 7. Export and note integration                        | Complete    | Add PNG/SVG/PDF export, source-linked note embeds, stable re-export, progress, cancellation, and honest missing-dependency reports.                                                                        |
 | 8. PDF annotation integration                         | Complete    | Migrate PDF sidecars and add shared ink tools, live/offline editing, and flattened annotated-PDF export.                                                                                                   |
-| 9. Image and shared-view annotations                  | Not started | Migrate image overlays and add capability-driven annotation surfaces for images, decks, and future viewers.                                                                                                |
+| 9. Image and shared-view annotations                  | Complete    | Migrate image overlays and add capability-driven annotation surfaces for images, decks, and future viewers.                                                                                                |
 | 10. Accessibility, performance, and release hardening | Not started | Validate large files, keyboard alternatives, devices, packaging, migrations, malformed content, and collaboration soak.                                                                                    |
 | 11. Optional recognition and interchange              | Deferred    | Evaluate handwriting/math recognition and optional InkML interchange without changing the native source model.                                                                                             |
 
@@ -990,12 +990,23 @@ them.
 
 ### Phase 9: Image And Shared-View Annotations
 
-- Migrate `ImageOverlayDocument` v1 into the shared scene.
-- Route local and hosted image annotations through `VaultClient`.
-- Preserve additive mode and make destructive bake/export explicit.
-- Validate crop, rotate, resize, zoom, OCR, and annotation transforms.
-- Add capability-driven anchored annotations to presentation review mode.
-- Document the adapter contract for future file viewers.
+Complete. Images now use the shared anchored `InkScene`; the legacy v1
+text/arrow/pen sidecar migrates on read. The source raster stays immutable
+during additive editing, and a baked result is always an explicit new copy.
+
+- [x] Migrate `ImageOverlayDocument` v1 into the shared scene.
+- [x] Route local and hosted image annotations through `VaultClient`, including
+      version conflicts, encrypted replica caching, and offline replay.
+- [x] Preserve additive mode and make bake/export explicit. Flattening retains
+      the original raster and editable sidecar.
+- [x] Keep crop, rotate, and resize in the separate permanent-edit preview;
+      zoom is display-only, while OCR and ink remain independent anchored
+      layers.
+- [x] Register the capability-driven `deck-slide` review adapter and hosted
+      `.deck` sidecar resource ahead of the planned presentation viewer. Deck
+      editing itself remains governed by the presentation plan.
+- [x] Document the future-viewer adapter contract in
+      [Anchored View Annotation Adapter](../desktop/anchored-view-annotations.md).
 
 ### Phase 10: Accessibility, Performance, And Release Hardening
 

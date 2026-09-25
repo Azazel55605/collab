@@ -1,4 +1,5 @@
 import type { SnapshotMeta } from '../types/collab';
+import type { InkAnnotationDocument } from '../types/ink';
 import type { LogicComponentDefinition } from '../types/logicDiagram';
 import type { NoteMetadata, SearchResult } from '../types/note';
 import type { PdfSidecarState } from '../types/pdf';
@@ -135,6 +136,13 @@ export interface VaultPdfAnnotations {
   offlineQueued?: boolean;
 }
 
+export interface VaultViewAnnotations {
+  /** Unknown on read so legacy image-overlay v1 can be migrated by its adapter. */
+  state: unknown;
+  version: number | null;
+  offlineQueued?: boolean;
+}
+
 /**
  * Connection parameters for opening a live collaboration session on a document.
  * Resolved by {@link VaultClient.resolveLiveSession}.
@@ -221,6 +229,13 @@ export interface VaultClient {
     state: PdfSidecarState,
     expectedVersion: number | null,
   ): Promise<VaultPdfAnnotations>;
+  /** Shared anchored annotations for images, deck review, and future viewers. */
+  readViewAnnotations(relativePath: string): Promise<VaultViewAnnotations>;
+  writeViewAnnotations(
+    relativePath: string,
+    state: InkAnnotationDocument,
+    expectedVersion: number | null,
+  ): Promise<VaultViewAnnotations>;
   /**
    * Resolves the parameters for a live collaboration session for a document, or
    * `null` when live collaboration is unavailable (local vaults). Hosted vaults
@@ -1645,6 +1660,66 @@ export class HostedVaultClient implements VaultClient {
     }
   }
 
+  async readViewAnnotations(relativePath: string): Promise<VaultViewAnnotations> {
+    const manifest = await this.onlineOrCachedManifest();
+    const file = this.findByPath(manifest, relativePath);
+    try {
+      const response = await this.request<{ state: unknown; sequence: number }>(
+        'GET',
+        `/files/${file.id}/view-annotations`,
+      );
+      const result = { state: response.state, version: response.sequence };
+      void this.cacheDocumentForOfflineCopy(file.id, JSON.stringify(result));
+      return result;
+    } catch (error) {
+      if (!isLikelyConnectivityError(error)) throw error;
+      const cached = await tauriCommands.replicaReadCachedDocument(
+        this.vault.serverUrl,
+        this.vault.hostedVaultId,
+        file.id,
+      );
+      if (!cached) throw error;
+      return JSON.parse(cached) as VaultViewAnnotations;
+    }
+  }
+
+  async writeViewAnnotations(
+    relativePath: string,
+    state: InkAnnotationDocument,
+    expectedVersion: number | null,
+  ): Promise<VaultViewAnnotations> {
+    const manifest = await this.onlineOrCachedManifest();
+    const file = this.findByPath(manifest, relativePath);
+    const payload = { expectedSequence: expectedVersion ?? 0, state };
+    try {
+      const response = await this.request<{ state: unknown; sequence: number }>(
+        'PUT',
+        `/files/${file.id}/view-annotations`,
+        payload,
+      );
+      const result = { state: response.state, version: response.sequence };
+      void this.cacheDocumentForOfflineCopy(file.id, JSON.stringify(result));
+      return result;
+    } catch (error) {
+      if (!isLikelyConnectivityError(error)) throw error;
+      const cached = { state, version: expectedVersion, offlineQueued: true };
+      await tauriCommands.replicaCacheDocument(
+        this.vault.serverUrl,
+        this.vault.hostedVaultId,
+        file.id,
+        JSON.stringify(cached),
+      );
+      await enqueuePendingOperation(this.vault, {
+        kind: 'viewAnnotations',
+        fileId: file.id,
+        relativePath: file.relativePath,
+        baseManifestSequence: manifest.sequence,
+        payload,
+      });
+      return cached;
+    }
+  }
+
   /**
    * Reads a desktop file through the native client, then uploads it through the
    * authenticated server gateway with a server-verified SHA-256 digest. Returns
@@ -2044,6 +2119,25 @@ export class LocalVaultClient implements VaultClient {
     _expectedVersion: number | null,
   ): Promise<VaultPdfAnnotations> {
     await tauriCommands.writePdfSidecarState(this.vault.path, relativePath, state);
+    return { state, version: null };
+  }
+
+  async readViewAnnotations(relativePath: string): Promise<VaultViewAnnotations> {
+    const content = await tauriCommands.readImageOverlay(this.vault.path, relativePath);
+    if (!content) return { state: null, version: null };
+    try {
+      return { state: JSON.parse(content), version: null };
+    } catch {
+      return { state: content, version: null };
+    }
+  }
+
+  async writeViewAnnotations(
+    relativePath: string,
+    state: InkAnnotationDocument,
+    _expectedVersion: number | null,
+  ): Promise<VaultViewAnnotations> {
+    await tauriCommands.writeImageOverlay(this.vault.path, relativePath, JSON.stringify(state));
     return { state, version: null };
   }
 }

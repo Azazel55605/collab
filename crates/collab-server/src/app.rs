@@ -245,6 +245,10 @@ pub fn build_router(state: AppState) -> Router {
             get(api::get_pdf_annotations).put(api::write_pdf_annotations),
         )
         .route(
+            "/api/v1/vaults/{vault_id}/files/{file_id}/view-annotations",
+            get(api::get_view_annotations).put(api::write_view_annotations),
+        )
+        .route(
             "/api/v1/vaults/{vault_id}/files/{file_id}/revisions",
             get(api::list_file_revisions)
                 .post(api::write_text_revision)

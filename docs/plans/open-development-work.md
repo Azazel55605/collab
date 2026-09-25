@@ -1,6 +1,6 @@
 # Open Development Work
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-09-25
 
 This is the entry point for unfinished Collab projects. Detailed requirements,
 implementation notes, and acceptance criteria remain in their canonical plan
@@ -28,7 +28,7 @@ work from being mistaken for an active roadmap item.
 | Logic and circuit diagram editor | In progress umbrella             | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream.                                                                               | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md)                                                      |
 | User calendar                    | Testing                          | Complete the Phase 9 maintained external-client CalDAV interoperability matrix. Cross-location mirroring, hardening/restore drills, and notification delivery are complete.                                             | [User Calendar Feature Plan](./user-calendar-feature-plan.md)                                                                 |
 | Collab Presentations             | Planned                          | Complete the `.deck` Phase 0 proofs for scene/text fidelity, deck-specific live text collaboration, and compatible PPTX export before beginning the editor.                                                             | [Collab Presentations Plan](./presentation-tool-plan.md)                                                                      |
-| Digital ink and annotation       | Phase 8 complete                 | Phases 0-8 are implemented. PDF sidecars now use the shared anchored ink engine with permission-aware live/offline persistence and flattened-copy export. Start Phase 9 image and shared-view annotations.              | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md), [Phase 0 Contract](./digital-ink-phase0-contract.md) |
+| Digital ink and annotation       | Phase 9 complete                 | Phases 0-9 are implemented. Image overlays now share the anchored ink engine and local/hosted offline lifecycle; begin Phase 10 accessibility, performance, and release hardening.                                      | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md), [Phase 0 Contract](./digital-ink-phase0-contract.md) |
 | Flatpak distribution             | Planned                          | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs.                              | [Flatpak Distribution Plan](./flatpak-distribution-plan.md)                                                                   |
 
 ## Recommended Dependency Order
@@ -119,9 +119,11 @@ Open tracker entries:
   desktop/mobile editors, and advanced tools.
 - Phases 6-7, **Complete**: hosted/offline collaboration and source-linked,
   deterministic PNG/SVG/PDF export.
-- Phases 8-10, **Planned**: migrate PDF/image annotations to the shared engine,
-  extend the anchored annotation contract to other viewers, and complete
-  release hardening.
+- Phases 8-9, **Complete**: PDF and image annotations use the shared engine,
+  including capability-driven anchored-view adapters, hosted/offline
+  persistence, and explicit flattened-copy export.
+- Phase 10, **Planned**: complete accessibility, performance, platform,
+  malformed-content, packaging, and collaboration soak hardening.
 - Phase 11, **Deferred**: optional handwriting/math recognition and InkML
   interchange.
 

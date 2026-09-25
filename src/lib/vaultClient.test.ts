@@ -11,6 +11,7 @@ import {
   LocalVaultClient,
   requireRuntimeCapability,
 } from './vaultClient';
+import { createAnchoredAnnotationDocument } from './viewAnnotations';
 
 vi.mock('./tauri', () => ({
   tauriCommands: {
@@ -38,6 +39,8 @@ vi.mock('./tauri', () => ({
     readNoteAssetDataUrl: vi.fn(),
     readPdfSidecarState: vi.fn(),
     writePdfSidecarState: vi.fn(),
+    readImageOverlay: vi.fn(),
+    writeImageOverlay: vi.fn(),
     readFileForUpload: vi.fn(),
     saveGeneratedImage: vi.fn(),
     hostedVaultRequest: vi.fn(),
@@ -149,8 +152,19 @@ const hostedPdf = {
   updatedAt: '2026-06-11T08:00:00Z',
 };
 
+const hostedImage = {
+  ...hostedPdf,
+  id: 'image-1',
+  name: 'photo.png',
+  relativePath: 'photo.png',
+};
+
 function mockHostedManifest(sequence = 8) {
-  return { vaultId: 'hosted-vault', sequence, files: [rootFolder, hostedDocument, hostedPdf] };
+  return {
+    vaultId: 'hosted-vault',
+    sequence,
+    files: [rootFolder, hostedDocument, hostedPdf, hostedImage],
+  };
 }
 
 describe('LocalVaultClient', () => {
@@ -1819,6 +1833,73 @@ describe('PDF annotations', () => {
       'https://collab.example.test',
       'hosted-vault',
       expect.objectContaining({ kind: 'pdfAnnotations', fileId: 'pdf-1' }),
+    );
+  });
+});
+
+describe('anchored view annotations', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('keeps local image sidecars compatible with the existing filesystem location', async () => {
+    const document = createAnchoredAnnotationDocument('photo.png');
+    vi.mocked(tauriCommands.readImageOverlay).mockResolvedValue(JSON.stringify(document));
+    const client = new LocalVaultClient(vault);
+
+    await expect(client.readViewAnnotations('photo.png')).resolves.toEqual({
+      state: document,
+      version: null,
+    });
+    await client.writeViewAnnotations('photo.png', document, null);
+
+    expect(tauriCommands.readImageOverlay).toHaveBeenCalledWith('/vault', 'photo.png');
+    expect(tauriCommands.writeImageOverlay).toHaveBeenCalledWith(
+      '/vault',
+      'photo.png',
+      JSON.stringify(document),
+    );
+  });
+
+  it('reads and writes hosted view annotations with optimistic sequencing', async () => {
+    const document = createAnchoredAnnotationDocument('photo.png');
+    vi.mocked(tauriCommands.hostedVaultRequest)
+      .mockResolvedValueOnce(mockHostedManifest())
+      .mockResolvedValueOnce({ state: document, sequence: 2 })
+      .mockResolvedValueOnce(mockHostedManifest())
+      .mockResolvedValueOnce({ state: document, sequence: 3 });
+    const client = new HostedVaultClient(hostedVault);
+
+    await expect(client.readViewAnnotations('photo.png')).resolves.toEqual({
+      state: document,
+      version: 2,
+    });
+    await expect(client.writeViewAnnotations('photo.png', document, 2)).resolves.toEqual({
+      state: document,
+      version: 3,
+    });
+    expect(tauriCommands.hostedVaultRequest).toHaveBeenLastCalledWith(
+      'https://collab.example.test',
+      'PUT',
+      '/api/v1/vaults/hosted-vault/files/image-1/view-annotations',
+      { expectedSequence: 2, state: document },
+    );
+  });
+
+  it('queues hosted view annotations for offline replay', async () => {
+    const document = createAnchoredAnnotationDocument('photo.png');
+    vi.mocked(tauriCommands.hostedVaultRequest)
+      .mockResolvedValueOnce(mockHostedManifest())
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const client = new HostedVaultClient(hostedVault);
+
+    await expect(client.writeViewAnnotations('photo.png', document, 4)).resolves.toMatchObject({
+      state: document,
+      version: 4,
+      offlineQueued: true,
+    });
+    expect(tauriCommands.replicaEnqueueOperation).toHaveBeenCalledWith(
+      'https://collab.example.test',
+      'hosted-vault',
+      expect.objectContaining({ kind: 'viewAnnotations', fileId: 'image-1' }),
     );
   });
 });

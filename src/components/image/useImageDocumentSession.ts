@@ -10,62 +10,57 @@ import {
 } from '../../lib/documentSessionController';
 import { tauriCommands } from '../../lib/tauri';
 import { createVaultClient } from '../../lib/vaultClient';
-import type { ImageOverlayDocument, PermanentImageEdits } from '../../types/image';
+import { onReplicaMutated, replicaMutationAffectsPath } from '../../lib/vaultReplica';
+import { migrateImageAnnotations } from '../../lib/viewAnnotations';
+import type { ImageCropRect, PermanentImageEdits } from '../../types/image';
+import type { InkAnnotationDocument } from '../../types/ink';
 import type { VaultMeta } from '../../types/vault';
+import { vaultCan } from '../../types/vault';
 
 import { createEmptyEdits, type Dimensions, EMPTY_SIZE, isPermanentDirty } from './ImageViewUtils';
 
-function getImageOutputFolder(relativePath: string | null) {
-  if (!relativePath) return 'Pictures';
+function outputFolder(relativePath: string) {
   const normalized = relativePath.replace(/\\/g, '/');
-  const slashIndex = normalized.lastIndexOf('/');
-  if (slashIndex < 0) return '';
-  return normalized.slice(0, slashIndex);
+  const slash = normalized.lastIndexOf('/');
+  return slash < 0 ? '' : normalized.slice(0, slash);
 }
 
-function getUniqueImageOutputFileName(
+function uniqueOutputName(
   files: Array<{ relativePath: string }>,
-  targetFolder: string,
+  folder: string,
   suggestedName: string,
 ) {
-  const prefix = targetFolder ? `${targetFolder}/` : '';
-  const existingPaths = new Set(files.map((file) => file.relativePath));
-  if (!existingPaths.has(`${prefix}${suggestedName}`)) return suggestedName;
-
-  const dotIndex = suggestedName.lastIndexOf('.');
-  const stem = dotIndex > 0 ? suggestedName.slice(0, dotIndex) : suggestedName;
-  const extension = dotIndex > 0 ? suggestedName.slice(dotIndex) : '';
+  const prefix = folder ? `${folder}/` : '';
+  const existing = new Set(files.map((file) => file.relativePath));
+  if (!existing.has(`${prefix}${suggestedName}`)) return suggestedName;
+  const dot = suggestedName.lastIndexOf('.');
+  const stem = dot > 0 ? suggestedName.slice(0, dot) : suggestedName;
+  const extension = dot > 0 ? suggestedName.slice(dot) : '';
   for (let index = 2; index < 1000; index += 1) {
     const candidate = `${stem}-${index}${extension}`;
-    if (!existingPaths.has(`${prefix}${candidate}`)) return candidate;
+    if (!existing.has(`${prefix}${candidate}`)) return candidate;
   }
   return `${stem}-${Date.now()}${extension}`;
 }
 
-interface UseImageDocumentSessionOptions {
+interface Options {
   vault: VaultMeta | null;
   relativePath: string | null;
   refreshFileTree: () => Promise<void>;
-  openTab: (
-    relativePath: string,
-    title: string,
-    type?: 'note' | 'image' | 'pdf' | 'canvas' | 'kanban' | 'graph' | 'settings',
-  ) => void;
+  openTab: (relativePath: string, title: string, type?: 'image') => void;
   markDirty: (path: string) => void;
   markSaved: (path: string, hash: string) => void;
   mode: 'view' | 'additive' | 'permanent';
   image: HTMLImageElement | null;
   dimensions: Dimensions | null;
-  overlayDoc: ImageOverlayDocument | null;
-  overlayLoaded: boolean;
-  persistedOverlaySignature: string;
+  annotationDoc: InkAnnotationDocument | null;
+  annotationsLoaded: boolean;
   permanentEdits: PermanentImageEdits;
   cropMode: boolean;
   permanentDisplayDimensions: Dimensions;
   saveIntent: 'permanent' | 'flatten' | null;
   previewCanvasRef: React.RefObject<HTMLCanvasElement | null>;
   loadImage: (dataUrl: string) => Promise<HTMLImageElement>;
-  createEmptyOverlayDocument: (dimensions: Dimensions) => ImageOverlayDocument;
   buildPermanentCanvas: (
     image: HTMLImageElement,
     edits: PermanentImageEdits,
@@ -76,11 +71,11 @@ interface UseImageDocumentSessionOptions {
     target: HTMLCanvasElement,
     display: Dimensions,
   ) => void;
-  drawOverlayToCanvas: (
+  drawAnnotationsToCanvas: (
     ctx: CanvasRenderingContext2D,
-    overlay: ImageOverlayDocument | null,
+    annotations: InkAnnotationDocument,
     dimensions: Dimensions,
-  ) => void;
+  ) => Promise<void>;
   getOutputMime: (path: string | null) => 'image/png' | 'image/jpeg' | 'image/webp';
   getOutputFileName: (path: string | null, mime: string) => string;
   getBaseName: (path: string | null) => string;
@@ -89,334 +84,241 @@ interface UseImageDocumentSessionOptions {
   setDimensions: React.Dispatch<React.SetStateAction<Dimensions | null>>;
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
   setError: React.Dispatch<React.SetStateAction<string | null>>;
-  setOverlayDoc: React.Dispatch<React.SetStateAction<ImageOverlayDocument | null>>;
-  setOverlayLoaded: React.Dispatch<React.SetStateAction<boolean>>;
-  setPersistedOverlaySignature: React.Dispatch<React.SetStateAction<string>>;
-  setSelectedItemId: React.Dispatch<React.SetStateAction<string | null>>;
-  setDraftArrow: React.Dispatch<React.SetStateAction<any>>;
-  setDraftStroke: React.Dispatch<React.SetStateAction<any>>;
+  setAnnotationDoc: React.Dispatch<React.SetStateAction<InkAnnotationDocument | null>>;
+  setAnnotationsLoaded: React.Dispatch<React.SetStateAction<boolean>>;
   setPermanentEdits: React.Dispatch<React.SetStateAction<PermanentImageEdits>>;
   setCropMode: React.Dispatch<React.SetStateAction<boolean>>;
-  setCropDraft: React.Dispatch<React.SetStateAction<any>>;
-  setCropDragStart: React.Dispatch<React.SetStateAction<any>>;
-  setCropInteraction: React.Dispatch<React.SetStateAction<any>>;
+  setCropDraft: React.Dispatch<React.SetStateAction<ImageCropRect | null>>;
   setZoomPercent: React.Dispatch<React.SetStateAction<number>>;
-  setEditingTextId: React.Dispatch<React.SetStateAction<string | null>>;
-  setTextInteraction: React.Dispatch<React.SetStateAction<any>>;
-  setArrowInteraction: React.Dispatch<React.SetStateAction<any>>;
   setSaveIntent: React.Dispatch<React.SetStateAction<'permanent' | 'flatten' | null>>;
   setSaving: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-export function useImageDocumentSession({
-  vault,
-  relativePath,
-  refreshFileTree,
-  openTab,
-  markDirty,
-  markSaved,
-  mode,
-  image,
-  dimensions,
-  overlayDoc,
-  overlayLoaded,
-  permanentEdits,
-  cropMode,
-  permanentDisplayDimensions,
-  saveIntent,
-  previewCanvasRef,
-  loadImage,
-  createEmptyOverlayDocument,
-  buildPermanentCanvas,
-  renderCanvasToElement,
-  drawOverlayToCanvas,
-  getOutputMime,
-  getOutputFileName,
-  getBaseName,
-  setSrc,
-  setImage,
-  setDimensions,
-  setLoading,
-  setError,
-  setOverlayDoc,
-  setOverlayLoaded,
-  setPersistedOverlaySignature,
-  setSelectedItemId,
-  setDraftArrow,
-  setDraftStroke,
-  setPermanentEdits,
-  setCropMode,
-  setCropDraft,
-  setCropDragStart,
-  setCropInteraction,
-  setZoomPercent,
-  setEditingTextId,
-  setTextInteraction,
-  setArrowInteraction,
-  setSaveIntent,
-  setSaving,
-}: UseImageDocumentSessionOptions) {
-  const vaultClient = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
-  // Additive overlays are stored as local filesystem sidecars. Hosted vaults can
-  // still persist baked raster edits through their asset upload capability.
-  const supportsImageEditing = useMemo(
-    () => vaultClient?.capabilities.nativeFilesystem ?? false,
-    [vaultClient],
-  );
-  const hostedAssetImporter = vaultClient?.runtime.externalAssetImport ?? null;
-  const vaultPath = vault?.path ?? null;
-  const overlayFallbackDimensionsRef = useRef<Dimensions>(EMPTY_SIZE);
-  overlayFallbackDimensionsRef.current =
-    dimensions ??
-    (overlayDoc ? { width: overlayDoc.baseWidth, height: overlayDoc.baseHeight } : EMPTY_SIZE);
+export function useImageDocumentSession(options: Options) {
+  const {
+    vault,
+    relativePath,
+    refreshFileTree,
+    openTab,
+    markDirty,
+    markSaved,
+    mode,
+    image,
+    dimensions,
+    annotationDoc,
+    annotationsLoaded,
+    permanentEdits,
+    cropMode,
+    permanentDisplayDimensions,
+    saveIntent,
+    previewCanvasRef,
+    loadImage,
+    buildPermanentCanvas,
+    renderCanvasToElement,
+    drawAnnotationsToCanvas,
+    getOutputMime,
+    getOutputFileName,
+    getBaseName,
+    setSrc,
+    setImage,
+    setDimensions,
+    setLoading,
+    setError,
+    setAnnotationDoc,
+    setAnnotationsLoaded,
+    setPermanentEdits,
+    setCropMode,
+    setCropDraft,
+    setZoomPercent,
+    setSaveIntent,
+    setSaving,
+  } = options;
+  const client = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
+  const canAnnotate = !vault || vault.kind !== 'hosted' || vaultCan(vault, 'view.annotate');
+  const importer = client?.runtime.externalAssetImport ?? null;
+  const fallbackDimensions = useRef(EMPTY_SIZE);
+  fallbackDimensions.current = dimensions ?? EMPTY_SIZE;
   const permanentDirty = useMemo(() => isPermanentDirty(permanentEdits), [permanentEdits]);
 
-  const serializeOverlay = useCallback((doc: ImageOverlayDocument) => JSON.stringify(doc), []);
-  const parseOverlay = useCallback(
-    (content: string) => JSON.parse(content) as ImageOverlayDocument,
-    [],
-  );
-  const applyOverlayDocument = useCallback(
-    (candidate: RemoteCandidate<ImageOverlayDocument>) => {
-      setOverlayDoc(candidate.document);
-      setPersistedOverlaySignature(candidate.content);
-      setOverlayLoaded(true);
+  const serialize = useCallback((document: InkAnnotationDocument) => JSON.stringify(document), []);
+  const deserialize = useCallback(
+    (content: string) => {
+      const size = fallbackDimensions.current;
+      return migrateImageAnnotations(
+        JSON.parse(content),
+        relativePath ?? '',
+        size.width,
+        size.height,
+      ).document;
     },
-    [setOverlayDoc, setOverlayLoaded, setPersistedOverlaySignature],
+    [relativePath],
   );
-  const readOverlayDocument = useCallback(
-    async (fallbackDimensions?: Dimensions): Promise<{ content: string; version: string }> => {
-      const dimensionsForFallback = fallbackDimensions ?? overlayFallbackDimensionsRef.current;
-      if (!vaultPath || !relativePath) {
-        const fallback = createEmptyOverlayDocument(dimensionsForFallback);
-        const content = JSON.stringify(fallback);
-        return { content, version: content };
-      }
-      const overlayContent = await tauriCommands.readImageOverlay(vaultPath, relativePath);
-      if (overlayContent) return { content: overlayContent, version: overlayContent };
-      const fallback = createEmptyOverlayDocument(dimensionsForFallback);
-      const content = JSON.stringify(fallback);
-      return { content, version: content };
+  const apply = useCallback(
+    (candidate: RemoteCandidate<InkAnnotationDocument>) => {
+      setAnnotationDoc(candidate.document);
+      setAnnotationsLoaded(true);
     },
-    [createEmptyOverlayDocument, relativePath, vaultPath],
+    [setAnnotationDoc, setAnnotationsLoaded],
+  );
+  const read = useCallback(
+    async (size = fallbackDimensions.current) => {
+      if (!client || !relativePath) return null;
+      const response = await client.readViewAnnotations(relativePath);
+      const migration = migrateImageAnnotations(
+        response.state,
+        relativePath,
+        size.width,
+        size.height,
+      );
+      migration.warnings.forEach((warning) => toast.warning(warning));
+      const content = serialize(migration.document);
+      return { content, version: response.version === null ? content : String(response.version) };
+    },
+    [client, relativePath, serialize],
   );
 
-  const { controller: overlayController, snapshot: overlaySnapshot } =
-    useDocumentSessionController<ImageOverlayDocument>({
-      serialize: serializeOverlay,
-      deserialize: parseOverlay,
-      applyDocument: applyOverlayDocument,
-      read: async () => {
-        if (!supportsImageEditing || !vaultPath || !relativePath) return null;
-        return readOverlayDocument();
-      },
-      write: async ({ content, expectedVersion }) => {
-        if (!supportsImageEditing || !vaultPath || !relativePath)
-          return { version: expectedVersion ?? content };
-        const parsed = parseOverlay(content);
-        if (parsed.items.length === 0) {
-          await tauriCommands.deleteImageOverlay(vaultPath, relativePath);
-          const emptyContent = JSON.stringify(parsed);
-          setPersistedOverlaySignature('');
-          return { version: emptyContent, mergedContent: emptyContent };
-        }
-        const toPersist = JSON.stringify({ ...parsed, updatedAt: Date.now() });
-        await tauriCommands.writeImageOverlay(vaultPath, relativePath, toPersist);
-        setPersistedOverlaySignature(toPersist);
-        return { version: toPersist, mergedContent: toPersist };
-      },
-      autosaveDebounceMs: 450,
-    });
-
-  const overlayDirty = overlayLoaded && overlaySnapshot.dirty;
-  const overlayStatus: DocumentStatus = overlaySnapshot.status;
-  const loadRemoteOverlay = useCallback(() => {
-    if (overlaySnapshot.conflicted) overlayController.resolveConflict('load-remote');
-    else overlayController.applyRemoteNow();
-  }, [overlayController, overlaySnapshot.conflicted]);
-  const keepLocalOverlay = useCallback(() => {
-    if (overlaySnapshot.conflicted) overlayController.resolveConflict('keep-local');
-    else overlayController.discardRemoteCandidate();
-  }, [overlayController, overlaySnapshot.conflicted]);
+  const { controller, snapshot } = useDocumentSessionController<InkAnnotationDocument>({
+    serialize,
+    deserialize,
+    applyDocument: apply,
+    read: () => read(),
+    write: async ({ content, expectedVersion }) => {
+      if (!client || !relativePath) return { version: expectedVersion ?? content };
+      const result = await client.writeViewAnnotations(
+        relativePath,
+        deserialize(content),
+        expectedVersion && /^\d+$/.test(expectedVersion) ? Number(expectedVersion) : null,
+      );
+      const mergedContent = serialize(result.state as InkAnnotationDocument);
+      return {
+        version: result.version === null ? mergedContent : String(result.version),
+        mergedContent,
+        offlineQueued: result.offlineQueued,
+      };
+    },
+    autosaveDebounceMs: 450,
+  });
 
   useEffect(() => {
-    if (!vault || !relativePath || !vaultClient) {
+    if (!vault || !relativePath || !client) {
       setSrc(null);
       setImage(null);
-      setOverlayDoc(null);
+      setAnnotationDoc(null);
       setDimensions(null);
       setError('No image selected');
       return;
     }
-
     let cancelled = false;
     setLoading(true);
     setError(null);
-    setOverlayLoaded(false);
-    setSelectedItemId(null);
-    setDraftArrow(null);
-    setDraftStroke(null);
+    setAnnotationsLoaded(false);
     setPermanentEdits(createEmptyEdits());
     setCropMode(false);
     setCropDraft(null);
-    setCropDragStart(null);
-    setCropInteraction(null);
     setZoomPercent(100);
-    setEditingTextId(null);
-    setTextInteraction(null);
-    setArrowInteraction(null);
-
-    vaultClient
+    client
       .readAssetDataUrl(relativePath)
       .then(async (dataUrl) => {
         const decoded = await loadImage(dataUrl);
-        if (cancelled) return;
-        const decodedDimensions = { width: decoded.naturalWidth, height: decoded.naturalHeight };
+        if (cancelled) return null;
+        const size = { width: decoded.naturalWidth, height: decoded.naturalHeight };
+        fallbackDimensions.current = size;
         setSrc(dataUrl);
         setImage(decoded);
-        setDimensions(decodedDimensions);
-        return { decodedDimensions };
+        setDimensions(size);
+        return size;
       })
-      .then(async (loaded) => {
-        if (!vault || !relativePath || cancelled) return;
-        // Hosted vaults cannot persist overlay sidecars; start from an empty overlay.
-        if (!supportsImageEditing) {
-          setOverlayDoc(createEmptyOverlayDocument(loaded?.decodedDimensions ?? EMPTY_SIZE));
-          setPersistedOverlaySignature('');
-          setOverlayLoaded(true);
-          return;
-        }
-        try {
-          const loadedOverlay = await readOverlayDocument(loaded?.decodedDimensions ?? EMPTY_SIZE);
-          if (cancelled) return;
-          overlayController.load(loadedOverlay.content, loadedOverlay.version, 'local');
-        } catch (overlayError) {
-          if (!cancelled) {
-            setOverlayDoc(createEmptyOverlayDocument(loaded?.decodedDimensions ?? EMPTY_SIZE));
-            setPersistedOverlaySignature('');
-            setOverlayLoaded(true);
-            toast.error(`Failed to load additive annotations: ${overlayError}`);
-          }
-        }
+      .then(async (size) => {
+        if (!size || cancelled) return;
+        const loaded = await read(size);
+        if (!loaded || cancelled) return;
+        controller.load(loaded.content, loaded.version, vault.kind === 'hosted' ? 'rest' : 'local');
       })
-      .catch((loadError) => {
-        if (cancelled) return;
-        setSrc(null);
-        setImage(null);
-        setDimensions(null);
-        setOverlayDoc(null);
-        setOverlayLoaded(false);
-        setError(String(loadError));
+      .catch((reason) => {
+        if (!cancelled) setError(String(reason));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
-
     return () => {
       cancelled = true;
     };
   }, [
-    createEmptyOverlayDocument,
+    client,
+    controller,
     loadImage,
+    read,
     relativePath,
-    readOverlayDocument,
-    setArrowInteraction,
-    setCropDragStart,
+    setAnnotationDoc,
+    setAnnotationsLoaded,
     setCropDraft,
-    setCropInteraction,
     setCropMode,
     setDimensions,
-    setDraftArrow,
-    setDraftStroke,
-    setEditingTextId,
     setError,
     setImage,
     setLoading,
-    setOverlayDoc,
-    setOverlayLoaded,
     setPermanentEdits,
-    setPersistedOverlaySignature,
-    setSelectedItemId,
     setSrc,
-    setTextInteraction,
     setZoomPercent,
-    supportsImageEditing,
-    overlayController,
-    vaultClient,
-    vault?.path,
+    vault,
   ]);
 
   useEffect(() => {
-    if (!dimensions) return;
-    if (!overlayDoc) {
-      setOverlayDoc(createEmptyOverlayDocument(dimensions));
-      return;
-    }
-
-    if (overlayDoc.baseWidth === dimensions.width && overlayDoc.baseHeight === dimensions.height) {
-      return;
-    }
-
-    setOverlayDoc((current) =>
-      current
-        ? {
-            ...current,
-            baseWidth: dimensions.width,
-            baseHeight: dimensions.height,
-            updatedAt: Date.now(),
-          }
-        : createEmptyOverlayDocument(dimensions),
-    );
-  }, [createEmptyOverlayDocument, dimensions, overlayDoc, setOverlayDoc]);
+    if (annotationsLoaded && annotationDoc && canAnnotate)
+      controller.markLocalChange(annotationDoc);
+  }, [annotationDoc, annotationsLoaded, canAnnotate, controller]);
 
   useEffect(() => {
     if (!relativePath) return;
-    if (overlayDirty || permanentDirty) markDirty(relativePath);
-    else markSaved(relativePath, `image:${overlaySnapshot.loadedVersion ?? ''}`);
-  }, [
-    markDirty,
-    markSaved,
-    overlayDirty,
-    permanentDirty,
-    relativePath,
-    overlaySnapshot.loadedVersion,
-  ]);
+    if (snapshot.dirty || permanentDirty) markDirty(relativePath);
+    else markSaved(relativePath, `image:${snapshot.loadedVersion ?? ''}`);
+  }, [markDirty, markSaved, permanentDirty, relativePath, snapshot.dirty, snapshot.loadedVersion]);
 
   useEffect(() => {
-    if (!overlayLoaded || !overlayDoc || !supportsImageEditing) return;
-    overlayController.markLocalChange(overlayDoc);
-  }, [overlayController, overlayDoc, overlayLoaded, supportsImageEditing]);
-
-  useEffect(() => {
-    if (!vaultPath || !relativePath || !supportsImageEditing) return;
+    if (!vault || !relativePath || vault.kind === 'hosted') return;
     let unlisten: (() => void) | undefined;
     listen<{ path: string }>('vault:file-modified', async (event) => {
       if (event.payload?.path !== relativePath) return;
-      if (Date.now() - overlayController.getSnapshot().lastLocalWriteStartedAt < 2000) return;
-      await overlayController.handleExternalMutation('local');
-    }).then((cleanup) => {
-      unlisten = cleanup;
-    });
-    return () => {
-      unlisten?.();
-    };
-  }, [overlayController, relativePath, supportsImageEditing, vaultPath]);
+      if (Date.now() - controller.getSnapshot().lastLocalWriteStartedAt < 2000) return;
+      await controller.handleExternalMutation('local');
+    }).then((cleanup) => (unlisten = cleanup));
+    return () => unlisten?.();
+  }, [controller, relativePath, vault]);
 
   useEffect(() => {
-    if (!overlaySnapshot.conflicted) return;
-    toast.error(
-      'Image annotations changed elsewhere. Review the pending changes before editing further.',
+    if (!vault || vault.kind !== 'hosted' || !relativePath) return;
+    return onReplicaMutated(
+      async (event) => {
+        if (replicaMutationAffectsPath(event, relativePath))
+          await controller.handleExternalMutation('cache');
+      },
+      { kinds: ['manifest'] },
     );
-  }, [overlaySnapshot.conflicted]);
+  }, [controller, relativePath, vault]);
+
+  useEffect(() => {
+    if (!vault || vault.kind !== 'hosted' || !relativePath || !annotationsLoaded) return;
+    const check = () => void controller.handleExternalMutation('rest');
+    const interval = window.setInterval(check, 2_000);
+    window.addEventListener('focus', check);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', check);
+    };
+  }, [annotationsLoaded, controller, relativePath, vault]);
+
+  useEffect(() => {
+    if (snapshot.conflicted)
+      toast.error('Image annotations changed elsewhere. Review the pending changes.');
+  }, [snapshot.conflicted]);
 
   useEffect(() => {
     if (mode !== 'permanent' || !image || !previewCanvasRef.current) return;
-    const target = previewCanvasRef.current;
     const rendered = buildPermanentCanvas(image, permanentEdits, {
       ignoreCrop: cropMode,
       ignoreResize: cropMode,
     }).canvas;
-    renderCanvasToElement(rendered, target, permanentDisplayDimensions);
+    renderCanvasToElement(rendered, previewCanvasRef.current, permanentDisplayDimensions);
   }, [
     buildPermanentCanvas,
     cropMode,
@@ -430,116 +332,97 @@ export function useImageDocumentSession({
 
   const saveImageOutput = useCallback(
     async (overwrite: boolean) => {
-      if (!vault || !relativePath || !image || !saveIntent) return;
-      if (!supportsImageEditing && !hostedAssetImporter) {
+      if (!vault || !relativePath || !image || !saveIntent || !client) return;
+      if (!client.capabilities.nativeFilesystem && !importer) {
         toast.error('Saving edited images is not supported for this vault.');
         return;
       }
-      if (!supportsImageEditing && overwrite) {
-        toast.error('Overwriting hosted images is not yet supported. Save as a new file instead.');
+      if (!client.capabilities.nativeFilesystem && overwrite) {
+        toast.error('Hosted images can only be saved as a new file.');
         return;
       }
-
-      const renderCanvas =
-        saveIntent === 'flatten'
-          ? (() => {
-              const canvas = document.createElement('canvas');
-              canvas.width = image.naturalWidth;
-              canvas.height = image.naturalHeight;
-              const ctx = canvas.getContext('2d');
-              ctx?.drawImage(image, 0, 0);
-              if (ctx && overlayDoc) {
-                drawOverlayToCanvas(ctx, overlayDoc, {
-                  width: image.naturalWidth,
-                  height: image.naturalHeight,
-                });
-              }
-              return canvas;
-            })()
-          : buildPermanentCanvas(image, permanentEdits).canvas;
-
-      const targetMime = overwrite
+      if (saveIntent === 'flatten' && overwrite) {
+        toast.error(
+          'Baked annotations are exported as a copy so the editable sidecar stays intact.',
+        );
+        return;
+      }
+      const canvas =
+        saveIntent === 'permanent'
+          ? buildPermanentCanvas(image, permanentEdits).canvas
+          : (() => {
+              const target = document.createElement('canvas');
+              target.width = image.naturalWidth;
+              target.height = image.naturalHeight;
+              target.getContext('2d')?.drawImage(image, 0, 0);
+              return target;
+            })();
+      if (saveIntent === 'flatten' && annotationDoc) {
+        const context = canvas.getContext('2d');
+        if (context)
+          await drawAnnotationsToCanvas(context, annotationDoc, {
+            width: image.naturalWidth,
+            height: image.naturalHeight,
+          });
+      }
+      const mime = overwrite
         ? getOutputMime(relativePath)
-        : saveIntent === 'permanent'
-          ? getOutputMime(relativePath)
-          : 'image/png';
-      const dataUrl = renderCanvas.toDataURL(
-        targetMime,
-        targetMime === 'image/jpeg' ? 0.92 : undefined,
-      );
-
+        : saveIntent === 'flatten'
+          ? 'image/png'
+          : getOutputMime(relativePath);
+      const dataUrl = canvas.toDataURL(mime, mime === 'image/jpeg' ? 0.92 : undefined);
       try {
         setSaving(true);
-        const savedRelativePath = supportsImageEditing
+        const savedPath = client.capabilities.nativeFilesystem
           ? await tauriCommands.saveGeneratedImage(
               vault.path,
               relativePath,
               dataUrl,
               overwrite,
-              overwrite ? undefined : getOutputFileName(relativePath, targetMime),
+              overwrite ? undefined : getOutputFileName(relativePath, mime),
             )
           : await (async () => {
-              const targetFolder = getImageOutputFolder(relativePath);
-              const suggestedName = getUniqueImageOutputFileName(
-                await vaultClient!.listFiles(),
-                targetFolder,
-                getOutputFileName(relativePath, targetMime),
+              const folder = outputFolder(relativePath);
+              const name = uniqueOutputName(
+                await client.listFiles(),
+                folder,
+                getOutputFileName(relativePath, mime),
               );
-              return hostedAssetImporter!.importData(dataUrl, suggestedName, targetFolder);
+              return importer!.importData(dataUrl, name, folder);
             })();
-
-        if (saveIntent === 'flatten' && overwrite) {
-          await tauriCommands.deleteImageOverlay(vault.path, relativePath);
-          const emptyDoc = createEmptyOverlayDocument({
-            width: image.naturalWidth,
-            height: image.naturalHeight,
-          });
-          setOverlayDoc(emptyDoc);
-          setPersistedOverlaySignature('');
-          setSelectedItemId(null);
-        }
-
         if (saveIntent === 'permanent') {
           setPermanentEdits(createEmptyEdits());
           setCropMode(false);
           setCropDraft(null);
         }
-
         await refreshFileTree();
-
         if (overwrite) {
-          const refreshedDataUrl = await vaultClient!.readAssetDataUrl(savedRelativePath);
-          const refreshedImage = await loadImage(refreshedDataUrl);
-          setSrc(refreshedDataUrl);
-          setImage(refreshedImage);
-          setDimensions({
-            width: refreshedImage.naturalWidth,
-            height: refreshedImage.naturalHeight,
-          });
-        } else {
-          openTab(savedRelativePath, getBaseName(savedRelativePath), 'image');
-        }
-
+          const refreshedUrl = await client.readAssetDataUrl(savedPath);
+          const refreshed = await loadImage(refreshedUrl);
+          setSrc(refreshedUrl);
+          setImage(refreshed);
+          setDimensions({ width: refreshed.naturalWidth, height: refreshed.naturalHeight });
+        } else openTab(savedPath, getBaseName(savedPath), 'image');
         toast.success(overwrite ? 'Image updated' : 'Edited image saved as a new file');
         setSaveIntent(null);
-      } catch (saveError) {
-        toast.error(`Failed to save image: ${saveError}`);
+      } catch (reason) {
+        toast.error(`Failed to save image: ${reason}`);
       } finally {
         setSaving(false);
       }
     },
     [
+      annotationDoc,
       buildPermanentCanvas,
-      createEmptyOverlayDocument,
-      drawOverlayToCanvas,
+      client,
+      drawAnnotationsToCanvas,
       getBaseName,
       getOutputFileName,
       getOutputMime,
-      hostedAssetImporter,
       image,
+      importer,
       loadImage,
       openTab,
-      overlayDoc,
       permanentEdits,
       refreshFileTree,
       relativePath,
@@ -548,25 +431,29 @@ export function useImageDocumentSession({
       setCropMode,
       setDimensions,
       setImage,
-      setOverlayDoc,
-      setPersistedOverlaySignature,
       setPermanentEdits,
       setSaveIntent,
       setSaving,
-      setSelectedItemId,
       setSrc,
-      supportsImageEditing,
       vault,
-      vaultClient,
     ],
   );
 
+  const loadRemoteAnnotations = useCallback(() => {
+    if (snapshot.conflicted) controller.resolveConflict('load-remote');
+    else controller.applyRemoteNow();
+  }, [controller, snapshot.conflicted]);
+  const keepLocalAnnotations = useCallback(() => {
+    if (snapshot.conflicted) controller.resolveConflict('keep-local');
+    else controller.discardRemoteCandidate();
+  }, [controller, snapshot.conflicted]);
+
   return {
-    overlayDirty,
-    overlayStatus,
+    annotationStatus: snapshot.status as DocumentStatus,
+    canAnnotate,
     permanentDirty,
     saveImageOutput,
-    loadRemoteOverlay,
-    keepLocalOverlay,
+    loadRemoteAnnotations,
+    keepLocalAnnotations,
   };
 }

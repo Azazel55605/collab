@@ -519,8 +519,17 @@ async fn replay_operation(
                     "A queued PDF annotation update has no target file id.",
                 )
             })?;
+            let path = format!("/api/v1/vaults/{}/files/{target}/pdf-annotations", vault.id);
+            let _: Value = request_json(session, Method::PUT, &path, Some(payload)).await?;
+        }
+        PendingOpKind::ViewAnnotations => {
+            let target = operation.file_id.as_deref().ok_or_else(|| {
+                JobExecutionError::persistence(
+                    "A queued view annotation update has no target file id.",
+                )
+            })?;
             let path = format!(
-                "/api/v1/vaults/{}/files/{target}/pdf-annotations",
+                "/api/v1/vaults/{}/files/{target}/view-annotations",
                 vault.id
             );
             let _: Value = request_json(session, Method::PUT, &path, Some(payload)).await?;
