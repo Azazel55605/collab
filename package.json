@@ -53,6 +53,7 @@
     "android:build:aab": "node scripts/tauri-command.mjs android build --aab --config src-tauri/tauri.android.conf.json",
     "preview": "vite preview",
     "test": "vitest run",
+    "ink:release:check": "vitest run src/lib/ink src/components/ink/InkCanvas.test.tsx src/components/ink/InkSidePanel.test.tsx src/lib/ink/useInkSession.test.tsx && vitest run --config apps/mobile-android/vitest.config.ts apps/mobile-android/src/lib/ink.test.ts apps/mobile-android/src/screens/InkScreen.test.tsx",
     "admin:build": "vite build --config apps/admin-web/vite.config.ts && tsc --noEmit -p apps/admin-web/tsconfig.json",
     "admin:test": "vitest run --config apps/admin-web/vite.config.ts",
     "admin:dev": "vite --config apps/admin-web/vite.config.ts",

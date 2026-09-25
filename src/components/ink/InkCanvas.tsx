@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { shouldHoldToStraighten } from '../../lib/ink/advancedTools';
 import { INK_LIGHT_PALETTE, resolveInkColor } from '../../lib/ink/colors';
 import type { InkColorPalette } from '../../lib/ink/colors';
 import type { InkEraserPoint } from '../../lib/ink/erase';
+import { planInkPageInvalidation } from '../../lib/ink/invalidation';
 import {
   INK_DEFAULT_INPUT_SETTINGS,
   InkContactArbiter,
@@ -148,6 +149,19 @@ const ZOOM_STEP = 1.15;
 /** Handle size in CSS pixels — a comfortable mouse and touch target. */
 const HANDLE_PX = 9;
 const ROTATION_HANDLE_OFFSET_PX = 28;
+const KEYBOARD_PLACE_TOOLS = new Set<InkToolState['tool']>([
+  'shape',
+  'connector',
+  'text',
+  'sticky',
+  'image',
+  'stamp',
+  'equation',
+  'ruler',
+  'protractor',
+  'compass',
+  'guide',
+]);
 
 type Gesture =
   | { kind: 'none' }
@@ -227,10 +241,12 @@ export default function InkCanvas({
   className,
 }: InkCanvasProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const accessibilityId = useId();
   const tileCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const liveCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const loupeCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<InkTileRenderer<CanvasTile> | null>(null);
+  const previousPageRef = useRef<InkPage | null>(null);
   const arbiterRef = useRef(new InkContactArbiter(inputSettings));
   const gestureRef = useRef<Gesture>({ kind: 'none' });
   const [gestureKind, setGestureKind] = useState<Gesture['kind']>('none');
@@ -261,12 +277,15 @@ export default function InkCanvas({
     [page, selectedIds],
   );
 
-  // The scene changes identity on every edit. Phase 3 drops the whole cache
-  // rather than deriving which tiles moved; the targeted path exists
-  // (`invalidateMoved`) and is what a later pass should wire to edit bounds.
   useEffect(() => {
-    rendererRef.current?.invalidateAll();
-  }, [page?.scene, page?.id, page?.background]);
+    const renderer = rendererRef.current;
+    const plan = planInkPageInvalidation(previousPageRef.current, page);
+    if (plan.kind === 'all') renderer?.invalidateAll();
+    else if (plan.kind === 'bounds') {
+      for (const bounds of plan.bounds) renderer?.invalidateBounds(bounds);
+    }
+    previousPageRef.current = page;
+  }, [page]);
 
   useLayoutEffect(() => {
     const host = hostRef.current;
@@ -999,12 +1018,68 @@ export default function InkCanvas({
 
   const gesture = gestureRef.current;
 
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    const step = unitsPerPixel * (event.shiftKey ? 10 : 1);
+    if (!readOnly && selectedIds.length > 0 && event.key.startsWith('Arrow')) {
+      if (
+        event.altKey &&
+        event.shiftKey &&
+        (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+      ) {
+        onRotateSelection((event.key === 'ArrowLeft' ? -1 : 1) * (Math.PI / 12));
+      } else if (event.altKey) {
+        const handle: InkResizeHandle =
+          event.key === 'ArrowLeft'
+            ? 'w'
+            : event.key === 'ArrowRight'
+              ? 'e'
+              : event.key === 'ArrowUp'
+                ? 'n'
+                : 's';
+        onResizeSelection(
+          handle,
+          event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0,
+          event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0,
+          false,
+          selection?.rotation ?? 0,
+        );
+      } else {
+        onMoveSelection(
+          event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0,
+          event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0,
+        );
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (!readOnly && event.key === 'Enter' && KEYBOARD_PLACE_TOOLS.has(tool.tool)) {
+      const center = {
+        x: originX + (size.width * unitsPerPixel) / 2,
+        y: originY + (size.height * unitsPerPixel) / 2,
+      };
+      onCreateAdvancedObject(
+        tool.tool as Extract<Gesture, { kind: 'create' }>['tool'],
+        { x: center.x - 3_200, y: center.y - 2_400 },
+        { x: center.x + 3_200, y: center.y + 2_400 },
+        false,
+      );
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+
   return (
     <div
       ref={hostRef}
       className={className}
       data-testid="ink-canvas-host"
       data-gesture={gestureKind}
+      tabIndex={0}
+      role="application"
+      aria-label={page?.name ? `Drawing page ${page.name}` : 'Drawing page'}
+      aria-describedby={`${accessibilityId}-instructions`}
       // Required, or the browser scrolls instead of delivering pointermove and
       // a stroke silently stops mid-gesture.
       style={{
@@ -1018,6 +1093,7 @@ export default function InkCanvas({
         ),
       }}
       onWheel={onWheel}
+      onKeyDown={onKeyDown}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={(event) => endGesture(event, false)}
@@ -1033,9 +1109,13 @@ export default function InkCanvas({
       <canvas
         ref={tileCanvasRef}
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-        aria-label={page?.name ? `Drawing page ${page.name}` : 'Drawing page'}
-        role="img"
+        aria-hidden
       />
+      <p id={`${accessibilityId}-instructions`} className="sr-only">
+        Use the object navigator to select authored objects. Arrow keys move a selection, Alt plus
+        Arrow resizes it, and Alt plus Shift plus Left or Right rotates it. Choose a non-freehand
+        tool and press Enter to place an object at the viewport centre.
+      </p>
       {page ? (
         <InkRichObjectLayer
           scene={page.scene}

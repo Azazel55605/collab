@@ -354,6 +354,15 @@ review sidecars persist through `VaultClient` and the hosted/offline
 `viewAnnotations` operation. See
 [Anchored View Annotation Adapter](./anchored-view-annotations.md).
 
+Phase 10 hardening adds a paginated semantic-object navigator and keyboard
+placement/transforms in `InkSidePanel.tsx` and `InkCanvas.tsx`.
+`lib/ink/accessibility.ts` provides bounded names and document reading order
+without creating DOM nodes for every freehand stroke. `lib/ink/invalidation.ts`
+compares structurally shared scenes and invalidates only the old/new tile bounds
+for ordinary edits, falling back to a full repaint for page, background, or
+paint-order changes. The platform, accessibility, resource, and soak gates are
+in [Digital Ink Release Validation](../build/digital-ink-release-validation.md).
+
 ### Logic And Circuit
 
 Pure helpers, not React components, except `CircuitSweepPlot`. Runtime job

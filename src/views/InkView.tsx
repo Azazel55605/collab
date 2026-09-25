@@ -1635,6 +1635,7 @@ export default function InkView({ relativePath }: InkViewProps) {
             onActiveLayerChange={(layerId) =>
               setTool((current) => ({ ...current, activeLayerId: layerId }))
             }
+            onSelectObject={(objectId, additive) => changeSelection([objectId], additive)}
             onAddLayer={layerActions.add}
             onToggleLayerVisible={layerActions.toggleVisible}
             onToggleLayerLocked={layerActions.toggleLocked}
