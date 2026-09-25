@@ -52,25 +52,41 @@ export interface InkToolState {
   stampSymbolId: string;
 }
 
+export interface InkToolDefaults {
+  brushKind: InkBrushKind;
+  brushColor: string;
+  brushWidth: number;
+  eraserMode: InkEraserMode;
+  eraserRadius: number;
+  snapToGrid: boolean;
+  holdToStraighten: boolean;
+}
+
 /** Eraser sizes, in ink units. 640 units is 10 pt, about a pencil rubber. */
 export const INK_ERASER_SIZES = [160, 320, 640, 1_280, 2_560];
 
-export function defaultToolState(): InkToolState {
+export function defaultToolState(defaults?: Partial<InkToolDefaults>): InkToolState {
+  const brushKind = defaults?.brushKind ?? 'ballpoint';
+  const preset = INK_DEFAULT_BRUSHES[brushKind] ?? INK_DEFAULT_BRUSHES.ballpoint;
   return {
     tool: 'pen',
-    brushId: 'ballpoint',
-    brush: { ...INK_DEFAULT_BRUSHES.ballpoint },
-    eraserMode: 'segment',
-    eraserRadius: 640,
+    brushId: brushKind,
+    brush: {
+      ...preset,
+      ...(defaults?.brushColor ? { color: defaults.brushColor } : {}),
+      ...(defaults?.brushWidth ? { width: defaults.brushWidth } : {}),
+    },
+    eraserMode: defaults?.eraserMode ?? 'segment',
+    eraserRadius: defaults?.eraserRadius ?? 640,
     activeLayerId: null,
     shapeKind: 'rectangle',
     shapeFill: null,
     shapeFillOpacity: 0.2,
     arrowStart: 'none',
     arrowEnd: 'none',
-    snapToGrid: true,
+    snapToGrid: defaults?.snapToGrid ?? true,
     snapSpacing: 768,
-    holdToStraighten: true,
+    holdToStraighten: defaults?.holdToStraighten ?? true,
     stampSymbolId: 'check',
   };
 }

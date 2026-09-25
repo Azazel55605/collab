@@ -10,6 +10,7 @@ import {
   Layout,
   Monitor,
   Palette,
+  PenLine,
   RefreshCw,
   Search,
   Server,
@@ -37,6 +38,7 @@ import SettingsCanvasSection from './SettingsCanvasSection';
 import SettingsDisplaySection from './SettingsDisplaySection';
 import SettingsEditorSection from './SettingsEditorSection';
 import SettingsGeneralSection from './SettingsGeneralSection';
+import SettingsInkSection from './SettingsInkSection';
 import SettingsLogicSection from './SettingsLogicSection';
 import SettingsNotificationsSection from './SettingsNotificationsSection';
 import SettingsOcrSection from './SettingsOcrSection';
@@ -88,6 +90,12 @@ const TABS = [
     label: 'Canvas',
     icon: <Layout size={15} />,
     keywords: ['canvas', 'web card', 'embed', 'preview', 'links'],
+  },
+  {
+    id: 'ink',
+    label: 'Ink',
+    icon: <PenLine size={15} />,
+    keywords: ['drawing', 'pen', 'brush', 'eraser', 'snap', 'handwriting'],
   },
   {
     id: 'logic',
@@ -217,6 +225,20 @@ export default function SettingsModal() {
     setOcrPreprocessingMode,
     schematicSymbolSet,
     setSchematicSymbolSet,
+    inkDefaultBrushKind,
+    setInkDefaultBrushKind,
+    inkDefaultColor,
+    setInkDefaultColor,
+    inkDefaultWidth,
+    setInkDefaultWidth,
+    inkDefaultEraserMode,
+    setInkDefaultEraserMode,
+    inkDefaultEraserRadius,
+    setInkDefaultEraserRadius,
+    inkDefaultSnapToGrid,
+    setInkDefaultSnapToGrid,
+    inkDefaultHoldToStraighten,
+    setInkDefaultHoldToStraighten,
   } = useUiStore();
 
   const { myUserName, myUserColor, myUserId, setMyProfile } = useCollabStore();
@@ -392,6 +414,25 @@ export default function SettingsModal() {
                 canvasWebCardAutoLoad={canvasWebCardAutoLoad}
                 setCanvasWebCardAutoLoad={setCanvasWebCardAutoLoad}
                 webPreviewsEnabled={webPreviewsEnabled}
+              />
+            )}
+
+            {activeTab === 'ink' && (
+              <SettingsInkSection
+                brushKind={inkDefaultBrushKind}
+                setBrushKind={setInkDefaultBrushKind}
+                color={inkDefaultColor}
+                setColor={setInkDefaultColor}
+                width={inkDefaultWidth}
+                setWidth={setInkDefaultWidth}
+                eraserMode={inkDefaultEraserMode}
+                setEraserMode={setInkDefaultEraserMode}
+                eraserRadius={inkDefaultEraserRadius}
+                setEraserRadius={setInkDefaultEraserRadius}
+                snapToGrid={inkDefaultSnapToGrid}
+                setSnapToGrid={setInkDefaultSnapToGrid}
+                holdToStraighten={inkDefaultHoldToStraighten}
+                setHoldToStraighten={setInkDefaultHoldToStraighten}
               />
             )}
 

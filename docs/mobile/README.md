@@ -8,6 +8,9 @@ separate mobile React shell under `apps/mobile-android`.
 
 - [Android companion plan](../plans/android-companion-app-plan.md) — product scope,
   phase status, implementation notes, and remaining mobile work.
+- [Standalone full app assessment](./standalone-full-app-assessment.md) — current
+  reuse boundary, required local-vault architecture, feature-parity gaps, risks,
+  and staged effort for making Android independent of a server.
 - [Android companion build](./android-companion-build.md) — local SDK/JDK/NDK
   setup, debug builds, APK builds, and troubleshooting.
 - [Android Play release](./android-play-release.md) — upload keystore, AAB

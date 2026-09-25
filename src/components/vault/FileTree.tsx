@@ -157,6 +157,7 @@ export default function FileTree() {
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [hoveredPath, setHoveredPath] = useState<string | null>(null);
   const [selectedReferences, setSelectedReferences] = useState<FileReference[]>([]);
+  const [referencesRequestedFor, setReferencesRequestedFor] = useState<string | null>(null);
   const [selectedReferencesLoading, setSelectedReferencesLoading] = useState(false);
   const [selectedReferencesError, setSelectedReferencesError] = useState<string | null>(null);
   const [previewState, setPreviewState] = useState<{
@@ -894,6 +895,7 @@ export default function FileTree() {
     if (
       !vault ||
       !selectedRelativePath ||
+      referencesRequestedFor !== selectedRelativePath ||
       mode !== 'files' ||
       !selectedNode ||
       selectedNode.isFolder
@@ -925,7 +927,14 @@ export default function FileTree() {
     return () => {
       cancelled = true;
     };
-  }, [hostedReferenceRefreshKey, mode, selectedNode?.isFolder, selectedRelativePath, vault?.path]);
+  }, [
+    hostedReferenceRefreshKey,
+    mode,
+    referencesRequestedFor,
+    selectedNode?.isFolder,
+    selectedRelativePath,
+    vault?.path,
+  ]);
 
   const selectedFile = selectedNode && !selectedNode.isFolder ? selectedNode : null;
 
@@ -1285,8 +1294,10 @@ export default function FileTree() {
         <FileReferencesPanel
           selectedFile={selectedFile}
           references={selectedReferences}
+          loaded={referencesRequestedFor === selectedFile.relativePath}
           loading={selectedReferencesLoading}
           error={selectedReferencesError}
+          onLoad={() => setReferencesRequestedFor(selectedFile.relativePath)}
           onOpenReference={handleOpenReference}
         />
       ) : null}

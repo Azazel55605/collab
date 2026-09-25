@@ -23,6 +23,12 @@ describe('SettingsAppearanceSection', () => {
       />,
     );
 
+    for (const label of ['Dark', 'Midnight', 'Warm', 'Light']) {
+      const button = screen.getByRole('button', { name: new RegExp(`^${label}\\b`, 'i') });
+      expect(button.className).toContain('grid-cols-[1rem_minmax(0,1fr)_1rem]');
+      expect(button.children).toHaveLength(3);
+    }
+
     fireEvent.click(screen.getByRole('button', { name: /light/i }));
     expect(setTheme).toHaveBeenCalledWith('light');
 

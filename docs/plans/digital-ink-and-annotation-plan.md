@@ -715,7 +715,7 @@ Target behaviors:
 | 8. PDF annotation integration                         | Complete | Migrate PDF sidecars and add shared ink tools, live/offline editing, and flattened annotated-PDF export.                                                                                                   |
 | 9. Image and shared-view annotations                  | Complete | Migrate image overlays and add capability-driven annotation surfaces for images, decks, and future viewers.                                                                                                |
 | 10. Accessibility, performance, and release hardening | Testing  | Code hardening and automated gates are implemented; physical platform, assistive-technology, device, resource, and multi-client release evidence remains required.                                         |
-| 11. Optional recognition and interchange              | Deferred | Evaluate handwriting/math recognition and optional InkML interchange without changing the native source model.                                                                                             |
+| 11. Optional recognition and interchange              | Deferred | Evaluation completed; handwriting/math recognition and InkML interchange are intentionally deferred with no release dependency.                                                                            |
 
 ## Phase Details
 
@@ -1037,11 +1037,18 @@ recorded for the release commit.
 
 ### Phase 11: Optional Recognition And Interchange
 
-- Evaluate on-device handwriting-to-text and handwritten-math recognition.
-- Require explicit invocation, preview, and user confirmation.
-- Keep original ink after conversion.
-- Evaluate bounded InkML import/export as interchange only.
-- Never change `.ink` authority or claim biometric/signature verification.
+Deferred after evaluation. No recognition or InkML work is planned for the
+0.8.0 release:
+
+- current on-device recognition options do not provide one consistent Linux,
+  Windows, macOS, and Android path;
+- handwritten-math output lacks a suitable bounded, offline, cross-platform
+  engine;
+- InkML represents useful stroke channels but not Collab pages, layers, rich
+  objects, links, assets, or collaboration metadata;
+- any future proposal must still require explicit invocation, preview, and
+  confirmation, retain the original ink, keep `.ink` authoritative, and make no
+  biometric or signature-verification claim.
 
 ## Recommended Implementation Order
 

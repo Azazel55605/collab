@@ -46,9 +46,9 @@ export default function SettingsAppearanceSection({
   interfaceFontSize,
   setInterfaceFontSize,
 }: Props) {
-  const settingsChoiceClass = (selected: boolean) =>
+  const settingsChoiceSurfaceClass = (selected: boolean) =>
     cn(
-      'w-full flex items-center justify-between rounded-xl border px-3 py-2.5 text-left transition-all app-motion-fast',
+      'w-full rounded-xl border px-3 py-2.5 text-left transition-all app-motion-fast',
       selected
         ? 'border-primary/45 bg-primary/8 shadow-sm shadow-primary/10'
         : 'border-border/40 bg-card/25 hover:border-border hover:bg-accent/25',
@@ -63,15 +63,12 @@ export default function SettingsAppearanceSection({
             key={themeOption.id}
             onClick={() => setTheme(themeOption.id)}
             className={cn(
-              'relative flex items-start gap-3 rounded-xl p-3 text-left',
-              settingsChoiceClass(theme === themeOption.id),
+              'grid grid-cols-[1rem_minmax(0,1fr)_1rem] items-center gap-3',
+              settingsChoiceSurfaceClass(theme === themeOption.id),
             )}
           >
             <span
-              className={cn(
-                'mt-0.5',
-                theme === themeOption.id ? 'text-primary' : 'text-muted-foreground',
-              )}
+              className={cn(theme === themeOption.id ? 'text-primary' : 'text-muted-foreground')}
             >
               {themeOption.icon}
             </span>
@@ -79,9 +76,9 @@ export default function SettingsAppearanceSection({
               <p className="text-sm font-medium">{themeOption.label}</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">{themeOption.desc}</p>
             </div>
-            {theme === themeOption.id && (
-              <Check size={13} className="absolute top-2.5 right-2.5 text-primary" />
-            )}
+            <span className="flex size-4 items-center justify-center">
+              {theme === themeOption.id ? <Check size={13} className="text-primary" /> : null}
+            </span>
           </button>
         ))}
       </div>
@@ -137,7 +134,10 @@ export default function SettingsAppearanceSection({
           <button
             key={key}
             onClick={() => setInterfaceFont(key)}
-            className={settingsChoiceClass(interfaceFont === key)}
+            className={cn(
+              'flex items-center justify-between',
+              settingsChoiceSurfaceClass(interfaceFont === key),
+            )}
           >
             <div>
               <p className="text-sm font-medium">{value.label}</p>

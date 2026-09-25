@@ -67,6 +67,7 @@ Current regression coverage includes:
 - `src/components/settings/SettingsGeneralSection.test.tsx`
 - `src/components/settings/SettingsDisplaySection.test.tsx`
 - `src/components/settings/SettingsCanvasSection.test.tsx`
+- `src/components/settings/SettingsInkSection.test.tsx`
 - `src/components/settings/SettingsCalendarSection.test.tsx`
 - `src/components/settings/SettingsProfileSection.test.tsx`
 - `src/components/vault/TrashPanel.test.tsx`
@@ -172,7 +173,7 @@ missing a control, add it there using the interaction and theming rules in
 | `components/vault/VaultManagerModal.tsx`   | Vault settings: export, encryption, members                                                                                                                                                  | vaultStore, collabStore, uiStore      | Dialog, Tabs, Button, Input        |
 | `components/vault/VaultUnlockModal.tsx`    | Password prompt for encrypted vaults                                                                                                                                                         | vaultStore                            | Dialog, Input, Button              |
 | `components/vault/FileTree.tsx`            | Unified file/folder browser with multi-type filters; creation for notes, Canvas, Kanban, logic, sheets, drawings, and folders; rename/delete/trash; path previews; and contextual references | vaultStore, editorStore, uiStore      | DropdownMenu, ContextMenu, Tooltip |
-| `components/vault/FileReferencesPanel.tsx` | Contextual file-details section that lists incoming note/kanban/canvas references for the selected vault file                                                                                | FileTree state, typed file references | —                                  |
+| `components/vault/FileReferencesPanel.tsx` | Contextual file-details section that loads incoming note/kanban/canvas references only on explicit request, avoiding a vault-wide parse during ordinary file selection                       | FileTree state, typed file references | —                                  |
 | `components/vault/TrashPanel.tsx`          | Dedicated vault trash view for restore, purge, and purge-all flows                                                                                                                           | vaultStore                            | Button, Dialog                     |
 | `components/vault/SearchPanel.tsx`         | Full-text search across notes                                                                                                                                                                | noteIndexStore                        | Input                              |
 | `components/vault/TagsPanel.tsx`           | Tag filter list from note metadata                                                                                                                                                           | noteIndexStore                        | Badge                              |
@@ -439,6 +440,7 @@ a positioned popover.
 | `components/settings/SettingsGeneralSection.tsx`    | General tab section for startup, web preview, and file-operation settings                                                                                          | Separator, shared settings controls                                          |
 | `components/settings/SettingsDisplaySection.tsx`    | Display tab section for interface scale and motion settings                                                                                                        | Separator, shared settings controls                                          |
 | `components/settings/SettingsCanvasSection.tsx`     | Canvas tab section for default web-card mode and preview auto-load settings                                                                                        | Separator, shared settings controls                                          |
+| `components/settings/SettingsInkSection.tsx`        | Ink tab section for the brush, color, width, eraser, snapping, and hold-to-straighten defaults used when a drawing editor opens                                    | Separator, shared settings controls                                          |
 | `components/settings/SettingsCalendarSection.tsx`   | Calendar tab section for date format, week-start, time-format, and preview settings                                                                                | Separator, shared settings controls                                          |
 | `components/settings/SettingsProfileSection.tsx`    | Profile tab section for collaborator identity, presence color preview, user ID, and save action                                                                    | Input, Button, Separator, shared settings controls                           |
 | `components/settings/SettingsServerSection.tsx`     | Minimal hosted-server connection flow; persists only the server URL and delegates credentials to typed Tauri commands                                              | Input, Button, shared settings controls                                      |
@@ -510,7 +512,7 @@ reorderTabs(from, to) | setForceReloadPath(path)
 
 ```ts
 // State (persisted except modal states)
-activeView: 'editor' | 'graph' | 'canvas' | 'kanban' | 'grid'
+activeView: 'editor' | 'graph' | 'canvas' | 'kanban' | 'calendar' | 'grid'
 sidebarPanel: 'files' | 'search' | 'tags' | 'collab'
 sidebarWidth: number        // px, min 160, max 400
 isSidebarOpen: boolean
@@ -525,6 +527,13 @@ dateFormat: DateFormat
 weekStart: 0 | 1            // 0=Sunday, 1=Monday
 timeFormat: system | 12-hour | 24-hour
 confirmDelete: boolean
+inkDefaultBrushKind: InkBrushKind
+inkDefaultColor: string
+inkDefaultWidth: number
+inkDefaultEraserMode: 'stroke' | 'segment' | 'object'
+inkDefaultEraserRadius: number
+inkDefaultSnapToGrid: boolean
+inkDefaultHoldToStraighten: boolean
 
 // Helper
 formatDate(date, format): string

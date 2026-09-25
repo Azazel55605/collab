@@ -249,6 +249,15 @@ describe('FileTree folder collapse state', () => {
     });
   });
 
+  it('does not scan the vault for references when selecting a file', async () => {
+    render(<FileTree />);
+
+    fireEvent.click(screen.getByText('child.md'));
+
+    await waitFor(() => expect(useEditorStore.getState().activeTabPath).toBe('Docs/child.md'));
+    expect(tauriCommands.listFileReferences).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     cleanup();
   });

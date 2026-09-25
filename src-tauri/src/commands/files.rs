@@ -391,11 +391,17 @@ fn list_file_references_inner(
         }
 
         let note = match entry.extension.as_str() {
-            "md" | "kanban" | "canvas" => read_note_from_path(
+            "md" | "kanban" | "canvas" => match read_note_from_path(
                 &resolve_vault_path(vault_path, &entry.relative_path)?,
                 &entry.relative_path,
                 key_opt,
-            )?,
+            ) {
+                Ok(note) => note,
+                // Reference discovery is best-effort metadata. One unreadable
+                // source document must not prevent unrelated files from
+                // opening or hide references from every other valid source.
+                Err(_) => continue,
+            },
             _ => continue,
         };
 
@@ -403,12 +409,22 @@ fn list_file_references_inner(
             "md" => {
                 collect_note_references(&note.content, &entry.relative_path, &lookup, &target_path)
             }
-            "kanban" => {
-                collect_kanban_file_references(&note.content, &entry.relative_path, &target_path)?
-            }
-            "canvas" => {
-                collect_canvas_file_references(&note.content, &entry.relative_path, &target_path)?
-            }
+            "kanban" => match collect_kanban_file_references(
+                &note.content,
+                &entry.relative_path,
+                &target_path,
+            ) {
+                Ok(references) => references,
+                Err(_) => continue,
+            },
+            "canvas" => match collect_canvas_file_references(
+                &note.content,
+                &entry.relative_path,
+                &target_path,
+            ) {
+                Ok(references) => references,
+                Err(_) => continue,
+            },
             _ => Vec::new(),
         };
         references.append(&mut next);
@@ -2581,6 +2597,26 @@ mod tests {
             .iter()
             .any(|entry| entry.source_relative_path == "Board.canvas"
                 && entry.reference_kind == "canvas-file-node"));
+    }
+
+    #[test]
+    fn list_file_references_skips_malformed_sources() {
+        let vault = TempVault::new().expect("temp vault should exist");
+        vault
+            .write_text("Docs/spec.pdf", "pdf")
+            .expect("pdf should exist");
+        vault
+            .write_text("Broken.canvas", "not json")
+            .expect("broken canvas should exist");
+        vault
+            .write_text("Notes/alpha.md", "[Spec](../Docs/spec.pdf)")
+            .expect("note should exist");
+
+        let references = list_file_references_inner(&vault.path_string(), "Docs/spec.pdf", None)
+            .expect("a malformed source should not break reference discovery");
+
+        assert_eq!(references.len(), 1);
+        assert_eq!(references[0].source_relative_path, "Notes/alpha.md");
     }
 
     #[test]

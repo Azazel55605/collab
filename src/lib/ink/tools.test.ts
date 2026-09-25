@@ -37,6 +37,26 @@ describe('defaultToolState', () => {
     state.brush.color = '#ff0000';
     expect(INK_DEFAULT_BRUSHES.ballpoint.color).not.toBe('#ff0000');
   });
+
+  it('applies persisted defaults without mutating the brush preset', () => {
+    const state = defaultToolState({
+      brushKind: 'pencil',
+      brushColor: 'ink:blue',
+      brushWidth: 256,
+      eraserMode: 'stroke',
+      eraserRadius: 1_280,
+      snapToGrid: false,
+      holdToStraighten: false,
+    });
+
+    expect(state.brushId).toBe('pencil');
+    expect(state.brush).toMatchObject({ kind: 'pencil', color: 'ink:blue', width: 256 });
+    expect(state.eraserMode).toBe('stroke');
+    expect(state.eraserRadius).toBe(1_280);
+    expect(state.snapToGrid).toBe(false);
+    expect(state.holdToStraighten).toBe(false);
+    expect(INK_DEFAULT_BRUSHES.pencil.color).not.toBe('ink:blue');
+  });
 });
 
 describe('brush presets', () => {
