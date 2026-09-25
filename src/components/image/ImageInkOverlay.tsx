@@ -7,7 +7,7 @@ import {
   imageAnnotationSurface,
   putAnchoredSurface,
 } from '../../lib/viewAnnotations';
-import type { InkAnnotationDocument, InkScene } from '../../types/ink';
+import type { InkAnnotationDocument, InkAnnotationSurface, InkScene } from '../../types/ink';
 import { AnchoredInkOverlay } from '../pdf/PdfInkOverlay';
 
 interface ImageInkOverlayProps {
@@ -33,7 +33,37 @@ export default function ImageInkOverlay({
   tool,
   onChange,
 }: ImageInkOverlayProps) {
-  const surface = imageAnnotationSurface(document) ?? createImageAnnotationSurface(width, height);
+  const existingSurface = imageAnnotationSurface(document);
+  if (!existingSurface && !enabled) return null;
+
+  return (
+    <MountedImageInkOverlay
+      document={document}
+      width={width}
+      height={height}
+      displayWidth={displayWidth}
+      displayHeight={displayHeight}
+      enabled={enabled}
+      readOnly={readOnly}
+      tool={tool}
+      onChange={onChange}
+      surface={existingSurface ?? createImageAnnotationSurface(width, height)}
+    />
+  );
+}
+
+function MountedImageInkOverlay({
+  document,
+  width,
+  height,
+  displayWidth,
+  displayHeight,
+  enabled,
+  readOnly,
+  tool,
+  onChange,
+  surface,
+}: ImageInkOverlayProps & { surface: InkAnnotationSurface }) {
   const page = useMemo(() => anchoredSurfacePage(surface), [surface]);
   const zoom = displayWidth / Math.max(width, 1);
   const onSceneChange = useCallback(

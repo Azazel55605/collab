@@ -256,7 +256,18 @@ export default function InkView({ relativePath }: InkViewProps) {
     originY: stored?.originY ?? 0,
     zoom: stored?.zoom ?? 1,
   });
-  const [tool, setTool] = useState<InkToolState>(() => defaultToolState());
+  const [tool, setTool] = useState<InkToolState>(() => {
+    const defaults = useUiStore.getState();
+    return defaultToolState({
+      brushKind: defaults.inkDefaultBrushKind,
+      brushColor: defaults.inkDefaultColor,
+      brushWidth: defaults.inkDefaultWidth,
+      eraserMode: defaults.inkDefaultEraserMode,
+      eraserRadius: defaults.inkDefaultEraserRadius,
+      snapToGrid: defaults.inkDefaultSnapToGrid,
+      holdToStraighten: defaults.inkDefaultHoldToStraighten,
+    });
+  });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [focusMode, setFocusMode] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);

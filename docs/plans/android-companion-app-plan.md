@@ -136,7 +136,7 @@ Do not reuse directly:
 | 5. Kanban MVP                         | Complete    | View and edit boards/cards through a mobile-first Kanban workflow.                                |
 | 6. Viewer-only rich files             | Complete    | Add PDF, image, canvas, and logic diagram viewers without edit affordances.                       |
 | 7. Android hardening and release prep | In progress | Device QA, lifecycle handling, signing, release packaging, and operational docs.                  |
-| 8. Later expansion                    | Deferred    | Decide whether to add iOS, richer viewers, or mobile capture flows.                               |
+| 8. Later expansion                    | Assessed    | Standalone local-vault and full-editor expansion is scoped; implementation remains deferred.      |
 
 ## Phase Details
 
@@ -688,17 +688,20 @@ are retained in the
 
 ### Phase 8: Later Expansion
 
-Deferred until the Android MVP proves useful.
+The server-independent/full-app direction has been evaluated in
+[Standalone Full Mobile App Assessment](../mobile/standalone-full-app-assessment.md).
+Implementation remains deferred until the local-vault core is approved as a
+separate milestone.
 
 Candidates:
 
-- Broader live editing for rich file types if mobile authoring demand justifies
-  it.
+- App-private local vaults behind a shared local/hosted mobile client boundary.
+- Broader editing for rich file types if mobile authoring demand justifies it.
 - iOS feasibility and build pipeline.
 - Better PDF search/annotations.
 - Lightweight canvas or logic editing, only if mobile usage justifies it.
-- Mobile capture flows such as quick note, share-to-vault, and camera/image
-  upload.
+- Share-to-vault and camera capture beyond the existing quick note/file capture
+  flows.
 
 ## Major Risks
 

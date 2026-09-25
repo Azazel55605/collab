@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
+import type { InkEraserMode } from '../lib/ink/erase';
+import type { InkBrushKind } from '../types/ink';
 import type { SchematicSymbolSet } from '../types/logicDiagram';
 
 export type ActiveView = 'editor' | 'graph' | 'canvas' | 'kanban' | 'calendar' | 'grid';
@@ -110,6 +112,34 @@ function isOcrPreprocessingMode(value: unknown): value is OcrPreprocessingMode {
 function isSchematicSymbolSet(value: unknown): value is SchematicSymbolSet {
   return value === 'ansi' || value === 'iec';
 }
+
+function isInkBrushKind(value: unknown): value is InkBrushKind {
+  return (
+    value === 'ballpoint' ||
+    value === 'fountain' ||
+    value === 'technical' ||
+    value === 'pencil' ||
+    value === 'marker' ||
+    value === 'highlighter'
+  );
+}
+
+function isInkEraserMode(value: unknown): value is InkEraserMode {
+  return value === 'stroke' || value === 'segment' || value === 'object';
+}
+
+const INK_DEFAULT_COLOR_VALUES = new Set([
+  'ink:foreground',
+  'ink:blue',
+  'ink:red',
+  'ink:green',
+  'ink:amber',
+  'ink:violet',
+  'ink:cyan',
+  'ink:gray',
+]);
+const INK_DEFAULT_WIDTH_VALUES = new Set([32, 64, 96, 160, 256, 384, 640]);
+const INK_DEFAULT_ERASER_RADIUS_VALUES = new Set([160, 320, 640, 1_280, 2_560]);
 
 function isTimeFormat(value: unknown): value is TimeFormat {
   return value === 'system' || value === '12-hour' || value === '24-hour';
@@ -221,6 +251,33 @@ function normalizePersistedUiState(persisted: unknown): Partial<UiState> {
       : 'none',
     ocrOverlayVisible:
       typeof state.ocrOverlayVisible === 'boolean' ? state.ocrOverlayVisible : true,
+    inkDefaultBrushKind: isInkBrushKind(state.inkDefaultBrushKind)
+      ? state.inkDefaultBrushKind
+      : 'ballpoint',
+    inkDefaultColor:
+      typeof state.inkDefaultColor === 'string' &&
+      INK_DEFAULT_COLOR_VALUES.has(state.inkDefaultColor)
+        ? state.inkDefaultColor
+        : 'ink:foreground',
+    inkDefaultWidth:
+      typeof state.inkDefaultWidth === 'number' &&
+      INK_DEFAULT_WIDTH_VALUES.has(state.inkDefaultWidth)
+        ? state.inkDefaultWidth
+        : 96,
+    inkDefaultEraserMode: isInkEraserMode(state.inkDefaultEraserMode)
+      ? state.inkDefaultEraserMode
+      : 'segment',
+    inkDefaultEraserRadius:
+      typeof state.inkDefaultEraserRadius === 'number' &&
+      INK_DEFAULT_ERASER_RADIUS_VALUES.has(state.inkDefaultEraserRadius)
+        ? state.inkDefaultEraserRadius
+        : 640,
+    inkDefaultSnapToGrid:
+      typeof state.inkDefaultSnapToGrid === 'boolean' ? state.inkDefaultSnapToGrid : true,
+    inkDefaultHoldToStraighten:
+      typeof state.inkDefaultHoldToStraighten === 'boolean'
+        ? state.inkDefaultHoldToStraighten
+        : true,
     fileTreeCollapsedPathsByVault:
       legacyCollapsedPaths.length > 0 &&
       lastOpenedVaultPath &&
@@ -358,6 +415,13 @@ interface UiState {
   ocrPreprocessingMode: OcrPreprocessingMode;
   ocrOverlayVisible: boolean;
   schematicSymbolSet: SchematicSymbolSet;
+  inkDefaultBrushKind: InkBrushKind;
+  inkDefaultColor: string;
+  inkDefaultWidth: number;
+  inkDefaultEraserMode: InkEraserMode;
+  inkDefaultEraserRadius: number;
+  inkDefaultSnapToGrid: boolean;
+  inkDefaultHoldToStraighten: boolean;
 
   // Actions
   setActiveView: (view: ActiveView) => void;
@@ -413,6 +477,13 @@ interface UiState {
   setOcrPreprocessingMode: (mode: OcrPreprocessingMode) => void;
   setOcrOverlayVisible: (visible: boolean) => void;
   setSchematicSymbolSet: (symbolSet: SchematicSymbolSet) => void;
+  setInkDefaultBrushKind: (kind: InkBrushKind) => void;
+  setInkDefaultColor: (color: string) => void;
+  setInkDefaultWidth: (width: number) => void;
+  setInkDefaultEraserMode: (mode: InkEraserMode) => void;
+  setInkDefaultEraserRadius: (radius: number) => void;
+  setInkDefaultSnapToGrid: (enabled: boolean) => void;
+  setInkDefaultHoldToStraighten: (enabled: boolean) => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -471,6 +542,13 @@ export const useUiStore = create<UiState>()(
       ocrPreprocessingMode: 'none',
       ocrOverlayVisible: true,
       schematicSymbolSet: 'ansi',
+      inkDefaultBrushKind: 'ballpoint',
+      inkDefaultColor: 'ink:foreground',
+      inkDefaultWidth: 96,
+      inkDefaultEraserMode: 'segment',
+      inkDefaultEraserRadius: 640,
+      inkDefaultSnapToGrid: true,
+      inkDefaultHoldToStraighten: true,
 
       setActiveView: (activeView) => set({ activeView }),
       setSidebarPanel: (sidebarPanel) => set({ sidebarPanel }),
@@ -556,6 +634,22 @@ export const useUiStore = create<UiState>()(
       setOcrPreprocessingMode: (ocrPreprocessingMode) => set({ ocrPreprocessingMode }),
       setOcrOverlayVisible: (ocrOverlayVisible) => set({ ocrOverlayVisible }),
       setSchematicSymbolSet: (schematicSymbolSet) => set({ schematicSymbolSet }),
+      setInkDefaultBrushKind: (inkDefaultBrushKind) => set({ inkDefaultBrushKind }),
+      setInkDefaultColor: (inkDefaultColor) => {
+        if (INK_DEFAULT_COLOR_VALUES.has(inkDefaultColor)) set({ inkDefaultColor });
+      },
+      setInkDefaultWidth: (inkDefaultWidth) => {
+        if (INK_DEFAULT_WIDTH_VALUES.has(inkDefaultWidth)) set({ inkDefaultWidth });
+      },
+      setInkDefaultEraserMode: (inkDefaultEraserMode) => set({ inkDefaultEraserMode }),
+      setInkDefaultEraserRadius: (inkDefaultEraserRadius) => {
+        if (INK_DEFAULT_ERASER_RADIUS_VALUES.has(inkDefaultEraserRadius)) {
+          set({ inkDefaultEraserRadius });
+        }
+      },
+      setInkDefaultSnapToGrid: (inkDefaultSnapToGrid) => set({ inkDefaultSnapToGrid }),
+      setInkDefaultHoldToStraighten: (inkDefaultHoldToStraighten) =>
+        set({ inkDefaultHoldToStraighten }),
     }),
     {
       name: 'ui-storage',
@@ -612,6 +706,13 @@ export const useUiStore = create<UiState>()(
         ocrPreprocessingMode: s.ocrPreprocessingMode,
         ocrOverlayVisible: s.ocrOverlayVisible,
         schematicSymbolSet: s.schematicSymbolSet,
+        inkDefaultBrushKind: s.inkDefaultBrushKind,
+        inkDefaultColor: s.inkDefaultColor,
+        inkDefaultWidth: s.inkDefaultWidth,
+        inkDefaultEraserMode: s.inkDefaultEraserMode,
+        inkDefaultEraserRadius: s.inkDefaultEraserRadius,
+        inkDefaultSnapToGrid: s.inkDefaultSnapToGrid,
+        inkDefaultHoldToStraighten: s.inkDefaultHoldToStraighten,
       }),
     },
   ),

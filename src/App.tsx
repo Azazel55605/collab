@@ -233,7 +233,13 @@ export default function App() {
         const isAppImage = appImageResult.status === 'fulfilled' ? appImageResult.value : false;
         const shouldDisableBlur =
           disableBlurResult.status === 'fulfilled' ? disableBlurResult.value : false;
-        const isWindowsWebView = navigator.userAgent.toLowerCase().includes('windows');
+        const userAgent = navigator.userAgent.toLowerCase();
+        const isWindowsWebView = userAgent.includes('windows');
+        const isLinuxWebKit =
+          userAgent.includes('linux') &&
+          userAgent.includes('applewebkit') &&
+          !userAgent.includes('chrome') &&
+          !userAgent.includes('android');
         if (isAppImage || shouldDisableBlur) {
           document.documentElement.dataset.appimage = '';
         } else {
@@ -244,6 +250,12 @@ export default function App() {
           document.documentElement.dataset.windowsWebview = '';
         } else {
           delete document.documentElement.dataset.windowsWebview;
+        }
+
+        if (isLinuxWebKit) {
+          document.documentElement.dataset.linuxWebkit = '';
+        } else {
+          delete document.documentElement.dataset.linuxWebkit;
         }
       },
     );

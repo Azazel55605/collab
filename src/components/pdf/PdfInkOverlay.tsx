@@ -23,7 +23,13 @@ import {
   pdfInkSurface,
   updatePdfInkSurface,
 } from '../../lib/pdfAnnotations';
-import type { InkAnnotationDocument, InkPage, InkSample, InkScene } from '../../types/ink';
+import type {
+  InkAnnotationDocument,
+  InkAnnotationSurface,
+  InkPage,
+  InkSample,
+  InkScene,
+} from '../../types/ink';
 import InkCanvas from '../ink/InkCanvas';
 
 export interface PdfInkOverlayProps {
@@ -339,9 +345,39 @@ export default function PdfInkOverlay({
   tool,
   onChange,
 }: PdfInkOverlayProps) {
-  const surface =
-    pdfInkSurface(document, pageNumber) ??
-    createPdfInkSurface(pageNumber, widthPoints, heightPoints);
+  const existingSurface = pdfInkSurface(document, pageNumber);
+  if (!existingSurface && !enabled) return null;
+
+  return (
+    <MountedPdfInkOverlay
+      document={document}
+      pageNumber={pageNumber}
+      widthPoints={widthPoints}
+      heightPoints={heightPoints}
+      scale={scale}
+      rotation={rotation}
+      enabled={enabled}
+      readOnly={readOnly}
+      tool={tool}
+      onChange={onChange}
+      surface={existingSurface ?? createPdfInkSurface(pageNumber, widthPoints, heightPoints)}
+    />
+  );
+}
+
+function MountedPdfInkOverlay({
+  document,
+  pageNumber,
+  widthPoints,
+  heightPoints,
+  scale,
+  rotation,
+  enabled,
+  readOnly,
+  tool,
+  onChange,
+  surface,
+}: PdfInkOverlayProps & { surface: InkAnnotationSurface }) {
   const page = useMemo(() => pdfInkPage(surface), [surface]);
   const onSceneChange = useCallback(
     (scene: InkScene) =>

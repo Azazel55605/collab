@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 
 import { ChevronDown, Search } from 'lucide-react';
 
+import { INK_SHORTCUTS } from '../../lib/ink/tools';
 import { cn } from '../../lib/utils';
 import { Input } from '../ui/input';
 
@@ -26,6 +27,20 @@ interface Group {
   rows: ShortcutRow[];
 }
 
+function inkShortcutRows(): ShortcutRow[] {
+  const rows = new Map<string, string[][]>();
+  for (const shortcut of INK_SHORTCUTS) {
+    const combo = [
+      ...(shortcut.ctrl ? ['Ctrl'] : []),
+      ...(shortcut.shift ? ['Shift'] : []),
+      ...(shortcut.alt ? ['Alt'] : []),
+      shortcut.key.length === 1 ? shortcut.key.toUpperCase() : shortcut.key,
+    ];
+    rows.set(shortcut.label, [...(rows.get(shortcut.label) ?? []), combo]);
+  }
+  return Array.from(rows, ([label, keys]) => ({ label, keys }));
+}
+
 const GROUPS: Group[] = [
   {
     heading: 'Navigation',
@@ -33,7 +48,6 @@ const GROUPS: Group[] = [
       { label: 'Toggle sidebar', keys: [['Ctrl', 'Shift', 'B']] },
       { label: 'Files view', keys: [['Ctrl', '1']] },
       { label: 'Graph view', keys: [['Ctrl', '2']] },
-      { label: 'Kanban view', keys: [['Ctrl', '3']] },
       { label: 'Grid view', keys: [['Ctrl', '4']] },
       { label: 'Open Settings', keys: [['Ctrl', 'Shift', 'S']] },
     ],
@@ -58,6 +72,7 @@ const GROUPS: Group[] = [
         ],
       },
       { label: 'New note', keys: [['Ctrl', 'N']] },
+      { label: 'Delete selected file(s)', keys: [['Delete']] },
       { label: 'Math prefix', keys: [['Type', '=']] },
       { label: 'Action prefix', keys: [['Type', '>']] },
       { label: 'Tag prefix', keys: [['Type', '#']] },
@@ -83,6 +98,7 @@ const GROUPS: Group[] = [
       { label: 'Open task list editor', keys: [['Ctrl', 'Alt', 'K']] },
       { label: 'Open math block editor', keys: [['Ctrl', 'Alt', 'M']] },
       { label: 'Open code block editor', keys: [['Ctrl', 'Alt', 'C']] },
+      { label: 'Open snippets', keys: [['Ctrl', 'Alt', 'N']] },
       { label: 'Evaluate or solve math', keys: [['Ctrl', 'Enter']] },
       { label: 'Approximate math', keys: [['Ctrl', 'Alt', 'Enter']] },
       { label: 'Math fraction', keys: [['Ctrl', 'Alt', 'F']] },
@@ -123,17 +139,9 @@ const GROUPS: Group[] = [
       { label: 'View mode', keys: [['1']] },
       { label: 'Additive mode', keys: [['2']] },
       { label: 'Permanent mode', keys: [['3']] },
-      { label: 'Select tool', keys: [['S']] },
-      { label: 'Text tool', keys: [['T']] },
-      { label: 'Arrow tool', keys: [['A']] },
-      { label: 'Freehand tool', keys: [['F']] },
       { label: 'Rotate image', keys: [['R']] },
       { label: 'Crop', keys: [['C']] },
-      { label: 'Toggle lock ratio', keys: [['L']] },
-      { label: 'Delete selection', keys: [['Delete'], ['Backspace']] },
-      { label: 'Cancel crop / clear selection', keys: [['Escape']] },
-      { label: 'Scroll up', keys: [['Arrow Up']] },
-      { label: 'Scroll down', keys: [['Arrow Down']] },
+      { label: 'Cancel crop', keys: [['Escape']] },
       { label: 'Zoom in', keys: [['Ctrl', 'Arrow Up']] },
       { label: 'Zoom out', keys: [['Ctrl', 'Arrow Down']] },
       { label: 'Reset zoom', keys: [['Ctrl', '0'], ['0']] },
@@ -146,8 +154,8 @@ const GROUPS: Group[] = [
       { label: 'Board view', keys: [['1'], ['B']] },
       { label: 'Calendar view', keys: [['2'], ['C']] },
       { label: 'Timeline view', keys: [['3'], ['T']] },
+      { label: 'Archive view', keys: [['4'], ['A']] },
       { label: 'Add column', keys: [['N']] },
-      { label: 'Toggle archive', keys: [['Shift', 'A']] },
       { label: 'Scroll board left', keys: [['Arrow Left']] },
       { label: 'Scroll board right', keys: [['Arrow Right']] },
       { label: 'Jump to board start', keys: [['Home']] },
@@ -162,6 +170,7 @@ const GROUPS: Group[] = [
       { label: 'Add note', keys: [['N']] },
       { label: 'Add file', keys: [['F']] },
       { label: 'Add text', keys: [['T']] },
+      { label: 'Duplicate selection', keys: [['Ctrl', 'D']] },
       { label: 'Fit view', keys: [['Shift', 'F']] },
       { label: 'Pan up', keys: [['Arrow Up']] },
       { label: 'Pan down', keys: [['Arrow Down']] },
@@ -183,8 +192,14 @@ const GROUPS: Group[] = [
       { label: 'Add AND gate', keys: [['A']] },
       { label: 'Add NOT gate', keys: [['N']] },
       { label: 'Add XOR gate', keys: [['X']] },
+      { label: 'Add OR gate', keys: [['R']] },
+      { label: 'Add NAND gate', keys: [['D']] },
+      { label: 'Add NOR gate', keys: [['E']] },
       { label: 'Add resistor (schematic)', keys: [['R']] },
+      { label: 'Rotate schematic selection', keys: [['Shift', 'R']] },
+      { label: 'Toggle selected input', keys: [['Space'], ['Enter']] },
       { label: 'Select all', keys: [['Ctrl', 'A']] },
+      { label: 'Duplicate selection', keys: [['Ctrl', 'D']] },
       { label: 'Group selection', keys: [['Ctrl', 'G']] },
       { label: 'Ungroup selection', keys: [['Ctrl', 'Shift', 'G']] },
       { label: 'Rename selected group', keys: [['F2']] },
@@ -193,6 +208,50 @@ const GROUPS: Group[] = [
       { label: 'Zoom in', keys: [['Ctrl', 'Arrow Up']] },
       { label: 'Zoom out', keys: [['Ctrl', 'Arrow Down']] },
       { label: 'Reset zoom', keys: [['Ctrl', '0'], ['0']] },
+    ],
+  },
+  {
+    heading: 'Spreadsheets',
+    note: 'Only active when the spreadsheet grid is focused.',
+    rows: [
+      { label: 'Move selection', keys: [['Arrow keys']] },
+      { label: 'Extend selection', keys: [['Shift', 'Arrow keys']] },
+      { label: 'Jump to populated edge', keys: [['Ctrl', 'Arrow keys']] },
+      { label: 'Page through rows', keys: [['Page Up'], ['Page Down']] },
+      { label: 'Row start / end', keys: [['Home'], ['End']] },
+      {
+        label: 'Grid start / end',
+        keys: [
+          ['Ctrl', 'Home'],
+          ['Ctrl', 'End'],
+        ],
+      },
+      { label: 'Edit active cell', keys: [['Enter'], ['F2']] },
+      { label: 'Move to next / previous cell', keys: [['Tab'], ['Shift', 'Tab']] },
+      { label: 'Clear selection', keys: [['Delete'], ['Backspace']] },
+      { label: 'Select all cells', keys: [['Ctrl', 'A']] },
+      { label: 'Find', keys: [['Ctrl', 'F']] },
+      { label: 'Undo', keys: [['Ctrl', 'Z']] },
+      {
+        label: 'Redo',
+        keys: [
+          ['Ctrl', 'Shift', 'Z'],
+          ['Ctrl', 'Y'],
+        ],
+      },
+    ],
+  },
+  {
+    heading: 'Ink Drawings',
+    note: 'Only active when a drawing canvas is focused. Ctrl also means Cmd on macOS.',
+    rows: inkShortcutRows(),
+  },
+  {
+    heading: 'SVG Editor',
+    note: 'Only active when an SVG document is open and an input field is not focused.',
+    rows: [
+      { label: 'Delete selection', keys: [['Delete'], ['Backspace']] },
+      { label: 'Clear selection', keys: [['Escape']] },
     ],
   },
 ];

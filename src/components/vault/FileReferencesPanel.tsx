@@ -1,12 +1,22 @@
-import { FileText, GitBranchPlus, Layout, LayoutDashboard, Link2, Paperclip } from 'lucide-react';
+import {
+  FileText,
+  GitBranchPlus,
+  Layout,
+  LayoutDashboard,
+  Link2,
+  Paperclip,
+  Search,
+} from 'lucide-react';
 
 import type { FileReference, NoteFile } from '../../types/vault';
 
 interface FileReferencesPanelProps {
   selectedFile: NoteFile;
   references: FileReference[];
+  loaded: boolean;
   loading: boolean;
   error: string | null;
+  onLoad: () => void;
   onOpenReference: (reference: FileReference) => void;
 }
 
@@ -51,8 +61,10 @@ function getReferenceKindLabel(reference: FileReference) {
 export default function FileReferencesPanel({
   selectedFile,
   references,
+  loaded,
   loading,
   error,
+  onLoad,
   onOpenReference,
 }: FileReferencesPanelProps) {
   return (
@@ -67,7 +79,16 @@ export default function FileReferencesPanel({
         </div>
       </div>
 
-      {loading ? (
+      {!loaded ? (
+        <button
+          type="button"
+          onClick={onLoad}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-border/40 bg-card/20 px-3 py-2 text-[11px] text-muted-foreground transition-colors hover:border-border/70 hover:bg-accent/35 hover:text-foreground"
+        >
+          <Search size={12} />
+          Find references
+        </button>
+      ) : loading ? (
         <div className="rounded-xl border border-border/40 bg-card/20 px-3 py-2 text-[11px] text-muted-foreground">
           Loading references…
         </div>

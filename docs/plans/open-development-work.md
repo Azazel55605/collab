@@ -125,8 +125,9 @@ Open tracker entries:
 - Phase 10, **Testing**: accessibility and targeted-rendering changes plus the
   automated malformed-content, scale, recovery, and CRDT soak gates are in;
   physical platform/input/resource evidence remains the release blocker.
-- Phase 11, **Deferred**: optional handwriting/math recognition and InkML
-  interchange.
+- Phase 11, **Deferred after evaluation**: handwriting/math recognition has no
+  suitable cross-platform offline engine, and bounded InkML interchange is not
+  required for 0.8.0. Revisit only in response to concrete demand.
 
 ### Electronic Circuit Simulation
 

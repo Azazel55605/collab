@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { render } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 
-import { pdfInkClientToLocal, pdfInkOverlayTransform } from './PdfInkOverlay';
+import { defaultToolState } from '../../lib/ink/tools';
+import { createPdfInkDocument } from '../../lib/pdfAnnotations';
+
+import PdfInkOverlay, { pdfInkClientToLocal, pdfInkOverlayTransform } from './PdfInkOverlay';
 
 describe('PDF ink overlay transform', () => {
   it('maps source page space through every supported rotation', () => {
@@ -43,5 +47,24 @@ describe('PDF ink overlay transform', () => {
       x: 770,
       y: 20,
     });
+  });
+
+  it('does not allocate an empty canvas overlay until ink mode is enabled', () => {
+    const { container } = render(
+      <PdfInkOverlay
+        document={createPdfInkDocument('test.pdf', 1)}
+        pageNumber={1}
+        widthPoints={612}
+        heightPoints={792}
+        scale={1}
+        rotation={0}
+        enabled={false}
+        readOnly={false}
+        tool={defaultToolState()}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(container.firstChild).toBeNull();
   });
 });

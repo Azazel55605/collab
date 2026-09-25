@@ -99,7 +99,7 @@ vi.mock('./store/updateStore', () => ({
   }),
 }));
 
-describe('App Windows blur fallback', () => {
+describe('App platform rendering fallbacks', () => {
   const originalUserAgent = navigator.userAgent;
   const originalMatchMedia = window.matchMedia;
 
@@ -123,6 +123,7 @@ describe('App Windows blur fallback', () => {
       onchange: null,
     }));
     delete document.documentElement.dataset.windowsWebview;
+    delete document.documentElement.dataset.linuxWebkit;
   });
 
   afterEach(() => {
@@ -132,6 +133,7 @@ describe('App Windows blur fallback', () => {
     });
     window.matchMedia = originalMatchMedia;
     delete document.documentElement.dataset.windowsWebview;
+    delete document.documentElement.dataset.linuxWebkit;
   });
 
   it('marks Windows WebView sessions for blur fallback styling', async () => {
@@ -139,6 +141,20 @@ describe('App Windows blur fallback', () => {
 
     await waitFor(() => {
       expect(document.documentElement.dataset.windowsWebview).toBe('');
+    });
+  });
+
+  it('marks Linux WebKit sessions for bounded canvas and blur fallback styling', async () => {
+    Object.defineProperty(window.navigator, 'userAgent', {
+      value:
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+      configurable: true,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(document.documentElement.dataset.linuxWebkit).toBe('');
     });
   });
 });

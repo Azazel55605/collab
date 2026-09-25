@@ -10,6 +10,7 @@ import {
   Layout,
   Monitor,
   Palette,
+  PenLine,
   RefreshCw,
   Search,
   Server,
@@ -37,6 +38,7 @@ import SettingsCanvasSection from './SettingsCanvasSection';
 import SettingsDisplaySection from './SettingsDisplaySection';
 import SettingsEditorSection from './SettingsEditorSection';
 import SettingsGeneralSection from './SettingsGeneralSection';
+import SettingsInkSection from './SettingsInkSection';
 import SettingsLogicSection from './SettingsLogicSection';
 import SettingsNotificationsSection from './SettingsNotificationsSection';
 import SettingsOcrSection from './SettingsOcrSection';
@@ -88,6 +90,12 @@ const TABS = [
     label: 'Canvas',
     icon: <Layout size={15} />,
     keywords: ['canvas', 'web card', 'embed', 'preview', 'links'],
+  },
+  {
+    id: 'ink',
+    label: 'Ink',
+    icon: <PenLine size={15} />,
+    keywords: ['drawing', 'pen', 'brush', 'eraser', 'snap', 'handwriting'],
   },
   {
     id: 'logic',
@@ -217,6 +225,20 @@ export default function SettingsModal() {
     setOcrPreprocessingMode,
     schematicSymbolSet,
     setSchematicSymbolSet,
+    inkDefaultBrushKind,
+    setInkDefaultBrushKind,
+    inkDefaultColor,
+    setInkDefaultColor,
+    inkDefaultWidth,
+    setInkDefaultWidth,
+    inkDefaultEraserMode,
+    setInkDefaultEraserMode,
+    inkDefaultEraserRadius,
+    setInkDefaultEraserRadius,
+    inkDefaultSnapToGrid,
+    setInkDefaultSnapToGrid,
+    inkDefaultHoldToStraighten,
+    setInkDefaultHoldToStraighten,
   } = useUiStore();
 
   const { myUserName, myUserColor, myUserId, setMyProfile } = useCollabStore();
@@ -258,14 +280,14 @@ export default function SettingsModal() {
 
   return (
     <Dialog open onOpenChange={(open) => !open && closeSettings()}>
-      <DialogContent className="sm:max-w-3xl w-full p-0 overflow-hidden glass-strong border-border/40 shadow-2xl shadow-black/60 gap-0 app-fade-scale-in">
+      <DialogContent className="flex max-h-[calc(100vh-2rem)] w-full flex-col gap-0 overflow-hidden border-border/40 p-0 shadow-2xl shadow-black/60 sm:max-w-3xl glass-strong app-fade-scale-in">
         <DialogHeader className="px-5 pt-5 pb-0">
           <DialogTitle className="text-base font-semibold">Settings</DialogTitle>
         </DialogHeader>
 
-        <div className="flex h-[520px]">
+        <div className="flex h-[520px] min-h-0 max-h-[calc(100vh-8rem)]">
           {/* Sidebar nav */}
-          <nav className="w-48 shrink-0 border-r border-border/40 p-2 flex flex-col gap-0.5">
+          <nav className="flex min-h-0 w-48 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border/40 p-2">
             <div className="relative mb-2">
               <Search
                 size={14}
@@ -306,7 +328,10 @@ export default function SettingsModal() {
           </nav>
 
           {/* Content */}
-          <div key={activeTab} className="flex-1 overflow-y-auto p-5 space-y-1 app-fade-slide-in">
+          <div
+            key={activeTab}
+            className="min-w-0 flex-1 space-y-1 overflow-y-auto p-5 app-fade-slide-in"
+          >
             {/* ── General ── */}
             {activeTab === 'general' && (
               <SettingsGeneralSection
@@ -395,6 +420,25 @@ export default function SettingsModal() {
               />
             )}
 
+            {activeTab === 'ink' && (
+              <SettingsInkSection
+                brushKind={inkDefaultBrushKind}
+                setBrushKind={setInkDefaultBrushKind}
+                color={inkDefaultColor}
+                setColor={setInkDefaultColor}
+                width={inkDefaultWidth}
+                setWidth={setInkDefaultWidth}
+                eraserMode={inkDefaultEraserMode}
+                setEraserMode={setInkDefaultEraserMode}
+                eraserRadius={inkDefaultEraserRadius}
+                setEraserRadius={setInkDefaultEraserRadius}
+                snapToGrid={inkDefaultSnapToGrid}
+                setSnapToGrid={setInkDefaultSnapToGrid}
+                holdToStraighten={inkDefaultHoldToStraighten}
+                setHoldToStraighten={setInkDefaultHoldToStraighten}
+              />
+            )}
+
             {activeTab === 'logic' && (
               <SettingsLogicSection
                 schematicSymbolSet={schematicSymbolSet}
@@ -466,7 +510,7 @@ export default function SettingsModal() {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-5 py-3 border-t border-border/40 bg-muted/10">
+        <div className="flex shrink-0 items-center justify-between border-t border-border/40 bg-muted/10 px-5 py-3">
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="text-[10px] font-mono">
               collab v{appVersion}
