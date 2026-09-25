@@ -86,6 +86,7 @@ import {
   buildPdfQuoteMarkdown,
   buildPdfSnapshotMarkdown,
 } from '../lib/pdfWorkspace';
+import { interactiveCanvasDeviceScale } from '../lib/rendering';
 import { tauriCommands } from '../lib/tauri';
 import { cn } from '../lib/utils';
 import { createVaultClient } from '../lib/vaultClient';
@@ -123,7 +124,6 @@ GlobalWorkerOptions.workerSrc = workerUrl;
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 3;
 const ZOOM_STEP = 0.1;
-const DEVICE_SCALE_LIMIT = 2;
 const WORKSPACE_PADDING = 40;
 const PAGE_GAP = 20;
 const OCR_MAX_CANVAS_PIXELS = 24_000_000;
@@ -294,6 +294,36 @@ const EMPTY_PDF_STATE: PdfSidecarState = {
 };
 
 const pdfPageRenderCache = new Map<string, PdfPageRenderCacheEntry>();
+const MAX_PDF_PAGE_RENDER_CACHE_ENTRIES = 12;
+
+function touchCachedPdfPage(key: string, entry: PdfPageRenderCacheEntry) {
+  pdfPageRenderCache.delete(key);
+  pdfPageRenderCache.set(key, entry);
+}
+
+function cacheRenderedPdfPage(
+  key: string,
+  canvas: HTMLCanvasElement,
+  entry: Omit<PdfPageRenderCacheEntry, 'imageUrl'>,
+) {
+  if (typeof canvas.toBlob !== 'function') return;
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const imageUrl = URL.createObjectURL(blob);
+    const previous = pdfPageRenderCache.get(key);
+    if (previous) URL.revokeObjectURL(previous.imageUrl);
+    pdfPageRenderCache.delete(key);
+    pdfPageRenderCache.set(key, { ...entry, imageUrl });
+
+    while (pdfPageRenderCache.size > MAX_PDF_PAGE_RENDER_CACHE_ENTRIES) {
+      const oldestKey = pdfPageRenderCache.keys().next().value;
+      if (typeof oldestKey !== 'string') break;
+      const oldest = pdfPageRenderCache.get(oldestKey);
+      if (oldest) URL.revokeObjectURL(oldest.imageUrl);
+      pdfPageRenderCache.delete(oldestKey);
+    }
+  }, 'image/png');
+}
 
 interface WebKitGestureEvent extends Event {
   scale: number;
@@ -386,7 +416,9 @@ function useElementSize<T extends HTMLElement>(ref: { current: T | null }) {
 
       observer = new ResizeObserver(([entry]) => {
         const { width, height } = entry.contentRect;
-        setSize({ width, height });
+        setSize((current) =>
+          current.width === width && current.height === height ? current : { width, height },
+        );
       });
 
       observer.observe(element);
@@ -558,6 +590,7 @@ function PdfPageCanvas({
 
     const cachedRender = pdfPageRenderCache.get(cacheKey);
     if (cachedRender) {
+      touchCachedPdfPage(cacheKey, cachedRender);
       const canvas = canvasRef.current;
       const textLayer = textLayerRef.current;
       const image = new Image();
@@ -591,7 +624,7 @@ function PdfPageCanvas({
         registerSurface(pageNumber, containerRef.current, canvasRef.current);
       };
 
-      image.src = cachedRender.dataUrl;
+      image.src = cachedRender.imageUrl;
       return () => {
         cancelled = true;
       };
@@ -619,8 +652,11 @@ function PdfPageCanvas({
           const context = canvas.getContext('2d');
           if (!context) throw new Error('Failed to get PDF canvas context');
 
-          const deviceScale = Math.min(window.devicePixelRatio || 1, DEVICE_SCALE_LIMIT);
           const renderViewport = page.getViewport({ scale: renderScale, rotation });
+          const deviceScale = interactiveCanvasDeviceScale(
+            renderViewport.width,
+            renderViewport.height,
+          );
           setDisplaySize({ width: displayViewport.width, height: displayViewport.height });
           setRenderSize({ width: renderViewport.width, height: renderViewport.height });
           canvas.width = Math.max(1, Math.ceil(renderViewport.width * deviceScale));
@@ -667,8 +703,7 @@ function PdfPageCanvas({
             }),
           ]);
 
-          pdfPageRenderCache.set(cacheKey, {
-            dataUrl: canvas.toDataURL('image/png'),
+          cacheRenderedPdfPage(cacheKey, canvas, {
             textLayerHtml: textLayer.innerHTML,
             displayWidth: displayViewport.width,
             displayHeight: displayViewport.height,

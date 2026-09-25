@@ -65,7 +65,7 @@ export default function SettingsInkSection({
         to that editor session.
       </p>
 
-      <OptionRow label="Pen" description="Initial brush used by the pen tool">
+      <OptionRow label="Pen" description="Initial brush used by the pen tool" stacked>
         <PillSelect
           options={INK_BRUSH_ORDER}
           value={brushKind}
@@ -73,7 +73,7 @@ export default function SettingsInkSection({
           getLabel={(value) => (value === 'ballpoint' ? 'Ballpoint' : value)}
         />
       </OptionRow>
-      <OptionRow label="Ink color" description="Theme-aware default stroke color">
+      <OptionRow label="Ink color" description="Theme-aware default stroke color" stacked>
         <PillSelect
           options={INK_COLORS}
           value={color}
@@ -81,7 +81,7 @@ export default function SettingsInkSection({
           getLabel={(value) => COLOR_LABELS[value] ?? value}
         />
       </OptionRow>
-      <OptionRow label="Pen width" description="Initial nominal stroke width">
+      <OptionRow label="Pen width" description="Initial nominal stroke width" stacked>
         <PillSelect
           options={INK_BRUSH_WIDTHS}
           value={width}
@@ -93,7 +93,7 @@ export default function SettingsInkSection({
       <Separator className="my-4 bg-border/40" />
 
       <SectionLabel>Eraser and geometry</SectionLabel>
-      <OptionRow label="Eraser mode" description="Initial behavior of the eraser tool">
+      <OptionRow label="Eraser mode" description="Initial behavior of the eraser tool" stacked>
         <PillSelect
           options={ERASER_MODES}
           value={eraserMode}
@@ -101,7 +101,7 @@ export default function SettingsInkSection({
           getLabel={(value) => value[0].toUpperCase() + value.slice(1)}
         />
       </OptionRow>
-      <OptionRow label="Eraser size" description="Initial eraser radius">
+      <OptionRow label="Eraser size" description="Initial eraser radius" stacked>
         <PillSelect
           options={INK_ERASER_SIZES}
           value={eraserRadius}

@@ -57,6 +57,7 @@ import {
 } from '../components/ui/dialog';
 import { sceneToSvg } from '../lib/ink/svg';
 import { defaultToolState } from '../lib/ink/tools';
+import { interactiveCanvasDeviceScale } from '../lib/rendering';
 import { cn } from '../lib/utils';
 import { imageAnnotationObjectCount, imageAnnotationSurface } from '../lib/viewAnnotations';
 import { useDocumentStatusRegistration } from '../store/documentStatusStore';
@@ -215,7 +216,11 @@ function useElementSize<T extends HTMLElement>(ref: { current: T | null }) {
 
     const observer = new ResizeObserver(([entry]) => {
       const box = entry.contentRect;
-      setSize({ width: box.width, height: box.height });
+      setSize((current) =>
+        current.width === box.width && current.height === box.height
+          ? current
+          : { width: box.width, height: box.height },
+      );
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -229,9 +234,11 @@ function renderCanvasToElement(
   target: HTMLCanvasElement,
   display: Dimensions,
 ) {
-  const dpr = window.devicePixelRatio || 1;
-  target.width = Math.max(1, Math.round(display.width * dpr));
-  target.height = Math.max(1, Math.round(display.height * dpr));
+  const dpr = interactiveCanvasDeviceScale(display.width, display.height);
+  const pixelWidth = Math.max(1, Math.round(display.width * dpr));
+  const pixelHeight = Math.max(1, Math.round(display.height * dpr));
+  if (target.width !== pixelWidth) target.width = pixelWidth;
+  if (target.height !== pixelHeight) target.height = pixelHeight;
   target.style.width = `${display.width}px`;
   target.style.height = `${display.height}px`;
 

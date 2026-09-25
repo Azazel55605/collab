@@ -91,3 +91,37 @@ Flatpak development/build notes are in the [Flatpak guide](./flatpak.md).
 AppImage builds are no longer produced. Earlier releases shipped an `.AppImage`, but it had worse touchpad scrolling, blur/compositing, and fractional-scaling behavior than the native packages, the Flatpak bundle, and the portable tarball, so it was retired in favor of those.
 
 If a user reports Linux-specific rendering or input issues, the first recommendation should be: use the native package for the distro, the Flatpak bundle, or the portable tarball if no native package applies.
+
+## Canvas And PDF Rendering Troubleshooting
+
+Collab leaves WebKitGTK hardware acceleration on demand. This lets WebKit choose
+the accelerated path for canvas-heavy views without forcing every surface
+through the compositor. The native Linux UI also disables expensive backdrop
+blur and bounds high-DPI canvas backing stores.
+
+On a Wayland desktop, check whether the session forces GTK through XWayland:
+
+```bash
+printf '%s\n' "$XDG_SESSION_TYPE" "$GDK_BACKEND"
+```
+
+If `XDG_SESSION_TYPE` is `wayland` but `GDK_BACKEND` is globally set to `x11`,
+test the native backend with:
+
+```bash
+env -u GDK_BACKEND collab
+```
+
+Hybrid NVIDIA/AMD systems can expose driver-specific WebKitGTK compositor
+behavior. For diagnosis, Collab supports an explicit policy override:
+
+```bash
+COLLAB_WEBKIT_ACCELERATION=never collab
+COLLAB_WEBKIT_ACCELERATION=always collab
+```
+
+`never` is a compatibility diagnostic and can reduce frame rate. Keep the
+default `on-demand` policy unless one override clearly fixes the affected
+system. WebKitGTK's accelerated Linux path transfers composited frames through
+DMA-BUF; the upstream rendering overview is at
+<https://docs.webkit.org/Ports/WebKitGTK%20and%20WPE%20WebKit/Graphics.html>.

@@ -1,7 +1,7 @@
 import type { PdfViewerState } from '../types/pdf';
 
 export interface PdfPageRenderCacheEntry {
-  dataUrl: string;
+  imageUrl: string;
   textLayerHtml: string;
   displayWidth: number;
   displayHeight: number;

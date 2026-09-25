@@ -13,21 +13,24 @@ export function OptionRow({
   description,
   children,
   disabled = false,
+  stacked = false,
 }: {
   label: string;
   description?: string;
   children: React.ReactNode;
   disabled?: boolean;
+  stacked?: boolean;
 }) {
   return (
     <div
       className={cn(
-        'flex items-center justify-between gap-4 py-2.5 transition-opacity',
+        'flex gap-4 py-2.5 transition-opacity',
+        stacked ? 'flex-col items-stretch gap-2' : 'items-center justify-between',
         disabled && 'opacity-50',
       )}
       aria-disabled={disabled}
     >
-      <div className="min-w-0">
+      <div className={cn('min-w-0', stacked && 'w-full')}>
         <p
           className={cn('text-sm font-medium text-foreground', disabled && 'text-muted-foreground')}
         >
@@ -35,7 +38,7 @@ export function OptionRow({
         </p>
         {description && <p className="text-[12px] text-muted-foreground mt-0.5">{description}</p>}
       </div>
-      <div className="shrink-0">{children}</div>
+      <div className={cn(stacked ? 'w-full' : 'shrink-0')}>{children}</div>
     </div>
   );
 }

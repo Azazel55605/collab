@@ -27,6 +27,7 @@ import { penButtonTool } from '../../lib/ink/tools';
 import type { InkPenButtonMapping, InkToolState } from '../../lib/ink/tools';
 import type { InkResizeHandle } from '../../lib/ink/transform';
 import type { InkInteraction, LivePeer } from '../../lib/liveAwareness';
+import { interactiveCanvasDeviceScale } from '../../lib/rendering';
 import type { InkBounds, InkPage, InkSample } from '../../types/ink';
 import { INK_LIMITS, INK_UNITS_PER_PX } from '../../types/ink';
 
@@ -90,6 +91,10 @@ function createTileFactory(): InkTileSurfaceFactory<CanvasTile> {
         surface: { canvas },
         target: (context as unknown as InkRenderTarget) ?? NULL_TARGET,
       };
+    },
+    dispose(surface) {
+      surface.canvas.width = 0;
+      surface.canvas.height = 0;
     },
   };
 }
@@ -292,10 +297,20 @@ export default function InkCanvas({
     if (!host) return;
     const observer = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
-      if (rect) setSize({ width: Math.floor(rect.width), height: Math.floor(rect.height) });
+      if (rect) {
+        const width = Math.floor(rect.width);
+        const height = Math.floor(rect.height);
+        setSize((current) =>
+          current.width === width && current.height === height ? current : { width, height },
+        );
+      }
     });
     observer.observe(host);
-    setSize({ width: host.clientWidth, height: host.clientHeight });
+    setSize((current) =>
+      current.width === host.clientWidth && current.height === host.clientHeight
+        ? current
+        : { width: host.clientWidth, height: host.clientHeight },
+    );
     return () => observer.disconnect();
   }, []);
 
@@ -336,9 +351,11 @@ export default function InkCanvas({
     const renderer = rendererRef.current;
     if (!canvas || !renderer || !page || size.width === 0 || size.height === 0) return;
 
-    const ratio = window.devicePixelRatio || 1;
-    canvas.width = Math.floor(size.width * ratio);
-    canvas.height = Math.floor(size.height * ratio);
+    const ratio = interactiveCanvasDeviceScale(size.width, size.height);
+    const pixelWidth = Math.floor(size.width * ratio);
+    const pixelHeight = Math.floor(size.height * ratio);
+    if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+    if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
 
     const context = canvas.getContext('2d');
     if (!context) return;
@@ -371,7 +388,7 @@ export default function InkCanvas({
     const source = tileCanvasRef.current;
     const loupe = loupeCanvasRef.current;
     if (!source || !loupe || !loupePoint) return;
-    const ratio = window.devicePixelRatio || 1;
+    const ratio = interactiveCanvasDeviceScale(size.width, size.height);
     const sizePx = 144;
     loupe.width = sizePx * ratio;
     loupe.height = sizePx * ratio;
@@ -390,7 +407,7 @@ export default function InkCanvas({
       sizePx * ratio,
       sizePx * ratio,
     );
-  }, [loupePoint, overlayVersion]);
+  }, [loupePoint, overlayVersion, size.height, size.width]);
 
   /* --------------------------------------------------------------------- */
   /* The stroke under the pen                                               */
@@ -399,7 +416,7 @@ export default function InkCanvas({
   const drawLive = useCallback(() => {
     const canvas = liveCanvasRef.current;
     if (!canvas || size.width === 0) return;
-    const ratio = window.devicePixelRatio || 1;
+    const ratio = interactiveCanvasDeviceScale(size.width, size.height);
     if (canvas.width !== Math.floor(size.width * ratio)) {
       canvas.width = Math.floor(size.width * ratio);
       canvas.height = Math.floor(size.height * ratio);

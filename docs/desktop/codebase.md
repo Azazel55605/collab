@@ -117,15 +117,15 @@ are reachable only as document tabs.
 
 ### Document views (`editorStore` tab type)
 
-| File                   | Tab type    | Provides                                                                                | Key stores                                      |
-| ---------------------- | ----------- | --------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `SheetView.tsx`        | `'sheet'`   | `.sheet` workbook editor: virtualized grid, formula bar, worksheets, data tools, charts | vaultStore, editorStore, uiStore, calendarStore |
-| `InkView.tsx`          | `'ink'`     | `.ink` drawing editor: stroke capture, tool rail, layers, rich objects                  | vaultStore, editorStore, uiStore                |
-| `LogicDiagramView.tsx` | `'logic'`   | Logic/schematic editor plus circuit simulation runs and result plots                    | vaultStore, editorStore, uiStore                |
-| `ImageView.tsx`        | `'image'`   | Raster image viewer/editor with additive overlays and permanent edits                   | vaultStore, editorStore, uiStore                |
-| `SvgVectorView.tsx`    | `'image'`   | Chosen over `ImageView` when the path matches `/\.svg$/i` — vector scene editing        | vaultStore, editorStore                         |
-| `PdfView.tsx`          | `'pdf'`     | PDF reader with layout/zoom modes, bookmarks, and highlights                            | vaultStore, editorStore, uiStore                |
-| `NotePrintView.tsx`    | (not a tab) | Print/export rendering surface for a note                                               | vaultStore                                      |
+| File                   | Tab type    | Provides                                                                                                                         | Key stores                                      |
+| ---------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `SheetView.tsx`        | `'sheet'`   | `.sheet` workbook editor: virtualized grid, formula bar, worksheets, data tools, charts                                          | vaultStore, editorStore, uiStore, calendarStore |
+| `InkView.tsx`          | `'ink'`     | `.ink` drawing editor: stroke capture, tool rail, layers, rich objects                                                           | vaultStore, editorStore, uiStore                |
+| `LogicDiagramView.tsx` | `'logic'`   | Logic/schematic editor plus circuit simulation runs and result plots                                                             | vaultStore, editorStore, uiStore                |
+| `ImageView.tsx`        | `'image'`   | Raster image viewer/editor with additive overlays and permanent edits                                                            | vaultStore, editorStore, uiStore                |
+| `SvgVectorView.tsx`    | `'image'`   | Chosen over `ImageView` when the path matches `/\.svg$/i` — vector scene editing                                                 | vaultStore, editorStore                         |
+| `PdfView.tsx`          | `'pdf'`     | PDF reader with layout/zoom modes, bookmarks, highlights, bounded canvas allocation, and asynchronous bounded page-image caching | vaultStore, editorStore, uiStore                |
+| `NotePrintView.tsx`    | (not a tab) | Print/export rendering surface for a note                                                                                        | vaultStore                                      |
 
 ### KanbanPage context shape
 
@@ -325,18 +325,18 @@ are presentation and dialogs only.
 Backing logic lives in `src/lib/ink/` (`document.ts`, `operations.ts`,
 `renderer.ts`).
 
-| File                                    | Purpose                                                                                                                      | shadcn used          |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| `components/ink/InkCanvas.tsx`          | Stroke capture and rendering surface; owns pointer arbitration (`InkContactArbiter`), barrel-button and eraser-end detection | —                    |
-| `components/ink/InkToolRail.tsx`        | Tool selection rail (pen, highlighter, eraser, lasso, hand)                                                                  | Button, Tooltip      |
-| `components/ink/InkSidePanel.tsx`       | Layers, object alignment, and property editing panel                                                                         | Button, Select, Tabs |
-| `components/ink/InkRichObjectLayer.tsx` | Overlay layer for rich objects (text, equations, links) above the stroke scene                                               | —                    |
-| `components/ink/InkTextDialog.tsx`      | Text-object entry dialog                                                                                                     | Dialog               |
-| `components/ink/InkExportDialog.tsx`    | Page/selection/region export options plus worker progress and cancellation                                                   | Dialog, Select       |
-| `components/ink/NewDrawingDialog.tsx`   | First-class New Drawing lifecycle: page mode, background pattern, template                                                   | Dialog, Select       |
-| `components/pdf/PdfInkOverlay.tsx`      | Rotation-safe anchored `InkCanvas` adapter for immutable PDF pages                                                           | —                    |
-| `components/pdf/PdfInkToolbar.tsx`      | PDF-appropriate shared pens, eraser, selection, shapes, arrows, and stamps                                                   | Button, DropdownMenu |
-| `components/image/ImageInkOverlay.tsx`  | Source-coordinate shared ink adapter over immutable image assets                                                             | —                    |
+| File                                    | Purpose                                                                                                                                                          | shadcn used          |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `components/ink/InkCanvas.tsx`          | Stroke capture and tiled rendering surface; owns bounded HiDPI backing stores, pointer arbitration (`InkContactArbiter`), barrel-button and eraser-end detection | —                    |
+| `components/ink/InkToolRail.tsx`        | Tool selection rail (pen, highlighter, eraser, lasso, hand)                                                                                                      | Button, Tooltip      |
+| `components/ink/InkSidePanel.tsx`       | Layers, object alignment, and property editing panel                                                                                                             | Button, Select, Tabs |
+| `components/ink/InkRichObjectLayer.tsx` | Overlay layer for rich objects (text, equations, links) above the stroke scene                                                                                   | —                    |
+| `components/ink/InkTextDialog.tsx`      | Text-object entry dialog                                                                                                                                         | Dialog               |
+| `components/ink/InkExportDialog.tsx`    | Page/selection/region export options plus worker progress and cancellation                                                                                       | Dialog, Select       |
+| `components/ink/NewDrawingDialog.tsx`   | First-class New Drawing lifecycle: page mode, background pattern, template                                                                                       | Dialog, Select       |
+| `components/pdf/PdfInkOverlay.tsx`      | Rotation-safe anchored `InkCanvas` adapter for immutable PDF pages; empty overlays mount only when annotation mode starts                                        | —                    |
+| `components/pdf/PdfInkToolbar.tsx`      | PDF-appropriate shared pens, eraser, selection, shapes, arrows, and stamps                                                                                       | Button, DropdownMenu |
+| `components/image/ImageInkOverlay.tsx`  | Source-coordinate shared ink adapter over immutable image assets; empty overlays mount only when annotation mode starts                                          | —                    |
 
 `lib/ink/export.ts`, `exportPrepare.ts`, and `exportRuntime.ts` plan deterministic
 SVG/PNG/multi-page PDF output and report missing image/font dependencies.
@@ -433,6 +433,7 @@ a positioned popover.
 | `components/image/ImagePermanentToolbar.tsx`        | Permanent image editing toolbar for rotate/crop/resize/lock/reset/save controls                                                                                    | Button, Input                                                                |
 | `components/image/useImageDocumentSession.ts`       | Shared image document/session hook for initial load, additive overlay autosave, dirty-state syncing, permanent preview rendering, and final image save flows       | React hooks, Tauri wrappers, toast                                           |
 | `components/image/useImageInteractions.ts`          | Shared image interaction hook for keyboard shortcuts, additive drafting, crop dragging, and text/arrow move-resize interactions                                    | React hooks, image geometry helpers                                          |
+| `lib/rendering.ts`                                  | Shared interactive-canvas device-scale and backing-store pixel-budget policy for PDF, image, and Ink surfaces                                                      | —                                                                            |
 | `components/settings/SettingsModal.tsx`             | Settings modal wrapper with tabs and top-level composition for settings sections                                                                                   | Dialog                                                                       |
 | `components/settings/settingsControls.tsx`          | Shared settings UI helpers for section labels, option rows, and pill selectors                                                                                     | —                                                                            |
 | `components/settings/SettingsAppearanceSection.tsx` | Appearance tab section for theme, accent color, interface font, and interface font size controls                                                                   | Separator, shared settings controls                                          |
@@ -1101,8 +1102,8 @@ materialization scheduling remain adapter responsibilities.
 
 | File                              | Responsibility                                                                                                                                                                                                                                                                                                                 |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `main.rs`                         | Windows subsystem, AppImage detection, WebKit DMA-BUF env setup, calls `collab_lib::run()`                                                                                                                                                                                                                                     |
-| `lib.rs`                          | Plugin registration (updater, opener, dialog, fs), all command registrations, Linux GTK gesture zoom suppression                                                                                                                                                                                                               |
+| `main.rs`                         | Windows subsystem and call into `collab_lib::run()`                                                                                                                                                                                                                                                                            |
+| `lib.rs`                          | Plugin registration (updater, opener, dialog, fs), all command registrations, Linux GTK gesture zoom suppression, and the on-demand WebKitGTK acceleration policy with `COLLAB_WEBKIT_ACCELERATION` diagnostic override                                                                                                        |
 | `test_support.rs`                 | Shared backend test helpers for temp-vault setup, collab directory bootstrap, and fixture file IO                                                                                                                                                                                                                              |
 | `state/mod.rs`                    | `AppState` — active vault path, file watcher handle, note index cache, bounded circuit-worker registry, and memory-only native server access session via `parking_lot` locks                                                                                                                                                   |
 | `hosted_client.rs`                | HTTP client for hosted-server REST calls shared by desktop and Android                                                                                                                                                                                                                                                         |

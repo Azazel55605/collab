@@ -20,6 +20,15 @@ mod widgets;
 
 use state::AppState;
 
+#[cfg(target_os = "linux")]
+fn linux_webkit_acceleration_policy(value: Option<&str>) -> webkit2gtk::HardwareAccelerationPolicy {
+    match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+        Some("always") => webkit2gtk::HardwareAccelerationPolicy::Always,
+        Some("never") => webkit2gtk::HardwareAccelerationPolicy::Never,
+        _ => webkit2gtk::HardwareAccelerationPolicy::OnDemand,
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default().manage(AppState::new());
@@ -106,12 +115,16 @@ pub fn run() {
                         .with_webview(|wv| {
                             let webview = wv.inner();
 
-                            // Force hardware acceleration so GPU compositing is active.
-                            // Required for backdrop-filter blur on Wayland/Hyprland.
+                            // WebKitGTK's accelerated compositor is sensitive to the
+                            // driver, DMA-BUF path, display backend, and hybrid-GPU
+                            // routing. Let WebKit choose when acceleration is useful by
+                            // default; forcing it for every surface made canvas-heavy
+                            // views substantially slower on some Linux systems.
                             if let Some(settings) = WebViewExt::settings(&webview) {
+                                let acceleration = std::env::var("COLLAB_WEBKIT_ACCELERATION").ok();
                                 SettingsExt::set_hardware_acceleration_policy(
                                     &settings,
-                                    webkit2gtk::HardwareAccelerationPolicy::Always,
+                                    linux_webkit_acceleration_policy(acceleration.as_deref()),
                                 );
                                 // Keep touchpad scrolling predictable across Linux WebKitGTK builds.
                                 // AppImage's bundled runtime has been especially prone to rough
@@ -415,4 +428,25 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_webkit_tests {
+    use super::linux_webkit_acceleration_policy;
+
+    #[test]
+    fn acceleration_policy_defaults_to_on_demand_and_accepts_overrides() {
+        assert!(matches!(
+            linux_webkit_acceleration_policy(None),
+            webkit2gtk::HardwareAccelerationPolicy::OnDemand
+        ));
+        assert!(matches!(
+            linux_webkit_acceleration_policy(Some("always")),
+            webkit2gtk::HardwareAccelerationPolicy::Always
+        ));
+        assert!(matches!(
+            linux_webkit_acceleration_policy(Some("never")),
+            webkit2gtk::HardwareAccelerationPolicy::Never
+        ));
+    }
 }
