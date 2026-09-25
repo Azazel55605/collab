@@ -1,3 +1,5 @@
+import type { ComponentProps } from 'react';
+
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -20,10 +22,18 @@ function selectedPage() {
     points: [1_000, 3_000, 3_000, 3_000, 3_000, 5_000, 1_000, 5_000],
     stroke: { ...FIXTURE_BRUSH, kind: 'technical', color: '#000', width: 48 },
   };
-  return { ...page, scene: addObject(page.scene, shape).result };
+  return { ...page, name: 'Page 1', scene: addObject(page.scene, shape).result };
 }
 
-function renderCanvas(onRotateSelection = vi.fn(), page = selectedPage()) {
+function renderCanvas(
+  onRotateSelection = vi.fn(),
+  page = selectedPage(),
+  callbacks: {
+    onMoveSelection?: ComponentProps<typeof InkCanvas>['onMoveSelection'];
+    onResizeSelection?: ComponentProps<typeof InkCanvas>['onResizeSelection'];
+    onCreateAdvancedObject?: ComponentProps<typeof InkCanvas>['onCreateAdvancedObject'];
+  } = {},
+) {
   const tool = { ...defaultToolState(), tool: 'select' as const };
   render(
     <InkCanvas
@@ -37,14 +47,14 @@ function renderCanvas(onRotateSelection = vi.fn(), page = selectedPage()) {
       readOnly={false}
       onViewportChange={vi.fn()}
       onCommitStroke={vi.fn()}
-      onCreateAdvancedObject={vi.fn()}
+      onCreateAdvancedObject={callbacks.onCreateAdvancedObject ?? vi.fn()}
       onEyedropObject={vi.fn()}
       onActivateObjectLink={vi.fn()}
       readAssetDataUrl={vi.fn(async () => '')}
       onErase={vi.fn()}
       onSelectionChange={vi.fn()}
-      onMoveSelection={vi.fn()}
-      onResizeSelection={vi.fn()}
+      onMoveSelection={callbacks.onMoveSelection ?? vi.fn()}
+      onResizeSelection={callbacks.onResizeSelection ?? vi.fn()}
       onRotateSelection={onRotateSelection}
     />,
   );
@@ -74,6 +84,67 @@ beforeEach(() => {
 });
 
 describe('InkCanvas selection affordances', () => {
+  it('exposes a focusable, named keyboard surface', () => {
+    const { host } = renderCanvas();
+    expect(host.getAttribute('role')).toBe('application');
+    expect(host.getAttribute('tabindex')).toBe('0');
+    expect(host.getAttribute('aria-label')).toBe('Drawing page Page 1');
+  });
+
+  it('moves, resizes, and rotates the selection from the keyboard', () => {
+    const onMoveSelection = vi.fn();
+    const onResizeSelection = vi.fn();
+    const onRotateSelection = vi.fn();
+    const { host } = renderCanvas(onRotateSelection, selectedPage(), {
+      onMoveSelection,
+      onResizeSelection,
+    });
+
+    fireEvent.keyDown(host, { key: 'ArrowRight' });
+    expect(onMoveSelection).toHaveBeenCalledWith(48, 0);
+    fireEvent.keyDown(host, { key: 'ArrowDown', altKey: true });
+    expect(onResizeSelection).toHaveBeenCalledWith('s', 0, 48, false, 0);
+    fireEvent.keyDown(host, { key: 'ArrowLeft', altKey: true, shiftKey: true });
+    expect(onRotateSelection).toHaveBeenCalledWith(-Math.PI / 12);
+  });
+
+  it('places a non-freehand object at the viewport centre with Enter', () => {
+    const onCreateAdvancedObject = vi.fn();
+    const page = selectedPage();
+    const tool = { ...defaultToolState(), tool: 'shape' as const };
+    render(
+      <InkCanvas
+        page={page}
+        originX={0}
+        originY={0}
+        zoom={1}
+        tool={tool}
+        penButtons={INK_DEFAULT_PEN_BUTTONS}
+        selectedIds={[]}
+        readOnly={false}
+        onViewportChange={vi.fn()}
+        onCommitStroke={vi.fn()}
+        onCreateAdvancedObject={onCreateAdvancedObject}
+        onEyedropObject={vi.fn()}
+        onActivateObjectLink={vi.fn()}
+        readAssetDataUrl={vi.fn(async () => '')}
+        onErase={vi.fn()}
+        onSelectionChange={vi.fn()}
+        onMoveSelection={vi.fn()}
+        onResizeSelection={vi.fn()}
+        onRotateSelection={vi.fn()}
+      />,
+    );
+    const hosts = screen.getAllByTestId('ink-canvas-host');
+    fireEvent.keyDown(hosts[hosts.length - 1], { key: 'Enter' });
+    expect(onCreateAdvancedObject).toHaveBeenCalledWith(
+      'shape',
+      expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }),
+      expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }),
+      false,
+    );
+  });
+
   it('uses a directional cursor over a resize handle', () => {
     const { host } = renderCanvas();
     const handle = document.querySelector('[data-ink-handle="e"]') as SVGRectElement;

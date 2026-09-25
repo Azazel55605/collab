@@ -14,6 +14,7 @@ Implementation references:
 - [Background Running Release Validation](../build/background-running-release-validation.md)
 - [Background Running Architecture And Delivery History](../archive/background-running-plan.md)
 - [Advanced Tables Release Validation](../build/advanced-tables-release-validation.md)
+- [Digital Ink Release Validation](../build/digital-ink-release-validation.md)
 - [Notification System Architecture](../archive/notification-system-plan.md)
 
 Relevant active plans:

@@ -659,6 +659,51 @@ mod tests {
     }
 
     #[test]
+    fn ink_clients_converge_after_a_bounded_offline_soak() {
+        fn content(author: &str, round: usize) -> String {
+            format!(
+                r##"{{
+                  "kind":"collab-ink","schemaVersion":1,"id":"ink1","name":"Soak",
+                  "pages":{{"page-1":{{"id":"page-1","mode":"fixed","width":38098,"height":53881,
+                    "background":{{"pattern":"blank"}},"scene":{{
+                      "layers":{{"layer-1":{{"id":"layer-1","name":"Layer 1","visible":true,"locked":false,"opacity":1}}}},
+                      "layerOrder":["layer-1"],
+                      "objects":{{"text-1":{{"id":"text-1","type":"text","layerId":"layer-1","x":10,"y":20,"width":300,"height":100,"text":"{author}-{round}","color":"#111111","fontSize":64}}}},
+                      "objectOrder":["text-1"]
+                    }}}}}},
+                  "pageOrder":["page-1"],"brushes":{{}},"swatches":[]
+                }}"##
+            )
+        }
+
+        let first = Doc::new();
+        let second = Doc::new();
+        seed_document(&first, LiveDocumentKind::Ink, &content("base", 0)).unwrap();
+        apply_update(&second, &compact_state(&first), LiveLimits::default()).unwrap();
+
+        let first_before = state_vector(&first);
+        let second_before = state_vector(&second);
+        for round in 1..=100 {
+            replace_document(&first, LiveDocumentKind::Ink, &content("first", round)).unwrap();
+            replace_document(&second, LiveDocumentKind::Ink, &content("second", round)).unwrap();
+        }
+
+        let first_delta = diff(&first, &second_before, LiveLimits::default()).unwrap();
+        let second_delta = diff(&second, &first_before, LiveLimits::default()).unwrap();
+        apply_update(&first, &second_delta, LiveLimits::default()).unwrap();
+        apply_update(&second, &first_delta, LiveLimits::default()).unwrap();
+
+        assert_eq!(compact_state(&first), compact_state(&second));
+        let materialized = materialized_content(&first, LiveDocumentKind::Ink).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&materialized).unwrap();
+        assert!(
+            value["pages"]["page-1"]["scene"]["objects"]["text-1"]["text"]
+                .as_str()
+                .is_some_and(|text| text.ends_with("-100"))
+        );
+    }
+
+    #[test]
     fn replay_is_bounded_validated_and_cancellable() {
         let update = text_state("valid");
         let doc = Doc::new();

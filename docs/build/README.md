@@ -10,6 +10,7 @@
 - [Background Running Release Validation](./background-running-release-validation.md)
 - [Advanced Tables Release Validation](./advanced-tables-release-validation.md)
 - [Mobile Widgets Release Validation](./mobile-widgets-release-validation.md)
+- [Digital Ink Release Validation](./digital-ink-release-validation.md)
 
 Android-specific build and Play release instructions live under
 [Mobile](../mobile/README.md). Server deployment and container operations live

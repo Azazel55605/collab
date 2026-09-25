@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import {
   AlignCenterHorizontal,
@@ -12,6 +12,7 @@ import {
   Eye,
   EyeOff,
   Layers,
+  ListTree,
   Lock,
   LockOpen,
   Merge,
@@ -19,6 +20,7 @@ import {
   Trash2,
 } from 'lucide-react';
 
+import { accessibleInkObjects } from '../../lib/ink/accessibility';
 import { INK_SHAPE_ORDER, INK_STAMP_CATALOG } from '../../lib/ink/advancedTools';
 import type { InkAlignment, InkDistribution } from '../../lib/ink/align';
 import {
@@ -73,6 +75,7 @@ export interface InkSidePanelProps {
   onBrushChange: (change: Partial<InkToolState['brush']>) => void;
   onEraserChange: (change: { mode?: InkEraserMode; radius?: number }) => void;
   onActiveLayerChange: (layerId: string) => void;
+  onSelectObject: (objectId: string, additive: boolean) => void;
   onAddLayer: () => void;
   onToggleLayerVisible: (layerId: string) => void;
   onToggleLayerLocked: (layerId: string) => void;
@@ -113,6 +116,7 @@ export default function InkSidePanel({
   onBrushChange,
   onEraserChange,
   onActiveLayerChange,
+  onSelectObject,
   onAddLayer,
   onToggleLayerVisible,
   onToggleLayerLocked,
@@ -141,11 +145,19 @@ export default function InkSidePanel({
 }: InkSidePanelProps) {
   const [templateName, setTemplateName] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [objectPage, setObjectPage] = useState(0);
   // Top of the list is the top of the drawing, which is the end of layerOrder.
   const layers = scene ? [...scene.layerOrder].reverse() : [];
   const effectiveLayerId = activeLayerId ?? layers[0] ?? null;
   const selectedObject = selectedIds.length === 1 ? scene?.objects[selectedIds[0]] : null;
   const selectedText = selectedObject?.type === 'text' ? selectedObject : null;
+  const accessibleObjects = useMemo(() => accessibleInkObjects(scene), [scene]);
+  const objectPageCount = Math.max(1, Math.ceil(accessibleObjects.length / 50));
+  const effectiveObjectPage = Math.min(objectPage, objectPageCount - 1);
+  const visibleObjects = accessibleObjects.slice(
+    effectiveObjectPage * 50,
+    effectiveObjectPage * 50 + 50,
+  );
   const paletteColors = [
     ...new Set([
       ...swatches.map((swatch) => canonicalInkColor(swatch.color)),
@@ -802,6 +814,79 @@ export default function InkSidePanel({
           )}
         </section>
       )}
+
+      <section className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className={cn(sectionLabel, 'flex items-center gap-1.5')}>
+            <ListTree size={12} />
+            Objects
+          </h2>
+          <span className="text-[10px] text-muted-foreground">
+            {accessibleObjects.length} authored
+          </span>
+        </div>
+        {visibleObjects.length > 0 ? (
+          <ol
+            className="space-y-1"
+            aria-label={`Page reading order, part ${effectiveObjectPage + 1} of ${objectPageCount}`}
+            start={effectiveObjectPage * 50 + 1}
+          >
+            {visibleObjects.map((object) => {
+              const selected = selectedIds.includes(object.id);
+              return (
+                <li key={object.id}>
+                  <button
+                    type="button"
+                    aria-pressed={selected}
+                    aria-label={`${object.readingOrder}. ${object.name}, layer ${object.layerName}`}
+                    onClick={(event) => onSelectObject(object.id, event.shiftKey)}
+                    className={cn(
+                      'w-full rounded-md border px-2 py-1.5 text-left text-[11px] transition-colors app-motion-fast',
+                      selected
+                        ? 'border-primary bg-primary/10 text-foreground'
+                        : 'border-border/50 text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                    )}
+                  >
+                    <span className="block truncate">
+                      {object.readingOrder}. {object.name}
+                    </span>
+                    <span className="block truncate text-[10px] opacity-75">
+                      {object.layerName}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">
+            Text, shapes, images, stamps, connectors, and groups appear here in reading order.
+          </p>
+        )}
+        {objectPageCount > 1 && (
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              disabled={effectiveObjectPage === 0}
+              onClick={() => setObjectPage((page) => Math.max(0, page - 1))}
+              className="rounded-md border border-border/60 px-2 py-1 text-[10px] disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <span className="text-[10px] text-muted-foreground">
+              {effectiveObjectPage + 1} / {objectPageCount}
+            </span>
+            <button
+              type="button"
+              disabled={effectiveObjectPage >= objectPageCount - 1}
+              onClick={() => setObjectPage((page) => Math.min(objectPageCount - 1, page + 1))}
+              className="rounded-md border border-border/60 px-2 py-1 text-[10px] disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        )}
+      </section>
 
       <section className="space-y-2">
         <div className="flex items-center justify-between">
