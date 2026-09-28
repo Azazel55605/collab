@@ -27,7 +27,7 @@ work from being mistaken for an active roadmap item.
 | Electronic circuit simulation    | In progress / planned            | Finish remaining schema/runtime details and AC integration, then mixed-signal simulation, derived-result caching/collaboration policy, numerical hardening, and release validation.                                     | [Electronic Circuit Simulation Plan](./electronic-circuit-simulation-plan.md)                                                             |
 | Logic and circuit diagram editor | In progress umbrella             | Phases 0-5.1 are complete. Phase 6 is the circuit-simulation program above and should not be counted as a separate implementation stream.                                                                               | [Logic And Circuit Diagram Editor Plan](./logic-circuit-diagram-plan.md)                                                                  |
 | User calendar                    | Testing                          | Complete the Phase 9 maintained external-client CalDAV interoperability matrix. Cross-location mirroring, hardening/restore drills, and notification delivery are complete.                                             | [User Calendar Feature Plan](./user-calendar-feature-plan.md)                                                                             |
-| Collab Presentations             | Planned                          | Complete the `.deck` Phase 0 proofs for scene/text fidelity, deck-specific live text collaboration, and compatible PPTX export before beginning the editor.                                                             | [Collab Presentations Plan](./presentation-tool-plan.md)                                                                                  |
+| Collab Presentations             | Phase 0 testing                  | Phase 0 proofs and the frozen contract are done. Run the text probe in each app WebView and open the exported fixture in PowerPoint and Google Slides, then begin Phase 1 `.deck` vault integration.                    | [Collab Presentations Plan](./presentation-tool-plan.md), [Phase 0 Contract](./presentation-phase0-contract.md)                           |
 | Digital ink and annotation       | Phase 10 testing                 | Phase 10 code and automated hardening are implemented. Complete the physical platform/input/accessibility/resource matrix and multi-client release soak before sign-off.                                                | [Digital Ink And Annotation Plan](./digital-ink-and-annotation-plan.md), [Release Validation](../build/digital-ink-release-validation.md) |
 | Flatpak distribution             | Planned                          | Choose self-hosted Flatpak versus direct Flathub, remove build-time network dependence for Flathub, audit permissions, add publishing/signing, and write public-channel installation docs.                              | [Flatpak Distribution Plan](./flatpak-distribution-plan.md)                                                                               |
 
@@ -46,9 +46,11 @@ Advanced Tables is also an independent product stream. Its Phase 0 technical
 proof should precede any editor implementation because formula-engine,
 virtualization, and licensing choices determine the feasible workbook limits.
 
-Collab Presentations is a planned follow-on product stream. Its Phase 0 must
-prove cross-platform text layout, a deck-specific rich-text CRDT representation,
-and compatible PPTX export before `.deck` routing or editor implementation.
+Collab Presentations is a follow-on product stream. Its Phase 0 has frozen the
+`.deck` contract and proven scene rendering, text layout on Chromium, the
+deck-specific rich-text CRDT encoding, and PPTX export through LibreOffice; the
+remaining gate is text measurement in each app WebView and the exported file in
+PowerPoint and Google Slides, before `.deck` routing or editor implementation.
 
 Digital Ink and Annotation is a planned cross-platform product stream. Its
 Phase 0 must prove real pen/tablet input, bounded low-latency stroke rendering,
@@ -99,9 +101,12 @@ Open tracker entries:
 
 Open tracker entries:
 
-- Phase 0, **Not started**: freeze the native `.deck` schema and resource
-  limits; prove shared scene rendering, rich-text editing, same-text-box live
-  collaboration, and PowerPoint-compatible export.
+- Phase 0, **Testing**: the `.deck` schema, units, and limits are frozen, and
+  shared scene rendering, text layout, same-text-box live collaboration, the
+  Lexical evaluation, PDF/image output, and PowerPoint export are proven — see
+  the [Phase 0 Contract](./presentation-phase0-contract.md). Open: the text
+  probe in the Linux (WebKitGTK), Windows, and Android app WebViews, and the
+  exported fixture in PowerPoint and Google Slides.
 - Phases 1-7, **Planned**: native vault integration, desktop editing, themes and
   layouts, visual objects, presentation mode, hosted/offline collaboration, and
   compatible PPTX export.

@@ -371,6 +371,27 @@ for ordinary edits, falling back to a full repaint for page, background, or
 paint-order changes. The platform, accessibility, resource, and soak gates are
 in [Digital Ink Release Validation](../build/digital-ink-release-validation.md).
 
+### Deck (Presentations, Phase 0 — no UI yet)
+
+Framework-free domain in `src/lib/deck/` with the schema in `src/types/deck.ts`.
+There is no `DeckView`, routing, or vault integration yet; see the
+[Phase 0 Contract](../plans/presentation-phase0-contract.md).
+
+| File                                | Purpose                                                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `lib/deck/units.ts`                 | The only unit conversions: deck units (1/100 pt, exactly 127 EMU), px, pt, inches, rotation                   |
+| `lib/deck/validate.ts`              | Trust boundary: limits, geometry, links, asset paths, group cycles; deterministic `serializeDeck`/`parseDeck` |
+| `lib/deck/resolve.ts`               | Shared scene resolver: theme → master → layout → slide inheritance, fields, groups, paint order               |
+| `lib/deck/textLayout.ts`            | Text layout (wrap, lists, alignment, auto-fit) behind a canvas or approximate `DeckTextMeasurer`              |
+| `lib/deck/geometry.ts`, `svg.ts`    | Preset shape outlines and deterministic SVG output of a resolved slide; `fitSlide` placement                  |
+| `lib/deck/exportPdf.ts`             | Slide SVG → raster → PDF path, reusing the ink PDF writer                                                     |
+| `lib/deck/liveText.ts`              | `Y.Text` encoding of one rich-text body for live collaboration                                                |
+| `lib/deck/pptx/`                    | Isolated, lazy PptxGenJS exporter with an OOXML repair pass and export report                                 |
+| `lib/deck/fixture.ts`, `budgets.ts` | Deterministic fixture and scale decks; performance budgets                                                    |
+
+`tools/deck-text-probe.html` compares the text engine with a platform's own
+layout and is run inside each target WebView.
+
 ### Logic And Circuit
 
 Pure helpers, not React components, except `CircuitSweepPlot`. Runtime job

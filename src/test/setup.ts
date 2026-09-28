@@ -29,55 +29,60 @@ Object.defineProperty(globalThis, 'localStorage', {
   value: localStorageMock,
 });
 
-Object.defineProperty(window, 'localStorage', {
-  writable: true,
-  configurable: true,
-  value: localStorageMock,
-});
-
 beforeEach(() => {
   localStorageMock.clear();
 });
 
-afterEach(() => {
-  document.body.innerHTML = '';
-});
-
-if (!('matchMedia' in window)) {
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  });
-}
-
-if (!('ResizeObserver' in window)) {
-  class ResizeObserverMock {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  }
-
-  Object.defineProperty(window, 'ResizeObserver', {
-    writable: true,
-    value: ResizeObserverMock,
-  });
-}
-
-if (!('scrollIntoView' in HTMLElement.prototype)) {
-  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+// Everything below needs a DOM. A test file may opt into the plain Node
+// environment (`// @vitest-environment node`) to prove code runs without one,
+// as it must in a Web Worker.
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, 'localStorage', {
     writable: true,
     configurable: true,
-    value: vi.fn(),
+    value: localStorageMock,
   });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  if (!('matchMedia' in window)) {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+  }
+
+  if (!('ResizeObserver' in window)) {
+    class ResizeObserverMock {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+
+    Object.defineProperty(window, 'ResizeObserver', {
+      writable: true,
+      value: ResizeObserverMock,
+    });
+  }
+
+  if (!('scrollIntoView' in HTMLElement.prototype)) {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      writable: true,
+      configurable: true,
+      value: vi.fn(),
+    });
+  }
 }
 
 // jsdom ships no canvas implementation, so `getContext` throws a noisy
