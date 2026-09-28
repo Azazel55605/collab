@@ -2,7 +2,10 @@
 
 ## Status
 
-Proposed. No implementation has started.
+Phase 0 is complete except for its external-application and cross-platform
+gates. The frozen contract, measurements, and decisions are in the
+[Phase 0 Contract](./presentation-phase0-contract.md); where this plan and the
+contract differ, the contract wins.
 
 This plan defines a first-party presentation editor for Collab. It follows the
 same product boundary as Advanced Tables: Collab owns the editable document
@@ -479,7 +482,7 @@ Security requirements:
 
 | Phase                                                 | Status      | Goal                                                                                                                |
 | ----------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------- |
-| 0. Product contract and technical proofs              | Not started | Freeze `.deck`, prove scene/text fidelity, rich-text editing, live text collaboration, and PPTX export.             |
+| 0. Product contract and technical proofs              | Testing     | Freeze `.deck`, prove scene/text fidelity, rich-text editing, live text collaboration, and PPTX export.             |
 | 1. `.deck` domain and vault integration               | Not started | Add schema, validation, migrations, creation, routing, references, revisions, and normal local/hosted lifecycle.    |
 | 2. Desktop scene editor foundation                    | Not started | Build slide navigation, stage rendering, selection, transforms, snapping, ordering, clipboard, and undo/redo.       |
 | 3. Rich text, themes, masters, and layouts            | Not started | Deliver text editing, placeholders, theme inheritance, reusable layouts, and templates.                             |

@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Collab deck text probe</title>
+    <!--
+      Phase 0 text-fidelity probe for `.deck` (see
+      docs/plans/presentation-phase0-contract.md). Standalone and dependency-free:
+      open it in the target WebView or browser, press Run, copy the report.
+
+      For every case it lays text out twice:
+        1. "engine" — the greedy word-wrap in src/lib/deck/textLayout.ts, fed by
+           canvas measureText at a 100 px reference size (createCanvasMeasurer);
+        2. "dom" — the platform's own paragraph layout of the same text, width,
+           and font, which is what a contenteditable editing surface shows.
+      A case fails when the two break lines differently. It writes nothing and
+      sends nothing.
+    -->
+    <style>
+      :root { color-scheme: light dark; --bg: #fff; --fg: #14161a; --muted: #6b7280; --line: #d8dce3; --accent: #6d5efc; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #101216; --fg: #e7e9ee; --muted: #9aa3b2; --line: #262b34; --accent: #8b7dff; } }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.45 ui-sans-serif, system-ui, sans-serif; }
+      header { padding: 8px 12px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      h1 { font-size: 13px; margin: 0 8px 0 0; }
+      button { font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      table { border-collapse: collapse; margin: 8px 12px; font-variant-numeric: tabular-nums; }
+      th, td { text-align: left; padding: 2px 10px 2px 0; }
+      th { color: var(--muted); font-weight: 500; }
+      .bad { color: #d0342c; font-weight: 600; }
+      .good { color: #1a7f37; font-weight: 600; }
+      #summary { margin: 8px 12px; font-family: ui-monospace, monospace; font-size: 11px; white-space: pre-wrap; word-break: break-word; }
+      #stage { position: absolute; left: -10000px; top: 0; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Collab deck text probe</h1>
+      <button class="primary" id="run">Run</button>
+      <button id="copy">Copy report</button>
+      <span id="status"></span>
+    </header>
+    <table id="results"></table>
+    <div id="summary"></div>
+    <div id="stage"></div>
+    <script>
+      'use strict';
+      const PT_TO_PX = 4 / 3;
+      const FONTS = [
+        ['Inter', 'Arial', 'sans-serif'],
+        ['Arial', 'sans-serif'],
+        ['Calibri', 'Carlito', 'sans-serif'],
+        ['Times New Roman', 'serif'],
+        ['Noto Sans', 'sans-serif'],
+        ['sans-serif'],
+      ];
+      const SIZES_PT = [12, 18, 24, 40];
+      const WIDTHS_PX = [180, 420];
+      const TEXTS = {
+        english: 'The quick brown fox jumps over the lazy dog while the presentation keeps its wrapping stable across every platform we ship.',
+        german: 'Donaudampfschifffahrtsgesellschaftskapitän prüft die Präsentationsvorlagenverwaltung für Übersichtsfolien.',
+        numbers: 'Revenue grew 12.5% to €1,234,567 in Q3 2026, versus 9.8% in Q2 and 7.1% in Q1.',
+        cjk: '共同编辑的演示文稿必须在每个平台上以相同方式换行，否则导出的文件会与编辑器不一致。',
+      };
+      const GENERIC = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/;
+
+      const family = (stack) => stack.map((f) => (GENERIC.test(f) ? f : `"${f}"`)).join(', ');
+      const ctx = document.createElement('canvas').getContext('2d');
+
+      /** Mirrors createCanvasMeasurer: measure at 100 px, scale linearly. */
+      function measure(text, stack, sizePx, bold) {
+        ctx.font = `${bold ? 700 : 400} 100px ${family(stack)}`;
+        return (ctx.measureText(text).width * sizePx) / 100;
+      }
+
+      /** Mirrors layoutAtScale's greedy wrap for one paragraph, one run. */
+      function engineLines(text, stack, sizePx, width, bold) {
+        const lines = [];
+        let line = [];
+        let lineWidth = 0;
+        const flush = () => {
+          lines.push(line.join('').trim());
+          line = [];
+          lineWidth = 0;
+        };
+        for (const token of text.split(/(\s+)/)) {
+          if (token === '') continue;
+          const isSpace = /^\s+$/.test(token);
+          if (isSpace && line.length === 0 && lines.length > 0) continue;
+          const w = measure(token, stack, sizePx, bold);
+          // As the engine: measure the whole line so far, not a sum of words.
+          if (!isSpace && line.length > 0 && measure(line.join('') + token, stack, sizePx, bold) > width) flush();
+          if (!isSpace && line.length === 0 && w > width) {
+            let piece = '';
+            for (const ch of token) {
+              if (piece && measure(piece + ch, stack, sizePx, bold) > width) {
+                line.push(piece);
+                flush();
+                piece = ch;
+              } else piece += ch;
+            }
+            line.push(piece);
+            lineWidth = measure(piece, stack, sizePx, bold);
+            continue;
+          }
+          line.push(token);
+          lineWidth = measure(line.join(''), stack, sizePx, bold);
+        }
+        if (line.length) flush();
+        return lines;
+      }
+
+      /** The platform's own layout, read back line by line from glyph rects. */
+      function domLines(text, stack, sizePx, width, bold) {
+        const stage = document.getElementById('stage');
+        const box = document.createElement('div');
+        box.style.cssText = `width:${width}px;font:${bold ? 700 : 400} ${sizePx}px ${family(stack)};line-height:1.2;white-space:normal;overflow-wrap:anywhere;word-break:normal;`;
+        box.textContent = text;
+        stage.replaceChildren(box);
+        const node = box.firstChild;
+        const range = document.createRange();
+        const lines = [];
+        let current = '';
+        let top = null;
+        let offset = 0;
+        for (const ch of text) {
+          range.setStart(node, offset);
+          range.setEnd(node, offset + ch.length);
+          const rect = range.getClientRects()[0];
+          offset += ch.length;
+          if (!rect) {
+            current += ch;
+            continue;
+          }
+          if (top !== null && rect.top > top + sizePx * 0.5) {
+            lines.push(current.trim());
+            current = '';
+          }
+          if (top === null || rect.top > top + sizePx * 0.5) top = rect.top;
+          current += ch;
+        }
+        if (current.trim()) lines.push(current.trim());
+        return lines;
+      }
+
+      let report = null;
+
+      function run() {
+        const status = document.getElementById('status');
+        status.textContent = 'Running…';
+        const fonts = {};
+        for (const stack of FONTS) {
+          const primary = stack[0];
+          fonts[primary] = GENERIC.test(primary) ? 'generic' : document.fonts.check(`16px "${primary}"`) ? 'available' : 'substituted';
+        }
+        const cases = [];
+        for (const [name, text] of Object.entries(TEXTS)) {
+          for (const stack of FONTS) {
+            for (const sizePt of SIZES_PT) {
+              for (const width of WIDTHS_PX) {
+                for (const bold of [false, true]) {
+                  const sizePx = sizePt * PT_TO_PX;
+                  const engine = engineLines(text, stack, sizePx, width, bold);
+                  const dom = domLines(text, stack, sizePx, width, bold);
+                  const same = engine.length === dom.length && engine.every((line, i) => line === dom[i]);
+                  const widthDelta = Math.max(
+                    0,
+                    ...engine.map((line, i) => (dom[i] === line ? Math.abs(measure(line, stack, sizePx, bold) - domWidth(line, stack, sizePx, bold)) : 0)),
+                  );
+                  cases.push({ text: name, font: stack[0], sizePt, width, bold, engineLines: engine.length, domLines: dom.length, same, widthDeltaPx: +widthDelta.toFixed(2), ...(same ? {} : { engine, dom }) });
+                }
+              }
+            }
+          }
+        }
+        const mismatched = cases.filter((c) => !c.same);
+        report = {
+          probe: 'collab-deck-text-probe/1',
+          userAgent: navigator.userAgent,
+          platform: navigator.platform,
+          devicePixelRatio: window.devicePixelRatio,
+          fonts,
+          cases: cases.length,
+          sameBreaks: cases.length - mismatched.length,
+          mismatches: mismatched.length,
+          maxWidthDeltaPx: Math.max(0, ...cases.map((c) => c.widthDeltaPx)),
+          byText: Object.fromEntries(Object.keys(TEXTS).map((t) => [t, cases.filter((c) => c.text === t && !c.same).length])),
+          mismatchSamples: mismatched.slice(0, 12),
+        };
+        render(cases);
+        status.textContent = `${report.sameBreaks}/${report.cases} cases break identically`;
+      }
+
+      function domWidth(line, stack, sizePx, bold) {
+        const span = document.createElement('span');
+        span.style.cssText = `font:${bold ? 700 : 400} ${sizePx}px ${family(stack)};white-space:pre;`;
+        span.textContent = line;
+        document.getElementById('stage').replaceChildren(span);
+        return span.getBoundingClientRect().width;
+      }
+
+      function render(cases) {
+        const table = document.getElementById('results');
+        const rows = ['<tr><th>Text</th><th>Font</th><th>Font state</th><th>Cases</th><th>Same breaks</th><th>Max width Δ px</th></tr>'];
+        for (const text of Object.keys(TEXTS)) {
+          for (const stack of FONTS) {
+            const subset = cases.filter((c) => c.text === text && c.font === stack[0]);
+            const same = subset.filter((c) => c.same).length;
+            rows.push(`<tr><td>${text}</td><td>${stack[0]}</td><td>${report.fonts[stack[0]]}</td><td>${subset.length}</td><td class="${same === subset.length ? 'good' : 'bad'}">${same}</td><td>${Math.max(...subset.map((c) => c.widthDeltaPx)).toFixed(2)}</td></tr>`);
+          }
+        }
+        table.innerHTML = rows.join('');
+        document.getElementById('summary').textContent = JSON.stringify(report, null, 2);
+      }
+
+      document.getElementById('run').addEventListener('click', run);
+      document.getElementById('copy').addEventListener('click', () => {
+        if (report) navigator.clipboard?.writeText(JSON.stringify(report, null, 2));
+      });
+      window.__runDeckTextProbe = () => (run(), report);
+    </script>
+  </body>
+</html>
