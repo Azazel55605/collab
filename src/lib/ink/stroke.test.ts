@@ -83,6 +83,36 @@ describe('outlineStroke', () => {
     expect(outlineStroke([], UNIFORM)).toEqual([]);
   });
 
+  it('rounds the corners left by widely spaced fast-stroke samples', () => {
+    // A fast flick delivers few samples. Joining them with straight segments
+    // showed as visible corners; the outline must follow a smooth curve.
+    const samples: InkSample[] = [
+      { x: 0, y: 0 },
+      { x: 4_000, y: 0 },
+      { x: 4_000, y: 4_000 },
+    ];
+    const outline = outlineStroke(samples, UNIFORM);
+    // One side of the stroke walks the curve: the corner is subdivided.
+    expect(outline.length).toBeGreaterThan(samples.length * 2 + 2 * 7 + 8);
+    // And the curve cuts inside the sharp corner at (4000, 0).
+    const nearest = Math.min(...outline.map((point) => Math.hypot(point.x - 4_000, point.y)));
+    expect(nearest).toBeGreaterThan(UNIFORM.width);
+  });
+
+  it('starts and ends on the first and last sample', () => {
+    const samples = buildStrokeSamples({ samples: 30, x: 1_000, y: 2_000 });
+    const outline = outlineStroke(samples, UNIFORM);
+    const first = samples[0];
+    const last = samples[samples.length - 1];
+    const touches = (sample: InkSample) =>
+      outline.some(
+        (point) =>
+          Math.abs(Math.hypot(point.x - sample.x, point.y - sample.y) - UNIFORM.width / 2) < 1,
+      );
+    expect(touches(first)).toBe(true);
+    expect(touches(last)).toBe(true);
+  });
+
   it('narrows toward a tapered end', () => {
     const brush = { ...UNIFORM, taperEnd: 2_000 };
     const samples: InkSample[] = Array.from({ length: 20 }, (_, index) => ({

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { INK_LIMITS } from '../../types/ink';
+import { INK_LIMITS, INK_UNITS_PER_PX } from '../../types/ink';
 
 import {
   INK_TILE_MAX_PIXELS,
@@ -8,10 +8,12 @@ import {
   InkDirtyTiles,
   tileBounds,
   tileBytes,
+  tileDeviceScale,
   tileId,
   tilePixelSize,
   tilesForBounds,
   tilesForViewport,
+  tileSizeForScale,
   tilesToEvict,
 } from './tiles';
 import type { InkTileCacheEntry } from './tiles';
@@ -80,6 +82,34 @@ describe('tilePixelSize', () => {
   it('never returns a zero-sized tile at extreme zoom-out', () => {
     expect(tilePixelSize(INK_LIMITS.minZoom, 1)).toBeGreaterThanOrEqual(1);
     expect(tilePixelSize(0, 1)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('matches the on-screen size of a tile, so tiles are not upscaled', () => {
+    // A tile is INK_TILE_SIZE / INK_UNITS_PER_PX CSS pixels wide at 100% zoom.
+    // Rendering it any smaller is what made committed ink look soft.
+    const cssPixels = INK_TILE_SIZE / INK_UNITS_PER_PX;
+    expect(tilePixelSize(1, 1)).toBe(Math.ceil(cssPixels));
+    expect(tilePixelSize(1, 2)).toBe(Math.ceil(cssPixels * 2));
+  });
+});
+
+describe('tileSizeForScale', () => {
+  it('keeps the base tile at ordinary zoom', () => {
+    expect(tileSizeForScale(tileDeviceScale(1, 1))).toBe(INK_TILE_SIZE);
+  });
+
+  it('switches to smaller tiles instead of exceeding the pixel cap', () => {
+    for (const zoom of [2, 4, 16, INK_LIMITS.maxZoom]) {
+      const scale = tileDeviceScale(zoom, 2);
+      const size = tileSizeForScale(scale);
+      expect(size * scale).toBeLessThanOrEqual(INK_TILE_MAX_PIXELS);
+      expect(size).toBeLessThan(INK_TILE_SIZE);
+    }
+  });
+
+  it('merges into larger tiles when zoomed far out', () => {
+    const scale = tileDeviceScale(INK_LIMITS.minZoom, 1);
+    expect(tileSizeForScale(scale)).toBeGreaterThan(INK_TILE_SIZE);
   });
 });
 

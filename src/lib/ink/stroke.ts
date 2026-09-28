@@ -105,58 +105,105 @@ function simulatedPressures(samples: InkSample[]): number[] {
   return output;
 }
 
-function arcLengths(samples: InkSample[]): { lengths: number[]; total: number } {
-  const lengths = new Array<number>(samples.length).fill(0);
-  let total = 0;
-  for (let index = 1; index < samples.length; index += 1) {
-    total += Math.hypot(
-      samples[index].x - samples[index - 1].x,
-      samples[index].y - samples[index - 1].y,
-    );
-    lengths[index] = total;
-  }
-  return { lengths, total };
+/**
+ * The smoothed centre line as parallel arrays: position plus untapered
+ * half-width. Flat arrays, because this runs for every stroke in every tile
+ * repaint and per-point objects dominated its cost.
+ */
+interface InkCurve {
+  xs: number[];
+  ys: number[];
+  halves: number[];
 }
 
-/** Unit normals, averaged at interior samples so corners do not pinch. */
-function normalsFor(samples: InkSample[]): InkPoint[] {
-  const normals = new Array<InkPoint>(samples.length);
-  for (let index = 0; index < samples.length; index += 1) {
-    const previous = samples[Math.max(0, index - 1)];
-    const next = samples[Math.min(samples.length - 1, index + 1)];
-    let dx = next.x - previous.x;
-    let dy = next.y - previous.y;
-    const length = Math.hypot(dx, dy);
-    if (length === 0) {
-      dx = 1;
-      dy = 0;
-    } else {
-      dx /= length;
-      dy /= length;
+/**
+ * Largest distance, in ink units, a flattened curve segment may stray from the
+ * true curve. 4 units is 1/16 pt: under a device pixel even at deep zoom.
+ */
+const CURVE_TOLERANCE_UNITS = 4;
+const CURVE_MAX_SUBDIVISIONS = 16;
+
+/**
+ * Smooths the centre line with a quadratic B-spline through sample midpoints.
+ *
+ * Fast pointer movement delivers samples far apart, and joining them with
+ * straight segments shows as corners. Each interior sample instead becomes the
+ * control point of a quadratic curve between its neighbouring midpoints,
+ * flattened just finely enough that no facet is visible. Densely sampled
+ * strokes need little or no subdivision. The curve starts and ends on the
+ * first and last sample.
+ *
+ * Every generated point, and its half-width, is a convex combination of three
+ * consecutive samples, so the outline never leaves `strokeBounds`. The stored
+ * samples are not changed; this is purely how they are drawn.
+ */
+function smoothCentreLine(samples: InkSample[], halfWidths: number[]): InkCurve {
+  const count = samples.length;
+  const xs: number[] = [samples[0].x];
+  const ys: number[] = [samples[0].y];
+  const halves: number[] = [halfWidths[0]];
+
+  for (let index = 1; index < count - 1; index += 1) {
+    const a = samples[index - 1];
+    const b = samples[index];
+    const c = samples[index + 1];
+    const ha = halfWidths[index - 1];
+    const hb = halfWidths[index];
+    const hc = halfWidths[index + 1];
+
+    // The chord between the midpoints misses the curve by |2b - a - c| / 8,
+    // and splitting into n pieces divides that by n².
+    const bendX = 2 * b.x - a.x - c.x;
+    const bendY = 2 * b.y - a.y - c.y;
+    const deviation = Math.sqrt(bendX * bendX + bendY * bendY) / 8;
+    const steps = Math.min(
+      CURVE_MAX_SUBDIVISIONS,
+      Math.max(1, Math.ceil(Math.sqrt(deviation / CURVE_TOLERANCE_UNITS))),
+    );
+
+    // Each curve starts where the previous one ended, so only the first curve
+    // emits its start point.
+    for (let step = index === 1 ? 0 : 1; step <= steps; step += 1) {
+      const t = step / steps;
+      const w0 = 0.5 * (1 - t) * (1 - t);
+      const w2 = 0.5 * t * t;
+      const w1 = 1 - w0 - w2;
+      xs.push(w0 * a.x + w1 * b.x + w2 * c.x);
+      ys.push(w0 * a.y + w1 * b.y + w2 * c.y);
+      halves.push(w0 * ha + w1 * hb + w2 * hc);
     }
-    normals[index] = { x: -dy, y: dx };
   }
-  return normals;
+
+  if (count > 1) {
+    xs.push(samples[count - 1].x);
+    ys.push(samples[count - 1].y);
+    halves.push(halfWidths[count - 1]);
+  }
+  return { xs, ys, halves };
+}
+
+/** Whether every sample sits on the first one, i.e. the stroke is a dot. */
+function isDot(samples: InkSample[]): boolean {
+  const { x, y } = samples[0];
+  for (let index = 1; index < samples.length; index += 1) {
+    if (samples[index].x !== x || samples[index].y !== y) return false;
+  }
+  return true;
 }
 
 /** Semicircular cap, walked from one offset point to the other. */
-function capPoints(
-  centre: InkSample,
-  normal: InkPoint,
+function pushCap(
+  output: InkPoint[],
+  centreX: number,
+  centreY: number,
+  normalAngle: number,
   radius: number,
-  startAngleOffset: number,
   segments: number,
-): InkPoint[] {
-  const base = Math.atan2(normal.y, normal.x) + startAngleOffset;
-  const points: InkPoint[] = [];
+): void {
   for (let step = 1; step < segments; step += 1) {
-    const angle = base + (Math.PI * step) / segments;
-    points.push({
-      x: centre.x + Math.cos(angle) * radius,
-      y: centre.y + Math.sin(angle) * radius,
-    });
+    const angle = normalAngle + (Math.PI * step) / segments;
+    output.push({ x: centreX + Math.cos(angle) * radius, y: centreY + Math.sin(angle) * radius });
   }
-  return points;
 }
 
 const CAP_SEGMENTS = 8;
@@ -164,18 +211,17 @@ const CAP_SEGMENTS = 8;
 /**
  * The first-party outliner.
  *
- * Walks the centre line offsetting by the pressure- and taper-scaled
- * half-width, then closes the polygon with round caps. Deterministic: the same
- * samples and brush always produce the same points, which is what makes SVG
- * export reproducible.
+ * Smooths the centre line, walks it offsetting by the pressure- and
+ * taper-scaled half-width, then closes the polygon with round caps.
+ * Deterministic: the same samples and brush always produce the same points,
+ * which is what makes SVG export reproducible.
  */
 export const outlineStroke: InkStrokeOutliner = (samples, brush) => {
   if (samples.length === 0) return [];
 
   const simulated = brush.simulatePressure ? simulatedPressures(samples) : undefined;
-  const { lengths, total } = arcLengths(samples);
 
-  if (samples.length === 1 || total === 0) {
+  if (isDot(samples)) {
     // A dot. Draw the cap circle rather than nothing, so a tap leaves a mark.
     const radius = halfWidthAt(samples[0], brush, simulated?.[0]);
     const points: InkPoint[] = [];
@@ -190,29 +236,71 @@ export const outlineStroke: InkStrokeOutliner = (samples, brush) => {
     return points;
   }
 
-  const normals = normalsFor(samples);
-  const radii = samples.map((sample, index) => {
-    const half = halfWidthAt(sample, brush, simulated?.[index]);
-    return half * taperFactor(lengths[index], total, brush.taperStart, brush.taperEnd);
-  });
-
-  const left: InkPoint[] = [];
-  const right: InkPoint[] = [];
+  const halfWidths = new Array<number>(samples.length);
   for (let index = 0; index < samples.length; index += 1) {
-    const sample = samples[index];
-    const normal = normals[index];
-    const radius = radii[index];
-    left.push({ x: sample.x + normal.x * radius, y: sample.y + normal.y * radius });
-    right.push({ x: sample.x - normal.x * radius, y: sample.y - normal.y * radius });
+    halfWidths[index] = halfWidthAt(samples[index], brush, simulated?.[index]);
+  }
+  const { xs, ys, halves } = smoothCentreLine(samples, halfWidths);
+  const count = xs.length;
+  const last = count - 1;
+
+  // Arc length along the smoothed curve, for tapering.
+  const lengths = new Array<number>(count);
+  lengths[0] = 0;
+  for (let index = 1; index < count; index += 1) {
+    const dx = xs[index] - xs[index - 1];
+    const dy = ys[index] - ys[index - 1];
+    lengths[index] = lengths[index - 1] + Math.sqrt(dx * dx + dy * dy);
+  }
+  const total = lengths[last];
+  const tapered = brush.taperStart > 0 || brush.taperEnd > 0;
+
+  // Left side forwards into `output`, right side into `right`, both offset by
+  // unit normals averaged across neighbours so corners do not pinch.
+  const output: InkPoint[] = [];
+  const right: InkPoint[] = new Array(count);
+  let firstAngle = 0;
+  let lastAngle = 0;
+  let firstRadius = 0;
+  let lastRadius = 0;
+  for (let index = 0; index < count; index += 1) {
+    const previous = index > 0 ? index - 1 : 0;
+    const next = index < last ? index + 1 : last;
+    let dx = xs[next] - xs[previous];
+    let dy = ys[next] - ys[previous];
+    // Math.hypot is several times slower than this in V8, and this loop runs
+    // for every outline point of every stroke in a tile repaint.
+    const length = Math.sqrt(dx * dx + dy * dy);
+    if (length === 0) {
+      dx = 1;
+      dy = 0;
+    } else {
+      dx /= length;
+      dy /= length;
+    }
+    const nx = -dy;
+    const ny = dx;
+    const radius = tapered
+      ? halves[index] * taperFactor(lengths[index], total, brush.taperStart, brush.taperEnd)
+      : halves[index];
+    const x = xs[index];
+    const y = ys[index];
+    output.push({ x: x + nx * radius, y: y + ny * radius });
+    right[last - index] = { x: x - nx * radius, y: y - ny * radius };
+    if (index === 0) {
+      firstAngle = Math.atan2(ny, nx);
+      firstRadius = radius;
+    }
+    if (index === last) {
+      lastAngle = Math.atan2(ny, nx);
+      lastRadius = radius;
+    }
   }
 
-  const last = samples.length - 1;
-  return [
-    ...left,
-    ...capPoints(samples[last], normals[last], radii[last], 0, CAP_SEGMENTS),
-    ...right.reverse(),
-    ...capPoints(samples[0], normals[0], radii[0], Math.PI, CAP_SEGMENTS),
-  ];
+  pushCap(output, xs[last], ys[last], lastAngle, lastRadius, CAP_SEGMENTS);
+  for (const point of right) output.push(point);
+  pushCap(output, xs[0], ys[0], firstAngle + Math.PI, firstRadius, CAP_SEGMENTS);
+  return output;
 };
 
 /**

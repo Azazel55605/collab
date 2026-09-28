@@ -34,8 +34,8 @@
       "icons/icon.ico"
     ],
     "android": {
-      "versionCode": 8000
+      "versionCode": 8001
     }
   },
-  "version": "0.8.0"
+  "version": "0.8.1"
 }

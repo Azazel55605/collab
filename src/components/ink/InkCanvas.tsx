@@ -21,7 +21,6 @@ import type { InkPointerReading } from '../../lib/ink/samples';
 import { frameCorners, type InkSelectionFrame, selectionFrame } from '../../lib/ink/selectionFrame';
 import { InkSpatialIndex } from '../../lib/ink/spatialIndex';
 import { outlineStroke } from '../../lib/ink/stroke';
-import { INK_TILE_SIZE } from '../../lib/ink/tiles';
 import type { InkViewport } from '../../lib/ink/tiles';
 import { penButtonTool } from '../../lib/ink/tools';
 import type { InkPenButtonMapping, InkToolState } from '../../lib/ink/tools';
@@ -356,6 +355,7 @@ export default function InkCanvas({
     const pixelHeight = Math.floor(size.height * ratio);
     if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
     if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+    matchCssSize(canvas, pixelWidth, pixelHeight, ratio);
 
     const context = canvas.getContext('2d');
     if (!context) return;
@@ -371,11 +371,13 @@ export default function InkCanvas({
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.clearRect(0, 0, canvas.width, canvas.height);
 
+    // Tiles are painted at exactly the on-screen scale, so they are composited
+    // unscaled on whole device pixels. Stretching or sub-pixel placement would
+    // resample every tile and soften thin lines.
     for (const tile of renderer.renderViewport(page.scene, viewport, page, ratio)) {
-      const left = ((tile.bounds.minX - originX) / unitsPerPixel) * ratio;
-      const top = ((tile.bounds.minY - originY) / unitsPerPixel) * ratio;
-      const span = (INK_TILE_SIZE / unitsPerPixel) * ratio;
-      context.drawImage(tile.surface.canvas, left, top, span, span);
+      const left = Math.round((tile.bounds.minX - originX) * tile.scale);
+      const top = Math.round((tile.bounds.minY - originY) * tile.scale);
+      context.drawImage(tile.surface.canvas, left, top);
     }
   }, [originX, originY, page, size.height, size.width, unitsPerPixel, zoom]);
 
@@ -417,10 +419,11 @@ export default function InkCanvas({
     const canvas = liveCanvasRef.current;
     if (!canvas || size.width === 0) return;
     const ratio = interactiveCanvasDeviceScale(size.width, size.height);
-    if (canvas.width !== Math.floor(size.width * ratio)) {
-      canvas.width = Math.floor(size.width * ratio);
-      canvas.height = Math.floor(size.height * ratio);
-    }
+    const pixelWidth = Math.floor(size.width * ratio);
+    const pixelHeight = Math.floor(size.height * ratio);
+    if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+    if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+    matchCssSize(canvas, pixelWidth, pixelHeight, ratio);
     const context = canvas.getContext('2d');
     if (!context) return;
 
@@ -511,6 +514,27 @@ export default function InkCanvas({
     const frame = requestAnimationFrame(drawLive);
     return () => cancelAnimationFrame(frame);
   }, [drawLive, overlayVersion]);
+
+  // The stroke under the pen redraws once per frame without re-rendering the
+  // component: a React render per pointer event is what made fast strokes lag.
+  const drawLiveRef = useRef(drawLive);
+  const liveFrameRef = useRef<number | null>(null);
+  useEffect(() => {
+    drawLiveRef.current = drawLive;
+  }, [drawLive]);
+  useEffect(
+    () => () => {
+      if (liveFrameRef.current !== null) cancelAnimationFrame(liveFrameRef.current);
+    },
+    [],
+  );
+  const scheduleLiveDraw = useCallback(() => {
+    if (liveFrameRef.current !== null) return;
+    liveFrameRef.current = requestAnimationFrame(() => {
+      liveFrameRef.current = null;
+      drawLiveRef.current();
+    });
+  }, []);
 
   /* --------------------------------------------------------------------- */
   /* Pointer handling                                                       */
@@ -818,7 +842,7 @@ export default function InkCanvas({
               ? { pageId: page.id, brush: tool.brush, samples: boundedPreviewSamples(samples) }
               : null,
           });
-          bump();
+          scheduleLiveDraw();
           return;
         }
         case 'erase': {
@@ -905,6 +929,7 @@ export default function InkCanvas({
       page,
       readOnly,
       rotationHandleAt,
+      scheduleLiveDraw,
       toDocument,
       tool.brush,
       tool.eraserRadius,
@@ -1125,7 +1150,8 @@ export default function InkCanvas({
     >
       <canvas
         ref={tileCanvasRef}
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+        // CSS size is set imperatively to match the backing store exactly.
+        style={{ position: 'absolute', left: 0, top: 0 }}
         aria-hidden
       />
       <p id={`${accessibilityId}-instructions`} className="sr-only">
@@ -1158,13 +1184,7 @@ export default function InkCanvas({
       <canvas
         ref={liveCanvasRef}
         aria-hidden
-        style={{
-          position: 'absolute',
-          inset: 0,
-          width: '100%',
-          height: '100%',
-          pointerEvents: 'none',
-        }}
+        style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none' }}
       />
 
       <svg
@@ -1230,6 +1250,18 @@ export default function InkCanvas({
 }
 
 /* ------------------------------------------------------------------------- */
+
+/**
+ * Sizes a canvas in CSS pixels to exactly its backing store divided by the
+ * device ratio. Stretching it to the host's fractional size instead would make
+ * the browser resample the whole surface.
+ */
+function matchCssSize(canvas: HTMLCanvasElement, width: number, height: number, ratio: number) {
+  const cssWidth = `${width / ratio}px`;
+  const cssHeight = `${height / ratio}px`;
+  if (canvas.style.width !== cssWidth) canvas.style.width = cssWidth;
+  if (canvas.style.height !== cssHeight) canvas.style.height = cssHeight;
+}
 
 function pairs(flat: number[]): Array<[number, number]> {
   const out: Array<[number, number]> = [];

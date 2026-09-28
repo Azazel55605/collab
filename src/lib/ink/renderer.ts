@@ -33,10 +33,10 @@ import {
   INK_TILE_SIZE,
   tileBounds,
   tileBytes,
+  tileDeviceScale,
   tileId,
-  tilePixelSize,
-  tilesForBounds,
   tilesForViewport,
+  tileSizeForScale,
   tilesToEvict,
 } from './tiles';
 import type { InkTileCacheEntry, InkTileKey, InkViewport } from './tiles';
@@ -450,6 +450,8 @@ interface CachedTile<S> {
   surface: S;
   target: InkRenderTarget;
   pixelSize: number;
+  /** Device pixels per ink unit the tile was painted at. */
+  scale: number;
   lastUsed: number;
 }
 
@@ -459,6 +461,8 @@ export interface InkTileRenderResult<S> {
   /** Ink-unit region this surface covers. */
   bounds: InkBounds;
   pixelSize: number;
+  /** Device pixels per ink unit; the surface is meant to be drawn unscaled. */
+  scale: number;
   /** False when the tile was served from cache. */
   repainted: boolean;
 }
@@ -511,9 +515,21 @@ export class InkTileRenderer<S> {
     this.tiles.delete(id);
   }
 
-  /** Discards every tile a bounds rectangle touches. */
+  /** Discards every cached tile, at any pyramid level, a bounds rectangle touches. */
   invalidateBounds(bounds: InkBounds): void {
-    for (const key of tilesForBounds(bounds, this.tileSize)) this.invalidate(key);
+    if (bounds.maxX < bounds.minX || bounds.maxY < bounds.minY) return;
+    for (const tile of [...this.tiles.values()]) {
+      const region = tileBounds(tile.key, this.tileSize);
+      // Same half-open membership as `tilesForBounds`.
+      if (
+        region.minX <= bounds.maxX &&
+        region.maxX > bounds.minX &&
+        region.minY <= bounds.maxY &&
+        region.maxY > bounds.minY
+      ) {
+        this.invalidate(tile.key);
+      }
+    }
   }
 
   /** Discards the tiles an object vacated and the ones it now occupies. */
@@ -540,9 +556,16 @@ export class InkTileRenderer<S> {
     page?: InkPage,
     devicePixelRatio = 1,
   ): Array<InkTileRenderResult<S>> {
-    const keys = tilesForViewport(viewport, 1, this.tileSize);
-    const pixelSize = tilePixelSize(viewport.zoom, devicePixelRatio, this.tileSize);
-    const results = keys.map((key) => this.renderTile(scene, key, pixelSize, page));
+    // Paint at exactly the on-screen scale, and pick the pyramid level whose
+    // tiles fit that scale without exceeding the backing-store cap. Scaling a
+    // tile up at composite time is what made ink look soft.
+    const scale = tileDeviceScale(viewport.zoom, devicePixelRatio);
+    const size = tileSizeForScale(scale, this.tileSize);
+    const pixelSize = Math.max(1, Math.ceil(size * scale));
+    const keys = tilesForViewport(viewport, 1, size).map((key) =>
+      size === this.tileSize ? key : { ...key, size },
+    );
+    const results = keys.map((key) => this.renderTile(scene, key, pixelSize, scale, page));
     this.evict(keys);
     return results;
   }
@@ -551,6 +574,7 @@ export class InkTileRenderer<S> {
     scene: InkScene,
     key: InkTileKey,
     pixelSize: number,
+    scale: number,
     page?: InkPage,
   ): InkTileRenderResult<S> {
     const id = tileId(key);
@@ -558,16 +582,15 @@ export class InkTileRenderer<S> {
     this.clock += 1;
 
     const cached = this.tiles.get(id);
-    // A zoom change alters the pixel size, so a tile cached at another zoom is
-    // the wrong resolution and has to be repainted rather than scaled.
-    if (cached && cached.pixelSize === pixelSize) {
+    // A zoom change alters the scale, so a tile cached at another zoom is the
+    // wrong resolution and has to be repainted rather than scaled.
+    if (cached && cached.pixelSize === pixelSize && cached.scale === scale) {
       cached.lastUsed = this.clock;
-      return { key, surface: cached.surface, bounds, pixelSize, repainted: false };
+      return { key, surface: cached.surface, bounds, pixelSize, scale, repainted: false };
     }
     if (cached) this.invalidate(key);
 
     const { surface, target } = this.factory.create(pixelSize);
-    const scale = pixelSize / this.tileSize;
 
     target.save();
     target.setTransform(1, 0, 0, 1, 0, 0);
@@ -578,10 +601,10 @@ export class InkTileRenderer<S> {
     paintScene(target, scene, bounds, this.options.render);
     target.restore();
 
-    this.tiles.set(id, { key, surface, target, pixelSize, lastUsed: this.clock });
+    this.tiles.set(id, { key, surface, target, pixelSize, scale, lastUsed: this.clock });
     this.cachedBytes += tileBytes(pixelSize);
 
-    return { key, surface, bounds, pixelSize, repainted: true };
+    return { key, surface, bounds, pixelSize, scale, repainted: true };
   }
 
   private evict(visible: InkTileKey[]): void {

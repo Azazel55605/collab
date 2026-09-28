@@ -428,6 +428,32 @@ describe('InkTileRenderer', () => {
     expect(zoomed.every((tile) => tile.repainted)).toBe(true);
   });
 
+  it('paints deep-zoom tiles at screen resolution under the pixel cap', () => {
+    const renderer = new InkTileRenderer(makeFactory());
+    const tiles = renderer.renderViewport(denseScene(), { ...viewport, zoom: 8 }, undefined, 2);
+    for (const tile of tiles) {
+      const span = tile.bounds.maxX - tile.bounds.minX;
+      expect(tile.pixelSize).toBe(Math.ceil(span * tile.scale));
+      expect(tile.pixelSize).toBeLessThanOrEqual(512);
+    }
+  });
+
+  it('invalidates edited regions in finer pyramid tiles too', () => {
+    const factory = makeFactory();
+    const renderer = new InkTileRenderer(factory);
+    const scene = denseScene();
+    const zoomed = { ...viewport, zoom: 8 };
+    renderer.renderViewport(scene, zoomed, undefined, 2);
+
+    renderer.invalidateBounds({ minX: 0, minY: 0, maxX: 10, maxY: 10 });
+    const repainted = renderer
+      .renderViewport(scene, zoomed, undefined, 2)
+      .filter((tile) => tile.repainted);
+    expect(repainted).toHaveLength(1);
+    expect(repainted[0].bounds.minX).toBe(0);
+    expect(repainted[0].bounds.minY).toBe(0);
+  });
+
   it('evicts under budget but never a visible tile', () => {
     const factory = makeFactory();
     // A budget too small for even one tile, so eviction has to run and has to

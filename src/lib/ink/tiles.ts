@@ -11,7 +11,7 @@
  * A page holding ten thousand strokes cannot be redrawn between two pointer
  * events, so an edit must repaint only the tiles its bounds touch.
  */
-import { INK_LIMITS } from '../../types/ink';
+import { INK_LIMITS, INK_UNITS_PER_PX } from '../../types/ink';
 import type { InkBounds } from '../../types/ink';
 
 /** Tile edge in ink units. 8192 units is 128 pt, ~171 CSS px at 100% zoom. */
@@ -33,6 +33,11 @@ export const INK_TILE_CACHE_BUDGET_BYTES = 96 * 1024 * 1024;
 export interface InkTileKey {
   col: number;
   row: number;
+  /**
+   * Edge in ink units when the tile belongs to a finer or coarser pyramid level
+   * than `INK_TILE_SIZE`. Absent at the base level.
+   */
+  size?: number;
 }
 
 export interface InkViewport {
@@ -46,11 +51,12 @@ export interface InkViewport {
 }
 
 export function tileId(key: InkTileKey): string {
-  return `${key.col}:${key.row}`;
+  return key.size === undefined ? `${key.col}:${key.row}` : `${key.size}@${key.col}:${key.row}`;
 }
 
 /** Ink-unit bounds of a tile. */
 export function tileBounds(key: InkTileKey, tileSize = INK_TILE_SIZE): InkBounds {
+  if (key.size !== undefined) tileSize = key.size;
   return {
     minX: key.col * tileSize,
     minY: key.row * tileSize,
@@ -109,21 +115,47 @@ export function tilesForViewport(
   );
 }
 
+/** Device pixels per ink unit at a given zoom and device pixel ratio. */
+export function tileDeviceScale(zoom: number, devicePixelRatio = 1): number {
+  const clampedZoom = Math.min(Math.max(zoom, INK_LIMITS.minZoom), INK_LIMITS.maxZoom);
+  return (clampedZoom * devicePixelRatio) / INK_UNITS_PER_PX;
+}
+
+/** Smallest pyramid tile edge, in ink units. */
+const INK_TILE_MIN_SIZE = 64;
+/** Largest pyramid tile edge, in ink units. */
+const INK_TILE_MAX_SIZE = INK_TILE_SIZE * 64;
+/** Below this many device pixels, zoomed-out tiles merge into coarser ones. */
+const INK_TILE_MIN_PIXELS = 64;
+
+/**
+ * Ink-unit edge of the tiles used at a device scale.
+ *
+ * A tile pyramid: zooming in halves the tile so its backing store stays under
+ * `INK_TILE_MAX_PIXELS` while still matching the screen 1:1, and zooming far
+ * out doubles it so the viewport does not need thousands of tiny tiles.
+ */
+export function tileSizeForScale(scale: number, baseTileSize = INK_TILE_SIZE): number {
+  let size = baseTileSize;
+  if (!(scale > 0)) return size;
+  while (size > INK_TILE_MIN_SIZE && size * scale > INK_TILE_MAX_PIXELS) size /= 2;
+  while (size < INK_TILE_MAX_SIZE && size * scale < INK_TILE_MIN_PIXELS) size *= 2;
+  return size;
+}
+
 /**
  * Device-pixel size of a tile at a given zoom and device pixel ratio.
  *
- * Capped at `INK_TILE_MAX_PIXELS`: past that, a deep zoom would allocate
- * unboundedly large backing stores. The renderer draws the capped tile scaled
- * up and refines it from vector data, which is why the cap is a memory bound
- * rather than a quality ceiling.
+ * Capped at `INK_TILE_MAX_PIXELS` so a deep zoom never allocates an unbounded
+ * backing store. The renderer avoids hitting the cap by switching to a smaller
+ * pyramid tile (`tileSizeForScale`), so tiles are painted at screen resolution.
  */
 export function tilePixelSize(
   zoom: number,
   devicePixelRatio = 1,
   tileSize = INK_TILE_SIZE,
 ): number {
-  const clampedZoom = Math.min(Math.max(zoom, INK_LIMITS.minZoom), INK_LIMITS.maxZoom);
-  const ideal = (tileSize / 64) * 0.75 * clampedZoom * devicePixelRatio;
+  const ideal = tileSize * tileDeviceScale(zoom, devicePixelRatio);
   return Math.max(1, Math.min(INK_TILE_MAX_PIXELS, Math.ceil(ideal)));
 }
 

@@ -338,6 +338,13 @@ Backing logic lives in `src/lib/ink/` (`document.ts`, `operations.ts`,
 | `components/pdf/PdfInkToolbar.tsx`      | PDF-appropriate shared pens, eraser, selection, shapes, arrows, and stamps                                                                                       | Button, DropdownMenu |
 | `components/image/ImageInkOverlay.tsx`  | Source-coordinate shared ink adapter over immutable image assets; empty overlays mount only when annotation mode starts                                          | —                    |
 
+`lib/ink/tiles.ts` sizes cache tiles as a pyramid (`tileSizeForScale`): tiles
+halve in ink units as zoom rises so every tile is painted at exact screen
+resolution under the 512 px backing-store cap, and `InkCanvas` composites them
+unscaled on whole device pixels. `lib/ink/stroke.ts` draws the centre line as
+a quadratic B-spline through sample midpoints, so sparse fast-stroke samples
+render as curves rather than corners; stored samples are unchanged.
+
 `lib/ink/export.ts`, `exportPrepare.ts`, and `exportRuntime.ts` plan deterministic
 SVG/PNG/multi-page PDF output and report missing image/font dependencies.
 `exportClient.ts` runs the bounded renderer in `exportWorker.ts`. Note insertion
