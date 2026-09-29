@@ -19,7 +19,7 @@ overrides:
   # mermaid declares ^3.3.3 and so already permits this; without the override
   # pnpm keeps a second, older copy alongside our direct dependency.
   'dompurify@<3.4.13': 3.4.13
-  'fast-uri@>=3.0.0 <3.1.6': 3.1.6
+  'fast-uri@>=3.0.0 <3.1.8': 3.1.8
   'hono@>=4.0.0 <4.13.5': 4.13.5
   'ip-address@<=10.3.0': 10.4.0
   'js-yaml@>=4.0.0 <4.3.2': 4.3.2
@@ -28,7 +28,12 @@ overrides:
   'postcss@<=8.5.22': 8.5.23
   'postcss-selector-parser@>=7.0.0 <7.1.3': 7.1.3
   'qs@>=6.0.0 <6.16.0': 6.16.0
-  'undici@>=7.0.0 <7.29.0': 7.29.0
+  'undici@>=7.0.0 <7.30.0': 7.30.0
+  # Removed, not raised: pptxgenjs 4.0.1 (latest) declares image-size ^1.2.1 but
+  # never loads it — the only call is inside a commented-out block and its
+  # browser field maps it to false. Every 1.x release is affected by
+  # GHSA-5p2g-fcmc-qvqq and GHSA-w3rx-r6r6-pgpr; see docs/build/security-advisories.md.
+  'pptxgenjs>image-size': '-'
 
 allowBuilds:
   esbuild: true

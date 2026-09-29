@@ -138,7 +138,27 @@ a version its own parent's declared semver range **already permits** — that is
 forced dedupe, not an unsupported upgrade. An advisory whose fix falls outside
 the parent's range needs the parent upgraded instead, and does not belong there.
 
-### `shadcn` subtree — `hono`, `@hono/node-server`, `qs`, `body-parser` (10 findings)
+One entry is a documented exception to that rule because it **removes** a
+dependency rather than raising one: see `image-size` below.
+
+### `image-size` — GHSA-5p2g-fcmc-qvqq, GHSA-w3rx-r6r6-pgpr (removed)
+
+- **Severity:** high (denial of service through infinite loops in the JXL/HEIF
+  and ICNS parsers).
+- **Dependency path:** `pptxgenjs` → `image-size`. Every 1.x release is
+  affected; the fix is 2.0.3.
+- **Why it is removed rather than fixed:** `pptxgenjs` 4.0.1 is the latest
+  release and declares `image-size ^1.2.1`, so neither an in-range override nor a
+  parent upgrade exists. It also never loads the package: none of its four
+  builds (`es`, `cjs`, `min`, `bundle`) references `image-size`, the only call
+  site is inside a commented-out block, and its `browser` field maps it to
+  `false`. The override `'pptxgenjs>image-size': '-'` therefore drops a dead
+  dependency, so the vulnerable parser is not installed at all. The PowerPoint
+  export tests (`src/lib/deck/pptx/`) pass without it.
+- **Remove this entry when:** `pptxgenjs` drops the dependency or moves to
+  `image-size` >= 2.0.3; then delete the override.
+
+### `shadcn` subtree — `ip-address` and earlier `hono`, `@hono/node-server`, `qs`, `body-parser` findings
 
 - **Severity:** moderate and low.
 - **Dependency path:** `shadcn` → `@modelcontextprotocol/sdk` → an Express/Hono
@@ -147,8 +167,8 @@ the parent's range needs the parent upgraded instead, and does not belong there.
   it is bundled into any shipped artifact. Nothing in the repo invokes the local
   binary — no script references it, and the documented workflow in `AGENTS.md` is
   `pnpm dlx shadcn@latest add <component>`, which fetches the CLI on demand.
-- **Recommended fix:** remove the `shadcn` devDependency entirely. It clears all
-  ten findings and does not change the documented workflow. Left in place pending
+- **Recommended fix:** remove the `shadcn` devDependency entirely. It clears these
+  findings and does not change the documented workflow. Left in place pending
   a maintainer decision.
 
 ### `diff` — GHSA-73rr-hh4g-fpgx (ReDoS in `parsePatch`/`applyPatch`)
