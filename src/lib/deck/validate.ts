@@ -452,9 +452,36 @@ function checkCollection(
   return true;
 }
 
+/**
+ * Counts JSON entries the way the server's generic parser does: every array
+ * element and object value, at every depth. Stops early past `limit`.
+ */
+export function countJsonEntries(value: unknown, limit = Infinity, depth = 1): number {
+  if (depth > DECK_LIMITS.jsonDepth) return Infinity;
+  if (typeof value !== 'object' || value === null) return 0;
+  const children = Array.isArray(value) ? value : Object.values(value);
+  let total = children.length;
+  for (const child of children) {
+    if (total > limit) return total;
+    total += countJsonEntries(child, limit - total, depth + 1);
+  }
+  return total;
+}
+
 export function validateDeck(value: unknown): DeckValidationResult {
   const c = new Collector();
   if (!isRecord(value)) return { ok: false, issues: [{ path: '', message: 'must be an object' }] };
+  if (countJsonEntries(value, DECK_LIMITS.jsonEntries) > DECK_LIMITS.jsonEntries) {
+    return {
+      ok: false,
+      issues: [
+        {
+          path: '',
+          message: `has more than ${DECK_LIMITS.jsonEntries} JSON entries or ${DECK_LIMITS.jsonDepth} levels, the hosted parser limit`,
+        },
+      ],
+    };
+  }
   const deck = value as unknown as DeckDocument;
 
   if (deck.kind !== DECK_DOCUMENT_KIND) c.fail('kind', `must be ${DECK_DOCUMENT_KIND}`);

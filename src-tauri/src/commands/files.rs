@@ -2035,6 +2035,7 @@ mod tests {
         assert!(is_allowed_extension("md"));
         assert!(is_allowed_extension("logic"));
         assert!(is_allowed_extension("sheet"));
+        assert!(is_allowed_extension("deck"));
         assert!(is_allowed_extension("pdf"));
         assert!(!is_allowed_extension("exe"));
 

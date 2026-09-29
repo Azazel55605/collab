@@ -8,7 +8,12 @@ export function relativeTime(ts: number): string {
 
 export function supportsVersionHistoryTabType(type: string | null | undefined): boolean {
   return (
-    type === 'note' || type === 'kanban' || type === 'canvas' || type === 'sheet' || type === 'ink'
+    type === 'note' ||
+    type === 'kanban' ||
+    type === 'canvas' ||
+    type === 'sheet' ||
+    type === 'ink' ||
+    type === 'deck'
   );
 }
 
@@ -23,6 +28,7 @@ export function supportsVersionHistoryRelativePath(
     extension === 'kanban' ||
     extension === 'canvas' ||
     extension === 'sheet' ||
-    extension === 'ink'
+    extension === 'ink' ||
+    extension === 'deck'
   );
 }

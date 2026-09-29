@@ -171,6 +171,14 @@ describe('vaultLinks', () => {
   });
 });
 
+describe('presentations', () => {
+  it('routes .deck paths to the deck tab type in the editor view', () => {
+    expect(getVaultDocumentTabType('Talks/q3.deck')).toBe('deck');
+    expect(getVaultDocumentTabType('Talks/Q3.DECK')).toBe('deck');
+    expect(getVaultDocumentView('deck')).toBe('editor');
+  });
+});
+
 describe('ink drawings', () => {
   it('routes .ink paths to the ink tab type', () => {
     expect(getVaultDocumentTabType('Sketches/idea.ink')).toBe('ink');

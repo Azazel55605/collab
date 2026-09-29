@@ -267,7 +267,7 @@ export const HOSTED_VAULT_CAPABILITIES: VaultClientCapabilities = {
 
 type HostedFileKind = 'folder' | 'document' | 'asset';
 type HostedFileState = 'active' | 'trashed' | 'tombstoned';
-type HostedDocumentType = 'note' | 'kanban' | 'canvas' | 'sheet' | 'ink';
+type HostedDocumentType = 'note' | 'kanban' | 'canvas' | 'sheet' | 'ink' | 'deck';
 
 interface HostedRevision {
   id: string;
@@ -418,6 +418,7 @@ function documentTypeForPath(path: string): HostedDocumentType {
   if (ext === 'canvas') return 'canvas';
   if (ext === 'sheet') return 'sheet';
   if (ext === 'ink') return 'ink';
+  if (ext === 'deck') return 'deck';
   return 'note';
 }
 

@@ -154,6 +154,8 @@ fn imported_file_kind(path: &str) -> (HostedFileKind, Option<HostedDocumentType>
         Some(DocumentKind::Kanban) => (HostedFileKind::Document, Some(HostedDocumentType::Kanban)),
         Some(DocumentKind::Canvas) => (HostedFileKind::Document, Some(HostedDocumentType::Canvas)),
         Some(DocumentKind::Sheet) => (HostedFileKind::Document, Some(HostedDocumentType::Sheet)),
+        Some(DocumentKind::Ink) => (HostedFileKind::Document, Some(HostedDocumentType::Ink)),
+        Some(DocumentKind::Deck) => (HostedFileKind::Document, Some(HostedDocumentType::Deck)),
         Some(DocumentKind::Logic | DocumentKind::Svg) => {
             (HostedFileKind::Document, Some(HostedDocumentType::Note))
         }
@@ -221,6 +223,16 @@ mod tests {
         assert_eq!(
             imported_file_kind("Budget.sheet"),
             (HostedFileKind::Document, Some(HostedDocumentType::Sheet))
+        );
+        // Regression: `.ink` fell through to the asset arm and imported as an
+        // opaque file rather than a drawing.
+        assert_eq!(
+            imported_file_kind("Sketch.ink"),
+            (HostedFileKind::Document, Some(HostedDocumentType::Ink))
+        );
+        assert_eq!(
+            imported_file_kind("Talk.DECK"),
+            (HostedFileKind::Document, Some(HostedDocumentType::Deck))
         );
         assert_eq!(
             imported_file_kind("Manual.pdf"),

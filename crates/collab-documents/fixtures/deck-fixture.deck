@@ -1,0 +1,1350 @@
+{
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "id": "deck-fixture",
+  "kind": "collab-deck",
+  "layouts": {
+    "layout-content": {
+      "elementOrder": [
+        "layout-content-title",
+        "layout-content-body"
+      ],
+      "elements": {
+        "layout-content-body": {
+          "id": "layout-content-body",
+          "placeholder": {
+            "key": "body",
+            "type": "body"
+          },
+          "text": {
+            "content": {
+              "paragraphs": []
+            }
+          },
+          "type": "text"
+        },
+        "layout-content-title": {
+          "id": "layout-content-title",
+          "placeholder": {
+            "key": "title",
+            "type": "title"
+          },
+          "text": {
+            "content": {
+              "paragraphs": []
+            }
+          },
+          "type": "text"
+        }
+      },
+      "id": "layout-content",
+      "masterId": "master-1",
+      "name": "Title and content"
+    },
+    "layout-title": {
+      "background": {
+        "color": {
+          "kind": "theme",
+          "token": "dark1"
+        },
+        "kind": "solid"
+      },
+      "elementOrder": [
+        "layout-title-title",
+        "layout-title-subtitle"
+      ],
+      "elements": {
+        "layout-title-subtitle": {
+          "frame": {
+            "height": 6000,
+            "width": 76800,
+            "x": 9600,
+            "y": 30000
+          },
+          "id": "layout-title-subtitle",
+          "placeholder": {
+            "key": "subtitle",
+            "type": "subtitle"
+          },
+          "text": {
+            "content": {
+              "paragraphs": [
+                {
+                  "id": "lts-p",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "style": {
+                        "color": {
+                          "kind": "theme",
+                          "token": "accent1"
+                        }
+                      },
+                      "text": ""
+                    }
+                  ],
+                  "style": {
+                    "align": "center",
+                    "list": null
+                  }
+                }
+              ]
+            }
+          },
+          "type": "text"
+        },
+        "layout-title-title": {
+          "frame": {
+            "height": 11000,
+            "width": 76800,
+            "x": 9600,
+            "y": 17000
+          },
+          "id": "layout-title-title",
+          "placeholder": {
+            "key": "title",
+            "type": "title"
+          },
+          "text": {
+            "content": {
+              "paragraphs": [
+                {
+                  "id": "ltt-p",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "style": {
+                        "color": {
+                          "kind": "theme",
+                          "token": "light1"
+                        }
+                      },
+                      "text": ""
+                    }
+                  ],
+                  "style": {
+                    "align": "center"
+                  }
+                }
+              ]
+            },
+            "verticalAlign": "bottom"
+          },
+          "type": "text"
+        }
+      },
+      "id": "layout-title",
+      "masterId": "master-1",
+      "name": "Title slide",
+      "showMasterElements": false
+    },
+    "layout-title-only": {
+      "elementOrder": [
+        "layout-title-only-title"
+      ],
+      "elements": {
+        "layout-title-only-title": {
+          "id": "layout-title-only-title",
+          "placeholder": {
+            "key": "title",
+            "type": "title"
+          },
+          "text": {
+            "content": {
+              "paragraphs": []
+            }
+          },
+          "type": "text"
+        }
+      },
+      "id": "layout-title-only",
+      "masterId": "master-1",
+      "name": "Title only"
+    }
+  },
+  "masters": {
+    "master-1": {
+      "background": {
+        "color": {
+          "kind": "theme",
+          "token": "light1"
+        },
+        "kind": "solid"
+      },
+      "elementOrder": [
+        "master-bar",
+        "master-title",
+        "master-body",
+        "master-footer",
+        "master-number"
+      ],
+      "elements": {
+        "master-bar": {
+          "fill": {
+            "color": {
+              "kind": "theme",
+              "token": "accent1"
+            },
+            "kind": "solid"
+          },
+          "frame": {
+            "height": 800,
+            "width": 96000,
+            "x": 0,
+            "y": 0
+          },
+          "geometry": "rect",
+          "id": "master-bar",
+          "name": "Accent bar",
+          "type": "shape"
+        },
+        "master-body": {
+          "frame": {
+            "height": 34000,
+            "width": 86400,
+            "x": 4800,
+            "y": 13200
+          },
+          "id": "master-body",
+          "placeholder": {
+            "key": "body",
+            "type": "body"
+          },
+          "text": {
+            "content": {
+              "paragraphs": []
+            },
+            "verticalAlign": "top"
+          },
+          "type": "text"
+        },
+        "master-footer": {
+          "frame": {
+            "height": 2400,
+            "width": 60000,
+            "x": 4800,
+            "y": 50000
+          },
+          "id": "master-footer",
+          "placeholder": {
+            "key": "footer",
+            "type": "footer"
+          },
+          "text": {
+            "content": {
+              "paragraphs": []
+            }
+          },
+          "type": "text"
+        },
+        "master-number": {
+          "frame": {
+            "height": 2400,
+            "width": 7200,
+            "x": 84000,
+            "y": 50000
+          },
+          "id": "master-number",
+          "placeholder": {
+            "key": "number",
+            "type": "slideNumber"
+          },
+          "text": {
+            "content": {
+              "paragraphs": [
+                {
+                  "id": "number-p",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "text": ""
+                    }
+                  ],
+                  "style": {
+                    "align": "right"
+                  }
+                }
+              ]
+            }
+          },
+          "type": "text"
+        },
+        "master-title": {
+          "frame": {
+            "height": 8000,
+            "width": 86400,
+            "x": 4800,
+            "y": 3600
+          },
+          "id": "master-title",
+          "placeholder": {
+            "key": "title",
+            "type": "title"
+          },
+          "text": {
+            "autoFit": "shrink",
+            "content": {
+              "paragraphs": []
+            },
+            "verticalAlign": "bottom"
+          },
+          "type": "text"
+        }
+      },
+      "id": "master-1",
+      "name": "Collab master",
+      "textStyles": {
+        "body": [
+          {
+            "paragraph": {
+              "indent": 2000,
+              "list": {
+                "char": "•",
+                "kind": "bullet"
+              },
+              "spaceBefore": 1000
+            },
+            "run": {
+              "color": {
+                "kind": "theme",
+                "token": "dark2"
+              },
+              "font": {
+                "theme": "body"
+              },
+              "size": 2400
+            }
+          },
+          {
+            "paragraph": {
+              "indent": 4000,
+              "list": {
+                "char": "–",
+                "kind": "bullet"
+              },
+              "spaceBefore": 600
+            },
+            "run": {
+              "size": 2000
+            }
+          },
+          {
+            "paragraph": {
+              "indent": 6000,
+              "list": {
+                "char": "•",
+                "kind": "bullet"
+              },
+              "spaceBefore": 400
+            },
+            "run": {
+              "size": 1800
+            }
+          }
+        ],
+        "other": [
+          {
+            "run": {
+              "color": {
+                "kind": "theme",
+                "token": "dark1"
+              },
+              "font": {
+                "theme": "body"
+              },
+              "size": 1800
+            }
+          }
+        ],
+        "title": [
+          {
+            "paragraph": {
+              "align": "left",
+              "lineSpacing": 90
+            },
+            "run": {
+              "bold": true,
+              "color": {
+                "kind": "theme",
+                "token": "dark1"
+              },
+              "font": {
+                "theme": "heading"
+              },
+              "size": 4000
+            }
+          }
+        ]
+      },
+      "themeId": "theme-collab"
+    }
+  },
+  "name": "Phase 0 fixture",
+  "schemaVersion": 1,
+  "sections": [
+    {
+      "firstSlideId": "slide-1",
+      "id": "section-intro",
+      "name": "Introduction"
+    },
+    {
+      "firstSlideId": "slide-3",
+      "id": "section-objects",
+      "name": "Objects"
+    }
+  ],
+  "size": {
+    "height": 54000,
+    "preset": "widescreen",
+    "width": 96000
+  },
+  "slideOrder": [
+    "slide-1",
+    "slide-2",
+    "slide-3",
+    "slide-4",
+    "slide-5"
+  ],
+  "slides": {
+    "slide-1": {
+      "elementOrder": [
+        "s1-title",
+        "s1-subtitle"
+      ],
+      "elements": {
+        "s1-subtitle": {
+          "id": "s1-subtitle",
+          "placeholder": {
+            "key": "subtitle",
+            "type": "subtitle"
+          },
+          "text": {
+            "content": {
+              "paragraphs": [
+                {
+                  "id": "s1-sub-p",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "text": "Phase 0 fixture deck"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "type": "text"
+        },
+        "s1-title": {
+          "id": "s1-title",
+          "placeholder": {
+            "key": "title",
+            "type": "title"
+          },
+          "text": {
+            "content": {
+              "paragraphs": [
+                {
+                  "id": "s1-title-p",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "text": "Collab Presentations"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "type": "text"
+        }
+      },
+      "id": "slide-1",
+      "layoutId": "layout-title"
+    },
+    "slide-2": {
+      "elementOrder": [
+        "s2-title",
+        "s2-body",
+        "s2-number"
+      ],
+      "elements": {
+        "s2-body": {
+          "id": "s2-body",
+          "placeholder": {
+            "key": "body",
+            "type": "body"
+          },
+          "text": {
+            "content": {
+              "paragraphs": [
+                {
+                  "id": "s2-p1",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "text": "The "
+                    },
+                    {
+                      "kind": "text",
+                      "style": {
+                        "bold": true
+                      },
+                      "text": ".deck"
+                    },
+                    {
+                      "kind": "text",
+                      "text": " file is always the editable source"
+                    }
+                  ]
+                },
+                {
+                  "id": "s2-p2",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "text": "PowerPoint files are generated copies"
+                    }
+                  ],
+                  "style": {
+                    "level": 1
+                  }
+                },
+                {
+                  "id": "s2-p3",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "text": "Unsupported features are reported, never hidden"
+                    }
+                  ],
+                  "style": {
+                    "level": 1
+                  }
+                },
+                {
+                  "id": "s2-p4",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "text": "Read the "
+                    },
+                    {
+                      "kind": "text",
+                      "link": {
+                        "kind": "vault",
+                        "path": "docs/plans/presentation-tool-plan.md"
+                      },
+                      "text": "plan"
+                    },
+                    {
+                      "kind": "break"
+                    },
+                    {
+                      "kind": "text",
+                      "style": {
+                        "italic": true
+                      },
+                      "text": "before changing the schema"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "type": "text"
+        },
+        "s2-number": {
+          "id": "s2-number",
+          "placeholder": {
+            "key": "number",
+            "type": "slideNumber"
+          },
+          "text": {
+            "content": {
+              "paragraphs": [
+                {
+                  "id": "s2-number-p",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "text": ""
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "type": "text"
+        },
+        "s2-title": {
+          "id": "s2-title",
+          "placeholder": {
+            "key": "title",
+            "type": "title"
+          },
+          "text": {
+            "content": {
+              "paragraphs": [
+                {
+                  "id": "s2-title-p",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "text": "Why a native format"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "type": "text"
+        }
+      },
+      "id": "slide-2",
+      "layoutId": "layout-content",
+      "speakerNotes": {
+        "paragraphs": [
+          {
+            "id": "s2-n1",
+            "runs": [
+              {
+                "kind": "text",
+                "text": "Stress that export never changes the backing format."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "slide-3": {
+      "elementOrder": [
+        "s3-title",
+        "s3-card",
+        "s3-arrow",
+        "s3-line",
+        "s3-image",
+        "s3-group"
+      ],
+      "elements": {
+        "s3-arrow": {
+          "fill": {
+            "color": {
+              "kind": "theme",
+              "token": "accent2"
+            },
+            "kind": "solid"
+          },
+          "frame": {
+            "height": 6000,
+            "rotation": 1500,
+            "width": 12000,
+            "x": 33000,
+            "y": 18000
+          },
+          "geometry": "rightArrow",
+          "id": "s3-arrow",
+          "type": "shape"
+        },
+        "s3-badge-back": {
+          "fill": {
+            "color": {
+              "kind": "theme",
+              "token": "light2"
+            },
+            "kind": "solid"
+          },
+          "frame": {
+            "height": 8000,
+            "width": 16000,
+            "x": 50000,
+            "y": 39000
+          },
+          "geometry": "rect",
+          "id": "s3-badge-back",
+          "line": {
+            "color": {
+              "kind": "theme",
+              "token": "accent1"
+            },
+            "width": 100
+          },
+          "type": "shape"
+        },
+        "s3-badge-dot": {
+          "fill": {
+            "color": {
+              "alpha": 80,
+              "kind": "theme",
+              "token": "accent4"
+            },
+            "kind": "solid"
+          },
+          "frame": {
+            "height": 4000,
+            "width": 4000,
+            "x": 52000,
+            "y": 41000
+          },
+          "geometry": "ellipse",
+          "id": "s3-badge-dot",
+          "type": "shape"
+        },
+        "s3-card": {
+          "fill": {
+            "color": {
+              "kind": "theme",
+              "token": "accent1"
+            },
+            "kind": "solid"
+          },
+          "frame": {
+            "height": 14000,
+            "width": 26000,
+            "x": 4800,
+            "y": 14000
+          },
+          "geometry": "roundRect",
+          "id": "s3-card",
+          "text": {
+            "content": {
+              "paragraphs": [
+                {
+                  "id": "s3-card-p",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "style": {
+                        "bold": true,
+                        "color": {
+                          "kind": "theme",
+                          "token": "light1"
+                        }
+                      },
+                      "text": "Theme-coloured card with centred text"
+                    }
+                  ],
+                  "style": {
+                    "align": "center"
+                  }
+                }
+              ]
+            },
+            "verticalAlign": "middle"
+          },
+          "type": "shape"
+        },
+        "s3-group": {
+          "childIds": [
+            "s3-badge-back",
+            "s3-badge-dot"
+          ],
+          "frame": {
+            "height": 8000,
+            "width": 16000,
+            "x": 50000,
+            "y": 39000
+          },
+          "id": "s3-group",
+          "name": "Badge",
+          "type": "group"
+        },
+        "s3-image": {
+          "altText": "Architecture diagram",
+          "asset": {
+            "mediaType": "image/png",
+            "path": "assets/deck-fixture.png",
+            "pixelHeight": 1000,
+            "pixelWidth": 1600
+          },
+          "crop": {
+            "bottom": 50,
+            "left": 0,
+            "right": 0,
+            "top": 50
+          },
+          "frame": {
+            "height": 22500,
+            "width": 40000,
+            "x": 50000,
+            "y": 14000
+          },
+          "id": "s3-image",
+          "type": "image"
+        },
+        "s3-line": {
+          "endArrow": "triangle",
+          "from": {
+            "x": 4800,
+            "y": 32000
+          },
+          "id": "s3-line",
+          "line": {
+            "color": {
+              "kind": "rgb",
+              "value": "#374151"
+            },
+            "dash": "dash",
+            "width": 200
+          },
+          "to": {
+            "x": 45000,
+            "y": 42000
+          },
+          "type": "line"
+        },
+        "s3-title": {
+          "id": "s3-title",
+          "placeholder": {
+            "key": "title",
+            "type": "title"
+          },
+          "text": {
+            "content": {
+              "paragraphs": [
+                {
+                  "id": "s3-title-p",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "text": "Shapes, lines, and images"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "type": "text"
+        }
+      },
+      "id": "slide-3",
+      "layoutId": "layout-title-only"
+    },
+    "slide-4": {
+      "elementOrder": [
+        "s4-title",
+        "s4-table"
+      ],
+      "elements": {
+        "s4-table": {
+          "border": {
+            "color": {
+              "kind": "theme",
+              "token": "dark2"
+            },
+            "width": 100
+          },
+          "cells": {
+            "r1:c1": {
+              "fill": {
+                "color": {
+                  "kind": "theme",
+                  "token": "light2"
+                },
+                "kind": "solid"
+              },
+              "text": {
+                "content": {
+                  "paragraphs": [
+                    {
+                      "id": "s4-r1c1-p",
+                      "runs": [
+                        {
+                          "kind": "text",
+                          "style": {
+                            "bold": true
+                          },
+                          "text": "Output"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "insets": [
+                  600,
+                  400,
+                  600,
+                  400
+                ]
+              }
+            },
+            "r1:c2": {
+              "fill": {
+                "color": {
+                  "kind": "theme",
+                  "token": "light2"
+                },
+                "kind": "solid"
+              },
+              "text": {
+                "content": {
+                  "paragraphs": [
+                    {
+                      "id": "s4-r1c2-p",
+                      "runs": [
+                        {
+                          "kind": "text",
+                          "style": {
+                            "bold": true
+                          },
+                          "text": "Fidelity"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "insets": [
+                  600,
+                  400,
+                  600,
+                  400
+                ]
+              }
+            },
+            "r1:c3": {
+              "fill": {
+                "color": {
+                  "kind": "theme",
+                  "token": "light2"
+                },
+                "kind": "solid"
+              },
+              "text": {
+                "content": {
+                  "paragraphs": [
+                    {
+                      "id": "s4-r1c3-p",
+                      "runs": [
+                        {
+                          "kind": "text",
+                          "style": {
+                            "bold": true
+                          },
+                          "text": "Phase"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "insets": [
+                  600,
+                  400,
+                  600,
+                  400
+                ]
+              }
+            },
+            "r2:c1": {
+              "text": {
+                "content": {
+                  "paragraphs": [
+                    {
+                      "id": "s4-r2c1-p",
+                      "runs": [
+                        {
+                          "kind": "text",
+                          "text": "Editor stage"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "insets": [
+                  600,
+                  400,
+                  600,
+                  400
+                ]
+              }
+            },
+            "r2:c2": {
+              "text": {
+                "content": {
+                  "paragraphs": [
+                    {
+                      "id": "s4-r2c2-p",
+                      "runs": [
+                        {
+                          "kind": "text",
+                          "text": "Exact"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "insets": [
+                  600,
+                  400,
+                  600,
+                  400
+                ]
+              }
+            },
+            "r2:c3": {
+              "text": {
+                "content": {
+                  "paragraphs": [
+                    {
+                      "id": "s4-r2c3-p",
+                      "runs": [
+                        {
+                          "kind": "text",
+                          "text": "2"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "insets": [
+                  600,
+                  400,
+                  600,
+                  400
+                ]
+              }
+            },
+            "r3:c1": {
+              "text": {
+                "content": {
+                  "paragraphs": [
+                    {
+                      "id": "s4-r3c1-p",
+                      "runs": [
+                        {
+                          "kind": "text",
+                          "text": "PDF and images"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "insets": [
+                  600,
+                  400,
+                  600,
+                  400
+                ]
+              }
+            },
+            "r3:c2": {
+              "text": {
+                "content": {
+                  "paragraphs": [
+                    {
+                      "id": "s4-r3c2-p",
+                      "runs": [
+                        {
+                          "kind": "text",
+                          "text": "Exact"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "insets": [
+                  600,
+                  400,
+                  600,
+                  400
+                ]
+              }
+            },
+            "r3:c3": {
+              "text": {
+                "content": {
+                  "paragraphs": [
+                    {
+                      "id": "s4-r3c3-p",
+                      "runs": [
+                        {
+                          "kind": "text",
+                          "text": "5"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "insets": [
+                  600,
+                  400,
+                  600,
+                  400
+                ]
+              }
+            },
+            "r4:c1": {
+              "text": {
+                "content": {
+                  "paragraphs": [
+                    {
+                      "id": "s4-r4c1-p",
+                      "runs": [
+                        {
+                          "kind": "text",
+                          "text": "PowerPoint"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "insets": [
+                  600,
+                  400,
+                  600,
+                  400
+                ]
+              }
+            },
+            "r4:c2": {
+              "text": {
+                "content": {
+                  "paragraphs": [
+                    {
+                      "id": "s4-r4c2-p",
+                      "runs": [
+                        {
+                          "kind": "text",
+                          "text": "Reported"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "insets": [
+                  600,
+                  400,
+                  600,
+                  400
+                ]
+              }
+            },
+            "r4:c3": {
+              "text": {
+                "content": {
+                  "paragraphs": [
+                    {
+                      "id": "s4-r4c3-p",
+                      "runs": [
+                        {
+                          "kind": "text",
+                          "text": "7"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "insets": [
+                  600,
+                  400,
+                  600,
+                  400
+                ]
+              }
+            }
+          },
+          "columnOrder": [
+            "c1",
+            "c2",
+            "c3"
+          ],
+          "columnWidths": {
+            "c1": 24000,
+            "c2": 18000,
+            "c3": 18000
+          },
+          "frame": {
+            "height": 16000,
+            "width": 60000,
+            "x": 4800,
+            "y": 14000
+          },
+          "headerRow": true,
+          "id": "s4-table",
+          "rowHeights": {
+            "r1": 4000,
+            "r2": 4000,
+            "r3": 4000,
+            "r4": 4000
+          },
+          "rowOrder": [
+            "r1",
+            "r2",
+            "r3",
+            "r4"
+          ],
+          "type": "table"
+        },
+        "s4-title": {
+          "id": "s4-title",
+          "placeholder": {
+            "key": "title",
+            "type": "title"
+          },
+          "text": {
+            "content": {
+              "paragraphs": [
+                {
+                  "id": "s4-title-p",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "text": "A table"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "type": "text"
+        }
+      },
+      "id": "slide-4",
+      "layoutId": "layout-title-only"
+    },
+    "slide-5": {
+      "elementOrder": [
+        "s5-title",
+        "s5-chart",
+        "s5-note"
+      ],
+      "elements": {
+        "s5-chart": {
+          "categories": [
+            "Text",
+            "Shapes",
+            "Images",
+            "Tables"
+          ],
+          "frame": {
+            "height": 32000,
+            "width": 56000,
+            "x": 4800,
+            "y": 14000
+          },
+          "id": "s5-chart",
+          "kind": "column",
+          "series": [
+            {
+              "id": "series-a",
+              "name": "Exact",
+              "values": [
+                92,
+                88,
+                100,
+                75
+              ]
+            },
+            {
+              "id": "series-b",
+              "name": "Reported",
+              "values": [
+                8,
+                12,
+                0,
+                25
+              ]
+            }
+          ],
+          "showLegend": true,
+          "title": "Export coverage",
+          "type": "chart"
+        },
+        "s5-note": {
+          "fill": {
+            "color": {
+              "kind": "rgb",
+              "value": "#fef3c7"
+            },
+            "kind": "solid"
+          },
+          "frame": {
+            "height": 16000,
+            "width": 27200,
+            "x": 64000,
+            "y": 16000
+          },
+          "id": "s5-note",
+          "text": {
+            "autoFit": "shrink",
+            "content": {
+              "paragraphs": [
+                {
+                  "id": "s5-note-p",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "text": "A free text box: it takes the master \"other\" style, not the body style."
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "type": "text"
+        },
+        "s5-title": {
+          "id": "s5-title",
+          "placeholder": {
+            "key": "title",
+            "type": "title"
+          },
+          "text": {
+            "content": {
+              "paragraphs": [
+                {
+                  "id": "s5-title-p",
+                  "runs": [
+                    {
+                      "kind": "text",
+                      "text": "A chart"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "type": "text"
+        }
+      },
+      "id": "slide-5",
+      "layoutId": "layout-title-only"
+    }
+  },
+  "themeId": "theme-collab",
+  "themes": {
+    "theme-collab": {
+      "colors": {
+        "accent1": "#6d5dfc",
+        "accent2": "#10b981",
+        "accent3": "#f59e0b",
+        "accent4": "#ef4444",
+        "accent5": "#0ea5e9",
+        "accent6": "#a855f7",
+        "dark1": "#111827",
+        "dark2": "#1f2937",
+        "followedHyperlink": "#7c3aed",
+        "hyperlink": "#2563eb",
+        "light1": "#ffffff",
+        "light2": "#f3f4f6"
+      },
+      "fonts": {
+        "body": {
+          "fallbacks": [
+            "Arial",
+            "sans-serif"
+          ],
+          "family": "Inter"
+        },
+        "heading": {
+          "fallbacks": [
+            "Arial",
+            "sans-serif"
+          ],
+          "family": "Inter"
+        }
+      },
+      "id": "theme-collab",
+      "name": "Collab"
+    }
+  },
+  "updatedAt": "2026-01-01T00:00:00.000Z"
+}

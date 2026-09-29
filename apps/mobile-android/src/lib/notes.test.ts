@@ -53,6 +53,10 @@ describe('mobile note helpers', () => {
     expect(isNoteFile(NOTE)).toBe(true);
     expect(isNoteFile({ ...NOTE, documentType: null, name: 'readme.markdown' })).toBe(true);
     expect(isNoteFile({ ...NOTE, kind: 'asset', name: 'Plan.md' })).toBe(false);
+    // A presentation must never open in the note editor, where saving would
+    // write Markdown over the deck. Before the `deck` document type the server
+    // classified `.deck` uploads as notes.
+    expect(isNoteFile({ ...NOTE, documentType: 'deck', name: 'Talk.deck' })).toBe(false);
   });
 
   it('reads online and warms the replica document cache', async () => {

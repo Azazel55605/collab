@@ -1,3 +1,4 @@
+pub mod deck;
 pub mod ink;
 pub mod kanban;
 pub mod pdf;
@@ -15,6 +16,7 @@ pub enum DocumentKind {
     Logic,
     Sheet,
     Ink,
+    Deck,
     Svg,
     PdfSidecar,
 }
@@ -28,6 +30,7 @@ impl DocumentKind {
             Self::Logic => "logic",
             Self::Sheet => "sheet",
             Self::Ink => "ink",
+            Self::Deck => "deck",
             Self::Svg => "svg",
             Self::PdfSidecar => "pdf-sidecar",
         }
@@ -41,6 +44,7 @@ impl DocumentKind {
             "logic" => Some(Self::Logic),
             "sheet" => Some(Self::Sheet),
             "ink" => Some(Self::Ink),
+            "deck" => Some(Self::Deck),
             "svg" => Some(Self::Svg),
             "pdf-sidecar" => Some(Self::PdfSidecar),
             _ => None,
@@ -111,6 +115,8 @@ pub enum DocumentError {
     InvalidSheet(#[from] sheet::SheetValidationError),
     #[error("ink document is invalid: {0}")]
     InvalidInk(#[from] ink::InkValidationError),
+    #[error("deck document is invalid: {0}")]
+    InvalidDeck(#[from] deck::DeckValidationError),
     #[error(transparent)]
     Reference(#[from] references::ReferenceError),
 }
@@ -129,6 +135,8 @@ pub fn classify_path(path: &str) -> Option<DocumentKind> {
         Some(DocumentKind::Sheet)
     } else if path.ends_with(".ink") {
         Some(DocumentKind::Ink)
+    } else if path.ends_with(".deck") {
+        Some(DocumentKind::Deck)
     } else if path.ends_with(".svg") {
         Some(DocumentKind::Svg)
     } else if path.ends_with(".pdf.json") || path.ends_with(".pdf-sidecar.json") {
@@ -165,6 +173,7 @@ pub fn validate(
         | DocumentKind::Logic
         | DocumentKind::Sheet
         | DocumentKind::Ink
+        | DocumentKind::Deck
         | DocumentKind::PdfSidecar => validate_json(input, limits)?,
         DocumentKind::Svg => validate_svg(input, limits)?,
     }
@@ -199,6 +208,9 @@ fn validate_json(input: DocumentInput<'_>, limits: ParserLimits) -> Result<(), D
     }
     if input.kind == DocumentKind::Ink {
         ink::validate_document(&value, ink::DEFAULT_INK_LIMITS)?;
+    }
+    if input.kind == DocumentKind::Deck {
+        deck::validate_document(&value, deck::DEFAULT_DECK_LIMITS)?;
     }
     Ok(())
 }
@@ -342,6 +354,11 @@ pub fn references(
             query.source_path,
             query.target_path,
         )?),
+        DocumentKind::Deck => Ok(references::collect_deck_references(
+            content,
+            query.source_path,
+            query.target_path,
+        )?),
         _ => Ok(Vec::new()),
     }
 }
@@ -372,6 +389,9 @@ pub fn rewrite_references(
         }
         DocumentKind::Ink => {
             references::rewrite_ink_references(content, rewrite.old_path, rewrite.new_path)?
+        }
+        DocumentKind::Deck => {
+            references::rewrite_deck_references(content, rewrite.old_path, rewrite.new_path)?
         }
         _ => content.to_owned(),
     };

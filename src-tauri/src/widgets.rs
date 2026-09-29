@@ -2376,7 +2376,10 @@ fn entry_kind_for(entry: &collab_protocol::HostedFileEntry) -> WidgetEntryKind {
             Some(HostedDocumentType::Canvas) => WidgetEntryKind::Canvas,
             Some(HostedDocumentType::Sheet) => WidgetEntryKind::Sheet,
             Some(HostedDocumentType::Ink) => WidgetEntryKind::Drawing,
-            None => WidgetEntryKind::File,
+            // Presentations get their own widget icon with the mobile viewer
+            // (presentation plan Phase 8); until then they are generic files,
+            // which the Kotlin side already renders.
+            Some(HostedDocumentType::Deck) | None => WidgetEntryKind::File,
         },
         HostedFileKind::Asset => {
             if entry.name.to_ascii_lowercase().ends_with(".pdf") {
@@ -5208,6 +5211,8 @@ mod tests {
             ),
             (HostedDocumentType::Sheet, WidgetEntryKind::Sheet, "sheet"),
             (HostedDocumentType::Ink, WidgetEntryKind::Drawing, "drawing"),
+            // Deliberately generic until the Phase 8 mobile viewer adds an icon.
+            (HostedDocumentType::Deck, WidgetEntryKind::File, "file"),
         ];
 
         let kotlin = include_str!(

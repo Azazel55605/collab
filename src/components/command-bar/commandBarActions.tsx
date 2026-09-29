@@ -11,6 +11,7 @@ import {
   Link2,
   ListTodo,
   PenLine,
+  Presentation,
   Settings,
   Shapes,
   Table2,
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { newDeckContent } from '../../lib/deck/document';
 import { dispatchEditorToolbarAction } from '../../lib/editorToolbarActions';
 import { createInkDocument, serializeInkDocument } from '../../lib/ink/document';
 import { createEmptySheetDocument, serializeSheetDocument } from '../../lib/sheet/document';
@@ -45,6 +47,7 @@ export interface RenderCtx {
       | 'logic'
       | 'sheet'
       | 'ink'
+      | 'deck'
       | 'graph'
       | 'settings'
       | 'image'
@@ -220,6 +223,36 @@ export const ACTIONS: Action[] = [
         ctx.setActiveView('editor');
       } catch (e) {
         toast.error('Failed to create drawing: ' + e);
+      }
+      ctx.close();
+    },
+  },
+  {
+    id: 'new-presentation',
+    keywords: ['new presentation', 'create presentation', 'slides', 'deck', 'slideshow', 'talk'],
+    label: 'New Presentation',
+    icon: <Presentation className="size-4 shrink-0" />,
+    onSelect: async (ctx, query) => {
+      const rawName =
+        query.replace(/^new\s+(?:presentation|slides|deck|slideshow)\s*/i, '').trim() ||
+        'Presentation';
+      const name = rawName.replace(/\.deck$/i, '');
+      if (!ctx.vault) return;
+      try {
+        const client = createVaultClient(ctx.vault);
+        const file = await client.createDocument(`${name}.deck`);
+        const created = await client.readDocument(file.relativePath);
+        await client.writeDocument(
+          file.relativePath,
+          newDeckContent(name),
+          created.version,
+          created.content,
+        );
+        await ctx.refreshFileTree();
+        ctx.openTab(file.relativePath, name, 'deck');
+        ctx.setActiveView('editor');
+      } catch (e) {
+        toast.error('Failed to create presentation: ' + e);
       }
       ctx.close();
     },

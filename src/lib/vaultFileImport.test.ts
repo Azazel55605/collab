@@ -61,6 +61,7 @@ describe('vaultFileImport categorization', () => {
     expect(importCategoryForName('tasks.kanban')).toBe('kanban');
     expect(importCategoryForName('adder.logic')).toBe('logic');
     expect(importCategoryForName('budget.sheet')).toBe('sheet');
+    expect(importCategoryForName('talk.DECK')).toBe('deck');
     // `.xlsx`/`.csv` are converted into a new `.sheet`, never stored as-is.
     expect(importCategoryForName('budget.xlsx')).toBe('workbookConversion');
     expect(importCategoryForName('budget.XLSM')).toBe('workbookConversion');

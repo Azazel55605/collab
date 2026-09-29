@@ -18,11 +18,13 @@ import {
   Paperclip,
   PenLine,
   Plus,
+  Presentation,
   Table2,
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { newDeckContent } from '../../lib/deck/document';
 import { nativeVaultPath, startFileDragOut } from '../../lib/dragOut';
 import { createInkDocument, serializeInkDocument } from '../../lib/ink/document';
 import { instantiateInkTemplate, loadInkTemplates } from '../../lib/ink/templates';
@@ -88,6 +90,7 @@ type DialogState =
   | { type: 'create-logic'; parentPath?: string }
   | { type: 'create-sheet'; parentPath?: string }
   | { type: 'create-ink'; parentPath?: string }
+  | { type: 'create-deck'; parentPath?: string }
   | { type: 'create-folder'; parentPath?: string };
 
 interface TaskAttachmentRef {
@@ -396,6 +399,10 @@ export default function FileTree() {
     setDialog({ type: 'create-sheet', parentPath });
   }, []);
 
+  const handleCreateDeck = useCallback((parentPath?: string) => {
+    setDialog({ type: 'create-deck', parentPath });
+  }, []);
+
   const handleCreateInk = useCallback((parentPath?: string) => {
     setDialog({ type: 'create-ink', parentPath });
   }, []);
@@ -697,6 +704,27 @@ export default function FileTree() {
       } catch (e) {
         toast.error('Failed to create spreadsheet: ' + e);
       }
+    } else if (dialog.type === 'create-deck') {
+      const { parentPath } = dialog;
+      setDialog({ type: 'none' });
+      const stem = name.replace(/\.deck$/i, '');
+      const relativePath = parentPath ? `${parentPath}/${stem}.deck` : `${stem}.deck`;
+      try {
+        const client = createVaultClient(vault);
+        await client.createDocument(relativePath);
+        const created = await client.readDocument(relativePath);
+        await client.writeDocument(
+          relativePath,
+          newDeckContent(stem),
+          created.version,
+          created.content,
+        );
+        await refreshFileTree();
+        openTab(relativePath, stem, 'deck');
+        setActiveView('editor');
+      } catch (e) {
+        toast.error('Failed to create presentation: ' + e);
+      }
     } else if (dialog.type === 'create-folder') {
       const { parentPath } = dialog;
       setDialog({ type: 'none' });
@@ -989,6 +1017,7 @@ export default function FileTree() {
           dialog.type === 'create-kanban' ||
           dialog.type === 'create-logic' ||
           dialog.type === 'create-sheet' ||
+          dialog.type === 'create-deck' ||
           dialog.type === 'create-folder' ||
           dialog.type === 'rename'
         }
@@ -1003,9 +1032,11 @@ export default function FileTree() {
                   ? 'create-logic'
                   : dialog.type === 'create-sheet'
                     ? 'create-sheet'
-                    : dialog.type === 'create-folder'
-                      ? 'create-folder'
-                      : 'rename'
+                    : dialog.type === 'create-deck'
+                      ? 'create-deck'
+                      : dialog.type === 'create-folder'
+                        ? 'create-folder'
+                        : 'rename'
         }
         initialValue={dialog.type === 'rename' ? dialog.file.name : ''}
         onConfirm={dialog.type === 'rename' ? confirmRename : confirmCreate}
@@ -1163,6 +1194,10 @@ export default function FileTree() {
                     <PenLine size={13} />
                     New drawing
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleCreateDeck()}>
+                    <Presentation size={13} />
+                    New presentation
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => handleCreateLogic()}>
                     <CircuitBoard size={13} />
                     New logic diagram
@@ -1265,6 +1300,7 @@ export default function FileTree() {
                 onCreateLogic={handleCreateLogic}
                 onCreateSheet={handleCreateSheet}
                 onCreateInk={handleCreateInk}
+                onCreateDeck={handleCreateDeck}
                 onCreateFolder={handleCreateFolder}
                 onDelete={handleDelete}
                 onRename={handleRename}
@@ -1324,6 +1360,7 @@ interface FileTreeNodeProps {
   onCreateLogic: (parentPath?: string) => void;
   onCreateSheet: (parentPath?: string) => void;
   onCreateInk: (parentPath?: string) => void;
+  onCreateDeck: (parentPath?: string) => void;
   onCreateFolder: (parentPath?: string) => void;
   onDelete: (file: NoteFile) => void;
   onRename: (file: NoteFile) => void;
@@ -1370,6 +1407,7 @@ const FileTreeNode = memo(function FileTreeNode({
   onCreateLogic,
   onCreateSheet,
   onCreateInk,
+  onCreateDeck,
   onCreateFolder,
   onDelete,
   onRename,
@@ -1451,6 +1489,7 @@ const FileTreeNode = memo(function FileTreeNode({
     if (node.extension === 'logic') return <CircuitBoard size={13} className="text-cyan-400/75" />;
     if (node.extension === 'sheet') return <Table2 size={13} className="text-violet-400/75" />;
     if (node.extension === 'ink') return <PenLine size={13} className="text-fuchsia-400/75" />;
+    if (node.extension === 'deck') return <Presentation size={13} className="text-orange-400/75" />;
     return <FileText size={13} className="text-muted-foreground/70" />;
   };
 
@@ -1711,6 +1750,7 @@ const FileTreeNode = memo(function FileTreeNode({
                   onCreateLogic={onCreateLogic}
                   onCreateSheet={onCreateSheet}
                   onCreateInk={onCreateInk}
+                  onCreateDeck={onCreateDeck}
                   onCreateFolder={onCreateFolder}
                   onDelete={onDelete}
                   onRename={onRename}
@@ -1758,6 +1798,9 @@ const FileTreeNode = memo(function FileTreeNode({
             </ContextMenuItem>
             <ContextMenuItem onClick={() => onCreateInk(node.relativePath)}>
               New Drawing
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => onCreateDeck(node.relativePath)}>
+              New Presentation
             </ContextMenuItem>
             <ContextMenuItem onClick={() => onCreateFolder(node.relativePath)}>
               New Folder
