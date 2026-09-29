@@ -483,7 +483,7 @@ Security requirements:
 | Phase                                                 | Status      | Goal                                                                                                                |
 | ----------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------- |
 | 0. Product contract and technical proofs              | Testing     | Freeze `.deck`, prove scene/text fidelity, rich-text editing, live text collaboration, and PPTX export.             |
-| 1. `.deck` domain and vault integration               | Not started | Add schema, validation, migrations, creation, routing, references, revisions, and normal local/hosted lifecycle.    |
+| 1. `.deck` domain and vault integration               | Complete    | Add schema, validation, migrations, creation, routing, references, revisions, and normal local/hosted lifecycle.    |
 | 2. Desktop scene editor foundation                    | Not started | Build slide navigation, stage rendering, selection, transforms, snapping, ordering, clipboard, and undo/redo.       |
 | 3. Rich text, themes, masters, and layouts            | Not started | Deliver text editing, placeholders, theme inheritance, reusable layouts, and templates.                             |
 | 4. Visual objects and Collab data integration         | Not started | Add images, SVG, shapes, lines, groups, tables, charts, `.sheet` snapshots, and note links.                         |
@@ -518,17 +518,57 @@ coordinate conversion, and PPTX export are demonstrably feasible.
 
 ### Phase 1: `.deck` Domain And Vault Integration
 
-- Add `src/types/deck.ts` and a framework-free `src/lib/deck/` domain.
-- Implement parsing, normalization, deterministic serialization, migration,
-  validation, default themes/layouts, and fixtures.
-- Add bounded `.deck` validation to `collab-documents`.
-- Add file creation, file-tree icon/menu, command-bar creation, duplication,
-  archive/import classification, hosted document type, tabs, and routing.
-- Add reference collection/rewriting for assets, notes, sheets, and links.
-- Add session loading/saving through `VaultClient` and
-  `DocumentSessionController`.
-- Add desktop view-state persistence for active slide, zoom, panel state, and
-  selection without storing view state in `.deck`.
+Complete. A `.deck` is now an ordinary vault document everywhere the app
+handles documents. The view is display-and-navigate only; authoring starts in
+Phase 2.
+
+- [x] `src/types/deck.ts` and the framework-free `src/lib/deck/` domain (Phase 0).
+- [x] Parse, repair-and-report normalization, migration dispatch, validation,
+      deterministic serialization, default theme, master, and five layouts
+      (`document.ts`). Ordering damage, dangling layout/theme/master
+      references, mismatched ids, and empty decks are repaired and reported;
+      wrong kind, bad schema version, hard limits, and still-invalid structure
+      refuse to open. A newer schema opens read-only and untouched.
+- [x] Bounded `.deck` validation in `collab-documents`
+      (`crates/collab-documents/src/deck.rs`), wired into `classify_path` and the
+      shared `validate` dispatch, tested against the TypeScript fixture itself
+      (`crates/collab-documents/fixtures/deck-fixture.deck`, kept identical by
+      `sharedFixture.test.ts`).
+- [x] **New presentation** in the Files header menu, the folder context menu,
+      and the command bar; file-tree icon and **Presentations** filter;
+      duplication; import classification (with structural validation); `deck`
+      tab type; link resolution; version history; routing to `DeckView`.
+- [x] Hosted document type end to end: `HostedDocumentType::Deck`, migrations
+      0031 (enum value) and 0032 (reclassify earlier `.deck` uploads, which were
+      stored as notes), server reference and validation dispatch, archive
+      import, and the admin app. The upload path and migration 0031 are proven
+      against live PostgreSQL; 0032 mirrors ink's 0029 reclassification.
+- [x] Reference collection and rename/move rewrites for images, image fills,
+      embed sources and previews, chart `.sheet` sources, and vault links in
+      any text body. Found by field role, so references inside table cells,
+      backgrounds, and notes are covered. A deleted target is deliberately left
+      in place so the missing-asset placeholder stays repairable.
+- [x] Loading and saving through `VaultClient` and `DocumentSessionController`
+      (`useDeckSession`), with conflict, offline-queue, and status-bar
+      registration. Every edit is re-validated before it can be saved.
+- [x] Device-local view state (`editorStore.deckViewStates`: slide, zoom,
+      panels, selection) that follows renames and moves and never enters the
+      document.
+
+Found and fixed along the way:
+
+- The hosted parser caps made the Phase 0 32 MiB limit unreachable; the limit
+  is amended in the contract and enforced on the client.
+- Before the `deck` type, the server stored `.deck` uploads as notes, and the
+  Android app opens note-typed documents in its Markdown editor — where saving
+  would overwrite a presentation. Mobile now receives `deck` and shows the
+  file-details sheet until the Phase 8 viewer.
+- Vault ZIP import classified `.ink` drawings as opaque assets; they now import
+  as ink documents.
+
+Deliberately deferred: live co-editing (Phase 6 owns `LiveDocumentKind::Deck`),
+so a concurrent edit surfaces as a conflict; a dedicated Android widget icon
+(Phase 8); slide-size choice at creation (widescreen by default).
 
 ### Phase 2: Desktop Scene Editor Foundation
 

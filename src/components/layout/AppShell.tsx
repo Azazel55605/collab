@@ -17,6 +17,7 @@ import {
   Layout,
   LayoutDashboard,
   PenLine,
+  Presentation,
   Settings as SettingsIcon,
   Table2,
 } from 'lucide-react';
@@ -28,6 +29,7 @@ import { onReplicaMutated } from '../../lib/vaultReplica';
 import { useEditorStore, useNoteIndexStore, useUiStore, useVaultStore } from '../../store';
 import CalendarPage from '../../views/CalendarPage';
 import CanvasPage from '../../views/CanvasPage';
+import DeckView from '../../views/DeckView';
 import GraphPage from '../../views/GraphPage';
 import GridView from '../../views/GridView';
 import ImageView from '../../views/ImageView';
@@ -112,6 +114,7 @@ export default function AppShell() {
     if (type === 'logic') return <CircuitBoard size={size} className="shrink-0" />;
     if (type === 'sheet') return <Table2 size={size} className="shrink-0" />;
     if (type === 'ink') return <PenLine size={size} className="shrink-0" />;
+    if (type === 'deck') return <Presentation size={size} className="shrink-0" />;
     if (type === 'graph') return <GitFork size={size} className="shrink-0" />;
     if (type === 'settings') return <SettingsIcon size={size} className="shrink-0" />;
     if (type === 'image') return <ImageIcon size={size} className="shrink-0" />;
@@ -351,6 +354,8 @@ export default function AppShell() {
         return <SheetView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
       if (activeTab.type === 'ink')
         return <InkView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
+      if (activeTab.type === 'deck')
+        return <DeckView key={activeDocumentKey} relativePath={activeTab.relativePath} />;
       if (activeTab.type === 'canvas')
         return activeTab.relativePath === '__canvas__' ? (
           <EmptyEditor />

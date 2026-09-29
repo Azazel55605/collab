@@ -4808,6 +4808,12 @@ pub async fn list_file_references(
                 &target_path,
             )
             .unwrap_or_default(),
+            HostedDocumentType::Deck => collab_documents::references::collect_deck_references(
+                &content,
+                &file.relative_path,
+                &target_path,
+            )
+            .unwrap_or_default(),
         };
         for reference in collected {
             let referenced_file_id = path_ids
@@ -5333,6 +5339,10 @@ async fn compute_reference_rewrites(
             }
             HostedDocumentType::Ink => {
                 collab_documents::references::rewrite_ink_references(&content, old_path, new_path)
+                    .ok()
+            }
+            HostedDocumentType::Deck => {
+                collab_documents::references::rewrite_deck_references(&content, old_path, new_path)
                     .ok()
             }
         };
@@ -10543,6 +10553,7 @@ fn document_type_name(document_type: HostedDocumentType) -> &'static str {
         HostedDocumentType::Canvas => "canvas",
         HostedDocumentType::Sheet => "sheet",
         HostedDocumentType::Ink => "ink",
+        HostedDocumentType::Deck => "deck",
     }
 }
 
@@ -10552,6 +10563,7 @@ fn parse_document_type(document_type: Option<String>) -> Option<HostedDocumentTy
         "canvas" => HostedDocumentType::Canvas,
         "sheet" => HostedDocumentType::Sheet,
         "ink" => HostedDocumentType::Ink,
+        "deck" => HostedDocumentType::Deck,
         _ => HostedDocumentType::Note,
     })
 }
@@ -10901,6 +10913,7 @@ fn validate_file_kind(
                 HostedDocumentType::Canvas => collab_documents::DocumentKind::Canvas,
                 HostedDocumentType::Sheet => collab_documents::DocumentKind::Sheet,
                 HostedDocumentType::Ink => collab_documents::DocumentKind::Ink,
+                HostedDocumentType::Deck => collab_documents::DocumentKind::Deck,
             };
             let kind = collab_documents::classify_path(name).unwrap_or(fallback_kind);
             collab_documents::validate(
@@ -16448,6 +16461,124 @@ mod tests {
             malformed.status(),
             StatusCode::BAD_REQUEST,
             "a structurally invalid drawing must be rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn hosted_deck_presentations_are_a_first_class_document_type() {
+        // Same failure mode as `.ink`: `hosted_document_type` is a PostgreSQL
+        // enum, so the `Deck` variant needs migration 0031 before any upload
+        // succeeds.
+        let Ok(url) = std::env::var("COLLAB_TEST_DATABASE_URL") else {
+            return;
+        };
+        let _db_guard = crate::database::db_test_guard().lock().await;
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&url)
+            .await
+            .unwrap();
+        database::migrate(&pool).await.unwrap();
+        sqlx::query(
+            "TRUNCATE audit_events, invitations, native_sessions, sessions, credentials, users, hosted_blobs RESTART IDENTITY CASCADE",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        reseed_builtin_templates(&pool).await;
+        let blobs = Arc::new(
+            FileSystemBlobStorage::new(tempfile::tempdir().unwrap().keep())
+                .await
+                .unwrap(),
+        );
+        let app = build_router(AppState::new(ServerConfig::default(), pool.clone(), blobs));
+
+        let bootstrap = request(
+            &app,
+            "POST",
+            "/api/v1/auth/bootstrap",
+            json!({"username": "owner", "displayName": "Owner", "password": "correct horse battery staple"}),
+            None,
+            None,
+        )
+        .await;
+        let (cookie, csrf) = session_cookies(&bootstrap);
+        let vault = request(
+            &app,
+            "POST",
+            "/api/v1/vaults",
+            json!({"name": "Talks"}),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        let vault_id = json_body(vault).await["data"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        // The TypeScript fixture, kept identical by `sharedFixture.test.ts`.
+        let deck = include_str!("../../collab-documents/fixtures/deck-fixture.deck");
+        let files_url = format!("/api/v1/vaults/{vault_id}/files");
+        let upload = |name: &str, content: String| {
+            request(
+                &app,
+                "POST",
+                &files_url,
+                json!({"name": name, "kind": "document", "documentType": "deck", "content": content}),
+                Some(&cookie),
+                Some(&csrf),
+            )
+        };
+
+        let created = upload("Fixture.deck", deck.to_string()).await;
+        assert_eq!(
+            created.status(),
+            StatusCode::CREATED,
+            "the server must accept a .deck document"
+        );
+        assert_eq!(
+            json_body(created).await["data"]["documentType"],
+            json!("deck")
+        );
+
+        // The manifest reports it as a deck, so clients never open it as note
+        // text — where saving would write Markdown over the presentation.
+        let manifest = request(
+            &app,
+            "GET",
+            &format!("/api/v1/vaults/{vault_id}/manifest"),
+            json!({}),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+        let manifest_body = json_body(manifest).await;
+        let entry = manifest_body["data"]["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|file| file["name"] == json!("Fixture.deck"))
+            .expect("the deck is in the manifest");
+        assert_eq!(entry["documentType"], json!("deck"));
+
+        // The shared trust boundary refuses a malformed deck and one whose
+        // image points outside the vault.
+        let malformed = upload(
+            "Broken.deck",
+            json!({"kind": "collab-deck", "schemaVersion": 1}).to_string(),
+        )
+        .await;
+        assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
+
+        let mut escaping: serde_json::Value = serde_json::from_str(deck).unwrap();
+        escaping["slides"]["slide-3"]["elements"]["s3-image"]["asset"]["path"] =
+            json!("https://tracker.example/pixel.png");
+        let unsafe_asset = upload("Tracker.deck", escaping.to_string()).await;
+        assert_eq!(
+            unsafe_asset.status(),
+            StatusCode::BAD_REQUEST,
+            "a deck must not be able to point its renderer at the network"
         );
     }
 }

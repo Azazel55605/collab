@@ -79,9 +79,20 @@ fixture slide. `fitSlide()` is the one placement function for all three.
 Mirrored from `DECK_LIMITS` in `src/types/deck.ts`. A document exceeding a
 limit is rejected with a specific error — never silently truncated.
 
+**Phase 1 amendment.** Phase 0 froze 32 MiB without checking the server:
+hosted vaults run every structured document through
+`collab_documents::DEFAULT_PARSER_LIMITS` first — 16 MiB, 100,000 JSON entries,
+128 levels. A 1,000-slide deck of simple slides is about 132,000 entries, so
+the server would have refused decks the client happily created. The client now
+enforces the same three caps (`documentBytes`, `jsonEntries`, `jsonDepth`), so
+it can never save a deck the server refuses. In practice that is roughly 750
+simple slides; the 1,000-slide cap remains as the structural ceiling, and
+raising the hosted parser caps per document kind is a Phase 10 decision.
+
 | Limit                        | Value                        |
 | ---------------------------- | ---------------------------- |
-| Document size                | 32 MiB                       |
+| Document size                | 16 MiB (amended in Phase 1)  |
+| JSON entries / nesting depth | 100,000 / 128 (Phase 1)      |
 | Slides                       | 1,000                        |
 | Sections                     | 200                          |
 | Themes / masters / layouts   | 16 / 16 / 128                |

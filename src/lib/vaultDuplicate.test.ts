@@ -23,6 +23,7 @@ describe('isTextDocumentPath', () => {
       'a.kanban',
       'a.logic',
       'a.sheet',
+      'a.deck',
       'a.svg',
       'Docs/B.SHEET',
     ]) {

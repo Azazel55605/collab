@@ -5,7 +5,7 @@ const ABSOLUTE_URL_RE = /^(?:[a-z][a-z\d+.-]*:|\/\/)/i;
 const IMAGE_EXT_RE = /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i;
 
 export type VaultDocumentTabType =
-  'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'image' | 'pdf';
+  'note' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'deck' | 'image' | 'pdf';
 
 export interface VaultLinkTarget {
   relativePath: string;
@@ -91,6 +91,7 @@ export function getVaultDocumentTabType(relativePath: string): VaultDocumentTabT
   if (/\.logic$/i.test(relativePath)) return 'logic';
   if (/\.sheet$/i.test(relativePath)) return 'sheet';
   if (/\.ink$/i.test(relativePath)) return 'ink';
+  if (/\.deck$/i.test(relativePath)) return 'deck';
   if (/\.kanban$/i.test(relativePath)) return 'kanban';
   if (/\.canvas$/i.test(relativePath)) return 'canvas';
   return 'note';

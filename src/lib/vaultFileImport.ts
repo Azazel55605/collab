@@ -3,6 +3,7 @@ import { parseLogicDiagramDocument } from '../types/logicDiagram';
 import type { SheetConversionReport } from '../types/sheetConversion';
 import type { NoteFile } from '../types/vault';
 
+import { parseDeckDocument } from './deck/document';
 import { parseInkDocument } from './ink/document';
 import { importWorkbookFile } from './sheet/conversion';
 import { inspectSheetDocumentText } from './sheet/document';
@@ -27,6 +28,7 @@ export const IMPORT_KANBAN_EXTENSIONS = ['kanban'];
 export const IMPORT_LOGIC_EXTENSIONS = ['logic'];
 export const IMPORT_SHEET_EXTENSIONS = ['sheet'];
 export const IMPORT_INK_EXTENSIONS = ['ink'];
+export const IMPORT_DECK_EXTENSIONS = ['deck'];
 /**
  * Spreadsheet formats that are *converted* rather than stored. They become a
  * new `.sheet` document; the source file is left untouched and never becomes
@@ -44,6 +46,7 @@ export const IMPORTABLE_EXTENSIONS = [
   ...IMPORT_LOGIC_EXTENSIONS,
   ...IMPORT_SHEET_EXTENSIONS,
   ...IMPORT_INK_EXTENSIONS,
+  ...IMPORT_DECK_EXTENSIONS,
   ...IMPORT_WORKBOOK_CONVERSION_EXTENSIONS,
 ];
 
@@ -57,6 +60,7 @@ export type ImportableCategory =
   | 'logic'
   | 'sheet'
   | 'ink'
+  | 'deck'
   | 'workbookConversion';
 
 export function fileBaseName(sourcePath: string): string {
@@ -80,6 +84,7 @@ export function importCategoryForName(name: string): ImportableCategory | null {
   if (IMPORT_LOGIC_EXTENSIONS.includes(ext)) return 'logic';
   if (IMPORT_SHEET_EXTENSIONS.includes(ext)) return 'sheet';
   if (IMPORT_INK_EXTENSIONS.includes(ext)) return 'ink';
+  if (IMPORT_DECK_EXTENSIONS.includes(ext)) return 'deck';
   if (IMPORT_WORKBOOK_CONVERSION_EXTENSIONS.includes(ext)) return 'workbookConversion';
   return null;
 }
@@ -116,7 +121,7 @@ function joinVaultPath(folder: string | undefined, name: string): string {
  */
 function validateStructuredDocument(
   text: string,
-  category: 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink',
+  category: 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'deck',
 ) {
   if (category === 'logic') {
     parseLogicDiagramDocument(text);
@@ -132,6 +137,12 @@ function validateStructuredDocument(
     // Same rule for drawings: a newer-schema `.ink` imports and opens
     // read-only. Repairs the normalizer applies are surfaced when it opens.
     parseInkDocument(text);
+    return;
+  }
+  if (category === 'deck') {
+    // Presentations follow the same rule: newer-schema decks import and open
+    // read-only, and repairs are reported when the deck opens.
+    parseDeckDocument(text);
     return;
   }
   let parsed: unknown;
@@ -156,7 +167,7 @@ async function importTextDocument(
   client: VaultClient,
   sourcePath: string,
   targetFolder: string | undefined,
-  category: 'markdown' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'svg',
+  category: 'markdown' | 'canvas' | 'kanban' | 'logic' | 'sheet' | 'ink' | 'deck' | 'svg',
 ): Promise<string> {
   const payload = await tauriCommands.readFileForUpload(sourcePath);
   const text = decodeUtf8Base64(payload.contentBase64);
@@ -165,7 +176,8 @@ async function importTextDocument(
     category === 'kanban' ||
     category === 'logic' ||
     category === 'sheet' ||
-    category === 'ink'
+    category === 'ink' ||
+    category === 'deck'
   ) {
     validateStructuredDocument(text, category);
   }
@@ -246,7 +258,8 @@ export async function importExternalFilesIntoVault(
         category === 'kanban' ||
         category === 'logic' ||
         category === 'sheet' ||
-        category === 'ink'
+        category === 'ink' ||
+        category === 'deck'
       ) {
         result.imported.push(
           await importTextDocument(client, sourcePath, options.targetFolder, category),

@@ -1,7 +1,7 @@
 import type { NoteFile } from '../../types/vault';
 
 export type FileTypeFilter =
-  'note' | 'canvas' | 'kanban' | 'sheet' | 'ink' | 'logic' | 'image' | 'pdf' | 'other';
+  'note' | 'canvas' | 'kanban' | 'sheet' | 'ink' | 'deck' | 'logic' | 'image' | 'pdf' | 'other';
 
 export const FILE_TYPE_FILTERS: Array<{ id: FileTypeFilter; label: string }> = [
   { id: 'note', label: 'Notes' },
@@ -9,6 +9,7 @@ export const FILE_TYPE_FILTERS: Array<{ id: FileTypeFilter; label: string }> = [
   { id: 'kanban', label: 'Kanban boards' },
   { id: 'sheet', label: 'Spreadsheets' },
   { id: 'ink', label: 'Drawings' },
+  { id: 'deck', label: 'Presentations' },
   { id: 'logic', label: 'Logic diagrams' },
   { id: 'image', label: 'Images' },
   { id: 'pdf', label: 'PDFs' },
@@ -35,6 +36,7 @@ export function getFileTypeFilter(node: Pick<NoteFile, 'extension'>): FileTypeFi
   if (extension === 'kanban') return 'kanban';
   if (extension === 'sheet') return 'sheet';
   if (extension === 'ink') return 'ink';
+  if (extension === 'deck') return 'deck';
   if (extension === 'logic') return 'logic';
   if (IMAGE_FILE_EXTENSIONS.has(extension)) return 'image';
   if (extension === 'pdf') return 'pdf';

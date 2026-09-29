@@ -14,6 +14,7 @@ const DUPLICABLE_EXTENSIONS = new Set([
   'logic',
   'sheet',
   'ink',
+  'deck',
   'svg',
 ]);
 

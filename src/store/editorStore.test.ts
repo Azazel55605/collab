@@ -57,6 +57,23 @@ describe('editorStore renameTab', () => {
     });
   });
 
+  it('moves persisted presentation view state with its file and folder', () => {
+    const state = {
+      slideId: 'slide-3',
+      zoom: 'fit' as const,
+      slideRailOpen: false,
+      notesOpen: true,
+      selectedElementIds: [],
+    };
+    useEditorStore.getState().setDeckViewState('Talks/q3.deck', state);
+
+    useEditorStore.getState().renameTab('Talks', 'Archive/Talks', 'Talks');
+
+    const next = useEditorStore.getState();
+    expect(next.deckViewStates['Talks/q3.deck']).toBeUndefined();
+    expect(next.deckViewStates['Archive/Talks/q3.deck']).toEqual(state);
+  });
+
   it('updates descendant tabs when a folder path changes', () => {
     const state = useEditorStore.getState();
     state.openTab('Projects/alpha/spec.md', 'spec', 'note');

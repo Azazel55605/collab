@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { parseDeckDocument } from '../../lib/deck/document';
+
 import { ACTIONS, type RenderCtx, SETTINGS_SECTIONS } from './commandBarActions';
 
 const createNote = vi.fn();
@@ -137,6 +139,30 @@ describe('commandBarActions', () => {
       '',
     );
     expect(ctx.openTab).toHaveBeenCalledWith('Power Supply.logic', 'Power Supply', 'logic');
+  });
+
+  it('creates a new presentation with a valid deck and opens it', async () => {
+    const ctx = makeCtx();
+    createNote.mockResolvedValueOnce({
+      relativePath: 'Q3 Review.deck',
+      name: 'Q3 Review.deck',
+      extension: 'deck',
+      modifiedAt: 0,
+      size: 0,
+      isFolder: false,
+    });
+    readNote.mockResolvedValueOnce({ content: '', hash: 'v0', modifiedAt: 0 });
+    writeNote.mockResolvedValueOnce({ hash: 'v1' });
+    const action = ACTIONS.find((entry) => entry.id === 'new-presentation');
+
+    await action?.onSelect(ctx, 'new presentation Q3 Review');
+
+    expect(createNote).toHaveBeenCalledWith('/vault', 'Q3 Review.deck');
+    const written = writeNote.mock.calls[0][2] as string;
+    const inspection = parseDeckDocument(written);
+    expect(inspection.document.name).toBe('Q3 Review');
+    expect(inspection.warnings).toEqual([]);
+    expect(ctx.openTab).toHaveBeenCalledWith('Q3 Review.deck', 'Q3 Review', 'deck');
   });
 
   it('guards editor-only actions outside editor view', async () => {

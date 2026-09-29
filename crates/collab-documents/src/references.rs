@@ -1303,3 +1303,134 @@ pub fn rewrite_ink_references(
     serde_json::to_string_pretty(&document)
         .map_err(|error| ReferenceError::InvalidDocument(error.to_string()))
 }
+
+/// Where a `.deck` document names another vault file. Found by field role
+/// rather than by walking each element type, so a reference inside a table
+/// cell, a background fill, speaker notes, or a future element type is never
+/// missed.
+enum DeckReferenceRole {
+    /// `asset` (images, image fills) or `preview` (embed previews).
+    Image,
+    /// `source` of an embed element.
+    Embed,
+    /// `source` of a chart: its `.sheet` snapshot.
+    Sheet,
+    /// A rich-text `link` of kind `vault`.
+    Link,
+}
+
+impl DeckReferenceRole {
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Image => "deck-image",
+            Self::Embed => "deck-embed",
+            Self::Sheet => "deck-sheet",
+            Self::Link => "deck-link",
+        }
+    }
+}
+
+fn for_each_deck_reference(
+    value: &mut serde_json::Value,
+    visit: &mut dyn FnMut(DeckReferenceRole, &mut serde_json::Map<String, serde_json::Value>),
+) {
+    match value {
+        serde_json::Value::Array(values) => {
+            for entry in values {
+                for_each_deck_reference(entry, visit);
+            }
+        }
+        serde_json::Value::Object(object) => {
+            let is_chart = object.get("type").and_then(serde_json::Value::as_str) == Some("chart");
+            for (key, child) in object.iter_mut() {
+                let role = match key.as_str() {
+                    "asset" | "preview" => Some(DeckReferenceRole::Image),
+                    "source" if is_chart => Some(DeckReferenceRole::Sheet),
+                    "source" => Some(DeckReferenceRole::Embed),
+                    "link"
+                        if child.get("kind").and_then(serde_json::Value::as_str)
+                            == Some("vault") =>
+                    {
+                        Some(DeckReferenceRole::Link)
+                    }
+                    _ => None,
+                };
+                match (role, child.as_object_mut()) {
+                    (Some(role), Some(target)) if target.contains_key("path") => {
+                        visit(role, target)
+                    }
+                    _ => for_each_deck_reference(child, visit),
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+pub fn collect_deck_references(
+    content: &str,
+    source_relative_path: &str,
+    target_path: &str,
+) -> Result<Vec<FileReference>, ReferenceError> {
+    let mut document: serde_json::Value = serde_json::from_str(content)
+        .map_err(|error| ReferenceError::InvalidDocument(error.to_string()))?;
+    let mut references = Vec::new();
+    for_each_deck_reference(&mut document, &mut |role, target| {
+        let Some(raw_target) = target.get("path").and_then(serde_json::Value::as_str) else {
+            return;
+        };
+        let (path, _) = split_path_suffix(raw_target.trim());
+        let Some(normalized) = normalized_path_string(path) else {
+            return;
+        };
+        if !path_matches_or_descends(&normalized, target_path) {
+            return;
+        }
+        references.push(FileReference {
+            referenced_relative_path: normalized,
+            source_relative_path: source_relative_path.to_string(),
+            source_document_type: "deck".into(),
+            reference_kind: role.kind().into(),
+            display_label: None,
+            context: Some(raw_target.to_string()),
+        });
+    });
+    Ok(references)
+}
+
+/// Rewrites references after a rename or move.
+///
+/// A deleted target (`new_path` of `None`) is deliberately left in place:
+/// unlike a drawing, a deck renders a missing asset as a stable placeholder so
+/// the reference stays repairable when the file is restored or replaced.
+pub fn rewrite_deck_references(
+    content: &str,
+    old_path: &str,
+    new_path: Option<&str>,
+) -> Result<String, ReferenceError> {
+    let Some(new_path) = new_path else {
+        return Ok(content.to_string());
+    };
+    let mut document: serde_json::Value = serde_json::from_str(content)
+        .map_err(|error| ReferenceError::InvalidDocument(error.to_string()))?;
+    let mut changed = false;
+    for_each_deck_reference(&mut document, &mut |_, target| {
+        let Some(raw_target) = target.get("path").and_then(serde_json::Value::as_str) else {
+            return;
+        };
+        if let Some(next) = rewrite_sheet_path(raw_target, old_path, Some(new_path)) {
+            if next != raw_target {
+                target.insert("path".into(), serde_json::Value::String(next));
+                changed = true;
+            }
+        }
+    });
+    if !changed {
+        return Ok(content.to_string());
+    }
+    // Sorted keys, two-space indent, trailing newline: the same layout
+    // `serializeDeck` writes, so a rename does not churn the whole file.
+    serde_json::to_string_pretty(&document)
+        .map(|text| format!("{text}\n"))
+        .map_err(|error| ReferenceError::InvalidDocument(error.to_string()))
+}

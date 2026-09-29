@@ -181,7 +181,7 @@ Two Compose files exist and are not interchangeable:
   profile settings.
 - **View routing is two-layered**: `uiStore.activeView` handles page-level views
   (`grid`, `calendar`, …); the `editorStore` tab type selects document views
-  (`sheet`, `ink`, `logic`, `image`, `pdf`). `SvgVectorView` is chosen over
+  (`sheet`, `ink`, `deck`, `logic`, `image`, `pdf`). `SvgVectorView` is chosen over
   `ImageView` by a `/\.svg$/i` test inside the `image` tab type. See
   `src/components/layout/AppShell.tsx`.
 - **OCR assets** are prepared by `scripts/prepare-ocr-assets.mjs`, which runs

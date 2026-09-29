@@ -13,6 +13,7 @@ export interface OpenTab {
     | 'logic'
     | 'sheet'
     | 'ink'
+    | 'deck'
     | 'graph'
     | 'settings'
     | 'image'
@@ -50,6 +51,20 @@ export interface InkViewState {
   zoom: number;
 }
 
+/**
+ * Per-tab presentation view state, restored when a `.deck` tab is reopened.
+ * Device-local for the same reason as `InkViewState`: which slide you were on
+ * and how the panels were arranged is not a change collaborators should merge.
+ */
+export interface DeckViewState {
+  slideId: string | null;
+  /** `fit`, or an explicit stage zoom factor. */
+  zoom: 'fit' | number;
+  slideRailOpen: boolean;
+  notesOpen: boolean;
+  selectedElementIds: string[];
+}
+
 export interface PendingSearchJump {
   relativePath: string;
   query: string;
@@ -71,6 +86,7 @@ interface EditorState {
   noteViewStates: Record<string, NoteEditorViewState>;
   sheetViewStates: Record<string, SheetViewState>;
   inkViewStates: Record<string, InkViewState>;
+  deckViewStates: Record<string, DeckViewState>;
   setSessionVaultPath: (vaultPath: string | null) => void;
   resetSession: (vaultPath?: string | null) => void;
   openTab: (relativePath: string, title: string, type?: OpenTab['type']) => void;
@@ -89,6 +105,7 @@ interface EditorState {
   setNoteViewState: (relativePath: string, viewState: NoteEditorViewState) => void;
   setSheetViewState: (relativePath: string, viewState: SheetViewState) => void;
   setInkViewState: (relativePath: string, viewState: InkViewState) => void;
+  setDeckViewState: (relativePath: string, viewState: DeckViewState) => void;
 }
 
 function remapViewStates<T>(viewStates: Record<string, T>, oldPath: string, newPath: string) {
@@ -117,6 +134,7 @@ export const useEditorStore = create<EditorState>()(
       noteViewStates: {},
       sheetViewStates: {},
       inkViewStates: {},
+      deckViewStates: {},
 
       setSessionVaultPath: (sessionVaultPath) => set({ sessionVaultPath }),
 
@@ -132,6 +150,7 @@ export const useEditorStore = create<EditorState>()(
           noteViewStates: {},
           sheetViewStates: {},
           inkViewStates: {},
+          deckViewStates: {},
         }),
 
       openTab: (relativePath, title, type = 'note') => {
@@ -221,6 +240,7 @@ export const useEditorStore = create<EditorState>()(
           noteViewStates: remapViewStates(state.noteViewStates, oldPath, newPath),
           sheetViewStates: remapViewStates(state.sheetViewStates, oldPath, newPath),
           inkViewStates: remapViewStates(state.inkViewStates, oldPath, newPath),
+          deckViewStates: remapViewStates(state.deckViewStates, oldPath, newPath),
         }));
       },
 
@@ -265,6 +285,14 @@ export const useEditorStore = create<EditorState>()(
             [relativePath]: viewState,
           },
         })),
+
+      setDeckViewState: (relativePath, viewState) =>
+        set((state) => ({
+          deckViewStates: {
+            ...state.deckViewStates,
+            [relativePath]: viewState,
+          },
+        })),
     }),
     {
       name: 'editor-storage',
@@ -275,6 +303,7 @@ export const useEditorStore = create<EditorState>()(
         noteViewStates: state.noteViewStates,
         sheetViewStates: state.sheetViewStates,
         inkViewStates: state.inkViewStates,
+        deckViewStates: state.deckViewStates,
       }),
     },
   ),

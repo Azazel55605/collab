@@ -47,7 +47,15 @@ export const DECK_ROTATION_FULL_TURN = 360 * DECK_ROTATION_UNITS_PER_DEGREE;
  * than silently truncated.
  */
 export const DECK_LIMITS = {
-  documentBytes: 32 * 1024 * 1024,
+  /**
+   * Amended in Phase 1 from 32 MiB. Hosted vaults run every structured document
+   * through the server's generic parser caps (`collab_documents::
+   * DEFAULT_PARSER_LIMITS`): 16 MiB, 100,000 JSON entries, 128 levels. The
+   * client enforces the same caps so it never saves a deck the server refuses.
+   */
+  documentBytes: 16 * 1024 * 1024,
+  jsonEntries: 100_000,
+  jsonDepth: 128,
   slides: 1_000,
   sections: 200,
   themes: 16,

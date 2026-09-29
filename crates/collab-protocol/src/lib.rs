@@ -742,6 +742,7 @@ pub enum HostedDocumentType {
     Canvas,
     Sheet,
     Ink,
+    Deck,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

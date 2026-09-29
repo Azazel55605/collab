@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Pencil,
   PenLine,
+  Presentation,
   Table2,
   Trash2,
 } from 'lucide-react';
@@ -150,6 +151,7 @@ type InputDialogVariant =
   | 'create-logic'
   | 'create-sheet'
   | 'create-ink'
+  | 'create-deck'
   | 'create-template';
 
 const VARIANT_META: Record<
@@ -216,6 +218,13 @@ const VARIANT_META: Record<
     title: 'New drawing',
     label: 'Drawing name',
     placeholder: 'Untitled Drawing',
+    confirm: 'Create',
+  },
+  'create-deck': {
+    icon: <Presentation size={16} />,
+    title: 'New presentation',
+    label: 'Presentation name',
+    placeholder: 'Untitled Presentation',
     confirm: 'Create',
   },
   'create-template': {
