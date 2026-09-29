@@ -212,9 +212,50 @@ describe('DeckView: viewing', () => {
   it('opens a deck with a slide rail, section headings, and the slide on the stage', async () => {
     await openDeck();
     expect(screen.getAllByRole('option')).toHaveLength(5);
+    // The highlight encloses the 150 × 84 px thumbnail and the row's 4 px padding.
+    expect(screen.getAllByRole('option')[0].style.height).toBe('92px');
     expect(screen.getByText('Introduction')).toBeTruthy();
     expect(screen.getByText('Objects')).toBeTruthy();
     expect(stage().innerHTML).toContain('Collab Presentations');
+  });
+
+  it('measures the stage that mounts once the deck has loaded', async () => {
+    // Like the browser's: a detached element reports a zero size.
+    const observers: Array<{ callback: ResizeObserverCallback; elements: Element[] }> = [];
+    const original = window.ResizeObserver;
+    window.ResizeObserver = class {
+      private entry: { callback: ResizeObserverCallback; elements: Element[] };
+      constructor(callback: ResizeObserverCallback) {
+        this.entry = { callback, elements: [] };
+        observers.push(this.entry);
+      }
+      observe(element: Element) {
+        this.entry.elements.push(element);
+      }
+      unobserve() {}
+      disconnect() {
+        this.entry.elements = [];
+      }
+    } as unknown as typeof ResizeObserver;
+    const tick = () =>
+      act(() => {
+        for (const { callback, elements } of observers) {
+          const entries = elements.map((element) => ({
+            target: element,
+            contentRect: element.isConnected ? STAGE : { width: 0, height: 0 },
+          }));
+          if (entries.length > 0) {
+            callback(entries as unknown as ResizeObserverEntry[], {} as ResizeObserver);
+          }
+        }
+      });
+    try {
+      await openDeck();
+      tick();
+      expect(screen.getByTestId('deck-stage')).toBeTruthy();
+    } finally {
+      window.ResizeObserver = original;
+    }
   });
 
   it('navigates with the keyboard and the rail, and remembers the slide', async () => {
