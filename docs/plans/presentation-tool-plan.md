@@ -484,7 +484,7 @@ Security requirements:
 | ----------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------- |
 | 0. Product contract and technical proofs              | Testing     | Freeze `.deck`, prove scene/text fidelity, rich-text editing, live text collaboration, and PPTX export.             |
 | 1. `.deck` domain and vault integration               | Complete    | Add schema, validation, migrations, creation, routing, references, revisions, and normal local/hosted lifecycle.    |
-| 2. Desktop scene editor foundation                    | Not started | Build slide navigation, stage rendering, selection, transforms, snapping, ordering, clipboard, and undo/redo.       |
+| 2. Desktop scene editor foundation                    | Complete    | Build slide navigation, stage rendering, selection, transforms, snapping, ordering, clipboard, and undo/redo.       |
 | 3. Rich text, themes, masters, and layouts            | Not started | Deliver text editing, placeholders, theme inheritance, reusable layouts, and templates.                             |
 | 4. Visual objects and Collab data integration         | Not started | Add images, SVG, shapes, lines, groups, tables, charts, `.sheet` snapshots, and note links.                         |
 | 5. Presentation mode and speaker workflow             | Not started | Add fullscreen playback, notes, presenter view, navigation, handouts, and PDF/image output.                         |
@@ -572,14 +572,41 @@ so a concurrent edit surfaces as a conflict; a dedicated Android widget icon
 
 ### Phase 2: Desktop Scene Editor Foundation
 
-- Implement normalized document operations and inverses.
-- Build virtualized slide/section thumbnails.
-- Build stage pan/zoom/fit behavior.
-- Add select, multi-select, marquee, move, resize, rotate, crop, lock, group,
-  ungroup, order, align, distribute, snap, guides, and rulers.
-- Add keyboard and clipboard behavior.
-- Add bounded undo/redo and autosave.
-- Keep every object control stable under zoom and device scaling.
+Complete. `DeckView` is now an editor for slides and objects; text editing
+arrives in Phase 3.
+
+- [x] Reversible operations (`src/lib/deck/operations.ts`): insert, delete,
+      move, hide, and duplicate slides (sections follow their slide); add,
+      remove, update, reorder, group, ungroup, and lock elements. Each returns
+      the new deck and its exact inverse as a patch of touched slides, so the
+      ink history (`InkHistory`) is reused unchanged.
+- [x] Virtualized slide rail with section headers, multi-select, drag reorder,
+      and a context menu (`DeckSlideRail`).
+- [x] Stage (`DeckStage`): fit, Ctrl+wheel zoom about the pointer, zoom
+      buttons and shortcuts, middle-button or Space-drag pan.
+- [x] Select, Shift/Ctrl multi-select, marquee, move, resize (along a rotated
+      object's own axes; groups and multi-selections scale about their
+      bounds), rotate (Shift snaps to 15°), image crop (double-click an image,
+      drag an edge; the image keeps its scale), lock, group, ungroup, order,
+      align (to slide or selection), and distribute
+      (`src/lib/deck/transform.ts`).
+- [x] Snapping to slide edges and centre and to other objects, with smart
+      guides; optional quarter-inch grid; rulers. Alt suspends snapping.
+- [x] Keyboard: arrows nudge 1 pt (Shift 10 pt), Tab cycles objects, Delete,
+      Ctrl+A/D/G/Shift+G, Ctrl+[ ] ordering, slide navigation and reordering
+      in the rail. Clipboard: elements copy as a marked JSON payload in
+      `text/plain` (placeholders become self-contained), paste cascades, and
+      plain text pastes as a text box.
+- [x] Undo/redo bounded at 200 steps; a gesture previews on a scratch deck
+      and commits once, as one undo step and one save. Autosave is the session
+      controller's debounced save; every edit is re-validated first. History
+      is cleared when the deck changes underneath (reload, conflict).
+- [x] Handles, guides, outlines, and hit slop are sized in screen pixels, so
+      they stay constant under zoom and device scaling.
+
+Deliberately deferred: guides placed by dragging from the rulers (smart guides,
+grid, and rulers are in); cropping shapes and masks (Phase 4); text editing and
+object styling beyond a text box and basic shapes (Phases 3 and 4).
 
 ### Phase 3: Rich Text, Themes, Masters, And Layouts
 

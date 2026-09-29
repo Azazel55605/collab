@@ -63,6 +63,10 @@ export interface DeckViewState {
   slideRailOpen: boolean;
   notesOpen: boolean;
   selectedElementIds: string[];
+  /** Editor aids; optional so view states saved before Phase 2 still load. */
+  showRulers?: boolean;
+  snapToObjects?: boolean;
+  showGrid?: boolean;
 }
 
 export interface PendingSearchJump {

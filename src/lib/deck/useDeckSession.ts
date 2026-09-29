@@ -50,8 +50,12 @@ interface UseDeckSessionOptions {
 
 export interface DeckSession {
   document: DeckDocument | null;
-  /** Applies an edit and marks the session dirty. Inert while read-only. */
-  updateDocument: (updater: (current: DeckDocument) => DeckDocument) => void;
+  /**
+   * Applies an edit and marks the session dirty, returning the validated
+   * document now held (or null when read-only or empty). Throws, without
+   * changing anything, if the edit would produce an invalid deck.
+   */
+  updateDocument: (updater: (current: DeckDocument) => DeckDocument) => DeckDocument | null;
   loading: boolean;
   error: string | null;
   dirty: boolean;
@@ -206,17 +210,18 @@ export function useDeckSession({
 
   const updateDocument = useCallback(
     (updater: (current: DeckDocument) => DeckDocument) => {
-      if (readOnly) return;
+      if (readOnly) return null;
       const current = documentRef.current;
-      if (!current) return;
+      if (!current) return null;
       const next = updater(current);
-      if (next === current) return;
+      if (next === current) return current;
       // Validated here so an operation can never persist a deck the server
       // would refuse; the caller turns the throw into a message.
       const checked = normalizeDeckDocument({ ...next, updatedAt: new Date().toISOString() });
       documentRef.current = checked.document;
       setDocument(checked.document);
       controller.markLocalChange(checked.document);
+      return checked.document;
     },
     [controller, readOnly],
   );
