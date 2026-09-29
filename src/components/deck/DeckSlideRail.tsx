@@ -41,7 +41,9 @@ interface DeckSlideRailProps {
 }
 
 const THUMB_WIDTH = 150;
-const ROW_PADDING = 10;
+/** The row button's `p-1` padding, top and bottom: the highlight must enclose the thumbnail. */
+const ITEM_PADDING = 4;
+const ROW_GAP = 8;
 const SECTION_HEIGHT = 22;
 const OVERSCAN_PX = 400;
 const DRAG_THRESHOLD_PX = 4;
@@ -79,7 +81,8 @@ export function DeckSlideRail({
   const anchorRef = useRef<string | null>(null);
 
   const thumbHeight = Math.round(THUMB_WIDTH / aspect);
-  const rowHeight = thumbHeight + ROW_PADDING;
+  const itemHeight = thumbHeight + ITEM_PADDING * 2;
+  const rowHeight = itemHeight + ROW_GAP;
   const layout = useMemo(() => {
     const offsets: number[] = [];
     let y = 8;
@@ -172,9 +175,7 @@ export function DeckSlideRail({
   const dropIndicator = drag?.active
     ? (() => {
         const index = dropIndexAt(drag.y);
-        return index < slideOrder.length
-          ? layout.offsets[index] - ROW_PADDING / 2
-          : layout.total - 8;
+        return index < slideOrder.length ? layout.offsets[index] - ROW_GAP / 2 : layout.total - 8;
       })()
     : null;
 
@@ -233,7 +234,7 @@ export function DeckSlideRail({
                           : 'hover:bg-accent/50') +
                       (drag?.active && drag.ids.includes(id) ? ' opacity-40' : '')
                     }
-                    style={{ top, height: thumbHeight + 2 }}
+                    style={{ top, height: itemHeight }}
                     onPointerDown={(event) => {
                       if (event.button !== 0) return;
                       select(id, event);

@@ -170,11 +170,14 @@ function useDeckAssets(
   return useCallback((asset: DeckAssetRef) => assets[asset.path] ?? null, [assets]);
 }
 
+/**
+ * The size of an element that may mount after the view does (the stage only
+ * exists once the deck has loaded), so it is tracked through a callback ref.
+ */
 function useElementSize<T extends HTMLElement>() {
-  const ref = useRef<T | null>(null);
+  const [element, ref] = useState<T | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
-    const element = ref.current;
     if (!element) return;
     const observer = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
@@ -187,7 +190,7 @@ function useElementSize<T extends HTMLElement>() {
     observer.observe(element);
     setSize({ width: element.clientWidth, height: element.clientHeight });
     return () => observer.disconnect();
-  }, []);
+  }, [element]);
   return [ref, size] as const;
 }
 
