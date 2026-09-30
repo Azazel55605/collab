@@ -9,8 +9,10 @@
 import { DECK_LIMITS, DECK_UNITS_PER_POINT } from '../../types/deck';
 import type { DeckFill, DeckRichText, DeckTableCell, DeckTableElement } from '../../types/deck';
 
-import { tableCell } from './insert';
+import { createTableElement, tableCell } from './insert';
 import type { ResolvedTableItem } from './resolve';
+import { snapshotText } from './sheetSnapshot';
+import type { SnapshotValue } from './sheetSnapshot';
 import { layoutText } from './textLayout';
 import type { DeckTextMeasurer } from './textLayout';
 
@@ -380,4 +382,38 @@ export function fitTableRows(
     }
   }
   return changed ? withFrameFromTracks({ ...table, rowHeights }) : table;
+}
+
+/**
+ * A new table holding a copy of a workbook range: one cell per grid value,
+ * the first row styled as a header. A copy, not a link — tables do not carry
+ * a source, so a changed workbook never alters a slide unasked.
+ */
+export function tableFromGrid(
+  deck: Parameters<typeof createTableElement>[0],
+  id: string,
+  grid: SnapshotValue[][],
+  nextId: (prefix: string) => string,
+): DeckTableElement {
+  const rows = Math.max(1, grid.length);
+  const columns = Math.max(1, ...grid.map((row) => row.length));
+  let table = createTableElement(deck, id, rows, columns, nextId);
+  grid.forEach((line, row) => {
+    line.forEach((value, column) => {
+      const text = snapshotText(value);
+      if (!text) return;
+      const key = cellKey(table.rowOrder[row], table.columnOrder[column]);
+      const paragraph = table.cells[key].text.content.paragraphs[0];
+      table = setCellContent(table, key, {
+        paragraphs: [
+          {
+            ...paragraph,
+            ...(typeof value === 'number' ? { style: { align: 'right' as const } } : {}),
+            runs: [{ kind: 'text', text }],
+          },
+        ],
+      });
+    });
+  });
+  return table;
 }

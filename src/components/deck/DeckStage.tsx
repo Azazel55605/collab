@@ -3,6 +3,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { updateElements } from '../../lib/deck/operations';
 import type { DeckTarget, ResolvedSlide } from '../../lib/deck/resolve';
 import { resolveTarget } from '../../lib/deck/resolve';
+import { cellAtPoint } from '../../lib/deck/tables';
 import type { DeckTextMeasurer } from '../../lib/deck/textLayout';
 import {
   cropImage,
@@ -10,6 +11,7 @@ import {
   frameCorners,
   hitTest,
   marqueeSelect,
+  moveLineEndpoint,
   moveSelection,
   pointInFrame,
   resizeSelection,
@@ -73,8 +75,27 @@ interface DeckStageProps {
   onContextMenu?: (event: React.MouseEvent) => void;
   /** Opens in-place text editing for an element (double-click on text or a shape). */
   onEditText?: (elementId: string, point: { clientX: number; clientY: number }) => void;
-  /** The in-place text editor, laid over its element's frame. */
-  editing?: { id: string; content: React.ReactNode } | null;
+  /**
+   * The in-place text editor, laid over its element's frame — or over `rect`
+   * (slide units, before the element's rotation) for a table cell.
+   */
+  editing?: {
+    id: string;
+    content: React.ReactNode;
+    rect?: { x: number; y: number; width: number; height: number };
+  } | null;
+  /** Edits the text of a table cell (double-click on a table). */
+  onEditCell?: (
+    tableId: string,
+    cell: { rowId: string; columnId: string },
+    point: { clientX: number; clientY: number },
+  ) => void;
+  /** The table cell a click landed on, for row and column commands. */
+  onActiveCell?: (tableId: string, cell: { rowId: string; columnId: string } | null) => void;
+  /** Opens a linked document's source (double-click on it). */
+  onOpenEmbed?: (elementId: string) => void;
+  /** Files dropped on the stage, with the slide point they landed on. */
+  onDropFiles?: (files: File[], point: Point) => void;
   /** Ends in-place text editing, when the pointer goes down anywhere else. */
   onExitText?: () => void;
 }
@@ -85,6 +106,7 @@ type Gesture =
   | { kind: 'move'; start: Point; ids: string[] }
   | { kind: 'resize'; start: Point; ids: string[]; handle: ResizeHandle }
   | { kind: 'crop'; start: Point; id: string; handle: CropHandle }
+  | { kind: 'endpoint'; id: string; end: 'from' | 'to' }
   | { kind: 'rotate'; ids: string[]; centre: Point; startAngle: number }
   | { kind: 'marquee'; start: Point; current: Point; additive: boolean; base: string[] }
   | { kind: 'pan'; clientX: number; clientY: number; scrollLeft: number; scrollTop: number };
@@ -248,6 +270,10 @@ export function DeckStage({
   onEditText,
   editing,
   onExitText,
+  onEditCell,
+  onActiveCell,
+  onOpenEmbed,
+  onDropFiles,
 }: DeckStageProps) {
   const slideId = target.id;
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -329,6 +355,19 @@ export function DeckStage({
       onCroppingChange(hit);
       return;
     }
+    if (element.type === 'table' && onEditCell) {
+      const item = resolved.items.find((entry) => entry.id === hit);
+      const cell = item?.kind === 'table' ? cellAtPoint(item, point) : null;
+      if (cell) {
+        if (geometry.order.includes(hit)) onSelectionChange([hit]);
+        onEditCell(hit, cell, { clientX: event.clientX, clientY: event.clientY });
+      }
+      return;
+    }
+    if (element.type === 'embed') {
+      onOpenEmbed?.(hit);
+      return;
+    }
     if ((element.type === 'text' || element.type === 'shape') && onEditText) {
       if (geometry.order.includes(hit)) onSelectionChange([hit]);
       onEditText(hit, { clientX: event.clientX, clientY: event.clientY });
@@ -366,6 +405,11 @@ export function DeckStage({
       gestureRef.current = { kind: 'crop', start: point, id: cropTarget, handle: cropHandle };
       return;
     }
+    const endpoint = target.dataset.endpoint as 'from' | 'to' | undefined;
+    if (endpoint && selectedIds.length === 1 && !readOnly && !locked) {
+      gestureRef.current = { kind: 'endpoint', id: selectedIds[0], end: endpoint };
+      return;
+    }
     const handle = target.dataset.handle as ResizeHandle | 'rotate' | undefined;
     if (handle && !readOnly && !locked) {
       if (handle === 'rotate') {
@@ -387,6 +431,10 @@ export function DeckStage({
     }
     const hit = hitTest(geometry, point, HIT_SLOP_PX * unitsPerScreenPx);
     const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+    if (hit && onActiveCell && geometry.slide.elements[hit]?.type === 'table') {
+      const item = resolved.items.find((entry) => entry.id === hit);
+      onActiveCell(hit, item?.kind === 'table' ? cellAtPoint(item, point) : null);
+    }
     if (hit) {
       if (additive) {
         onSelectionChange(
@@ -464,6 +512,16 @@ export function DeckStage({
       });
       return;
     }
+    if (gesture.kind === 'endpoint') {
+      setPreview({
+        updaters: moveLineEndpoint(geometry, gesture.id, gesture.end, point, {
+          constrain: event.shiftKey,
+          grid: event.altKey ? 0 : options.grid,
+        }),
+        guides: [],
+      });
+      return;
+    }
     if (gesture.kind === 'crop') {
       const delta = { x: point.x - gesture.start.x, y: point.y - gesture.start.y };
       setPreview({
@@ -514,7 +572,9 @@ export function DeckStage({
             ? 'Rotate'
             : gesture.kind === 'crop'
               ? 'Crop'
-              : 'Edit';
+              : gesture.kind === 'endpoint'
+                ? 'Move line end'
+                : 'Edit';
     onCommit(pending.updaters, label);
   };
 
@@ -554,7 +614,11 @@ export function DeckStage({
   };
 
   const shape = selectedIds.length > 0 ? selectionShape(shownGeometry, selectedIds, zoom) : null;
-  const handlesVisible = shape && !readOnly && !locked && !editing;
+  const selectedLine =
+    selectedIds.length === 1 ? shownGeometry.slide.elements[selectedIds[0]] : undefined;
+  const lineEnds = selectedLine?.type === 'line' ? selectedLine : null;
+  // A line is edited by its two ends, not by a box.
+  const handlesVisible = shape && !readOnly && !locked && !editing && !lineEnds;
   const cropHandlesVisible = Boolean(handlesVisible && cropTarget);
   const rotateHandle = shape
     ? (() => {
@@ -651,15 +715,20 @@ export function DeckStage({
             (() => {
               const frame = shownGeometry.frames.get(editing.id);
               if (!frame) return null;
+              const box = editing.rect ?? frame;
+              // A cell turns with its table, about the table's centre.
+              const originX = toScreen(frame.x + frame.width / 2 - box.x, zoom);
+              const originY = toScreen(frame.y + frame.height / 2 - box.y, zoom);
               return (
                 <div
                   className="absolute z-20"
                   style={{
-                    left: MARGIN_PX + toScreen(frame.x, zoom),
-                    top: MARGIN_PX + toScreen(frame.y, zoom),
-                    width: toScreen(frame.width, zoom),
-                    height: toScreen(frame.height, zoom),
+                    left: MARGIN_PX + toScreen(box.x, zoom),
+                    top: MARGIN_PX + toScreen(box.y, zoom),
+                    width: toScreen(box.width, zoom),
+                    height: toScreen(box.height, zoom),
                     transform: frame.rotation ? `rotate(${frame.rotation / 100}deg)` : undefined,
+                    transformOrigin: `${originX}px ${originY}px`,
                   }}
                   data-testid="deck-text-editing"
                 >
@@ -678,6 +747,18 @@ export function DeckStage({
             onPointerCancel={() => finish(false)}
             onLostPointerCapture={() => finish(true)}
             onContextMenu={onContextMenu}
+            onDragOver={(event) => {
+              if (onDropFiles && !readOnly && event.dataTransfer.types.includes('Files')) {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'copy';
+              }
+            }}
+            onDrop={(event) => {
+              const files = Array.from(event.dataTransfer.files ?? []);
+              if (!onDropFiles || readOnly || files.length === 0) return;
+              event.preventDefault();
+              onDropFiles(files, toSlide(event.clientX, event.clientY));
+            }}
             onDoubleClick={onDoubleClick}
             data-testid="deck-stage-surface"
           >
@@ -767,6 +848,33 @@ export function DeckStage({
                 />
               )}
             </svg>
+            {lineEnds && !readOnly && !locked && !editing && (
+              <div
+                className="pointer-events-none absolute"
+                style={{
+                  left: MARGIN_PX,
+                  top: MARGIN_PX,
+                  width: slideWidthPx,
+                  height: slideHeightPx,
+                }}
+              >
+                {(['from', 'to'] as const).map((end) => (
+                  <div
+                    key={end}
+                    data-endpoint={end}
+                    aria-label={end === 'from' ? 'Line start' : 'Line end'}
+                    className="pointer-events-auto absolute rounded-full border border-primary bg-background"
+                    style={{
+                      left: toScreen(lineEnds[end].x, zoom) - HANDLE_PX / 2 - 1,
+                      top: toScreen(lineEnds[end].y, zoom) - HANDLE_PX / 2 - 1,
+                      width: HANDLE_PX + 2,
+                      height: HANDLE_PX + 2,
+                      cursor: 'crosshair',
+                    }}
+                  />
+                ))}
+              </div>
+            )}
             {handlesVisible && shape && rotateHandle && (
               <div
                 className="pointer-events-none absolute"

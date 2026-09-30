@@ -11,12 +11,16 @@ import {
   AlignVerticalSpaceAround,
   ArrowDownToLine,
   ArrowUpToLine,
+  BarChart3,
   Circle,
+  FileText,
   Group,
+  ImageIcon,
   LayoutTemplate,
   Loader2,
   Lock,
   Minus,
+  MoveRight,
   Paintbrush,
   PanelLeft,
   PanelRight,
@@ -28,6 +32,7 @@ import {
   Shapes,
   Square,
   StickyNote,
+  Table2,
   Type,
   Undo2,
   Ungroup,
@@ -35,18 +40,25 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { DeckChartDialog } from '../components/deck/DeckChartDialog';
+import type { ChartEdit } from '../components/deck/DeckChartDialog';
 import { DeckDesignRail } from '../components/deck/DeckDesignRail';
 import type { DeckDesignTarget } from '../components/deck/DeckDesignRail';
 import { DeckInspector } from '../components/deck/DeckInspector';
 import type { MasterTextClass, MasterTextStylePatch } from '../components/deck/DeckInspector';
 import { DeckLinkDialog } from '../components/deck/DeckLinkDialog';
+import { DeckObjectToolbar } from '../components/deck/DeckObjectToolbar';
+import type { TableAction } from '../components/deck/DeckObjectToolbar';
 import { DeckSlideRail } from '../components/deck/DeckSlideRail';
 import type { DeckRailAction } from '../components/deck/DeckSlideRail';
 import { DeckStage } from '../components/deck/DeckStage';
+import { DeckTableDialog } from '../components/deck/DeckTableDialog';
+import type { TableInsert } from '../components/deck/DeckTableDialog';
 import { DeckTextEditor } from '../components/deck/DeckTextEditor';
 import type { TextEditKind } from '../components/deck/DeckTextEditor';
 import { DeckTextToolbar } from '../components/deck/DeckTextToolbar';
 import type { DeckFontChoice, TextBoxSettings } from '../components/deck/DeckTextToolbar';
+import { DeckVaultPicker } from '../components/deck/DeckVaultPicker';
 import {
   DocumentTopBar,
   DocumentTopBarButton,
@@ -74,7 +86,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
-import { collectDeckAssetPaths } from '../lib/deck/assets';
+import { assetKey, collectDeckAssets } from '../lib/deck/assets';
 import {
   copyElements,
   parseClipboard,
@@ -95,7 +107,24 @@ import {
   updateMaster,
   updateTheme,
 } from '../lib/deck/design';
-import { createInsertedElement } from '../lib/deck/insert';
+import {
+  deckAssetFolder,
+  embedPreviewName,
+  NOTE_PREVIEW_SIZE,
+  notePreviewSvg,
+  slideExportMarkdown,
+  slideExportName,
+  svgDataUrl,
+} from '../lib/deck/embeds';
+import { describeImage, fileDataUrl, isDeckImagePath } from '../lib/deck/images';
+import {
+  createChartElement,
+  createEmbedElement,
+  createImageElement,
+  createInsertedElement,
+  createTableElement,
+  SHAPE_NAMES,
+} from '../lib/deck/insert';
 import type { DeckInsertKind } from '../lib/deck/insert';
 import {
   addElements,
@@ -103,6 +132,7 @@ import {
   composeEdits,
   deleteSlides,
   duplicateSlides,
+  expandGroups,
   groupElements,
   insertSlide,
   moveSlides,
@@ -129,7 +159,20 @@ import {
   paragraphStarts,
   textLength,
 } from '../lib/deck/richText';
-import { fitSlide } from '../lib/deck/svg';
+import { applyChartData, gridToChartData, parseSheetRange } from '../lib/deck/sheetSnapshot';
+import { fitSlide, renderSlideSvg } from '../lib/deck/svg';
+import {
+  deleteTableColumns,
+  deleteTableRows,
+  fitTableRows,
+  insertTableColumns,
+  insertTableRows,
+  scaleTable,
+  setCellContent,
+  setCellFill,
+  setHeaderRow,
+  tableFromGrid,
+} from '../lib/deck/tables';
 import { applyTemplate } from '../lib/deck/templates';
 import type { DeckTemplateId } from '../lib/deck/templates';
 import { runTextCommand, textState, wholeBody } from '../lib/deck/textCommands';
@@ -143,35 +186,52 @@ import {
   distributeSelection,
   groupFrameFor,
   moveSelection,
+  rotateSelection,
   targetGeometry,
 } from '../lib/deck/transform';
 import type { DeckAlignment, ElementUpdaters } from '../lib/deck/transform';
+import { normalizeRotation } from '../lib/deck/units';
 import { useDeckSession } from '../lib/deck/useDeckSession';
+import { flattenVaultPaths, takeSheetSnapshot, writeVaultImage } from '../lib/deck/vaultAssets';
 import type {
   DocumentSessionController,
   DocumentSessionSnapshot,
 } from '../lib/documentSessionController';
 import { InkHistory } from '../lib/ink/history';
 import { createVaultClient } from '../lib/vaultClient';
+import {
+  getVaultDocumentTabType,
+  getVaultDocumentTitle,
+  getVaultDocumentView,
+} from '../lib/vaultLinks';
 import { useDocumentStatusRegistration } from '../store/documentStatusStore';
 import type { DeckViewState } from '../store/editorStore';
 import { useEditorStore } from '../store/editorStore';
+import { useUiStore } from '../store/uiStore';
 import { useVaultStore } from '../store/vaultStore';
 import {
   DECK_SCHEMA_VERSION,
+  DECK_SHAPE_GEOMETRIES,
   DECK_UNITS_PER_INCH,
   DECK_UNITS_PER_POINT,
   DECK_UNITS_PER_PX,
 } from '../types/deck';
 import type {
+  DeckArrowhead,
   DeckAssetRef,
+  DeckChartElement,
+  DeckChartKind,
   DeckColor,
+  DeckDash,
   DeckDocument,
   DeckElement,
   DeckFill,
+  DeckLine,
   DeckLink,
   DeckPlaceholderType,
   DeckRichText,
+  DeckShapeGeometry,
+  DeckTableElement,
   DeckTextLevelStyle,
   DeckThemeColorToken,
   DeckThemeFontRole,
@@ -229,18 +289,18 @@ function useDeckAssets(
 ) {
   const client = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
   const [assets, setAssets] = useState<Record<string, string>>({});
-  const paths = useMemo(() => (document ? collectDeckAssetPaths(document) : []), [document]);
-  const key = paths.join('\n');
+  const entries = useMemo(() => (document ? collectDeckAssets(document) : []), [document]);
+  const key = entries.map((entry) => entry.key).join('\n');
 
   useEffect(() => {
-    if (!client || paths.length === 0) return;
+    if (!client || entries.length === 0) return;
     let cancelled = false;
-    for (const path of paths) {
-      if (assets[path]) continue;
+    for (const entry of entries) {
+      if (assets[entry.key]) continue;
       client
-        .readAssetDataUrl(path)
+        .readAssetDataUrl(entry.path)
         .then((url) => {
-          if (!cancelled) setAssets((current) => ({ ...current, [path]: url }));
+          if (!cancelled) setAssets((current) => ({ ...current, [entry.key]: url }));
         })
         .catch(() => {
           // A missing asset keeps its placeholder; the deck stays repairable.
@@ -249,11 +309,11 @@ function useDeckAssets(
     return () => {
       cancelled = true;
     };
-    // `key` stands for `paths`; re-reading on every render would loop.
+    // `key` stands for `entries`; re-reading on every render would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, key]);
 
-  return useCallback((asset: DeckAssetRef) => assets[asset.path] ?? null, [assets]);
+  return useCallback((asset: DeckAssetRef) => assets[assetKey(asset)] ?? null, [assets]);
 }
 
 /**
@@ -280,6 +340,9 @@ function useElementSize<T extends HTMLElement>() {
   return [ref, size] as const;
 }
 
+/** Documents a slide can link to: anything in the vault but images and the deck itself. */
+const isLinkableDocument = (path: string) => !isDeckImagePath(path) && !/\.deck$/i.test(path);
+
 const noEdit: DeckOperation = (document) => ({ result: document, inverse: noEdit });
 
 const isEditableTarget = (target: EventTarget | null) =>
@@ -299,6 +362,26 @@ function withContent(element: DeckElement, content: DeckRichText): DeckElement {
 function itemText(scene: ResolvedSlide | undefined, id: string): ResolvedShapeItem | undefined {
   const item = scene?.items.find((entry) => entry.id === id);
   return item?.kind === 'shape' ? item : undefined;
+}
+
+/**
+ * What an element text session edits, in its scene: the text body and the
+ * box it lays out in — a text or shape frame, or one table cell.
+ */
+function editingBox(
+  scene: ResolvedSlide | null | undefined,
+  session: TextSession,
+): { text: ResolvedTextBody; x: number; y: number; width: number; height: number } | null {
+  const item = scene?.items.find((entry) => entry.id === session.elementId);
+  if (!item) return null;
+  if (item.kind === 'table' && session.cellKey) {
+    const cell = item.cells.find((entry) => `${entry.rowId}:${entry.columnId}` === session.cellKey);
+    return cell
+      ? { text: cell.text, x: cell.x, y: cell.y, width: cell.width, height: cell.height }
+      : null;
+  }
+  if (item.kind !== 'shape' || !item.text) return null;
+  return { text: item.text, ...item.frame };
 }
 
 /**
@@ -628,7 +711,31 @@ export default function DeckView({ relativePath }: DeckViewProps) {
             return noEdit(current);
           }
           const element = container.elements[elementId];
-          if (!element || !isTextCapable(element)) return noEdit(current);
+          if (!element) return noEdit(current);
+          if (active.cellKey) {
+            if (element.type !== 'table') return noEdit(current);
+            const cellKey = active.cellKey;
+            return composeEdits(current, [
+              (deck) =>
+                updateElements(deck, active.target, {
+                  [elementId]: (entry) =>
+                    entry.type === 'table' ? setCellContent(entry, cellKey, active.body) : entry,
+                }),
+              // Rows grow to fit what was typed, as in PowerPoint.
+              (deck) => {
+                const item = resolveTarget(deck, active.target).items.find(
+                  (entry) => entry.id === elementId,
+                );
+                return updateElements(deck, active.target, {
+                  [elementId]: (entry) =>
+                    entry.type === 'table' && item?.kind === 'table'
+                      ? fitTableRows(entry, item, measurerRef.current)
+                      : entry,
+                });
+              },
+            ]);
+          }
+          if (!isTextCapable(element)) return noEdit(current);
           const stored =
             element.type === 'text' || element.type === 'shape' ? element.text?.content : undefined;
           if (stored === active.body) return noEdit(current);
@@ -783,8 +890,14 @@ export default function DeckView({ relativePath }: DeckViewProps) {
           slides: { [slide.id]: { ...slide, speakerNotes: textSession.body } },
         }).result;
       }
+      const cellKey = textSession.cellKey;
       return updateElements(document, textSession.target, {
-        [textSession.elementId!]: (element) => withContent(element, textSession.body),
+        [textSession.elementId!]: (element) =>
+          cellKey
+            ? element.type === 'table'
+              ? setCellContent(element, cellKey, textSession.body)
+              : element
+            : withContent(element, textSession.body),
       }).result;
     } catch {
       return document;
@@ -814,7 +927,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
         }
       );
     }
-    return itemText(draftScene, textSession.elementId!)?.text ?? null;
+    return editingBox(draftScene, textSession)?.text ?? null;
   }, [draftScene, textSession]);
 
   /* ----------------------------------------------------------------------- */
@@ -828,12 +941,24 @@ export default function DeckView({ relativePath }: DeckViewProps) {
       const scene = resolveTarget(source, stageTarget, { prompts: true });
       if (textSession?.kind !== 'element') return scene;
       // The element being edited draws through the editor instead.
+      const cellKey = textSession.cellKey;
       return {
         ...scene,
         items: scene.items.map((item) =>
-          item.id === textSession.elementId && item.kind === 'shape'
-            ? { ...item, text: null }
-            : item,
+          item.id !== textSession.elementId
+            ? item
+            : item.kind === 'shape'
+              ? { ...item, text: null }
+              : item.kind === 'table' && cellKey
+                ? {
+                    ...item,
+                    cells: item.cells.map((cell) =>
+                      `${cell.rowId}:${cell.columnId}` === cellKey
+                        ? { ...cell, text: { ...cell.text, paragraphs: [] } }
+                        : cell,
+                    ),
+                  }
+                : item,
         ),
       };
     } catch {
@@ -918,6 +1043,8 @@ export default function DeckView({ relativePath }: DeckViewProps) {
       commit('Move slide', (current) =>
         moveSlides(current, slideSelection, Math.max(0, start + action.by)),
       );
+    } else if (action.kind === 'export' && activeSlideId) {
+      void exportSlide(activeSlideId);
     }
   };
 
@@ -1167,6 +1294,604 @@ export default function DeckView({ relativePath }: DeckViewProps) {
     );
   };
 
+  /* Objects: images, tables, charts, linked documents ----------------------- */
+
+  const client = useMemo(() => (vault ? createVaultClient(vault) : null), [vault]);
+  const fileTree = useVaultStore((state) => state.fileTree);
+  const refreshFileTree = useVaultStore((state) => state.refreshFileTree);
+  const timeZone = useUiStore((state) => state.calendarDefaultTimeZone);
+  const openTab = useEditorStore((state) => state.openTab);
+  const setActiveView = useUiStore((state) => state.setActiveView);
+  const workbooks = useMemo(
+    () =>
+      flattenVaultPaths(fileTree)
+        .filter((path) => /\.sheet$/i.test(path))
+        .sort((a, b) => a.localeCompare(b)),
+    [fileTree],
+  );
+  const [activeCell, setActiveCell] = useState<{
+    tableId: string;
+    rowId: string;
+    columnId: string;
+  } | null>(null);
+  const [picker, setPicker] = useState<
+    { kind: 'image'; replace?: string } | { kind: 'embed' } | null
+  >(null);
+  const [tableDialogOpen, setTableDialogOpen] = useState(false);
+  const [chartDialogId, setChartDialogId] = useState<string | null>(null);
+
+  const reportError = (error: unknown) =>
+    toast.error(error instanceof Error ? error.message : String(error));
+
+  /** Selected elements, with groups opened up to the objects they hold. */
+  const formatIds = useMemo(() => {
+    if (!geometry) return [];
+    return [...expandGroups(geometry.slide, selectedIds)].filter(
+      (id) => geometry.slide.elements[id]?.type !== 'group' && !geometry.slide.elements[id]?.locked,
+    );
+  }, [geometry, selectedIds]);
+  const formatElements = formatIds
+    .map((id) => geometry?.slide.elements[id])
+    .filter((element): element is DeckElement => element !== undefined);
+
+  const updateEach = (
+    label: string,
+    update: (element: DeckElement) => DeckElement,
+    ids = formatIds,
+  ) => applyUpdaters(Object.fromEntries(ids.map((id) => [id, update])), label);
+
+  const onFill = (color: DeckColor | null) =>
+    updateEach('Fill', (element) =>
+      element.type === 'text' || element.type === 'shape'
+        ? ({ ...element, fill: color ? { kind: 'solid', color } : { kind: 'none' } } as DeckElement)
+        : element,
+    );
+
+  const onOutline = (patch: { color?: DeckColor; width?: number; dash?: DeckDash } | null) => {
+    const fallback: DeckLine = {
+      color: { kind: 'theme', token: 'dark1' },
+      width: DECK_UNITS_PER_POINT,
+    };
+    updateEach('Outline', (element) => {
+      if (element.type === 'line') {
+        return {
+          ...element,
+          line: patch ? { ...element.line, ...patch } : { ...element.line, color: fallback.color },
+        };
+      }
+      if (element.type === 'table') {
+        const next = { ...element };
+        if (patch) next.border = { ...(element.border ?? fallback), ...patch };
+        else delete next.border;
+        return next;
+      }
+      if (element.type === 'text' || element.type === 'shape' || element.type === 'image') {
+        const next = { ...element };
+        if (patch) next.line = { ...(element.line ?? fallback), ...patch };
+        else delete next.line;
+        return next;
+      }
+      return element;
+    });
+  };
+
+  const onArrow = (end: 'start' | 'end', kind: DeckArrowhead) =>
+    updateEach('Arrowhead', (element) => {
+      if (element.type !== 'line') return element;
+      const key = end === 'start' ? 'startArrow' : 'endArrow';
+      const next = { ...element };
+      if (kind === 'none') delete next[key];
+      else next[key] = kind;
+      return next;
+    });
+
+  const onGeometry = (next: DeckShapeGeometry) =>
+    updateEach('Change shape', (element) =>
+      element.type === 'shape' ? { ...element, geometry: next, name: SHAPE_NAMES[next] } : element,
+    );
+
+  const onOpacity = (percent: number) =>
+    updateEach(
+      'Opacity',
+      (element) => {
+        const next = { ...element };
+        if (percent >= 100) delete next.opacity;
+        else next.opacity = Math.max(0, Math.min(100, Math.round(percent)));
+        return next;
+      },
+      selectedIds.filter((id) => !geometry?.slide.elements[id]?.locked),
+    );
+
+  const onFlip = (axis: 'horizontal' | 'vertical') => {
+    if (!geometry) return;
+    const updaters: ElementUpdaters = {};
+    for (const id of formatIds) {
+      const element = geometry.slide.elements[id];
+      if (element.type === 'line') {
+        const cx = (element.from.x + element.to.x) / 2;
+        const cy = (element.from.y + element.to.y) / 2;
+        const mirror = (point: { x: number; y: number }) =>
+          axis === 'horizontal'
+            ? { x: Math.round(2 * cx - point.x), y: point.y }
+            : { x: point.x, y: Math.round(2 * cy - point.y) };
+        updaters[id] = (current) =>
+          current.type === 'line'
+            ? { ...current, from: mirror(current.from), to: mirror(current.to) }
+            : current;
+        continue;
+      }
+      const frame = geometry.frames.get(id);
+      if (!frame) continue;
+      updaters[id] = (current) => {
+        const base = { ...frame, ...(current.frame ?? {}) };
+        const key = axis === 'horizontal' ? 'flipH' : 'flipV';
+        const next = { ...base, [key]: !base[key] };
+        if (!next[key]) delete (next as Partial<typeof next>)[key];
+        return { ...current, frame: next } as DeckElement;
+      };
+    }
+    applyUpdaters(updaters, 'Flip');
+  };
+
+  const onRotateQuarter = () => {
+    if (!geometry) return;
+    const movable = selectedIds.filter((id) => !geometry.slide.elements[id]?.locked);
+    applyUpdaters(rotateSelection(geometry, movable, 9_000), 'Rotate');
+  };
+
+  /** Places an image from the vault: a new object, or the picture of an existing one. */
+  const placeImage = async (
+    path: string,
+    options: { dataUrl?: string; replace?: string; at?: { x: number; y: number } } = {},
+  ) => {
+    if (!client || !document) return;
+    try {
+      const dataUrl = options.dataUrl ?? (await client.readAssetDataUrl(path));
+      const asset = await describeImage(path, dataUrl);
+      if (options.replace) {
+        const id = options.replace;
+        applyUpdaters(
+          {
+            [id]: (element) => {
+              if (element.type !== 'image') return element;
+              const next = { ...element, asset };
+              delete next.crop;
+              // Keep the width; take the new picture's shape.
+              if (next.frame) {
+                next.frame = {
+                  ...next.frame,
+                  height: Math.max(
+                    DECK_UNITS_PER_POINT,
+                    Math.round((next.frame.width * asset.pixelHeight) / asset.pixelWidth),
+                  ),
+                };
+              }
+              return next;
+            },
+          },
+          'Replace image',
+        );
+        return;
+      }
+      const id = nextId('img');
+      const count = Object.keys(geometry?.slide.elements ?? {}).length;
+      const element = createImageElement(document, id, asset, (count % 6) * PASTE_STEP);
+      if (options.at && element.frame) {
+        element.frame = {
+          ...element.frame,
+          x: Math.round(options.at.x - element.frame.width / 2),
+          y: Math.round(options.at.y - element.frame.height / 2),
+        };
+      }
+      if (onSlide('Insert image', (current, target) => addElements(current, target, [element]))) {
+        setSelectedIds([id]);
+      }
+    } catch (error) {
+      reportError(error);
+    }
+  };
+
+  /** Imports a file from outside the vault beside the deck, then places it. */
+  const uploadImage = async (
+    file: File,
+    options: { replace?: string; at?: { x: number; y: number } } = {},
+  ) => {
+    if (!client || !vault) return;
+    try {
+      const dataUrl = await fileDataUrl(file);
+      const name =
+        file.name && isDeckImagePath(file.name)
+          ? file.name
+          : `image.${(file.type.split('/')[1] ?? 'png').replace('svg+xml', 'svg').replace('jpeg', 'jpg')}`;
+      if (!isDeckImagePath(name))
+        throw new Error('Presentations can hold PNG, JPEG, GIF, WebP, and SVG images.');
+      const path = await writeVaultImage(
+        client,
+        vault,
+        deckAssetFolder(relativePath),
+        name,
+        dataUrl,
+        false,
+      );
+      void refreshFileTree();
+      await placeImage(path, { dataUrl, ...options });
+    } catch (error) {
+      reportError(error);
+    }
+  };
+
+  const onDropFiles = (files: File[], point: { x: number; y: number }) => {
+    const images = files.filter(
+      (file) => file.type.startsWith('image/') || isDeckImagePath(file.name),
+    );
+    if (images.length === 0) {
+      toast.info('Only images can be dropped onto a slide.');
+      return;
+    }
+    void (async () => {
+      for (const file of images) await uploadImage(file, { at: point });
+    })();
+  };
+
+  /* Tables */
+
+  const selectedTable =
+    selectedIds.length === 1 && geometry?.slide.elements[selectedIds[0]]?.type === 'table'
+      ? (geometry.slide.elements[selectedIds[0]] as DeckTableElement)
+      : null;
+  const tableCellHere =
+    selectedTable &&
+    activeCell?.tableId === selectedTable.id &&
+    selectedTable.rowOrder.includes(activeCell.rowId) &&
+    selectedTable.columnOrder.includes(activeCell.columnId)
+      ? activeCell
+      : null;
+
+  const loadRangeGrid = async (path: string, range: string) => {
+    if (!client) throw new Error('No vault is open.');
+    const reference = parseSheetRange(range);
+    if (!reference) throw new Error('Write the range like A1:D5 or Sheet1!A1:D5.');
+    return takeSheetSnapshot(client, path, reference, timeZone);
+  };
+
+  const onInsertTable = (request: TableInsert) => {
+    if (!document) return;
+    try {
+      const id = nextId('table');
+      const count = Object.keys(geometry?.slide.elements ?? {}).length;
+      const table =
+        request.kind === 'blank'
+          ? createTableElement(
+              document,
+              id,
+              request.rows,
+              request.columns,
+              nextId,
+              (count % 6) * PASTE_STEP,
+            )
+          : tableFromGrid(document, id, request.grid, nextId);
+      if (onSlide('Insert table', (current, target) => addElements(current, target, [table]))) {
+        setSelectedIds([id]);
+        setTableDialogOpen(false);
+      }
+    } catch (error) {
+      reportError(error);
+    }
+  };
+
+  const onTableAction = (action: TableAction) => {
+    const table = selectedTable;
+    if (!table) return;
+    const row = tableCellHere
+      ? table.rowOrder.indexOf(tableCellHere.rowId)
+      : table.rowOrder.length - 1;
+    const column = tableCellHere
+      ? table.columnOrder.indexOf(tableCellHere.columnId)
+      : table.columnOrder.length - 1;
+    const change = (current: DeckTableElement): DeckTableElement => {
+      switch (action) {
+        case 'rowAbove':
+          return insertTableRows(current, row, 1, nextId);
+        case 'rowBelow':
+          return insertTableRows(current, row + 1, 1, nextId);
+        case 'columnLeft':
+          return insertTableColumns(current, column, 1, nextId);
+        case 'columnRight':
+          return insertTableColumns(current, column + 1, 1, nextId);
+        case 'deleteRow':
+          return tableCellHere ? deleteTableRows(current, [tableCellHere.rowId]) : current;
+        case 'deleteColumn':
+          return tableCellHere ? deleteTableColumns(current, [tableCellHere.columnId]) : current;
+        case 'header':
+          return setHeaderRow(current, !current.headerRow);
+      }
+    };
+    applyUpdaters(
+      { [table.id]: (element) => (element.type === 'table' ? change(element) : element) },
+      action === 'header'
+        ? 'Header row'
+        : action.startsWith('delete')
+          ? 'Delete from table'
+          : 'Insert into table',
+    );
+  };
+
+  const onCellFill = (color: DeckColor | null) => {
+    if (!selectedTable || !tableCellHere) return;
+    const key = `${tableCellHere.rowId}:${tableCellHere.columnId}`;
+    applyUpdaters(
+      {
+        [selectedTable.id]: (element) =>
+          element.type === 'table'
+            ? setCellFill(element, [key], color ? { kind: 'solid', color } : null)
+            : element,
+      },
+      'Cell fill',
+    );
+  };
+
+  const beginCellEdit = (
+    tableId: string,
+    cell: { rowId: string; columnId: string },
+    point: { clientX: number; clientY: number } | null,
+  ) => {
+    if (!geometry || !stageTarget || !editable) return;
+    const table = geometry.slide.elements[tableId];
+    if (!table || table.type !== 'table' || table.locked) return;
+    endTextSession();
+    const key = `${cell.rowId}:${cell.columnId}`;
+    const body = table.cells[key]?.text.content ?? { paragraphs: [] };
+    const end = textLength(body);
+    setActiveCell({ tableId, ...cell });
+    setTextSession(
+      startTextSession({
+        kind: 'element',
+        target: stageTarget,
+        elementId: tableId,
+        cellKey: key,
+        body,
+        selection: { anchor: end, focus: end },
+        initialPoint: point,
+      }),
+    );
+  };
+
+  /* Charts */
+
+  const chartForDialog =
+    chartDialogId && geometry?.slide.elements[chartDialogId]?.type === 'chart'
+      ? (geometry.slide.elements[chartDialogId] as DeckChartElement)
+      : null;
+
+  const insertChart = (kind: DeckChartKind) => {
+    if (!document) return;
+    const id = nextId('chart');
+    const count = Object.keys(geometry?.slide.elements ?? {}).length;
+    const chart = createChartElement(document, id, kind, nextId, (count % 6) * PASTE_STEP);
+    if (onSlide('Insert chart', (current, target) => addElements(current, target, [chart]))) {
+      setSelectedIds([id]);
+    }
+  };
+
+  const onApplyChart = (edit: ChartEdit) => {
+    const id = chartDialogId;
+    setChartDialogId(null);
+    if (!id) return;
+    const now = new Date().toISOString();
+    applyUpdaters(
+      {
+        [id]: (element) => {
+          if (element.type !== 'chart') return element;
+          const next: DeckChartElement = {
+            ...applyChartData(element, edit, nextId),
+            kind: edit.kind,
+            showLegend: edit.showLegend,
+          };
+          if (edit.title) next.title = edit.title.slice(0, 256);
+          else delete next.title;
+          if (edit.source === null) delete next.source;
+          else if (edit.source) {
+            const same =
+              element.source?.path === edit.source.path &&
+              element.source.range === edit.source.range;
+            next.source = {
+              ...edit.source,
+              refreshedAt: same ? (element.source?.refreshedAt ?? now) : now,
+            };
+          }
+          return next;
+        },
+      },
+      'Edit chart',
+    );
+  };
+
+  const refreshChart = async (id: string) => {
+    const chart = geometry?.slide.elements[id];
+    if (!chart || chart.type !== 'chart' || !chart.source) return;
+    const source = chart.source;
+    try {
+      const data = gridToChartData(await loadRangeGrid(source.path, source.range));
+      applyUpdaters(
+        {
+          [id]: (element) =>
+            element.type === 'chart'
+              ? {
+                  ...applyChartData(element, data, nextId),
+                  source: { ...source, refreshedAt: new Date().toISOString() },
+                }
+              : element,
+        },
+        'Refresh chart',
+      );
+      toast.success(`Chart refreshed from ${source.path.split('/').pop()}`);
+    } catch (error) {
+      reportError(error);
+    }
+  };
+
+  /* Linked documents and slide exports */
+
+  /** Writes a note's preview image; other documents are shown as a card. */
+  const makePreview = async (
+    path: string,
+    elementId: string,
+  ): Promise<DeckAssetRef | undefined> => {
+    if (!client || !vault || !/\.md$/i.test(path)) return undefined;
+    const { content } = await client.readDocument(path);
+    const dataUrl = svgDataUrl(notePreviewSvg(getVaultDocumentTitle(path), content));
+    const written = await writeVaultImage(
+      client,
+      vault,
+      deckAssetFolder(relativePath),
+      embedPreviewName(elementId),
+      dataUrl,
+      true,
+    );
+    return describeImage(written, dataUrl, async () => NOTE_PREVIEW_SIZE);
+  };
+
+  const insertEmbed = async (path: string) => {
+    if (!document) return;
+    const id = nextId('embed');
+    try {
+      const preview = await makePreview(path, id);
+      const count = Object.keys(geometry?.slide.elements ?? {}).length;
+      const element = createEmbedElement(document, id, path, preview, (count % 6) * PASTE_STEP);
+      if (onSlide('Link document', (current, target) => addElements(current, target, [element]))) {
+        setSelectedIds([id]);
+      }
+      if (preview) void refreshFileTree();
+    } catch (error) {
+      reportError(error);
+    }
+  };
+
+  const refreshEmbed = async (id: string) => {
+    const element = geometry?.slide.elements[id];
+    if (!element || element.type !== 'embed') return;
+    try {
+      const preview = await makePreview(element.source.path, id);
+      if (!preview) {
+        toast.info('Only notes have a text preview; other documents are shown as a card.');
+        return;
+      }
+      applyUpdaters(
+        { [id]: (current) => (current.type === 'embed' ? { ...current, preview } : current) },
+        'Refresh preview',
+      );
+    } catch (error) {
+      reportError(error);
+    }
+  };
+
+  const openEmbed = (id: string) => {
+    const element = geometry?.slide.elements[id];
+    if (!element || element.type !== 'embed') return;
+    const path = element.source.path;
+    const type = getVaultDocumentTabType(path);
+    openTab(path, getVaultDocumentTitle(path), type);
+    setActiveView(getVaultDocumentView(type));
+  };
+
+  /** Writes a slide as an SVG at a stable path and copies Markdown for a note. */
+  const exportSlide = async (slideId: string) => {
+    if (!client || !vault || !document) return;
+    try {
+      const scene = resolveSlide(document, slideId);
+      const svg = renderSlideSvg(scene, { measurer, resolveAsset, pixelWidth: 1_920 });
+      const path = await writeVaultImage(
+        client,
+        vault,
+        deckAssetFolder(relativePath),
+        slideExportName(slideId),
+        svgDataUrl(svg),
+        true,
+      );
+      void refreshFileTree();
+      const markdown = slideExportMarkdown(path, relativePath, scene.number);
+      try {
+        await navigator.clipboard.writeText(markdown);
+      } catch {
+        // Clipboard writes can be refused; the path is in the message.
+      }
+      toast.success(`Slide ${scene.number} exported to ${path}`, {
+        description:
+          'Markdown to show it in a note was copied. Export again to update it in place.',
+      });
+    } catch (error) {
+      reportError(error);
+    }
+  };
+
+  /* Position and size */
+
+  const singleObject =
+    selectedIds.length === 1 && geometry
+      ? (() => {
+          const element = geometry.slide.elements[selectedIds[0]];
+          const frame = geometry.frames.get(selectedIds[0]);
+          return element && frame ? { element, frame } : null;
+        })()
+      : null;
+
+  const onObjectFrame = (
+    patch: Partial<{ x: number; y: number; width: number; height: number; rotation: number }>,
+  ) => {
+    if (!singleObject || !geometry) return;
+    const { element, frame } = singleObject;
+    if (element.type === 'line') {
+      const dx = (patch.x ?? frame.x) - frame.x;
+      const dy = (patch.y ?? frame.y) - frame.y;
+      applyUpdaters(moveSelection(geometry, [element.id], dx, dy), 'Position');
+      return;
+    }
+    if (element.type === 'group') {
+      applyUpdaters(
+        moveSelection(
+          geometry,
+          [element.id],
+          (patch.x ?? frame.x) - frame.x,
+          (patch.y ?? frame.y) - frame.y,
+        ),
+        'Position',
+      );
+      return;
+    }
+    applyUpdaters(
+      {
+        [element.id]: (current) => {
+          const next = {
+            ...frame,
+            ...(current.frame ?? {}),
+            ...patch,
+            ...(patch.rotation !== undefined
+              ? { rotation: normalizeRotation(patch.rotation) }
+              : {}),
+          };
+          const placed = { ...current, frame: next } as DeckElement;
+          return placed.type === 'table' ? scaleTable(placed, next.width, next.height) : placed;
+        },
+      },
+      patch.width !== undefined || patch.height !== undefined ? 'Size' : 'Position',
+    );
+  };
+
+  const onObjectText = (patch: { altText?: string }) => {
+    if (!singleObject) return;
+    applyUpdaters(
+      {
+        [singleObject.element.id]: (current) => {
+          const next = { ...current };
+          if (patch.altText) next.altText = patch.altText.slice(0, 4_096);
+          else delete next.altText;
+          return next;
+        },
+      },
+      'Alt text',
+    );
+  };
+
   /* Links ------------------------------------------------------------------ */
 
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
@@ -1245,6 +1970,20 @@ export default function DeckView({ relativePath }: DeckViewProps) {
       flushText();
       void session.save();
       return true;
+    }
+    if (event.key === 'Tab' && !mod && !event.altKey && textSessionRef.current?.cellKey) {
+      // In a table, Tab moves between cells, as in PowerPoint.
+      const active = textSessionRef.current;
+      const table = active.elementId ? geometry?.slide.elements[active.elementId] : undefined;
+      if (table?.type === 'table') {
+        const keys = table.rowOrder.flatMap((rowId) =>
+          table.columnOrder.map((columnId) => ({ rowId, columnId })),
+        );
+        const at = keys.findIndex((entry) => `${entry.rowId}:${entry.columnId}` === active.cellKey);
+        const next = keys[(at + (event.shiftKey ? -1 : 1) + keys.length) % keys.length];
+        if (next) beginCellEdit(table.id, next, null);
+        return true;
+      }
     }
     if (event.key === 'Tab' && !mod && !event.altKey) {
       const active = textSessionRef.current;
@@ -1471,6 +2210,15 @@ export default function DeckView({ relativePath }: DeckViewProps) {
   const onPasteEvent = (event: React.ClipboardEvent) => {
     if (isEditableTarget(event.target)) return;
     event.preventDefault();
+    const images = Array.from(event.clipboardData.files ?? []).filter((file) =>
+      file.type.startsWith('image/'),
+    );
+    if (images.length > 0 && editable) {
+      void (async () => {
+        for (const file of images) await uploadImage(file);
+      })();
+      return;
+    }
     pasteText(event.clipboardData.getData('text/plain') || memoryClipboard.current || '');
   };
 
@@ -1602,6 +2350,11 @@ export default function DeckView({ relativePath }: DeckViewProps) {
       if (isTextCapable(geometry?.slide.elements[selectedIds[0]])) {
         return run(() => beginTextEdit(selectedIds[0], null));
       }
+      const table = selectedTable;
+      if (table) {
+        const cell = tableCellHere ?? { rowId: table.rowOrder[0], columnId: table.columnOrder[0] };
+        return run(() => beginCellEdit(table.id, cell, null));
+      }
     }
     if (mod && !event.shiftKey && lower === 'b' && textTargets.length > 0) {
       return run(() => runCommand({ kind: 'toggle', key: 'bold' }));
@@ -1666,17 +2419,15 @@ export default function DeckView({ relativePath }: DeckViewProps) {
           plain
             ? 1
             : (zoom / DECK_UNITS_PER_PX) *
-              (editingElement && draftScene
-                ? (() => {
-                    const item = itemText(draftScene, active.elementId!);
-                    return item?.text
-                      ? layoutText(item.text, item.frame.width, item.frame.height, measurer).scale
-                      : 1;
-                  })()
-                : 1)
+              (() => {
+                const box = editingBox(draftScene, active);
+                return box ? layoutText(box.text, box.width, box.height, measurer).scale : 1;
+              })()
         }
         plain={plain}
-        label={plain ? 'Speaker notes' : (editingElement?.name ?? 'Text')}
+        label={
+          plain ? 'Speaker notes' : active.cellKey ? 'Table cell' : (editingElement?.name ?? 'Text')
+        }
         className={plain ? 'min-h-full text-sm text-foreground/90' : 'w-full'}
         focusRequest={active.focusRequest}
         initialPoint={active.initialPoint}
@@ -1705,8 +2456,10 @@ export default function DeckView({ relativePath }: DeckViewProps) {
       ? (() => {
           const [left, top, right, bottom] = draftResolved.insets;
           const unit = zoom / DECK_UNITS_PER_PX;
+          const box = textSession.cellKey ? editingBox(draftScene, textSession) : null;
           return {
             id: textSession.elementId!,
+            ...(box ? { rect: { x: box.x, y: box.y, width: box.width, height: box.height } } : {}),
             content: (
               <div
                 className="flex h-full w-full flex-col overflow-visible"
@@ -1822,22 +2575,50 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                     Insert
                   </DocumentTopBarButton>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
+                <DropdownMenuContent align="start" className="max-h-[70vh] overflow-y-auto">
                   <DropdownMenuItem onClick={() => insert('text')}>
                     <Type size={13} /> Text box
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => insert('rect')}>
-                    <Square size={13} /> Rectangle
+                  <DropdownMenuItem onClick={() => setPicker({ kind: 'image' })}>
+                    <ImageIcon size={13} /> Image…
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => insert('roundRect')}>
-                    <Square size={13} /> Rounded rectangle
+                  <DropdownMenuItem onClick={() => setTableDialogOpen(true)}>
+                    <Table2 size={13} /> Table…
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => insert('ellipse')}>
-                    <Circle size={13} /> Ellipse
+                  <DropdownMenuItem onClick={() => setPicker({ kind: 'embed' })}>
+                    <FileText size={13} /> Linked document…
                   </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="text-[11px]">Chart</DropdownMenuLabel>
+                  {(
+                    [
+                      ['column', 'Column chart'],
+                      ['bar', 'Bar chart'],
+                      ['line', 'Line chart'],
+                      ['area', 'Area chart'],
+                      ['pie', 'Pie chart'],
+                    ] as const
+                  ).map(([kind, label]) => (
+                    <DropdownMenuItem key={kind} onClick={() => insertChart(kind)}>
+                      <BarChart3 size={13} /> {label}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="text-[11px]">Lines</DropdownMenuLabel>
                   <DropdownMenuItem onClick={() => insert('line')}>
                     <Minus size={13} /> Line
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => insert('arrow')}>
+                    <MoveRight size={13} /> Arrow
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="text-[11px]">Shapes</DropdownMenuLabel>
+                  {DECK_SHAPE_GEOMETRIES.map((geometry) => (
+                    <DropdownMenuItem key={geometry} onClick={() => insert(geometry)}>
+                      {geometry === 'ellipse' ? <Circle size={13} /> : <Square size={13} />}{' '}
+                      {SHAPE_NAMES[geometry]}
+                    </DropdownMenuItem>
+                  ))}
                   {designTarget && (
                     <>
                       <DropdownMenuSeparator />
@@ -2042,6 +2823,40 @@ export default function DeckView({ relativePath }: DeckViewProps) {
         />
       )}
 
+      {editable && !textSession && formatElements.length > 0 && theme && (
+        <DeckObjectToolbar
+          elements={formatElements}
+          theme={theme}
+          hasActiveCell={Boolean(tableCellHere)}
+          cropping={cropping}
+          onFill={onFill}
+          onOutline={onOutline}
+          onArrow={onArrow}
+          onGeometry={onGeometry}
+          onOpacity={onOpacity}
+          onFlip={onFlip}
+          onRotate={onRotateQuarter}
+          onCrop={() => setCropping(!cropping)}
+          onResetCrop={() =>
+            updateEach('Reset crop', (element) => {
+              if (element.type !== 'image') return element;
+              const next = { ...element };
+              delete next.crop;
+              return next;
+            })
+          }
+          onReplaceImage={() =>
+            selectedIds[0] && setPicker({ kind: 'image', replace: selectedIds[0] })
+          }
+          onTable={onTableAction}
+          onCellFill={onCellFill}
+          onEditChart={() => selectedIds[0] && setChartDialogId(selectedIds[0])}
+          onRefreshChart={() => selectedIds[0] && void refreshChart(selectedIds[0])}
+          onOpenEmbed={() => selectedIds[0] && openEmbed(selectedIds[0])}
+          onRefreshEmbed={() => selectedIds[0] && void refreshEmbed(selectedIds[0])}
+        />
+      )}
+
       <div className="flex min-h-0 flex-1" role="application" aria-label="Presentation editor">
         {viewState.slideRailOpen && designTarget && document && (
           <DeckDesignRail
@@ -2130,6 +2945,12 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                     onCommit={(updaters, label) => applyUpdaters(updaters, label)}
                     onZoom={(next) => setZoom(next)}
                     onEditText={(id, point) => beginTextEdit(id, point)}
+                    onEditCell={(id, cell, point) => beginCellEdit(id, cell, point)}
+                    onActiveCell={(id, cell) =>
+                      setActiveCell(cell ? { tableId: id, ...cell } : null)
+                    }
+                    onOpenEmbed={openEmbed}
+                    onDropFiles={onDropFiles}
                     editing={editingOverlay}
                     onExitText={endTextSession}
                   />
@@ -2248,10 +3069,64 @@ export default function DeckView({ relativePath }: DeckViewProps) {
             onLayoutChange={onLayoutChange}
             onDesignBackground={onDesignBackground}
             onMasterTextStyle={onMasterTextStyle}
+            object={singleObject}
+            onObjectFrame={onObjectFrame}
+            onObjectText={onObjectText}
           />
         )}
       </div>
 
+      <DeckVaultPicker
+        open={picker !== null}
+        title={
+          picker?.kind === 'embed'
+            ? 'Link a document'
+            : picker?.replace
+              ? 'Replace image'
+              : 'Insert image'
+        }
+        description={
+          picker?.kind === 'embed'
+            ? 'The slide shows a preview; double-click it to open the document. Notes get a text preview you can refresh.'
+            : 'Pick an image in the vault, or bring one in from this computer. Imported images are stored beside the presentation.'
+        }
+        fileTree={fileTree}
+        accept={picker?.kind === 'embed' ? isLinkableDocument : isDeckImagePath}
+        uploadAccept={
+          picker?.kind === 'image'
+            ? 'image/png,image/jpeg,image/gif,image/webp,image/svg+xml'
+            : undefined
+        }
+        onOpenChange={(open) => !open && setPicker(null)}
+        onPick={(path) => {
+          const current = picker;
+          setPicker(null);
+          if (current?.kind === 'embed') void insertEmbed(path);
+          else void placeImage(path, { replace: current?.replace });
+        }}
+        onUpload={(file) => {
+          const current = picker;
+          setPicker(null);
+          void uploadImage(file, {
+            replace: current?.kind === 'image' ? current.replace : undefined,
+          });
+        }}
+      />
+      <DeckTableDialog
+        open={tableDialogOpen}
+        workbooks={workbooks}
+        onOpenChange={setTableDialogOpen}
+        onInsert={onInsertTable}
+        onLoadRange={loadRangeGrid}
+      />
+      <DeckChartDialog
+        open={chartForDialog !== null}
+        chart={chartForDialog}
+        workbooks={workbooks}
+        onOpenChange={(open) => !open && setChartDialogId(null)}
+        onApply={onApplyChart}
+        onLoadRange={async (path, range) => gridToChartData(await loadRangeGrid(path, range))}
+      />
       <DeckLinkDialog
         open={linkDialogOpen}
         current={currentLink}

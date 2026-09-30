@@ -15,24 +15,45 @@ function isAsset(value: unknown): value is DeckAssetRef {
   );
 }
 
-function visit(value: unknown, found: Set<string>): void {
+function visit(value: unknown, found: Map<string, string>): void {
   if (Array.isArray(value)) {
     for (const entry of value) visit(entry, found);
     return;
   }
   if (typeof value !== 'object' || value === null) return;
   for (const [key, child] of Object.entries(value)) {
-    if ((key === 'asset' || key === 'preview') && isAsset(child)) found.add(child.path);
+    if ((key === 'asset' || key === 'preview') && isAsset(child))
+      found.set(assetKey(child), child.path);
     else visit(child, found);
   }
 }
 
-/** Vault paths of every image the deck can draw, sorted and de-duplicated. */
-export function collectDeckAssetPaths(deck: DeckDocument): string[] {
-  const found = new Set<string>();
+/**
+ * The cache identity of an asset: its path and, when recorded, its content
+ * hash — so a file replaced at the same path (a refreshed preview, a
+ * re-exported slide) is read again rather than served from cache.
+ */
+export function assetKey(asset: DeckAssetRef): string {
+  return asset.sha256 ? `${asset.path}#${asset.sha256}` : asset.path;
+}
+
+function collect(deck: DeckDocument): Map<string, string> {
+  const found = new Map<string, string>();
   visit(deck.themes, found);
   visit(deck.masters, found);
   visit(deck.layouts, found);
   visit(deck.slides, found);
-  return [...found].sort();
+  return found;
+}
+
+/** Every image the deck can draw, as cache key → vault path, sorted by key. */
+export function collectDeckAssets(deck: DeckDocument): Array<{ key: string; path: string }> {
+  return [...collect(deck)]
+    .map(([key, path]) => ({ key, path }))
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/** Vault paths of every image the deck can draw, sorted and de-duplicated. */
+export function collectDeckAssetPaths(deck: DeckDocument): string[] {
+  return [...new Set(collect(deck).values())].sort();
 }
