@@ -440,6 +440,12 @@ function resolveParagraphs(paragraphs: DeckParagraph[], context: TextContext): R
     const level = Math.min(DECK_LIMITS.listLevels - 1, Math.max(0, source.style?.level ?? 0));
     const master = levelStyle(context.master.textStyles[context.textClass], level);
     let paragraphStyle: DeckParagraphStyle = mergeParagraphStyle({}, master.paragraph);
+    // Subtitles use the body text style without its bullets and hanging indent,
+    // as PowerPoint's subtitle placeholders do.
+    if (context.placeholderType === 'subtitle') {
+      delete paragraphStyle.list;
+      delete paragraphStyle.indent;
+    }
     let runStyle: DeckRunStyle = mergeRunStyle({}, master.run);
     for (const prompt of context.prompts) {
       const inherited = promptStyle(prompt, level);

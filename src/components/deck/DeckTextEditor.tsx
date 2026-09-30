@@ -116,23 +116,61 @@ export function DeckTextEditor({
   // Latest props for the native listeners, which are attached once.
   const latest = useRef({ body, selection, pendingFormat, nextId, onChange, onLimit });
   latest.current = { body, selection, pendingFormat, nextId, onChange, onLimit };
+  const reportSelection = useRef(onSelectionChange);
+  reportSelection.current = onSelectionChange;
+  /**
+   * Selections read from the DOM, and model selections already placed. The
+   * browser moves the caret faster than React re-renders; a selection that
+   * came *from* the DOM is never written back to it, or a late re-render
+   * would drag the caret back to where it was a keystroke ago.
+   */
+  const fromDom = useRef(new WeakSet<EditorSelection>());
+  const written = useRef(new WeakSet<EditorSelection>());
+
+  /** The live selection: the DOM's while focused, otherwise the model's. */
+  const liveSelection = (): EditorSelection => {
+    const root = rootRef.current;
+    const read = root && root.ownerDocument.activeElement === root ? readSelection(root) : null;
+    return read ?? latest.current.selection;
+  };
+
+  /** Tells the owner about a selection the browser made. */
+  const report = (read: EditorSelection) => {
+    const current = latest.current.selection;
+    if (read.anchor === current.anchor && read.focus === current.focus) return;
+    fromDom.current.add(read);
+    latest.current.selection = read;
+    reportSelection.current(read);
+  };
+
+  /** Places a model selection once; returns false for one the DOM already has. */
+  const place = (root: HTMLElement, selection: EditorSelection): boolean => {
+    if (fromDom.current.has(selection) || written.current.has(selection)) return false;
+    written.current.add(selection);
+    writeSelection(root, selection);
+    return true;
+  };
 
   // Redraw from the model. Composition owns the DOM until it ends.
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root || composing.current) return;
+    const focused = root.ownerDocument.activeElement === root;
+    const before = focused ? readSelection(root) : null;
     renderEditorContent(root, resolved, { pxPerUnit, plain });
-    if (root.ownerDocument.activeElement === root) writeSelection(root, latest.current.selection);
+    if (!focused) return;
+    // Rebuilding the content drops the DOM selection: put back the model's
+    // new one after an edit, otherwise wherever the caret was.
+    if (!place(root, latest.current.selection)) {
+      writeSelection(root, before ?? latest.current.selection);
+    }
   }, [plain, pxPerUnit, resolved]);
 
-  // A selection set by the model (after an edit or a toolbar command).
+  // A selection set by the model without an edit (undo, a link's extent).
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root || composing.current || root.ownerDocument.activeElement !== root) return;
-    const current = readSelection(root);
-    if (current?.anchor !== selection.anchor || current?.focus !== selection.focus) {
-      writeSelection(root, selection);
-    }
+    place(root, selection);
   }, [selection]);
 
   // Focus on open, placing the caret where the person clicked.
@@ -147,11 +185,11 @@ export function DeckTextEditor({
       root.ownerDocument.getSelection()?.collapse(point.node, point.offset);
       const read = readSelection(root);
       if (read) {
-        latest.current.selection = read;
-        onSelectionChange(read);
+        report(read);
         return;
       }
     }
+    written.current.add(latest.current.selection);
     writeSelection(root, latest.current.selection);
     // Only on mount: later selection changes flow through the effects above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -173,16 +211,12 @@ export function DeckTextEditor({
     const onSelection = () => {
       if (composing.current || doc.activeElement !== root) return;
       const read = readSelection(root);
-      if (!read) return;
-      const current = latest.current.selection;
-      if (read.anchor !== current.anchor || read.focus !== current.focus) {
-        latest.current.selection = read;
-        onSelectionChange(read);
-      }
+      if (read) report(read);
     };
     doc.addEventListener('selectionchange', onSelection);
     return () => doc.removeEventListener('selectionchange', onSelection);
-  }, [onSelectionChange]);
+    // `report` reads everything through refs.
+  }, []);
 
   /** Applies an edit, refusing one that breaks a text limit. */
   const commit = (
@@ -210,7 +244,8 @@ export function DeckTextEditor({
     const onBeforeInput = (event: InputEvent) => {
       if (event.inputType === 'insertCompositionText' || composing.current) return;
       event.preventDefault();
-      const { body: current, selection: sel, pendingFormat: pending, nextId: id } = latest.current;
+      const { body: current, pendingFormat: pending, nextId: id } = latest.current;
+      const sel = liveSelection();
       const range = normalizeRange({ start: sel.anchor, end: sel.focus }, current);
       const text = flatText(current);
       const collapsed = range.start === range.end;
@@ -282,8 +317,10 @@ export function DeckTextEditor({
     // `commit` and the handlers read everything through `latest`.
   }, [onRedo, onUndo]);
 
-  const currentRange = () =>
-    normalizeRange({ start: selection.anchor, end: selection.focus }, body);
+  const currentRange = () => {
+    const live = liveSelection();
+    return normalizeRange({ start: live.anchor, end: live.focus }, body);
+  };
 
   const onCopy = (event: React.ClipboardEvent<HTMLDivElement>, cut: boolean) => {
     event.preventDefault();
@@ -326,6 +363,9 @@ export function DeckTextEditor({
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     event.stopPropagation();
+    // Commands act on where the caret is now, not where the last event left it.
+    const live = liveSelection();
+    if (!composing.current) report(live);
     const mod = event.ctrlKey || event.metaKey;
     const lower = event.key.toLowerCase();
     if (event.key === 'Escape') {
@@ -380,7 +420,7 @@ export function DeckTextEditor({
       onPointerDown={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
       onCompositionStart={() => {
-        composing.current = { range: latest.current.selection };
+        composing.current = { range: liveSelection() };
       }}
       onCompositionEnd={(event) => {
         const started = composing.current;

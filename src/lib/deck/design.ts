@@ -89,6 +89,31 @@ export function duplicateLayout(
   return { ...applyPatch(document, { layouts: { [newId]: copy } }), layoutId: newId };
 }
 
+/** The built-in layouts' order, as every template creates them. */
+const BUILT_IN_LAYOUT_ORDER = [
+  'layout-title',
+  'layout-content',
+  'layout-two-content',
+  'layout-section',
+  'layout-title-only',
+  'layout-blank',
+];
+
+/**
+ * A deck's layouts in a stable order for menus and the design rail: the
+ * built-in layouts in their usual order, then any others by name. Stored
+ * layouts are a map, so their key order says nothing.
+ */
+export function orderedLayouts(document: DeckDocument): DeckLayout[] {
+  const rank = (id: string) => {
+    const index = BUILT_IN_LAYOUT_ORDER.indexOf(id);
+    return index < 0 ? BUILT_IN_LAYOUT_ORDER.length : index;
+  };
+  return Object.values(document.layouts).sort(
+    (a, b) => rank(a.id) - rank(b.id) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+  );
+}
+
 /** Slides that use a layout. */
 export function slidesUsingLayout(document: DeckDocument, layoutId: string): string[] {
   return document.slideOrder.filter((id) => document.slides[id]?.layoutId === layoutId);

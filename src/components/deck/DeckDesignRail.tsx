@@ -1,3 +1,4 @@
+import { orderedLayouts } from '../../lib/deck/design';
 import type { ResolvedSlide } from '../../lib/deck/resolve';
 import type { DeckTextMeasurer } from '../../lib/deck/textLayout';
 import { cn } from '../../lib/utils';
@@ -97,7 +98,7 @@ export function DeckDesignRail({
         <div key={master.id} className="flex flex-col gap-2">
           {row({ kind: 'master', id: master.id }, master.name, 'master', THUMB_WIDTH)}
           <div className="flex flex-col gap-2 border-l border-border/60 pl-2">
-            {Object.values(deck.layouts)
+            {orderedLayouts(deck)
               .filter((layout) => layout.masterId === master.id)
               .map((layout) => {
                 const count = usage.get(layout.id) ?? 0;

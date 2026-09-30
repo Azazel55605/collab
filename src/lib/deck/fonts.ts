@@ -64,6 +64,15 @@ export function isFontAvailable(family: string): boolean {
   if (GENERIC.test(family)) return true;
   const cached = cache.get(family);
   if (cached !== undefined) return cached;
+  // A web font the app declares counts even before it has loaded.
+  if (typeof document !== 'undefined' && document.fonts) {
+    for (const face of document.fonts) {
+      if (face.family.replace(/^["']|["']$/g, '').toLowerCase() === family.toLowerCase()) {
+        cache.set(family, true);
+        return true;
+      }
+    }
+  }
   const ctx = measuringContext();
   if (!ctx) return true;
   const sample = 'mmmmmmmmmmlli1WQ@#';

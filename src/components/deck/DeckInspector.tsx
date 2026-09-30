@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { LayoutTemplate, Palette, RotateCcw } from 'lucide-react';
 
+import { orderedLayouts } from '../../lib/deck/design';
 import { effectiveFamily, fontChoices, isFontAvailable } from '../../lib/deck/fonts';
 import { DECK_TEMPLATES } from '../../lib/deck/templates';
 import type { DeckTemplateId } from '../../lib/deck/templates';
@@ -338,7 +339,7 @@ export function DeckInspector({
 }: DeckInspectorProps) {
   const theme = deck.themes[deck.themeId];
   const slide = slideIds.length > 0 ? deck.slides[slideIds[0]] : undefined;
-  const layouts = Object.values(deck.layouts);
+  const layouts = orderedLayouts(deck);
   const layoutValue =
     slideIds.length > 0 && slideIds.every((id) => deck.slides[id]?.layoutId === slide?.layoutId)
       ? slide?.layoutId

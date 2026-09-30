@@ -8,6 +8,7 @@ import {
   duplicateLayout,
   hasPlaceholderOverrides,
   insertPlaceholder,
+  orderedLayouts,
   placeholdersForLayout,
   resetPlaceholders,
   setSlideLayout,
@@ -126,6 +127,29 @@ describe('placeholders', () => {
     expect(run.style.color.alpha).toBe(0.5);
     // Alignment still comes from the layout's prompt paragraph.
     expect(prompted.text!.paragraphs[0].align).toBe('center');
+  });
+
+  it('never gives subtitles the body style bullets', () => {
+    const subtitle = shape(deck(), 'slide-1', 'slide-1-subtitle');
+    expect(subtitle.text!.paragraphs[0].label).toBeNull();
+    expect(subtitle.text!.paragraphs[0].indent).toBe(0);
+  });
+
+  it('orders layouts as built, then by name, whatever their stored key order', () => {
+    let document = duplicateLayout(deck(), 'layout-blank', 'a-custom').result;
+    document = updateLayout(document, 'a-custom', (layout) => ({
+      ...layout,
+      name: 'Aardvark',
+    })).result;
+    expect(orderedLayouts(document).map((layout) => layout.id)).toEqual([
+      'layout-title',
+      'layout-content',
+      'layout-two-content',
+      'layout-section',
+      'layout-title-only',
+      'layout-blank',
+      'a-custom',
+    ]);
   });
 
   it('uses the layout prompt text a person wrote', () => {

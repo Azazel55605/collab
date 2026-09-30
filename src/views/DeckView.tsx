@@ -87,6 +87,7 @@ import {
   duplicateLayout,
   hasPlaceholderOverrides,
   insertPlaceholder,
+  orderedLayouts,
   placeholderName,
   resetPlaceholders,
   setSlideLayout,
@@ -869,7 +870,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
   );
   // A newer-schema document is never interpreted, only held read-only.
   const layouts = useMemo(
-    () => (document && supported ? Object.values(document.layouts) : []),
+    () => (document && supported ? orderedLayouts(document) : []),
     [document, supported],
   );
 

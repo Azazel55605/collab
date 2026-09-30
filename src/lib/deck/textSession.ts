@@ -117,7 +117,8 @@ export function undoSession(session: TextSession): TextSession | null {
   return {
     ...session,
     body: previous.body,
-    selection: previous.selection,
+    // A fresh object: the editor places model selections, never ones it read.
+    selection: { ...previous.selection },
     past: session.past.slice(0, -1),
     future: [...session.future, { body: session.body, selection: session.selection }],
     lastKind: null,
@@ -131,7 +132,7 @@ export function redoSession(session: TextSession): TextSession | null {
   return {
     ...session,
     body: next.body,
-    selection: next.selection,
+    selection: { ...next.selection },
     future: session.future.slice(0, -1),
     past: [...session.past, { body: session.body, selection: session.selection }],
     lastKind: null,
