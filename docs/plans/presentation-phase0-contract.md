@@ -175,6 +175,9 @@ Two findings follow:
    with `。` or `，` and pull the previous character down. Phase 3 must add
    `Intl.Segmenter`-based break opportunities and the common kinsoku sets
    before CJK decks can be called supported.
+   **Done in Phase 3:** `breakUnits()` in `textLayout.ts` breaks between CJK
+   graphemes and applies the common kinsoku sets; `textLayout.test.ts` pins
+   that no line starts with `。`.
 
 The approximate measurer is visibly wrong against real fonts (for example the
 gap in "Read the plan" in the rsvg rendering of the fixture). It exists for
@@ -346,7 +349,7 @@ several runs, so a busy machine does not fail a healthy build.
 | Risk                                                                      | Mitigation                                                                                                                  |
 | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Editing text wraps differently from rendered text at knife edges          | Measured (1 in 288 Latin cases on Chromium). Re-measure in the real editor; engine-positioned editing text is the fallback. |
-| CJK line breaking is not implemented                                      | Recorded as a Phase 3 requirement; CJK is not a supported claim until it lands.                                             |
+| CJK line breaking is not implemented                                      | Implemented in Phase 3 (grapheme breaks plus kinsoku); the WebView probe still has to confirm it per engine.                |
 | The probe has only run in Chromium, but the Linux app is WebKitGTK        | Running it in the Tauri WebView on each platform is the open exit-gate item below.                                          |
 | PptxGenJS needs XML repair and may need more                              | Repairs are isolated, tested, and reported; a first-party writer is a contained fallback.                                   |
 | Preset shapes approximate OOXML formulas                                  | Exact `presetShapeDefinitions` ports are Phase 4; the difference is inside the documented export tolerance until then.      |

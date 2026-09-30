@@ -13,18 +13,15 @@
  * build that wrote it.
  */
 import {
-  DECK_DEFAULT_INSETS,
   DECK_DOCUMENT_KIND,
   DECK_EXTENSION,
   DECK_LIMITS,
   DECK_SCHEMA_VERSION,
   DECK_SIZE_PRESETS,
-  DECK_UNITS_PER_POINT,
 } from '../../types/deck';
 import type {
   DeckDocument,
   DeckElement,
-  DeckElementContainer,
   DeckLayout,
   DeckMaster,
   DeckSizePreset,
@@ -32,6 +29,9 @@ import type {
   DeckTheme,
 } from '../../types/deck';
 
+import { createSlideForLayout } from './design';
+import { buildDesign } from './templates';
+import type { DeckTemplateId } from './templates';
 import { countJsonEntries, serializeDeck, validateDeck } from './validate';
 
 export type DeckDocumentErrorCode =
@@ -84,63 +84,13 @@ const isId = (value: unknown): value is string =>
 /* Creation                                                                   */
 /* ------------------------------------------------------------------------- */
 
-const pt = (points: number) => points * DECK_UNITS_PER_POINT;
-
 /**
  * The built-in theme. Ordinary document content: a deck carries its own copy,
  * so changing this default never restyles an existing deck.
  */
 export function defaultDeckTheme(): DeckTheme {
-  return {
-    id: 'theme-default',
-    name: 'Collab',
-    colors: {
-      dark1: '#111827',
-      light1: '#ffffff',
-      dark2: '#1f2937',
-      light2: '#f3f4f6',
-      accent1: '#6d5dfc',
-      accent2: '#10b981',
-      accent3: '#f59e0b',
-      accent4: '#ef4444',
-      accent5: '#0ea5e9',
-      accent6: '#a855f7',
-      hyperlink: '#2563eb',
-      followedHyperlink: '#7c3aed',
-    },
-    fonts: {
-      heading: { family: 'Inter', fallbacks: ['Arial', 'sans-serif'] },
-      body: { family: 'Inter', fallbacks: ['Arial', 'sans-serif'] },
-    },
-  };
-}
-
-function container(elements: DeckElement[]): DeckElementContainer {
-  return {
-    elements: Object.fromEntries(elements.map((element) => [element.id, element])),
-    elementOrder: elements.map((element) => element.id),
-  };
-}
-
-function prompt(
-  id: string,
-  type: 'title' | 'subtitle' | 'body' | 'footer' | 'slideNumber',
-  frame: DeckElement['frame'],
-  align?: 'left' | 'center' | 'right',
-): DeckElement {
-  return {
-    id,
-    type: 'text',
-    placeholder: { type, key: type === 'slideNumber' ? 'number' : type },
-    ...(frame ? { frame } : {}),
-    text: {
-      content: {
-        paragraphs: align ? [{ id: `${id}-p`, style: { align }, runs: [] }] : [],
-      },
-      insets: DECK_DEFAULT_INSETS,
-      verticalAlign: type === 'title' ? 'bottom' : 'top',
-    },
-  };
+  const { width, height } = DECK_SIZE_PRESETS.widescreen;
+  return buildDesign('collab', width, height).theme;
 }
 
 /** Master and layouts sized for a slide, so every size preset gets sensible geometry. */
@@ -149,132 +99,8 @@ function defaultMasterAndLayouts(
   height: number,
   themeId: string,
 ): { master: DeckMaster; layouts: DeckLayout[] } {
-  const margin = Math.round(width / 20);
-  const inner = width - margin * 2;
-  const titleHeight = Math.round(height * 0.15);
-  const bodyTop = Math.round(height * 0.26);
-  const footerTop = height - Math.round(height * 0.08);
-  const footerHeight = Math.round(height * 0.05);
-
-  const master: DeckMaster = {
-    id: 'master-default',
-    name: 'Default',
-    themeId,
-    background: { kind: 'solid', color: { kind: 'theme', token: 'light1' } },
-    textStyles: {
-      title: [
-        {
-          paragraph: { lineSpacing: 90 },
-          run: {
-            font: { theme: 'heading' },
-            size: pt(40),
-            bold: true,
-            color: { kind: 'theme', token: 'dark1' },
-          },
-        },
-      ],
-      body: [
-        {
-          paragraph: { list: { kind: 'bullet', char: '•' }, spaceBefore: pt(10), indent: pt(24) },
-          run: { font: { theme: 'body' }, size: pt(24), color: { kind: 'theme', token: 'dark2' } },
-        },
-        {
-          paragraph: { list: { kind: 'bullet', char: '–' }, spaceBefore: pt(6), indent: pt(48) },
-          run: { font: { theme: 'body' }, size: pt(20), color: { kind: 'theme', token: 'dark2' } },
-        },
-        {
-          paragraph: { list: { kind: 'bullet', char: '•' }, spaceBefore: pt(4), indent: pt(72) },
-          run: { font: { theme: 'body' }, size: pt(18), color: { kind: 'theme', token: 'dark2' } },
-        },
-      ],
-      other: [
-        {
-          run: { font: { theme: 'body' }, size: pt(18), color: { kind: 'theme', token: 'dark1' } },
-        },
-      ],
-    },
-    ...container([
-      prompt('master-title', 'title', {
-        x: margin,
-        y: Math.round(height * 0.06),
-        width: inner,
-        height: titleHeight,
-      }),
-      prompt('master-body', 'body', {
-        x: margin,
-        y: bodyTop,
-        width: inner,
-        height: footerTop - bodyTop - Math.round(height * 0.03),
-      }),
-      prompt('master-footer', 'footer', {
-        x: margin,
-        y: footerTop,
-        width: Math.round(inner * 0.6),
-        height: footerHeight,
-      }),
-      prompt(
-        'master-number',
-        'slideNumber',
-        {
-          x: width - margin - Math.round(inner * 0.1),
-          y: footerTop,
-          width: Math.round(inner * 0.1),
-          height: footerHeight,
-        },
-        'right',
-      ),
-    ]),
-  };
-
-  const centred = (id: string, top: number, boxHeight: number, type: 'title' | 'subtitle') =>
-    prompt(id, type, { x: margin, y: top, width: inner, height: boxHeight }, 'center');
-
-  const layouts: DeckLayout[] = [
-    {
-      id: 'layout-title',
-      name: 'Title slide',
-      masterId: master.id,
-      ...container([
-        centred('layout-title-title', Math.round(height * 0.3), Math.round(height * 0.2), 'title'),
-        centred(
-          'layout-title-subtitle',
-          Math.round(height * 0.52),
-          Math.round(height * 0.12),
-          'subtitle',
-        ),
-      ]),
-    },
-    {
-      id: 'layout-content',
-      name: 'Title and content',
-      masterId: master.id,
-      ...container([
-        prompt('layout-content-title', 'title', undefined),
-        prompt('layout-content-body', 'body', undefined),
-      ]),
-    },
-    {
-      id: 'layout-section',
-      name: 'Section header',
-      masterId: master.id,
-      ...container([
-        prompt('layout-section-title', 'title', {
-          x: margin,
-          y: Math.round(height * 0.35),
-          width: inner,
-          height: Math.round(height * 0.2),
-        }),
-      ]),
-    },
-    {
-      id: 'layout-title-only',
-      name: 'Title only',
-      masterId: master.id,
-      ...container([prompt('layout-title-only-title', 'title', undefined)]),
-    },
-    { id: 'layout-blank', name: 'Blank', masterId: master.id, ...container([]) },
-  ];
-  return { master, layouts };
+  const { master, layouts } = buildDesign('collab', width, height);
+  return { master: { ...master, themeId }, layouts };
 }
 
 export interface CreateDeckOptions {
@@ -283,6 +109,8 @@ export interface CreateDeckOptions {
   /** ISO timestamp; injected so creation is deterministic in tests. */
   now: string;
   sizePreset?: Exclude<DeckSizePreset, 'custom'>;
+  /** A built-in starter design; the Collab design by default. */
+  template?: DeckTemplateId;
 }
 
 /**
@@ -291,9 +119,15 @@ export interface CreateDeckOptions {
  */
 export function createDeckDocument(options: CreateDeckOptions): DeckDocument {
   const size = { ...DECK_SIZE_PRESETS[options.sizePreset ?? 'widescreen'] };
-  const theme = defaultDeckTheme();
-  const { master, layouts } = defaultMasterAndLayouts(size.width, size.height, theme.id);
-  const firstSlide = createSlide('slide-1', 'layout-title', ['title', 'subtitle']);
+  const { theme, master, layouts } = buildDesign(
+    options.template ?? 'collab',
+    size.width,
+    size.height,
+  );
+  const firstSlide = createSlideForLayout(
+    'slide-1',
+    layouts.find((layout) => layout.id === 'layout-title'),
+  );
   return {
     kind: DECK_DOCUMENT_KIND,
     schemaVersion: DECK_SCHEMA_VERSION,
@@ -312,9 +146,14 @@ export function createDeckDocument(options: CreateDeckOptions): DeckDocument {
 }
 
 /** Serialized content for a brand-new deck, as the create flows write it. */
-export function newDeckContent(name: string): string {
+export function newDeckContent(name: string, template?: DeckTemplateId): string {
   return serializeDeck(
-    createDeckDocument({ id: `deck-${crypto.randomUUID()}`, name, now: new Date().toISOString() }),
+    createDeckDocument({
+      id: `deck-${crypto.randomUUID()}`,
+      name,
+      now: new Date().toISOString(),
+      ...(template ? { template } : {}),
+    }),
   );
 }
 
@@ -324,17 +163,17 @@ export function createSlide(
   layoutId: string,
   placeholders: Array<'title' | 'subtitle' | 'body'>,
 ): DeckSlide {
+  const elements = placeholders.map((type): DeckElement => ({
+    id: `${id}-${type}`,
+    type: 'text',
+    placeholder: { type, key: type },
+    text: { content: { paragraphs: [] } },
+  }));
   return {
     id,
     layoutId,
-    ...container(
-      placeholders.map((type): DeckElement => ({
-        id: `${id}-${type}`,
-        type: 'text',
-        placeholder: { type, key: type },
-        text: { content: { paragraphs: [] } },
-      })),
-    ),
+    elements: Object.fromEntries(elements.map((element) => [element.id, element])),
+    elementOrder: elements.map((element) => element.id),
   };
 }
 

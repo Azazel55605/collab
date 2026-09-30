@@ -146,6 +146,84 @@ interface Token {
   isBreak: boolean;
 }
 
+/* ------------------------------------------------------------------------- */
+/* Break opportunities                                                        */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Scripts written without spaces between words, where a line may break
+ * between any two characters: Han, kana, Hangul, CJK punctuation, and the
+ * full-width forms.
+ */
+const BREAK_ANYWHERE =
+  /[\u2e80-\u2fff\u3000-\u303f\u3040-\u30ff\u3100-\u31ff\u3200-\u9fff\uac00-\ud7af\uf900-\ufaff\ufe30-\ufe4f\uff00-\uffef\u{20000}-\u{3ffff}]/u;
+
+/**
+ * Kinsoku shori, the common (JIS X 4051 "strict"-leaning) sets browsers use:
+ * characters that may not start a line — closing brackets, sentence and
+ * clause punctuation, small kana, the prolonged sound mark, iteration marks —
+ * and characters that may not end one — opening brackets.
+ */
+const NO_LINE_START = new Set(
+  Array.from(
+    ')]}\u3009\u300b\u300d\u300f\u3011\u3015\u3017\u3019\u301f\u2019\u201d\uff5d\uff60\u00bb' +
+      '\uff09\uff3d\uff63\u3001\u3002\uff0c\uff0e\uff1a\uff1b\uff01\uff1f\u30fb\u2026\u2025' +
+      '\u3005\u303b\u309d\u309e\u30fd\u30fe\u30fc\u30a0\u2010\u2013\u301c\uff5e' +
+      '\u3041\u3043\u3045\u3047\u3049\u3063\u3083\u3085\u3087\u308e\u3095\u3096' +
+      '\u30a1\u30a3\u30a5\u30a7\u30a9\u30c3\u30e3\u30e5\u30e7\u30ee\u30f5\u30f6' +
+      '\u31f0\u31f1\u31f2\u31f3\u31f4\u31f5\u31f6\u31f7\u31f8\u31f9\u31fa\u31fb\u31fc\u31fd\u31fe\u31ff' +
+      '!?,.:;%\u2030\u2103',
+  ),
+);
+const NO_LINE_END = new Set(
+  Array.from(
+    '([{\u3008\u300a\u300c\u300e\u3010\u3014\u3016\u3018\u301d\u2018\u201c\uff5b\uff5f\u00ab' +
+      '\uff08\uff3b\uff62\uffe5\uff04$\u00a3\u00a5',
+  ),
+);
+
+type GraphemeSegmenter = { segment(text: string): Iterable<{ segment: string }> };
+let graphemeSegmenter: GraphemeSegmenter | null | undefined;
+
+/** User-perceived characters, so a break never splits a combining sequence or an emoji. */
+function graphemes(text: string): string[] {
+  if (graphemeSegmenter === undefined) {
+    const Ctor = (
+      Intl as unknown as {
+        Segmenter?: new (locale?: string, options?: object) => GraphemeSegmenter;
+      }
+    ).Segmenter;
+    graphemeSegmenter = Ctor ? new Ctor(undefined, { granularity: 'grapheme' }) : null;
+  }
+  if (!graphemeSegmenter) return Array.from(text);
+  return Array.from(graphemeSegmenter.segment(text), (part) => part.segment);
+}
+
+/**
+ * Splits a space-free word into the pieces a line may break between. Latin
+ * words stay whole; next to CJK text a break is allowed between any two
+ * characters unless kinsoku forbids it.
+ */
+export function breakUnits(word: string): string[] {
+  if (!BREAK_ANYWHERE.test(word)) return [word];
+  const units: string[] = [];
+  let current = '';
+  let previous = '';
+  for (const cluster of graphemes(word)) {
+    const first = Array.from(cluster)[0];
+    const last = Array.from(previous).pop() ?? '';
+    const cjk = BREAK_ANYWHERE.test(cluster) || BREAK_ANYWHERE.test(previous);
+    if (current !== '' && cjk && !NO_LINE_START.has(first) && !NO_LINE_END.has(last)) {
+      units.push(current);
+      current = '';
+    }
+    current += cluster;
+    previous = cluster;
+  }
+  if (current !== '') units.push(current);
+  return units;
+}
+
 function tokenize(paragraph: ResolvedParagraph): Token[] {
   const tokens: Token[] = [];
   paragraph.runs.forEach((run, runIndex) => {
@@ -155,13 +233,10 @@ function tokenize(paragraph: ResolvedParagraph): Token[] {
     }
     for (const part of run.text.split(/(\s+)/)) {
       if (part === '') continue;
-      tokens.push({
-        text: part,
-        style: run.style,
-        runIndex,
-        isSpace: /^\s+$/.test(part),
-        isBreak: false,
-      });
+      const isSpace = /^\s+$/.test(part);
+      for (const unit of isSpace ? [part] : breakUnits(part)) {
+        tokens.push({ text: unit, style: run.style, runIndex, isSpace, isBreak: false });
+      }
     }
   });
   return tokens;
@@ -192,6 +267,44 @@ function splitWord(
   return pieces;
 }
 
+/**
+ * Stretches a wrapped line of a justified paragraph to the full width by
+ * widening its spaces. Fragments are split at spaces so each word is placed
+ * on its own; a line with no spaces (a single long word, or CJK text) is left
+ * as it is.
+ */
+function justify(
+  fragments: LaidOutFragment[],
+  available: number,
+  measurer: DeckTextMeasurer,
+): LaidOutFragment[] {
+  const pieces: Array<LaidOutFragment & { space: boolean }> = [];
+  for (const fragment of fragments) {
+    for (const part of fragment.text.split(/(\s+)/)) {
+      if (part === '') continue;
+      pieces.push({
+        ...fragment,
+        text: part,
+        width: measurer.measure(part, fragment.style),
+        space: /^\s+$/.test(part),
+      });
+    }
+  }
+  const gaps = pieces.filter((piece) => piece.space).length;
+  const natural = pieces.reduce((width, piece) => width + piece.width, 0);
+  const extra = available - natural;
+  if (gaps === 0 || extra <= 0) return fragments;
+  const perGap = extra / gaps;
+  let x = fragments[0]?.x ?? 0;
+  const out: LaidOutFragment[] = [];
+  for (const { space, ...piece } of pieces) {
+    const width = space ? piece.width + perGap : piece.width;
+    if (!space) out.push({ ...piece, x });
+    x += width;
+  }
+  return out;
+}
+
 function layoutAtScale(
   body: ResolvedTextBody,
   boxWidth: number,
@@ -214,7 +327,7 @@ function layoutAtScale(
     let lineMaxSize = 0;
     let first = true;
 
-    const flush = () => {
+    const flush = (reason: 'wrap' | 'break' | 'end') => {
       // Trailing spaces neither count toward the width nor get drawn. A space
       // may have merged into the fragment of the word before it.
       while (fragments.length > 0) {
@@ -230,6 +343,12 @@ function layoutAtScale(
         last.width = measurer.measure(trimmed, last.style);
         lineWidth += last.width;
         break;
+      }
+      if (paragraph.align === 'justify' && reason === 'wrap') {
+        fragments = justify(fragments, lineAvailable, measurer);
+        lineWidth = fragments.reduce((width, fragment) => width + fragment.width, 0);
+        const last = fragments[fragments.length - 1];
+        if (last) lineWidth = Math.max(lineWidth, last.x + last.width);
       }
       const size = lineMaxSize || paragraph.endStyle.size * scale;
       const height = size * DECK_LINE_HEIGHT_FACTOR * spacing;
@@ -294,7 +413,7 @@ function layoutAtScale(
       const style = scaled(token.style, scale);
       if (token.isBreak) {
         lineMaxSize = Math.max(lineMaxSize, style.size);
-        flush();
+        flush('break');
         continue;
       }
       if (token.isSpace && fragments.length === 0 && !first) continue; // no leading space on wrapped lines
@@ -305,19 +424,19 @@ function layoutAtScale(
           ? lineWidth - previous.width + measurer.measure(previous.text + token.text, style)
           : lineWidth + width;
       if (body.wrap && !token.isSpace && fragments.length > 0 && projected > lineAvailable) {
-        flush();
+        flush('wrap');
       }
       if (body.wrap && !token.isSpace && fragments.length === 0 && width > lineAvailable) {
         const pieces = splitWord(token, lineAvailable, measurer, style);
         pieces.forEach((piece, pieceIndex) => {
           place(piece, style, measurer.measure(piece.text, style));
-          if (pieceIndex < pieces.length - 1) flush();
+          if (pieceIndex < pieces.length - 1) flush('wrap');
         });
         continue;
       }
       place(token, style, width);
     }
-    flush();
+    flush('end');
     cursor += paragraph.spaceAfter * scale;
   });
 

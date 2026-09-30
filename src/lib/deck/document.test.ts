@@ -45,13 +45,14 @@ describe('createDeckDocument', () => {
     }
   });
 
-  it('starts with one title slide and five reusable layouts', () => {
+  it('starts with one title slide and six reusable layouts', () => {
     const deck = newDeck();
     expect(deck.slideOrder).toEqual(['slide-1']);
     expect(deck.slides['slide-1'].layoutId).toBe('layout-title');
     expect(Object.values(deck.layouts).map((layout) => layout.name)).toEqual([
       'Title slide',
       'Title and content',
+      'Two content',
       'Section header',
       'Title only',
       'Blank',
@@ -60,7 +61,7 @@ describe('createDeckDocument', () => {
       slides: 1,
       hiddenSlides: 0,
       elements: 2,
-      layouts: 5,
+      layouts: 6,
     });
   });
 

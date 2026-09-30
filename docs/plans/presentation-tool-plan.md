@@ -5,7 +5,7 @@
 Phase 0 is complete except for its external-application and cross-platform
 gates. The frozen contract, measurements, and decisions are in the
 [Phase 0 Contract](./presentation-phase0-contract.md); where this plan and the
-contract differ, the contract wins.
+contract differ, the contract wins. Phases 1-3 are complete; Phase 4 is next.
 
 This plan defines a first-party presentation editor for Collab. It follows the
 same product boundary as Advanced Tables: Collab owns the editable document
@@ -485,7 +485,7 @@ Security requirements:
 | 0. Product contract and technical proofs              | Testing     | Freeze `.deck`, prove scene/text fidelity, rich-text editing, live text collaboration, and PPTX export.             |
 | 1. `.deck` domain and vault integration               | Complete    | Add schema, validation, migrations, creation, routing, references, revisions, and normal local/hosted lifecycle.    |
 | 2. Desktop scene editor foundation                    | Complete    | Build slide navigation, stage rendering, selection, transforms, snapping, ordering, clipboard, and undo/redo.       |
-| 3. Rich text, themes, masters, and layouts            | Not started | Deliver text editing, placeholders, theme inheritance, reusable layouts, and templates.                             |
+| 3. Rich text, themes, masters, and layouts            | Complete    | Deliver text editing, placeholders, theme inheritance, reusable layouts, and templates.                             |
 | 4. Visual objects and Collab data integration         | Not started | Add images, SVG, shapes, lines, groups, tables, charts, `.sheet` snapshots, and note links.                         |
 | 5. Presentation mode and speaker workflow             | Not started | Add fullscreen playback, notes, presenter view, navigation, handouts, and PDF/image output.                         |
 | 6. Hosted collaboration and offline behavior          | Not started | Add the deck-specific CRDT codec, awareness, offline replica merge, recovery, and physical multi-client validation. |
@@ -610,13 +610,80 @@ object styling beyond a text box and basic shapes (Phases 3 and 4).
 
 ### Phase 3: Rich Text, Themes, Masters, And Layouts
 
-- Add paragraph/run text editor and toolbar.
-- Add list levels, links, spacing, alignment, auto-fit, and font fallback.
-- Add theme color/font editing.
-- Add master and layout editors.
-- Add placeholders and inheritance overrides.
-- Add built-in starter templates that are ordinary inspectable `.deck`
-  content, not hidden renderer behavior.
+Complete. Text is edited in place, placeholders behave as in PowerPoint, and a
+deck's design — theme, master, and layouts — is editable document content.
+No schema change was needed: everything Phase 3 stores was already in the
+frozen version 1 schema.
+
+- [x] Paragraph/run text editor: the first-party `contenteditable` adapter the
+      contract chose (`DeckTextEditor`). Every change arrives through
+      `beforeinput`, the clipboard, or composition end and is applied to the
+      model by offset-addressed operations (`richText.ts`) whose id rules match
+      the `Y.Text` encoding, so Phase 6 can map them one-to-one. The DOM is
+      redrawn from the model with text nodes only. Double-click, Enter, or F2
+      edits; a new text box opens for typing.
+- [x] Typing is a draft written to the document on a 400 ms idle timer and when
+      editing ends; one editing session is one deck undo step, while Ctrl+Z
+      inside the editor walks a finer local history (typing bursts, deletions,
+      splits, formatting).
+- [x] Toolbar and shortcuts (`DeckTextToolbar`, `textCommands.ts`): font
+      (theme heading/body or a named family), size and grow/shrink, bold,
+      italic, underline, strike, superscript, subscript, theme or custom
+      colour, alignment including justify, bullets, numbering, list levels
+      (Tab/Shift+Tab), line and paragraph spacing, links, clear formatting,
+      and autofit, vertical alignment, and wrap. Toggles read the resolved
+      style, so un-bolding an inherited bold title stores `bold: false`. With
+      a box selected rather than edited, commands apply to its whole text. A
+      toggle on a caret sets the format of what is typed next.
+- [x] Links to web addresses (`http`, `https`, `mailto` only) and to slides;
+      they draw in the theme's hyperlink colour, underlined, unless the run
+      says otherwise. Rich copy and paste inside Collab keeps formatting;
+      everything else pastes as plain text.
+- [x] Auto-fit: `shrink` and `grow` in the editor as in output; "resize box to
+      fit text" writes the height the text needs when editing ends.
+- [x] Font fallback: the picker and the design panel show which families are
+      not installed and which fallback actually draws (`fonts.ts`).
+- [x] CJK line breaking, the contract's Phase 3 requirement: breaks between
+      CJK characters by grapheme (`Intl.Segmenter`), with the common kinsoku
+      sets — no closing punctuation, small kana, or prolonged sound mark at a
+      line start and no opening bracket at a line end. Justified paragraphs
+      stretch every wrapped line.
+- [x] Placeholders: empty placeholders show their layout's prompt text (or
+      "Click to add title" and so on) with a dashed outline in the editor only
+      — never in thumbnails, playback, exports, or the file. Overrides are
+      just properties a slide element sets; "Reset to layout" removes them and
+      keeps text, links, and levels. Changing a slide's layout keeps matching
+      placeholders, removes empty ones the layout lacks, keeps ones with
+      content where they were drawn, and adds the new layout's placeholders.
+      Subtitles take the body style without its bullets.
+- [x] Theme editing: all twelve colour slots and the heading and body fonts,
+      in the design panel (`DeckInspector`).
+- [x] Master and layout editor ("Edit master and layouts"): a rail of masters
+      and their layouts with usage counts; the stage edits a layout's or
+      master's own elements with every element operation; placeholders can be
+      inserted; layouts renamed, duplicated, or deleted when unused; layout
+      background and "show master artwork"; master background and per-level
+      text styles (size, theme font, bold, italic, colour, bullet, indent).
+- [x] Speaker notes are edited in the notes panel with the same editor.
+- [x] Built-in designs (`templates.ts`): Collab, Lecture, Midnight, and Paper,
+      each a theme, master, and six layouts (Title slide, Title and content,
+      Two content, Section header, Title only, Blank) built for the deck's
+      size. New decks use Collab; the design panel applies any of them to an
+      existing deck, keeping content and slide-level overrides, as one undo
+      step. Every template uses the same layout ids.
+
+Measured in the real editor (Chromium, through a Playwright-driven harness):
+typing, arrow-key and mouse selection, word deletion, soft and hard breaks,
+IME composition, paste, and double-click word selection all edit the model
+correctly, and the edited box lines up with the engine's rendering. The
+harness found and fixed one real defect — a late `selectionchange` re-render
+could drag the caret back a keystroke — which jsdom could not show.
+
+Deliberately deferred: choosing a template in the "New presentation" flows (the
+design panel applies one immediately after); rich HTML paste from other
+applications (plain text for now); picture placeholders (Phase 4); the
+knife-edge wrap measurement in the Linux WebKitGTK and Windows WebView2 apps,
+which stays with the Phase 0 device checks.
 
 ### Phase 4: Visual Objects And Collab Data Integration
 

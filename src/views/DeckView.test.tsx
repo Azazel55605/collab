@@ -1,4 +1,6 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import * as React from 'react';
+
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TooltipProvider } from '../components/ui/tooltip';
@@ -79,6 +81,38 @@ vi.mock('../components/ui/dropdown-menu', () => ({
       aria-checked={checked}
       onClick={() => onCheckedChange?.(!checked)}
     >
+      {children}
+    </button>
+  ),
+  DropdownMenuRadioGroup: ({
+    children,
+    value,
+    onValueChange,
+  }: {
+    children: React.ReactNode;
+    value?: string;
+    onValueChange?: (value: string) => void;
+  }) => (
+    <div role="radiogroup" data-value={value}>
+      {React.Children.map(children, (child) =>
+        React.isValidElement<{ value: string }>(child)
+          ? React.cloneElement(child as React.ReactElement<Record<string, unknown>>, {
+              onSelectValue: onValueChange,
+            })
+          : child,
+      )}
+    </div>
+  ),
+  DropdownMenuRadioItem: ({
+    children,
+    value,
+    onSelectValue,
+  }: {
+    children: React.ReactNode;
+    value: string;
+    onSelectValue?: (value: string) => void;
+  }) => (
+    <button type="button" role="menuitemradio" onClick={() => onSelectValue?.(value)}>
       {children}
     </button>
   ),
@@ -291,7 +325,7 @@ describe('DeckView: viewing', () => {
   it('shows speaker notes for the current slide', async () => {
     await openDeck();
     fireEvent.click(screen.getByLabelText('Show speaker notes'));
-    expect(screen.getByText('No speaker notes for this slide.')).toBeTruthy();
+    expect(screen.getByText('Click to add speaker notes.')).toBeTruthy();
     key(canvas(), 'ArrowRight');
     expect(screen.getByText('Stress that export never changes the backing format.')).toBeTruthy();
   });
@@ -520,5 +554,126 @@ describe('DeckView: editing', () => {
     const saved = await savedDeck();
     // Eight elements (the group counts its two children), plus the pasted card.
     expect(Object.keys(saved.slides['slide-3'].elements)).toHaveLength(9);
+  });
+});
+
+describe('DeckView: text, placeholders, and design', () => {
+  const editor = () => screen.getByTestId('deck-text-editor');
+  function input(inputType: string, data: string | null = null) {
+    act(() => {
+      editor().dispatchEvent(
+        new InputEvent('beforeinput', { inputType, data, bubbles: true, cancelable: true }),
+      );
+    });
+  }
+  const runsOf = (deck: DeckDocument, slideId: string, elementId: string) => {
+    const element = deck.slides[slideId].elements[elementId];
+    if (element.type !== 'text') throw new Error('expected text');
+    return element.text.content.paragraphs.flatMap((paragraph) => paragraph.runs);
+  };
+
+  it('edits a placeholder in place and undoes the whole edit as one step', async () => {
+    await openDeck();
+    key(canvas(), 'Tab'); // s1-title
+    key(canvas(), 'Enter');
+    expect(editor().textContent).toContain('Collab Presentations');
+    // The stage stops drawing the text the editor now shows.
+    expect(screen.getByTestId('deck-stage').querySelector('svg')?.textContent).not.toContain(
+      'Collab Presentations',
+    );
+    input('insertText', ' 2026');
+    expect(editor().textContent).toContain('Collab Presentations 2026');
+    input('deleteContentBackward');
+    key(editor(), 'Escape');
+    expect(screen.queryByTestId('deck-text-editor')).toBeNull();
+    const saved = await savedDeck();
+    expect(runsOf(saved, 'slide-1', 's1-title')).toEqual([
+      expect.objectContaining({ text: 'Collab Presentations 202' }),
+    ]);
+    expect(screen.getByLabelText('Undo Edit text')).toBeTruthy();
+    key(canvas(), 'z', { ctrlKey: true });
+    expect(runsOf(await savedDeck(), 'slide-1', 's1-title')).toEqual([
+      expect.objectContaining({ text: 'Collab Presentations' }),
+    ]);
+  });
+
+  it('types in italics after Ctrl+I on a caret, and splits paragraphs on Enter', async () => {
+    await openDeck();
+    key(canvas(), 'Tab');
+    key(canvas(), 'Enter');
+    key(editor(), 'i', { ctrlKey: true });
+    input('insertText', '!');
+    input('insertParagraph');
+    input('insertText', 'Next');
+    key(editor(), 'Escape');
+    const element = (await savedDeck()).slides['slide-1'].elements['s1-title'];
+    if (element.type !== 'text') throw new Error('expected text');
+    const [first, second] = element.text.content.paragraphs;
+    expect(first.runs).toEqual([
+      expect.objectContaining({ text: 'Collab Presentations' }),
+      expect.objectContaining({ text: '!', style: expect.objectContaining({ italic: true }) }),
+    ]);
+    expect(second.runs).toEqual([expect.objectContaining({ text: 'Next' })]);
+  });
+
+  it('formats a selected box from the toolbar', async () => {
+    await openDeck();
+    key(canvas(), 'Tab');
+    const toolbar = screen.getByRole('toolbar', { name: 'Text formatting' });
+    fireEvent.click(within(toolbar).getByRole('button', { name: 'Italic' }));
+    expect(runsOf(await savedDeck(), 'slide-1', 's1-title')).toEqual([
+      expect.objectContaining({ style: expect.objectContaining({ italic: true }) }),
+    ]);
+    expect(screen.getByLabelText('Undo Format text')).toBeTruthy();
+  });
+
+  it('shows prompts in empty placeholders without saving them', async () => {
+    await openDeck();
+    fireEvent.click(menuItem('Title and content'));
+    await screen.findByText('Slide 2 of 6');
+    expect(stage().innerHTML).toContain('Click to add title');
+    expect(screen.getAllByTestId('deck-placeholder-outline').length).toBeGreaterThanOrEqual(2);
+    const saved = await savedDeck();
+    expect(JSON.stringify(saved)).not.toContain('Click to add');
+  });
+
+  it('edits speaker notes', async () => {
+    await openDeck();
+    fireEvent.click(screen.getByLabelText('Show speaker notes'));
+    fireEvent.click(screen.getByLabelText('Edit speaker notes'));
+    expect(editor().getAttribute('aria-label')).toBe('Speaker notes');
+    input('insertText', 'Remember the demo');
+    key(editor(), 'Escape');
+    const notes = (await savedDeck()).slides['slide-1'].speakerNotes;
+    expect(notes?.paragraphs[0].runs).toEqual([{ kind: 'text', text: 'Remember the demo' }]);
+    expect(screen.getByText('Remember the demo')).toBeTruthy();
+  });
+
+  it('applies a built-in design from the design panel, undoably', async () => {
+    await openDeck();
+    fireEvent.click(screen.getByLabelText('Show design panel'));
+    fireEvent.click(screen.getByLabelText('Apply the Midnight design'));
+    let saved = await savedDeck();
+    expect(saved.themeId).toBe('theme-midnight');
+    expect(saved.slideOrder).toHaveLength(5);
+    key(canvas(), 'z', { ctrlKey: true });
+    saved = await savedDeck();
+    expect(saved.themeId).toBe(buildFixtureDeck().themeId);
+  });
+
+  it('edits layouts in the master view and adds placeholders to them', async () => {
+    await openDeck();
+    fireEvent.click(menuItem('Edit master and layouts'));
+    expect(screen.getByRole('navigation', { name: 'Master and layouts' })).toBeTruthy();
+    expect(screen.getByText(/Editing layout/)).toBeTruthy();
+    const layoutId = buildFixtureDeck().slides['slide-1'].layoutId!;
+    const before = Object.keys(buildFixtureDeck().layouts[layoutId].elements).length;
+    fireEvent.click(menuItem('Footer placeholder'));
+    const saved = await savedDeck();
+    const added = Object.values(saved.layouts[layoutId].elements);
+    expect(added).toHaveLength(before + 1);
+    expect(added.some((element) => element.placeholder?.type === 'footer')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Close master view' }));
+    expect(screen.getByText('Slide 1 of 5')).toBeTruthy();
   });
 });
