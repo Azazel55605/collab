@@ -233,6 +233,41 @@ function missingAsset(
   );
 }
 
+/** A linked document with no preview: a card naming it, never a broken image. */
+function embedCard(
+  width: number,
+  height: number,
+  title: string,
+  path: string,
+  measurer: DeckTextMeasurer,
+): string {
+  const size = Math.max(600, Math.min(2_400, height / 6));
+  const style: ResolvedRunStyle = {
+    font: { family: 'sans-serif', fallbacks: [] },
+    size,
+    bold: true,
+    italic: false,
+    underline: false,
+    strike: false,
+    color: { hex: '#111827', alpha: 1 },
+    baseline: 'normal',
+  };
+  const fit = (text: string, textStyle: ResolvedRunStyle) => {
+    const room = width - size * 2;
+    if (measurer.measure(text, textStyle) <= room) return text;
+    let cut = text;
+    while (cut.length > 1 && measurer.measure(`${cut}…`, textStyle) > room) cut = cut.slice(0, -1);
+    return `${cut}…`;
+  };
+  const small = { ...style, size: size * 0.6, bold: false, color: { hex: '#6b7280', alpha: 1 } };
+  return (
+    `<rect width="${fmt(width)}" height="${fmt(height)}" rx="${fmt(size * 0.4)}" fill="#f9fafb" stroke="#d1d5db" stroke-width="${fmt(size / 16)}"/>` +
+    `<rect width="${fmt(size * 0.3)}" height="${fmt(height)}" fill="#6d5dfc"/>` +
+    `<text x="${fmt(size)}" y="${fmt(size * 1.8)}" font-family="sans-serif" font-size="${fmt(size)}" font-weight="700" fill="#111827">${escapeXml(fit(title, style))}</text>` +
+    `<text x="${fmt(size)}" y="${fmt(size * 2.9)}" font-family="sans-serif" font-size="${fmt(small.size)}" fill="#6b7280">${escapeXml(fit(path, small))}</text>`
+  );
+}
+
 function tableSvg(item: ResolvedTableItem, measurer: DeckTextMeasurer): string {
   const out: string[] = [];
   for (const cell of item.cells) {
@@ -308,6 +343,46 @@ function chartSvg(item: ResolvedChartItem, measurer: DeckTextMeasurer): string {
   const max = Math.max(0, ...all);
   const min = Math.min(0, ...all);
   const span = max - min || 1;
+
+  if (item.chartKind === 'bar') {
+    // Horizontal bars: categories down the left, values along the bottom.
+    const labelWidth =
+      Math.max(0, ...item.categories.map((category) => measurer.measure(category, style))) +
+      style.size;
+    const plotLeft = Math.min(width * 0.4, labelWidth);
+    const plotRight = width - measurer.measure(String(max), style) / 2 - style.size * 0.5;
+    const plotBottomY = bottom - style.size * 1.8;
+    const plotSpan = Math.max(1, plotRight - plotLeft);
+    const xOf = (value: number) => plotLeft + ((value - min) / span) * plotSpan;
+    const rows = Math.max(1, item.categories.length);
+    const rowBand = Math.max(1, plotBottomY - top) / rows;
+    const barHeight = (rowBand * 0.8) / Math.max(1, item.series.length);
+    out.push(
+      `<line x1="${fmt(xOf(0))}" y1="${fmt(top)}" x2="${fmt(xOf(0))}" y2="${fmt(plotBottomY)}" stroke="#9ca3af" stroke-width="75"/>`,
+    );
+    out.push(label(String(max), xOf(max), plotBottomY + style.size * 1.3, 'middle'));
+    item.categories.forEach((category, index) => {
+      out.push(
+        label(
+          category,
+          plotLeft - style.size * 0.4,
+          top + rowBand * (index + 0.5) + style.size * 0.35,
+          'end',
+        ),
+      );
+    });
+    item.series.forEach((series, seriesIndex) => {
+      series.values.forEach((value, index) => {
+        const y = top + rowBand * index + rowBand * 0.1 + barHeight * seriesIndex;
+        const x = Math.min(xOf(value), xOf(0));
+        out.push(
+          `<rect x="${fmt(x)}" y="${fmt(y)}" width="${fmt(Math.abs(xOf(value) - xOf(0)))}" height="${fmt(barHeight)}" ${paintAttrs('fill', series.color)}/>`,
+        );
+      });
+    });
+    return out.join('');
+  }
+
   const left = measurer.measure(String(max), style) + style.size;
   const plotBottom = bottom - style.size * 1.8;
   const plotHeight = Math.max(1, plotBottom - top);
@@ -324,8 +399,7 @@ function chartSvg(item: ResolvedChartItem, measurer: DeckTextMeasurer): string {
     out.push(label(category, left + band * (index + 0.5), plotBottom + style.size * 1.3, 'middle'));
   });
 
-  if (item.chartKind === 'column' || item.chartKind === 'bar') {
-    // `bar` is drawn as columns in Phase 0; horizontal bars are Phase 4.
+  if (item.chartKind === 'column') {
     const barWidth = (band * 0.8) / Math.max(1, item.series.length);
     item.series.forEach((series, seriesIndex) => {
       series.values.forEach((value, index) => {
@@ -398,7 +472,13 @@ function itemSvg(item: ResolvedItem, options: DeckSvgOptions): string {
       const href = item.preview ? safeHref(options.resolveAsset?.(item.preview)) : null;
       body = href
         ? `<image width="${fmt(width)}" height="${fmt(height)}" preserveAspectRatio="xMidYMid meet" href="${escapeXml(href)}"/>`
-        : missingAsset(width, height, item.source.path, options.measurer);
+        : embedCard(
+            width,
+            height,
+            item.name ?? item.source.path,
+            item.source.path,
+            options.measurer,
+          );
       break;
     }
   }

@@ -14,6 +14,7 @@ import type { DeckDocument, DeckElement, DeckElementContainer, DeckFrame } from 
 import { expandGroups } from './operations';
 import { resolveTarget } from './resolve';
 import type { DeckTarget } from './resolve';
+import { scaleTable } from './tables';
 import { normalizeRotation } from './units';
 
 export type Frame = Required<DeckFrame>;
@@ -233,7 +234,17 @@ export type ElementUpdaters = Record<string, (element: DeckElement) => DeckEleme
 const round = Math.round;
 
 function frameUpdate(frame: Frame): (element: DeckElement) => DeckElement {
-  return (element) => ({
+  return (element) => {
+    const next = placeFrame(element, frame);
+    // A table's rows and columns carry its size; they scale with the frame.
+    return next.type === 'table' && next.frame
+      ? scaleTable(next, next.frame.width, next.frame.height)
+      : next;
+  };
+}
+
+function placeFrame(element: DeckElement, frame: Frame): DeckElement {
+  return {
     ...element,
     frame: {
       x: round(frame.x),
@@ -244,7 +255,7 @@ function frameUpdate(frame: Frame): (element: DeckElement) => DeckElement {
       ...(frame.flipH ? { flipH: true } : {}),
       ...(frame.flipV ? { flipV: true } : {}),
     },
-  });
+  } as DeckElement;
 }
 
 /**
@@ -685,5 +696,42 @@ export function cropImage(
       }
       return { ...next, crop: nextCrop };
     },
+  };
+}
+
+/* ------------------------------------------------------------------------- */
+/* Line endpoints                                                             */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Moves one end of a line. With `constrain` (Shift) the line snaps to the
+ * nearest 45° from its other end; `grid` rounds the moved end to the grid.
+ */
+export function moveLineEndpoint(
+  geometry: SlideGeometry,
+  id: string,
+  end: 'from' | 'to',
+  point: Point,
+  options: { constrain?: boolean; grid?: number } = {},
+): ElementUpdaters {
+  const element = geometry.slide.elements[id];
+  if (!element || element.type !== 'line') return {};
+  const fixed = end === 'from' ? element.to : element.from;
+  let target = { ...point };
+  if (options.constrain) {
+    const dx = target.x - fixed.x;
+    const dy = target.y - fixed.y;
+    const length = Math.hypot(dx, dy);
+    const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+    target = { x: fixed.x + Math.cos(angle) * length, y: fixed.y + Math.sin(angle) * length };
+  } else if (options.grid && options.grid > 0) {
+    target = {
+      x: Math.round(target.x / options.grid) * options.grid,
+      y: Math.round(target.y / options.grid) * options.grid,
+    };
+  }
+  const moved = { x: round(target.x), y: round(target.y) };
+  return {
+    [id]: (current) => (current.type === 'line' ? { ...current, [end]: moved } : current),
   };
 }
