@@ -337,7 +337,7 @@ function useElementSize<T extends HTMLElement>() {
     setSize({ width: element.clientWidth, height: element.clientHeight });
     return () => observer.disconnect();
   }, [element]);
-  return [ref, size] as const;
+  return [ref, size, element] as const;
 }
 
 /** Documents a slide can link to: anything in the vault but images and the deck itself. */
@@ -891,18 +891,30 @@ export default function DeckView({ relativePath }: DeckViewProps) {
         }).result;
       }
       const cellKey = textSession.cellKey;
-      return updateElements(document, textSession.target, {
-        [textSession.elementId!]: (element) =>
+      const elementId = textSession.elementId!;
+      const drafted = updateElements(document, textSession.target, {
+        [elementId]: (element) =>
           cellKey
             ? element.type === 'table'
               ? setCellContent(element, cellKey, textSession.body)
               : element
             : withContent(element, textSession.body),
       }).result;
+      if (!cellKey) return drafted;
+      // Rows grow as you type, not only when the draft is written.
+      const item = resolveTarget(drafted, textSession.target).items.find(
+        (entry) => entry.id === elementId,
+      );
+      return item?.kind === 'table'
+        ? updateElements(drafted, textSession.target, {
+            [elementId]: (element) =>
+              element.type === 'table' ? fitTableRows(element, item, measurer) : element,
+          }).result
+        : drafted;
     } catch {
       return document;
     }
-  }, [document, textSession]);
+  }, [document, measurer, textSession]);
 
   const draftScene = useMemo(() => {
     if (!draftDeck || !textSession) return null;
@@ -2257,7 +2269,8 @@ export default function DeckView({ relativePath }: DeckViewProps) {
   /* Zoom                                                                    */
   /* ----------------------------------------------------------------------- */
 
-  const [stageRef, stageSize] = useElementSize<HTMLDivElement>();
+  const [stageRef, stageSize, stageElement] = useElementSize<HTMLDivElement>();
+  const focusCanvas = () => stageElement?.focus({ preventScroll: true });
   const rulerPx = viewState.showRulers ? 20 : 0;
   const fitZoom =
     document && supported
@@ -2575,7 +2588,15 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                     Insert
                   </DocumentTopBarButton>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="max-h-[70vh] overflow-y-auto">
+                <DropdownMenuContent
+                  align="start"
+                  className="max-h-[70vh] overflow-y-auto"
+                  // Keys after an insert act on the new object, not on this menu's button.
+                  onCloseAutoFocus={(event) => {
+                    event.preventDefault();
+                    focusCanvas();
+                  }}
+                >
                   <DropdownMenuItem onClick={() => insert('text')}>
                     <Type size={13} /> Text box
                   </DropdownMenuItem>
@@ -3077,6 +3098,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
       </div>
 
       <DeckVaultPicker
+        onReturnFocus={focusCanvas}
         open={picker !== null}
         title={
           picker?.kind === 'embed'
@@ -3113,6 +3135,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
         }}
       />
       <DeckTableDialog
+        onReturnFocus={focusCanvas}
         open={tableDialogOpen}
         workbooks={workbooks}
         onOpenChange={setTableDialogOpen}
@@ -3120,6 +3143,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
         onLoadRange={loadRangeGrid}
       />
       <DeckChartDialog
+        onReturnFocus={focusCanvas}
         open={chartForDialog !== null}
         chart={chartForDialog}
         workbooks={workbooks}

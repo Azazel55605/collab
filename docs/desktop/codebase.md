@@ -378,46 +378,54 @@ Framework-free domain in `src/lib/deck/` with the schema in `src/types/deck.ts`;
 see the [Phase 0 Contract](../plans/presentation-phase0-contract.md). Phase 1
 made `.deck` an ordinary vault document (create, open, browse, save, sync,
 conflicts, history, references); Phase 2 added the scene editor; Phase 3 added
-rich text, placeholders, themes, templates, and the master and layout editor.
+rich text, placeholders, themes, templates, and the master and layout editor;
+Phase 4 added images, tables, charts, linked documents, and slide exports.
 Edits are reversible operations previewed on a scratch deck during a gesture and
 committed once, as one undo step and one save. Text editing holds a draft in a
 `TextSession`, writes it to the document on a short idle timer, and folds one
 session's writes into a single undo step.
 
-| File                                  | Purpose                                                                                                             |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `views/DeckView.tsx`                  | Editor shell: toolbar, shortcuts, clipboard, undo/redo (`InkHistory`), text sessions, design mode; `deckViewStates` |
-| `components/deck/DeckTextEditor.tsx`  | First-party `contenteditable` adapter: intercepts `beforeinput`/clipboard/IME, applies `richText.ts`, redraws       |
-| `components/deck/textDom.ts`          | Draws a resolved body into the editor (text nodes only) and maps DOM selection points to text offsets               |
-| `components/deck/DeckTextToolbar.tsx` | Font, size, styles, colour, alignment, lists and levels, spacing, links, autofit, reset to layout                   |
-| `components/deck/DeckInspector.tsx`   | Design panel: slide layout and background, templates, theme colours and fonts, layout and master settings           |
-| `components/deck/DeckDesignRail.tsx`  | Master view rail: masters and their layouts with usage counts; duplicate and delete layouts                         |
-| `components/deck/DeckLinkDialog.tsx`  | Link to a web address or a slide; only `http(s)` and `mailto` addresses (`lib/deck/links.ts`)                       |
-| `components/deck/DeckStage.tsx`       | Zoom/pan stage: hit testing, marquee, move/resize/rotate/crop gestures, snap guides, grid, rulers                   |
-| `components/deck/DeckSlideRail.tsx`   | Virtualized slide thumbnails with sections, multi-select, drag reorder, context menu                                |
-| `components/deck/DeckSlide.tsx`       | One resolved slide as inline SVG (page fonts), DOMPurify-sanitized as a second guard                                |
-| `lib/deck/operations.ts`              | Reversible slide, notes, and element operations returning `{ result, inverse }` patches; slide, layout, or master   |
-| `lib/deck/design.ts`                  | Theme, master, and layout edits; layout switching; placeholders, prompts' sources, and reset-to-layout              |
-| `lib/deck/templates.ts`               | Built-in designs (theme, master, six layouts) as ordinary content; `applyTemplate` restyles an existing deck        |
-| `lib/deck/richText.ts`                | Offset-addressed edits on stored rich text (insert, delete, split, format, links, levels), matching `liveText.ts`   |
-| `lib/deck/textCommands.ts`            | Toolbar/shortcut commands over a selection or whole bodies, read against the resolved style                         |
-| `lib/deck/textSession.ts`             | One in-place editing session: draft body, selection, typing format, local undo                                      |
-| `lib/deck/fonts.ts`                   | Font picker choices and installed-font detection, so the editor shows which fallback draws                          |
-| `lib/deck/transform.ts`               | Slide geometry, hit testing, move/resize/rotate/crop, snapping, align, distribute                                   |
-| `lib/deck/clipboard.ts`, `insert.ts`  | Element copy/paste payload; new text boxes and basic shapes                                                         |
-| `lib/deck/document.ts`                | Create (from a template), parse with repair-and-report, newer-version read-only, migration                          |
-| `lib/deck/useDeckSession.ts`          | Load/save through `VaultClient` and `DocumentSessionController`; REST optimistic writes until Phase 6 live edits    |
-| `lib/deck/assets.ts`                  | Every image a deck draws, for inline data-URL loading                                                               |
-| `lib/deck/units.ts`                   | The only unit conversions: deck units (1/100 pt, exactly 127 EMU), px, pt, inches, rotation                         |
-| `lib/deck/validate.ts`                | Trust boundary: limits (incl. hosted JSON-entry cap), geometry, links, asset paths, group cycles; serialization     |
-| `lib/deck/resolve.ts`                 | Shared scene resolver: inheritance, fields, links, groups, paint order; editor prompts; layout and master scenes    |
-| `lib/deck/textLayout.ts`              | Text layout (wrap, CJK breaks with kinsoku, lists, alignment incl. justify, auto-fit) behind a `DeckTextMeasurer`   |
-| `lib/deck/geometry.ts`, `svg.ts`      | Preset shape outlines and deterministic SVG output of a resolved slide; `fitSlide` placement                        |
-| `lib/deck/exportPdf.ts`               | Slide SVG → raster → PDF path, reusing the ink PDF writer                                                           |
-| `lib/deck/liveText.ts`                | `Y.Text` encoding of one rich-text body for live collaboration (Phase 6)                                            |
-| `lib/deck/pptx/`                      | Isolated, lazy PptxGenJS exporter with an OOXML repair pass and export report                                       |
-| `lib/deck/fixture.ts`, `budgets.ts`   | Deterministic fixture and scale decks; performance budgets                                                          |
-| `crates/collab-documents/src/deck.rs` | Server-side `.deck` validation; `references.rs` collects/rewrites deck references                                   |
+| File                                                         | Purpose                                                                                                             |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `views/DeckView.tsx`                                         | Editor shell: toolbar, shortcuts, clipboard, undo/redo (`InkHistory`), text sessions, design mode; `deckViewStates` |
+| `components/deck/DeckTextEditor.tsx`                         | First-party `contenteditable` adapter: intercepts `beforeinput`/clipboard/IME, applies `richText.ts`, redraws       |
+| `components/deck/textDom.ts`                                 | Draws a resolved body into the editor (text nodes only) and maps DOM selection points to text offsets               |
+| `components/deck/DeckTextToolbar.tsx`                        | Font, size, styles, colour, alignment, lists and levels, spacing, links, autofit, reset to layout                   |
+| `components/deck/DeckInspector.tsx`                          | Design panel: slide layout and background, templates, theme colours and fonts, layout and master settings           |
+| `components/deck/DeckDesignRail.tsx`                         | Master view rail: masters and their layouts with usage counts; duplicate and delete layouts                         |
+| `components/deck/DeckLinkDialog.tsx`                         | Link to a web address or a slide; only `http(s)` and `mailto` addresses (`lib/deck/links.ts`)                       |
+| `components/deck/DeckObjectToolbar.tsx`                      | Fill, outline, arrowheads, shape, opacity, flip/rotate; image, table, chart, and linked-document actions            |
+| `components/deck/DeckTableDialog.tsx`, `DeckChartDialog.tsx` | Insert a table (blank or from a workbook range); edit chart data and its linked `.sheet` range                      |
+| `components/deck/DeckVaultPicker.tsx`                        | Pick a vault file (images, documents), or bring an image in from the computer                                       |
+| `components/deck/DeckStage.tsx`                              | Zoom/pan stage: hit testing, marquee, move/resize/rotate/crop gestures, snap guides, grid, rulers                   |
+| `components/deck/DeckSlideRail.tsx`                          | Virtualized slide thumbnails with sections, multi-select, drag reorder, context menu                                |
+| `components/deck/DeckSlide.tsx`                              | One resolved slide as inline SVG (page fonts), DOMPurify-sanitized as a second guard                                |
+| `lib/deck/operations.ts`                                     | Reversible slide, notes, and element operations returning `{ result, inverse }` patches; slide, layout, or master   |
+| `lib/deck/design.ts`                                         | Theme, master, and layout edits; layout switching; placeholders, prompts' sources, and reset-to-layout              |
+| `lib/deck/templates.ts`                                      | Built-in designs (theme, master, six layouts) as ordinary content; `applyTemplate` restyles an existing deck        |
+| `lib/deck/richText.ts`                                       | Offset-addressed edits on stored rich text (insert, delete, split, format, links, levels), matching `liveText.ts`   |
+| `lib/deck/textCommands.ts`                                   | Toolbar/shortcut commands over a selection or whole bodies, read against the resolved style                         |
+| `lib/deck/textSession.ts`                                    | One in-place editing session: draft body, selection, typing format, local undo                                      |
+| `lib/deck/fonts.ts`                                          | Font picker choices and installed-font detection, so the editor shows which fallback draws                          |
+| `lib/deck/tables.ts`                                         | Table rows, columns, merged spans, cell text and fill, scaling with the frame, row growth, range → table            |
+| `lib/deck/sheetSnapshot.ts`                                  | `.sheet` range references, one-time range reads, range → chart data keeping series identity                         |
+| `lib/deck/images.ts`, `embeds.ts`                            | Image intake with limits and hashes; note previews, slide-export paths, and note Markdown                           |
+| `lib/deck/vaultAssets.ts`                                    | Vault I/O: stable-path image writes (local overwrite, hosted replace) and explicit sheet snapshots                  |
+| `lib/deck/transform.ts`                                      | Slide geometry, hit testing, move/resize/rotate/crop, snapping, align, distribute                                   |
+| `lib/deck/clipboard.ts`, `insert.ts`                         | Element copy/paste payload; new text boxes, shapes, lines, images, tables, charts, and linked documents             |
+| `lib/deck/document.ts`                                       | Create (from a template), parse with repair-and-report, newer-version read-only, migration                          |
+| `lib/deck/useDeckSession.ts`                                 | Load/save through `VaultClient` and `DocumentSessionController`; REST optimistic writes until Phase 6 live edits    |
+| `lib/deck/assets.ts`                                         | Every image a deck draws, for inline data-URL loading                                                               |
+| `lib/deck/units.ts`                                          | The only unit conversions: deck units (1/100 pt, exactly 127 EMU), px, pt, inches, rotation                         |
+| `lib/deck/validate.ts`                                       | Trust boundary: limits (incl. hosted JSON-entry cap), geometry, links, asset paths, group cycles; serialization     |
+| `lib/deck/resolve.ts`                                        | Shared scene resolver: inheritance, fields, links, groups, paint order; editor prompts; layout and master scenes    |
+| `lib/deck/textLayout.ts`                                     | Text layout (wrap, CJK breaks with kinsoku, lists, alignment incl. justify, auto-fit) behind a `DeckTextMeasurer`   |
+| `lib/deck/geometry.ts`, `svg.ts`                             | Preset shape outlines and deterministic SVG output of a resolved slide; `fitSlide` placement                        |
+| `lib/deck/exportPdf.ts`                                      | Slide SVG → raster → PDF path, reusing the ink PDF writer                                                           |
+| `lib/deck/liveText.ts`                                       | `Y.Text` encoding of one rich-text body for live collaboration (Phase 6)                                            |
+| `lib/deck/pptx/`                                             | Isolated, lazy PptxGenJS exporter with an OOXML repair pass and export report                                       |
+| `lib/deck/fixture.ts`, `budgets.ts`                          | Deterministic fixture and scale decks; performance budgets                                                          |
+| `crates/collab-documents/src/deck.rs`                        | Server-side `.deck` validation; `references.rs` collects/rewrites deck references                                   |
 
 The Rust validator is tested against `crates/collab-documents/fixtures/deck-fixture.deck`,
 which `src/lib/deck/sharedFixture.test.ts` keeps identical to the TypeScript fixture.

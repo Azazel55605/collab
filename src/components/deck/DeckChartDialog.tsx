@@ -28,6 +28,8 @@ export interface ChartEdit {
 }
 
 interface DeckChartDialogProps {
+  /** Where focus goes when the dialog closes (the slide, rather than the menu that opened it). */
+  onReturnFocus?: () => void;
   open: boolean;
   chart: DeckChartElement | null;
   workbooks: string[];
@@ -67,6 +69,7 @@ function parseNumber(text: string): number {
  * from a workbook range and linked so "Refresh" can read it again.
  */
 export function DeckChartDialog({
+  onReturnFocus,
   open,
   chart,
   workbooks,
@@ -139,7 +142,14 @@ export function DeckChartDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent
+        className="sm:max-w-2xl"
+        onCloseAutoFocus={(event) => {
+          if (!onReturnFocus) return;
+          event.preventDefault();
+          onReturnFocus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Chart data</DialogTitle>
           <DialogDescription>

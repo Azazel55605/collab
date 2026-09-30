@@ -21,6 +21,8 @@ export type TableInsert =
   | { kind: 'range'; grid: SnapshotValue[][]; source: string };
 
 interface DeckTableDialogProps {
+  /** Where focus goes when the dialog closes (the slide, rather than the menu that opened it). */
+  onReturnFocus?: () => void;
   open: boolean;
   workbooks: string[];
   onOpenChange: (open: boolean) => void;
@@ -30,6 +32,7 @@ interface DeckTableDialogProps {
 
 /** Inserts a blank table, or a copy of a workbook range as table text. */
 export function DeckTableDialog({
+  onReturnFocus,
   open,
   workbooks,
   onOpenChange,
@@ -69,7 +72,14 @@ export function DeckTableDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className="sm:max-w-md"
+        onCloseAutoFocus={(event) => {
+          if (!onReturnFocus) return;
+          event.preventDefault();
+          onReturnFocus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Insert table</DialogTitle>
           <DialogDescription>

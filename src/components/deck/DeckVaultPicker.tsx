@@ -16,6 +16,8 @@ import {
 import { Input } from '../ui/input';
 
 interface DeckVaultPickerProps {
+  /** Where focus goes when the dialog closes (the slide, rather than the menu that opened it). */
+  onReturnFocus?: () => void;
   open: boolean;
   title: string;
   description: string;
@@ -33,6 +35,7 @@ const MAX_SHOWN = 200;
 
 /** Picks a file from the vault, filtered by type and by a search. */
 export function DeckVaultPicker({
+  onReturnFocus,
   open,
   title,
   description,
@@ -65,7 +68,14 @@ export function DeckVaultPicker({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent
+        className="sm:max-w-lg"
+        onCloseAutoFocus={(event) => {
+          if (!onReturnFocus) return;
+          event.preventDefault();
+          onReturnFocus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>

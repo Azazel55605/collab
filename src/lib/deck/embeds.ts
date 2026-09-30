@@ -84,7 +84,13 @@ function wrap(lines: string[], width: number): string[] {
  * self-contained SVG. Every string is escaped; nothing is fetched.
  */
 export function notePreviewSvg(title: string, markdown: string): string {
-  const excerpt = wrap(markdownExcerpt(markdown), LINE_CHARS);
+  const lines = markdownExcerpt(markdown);
+  // A leading heading that repeats the title is already shown as the title.
+  if (lines[0]?.trim().toLowerCase() === title.trim().toLowerCase()) {
+    lines.shift();
+    while (lines[0] === '') lines.shift();
+  }
+  const excerpt = wrap(lines, LINE_CHARS);
   const shown = excerpt.slice(0, MAX_LINES);
   if (excerpt.length > MAX_LINES) shown.push('…');
   const lineHeight = 30;
