@@ -15,7 +15,7 @@ verifyDepsBeforeRun: false
 overrides:
   '@hono/node-server@>=1.0.0 <1.19.15': 1.19.15
   'body-parser@>=2.0.0 <2.3.0': 2.3.0
-  'brace-expansion@>=3.0.0 <5.0.9': 5.0.9
+  'brace-expansion@>=3.0.0 <5.0.12': 5.0.12
   # mermaid declares ^3.3.3 and so already permits this; without the override
   # pnpm keeps a second, older copy alongside our direct dependency.
   'dompurify@<3.4.13': 3.4.13
