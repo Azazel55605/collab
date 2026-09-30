@@ -127,7 +127,8 @@ function fragmentSvg(
   );
 }
 
-function textSvg(
+/** Text drawn into a box at `offsetX`/`offsetY`, in the caller's (deck unit) space. */
+export function textSvg(
   body: ResolvedTextBody,
   width: number,
   height: number,

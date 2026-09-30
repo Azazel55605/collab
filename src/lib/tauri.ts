@@ -522,6 +522,14 @@ export const tauriCommands = {
   /** Materialize bytes to a temp file (for dragging a hosted file out to the OS). */
   writeTempFileForDrag: (fileName: string, contentBase64: string) =>
     invoke<string>('write_temp_file_for_drag', { fileName, contentBase64 }),
+  /** Save dialog for an exported file of one type. */
+  showExportDialog: (defaultName: string, filter: { name: string; extensions: string[] }) =>
+    save({ title: 'Export', defaultPath: defaultName, filters: [filter] }),
+  /** Folder picker for exports that write several files. */
+  showExportFolderDialog: async () => {
+    const result = await open({ directory: true, multiple: false, title: 'Export to folder' });
+    return typeof result === 'string' ? result : null;
+  },
   showSaveDialog: async (defaultName: string) =>
     save({
       title: 'Export Vault as ZIP',

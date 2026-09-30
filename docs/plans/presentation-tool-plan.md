@@ -5,7 +5,7 @@
 Phase 0 is complete except for its external-application and cross-platform
 gates. The frozen contract, measurements, and decisions are in the
 [Phase 0 Contract](./presentation-phase0-contract.md); where this plan and the
-contract differ, the contract wins. Phases 1-4 are complete; Phase 5 is next.
+contract differ, the contract wins. Phases 1-5 are complete; Phase 6 is next.
 
 This plan defines a first-party presentation editor for Collab. It follows the
 same product boundary as Advanced Tables: Collab owns the editable document
@@ -487,7 +487,7 @@ Security requirements:
 | 2. Desktop scene editor foundation                    | Complete    | Build slide navigation, stage rendering, selection, transforms, snapping, ordering, clipboard, and undo/redo.       |
 | 3. Rich text, themes, masters, and layouts            | Complete    | Deliver text editing, placeholders, theme inheritance, reusable layouts, and templates.                             |
 | 4. Visual objects and Collab data integration         | Complete    | Add images, SVG, shapes, lines, groups, tables, charts, `.sheet` snapshots, and note links.                         |
-| 5. Presentation mode and speaker workflow             | Not started | Add fullscreen playback, notes, presenter view, navigation, handouts, and PDF/image output.                         |
+| 5. Presentation mode and speaker workflow             | Complete    | Add fullscreen playback, notes, presenter view, navigation, handouts, and PDF/image output.                         |
 | 6. Hosted collaboration and offline behavior          | Not started | Add the deck-specific CRDT codec, awareness, offline replica merge, recovery, and physical multi-client validation. |
 | 7. Compatible PPTX export                             | Not started | Generate tested `.pptx` copies with a support matrix and visible conversion report.                                 |
 | 8. Mobile viewer and presentation companion           | Not started | Add offline viewing, notes, touch navigation, playback, and remote controls.                                        |
@@ -747,11 +747,77 @@ remembered slide); PNG slide exports and PPTX handling of SVG images (Phase 7).
 
 ### Phase 5: Presentation Mode And Speaker Workflow
 
-- Add fullscreen playback and presenter view.
-- Add notes, timer, next-slide preview, and display selection.
-- Add temporary pointer/ink/black-screen controls.
-- Add PDF, images, handouts, and print.
-- Handle window/display loss and reduced motion.
+Complete. Presenting and every export read the deck and never write it; the
+only way playback changes a deck is keeping ink, which the person chooses. No
+schema change was needed.
+
+- [x] Slide show (`DeckPresenter`): full screen (the app window, or the
+      browser's full screen outside the app), from the beginning (F5) or this
+      slide (Shift+F5). Next: click, tap, Space, →, ↓, Page Down, Enter, N,
+      wheel, or a left swipe; previous: right click, ←, ↑, Page Up,
+      Backspace, P, or a right swipe; Home and End; a number and Enter goes
+      to that slide, hidden or not. Hidden slides are otherwise skipped. After
+      the last slide an end screen waits for one more click or Esc. Links on
+      slides work: slide links jump, web links open in the browser, vault
+      links end the show and open the document. Keys never reach the editor
+      behind the show.
+- [x] Presenter view (Alt+F5, or from the show): current slide with the same
+      tools, next slide, speaker notes with adjustable size, a timer that can
+      pause and reset (T, R), the clock, and slide position. The slides go to
+      a second display in a separate audience window (`presentWindow.ts`); the
+      display can be changed during the show. With one display the presenter
+      view rehearses in place, and "Show slides here" switches to the show.
+- [x] Temporary ink and pointers: pen, highlighter, and whole-stroke eraser
+      in six colours (Ctrl+P, Ctrl+I, Ctrl+E; E clears the slide), laser
+      pointer (L), black and white screen (B or ., W or ,), and a slide grid
+      (G or -). Ink is kept per slide for the length of the show. On exit, if
+      anything was drawn, the editor asks whether to keep it: kept ink becomes
+      a transparent, full-slide SVG image on each slide drawn on (written
+      beside the deck under a new name each time), as one undo step.
+- [x] Recovery: the audience window holds no document — it draws frames the
+      presenter sends — so losing it loses nothing. If it closes or its
+      display disappears (checked every three seconds), the show continues in
+      the main window at the same slide with ink and timer intact, and says
+      so. Leaving the show restores the window's previous full-screen state.
+- [x] Reduced motion: slides cross-fade only when motion is on (the app
+      setting and the system preference); otherwise they cut.
+- [x] PDF export: slides, or handouts on A4 or Letter in either orientation
+      with 1, 2, 3, 4, 6, or 9 slides per page, optionally with speaker notes
+      (a notes page for 1, slide-and-notes rows for 2 or 3). All slides
+      (hidden ones optional), the current slide, the selected slides, or a
+      range such as `1-3, 5`. Rendering is cancellable, with progress, and
+      saves through the native save dialog. Ctrl+P opens export and print.
+- [x] The contract's open decision, decided: **raster pages with an invisible
+      text layer** (`pdf.ts`). Each page is an image of the slide, so it
+      matches the editor, and the words drawn on it are laid over it
+      invisibly at the same place (`textLayer.ts`), so the PDF can be
+      searched, selected, and copied, and read aloud. The text layer uses one
+      composite font with a `ToUnicode` map built per document, so any script,
+      including characters outside the Basic Multilingual Plane, extracts
+      exactly (checked with pdf.js). Web and slide links become PDF links.
+      The PDF has the deck's name as its title.
+- [x] Slide images: PNG (1×, 2×, or 4×) or SVG, for one slide through the
+      save dialog or several into a chosen folder, one file per slide.
+- [x] Print: the same slide or handout pages, as vector SVG, through the
+      system print dialog, one sheet per page at its exact size.
+
+Checked in Chromium through the editor harness: the show, keyboard and mouse
+navigation, blanking, pen and laser, the slide grid, keeping ink, the
+presenter view, print of handouts, and a real rasterized handout PDF whose
+text pdf.js extracts. The harness found two real defects, both fixed: the
+Phase 0 rasterizer (`createImageBitmap` on an SVG blob) cannot decode SVG in
+Chromium, so export now draws the SVG as an image into a canvas; and the next
+slide preview did not scale.
+
+Not checked here: the audience window on real second displays, which needs
+the desktop app (the container cannot build it). Its window and permission
+code is written against Tauri 2.12's API and capability names, and every call
+falls back to single-window presenting.
+
+Known limits: rasterized pages draw text with installed fonts, because an SVG
+drawn as an image cannot use the page's web fonts (the inline editor and print
+can); a deck using a web-only font rasterizes with its fallback. A dedicated
+touch-remote and phone presenter are Phase 8.
 
 ### Phase 6: Hosted Collaboration And Offline Behavior
 

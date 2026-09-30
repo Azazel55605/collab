@@ -13,6 +13,7 @@ import {
   ArrowUpToLine,
   BarChart3,
   Circle,
+  Download,
   FileText,
   Group,
   ImageIcon,
@@ -20,10 +21,12 @@ import {
   Loader2,
   Lock,
   Minus,
+  MonitorPlay,
   MoveRight,
   Paintbrush,
   PanelLeft,
   PanelRight,
+  Play,
   Plus,
   Presentation,
   Redo2,
@@ -44,11 +47,15 @@ import { DeckChartDialog } from '../components/deck/DeckChartDialog';
 import type { ChartEdit } from '../components/deck/DeckChartDialog';
 import { DeckDesignRail } from '../components/deck/DeckDesignRail';
 import type { DeckDesignTarget } from '../components/deck/DeckDesignRail';
+import { DeckExportDialog } from '../components/deck/DeckExportDialog';
 import { DeckInspector } from '../components/deck/DeckInspector';
 import type { MasterTextClass, MasterTextStylePatch } from '../components/deck/DeckInspector';
 import { DeckLinkDialog } from '../components/deck/DeckLinkDialog';
 import { DeckObjectToolbar } from '../components/deck/DeckObjectToolbar';
 import type { TableAction } from '../components/deck/DeckObjectToolbar';
+import { DeckPresenter } from '../components/deck/DeckPresenter';
+import type { DeckPresentMode, DeckPresentSummary } from '../components/deck/DeckPresenter';
+import { DeckPrintHost } from '../components/deck/DeckPrintHost';
 import { DeckSlideRail } from '../components/deck/DeckSlideRail';
 import type { DeckRailAction } from '../components/deck/DeckSlideRail';
 import { DeckStage } from '../components/deck/DeckStage';
@@ -59,6 +66,7 @@ import type { TextEditKind } from '../components/deck/DeckTextEditor';
 import { DeckTextToolbar } from '../components/deck/DeckTextToolbar';
 import type { DeckFontChoice, TextBoxSettings } from '../components/deck/DeckTextToolbar';
 import { DeckVaultPicker } from '../components/deck/DeckVaultPicker';
+import { useDeckExport } from '../components/deck/useDeckExport';
 import {
   DocumentTopBar,
   DocumentTopBarButton,
@@ -68,6 +76,7 @@ import {
   getDocumentFolderPath,
 } from '../components/layout/DocumentTopBar';
 import { ReadOnlyBanner } from '../components/layout/ReadOnlyBanner';
+import { Button } from '../components/ui/button';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -76,6 +85,14 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger,
 } from '../components/ui/context-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -110,6 +127,7 @@ import {
 import {
   deckAssetFolder,
   embedPreviewName,
+  inkAnnotationName,
   NOTE_PREVIEW_SIZE,
   notePreviewSvg,
   slideExportMarkdown,
@@ -145,6 +163,8 @@ import {
   updateElements,
 } from '../lib/deck/operations';
 import type { DeckEdit, DeckOperation, DeckReorder, DeckTargetRef } from '../lib/deck/operations';
+import { inkAnnotationSvg } from '../lib/deck/playback';
+import type { PlaybackInk } from '../lib/deck/playback';
 import { plainText, resolveDesign, resolveSlide, resolveTarget } from '../lib/deck/resolve';
 import type {
   DeckTarget,
@@ -190,7 +210,7 @@ import {
   targetGeometry,
 } from '../lib/deck/transform';
 import type { DeckAlignment, ElementUpdaters } from '../lib/deck/transform';
-import { normalizeRotation } from '../lib/deck/units';
+import { normalizeRotation, unitsToPx } from '../lib/deck/units';
 import { useDeckSession } from '../lib/deck/useDeckSession';
 import { flattenVaultPaths, takeSheetSnapshot, writeVaultImage } from '../lib/deck/vaultAssets';
 import type {
@@ -1836,6 +1856,107 @@ export default function DeckView({ relativePath }: DeckViewProps) {
     }
   };
 
+  /* Presenting and export ---------------------------------------------------- */
+
+  const deckTitle = getDocumentBaseName(relativePath, 'Presentation').replace(/\.deck$/i, '');
+  const deckExport = useDeckExport({ document, title: deckTitle, measurer, resolveAsset });
+  const [exportOpen, setExportOpen] = useState(false);
+  const [presenting, setPresenting] = useState<{
+    mode: DeckPresentMode;
+    startSlideId: string | null;
+  } | null>(null);
+  const [inkToKeep, setInkToKeep] = useState<PlaybackInk | null>(null);
+
+  const present = (mode: DeckPresentMode, from: 'start' | 'current') => {
+    if (!document || !supported || slideOrder.length === 0) return;
+    flushText();
+    endTextSession();
+    if (designTarget) setDesignTarget(null);
+    const first = slideOrder.find((id) => !document.slides[id]?.hidden) ?? slideOrder[0];
+    setPresenting({ mode, startSlideId: from === 'current' ? activeSlideId : first });
+  };
+
+  const endPresentation = (summary: DeckPresentSummary) => {
+    setPresenting(null);
+    const slideId = summary.slideId;
+    if (slideId && slideOrder.includes(slideId)) {
+      setViewState((current) => ({ ...current, slideId }));
+    }
+    const drawn = Object.values(summary.ink).some((strokes) => strokes.length > 0);
+    if (drawn && editable) setInkToKeep(summary.ink);
+    window.setTimeout(() => focusCanvas(), 0);
+  };
+
+  /** Writes each slide's ink as a transparent SVG and places it over the slide, as one undo step. */
+  const keepInk = async (ink: PlaybackInk) => {
+    setInkToKeep(null);
+    if (!client || !vault || !document) return;
+    try {
+      const { width, height } = document.size;
+      const additions: Array<{ slideId: string; element: DeckElement }> = [];
+      for (const [slideId, strokes] of Object.entries(ink)) {
+        if (strokes.length === 0 || !document.slides[slideId]) continue;
+        const dataUrl = svgDataUrl(
+          inkAnnotationSvg(strokes, width, height, unitsToPx(width), unitsToPx(height)),
+        );
+        const path = await writeVaultImage(
+          client,
+          vault,
+          deckAssetFolder(relativePath),
+          inkAnnotationName(slideId, Date.now()),
+          dataUrl,
+          false,
+        );
+        const asset = await describeImage(path, dataUrl);
+        additions.push({
+          slideId,
+          element: {
+            id: nextId('ink'),
+            type: 'image',
+            name: 'Ink annotations',
+            frame: { x: 0, y: 0, width, height },
+            asset,
+          },
+        });
+      }
+      void refreshFileTree();
+      if (additions.length === 0) return;
+      const kept = commit('Keep ink annotations', (current) =>
+        composeEdits(
+          current,
+          additions
+            .filter((entry) => current.slides[entry.slideId])
+            .map(
+              (entry) => (deck: DeckDocument) => addElements(deck, entry.slideId, [entry.element]),
+            ),
+        ),
+      );
+      if (kept) {
+        toast.success(
+          additions.length === 1
+            ? 'Ink kept on 1 slide.'
+            : `Ink kept on ${additions.length} slides.`,
+          { description: 'Each slide’s ink is an image you can move, hide, or delete.' },
+        );
+      }
+    } catch (error) {
+      reportError(error);
+    }
+  };
+
+  const openPresentationLink = (href: string) => {
+    if (!/^(https?:|mailto:)/i.test(href)) return;
+    void import('@tauri-apps/plugin-opener')
+      .then(({ openUrl }) => openUrl(href))
+      .catch(() => window.open(href, '_blank', 'noopener'));
+  };
+
+  const openVaultLink = (path: string) => {
+    const type = getVaultDocumentTabType(path);
+    openTab(path, getVaultDocumentTitle(path), type);
+    setActiveView(getVaultDocumentView(type));
+  };
+
   /* Position and size */
 
   const singleObject =
@@ -2308,6 +2429,12 @@ export default function DeckView({ relativePath }: DeckViewProps) {
       action();
     };
 
+    if (key === 'F5' && !mod) {
+      return run(() =>
+        present(event.altKey ? 'presenter' : 'slideshow', event.shiftKey ? 'current' : 'start'),
+      );
+    }
+    if (mod && lower === 'p') return run(() => setExportOpen(true));
     if (mod && lower === 'z') return run(() => undoOrRedo(event.shiftKey ? 'redo' : 'undo'));
     if (mod && lower === 'y') return run(() => undoOrRedo('redo'));
     if (mod && lower === 's') return run(() => void session.save());
@@ -2813,6 +2940,37 @@ export default function DeckView({ relativePath }: DeckViewProps) {
               </DocumentTopBarIconButton>
             </div>
             <div className={documentTopBarGroupClass}>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <DocumentTopBarButton disabled={!supported || slideOrder.length === 0}>
+                    <Play size={14} />
+                    Present
+                  </DocumentTopBarButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => present('slideshow', 'start')}>
+                    From the beginning
+                    <DropdownMenuShortcut>F5</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => present('slideshow', 'current')}>
+                    From this slide
+                    <DropdownMenuShortcut>Shift+F5</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => present('presenter', 'start')}>
+                    <MonitorPlay size={13} /> Presenter view
+                    <DropdownMenuShortcut>Alt+F5</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DocumentTopBarIconButton
+                onClick={() => setExportOpen(true)}
+                disabled={!supported || slideOrder.length === 0}
+                aria-label="Export or print"
+              >
+                <Download size={14} />
+              </DocumentTopBarIconButton>
+            </div>
+            <div className={documentTopBarGroupClass}>
               <DocumentTopBarButton
                 onClick={() => {
                   flushText();
@@ -3162,6 +3320,63 @@ export default function DeckView({ relativePath }: DeckViewProps) {
         }}
         onApply={applyLink}
       />
+      <DeckExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        onReturnFocus={focusCanvas}
+        slideCount={slideOrder.length}
+        currentNumber={Math.max(1, activeIndex + 1)}
+        selectedNumbers={slideSelection.map((id) => slideOrder.indexOf(id) + 1)}
+        progress={deckExport.progress}
+        onCancel={deckExport.cancel}
+        onExport={(request) => {
+          void deckExport.exportDeck(request).then((done) => done && setExportOpen(false));
+        }}
+        onPrint={(request) => {
+          if (deckExport.printDeck(request)) setExportOpen(false);
+        }}
+      />
+      {deckExport.printPages && (
+        <DeckPrintHost pages={deckExport.printPages} onDone={deckExport.finishPrint} />
+      )}
+      <Dialog open={inkToKeep !== null} onOpenChange={(open) => !open && setInkToKeep(null)}>
+        <DialogContent
+          className="sm:max-w-sm"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            focusCanvas();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Keep ink annotations?</DialogTitle>
+            <DialogDescription>
+              Ink drawn during the show is not part of the presentation. Keep it as an image on each
+              slide you drew on, or discard it.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setInkToKeep(null)}>
+              Discard
+            </Button>
+            <Button type="button" onClick={() => inkToKeep && void keepInk(inkToKeep)}>
+              Keep
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {presenting && document && (
+        <DeckPresenter
+          deck={document}
+          startSlideId={presenting.startSlideId}
+          mode={presenting.mode}
+          measurer={measurer}
+          resolveAsset={resolveAsset}
+          onExit={endPresentation}
+          onOpenUrl={openPresentationLink}
+          onOpenVaultLink={openVaultLink}
+          onNotice={(message) => toast.info(message)}
+        />
+      )}
     </div>
   );
 }

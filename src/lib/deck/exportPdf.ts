@@ -1,45 +1,44 @@
 /**
- * Slide image and PDF output — the Phase 0 proof of the path, not the final
- * exporter.
+ * PDF and slide-image export.
  *
- * Each slide goes resolved scene → SVG (`svg.ts`) → raster → page, reusing the
- * bounded PDF writer the ink exporter already ships. Rasterizing is injected:
- * in the app it is an `OffscreenCanvas` in a worker; in tests it is a stub.
+ * Output pages (`output.ts`) go SVG → raster → PDF page, with each page's
+ * invisible text layer and links carried over (`pdf.ts`). Rasterizing is
+ * injected: in the app it is an image drawn to a canvas; in tests it is a stub.
  *
- * Raster pages keep slides pixel-identical to the editor but make PDF text
- * unselectable. Whether Phase 5 adds a vector PDF writer (real text, embedded
- * fonts) is an open decision recorded in the contract.
+ * Raster pages keep slides pixel-identical to the editor; the text layer keeps
+ * the PDF searchable and selectable. That is the Phase 5 answer to the
+ * contract's vector-or-raster decision.
  */
-import type { DeckAssetRef, DeckDocument } from '../../types/deck';
-import { buildInkPdf } from '../ink/exportPdf';
-import type { InkPdfImagePage } from '../ink/exportPdf';
+import type { DeckDocument } from '../../types/deck';
+import type { DeckAssetRef } from '../../types/deck';
 
-import { resolveDeck } from './resolve';
+import { buildOutputPages } from './output';
+import type { DeckOutputLayout, DeckOutputOptions, DeckOutputPage } from './output';
+import { buildDeckPdf } from './pdf';
+import type { DeckPdfPage } from './pdf';
+import { resolveSlide } from './resolve';
 import { renderSlideSvg } from './svg';
 import type { DeckTextMeasurer } from './textLayout';
-import { unitsToPoints, unitsToPx } from './units';
+import { unitsToPx } from './units';
 
-/** Turns one slide SVG into JPEG bytes at the given pixel size. */
+/** Turns one SVG into image bytes (JPEG unless the rasterizer says otherwise). */
 export type DeckRasterizer = (
   svg: string,
   pixelWidth: number,
   pixelHeight: number,
 ) => Promise<Uint8Array>;
 
-export interface DeckImageExportOptions {
-  measurer: DeckTextMeasurer;
+export interface DeckPdfExportOptions extends DeckOutputOptions {
   rasterize: DeckRasterizer;
-  resolveAsset?: (asset: DeckAssetRef) => string | null;
-  /** Output pixels per CSS pixel. 2 gives 2560 x 1440 for a widescreen slide. */
-  scale?: number;
-  slideIds?: string[];
-  includeHidden?: boolean;
+  /** Raster pixels per point. 2.667 (192 dpi) keeps slide text sharp in print. */
+  pixelsPerPoint?: number;
   isCancelled?: () => boolean;
   onProgress?: (completed: number, total: number) => void;
 }
 
-/** The longest raster edge any one slide may request. */
+/** The longest raster edge any one page may request. */
 export const DECK_MAX_RASTER_EDGE = 8_192;
+export const DEFAULT_PIXELS_PER_POINT = 192 / 72;
 
 export class DeckExportCancelledError extends Error {
   constructor() {
@@ -48,62 +47,141 @@ export class DeckExportCancelledError extends Error {
   }
 }
 
-export async function renderDeckPages(
-  deck: DeckDocument,
-  options: DeckImageExportOptions,
-): Promise<InkPdfImagePage[]> {
-  const wanted = options.slideIds ? new Set(options.slideIds) : null;
-  const slides = resolveDeck(deck).filter(
-    (slide) => (!wanted || wanted.has(slide.slideId)) && (options.includeHidden || !slide.hidden),
-  );
-  const scale = options.scale ?? 2;
-  const pages: InkPdfImagePage[] = [];
-  for (const [index, slide] of slides.entries()) {
+/** Pixel size for a page of `width` x `height` points, bounded to the raster edge. */
+export function rasterSize(
+  width: number,
+  height: number,
+  pixelsPerPoint: number,
+): { pixelWidth: number; pixelHeight: number } {
+  const longest = Math.max(width, height) * pixelsPerPoint;
+  const scale =
+    longest > DECK_MAX_RASTER_EDGE
+      ? (pixelsPerPoint * DECK_MAX_RASTER_EDGE) / longest
+      : pixelsPerPoint;
+  return {
+    pixelWidth: Math.max(1, Math.round(width * scale)),
+    pixelHeight: Math.max(1, Math.round(height * scale)),
+  };
+}
+
+export async function rasterizeOutputPages(
+  pages: readonly DeckOutputPage[],
+  options: Pick<
+    DeckPdfExportOptions,
+    'rasterize' | 'pixelsPerPoint' | 'isCancelled' | 'onProgress'
+  >,
+): Promise<DeckPdfPage[]> {
+  const out: DeckPdfPage[] = [];
+  for (const [index, page] of pages.entries()) {
     if (options.isCancelled?.()) throw new DeckExportCancelledError();
-    const longest = Math.max(unitsToPx(slide.width), unitsToPx(slide.height)) * scale;
-    const bounded =
-      longest > DECK_MAX_RASTER_EDGE ? (scale * DECK_MAX_RASTER_EDGE) / longest : scale;
-    const pixelWidth = Math.round(unitsToPx(slide.width) * bounded);
-    const pixelHeight = Math.round(unitsToPx(slide.height) * bounded);
-    const svg = renderSlideSvg(slide, {
-      measurer: options.measurer,
-      ...(options.resolveAsset ? { resolveAsset: options.resolveAsset } : {}),
+    const { pixelWidth, pixelHeight } = rasterSize(
+      page.width,
+      page.height,
+      options.pixelsPerPoint ?? DEFAULT_PIXELS_PER_POINT,
+    );
+    const jpeg = await options.rasterize(
+      page.svg(pixelWidth, pixelHeight),
       pixelWidth,
       pixelHeight,
-    });
-    pages.push({
-      jpeg: await options.rasterize(svg, pixelWidth, pixelHeight),
+    );
+    out.push({
+      width: page.width,
+      height: page.height,
+      jpeg,
       pixelWidth,
       pixelHeight,
-      pointWidth: unitsToPoints(slide.width),
-      pointHeight: unitsToPoints(slide.height),
+      text: page.text,
+      links: page.links,
     });
-    options.onProgress?.(index + 1, slides.length);
+    options.onProgress?.(index + 1, pages.length);
   }
-  return pages;
+  if (options.isCancelled?.()) throw new DeckExportCancelledError();
+  return out;
 }
 
-/** Renders the deck to a PDF with one page per visible slide, at the slide's physical size. */
-export async function exportDeckToPdf(
+/** Renders slides or handouts to a PDF with a text layer. */
+export async function exportDeckPdf(
   deck: DeckDocument,
-  options: DeckImageExportOptions,
+  layout: DeckOutputLayout,
+  options: DeckPdfExportOptions,
 ): Promise<Uint8Array> {
-  return buildInkPdf(await renderDeckPages(deck, options));
+  const pages = buildOutputPages(deck, layout, options);
+  if (pages.length === 0) throw new Error('There are no slides to export.');
+  return buildDeckPdf(await rasterizeOutputPages(pages, options), {
+    ...(options.title ? { title: options.title } : {}),
+  });
 }
 
-/** The in-app rasterizer: SVG → bitmap → JPEG, with no DOM and no network. */
-export const offscreenCanvasRasterizer: DeckRasterizer = async (svg, pixelWidth, pixelHeight) => {
-  const bitmap = await createImageBitmap(new Blob([svg], { type: 'image/svg+xml' }));
-  const canvas = new OffscreenCanvas(pixelWidth, pixelHeight);
+export interface DeckSlideImageOptions {
+  measurer: DeckTextMeasurer;
+  resolveAsset?: (asset: DeckAssetRef) => string | null;
+  /** Output pixels per CSS pixel of the slide at 100%. */
+  scale?: number;
+}
+
+/** One slide as a standalone SVG document at `scale`. */
+export function slideSvgDocument(
+  deck: DeckDocument,
+  slideId: string,
+  options: DeckSlideImageOptions,
+): { svg: string; pixelWidth: number; pixelHeight: number } {
+  const slide = resolveSlide(deck, slideId);
+  const scale = options.scale ?? 1;
+  const longest = Math.max(unitsToPx(slide.width), unitsToPx(slide.height)) * scale;
+  const bounded = longest > DECK_MAX_RASTER_EDGE ? (scale * DECK_MAX_RASTER_EDGE) / longest : scale;
+  const pixelWidth = Math.round(unitsToPx(slide.width) * bounded);
+  const pixelHeight = Math.round(unitsToPx(slide.height) * bounded);
+  const svg = renderSlideSvg(slide, {
+    measurer: options.measurer,
+    ...(options.resolveAsset ? { resolveAsset: options.resolveAsset } : {}),
+    pixelWidth,
+    pixelHeight,
+  });
+  return { svg, pixelWidth, pixelHeight };
+}
+
+/** Loads an SVG document as an image. `createImageBitmap` cannot decode SVG in Chromium. */
+function loadSvgImage(svg: string): Promise<HTMLImageElement> {
+  const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+  const image = new Image();
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('A slide could not be drawn for export.'));
+    image.src = url;
+  }).finally(() => URL.revokeObjectURL(url));
+}
+
+async function canvasRaster(
+  svg: string,
+  pixelWidth: number,
+  pixelHeight: number,
+  type: 'image/jpeg' | 'image/png',
+): Promise<Uint8Array> {
+  const image = await loadSvgImage(svg);
+  const canvas = document.createElement('canvas');
+  canvas.width = pixelWidth;
+  canvas.height = pixelHeight;
   const context = canvas.getContext('2d');
-  if (!context) {
-    bitmap.close();
-    throw new Error('The export canvas is not available in this runtime.');
+  if (!context) throw new Error('The export canvas is not available in this runtime.');
+  if (type === 'image/jpeg') {
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, pixelWidth, pixelHeight);
   }
-  context.fillStyle = '#ffffff';
-  context.fillRect(0, 0, pixelWidth, pixelHeight);
-  context.drawImage(bitmap, 0, 0, pixelWidth, pixelHeight);
-  bitmap.close();
-  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.92 });
+  context.drawImage(image, 0, 0, pixelWidth, pixelHeight);
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, type, type === 'image/jpeg' ? 0.92 : undefined),
+  );
+  if (!blob) throw new Error('A slide could not be encoded for export.');
   return new Uint8Array(await blob.arrayBuffer());
-};
+}
+
+/**
+ * The in-app rasterizer: SVG → image → canvas → JPEG. The SVG is
+ * self-contained (inline assets only), so nothing is fetched.
+ */
+export const canvasRasterizer: DeckRasterizer = (svg, pixelWidth, pixelHeight) =>
+  canvasRaster(svg, pixelWidth, pixelHeight, 'image/jpeg');
+
+/** SVG → PNG, for slide images. */
+export const pngRasterizer: DeckRasterizer = (svg, pixelWidth, pixelHeight) =>
+  canvasRaster(svg, pixelWidth, pixelHeight, 'image/png');

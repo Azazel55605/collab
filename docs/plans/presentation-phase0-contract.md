@@ -306,9 +306,14 @@ requested, and export is cancellable between slides. The fixture's SVGs
 render correctly in an independent SVG engine (rsvg), and match LibreOffice's
 rendering of the exported `.pptx` in layout and colour.
 
-Raster pages make PDF text unselectable. **Open decision for Phase 5:** a
-vector PDF writer (real text with embedded fonts) for handouts and
-accessibility, or raster pages with an invisible text layer.
+Raster pages alone would make PDF text unselectable. **Decided in Phase 5:**
+raster pages with an invisible text layer (`pdf.ts`, `textLayer.ts`). The
+page image keeps the slide identical to the editor; the text drawn on it is
+laid over it invisibly in place, through one composite font with a per-document
+`ToUnicode` map, so any script extracts exactly. A vector writer would have
+needed font embedding and subsetting for every script a deck can hold. The
+rasterizer draws the SVG as an image into a canvas, because Chromium's
+`createImageBitmap` cannot decode SVG.
 
 ## Measured Baselines
 
@@ -361,18 +366,18 @@ several runs, so a busy machine does not fail a healthy build.
 The plan's gate: _no editor implementation begins until text layout, CRDT text,
 coordinate conversion, and PPTX export are demonstrably feasible._
 
-| Exit-gate requirement                                                         | Status                                                                  |
-| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Freeze extension, media type, schema, units, limits, compatibility language   | **Met** — `src/types/deck.ts`, this document                            |
-| 3-5 slide renderer proof: text, shapes, image crop, tables, theme inheritance | **Met** — five-slide fixture through `resolve.ts` and `svg.ts`          |
-| Identical scene output in editor, thumbnail, and presentation mode            | **Met** — byte-identical SVG apart from output size                     |
-| Compare text measurement/wrapping on Linux, Windows, and Android WebView      | **Partly met** — Chromium on Linux measured; other engines open         |
-| Evaluate Lexical versus a first-party adapter                                 | **Met** — Lexical proven viable, not adopted, for the stated reason     |
-| Same-text-box collaboration with `Y.Text` formatting                          | **Met** — ten concurrency cases against real Yjs                        |
-| PPTX fixtures through an isolated PptxGenJS adapter                           | **Met** — structural tests plus a real LibreOffice render               |
-| Inspect PPTX in PowerPoint, LibreOffice, and Google Slides                    | **Partly met** — LibreOffice done; PowerPoint and Google Slides open    |
-| PDF and slide-image output                                                    | **Met** — SVG and PDF path; raster step proven with an injected encoder |
-| Dependency licences, bundle impact, worker feasibility                        | **Met** — see the Lexical and PowerPoint findings                       |
+| Exit-gate requirement                                                         | Status                                                               |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Freeze extension, media type, schema, units, limits, compatibility language   | **Met** — `src/types/deck.ts`, this document                         |
+| 3-5 slide renderer proof: text, shapes, image crop, tables, theme inheritance | **Met** — five-slide fixture through `resolve.ts` and `svg.ts`       |
+| Identical scene output in editor, thumbnail, and presentation mode            | **Met** — byte-identical SVG apart from output size                  |
+| Compare text measurement/wrapping on Linux, Windows, and Android WebView      | **Partly met** — Chromium on Linux measured; other engines open      |
+| Evaluate Lexical versus a first-party adapter                                 | **Met** — Lexical proven viable, not adopted, for the stated reason  |
+| Same-text-box collaboration with `Y.Text` formatting                          | **Met** — ten concurrency cases against real Yjs                     |
+| PPTX fixtures through an isolated PptxGenJS adapter                           | **Met** — structural tests plus a real LibreOffice render            |
+| Inspect PPTX in PowerPoint, LibreOffice, and Google Slides                    | **Partly met** — LibreOffice done; PowerPoint and Google Slides open |
+| PDF and slide-image output                                                    | **Met** — SVG and PDF path; Phase 5 rasterizes in the browser        |
+| Dependency licences, bundle impact, worker feasibility                        | **Met** — see the Lexical and PowerPoint findings                    |
 
 ### The open items
 

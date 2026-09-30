@@ -55,6 +55,31 @@ vi.mock('../lib/vaultReplica', () => ({
   replicaMutationAffectsPath: vi.fn(() => false),
 }));
 
+const tauriMocks = vi.hoisted(() => ({
+  showExportDialog: vi.fn(),
+  writeDownloadedFile: vi.fn(),
+}));
+vi.mock('../lib/tauri', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/tauri')>();
+  return {
+    ...actual,
+    tauriCommands: {
+      ...actual.tauriCommands,
+      showExportDialog: tauriMocks.showExportDialog,
+      writeDownloadedFile: tauriMocks.writeDownloadedFile,
+    },
+  };
+});
+
+// jsdom has no OffscreenCanvas; any bytes stand in for a page image.
+vi.mock('../lib/deck/exportPdf', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/deck/exportPdf')>();
+  return {
+    ...actual,
+    canvasRasterizer: async () => new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+  };
+});
+
 const toastMocks = vi.hoisted(() => ({
   error: vi.fn(),
   success: vi.fn(),
@@ -891,5 +916,72 @@ describe('DeckView: objects and Collab data', () => {
       (element) => element.type === 'line',
     );
     expect(line?.type === 'line' && line.to).toEqual({ x: 10_000, y: 5_000 });
+  });
+});
+
+describe('DeckView: presenting and export', () => {
+  beforeEach(() => {
+    clientMocks.listFiles.mockResolvedValue([]);
+  });
+
+  it('presents from this slide and returns the editor to the last slide shown', async () => {
+    await openDeck();
+    await showSlide(1);
+    fireEvent.click(menuItem('From this slide'));
+    expect(await screen.findByRole('dialog', { name: 'Slide show' })).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Slide show' })).toBeNull();
+    await screen.findByText('Slide 3 of 5');
+    // Presenting never changed the deck.
+    expect(clientMocks.writeDocument).not.toHaveBeenCalled();
+  });
+
+  it('starts from the beginning with F5 and keeps ink only when asked', async () => {
+    await openDeck();
+    await showSlide(2);
+    key(canvas(), 'F5');
+    expect(await screen.findByRole('dialog', { name: 'Slide show' })).toBeTruthy();
+    expect(screen.getByText('1 / 5')).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'p', ctrlKey: true });
+    const input = screen.getByTestId('deck-playback-input');
+    fireEvent.pointerDown(input, { button: 0, pointerId: 1, clientX: 50, clientY: 50 });
+    fireEvent.pointerMove(input, { pointerId: 1, clientX: 250, clientY: 150 });
+    fireEvent.pointerUp(input, { pointerId: 1, clientX: 250, clientY: 150 });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(await screen.findByText('Keep ink annotations?')).toBeTruthy();
+    clientMocks.importData.mockResolvedValueOnce('Talks/Fixture assets/ink.svg');
+    fireEvent.click(screen.getByRole('button', { name: 'Keep' }));
+    await waitFor(() => expect(clientMocks.importData).toHaveBeenCalled());
+    const [dataUrl, name, folder] = clientMocks.importData.mock.calls[0];
+    expect(dataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(folder).toBe('Talks/Fixture assets');
+    expect(name).toMatch(/^ink-slide-1-.*\.svg$/);
+    await screen.findByLabelText('Undo Keep ink annotations');
+    const saved = await savedDeck();
+    const ink = Object.values(saved.slides['slide-1'].elements).find(
+      (element) => element.type === 'image' && element.name === 'Ink annotations',
+    );
+    expect(ink?.frame).toEqual({ x: 0, y: 0, width: 96_000, height: 54_000 });
+  });
+
+  it('exports a PDF through the save dialog without touching the deck', async () => {
+    tauriMocks.showExportDialog.mockResolvedValue('/home/me/Fixture.pdf');
+    tauriMocks.writeDownloadedFile.mockResolvedValue(undefined);
+    await openDeck();
+    fireEvent.click(screen.getByRole('button', { name: 'Export or print' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Export…/ }));
+    await waitFor(() => expect(tauriMocks.writeDownloadedFile).toHaveBeenCalled());
+    expect(tauriMocks.showExportDialog).toHaveBeenCalledWith('Fixture.pdf', {
+      name: 'PDF',
+      extensions: ['pdf'],
+    });
+    const [destination, base64] = tauriMocks.writeDownloadedFile.mock.calls[0];
+    expect(destination).toBe('/home/me/Fixture.pdf');
+    const pdf = atob(base64);
+    expect(pdf.startsWith('%PDF-1.4')).toBe(true);
+    expect(pdf).toContain('/Count 5');
+    expect(pdf).toContain('/Title');
+    expect(clientMocks.writeDocument).not.toHaveBeenCalled();
   });
 });
