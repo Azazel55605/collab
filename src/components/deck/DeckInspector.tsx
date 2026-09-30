@@ -12,6 +12,7 @@ import { DECK_THEME_COLOR_TOKENS, DECK_UNITS_PER_POINT } from '../../types/deck'
 import type {
   DeckColor,
   DeckDocument,
+  DeckElement,
   DeckFill,
   DeckRunStyle,
   DeckTextLevelStyle,
@@ -58,6 +59,15 @@ interface DeckInspectorProps {
     level: number,
     patch: MasterTextStylePatch,
   ) => void;
+  /** The one selected object, for position, size, and alt text. */
+  object?: {
+    element: DeckElement;
+    frame: { x: number; y: number; width: number; height: number; rotation: number };
+  } | null;
+  onObjectFrame?: (
+    patch: Partial<{ x: number; y: number; width: number; height: number; rotation: number }>,
+  ) => void;
+  onObjectText?: (patch: { altText?: string; name?: string }) => void;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -144,18 +154,21 @@ function NumberField({
   label,
   value,
   disabled,
+  signed = false,
   onCommit,
 }: {
   label: string;
   value: number | undefined;
   disabled: boolean;
+  /** Accepts zero and negative values (positions, rotation). */
+  signed?: boolean;
   onCommit: (value: number) => void;
 }) {
   const [draft, setDraft] = useState(value === undefined ? '' : String(value));
   useEffect(() => setDraft(value === undefined ? '' : String(value)), [value]);
   const commit = () => {
     const parsed = Number(draft);
-    if (Number.isFinite(parsed) && parsed > 0 && parsed !== value) onCommit(parsed);
+    if (Number.isFinite(parsed) && (signed || parsed > 0) && parsed !== value) onCommit(parsed);
     else setDraft(value === undefined ? '' : String(value));
   };
   return (
@@ -315,6 +328,85 @@ function MasterTextStyles({
   );
 }
 
+const POINTS = (units: number) => Math.round((units / DECK_UNITS_PER_POINT) * 10) / 10;
+
+/** Position, size, rotation, name, and alt text of one selected object. */
+function ObjectSection({
+  object,
+  readOnly,
+  onFrame,
+  onText,
+}: {
+  object: NonNullable<DeckInspectorProps['object']>;
+  readOnly: boolean;
+  onFrame: NonNullable<DeckInspectorProps['onObjectFrame']>;
+  onText: NonNullable<DeckInspectorProps['onObjectText']>;
+}) {
+  const { element, frame } = object;
+  const [alt, setAlt] = useState(element.altText ?? '');
+  useEffect(() => setAlt(element.altText ?? ''), [element.altText]);
+  const isLine = element.type === 'line';
+  const toUnits = (points: number) => Math.round(points * DECK_UNITS_PER_POINT);
+  return (
+    <Section title="Position and size">
+      <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+        <NumberField
+          label="X (pt)"
+          signed
+          value={POINTS(frame.x)}
+          disabled={readOnly}
+          onCommit={(value) => onFrame({ x: toUnits(value) })}
+        />
+        <NumberField
+          label="Y (pt)"
+          signed
+          value={POINTS(frame.y)}
+          disabled={readOnly}
+          onCommit={(value) => onFrame({ y: toUnits(value) })}
+        />
+        {!isLine && (
+          <>
+            <NumberField
+              label="W (pt)"
+              value={POINTS(frame.width)}
+              disabled={readOnly}
+              onCommit={(value) => onFrame({ width: toUnits(value) })}
+            />
+            <NumberField
+              label="H (pt)"
+              value={POINTS(frame.height)}
+              disabled={readOnly}
+              onCommit={(value) => onFrame({ height: toUnits(value) })}
+            />
+            <NumberField
+              label="Angle (°)"
+              signed
+              value={Math.round(frame.rotation) / 100}
+              disabled={readOnly}
+              onCommit={(value) => onFrame({ rotation: Math.round(value * 100) })}
+            />
+          </>
+        )}
+      </div>
+      <label className="flex flex-col gap-1 pt-1 text-xs">
+        <span className="text-muted-foreground">Alt text</span>
+        <textarea
+          aria-label="Alt text"
+          className="min-h-14 rounded-md border border-input bg-transparent px-2 py-1 text-xs outline-none focus-visible:border-ring"
+          maxLength={4_096}
+          placeholder="Describe this for people who cannot see it"
+          value={alt}
+          disabled={readOnly}
+          onChange={(event) => setAlt(event.target.value)}
+          onBlur={() => {
+            if (alt !== (element.altText ?? '')) onText({ altText: alt });
+          }}
+        />
+      </label>
+    </Section>
+  );
+}
+
 /**
  * The editor's right panel: the current slide's layout and background, and
  * the deck's design — template, theme colours and fonts — or, in the design
@@ -336,6 +428,9 @@ export function DeckInspector({
   onLayoutChange,
   onDesignBackground,
   onMasterTextStyle,
+  object,
+  onObjectFrame,
+  onObjectText,
 }: DeckInspectorProps) {
   const theme = deck.themes[deck.themeId];
   const slide = slideIds.length > 0 ? deck.slides[slideIds[0]] : undefined;
@@ -356,6 +451,16 @@ export function DeckInspector({
       className="flex w-64 shrink-0 flex-col overflow-y-auto border-l border-border/50 bg-card/30"
       aria-label="Presentation design"
     >
+      {object && onObjectFrame && onObjectText && (
+        <ObjectSection
+          key={object.element.id}
+          object={object}
+          readOnly={readOnly}
+          onFrame={onObjectFrame}
+          onText={onObjectText}
+        />
+      )}
+
       {!design && slide && (
         <Section title={slideIds.length > 1 ? `${slideIds.length} slides` : 'Slide'}>
           <div className="flex items-center justify-between gap-2 text-xs">

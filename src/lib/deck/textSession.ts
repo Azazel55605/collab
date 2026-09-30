@@ -33,6 +33,8 @@ export interface TextSession {
   /** The container edited: a slide, layout, or master (always a slide for notes). */
   target: DeckTarget;
   elementId: string | null;
+  /** The table cell being edited (`rowId:columnId`), when the element is a table. */
+  cellKey: string | null;
   body: DeckRichText;
   selection: EditorSelection;
   /** Formatting for the next typed text, from a toolbar toggle on a caret. */
@@ -57,6 +59,7 @@ export function startTextSession(options: {
   kind: TextSession['kind'];
   target: DeckTarget;
   elementId: string | null;
+  cellKey?: string | null;
   body: DeckRichText;
   selection: EditorSelection;
   initialPoint?: { clientX: number; clientY: number } | null;
@@ -66,6 +69,7 @@ export function startTextSession(options: {
     kind: options.kind,
     target: options.target,
     elementId: options.elementId,
+    cellKey: options.cellKey ?? null,
     body: options.body,
     selection: options.selection,
     pending: null,

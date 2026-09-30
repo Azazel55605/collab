@@ -21,7 +21,8 @@ export type DeckRailAction =
   | { kind: 'duplicate' }
   | { kind: 'delete' }
   | { kind: 'hide'; hidden: boolean }
-  | { kind: 'move'; by: -1 | 1 };
+  | { kind: 'move'; by: -1 | 1 }
+  | { kind: 'export' };
 
 interface DeckSlideRailProps {
   slideOrder: string[];
@@ -308,6 +309,9 @@ export function DeckSlideRail({
           </ContextMenuItem>
           <ContextMenuItem onClick={() => onAction({ kind: 'hide', hidden: !allHidden })}>
             {allHidden ? 'Show slide' : 'Hide slide'}
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => onAction({ kind: 'export' })}>
+            Export as image for notes
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onClick={() => onAction({ kind: 'move', by: -1 })}>

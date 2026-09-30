@@ -13,6 +13,7 @@
  * validation to `useDeckSession`, which re-validates every edit before it can
  * be saved.
  */
+import { DECK_LIMITS } from '../../types/deck';
 import type {
   DeckDocument,
   DeckElement,
@@ -479,6 +480,14 @@ export function groupElements(
   const members = slide.elementOrder.filter((id) => elementIds.includes(id));
   if (members.length < 2) return unchanged(document);
   if (slide.elements[groupId]) throw new Error(`Element ${groupId} already exists.`);
+  const nesting = (id: string, guard = 0): number => {
+    const element = slide.elements[id];
+    if (!element || element.type !== 'group' || guard > 32) return 0;
+    return 1 + Math.max(0, ...element.childIds.map((child) => nesting(child, guard + 1)));
+  };
+  if (1 + Math.max(...members.map((id) => nesting(id))) > DECK_LIMITS.groupDepth) {
+    throw new Error(`Groups can be nested at most ${DECK_LIMITS.groupDepth} deep.`);
+  }
   const group: DeckGroupElement = {
     id: groupId,
     type: 'group',

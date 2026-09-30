@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { buildFixtureDeck, FIXTURE_IMAGE_PATH } from '../lib/deck/fixture';
 import { serializeDeck } from '../lib/deck/validate';
+import { createEmptySheetDocument, serializeSheetDocument } from '../lib/sheet/document';
 import { useEditorStore } from '../store/editorStore';
 import { useVaultStore } from '../store/vaultStore';
 import type { DeckDocument } from '../types/deck';
@@ -17,6 +18,9 @@ const clientMocks = vi.hoisted(() => ({
   readDocument: vi.fn(),
   writeDocument: vi.fn(),
   readAssetDataUrl: vi.fn(),
+  importData: vi.fn(),
+  listFiles: vi.fn(),
+  deletePermanently: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -26,12 +30,25 @@ vi.mock('@tauri-apps/api/event', () => ({
 vi.mock('../lib/vaultClient', () => ({
   createVaultClient: vi.fn(() => ({
     kind: 'local',
-    capabilities: { filesystemWatch: true },
+    capabilities: { filesystemWatch: true, nativeFilesystem: false },
+    runtime: { externalAssetImport: { importData: clientMocks.importData } },
     readDocument: clientMocks.readDocument,
     writeDocument: clientMocks.writeDocument,
     readAssetDataUrl: clientMocks.readAssetDataUrl,
+    listFiles: clientMocks.listFiles,
+    deletePermanently: clientMocks.deletePermanently,
   })),
 }));
+
+// jsdom never decodes images; report a size instead.
+vi.mock('../lib/deck/images', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/deck/images')>();
+  return {
+    ...actual,
+    describeImage: (path: string, dataUrl: string) =>
+      actual.describeImage(path, dataUrl, async () => ({ width: 400, height: 200 })),
+  };
+});
 
 vi.mock('../lib/vaultReplica', () => ({
   onReplicaMutated: vi.fn(() => () => {}),
@@ -675,5 +692,204 @@ describe('DeckView: text, placeholders, and design', () => {
     expect(added.some((element) => element.placeholder?.type === 'footer')).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Close master view' }));
     expect(screen.getByText('Slide 1 of 5')).toBeTruthy();
+  });
+});
+
+describe('DeckView: objects and Collab data', () => {
+  const file = (relativePath: string) => ({
+    relativePath,
+    name: relativePath.split('/').pop()!,
+    extension: relativePath.split('.').pop()!,
+    modifiedAt: 0,
+    size: 1,
+    isFolder: false,
+  });
+
+  function sheetContent() {
+    const workbook = createEmptySheetDocument('Sales');
+    const worksheet = workbook.worksheets[0];
+    const put = (row: number, column: number, value: string | number) => {
+      worksheet.cells[`${worksheet.rowOrder[row]}:${worksheet.columnOrder[column]}`] = { value };
+    };
+    put(0, 1, 'North');
+    put(1, 0, 'Jan');
+    put(1, 1, 7);
+    put(2, 0, 'Feb');
+    put(2, 1, 9);
+    return serializeSheetDocument(workbook);
+  }
+
+  beforeEach(() => {
+    const deckContent = serializeDeck(buildFixtureDeck());
+    clientMocks.readDocument.mockImplementation(async (path: string) => ({
+      content: path.endsWith('.sheet')
+        ? sheetContent()
+        : path.endsWith('.md')
+          ? '# Plan\n\n- first\n- second'
+          : deckContent,
+      version: '1',
+    }));
+    clientMocks.importData.mockImplementation(
+      async (_url: string, name: string, folder: string) => `${folder}/${name}`,
+    );
+    clientMocks.listFiles.mockResolvedValue([]);
+    useVaultStore.setState({
+      fileTree: [file('Data/Sales.sheet'), file('Notes/Plan.md'), file('Pictures/cat.png')],
+      refreshFileTree: vi.fn(async () => {}),
+    } as never);
+  });
+
+  it('inserts every kind of shape and arrow from the gallery', async () => {
+    await openDeck();
+    fireEvent.click(menuItem('Star'));
+    fireEvent.click(menuItem('Arrow'));
+    const saved = await savedDeck();
+    const added = Object.values(saved.slides['slide-1'].elements);
+    expect(added.some((element) => element.type === 'shape' && element.geometry === 'star5')).toBe(
+      true,
+    );
+    expect(
+      added.some((element) => element.type === 'line' && element.endArrow === 'triangle'),
+    ).toBe(true);
+  });
+
+  it('formats a selected shape: fill, opacity, and shape', async () => {
+    await openDeck();
+    fireEvent.click(menuItem('Rectangle'));
+    const toolbar = screen.getByRole('toolbar', { name: 'Object formatting' });
+    fireEvent.click(within(toolbar).getByRole('button', { name: 'Fill: Accent 2' }));
+    fireEvent.click(within(toolbar).getByRole('menuitemradio', { name: '50%' }));
+    fireEvent.click(within(toolbar).getAllByRole('menuitem', { name: 'Hexagon' })[0]);
+    const saved = await savedDeck();
+    const shape = Object.values(saved.slides['slide-1'].elements).find(
+      (element) => element.type === 'shape',
+    );
+    expect(shape).toMatchObject({
+      geometry: 'hexagon',
+      opacity: 50,
+      fill: { kind: 'solid', color: { kind: 'theme', token: 'accent2' } },
+    });
+  });
+
+  it('inserts a table, types into a cell, and adds a row', async () => {
+    await openDeck();
+    fireEvent.click(menuItem('Table…'));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Rows'), { target: { value: '2' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Insert' }));
+    expect(screen.getByText('1 selected')).toBeTruthy();
+    key(canvas(), 'Enter');
+    const editor = screen.getByTestId('deck-text-editor');
+    expect(editor.getAttribute('aria-label')).toBe('Table cell');
+    act(() => {
+      editor.dispatchEvent(
+        new InputEvent('beforeinput', {
+          inputType: 'insertText',
+          data: 'Region',
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    key(editor, 'Escape');
+    fireEvent.click(screen.getByRole('button', { name: 'Insert row below' }));
+    const saved = await savedDeck();
+    const table = Object.values(saved.slides['slide-1'].elements).find(
+      (element) => element.type === 'table',
+    );
+    if (table?.type !== 'table') throw new Error('expected a table');
+    expect(table.rowOrder).toHaveLength(3);
+    const first = table.cells[`${table.rowOrder[0]}:${table.columnOrder[0]}`];
+    expect(first.text.content.paragraphs[0].runs).toEqual([
+      expect.objectContaining({ text: 'Region' }),
+    ]);
+  });
+
+  it('links a chart to a workbook range and refreshes it on request', async () => {
+    await openDeck();
+    fireEvent.click(menuItem('Bar chart'));
+    fireEvent.click(screen.getByRole('button', { name: /Edit data/ }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Range'), { target: { value: 'A1:B3' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Read range' }));
+    await within(dialog).findByText(/Linked to Data\/Sales.sheet/);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
+    const saved = await savedDeck();
+    const chart = Object.values(saved.slides['slide-1'].elements).find(
+      (element) => element.type === 'chart',
+    );
+    expect(chart).toMatchObject({
+      kind: 'bar',
+      categories: ['Jan', 'Feb'],
+      series: [{ name: 'North', values: [7, 9] }],
+      source: { path: 'Data/Sales.sheet', range: 'A1:B3' },
+    });
+    // Reading happens only on request.
+    const reads = clientMocks.readDocument.mock.calls.filter(
+      ([path]) => path === 'Data/Sales.sheet',
+    );
+    expect(reads).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+    await waitFor(() =>
+      expect(
+        clientMocks.readDocument.mock.calls.filter(([path]) => path === 'Data/Sales.sheet'),
+      ).toHaveLength(2),
+    );
+  });
+
+  it('links a note with a generated preview and opens it', async () => {
+    await openDeck();
+    fireEvent.click(menuItem('Linked document…'));
+    fireEvent.click(await screen.findByRole('option', { name: /Plan\.md/ }));
+    await waitFor(() => expect(clientMocks.importData).toHaveBeenCalled());
+    const [dataUrl, name, folder] = clientMocks.importData.mock.calls[0];
+    expect(dataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(folder).toBe('Talks/Fixture assets');
+    expect(name).toMatch(/^preview-embed-.*\.svg$/);
+    await screen.findByText('1 selected');
+    const saved = await savedDeck();
+    const embed = Object.values(saved.slides['slide-1'].elements).find(
+      (element) => element.type === 'embed',
+    );
+    expect(embed).toMatchObject({
+      source: { path: 'Notes/Plan.md' },
+      preview: { mediaType: 'image/svg+xml' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Open Plan\.md/ }));
+    expect(
+      useEditorStore.getState().openTabs.some((tab) => tab.relativePath === 'Notes/Plan.md'),
+    ).toBe(true);
+  });
+
+  it('inserts an image from the vault at its aspect ratio', async () => {
+    await openDeck();
+    fireEvent.click(menuItem('Image…'));
+    fireEvent.click(await screen.findByRole('option', { name: /cat\.png/ }));
+    await screen.findByText('1 selected');
+    const saved = await savedDeck();
+    const image = Object.values(saved.slides['slide-1'].elements).find(
+      (element) => element.type === 'image' && element.asset.path === 'Pictures/cat.png',
+    );
+    expect(image?.frame).toMatchObject({ width: 30_000, height: 15_000 });
+  });
+
+  it('drags one end of a selected line', async () => {
+    await openDeck();
+    fireEvent.click(menuItem('Line'));
+    const surface = screen.getByTestId('deck-stage-surface');
+    const end = screen.getByLabelText('Line end');
+    fireEvent.pointerDown(end, { button: 0, clientX: 0, clientY: 0, pointerId: 1 });
+    fireEvent.pointerMove(surface, {
+      clientX: client(10_000),
+      clientY: client(5_000),
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(surface, { clientX: client(10_000), clientY: client(5_000), pointerId: 1 });
+    expect(screen.getByLabelText('Undo Move line end')).toBeTruthy();
+    const saved = await savedDeck();
+    const line = Object.values(saved.slides['slide-1'].elements).find(
+      (element) => element.type === 'line',
+    );
+    expect(line?.type === 'line' && line.to).toEqual({ x: 10_000, y: 5_000 });
   });
 });

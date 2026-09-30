@@ -5,7 +5,7 @@
 Phase 0 is complete except for its external-application and cross-platform
 gates. The frozen contract, measurements, and decisions are in the
 [Phase 0 Contract](./presentation-phase0-contract.md); where this plan and the
-contract differ, the contract wins. Phases 1-3 are complete; Phase 4 is next.
+contract differ, the contract wins. Phases 1-4 are complete; Phase 5 is next.
 
 This plan defines a first-party presentation editor for Collab. It follows the
 same product boundary as Advanced Tables: Collab owns the editable document
@@ -486,7 +486,7 @@ Security requirements:
 | 1. `.deck` domain and vault integration               | Complete    | Add schema, validation, migrations, creation, routing, references, revisions, and normal local/hosted lifecycle.    |
 | 2. Desktop scene editor foundation                    | Complete    | Build slide navigation, stage rendering, selection, transforms, snapping, ordering, clipboard, and undo/redo.       |
 | 3. Rich text, themes, masters, and layouts            | Complete    | Deliver text editing, placeholders, theme inheritance, reusable layouts, and templates.                             |
-| 4. Visual objects and Collab data integration         | Not started | Add images, SVG, shapes, lines, groups, tables, charts, `.sheet` snapshots, and note links.                         |
+| 4. Visual objects and Collab data integration         | Complete    | Add images, SVG, shapes, lines, groups, tables, charts, `.sheet` snapshots, and note links.                         |
 | 5. Presentation mode and speaker workflow             | Not started | Add fullscreen playback, notes, presenter view, navigation, handouts, and PDF/image output.                         |
 | 6. Hosted collaboration and offline behavior          | Not started | Add the deck-specific CRDT codec, awareness, offline replica merge, recovery, and physical multi-client validation. |
 | 7. Compatible PPTX export                             | Not started | Generate tested `.pptx` copies with a support matrix and visible conversion report.                                 |
@@ -687,12 +687,63 @@ which stays with the Phase 0 device checks.
 
 ### Phase 4: Visual Objects And Collab Data Integration
 
-- Add shapes, connectors, arrows, SVG, raster images, crop, masks, and opacity.
-- Add groups and nested transforms with a strict depth bound.
-- Add basic editable tables.
-- Add basic charts and source-linked `.sheet` snapshots.
-- Add source-linked note embeds and stable slide exports.
-- Add explicit refresh for linked snapshots; never run hidden live queries.
+Complete. Everything the schema already described can now be created and
+edited. As in Phase 3, no schema change was needed.
+
+- [x] Insert gallery: text box, all fourteen preset shapes, lines and arrows,
+      images, tables, five chart types, and linked documents. After an insert
+      from a menu or dialog, focus returns to the slide, so keys act on the new
+      object.
+- [x] Object formatting toolbar (`DeckObjectToolbar`): fill (theme, custom, or
+      none), outline colour, weight, and dash, arrowheads at either end,
+      change shape, opacity, flip, and rotate 90°. Groups are formatted
+      through the objects they hold. The design panel adds numeric position,
+      size, rotation, and alt text for one selected object.
+- [x] Lines are edited by dragging either end (Shift snaps to 45°, the grid
+      applies, Alt suspends it), not by a bounding box.
+- [x] Images (PNG, JPEG, GIF, WebP, SVG) from the vault, from the computer, by
+      paste, or by dropping files on a slide. Outside files are imported
+      beside the deck (`<deck> assets/`); the deck only ever references vault
+      paths. Media type, byte, and decoded-pixel limits are enforced at insert
+      (`images.ts`), pixel size and content hash are recorded, and images
+      arrive at their own aspect ratio, never enlarged past their pixels.
+      Crop (Phase 2), reset crop, and replace image keep working.
+- [x] Groups: nesting past eight levels is refused when grouping, matching
+      the validator; resizing and rotating groups was already Phase 2.
+- [x] Tables: insert a blank table (header row styled from the theme as
+      explicit cell content) or a copy of a workbook range. Double-click or
+      Enter edits a cell with the same rich-text editor; Tab and Shift+Tab move
+      between cells; rows grow to fit as you type. Insert and delete rows and
+      columns (merged cells follow), header row, and cell fill. Resizing a
+      table scales its rows and columns, so frame and tracks always agree.
+- [x] Charts: column, bar (now drawn horizontally), line, area, and pie, with
+      a data editor. A chart can read a `.sheet` range once — formulas are
+      evaluated by the spreadsheet's own engine — and stores the range as
+      `source`; **Refresh** reads it again on request. Series keep their ids
+      and colours across refreshes. Nothing reads a workbook without a person
+      asking.
+- [x] Linked documents (`DeckEmbedElement`): a note link shows a generated
+      preview (title and opening lines, escaped SVG) written beside the deck;
+      **Refresh preview** regenerates it at the same path. Other documents
+      show a card with their name and path. Double-click opens the source.
+- [x] Stable slide exports: "Export as image for notes" in the slide list
+      writes the slide as SVG to `<deck> assets/slide-<slide id>.svg` —
+      keyed by slide id, so reordering never retargets it, and re-exporting
+      replaces it in place — and copies Markdown that shows it in a note and
+      links back to the deck.
+- [x] Asset caching keys on path and content hash, so a preview or export
+      replaced at the same path is read again.
+
+Checked in Chromium through the editor harness: tables with cell editing,
+Tab navigation, and row growth; a bar chart read from a workbook range; the
+shape gallery; and a linked note's preview. The harness also caught focus
+returning to the menu button after an insert, which let keystrokes reach the
+toolbar; focus now returns to the slide.
+
+Deliberately deferred: connectors anchored to shapes and image masks need new
+schema fields (a version 2 decision); ported OOXML preset formulas are still
+approximations; a link from a note to a specific slide (the deck opens at its
+remembered slide); PNG slide exports and PPTX handling of SVG images (Phase 7).
 
 ### Phase 5: Presentation Mode And Speaker Workflow
 
