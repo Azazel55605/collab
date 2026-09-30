@@ -9,10 +9,11 @@
  * is rounded to an integer, as the schema requires.
  */
 import { DECK_ROTATION_FULL_TURN, DECK_UNITS_PER_POINT } from '../../types/deck';
-import type { DeckDocument, DeckElement, DeckFrame, DeckSlide } from '../../types/deck';
+import type { DeckDocument, DeckElement, DeckElementContainer, DeckFrame } from '../../types/deck';
 
 import { expandGroups } from './operations';
-import { resolveSlide } from './resolve';
+import { resolveTarget } from './resolve';
+import type { DeckTarget } from './resolve';
 import { normalizeRotation } from './units';
 
 export type Frame = Required<DeckFrame>;
@@ -33,7 +34,8 @@ export type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 export const MIN_ELEMENT_SIZE = DECK_UNITS_PER_POINT;
 
 export interface SlideGeometry {
-  slide: DeckSlide;
+  /** The slide, layout, or master being edited. */
+  slide: DeckElementContainer;
   /** Effective frame of every visible element, groups included. */
   frames: Map<string, Frame>;
   /** Top-level ids in paint order, back to front. */
@@ -98,11 +100,31 @@ function boundsFrame(bounds: Bounds): Frame {
 
 /** Frames for every visible element of a slide, from the shared resolver. */
 export function slideGeometry(deck: DeckDocument, slideId: string): SlideGeometry {
-  const slide = deck.slides[slideId];
-  const resolved = resolveSlide(deck, slideId);
+  return targetGeometry(deck, { kind: 'slide', id: slideId });
+}
+
+/** The container a target names. */
+export function targetContainer(deck: DeckDocument, target: DeckTarget): DeckElementContainer {
+  const container =
+    target.kind === 'slide'
+      ? deck.slides[target.id]
+      : target.kind === 'layout'
+        ? deck.layouts[target.id]
+        : deck.masters[target.id];
+  if (!container) throw new Error(`The ${target.kind} ${target.id} does not exist.`);
+  return container;
+}
+
+/**
+ * Frames for every visible element of a slide, layout, or master. Only the
+ * target's own elements are editable; inherited master artwork is not.
+ */
+export function targetGeometry(deck: DeckDocument, target: DeckTarget): SlideGeometry {
+  const slide = targetContainer(deck, target);
+  const resolved = resolveTarget(deck, target);
   const frames = new Map<string, Frame>();
   for (const item of resolved.items) {
-    if (item.origin === 'slide') frames.set(item.id, item.frame);
+    if (item.origin === target.kind) frames.set(item.id, item.frame);
   }
   const parents = new Map<string, string>();
   for (const element of Object.values(slide.elements)) {

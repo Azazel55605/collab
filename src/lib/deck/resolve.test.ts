@@ -184,3 +184,34 @@ describe('resolveSlide', () => {
     expect(resolveSlide(deck, 'slide-3')).toEqual(resolveSlide(deck, 'slide-3'));
   });
 });
+
+describe('hyperlinks', () => {
+  it('draw in the theme hyperlink colour, underlined, unless the run overrides it', () => {
+    const deck = buildFixtureDeck();
+    const slide = deck.slides['slide-2'];
+    const id = slide.elementOrder.find((entry) => slide.elements[entry].type === 'text')!;
+    const element = slide.elements[id];
+    if (element.type !== 'text') throw new Error('expected text');
+    element.text = textBody(
+      richText(
+        paragraph('lp', [
+          { kind: 'text', text: 'site', link: { kind: 'url', href: 'https://example.com' } },
+          {
+            kind: 'text',
+            text: 'red',
+            link: { kind: 'url', href: 'https://example.com' },
+            style: { color: { kind: 'rgb', value: '#ff0000' }, underline: false },
+          },
+        ]),
+      ),
+    );
+    const item = resolveSlide(deck, 'slide-2').items.find((entry) => entry.id === id);
+    if (item?.kind !== 'shape') throw new Error('expected shape');
+    const [plain, red] = item.text!.paragraphs[0].runs;
+    const theme = deck.themes[deck.themeId];
+    expect(plain.style.color.hex).toBe(theme.colors.hyperlink);
+    expect(plain.style.underline).toBe(true);
+    expect(red.style.color.hex).toBe('#ff0000');
+    expect(red.style.underline).toBe(false);
+  });
+});

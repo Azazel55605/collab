@@ -50,6 +50,8 @@ import type {
 } from '../../types/deck';
 import { DECK_DEFAULT_INSETS } from '../../types/deck';
 
+import { isRichTextEmpty } from './richText';
+
 /* ------------------------------------------------------------------------- */
 /* Resolved types                                                             */
 /* ------------------------------------------------------------------------- */
@@ -132,6 +134,11 @@ interface ResolvedItemBase {
 
 export interface ResolvedShapeItem extends ResolvedItemBase {
   kind: 'shape';
+  /**
+   * The text is a placeholder prompt ("Click to add title"), not content.
+   * Only produced when resolving with `prompts`, i.e. for the editor.
+   */
+  prompt?: boolean;
   /** Text elements resolve to rectangles with text. */
   elementType: 'text' | 'shape';
   geometry: DeckShapeGeometry;
@@ -206,6 +213,7 @@ export type ResolvedItem =
   | ResolvedEmbedItem;
 
 export interface ResolvedSlide {
+  /** The slide id, or the layout or master id when resolving one for editing. */
   slideId: string;
   /** 1-based position in `slideOrder`, used for slide-number fields. */
   number: number;
@@ -218,6 +226,41 @@ export interface ResolvedSlide {
   notes: ResolvedTextBody | null;
   theme: DeckTheme;
 }
+
+/** What the editor edits: a slide, or a layout or master of the deck's design. */
+export type DeckTarget = { kind: 'slide' | 'layout' | 'master'; id: string };
+
+export interface ResolveOptions {
+  /**
+   * Fill empty placeholders with their prompt text, as the editor shows them.
+   * Thumbnails, playback, and every export leave them empty.
+   */
+  prompts?: boolean;
+}
+
+/** The prompt an empty placeholder shows when its layout does not define one. */
+export function defaultPromptText(type: DeckPlaceholderType): string {
+  switch (type) {
+    case 'title':
+      return 'Click to add title';
+    case 'subtitle':
+      return 'Click to add subtitle';
+    case 'body':
+    case 'content':
+      return 'Click to add text';
+    case 'picture':
+      return 'Picture';
+    case 'date':
+      return 'Date';
+    case 'footer':
+      return 'Footer';
+    case 'slideNumber':
+      return '‹#›';
+  }
+}
+
+/** How much a prompt's colours are dimmed on a slide, so it never reads as content. */
+const PROMPT_ALPHA = 0.5;
 
 export class DeckResolveError extends Error {
   constructor(message: string) {
@@ -383,7 +426,8 @@ interface TextContext {
   textClass: TextClass;
   /** Placeholder prompt bodies, master first, then layout. */
   prompts: Array<DeckTextBody | undefined>;
-  fields: { slideNumber: number };
+  /** A number on slides; the `‹#›` token when editing a layout or master. */
+  fields: { slideNumber: number | string };
   placeholderType?: DeckPlaceholderType;
 }
 
@@ -415,7 +459,15 @@ function resolveParagraphs(paragraphs: DeckParagraph[], context: TextContext): R
     for (let deeper = level + 1; deeper < counters.length; deeper += 1) counters[deeper] = 0;
 
     const runs: ResolvedRun[] = source.runs.map((run) => {
-      const style = finalizeRunStyle(mergeRunStyle(runStyle, run.style), context.theme);
+      // Links draw in the theme's hyperlink colour, underlined, unless the run says otherwise.
+      const base =
+        run.kind === 'text' && run.link
+          ? mergeRunStyle(runStyle, {
+              color: { kind: 'theme', token: 'hyperlink' },
+              underline: true,
+            })
+          : runStyle;
+      const style = finalizeRunStyle(mergeRunStyle(base, run.style), context.theme);
       if (run.kind === 'break') return { kind: 'break', style };
       return run.link
         ? { kind: 'text', text: run.text, style, link: run.link }
@@ -489,7 +541,8 @@ function fullFrame(frame: DeckFrame): Required<DeckFrame> {
   };
 }
 
-function findPlaceholder(
+/** The placeholder in a layout or master that an element inherits from: by key, then by type. */
+export function findPlaceholder(
   container: DeckElementContainer | undefined,
   ref: DeckElement['placeholder'],
 ): DeckElement | undefined {
@@ -506,7 +559,8 @@ interface ResolveScope {
   theme: DeckTheme;
   master: DeckMaster;
   layout: DeckLayout | undefined;
-  slideNumber: number;
+  slideNumber: number | string;
+  prompts: boolean;
 }
 
 function resolveElement(
@@ -615,6 +669,39 @@ function resolveElement(
       const line =
         element.line ??
         (inheritedLine && 'line' in inheritedLine ? (inheritedLine.line as DeckLine) : undefined);
+      let body = element.text;
+      let prompt = false;
+      const placeholderType = element.placeholder?.type;
+      if (
+        scope.prompts &&
+        placeholderType &&
+        placeholderType !== 'slideNumber' &&
+        isRichTextEmpty(body?.content)
+      ) {
+        // A slide shows its layout's prompt text; a layout or master shows the default.
+        const custom =
+          origin === 'slide'
+            ? [...inheritedBodies].reverse().find((entry) => !isRichTextEmpty(entry?.content))
+            : undefined;
+        const own = body?.content.paragraphs[0];
+        body = {
+          ...(body ?? {}),
+          content: custom?.content ?? {
+            paragraphs: [
+              {
+                ...(own ?? { id: `${element.id}-prompt` }),
+                runs: [{ kind: 'text', text: defaultPromptText(placeholderType) }],
+              },
+            ],
+          },
+        };
+        prompt = true;
+      }
+      let text =
+        body || inheritedBodies.some(Boolean)
+          ? resolveTextBody(body, inheritedBodies, textContext(placeholderType))
+          : null;
+      if (text && prompt && origin === 'slide') text = dimmed(text);
       output.push({
         ...base,
         kind: 'shape',
@@ -623,10 +710,8 @@ function resolveElement(
         frame,
         fill: resolveFill(fill, scope.theme),
         line: resolveLine(line, scope.theme),
-        text:
-          element.text || inheritedBodies.some(Boolean)
-            ? resolveTextBody(element.text, inheritedBodies, textContext(element.placeholder?.type))
-            : null,
+        text,
+        ...(prompt ? { prompt: true } : {}),
       });
       return;
     }
@@ -736,6 +821,21 @@ function resolveElement(
   }
 }
 
+function dimmed(body: ResolvedTextBody): ResolvedTextBody {
+  const dim = (style: ResolvedRunStyle): ResolvedRunStyle => ({
+    ...style,
+    color: { ...style.color, alpha: style.color.alpha * PROMPT_ALPHA },
+  });
+  return {
+    ...body,
+    paragraphs: body.paragraphs.map((paragraph) => ({
+      ...paragraph,
+      endStyle: dim(paragraph.endStyle),
+      runs: paragraph.runs.map((run) => ({ ...run, style: dim(run.style) })),
+    })),
+  };
+}
+
 function prefixSums(start: number, sizes: number[]): number[] {
   const sums = [start];
   for (const size of sizes) sums.push(sums[sums.length - 1] + size);
@@ -747,13 +847,15 @@ function resolveContainer(
   origin: ResolvedOrigin,
   scope: ResolveScope,
   output: ResolvedItem[],
+  includePlaceholders = origin === 'slide',
 ): void {
   for (const id of container.elementOrder) {
     const element = container.elements[id];
     if (!element) continue;
     // Master and layout placeholders are prompts, not content. They paint
-    // only through the slide elements that reference them.
-    if (origin !== 'slide' && element.placeholder) continue;
+    // only through the slide elements that reference them — except in the
+    // layout and master editors, where they are what is being edited.
+    if (!includePlaceholders && element.placeholder) continue;
     resolveElement(element, container, origin, scope, 1, 0, output);
   }
 }
@@ -762,7 +864,11 @@ function resolveContainer(
 /* Entry points                                                               */
 /* ------------------------------------------------------------------------- */
 
-export function resolveSlide(deck: DeckDocument, slideId: string): ResolvedSlide {
+export function resolveSlide(
+  deck: DeckDocument,
+  slideId: string,
+  options: ResolveOptions = {},
+): ResolvedSlide {
   const slide: DeckSlide | undefined = deck.slides[slideId];
   if (!slide) throw new DeckResolveError(`Slide ${slideId} does not exist.`);
 
@@ -783,6 +889,7 @@ export function resolveSlide(deck: DeckDocument, slideId: string): ResolvedSlide
     master,
     layout,
     slideNumber: deck.slideOrder.indexOf(slideId) + 1,
+    prompts: options.prompts ?? false,
   };
 
   const items: ResolvedItem[] = [];
@@ -801,7 +908,7 @@ export function resolveSlide(deck: DeckDocument, slideId: string): ResolvedSlide
 
   return {
     slideId,
-    number: scope.slideNumber,
+    number: deck.slideOrder.indexOf(slideId) + 1,
     width: deck.size.width,
     height: deck.size.height,
     hidden: slide.hidden ?? false,
@@ -818,6 +925,66 @@ export function resolveSlide(deck: DeckDocument, slideId: string): ResolvedSlide
       : null,
     theme,
   };
+}
+
+function themeFor(deck: DeckDocument, master: DeckMaster): DeckTheme {
+  const theme = deck.themes[master.themeId ?? deck.themeId] ?? deck.themes[deck.themeId];
+  if (!theme) throw new DeckResolveError(`Theme ${master.themeId ?? deck.themeId} does not exist.`);
+  return theme;
+}
+
+/**
+ * A layout or master as its editor shows it: its own placeholders drawn with
+ * their prompts, over the master's artwork. Slide-number fields show `‹#›`.
+ */
+export function resolveDesign(
+  deck: DeckDocument,
+  target: { kind: 'layout' | 'master'; id: string },
+): ResolvedSlide {
+  const layout = target.kind === 'layout' ? deck.layouts[target.id] : undefined;
+  if (target.kind === 'layout' && !layout) {
+    throw new DeckResolveError(`Layout ${target.id} does not exist.`);
+  }
+  const master = deck.masters[layout ? layout.masterId : target.id];
+  if (!master) throw new DeckResolveError(`Master ${target.id} does not exist.`);
+  const theme = themeFor(deck, master);
+  const scope: ResolveScope = {
+    deck,
+    theme,
+    master,
+    layout,
+    slideNumber: '‹#›',
+    prompts: true,
+  };
+  const items: ResolvedItem[] = [];
+  if (layout) {
+    if (layout.showMasterElements !== false) resolveContainer(master, 'master', scope, items);
+    resolveContainer(layout, 'layout', scope, items, true);
+  } else {
+    resolveContainer(master, 'master', scope, items, true);
+  }
+  return {
+    slideId: target.id,
+    number: 0,
+    width: deck.size.width,
+    height: deck.size.height,
+    hidden: false,
+    background: resolveFill(layout?.background ?? master.background, theme),
+    items,
+    notes: null,
+    theme,
+  };
+}
+
+/** Resolves whatever the editor is editing. */
+export function resolveTarget(
+  deck: DeckDocument,
+  target: DeckTarget,
+  options: ResolveOptions = {},
+): ResolvedSlide {
+  return target.kind === 'slide'
+    ? resolveSlide(deck, target.id, options)
+    : resolveDesign(deck, { kind: target.kind, id: target.id });
 }
 
 export function resolveDeck(deck: DeckDocument): ResolvedSlide[] {

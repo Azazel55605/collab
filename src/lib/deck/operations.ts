@@ -16,10 +16,16 @@
 import type {
   DeckDocument,
   DeckElement,
+  DeckElementContainer,
   DeckGroupElement,
+  DeckLayout,
+  DeckMaster,
   DeckSection,
   DeckSlide,
+  DeckTheme,
 } from '../../types/deck';
+
+import type { DeckTarget } from './resolve';
 
 /** A reversible edit. Applying `inverse` to `result` restores the input. */
 export interface DeckEdit {
@@ -35,6 +41,28 @@ export interface DeckPatch {
   slideOrder?: string[];
   /** Replacement sections; `null` removes the field. */
   sections?: DeckSection[] | null;
+  /** Replacement layouts, masters, and themes; `null` deletes. */
+  layouts?: Record<string, DeckLayout | null>;
+  masters?: Record<string, DeckMaster | null>;
+  themes?: Record<string, DeckTheme | null>;
+  themeId?: string;
+}
+
+type MapKey = 'slides' | 'layouts' | 'masters' | 'themes';
+
+function patchMap<K extends MapKey>(
+  document: DeckDocument,
+  key: K,
+  entries: Record<string, DeckDocument[K][string] | null>,
+): { map: DeckDocument[K]; undo: Record<string, DeckDocument[K][string] | null> } {
+  const map = { ...document[key] } as Record<string, DeckDocument[K][string]>;
+  const undo: Record<string, DeckDocument[K][string] | null> = {};
+  for (const [id, value] of Object.entries(entries)) {
+    undo[id] = (document[key] as Record<string, DeckDocument[K][string]>)[id] ?? null;
+    if (value) map[id] = value;
+    else delete map[id];
+  }
+  return { map: map as DeckDocument[K], undo };
 }
 
 /** Applies a patch and returns the patch that undoes it. */
@@ -42,19 +70,20 @@ export function applyPatch(document: DeckDocument, patch: DeckPatch): DeckEdit {
   const undo: DeckPatch = {};
   let result: DeckDocument = document;
 
-  if (patch.slides) {
-    const slides = { ...document.slides };
-    undo.slides = {};
-    for (const [id, slide] of Object.entries(patch.slides)) {
-      undo.slides[id] = document.slides[id] ?? null;
-      if (slide) slides[id] = slide;
-      else delete slides[id];
-    }
-    result = { ...result, slides };
+  for (const key of ['slides', 'layouts', 'masters', 'themes'] as const) {
+    const entries = patch[key];
+    if (!entries) continue;
+    const { map, undo: inverse } = patchMap(document, key, entries as never);
+    (undo as Record<string, unknown>)[key] = inverse;
+    result = { ...result, [key]: map };
   }
   if (patch.slideOrder) {
     undo.slideOrder = document.slideOrder;
     result = { ...result, slideOrder: patch.slideOrder };
+  }
+  if (patch.themeId !== undefined) {
+    undo.themeId = document.themeId;
+    result = { ...result, themeId: patch.themeId };
   }
   if (patch.sections !== undefined) {
     undo.sections = document.sections ?? null;
@@ -73,14 +102,60 @@ function unchanged(document: DeckDocument): DeckEdit {
   return { result: document, inverse: unchanged };
 }
 
-function slideOf(document: DeckDocument, slideId: string): DeckSlide {
-  const slide = document.slides[slideId];
-  if (!slide) throw new Error(`Slide ${slideId} does not exist.`);
-  return slide;
+/**
+ * Where element operations apply: a slide id, or an explicit slide, layout, or
+ * master. Layouts and masters hold elements exactly as slides do, so the
+ * layout and master editors reuse every element operation.
+ */
+export type DeckTargetRef = string | DeckTarget;
+
+type AnyContainer = DeckSlide | DeckLayout | DeckMaster;
+
+function asTarget(ref: DeckTargetRef): DeckTarget {
+  return typeof ref === 'string' ? { kind: 'slide', id: ref } : ref;
 }
 
-function replaceSlide(document: DeckDocument, slide: DeckSlide): DeckEdit {
-  return applyPatch(document, { slides: { [slide.id]: slide } });
+function slideOf(document: DeckDocument, ref: DeckTargetRef): AnyContainer {
+  const target = asTarget(ref);
+  const container =
+    target.kind === 'slide'
+      ? document.slides[target.id]
+      : target.kind === 'layout'
+        ? document.layouts[target.id]
+        : document.masters[target.id];
+  if (!container) {
+    throw new Error(
+      `${target.kind[0].toUpperCase()}${target.kind.slice(1)} ${target.id} does not exist.`,
+    );
+  }
+  return container;
+}
+
+function replaceSlide(
+  document: DeckDocument,
+  ref: DeckTargetRef,
+  container: AnyContainer,
+): DeckEdit {
+  const target = asTarget(ref);
+  if (target.kind === 'slide') {
+    return applyPatch(document, { slides: { [target.id]: container as DeckSlide } });
+  }
+  if (target.kind === 'layout') {
+    return applyPatch(document, { layouts: { [target.id]: container as DeckLayout } });
+  }
+  return applyPatch(document, { masters: { [target.id]: container as DeckMaster } });
+}
+
+/** Drops animations whose element no longer exists; only slides carry them. */
+function withLiveAnimations(container: AnyContainer): AnyContainer {
+  if (!('animations' in container) || !container.animations) return container;
+  const animations = container.animations.filter(
+    (animation) => container.elements[animation.elementId],
+  );
+  const next: DeckSlide = { ...container };
+  if (animations.length > 0) next.animations = animations;
+  else delete next.animations;
+  return next;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -218,7 +293,7 @@ export function duplicateSlides(
 /* ------------------------------------------------------------------------- */
 
 /** Ids of every element in `ids` plus, recursively, every group child. */
-export function expandGroups(slide: DeckSlide, ids: Iterable<string>): Set<string> {
+export function expandGroups(slide: DeckElementContainer, ids: Iterable<string>): Set<string> {
   const out = new Set<string>();
   const visit = (id: string) => {
     if (out.has(id)) return;
@@ -232,7 +307,7 @@ export function expandGroups(slide: DeckSlide, ids: Iterable<string>): Set<strin
 }
 
 /** The top-level element (paint-order entry) an element belongs to. */
-export function topLevelOf(slide: DeckSlide, elementId: string): string {
+export function topLevelOf(slide: DeckElementContainer, elementId: string): string {
   const parents = new Map<string, string>();
   for (const element of Object.values(slide.elements)) {
     if (element.type === 'group')
@@ -247,7 +322,7 @@ export function topLevelOf(slide: DeckSlide, elementId: string): string {
 /** Adds top-level elements, at the top of the paint order or at `index`. */
 export function addElements(
   document: DeckDocument,
-  slideId: string,
+  slideId: DeckTargetRef,
   elements: DeckElement[],
   options: { index?: number; topLevelIds?: string[] } = {},
 ): DeckEdit {
@@ -261,7 +336,7 @@ export function addElements(
   const topLevel = options.topLevelIds ?? elements.map((element) => element.id);
   const order = [...slide.elementOrder];
   order.splice(options.index ?? order.length, 0, ...topLevel);
-  return replaceSlide(document, { ...slide, elements: map, elementOrder: order });
+  return replaceSlide(document, slideId, { ...slide, elements: map, elementOrder: order });
 }
 
 /**
@@ -271,7 +346,7 @@ export function addElements(
  */
 export function removeElements(
   document: DeckDocument,
-  slideId: string,
+  slideId: DeckTargetRef,
   elementIds: string[],
 ): DeckEdit {
   const slide = slideOf(document, slideId);
@@ -305,19 +380,17 @@ export function removeElements(
     }
   }
 
-  const next: DeckSlide = { ...slide, elements, elementOrder: order };
-  if (slide.animations) {
-    const animations = slide.animations.filter((animation) => elements[animation.elementId]);
-    if (animations.length > 0) next.animations = animations;
-    else delete next.animations;
-  }
-  return replaceSlide(document, next);
+  return replaceSlide(
+    document,
+    slideId,
+    withLiveAnimations({ ...slide, elements, elementOrder: order }),
+  );
 }
 
 /** Replaces elements through per-element updaters; unknown ids are ignored. */
 export function updateElements(
   document: DeckDocument,
-  slideId: string,
+  slideId: DeckTargetRef,
   updaters: Record<string, (element: DeckElement) => DeckElement>,
 ): DeckEdit {
   const slide = slideOf(document, slideId);
@@ -332,7 +405,7 @@ export function updateElements(
       changed = true;
     }
   }
-  return changed ? replaceSlide(document, { ...slide, elements }) : unchanged(document);
+  return changed ? replaceSlide(document, slideId, { ...slide, elements }) : unchanged(document);
 }
 
 export type DeckReorder = 'front' | 'back' | 'forward' | 'backward';
@@ -340,7 +413,7 @@ export type DeckReorder = 'front' | 'back' | 'forward' | 'backward';
 /** Changes the paint position of top-level elements, keeping their relative order. */
 export function reorderElements(
   document: DeckDocument,
-  slideId: string,
+  slideId: DeckTargetRef,
   elementIds: string[],
   direction: DeckReorder,
 ): DeckEdit {
@@ -367,7 +440,7 @@ export function reorderElements(
     }
   }
   if (next.every((id, index) => id === order[index])) return unchanged(document);
-  return replaceSlide(document, { ...slide, elementOrder: next });
+  return replaceSlide(document, slideId, { ...slide, elementOrder: next });
 }
 
 /**
@@ -376,7 +449,7 @@ export function reorderElements(
  */
 export function groupElements(
   document: DeckDocument,
-  slideId: string,
+  slideId: DeckTargetRef,
   elementIds: string[],
   groupId: string,
   frame: DeckGroupElement['frame'],
@@ -395,7 +468,7 @@ export function groupElements(
   const order = slide.elementOrder.flatMap((id, index) =>
     index === topIndex ? [groupId] : members.includes(id) ? [] : [id],
   );
-  return replaceSlide(document, {
+  return replaceSlide(document, slideId, {
     ...slide,
     elements: { ...slide.elements, [groupId]: group },
     elementOrder: order,
@@ -405,7 +478,7 @@ export function groupElements(
 /** Ungroups top-level groups; their children take the group's paint position. */
 export function ungroupElements(
   document: DeckDocument,
-  slideId: string,
+  slideId: DeckTargetRef,
   groupIds: string[],
 ): DeckEdit {
   const slide = slideOf(document, slideId);
@@ -420,18 +493,16 @@ export function ungroupElements(
     delete elements[id];
     return group.childIds;
   });
-  const next: DeckSlide = { ...slide, elements, elementOrder: order };
-  if (slide.animations) {
-    const animations = slide.animations.filter((animation) => elements[animation.elementId]);
-    if (animations.length > 0) next.animations = animations;
-    else delete next.animations;
-  }
-  return replaceSlide(document, next);
+  return replaceSlide(
+    document,
+    slideId,
+    withLiveAnimations({ ...slide, elements, elementOrder: order }),
+  );
 }
 
 export function setElementsLocked(
   document: DeckDocument,
-  slideId: string,
+  slideId: DeckTargetRef,
   elementIds: string[],
   locked: boolean,
 ): DeckEdit {

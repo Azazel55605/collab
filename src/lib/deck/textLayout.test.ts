@@ -4,6 +4,7 @@ import { DECK_UNITS_PER_POINT } from '../../types/deck';
 
 import type { ResolvedParagraph, ResolvedRunStyle, ResolvedTextBody } from './resolve';
 import {
+  breakUnits,
   createApproximateMeasurer,
   createCanvasMeasurer,
   cssFont,
@@ -230,5 +231,52 @@ describe('measurers', () => {
     canvas.measure('ab', { ...STYLE, size: 1_000 });
     // Cached per font and text, independent of size.
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe('CJK line breaking', () => {
+  it('keeps Latin words whole and breaks CJK text between characters', () => {
+    expect(breakUnits('presentation')).toEqual(['presentation']);
+    expect(breakUnits('日本語')).toEqual(['日', '本', '語']);
+    expect(breakUnits('漢字abc')).toEqual(['漢', '字', 'abc']);
+  });
+
+  it('applies kinsoku: no closing punctuation or small kana at a line start', () => {
+    expect(breakUnits('です。')).toEqual(['で', 'す。']);
+    expect(breakUnits('ちょっと')).toEqual(['ちょっ', 'と']);
+    expect(breakUnits('「日本」')).toEqual(['「日', '本」']);
+    expect(breakUnits('一、二')).toEqual(['一、', '二']);
+  });
+
+  it('never splits a grapheme cluster', () => {
+    expect(breakUnits('日👍🏽本').join('|')).toBe('日|👍🏽|本');
+  });
+
+  it('wraps CJK text without spaces and never starts a line with 。', () => {
+    const text = '私は毎日学校に行きます。今日はとても良い天気です。';
+    const layout = layoutText(body([para(text)]), pt(120), pt(400), measurer);
+    expect(layout.lines.length).toBeGreaterThan(2);
+    const lines = layout.lines.map((line) => line.fragments.map((f) => f.text).join(''));
+    expect(lines.join('')).toBe(text);
+    for (const line of lines) expect(line.startsWith('。')).toBe(false);
+    for (const line of layout.lines) expect(line.width).toBeLessThanOrEqual(pt(120) + 1);
+  });
+});
+
+describe('justified text', () => {
+  it('stretches every wrapped line to the full width except the last', () => {
+    const width = pt(200);
+    const layout = layoutText(body([para(LONG, { align: 'justify' })]), width, pt(400), measurer);
+    expect(layout.lines.length).toBeGreaterThan(2);
+    for (const line of layout.lines.slice(0, -1)) {
+      const last = line.fragments[line.fragments.length - 1];
+      expect(last.x + last.width).toBeCloseTo(width, 3);
+      expect(line.fragments.every((fragment) => !/\s/.test(fragment.text))).toBe(true);
+    }
+    const final = layout.lines[layout.lines.length - 1];
+    const end = final.fragments[final.fragments.length - 1];
+    expect(end.x + end.width).toBeLessThan(width - 1);
+    const words = layout.lines.flatMap((line) => line.fragments.map((f) => f.text.trim()));
+    expect(words.join(' ').replace(/\s+/g, ' ')).toBe(LONG);
   });
 });
