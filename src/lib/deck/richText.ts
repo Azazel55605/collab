@@ -337,6 +337,42 @@ export function linkInRange(body: DeckRichText, range: TextRange): DeckLink | nu
   return found;
 }
 
+/** The whole run of linked text around `offset`, or null when it is not in a link. */
+export function linkExtent(body: DeckRichText, offset: number): TextRange | null {
+  const { index, local } = locate(body, offset);
+  const paragraph = body.paragraphs[index];
+  if (!paragraph) return null;
+  const start = paragraphStarts(body)[index];
+  let position = 0;
+  let found: { from: number; to: number; link: DeckLink } | null = null;
+  const spans: Array<{ from: number; to: number; link: DeckLink | null }> = [];
+  for (const run of paragraph.runs) {
+    const length = runLength(run);
+    spans.push({
+      from: position,
+      to: position + length,
+      link: run.kind === 'text' && run.link ? run.link : null,
+    });
+    position += length;
+  }
+  for (let at = 0; at < spans.length; at += 1) {
+    const span = spans[at];
+    if (!span.link || local < span.from || local > span.to) continue;
+    let from = span.from;
+    let to = span.to;
+    const key = canonical(span.link);
+    for (let back = at - 1; back >= 0 && canonical(spans[back].link) === key; back -= 1) {
+      from = spans[back].from;
+    }
+    for (let next = at + 1; next < spans.length && canonical(spans[next].link) === key; next += 1) {
+      to = spans[next].to;
+    }
+    found = { from, to, link: span.link };
+    break;
+  }
+  return found ? { start: start + found.from, end: start + found.to } : null;
+}
+
 /* ------------------------------------------------------------------------- */
 /* Structural edits                                                           */
 /* ------------------------------------------------------------------------- */

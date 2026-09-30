@@ -20,6 +20,7 @@ import type {
   DeckGroupElement,
   DeckLayout,
   DeckMaster,
+  DeckRichText,
   DeckSection,
   DeckSlide,
   DeckTheme,
@@ -286,6 +287,26 @@ export function duplicateSlides(
   }
   if (created.length === 0) return { ...unchanged(document), slideIds: [] };
   return { ...applyPatch(document, { slides, slideOrder: order }), slideIds: created };
+}
+
+/** Replaces a slide's speaker notes; an empty body removes them. */
+export function setSpeakerNotes(
+  document: DeckDocument,
+  slideId: string,
+  notes: DeckRichText | undefined,
+): DeckEdit {
+  const slide = document.slides[slideId];
+  if (!slide) throw new Error(`Slide ${slideId} does not exist.`);
+  const empty =
+    !notes ||
+    notes.paragraphs.every((paragraph) =>
+      paragraph.runs.every((run) => run.kind === 'text' && run.text === ''),
+    );
+  if (empty && !slide.speakerNotes) return unchanged(document);
+  const next: DeckSlide = { ...slide };
+  if (empty) delete next.speakerNotes;
+  else next.speakerNotes = notes;
+  return applyPatch(document, { slides: { [slideId]: next } });
 }
 
 /* ------------------------------------------------------------------------- */

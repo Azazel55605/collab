@@ -1,8 +1,8 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { updateElements } from '../../lib/deck/operations';
-import type { ResolvedSlide } from '../../lib/deck/resolve';
-import { resolveSlide } from '../../lib/deck/resolve';
+import type { DeckTarget, ResolvedSlide } from '../../lib/deck/resolve';
+import { resolveTarget } from '../../lib/deck/resolve';
 import type { DeckTextMeasurer } from '../../lib/deck/textLayout';
 import {
   cropImage,
@@ -11,6 +11,7 @@ import {
   hitTest,
   marqueeSelect,
   moveSelection,
+  pointInFrame,
   resizeSelection,
   rotateSelection,
   selectionBounds,
@@ -25,7 +26,7 @@ import type {
   SlideGeometry,
   SnapGuide,
 } from '../../lib/deck/transform';
-import { slideGeometry } from '../../lib/deck/transform';
+import { targetGeometry } from '../../lib/deck/transform';
 import { DECK_UNITS_PER_INCH, DECK_UNITS_PER_PX } from '../../types/deck';
 import type { DeckAssetRef, DeckDocument } from '../../types/deck';
 
@@ -50,7 +51,8 @@ export interface DeckStageOptions {
 
 interface DeckStageProps {
   deck: DeckDocument;
-  slideId: string;
+  /** The slide, layout, or master being edited. */
+  target: DeckTarget;
   resolved: ResolvedSlide;
   geometry: SlideGeometry;
   /** CSS pixels per CSS pixel of the slide at 100%. */
@@ -69,6 +71,12 @@ interface DeckStageProps {
   onCommit: (updaters: ElementUpdaters, label: string) => void;
   onZoom: (next: number, anchor?: { clientX: number; clientY: number }) => void;
   onContextMenu?: (event: React.MouseEvent) => void;
+  /** Opens in-place text editing for an element (double-click on text or a shape). */
+  onEditText?: (elementId: string, point: { clientX: number; clientY: number }) => void;
+  /** The in-place text editor, laid over its element's frame. */
+  editing?: { id: string; content: React.ReactNode } | null;
+  /** Ends in-place text editing, when the pointer goes down anywhere else. */
+  onExitText?: () => void;
 }
 
 type Gesture =
@@ -222,7 +230,7 @@ function Ruler({ axis, length, zoom }: { axis: 'x' | 'y'; length: number; zoom: 
  */
 export function DeckStage({
   deck,
-  slideId,
+  target,
   resolved,
   geometry,
   zoom,
@@ -237,7 +245,11 @@ export function DeckStage({
   onCommit,
   onZoom,
   onContextMenu,
+  onEditText,
+  editing,
+  onExitText,
 }: DeckStageProps) {
+  const slideId = target.id;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const slideRef = useRef<HTMLDivElement | null>(null);
   const gestureRef = useRef<Gesture>({ kind: 'none' });
@@ -265,16 +277,16 @@ export function DeckStage({
 
   // The previewed scene: the committed deck with the in-flight gesture applied.
   const previewDeck = useMemo(
-    () => (preview ? updateElements(deck, slideId, preview.updaters).result : deck),
-    [deck, preview, slideId],
+    () => (preview ? updateElements(deck, target, preview.updaters).result : deck),
+    [deck, preview, target],
   );
   const shownSlide = useMemo(
-    () => (preview ? resolveSlide(previewDeck, slideId) : resolved),
-    [preview, previewDeck, resolved, slideId],
+    () => (preview ? resolveTarget(previewDeck, target, { prompts: true }) : resolved),
+    [preview, previewDeck, resolved, target],
   );
   const shownGeometry = useMemo(
-    () => (preview ? slideGeometry(previewDeck, slideId) : geometry),
-    [geometry, preview, previewDeck, slideId],
+    () => (preview ? targetGeometry(previewDeck, target) : geometry),
+    [geometry, preview, previewDeck, target],
   );
 
   const toSlide = useCallback(
@@ -297,21 +309,34 @@ export function DeckStage({
       ? selectedIds[0]
       : null;
 
-  // Double-clicking an image crops it; text editing takes this gesture in Phase 3.
+  // Double-clicking an image crops it; double-clicking text or a shape edits its text.
   const onDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (readOnly) return;
-    const hit = hitTest(
-      geometry,
-      toSlide(event.clientX, event.clientY),
-      HIT_SLOP_PX * unitsPerScreenPx,
-    );
+    const point = toSlide(event.clientX, event.clientY);
+    let hit = hitTest(geometry, point, HIT_SLOP_PX * unitsPerScreenPx);
+    // Inside a selected group, double-click reaches the child under the pointer.
+    if (hit && geometry.slide.elements[hit]?.type === 'group') {
+      const inner = [...geometry.frames.entries()]
+        .filter(([id]) => geometry.parents.has(id) && geometry.slide.elements[id]?.type !== 'group')
+        .reverse()
+        .find(([, frame]) => pointInFrame(frame, point));
+      if (inner) hit = inner[0];
+    }
     const element = hit ? geometry.slide.elements[hit] : null;
-    if (!hit || element?.type !== 'image' || element.locked) return;
-    onSelectionChange([hit]);
-    onCroppingChange(hit);
+    if (!hit || !element || element.locked) return;
+    if (element.type === 'image') {
+      onSelectionChange([hit]);
+      onCroppingChange(hit);
+      return;
+    }
+    if ((element.type === 'text' || element.type === 'shape') && onEditText) {
+      if (geometry.order.includes(hit)) onSelectionChange([hit]);
+      onEditText(hit, { clientX: event.clientX, clientY: event.clientY });
+    }
   };
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (editing) onExitText?.();
     if (event.button === 2) {
       // Right-click selects what it lands on, so the context menu acts on it.
       const hit = hitTest(
@@ -529,7 +554,7 @@ export function DeckStage({
   };
 
   const shape = selectedIds.length > 0 ? selectionShape(shownGeometry, selectedIds, zoom) : null;
-  const handlesVisible = shape && !readOnly && !locked;
+  const handlesVisible = shape && !readOnly && !locked && !editing;
   const cropHandlesVisible = Boolean(handlesVisible && cropTarget);
   const rotateHandle = shape
     ? (() => {
@@ -622,6 +647,27 @@ export function DeckStage({
             )}
           </div>
 
+          {editing &&
+            (() => {
+              const frame = shownGeometry.frames.get(editing.id);
+              if (!frame) return null;
+              return (
+                <div
+                  className="absolute z-20"
+                  style={{
+                    left: MARGIN_PX + toScreen(frame.x, zoom),
+                    top: MARGIN_PX + toScreen(frame.y, zoom),
+                    width: toScreen(frame.width, zoom),
+                    height: toScreen(frame.height, zoom),
+                    transform: frame.rotation ? `rotate(${frame.rotation / 100}deg)` : undefined,
+                  }}
+                  data-testid="deck-text-editing"
+                >
+                  {editing.content}
+                </div>
+              );
+            })()}
+
           {/* Interaction layer: covers the margins too, so marquee can start off-slide. */}
           <div
             className="absolute inset-0 z-10"
@@ -641,6 +687,21 @@ export function DeckStage({
               width={slideWidthPx}
               height={slideHeightPx}
             >
+              {shownSlide.items.map((item) =>
+                item.kind === 'shape' && item.prompt && item.id !== editing?.id ? (
+                  <polygon
+                    key={`prompt-${item.id}`}
+                    points={frameCorners(item.frame)
+                      .map((c) => `${toScreen(c.x, zoom)},${toScreen(c.y, zoom)}`)
+                      .join(' ')}
+                    fill="none"
+                    className="stroke-muted-foreground/60"
+                    strokeWidth={1}
+                    strokeDasharray="3 3"
+                    data-testid="deck-placeholder-outline"
+                  />
+                ) : null,
+              )}
               {preview?.guides.map((guide) =>
                 guide.axis === 'x' ? (
                   <line

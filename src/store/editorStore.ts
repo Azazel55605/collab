@@ -67,6 +67,8 @@ export interface DeckViewState {
   showRulers?: boolean;
   snapToObjects?: boolean;
   showGrid?: boolean;
+  /** The design panel (Phase 3); optional for the same reason. */
+  inspectorOpen?: boolean;
 }
 
 export interface PendingSearchJump {

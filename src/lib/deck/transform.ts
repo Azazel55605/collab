@@ -161,7 +161,7 @@ export function targetGeometry(deck: DeckDocument, target: DeckTarget): SlideGeo
 /* Hit testing                                                                */
 /* ------------------------------------------------------------------------- */
 
-function pointInFrame(frame: Frame, point: Point, slop: number): boolean {
+export function pointInFrame(frame: Frame, point: Point, slop = 0): boolean {
   const centre = frameCenter(frame);
   const angle = -toRadians(frame.rotation);
   const dx = point.x - centre.x;
