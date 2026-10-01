@@ -2,9 +2,13 @@ import * as React from 'react';
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
+import * as Y from 'yjs';
 
 import { TooltipProvider } from '../components/ui/tooltip';
 import { buildFixtureDeck, FIXTURE_IMAGE_PATH } from '../lib/deck/fixture';
+import { readDeck, reconcileDeck, writeDeck } from '../lib/deck/liveDeckDocument';
+import type { LiveDeckSession } from '../lib/deck/liveDeckSession';
 import { serializeDeck } from '../lib/deck/validate';
 import { createEmptySheetDocument, serializeSheetDocument } from '../lib/sheet/document';
 import { useEditorStore } from '../store/editorStore';
@@ -21,6 +25,7 @@ const clientMocks = vi.hoisted(() => ({
   importData: vi.fn(),
   listFiles: vi.fn(),
   deletePermanently: vi.fn(),
+  live: false,
 }));
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -37,8 +42,18 @@ vi.mock('../lib/vaultClient', () => ({
     readAssetDataUrl: clientMocks.readAssetDataUrl,
     listFiles: clientMocks.listFiles,
     deletePermanently: clientMocks.deletePermanently,
+    ...(clientMocks.live
+      ? { resolveLiveSession: async () => ({ serverUrl: 'x', vaultId: 'v', fileId: 'f' }) }
+      : {}),
   })),
 }));
+
+// A live room on a real Y.Doc with the real deck codec; "the peer" is a second
+// Y.Doc kept in sync by hand, as the server relay would.
+const liveMocks = vi.hoisted(() => ({
+  open: vi.fn(),
+}));
+vi.mock('../lib/deck/liveDeckSession', () => ({ openLiveDeckSession: liveMocks.open }));
 
 // jsdom never decodes images; report a size instead.
 vi.mock('../lib/deck/images', async (importOriginal) => {
@@ -983,5 +998,193 @@ describe('DeckView: presenting and export', () => {
     expect(pdf).toContain('/Count 5');
     expect(pdf).toContain('/Title');
     expect(clientMocks.writeDocument).not.toHaveBeenCalled();
+  });
+});
+
+describe('DeckView: live collaboration', () => {
+  const LOCAL = Symbol('local');
+
+  function room() {
+    const doc = new Y.Doc();
+    doc.clientID = 101;
+    writeDeck(doc, buildFixtureDeck());
+    const peer = new Y.Doc();
+    peer.clientID = 202;
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc));
+    const awareness = new Awareness(doc);
+    const peerAwareness = new Awareness(peer);
+    const writes = vi.fn();
+    const root = doc.getMap('doc');
+    const session: LiveDeckSession = {
+      doc,
+      awareness,
+      getStatus: () => 'connected',
+      onStatus: () => () => {},
+      discardOfflineState: vi.fn(),
+      destroy: vi.fn(),
+      readDeck: () => readDeck(doc),
+      writeDeck: (deck) => {
+        writes(deck);
+        reconcileDeck(doc, deck, LOCAL);
+      },
+      onChange: (callback) => {
+        const observer = (_events: unknown, transaction: Y.Transaction) => {
+          if (transaction.origin !== LOCAL) callback(readDeck(doc)!);
+        };
+        root.observeDeep(observer);
+        return () => root.unobserveDeep(observer);
+      },
+    };
+    /** The peer edits its copy; the change is relayed to this client. */
+    const peerEdit = (edit: (deck: DeckDocument) => void) => {
+      const next = readDeck(peer) as unknown as DeckDocument;
+      edit(next);
+      reconcileDeck(peer, next);
+      act(() => {
+        Y.applyUpdate(doc, Y.encodeStateAsUpdate(peer, Y.encodeStateVector(doc)));
+      });
+    };
+    const toPeer = () => Y.applyUpdate(peer, Y.encodeStateAsUpdate(doc, Y.encodeStateVector(peer)));
+    const peerPresence = (deck: Record<string, unknown>) => {
+      peerAwareness.setLocalState({
+        user: { id: 'u-2', name: 'Robin', color: '#e11d48' },
+        document: { kind: 'deck', relativePath: PATH },
+        deck,
+      });
+      act(() => {
+        applyAwarenessUpdate(awareness, encodeAwarenessUpdate(peerAwareness, [202]), 'remote');
+      });
+    };
+    return { doc, peer, session, writes, peerEdit, toPeer, peerPresence };
+  }
+
+  beforeEach(() => {
+    clientMocks.live = true;
+    clientMocks.listFiles.mockResolvedValue([]);
+  });
+  afterEach(() => {
+    clientMocks.live = false;
+  });
+
+  async function openLive() {
+    const live = room();
+    liveMocks.open.mockResolvedValue(live.session);
+    await openDeck();
+    await waitFor(() => expect(liveMocks.open).toHaveBeenCalled());
+    await act(async () => {});
+    return live;
+  }
+
+  const editor = () => screen.getByTestId('deck-text-editor');
+  const type = (data: string) =>
+    act(() => {
+      editor().dispatchEvent(
+        new InputEvent('beforeinput', {
+          inputType: 'insertText',
+          data,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+  it('edits go to the room, not to REST saves, and peers’ edits appear', async () => {
+    const live = await openLive();
+    key(canvas(), 'Tab');
+    key(canvas(), 'Delete');
+    await waitFor(() => expect(live.writes).toHaveBeenCalled());
+    expect(clientMocks.writeDocument).not.toHaveBeenCalled();
+    expect(
+      Object.keys((readDeck(live.doc) as unknown as DeckDocument).slides['slide-1'].elements),
+    ).not.toContain('s1-title');
+    // A collaborator hides slide 4: the rail shows it at once.
+    live.peerEdit((deck) => {
+      deck.slides['slide-4'].hidden = true;
+    });
+    await waitFor(() => expect(screen.getByRole('img', { name: 'Slide 4, hidden' })).toBeTruthy());
+  });
+
+  it('keeps both people’s typing in one text box', async () => {
+    const live = await openLive();
+    key(canvas(), 'Tab'); // s1-title
+    key(canvas(), 'Enter');
+    // Caret at the end: type while the collaborator types at the start.
+    type('!');
+    live.peerEdit((deck) => {
+      const element = deck.slides['slide-1'].elements['s1-title'];
+      if (element.type !== 'text' && element.type !== 'shape') return;
+      const run = element.text!.content.paragraphs[0].runs[0];
+      if (run.kind === 'text') run.text = `Live ${run.text}`;
+    });
+    await waitFor(() => expect(editor().textContent).toBe('Live Collab Presentations!'));
+    type('?');
+    key(editor(), 'Escape');
+    await waitFor(() => {
+      const deck = readDeck(live.doc) as unknown as DeckDocument;
+      const element = deck.slides['slide-1'].elements['s1-title'];
+      const text =
+        element.type === 'text' || element.type === 'shape'
+          ? element
+              .text!.content.paragraphs[0].runs.map((run) => (run.kind === 'text' ? run.text : ''))
+              .join('')
+          : '';
+      expect(text).toBe('Live Collab Presentations!?');
+    });
+    // The peer receives the merged text too.
+    live.toPeer();
+    const peerDeck = readDeck(live.peer) as unknown as DeckDocument;
+    expect(JSON.stringify(peerDeck.slides['slide-1'].elements['s1-title'])).toContain(
+      'Live Collab Presentations!?',
+    );
+  });
+
+  it('shows where collaborators are and what they have selected', async () => {
+    const live = await openLive();
+    live.peerPresence({ targetId: 'slide-1', selectedIds: ['s1-title'], presenting: false });
+    await waitFor(() => expect(screen.getAllByTestId('deck-rail-peers').length).toBe(1));
+    expect(screen.getByTestId('deck-peer-selection').textContent).toContain('Robin');
+    live.peerPresence({
+      targetId: 'slide-1',
+      selectedIds: [],
+      editing: { elementId: 's1-title' },
+      presenting: false,
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('deck-peer-selection').textContent).toContain('Robin is typing'),
+    );
+    live.peerPresence({ targetId: 'slide-3', presenting: true });
+    expect(await screen.findByText('Robin is presenting')).toBeTruthy();
+    // This client publishes its own place for the others.
+    const mine = live.session.awareness.getLocalState() as { deck?: { targetId: string } };
+    expect(mine.deck?.targetId).toBe('slide-1');
+  });
+
+  it('viewers follow the room but never write to it', async () => {
+    useVaultStore.setState({ vault: HOSTED_VIEWER_VAULT } as never);
+    const live = await openLive();
+    key(canvas(), 'Tab');
+    key(canvas(), 'Delete');
+    live.peerEdit((deck) => {
+      deck.slides['slide-2'].hidden = true;
+    });
+    await waitFor(() => expect(screen.getByRole('img', { name: 'Slide 2, hidden' })).toBeTruthy());
+    expect(live.writes).not.toHaveBeenCalled();
+    expect(clientMocks.writeDocument).not.toHaveBeenCalled();
+  });
+
+  it('never adopts a room that holds a different deck', async () => {
+    const other = room();
+    const foreign = new Y.Doc();
+    const deck = buildFixtureDeck();
+    deck.id = 'someone-else';
+    writeDeck(foreign, deck);
+    liveMocks.open.mockResolvedValue({ ...other.session, readDeck: () => readDeck(foreign) });
+    await openDeck();
+    await waitFor(() => expect(other.session.discardOfflineState).toHaveBeenCalled());
+    // Still editable through REST.
+    key(canvas(), 'Tab');
+    key(canvas(), 'Delete');
+    const saved = await savedDeck();
+    expect(saved.slides['slide-1'].elements['s1-title']).toBeUndefined();
   });
 });

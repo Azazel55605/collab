@@ -98,6 +98,17 @@ interface DeckStageProps {
   onDropFiles?: (files: File[], point: Point) => void;
   /** Ends in-place text editing, when the pointer goes down anywhere else. */
   onExitText?: () => void;
+  /** Collaborators' selections on this slide, outlined in their colour. */
+  peers?: DeckStagePeer[];
+}
+
+export interface DeckStagePeer {
+  key: string;
+  name: string;
+  color: string;
+  ids: string[];
+  /** The element the peer is typing in, if any. */
+  typingId: string | null;
 }
 
 type Gesture =
@@ -270,6 +281,7 @@ export function DeckStage({
   onEditText,
   editing,
   onExitText,
+  peers,
   onEditCell,
   onActiveCell,
   onOpenEmbed,
@@ -825,6 +837,43 @@ export function DeckStage({
                     />
                   );
                 })}
+              {peers?.map((peer) =>
+                peer.ids.map((id, index) => {
+                  const frame = shownGeometry.frames.get(id);
+                  if (!frame) return null;
+                  const corners = frameCorners(frame).map((c) => ({
+                    x: toScreen(c.x, zoom),
+                    y: toScreen(c.y, zoom),
+                  }));
+                  const top = corners.reduce((best, c) => (c.y < best.y ? c : best), corners[0]);
+                  const label =
+                    peer.typingId === id ? `${peer.name} is typing` : index === 0 ? peer.name : '';
+                  return (
+                    <g key={`${peer.key}:${id}`} data-testid="deck-peer-selection">
+                      <polygon
+                        points={corners.map((c) => `${c.x},${c.y}`).join(' ')}
+                        fill="none"
+                        stroke={peer.color}
+                        strokeWidth={2}
+                        strokeDasharray={peer.typingId === id ? '6 3' : undefined}
+                      />
+                      {label && (
+                        <g transform={`translate(${top.x} ${top.y - 16})`}>
+                          <rect
+                            width={label.length * 6.2 + 10}
+                            height={15}
+                            rx={3}
+                            fill={peer.color}
+                          />
+                          <text x={5} y={11} fontSize={10} fill="#fff">
+                            {label}
+                          </text>
+                        </g>
+                      )}
+                    </g>
+                  );
+                }),
+              )}
               {shape && (
                 <polygon
                   points={shape.corners.map((corner) => `${corner.x},${corner.y}`).join(' ')}

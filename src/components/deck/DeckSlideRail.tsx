@@ -39,6 +39,11 @@ interface DeckSlideRailProps {
   /** Moves `ids` so they start at `toIndex` of the slides that are not moving. */
   onMove: (ids: string[], toIndex: number) => void;
   onAction: (action: DeckRailAction) => void;
+  /** Collaborators on each slide (by slide id), shown on its thumbnail. */
+  peersBySlide?: ReadonlyMap<
+    string,
+    Array<{ key: string; name: string; color: string; presenting?: boolean }>
+  >;
 }
 
 const THUMB_WIDTH = 150;
@@ -70,6 +75,7 @@ export function DeckSlideRail({
   onSelect,
   onMove,
   onAction,
+  peersBySlide,
 }: DeckSlideRailProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [viewport, setViewport] = useState({ top: 0, height: 800 });
@@ -255,6 +261,23 @@ export function DeckSlideRail({
                     <span className="w-4 shrink-0 pt-0.5 text-right text-[10px] tabular-nums text-muted-foreground">
                       {index + 1}
                     </span>
+                    {peersBySlide?.get(id)?.length ? (
+                      <span
+                        className="pointer-events-none absolute top-2 right-2 z-10 flex -space-x-1"
+                        data-testid="deck-rail-peers"
+                      >
+                        {peersBySlide.get(id)!.map((peer) => (
+                          <span
+                            key={peer.key}
+                            title={peer.presenting ? `${peer.name} is presenting` : peer.name}
+                            className="flex size-4 items-center justify-center rounded-full text-[9px] font-bold text-white ring-1 ring-background"
+                            style={{ backgroundColor: peer.color }}
+                          >
+                            {peer.name.charAt(0).toUpperCase()}
+                          </span>
+                        ))}
+                      </span>
+                    ) : null}
                     {slide ? (
                       <DeckSlide
                         slide={slide}

@@ -383,7 +383,8 @@ impl Room {
             MaterializeKind::Json
             | MaterializeKind::Canvas
             | MaterializeKind::Sheet
-            | MaterializeKind::Ink => self.json_content(),
+            | MaterializeKind::Ink
+            | MaterializeKind::Deck => self.json_content(),
             MaterializeKind::None => None,
         }
     }
@@ -503,7 +504,8 @@ fn spawn_materializer(room: Arc<Room>, db: PgPool, blobs: Arc<dyn BlobStorage>) 
                 MaterializeKind::Json
                 | MaterializeKind::Canvas
                 | MaterializeKind::Sheet
-                | MaterializeKind::Ink => room.json_content(),
+                | MaterializeKind::Ink
+                | MaterializeKind::Deck => room.json_content(),
                 MaterializeKind::None => None,
             };
             let Some(content) = content else { continue };
@@ -778,7 +780,8 @@ impl Hub {
             MaterializeKind::Json
             | MaterializeKind::Canvas
             | MaterializeKind::Sheet
-            | MaterializeKind::Ink => ExternalRevisionMerge::Conflict,
+            | MaterializeKind::Ink
+            | MaterializeKind::Deck => ExternalRevisionMerge::Conflict,
             MaterializeKind::None => ExternalRevisionMerge::Merged(incoming_content),
         }
     }
@@ -2188,6 +2191,72 @@ mod tests {
             value["pages"]["page-1"]["scene"]["layerOrder"][0],
             "layer-1"
         );
+    }
+
+    #[tokio::test]
+    async fn live_deck_document_merges_text_and_materializes_a_valid_deck() {
+        let Some((pool, _db_guard)) = test_pool().await else {
+            return;
+        };
+        let owner = insert_user(&pool, "deck-owner").await;
+        let vault = insert_vault(&pool, owner).await;
+        let file = insert_typed_document(&pool, vault, "talk.deck", "deck").await;
+        insert_ticket(&pool, owner, vault, "deck-live-t").await;
+
+        let (addr, state) = serve(pool.clone()).await;
+        let seed = include_str!("../../collab-documents/fixtures/deck-fixture.deck");
+        insert_note_revision(&pool, &state.blobs, vault, file, seed).await;
+
+        let mut client = TestClient::connect(&addr, vault, "deck-live-t").await;
+        client.expect_ready().await;
+        client.subscribe(file).await;
+        let _ = client.next_binary(ws_message::SYNC_STEP1).await;
+        client
+            .send_binary(
+                ws_message::SYNC_STEP1,
+                file,
+                &StateVector::default().encode_v1(),
+            )
+            .await;
+        let (_, state_update) = client
+            .next_binary(ws_message::SYNC_UPDATE)
+            .await
+            .expect("seeded deck state");
+
+        // Type into a rich-text body (a `Y.Text`) as the desktop would.
+        let local = Doc::new();
+        apply_update_bytes(&local, &state_update);
+        let before = local.transact().state_vector();
+        {
+            let root = local.get_or_insert_map(JSON_ROOT_NAME);
+            let mut txn = local.transact_mut();
+            let mut current = root;
+            for key in ["slides", "slide-2", "elements", "s2-body", "text"] {
+                current = match current.get(&txn, key) {
+                    Some(yrs::Out::YMap(map)) => map,
+                    other => panic!("no map at {key}: {other:?}"),
+                };
+            }
+            let Some(yrs::Out::YText(text)) = current.get(&txn, "content") else {
+                panic!("deck rich text is not a Y.Text");
+            };
+            text.insert(&mut txn, 0, "Live: ");
+        }
+        let delta = local.transact().encode_state_as_update_v1(&before);
+        client
+            .send_binary(ws_message::SYNC_UPDATE, file, &delta)
+            .await;
+
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        let content = api::load_current_document_text(&pool, &*state.blobs, vault, file)
+            .await
+            .expect("materialized deck");
+        let value: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(value["kind"], "collab-deck");
+        assert_eq!(value["schemaVersion"], 1);
+        let body =
+            serde_json::to_string(&value["slides"]["slide-2"]["elements"]["s2-body"]).unwrap();
+        assert!(body.contains("Live: "), "{body}");
     }
 
     /// A canvas that loses every node must never overwrite a canonical revision

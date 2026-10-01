@@ -193,7 +193,7 @@ form never reaches disk — Phase 6 materialization writes plain `DeckRichText`.
 Proven against real Yjs in `liveText.test.ts`, with two independent documents
 exchanging only state-vector diffs:
 
-- every fixture body round-trips losslessly;
+- every fixture body round-trips losslessly (exactly, since Phase 6);
 - concurrent typing at different places in one paragraph merges;
 - concurrent insertion at the same position keeps both, identically ordered;
 - one peer bolding a word while another types inside it keeps both;
@@ -207,7 +207,15 @@ exchanging only state-vector diffs:
 - one typed character is an incremental update under 64 bytes.
 
 Structure outside text bodies (slides, elements, order) keeps the plan's
-`Y.Map`/`Y.Array` design and is Phase 6 work.
+`Y.Map`/`Y.Array` design, delivered in Phase 6 (`liveDeckDocument.ts` on the
+desktop, `crates/collab-live/src/deck.rs` on the server).
+
+**Amended in Phase 6:** empty text runs are not noise. A layout placeholder's
+empty run is where its text colour and font come from, and the Phase 0
+encoding dropped them (the round-trip test compared with empty runs removed).
+They now travel on the paragraph end as a `pempty` attribute of
+`[index, run]` pairs, so every body — the whole deck — round-trips exactly,
+checked in both directions between the desktop and server codecs.
 
 ## Text Editing Adapter: Lexical Evaluated, Not Adopted
 

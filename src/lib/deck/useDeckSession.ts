@@ -9,10 +9,14 @@
  * whose `schemaVersion` is newer than this build understands — rewriting it
  * would strip fields a newer client wrote.
  *
- * Live co-editing is presentation Phase 6 (`LiveDocumentKind::Deck` and the
- * `Y.Text` codec in `liveText.ts`). Until then a concurrent edit surfaces as a
- * conflict rather than being text-merged: interleaving two decks' JSON would
- * parse and be neither person's slides.
+ * Hosted decks are edited live (Phase 6): once the REST revision has loaded,
+ * the session joins the deck's Yjs room (`liveDeckSession.ts`) and every edit
+ * goes there instead of through REST saves. Different slides, objects, and
+ * characters in one text box merge; the server writes ordinary `.deck`
+ * revisions from the room. The offline replica keeps edits made offline and
+ * merges them on reconnect. A room that is empty, unreadable, or a different
+ * deck than the REST revision is discarded and REST stays in charge, so a
+ * damaged cache can never replace the saved presentation.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -21,6 +25,7 @@ import { listen } from '@tauri-apps/api/event';
 import type { DeckDocument } from '../../types/deck';
 import { isVaultReadOnly } from '../../types/vault';
 import type { VaultMeta } from '../../types/vault';
+import { useCollabIdentity } from '../collabIdentity';
 import { saveConflictedCopy } from '../conflictedCopy';
 import {
   compareDocumentVersions,
@@ -30,6 +35,7 @@ import {
   type RemoteCandidate,
   useDocumentSessionController,
 } from '../documentSessionController';
+import { useLiveDocumentStatus } from '../useLiveDocumentStatus';
 import { createVaultClient } from '../vaultClient';
 import { onReplicaMutated, replicaMutationAffectsPath } from '../vaultReplica';
 
@@ -39,6 +45,8 @@ import {
   normalizeDeckDocument,
   parseDeckDocument,
 } from './document';
+import { openLiveDeckSession } from './liveDeckSession';
+import type { LiveDeckSession } from './liveDeckSession';
 import { serializeDeck } from './validate';
 
 interface UseDeckSessionOptions {
@@ -73,6 +81,10 @@ export interface DeckSession {
   controller: DocumentSessionController<DeckDocument>;
   snapshot: DocumentSessionSnapshot<DeckDocument>;
   saveMineAsNew: (localContent: string) => Promise<void>;
+  /** The live room, for hosted decks once joined; null for REST editing. */
+  liveSession: LiveDeckSession | null;
+  /** Increments whenever a collaborator's change (or the live seed) is adopted. */
+  remoteRevision: number;
 }
 
 export function describeDeckOpenError(reason: unknown): string {
@@ -101,6 +113,12 @@ export function useDeckSession({
   const [schemaSupport, setSchemaSupport] = useState<DeckSchemaSupport>('supported');
   const [schemaVersion, setSchemaVersion] = useState<number | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [liveSession, setLiveSession] = useState<LiveDeckSession | null>(null);
+  const liveSessionRef = useRef<LiveDeckSession | null>(null);
+  const restDocumentRef = useRef<DeckDocument | null>(null);
+  const [restLoadedPath, setRestLoadedPath] = useState<string | null>(null);
+  const [remoteRevision, setRemoteRevision] = useState(0);
+  const { userId, userName, userColor } = useCollabIdentity();
 
   const vaultReadOnly = isVaultReadOnly(vault);
   const readOnly = vaultReadOnly || schemaSupport === 'newer';
@@ -108,6 +126,7 @@ export function useDeckSession({
 
   const applyDocument = useCallback((candidate: RemoteCandidate<DeckDocument>) => {
     documentRef.current = candidate.document;
+    if (candidate.source !== 'live') restDocumentRef.current = candidate.document;
     setDocument(candidate.document);
   }, []);
 
@@ -153,8 +172,9 @@ export function useDeckSession({
     },
     mergeRemote: () => null,
     compareVersions: compareDocumentVersions,
-    isLive: () => false,
+    isLive: () => liveSessionRef.current !== null,
   });
+  useLiveDocumentStatus(controller, liveSession);
 
   useEffect(() => {
     if (!client || !relativePath) {
@@ -170,6 +190,7 @@ export function useDeckSession({
     setWarnings([]);
     setSchemaSupport('supported');
     setSchemaVersion(null);
+    setRestLoadedPath(null);
 
     client
       .readDocument(relativePath)
@@ -187,6 +208,7 @@ export function useDeckSession({
           return;
         }
         controller.load(doc.content, doc.version, 'rest');
+        setRestLoadedPath(relativePath);
       })
       .catch((reason) => {
         if (cancelled) return;
@@ -204,9 +226,11 @@ export function useDeckSession({
 
   useEffect(() => {
     if (!relativePath) return;
+    // Live edits are saved by the room, never by this session.
+    if (liveSession) return;
     if (snapshot.dirty) markDirty(relativePath);
     else if (snapshot.loadedVersion) markSaved(relativePath, `deck:${snapshot.loadedVersion}`);
-  }, [markDirty, markSaved, relativePath, snapshot.dirty, snapshot.loadedVersion]);
+  }, [liveSession, markDirty, markSaved, relativePath, snapshot.dirty, snapshot.loadedVersion]);
 
   const updateDocument = useCallback(
     (updater: (current: DeckDocument) => DeckDocument) => {
@@ -220,11 +244,112 @@ export function useDeckSession({
       const checked = normalizeDeckDocument({ ...next, updatedAt: new Date().toISOString() });
       documentRef.current = checked.document;
       setDocument(checked.document);
-      controller.markLocalChange(checked.document);
+      if (liveSessionRef.current) liveSessionRef.current.writeDeck(checked.document);
+      else controller.markLocalChange(checked.document);
       return checked.document;
     },
     [controller, readOnly],
   );
+
+  // Hosted decks join the live room once the REST revision is in hand; REST
+  // stays the fallback and the integrity baseline for the room's first state.
+  useEffect(() => {
+    if (
+      !client ||
+      !relativePath ||
+      !client.resolveLiveSession ||
+      restLoadedPath !== relativePath ||
+      schemaSupport !== 'supported'
+    ) {
+      liveSessionRef.current = null;
+      setLiveSession(null);
+      return;
+    }
+    let cancelled = false;
+    let opened: LiveDeckSession | null = null;
+    let off: (() => void) | undefined;
+
+    const adopt = (json: Record<string, unknown>): boolean => {
+      try {
+        const next = normalizeDeckDocument(json).document;
+        if (next.id !== restDocumentRef.current?.id) return false;
+        controller.handleRemoteCandidate({
+          document: next,
+          content: serializeDeck(next),
+          version: controller.version,
+          source: 'live',
+        });
+        setRemoteRevision((revision) => revision + 1);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const reject = (session: LiveDeckSession) => {
+      session.discardOfflineState();
+      session.destroy();
+      if (liveSessionRef.current === session) liveSessionRef.current = null;
+      setLiveSession(null);
+      opened = null;
+    };
+
+    openLiveDeckSession(client, relativePath)
+      .then((session) => {
+        if (cancelled || !session) {
+          session?.destroy();
+          return;
+        }
+        opened = session;
+        // Edits made in the moment before the room answered stay with REST
+        // (they save normally); writing them into the room as a whole deck
+        // could undo a collaborator's newer change.
+        if (controller.getSnapshot().dirty) {
+          session.destroy();
+          opened = null;
+          return;
+        }
+        const initial = session.readDeck();
+        // An empty or foreign room never replaces the saved presentation.
+        if (!initial || !adopt(initial)) {
+          reject(session);
+          return;
+        }
+        liveSessionRef.current = session;
+        setLiveSession(session);
+        off = session.onChange((json) => {
+          if (cancelled) return;
+          if (!adopt(json)) {
+            setError(
+              'The live presentation could not be read. The saved revision remains available.',
+            );
+            off?.();
+            reject(session);
+          }
+        });
+      })
+      .catch(() => {
+        // Best-effort: optimistic REST saves remain available.
+      });
+
+    return () => {
+      cancelled = true;
+      off?.();
+      opened?.destroy();
+      liveSessionRef.current = null;
+      setLiveSession(null);
+    };
+  }, [client, controller, relativePath, restLoadedPath, schemaSupport]);
+
+  useEffect(() => {
+    if (!liveSession) return;
+    liveSession.awareness.setLocalStateField('user', {
+      id: userId,
+      name: userName,
+      color: userColor,
+    });
+    liveSession.awareness.setLocalStateField('document', { kind: 'deck', relativePath });
+  }, [liveSession, relativePath, userColor, userId, userName]);
 
   // Local filesystem watcher: a clean deck reloads automatically, a dirty one
   // queues the remote version instead of discarding local edits.
@@ -281,5 +406,7 @@ export function useDeckSession({
     controller,
     snapshot,
     saveMineAsNew,
+    liveSession,
+    remoteRevision,
   };
 }

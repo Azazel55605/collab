@@ -5,7 +5,7 @@
 Phase 0 is complete except for its external-application and cross-platform
 gates. The frozen contract, measurements, and decisions are in the
 [Phase 0 Contract](./presentation-phase0-contract.md); where this plan and the
-contract differ, the contract wins. Phases 1-5 are complete; Phase 6 is next.
+contract differ, the contract wins. Phases 1-6 are complete; Phase 7 is next.
 
 This plan defines a first-party presentation editor for Collab. It follows the
 same product boundary as Advanced Tables: Collab owns the editable document
@@ -488,7 +488,7 @@ Security requirements:
 | 3. Rich text, themes, masters, and layouts            | Complete    | Deliver text editing, placeholders, theme inheritance, reusable layouts, and templates.                             |
 | 4. Visual objects and Collab data integration         | Complete    | Add images, SVG, shapes, lines, groups, tables, charts, `.sheet` snapshots, and note links.                         |
 | 5. Presentation mode and speaker workflow             | Complete    | Add fullscreen playback, notes, presenter view, navigation, handouts, and PDF/image output.                         |
-| 6. Hosted collaboration and offline behavior          | Not started | Add the deck-specific CRDT codec, awareness, offline replica merge, recovery, and physical multi-client validation. |
+| 6. Hosted collaboration and offline behavior          | Complete    | Add the deck-specific CRDT codec, awareness, offline replica merge, recovery, and physical multi-client validation. |
 | 7. Compatible PPTX export                             | Not started | Generate tested `.pptx` copies with a support matrix and visible conversion report.                                 |
 | 8. Mobile viewer and presentation companion           | Not started | Add offline viewing, notes, touch navigation, playback, and remote controls.                                        |
 | 9. Transitions and animations                         | Not started | Add a bounded timeline, preview/playback, reduced motion, and a tested PPTX-compatible subset.                      |
@@ -821,13 +821,72 @@ touch-remote and phone presenter are Phase 8.
 
 ### Phase 6: Hosted Collaboration And Offline Behavior
 
-- Add `LiveDocumentKind::Deck` across frontend, `collab-live`, server
-  materialization, replica classification, and recovery.
-- Add the deck-specific Yrs codec with `Y.Text` rich text.
-- Add awareness for slide, object selection, cursor, and presenter.
-- Add semantic operation tests and multi-client fixtures.
-- Validate offline restart/reconnect, concurrent slide/object/text editing,
-  read-only roles, deletion races, and revision restore.
+Complete. Hosted presentations are edited live; local vaults keep saving
+through REST as before. No schema change.
+
+- [x] `LiveDocumentKind::Deck` (`crates/collab-live`): a `deck` hosted file
+      opens a live room seeded from its current revision, materializes back to
+      ordinary `.deck` revisions after the quiet period, recovers a degenerate
+      room from the canonical revision, and treats a REST revision racing live
+      edits as a conflict, like the other structured kinds. The offline
+      replica and reconnect handshake are the shared ones.
+- [x] The deck codec, written twice and checked against each other: the
+      desktop's (`liveDeckDocument.ts`) and the server's (`deck.rs`).
+      Objects are `Y.Map`s, so different slides and objects merge; rich text
+      is one `Y.Text` per body in the Phase 0 encoding, so typing in one box
+      merges character by character and formats merge per key; geometry
+      (`frame`, `crop`, line ends, `size`) is written whole, so two
+      concurrent moves end at one position, never a mix of both. Both
+      directions are pinned by checked-in updates: the server materializes
+      the desktop's encoding of the shared fixture, and the desktop decodes
+      the server's seed, each to exactly the fixture.
+- [x] Materialization repairs what concurrency can leave: a slide or element
+      ordered twice after two simultaneous moves, an order entry or group
+      child for something a peer deleted, a section or layout reference to a
+      deleted slide or layout. Delete wins over a concurrent move or edit.
+      Integral numbers are written as integers.
+- [x] Local edits stay whole-document operations; the desktop reconciles each
+      into the smallest Yjs change — per-key map updates, id-keyed order
+      moves, and for text a character diff that keeps unchanged characters in
+      place and re-formats rather than re-types. One added element is one
+      small update.
+- [x] Typing while a collaborator types in the same box: the open draft is
+      rebased on their change with a three-way merge on a scratch `Y.Text`,
+      and the caret is carried through by relative position, so both people
+      keep typing where they were.
+- [x] Undo keeps working while others edit: it restores the objects this
+      person changed (it is no longer cleared by a collaborator's edit).
+- [x] Awareness: each editor publishes the slide (or layout or master) open,
+      the selection, the text being typed in, and whether it is presenting.
+      Collaborators appear on slide thumbnails, as outlines in their colour on
+      the stage ("Robin is typing" on the box being edited), in the top bar,
+      and as "… is presenting".
+- [x] Read-only roles: viewers join the room and follow every change; the
+      server refuses their updates and the editor never sends any.
+- [x] A room that is empty, unreadable, or holds a different deck than the
+      REST revision is discarded (with its offline cache) and REST stays in
+      charge; a session that already has unsaved REST edits does not join.
+
+Validated against real Yjs and Yrs: peer-to-peer merges of slides, objects,
+and one text box, formatting racing typing, concurrent moves, double orders
+and delete-versus-move (TypeScript and Rust), and the server end to end
+against PostgreSQL — a deck room seeded from a revision, typing sent over the
+socket into a rich-text `Y.Text`, and a valid revision materialized from it,
+next to the existing viewer-enforcement, offline-reconnect, compaction, and
+stale-revision room tests. In Chromium, two editors relayed live typed into
+the same title at the same time and both kept their text and caret.
+
+That check found a real defect in the Phase 0 text encoding, fixed and
+recorded in the contract: empty styled runs — which carry a placeholder's
+colour and font — were dropped, so a live deck's title placeholders lost their
+colour.
+
+Deliberately deferred: physical multi-machine soak tests (the protocol paths
+are the ones every structured kind uses); undo through a Yjs undo manager
+(undo restores whole objects, so it can overwrite a collaborator's later
+change to the same object); following a presenter from another device (Phase
+8); a group cycle created by two concurrent groupings is not repaired — the
+room keeps it and materialization waits until someone ungroups.
 
 ### Phase 7: Compatible PPTX Export
 

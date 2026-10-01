@@ -380,7 +380,8 @@ made `.deck` an ordinary vault document (create, open, browse, save, sync,
 conflicts, history, references); Phase 2 added the scene editor; Phase 3 added
 rich text, placeholders, themes, templates, and the master and layout editor;
 Phase 4 added images, tables, charts, linked documents, and slide exports;
-Phase 5 added presenting and PDF, handout, image, and print output.
+Phase 5 added presenting and PDF, handout, image, and print output; Phase 6
+added live hosted editing.
 Edits are reversible operations previewed on a scratch deck during a gesture and
 committed once, as one undo step and one save. Text editing holds a draft in a
 `TextSession`, writes it to the document on a short idle timer, and folds one
@@ -420,7 +421,7 @@ session's writes into a single undo step.
 | `lib/deck/transform.ts`                                      | Slide geometry, hit testing, move/resize/rotate/crop, snapping, align, distribute                                   |
 | `lib/deck/clipboard.ts`, `insert.ts`                         | Element copy/paste payload; new text boxes, shapes, lines, images, tables, charts, and linked documents             |
 | `lib/deck/document.ts`                                       | Create (from a template), parse with repair-and-report, newer-version read-only, migration                          |
-| `lib/deck/useDeckSession.ts`                                 | Load/save through `VaultClient` and `DocumentSessionController`; REST optimistic writes until Phase 6 live edits    |
+| `lib/deck/useDeckSession.ts`                                 | Load/save through `VaultClient` and `DocumentSessionController`; joins the live room for hosted decks               |
 | `lib/deck/assets.ts`                                         | Every image a deck draws, for inline data-URL loading                                                               |
 | `lib/deck/units.ts`                                          | The only unit conversions: deck units (1/100 pt, exactly 127 EMU), px, pt, inches, rotation                         |
 | `lib/deck/validate.ts`                                       | Trust boundary: limits (incl. hosted JSON-entry cap), geometry, links, asset paths, group cycles; serialization     |
@@ -431,7 +432,10 @@ session's writes into a single undo step.
 | `lib/deck/pdf.ts`, `textLayer.ts`                            | PDF writer: raster pages with an invisible, extractable text layer and links; text runs placed as drawn             |
 | `lib/deck/playback.ts`                                       | Playback state: navigation skipping hidden slides, keys, swipes, blanking, timer, temporary ink                     |
 | `lib/deck/presentWindow.ts`                                  | Audience window on a second display over Tauri events; display list and choice; full screen                         |
-| `lib/deck/liveText.ts`                                       | `Y.Text` encoding of one rich-text body for live collaboration (Phase 6)                                            |
+| `lib/deck/liveText.ts`                                       | `Y.Text` encoding of one rich-text body (runs as attributes, paragraph ends, empty runs on `pempty`)                |
+| `lib/deck/liveDeckDocument.ts`                               | Deck live codec: JSON ↔ shared types, minimal reconcile (text character diff), three-way text merge                 |
+| `lib/deck/liveDeckSession.ts`                                | Joins a hosted deck's live room over the shared provider and offline replica                                        |
+| `crates/collab-live/src/deck.rs`                             | Server deck codec: seed/replace, materialize with order repair; fixtures pin both directions                        |
 | `lib/deck/pptx/`                                             | Isolated, lazy PptxGenJS exporter with an OOXML repair pass and export report                                       |
 | `lib/deck/fixture.ts`, `budgets.ts`                          | Deterministic fixture and scale decks; performance budgets                                                          |
 | `crates/collab-documents/src/deck.rs`                        | Server-side `.deck` validation; `references.rs` collects/rewrites deck references                                   |
@@ -1349,7 +1353,7 @@ How features map to source files:
 | SVG vector editing                         | `views/SvgVectorView.tsx`, `lib/svgDocument.ts`, `types/svg.ts`                                                                                                                                                                                                                                                                                                        |
 | Image annotations                          | `views/ImageView.tsx`, `components/image/`, `types/image.ts`, `commands/files/sidecars.rs`                                                                                                                                                                                                                                                                             |
 | OCR                                        | `commands/ocr.rs`, `scripts/prepare-ocr-assets.mjs` (tesseract.js assets are prepared before `dev`/`build`)                                                                                                                                                                                                                                                            |
-| Live co-editing                            | `lib/liveDocumentSession.ts`, `lib/liveSocket.ts`, `lib/liveAwareness.ts`, `lib/liveJsonDocument.ts`, `lib/liveInkDocument.ts`, `lib/useLiveDocumentStatus.ts`, `commands/live_ws.rs`, `crates/collab-live/`, `crates/collab-server/src/ws.rs`                                                                                                                         |
+| Live co-editing                            | `lib/liveDocumentSession.ts`, `lib/liveSocket.ts`, `lib/liveAwareness.ts`, `lib/liveJsonDocument.ts`, `lib/liveInkDocument.ts`, `lib/deck/liveDeckDocument.ts`, `lib/useLiveDocumentStatus.ts`, `commands/live_ws.rs`, `crates/collab-live/`, `crates/collab-server/src/ws.rs`                                                                                         |
 | Document session / conflicts               | `lib/documentSessionController.ts`, `store/documentStatusStore.ts`                                                                                                                                                                                                                                                                                                     |
 | Offline sync (hosted vaults)               | `store/syncStore.ts`, `store/syncTransferStore.ts`, `lib/vaultReplica.ts`, `commands/replica.rs`, `crates/collab-replica/`                                                                                                                                                                                                                                             |
 | Hosted server connection                   | `store/serverStore.ts`, `components/settings/SettingsServerSection.tsx`, `commands/server.rs`, `src-tauri/src/hosted_client.rs`, `hosted_session.rs`, `server_token_store.rs`                                                                                                                                                                                          |

@@ -49,13 +49,9 @@ describe('live rich text', () => {
     for (const body of bodies) {
       const text = new Y.Doc().getText('body');
       writeRichText(text, body);
-      // Empty runs carry nothing, so the canonical form drops them.
-      const expected = {
-        paragraphs: body.paragraphs.map((p) => ({
-          ...p,
-          runs: p.runs.filter((run) => run.kind === 'break' || run.text !== ''),
-        })),
-      };
+      // Lossless, empty styled runs included: a placeholder's empty run is
+      // where its colour and font come from.
+      const expected = JSON.parse(JSON.stringify(body)) as DeckRichText;
       expect(readRichText(text)).toEqual(expected);
     }
   });

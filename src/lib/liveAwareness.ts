@@ -26,7 +26,7 @@ export interface LiveAwarenessUser {
 
 /** Document context so a peer state can be matched to the right document. */
 export interface LiveAwarenessDocument {
-  kind: 'note' | 'kanban' | 'canvas' | 'logic' | 'sheet' | 'ink';
+  kind: 'note' | 'kanban' | 'canvas' | 'logic' | 'sheet' | 'ink' | 'deck';
   relativePath: string;
 }
 
@@ -66,6 +66,17 @@ export interface InkInteraction {
   } | null;
 }
 
+/** Presentation interaction fields: where a peer is and what they are doing. */
+export interface DeckInteraction {
+  /** The slide (or, in the master view, layout or master) the peer has open. */
+  targetId: string | null;
+  selectedIds?: string[];
+  /** The text the peer is typing in: an element (and table cell), or the notes. */
+  editing?: { elementId: string | null; cellKey?: string | null; notes?: boolean } | null;
+  /** The peer is presenting (slide show or presenter view). */
+  presenting?: boolean;
+}
+
 /** The full ephemeral state a peer publishes for one document. */
 export interface LiveAwarenessState {
   user?: LiveAwarenessUser;
@@ -74,6 +85,7 @@ export interface LiveAwarenessState {
   canvas?: CanvasInteraction;
   sheet?: SheetInteraction;
   ink?: InkInteraction;
+  deck?: DeckInteraction;
 }
 
 /** A remote peer's awareness state keyed by its Yjs client id. */
