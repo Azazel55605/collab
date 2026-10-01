@@ -5,7 +5,7 @@
 Phase 0 is complete except for its external-application and cross-platform
 gates. The frozen contract, measurements, and decisions are in the
 [Phase 0 Contract](./presentation-phase0-contract.md); where this plan and the
-contract differ, the contract wins. Phases 1-6 are complete; Phase 7 is next.
+contract differ, the contract wins. Phases 1-7 are complete; Phase 8 is next.
 
 This plan defines a first-party presentation editor for Collab. It follows the
 same product boundary as Advanced Tables: Collab owns the editable document
@@ -489,7 +489,7 @@ Security requirements:
 | 4. Visual objects and Collab data integration         | Complete    | Add images, SVG, shapes, lines, groups, tables, charts, `.sheet` snapshots, and note links.                         |
 | 5. Presentation mode and speaker workflow             | Complete    | Add fullscreen playback, notes, presenter view, navigation, handouts, and PDF/image output.                         |
 | 6. Hosted collaboration and offline behavior          | Complete    | Add the deck-specific CRDT codec, awareness, offline replica merge, recovery, and physical multi-client validation. |
-| 7. Compatible PPTX export                             | Not started | Generate tested `.pptx` copies with a support matrix and visible conversion report.                                 |
+| 7. Compatible PPTX export                             | Complete    | Generate tested `.pptx` copies with a support matrix and visible conversion report.                                 |
 | 8. Mobile viewer and presentation companion           | Not started | Add offline viewing, notes, touch navigation, playback, and remote controls.                                        |
 | 9. Transitions and animations                         | Not started | Add a bounded timeline, preview/playback, reduced motion, and a tested PPTX-compatible subset.                      |
 | 10. Performance, accessibility, and release hardening | Not started | Validate large decks, fonts, packaging, recovery, keyboard/screen-reader operation, and target applications.        |
@@ -890,13 +890,50 @@ room keeps it and materialization waits until someone ungroups.
 
 ### Phase 7: Compatible PPTX Export
 
-- Implement the isolated exporter and typed export report.
-- Map the required export matrix.
-- Embed referenced assets and resolve font fallbacks.
-- Run export in a worker/bounded job with progress and cancellation.
-- Save through the native dialog/download boundary.
-- Maintain application fixtures and visual-semantic comparisons.
-- Publish the exact compatibility matrix in user documentation.
+Complete, apart from the PowerPoint and Google Slides checks the exit gate
+names, which need those applications (see below). The published support
+matrix is [PowerPoint Export Support Matrix](../desktop/presentation-pptx-export.md).
+
+- [x] A first-party Office Open XML writer replaced PptxGenJS, as the Phase 0
+      contract allowed. Evaluating `defineSlideMaster` showed PptxGenJS cannot
+      express a compatible export: text placed in a layout placeholder loses
+      its own position, master artwork is limited to a few object kinds, and
+      it has no groups, theme colours, fields, or formatted notes. The writer
+      (`src/lib/deck/pptx/`) owns the whole package, keeps the
+      `exportDeckToPptx` signature, reads the shared resolved scene, and
+      needs no DOM. The PptxGenJS dependency, its `image-size` override, and
+      that advisory entry are gone.
+- [x] The required matrix: exact slide size; order, names, sections, hidden
+      slides; the deck theme as the file theme; every master and layout as a
+      PowerPoint master and layout with artwork, backgrounds, and
+      placeholders (custom prompts), slide placeholders linked to them;
+      backgrounds; fully resolved rich text with lists, links, alignment,
+      spacing, insets, and auto-fit (shrink written with Collab's scale);
+      shapes, fills, outlines, dashes, opacity, rotation, flips; connectors
+      with arrowheads; real groups; images with crop, opacity, and borders;
+      SVG with a picture fallback; native tables with merges; native,
+      editable charts with an embedded workbook; formatted speaker notes;
+      live slide-number fields; alt text and names.
+- [x] Assets are embedded from the deck's loaded images; SVGs get a PNG
+      fallback rendered at twice their size. Fonts the machine lacks are
+      reported with the family Collab drew instead.
+- [x] Export runs in a worker (`exportWorker.ts`) with per-slide progress and
+      cancellation, and saves through the native save dialog.
+- [x] The report dialog after every export: counts by kind, each reason once
+      with its slides, the fonts the file uses, and missing images.
+- [x] Fixtures and visual-semantic comparison: `exportDeckToPptx.test.ts`
+      checks that every part parses, every relationship resolves, every part
+      has a content type, and the semantics above. `compatibility.test.ts`
+      renders the fixture and a deck for each built-in design (29 slides) in
+      LibreOffice Impress and compares each slide with Collab's rendering;
+      at most 6% of pixels differ, all from font substitution and chart
+      axis labels. python-pptx, an independent reader, reads masters,
+      layouts, placeholders, groups, tables, charts, and notes back as
+      written. In Chromium the real worker exported the fixture end to end.
+
+Not validated here: Microsoft PowerPoint and Google Slides, which this
+environment cannot run. The writer follows the schema's element order
+throughout, and both stay release validation items, as in Phase 0.
 
 Exit gate: representative decks open successfully and remain useful in
 PowerPoint, LibreOffice Impress, and Google Slides without silent data loss.

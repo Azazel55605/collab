@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 
 import { toast } from 'sonner';
 
+import { collectDeckAssetRefs } from '../../lib/deck/assets';
 import {
   canvasRasterizer,
   DeckExportCancelledError,
@@ -10,9 +11,12 @@ import {
   slideSvgDocument,
 } from '../../lib/deck/exportPdf';
 import type { DeckRasterizer } from '../../lib/deck/exportPdf';
+import { missingDeckFonts } from '../../lib/deck/fonts';
 import { buildOutputPages } from '../../lib/deck/output';
 import type { DeckOutputPage } from '../../lib/deck/output';
 import { buildDeckPdf } from '../../lib/deck/pdf';
+import type { DeckPptxExportJob, DeckPptxExportRequest } from '../../lib/deck/pptx/exportClient';
+import type { DeckExportReport } from '../../lib/deck/pptx/exportReport';
 import type { DeckTextMeasurer } from '../../lib/deck/textLayout';
 import { tauriCommands } from '../../lib/tauri';
 import type { DeckAssetRef, DeckDocument } from '../../types/deck';
@@ -38,6 +42,50 @@ function safeFileName(value: string): string {
 export interface DeckExportRuntime {
   rasterize?: DeckRasterizer;
   rasterizePng?: DeckRasterizer;
+  /** Runs a PowerPoint export; a worker in the app, inline where there is none. */
+  pptx?: (
+    request: DeckPptxExportRequest,
+    onProgress: (completed: number, total: number) => void,
+  ) => DeckPptxExportJob;
+}
+
+/** A worker where the platform has one; otherwise the same code, inline. */
+async function defaultPptxJob(
+  request: DeckPptxExportRequest,
+  onProgress: (completed: number, total: number) => void,
+): Promise<DeckPptxExportJob> {
+  if (typeof Worker !== 'undefined') {
+    const { startPptxExport } = await import('../../lib/deck/pptx/exportClient');
+    return startPptxExport(request, onProgress);
+  }
+  const { exportDeckToPptx } = await import('../../lib/deck/pptx/exportDeckToPptx');
+  let stop = false;
+  return {
+    promise: exportDeckToPptx(request.deck, {
+      assets: request.assets,
+      svgFallbacks: request.svgFallbacks,
+      ...(request.slideIds ? { slideIds: request.slideIds } : {}),
+      missingFonts: request.missingFonts,
+      onProgress,
+      isCancelled: () => stop,
+    }),
+    cancel: () => {
+      stop = true;
+    },
+  };
+}
+
+function svgText(dataUrl: string): string | null {
+  const match = /^data:image\/svg\+xml;base64,(.*)$/is.exec(dataUrl);
+  if (!match) return null;
+  const binary = atob(match[1]);
+  return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
+}
+
+/** The result of the last PowerPoint export, for the report dialog. */
+export interface DeckPptxExportOutcome {
+  report: DeckExportReport;
+  fileName: string;
 }
 
 interface UseDeckExportOptions {
@@ -62,7 +110,9 @@ export function useDeckExport({
 }: UseDeckExportOptions) {
   const [progress, setProgress] = useState<{ completed: number; total: number } | null>(null);
   const [printPages, setPrintPages] = useState<DeckOutputPage[] | null>(null);
+  const [pptxOutcome, setPptxOutcome] = useState<DeckPptxExportOutcome | null>(null);
   const cancelled = useRef(false);
+  const pptxJob = useRef<DeckPptxExportJob | null>(null);
 
   const slideIdsFor = useCallback(
     (request: DeckExportRequest): string[] | undefined =>
@@ -95,6 +145,61 @@ export function useDeckExport({
       if (!document) return false;
       cancelled.current = false;
       try {
+        if (request.format === 'pptx') {
+          const fileName = `${safeFileName(title)}.pptx`;
+          const destination = await tauriCommands.showExportDialog(fileName, {
+            name: 'PowerPoint',
+            extensions: ['pptx'],
+          });
+          if (!destination) return false;
+          // Hidden slides go out as hidden slides; "all" means all of them.
+          const slideIds = slideIdsFor(request);
+          const total = slideIds?.length ?? document.slideOrder.length;
+          setProgress({ completed: 0, total });
+          const assets: Record<string, string> = {};
+          const svgFallbacks: Record<string, string> = {};
+          const rasterizePng = runtime?.rasterizePng ?? pngRasterizer;
+          for (const ref of collectDeckAssetRefs(document)) {
+            const url = resolveAsset(ref);
+            if (!url) continue;
+            assets[ref.path] = url;
+            const svg = svgText(url);
+            if (!svg) continue;
+            // A picture for viewers without SVG, at twice the image's size.
+            const scale = Math.min(2, 4_096 / Math.max(ref.pixelWidth, ref.pixelHeight, 1));
+            try {
+              const png = await rasterizePng(
+                svg,
+                Math.max(1, Math.round(ref.pixelWidth * scale)),
+                Math.max(1, Math.round(ref.pixelHeight * scale)),
+              );
+              svgFallbacks[ref.path] = `data:image/png;base64,${bytesToBase64(png)}`;
+            } catch {
+              // Exported as SVG only, and reported.
+            }
+          }
+          if (cancelled.current) throw new DeckExportCancelledError();
+          const pptxRequest: DeckPptxExportRequest = {
+            deck: document,
+            assets,
+            svgFallbacks,
+            ...(slideIds ? { slideIds } : {}),
+            missingFonts: missingDeckFonts(document),
+          };
+          const onPptxProgress = (completed: number, all: number) =>
+            setProgress({ completed, total: all });
+          const job = runtime?.pptx
+            ? runtime.pptx(pptxRequest, onPptxProgress)
+            : await defaultPptxJob(pptxRequest, onPptxProgress);
+          pptxJob.current = job;
+          const result = await job.promise;
+          await tauriCommands.writeDownloadedFile(destination, bytesToBase64(result.bytes));
+          setPptxOutcome({
+            report: result.report,
+            fileName: destination.split(/[\\/]/).pop() ?? fileName,
+          });
+          return true;
+        }
         if (request.format === 'pdf' || request.format === 'handouts') {
           const pages = pagesFor(request);
           if (pages.length === 0) throw new Error('There are no slides to export.');
@@ -171,6 +276,7 @@ export function useDeckExport({
         );
         return false;
       } finally {
+        pptxJob.current = null;
         setProgress(null);
       }
     },
@@ -193,7 +299,18 @@ export function useDeckExport({
   const finishPrint = useCallback(() => setPrintPages(null), []);
   const cancel = useCallback(() => {
     cancelled.current = true;
+    pptxJob.current?.cancel();
   }, []);
+  const clearPptxOutcome = useCallback(() => setPptxOutcome(null), []);
 
-  return { progress, exportDeck, printDeck, printPages, finishPrint, cancel };
+  return {
+    progress,
+    exportDeck,
+    printDeck,
+    printPages,
+    finishPrint,
+    cancel,
+    pptxOutcome,
+    clearPptxOutcome,
+  };
 }

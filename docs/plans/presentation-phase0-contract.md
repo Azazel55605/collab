@@ -304,6 +304,12 @@ export; if that — or further XML repairs — proves unreliable, the fallback i
 a first-party OOXML writer behind the same `exportDeckToPptx` signature, which
 the resolved-scene seam makes a contained change.
 
+**Taken in Phase 7:** the evaluation showed `defineSlideMaster` unsuitable
+(slide text in a placeholder loses its own position; master artwork is
+limited; no groups, theme colours, fields, or formatted notes), so the
+first-party writer replaced PptxGenJS. See the plan's Phase 7 section and the
+[support matrix](../desktop/presentation-pptx-export.md).
+
 ## PDF And Slide Images
 
 `exportPdf.ts` renders each visible slide resolved scene → SVG → raster →

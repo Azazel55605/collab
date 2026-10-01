@@ -21,7 +21,7 @@ import {
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
-export type DeckExportFormat = 'pdf' | 'handouts' | 'png' | 'svg';
+export type DeckExportFormat = 'pdf' | 'handouts' | 'pptx' | 'png' | 'svg';
 export type DeckExportRange = 'all' | 'current' | 'selected' | 'custom';
 
 export interface DeckExportRequest {
@@ -51,6 +51,7 @@ interface DeckExportDialogProps {
 const FORMAT_NAMES: Record<DeckExportFormat, string> = {
   pdf: 'PDF — one slide per page',
   handouts: 'PDF — handouts',
+  pptx: 'PowerPoint (.pptx)',
   png: 'PNG images',
   svg: 'SVG images',
 };
@@ -168,7 +169,7 @@ export function DeckExportDialog({
             )}
           </div>
 
-          {range === 'all' && (
+          {range === 'all' && format !== 'pptx' && (
             <>
               <span />
               <label className="flex items-center gap-1.5 text-xs">
@@ -261,6 +262,12 @@ export function DeckExportDialog({
           )}
         </div>
 
+        {format === 'pptx' && (
+          <p className="text-xs text-muted-foreground">
+            An editable copy with masters, layouts, notes, charts, and groups. Hidden slides stay
+            hidden. Anything PowerPoint cannot represent exactly is listed after export.
+          </p>
+        )}
         {(format === 'png' || format === 'svg') && (
           <p className="text-xs text-muted-foreground">
             One slide saves as a file; several are written to a folder you choose, one file per

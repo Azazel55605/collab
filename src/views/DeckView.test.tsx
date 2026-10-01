@@ -1001,6 +1001,36 @@ describe('DeckView: presenting and export', () => {
   });
 });
 
+describe('DeckView: PowerPoint export', () => {
+  beforeEach(() => {
+    clientMocks.listFiles.mockResolvedValue([]);
+  });
+
+  it('exports a .pptx through the save dialog and shows what was approximated', async () => {
+    tauriMocks.showExportDialog.mockResolvedValue('/home/me/Fixture.pptx');
+    tauriMocks.writeDownloadedFile.mockResolvedValue(undefined);
+    await openDeck();
+    fireEvent.click(screen.getByRole('button', { name: 'Export or print' }));
+    const format = await screen.findByRole('combobox', { name: 'Format' });
+    fireEvent.click(format);
+    fireEvent.click(await screen.findByRole('option', { name: 'PowerPoint (.pptx)' }));
+    fireEvent.click(screen.getByRole('button', { name: /Export…/ }));
+    expect(await screen.findByText('Exported to PowerPoint', {}, { timeout: 10_000 })).toBeTruthy();
+    expect(tauriMocks.showExportDialog).toHaveBeenCalledWith('Fixture.pptx', {
+      name: 'PowerPoint',
+      extensions: ['pptx'],
+    });
+    const [destination, base64] = tauriMocks.writeDownloadedFile.mock.calls[0];
+    expect(destination).toBe('/home/me/Fixture.pptx');
+    // A zip package (PK…) holding a presentation.
+    expect(atob(base64).slice(0, 2)).toBe('PK');
+    const details = screen.getByLabelText('Export details');
+    expect(details.textContent).toMatch(/vault file/);
+    expect(screen.getByText(/Fonts the file uses: Inter/)).toBeTruthy();
+    expect(clientMocks.writeDocument).not.toHaveBeenCalled();
+  });
+});
+
 describe('DeckView: live collaboration', () => {
   const LOCAL = Symbol('local');
 
