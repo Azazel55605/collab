@@ -155,6 +155,14 @@ export function embedPreviewName(elementId: string): string {
   return `preview-${safeName(elementId)}.svg`;
 }
 
+/**
+ * The file kept ink is written to. Unique per save, so keeping ink twice never
+ * changes an annotation already placed on a slide.
+ */
+export function inkAnnotationName(slideId: string, time: number): string {
+  return `ink-${safeName(slideId)}-${time.toString(36)}.svg`;
+}
+
 /** Markdown a note uses to show an exported slide and link back to its deck. */
 export function slideExportMarkdown(
   exportPath: string,

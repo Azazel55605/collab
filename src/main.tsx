@@ -177,11 +177,24 @@ window.addEventListener('unhandledrejection', (e) => {
 // own triggers before it reaches this handler, so custom menus still appear.
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
-ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
+
+// The presentation audience window loads this page too, and shows only slides.
+if (new URLSearchParams(window.location.search).has('deck-audience')) {
+  void import('./components/deck/DeckAudienceWindow').then(({ DeckAudienceWindow }) =>
+    root.render(
+      <React.StrictMode>
+        <DeckAudienceWindow />
+      </React.StrictMode>,
+    ),
+  );
+} else {
+  root.render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+}
 
 requestAnimationFrame(() => {
   const bootScreen = document.getElementById('boot-screen');

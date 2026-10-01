@@ -2050,3 +2050,55 @@
     box-shadow: none;
   }
 }
+
+/* Presentation print: only the print host prints while it is mounted. */
+.deck-print-host {
+  display: none;
+}
+
+@media print {
+  body.deck-printing > :not(.deck-print-host) {
+    display: none !important;
+  }
+
+  body.deck-printing .deck-print-host {
+    display: block;
+  }
+
+  .deck-print-page {
+    overflow: hidden;
+    break-after: page;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .deck-print-page:last-child {
+    break-after: auto;
+  }
+
+  .deck-print-page > svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+/* Presentation playback: the slide fills its box; a short cross-fade when motion is on. */
+.deck-playback-slide > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.deck-playback-fade {
+  animation: deck-playback-fade var(--motion-base, 180ms) ease-out both;
+}
+
+@keyframes deck-playback-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
