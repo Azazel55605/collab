@@ -381,7 +381,8 @@ conflicts, history, references); Phase 2 added the scene editor; Phase 3 added
 rich text, placeholders, themes, templates, and the master and layout editor;
 Phase 4 added images, tables, charts, linked documents, and slide exports;
 Phase 5 added presenting and PDF, handout, image, and print output; Phase 6
-added live hosted editing.
+added live hosted editing; Phase 7 replaced PowerPoint export with a
+first-party writer.
 Edits are reversible operations previewed on a scratch deck during a gesture and
 committed once, as one undo step and one save. Text editing holds a draft in a
 `TextSession`, writes it to the document on a short idle timer, and folds one
@@ -436,7 +437,10 @@ session's writes into a single undo step.
 | `lib/deck/liveDeckDocument.ts`                               | Deck live codec: JSON ↔ shared types, minimal reconcile (text character diff), three-way text merge                 |
 | `lib/deck/liveDeckSession.ts`                                | Joins a hosted deck's live room over the shared provider and offline replica                                        |
 | `crates/collab-live/src/deck.rs`                             | Server deck codec: seed/replace, materialize with order repair; fixtures pin both directions                        |
-| `lib/deck/pptx/`                                             | Isolated, lazy PptxGenJS exporter with an OOXML repair pass and export report                                       |
+| `lib/deck/pptx/exportDeckToPptx.ts`                          | First-party `.pptx` writer: package, masters, layouts, slides, notes, theme, sections, media, charts                |
+| `lib/deck/pptx/ooxml/`                                       | OOXML parts: XML helpers, theme, DrawingML text, shapes/pictures/tables/groups, charts and workbooks                |
+| `lib/deck/pptx/exportWorker.ts`, `exportClient.ts`           | Export in a worker with progress and cancel; the export report (`exportReport.ts`)                                  |
+| `components/deck/DeckExportReportDialog.tsx`                 | What a PowerPoint export kept exactly and what it approximated, flattened, omitted, or missed                       |
 | `lib/deck/fixture.ts`, `budgets.ts`                          | Deterministic fixture and scale decks; performance budgets                                                          |
 | `crates/collab-documents/src/deck.rs`                        | Server-side `.deck` validation; `references.rs` collects/rewrites deck references                                   |
 

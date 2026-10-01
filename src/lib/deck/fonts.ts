@@ -6,7 +6,7 @@
  * which fallback will actually draw — the "font fallback" half of the
  * Phase 3 text work. Export reports list referenced fonts separately.
  */
-import type { DeckTheme, DeckThemeFont } from '../../types/deck';
+import type { DeckDocument, DeckTheme, DeckThemeFont } from '../../types/deck';
 
 /** Families offered in the font picker, besides the theme's own. */
 export const COMMON_FONT_FAMILIES = [
@@ -108,4 +108,38 @@ export function fontChoices(theme: DeckTheme, current?: string): string[] {
 export function resetFontCache(): void {
   cache.clear();
   context = undefined;
+}
+
+/**
+ * Font families the deck asks for that this machine lacks, each with the
+ * family Collab draws instead. For the export report.
+ */
+export function missingDeckFonts(deck: DeckDocument): Record<string, string> {
+  const missing: Record<string, string> = {};
+  const theme = deck.themes[deck.themeId];
+  const body = theme?.fonts.body;
+  const check = (font: { family: string; fallbacks?: string[] }) => {
+    if (missing[font.family] !== undefined || isFontAvailable(font.family)) return;
+    missing[font.family] = effectiveFamily({
+      family: font.family,
+      fallbacks: [...(font.fallbacks ?? []), ...(body?.fallbacks ?? []), 'sans-serif'],
+    });
+  };
+  for (const entry of Object.values(deck.themes)) {
+    check(entry.fonts.heading);
+    check(entry.fonts.body);
+  }
+  const walk = (value: unknown) => {
+    if (Array.isArray(value)) {
+      for (const entry of value) walk(entry);
+      return;
+    }
+    if (typeof value !== 'object' || value === null) return;
+    for (const [key, child] of Object.entries(value)) {
+      if (key === 'font' && typeof child === 'string') check({ family: child });
+      else walk(child);
+    }
+  };
+  walk([deck.masters, deck.layouts, deck.slides]);
+  return missing;
 }

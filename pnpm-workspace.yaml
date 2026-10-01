@@ -29,11 +29,6 @@ overrides:
   'postcss-selector-parser@>=7.0.0 <7.1.3': 7.1.3
   'qs@>=6.0.0 <6.16.0': 6.16.0
   'undici@>=7.0.0 <7.30.0': 7.30.0
-  # Removed, not raised: pptxgenjs 4.0.1 (latest) declares image-size ^1.2.1 but
-  # never loads it — the only call is inside a commented-out block and its
-  # browser field maps it to false. Every 1.x release is affected by
-  # GHSA-5p2g-fcmc-qvqq and GHSA-w3rx-r6r6-pgpr; see docs/build/security-advisories.md.
-  'pptxgenjs>image-size': '-'
 
 allowBuilds:
   esbuild: true

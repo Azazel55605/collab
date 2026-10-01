@@ -57,3 +57,22 @@ export function collectDeckAssets(deck: DeckDocument): Array<{ key: string; path
 export function collectDeckAssetPaths(deck: DeckDocument): string[] {
   return [...new Set(collect(deck).values())].sort();
 }
+
+/** Every image reference the deck holds (one per cache key), for export. */
+export function collectDeckAssetRefs(deck: DeckDocument): DeckAssetRef[] {
+  const refs = new Map<string, DeckAssetRef>();
+  const walk = (value: unknown) => {
+    if (Array.isArray(value)) {
+      for (const entry of value) walk(entry);
+      return;
+    }
+    if (typeof value !== 'object' || value === null) return;
+    for (const [key, child] of Object.entries(value)) {
+      if ((key === 'asset' || key === 'preview') && isAsset(child))
+        refs.set(assetKey(child), child);
+      else walk(child);
+    }
+  };
+  walk([deck.themes, deck.masters, deck.layouts, deck.slides]);
+  return [...refs.values()];
+}

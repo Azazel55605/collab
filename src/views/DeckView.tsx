@@ -49,6 +49,7 @@ import type { ChartEdit } from '../components/deck/DeckChartDialog';
 import { DeckDesignRail } from '../components/deck/DeckDesignRail';
 import type { DeckDesignTarget } from '../components/deck/DeckDesignRail';
 import { DeckExportDialog } from '../components/deck/DeckExportDialog';
+import { DeckExportReportDialog } from '../components/deck/DeckExportReportDialog';
 import { DeckInspector } from '../components/deck/DeckInspector';
 import type { MasterTextClass, MasterTextStylePatch } from '../components/deck/DeckInspector';
 import { DeckLinkDialog } from '../components/deck/DeckLinkDialog';
@@ -1910,6 +1911,10 @@ export default function DeckView({ relativePath }: DeckViewProps) {
   const deckTitle = getDocumentBaseName(relativePath, 'Presentation').replace(/\.deck$/i, '');
   const deckExport = useDeckExport({ document, title: deckTitle, measurer, resolveAsset });
   const [exportOpen, setExportOpen] = useState(false);
+  const slideNumberById = useMemo(
+    () => new Map(slideOrder.map((id, index) => [id, index + 1])),
+    [slideOrder],
+  );
   const [presenting, setPresenting] = useState<{
     mode: DeckPresentMode;
     startSlideId: string | null;
@@ -3464,6 +3469,12 @@ export default function DeckView({ relativePath }: DeckViewProps) {
         onPrint={(request) => {
           if (deckExport.printDeck(request)) setExportOpen(false);
         }}
+      />
+      <DeckExportReportDialog
+        outcome={deckExport.pptxOutcome}
+        slideNumbers={slideNumberById}
+        onClose={deckExport.clearPptxOutcome}
+        onReturnFocus={focusCanvas}
       />
       {deckExport.printPages && (
         <DeckPrintHost pages={deckExport.printPages} onDone={deckExport.finishPrint} />

@@ -11,6 +11,7 @@ Implementation references:
 - [Circuit Simulation Engine](./circuit-engine.md)
 - [`.sheet` Workbook Reference](./sheet-reference.md)
 - [`.sheet` Conversion Support Matrix](./sheet-conversion.md)
+- [PowerPoint (`.pptx`) Export Support Matrix](./presentation-pptx-export.md)
 - [Background Running Release Validation](../build/background-running-release-validation.md)
 - [Background Running Architecture And Delivery History](../archive/background-running-plan.md)
 - [Advanced Tables Release Validation](../build/advanced-tables-release-validation.md)
