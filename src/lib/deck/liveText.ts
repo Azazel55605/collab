@@ -89,14 +89,29 @@ function canonical(value: unknown): string {
   );
 }
 
-function paragraphAttributes(
-  paragraph: Pick<DeckParagraph, 'id' | 'style' | 'endStyle'>,
+/**
+ * Empty text runs have no characters to carry their attributes, yet they
+ * matter: a layout placeholder's empty run is where its text colour and font
+ * come from. They travel on the paragraph end as `[index, run]` pairs.
+ */
+function emptyRuns(runs: DeckRun[] | undefined): Array<[number, DeckRun]> {
+  const out: Array<[number, DeckRun]> = [];
+  runs?.forEach((run, index) => {
+    if (run.kind === 'text' && run.text === '') out.push([index, run]);
+  });
+  return out;
+}
+
+export function paragraphAttributes(
+  paragraph: Pick<DeckParagraph, 'id' | 'style' | 'endStyle'> & { runs?: DeckRun[] },
 ): Attributes {
   const attrs: Attributes = { pid: paragraph.id };
   if (paragraph.style && Object.keys(paragraph.style).length > 0)
     attrs.pstyle = canonical(paragraph.style);
   if (paragraph.endStyle && Object.keys(paragraph.endStyle).length > 0)
     attrs.pend = canonical(paragraph.endStyle);
+  const empty = emptyRuns(paragraph.runs);
+  if (empty.length > 0) attrs.pempty = canonical(empty);
   return attrs;
 }
 
@@ -168,6 +183,11 @@ export function readRichText(ytext: Y.Text): DeckRichText {
       paragraph.style = JSON.parse(attrs.pstyle) as DeckParagraphStyle;
     if (typeof attrs?.pend === 'string')
       paragraph.endStyle = JSON.parse(attrs.pend) as DeckRunStyle;
+    if (typeof attrs?.pempty === 'string') {
+      for (const [index, run] of JSON.parse(attrs.pempty) as Array<[number, DeckRun]>) {
+        paragraph.runs.splice(Math.min(index, paragraph.runs.length), 0, run);
+      }
+    }
     paragraphs.push(paragraph);
     runs = [];
   };
@@ -194,7 +214,7 @@ function withStyle(
 
 function stripParagraphKeys(attrs: Attributes | undefined): Attributes | undefined {
   if (!attrs) return undefined;
-  const { pid: _pid, pstyle: _pstyle, pend: _pend, ...rest } = attrs;
+  const { pid: _pid, pstyle: _pstyle, pend: _pend, pempty: _pempty, ...rest } = attrs;
   return rest;
 }
 

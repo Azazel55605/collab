@@ -350,6 +350,17 @@ Yjs BigInt. Native clients normalize legacy BigInt values to ordinary JSON
 numbers at the live-transport boundary so numeric validation and serialization
 remain compatible with normal JSON.
 
+Presentations (`.deck`) use the same structured root with two differences,
+implemented identically by the desktop (`src/lib/deck/liveDeckDocument.ts`) and
+`crates/collab-live/src/deck.rs`: each rich-text body (an object whose only key
+is `paragraphs`) is one `Y.Text` whose characters carry run formatting as
+attributes and whose paragraph ends carry the paragraph id, style, and empty
+runs; and geometry values (`frame`, `crop`, `from`, `to`, `size`) are stored
+whole. Materialization decodes the texts, writes integral numbers as integers,
+and repairs slide and element orders and references that concurrent moves and
+deletes can leave, so a delete wins over a concurrent edit. Active slide,
+selection, text being edited, and presenting state travel through awareness.
+
 Sheets use stable worksheet, row, column, and cell identities in the structured
 root. Active worksheet/cell/range presence travels through awareness only;
 computed formula values are derived by each client and are never materialized.

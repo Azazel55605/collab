@@ -5,6 +5,10 @@
 //! materialization guards. Socket lifecycle, authentication, room registries,
 //! persistence, and scheduling remain in adapters.
 
+mod deck;
+
+pub use deck::is_rich_text;
+
 use collab_documents::{canvas_node_count, DocumentInput, DocumentKind, DEFAULT_PARSER_LIMITS};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -28,6 +32,7 @@ pub enum LiveDocumentKind {
     Canvas,
     Sheet,
     Ink,
+    Deck,
 }
 
 impl LiveDocumentKind {
@@ -38,12 +43,16 @@ impl LiveDocumentKind {
             Some("canvas") => Self::Canvas,
             Some("sheet") => Self::Sheet,
             Some("ink") => Self::Ink,
+            Some("deck") => Self::Deck,
             _ => Self::None,
         }
     }
 
     pub fn is_structured(self) -> bool {
-        matches!(self, Self::Json | Self::Canvas | Self::Sheet | Self::Ink)
+        matches!(
+            self,
+            Self::Json | Self::Canvas | Self::Sheet | Self::Ink | Self::Deck
+        )
     }
 
     pub fn document_kind(self) -> Option<DocumentKind> {
@@ -54,6 +63,7 @@ impl LiveDocumentKind {
             Self::Canvas => Some(DocumentKind::Canvas),
             Self::Sheet => Some(DocumentKind::Sheet),
             Self::Ink => Some(DocumentKind::Ink),
+            Self::Deck => Some(DocumentKind::Deck),
         }
     }
 }
@@ -208,6 +218,7 @@ pub fn seed_document(doc: &Doc, kind: LiveDocumentKind, content: &str) -> Result
             }
             Ok(())
         }
+        LiveDocumentKind::Deck => deck::write_deck(doc, content, false),
         LiveDocumentKind::Json
         | LiveDocumentKind::Canvas
         | LiveDocumentKind::Sheet
@@ -246,6 +257,7 @@ pub fn replace_document(
                 text.insert(&mut txn, 0, content);
             }
         }
+        LiveDocumentKind::Deck => deck::write_deck(doc, content, true)?,
         LiveDocumentKind::Json
         | LiveDocumentKind::Canvas
         | LiveDocumentKind::Sheet
@@ -273,6 +285,7 @@ pub fn materialized_content(doc: &Doc, kind: LiveDocumentKind) -> Option<String>
             let text = doc.get_or_insert_text(NOTE_TEXT_NAME);
             Some(text.get_string(&doc.transact()))
         }
+        LiveDocumentKind::Deck => deck::read_deck(doc),
         LiveDocumentKind::Json
         | LiveDocumentKind::Canvas
         | LiveDocumentKind::Sheet
@@ -307,7 +320,10 @@ pub fn recovery_decision(
                 RecoveryDecision::Keep
             }
         }
-        LiveDocumentKind::Json | LiveDocumentKind::Sheet | LiveDocumentKind::Ink => {
+        LiveDocumentKind::Json
+        | LiveDocumentKind::Sheet
+        | LiveDocumentKind::Ink
+        | LiveDocumentKind::Deck => {
             if live_content.is_none() {
                 RecoveryDecision::ReseedFromCanonical
             } else {

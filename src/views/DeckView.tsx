@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import LivePeers from '../components/collaboration/LivePeers';
 import { DeckChartDialog } from '../components/deck/DeckChartDialog';
 import type { ChartEdit } from '../components/deck/DeckChartDialog';
 import { DeckDesignRail } from '../components/deck/DeckDesignRail';
@@ -59,6 +60,7 @@ import { DeckPrintHost } from '../components/deck/DeckPrintHost';
 import { DeckSlideRail } from '../components/deck/DeckSlideRail';
 import type { DeckRailAction } from '../components/deck/DeckSlideRail';
 import { DeckStage } from '../components/deck/DeckStage';
+import type { DeckStagePeer } from '../components/deck/DeckStage';
 import { DeckTableDialog } from '../components/deck/DeckTableDialog';
 import type { TableInsert } from '../components/deck/DeckTableDialog';
 import { DeckTextEditor } from '../components/deck/DeckTextEditor';
@@ -144,6 +146,7 @@ import {
   SHAPE_NAMES,
 } from '../lib/deck/insert';
 import type { DeckInsertKind } from '../lib/deck/insert';
+import { mergeRichText } from '../lib/deck/liveDeckDocument';
 import {
   addElements,
   applyPatch,
@@ -218,6 +221,8 @@ import type {
   DocumentSessionSnapshot,
 } from '../lib/documentSessionController';
 import { InkHistory } from '../lib/ink/history';
+import { useLivePeers } from '../lib/liveAwareness';
+import type { DeckInteraction } from '../lib/liveAwareness';
 import { createVaultClient } from '../lib/vaultClient';
 import {
   getVaultDocumentTabType,
@@ -302,6 +307,30 @@ const PLACEHOLDER_INSERTS: DeckPlaceholderType[] = [
   'footer',
   'slideNumber',
 ];
+
+/** The stored text a session edits, or undefined when it no longer exists. */
+function storedTextBody(deck: DeckDocument, active: TextSession): DeckRichText | undefined {
+  if (active.kind === 'notes') {
+    const slide = deck.slides[active.target.id];
+    return slide ? (slide.speakerNotes ?? { paragraphs: [] }) : undefined;
+  }
+  let container;
+  try {
+    container = targetGeometry(deck, active.target).slide;
+  } catch {
+    return undefined;
+  }
+  const element = active.elementId ? container.elements[active.elementId] : undefined;
+  if (!element) return undefined;
+  if (active.cellKey) {
+    return element.type === 'table'
+      ? (element.cells[active.cellKey]?.text.content ?? { paragraphs: [] })
+      : undefined;
+  }
+  return element.type === 'text' || element.type === 'shape'
+    ? (element.text?.content ?? { paragraphs: [] })
+    : undefined;
+}
 
 function useDeckAssets(
   document: DeckDocument | null,
@@ -455,6 +484,8 @@ export default function DeckView({ relativePath }: DeckViewProps) {
 
   const session = useDeckSession({ vault, relativePath, markDirty, markSaved: setSavedHash });
   const { document } = session;
+  /** Joined to the hosted deck's live room (edits merge instead of saving). */
+  const live = session.liveSession !== null;
   const supported = session.schemaSupport === 'supported';
   const editable = supported && !session.readOnly;
 
@@ -502,14 +533,16 @@ export default function DeckView({ relativePath }: DeckViewProps) {
   const coalesceRef = useRef<{ key: string; depth: number } | null>(null);
   // A document that did not come from our own edit — the first load, a
   // reload, a conflict resolution — makes every stored inverse meaningless.
+  // A collaborator's live edit does not: inverses touch only the objects this
+  // person changed, so undo keeps working while others edit.
   useEffect(() => {
-    if (document && document !== lastLocalRef.current) {
+    if (document && document !== lastLocalRef.current && !live) {
       historyRef.current.clear();
       coalesceRef.current = null;
       lastLocalRef.current = document;
       setHistoryVersion((version) => version + 1);
     }
-  }, [document]);
+  }, [document, live]);
   // `historyVersion` is the change signal for the mutable history object.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const history = useMemo(() => historyRef.current.snapshot(), [historyVersion]);
@@ -691,7 +724,11 @@ export default function DeckView({ relativePath }: DeckViewProps) {
 
   const [textSession, setTextSessionState] = useState<TextSession | null>(null);
   const textSessionRef = useRef<TextSession | null>(null);
+  /** The stored body a draft was last in step with, to rebase it on a collaborator's edit. */
+  const textBaseRef = useRef<DeckRichText | null>(null);
   const setTextSession = useCallback((next: TextSession | null) => {
+    if (next && next.id !== textSessionRef.current?.id) textBaseRef.current = next.body;
+    if (!next) textBaseRef.current = null;
     textSessionRef.current = next;
     setTextSessionState(next);
   }, []);
@@ -707,6 +744,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
         flushTimer.current = null;
       }
       if (!active) return;
+      textBaseRef.current = active.body;
       const coalesce = `text:${active.id}`;
       if (active.kind === 'notes') {
         const slideId = active.target.id;
@@ -809,12 +847,23 @@ export default function DeckView({ relativePath }: DeckViewProps) {
     if (`${active.target.kind}:${active.target.id}` !== stageKey) endTextSession();
   }, [endTextSession, stageKey]);
 
-  // A document replaced underneath (reload, conflict) abandons the draft.
+  // A document replaced underneath: a collaborator's live edit rebases the
+  // draft onto theirs (both people's typing stays); a reload or a resolved
+  // conflict abandons it, as does the text being deleted.
   useEffect(() => {
-    if (document && document !== lastLocalRef.current && textSessionRef.current) {
+    const active = textSessionRef.current;
+    if (!document || document === lastLocalRef.current || !active) return;
+    const stored = live ? storedTextBody(document, active) : undefined;
+    if (!stored) {
       setTextSession(null);
+      return;
     }
-  }, [document, setTextSession]);
+    const base = textBaseRef.current;
+    if (!base || JSON.stringify(base) === JSON.stringify(stored)) return;
+    const merged = mergeRichText(base, active.body, stored, active.selection);
+    textBaseRef.current = stored;
+    setTextSession({ ...active, body: merged.body, selection: merged.selection });
+  }, [document, live, setTextSession]);
 
   const beginTextEdit = (elementId: string, point: { clientX: number; clientY: number } | null) => {
     if (!document || !stageTarget || !geometry || !editable) return;
@@ -1957,6 +2006,82 @@ export default function DeckView({ relativePath }: DeckViewProps) {
     setActiveView(getVaultDocumentView(type));
   };
 
+  /* Collaborators ------------------------------------------------------------ */
+
+  const allPeers = useLivePeers(session.liveSession);
+  const livePeers = useMemo(
+    () =>
+      allPeers.filter(
+        (peer) => peer.document?.kind === 'deck' && peer.document.relativePath === relativePath,
+      ),
+    [allPeers, relativePath],
+  );
+  const stageTargetId = stageTarget?.id ?? null;
+  const editingInfo = textSession
+    ? `${textSession.kind}:${textSession.elementId ?? ''}:${textSession.cellKey ?? ''}`
+    : '';
+  useEffect(() => {
+    const awareness = session.liveSession?.awareness;
+    if (!awareness) return;
+    const active = textSessionRef.current;
+    const deck: DeckInteraction = {
+      targetId: stageTargetId,
+      selectedIds,
+      editing: active
+        ? {
+            elementId: active.elementId,
+            cellKey: active.cellKey,
+            notes: active.kind === 'notes',
+          }
+        : null,
+      presenting: presenting !== null,
+    };
+    awareness.setLocalStateField('deck', deck);
+  }, [editingInfo, presenting, selectedIds, session.liveSession, stageTargetId]);
+
+  const peersBySlide = useMemo(() => {
+    const map = new Map<
+      string,
+      Array<{ key: string; name: string; color: string; presenting?: boolean }>
+    >();
+    for (const peer of livePeers) {
+      const id = peer.deck?.targetId;
+      if (!id || !peer.user) continue;
+      const list = map.get(id) ?? [];
+      list.push({
+        key: String(peer.clientId),
+        name: peer.user.name,
+        color: peer.user.color,
+        presenting: peer.deck?.presenting,
+      });
+      map.set(id, list);
+    }
+    return map;
+  }, [livePeers]);
+
+  const stagePeers = useMemo<DeckStagePeer[]>(
+    () =>
+      livePeers
+        .filter((peer) => peer.user && stageTargetId && peer.deck?.targetId === stageTargetId)
+        .map((peer) => {
+          const typingId = peer.deck?.editing?.notes
+            ? null
+            : (peer.deck?.editing?.elementId ?? null);
+          const ids = [...(peer.deck?.selectedIds ?? [])];
+          if (typingId && !ids.includes(typingId)) ids.push(typingId);
+          return {
+            key: String(peer.clientId),
+            name: peer.user!.name,
+            color: peer.user!.color,
+            ids,
+            typingId,
+          };
+        })
+        .filter((peer) => peer.ids.length > 0),
+    [livePeers, stageTargetId],
+  );
+  const presentingPeer = livePeers.find((peer) => peer.deck?.presenting && peer.user);
+
   /* Position and size */
 
   const singleObject =
@@ -2657,6 +2782,8 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                 Slide {activeIndex + 1} of {slideOrder.length}
               </span>
               {hasSelection && <span>{selectedIds.length} selected</span>}
+              {presentingPeer && <span>{presentingPeer.user!.name} is presenting</span>}
+              <LivePeers peers={livePeers} />
             </>
           ) : undefined
         }
@@ -3090,6 +3217,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
               commit('Move slide', (current) => moveSlides(current, ids, toIndex))
             }
             onAction={railAction}
+            peersBySlide={peersBySlide}
           />
         )}
 
@@ -3132,6 +3260,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                     onDropFiles={onDropFiles}
                     editing={editingOverlay}
                     onExitText={endTextSession}
+                    peers={stagePeers}
                   />
                 ) : null}
               </div>
