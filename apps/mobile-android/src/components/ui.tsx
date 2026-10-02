@@ -9,6 +9,7 @@ import {
   KanbanSquare,
   Loader2,
   PenLine,
+  Presentation,
   Shapes,
   Table2,
 } from 'lucide-react';
@@ -129,6 +130,8 @@ export function GlyphIcon({ glyph, size = 20 }: { glyph: FileGlyph; size?: numbe
       return <Table2 size={size} aria-hidden />;
     case 'ink':
       return <PenLine size={size} aria-hidden />;
+    case 'deck':
+      return <Presentation size={size} aria-hidden />;
     case 'image':
       return <ImageIcon size={size} aria-hidden />;
     case 'pdf':

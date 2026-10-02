@@ -84,6 +84,8 @@ export type ActiveSheet =
   | { kind: 'workbook'; fileId: string }
   /** An `.ink` drawing opened in the mobile drawing screen. */
   | { kind: 'drawing'; fileId: string }
+  /** A `.deck` presentation opened in the mobile viewer and presentation companion. */
+  | { kind: 'presentation'; fileId: string }
   | { kind: 'viewer'; fileId: string }
   | { kind: 'removeOffline'; serverUrl: string; vault: HostedVault }
   | null;
@@ -851,6 +853,8 @@ export const useMobileStore = create<MobileState>((set, get) => ({
       set({ activeSheet: { kind: 'workbook', fileId: entry.id } });
     } else if (name.endsWith('.ink')) {
       set({ activeSheet: { kind: 'drawing', fileId: entry.id } });
+    } else if (name.endsWith('.deck')) {
+      set({ activeSheet: { kind: 'presentation', fileId: entry.id } });
     } else if (name.endsWith('.canvas') || name.endsWith('.logic') || name.endsWith('.pdf')) {
       set({ activeSheet: { kind: 'viewer', fileId: entry.id } });
     } else {

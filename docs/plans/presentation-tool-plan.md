@@ -5,7 +5,7 @@
 Phase 0 is complete except for its external-application and cross-platform
 gates. The frozen contract, measurements, and decisions are in the
 [Phase 0 Contract](./presentation-phase0-contract.md); where this plan and the
-contract differ, the contract wins. Phases 1-7 are complete; Phase 8 is next.
+contract differ, the contract wins. Phases 1-8 are complete; Phase 9 is next.
 
 This plan defines a first-party presentation editor for Collab. It follows the
 same product boundary as Advanced Tables: Collab owns the editable document
@@ -490,7 +490,7 @@ Security requirements:
 | 5. Presentation mode and speaker workflow             | Complete    | Add fullscreen playback, notes, presenter view, navigation, handouts, and PDF/image output.                         |
 | 6. Hosted collaboration and offline behavior          | Complete    | Add the deck-specific CRDT codec, awareness, offline replica merge, recovery, and physical multi-client validation. |
 | 7. Compatible PPTX export                             | Complete    | Generate tested `.pptx` copies with a support matrix and visible conversion report.                                 |
-| 8. Mobile viewer and presentation companion           | Not started | Add offline viewing, notes, touch navigation, playback, and remote controls.                                        |
+| 8. Mobile viewer and presentation companion           | Complete    | Add offline viewing, notes, touch navigation, playback, and remote controls.                                        |
 | 9. Transitions and animations                         | Not started | Add a bounded timeline, preview/playback, reduced motion, and a tested PPTX-compatible subset.                      |
 | 10. Performance, accessibility, and release hardening | Not started | Validate large decks, fonts, packaging, recovery, keyboard/screen-reader operation, and target applications.        |
 | 11. Deferred PPTX import                              | Deferred    | Convert a bounded supported subset of `.pptx` into a new `.deck` with a detailed import report.                     |
@@ -940,10 +940,39 @@ PowerPoint, LibreOffice Impress, and Google Slides without silent data loss.
 
 ### Phase 8: Mobile Viewer And Presentation Companion
 
-- Add `.deck` routing and offline asset resolution.
-- Add virtualized slide thumbnails, fit view, pinch zoom, and notes.
-- Add presentation navigation and optional desktop remote control.
-- Add physical Android memory, rotation, process-recreation, and offline tests.
+Complete, apart from the physical-device checks, which need Android hardware
+and are a release gate in
+[Presentation Companion](../mobile/presentation-companion.md).
+
+- [x] `.deck` routing: tapping a presentation (document type `deck` or the
+      extension) opens `DeckScreen`; the files list shows a presentation icon.
+      The phone views and presents; it never writes a deck.
+- [x] Offline: the deck is read through the server and warms the replica
+      cache, falling back to the cached copy. Images are found by vault path
+      and read through the normal asset path (network, then cached bytes);
+      ones the device does not have draw as placeholders, with a count.
+- [x] Windowed slide thumbnails with sections and hidden slides; columns
+      follow the width. A fitted slide view with pinch zoom about the fingers
+      (100–500%), pan when zoomed, double-tap, and swipe navigation; speaker
+      notes beside the slide in short landscape. Rendering is the shared
+      resolver and `DeckSlide`.
+- [x] Presenting on the phone with `playback.ts` rules (hidden slides skipped,
+      tap and swipe navigation, end screen).
+- [x] Live: the phone joins the deck's live room read-only
+      (`openMobileLiveDeckSession`, decoded by the shared codec), so edits
+      appear while viewing, and it publishes presence.
+- [x] Optional desktop remote control (`src/lib/deck/remote.ts`): the
+      presenter opts in with **Phone remote**; the phone publishes numbered
+      commands for that show over awareness; the presenter applies each once,
+      only from the same account and only while opted in. **Follow** keeps a
+      phone on another presenter's slide.
+- [x] Slide, view, notes panel, zoom, and pan survive process recreation
+      (`sessionStorage`, per file).
+- [ ] Physical Android memory, rotation, process-recreation, offline, touch,
+      and remote-control checks: release gate (see the companion doc).
+
+Deferred to later phases as the plan says: comments and bounded text
+correction on the phone.
 
 ### Phase 9: Transitions And Animations
 

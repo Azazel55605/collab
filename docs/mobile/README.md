@@ -11,6 +11,9 @@ separate mobile React shell under `apps/mobile-android`.
 - [Standalone full app assessment](./standalone-full-app-assessment.md) — current
   reuse boundary, required local-vault architecture, feature-parity gaps, risks,
   and staged effort for making Android independent of a server.
+- [Presentation companion](./presentation-companion.md) — viewing, presenting, and
+  remote-controlling `.deck` presentations on Android, and its physical-device
+  release gate.
 - [Android companion build](./android-companion-build.md) — local SDK/JDK/NDK
   setup, debug builds, APK builds, and troubleshooting.
 - [Android Play release](./android-play-release.md) — upload keystore, AAB

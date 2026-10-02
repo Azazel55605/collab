@@ -8,6 +8,10 @@ import {
 import * as Y from 'yjs';
 
 import {
+  DECK_ROOT_MAP as DECK_ROOT_MAP_NAME,
+  readDeck,
+} from '../../../../src/lib/deck/liveDeckDocument';
+import {
   hostedWsTicket,
   liveWsClose,
   liveWsConnect,
@@ -37,7 +41,8 @@ const REMOTE_AWARENESS_ORIGIN = Symbol('mobile-live-awareness-remote');
 const LOCAL_JSON_ORIGIN = Symbol('mobile-live-json-local');
 
 export type LiveStatus = 'connecting' | 'connected' | 'disconnected';
-export type MobileLiveDocumentKind = 'note' | 'kanban' | 'canvas' | 'logic' | 'sheet' | 'ink';
+export type MobileLiveDocumentKind =
+  'note' | 'kanban' | 'canvas' | 'logic' | 'sheet' | 'ink' | 'deck';
 export type JsonValue =
   string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
@@ -657,7 +662,7 @@ export async function openMobileLiveJsonSession(
   serverUrl: string,
   vaultId: string,
   fileId: string,
-  kind: Exclude<MobileLiveDocumentKind, 'note'>,
+  kind: Exclude<MobileLiveDocumentKind, 'note' | 'deck'>,
 ): Promise<MobileLiveJsonSession | null> {
   const opened = await openCachedProvider(kind, serverUrl, vaultId, fileId);
   if (!opened) return null;
@@ -675,6 +680,54 @@ export async function openMobileLiveJsonSession(
       const observer = (_events: unknown, transaction: Y.Transaction) => {
         if (transaction.origin === LOCAL_JSON_ORIGIN) return;
         cb(yToJson(root) as JsonObject);
+      };
+      root.observeDeep(observer);
+      return () => root.unobserveDeep(observer);
+    },
+    getStatus: () => provider.getStatus(),
+    onStatus: (cb) => provider.onStatus(cb),
+    destroy: () => releaseCachedProvider(key),
+  };
+}
+
+/**
+ * A presentation's live room, read-only: the phone follows the deck as
+ * collaborators edit it and publishes awareness (where it is, remote-control
+ * commands), but never writes to the deck. The deck is decoded by the shared
+ * codec (`src/lib/deck/liveDeckDocument.ts`), never a mobile copy of it.
+ */
+export interface MobileLiveDeckSession {
+  readonly awareness: Awareness;
+  readDeck(): Record<string, unknown> | null;
+  onChange(cb: (deck: Record<string, unknown>) => void): () => void;
+  getStatus(): LiveStatus;
+  onStatus(cb: (status: LiveStatus) => void): () => void;
+  destroy(): void;
+}
+
+export async function openMobileLiveDeckSession(
+  serverUrl: string,
+  vaultId: string,
+  fileId: string,
+): Promise<MobileLiveDeckSession | null> {
+  const opened = await openCachedProvider('deck', serverUrl, vaultId, fileId);
+  if (!opened) return null;
+  const { key, provider } = opened;
+  const root = provider.doc.getMap<unknown>(DECK_ROOT_MAP_NAME);
+  return {
+    awareness: provider.awareness,
+    readDeck: () => readDeck(provider.doc),
+    onChange: (cb) => {
+      // Many updates can land in one burst; decode once per microtask.
+      let scheduled = false;
+      const observer = () => {
+        if (scheduled) return;
+        scheduled = true;
+        queueMicrotask(() => {
+          scheduled = false;
+          const deck = readDeck(provider.doc);
+          if (deck) cb(deck);
+        });
       };
       root.observeDeep(observer);
       return () => root.unobserveDeep(observer);

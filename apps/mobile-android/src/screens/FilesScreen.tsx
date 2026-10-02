@@ -32,6 +32,7 @@ import {
 import { isRichViewableFile } from '../lib/assets';
 import { useBackDismiss } from '../lib/backStack';
 import { isCanvasFile } from '../lib/canvas';
+import { isDeckFile } from '../lib/deck';
 import { downloadEntireVault, downloadEntry, pickAndUploadFiles } from '../lib/fileTransfer';
 import { fileGlyph, formatBytes, formatRelativeTime, isReadOnlyRole } from '../lib/format';
 import { isInkFile } from '../lib/ink';
@@ -52,6 +53,7 @@ import type { HostedFileEntry } from '../mobileTauri';
 import { createHostedDocument } from '../mobileTauri';
 import { useMobileStore } from '../state/store';
 
+import { DeckScreen } from './DeckScreen';
 import { InkScreen } from './InkScreen';
 import { KanbanScreen } from './KanbanScreen';
 import { NoteScreen } from './NoteScreen';
@@ -331,6 +333,7 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
   const kanbanFile = activeSheet?.kind === 'kanban' ? activeFile : null;
   const workbookFile = activeSheet?.kind === 'workbook' ? activeFile : null;
   const drawingFile = activeSheet?.kind === 'drawing' ? activeFile : null;
+  const presentationFile = activeSheet?.kind === 'presentation' ? activeFile : null;
   const viewerFile = activeSheet?.kind === 'viewer' ? activeFile : null;
 
   if (!selected) {
@@ -366,6 +369,10 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
 
   if (drawingFile) {
     return <InkScreen file={drawingFile} theme={prefs.theme} />;
+  }
+
+  if (presentationFile) {
+    return <DeckScreen file={presentationFile} />;
   }
 
   if (workbookFile) {
@@ -565,6 +572,8 @@ export function FilesScreen({ prefs }: { prefs: ThemePrefs }) {
                       openSheet({ kind: 'workbook', fileId: entry.id });
                     } else if (isInkFile(entry)) {
                       openSheet({ kind: 'drawing', fileId: entry.id });
+                    } else if (isDeckFile(entry)) {
+                      openSheet({ kind: 'presentation', fileId: entry.id });
                     } else if (isRichViewableFile(entry) || isCanvasFile(entry)) {
                       openSheet({ kind: 'viewer', fileId: entry.id });
                     } else {
