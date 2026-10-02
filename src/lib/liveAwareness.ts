@@ -75,6 +75,39 @@ export interface DeckInteraction {
   editing?: { elementId: string | null; cellKey?: string | null; notes?: boolean } | null;
   /** The peer is presenting (slide show or presenter view). */
   presenting?: boolean;
+  /** While presenting: where the show is, and whether it takes remote commands. */
+  show?: DeckShowState | null;
+  /** A phone driving someone's show: its recent commands (`deck/remote.ts`). */
+  remote?: DeckRemoteState | null;
+}
+
+/** A running show as its presenter publishes it. */
+export interface DeckShowState {
+  /** New for every show, so commands sent to an earlier one never replay. */
+  id: string;
+  slideId: string | null;
+  /** 1-based position among the slides playback shows, and how many there are. */
+  position: number;
+  total: number;
+  blank: 'black' | 'white' | null;
+  /** The presenter allows their own signed-in devices to drive the show. */
+  remote: boolean;
+}
+
+export type DeckRemoteAction = 'next' | 'previous' | 'first' | 'last' | 'goto' | 'black' | 'white';
+
+export interface DeckRemoteCommand {
+  /** Increases by one per command within a show. */
+  seq: number;
+  action: DeckRemoteAction;
+  /** Slide index for `goto`. */
+  index?: number;
+}
+
+/** What a remote publishes: the show it drives and its last few commands. */
+export interface DeckRemoteState {
+  showId: string;
+  commands: DeckRemoteCommand[];
 }
 
 /** The full ephemeral state a peer publishes for one document. */

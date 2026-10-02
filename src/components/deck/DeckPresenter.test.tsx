@@ -2,12 +2,18 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildFixtureDeck } from '../../lib/deck/fixture';
+import type { PlaybackAction } from '../../lib/deck/playback';
 import type { AudienceCallbacks, AudienceHandle, DisplayInfo } from '../../lib/deck/presentWindow';
 import { createApproximateMeasurer } from '../../lib/deck/textLayout';
 import type { DeckDocument } from '../../types/deck';
 
 import { DeckPresenter } from './DeckPresenter';
-import type { DeckPresenterRuntime, DeckPresentMode } from './DeckPresenter';
+import type {
+  DeckPresenterRemote,
+  DeckPresenterRuntime,
+  DeckPresentMode,
+  DeckShowPosition,
+} from './DeckPresenter';
 
 const measurer = createApproximateMeasurer();
 const SIZE = { width: 960, height: 540 };
@@ -64,6 +70,8 @@ function setup(
     mode?: DeckPresentMode;
     start?: string | null;
     runtime?: DeckPresenterRuntime;
+    remote?: DeckPresenterRemote;
+    onShowChange?: (show: DeckShowPosition) => void;
   } = {},
 ) {
   const onExit = vi.fn();
@@ -81,6 +89,8 @@ function setup(
       onExit={onExit}
       onNotice={onNotice}
       onOpenUrl={onOpenUrl}
+      remote={options.remote}
+      onShowChange={options.onShowChange}
       runtime={{
         listDisplays: async () => [],
         currentDisplayId: async () => null,
@@ -242,5 +252,45 @@ describe('DeckPresenter: presenter view', () => {
     expect(await screen.findByText(/No second display/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Show slides here' }));
     expect(screen.getByRole('dialog', { name: 'Slide show' })).toBeTruthy();
+  });
+});
+
+describe('DeckPresenter: phone remote', () => {
+  it('applies remote commands, reports where the show is, and toggles the opt-in', () => {
+    let deliver: ((action: PlaybackAction) => void) | null = null;
+    const onAllowedChange = vi.fn();
+    const onShowChange = vi.fn();
+    setup({
+      onShowChange,
+      remote: {
+        allowed: false,
+        onAllowedChange,
+        subscribe: (listener) => {
+          deliver = listener;
+          return () => {
+            deliver = null;
+          };
+        },
+      },
+    });
+    expect(onShowChange).toHaveBeenLastCalledWith({
+      slideId: 'slide-1',
+      position: 1,
+      total: 5,
+      blank: null,
+    });
+    act(() => deliver!({ type: 'next' }));
+    expect(screen.getByText('2 / 5')).toBeTruthy();
+    act(() => deliver!({ type: 'blank', blank: 'black' }));
+    expect(onShowChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ slideId: 'slide-2', blank: 'black' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Allow phone remote' }));
+    expect(onAllowedChange).toHaveBeenCalledWith(true);
+  });
+
+  it('shows no remote button without a live session', () => {
+    setup();
+    expect(screen.queryByRole('button', { name: 'Allow phone remote' })).toBeNull();
   });
 });

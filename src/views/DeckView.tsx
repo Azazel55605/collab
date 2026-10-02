@@ -56,7 +56,12 @@ import { DeckLinkDialog } from '../components/deck/DeckLinkDialog';
 import { DeckObjectToolbar } from '../components/deck/DeckObjectToolbar';
 import type { TableAction } from '../components/deck/DeckObjectToolbar';
 import { DeckPresenter } from '../components/deck/DeckPresenter';
-import type { DeckPresentMode, DeckPresentSummary } from '../components/deck/DeckPresenter';
+import type {
+  DeckPresenterRemote,
+  DeckPresentMode,
+  DeckPresentSummary,
+  DeckShowPosition,
+} from '../components/deck/DeckPresenter';
 import { DeckPrintHost } from '../components/deck/DeckPrintHost';
 import { DeckSlideRail } from '../components/deck/DeckSlideRail';
 import type { DeckRailAction } from '../components/deck/DeckSlideRail';
@@ -106,6 +111,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
+import { useCollabIdentity } from '../lib/collabIdentity';
 import { assetKey, collectDeckAssets } from '../lib/deck/assets';
 import {
   copyElements,
@@ -168,7 +174,8 @@ import {
 } from '../lib/deck/operations';
 import type { DeckEdit, DeckOperation, DeckReorder, DeckTargetRef } from '../lib/deck/operations';
 import { inkAnnotationSvg } from '../lib/deck/playback';
-import type { PlaybackInk } from '../lib/deck/playback';
+import type { PlaybackAction, PlaybackInk } from '../lib/deck/playback';
+import { newShowId, remoteCommandAction, takeRemoteCommands } from '../lib/deck/remote';
 import { plainText, resolveDesign, resolveSlide, resolveTarget } from '../lib/deck/resolve';
 import type {
   DeckTarget,
@@ -1920,6 +1927,25 @@ export default function DeckView({ relativePath }: DeckViewProps) {
     startSlideId: string | null;
   } | null>(null);
   const [inkToKeep, setInkToKeep] = useState<PlaybackInk | null>(null);
+  // Phone remote control (`lib/deck/remote.ts`): off until the presenter
+  // turns it on, then kept on for this view.
+  const { userId } = useCollabIdentity();
+  const [showId, setShowId] = useState<string | null>(null);
+  const [showPosition, setShowPosition] = useState<DeckShowPosition | null>(null);
+  const [remoteAllowed, setRemoteAllowed] = useState(false);
+  const remoteListeners = useRef(new Set<(action: PlaybackAction) => void>());
+  const remoteApplied = useRef(new Map<number, number>());
+  const presenterRemote = useMemo<DeckPresenterRemote>(
+    () => ({
+      allowed: remoteAllowed,
+      onAllowedChange: setRemoteAllowed,
+      subscribe: (listener) => {
+        remoteListeners.current.add(listener);
+        return () => remoteListeners.current.delete(listener);
+      },
+    }),
+    [remoteAllowed],
+  );
 
   const present = (mode: DeckPresentMode, from: 'start' | 'current') => {
     if (!document || !supported || slideOrder.length === 0) return;
@@ -1927,6 +1953,9 @@ export default function DeckView({ relativePath }: DeckViewProps) {
     endTextSession();
     if (designTarget) setDesignTarget(null);
     const first = slideOrder.find((id) => !document.slides[id]?.hidden) ?? slideOrder[0];
+    remoteApplied.current = new Map();
+    setShowPosition(null);
+    setShowId(newShowId());
     setPresenting({ mode, startSlideId: from === 'current' ? activeSlideId : first });
   };
 
@@ -2040,9 +2069,45 @@ export default function DeckView({ relativePath }: DeckViewProps) {
           }
         : null,
       presenting: presenting !== null,
+      show:
+        presenting && showId
+          ? {
+              id: showId,
+              slideId: showPosition?.slideId ?? presenting.startSlideId,
+              position: showPosition?.position ?? 1,
+              total: showPosition?.total ?? slideOrder.length,
+              blank: showPosition?.blank ?? null,
+              remote: remoteAllowed,
+            }
+          : null,
     };
     awareness.setLocalStateField('deck', deck);
-  }, [editingInfo, presenting, selectedIds, session.liveSession, stageTargetId]);
+  }, [
+    editingInfo,
+    presenting,
+    remoteAllowed,
+    selectedIds,
+    session.liveSession,
+    showId,
+    showPosition,
+    slideOrder.length,
+    stageTargetId,
+  ]);
+
+  useEffect(() => {
+    if (!presenting || !showId) return;
+    const taken = takeRemoteCommands(
+      livePeers,
+      { id: showId, userId, allowed: remoteAllowed },
+      remoteApplied.current,
+    );
+    remoteApplied.current = taken.applied;
+    for (const command of taken.commands) {
+      const action = remoteCommandAction(command);
+      if (!action) continue;
+      for (const listener of remoteListeners.current) listener(action);
+    }
+  }, [livePeers, presenting, remoteAllowed, showId, userId]);
 
   const peersBySlide = useMemo(() => {
     const map = new Map<
@@ -3515,6 +3580,8 @@ export default function DeckView({ relativePath }: DeckViewProps) {
           onOpenUrl={openPresentationLink}
           onOpenVaultLink={openVaultLink}
           onNotice={(message) => toast.info(message)}
+          onShowChange={setShowPosition}
+          remote={session.liveSession ? presenterRemote : undefined}
         />
       )}
     </div>

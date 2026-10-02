@@ -16,6 +16,7 @@ import {
   PenLine,
   Play,
   RotateCcw,
+  Smartphone,
   Square,
   SquareDashed,
   X,
@@ -40,6 +41,7 @@ import {
 } from '../../lib/deck/playback';
 import type {
   PlaybackAction,
+  PlaybackBlank,
   PlaybackInk,
   PlaybackSlide,
   PlaybackState,
@@ -75,6 +77,25 @@ export interface DeckPresentSummary {
   ink: PlaybackInk;
 }
 
+/** Where the show is, for the live awareness relay. */
+export interface DeckShowPosition {
+  slideId: string | null;
+  position: number;
+  total: number;
+  blank: PlaybackBlank;
+}
+
+/**
+ * Remote control from the presenter's own phone (`lib/deck/remote.ts`). Off
+ * until the presenter turns it on for this show.
+ */
+export interface DeckPresenterRemote {
+  allowed: boolean;
+  onAllowedChange: (allowed: boolean) => void;
+  /** Delivers remote commands as playback actions; returns an unsubscribe. */
+  subscribe: (listener: (action: PlaybackAction) => void) => () => void;
+}
+
 export interface DeckPresenterRuntime {
   now?: () => number;
   listDisplays?: typeof listDisplays;
@@ -93,6 +114,9 @@ interface DeckPresenterProps {
   onOpenUrl?: (href: string) => void;
   onOpenVaultLink?: (path: string) => void;
   onNotice?: (message: string) => void;
+  /** Reported whenever the shown slide or blanking changes. */
+  onShowChange?: (show: DeckShowPosition) => void;
+  remote?: DeckPresenterRemote;
   runtime?: DeckPresenterRuntime;
 }
 
@@ -205,6 +229,8 @@ export function DeckPresenter({
   onOpenUrl,
   onOpenVaultLink,
   onNotice,
+  onShowChange,
+  remote,
   runtime,
 }: DeckPresenterProps) {
   const slides = useMemo(() => resolveDeck(deck), [deck]);
@@ -635,6 +661,27 @@ export function DeckPresenter({
   /* Rendering ------------------------------------------------------------- */
 
   const progress = playbackProgress(playbackSlides, index);
+
+  const remoteSubscribe = remote?.subscribe;
+  useEffect(() => remoteSubscribe?.((action) => dispatch(action)), [remoteSubscribe]);
+  const shownSlideId = slide?.slideId ?? null;
+  useEffect(() => {
+    onShowChange?.({
+      slideId: shownSlideId,
+      position: progress.position,
+      total: progress.total,
+      blank: state.blank,
+    });
+  }, [onShowChange, progress.position, progress.total, shownSlideId, state.blank]);
+  const remoteButton = remote && (
+    <ControlButton
+      label={remote.allowed ? 'Phone remote on' : 'Allow phone remote'}
+      active={remote.allowed}
+      onClick={() => remote.onAllowedChange(!remote.allowed)}
+    >
+      <Smartphone className="size-4" />
+    </ControlButton>
+  );
   const elapsed = formatElapsed(timerElapsed(timer, now(runtime)));
   const clock = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -784,6 +831,7 @@ export function DeckPresenter({
           >
             <SquareDashed className="size-4" />
           </ControlButton>
+          {remoteButton}
           <ControlButton
             label="Presenter view"
             onClick={() => {
@@ -941,6 +989,7 @@ export function DeckPresenter({
             >
               <SquareDashed className="size-4" />
             </ControlButton>
+            {remoteButton}
           </div>
         </div>
 

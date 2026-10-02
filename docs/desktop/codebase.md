@@ -404,6 +404,7 @@ session's writes into a single undo step.
 | `components/deck/DeckSlideRail.tsx`                          | Virtualized slide thumbnails with sections, multi-select, drag reorder, context menu                                |
 | `components/deck/DeckSlide.tsx`                              | One resolved slide as inline SVG (page fonts), DOMPurify-sanitized as a second guard                                |
 | `components/deck/DeckPresenter.tsx`                          | Slide show and presenter view: notes, timer, next slide, ink/laser/blank, slide grid, audience-window recovery      |
+| `lib/deck/remote.ts`                                         | Phone remote control over awareness: show state, numbered commands, same-account opt-in (Android companion)         |
 | `components/deck/DeckPlaybackSurface.tsx`                    | One slide with ink, laser, blank, and end-screen layers; shared by show, presenter, and audience window             |
 | `components/deck/DeckAudienceWindow.tsx`                     | The second-display window (`?deck-audience`): draws frames it is sent, sends keys and clicks back                   |
 | `components/deck/DeckExportDialog.tsx`, `useDeckExport.ts`   | Export and print settings; PDF, handouts, PNG/SVG through native dialogs, with progress and cancel                  |
