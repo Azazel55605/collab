@@ -17,7 +17,7 @@
  *
  * Placeholders match by `placeholder.key`, then by `placeholder.type`.
  */
-import { DECK_LIMITS, DECK_UNITS_PER_POINT } from '../../types/deck';
+import { DECK_DEFAULT_INSETS, DECK_LIMITS, DECK_UNITS_PER_POINT } from '../../types/deck';
 import type {
   DeckArrowhead,
   DeckAssetRef,
@@ -48,8 +48,8 @@ import type {
   DeckThemeColorToken,
   DeckVerticalAlign,
 } from '../../types/deck';
-import { DECK_DEFAULT_INSETS } from '../../types/deck';
 
+import { automaticFontFallbacks } from './fonts';
 import { isRichTextEmpty } from './richText';
 
 /* ------------------------------------------------------------------------- */
@@ -300,9 +300,12 @@ function resolveLine(line: DeckLine | undefined, theme: DeckTheme): ResolvedLine
 
 function resolveFont(font: DeckRunStyle['font'], theme: DeckTheme): ResolvedFont {
   if (font === undefined) return resolveFont({ theme: 'body' }, theme);
-  if (typeof font === 'string') return { family: font, fallbacks: ['sans-serif'] };
+  if (typeof font === 'string') return { family: font, fallbacks: automaticFontFallbacks(font) };
   const themeFont = theme.fonts[font.theme];
-  return { family: themeFont.family, fallbacks: [...(themeFont.fallbacks ?? [])] };
+  return {
+    family: themeFont.family,
+    fallbacks: automaticFontFallbacks(themeFont.family, themeFont.fallbacks),
+  };
 }
 
 /* ------------------------------------------------------------------------- */

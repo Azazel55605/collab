@@ -386,7 +386,22 @@ first-party writer; Phase 8 added the Android viewer/presenter and phone
 remote; Phase 9 added authored transitions and bounded object-animation
 timelines. Phase 10 added an independent accessibility reading order, semantic
 slide companion, authoring audit, heterogeneous workload/recovery/CRDT soak
-gates, and the presentation release-validation matrix.
+gates, and the presentation release-validation matrix. General-release
+hardening Phase 2 made text boxes content-first on click, moved object builds
+into a dedicated click-step animation tree with a larger PowerPoint-aligned
+effect vocabulary, and added an account-scoped active-show heartbeat so the
+Android app can offer phone control without first opening the deck.
+Desktop presenter mode opens each audience surface under a unique Tauri label
+and event namespace. It creates the hidden WebView at the selected monitor's
+logical viewport size, maps it, then targets that output with Tauri's native
+`setFullscreenOnMonitor` API. This avoids a stale initial WebView allocation
+while leaving fullscreen placement to the platform; Wayland compositors own
+placement, and the same native path avoids mixed-DPI coordinate conversion on
+X11, Windows, and macOS. Generation checks close late audience opens after
+mode, display, or component-lifecycle changes. Playback SVGs are sized through
+the animation-scope wrapper rather than relying on their 1280×720 intrinsic
+dimensions, so basic and audience presentation fill their fitted surface at
+every display scale.
 Edits are reversible operations previewed on a scratch deck during a gesture and
 committed once, as one undo step and one save. Text editing holds a draft in a
 `TextSession`, writes it to the document on a short idle timer, and folds one
@@ -398,7 +413,8 @@ session's writes into a single undo step.
 | `components/deck/DeckTextEditor.tsx`                         | First-party `contenteditable` adapter: intercepts `beforeinput`/clipboard/IME, applies `richText.ts`, redraws       |
 | `components/deck/textDom.ts`                                 | Draws a resolved body into the editor (text nodes only) and maps DOM selection points to text offsets               |
 | `components/deck/DeckTextToolbar.tsx`                        | Font, size, styles, colour, alignment, lists and levels, spacing, links, autofit, reset to layout                   |
-| `components/deck/DeckInspector.tsx`                          | Design panel: slide/design settings plus transition and ordered object-animation timeline authoring                 |
+| `components/deck/DeckInspector.tsx`                          | Design panel: object, slide, transition, accessibility, theme, master, and layout settings                          |
+| `components/deck/DeckAnimationPane.tsx`                      | Independent object-animation tree grouped by automatic entry and click step, with effect and timing controls        |
 | `components/deck/DeckDesignRail.tsx`                         | Master view rail: masters and their layouts with usage counts; duplicate and delete layouts                         |
 | `components/deck/DeckLinkDialog.tsx`                         | Link to a web address or a slide; only `http(s)` and `mailto` addresses (`lib/deck/links.ts`)                       |
 | `components/deck/DeckObjectToolbar.tsx`                      | Fill, outline, arrowheads, shape, opacity, flip/rotate; image, table, chart, and linked-document actions            |
@@ -407,8 +423,9 @@ session's writes into a single undo step.
 | `components/deck/DeckStage.tsx`                              | Zoom/pan stage: hit testing, marquee, move/resize/rotate/crop gestures, snap guides, grid, rulers                   |
 | `components/deck/DeckSlideRail.tsx`                          | Virtualized slide thumbnails with sections, multi-select, drag reorder, context menu                                |
 | `components/deck/DeckSlide.tsx`                              | One resolved slide as inline SVG (page fonts), DOMPurify-sanitized as a second guard                                |
-| `components/deck/DeckPresenter.tsx`                          | Slide show and presenter view: animation builds, transitions, notes, ink/laser/blank, audience-window recovery      |
+| `components/deck/DeckPresenter.tsx`                          | Slide show and presenter view: animation builds, notes, native output targeting, and race-safe audience recovery    |
 | `lib/deck/remote.ts`                                         | Phone remote control over awareness: show state, numbered commands, same-account opt-in (Android companion)         |
+| `lib/deck/activePresentation.ts`                             | Best-effort active-show heartbeat and cleanup for app-wide Android discovery                                        |
 | `components/deck/DeckPlaybackSurface.tsx`                    | One slide with transient animation/transition, ink, laser, blank, and end-screen layers; shared by all show windows |
 | `components/deck/DeckAudienceWindow.tsx`                     | The second-display window (`?deck-audience`): draws frames it is sent, sends keys and clicks back                   |
 | `components/deck/DeckExportDialog.tsx`, `useDeckExport.ts`   | Export and print settings; PDF, handouts, PNG/SVG through native dialogs, with progress and cancel                  |

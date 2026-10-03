@@ -73,7 +73,7 @@ interface DeckStageProps {
   onCommit: (updaters: ElementUpdaters, label: string) => void;
   onZoom: (next: number, anchor?: { clientX: number; clientY: number }) => void;
   onContextMenu?: (event: React.MouseEvent) => void;
-  /** Opens in-place text editing for an element (double-click on text or a shape). */
+  /** Opens in-place editing (single click for text boxes, double-click for shape text). */
   onEditText?: (elementId: string, point: { clientX: number; clientY: number }) => void;
   /**
    * The in-place text editor, laid over its element's frame — or over `rect`
@@ -114,7 +114,13 @@ export interface DeckStagePeer {
 
 type Gesture =
   | { kind: 'none' }
-  | { kind: 'pending'; start: Point; hit: string; additive: boolean }
+  | {
+      kind: 'pending';
+      start: Point;
+      hit: string;
+      additive: boolean;
+      editTextAt?: { clientX: number; clientY: number };
+    }
   | { kind: 'move'; start: Point; ids: string[] }
   | { kind: 'resize'; start: Point; ids: string[]; handle: ResizeHandle }
   | { kind: 'crop'; start: Point; id: string; handle: CropHandle }
@@ -349,7 +355,7 @@ export function DeckStage({
       ? selectedIds[0]
       : null;
 
-  // Double-clicking an image crops it; double-clicking text or a shape edits its text.
+  // Double-clicking an image crops it; shape text keeps the deliberate double-click path.
   const onDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (readOnly) return;
     const point = toSlide(event.clientX, event.clientY);
@@ -450,6 +456,21 @@ export function DeckStage({
       onActiveCell(hit, item?.kind === 'table' ? cellAtPoint(item, point) : null);
     }
     if (hit) {
+      const element = geometry.slide.elements[hit];
+      // Text boxes are content-first. Defer opening until pointer-up so the
+      // contenteditable, rather than this interaction layer, owns final focus.
+      // Crossing the drag threshold still turns this into an ordinary move.
+      if (!additive && !readOnly && element?.type === 'text' && !element.locked && onEditText) {
+        if (geometry.order.includes(hit)) onSelectionChange([hit]);
+        gestureRef.current = {
+          kind: 'pending',
+          start: point,
+          hit,
+          additive: false,
+          editTextAt: { clientX: event.clientX, clientY: event.clientY },
+        };
+        return;
+      }
       if (additive) {
         onSelectionChange(
           selectedIds.includes(hit)
@@ -565,6 +586,10 @@ export function DeckStage({
   const finish = (commit: boolean) => {
     const gesture = gestureRef.current;
     gestureRef.current = { kind: 'none' };
+    if (gesture.kind === 'pending' && commit && gesture.editTextAt && onEditText) {
+      onEditText(gesture.hit, gesture.editTextAt);
+      return;
+    }
     if (gesture.kind === 'marquee') {
       const rect = marquee;
       setMarquee(null);

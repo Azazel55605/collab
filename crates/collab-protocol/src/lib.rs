@@ -726,6 +726,38 @@ pub struct HostedPresenceEntry {
     pub app_version: String,
 }
 
+/// A short-lived presentation advertised by one of the signed-in user's
+/// desktop devices. The server never persists this state; presenters refresh
+/// it while the show is running and it expires automatically after disconnect.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivePresentation {
+    pub show_id: String,
+    pub vault_id: String,
+    pub file_id: String,
+    pub relative_path: String,
+    pub title: String,
+    pub slide_id: Option<String>,
+    pub position: u32,
+    pub total: u32,
+    pub remote_enabled: bool,
+    pub updated_at: String,
+}
+
+/// Presenter heartbeat used to create or refresh an active presentation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertActivePresentationRequest {
+    pub vault_id: String,
+    pub file_id: String,
+    pub relative_path: String,
+    pub title: String,
+    pub slide_id: Option<String>,
+    pub position: u32,
+    pub total: u32,
+    pub remote_enabled: bool,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum HostedFileKind {

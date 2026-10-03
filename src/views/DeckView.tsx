@@ -18,6 +18,7 @@ import {
   Group,
   ImageIcon,
   LayoutTemplate,
+  ListTree,
   Loader2,
   Lock,
   Minus,
@@ -44,6 +45,7 @@ import {
 import { toast } from 'sonner';
 
 import LivePeers from '../components/collaboration/LivePeers';
+import { DeckAnimationPane } from '../components/deck/DeckAnimationPane';
 import { DeckChartDialog } from '../components/deck/DeckChartDialog';
 import type { ChartEdit } from '../components/deck/DeckChartDialog';
 import { DeckDesignRail } from '../components/deck/DeckDesignRail';
@@ -112,6 +114,11 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu';
 import { useCollabIdentity } from '../lib/collabIdentity';
+import {
+  ACTIVE_PRESENTATION_HEARTBEAT_MS,
+  publishActivePresentation,
+  stopPublishingActivePresentation,
+} from '../lib/deck/activePresentation';
 import { assetKey, collectDeckAssets } from '../lib/deck/assets';
 import {
   copyElements,
@@ -287,6 +294,7 @@ const DEFAULT_VIEW_STATE: DeckViewState = {
   snapToObjects: true,
   showGrid: false,
   inspectorOpen: false,
+  animationPaneOpen: false,
 };
 
 const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
@@ -1952,6 +1960,70 @@ export default function DeckView({ relativePath }: DeckViewProps) {
     }),
     [remoteAllowed],
   );
+  const activePresentation = useMemo(() => {
+    if (!presenting || !showId || !session.liveSession) return null;
+    return {
+      target: session.liveSession.target,
+      heartbeat: {
+        vaultId: session.liveSession.target.vaultId,
+        fileId: session.liveSession.target.fileId,
+        relativePath,
+        title: deckTitle,
+        slideId: showPosition?.slideId ?? presenting.startSlideId,
+        position: showPosition?.position ?? 1,
+        total: showPosition?.total ?? slideOrder.length,
+        remoteEnabled: remoteAllowed,
+      },
+    };
+  }, [
+    deckTitle,
+    presenting,
+    relativePath,
+    remoteAllowed,
+    session.liveSession,
+    showId,
+    showPosition,
+    slideOrder.length,
+  ]);
+  const activePresentationRef = useRef(activePresentation);
+  activePresentationRef.current = activePresentation;
+  const activePresentationQueue = useRef<Promise<void>>(Promise.resolve());
+  const enqueuePresentationRequest = useCallback((request: () => Promise<unknown>) => {
+    activePresentationQueue.current = activePresentationQueue.current
+      .catch(() => {})
+      .then(request)
+      .then(() => undefined)
+      .catch(() => {});
+  }, []);
+
+  // App-wide discovery is best-effort and never interrupts playback. Changes
+  // publish immediately; the heartbeat keeps the ephemeral server entry alive.
+  useEffect(() => {
+    if (!activePresentation || !showId) return;
+    enqueuePresentationRequest(() =>
+      publishActivePresentation(
+        activePresentation.target.serverUrl,
+        showId,
+        activePresentation.heartbeat,
+      ),
+    );
+  }, [activePresentation, enqueuePresentationRequest, showId]);
+
+  useEffect(() => {
+    const target = activePresentation?.target;
+    if (!target || !showId) return;
+    const timer = window.setInterval(() => {
+      const current = activePresentationRef.current;
+      if (!current) return;
+      enqueuePresentationRequest(() =>
+        publishActivePresentation(current.target.serverUrl, showId, current.heartbeat),
+      );
+    }, ACTIVE_PRESENTATION_HEARTBEAT_MS);
+    return () => {
+      window.clearInterval(timer);
+      enqueuePresentationRequest(() => stopPublishingActivePresentation(target.serverUrl, showId));
+    };
+  }, [activePresentation?.target, enqueuePresentationRequest, showId]);
 
   const present = (mode: DeckPresentMode, from: 'start' | 'current') => {
     if (!document || !supported || slideOrder.length === 0) return;
@@ -2806,8 +2878,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
   const hasSelection = selectedIds.length > 0;
   const hasGroup = selectedIds.some((id) => geometry?.slide.elements[id]?.type === 'group');
   const aspect = document && supported ? document.size.width / document.size.height : 16 / 9;
-  const showTextToolbar =
-    editable && (textSession !== null || textTargets.length > 0) && Boolean(document);
+  const hasTextFormattingTarget = textSession !== null || textTargets.length > 0;
   const theme = document && supported ? document.themes[document.themeId] : undefined;
 
   const textEditorFor = (active: TextSession, plain: boolean) =>
@@ -3195,13 +3266,33 @@ export default function DeckView({ relativePath }: DeckViewProps) {
               </DocumentTopBarIconButton>
               <DocumentTopBarIconButton
                 onClick={() =>
-                  setViewState((current) => ({ ...current, inspectorOpen: !current.inspectorOpen }))
+                  setViewState((current) => ({
+                    ...current,
+                    inspectorOpen: !current.inspectorOpen,
+                    animationPaneOpen: false,
+                  }))
                 }
                 aria-label={viewState.inspectorOpen ? 'Hide design panel' : 'Show design panel'}
                 aria-pressed={viewState.inspectorOpen ?? false}
                 disabled={!supported}
               >
                 <PanelRight size={14} />
+              </DocumentTopBarIconButton>
+              <DocumentTopBarIconButton
+                onClick={() =>
+                  setViewState((current) => ({
+                    ...current,
+                    animationPaneOpen: !current.animationPaneOpen,
+                    inspectorOpen: false,
+                  }))
+                }
+                aria-label={
+                  viewState.animationPaneOpen ? 'Hide animation pane' : 'Show animation pane'
+                }
+                aria-pressed={viewState.animationPaneOpen ?? false}
+                disabled={!supported || Boolean(designTarget)}
+              >
+                <ListTree size={14} />
               </DocumentTopBarIconButton>
             </div>
             <div className={documentTopBarGroupClass}>
@@ -3251,54 +3342,61 @@ export default function DeckView({ relativePath }: DeckViewProps) {
         }
       />
 
-      {showTextToolbar && theme && (
-        <DeckTextToolbar
-          state={toolbarState}
-          theme={theme}
-          box={textSession?.kind === 'notes' ? null : box}
-          disabled={!editable}
-          canResetPlaceholder={placeholderToReset.length > 0}
-          onCommand={runCommand}
-          onFont={setFont}
-          onColor={(color) => setColor(color)}
-          onBox={setBox}
-          onLink={openLinkDialog}
-          onResetPlaceholder={resetSelectedPlaceholders}
-        />
-      )}
+      {theme && (
+        <div
+          className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/50 bg-muted/15 px-2 py-1 scrollbar-none"
+          data-testid="deck-formatting-row"
+        >
+          <DeckTextToolbar
+            state={toolbarState}
+            theme={theme}
+            box={textSession?.kind === 'notes' ? null : box}
+            disabled={!editable || !hasTextFormattingTarget}
+            embedded
+            canResetPlaceholder={placeholderToReset.length > 0}
+            onCommand={runCommand}
+            onFont={setFont}
+            onColor={(color) => setColor(color)}
+            onBox={setBox}
+            onLink={openLinkDialog}
+            onResetPlaceholder={resetSelectedPlaceholders}
+          />
 
-      {editable && !textSession && formatElements.length > 0 && theme && (
-        <DeckObjectToolbar
-          elements={formatElements}
-          theme={theme}
-          hasActiveCell={Boolean(tableCellHere)}
-          cropping={cropping}
-          onFill={onFill}
-          onOutline={onOutline}
-          onArrow={onArrow}
-          onGeometry={onGeometry}
-          onOpacity={onOpacity}
-          onFlip={onFlip}
-          onRotate={onRotateQuarter}
-          onCrop={() => setCropping(!cropping)}
-          onResetCrop={() =>
-            updateEach('Reset crop', (element) => {
-              if (element.type !== 'image') return element;
-              const next = { ...element };
-              delete next.crop;
-              return next;
-            })
-          }
-          onReplaceImage={() =>
-            selectedIds[0] && setPicker({ kind: 'image', replace: selectedIds[0] })
-          }
-          onTable={onTableAction}
-          onCellFill={onCellFill}
-          onEditChart={() => selectedIds[0] && setChartDialogId(selectedIds[0])}
-          onRefreshChart={() => selectedIds[0] && void refreshChart(selectedIds[0])}
-          onOpenEmbed={() => selectedIds[0] && openEmbed(selectedIds[0])}
-          onRefreshEmbed={() => selectedIds[0] && void refreshEmbed(selectedIds[0])}
-        />
+          {editable && !textSession && formatElements.length > 0 && (
+            <DeckObjectToolbar
+              elements={formatElements}
+              theme={theme}
+              embedded
+              hasActiveCell={Boolean(tableCellHere)}
+              cropping={cropping}
+              onFill={onFill}
+              onOutline={onOutline}
+              onArrow={onArrow}
+              onGeometry={onGeometry}
+              onOpacity={onOpacity}
+              onFlip={onFlip}
+              onRotate={onRotateQuarter}
+              onCrop={() => setCropping(!cropping)}
+              onResetCrop={() =>
+                updateEach('Reset crop', (element) => {
+                  if (element.type !== 'image') return element;
+                  const next = { ...element };
+                  delete next.crop;
+                  return next;
+                })
+              }
+              onReplaceImage={() =>
+                selectedIds[0] && setPicker({ kind: 'image', replace: selectedIds[0] })
+              }
+              onTable={onTableAction}
+              onCellFill={onCellFill}
+              onEditChart={() => selectedIds[0] && setChartDialogId(selectedIds[0])}
+              onRefreshChart={() => selectedIds[0] && void refreshChart(selectedIds[0])}
+              onOpenEmbed={() => selectedIds[0] && openEmbed(selectedIds[0])}
+              onRefreshEmbed={() => selectedIds[0] && void refreshEmbed(selectedIds[0])}
+            />
+          )}
+        </div>
       )}
 
       <div className="flex min-h-0 flex-1" role="application" aria-label="Presentation editor">
@@ -3367,6 +3465,7 @@ export default function DeckView({ relativePath }: DeckViewProps) {
                 className="relative min-h-0 flex-1 outline-none"
                 tabIndex={0}
                 aria-label="Slide canvas"
+                onPointerDownCapture={focusCanvas}
               >
                 {document && stageTarget && stageScene && geometry && stageSize.width > 0 ? (
                   <DeckStage
@@ -3511,8 +3610,6 @@ export default function DeckView({ relativePath }: DeckViewProps) {
             onSlideBackground={onSlideBackground}
             onTransitionChange={onTransitionChange}
             onTransitionPreview={previewTransition}
-            onAnimationAdd={onAnimationAdd}
-            onAnimationsChange={onAnimationsChange}
             onReadingOrderChange={onReadingOrderChange}
             onApplyTemplate={onApplyTemplate}
             onThemeColor={onThemeColor}
@@ -3526,6 +3623,22 @@ export default function DeckView({ relativePath }: DeckViewProps) {
             onObjectText={onObjectText}
           />
         )}
+        {(viewState.animationPaneOpen ?? false) &&
+          document &&
+          supported &&
+          activeSlideId &&
+          !designTarget && (
+            <DeckAnimationPane
+              deck={document}
+              slideId={activeSlideId}
+              selectedElementId={selectedIds.length === 1 ? selectedIds[0] : undefined}
+              readOnly={!editable}
+              onClose={() => setViewState((current) => ({ ...current, animationPaneOpen: false }))}
+              onSelectElement={(elementId) => setSelectedIds([elementId])}
+              onAnimationAdd={onAnimationAdd}
+              onAnimationsChange={onAnimationsChange}
+            />
+          )}
       </div>
 
       <DeckVaultPicker

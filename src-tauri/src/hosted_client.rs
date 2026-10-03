@@ -119,7 +119,9 @@ pub fn validate_hosted_vault_path(value: &str) -> Result<&str, String> {
     let lower_path = request_path.to_ascii_lowercase();
     if !(value == "/api/v1/vaults"
         || value.starts_with("/api/v1/vaults/")
-        || value.starts_with("/api/v1/vaults?"))
+        || value.starts_with("/api/v1/vaults?")
+        || value == "/api/v1/presentations/active"
+        || value.starts_with("/api/v1/presentations/active/"))
         || value.starts_with("//")
         || value.contains("://")
         || value.contains('#')
@@ -214,6 +216,9 @@ mod tests {
     fn validates_hosted_vault_proxy_paths_and_identifiers() {
         assert!(validate_hosted_vault_path("/api/v1/vaults/vault-1/files?state=active").is_ok());
         assert!(validate_hosted_vault_path("/api/v1/admin/users").is_err());
+        assert!(validate_hosted_vault_path("/api/v1/presentations/active").is_ok());
+        assert!(validate_hosted_vault_path("/api/v1/presentations/active/show-1").is_ok());
+        assert!(validate_hosted_vault_path("/api/v1/presentations/active-evil").is_err());
         assert!(validate_hosted_vault_path("/api/v1/vaults-evil").is_err());
         assert!(validate_hosted_vault_path("//example.com/api/v1/vaults").is_err());
         assert!(validate_hosted_vault_path("/api/v1/vaults/../admin").is_err());

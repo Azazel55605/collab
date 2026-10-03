@@ -7,6 +7,7 @@
  * truncated. Phase 1 mirrors these rules in `collab-documents` for the server.
  */
 import {
+  DECK_ANIMATION_EFFECTS,
   DECK_DOCUMENT_KIND,
   DECK_LIMITS,
   DECK_ROTATION_FULL_TURN,
@@ -589,7 +590,7 @@ export function validateDeck(value: unknown): DeckValidationResult {
         animationIds.add(animation.id);
         if (!slide.elements[animation.elementId])
           c.fail(`${at}.animations[${index}]`, 'targets a missing element');
-        if (!['appear', 'fade', 'fly', 'zoom'].includes(animation.effect))
+        if (!(DECK_ANIMATION_EFFECTS as readonly unknown[]).includes(animation.effect))
           c.fail(`${at}.animations[${index}].effect`, 'is not supported');
         if (!['entrance', 'emphasis', 'exit'].includes(animation.phase))
           c.fail(`${at}.animations[${index}].phase`, 'is not supported');

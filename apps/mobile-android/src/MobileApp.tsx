@@ -1,9 +1,23 @@
 import type { ReactNode, TouchEvent as ReactTouchEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { CalendarDays, Cloud, FolderOpen, Library, Settings as SettingsIcon } from 'lucide-react';
+import {
+  CalendarDays,
+  Cloud,
+  FolderOpen,
+  Library,
+  Settings as SettingsIcon,
+  Smartphone,
+} from 'lucide-react';
+
+import type { ActivePresentation } from '../../../src/types/activePresentation';
 
 import { Banner, ConfirmSheet } from './components/ui';
+import {
+  ACTIVE_PRESENTATION_POLL_MS,
+  listActivePresentations,
+  preferredRemotePresentation,
+} from './lib/activePresentation';
 import { mobileCalendarProfileId } from './lib/calendarSync';
 import { type KnownServer, normalizeServerUrl } from './lib/servers';
 import { applyTheme, loadPrefs, savePrefs, type ThemePrefs } from './lib/theme';
@@ -95,6 +109,11 @@ export function MobileApp() {
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [viewDir, setViewDir] = useState<1 | -1>(1);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [activePresentation, setActivePresentation] = useState<
+    (ActivePresentation & { serverUrl: string }) | null
+  >(null);
+  const [openingPresentation, setOpeningPresentation] = useState(false);
+  const [presentationRecovery, setPresentationRecovery] = useState<string | null>(null);
   /** Set when a widget shortcut pointed at a target this device can no longer
    * open, so the user gets an explanation instead of a blank screen. */
   const [shortcutRecovery, setShortcutRecovery] = useState<
@@ -102,6 +121,7 @@ export function MobileApp() {
   >(null);
 
   const restore = useMobileStore((s) => s.restore);
+  const restored = useMobileStore((s) => s.restored);
   const watchBackgroundEvents = useMobileStore((s) => s.watchBackgroundEvents);
   const refreshStatuses = useMobileStore((s) => s.refreshStatuses);
   const backgroundJobs = useMobileStore((s) => s.backgroundJobs);
@@ -110,6 +130,7 @@ export function MobileApp() {
   const setTab = useMobileStore((s) => s.setTab);
   const swipeTab = useMobileStore((s) => s.swipeTab);
   const selected = useMobileStore((s) => s.selected);
+  const activeSheet = useMobileStore((s) => s.activeSheet);
   const statuses = useMobileStore((s) => s.statuses);
 
   const connectedCount = useMemo(
@@ -117,6 +138,51 @@ export function MobileApp() {
     [statuses],
   );
   const backgroundAttention = findBackgroundAttention(backgroundJobs, servers, statuses);
+  const connectedServerUrls = useMemo(
+    () =>
+      Object.values(statuses)
+        .filter((status) => status.connected && status.serverUrl)
+        .map((status) => normalizeServerUrl(status.serverUrl as string))
+        .sort(),
+    [statuses],
+  );
+
+  // Presentation discovery lives at the app shell so the phone need not have
+  // the matching deck open. Poll all signed-in accounts in parallel and keep
+  // the newest show that has explicitly enabled phone control.
+  useEffect(() => {
+    if (!restored) return;
+    if (connectedServerUrls.length === 0) {
+      setActivePresentation(null);
+      return;
+    }
+    let cancelled = false;
+    const refresh = async () => {
+      const results = await Promise.allSettled(
+        connectedServerUrls.map(async (serverUrl) =>
+          (await listActivePresentations(serverUrl)).map((show) => ({ ...show, serverUrl })),
+        ),
+      );
+      if (cancelled || !results.some((result) => result.status === 'fulfilled')) return;
+      const shows = results.flatMap((result) =>
+        result.status === 'fulfilled' ? result.value : [],
+      );
+      setActivePresentation(preferredRemotePresentation(shows));
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), ACTIVE_PRESENTATION_POLL_MS);
+    const refreshVisible = () => {
+      if (document.visibilityState !== 'hidden') void refresh();
+    };
+    window.addEventListener('focus', refreshVisible);
+    document.addEventListener('visibilitychange', refreshVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshVisible);
+      document.removeEventListener('visibilitychange', refreshVisible);
+    };
+  }, [connectedServerUrls, restored]);
 
   // Native background work is otherwise invisible to the webview: a sync could
   // land new content under the open vault and nothing would reload it.
@@ -420,6 +486,31 @@ export function MobileApp() {
     [setTab, tab],
   );
 
+  const openPresentationRemote = useCallback(async () => {
+    if (!activePresentation || openingPresentation) return;
+    setOpeningPresentation(true);
+    setPresentationRecovery(null);
+    try {
+      const result = await useMobileStore
+        .getState()
+        .openVaultTarget(activePresentation.vaultId, activePresentation.fileId, {
+          serverUrl: activePresentation.serverUrl,
+          remoteShowId: activePresentation.showId,
+        });
+      if (result === 'opened') {
+        setTab('files');
+      } else {
+        setPresentationRecovery(
+          result === 'vault-unavailable'
+            ? 'The presenting vault is not available on this phone.'
+            : 'The presenting deck is no longer available.',
+        );
+      }
+    } finally {
+      setOpeningPresentation(false);
+    }
+  }, [activePresentation, openingPresentation, setTab]);
+
   const handleMainTouchStart = useCallback((event: ReactTouchEvent<HTMLElement>) => {
     if (event.touches.length !== 1) return;
     if (useMobileStore.getState().activeSheet) return;
@@ -467,6 +558,11 @@ export function MobileApp() {
             </Banner>
           </div>
         ) : null}
+        {presentationRecovery ? (
+          <div className="screen-top-banner">
+            <Banner tone="error">{presentationRecovery}</Banner>
+          </div>
+        ) : null}
         {!restoreError && backgroundAttention ? (
           <div className="screen-top-banner">
             <Banner tone="error">
@@ -487,6 +583,30 @@ export function MobileApp() {
           {tab === 'settings' ? <SettingsScreen prefs={prefs} onChange={updatePrefs} /> : null}
         </div>
       </main>
+
+      {activePresentation &&
+      !(
+        activeSheet?.kind === 'presentation' &&
+        activeSheet.remoteShowId === activePresentation.showId
+      ) ? (
+        <button
+          type="button"
+          className="presentation-remote-bubble"
+          aria-label={`Control ${activePresentation.title}`}
+          onClick={() => void openPresentationRemote()}
+          disabled={openingPresentation}
+        >
+          <span className="presentation-remote-bubble-icon">
+            <Smartphone size={21} aria-hidden />
+          </span>
+          <span className="presentation-remote-bubble-copy">
+            <strong>{openingPresentation ? 'Opening remote…' : activePresentation.title}</strong>
+            <span>
+              {activePresentation.position} / {activePresentation.total} · Phone remote
+            </span>
+          </span>
+        </button>
+      ) : null}
 
       <nav className="tab-bar" aria-label="Primary">
         {TABS.map((item) => {

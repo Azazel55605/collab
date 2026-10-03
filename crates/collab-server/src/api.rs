@@ -22,21 +22,23 @@ use collab_archive::{
 };
 use collab_protocol::GrantSubjectType;
 use collab_protocol::{
-    capabilities_for_role, AdminBackupArtifactVerification, AdminBackupCommandResult,
-    AdminBackupExportTarget, AdminBackupOverview, AdminBackupSchedule, AdminBackupSettings,
-    AdminBackupSettingsLocks, AdminBackupSummary, AdminBackupVerification, AdminMaintenanceMode,
-    AdminOverview, AdminRuntimeSetting, AdminRuntimeSettings, AdminServerSettings, ApiError,
-    AuditEvent, BootstrapStatus, BrowserSession, Capability, CreatedInvitation, DataResponse,
-    ErrorCode, ErrorResponse, HealthState, HostedChatMessage, HostedDocumentType, HostedFileEntry,
-    HostedFileKind, HostedFileReference, HostedFileRevision, HostedFileState, HostedPdfAnnotations,
-    HostedPresenceEntry, HostedReferenceImpact, HostedRevisionContent, HostedSearchResult,
-    HostedSnapshot, HostedStructuralOperationPreview, HostedStructuralOperationResult,
-    HostedStructuralOperationType, HostedTextDocument, HostedVault, HostedVaultActivityEvent,
-    HostedVaultAdminDetail, HostedVaultImportResult, HostedVaultManifest, HostedVaultManifestDelta,
-    HostedVaultMember, HostedVaultRole, HostedVaultStatus, HostedVaultStorage, HostedVaultSummary,
-    Invitation, LiveCollaborationMetrics, MaintenanceReport, NativeSession, OperationalWarning,
-    PermissionTemplate, ServerUser, ServerUserRole, StorageSummary, UserDirectoryEntry, UserGroup,
-    UserGroupMember, VaultGrant, WritePdfAnnotationsRequest, WsTicket, WsTicketRequest,
+    capabilities_for_role, ActivePresentation, AdminBackupArtifactVerification,
+    AdminBackupCommandResult, AdminBackupExportTarget, AdminBackupOverview, AdminBackupSchedule,
+    AdminBackupSettings, AdminBackupSettingsLocks, AdminBackupSummary, AdminBackupVerification,
+    AdminMaintenanceMode, AdminOverview, AdminRuntimeSetting, AdminRuntimeSettings,
+    AdminServerSettings, ApiError, AuditEvent, BootstrapStatus, BrowserSession, Capability,
+    CreatedInvitation, DataResponse, ErrorCode, ErrorResponse, HealthState, HostedChatMessage,
+    HostedDocumentType, HostedFileEntry, HostedFileKind, HostedFileReference, HostedFileRevision,
+    HostedFileState, HostedPdfAnnotations, HostedPresenceEntry, HostedReferenceImpact,
+    HostedRevisionContent, HostedSearchResult, HostedSnapshot, HostedStructuralOperationPreview,
+    HostedStructuralOperationResult, HostedStructuralOperationType, HostedTextDocument,
+    HostedVault, HostedVaultActivityEvent, HostedVaultAdminDetail, HostedVaultImportResult,
+    HostedVaultManifest, HostedVaultManifestDelta, HostedVaultMember, HostedVaultRole,
+    HostedVaultStatus, HostedVaultStorage, HostedVaultSummary, Invitation,
+    LiveCollaborationMetrics, MaintenanceReport, NativeSession, OperationalWarning,
+    PermissionTemplate, ServerUser, ServerUserRole, StorageSummary,
+    UpsertActivePresentationRequest, UserDirectoryEntry, UserGroup, UserGroupMember, VaultGrant,
+    WritePdfAnnotationsRequest, WsTicket, WsTicketRequest,
 };
 use collab_vault_domain::{
     added_content_bytes, check_manifest_sequence, check_revision_sequence, check_storage_quota,
@@ -656,6 +658,130 @@ pub async fn user_directory(
             })
             .collect(),
     )))
+}
+
+const MAX_PRESENTATION_SHOW_ID_BYTES: usize = 128;
+const MAX_PRESENTATION_PATH_BYTES: usize = 4_096;
+const MAX_PRESENTATION_TITLE_CHARS: usize = 256;
+
+fn validate_presentation_show_id(show_id: &str, request_id: &str) -> Result<(), ApiFailure> {
+    if show_id.is_empty()
+        || show_id.len() > MAX_PRESENTATION_SHOW_ID_BYTES
+        || !show_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(ApiFailure::validation(
+            "The presentation show id is invalid.",
+            request_id.to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Lists this account's live presentation advertisements. Expired entries are
+/// removed lazily by the registry and are never persisted.
+pub async fn list_active_presentations(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+) -> Result<Json<DataResponse<Vec<ActivePresentation>>>, ApiFailure> {
+    let actor = require_authenticated_user(&state, &headers, &request_id).await?;
+    Ok(Json(DataResponse::new(
+        state
+            .active_presentations
+            .list(user_uuid(&actor.user))
+            .await,
+    )))
+}
+
+/// Creates or refreshes a running presentation for app-wide discovery by the
+/// same account. Vault access and the deck identity are checked on every
+/// heartbeat, so revoked access stops being advertised immediately.
+pub async fn upsert_active_presentation(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path(show_id): Path<String>,
+    Json(request): Json<UpsertActivePresentationRequest>,
+) -> Result<Json<DataResponse<ActivePresentation>>, ApiFailure> {
+    validate_presentation_show_id(&show_id, &request_id)?;
+    if request.relative_path.is_empty()
+        || request.relative_path.len() > MAX_PRESENTATION_PATH_BYTES
+        || request.title.trim().is_empty()
+        || request.title.chars().count() > MAX_PRESENTATION_TITLE_CHARS
+        || request.total == 0
+        || request.position == 0
+        || request.position > request.total
+        || request.slide_id.as_ref().is_some_and(|id| id.len() > 256)
+    {
+        return Err(ApiFailure::validation(
+            "The active presentation details are invalid.",
+            request_id,
+        ));
+    }
+    let vault_id = Uuid::parse_str(&request.vault_id)
+        .map_err(|_| ApiFailure::validation("The vault id is invalid.", request_id.clone()))?;
+    let file_id = Uuid::parse_str(&request.file_id)
+        .map_err(|_| ApiFailure::validation("The file id is invalid.", request_id.clone()))?;
+    let actor = require_any_user(&state, &headers, &request_id).await?;
+    require_capability(
+        &state.database,
+        vault_id,
+        user_uuid(&actor.user),
+        Capability::VaultRead,
+        &request_id,
+    )
+    .await?;
+    let is_active_deck = sqlx::query_scalar::<_, bool>(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM hosted_file_entries
+            WHERE id = $1 AND vault_id = $2 AND kind = 'document'
+              AND document_type = 'deck' AND state = 'active'
+        )
+        "#,
+    )
+    .bind(file_id)
+    .bind(vault_id)
+    .fetch_one(&state.database)
+    .await
+    .map_err(|_| ApiFailure::server(request_id.clone()))?;
+    if !is_active_deck {
+        return Err(ApiFailure::not_found(request_id));
+    }
+    let presentation = ActivePresentation {
+        show_id,
+        vault_id: vault_id.to_string(),
+        file_id: file_id.to_string(),
+        relative_path: request.relative_path,
+        title: request.title.trim().to_owned(),
+        slide_id: request.slide_id,
+        position: request.position,
+        total: request.total,
+        remote_enabled: request.remote_enabled,
+        updated_at: Utc::now().to_rfc3339(),
+    };
+    state
+        .active_presentations
+        .upsert(user_uuid(&actor.user), presentation.clone())
+        .await;
+    Ok(Json(DataResponse::new(presentation)))
+}
+
+pub async fn delete_active_presentation(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<String>,
+    headers: HeaderMap,
+    Path(show_id): Path<String>,
+) -> Result<StatusCode, ApiFailure> {
+    validate_presentation_show_id(&show_id, &request_id)?;
+    let actor = require_any_user(&state, &headers, &request_id).await?;
+    state
+        .active_presentations
+        .remove(user_uuid(&actor.user), &show_id)
+        .await;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn logout(

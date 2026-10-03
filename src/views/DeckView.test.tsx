@@ -71,6 +71,7 @@ vi.mock('../lib/vaultReplica', () => ({
 }));
 
 const tauriMocks = vi.hoisted(() => ({
+  hostedVaultRequest: vi.fn(),
   showExportDialog: vi.fn(),
   writeDownloadedFile: vi.fn(),
 }));
@@ -80,6 +81,7 @@ vi.mock('../lib/tauri', async (importOriginal) => {
     ...actual,
     tauriCommands: {
       ...actual.tauriCommands,
+      hostedVaultRequest: tauriMocks.hostedVaultRequest,
       showExportDialog: tauriMocks.showExportDialog,
       writeDownloadedFile: tauriMocks.writeDownloadedFile,
     },
@@ -447,6 +449,37 @@ describe('DeckView: viewing', () => {
 });
 
 describe('DeckView: editing', () => {
+  it('keeps one formatting row mounted while selection changes', async () => {
+    await openDeck();
+    const row = screen.getByTestId('deck-formatting-row');
+    const font = screen.getByRole('combobox', { name: 'Font' }) as HTMLButtonElement;
+    expect(font.disabled).toBe(true);
+
+    key(canvas(), 'Tab');
+    expect(screen.getByTestId('deck-formatting-row')).toBe(row);
+    expect(font.disabled).toBe(false);
+    expect(within(row).getByRole('toolbar', { name: 'Text formatting' })).toBeTruthy();
+    expect(within(row).getByRole('toolbar', { name: 'Object formatting' })).toBeTruthy();
+  });
+
+  it('focuses the canvas on a blank click and uses arrows to change slides', async () => {
+    await openDeck();
+    const surface = screen.getByTestId('deck-stage-surface');
+    fireEvent.pointerDown(surface, {
+      button: 0,
+      pointerId: 1,
+      clientX: client(48_000),
+      clientY: client(13_000),
+    });
+    fireEvent.pointerUp(surface, { pointerId: 1 });
+
+    expect(document.activeElement).toBe(canvas());
+    key(document.activeElement!, 'ArrowRight');
+    expect(await screen.findByText('Slide 2 of 5')).toBeTruthy();
+    key(document.activeElement!, 'ArrowLeft');
+    expect(await screen.findByText('Slide 1 of 5')).toBeTruthy();
+  });
+
   it('inserts a shape, selects it, and undoes and redoes the insert', async () => {
     await openDeck();
     fireEvent.click(menuItem('Rectangle'));
@@ -651,6 +684,46 @@ describe('DeckView: text, placeholders, and design', () => {
     key(canvas(), 'z', { ctrlKey: true });
     expect(runsOf(await savedDeck(), 'slide-1', 's1-title')).toEqual([
       expect.objectContaining({ text: 'Collab Presentations' }),
+    ]);
+  });
+
+  it('opens a text box for editing on the first click', async () => {
+    await openDeck();
+    const surface = screen.getByTestId('deck-stage-surface');
+    fireEvent.pointerDown(surface, {
+      button: 0,
+      pointerId: 1,
+      clientX: client(20_000),
+      clientY: client(22_000),
+    });
+    fireEvent.pointerUp(surface, {
+      button: 0,
+      pointerId: 1,
+      clientX: client(20_000),
+      clientY: client(22_000),
+    });
+
+    expect(editor().textContent).toContain('Collab Presentations');
+    expect(document.activeElement).toBe(editor());
+    expect(screen.getByText('1 selected')).toBeTruthy();
+
+    key(editor(), 'Backspace');
+    expect(screen.getByTestId('deck-text-editor')).toBeTruthy();
+    expect((await savedDeck()).slides['slide-1'].elements['s1-title']).toBeTruthy();
+  });
+
+  it('authors animations in a separate sequence pane', async () => {
+    await openDeck();
+    key(canvas(), 'Tab');
+    fireEvent.click(screen.getByLabelText('Show animation pane'));
+    expect(screen.getByRole('complementary', { name: 'Animation pane' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Add animation to selection' }));
+
+    expect(screen.getByRole('tree', { name: 'Animation sequence' })).toBeTruthy();
+    expect(screen.getByText('Click 1')).toBeTruthy();
+    expect(screen.queryByRole('complementary', { name: 'Presentation design' })).toBeNull();
+    expect((await savedDeck()).slides['slide-1'].animations).toEqual([
+      expect.objectContaining({ elementId: 's1-title', effect: 'fade', trigger: 'click' }),
     ]);
   });
 
@@ -1079,6 +1152,7 @@ describe('DeckView: live collaboration', () => {
     const writes = vi.fn();
     const root = doc.getMap('doc');
     const session: LiveDeckSession = {
+      target: { serverUrl: 'https://example.test', vaultId: 'vault-2', fileId: 'deck-1' },
       doc,
       awareness,
       getStatus: () => 'connected',
@@ -1220,6 +1294,37 @@ describe('DeckView: live collaboration', () => {
     // This client publishes its own place for the others.
     const mine = live.session.awareness.getLocalState() as { deck?: { targetId: string } };
     expect(mine.deck?.targetId).toBe('slide-1');
+  });
+
+  it('advertises an opted-in show for app-wide phone discovery and removes it on exit', async () => {
+    await openLive();
+    fireEvent.click(menuItem('From the beginning'));
+    await screen.findByRole('dialog', { name: 'Slide show' });
+    fireEvent.click(screen.getByRole('button', { name: 'Allow phone remote' }));
+
+    await waitFor(() =>
+      expect(tauriMocks.hostedVaultRequest).toHaveBeenCalledWith(
+        'https://example.test',
+        'PUT',
+        expect.stringMatching(/^\/api\/v1\/presentations\/active\/show-/),
+        expect.objectContaining({
+          vaultId: 'vault-2',
+          fileId: 'deck-1',
+          relativePath: PATH,
+          title: 'Fixture',
+          remoteEnabled: true,
+        }),
+      ),
+    );
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() =>
+      expect(tauriMocks.hostedVaultRequest).toHaveBeenCalledWith(
+        'https://example.test',
+        'DELETE',
+        expect.stringMatching(/^\/api\/v1\/presentations\/active\/show-/),
+      ),
+    );
   });
 
   it('viewers follow the room but never write to it', async () => {

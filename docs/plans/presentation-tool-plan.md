@@ -6,7 +6,8 @@ Phase 0 is complete except for its external-application and cross-platform
 gates. The frozen contract, measurements, and decisions are in the
 [Phase 0 Contract](./presentation-phase0-contract.md); where this plan and the
 contract differ, the contract wins. Phases 1-10 are implemented; Phase 10 is
-in release testing and Phase 11 remains deferred.
+in release testing, general-release hardening Phase 1 is implemented, and
+Phase 11 remains deferred.
 
 This plan defines a first-party presentation editor for Collab. It follows the
 same product boundary as Advanced Tables: Collab owns the editable document
@@ -967,6 +968,11 @@ and are a release gate in
       commands for that show over awareness; the presenter applies each once,
       only from the same account and only while opted in. **Follow** keeps a
       phone on another presenter's slide.
+- [x] App-wide remote discovery: a presenter heartbeats a bounded, ephemeral
+      same-account advertisement while the show runs. Android checks connected
+      accounts from `MobileApp`, shows a floating bubble without requiring the
+      deck to be open, routes by stable server/vault/file identity, and enters
+      the matching remote automatically. Stale shows expire after 20 seconds.
 - [x] Slide, view, notes panel, zoom, and pan survive process recreation
       (`sessionStorage`, per file).
 - [ ] Physical Android memory, rotation, process-recreation, offline, touch,
@@ -1042,6 +1048,60 @@ and third-party-application evidence remains a release gate in
 - Flatten or omit unsupported content with a per-slide import report.
 - Preserve the source `.pptx` unchanged.
 - Never promise lossless round trips.
+
+### General-Release Hardening Phase 1
+
+Implemented after the feature phases as the first focused usability and native
+presentation pass:
+
+- [x] Keep text and object formatting controls in one permanently mounted row,
+      so selecting an object cannot move the stage beneath the pointer.
+- [x] Focus the canvas when its blank surface is clicked; with no object
+      selected, Left/Right and Up/Down move between slides.
+- [x] Complete every resolved font stack with bundled and platform families.
+      `Inter Variable`, shipped with Collab, is the first automatic substitute
+      when a machine does not provide `Inter`.
+- [x] Let the platform size ordinary full screen, and use Tauri's native
+      monitor-targeted fullscreen API after creating the audience WebView at
+      the output's logical viewport size and mapping it. This avoids unsupported
+      absolute placement on Wayland, manual fullscreen resizing elsewhere, and
+      stale hidden-WebView allocations on WebKitGTK.
+- [x] Size the generated playback SVG through the Phase 9 animation wrapper;
+      otherwise its intrinsic 1280×720 dimensions remain visible inside a
+      correctly fullscreened presentation surface.
+- [x] Give every audience attempt a unique native label and event namespace;
+      cancel stale async opens during Strict Mode, display changes, or exit so
+      an overlap cannot leave an extra black window behind.
+- [x] Pin these behaviors with editor, font-resolution, and Tauri-window unit
+      regressions. Native multi-monitor validation remains part of the physical
+      release matrix.
+
+### General-Release Hardening Phase 2
+
+Implemented as the second focused editor and presentation-authoring pass:
+
+- [x] A first completed click inside a text box enters its in-place editor,
+      gives the contenteditable final keyboard focus, and puts the caret at the
+      pointer. This prevents Backspace from reaching the canvas object-delete
+      shortcut. Crossing the drag threshold still moves the box; its selection
+      outline handles resize and rotate it.
+- [x] Move object builds out of the design inspector into a dedicated Animation
+      pane. Its tree groups the stored sequence by automatic slide entry and by
+      click step, while each child retains ordered trigger, delay, and duration
+      semantics.
+- [x] Expand the native effect vocabulary with PowerPoint-aligned names:
+      Appear, Fade, Fly In/Out, Float In/Out, Split, Wipe, Zoom, Swivel, Bounce,
+      Blinds, Box, Checkerboard, Circle, Crawl In/Out, Diamond, Dissolve, Grow &
+      Turn, Peek In/Out, Random Bars, Shape, Spiral In/Out, Stretch, Strips,
+      Wheel, Pulse, Spin, Grow/Shrink, Teeter, Transparency, Blink, Color Pulse,
+      Darken, Desaturate, Flicker, Lighten, and Wave. Desktop and Android use
+      the same compiler and playback semantics.
+- [x] Keep the format honest: these semantic names create a cleaner future
+      PPTX mapping, but the current first-party PPTX writer still omits object
+      animations and reports that omission instead of claiming fidelity.
+- [x] Document phone remote discovery, opt-in, same-account trust, ephemeral
+      command delivery, and its no-write boundary in
+      `docs/mobile/presentation-companion.md`.
 
 ## Recommended Implementation Order
 

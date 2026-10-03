@@ -42,6 +42,7 @@ pub struct AppState {
     pub login_limiter: LoginRateLimiter,
     pub rate_limiter: RateLimiter,
     pub hub: Arc<crate::ws::Hub>,
+    pub active_presentations: Arc<crate::presentations::ActivePresentationRegistry>,
     pub started_at: Instant,
 }
 
@@ -55,6 +56,9 @@ impl AppState {
             login_limiter: LoginRateLimiter::default(),
             rate_limiter: RateLimiter::new(Duration::from_secs(60)),
             hub,
+            active_presentations: Arc::new(
+                crate::presentations::ActivePresentationRegistry::default(),
+            ),
             started_at: Instant::now(),
         }
     }
@@ -91,6 +95,14 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/v1/users/{user_id}/avatar", get(api::get_user_avatar))
         .route("/api/v1/users/directory", get(api::user_directory))
+        .route(
+            "/api/v1/presentations/active",
+            get(api::list_active_presentations),
+        )
+        .route(
+            "/api/v1/presentations/active/{show_id}",
+            put(api::upsert_active_presentation).delete(api::delete_active_presentation),
+        )
         .route(
             "/api/v1/notifications/devices",
             post(crate::notification_api::register_device)

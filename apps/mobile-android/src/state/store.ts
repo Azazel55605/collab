@@ -85,7 +85,7 @@ export type ActiveSheet =
   /** An `.ink` drawing opened in the mobile drawing screen. */
   | { kind: 'drawing'; fileId: string }
   /** A `.deck` presentation opened in the mobile viewer and presentation companion. */
-  | { kind: 'presentation'; fileId: string }
+  | { kind: 'presentation'; fileId: string; remoteShowId?: string }
   | { kind: 'viewer'; fileId: string }
   | { kind: 'removeOffline'; serverUrl: string; vault: HostedVault }
   | null;
@@ -185,7 +185,12 @@ interface MobileState {
   openVaultTarget: (
     vaultId: string,
     fileId: string,
-    options?: { cardId?: string; expectFolder?: boolean },
+    options?: {
+      cardId?: string;
+      expectFolder?: boolean;
+      serverUrl?: string;
+      remoteShowId?: string;
+    },
   ) => Promise<VaultTargetResult>;
 }
 
@@ -815,7 +820,10 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     // to. A widget intent never carries a server URL or a path.
     const match = Object.entries(get().vaults)
       .flatMap(([serverUrl, vaults]) => vaults.map((vault) => ({ serverUrl, vault })))
-      .find(({ vault }) => vault.id === vaultId);
+      .find(
+        ({ serverUrl, vault }) =>
+          vault.id === vaultId && (!options?.serverUrl || serverUrl === options.serverUrl),
+      );
     if (!match) return 'vault-unavailable';
     const alreadyOpen = get().selected?.vault.id === vaultId;
     if (!alreadyOpen) {
@@ -854,7 +862,13 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     } else if (name.endsWith('.ink')) {
       set({ activeSheet: { kind: 'drawing', fileId: entry.id } });
     } else if (name.endsWith('.deck')) {
-      set({ activeSheet: { kind: 'presentation', fileId: entry.id } });
+      set({
+        activeSheet: {
+          kind: 'presentation',
+          fileId: entry.id,
+          remoteShowId: options?.remoteShowId,
+        },
+      });
     } else if (name.endsWith('.canvas') || name.endsWith('.logic') || name.endsWith('.pdf')) {
       set({ activeSheet: { kind: 'viewer', fileId: entry.id } });
     } else {

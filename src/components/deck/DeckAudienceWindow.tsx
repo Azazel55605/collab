@@ -4,7 +4,7 @@ import DOMPurify from 'dompurify';
 
 // This window does not load the app shell, so it brings the styles itself.
 import '../../App.css';
-import { AUDIENCE_EVENTS } from '../../lib/deck/presentWindow';
+import { AUDIENCE_QUERY, audienceEvents } from '../../lib/deck/presentWindow';
 import type {
   AudienceKey,
   AudienceOverlayFrame,
@@ -18,6 +18,9 @@ import { DeckPlaybackSurface } from './DeckPlaybackSurface';
  * forwards keys and clicks back; it has no document of its own.
  */
 export function DeckAudienceWindow() {
+  const query = new URLSearchParams(window.location.search);
+  const session = query.get(AUDIENCE_QUERY) ?? 'unknown';
+  const events = useMemo(() => audienceEvents(session), [session]);
   const [slide, setSlide] = useState<AudienceSlideFrame | null>(null);
   const [overlay, setOverlay] = useState<AudienceOverlayFrame | null>(null);
 
@@ -26,15 +29,15 @@ export function DeckAudienceWindow() {
     const unlisteners: Array<() => void> = [];
     void import('@tauri-apps/api/event').then(async ({ emit, listen }) => {
       const subscriptions = await Promise.all([
-        listen<AudienceSlideFrame>(AUDIENCE_EVENTS.slide, (event) => setSlide(event.payload)),
-        listen<AudienceOverlayFrame>(AUDIENCE_EVENTS.overlay, (event) => setOverlay(event.payload)),
+        listen<AudienceSlideFrame>(events.slide, (event) => setSlide(event.payload)),
+        listen<AudienceOverlayFrame>(events.overlay, (event) => setOverlay(event.payload)),
       ]);
       if (disposed) {
         for (const unlisten of subscriptions) unlisten();
         return;
       }
       unlisteners.push(...subscriptions);
-      void emit(AUDIENCE_EVENTS.ready);
+      void emit(events.ready);
     });
 
     const onKey = (event: KeyboardEvent) => {
@@ -46,7 +49,7 @@ export function DeckAudienceWindow() {
         alt: event.altKey,
         shift: event.shiftKey,
       };
-      void import('@tauri-apps/api/event').then(({ emit }) => emit(AUDIENCE_EVENTS.key, key));
+      void import('@tauri-apps/api/event').then(({ emit }) => emit(events.key, key));
     };
     window.addEventListener('keydown', onKey);
     document.documentElement.style.background = '#000';
@@ -57,7 +60,7 @@ export function DeckAudienceWindow() {
       for (const unlisten of unlisteners) unlisten();
       window.removeEventListener('keydown', onKey);
     };
-  }, []);
+  }, [events]);
 
   const markup = useMemo(
     () => (slide ? DOMPurify.sanitize(slide.svg, { USE_PROFILES: { svg: true } }) : ''),
@@ -65,7 +68,7 @@ export function DeckAudienceWindow() {
   );
 
   const pointer = (action: 'next' | 'previous') =>
-    void import('@tauri-apps/api/event').then(({ emit }) => emit(AUDIENCE_EVENTS.pointer, action));
+    void import('@tauri-apps/api/event').then(({ emit }) => emit(events.pointer, action));
 
   return (
     <div

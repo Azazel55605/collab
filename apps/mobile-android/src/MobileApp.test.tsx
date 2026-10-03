@@ -9,6 +9,7 @@ const invoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 
 const realOpenVaultTarget = useMobileStore.getState().openVaultTarget;
+const realRestore = useMobileStore.getState().restore;
 
 function mockInvoke(handlers: Record<string, (args: unknown) => unknown>) {
   invoke.mockImplementation((command: string, args: unknown) => {
@@ -75,6 +76,7 @@ describe('MobileApp shell', () => {
       // Restore the real resolver: a test that stubs it must not leak into the
       // next one.
       openVaultTarget: realOpenVaultTarget,
+      restore: realRestore,
     });
   });
 
@@ -227,6 +229,52 @@ describe('MobileApp shell', () => {
         expectFolder: false,
       });
     });
+  });
+
+  it('shows an app-wide phone-remote bubble and opens the presenting deck', async () => {
+    const serverUrl = 'https://collab.example.com';
+    const openVaultTarget = vi.fn().mockResolvedValue('opened');
+    useMobileStore.setState({
+      restored: true,
+      restore: vi.fn(async () => {}),
+      statuses: {
+        [serverUrl]: {
+          connected: true,
+          serverUrl,
+          allowInvalidCertificates: false,
+          user: { id: 'user-1', username: 'ada', displayName: 'Ada' },
+          accessExpiresAt: '2026-10-04T10:00:00Z',
+        },
+      },
+      openVaultTarget,
+    } as never);
+    mockInvoke({
+      hosted_vault_request: () => [
+        {
+          showId: 'show-9',
+          vaultId: 'vault-1',
+          fileId: 'deck-1',
+          relativePath: 'Talks/Demo.deck',
+          title: 'Quarterly demo',
+          slideId: 'slide-2',
+          position: 2,
+          total: 8,
+          remoteEnabled: true,
+          updatedAt: '2026-10-03T10:00:00Z',
+        },
+      ],
+    });
+
+    render(<MobileApp />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Control Quarterly demo' }));
+
+    await waitFor(() =>
+      expect(openVaultTarget).toHaveBeenCalledWith('vault-1', 'deck-1', {
+        serverUrl,
+        remoteShowId: 'show-9',
+      }),
+    );
+    expect(useMobileStore.getState().tab).toBe('files');
   });
 
   it('shows a recovery notice when a shortcut vault is unavailable', async () => {

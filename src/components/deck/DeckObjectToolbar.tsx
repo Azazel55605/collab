@@ -55,6 +55,8 @@ export interface DeckObjectToolbarProps {
   elements: DeckElement[];
   theme: DeckTheme;
   disabled?: boolean;
+  /** Render inside the editor's shared, always-present formatting row. */
+  embedded?: boolean;
   /** The table cell last edited or clicked, which row and column actions use. */
   hasActiveCell?: boolean;
   cropping?: boolean;
@@ -208,6 +210,7 @@ export function DeckObjectToolbar({
   elements,
   theme,
   disabled,
+  embedded,
   hasActiveCell,
   cropping,
   onFill,
@@ -258,7 +261,11 @@ export function DeckObjectToolbar({
 
   return (
     <div
-      className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/50 bg-muted/15 px-2 py-1 scrollbar-none"
+      className={
+        embedded
+          ? 'flex shrink-0 items-center gap-1'
+          : 'flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/50 bg-muted/15 px-2 py-1 scrollbar-none'
+      }
       role="toolbar"
       aria-label="Object formatting"
     >

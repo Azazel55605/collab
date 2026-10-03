@@ -69,6 +69,8 @@ export interface DeckViewState {
   showGrid?: boolean;
   /** The design panel (Phase 3); optional for the same reason. */
   inspectorOpen?: boolean;
+  /** Dedicated animation sequence pane; optional for older saved view state. */
+  animationPaneOpen?: boolean;
 }
 
 export interface PendingSearchJump {

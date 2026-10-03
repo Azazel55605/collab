@@ -138,7 +138,9 @@ Open tracker entries:
   LibreOffice visual comparison. PowerPoint and Google Slides checks remain
   release validation items.
 - Phase 8, **Complete except physical-device release checks**: Android viewing,
-  presentation, following, and opted-in phone remote control are implemented.
+  presentation, following, and opted-in phone remote control are implemented;
+  remotely enabled shows are discovered app-wide through a same-account
+  floating bubble and route directly into the matching deck and remote.
 - Phase 9, **Complete**: bounded slide transitions and object animation
   timelines are authored and played across the main and audience windows;
   PowerPoint exports the compatible transition subset and reports animation
@@ -148,6 +150,17 @@ Open tracker entries:
   platform, assistive-technology, packaging, encryption/history/crash, resource
   soak, and third-party application matrix in
   [Presentation Release Validation](../build/presentation-release-validation.md).
+- General-release hardening Phase 1, **Complete**: the formatting row no longer
+  moves the canvas when selection changes, blank-canvas arrow navigation is
+  focusable, resolved fonts gain bundled/platform fallbacks, and native
+  fullscreen presentation fits the generated playback SVG through its animation
+  wrapper. Multi-monitor behavior remains in the physical release matrix.
+- General-release hardening Phase 2, **Complete**: a first click edits text
+  boxes with keyboard focus retained by the in-place editor, object builds have
+  a dedicated automatic/click-step animation tree, and playback accepts 36
+  PowerPoint-aligned entrance, emphasis, and exit effects. PPTX export continues
+  to report object animations as omitted until that interchange subset is
+  implemented and validated.
 - Phase 11, **Deferred**: bounded PPTX import into a new `.deck`; import is not
   required for the first production release.
 
