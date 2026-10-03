@@ -54,6 +54,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "ink:release:check": "vitest run src/lib/ink src/components/ink/InkCanvas.test.tsx src/components/ink/InkSidePanel.test.tsx src/lib/ink/useInkSession.test.tsx && vitest run --config apps/mobile-android/vitest.config.ts apps/mobile-android/src/lib/ink.test.ts apps/mobile-android/src/screens/InkScreen.test.tsx",
+    "presentation:release:check": "vitest run src/lib/deck src/components/deck/DeckSlide.test.tsx src/components/deck/DeckPresenter.test.tsx src/views/DeckView.test.tsx src/lib/documentSessionController.test.ts src/lib/vaultClient.test.ts src/lib/vaultReplica.test.ts && vitest run --config apps/mobile-android/vitest.config.ts apps/mobile-android/src/lib/deck.test.ts apps/mobile-android/src/screens/DeckScreen.test.tsx && cargo test -p collab-documents deck::tests && cargo test -p collab-live deck::tests",
     "admin:build": "vite build --config apps/admin-web/vite.config.ts && tsc --noEmit -p apps/admin-web/tsconfig.json",
     "admin:test": "vitest run --config apps/admin-web/vite.config.ts",
     "admin:dev": "vite --config apps/admin-web/vite.config.ts",

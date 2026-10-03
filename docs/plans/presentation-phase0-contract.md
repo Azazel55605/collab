@@ -372,7 +372,7 @@ several runs, so a busy machine does not fail a healthy build.
 | The probe has only run in Chromium, but the Linux app is WebKitGTK        | Running it in the Tauri WebView on each platform is the open exit-gate item below.                                          |
 | PptxGenJS needs XML repair and may need more                              | Repairs are isolated, tested, and reported; a first-party writer is a contained fallback.                                   |
 | Preset shapes approximate OOXML formulas                                  | Exact `presetShapeDefinitions` ports are Phase 4; the difference is inside the documented export tolerance until then.      |
-| Missing fonts change wrapping between Collab, PowerPoint, and LibreOffice | The export report lists every referenced font; font-missing diagnostics are Phase 10.                                       |
+| Missing fonts change wrapping between Collab, PowerPoint, and LibreOffice | Phase 10 diagnostics show the missing family and actual preview fallback; the export report lists every referenced font.    |
 | A first-party text adapter must handle IME, accessibility, clipboard      | Accepted in exchange for owning the live schema; Lexical evaluation stays reproducible if the decision needs revisiting.    |
 
 ## Exit Gate Assessment

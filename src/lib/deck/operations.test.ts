@@ -89,6 +89,7 @@ describe('slide operations', () => {
 
   it('duplicates slides with fresh element ids and intact groups', () => {
     const deck = buildFixtureDeck();
+    deck.slides['slide-3'].readingOrder = ['s3-image', 's3-title'];
     const edit = duplicateSlides(deck, ['slide-3'], ids());
     const result = roundTrip(deck, edit);
     const copy = result.slides[edit.slideIds[0]];
@@ -100,6 +101,8 @@ describe('slide operations', () => {
     expect(group?.type === 'group' && group.childIds.every((child) => child in copy.elements)).toBe(
       true,
     );
+    expect(copy.readingOrder).toHaveLength(2);
+    expect(copy.readingOrder?.every((id) => id in copy.elements)).toBe(true);
   });
 });
 
@@ -123,10 +126,12 @@ describe('element operations', () => {
 
   it('removes a group with its children', () => {
     const deck = buildFixtureDeck();
+    deck.slides['slide-3'].readingOrder = ['s3-image', 's3-badge-back', 's3-card'];
     const result = roundTrip(deck, removeElements(deck, 'slide-3', ['s3-group']));
     for (const id of ['s3-group', 's3-badge-back', 's3-badge-dot']) {
       expect(result.slides['slide-3'].elements[id]).toBeUndefined();
     }
+    expect(result.slides['slide-3'].readingOrder).toEqual(['s3-image', 's3-card']);
   });
 
   it('dissolves a group left with one child', () => {

@@ -384,7 +384,9 @@ Phase 5 added presenting and PDF, handout, image, and print output; Phase 6
 added live hosted editing; Phase 7 replaced PowerPoint export with a
 first-party writer; Phase 8 added the Android viewer/presenter and phone
 remote; Phase 9 added authored transitions and bounded object-animation
-timelines.
+timelines. Phase 10 added an independent accessibility reading order, semantic
+slide companion, authoring audit, heterogeneous workload/recovery/CRDT soak
+gates, and the presentation release-validation matrix.
 Edits are reversible operations previewed on a scratch deck during a gesture and
 committed once, as one undo step and one save. Text editing holds a draft in a
 `TextSession`, writes it to the document on a short idle timer, and folds one
@@ -436,6 +438,7 @@ session's writes into a single undo step.
 | `lib/deck/pdf.ts`, `textLayer.ts`                            | PDF writer: raster pages with an invisible, extractable text layer and links; text runs placed as drawn             |
 | `lib/deck/playback.ts`                                       | Playback state: navigation skipping hidden slides, keys, swipes, blanking, timer, temporary ink                     |
 | `lib/deck/animation.ts`                                      | Compiles stored cues into automatic/click build steps and scoped transient CSS without changing scene geometry      |
+| `lib/deck/accessibility.ts`                                  | Bounded semantic labels/reading order plus alt-text, contrast, and missing-font audit                               |
 | `lib/deck/presentWindow.ts`                                  | Audience window on a second display over Tauri events; display list and choice; full screen                         |
 | `lib/deck/liveText.ts`                                       | `Y.Text` encoding of one rich-text body (runs as attributes, paragraph ends, empty runs on `pempty`)                |
 | `lib/deck/liveDeckDocument.ts`                               | Deck live codec: JSON ↔ shared types, minimal reconcile (text character diff), three-way text merge                 |

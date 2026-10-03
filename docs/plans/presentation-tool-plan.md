@@ -5,7 +5,8 @@
 Phase 0 is complete except for its external-application and cross-platform
 gates. The frozen contract, measurements, and decisions are in the
 [Phase 0 Contract](./presentation-phase0-contract.md); where this plan and the
-contract differ, the contract wins. Phases 1-9 are complete; Phase 10 is next.
+contract differ, the contract wins. Phases 1-10 are implemented; Phase 10 is
+in release testing and Phase 11 remains deferred.
 
 This plan defines a first-party presentation editor for Collab. It follows the
 same product boundary as Advanced Tables: Collab owns the editable document
@@ -480,20 +481,20 @@ Security requirements:
 
 ## Progress Tracker
 
-| Phase                                                 | Status      | Goal                                                                                                                |
-| ----------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------- |
-| 0. Product contract and technical proofs              | Testing     | Freeze `.deck`, prove scene/text fidelity, rich-text editing, live text collaboration, and PPTX export.             |
-| 1. `.deck` domain and vault integration               | Complete    | Add schema, validation, migrations, creation, routing, references, revisions, and normal local/hosted lifecycle.    |
-| 2. Desktop scene editor foundation                    | Complete    | Build slide navigation, stage rendering, selection, transforms, snapping, ordering, clipboard, and undo/redo.       |
-| 3. Rich text, themes, masters, and layouts            | Complete    | Deliver text editing, placeholders, theme inheritance, reusable layouts, and templates.                             |
-| 4. Visual objects and Collab data integration         | Complete    | Add images, SVG, shapes, lines, groups, tables, charts, `.sheet` snapshots, and note links.                         |
-| 5. Presentation mode and speaker workflow             | Complete    | Add fullscreen playback, notes, presenter view, navigation, handouts, and PDF/image output.                         |
-| 6. Hosted collaboration and offline behavior          | Complete    | Add the deck-specific CRDT codec, awareness, offline replica merge, recovery, and physical multi-client validation. |
-| 7. Compatible PPTX export                             | Complete    | Generate tested `.pptx` copies with a support matrix and visible conversion report.                                 |
-| 8. Mobile viewer and presentation companion           | Complete    | Add offline viewing, notes, touch navigation, playback, and remote controls.                                        |
-| 9. Transitions and animations                         | Complete    | Add a bounded timeline, preview/playback, reduced motion, and a tested PPTX-compatible subset.                      |
-| 10. Performance, accessibility, and release hardening | Not started | Validate large decks, fonts, packaging, recovery, keyboard/screen-reader operation, and target applications.        |
-| 11. Deferred PPTX import                              | Deferred    | Convert a bounded supported subset of `.pptx` into a new `.deck` with a detailed import report.                     |
+| Phase                                                 | Status   | Goal                                                                                                                |
+| ----------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------- |
+| 0. Product contract and technical proofs              | Testing  | Freeze `.deck`, prove scene/text fidelity, rich-text editing, live text collaboration, and PPTX export.             |
+| 1. `.deck` domain and vault integration               | Complete | Add schema, validation, migrations, creation, routing, references, revisions, and normal local/hosted lifecycle.    |
+| 2. Desktop scene editor foundation                    | Complete | Build slide navigation, stage rendering, selection, transforms, snapping, ordering, clipboard, and undo/redo.       |
+| 3. Rich text, themes, masters, and layouts            | Complete | Deliver text editing, placeholders, theme inheritance, reusable layouts, and templates.                             |
+| 4. Visual objects and Collab data integration         | Complete | Add images, SVG, shapes, lines, groups, tables, charts, `.sheet` snapshots, and note links.                         |
+| 5. Presentation mode and speaker workflow             | Complete | Add fullscreen playback, notes, presenter view, navigation, handouts, and PDF/image output.                         |
+| 6. Hosted collaboration and offline behavior          | Complete | Add the deck-specific CRDT codec, awareness, offline replica merge, recovery, and physical multi-client validation. |
+| 7. Compatible PPTX export                             | Complete | Generate tested `.pptx` copies with a support matrix and visible conversion report.                                 |
+| 8. Mobile viewer and presentation companion           | Complete | Add offline viewing, notes, touch navigation, playback, and remote controls.                                        |
+| 9. Transitions and animations                         | Complete | Add a bounded timeline, preview/playback, reduced motion, and a tested PPTX-compatible subset.                      |
+| 10. Performance, accessibility, and release hardening | Testing  | Validate large decks, fonts, packaging, recovery, keyboard/screen-reader operation, and target applications.        |
+| 11. Deferred PPTX import                              | Deferred | Convert a bounded supported subset of `.pptx` into a new `.deck` with a detailed import report.                     |
 
 ## Phase Details
 
@@ -1009,13 +1010,28 @@ being passive schema placeholders.
 
 ### Phase 10: Performance, Accessibility, And Release Hardening
 
-- Validate large, image-heavy, text-heavy, chart-heavy, and malformed decks.
-- Validate keyboard-only authoring and presentation.
-- Add accessible object labels, reading order, alt text, and contrast checks.
-- Add font-missing diagnostics and fallback previews.
-- Validate Linux, Windows, macOS, Android, print/PDF, and package assets.
-- Complete crash recovery, schema migration, encryption, history, and
-  collaboration soak tests.
+Implemented; physical platform, assistive-technology, package, resource-soak,
+and third-party-application evidence remains a release gate in
+[Presentation Release Validation](../build/presentation-release-validation.md).
+
+- [x] The automated gate covers the 300-slide budgets plus image-heavy,
+      text-heavy, chart-heavy, and malformed/adversarial decks.
+- [x] Keyboard authoring and presentation paths are pinned by editor,
+      presenter, audience-window, and Android tests.
+- [x] Slides expose bounded semantic object labels. The inspector authors
+      object names and alt text, manages an independent reading order, and
+      reports missing alt text, deterministic low contrast, backgrounds that
+      need manual contrast review, and missing fonts/fallback previews.
+- [x] Reading order is an optional additive v1 field, validated by TypeScript
+      and Rust, repaired visibly on open, preserved by reversible operations,
+      and merged through the deck CRDT without changing paint order.
+- [x] Recovery/migration, encrypted-vault capability, immutable history,
+      output, and package checks are mapped to executable repository gates; a
+      sustained two-client structural/text/accessibility convergence soak is
+      automated.
+- [ ] Complete and attach the Linux, Windows, macOS, Android, print/PDF,
+      package-asset, PowerPoint, Google Slides, Keynote, screen-reader,
+      encrypted-vault, crash, and physical multi-client/resource matrix.
 
 ### Phase 11: Deferred PPTX Import
 

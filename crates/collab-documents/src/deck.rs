@@ -879,6 +879,39 @@ pub fn validate_document(value: &Value, limits: DeckLimits) -> Result<(), DeckVa
         }
         check_fill(&ctx, slide.get("background"), "background", slide_id)?;
         check_container(&mut ctx, slide)?;
+        if let Some(reading_order) = slide.get("readingOrder") {
+            let reading_order = reading_order
+                .as_array()
+                .ok_or_else(|| wrong("readingOrder"))?;
+            let elements = slide
+                .get("elements")
+                .and_then(Value::as_object)
+                .ok_or_else(|| wrong("elements"))?;
+            let mut seen = HashSet::new();
+            for entry in reading_order {
+                let id = entry.as_str().ok_or_else(|| wrong("readingOrder"))?;
+                if !elements.contains_key(id) {
+                    return Err(DeckValidationError::DanglingReference {
+                        kind: "reading order",
+                        id: id.to_string(),
+                    });
+                }
+                if elements
+                    .get(id)
+                    .and_then(|element| element.get("type"))
+                    .and_then(Value::as_str)
+                    == Some("group")
+                {
+                    return Err(wrong("reading order group"));
+                }
+                if !seen.insert(id) {
+                    return Err(DeckValidationError::DuplicateId {
+                        kind: "reading order",
+                        id: id.to_string(),
+                    });
+                }
+            }
+        }
         if let Some(notes) = slide.get("speakerNotes") {
             check_rich_text(&mut ctx, notes, "speakerNotes")?;
         }
@@ -1201,8 +1234,7 @@ mod tests {
     #[test]
     fn validates_transitions_and_animation_timelines() {
         let mut deck = fixture();
-        deck["slides"]["slide-1"]["transition"] =
-            json!({ "kind": "wipe", "durationMs": 350 });
+        deck["slides"]["slide-1"]["transition"] = json!({ "kind": "wipe", "durationMs": 350 });
         deck["slides"]["slide-1"]["animations"] = json!([{
             "id": "animation-1",
             "elementId": "s1-title",
@@ -1216,6 +1248,31 @@ mod tests {
 
         deck["slides"]["slide-1"]["animations"][0]["delayMs"] = json!(-1);
         assert!(check(&deck).is_err());
+    }
+
+    #[test]
+    fn validates_accessibility_reading_order() {
+        let mut deck = fixture();
+        deck["slides"]["slide-3"]["readingOrder"] = json!(["s3-image", "s3-title"]);
+        assert_eq!(check(&deck), Ok(()));
+
+        deck["slides"]["slide-3"]["readingOrder"] = json!(["s3-image", "missing"]);
+        assert!(matches!(
+            check(&deck),
+            Err(DeckValidationError::DanglingReference {
+                kind: "reading order",
+                ..
+            })
+        ));
+
+        deck["slides"]["slide-3"]["readingOrder"] = json!(["s3-image", "s3-image"]);
+        assert!(matches!(
+            check(&deck),
+            Err(DeckValidationError::DuplicateId {
+                kind: "reading order",
+                ..
+            })
+        ));
     }
 
     #[test]
