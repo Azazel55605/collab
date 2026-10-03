@@ -34,3 +34,13 @@ allowBuilds:
   esbuild: true
   msw: true
   tesseract.js: true
+
+patchedDependencies:
+  braces@3.0.3: patches/braces@3.0.3.patch
+
+# pnpm audit matches registry versions and cannot inspect patched package
+# contents. This advisory is mitigated by the reproducible patch above and its
+# regression test; remove the ignore when a fixed upstream release exists.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-vfj7-8cjw-p6xm

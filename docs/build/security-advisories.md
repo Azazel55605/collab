@@ -3,13 +3,14 @@
 This document tracks every dependency security advisory that the project's
 automated scans currently surface but that is **not yet resolved by an upgrade**,
 along with the reasoning for each accepted risk. It is the human-readable
-companion to the machine-readable ignore list in
-[`.cargo/audit.toml`](../../.cargo/audit.toml): every advisory ignored there must
-have a corresponding entry here explaining _why_ and _what would let us drop the
-ignore_.
+companion to the machine-readable ignore lists in
+[`.cargo/audit.toml`](../../.cargo/audit.toml) and
+[`pnpm-workspace.yaml`](../../pnpm-workspace.yaml): every advisory ignored there
+must have a corresponding entry here explaining _why_ and _what would let us
+drop the ignore_.
 
-Keep the two in sync. When you add or remove an entry in `.cargo/audit.toml`,
-update the matching row below in the same change.
+Keep these files in sync. When you add or remove an audit ignore, update the
+matching entry below in the same change.
 
 ## How scanning works
 
@@ -30,9 +31,29 @@ matters for this project.
 
 ## Accepted (ignored) advisories
 
-These are the advisories currently listed in `ignore = [...]` in
-`.cargo/audit.toml`. They fail the scan unless ignored, so each one is an
-explicit, documented risk acceptance.
+These advisories fail the scan unless ignored, so each entry is an explicit,
+documented decision. An ignore is not a substitute for remediation: when the
+registry version remains vulnerable but the installed package is locally
+patched, the patch and a regression test must be committed alongside it.
+
+### GHSA-vfj7-8cjw-p6xm — `braces` 3.0.3 (nested-pattern stack exhaustion)
+
+- **Severity:** high. Deeply nested brace patterns can exhaust the Node.js call
+  stack in the recursive compiler and expander.
+- **Dependency path:** `shadcn` → `fast-glob` → `micromatch` → `braces`, with a
+  second path through `shadcn` → `ts-morph` → `@ts-morph/common`.
+- **Why the installed code is fixed:** `patches/braces@3.0.3.patch` rejects brace
+  nesting beyond 100 levels while parsing, before either recursive walker sees
+  the AST. `scripts/security-dependency.test.ts` exercises both compiler and
+  expander paths with the adversarial shape.
+- **Why the audit ignore remains necessary:** no fixed `braces` release is
+  published. pnpm's registry audit evaluates the `3.0.3` version label and does
+  not inspect the reproducible local patch, so it otherwise reports the
+  mitigated package as vulnerable.
+- **Remove the ignore and patch when:** upstream publishes a fixed release and
+  the `micromatch` dependency range resolves to it.
+
+The Rust entries below are listed in `ignore = [...]` in `.cargo/audit.toml`.
 
 ### RUSTSEC-2023-0071 — `rsa` 0.9.10 (Marvin timing side-channel)
 
@@ -128,8 +149,9 @@ maintained drop-in replacement.
 ## npm advisories below the failing threshold
 
 `pnpm audit` fails CI at `high` and above. The project currently reports **no
-high or critical** npm advisory. The moderate/low remainder is recorded here so
-it is a tracked decision rather than background noise.
+unmitigated high or critical** npm advisory. The patched high advisory above and
+the moderate/low remainder are recorded here so they remain visible decisions
+rather than background noise.
 
 Transitive fixes are applied through the `overrides` block in
 `pnpm-workspace.yaml` (pnpm 11 no longer reads `pnpm.overrides` from
@@ -147,9 +169,10 @@ the parent's range needs the parent upgraded instead, and does not belong there.
   it is bundled into any shipped artifact. Nothing in the repo invokes the local
   binary — no script references it, and the documented workflow in `AGENTS.md` is
   `pnpm dlx shadcn@latest add <component>`, which fetches the CLI on demand.
-- **Recommended fix:** remove the `shadcn` devDependency entirely. It clears these
-  findings and does not change the documented workflow. Left in place pending
-  a maintainer decision.
+- **Why it remains installed:** `src/App.css` imports `shadcn/tailwind.css`, so
+  the package is a build input as well as the generator for the primitives in
+  `src/components/ui/`. Remove it only after replacing that stylesheet contract;
+  otherwise take compatible parent upgrades and overrides as fixes ship.
 
 ### `diff` — GHSA-73rr-hh4g-fpgx (ReDoS in `parsePatch`/`applyPatch`)
 
@@ -183,4 +206,4 @@ shipped, and delete the corresponding entry here. Also re-scan the non-failing
 warnings for newly available upgrades (e.g. a maintained fork or a Tauri release
 that moves off GTK3 / old `phf`).
 
-_Last reviewed: 2026-08-12._
+_Last reviewed: 2026-10-03._
